@@ -1,11 +1,14 @@
 // CEO: maximize/unmaximize --expect maximized|unmaximized on Linux.
-// Acceptance is smoke read-back only: independent xprop _NET_WM_STATE and
-// windows inventory maximized field must match --expect after each verb.
-// Typed usage, destructive-gate refusals, missing-window and headless
-// host-limit paths must hold before any owned fixture window exists.
-// Typed maximize/unmaximize usage must reject AT-SPI --name; typed
-// get-extents --name usage/host-limit paths must hold before the
-// actuate/read-back court. AT-SPI/--name only; no --coords or screenshot.
+// Acceptance is smoke read-back only: independent xprop _NET_WM_STATE,
+// windows inventory maximized field, and independent pyatspi window
+// extents/state must match --expect after each verb. Typed usage,
+// destructive-gate refusals, missing-window and headless host-limit paths
+// must hold before any owned fixture window exists. Typed
+// maximize/unmaximize usage must reject AT-SPI --name, --coords, --bogus,
+// and other unexpected arguments; typed get-extents --name usage AND
+// host-limit paths must both hold before the actuate/read-back court.
+// Prefer host-limit clarity over fake success. AT-SPI/--name only; no
+// --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -43,6 +46,11 @@ function text_of(value) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -244,10 +252,10 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
-function assert_maximize_unmaximize_atspi_name_usage(run_directory, executable) {
+function assert_maximize_unmaximize_unexpected_usage(run_directory, executable, env) {
   const maximize_with_name = run_cu_reply(run_directory, executable, "actuate", [
     "maximize", "--window", "1", "--expect", "maximized", "--name", AT_SPI_PROBE_NAME,
-  ]);
+  ], env);
   ensure(
     !output_success(maximize_with_name),
     "cu_linux_maximize_expect_name_usage_ok:" + JSON.stringify(maximize_with_name)
@@ -257,14 +265,17 @@ function assert_maximize_unmaximize_atspi_name_usage(run_directory, executable) 
     "cu_linux_maximize_expect_name_usage_code:" + JSON.stringify(maximize_with_name.error)
   );
   ensure(
-    text_at(maximize_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(maximize_with_name, "error.message").indexOf("unexpected") >= 0,
+    text_at(maximize_with_name, "command") === "usage",
+    "cu_linux_maximize_expect_name_usage_command:" + JSON.stringify(maximize_with_name)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(maximize_with_name, "error.message"), "--name"),
     "cu_linux_maximize_expect_name_usage_message:" + JSON.stringify(maximize_with_name.error)
   );
 
   const unmaximize_with_name = run_cu_reply(run_directory, executable, "actuate", [
     "unmaximize", "--window", "1", "--expect", "unmaximized", "--name", AT_SPI_PROBE_NAME,
-  ]);
+  ], env);
   ensure(
     !output_success(unmaximize_with_name),
     "cu_linux_maximize_expect_unmaximize_name_usage_ok:" + JSON.stringify(unmaximize_with_name)
@@ -274,9 +285,92 @@ function assert_maximize_unmaximize_atspi_name_usage(run_directory, executable) 
     "cu_linux_maximize_expect_unmaximize_name_usage_code:" + JSON.stringify(unmaximize_with_name.error)
   );
   ensure(
-    text_at(unmaximize_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(unmaximize_with_name, "error.message").indexOf("unexpected") >= 0,
+    text_at(unmaximize_with_name, "command") === "usage",
+    "cu_linux_maximize_expect_unmaximize_name_usage_command:" + JSON.stringify(unmaximize_with_name)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(unmaximize_with_name, "error.message"), "--name"),
     "cu_linux_maximize_expect_unmaximize_name_usage_message:" + JSON.stringify(unmaximize_with_name.error)
+  );
+
+  const maximize_with_bogus = run_cu_reply(run_directory, executable, "actuate", [
+    "maximize", "--window", "1", "--expect", "maximized", "--bogus",
+  ], env);
+  ensure(
+    !output_success(maximize_with_bogus),
+    "cu_linux_maximize_expect_bogus_ok:" + JSON.stringify(maximize_with_bogus)
+  );
+  ensure(
+    text_at(maximize_with_bogus, "error.code") === "usage",
+    "cu_linux_maximize_expect_bogus_code:" + JSON.stringify(maximize_with_bogus.error)
+  );
+  ensure(
+    text_at(maximize_with_bogus, "command") === "usage",
+    "cu_linux_maximize_expect_bogus_command:" + JSON.stringify(maximize_with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(maximize_with_bogus, "error.message"), "--bogus"),
+    "cu_linux_maximize_expect_bogus_message:" + JSON.stringify(maximize_with_bogus.error)
+  );
+
+  const unmaximize_with_bogus = run_cu_reply(run_directory, executable, "actuate", [
+    "unmaximize", "--window", "1", "--expect", "unmaximized", "--bogus",
+  ], env);
+  ensure(
+    !output_success(unmaximize_with_bogus),
+    "cu_linux_maximize_expect_unmaximize_bogus_ok:" + JSON.stringify(unmaximize_with_bogus)
+  );
+  ensure(
+    text_at(unmaximize_with_bogus, "error.code") === "usage",
+    "cu_linux_maximize_expect_unmaximize_bogus_code:" + JSON.stringify(unmaximize_with_bogus.error)
+  );
+  ensure(
+    text_at(unmaximize_with_bogus, "command") === "usage",
+    "cu_linux_maximize_expect_unmaximize_bogus_command:" + JSON.stringify(unmaximize_with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(unmaximize_with_bogus, "error.message"), "--bogus"),
+    "cu_linux_maximize_expect_unmaximize_bogus_message:" + JSON.stringify(unmaximize_with_bogus.error)
+  );
+
+  const maximize_with_coords = run_cu_reply(run_directory, executable, "actuate", [
+    "maximize", "--window", "1", "--expect", "maximized", "--coords", "10,10",
+  ], env);
+  ensure(
+    !output_success(maximize_with_coords),
+    "cu_linux_maximize_expect_coords_ok:" + JSON.stringify(maximize_with_coords)
+  );
+  ensure(
+    text_at(maximize_with_coords, "error.code") === "usage",
+    "cu_linux_maximize_expect_coords_code:" + JSON.stringify(maximize_with_coords.error)
+  );
+  ensure(
+    text_at(maximize_with_coords, "command") === "usage",
+    "cu_linux_maximize_expect_coords_command:" + JSON.stringify(maximize_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(maximize_with_coords, "error.message"), "--coords"),
+    "cu_linux_maximize_expect_coords_message:" + JSON.stringify(maximize_with_coords.error)
+  );
+
+  const unmaximize_with_coords = run_cu_reply(run_directory, executable, "actuate", [
+    "unmaximize", "--window", "1", "--expect", "unmaximized", "--coords", "10,10",
+  ], env);
+  ensure(
+    !output_success(unmaximize_with_coords),
+    "cu_linux_maximize_expect_unmaximize_coords_ok:" + JSON.stringify(unmaximize_with_coords)
+  );
+  ensure(
+    text_at(unmaximize_with_coords, "error.code") === "usage",
+    "cu_linux_maximize_expect_unmaximize_coords_code:" + JSON.stringify(unmaximize_with_coords.error)
+  );
+  ensure(
+    text_at(unmaximize_with_coords, "command") === "usage",
+    "cu_linux_maximize_expect_unmaximize_coords_command:" + JSON.stringify(unmaximize_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(unmaximize_with_coords, "error.message"), "--coords"),
+    "cu_linux_maximize_expect_unmaximize_coords_message:" + JSON.stringify(unmaximize_with_coords.error)
   );
 }
 
@@ -295,6 +389,68 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_maximize_expect_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(
+    !output_success(missing_name),
+    "cu_linux_maximize_expect_extents_usage_name_ok:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_maximize_expect_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_maximize_expect_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_maximize_expect_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(
+    !output_success(extents_coords),
+    "cu_linux_maximize_expect_extents_coords_ok:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_maximize_expect_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_maximize_expect_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_maximize_expect_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(
+    !output_success(extents_bogus),
+    "cu_linux_maximize_expect_extents_bogus_ok:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_maximize_expect_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_maximize_expect_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_maximize_expect_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -375,6 +531,183 @@ function independent_net_wm_maximized(run_directory, executable, handle) {
     && stdout.indexOf("_NET_WM_STATE_MAXIMIZED_HORZ") >= 0;
 }
 
+function independent_pyatspi_window(run_directory, executable, title) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "title = sys.argv[1]",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "frame = None",
+    "for i in range(desktop.childCount):",
+    "    app = desktop.getChildAtIndex(i)",
+    "    if app is None:",
+    "        continue",
+    "    for j in range(app.childCount):",
+    "        w = app.getChildAtIndex(j)",
+    "        if w is not None and w.name == title:",
+    "            frame = w",
+    "            break",
+    "    if frame is not None:",
+    "        break",
+    "if frame is None:",
+    "    raise SystemExit('cu_linux_maximize_expect_atspi_no_frame')",
+    "st = frame.getState()",
+    "states = []",
+    "for s in st.get_states():",
+    "    states.append(str(s).split('.')[-1].lower())",
+    "showing = st.contains(pyatspi.STATE_SHOWING)",
+    "visible = st.contains(pyatspi.STATE_VISIBLE)",
+    "iconified = st.contains(pyatspi.STATE_ICONIFIED)",
+    "maximized_token = False",
+    "for name in states:",
+    "    if name.find('maximiz') >= 0:",
+    "        maximized_token = True",
+    "x = 0",
+    "y = 0",
+    "width = 0",
+    "height = 0",
+    "try:",
+    "    ext = frame.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)",
+    "    x = int(ext.x)",
+    "    y = int(ext.y)",
+    "    width = int(ext.width)",
+    "    height = int(ext.height)",
+    "except Exception as error:",
+    "    raise SystemExit('cu_linux_maximize_expect_atspi_extents:' + str(error))",
+    "print(json.dumps({",
+    "    'showing': showing,",
+    "    'visible': visible,",
+    "    'iconified': iconified,",
+    "    'maximized_token': maximized_token,",
+    "    'states': states,",
+    "    'x': x, 'y': y, 'width': width, 'height': height,",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, title], {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_maximize_expect_pyatspi:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function independent_pyatspi_named_extents(run_directory, executable, title, node_name) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "title = sys.argv[1]",
+    "want = sys.argv[2]",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "def find_frame():",
+    "    for i in range(desktop.childCount):",
+    "        app = desktop.getChildAtIndex(i)",
+    "        if app is None:",
+    "            continue",
+    "        for j in range(app.childCount):",
+    "            w = app.getChildAtIndex(j)",
+    "            if w is not None and w.name == title:",
+    "                return w",
+    "    return None",
+    "def walk(node):",
+    "    if node is None:",
+    "        return None",
+    "    if (node.name or '') == want:",
+    "        return node",
+    "    for k in range(node.childCount):",
+    "        hit = walk(node.getChildAtIndex(k))",
+    "        if hit is not None:",
+    "            return hit",
+    "    return None",
+    "frame = find_frame()",
+    "if frame is None:",
+    "    raise SystemExit('cu_linux_maximize_expect_atspi_no_frame')",
+    "node = walk(frame)",
+    "if node is None:",
+    "    raise SystemExit('cu_linux_maximize_expect_atspi_miss:' + want)",
+    "component = node.queryComponent()",
+    "ext = component.getExtents(pyatspi.DESKTOP_COORDS)",
+    "print(json.dumps({",
+    "    'name': want,",
+    "    'x': int(ext.x), 'y': int(ext.y),",
+    "    'width': int(ext.width), 'height': int(ext.height),",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, title, node_name], {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 30000,
+  });
+  ensure(
+    output.success === true,
+    "cu_linux_maximize_expect_pyatspi_named:" + output.stderr + output.stdout
+  );
+  return JSON.parse(output.stdout.trim());
+}
+
+function assert_get_extents_name_agreement(run_directory, executable, handle, title, node_name) {
+  const pyatspi_node = independent_pyatspi_named_extents(
+    run_directory, executable, title, node_name
+  );
+  const cu_extents = run_cu(run_directory, executable, "observe", [
+    "get-extents", "--window", handle, "--name", node_name,
+  ]);
+  ensure(
+    int_at(cu_extents, "data.extents.x") === pyatspi_node.x
+      && int_at(cu_extents, "data.extents.y") === pyatspi_node.y
+      && int_at(cu_extents, "data.extents.width") === pyatspi_node.width
+      && int_at(cu_extents, "data.extents.height") === pyatspi_node.height,
+    "cu_linux_maximize_expect_extents_agree:" + JSON.stringify({
+      cu: cu_extents.data.extents,
+      pyatspi: pyatspi_node,
+    })
+  );
+}
+
+function assert_pyatspi_window_not_maximized(probe, label) {
+  ensure(flag_at(probe, "showing") === true, "cu_linux_maximize_expect_pyatspi_showing_" + label);
+  ensure(flag_at(probe, "iconified") === false, "cu_linux_maximize_expect_pyatspi_iconified_" + label);
+  ensure(int_at(probe, "width") > 0 && int_at(probe, "height") > 0,
+    "cu_linux_maximize_expect_pyatspi_extents_" + label + ":" + JSON.stringify(probe));
+  ensure(
+    flag_at(probe, "maximized_token") === false,
+    "cu_linux_maximize_expect_pyatspi_token_" + label + ":" + JSON.stringify(probe)
+  );
+}
+
+function assert_pyatspi_window_maximized(probe, baseline, label) {
+  ensure(flag_at(probe, "showing") === true, "cu_linux_maximize_expect_pyatspi_showing_" + label);
+  ensure(flag_at(probe, "iconified") === false, "cu_linux_maximize_expect_pyatspi_iconified_" + label);
+  const width = int_at(probe, "width");
+  const height = int_at(probe, "height");
+  const grew = width > int_at(baseline, "width") || height > int_at(baseline, "height");
+  ensure(
+    grew === true,
+    "cu_linux_maximize_expect_pyatspi_grew_" + label + ":" + JSON.stringify({
+      baseline: baseline,
+      after: probe,
+    })
+  );
+}
+
+function assert_pyatspi_window_restored(probe, maximized_probe, label) {
+  ensure(flag_at(probe, "showing") === true, "cu_linux_maximize_expect_pyatspi_showing_" + label);
+  ensure(flag_at(probe, "iconified") === false, "cu_linux_maximize_expect_pyatspi_iconified_" + label);
+  ensure(
+    flag_at(probe, "maximized_token") === false,
+    "cu_linux_maximize_expect_pyatspi_token_" + label + ":" + JSON.stringify(probe)
+  );
+  const shrunk = int_at(probe, "width") < int_at(maximized_probe, "width")
+    || int_at(probe, "height") < int_at(maximized_probe, "height");
+  ensure(
+    shrunk === true,
+    "cu_linux_maximize_expect_pyatspi_shrunk_" + label + ":" + JSON.stringify({
+      maximized: maximized_probe,
+      after: probe,
+    })
+  );
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -404,15 +737,17 @@ print("STEP maximize/unmaximize without DISPLAY typed-fails unsupported host-lim
 assert_headless_host_limit(run_directory, executable, "maximize", "maximize");
 assert_headless_host_limit(run_directory, executable, "unmaximize", "unmaximize");
 
-print("STEP maximize/unmaximize typed-fail usage when AT-SPI --name is present");
-assert_maximize_unmaximize_atspi_name_usage(run_directory, executable);
+print("STEP maximize/unmaximize typed-fail usage when AT-SPI --name/--coords/--bogus is present");
+assert_maximize_unmaximize_unexpected_usage(run_directory, executable, env);
 
-if (atspi_available) {
-  print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
-  assert_get_extents_usage_limit(run_directory, executable, env);
-} else {
-  print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before actuate/read-back court");
+assert_get_extents_usage_limit(run_directory, executable, env);
+
+print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before actuate/read-back court");
+assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+
+if (!atspi_available) {
+  print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; maximize read-back still uses xprop/inventory");
 }
 
 let fixture = -1;
@@ -446,6 +781,16 @@ try {
     independent_net_wm_maximized(run_directory, executable, handle) === false,
     "cu_linux_maximize_expect_baseline_xprop_not_maximized"
   );
+
+  let pyatspi_baseline = null;
+  if (atspi_available) {
+    print("STEP independent pyatspi extents and CU get-extents --name agree before maximize actuate/read-back");
+    assert_get_extents_name_agreement(
+      run_directory, executable, handle_text, fixture_title, AT_SPI_PROBE_NAME
+    );
+    pyatspi_baseline = independent_pyatspi_window(run_directory, executable, fixture_title);
+    assert_pyatspi_window_not_maximized(pyatspi_baseline, "baseline");
+  }
 
   print("STEP destructive_gate refusals on a live handle must not change xprop or inventory");
   maximize_refused(
@@ -489,6 +834,13 @@ try {
     "cu_linux_maximize_expect_inventory_maximized:" + JSON.stringify(maximized_row)
   );
 
+  let pyatspi_maximized = null;
+  if (atspi_available) {
+    print("STEP independent pyatspi window extents/state read-back: maximized must grow vs baseline");
+    pyatspi_maximized = independent_pyatspi_window(run_directory, executable, fixture_title);
+    assert_pyatspi_window_maximized(pyatspi_maximized, pyatspi_baseline, "maximized");
+  }
+
   print("STEP unmaximize --window " + handle_text + " --expect unmaximized");
   const unmaximized = run_cu(run_directory, executable, "actuate", [
     "unmaximize", "--window", handle_text, "--expect", "unmaximized",
@@ -512,6 +864,12 @@ try {
     flag_at(restored_row, "maximized") === false,
     "cu_linux_maximize_expect_inventory_unmaximized:" + JSON.stringify(restored_row)
   );
+
+  if (atspi_available) {
+    print("STEP independent pyatspi window extents/state read-back: unmaximized must shrink vs maximized");
+    const pyatspi_restored = independent_pyatspi_window(run_directory, executable, fixture_title);
+    assert_pyatspi_window_restored(pyatspi_restored, pyatspi_maximized, "unmaximized");
+  }
 } finally {
   if (fixture_pid !== 0) {
     rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
@@ -525,8 +883,8 @@ const context = harness.new_context(repo, "cu-linux-maximize-expect");
 harness.emit_evidence(context, declared_evidence, "cu.linux-maximize-expect-state");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: Linux maximize/unmaximize usage/host-limit/miss honesty + independent xprop and windows inventory maximized read-back with typed maximize/unmaximize/get-extents usage honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux maximize/unmaximize usage/host-limit/miss honesty + independent xprop, windows inventory, and pyatspi extents/state maximized read-back with typed maximize/unmaximize --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: Linux maximize/unmaximize usage/host-limit/miss honesty + independent xprop and windows inventory maximized read-back with typed maximize/unmaximize/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux maximize/unmaximize usage/host-limit/miss honesty + independent xprop and windows inventory maximized read-back with typed maximize/unmaximize --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
 }
 return;
