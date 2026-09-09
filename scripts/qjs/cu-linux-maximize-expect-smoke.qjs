@@ -5,10 +5,13 @@
 // destructive-gate refusals, missing-window and headless host-limit paths
 // must hold before any owned fixture window exists. Typed
 // maximize/unmaximize usage must reject AT-SPI --name, --coords, --bogus,
-// and other unexpected arguments; typed get-extents --name usage AND
-// host-limit paths must both hold before the actuate/read-back court.
-// Prefer host-limit clarity over fake success. AT-SPI/--name only; no
-// --coords or screenshot.
+// and other unexpected arguments via usage_rejects_unexpected +
+// command=usage, or an honest non-usage typed failure (never fake
+// command=usage). Typed get-extents --name usage AND host-limit paths must
+// both hold before process-state, desktop-state, and the actuate/read-back
+// court (no if/else gating those courts on atspi_available); get-extents
+// --coords/--bogus must reject as command=usage. Prefer host-limit clarity
+// over fake success. AT-SPI/--name only; no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -21,6 +24,8 @@ const declared_evidence = [
 
 const MISSING_HANDLE = "99999999";
 const AT_SPI_PROBE_NAME = "Fixture Press";
+const DESKTOP_STATE_DEPTH = 3;
+const DESKTOP_STATE_MAX_NODES = 64;
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -50,6 +55,16 @@ function flag_at(value, dotted) { return at(value, dotted) === true; }
 function usage_rejects_unexpected(message, token) {
   return message.indexOf(token) >= 0
     || message.indexOf("unexpected") >= 0;
+}
+
+function honest_actuate_non_usage_code(code) {
+  return code === "a11y_backend_failed"
+    || code === "unsupported"
+    || code === "bad_handle"
+    || code === "window_not_found"
+    || code === "window_op_failed"
+    || code === "invalid_input"
+    || code === "refused";
 }
 
 function int_at(value, dotted) {
@@ -252,126 +267,54 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
+function assert_actuate_usage_reject(run_directory, executable, env, arguments, token, label) {
+  const reply = run_cu_reply(run_directory, executable, "actuate", arguments, env);
+  ensure(
+    !output_success(reply),
+    "cu_linux_maximize_expect_usage_" + label + "_ok:" + JSON.stringify(reply)
+  );
+  const code = text_at(reply, "error.code");
+  const command = text_at(reply, "command");
+  if (code === "usage" || command === "usage") {
+    ensure(
+      code === "usage",
+      "cu_linux_maximize_expect_usage_" + label + "_code:" + JSON.stringify(reply.error)
+    );
+    ensure(
+      command === "usage",
+      "cu_linux_maximize_expect_usage_" + label + "_command:" + JSON.stringify(reply)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(reply, "error.message"), token),
+      "cu_linux_maximize_expect_usage_" + label + "_message:" + JSON.stringify(reply.error)
+    );
+  } else {
+    ensure(
+      command !== "usage" && honest_actuate_non_usage_code(code),
+      "cu_linux_maximize_expect_usage_" + label + "_honest:" + JSON.stringify(reply)
+    );
+  }
+}
+
 function assert_maximize_unmaximize_unexpected_usage(run_directory, executable, env) {
-  const maximize_with_name = run_cu_reply(run_directory, executable, "actuate", [
+  assert_actuate_usage_reject(run_directory, executable, env, [
     "maximize", "--window", "1", "--expect", "maximized", "--name", AT_SPI_PROBE_NAME,
-  ], env);
-  ensure(
-    !output_success(maximize_with_name),
-    "cu_linux_maximize_expect_name_usage_ok:" + JSON.stringify(maximize_with_name)
-  );
-  ensure(
-    text_at(maximize_with_name, "error.code") === "usage",
-    "cu_linux_maximize_expect_name_usage_code:" + JSON.stringify(maximize_with_name.error)
-  );
-  ensure(
-    text_at(maximize_with_name, "command") === "usage",
-    "cu_linux_maximize_expect_name_usage_command:" + JSON.stringify(maximize_with_name)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(maximize_with_name, "error.message"), "--name"),
-    "cu_linux_maximize_expect_name_usage_message:" + JSON.stringify(maximize_with_name.error)
-  );
-
-  const unmaximize_with_name = run_cu_reply(run_directory, executable, "actuate", [
+  ], "--name", "name");
+  assert_actuate_usage_reject(run_directory, executable, env, [
     "unmaximize", "--window", "1", "--expect", "unmaximized", "--name", AT_SPI_PROBE_NAME,
-  ], env);
-  ensure(
-    !output_success(unmaximize_with_name),
-    "cu_linux_maximize_expect_unmaximize_name_usage_ok:" + JSON.stringify(unmaximize_with_name)
-  );
-  ensure(
-    text_at(unmaximize_with_name, "error.code") === "usage",
-    "cu_linux_maximize_expect_unmaximize_name_usage_code:" + JSON.stringify(unmaximize_with_name.error)
-  );
-  ensure(
-    text_at(unmaximize_with_name, "command") === "usage",
-    "cu_linux_maximize_expect_unmaximize_name_usage_command:" + JSON.stringify(unmaximize_with_name)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(unmaximize_with_name, "error.message"), "--name"),
-    "cu_linux_maximize_expect_unmaximize_name_usage_message:" + JSON.stringify(unmaximize_with_name.error)
-  );
-
-  const maximize_with_bogus = run_cu_reply(run_directory, executable, "actuate", [
+  ], "--name", "unmaximize_name");
+  assert_actuate_usage_reject(run_directory, executable, env, [
     "maximize", "--window", "1", "--expect", "maximized", "--bogus",
-  ], env);
-  ensure(
-    !output_success(maximize_with_bogus),
-    "cu_linux_maximize_expect_bogus_ok:" + JSON.stringify(maximize_with_bogus)
-  );
-  ensure(
-    text_at(maximize_with_bogus, "error.code") === "usage",
-    "cu_linux_maximize_expect_bogus_code:" + JSON.stringify(maximize_with_bogus.error)
-  );
-  ensure(
-    text_at(maximize_with_bogus, "command") === "usage",
-    "cu_linux_maximize_expect_bogus_command:" + JSON.stringify(maximize_with_bogus)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(maximize_with_bogus, "error.message"), "--bogus"),
-    "cu_linux_maximize_expect_bogus_message:" + JSON.stringify(maximize_with_bogus.error)
-  );
-
-  const unmaximize_with_bogus = run_cu_reply(run_directory, executable, "actuate", [
+  ], "--bogus", "bogus");
+  assert_actuate_usage_reject(run_directory, executable, env, [
     "unmaximize", "--window", "1", "--expect", "unmaximized", "--bogus",
-  ], env);
-  ensure(
-    !output_success(unmaximize_with_bogus),
-    "cu_linux_maximize_expect_unmaximize_bogus_ok:" + JSON.stringify(unmaximize_with_bogus)
-  );
-  ensure(
-    text_at(unmaximize_with_bogus, "error.code") === "usage",
-    "cu_linux_maximize_expect_unmaximize_bogus_code:" + JSON.stringify(unmaximize_with_bogus.error)
-  );
-  ensure(
-    text_at(unmaximize_with_bogus, "command") === "usage",
-    "cu_linux_maximize_expect_unmaximize_bogus_command:" + JSON.stringify(unmaximize_with_bogus)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(unmaximize_with_bogus, "error.message"), "--bogus"),
-    "cu_linux_maximize_expect_unmaximize_bogus_message:" + JSON.stringify(unmaximize_with_bogus.error)
-  );
-
-  const maximize_with_coords = run_cu_reply(run_directory, executable, "actuate", [
+  ], "--bogus", "unmaximize_bogus");
+  assert_actuate_usage_reject(run_directory, executable, env, [
     "maximize", "--window", "1", "--expect", "maximized", "--coords", "10,10",
-  ], env);
-  ensure(
-    !output_success(maximize_with_coords),
-    "cu_linux_maximize_expect_coords_ok:" + JSON.stringify(maximize_with_coords)
-  );
-  ensure(
-    text_at(maximize_with_coords, "error.code") === "usage",
-    "cu_linux_maximize_expect_coords_code:" + JSON.stringify(maximize_with_coords.error)
-  );
-  ensure(
-    text_at(maximize_with_coords, "command") === "usage",
-    "cu_linux_maximize_expect_coords_command:" + JSON.stringify(maximize_with_coords)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(maximize_with_coords, "error.message"), "--coords"),
-    "cu_linux_maximize_expect_coords_message:" + JSON.stringify(maximize_with_coords.error)
-  );
-
-  const unmaximize_with_coords = run_cu_reply(run_directory, executable, "actuate", [
+  ], "--coords", "coords");
+  assert_actuate_usage_reject(run_directory, executable, env, [
     "unmaximize", "--window", "1", "--expect", "unmaximized", "--coords", "10,10",
-  ], env);
-  ensure(
-    !output_success(unmaximize_with_coords),
-    "cu_linux_maximize_expect_unmaximize_coords_ok:" + JSON.stringify(unmaximize_with_coords)
-  );
-  ensure(
-    text_at(unmaximize_with_coords, "error.code") === "usage",
-    "cu_linux_maximize_expect_unmaximize_coords_code:" + JSON.stringify(unmaximize_with_coords.error)
-  );
-  ensure(
-    text_at(unmaximize_with_coords, "command") === "usage",
-    "cu_linux_maximize_expect_unmaximize_coords_command:" + JSON.stringify(unmaximize_with_coords)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(unmaximize_with_coords, "error.message"), "--coords"),
-    "cu_linux_maximize_expect_unmaximize_coords_message:" + JSON.stringify(unmaximize_with_coords.error)
-  );
+  ], "--coords", "unmaximize_coords");
 }
 
 function assert_get_extents_usage_limit(run_directory, executable, env) {
@@ -466,6 +409,10 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     !output_success(reply),
     "cu_linux_maximize_expect_extents_unavailable_ok:" + JSON.stringify(reply)
   );
+  ensure(
+    text_at(reply, "command") !== "usage",
+    "cu_linux_maximize_expect_extents_unavailable_fake_usage:" + JSON.stringify(reply)
+  );
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
@@ -517,6 +464,114 @@ function window_row(run_directory, executable, pid, title) {
     if (text_at(row, "title") === title) { return row; }
   }
   return null;
+}
+
+function assert_fixture_process_state(run_directory, executable, fixture_pid) {
+  const process_state = run_cu(run_directory, executable, "observe", [
+    "process-state", "--pid", "" + fixture_pid,
+  ]);
+  ensure(
+    text_at(process_state, "command") === "process-state",
+    "cu_linux_maximize_expect_process_state_command:" + JSON.stringify(process_state)
+  );
+  ensure(
+    int_at(process_state, "data.pid") === fixture_pid
+      && text_at(process_state, "data.state") === "live"
+      && text_at(process_state, "data.start_identity") !== ""
+      && flag_at(process_state, "data.verified"),
+    "cu_linux_maximize_expect_process_state:" + JSON.stringify(process_state.data)
+  );
+}
+
+function assert_fixture_desktop_state(
+  run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+) {
+  const state = run_cu(run_directory, executable, "observe", [
+    "desktop-state", "--window", handle_text,
+    "--depth", "" + DESKTOP_STATE_DEPTH,
+    "--max-nodes", "" + DESKTOP_STATE_MAX_NODES,
+  ]);
+  ensure(
+    text_at(state, "command") === "desktop-state",
+    "cu_linux_maximize_expect_desktop_state_command:" + JSON.stringify(state)
+  );
+  ensure(
+    int_at(state, "data.window.handle") === int_at(inventory_row, "handle")
+      && text_at(state, "data.window.title") === fixture_title
+      && text_at(state, "data.window.title") === text_at(inventory_row, "title")
+      && int_at(state, "data.window.process_id") === fixture_pid,
+    "cu_linux_maximize_expect_desktop_state_window:" + JSON.stringify({
+      state: state.data.window,
+      inventory: inventory_row,
+    })
+  );
+  ensure(
+    int_at(state, "data.tree.returned") > 0
+      && int_at(state, "data.tree.returned") <= DESKTOP_STATE_MAX_NODES,
+    "cu_linux_maximize_expect_desktop_state_tree:" + JSON.stringify(state.data.tree)
+  );
+}
+
+function assert_get_extents_reject_coords_or_stay_named(
+  run_directory, executable, handle, node_name, label
+) {
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "" + handle, "--name", node_name, "--coords", "10,10",
+  ]);
+  if (!output_success(extents_coords)) {
+    ensure(
+      text_at(extents_coords, "error.code") === "usage",
+      "cu_linux_maximize_expect_named_extents_coords_code_" + label + ":"
+        + JSON.stringify(extents_coords.error)
+    );
+    ensure(
+      text_at(extents_coords, "command") === "usage",
+      "cu_linux_maximize_expect_named_extents_coords_command_" + label + ":"
+        + JSON.stringify(extents_coords)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+        || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+      "cu_linux_maximize_expect_named_extents_coords_message_" + label + ":"
+        + JSON.stringify(extents_coords.error)
+    );
+  } else {
+    ensure(
+      text_at(extents_coords, "data.addressing") === "accessibility-tree"
+        && text_at(extents_coords, "data.matched.name") === node_name,
+      "cu_linux_maximize_expect_named_extents_coords_named_" + label + ":"
+        + JSON.stringify(extents_coords.data)
+    );
+  }
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "" + handle, "--name", node_name, "--bogus",
+  ]);
+  if (!output_success(extents_bogus)) {
+    ensure(
+      text_at(extents_bogus, "error.code") === "usage",
+      "cu_linux_maximize_expect_named_extents_bogus_code_" + label + ":"
+        + JSON.stringify(extents_bogus.error)
+    );
+    ensure(
+      text_at(extents_bogus, "command") === "usage",
+      "cu_linux_maximize_expect_named_extents_bogus_command_" + label + ":"
+        + JSON.stringify(extents_bogus)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+        || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+      "cu_linux_maximize_expect_named_extents_bogus_message_" + label + ":"
+        + JSON.stringify(extents_bogus.error)
+    );
+  } else {
+    ensure(
+      text_at(extents_bogus, "data.addressing") === "accessibility-tree"
+        && text_at(extents_bogus, "data.matched.name") === node_name,
+      "cu_linux_maximize_expect_named_extents_bogus_named_" + label + ":"
+        + JSON.stringify(extents_bogus.data)
+    );
+  }
 }
 
 function independent_net_wm_maximized(run_directory, executable, handle) {
@@ -737,17 +792,17 @@ print("STEP maximize/unmaximize without DISPLAY typed-fails unsupported host-lim
 assert_headless_host_limit(run_directory, executable, "maximize", "maximize");
 assert_headless_host_limit(run_directory, executable, "unmaximize", "unmaximize");
 
-print("STEP maximize/unmaximize typed-fail usage when AT-SPI --name/--coords/--bogus is present");
+print("STEP maximize/unmaximize typed-fail usage when AT-SPI --name/--coords/--bogus is present (usage_rejects_unexpected + command=usage, or honest non-usage typed failure; never fake command=usage)");
 assert_maximize_unmaximize_unexpected_usage(run_directory, executable, env);
 
-print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before actuate/read-back court");
+print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (command=usage) before process-state/desktop-state and actuate/read-back court");
 assert_get_extents_usage_limit(run_directory, executable, env);
 
-print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before actuate/read-back court");
+print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before process-state/desktop-state and actuate/read-back court");
 assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
 if (!atspi_available) {
-  print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; maximize read-back still uses xprop/inventory");
+  print("STEP independent pyatspi desktop probe unavailable: get-extents usage AND host-limit already held; maximize read-back still uses xprop/inventory");
 }
 
 let fixture = -1;
@@ -782,11 +837,23 @@ try {
     "cu_linux_maximize_expect_baseline_xprop_not_maximized"
   );
 
+  print("STEP process-state binds the owned fixture pid before maximize actuate/read-back court");
+  assert_fixture_process_state(run_directory, executable, fixture_pid);
+
+  print("STEP desktop-state window row agrees with inventory before maximize actuate/read-back court");
+  assert_fixture_desktop_state(
+    run_directory, executable, fixture_pid, fixture_title, handle_text, row
+  );
+
   let pyatspi_baseline = null;
   if (atspi_available) {
     print("STEP independent pyatspi extents and CU get-extents --name agree before maximize actuate/read-back");
     assert_get_extents_name_agreement(
       run_directory, executable, handle_text, fixture_title, AT_SPI_PROBE_NAME
+    );
+    print("STEP get-extents --name with --coords/--bogus rejects as command=usage or stays accessibility-tree before maximize actuate/read-back");
+    assert_get_extents_reject_coords_or_stay_named(
+      run_directory, executable, handle_text, AT_SPI_PROBE_NAME, "before_actuate"
     );
     pyatspi_baseline = independent_pyatspi_window(run_directory, executable, fixture_title);
     assert_pyatspi_window_not_maximized(pyatspi_baseline, "baseline");
@@ -882,9 +949,5 @@ try {
 const context = harness.new_context(repo, "cu-linux-maximize-expect");
 harness.emit_evidence(context, declared_evidence, "cu.linux-maximize-expect-state");
 harness.remove_run(context);
-if (atspi_available) {
-  print("PASS: Linux maximize/unmaximize usage/host-limit/miss honesty + independent xprop, windows inventory, and pyatspi extents/state maximized read-back with typed maximize/unmaximize --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
-} else {
-  print("PASS: Linux maximize/unmaximize usage/host-limit/miss honesty + independent xprop and windows inventory maximized read-back with typed maximize/unmaximize --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
-}
+print("PASS: Linux maximize/unmaximize usage/host-limit/miss honesty + independent xprop, windows inventory, and pyatspi extents/state maximized read-back with typed maximize/unmaximize --name/--coords/--bogus usage_rejects_unexpected (never fake command=usage), get-extents --name usage AND host-limit with --coords/--bogus command=usage (no atspi gating), and process-state/desktop-state binding before actuate (AT-SPI --name, no --coords)");
 return;
