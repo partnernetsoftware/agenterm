@@ -199,7 +199,15 @@
       "argv": [
         "job",
         "resources",
-        "job-1"
+        "job-1",
+        "--generation",
+        "1",
+        "--watch",
+        "1",
+        "--top",
+        "3",
+        "--max",
+        "4"
       ],
       "classification": "resolved"
     },

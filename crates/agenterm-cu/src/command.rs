@@ -1618,6 +1618,8 @@ pub enum Command {
         interval_ms: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_samples: Option<usize>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        members_per_sample: bool,
     },
     JobPriority {
         target: TargetRef,
@@ -5664,6 +5666,7 @@ impl Command {
                 watch_ms,
                 interval_ms,
                 max_samples,
+                members_per_sample,
                 ..
             } => {
                 validate_job_id(job_id)?;
@@ -5687,6 +5690,9 @@ impl Command {
                     .is_some_and(|value| !(1..=JOB_RESOURCES_MAX_SAMPLES).contains(&value))
                 {
                     return Err("managed-job resources max_samples must be in 1..=1000");
+                }
+                if *members_per_sample && watch_ms.is_none() {
+                    return Err("managed-job resources members_per_sample requires watch_ms");
                 }
                 Ok(())
             }

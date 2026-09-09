@@ -81,6 +81,214 @@ export function job_generation(reply, job_id) {
   return success(data.generation);
 }
 
+function decimal_string(value) {
+  if (typeof value !== "string" || value.length === 0) { return null; }
+  for (let i = 0; i < value.length; i = i + 1) {
+    if (value.charAt(i) < "0" || value.charAt(i) > "9") { return null; }
+  }
+  let first = 0;
+  while (first + 1 < value.length && value.charAt(first) === "0") { first = first + 1; }
+  return value.slice(first);
+}
+
+function decimal_compare(left, right) {
+  if (left.length !== right.length) { return left.length < right.length ? -1 : 1; }
+  if (left === right) { return 0; }
+  return left < right ? -1 : 1;
+}
+
+function decimal_subtract(left, right) {
+  if (decimal_compare(left, right) < 0) { return null; }
+  let borrow = 0;
+  let out = "";
+  let j = right.length - 1;
+  for (let i = left.length - 1; i >= 0; i = i - 1) {
+    let digit = Number(left.charAt(i)) - borrow;
+    const other = j >= 0 ? Number(right.charAt(j)) : 0;
+    j = j - 1;
+    if (digit < other) { digit = digit + 10; borrow = 1; } else { borrow = 0; }
+    out = "" + (digit - other) + out;
+  }
+  return decimal_string(out);
+}
+
+function resource_member(member) {
+  if (!object_value(member) || !positive_integer(member.pid)
+      || typeof member.start_identity !== "string" || member.start_identity.length === 0) {
+    return failure("job_resources_member_shape_invalid",
+      "every resource member needs a pid and start identity");
+  }
+  const cpu = decimal_string(member.cpu_time_ns);
+  const rss = decimal_string(member.rss_bytes);
+  if (cpu === null || rss === null) {
+    return failure("job_resources_member_shape_invalid",
+      "resource member CPU and RSS values must be decimal strings");
+  }
+  return success({ row: member, cpu: cpu, rss: rss, rate: null, has_rate: false });
+}
+
+function checked_members(container, label) {
+  if (!object_value(container) || container.membership_complete !== true) {
+    return failure("job_resources_membership_incomplete",
+      label + " does not prove complete membership");
+  }
+  if (!Array.isArray(container.members) || !nonnegative_integer(container.member_count)
+      || container.members.length !== container.member_count) {
+    return failure("job_resources_member_shape_invalid",
+      label + " member array does not match member_count");
+  }
+  const rows = [];
+  for (let i = 0; i < container.members.length; i = i + 1) {
+    const parsed = resource_member(container.members[i]);
+    if (!parsed.ok) { return parsed; }
+    if (i > 0 && rows[i - 1].row.pid >= parsed.value.row.pid) {
+      return failure("job_resources_member_shape_invalid",
+        label + " members must retain strict pid order");
+    }
+    rows.push(parsed.value);
+  }
+  return success(rows);
+}
+
+function resource_rank_before(left, right) {
+  if (left.has_rate !== right.has_rate) { return left.has_rate; }
+  if (left.has_rate && left.rate !== right.rate) { return left.rate > right.rate; }
+  const cpu = decimal_compare(left.cpu, right.cpu);
+  if (cpu !== 0) { return cpu > 0; }
+  const rss = decimal_compare(left.rss, right.rss);
+  if (rss !== 0) { return rss > 0; }
+  return left.row.pid < right.row.pid;
+}
+
+function ranked_members(rows, top) {
+  const sorted = [];
+  if (top === 0) { return sorted; }
+  for (let i = 0; i < rows.length; i = i + 1) {
+    let at = sorted.length;
+    while (at > 0 && resource_rank_before(rows[i], sorted[at - 1])) { at = at - 1; }
+    sorted.push(rows[i]);
+    for (let j = sorted.length - 1; j > at; j = j - 1) {
+      sorted[j] = sorted[j - 1];
+    }
+    sorted[at] = rows[i];
+    if (sorted.length > top) { sorted.pop(); }
+  }
+  const selected = [];
+  for (let i = 0; i < sorted.length && i < top; i = i + 1) {
+    selected.push(clone(sorted[i].row));
+  }
+  return selected;
+}
+
+function member_index(rows) {
+  const index = {};
+  for (let i = 0; i < rows.length; i = i + 1) {
+    index["p" + rows[i].row.pid + ":" + rows[i].row.start_identity] = rows[i];
+  }
+  return index;
+}
+
+function add_interval_rates(rows, previous, elapsed_ms) {
+  if (!positive_integer(elapsed_ms)) {
+    return failure("job_resources_rate_undefined",
+      "resource sample interval must be a positive integer");
+  }
+  const maximum = "9007199254740991";
+  for (let i = 0; i < rows.length; i = i + 1) {
+    const key = "p" + rows[i].row.pid + ":" + rows[i].row.start_identity;
+    const before = previous[key];
+    if (before === undefined) { continue; }
+    const delta = decimal_subtract(rows[i].cpu, before.cpu);
+    if (delta === null || decimal_compare(delta, maximum) > 0) {
+      return failure("job_resources_rate_undefined",
+        "resource CPU delta is negative or exceeds the exact rate bound");
+    }
+    rows[i].rate = Number(delta) / elapsed_ms;
+    rows[i].has_rate = true;
+  }
+  return success(rows);
+}
+
+function project_member_list(container, rows, max) {
+  if (max === null || max === undefined) { return; }
+  const selected = [];
+  for (let i = 0; i < rows.length && i < max; i = i + 1) {
+    selected.push(clone(rows[i].row));
+  }
+  container.members = selected;
+}
+
+export function job_resources_projection(reply, top, max, watch) {
+  const unpacked = reply_data(reply, "job-resources reply");
+  if (!unpacked.ok) { return unpacked; }
+  if (top !== null && top !== undefined && (!nonnegative_integer(top) || top > 20)) {
+    return failure("job_resources_projection_invalid", "top must be in 0..20");
+  }
+  if (max !== null && max !== undefined && (!positive_integer(max) || max > 4096)) {
+    return failure("job_resources_projection_invalid", "max must be in 1..4096");
+  }
+  const data = unpacked.value;
+  const complete = checked_members(data, "job-resources reply");
+  if (!complete.ok) { return complete; }
+  const out = clone(data);
+  const full_members = complete.value;
+  if (top !== null && top !== undefined && watch !== true) {
+    out.top_members = ranked_members(full_members, top);
+    out.top_rank_basis = "cumulative-cpu-time";
+    out.top_rate_available = false;
+  }
+  if (watch === true) {
+    if (!Array.isArray(data.samples)) {
+      return failure("job_resources_member_shape_invalid",
+        "bounded resource reply must contain samples");
+    }
+    let previous = {};
+    let previous_t_ms = null;
+    for (let i = 0; i < data.samples.length; i = i + 1) {
+      if (!object_value(data.samples[i]) || data.samples[i].membership_complete !== true) {
+        return failure("job_resources_membership_incomplete",
+          "job-resources sample does not prove complete membership");
+      }
+      if (!Array.isArray(data.samples[i].members)) {
+        return failure("job_resources_members_per_sample_unavailable",
+          "bounded resource projection requires members in every sample");
+      }
+      const parsed = checked_members(data.samples[i], "job-resources sample");
+      if (!parsed.ok) {
+        return parsed;
+      }
+      const rows = parsed.value;
+      if (!nonnegative_integer(data.samples[i].t_ms)) {
+        return failure("job_resources_member_shape_invalid",
+          "resource sample needs a non-negative timestamp");
+      }
+      if (top !== null && top !== undefined) {
+        if (previous_t_ms !== null) {
+          const rated = add_interval_rates(rows, previous,
+            data.samples[i].t_ms - previous_t_ms);
+          if (!rated.ok) { return rated; }
+        }
+        out.samples[i].top_members = ranked_members(rows, top);
+        out.samples[i].top_rank_basis = previous_t_ms === null
+          ? "cumulative-cpu-time" : "interval-cpu-rate";
+        out.samples[i].top_rate_available = previous_t_ms !== null;
+      }
+      project_member_list(out.samples[i], rows, max);
+      previous = member_index(rows);
+      previous_t_ms = data.samples[i].t_ms;
+    }
+  }
+  project_member_list(out, full_members, max);
+  out.member_projection = {
+    kind: "legacy-job-resources", max_members: max,
+    returned_members: out.members.length,
+    truncated: out.members.length < data.member_count,
+    order: "pid-asc", aggregates: "complete-membership",
+    top: top, top_scope: "complete-membership"
+  };
+  return success(out);
+}
+
 export function single_window(reply, pid) {
   const unpacked = reply_data(reply, "windows reply");
   if (!unpacked.ok) { return unpacked; }

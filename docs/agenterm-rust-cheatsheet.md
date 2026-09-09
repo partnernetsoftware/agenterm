@@ -5221,6 +5221,12 @@ remaining budget into each provider call so a final poll cannot overrun the
 watch. Bound sample rows, accumulated events and the encoded response
 independently.
 
+When an opt-in bounded series publishes the complete member list for every
+sample, account member rows before pushing the next sample and stop before the
+row ceiling would be exceeded. Keep sample and aggregate completeness tied to
+the full native membership: a compatibility display ceiling may project rows,
+but it must not recompute counts, digests or aggregates from that prefix.
+
 Mounted filesystem capacity is a different contract from physical-device
 inventory. Preserve `free` bytes reported for the filesystem separately from
 bytes available to the current user, and require

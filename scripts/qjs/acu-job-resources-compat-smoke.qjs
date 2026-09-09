@@ -133,8 +133,9 @@ try {
   ensure(session_id !== "" && session_lease !== "", "acu_job_resources_session_identity");
 
   const child = harness.host_is_windows()
-    ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 60"]
-    : ["/bin/sh", "-c", "while :; do sleep 1; done"];
+    ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+      "$p=Start-Process powershell.exe -ArgumentList '-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 60' -PassThru; Wait-Process -Id $p.Id"]
+    : ["/bin/sh", "-c", "sleep 60 & wait"];
   const spawn = mutation_prefix(request_root + "-spawn", session_id, session_lease);
   append_all(spawn, ["job-spawn", "--cwd", run_directory, "--ttl-seconds", "60", "--"]);
   append_all(spawn, child);
@@ -160,9 +161,26 @@ try {
   ensure(compat.job_id === job.job_id && compat.generation === status.generation,
     "acu_job_resources_generation_projection");
   ensure(compat.scope === "containment-group" && compat.mode === "point"
-      && compat.verified === true && compat.member_count >= 1
+      && compat.verified === true && compat.member_count >= 2
       && Array.isArray(compat.members) && compat.members.length === compat.member_count,
     "acu_job_resources_point_contract");
+
+  print("STEP project legacy member ceilings without weakening complete aggregates");
+  const projected = invoke_ok(launcher, [
+    "cli", "acu", "job", "resources", job.job_id, "--max", "1", "--top", "1"
+  ], run_directory, "job-resources");
+  ensure(projected.member_count === compat.member_count
+      && projected.members.length === 1
+      && projected.member_projection.max_members === 1
+      && projected.member_projection.returned_members === 1
+      && projected.member_projection.truncated === (compat.member_count > 1)
+      && projected.member_projection.aggregates === "complete-membership"
+      && projected.membership_sha256 === compat.membership_sha256
+      && text(projected.cpu_time_ns) !== "" && text(projected.rss_bytes) !== ""
+      && Array.isArray(projected.top_members) && projected.top_members.length === 1
+      && projected.top_rank_basis === "cumulative-cpu-time"
+      && projected.top_rate_available === false,
+    "acu_job_resources_member_projection_contract");
 
   print("STEP execute bounded legacy sampling through the same generation compound");
   const extended = invoke_ok(launcher, [
@@ -176,23 +194,34 @@ try {
       && extended.completed === false && extended.ended_reason === "max-samples",
     "acu_job_resources_bounded_sampling_contract");
 
-  print("STEP retain unbounded or member-projection legacy shapes as the exact dynamic TODO");
+  print("STEP rank complete per-sample members while keeping the display ceiling separate");
+  const ranked = invoke_ok(launcher, [
+    "cli", "acu", "job", "resources", job.job_id,
+    "--watch", "0.3", "--interval", "0.1", "--max-samples", "3",
+    "--top", "1", "--max", "1"
+  ], run_directory, "job-resources");
+  ensure(ranked.members_per_sample === true && ranked.member_rows > 0
+      && ranked.member_rows <= ranked.max_member_rows
+      && ranked.samples.length > 0
+      && ranked.member_projection.top_scope === "complete-membership",
+    "acu_job_resources_sample_projection_shape");
+  for (let i = 0; i < ranked.samples.length; i = i + 1) {
+    ensure(Array.isArray(ranked.samples[i].members)
+        && ranked.samples[i].member_count >= 2
+        && ranked.samples[i].members.length <= 1
+        && Array.isArray(ranked.samples[i].top_members)
+        && ranked.samples[i].top_members.length <= 1
+        && ranked.samples[i].top_rank_basis
+          === (i === 0 ? "cumulative-cpu-time" : "interval-cpu-rate")
+        && ranked.samples[i].top_rate_available === (i !== 0),
+      "acu_job_resources_sample_projection_rows:" + i);
+  }
+
+  print("STEP reject sampling-only legacy flags when no watch was requested");
   const incomplete = invoke(launcher, [
     "cli", "acu", "job", "resources", job.job_id, "--interval", "1"
   ], run_directory, "job");
-  const projected = invoke(launcher, [
-    "cli", "acu", "job", "resources", job.job_id, "--top", "5"
-  ], run_directory, "job");
-  const acquisition_limited = invoke(launcher, [
-    "cli", "acu", "job", "resources", job.job_id, "--max", "5"
-  ], run_directory, "job");
-  ensure(incomplete.output.exit_code === 2 && incomplete.reply.error.code === "acu_todo"
-      && incomplete.reply.error.gap_id === "acu.dynamic.018"
-      && projected.output.exit_code === 2 && projected.reply.error.code === "acu_todo"
-      && projected.reply.error.gap_id === "acu.dynamic.018"
-      && acquisition_limited.output.exit_code === 2
-      && acquisition_limited.reply.error.code === "acu_todo"
-      && acquisition_limited.reply.error.gap_id === "acu.dynamic.018",
+  ensure(incomplete.output.exit_code === 2 && incomplete.reply.error.code === "usage",
     "acu_job_resources_remaining_boundaries");
   succeeded = 1;
 } catch (error) {

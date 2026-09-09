@@ -341,8 +341,16 @@ impl Executor {
                 watch_ms,
                 interval_ms,
                 max_samples,
+                members_per_sample,
                 ..
-            } => job_resources_payload(job_id, *generation, *watch_ms, *interval_ms, *max_samples),
+            } => job_resources_payload(
+                job_id,
+                *generation,
+                *watch_ms,
+                *interval_ms,
+                *max_samples,
+                *members_per_sample,
+            ),
             Command::JobPriority {
                 job_id,
                 generation,

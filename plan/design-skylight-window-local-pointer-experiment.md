@@ -322,6 +322,23 @@ cleanup loss is `INCONCLUSIVE`. Stop on the first behavioral failure and retain
 its bounded diagnostic. The repeat may summarize green actions in blocks of
 100, but must never omit a failing action's index and readback.
 
+The first full repeat attempt exposed an execution-budget defect before it
+could emit a verdict: one qjswasm top-level call exhausted the hard one-billion
+step ceiling. Raising that ceiling is not available and would weaken the
+runtime bound. The corrected, pre-run execution protocol keeps one parent-owned
+Chromium profile, browser process, A/B window identity, guard and cleanup scope,
+but delegates consecutive blocks of 50 actions to fresh qjswasm top-level
+calls. A block may reset only the script step budget; it receives the frozen
+identities and may not recreate, activate, move or re-resolve the fixture.
+Every block applies the same per-action reset/inject/quiet/read-back checks,
+reports its exact global start/end indices, and stops on its first behavioral
+failure. The parent accepts `PASS` only when the contiguous block reports cover
+1 through 1,000 exactly, their exact counts sum to 1,000, every failure count is
+zero, and final cleanup is independently verified. A missing, duplicated,
+malformed, timed-out or budget-exhausted block makes the whole run
+`INCONCLUSIVE`. This changes only execution isolation; criteria, event fields,
+target identity and the kill criterion remain frozen.
+
 ### 9.4 Explicitly not answered
 
 - whether PID-targeted public delivery is documented or future-stable;

@@ -107,6 +107,20 @@ function execute_compound(request) {
     append_argv(operation, request.tail);
     return acu.argv(prefixed(request.globals, operation));
   }
+  if (request.kind === "job-resources-projection") {
+    let generation = request.generation;
+    if (generation === null) {
+      const status = acu.argv(prefixed(request.globals, ["job-status", request.job_id]));
+      const selected = compound.job_generation(status, request.job_id);
+      if (!selected.ok) { return acu_error(request.command, selected.code, selected.message); }
+      generation = "" + selected.value;
+    }
+    const operation = [request.native_verb, request.job_id, generation];
+    append_argv(operation, request.tail);
+    const reply = acu.argv(prefixed(request.globals, operation));
+    return projected_reply(request.command, reply,
+      compound.job_resources_projection(reply, request.top, request.max, request.watch));
+  }
   if (request.kind === "apps-page") {
     const reply = acu.argv(prefixed(request.globals, request.argv));
     return projected_reply(request.command, reply,

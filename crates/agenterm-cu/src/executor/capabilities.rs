@@ -984,6 +984,8 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                     "watch_ms_max": (verb == "job-resources").then_some(300_000),
                     "interval_ms_max": (verb == "job-resources").then_some(60_000),
                     "max_samples_max": (verb == "job-resources").then_some(1_000),
+                    "members_per_sample": (verb == "job-resources").then_some(true),
+                    "max_member_rows": (verb == "job-resources").then_some(131_072),
                     "reason": (verb == "job-priority" && cfg!(windows)).then_some("Windows priority classes are not Unix process-group nice values"),
                 }),
             );
@@ -2048,6 +2050,8 @@ mod tests {
         assert_eq!(data["verbs"]["job-resources"]["watch_ms_max"], 300_000);
         assert_eq!(data["verbs"]["job-resources"]["interval_ms_max"], 60_000);
         assert_eq!(data["verbs"]["job-resources"]["max_samples_max"], 1_000);
+        assert_eq!(data["verbs"]["job-resources"]["members_per_sample"], true);
+        assert_eq!(data["verbs"]["job-resources"]["max_member_rows"], 131_072);
         assert_eq!(data["verbs"]["storage-volumes"]["status"], "available");
         assert_eq!(data["verbs"]["storage-volumes"]["grant"], "observe");
         assert_eq!(data["verbs"]["storage-volumes"]["result_ceiling"], 512);
