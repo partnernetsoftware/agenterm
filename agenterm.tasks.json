@@ -6767,7 +6767,7 @@
     },
     {
       "id": "cu-linux-scroll-smoke",
-      "description": "Linux AT-SPI scroll --name on GTK ScrolledWindow: pyatspi get-extents before refuses off-screen target; scroll typed-fails a11y_scroll_unavailable on non-scrollable nodes; scroll-to read-back agrees with pyatspi and CU get-extents; typed scroll usage rejects missing --name and zero --window; typed get-extents --name usage/host-limit before actuate court; host-limit when pyatspi unavailable; no wheel, --coords, or screenshot.",
+      "description": "Linux AT-SPI scroll --name on GTK ScrolledWindow: pyatspi get-extents before refuses off-screen target; scroll typed-fails a11y_scroll_unavailable on non-scrollable nodes; scroll-to read-back agrees with pyatspi and CU get-extents; typed scroll/get-extents --coords/--bogus usage plus get-extents --name usage/host-limit before actuate court; host-limit when pyatspi unavailable; no wheel, --coords, or screenshot.",
       "entry": "scripts/qjs/cu-linux-scroll-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
