@@ -66,6 +66,8 @@ const JOB_TTL_SECONDS_MAX: u64 = 86_400;
 const JOB_LIST_MAX: usize = 1_024;
 const JOB_EVENTS_TIMEOUT_MS_MAX: u64 = 300_000;
 const JOB_RESOURCES_WATCH_MS_MAX: u64 = 300_000;
+const JOB_RESOURCES_INTERVAL_MS_MAX: u64 = 60_000;
+const JOB_RESOURCES_MAX_SAMPLES: usize = 1_000;
 const JOB_EVENTS_BYTES_MAX: usize = 1024 * 1024;
 const JOB_WRITE_DECODED_BYTES_MAX: usize = 64 * 1024;
 const JOB_WAIT_TIMEOUT_MS_MAX: u64 = 86_400_000;
@@ -1576,6 +1578,10 @@ pub enum Command {
         generation: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         watch_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        interval_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_samples: Option<usize>,
     },
     JobPriority {
         target: TargetRef,
@@ -5515,6 +5521,8 @@ impl Command {
                 job_id,
                 generation,
                 watch_ms,
+                interval_ms,
+                max_samples,
                 ..
             } => {
                 validate_job_id(job_id)?;
@@ -5522,6 +5530,22 @@ impl Command {
                 if watch_ms.is_some_and(|value| !(1..=JOB_RESOURCES_WATCH_MS_MAX).contains(&value))
                 {
                     return Err("managed-job resources watch_ms must be in 1..=300000");
+                }
+                if interval_ms.is_some() && watch_ms.is_none() {
+                    return Err("managed-job resources interval_ms requires watch_ms");
+                }
+                if interval_ms
+                    .is_some_and(|value| !(1..=JOB_RESOURCES_INTERVAL_MS_MAX).contains(&value))
+                {
+                    return Err("managed-job resources interval_ms must be in 1..=60000");
+                }
+                if max_samples.is_some() && watch_ms.is_none() {
+                    return Err("managed-job resources max_samples requires watch_ms");
+                }
+                if max_samples
+                    .is_some_and(|value| !(1..=JOB_RESOURCES_MAX_SAMPLES).contains(&value))
+                {
+                    return Err("managed-job resources max_samples must be in 1..=1000");
                 }
                 Ok(())
             }
@@ -6189,7 +6213,9 @@ mod tests {
             "target": "current",
             "job_id": TEST_JOB_ID,
             "generation": 7,
-            "watch_ms": 300_000
+            "watch_ms": 300_000,
+            "interval_ms": 1_000,
+            "max_samples": 64
         });
         let resources_command: Command =
             serde_json::from_value(resources.clone()).expect("resources");

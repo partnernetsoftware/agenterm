@@ -58,7 +58,8 @@ function invoke(executable, arguments, run_directory, expected_command) {
   ensure((output.exit_code === 0) === (reply.ok === true),
     "acu_job_resources_exit_reply_disagree:" + expected_command);
   ensure(reply.command === expected_command,
-    "acu_job_resources_wrong_command:" + expected_command);
+    "acu_job_resources_wrong_command:" + expected_command + ":" + text(reply.command)
+      + ":" + JSON.stringify(reply.error));
   return { output: output, reply: reply };
 }
 
@@ -163,16 +164,36 @@ try {
       && Array.isArray(compat.members) && compat.members.length === compat.member_count,
     "acu_job_resources_point_contract");
 
-  print("STEP retain unsupported legacy sampling flags as the exact dynamic TODO");
-  const extended = invoke(launcher, [
+  print("STEP execute bounded legacy sampling through the same generation compound");
+  const extended = invoke_ok(launcher, [
     "cli", "acu", "job", "resources", job.job_id,
-    "--generation", "" + job.generation, "--interval", "1"
+    "--watch", "0.2", "--interval", "0.1", "--max-samples", "2"
+  ], run_directory, "job-resources");
+  ensure(extended.job_id === job.job_id && extended.generation === job.generation
+      && extended.mode === "bounded-series" && extended.duration_ms === 200
+      && extended.interval_ms === 100 && extended.max_samples === 2
+      && extended.emitted === 2 && extended.truncated === true
+      && extended.completed === false && extended.ended_reason === "max-samples",
+    "acu_job_resources_bounded_sampling_contract");
+
+  print("STEP retain unbounded or member-projection legacy shapes as the exact dynamic TODO");
+  const incomplete = invoke(launcher, [
+    "cli", "acu", "job", "resources", job.job_id, "--interval", "1"
   ], run_directory, "job");
-  ensure(extended.output.exit_code === 2 && extended.reply.ok === false
-      && extended.reply.alert === "ACU_CAPABILITY_TODO"
-      && extended.reply.error.code === "acu_todo"
-      && extended.reply.error.gap_id === "acu.dynamic.018",
-    "acu_job_resources_extended_boundary");
+  const projected = invoke(launcher, [
+    "cli", "acu", "job", "resources", job.job_id, "--top", "5"
+  ], run_directory, "job");
+  const acquisition_limited = invoke(launcher, [
+    "cli", "acu", "job", "resources", job.job_id, "--max", "5"
+  ], run_directory, "job");
+  ensure(incomplete.output.exit_code === 2 && incomplete.reply.error.code === "acu_todo"
+      && incomplete.reply.error.gap_id === "acu.dynamic.018"
+      && projected.output.exit_code === 2 && projected.reply.error.code === "acu_todo"
+      && projected.reply.error.gap_id === "acu.dynamic.018"
+      && acquisition_limited.output.exit_code === 2
+      && acquisition_limited.reply.error.code === "acu_todo"
+      && acquisition_limited.reply.error.gap_id === "acu.dynamic.018",
+    "acu_job_resources_remaining_boundaries");
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
@@ -226,7 +247,7 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "acu.compat-job-resources");
   harness.remove_run(context);
-  print("PASS: legacy job resources discovered its generation and returned the shared typed point reply");
+  print("PASS: legacy job resources discovered its generation and returned typed point and bounded-series replies");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

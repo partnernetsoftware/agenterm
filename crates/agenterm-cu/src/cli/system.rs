@@ -923,6 +923,8 @@ fn parse_job(name: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Co
                 .parse()
                 .map_err(|_| "GENERATION must be a positive integer".to_owned())?,
             watch_ms: flag_parsed(args, "--watch-ms")?,
+            interval_ms: flag_parsed(args, "--interval-ms")?,
+            max_samples: flag_parsed(args, "--max-samples")?,
         },
         "job-priority" => Command::JobPriority {
             target,
@@ -2037,15 +2039,49 @@ mod tests {
         let Command::JobResources {
             generation,
             watch_ms,
+            interval_ms,
+            max_samples,
             ..
-        } = parse("job", &["resources", id, "2", "--watch-ms", "25"]).unwrap()
+        } = parse(
+            "job",
+            &[
+                "resources",
+                id,
+                "2",
+                "--watch-ms",
+                "25",
+                "--interval-ms",
+                "5",
+                "--max-samples",
+                "3",
+            ],
+        )
+        .unwrap()
         else {
             panic!("job-resources command")
         };
         assert_eq!(generation, 2);
         assert_eq!(watch_ms, Some(25));
+        assert_eq!(interval_ms, Some(5));
+        assert_eq!(max_samples, Some(3));
         assert!(parse("job-resources", &[id, "1", "--watch-ms", "0"]).is_err());
         assert!(parse("job-resources", &[id, "1", "--watch-ms", "300001"]).is_err());
+        assert!(parse("job-resources", &[id, "1", "--interval-ms", "1"]).is_err());
+        assert!(parse("job-resources", &[id, "1", "--max-samples", "2"]).is_err());
+        assert!(
+            parse(
+                "job-resources",
+                &[id, "1", "--watch-ms", "1", "--interval-ms", "60001"]
+            )
+            .is_err()
+        );
+        assert!(
+            parse(
+                "job-resources",
+                &[id, "1", "--watch-ms", "1", "--max-samples", "1001"]
+            )
+            .is_err()
+        );
         assert!(matches!(
             parse("job", &["priority", id, "2", "7"]).unwrap(),
             Command::JobPriority {

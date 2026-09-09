@@ -944,6 +944,9 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                     "scope": matches!(verb, "job-resources" | "job-priority").then_some("containment-group"),
                     "membership_complete": matches!(verb, "job-resources" | "job-priority").then_some(true),
                     "coherence": matches!(verb, "job-resources" | "job-priority").then_some("stable-membership-sweep"),
+                    "watch_ms_max": (verb == "job-resources").then_some(300_000),
+                    "interval_ms_max": (verb == "job-resources").then_some(60_000),
+                    "max_samples_max": (verb == "job-resources").then_some(1_000),
                     "reason": (verb == "job-priority" && cfg!(windows)).then_some("Windows priority classes are not Unix process-group nice values"),
                 }),
             );
@@ -1990,6 +1993,9 @@ mod tests {
         assert_eq!(data["verbs"]["job-output"]["grant"], "observe");
         assert_eq!(data["verbs"]["job-resources"]["scope"], "containment-group");
         assert_eq!(data["verbs"]["job-resources"]["membership_complete"], true);
+        assert_eq!(data["verbs"]["job-resources"]["watch_ms_max"], 300_000);
+        assert_eq!(data["verbs"]["job-resources"]["interval_ms_max"], 60_000);
+        assert_eq!(data["verbs"]["job-resources"]["max_samples_max"], 1_000);
         assert_eq!(data["verbs"]["storage-volumes"]["status"], "available");
         assert_eq!(data["verbs"]["storage-volumes"]["grant"], "observe");
         assert_eq!(data["verbs"]["storage-volumes"]["result_ceiling"], 512);

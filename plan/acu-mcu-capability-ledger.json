@@ -1157,7 +1157,7 @@
         {
           "id": "job.context-resources",
           "mcu_shape": "job env|resources [--watch]",
-          "acu_shape": "job-resources JOB_ID GENERATION [--watch-ms N] identity-brackets every current native containment-group member and returns exact aggregate counters; stored environment remains absent",
+          "acu_shape": "job-resources JOB_ID GENERATION [--watch-ms N --interval-ms N --max-samples N] identity-brackets every current native containment-group member and returns exact aggregate counters; stored environment remains absent",
           "state": "platform-limited",
           "qualification": {
             "schema": 2,
@@ -1168,8 +1168,8 @@
             }
           },
           "evidence": ["cu.managed-job-resources", "acu.compat-job-resources"],
-          "next": "prove the same public containment-resource court on Linux and Windows, close acu.dynamic.018 sampling flags without weakening the bounded-series contract, and separately design an explicit secret-bearing environment observation context",
-          "note": "Point and bounded-series replies carry a stable-membership digest, all current containment members, and lossless decimal aggregate/per-member RSS, CPU and page-fault counters. The durable root must remain present and every member is identity-bracketed. Windows Job Objects report breakaway_prevented=true and therefore tree_complete=true; POSIX process groups report current membership completely but do not claim genealogy after breakaway. The Bun-free compatibility path now resolves the omitted generation through typed job-status and returns the native point reply; sampling flags remain the exact acu.dynamic.018 TODO. MCU job env remains a typed gap."
+          "next": "prove the same public containment-resource court on Linux and Windows, design a complete-membership replacement for acu.dynamic.018 top/member acquisition limits, and separately design an explicit secret-bearing environment observation context",
+          "note": "Point and bounded-series replies carry a stable-membership digest, all current containment members, and lossless decimal aggregate/per-member RSS, CPU and page-fault counters. The durable root must remain present and every member is identity-bracketed. Windows Job Objects report breakaway_prevented=true and therefore tree_complete=true; POSIX process groups report current membership completely but do not claim genealogy after breakaway. The Bun-free compatibility path resolves the omitted generation through typed job-status; bounded legacy watch/interval/max-samples map to native millisecond duration, interval and sample ceilings with the legacy one-second/300-sample defaults. Legacy top and acquisition max remain acu.dynamic.018 because their partial member set and partial aggregate conflict with this complete-membership contract. MCU job env remains a typed gap."
         },
         {
           "id": "job.policy-priority-state",

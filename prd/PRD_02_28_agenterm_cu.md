@@ -1568,7 +1568,8 @@ flowchart LR
   currently fails before product delivery in the court's interactive-worker
   nonce recovery; that lifecycle mechanism belongs to the independent
   `utm-court` repository and must not be copied into AgenTerm.
-  `job-resources JOB_ID GENERATION [--watch-ms N]` additionally exposes a
+  `job-resources JOB_ID GENERATION [--watch-ms N --interval-ms N
+  --max-samples N]` additionally exposes a
   point sample or an adaptively spaced, at-most-300-second bounded series for
   every current member of the resident owner's native containment group. Each
   stable-membership sweep brackets every member's start identity, requires the
@@ -1582,9 +1583,13 @@ flowchart LR
   Linux and Windows native evidence remain open. The Bun-free compatibility
   entry now resolves legacy `job resources JOB_ID` through typed `job-status`,
   forwards the exact generation into `job-resources`, and preserves the shared
-  point reply. Public evidence `acu.compat-job-resources` owns that compound;
-  legacy sampling flags remain the explicit `acu.dynamic.018` TODO rather than
-  inventing weaker sampling. `job-set-state` and the retry-safe `job-signal STOP|CONT` subset now
+  point reply. Bounded legacy `--watch`, `--interval`, and `--max-samples`
+  preserve their seconds conversion and one-second/300-sample defaults through
+  the same compound. Public evidence `acu.compat-job-resources` owns both
+  paths. Legacy `--top` and acquisition `--max` remain the explicit
+  `acu.dynamic.018` TODO because their partial member set and aggregate cannot
+  be presented as this native command's complete containment truth.
+  `job-set-state` and the retry-safe `job-signal STOP|CONT` subset now
   require the owning session, exact generation and durable root start identity,
   then reuse the same write-ahead exact-tree transaction as `process-signal
   --tree`: every temporary freeze is recoverable, every final member is read

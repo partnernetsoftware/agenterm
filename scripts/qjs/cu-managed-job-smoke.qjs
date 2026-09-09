@@ -314,7 +314,7 @@ try {
   const watched_resources = invoke_cu(run_directory, executable, [
     "--target", "current", "--grant", "observe",
     "job", "resources", first_job.job_id, "" + first_job.generation,
-    "--watch-ms", "5"
+    "--watch-ms", "20", "--interval-ms", "5", "--max-samples", "2"
   ], "job-resources");
   ensure(
     watched_resources.scope === "containment-group"
@@ -322,14 +322,29 @@ try {
       && watched_resources.tree_complete === watched_resources.breakaway_prevented
       && watched_resources.coherence === "stable-membership-sweep"
       && watched_resources.mode === "bounded-series" && watched_resources.verified === true
-      && watched_resources.duration_ms === 5 && watched_resources.completed === true
-      && watched_resources.truncated === false && watched_resources.emitted > 0
+      && watched_resources.duration_ms === 20 && watched_resources.interval_ms === 5
+      && watched_resources.max_samples === 2 && watched_resources.completed === false
+      && watched_resources.truncated === true && watched_resources.ended_reason === "max-samples"
+      && watched_resources.emitted === 2
       && watched_resources.samples.length === watched_resources.emitted
       && watched_resources.member_count === watched_resources.members.length
       && watched_resources.member_count >= 1
       && has_resource_member(watched_resources.members, status.process_pid, false)
       && valid_resource_samples(watched_resources.samples),
     "cu_managed_job_resources_watch_contract"
+  );
+  const completed_resources = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "job-resources", first_job.job_id, "" + first_job.generation,
+    "--watch-ms", "5", "--interval-ms", "60000", "--max-samples", "1000"
+  ], "job-resources");
+  ensure(
+    completed_resources.duration_ms === 5 && completed_resources.interval_ms === 60000
+      && completed_resources.max_samples === 1000 && completed_resources.completed === true
+      && completed_resources.truncated === false
+      && completed_resources.ended_reason === "duration"
+      && completed_resources.emitted >= 1,
+    "cu_managed_job_resources_duration_contract"
   );
 
   print("STEP renew the resident lease, then atomically write five bytes and close stdin");

@@ -1194,7 +1194,10 @@ interval and returned sample count independently. Preserve wide native counters
 as decimal strings at every sample. Distinguish `completed` from `truncated` so
 a qjswasm caller can tell “observed the requested duration” from “hit the
 sample/output budget”; PID reuse or loss of identity is a typed failure, never
-a fresh series under the same number.
+a fresh series under the same number. Freeze the precedence when a completed
+sample crosses both limits: if reaching the explicit sample ceiling is the
+observable constraint, classify it before re-reading the wall deadline so a
+slow host cannot flip the same sample count between `truncated` and `completed`.
 
 A process-lifecycle watch applies the same identity rule to a changing set.
 Take one bounded baseline, key every row by `(pid, start_identity)`, and report

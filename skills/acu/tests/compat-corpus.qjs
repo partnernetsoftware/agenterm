@@ -154,6 +154,54 @@ require(point_job_resources.native_verb === "job-resources",
 require(point_job_resources.tail.length === 0,
   "point job resources invents no sampling arguments");
 
+const sampled_job_resources = compat.canonicalize([
+  "job", "resources", "job-1", "--watch", "0.2", "--interval", "0.1",
+  "--max-samples", "2"
+]);
+require(sampled_job_resources.kind === "job-generation",
+  "bounded job resources resolves generation through the typed compound");
+same_argv(sampled_job_resources.tail,
+  ["--watch-ms", "200", "--interval-ms", "100", "--max-samples", "2"],
+  "bounded job resources sampling tail");
+
+const sampled_job_resources_exact = compat.canonicalize([
+  "job", "resources", "job-1", "--generation", "7",
+  "--watch", "0.2", "--interval", "0.1", "--max-samples", "2"
+]);
+require(sampled_job_resources_exact.kind === "exec",
+  "bounded job resources with generation executes directly");
+same_argv(sampled_job_resources_exact.argv,
+  ["--target", "current", "--grant", "observe,actuate", "job-resources", "job-1", "7",
+    "--watch-ms", "200", "--interval-ms", "100", "--max-samples", "2"],
+  "bounded job resources direct argv");
+
+const sampled_job_resources_defaults = compat.canonicalize([
+  "job", "resources", "job-1", "--generation", "7", "--watch", "1"
+]);
+same_argv(sampled_job_resources_defaults.argv,
+  ["--target", "current", "--grant", "observe,actuate", "job-resources", "job-1", "7",
+    "--watch-ms", "1000", "--interval-ms", "1000", "--max-samples", "300"],
+  "bounded job resources legacy defaults");
+
+const sampled_job_resources_fraction = compat.canonicalize([
+  "job", "resources", "job-1", "--generation", "7", "--watch", "1e-1",
+  "--interval", ".1", "--max-samples", "1"
+]);
+same_argv(sampled_job_resources_fraction.argv,
+  ["--target", "current", "--grant", "observe,actuate", "job-resources", "job-1", "7",
+    "--watch-ms", "100", "--interval-ms", "100", "--max-samples", "1"],
+  "bounded job resources Number-compatible seconds");
+
+require(compat.canonicalize([
+  "job", "resources", "job-1", "--watch", "0.09"
+]).kind === "usage", "job resources rejects a legacy watch below 0.1 seconds");
+require(compat.canonicalize([
+  "job", "resources", "job-1", "--watch", "1", "--interval", "5.1"
+]).kind === "usage", "job resources rejects a legacy interval above 5 seconds");
+require(compat.canonicalize([
+  "job", "resources", "job-1", "--watch", "1", "--max-samples", "1001"
+]).kind === "usage", "job resources rejects a legacy sample ceiling above 1000");
+
 const missing_job_resources_id = compat.canonicalize(["job", "resources"]);
 require(missing_job_resources_id.kind === "usage",
   "job resources without an id is a local typed usage failure");
@@ -236,6 +284,10 @@ todo_case(["zoom", "Window#1", "--x1", "1", "--y1", "2", "--x2", "3", "--y2", "4
   "acu.dynamic.005", "legacy zoom");
 todo_case(["job", "resources", "job-1", "--generation", "7", "--interval", "1"],
   "acu.dynamic.018", "legacy job resources");
+todo_case(["job", "resources", "job-1", "--generation", "7", "--top", "5"],
+  "acu.dynamic.018", "legacy job resource member projection");
+todo_case(["job", "resources", "job-1", "--generation", "7", "--max", "5"],
+  "acu.dynamic.018", "legacy job resource acquisition ceiling");
 todo_case(["device", "claim", "legacy-device-path"], "acu.dynamic.054", "legacy device claim");
 todo_case(["storage", "mount", "disk-1"], "acu.dynamic.057", "legacy storage mount");
 todo_case(["privilege", "plan", "process.signal", "42", "TERM"],

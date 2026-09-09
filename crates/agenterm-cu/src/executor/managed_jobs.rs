@@ -44,7 +44,7 @@ const START_READY_TIMEOUT: Duration = Duration::from_secs(5);
 const START_POLL: Duration = Duration::from_millis(20);
 const OUTPUT_CAPACITY_BYTES: usize = 1024 * 1024;
 const IPC_PAGE_BYTES: usize = 64 * 1024;
-const JOB_RESOURCE_MAX_SAMPLES: usize = 256;
+const JOB_RESOURCE_MAX_SAMPLES: usize = 1_000;
 const JOB_RESOURCE_MAX_MEMBERS: usize = 256;
 
 pub(super) struct JobRequestContext<'a> {
@@ -480,6 +480,8 @@ pub(super) fn job_resources_payload(
     job_id: &str,
     generation: u64,
     watch_ms: Option<u64>,
+    requested_interval_ms: Option<u64>,
+    requested_max_samples: Option<usize>,
 ) -> Result<Value, CuError> {
     let record = checked_record(job_id, generation)?;
     let expected = record.process.as_ref().ok_or_else(|| {
@@ -498,12 +500,17 @@ pub(super) fn job_resources_payload(
     }
 
     let duration_ms = watch_ms.expect("checked above");
-    let interval_ms = duration_ms
-        .div_ceil((JOB_RESOURCE_MAX_SAMPLES - 1) as u64)
-        .max(1);
+    let max_samples = requested_max_samples.unwrap_or(JOB_RESOURCE_MAX_SAMPLES);
+    let interval_ms = requested_interval_ms.unwrap_or_else(|| {
+        if max_samples == 1 {
+            duration_ms
+        } else {
+            duration_ms.div_ceil((max_samples - 1) as u64).max(1)
+        }
+    });
     let started = Instant::now();
     let deadline = started + Duration::from_millis(duration_ms);
-    let mut samples = Vec::with_capacity(JOB_RESOURCE_MAX_SAMPLES);
+    let mut samples = Vec::with_capacity(max_samples);
     let mut latest = None;
     let ended_reason = loop {
         match resource_point_payload(&record, expected) {
@@ -525,11 +532,11 @@ pub(super) fn job_resources_payload(
             }
             Err(error) => return Err(error),
         }
+        if samples.len() >= max_samples {
+            break "max-samples";
+        }
         if Instant::now() >= deadline {
             break "duration";
-        }
-        if samples.len() >= JOB_RESOURCE_MAX_SAMPLES {
-            break "max-samples";
         }
         thread::sleep(
             Duration::from_millis(interval_ms)
@@ -549,7 +556,7 @@ pub(super) fn job_resources_payload(
         "mode": "bounded-series",
         "duration_ms": duration_ms,
         "interval_ms": interval_ms,
-        "max_samples": JOB_RESOURCE_MAX_SAMPLES,
+        "max_samples": max_samples,
         "emitted": samples.len(),
         "completed": ended_reason == "duration",
         "truncated": ended_reason == "max-samples",

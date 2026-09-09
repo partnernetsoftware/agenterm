@@ -10355,7 +10355,7 @@
     },
     {
       "id": "acu-job-resources-compat-smoke",
-      "description": "Prove the real embedded ACU compatibility entry discovers one owned managed job's generation and returns the shared typed point-in-time resource reply while unsupported sampling flags retain acu.dynamic.018.",
+      "description": "Prove the embedded ACU compatibility entry discovers one owned managed job's generation, returns the shared typed point reply, and executes bounded legacy watch/interval/max-samples while partial top/acquisition-max shapes retain acu.dynamic.018.",
       "entry": "scripts/qjs/acu-job-resources-compat-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
