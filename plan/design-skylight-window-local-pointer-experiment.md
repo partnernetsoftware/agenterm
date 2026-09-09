@@ -354,3 +354,150 @@ authorized by this result alone.
 - hover gap 095 (the first discriminator is wheel-only for gap 074);
 - policy acceptance of private APIs, even if the discriminator passes;
 - product rollout, durable receipts or platform qualification.
+
+## 10. Precommitted drag extension · held-button exact-window delivery
+
+The wheel discriminator does not answer `acu.dynamic.004`. A drag is a
+stateful event sequence: once a button-down is posted, every exit path owns a
+matching button-up obligation. Exact delivery of one stateless wheel event
+cannot prove held-button routing, move ordering, capture behavior or release
+cleanup. This extension therefore receives its own verdict and cannot borrow
+the wheel counts.
+
+This remains research only. A pass does not add a product provider, change the
+capability ledger, remove the compatibility TODO or register public evidence.
+Product work remains gated by the previous-generation compatibility boundary
+in C9 as well as this drag-specific result.
+
+The extension goes directly to the owned Chromium discriminator. Repeating the
+AppKit fixture would not decide adoption: its public PID route already delivered
+the simpler pointer events, while Chromium distinguished the private wheel
+route and supplies an independent business-effect oracle for a drag.
+
+### 10.1 Frozen setup and event sequence
+
+- Reuse the owned two-window Chromium profile, exact `CGWindowID` plus owner
+  PID binding, background target B, peer A and separate foreground guard from
+  section 9. The runtime symbol set and OS-build/architecture allowlist remain
+  pinned exactly as in the measured wheel injector; any other host returns
+  `provider_unavailable` before injection. No user profile or user window is
+  eligible.
+- Extend the owned page oracle with capture listeners for `mousedown`,
+  `mousemove`, `mouseup` and `click`. Each record carries one monotonic
+  sequence, `button`, `buttons` and client coordinates under a trial nonce
+  stored by the reset call. Reset and read target and peer independently over
+  the frozen CDP identity.
+- Freeze a left-button gesture of one down, twenty bounded dragged moves and
+  one up. Create and stamp every event before posting the down. The first and
+  last points come from a zero-injection viewport calibration. CDP supplies
+  `screenX`, `screenY`, outer/inner dimensions and `devicePixelRatio`; the page
+  supplies one known element's `getBoundingClientRect`. The derived screen to
+  client transform must agree with the exact CGWindow and AX bounds within one
+  CSS pixel or the run is `INCONCLUSIVE` before any down. One trajectory
+  remains inside B. A second starts inside B and ends outside B without entering
+  A or the guard, proving that the addressed window retains the held-button
+  sequence through the release.
+- A delivered gesture is exactly one down, one or more held moves and exactly
+  one up in that order. Every observed move has `buttons == 1`; down has
+  `button == 0 && buttons == 1`; up has `button == 0 && buttons == 0`. The
+  final held move and up must reach the requested endpoint within one CSS
+  pixel. Chromium may coalesce intermediate moves, so the DOM oracle does not
+  require twenty callbacks; the injector receipt still requires twenty move
+  post attempts. For the inside trajectory, zero or one `click` is valid. If
+  present, it must follow the up and target the nearest common ancestor of the
+  down and up targets inside B. The inside-to-outside trajectory must produce
+  no click in B. A click before up, more than one click or any click in A is a
+  failure.
+- Sample the physical pointer, foreground PID/window, target application's
+  main/key window and its AX-focused window or element after the down, after
+  every move and after the up, not merely before and after the whole gesture.
+  Independently bracket the gesture with both pages' `document.hasFocus()`
+  values. Any change is host drift. Synthetic focus, raise and activation are
+  forbidden. Preserve the archived six-millisecond move cadence; record every
+  post-to-sample interval and require it to remain at most 50 milliseconds so
+  observation cannot silently turn the gesture into an unbounded slow path.
+- Run `PRIVATE`, `PUBLIC_LOC` and `PUBLIC_OFF` arms from freshly reset oracles.
+  `PUBLIC_LOC` uses the identical down/move/up events and screen path through
+  PID-targeted public posting. `PUBLIC_OFF` translates the whole path outside
+  B and A and detects process-key-window fallback. Randomize arm order from a
+  recorded seed; never tune event fields after observing an arm.
+
+After a down post attempt, the injector must attempt exactly one up to the same
+frozen PID, `CGWindowID` and final local point on every in-process success or
+failure path. Identity or host drift discovered mid-gesture stops further
+moves but does not cancel that release attempt. The parent court also owns one
+independent release-only invocation for an injector crash, timeout or missing
+receipt: it sends only an up to the same frozen identity and endpoint, and runs
+at most once when the primary receipt does not prove an up attempt. Recovery
+cannot turn that trial green because whether the first process posted an up is
+unknown. A missing or uncertain release makes the run `FAIL_RELEASE` with
+`outcome_unknown`; it can never be reported as an ordinary inconclusive
+dependency failure. No further down may run in that fixture and the action is
+never automatically retried.
+
+### 10.2 Precommitted criteria
+
+| ID | Criterion | Nature | Pass condition |
+|---|---|---|---|
+| G1 | Owned identity | Safety | pinned host ABI, profile, process, B window, peer window, zero-injection viewport transform and guard are unique before injection |
+| G2 | Equivalent arms | Validity | the three arms differ only by route and the frozen translated control path |
+| G3 | Exact target sequence | Behavioral | every PRIVATE arm gives B one ordered down/held-move/up gesture with the requested endpoint and only the trajectory-specific click outcome |
+| G4 | Peer isolation | Safety | A receives no down, held move, up or click; the separate guard retains foreground ownership |
+| G5 | Release closure | Safety | every successful primary down has exactly one same-target primary up attempt and one observed up; an uncertain primary may receive one release-only recovery but the trial fails |
+| G6 | Host preservation | Safety | pointer doubles, foreground PID/window, target main/key window and AX-focused identity remain unchanged at every intermediate sample |
+| G7 | Public discriminator | Discriminator | PRIVATE is exact in 20/20 triplets; PUBLIC_LOC is exact in 0/20; PUBLIC_OFF never reaches B or A |
+| G8 | Boundary trajectory | Behavioral | both the inside path and the inside-to-outside path satisfy G3-G6 |
+| G9 | Repeatability | Reliability | 1,000 PRIVATE gestures alternating 500 inside and 500 inside-to-outside paths have separately reported exact counts and zero loss, duplicate down/up, peer delivery, unexpected click, release failure or host drift |
+| G10 | Host matrix | Delivery | every macOS generation claimed by a future provider passes its own unchanged drag court; wheel C9 alone is insufficient |
+
+The page oracle is authoritative for delivery. A post count, provider return,
+tree change or screenshot cannot satisfy G3-G5.
+
+### 10.3 Decision tree, kill criterion and time box
+
+```mermaid
+flowchart TD
+    S["owned Chromium fixture + frozen drag paths"] --> V{"G1-G2 valid?"}
+    V -->|no| I["INCONCLUSIVE\nfix fixture or stop"]
+    V -->|yes| R{"all downs have one release attempt?"}
+    R -->|no| K["FAIL_RELEASE\nreject provider"]
+    R -->|yes| P{"PRIVATE exact and preserving?"}
+    P -->|no| F["FAIL_PRIVATE\nreject provider"]
+    P -->|yes| B{"PUBLIC_LOC exact count?"}
+    B -->|20/20| N["FAIL_NONDISTINGUISHING\nprivate route not justified"]
+    B -->|1..19| U["INCONCLUSIVE_UNSTABLE\nno migration claim"]
+    B -->|0/20| D{"G3-G8 all pass?"}
+    D -->|no| F
+    D -->|yes| Q{"G9 repeat + G10 matrix?"}
+    Q -->|no| X["research only\nkeep typed gap"]
+    Q -->|yes| E["eligible for guarded provider design\nnot product qualification itself"]
+```
+
+Kill criterion: the first unmatched or uncertain release, duplicate down/up,
+target or peer misdelivery, unexpected click, intermediate pointer/focus drift,
+identity change after a down, need for global-pointer fallback, or disagreement
+between two complete 20-triplet runs rejects the product-migration case. A
+behavioral failure is never erased by a later successful cleanup. Dependency
+or fixture failure before the first down is `INCONCLUSIVE` with zero injection;
+after a down, release ownership takes precedence over all other classification.
+
+Time box the injector, oracle and two complete current-host 20-triplet runs to
+two focused implementation days. Only after two identical G1-G8 passes may the
+1,000-gesture repeat run, using fresh top-level workers of at most 50 gestures
+under one parent-owned fixture. Stop the repeat on its first behavioral
+failure. Do not spend a previous-generation host until the current-host repeat
+passes, and do not claim that the earlier wheel C9 substitutes for G10.
+
+### 10.4 Product boundary after a research pass
+
+An eligible product design must expose a target-aware native API/ABI carrying
+the frozen window handle, owner PID and process start identity rather than
+turning `window_local_drag_available()` into an unconditional true or reusing
+the coordinate-only global pointer ABI. The compat mapping would preserve the
+archived left button and twenty steps, bind the press to one exact window
+identity, never add `--degraded`, and return typed unavailable before the press
+on an unqualified host. Its receipt must distinguish posted events,
+DOM-verified delivery, host-state preservation and release cleanup; an
+uncertain release is outcome-unknown and non-retryable.
+Windows and Linux remain separate gaps until their own exact-window mechanisms
+and public courts satisfy the same sequence and release invariants.
