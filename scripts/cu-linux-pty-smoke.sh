@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # CEO: Linux headless PTY + AgenTerm control-socket honesty with independent read-back.
 # Proves pty-start / pty-send / pty-wait / pty-read on a live authority and typed
-# pty_job_not_found when the deterministic Unix socket authority is absent. No --coords.
+# pty_job_not_found when the deterministic Unix socket authority is absent. Present
+# authority uses independent fuser + connect read-back on the scoped Unix socket.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -81,6 +82,14 @@ independent_socket_live() {
   local owner
   owner="$(fuser "$sock" 2>/dev/null | tr -d ' ' || true)"
   [[ -n "$owner" ]] || { echo "FAIL: independent socket has no listener: $sock" >&2; return 1; }
+  python3 - "$sock" <<'PY'
+import socket, sys
+path = sys.argv[1]
+conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+conn.settimeout(1.0)
+conn.connect(path)
+conn.close()
+PY
   SERVER_PID="$owner"
 }
 
