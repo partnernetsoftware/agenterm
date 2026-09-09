@@ -1,5 +1,6 @@
 // CEO: Linux CDP page-nav → page-fill → independent page-js DOM value read-back.
-// Acceptance is page-js input.value == SEED only; no --coords or screenshot.
+// Typed usage, miss, and no-CDP host-limit paths must hold; acceptance is
+// page-js input.value == SEED only. No --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -38,6 +39,8 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
+function output_success(document) { return flag_at(document, "ok"); }
+
 function cu_env(executable) {
   const env = {
     AGENTERM_NO_ACTIVATE: "1",
@@ -58,7 +61,7 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments, env) {
+function run_cu_reply(run_directory, executable, grant, arguments, env) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of arguments) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
@@ -66,12 +69,116 @@ function run_cu(run_directory, executable, grant, arguments, env) {
     env: env,
     timeout_ms: 60000,
   });
-  ensure(output.success === true, "cu_linux_cdp_page_fill_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_cdp_page_fill_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_cdp_page_fill_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_cdp_page_fill_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_cdp_page_fill_reply:" + JSON.stringify(document));
   return document;
+}
+
+function assert_page_fill_usage(run_directory, executable, env, port) {
+  const missing_text = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-fill", "--port", "" + port, "--target-id", "unused", "--node", "1",
+  ], env);
+  ensure(!output_success(missing_text), "cu_linux_cdp_page_fill_usage_ok_text:" + JSON.stringify(missing_text));
+  ensure(
+    text_at(missing_text, "error.code") === "usage",
+    "cu_linux_cdp_page_fill_usage_code_text:" + JSON.stringify(missing_text.error)
+  );
+  ensure(
+    text_at(missing_text, "error.message").indexOf("--text") >= 0,
+    "cu_linux_cdp_page_fill_usage_message_text:" + JSON.stringify(missing_text.error)
+  );
+
+  const empty_text = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-fill", "--port", "" + port, "--target-id", "unused", "--node", "1", "--text", "",
+  ], env);
+  ensure(!output_success(empty_text), "cu_linux_cdp_page_fill_usage_ok_empty:" + JSON.stringify(empty_text));
+  ensure(
+    text_at(empty_text, "error.code") === "usage",
+    "cu_linux_cdp_page_fill_usage_code_empty:" + JSON.stringify(empty_text.error)
+  );
+  ensure(
+    text_at(empty_text, "error.message").indexOf("--clear") >= 0,
+    "cu_linux_cdp_page_fill_usage_message_empty:" + JSON.stringify(empty_text.error)
+  );
+
+  const missing_node = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-fill", "--port", "" + port, "--target-id", "unused", "--text", "seed",
+  ], env);
+  ensure(!output_success(missing_node), "cu_linux_cdp_page_fill_usage_ok_node:" + JSON.stringify(missing_node));
+  ensure(
+    text_at(missing_node, "error.code") === "usage",
+    "cu_linux_cdp_page_fill_usage_code_node:" + JSON.stringify(missing_node.error)
+  );
+  ensure(
+    text_at(missing_node, "error.message").indexOf("--selector") >= 0
+      && text_at(missing_node, "error.message").indexOf("--node") >= 0,
+    "cu_linux_cdp_page_fill_usage_message_node:" + JSON.stringify(missing_node.error)
+  );
+}
+
+function assert_no_cdp_listener(run_directory, executable, env, port) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-fill", "--port", "" + port, "--target-id", "unused",
+    "--node", "1", "--text", "seed",
+  ], env);
+  ensure(reply.ok !== true, "cu_linux_cdp_page_fill_false_success:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_cdp_page_fill_host_limit_code:" + JSON.stringify(reply)
+  );
+  const message = text_at(reply, "error.message");
+  ensure(
+    message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
+    "cu_linux_cdp_page_fill_host_limit_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_page_fill_miss_bad_target(run_directory, executable, env, port) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-fill", "--port", "" + port, "--target-id", "deadbeef",
+    "--node", "1", "--text", "seed",
+  ], env);
+  ensure(!output_success(reply), "cu_linux_cdp_page_fill_miss_target_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "cdp_target_not_found",
+    "cu_linux_cdp_page_fill_miss_target_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("--target-id") >= 0,
+    "cu_linux_cdp_page_fill_miss_target_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_page_fill_miss_bad_selector(
+  run_directory, executable, env, port, target_id, expected_value
+) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-fill", "--port", "" + port, "--target-id", target_id,
+    "--selector", "#missing-not-present", "--text", "mutated",
+  ], env);
+  ensure(!output_success(reply), "cu_linux_cdp_page_fill_miss_selector_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "cdp_node_not_found",
+    "cu_linux_cdp_page_fill_miss_selector_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("--selector") >= 0,
+    "cu_linux_cdp_page_fill_miss_selector_message:" + JSON.stringify(reply.error)
+  );
+  const unchanged = input_value(run_directory, executable, env, port, target_id);
+  ensure(
+    unchanged === expected_value,
+    "cu_linux_cdp_page_fill_miss_node_readback:" + JSON.stringify({
+      expected: expected_value,
+      value: unchanged,
+    })
+  );
 }
 
 function page_target(rows) {
@@ -87,6 +194,14 @@ function input_value(run_directory, executable, env, port, target_id) {
     "--expression", "document.getElementById('q').value",
   ], env);
   return text_at(read, "data.value");
+}
+
+function cdp_ready(run_directory, port) {
+  const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  return probe.success === true && probe.stdout.indexOf("Browser") >= 0;
 }
 
 const args = rh.args();
@@ -130,6 +245,12 @@ try {
   ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
     "cu_linux_cdp_page_fill_port_in_use:" + port);
 
+  print("STEP page-fill typed-fails usage when --text or --selector/--node are missing");
+  assert_page_fill_usage(run_directory, executable, env, port);
+
+  print("STEP page-fill typed-fails no CDP listener on the owned free port before Chrome starts");
+  assert_no_cdp_listener(run_directory, executable, env, port);
+
   print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
   chrome_child = harness.start({
     program: launcher,
@@ -144,14 +265,13 @@ try {
     env: env,
     timeout_ms: 45000,
   });
-  for (let attempt = 0; attempt < 80; attempt = attempt + 1) {
-    const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
-      cwd: run_directory,
-      timeout_ms: 3000,
-    });
-    if (probe.success === true && probe.stdout.indexOf("Browser") >= 0) { break; }
+  for (let attempt = 0; attempt < 80 && !cdp_ready(run_directory, port); attempt = attempt + 1) {
     harness.sleep_ms(250);
   }
+  ensure(cdp_ready(run_directory, port), "cu_linux_cdp_page_fill_cdp_not_ready:" + port);
+
+  print("STEP page-fill typed-fails cdp_target_not_found for a bogus --target-id");
+  assert_page_fill_miss_bad_target(run_directory, executable, env, port);
 
   const targets = run_cu(run_directory, executable, "observe", [
     "page-targets", "--port", "" + port,
@@ -216,6 +336,9 @@ try {
   );
   harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-fill-readback");
 
+  print("STEP page-fill typed-fails cdp_node_not_found for a missing --selector without mutating value");
+  assert_page_fill_miss_bad_selector(run_directory, executable, env, port, target_id, seed);
+
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
@@ -227,5 +350,5 @@ if (chrome_child >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_cdp_page_fill_failed");
 harness.remove_run(context);
-print("PASS: CEO CDP page-nav → page-fill → independent page-js DOM read-back (no --coords)");
+print("PASS: Linux CDP page-nav → page-fill usage/miss/host-limit honesty + independent page-js DOM read-back (no --coords)");
 return;

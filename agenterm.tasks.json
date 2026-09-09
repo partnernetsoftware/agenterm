@@ -6148,7 +6148,7 @@
     },
     {
       "id": "cu-linux-cdp-page-fill-smoke",
-      "description": "Linux CDP page-nav to a disposable file:// input fixture, page-fill --clear writes SEED, and independent page-find --selector value read-back equals SEED; --port/--target-id only, no --coords.",
+      "description": "Linux CDP page-nav to a disposable file:// input fixture, page-fill usage/miss/no-CDP host-limit honesty, page-fill --clear writes SEED, and independent page-js input.value read-back equals SEED; --port/--target-id only, no --coords.",
       "entry": "scripts/qjs/cu-linux-cdp-page-fill-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
