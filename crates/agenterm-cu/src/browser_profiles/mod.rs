@@ -24,9 +24,9 @@ pub use launch::{
 };
 
 /// One Chromium-family application whose `Local State` this binary can
-/// read. `macos_dir` / `linux_dir` are relative to the platform's
-/// application-support root (`~/Library/Application Support` /
-/// `~/.config`).
+/// read. The directory fields are relative to the platform's browser-data
+/// root (`~/Library/Application Support`, `~/.config`, or
+/// `~/AppData/Local`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BrowserApp {
     /// The application name the window inventory reports (`app_name`),
@@ -34,6 +34,7 @@ pub struct BrowserApp {
     pub name: &'static str,
     pub macos_dir: &'static str,
     pub linux_dir: &'static str,
+    pub windows_dir: Option<&'static str>,
 }
 
 /// The catalog, in resolution order. Anything else is typed `unsupported`.
@@ -42,16 +43,19 @@ pub const APPS: &[BrowserApp] = &[
         name: "Brave Origin",
         macos_dir: "BraveSoftware/Brave-Origin",
         linux_dir: "BraveSoftware/Brave-Origin",
+        windows_dir: None,
     },
     BrowserApp {
         name: "Brave Browser",
         macos_dir: "BraveSoftware/Brave-Browser",
         linux_dir: "BraveSoftware/Brave-Browser",
+        windows_dir: Some("BraveSoftware/Brave-Browser/User Data"),
     },
     BrowserApp {
         name: "Google Chrome",
         macos_dir: "Google/Chrome",
         linux_dir: "google-chrome",
+        windows_dir: Some("Google/Chrome/User Data"),
     },
 ];
 
@@ -60,23 +64,24 @@ pub fn app_names() -> Vec<&'static str> {
 }
 
 impl BrowserApp {
-    /// `<home>/.../Local State` for this host, or `None` when the host OS
-    /// has no mapping (Windows user data lives under `%LOCALAPPDATA%` and
-    /// is not mapped here).
-    pub fn local_state_path(&self, home: &Path) -> Option<PathBuf> {
-        let dir = self.user_data_dir(home)?;
+    /// `<platform browser-data root>/.../Local State` for this host, or
+    /// `None` when this catalog application has no mapping on the host.
+    pub fn local_state_path(&self, root: &Path) -> Option<PathBuf> {
+        let dir = self.user_data_dir(root)?;
         Some(dir.join("Local State"))
     }
 
-    pub fn user_data_dir(&self, home: &Path) -> Option<PathBuf> {
+    pub fn user_data_dir(&self, root: &Path) -> Option<PathBuf> {
         if cfg!(target_os = "macos") {
             Some(
-                home.join("Library")
+                root.join("Library")
                     .join("Application Support")
                     .join(self.macos_dir),
             )
         } else if cfg!(target_os = "linux") {
-            Some(home.join(".config").join(self.linux_dir))
+            Some(root.join(".config").join(self.linux_dir))
+        } else if cfg!(target_os = "windows") {
+            self.windows_dir.map(|directory| root.join(directory))
         } else {
             None
         }
@@ -465,6 +470,14 @@ mod tests {
                     "/synthetic-home/.config/BraveSoftware/Brave-Origin/Local State"
                 ))
             );
+        } else if cfg!(target_os = "windows") {
+            assert_eq!(
+                APPS[2].local_state_path(home),
+                Some(PathBuf::from(
+                    "/synthetic-home/Google/Chrome/User Data/Local State"
+                ))
+            );
+            assert_eq!(APPS[0].local_state_path(home), None);
         } else {
             assert_eq!(path, None);
         }

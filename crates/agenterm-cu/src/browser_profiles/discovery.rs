@@ -1,8 +1,8 @@
 //! Discover Chromium-family catalog applications without a live window.
 //!
-//! On Linux this consults the catalog user-data directory, PATH / known
-//! install paths, and Freedesktop `.desktop` entries. macOS checks the
-//! mapped Application Support root and `/Applications/*.app` bundles.
+//! Every mapped host first checks its catalog user-data directory. Linux
+//! additionally checks PATH / known install paths and Freedesktop `.desktop`
+//! entries; macOS additionally checks `/Applications/*.app` bundles.
 
 use std::path::{Path, PathBuf};
 

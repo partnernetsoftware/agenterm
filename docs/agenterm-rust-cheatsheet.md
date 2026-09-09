@@ -4467,6 +4467,14 @@ reusable court image. The Linux x86_64 qjswasm-to-ACU PTY court exposed this as
 `home-directory-unavailable` before passing with isolated `HOME`,
 `XDG_DATA_HOME`, and `XDG_CONFIG_HOME`.
 
+On Windows, do not make `USERPROFILE` an authority for data that Windows
+locates through `LOCALAPPDATA`. A service session may provide the latter
+without the former. Resolve Chromium `Local State` from `LOCALAPPDATA`, use
+`USERPROFILE` only as an optional display-path aid, and redact a path beneath
+the data root as `~/AppData/Local/...` even when the two environment roots are
+synthetically disjoint. A public court should set both roots inside its owned
+run directory and prove the stable redacted path.
+
 ## Keep file-transfer stdin separate from a timeout wrapper's program source
 
 A wrapper invoked as `interpreter - ... <<PROGRAM` consumes stdin to read its
