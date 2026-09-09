@@ -1,7 +1,8 @@
 // CEO: Linux host memory honesty with independent /proc/meminfo read-back.
 // Acceptance is smoke read-back only: CU host-memory-status must agree with
-// MemTotal and MemAvailable derived outside agenterm-cu. No --coords or
-// screenshot degradation.
+// MemTotal and MemAvailable derived outside agenterm-cu, and unreadable meminfo
+// must typed-fail instead of inventing facts. No --coords or screenshot
+// degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -12,36 +13,104 @@ const declared_evidence = [
   "cu.linux-host-memory-readback",
 ];
 
+const MEMINFO_PATH = "/proc/meminfo";
+
 function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function text_at(value, dotted) {
+function at(value, dotted) {
   let current = value;
   for (const key of dotted.split(".")) {
     current = rh.field(current, key);
   }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const current = at(value, dotted);
   if (current === undefined || current === null) { return ""; }
   return "" + current;
 }
 
-function invoke(run_directory, executable, arguments, expect_success) {
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, arguments, expect_success) {
   const output = rh.command(executable, [
     "--target", "current", "--grant", "observe",
   ].concat(arguments), {
     cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
+    env: cu_env(executable),
     timeout_ms: 30000,
   });
-  ensure(output.success === expect_success, "cu_linux_host_memory_exit:" + output.exit_code);
-  const reply = JSON.parse(output.stdout.trim());
-  ensure(reply.ok === expect_success, "cu_linux_host_memory_reply_state");
+  ensure(
+    output.success === expect_success || (expect_success !== true && output.exit_code === 1),
+    "cu_linux_host_memory_exit:" + output.exit_code + ":" + output.stdout + output.stderr
+  );
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_host_memory_empty:" + output.stderr);
+  const reply = JSON.parse(trimmed);
+  ensure(reply.ok === expect_success, "cu_linux_host_memory_reply_state:" + JSON.stringify(reply));
+  ensure(text_at(reply, "command") === "host-memory-status",
+         "cu_linux_host_memory_command:" + JSON.stringify(reply));
   return reply;
 }
 
-function verify_readback(executable) {
+function probe_meminfo_sources() {
   const script = [
-    "import json, os, subprocess, sys",
+    "import json, os",
+    "path = '/proc/meminfo'",
+    "readable = os.path.isfile(path) and os.access(path, os.R_OK)",
+    "mem_total = False",
+    "mem_available = False",
+    "if readable:",
+    "    with open(path) as handle:",
+    "        for line in handle:",
+    "            if line.startswith('MemTotal:'):",
+    "                mem_total = True",
+    "            elif line.startswith('MemAvailable:'):",
+    "                mem_available = True",
+    "print(json.dumps({",
+    "    'readable': readable,",
+    "    'mem_total': mem_total,",
+    "    'mem_available': mem_available,",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], { timeout_ms: 10000 });
+  ensure(output.success === true, "cu_linux_host_memory_probe:" + output.stderr);
+  const probe = JSON.parse(output.stdout.trim());
+  ensure(probe.readable === true || probe.readable === false,
+         "cu_linux_host_memory_probe_readable:" + output.stdout);
+  ensure(probe.mem_total === true || probe.mem_total === false,
+         "cu_linux_host_memory_probe_mem_total:" + output.stdout);
+  ensure(probe.mem_available === true || probe.mem_available === false,
+         "cu_linux_host_memory_probe_mem_available:" + output.stdout);
+  return probe;
+}
+
+function independent_meminfo_snapshot() {
+  const script = [
+    "import os",
     "def meminfo_kibibytes(key):",
     "    with open('/proc/meminfo') as handle:",
     "        for line in handle:",
@@ -51,42 +120,119 @@ function verify_readback(executable) {
     "                    raise ValueError('invalid ' + key + ' line: ' + line.strip())",
     "                return int(parts[1]) * 1024",
     "    raise ValueError('missing ' + key)",
-    "def snapshot():",
-    "    return {",
-    "        'page_size': int(os.sysconf('SC_PAGESIZE')),",
-    "        'physical_bytes': meminfo_kibibytes('MemTotal:'),",
-    "        'available_physical_bytes': meminfo_kibibytes('MemAvailable:'),",
-    "    }",
-    "cu = sys.argv[1]",
-    "before = snapshot()",
-    "out = subprocess.check_output([cu, '--target', 'current', '--grant', 'observe', 'host-memory-status'], text=True)",
-    "after = snapshot()",
-    "reply = json.loads(out)",
-    "if not reply.get('ok') or reply.get('command') != 'host-memory-status':",
-    "    raise SystemExit('cu_linux_host_memory_reply_state')",
-    "data = reply['data']",
-    "if data.get('atomic_snapshot') is not False:",
-    "    raise SystemExit('cu_linux_host_memory_atomic_snapshot')",
-    "if data.get('availability_semantics') != 'linux-mem-available':",
-    "    raise SystemExit('cu_linux_host_memory_semantics:' + str(data.get('availability_semantics')))",
-    "if data['physical_bytes'] != before['physical_bytes'] or data['physical_bytes'] != after['physical_bytes']:",
-    "    raise SystemExit('cu_linux_host_memory_physical_mismatch:cu=' + str(data['physical_bytes'])",
-    "        + ':before=' + str(before['physical_bytes']) + ':after=' + str(after['physical_bytes']))",
-    "if data['page_size'] != before['page_size']:",
-    "    raise SystemExit('cu_linux_host_memory_page_size_mismatch')",
-    "if data['allocation_granularity'] < data['page_size']:",
-    "    raise SystemExit('cu_linux_host_memory_allocation_granularity')",
-    "lo = min(before['available_physical_bytes'], after['available_physical_bytes'])",
-    "hi = max(before['available_physical_bytes'], after['available_physical_bytes'])",
-    "avail = data['available_physical_bytes']",
-    "if avail < lo or avail > hi:",
-    "    raise SystemExit('cu_linux_host_memory_available_mismatch:cu=' + str(avail)",
-    "        + ':lo=' + str(lo) + ':hi=' + str(hi))",
-    "print('physical_bytes', data['physical_bytes'])",
-    "print('available_physical_bytes', avail)",
+    "print('page_size', int(os.sysconf('SC_PAGESIZE')))",
+    "print('physical_bytes', meminfo_kibibytes('MemTotal:'))",
+    "print('available_physical_bytes', meminfo_kibibytes('MemAvailable:'))",
   ].join("\n");
-  const output = rh.command("python3", ["-c", script, executable], { timeout_ms: 30000 });
-  ensure(output.success === true, "cu_linux_host_memory_readback:" + output.stderr + output.stdout);
+  const output = rh.command("python3", ["-c", script], { timeout_ms: 10000 });
+  ensure(output.success === true, "cu_linux_host_memory_independent:" + output.stderr);
+  const facts = {};
+  for (const line of output.stdout.trim().split("\n")) {
+    const space = line.indexOf(" ");
+    ensure(space > 0, "cu_linux_host_memory_independent_shape:" + line);
+    facts[line.substring(0, space)] = Number(line.substring(space + 1));
+  }
+  ensure(facts.page_size > 0, "cu_linux_host_memory_page_size_probe");
+  ensure(facts.physical_bytes > 0, "cu_linux_host_memory_physical_probe");
+  ensure(facts.available_physical_bytes >= 0, "cu_linux_host_memory_available_probe");
+  ensure(facts.available_physical_bytes <= facts.physical_bytes,
+         "cu_linux_host_memory_available_bounds");
+  return facts;
+}
+
+function assert_ok_readback(run_directory, executable, before, after, reply) {
+  const data = reply.data;
+  ensure(data.atomic_snapshot === false, "cu_linux_host_memory_atomic_snapshot");
+  ensure(text_at(data, "availability_semantics") === "linux-mem-available",
+         "cu_linux_host_memory_semantics:" + text_at(data, "availability_semantics"));
+  const physical = Number(text_at(data, "physical_bytes"));
+  const page_size = Number(text_at(data, "page_size"));
+  const allocation = Number(text_at(data, "allocation_granularity"));
+  const available = Number(text_at(data, "available_physical_bytes"));
+  ensure(physical === before.physical_bytes && physical === after.physical_bytes,
+         "cu_linux_host_memory_physical_mismatch:cu=" + physical
+           + ":before=" + before.physical_bytes + ":after=" + after.physical_bytes);
+  ensure(page_size === before.page_size, "cu_linux_host_memory_page_size_mismatch");
+  ensure(allocation >= page_size, "cu_linux_host_memory_allocation_granularity");
+  const lo = before.available_physical_bytes < after.available_physical_bytes
+    ? before.available_physical_bytes : after.available_physical_bytes;
+  const hi = before.available_physical_bytes > after.available_physical_bytes
+    ? before.available_physical_bytes : after.available_physical_bytes;
+  ensure(available >= lo && available <= hi,
+         "cu_linux_host_memory_available_mismatch:cu=" + available
+           + ":lo=" + lo + ":hi=" + hi);
+}
+
+function assert_unreadable_host_limit(run_directory, executable) {
+  const script = [
+    "import json, os, subprocess, sys, tempfile, textwrap",
+    "cu = sys.argv[1]",
+    "run_dir = sys.argv[2]",
+    "with tempfile.NamedTemporaryFile(mode='w', delete=False) as handle:",
+    "    handle.write('not meminfo\\n')",
+    "    stub = handle.name",
+    "try:",
+    "    cmd = textwrap.dedent(",
+    "        f'''",
+    "        mount --bind {stub} /proc/meminfo",
+    "        {cu} --target current --grant observe host-memory-status",
+    "        ''')",
+    "    proc = subprocess.run(",
+    "        ['unshare', '-Ur', '--mount', 'sh', '-c', cmd],",
+    "        cwd=run_dir, capture_output=True, text=True, timeout=30)",
+    "    if proc.returncode == 0:",
+    "        raise SystemExit('cu_linux_host_memory_unreadable_ok:' + proc.stdout)",
+    "    reply = json.loads(proc.stdout)",
+    "    if reply.get('ok') is not False:",
+    "        raise SystemExit('cu_linux_host_memory_unreadable_ok_state:' + proc.stdout)",
+    "    error = reply.get('error') or {}",
+    "    code = error.get('code') or ''",
+    "    if code not in ('host_memory_invalid', 'host_memory_query_failed'):",
+    "        raise SystemExit('cu_linux_host_memory_unreadable_code:' + code)",
+    "    detail = error.get('detail') or {}",
+    "    kind = detail.get('kind') or ''",
+    "    if kind not in ('InvalidValue', 'Query'):",
+    "        raise SystemExit('cu_linux_host_memory_unreadable_kind:' + kind)",
+    "    message = error.get('message') or ''",
+    "    if '/proc/meminfo' not in message:",
+    "        raise SystemExit('cu_linux_host_memory_unreadable_message:' + message)",
+    "    print(json.dumps({'code': code, 'kind': kind}))",
+    "finally:",
+    "    os.unlink(stub)",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, executable, run_directory], {
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true,
+         "cu_linux_host_memory_unreadable:" + output.stderr + output.stdout);
+  const probe = JSON.parse(output.stdout.trim());
+  ensure(
+    probe.code === "host_memory_invalid" || probe.code === "host_memory_query_failed",
+    "cu_linux_host_memory_unreadable_code:" + JSON.stringify(probe)
+  );
+}
+
+function verify_unavailable_when_probe_absent(run_directory, executable, probe) {
+  const reply = run_cu(run_directory, executable, ["host-memory-status"], false);
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "host_memory_invalid" || code === "host_memory_query_failed",
+    "cu_linux_host_memory_unavailable_code:" + JSON.stringify(reply.error)
+  );
+  const kind = text_at(reply, "error.detail.kind");
+  ensure(kind === "InvalidValue" || kind === "Query",
+         "cu_linux_host_memory_unavailable_kind:" + kind);
+  const message = text_at(reply, "error.message");
+  ensure(message.indexOf("/proc/meminfo") >= 0 || message.indexOf("MemTotal") >= 0,
+         "cu_linux_host_memory_unavailable_message:" + message);
+  if (!probe.readable) {
+    ensure(message.indexOf("/proc/meminfo") >= 0,
+           "cu_linux_host_memory_unreadable_path:" + message);
+  }
+  if (!probe.mem_total || !probe.mem_available) {
+    ensure(message.indexOf("MemTotal") >= 0 || message.indexOf("MemAvailable") >= 0,
+           "cu_linux_host_memory_missing_key_message:" + message);
+  }
 }
 
 const args = rh.args();
@@ -98,16 +244,41 @@ harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 let executable = rh.absolute(args[1]);
 if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
-harness.require(rh.exists(executable), "agenterm-cu executable missing");
+ensure(rh.exists(executable), "cu_linux_host_memory_executable_missing:" + executable);
 
 const context = harness.new_context(repo, "cu-linux-host-memory");
+const host_sources = probe_meminfo_sources();
 let succeeded = 0;
 let failure = "";
 try {
-  print("STEP host-memory-status observe matches independent /proc/meminfo read-back");
-  verify_readback(executable);
+  if (!host_sources.readable || !host_sources.mem_total || !host_sources.mem_available) {
+    print("STEP typed host-limit when independent /proc/meminfo probe is unreadable or incomplete"
+      + " (readable=" + host_sources.readable
+      + " mem_total=" + host_sources.mem_total
+      + " mem_available=" + host_sources.mem_available + ")");
+    verify_unavailable_when_probe_absent(context.run_directory, executable, host_sources);
+    succeeded = 1;
+  } else {
+    print("STEP host-memory-status typed-fails when /proc/meminfo is unreadable in an isolated mount namespace");
+    assert_unreadable_host_limit(context.run_directory, executable);
 
-  succeeded = 1;
+    print("STEP independent /proc/meminfo MemTotal and MemAvailable bracket one host-memory-status observation");
+    const before = independent_meminfo_snapshot();
+    const reply = run_cu(context.run_directory, executable, ["host-memory-status"], true);
+    const after = independent_meminfo_snapshot();
+    assert_ok_readback(context.run_directory, executable, before, after, reply);
+
+    print("STEP repeated host-memory-status keeps physical_bytes stable against independent read-back");
+    const second_before = independent_meminfo_snapshot();
+    const second = run_cu(context.run_directory, executable, ["host-memory-status"], true);
+    const second_after = independent_meminfo_snapshot();
+    assert_ok_readback(context.run_directory, executable, second_before, second_after, second);
+    ensure(Number(text_at(second, "data.physical_bytes"))
+           === Number(text_at(reply, "data.physical_bytes")),
+           "cu_linux_host_memory_physical_unstable");
+
+    succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -118,7 +289,11 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-host-memory-readback");
   harness.remove_run(context);
-  print("PASS: Linux host-memory-status matches independent /proc/meminfo MemTotal and MemAvailable read-back");
+  if (host_sources.readable && host_sources.mem_total && host_sources.mem_available) {
+    print("PASS: Linux host-memory-status matches independent /proc/meminfo MemTotal and MemAvailable read-back with unreadable host-limit honesty");
+  } else {
+    print("PASS: Linux host-memory-status typed-fails when independent /proc/meminfo is unreadable or incomplete");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

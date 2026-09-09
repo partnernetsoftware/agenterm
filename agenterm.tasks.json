@@ -6974,7 +6974,7 @@
     },
     {
       "id": "cu-linux-host-memory-smoke",
-      "description": "Linux host-memory-status page geometry, physical_bytes and available_physical_bytes match independent /proc/meminfo MemTotal and MemAvailable read-back; no --coords.",
+      "description": "Linux host-memory-status page geometry, physical_bytes and available_physical_bytes match independent /proc/meminfo MemTotal and MemAvailable read-back; unreadable or incomplete meminfo typed-fails with host_memory_* detail; no --coords.",
       "entry": "scripts/qjs/cu-linux-host-memory-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
