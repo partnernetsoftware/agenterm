@@ -456,6 +456,13 @@
       ]
     },
     {
+      "id": "cu-linux-audio-status-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-audio-status-readback"
+      ]
+    },
+    {
       "id": "cu-linux-raise-activate-smoke",
       "platform": "linux",
       "evidence": [
