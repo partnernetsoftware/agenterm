@@ -6686,7 +6686,7 @@
     },
     {
       "id": "cu-linux-focused-honesty-smoke",
-      "description": "Linux CU focused --window on a disposable GTK fixture matches independent pyatspi deepest STATE_FOCUSED node name and role after focus --name actuation; AT-SPI/--name only, no --coords.",
+      "description": "Linux CU focused --window on a disposable GTK fixture matches independent pyatspi deepest STATE_FOCUSED node name and role after focus --name actuation; typed usage and AT-SPI host-limit paths when the independent pyatspi desktop probe is unavailable; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-focused-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
