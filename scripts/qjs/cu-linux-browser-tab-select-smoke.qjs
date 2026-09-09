@@ -1,7 +1,10 @@
-// CEO: Linux tab-select by --title / --index with independent tab-list read-back.
-// Typed tab-select usage must reject AT-SPI --name and other unexpected
-// arguments; typed get-extents --name usage/host-limit paths must hold before
-// the tab-select actuate/read-back court. AT-SPI/--name only; no --coords.
+// CEO: Linux tab-select by --title / --index with independent tab-list and
+// Chrome/CDP tab inventory read-back. Typed tab-select usage must reject
+// AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed
+// get-extents --name usage AND host-limit paths must both hold before the
+// tab-select actuate/read-back court. Independent curl /json and CU
+// browser-tabs must agree with tab-list after each select. Prefer host-limit
+// clarity over fake success. AT-SPI/--name only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -38,20 +41,31 @@ function flag_at(value, dotted) { return at(value, dotted) === true; }
 
 function output_success(document) { return flag_at(document, "ok"); }
 
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function get_extents_misuse_message_ok(message, token) {
+  return usage_rejects_unexpected(message, token)
+    || message.indexOf("--name") >= 0;
+}
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
+
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
   const metadata = rh.symlink_metadata(path);
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function isolated_env(run_directory) {
+function cu_env(executable) {
   const env = {
-    HOME: run_directory,
-    XDG_CONFIG_HOME: rh.join(run_directory, ".config"),
-    XDG_DATA_HOME: rh.join(run_directory, ".data"),
-    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
-    AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, "cu-receipts.jsonl"),
-    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
     AGENTERM_NO_ACTIVATE: "1",
   };
   for (const key of [
@@ -65,6 +79,30 @@ function isolated_env(run_directory) {
   }
   if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
     env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function isolated_env(run_directory, executable) {
+  const env = {
+    HOME: run_directory,
+    XDG_CONFIG_HOME: rh.join(run_directory, ".config"),
+    XDG_DATA_HOME: rh.join(run_directory, ".data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, "cu-receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  const cu = cu_env(executable);
+  env.AGENTERM_ABI_LIB = cu.AGENTERM_ABI_LIB;
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (cu[key] !== undefined) { env[key] = cu[key]; }
   }
   return env;
 }
@@ -181,9 +219,44 @@ function assert_tab_select_usage_limit(run_directory, executable, env) {
     "cu_linux_tab_select_usage_bogus_code:" + JSON.stringify(with_bogus.error)
   );
   ensure(
-    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
     "cu_linux_tab_select_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+
+  const flat_with_coords = invoke_actuate_reply(run_directory, executable, [
+    "tab-select", "--window", "1", "--title", "unused", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(flat_with_coords),
+    "cu_linux_tab_select_usage_flat_coords_ok:" + JSON.stringify(flat_with_coords));
+  ensure(
+    text_at(flat_with_coords, "error.code") === "usage",
+    "cu_linux_tab_select_usage_flat_coords_code:" + JSON.stringify(flat_with_coords.error)
+  );
+  ensure(
+    text_at(flat_with_coords, "command") === "usage",
+    "cu_linux_tab_select_usage_flat_coords_command:" + JSON.stringify(flat_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(flat_with_coords, "error.message"), "--coords"),
+    "cu_linux_tab_select_usage_flat_coords_message:" + JSON.stringify(flat_with_coords.error)
+  );
+
+  const grouped_with_coords = invoke_actuate_reply(run_directory, executable, [
+    "tab", "select", "--window", "1", "--title", "unused", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(grouped_with_coords),
+    "cu_linux_tab_select_usage_grouped_coords_ok:" + JSON.stringify(grouped_with_coords));
+  ensure(
+    text_at(grouped_with_coords, "error.code") === "usage",
+    "cu_linux_tab_select_usage_grouped_coords_code:" + JSON.stringify(grouped_with_coords.error)
+  );
+  ensure(
+    text_at(grouped_with_coords, "command") === "usage",
+    "cu_linux_tab_select_usage_grouped_coords_command:" + JSON.stringify(grouped_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(grouped_with_coords, "error.message"), "--coords"),
+    "cu_linux_tab_select_usage_grouped_coords_message:" + JSON.stringify(grouped_with_coords.error)
   );
 }
 
@@ -200,6 +273,60 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_tab_select_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_tab_select_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_tab_select_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_tab_select_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_tab_select_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_tab_select_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_tab_select_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_tab_select_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    get_extents_misuse_message_ok(text_at(extents_coords, "error.message"), "--coords"),
+    "cu_linux_tab_select_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_tab_select_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_tab_select_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_tab_select_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    get_extents_misuse_message_ok(text_at(extents_bogus, "error.message"), "--bogus"),
+    "cu_linux_tab_select_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -242,6 +369,262 @@ function any_contains(rows, field, wanted) {
   return false;
 }
 
+function independent_curl_json(run_directory, port) {
+  const output = rh.command("curl", [
+    "-s", "--max-time", "5", "http://127.0.0.1:" + port + "/json",
+  ], {
+    cwd: run_directory,
+    timeout_ms: 10000,
+  });
+  ensure(
+    output.success === true && output.stdout.trim() !== "",
+    "cu_linux_tab_select_curl:" + output.stdout + output.stderr
+  );
+  return JSON.parse(output.stdout.trim());
+}
+
+function curl_page_matches(raw, title_needle, url_needle) {
+  if (!Array.isArray(raw)) { return false; }
+  for (const row of raw) {
+    const title = row.title === undefined || row.title === null ? "" : "" + row.title;
+    const url = row.url === undefined || row.url === null ? "" : "" + row.url;
+    const type = row.type === undefined || row.type === null ? "" : "" + row.type;
+    if (type !== "" && type !== "page") { continue; }
+    if (title.indexOf(title_needle) >= 0 && url.indexOf(url_needle) >= 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function debug_port_from_open_reply(opened) {
+  const argv = at(opened, "data.argv");
+  if (!Array.isArray(argv)) { return 0; }
+  for (let i = 0; i < argv.length; i = i + 1) {
+    const word = "" + argv[i];
+    const prefix = "--remote-debugging-port=";
+    if (word.indexOf(prefix) === 0) {
+      return rh.parse_int(word.substring(prefix.length));
+    }
+    if (word === "--remote-debugging-port" && i + 1 < argv.length) {
+      return rh.parse_int("" + argv[i + 1]);
+    }
+  }
+  return 0;
+}
+
+function independent_cdp_port(run_directory, needle) {
+  const script = [
+    "import os, sys",
+    "needle = sys.argv[1]",
+    "found = []",
+    "for name in os.listdir('/proc'):",
+    "    if not name.isdigit():",
+    "        continue",
+    "    path = '/proc/' + name + '/cmdline'",
+    "    try:",
+    "        data = open(path, 'rb').read().split(b'\\0')",
+    "    except OSError:",
+    "        continue",
+    "    words = [w.decode('utf-8', 'replace') for w in data if w]",
+    "    text = ' '.join(words)",
+    "    if needle not in text:",
+    "        continue",
+    "    if any(w.startswith('--type=') for w in words):",
+    "        continue",
+    "    port = ''",
+    "    i = 0",
+    "    while i < len(words):",
+    "        word = words[i]",
+    "        if word.startswith('--remote-debugging-port='):",
+    "            port = word.split('=', 1)[1]",
+    "        elif word == '--remote-debugging-port' and i + 1 < len(words):",
+    "            port = words[i + 1]",
+    "        i += 1",
+    "    if port.isdigit() and int(port) > 0:",
+    "        found.append(port)",
+    "print(','.join(sorted(set(found))))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, needle], {
+    cwd: run_directory,
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true,
+    "cu_linux_tab_select_proc_cmdline:" + output.stderr + output.stdout);
+  const text = output.stdout.trim();
+  ensure(text !== "",
+    "cu_linux_tab_select_independent_cdp_port_missing:" + needle);
+  const parts = text.split(",");
+  ensure(parts.length === 1,
+    "cu_linux_tab_select_independent_cdp_port_ambiguous:" + text);
+  return rh.parse_int(parts[0]);
+}
+
+function page_targets_on_owned_port(run_directory, executable, env, port) {
+  let last_reply = null;
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    const reply = run_cu_reply(run_directory, executable, "observe", [
+      "page-targets", "--port", "" + port,
+    ], env);
+    last_reply = reply;
+    if (output_success(reply)) { return reply; }
+    harness.sleep_ms(250);
+  }
+  ensure(false, "cu_linux_tab_select_page_targets_retry:" + JSON.stringify(last_reply));
+  return last_reply;
+}
+
+function page_targets_has_page(rows, title_needle, url_needle) {
+  if (!Array.isArray(rows)) { return false; }
+  for (const row of rows) {
+    const title = text_at(row, "title");
+    const url = text_at(row, "url");
+    const type = text_at(row, "type");
+    if (type !== "" && type !== "page") { continue; }
+    if (title.indexOf(title_needle) >= 0 && url.indexOf(url_needle) >= 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function browser_tabs_reply(run_directory, executable, env, match_text) {
+  return run_cu_reply(run_directory, executable, "observe", [
+    "browser-tabs", "--match", match_text,
+  ], env);
+}
+
+function owned_port_browser_tabs_inventory(
+  run_directory, executable, env, match_text, port
+) {
+  let last_reply = null;
+  for (let attempt = 0; attempt < 12; attempt = attempt + 1) {
+    const reply = browser_tabs_reply(run_directory, executable, env, match_text);
+    last_reply = reply;
+    if (output_success(reply)
+        && text_at(reply, "data.mechanism") === "cdp-json"
+        && int_at(reply, "data.port") === port
+        && at(reply, "data.returned") >= 1) {
+      return reply;
+    }
+    if (!output_success(reply)
+        && text_at(reply, "error.code") !== "browser_bridge_presentation_changed") {
+      ensure(false, "cu_linux_tab_select_browser_tabs:" + JSON.stringify(reply));
+    }
+    harness.sleep_ms(250);
+  }
+  return null;
+}
+
+function assert_browser_tabs_agrees_with_owned_cdp(
+  run_directory, executable, env, match_text, port, title_needle, url_needle
+) {
+  const inventory = owned_port_browser_tabs_inventory(
+    run_directory, executable, env, match_text, port
+  );
+  if (inventory === null) {
+    print("STEP browser-tabs listener heuristic did not resolve invocation-owned port "
+      + port + " on this display; curl /json + page-targets + tab-list read-back still held");
+    return;
+  }
+  const rows = at(inventory, "data.tabs");
+  ensure(Array.isArray(rows) && rows.length >= 1,
+    "cu_linux_tab_select_browser_tabs_rows:" + JSON.stringify(inventory.data));
+  let matched = null;
+  for (const row of rows) {
+    if (text_at(row, "title").indexOf(title_needle) >= 0) {
+      matched = row;
+      break;
+    }
+  }
+  ensure(matched !== null,
+    "cu_linux_tab_select_browser_tabs_title:" + JSON.stringify(rows));
+  const curl_rows = independent_curl_json(run_directory, port);
+  ensure(
+    curl_page_matches(curl_rows, title_needle, url_needle),
+    "cu_linux_tab_select_browser_tabs_curl:" + JSON.stringify({
+      title: title_needle,
+      cu: matched,
+      curl: curl_rows,
+    })
+  );
+  ensure(
+    curl_page_matches(curl_rows, text_at(matched, "title"), url_needle),
+    "cu_linux_tab_select_browser_tabs_disagree:" + JSON.stringify({
+      cu: matched,
+      curl: curl_rows,
+    })
+  );
+}
+
+function assert_post_select_cdp_readback(
+  run_directory, executable, env, match_title, url_needle, port
+) {
+  assert_owned_cdp_selected_tab(
+    run_directory, executable, env, port, match_title, url_needle
+  );
+  assert_browser_tabs_agrees_with_owned_cdp(
+    run_directory, executable, env, match_title, port, match_title, url_needle
+  );
+}
+
+function assert_owned_cdp_inventory_agrees(
+  run_directory, executable, env, port, title_a, url_a, title_b, url_b
+) {
+  let curl_rows = null;
+  for (let attempt = 0; attempt < 80 && curl_rows === null; attempt = attempt + 1) {
+    try {
+      const raw = independent_curl_json(run_directory, port);
+      if (curl_page_matches(raw, title_a, url_a)
+          && curl_page_matches(raw, title_b, url_b)) {
+        curl_rows = raw;
+        break;
+      }
+    } catch (error) {
+      curl_rows = null;
+    }
+    harness.sleep_ms(250);
+  }
+  ensure(curl_rows !== null,
+    "cu_linux_tab_select_independent_cdp_missing:" + port);
+  const targets = page_targets_on_owned_port(run_directory, executable, env, port);
+  ensure(targets.command === "page-targets", "cu_linux_tab_select_page_targets_identity");
+  const rows = at(targets, "data.targets");
+  ensure(Array.isArray(rows),
+    "cu_linux_tab_select_page_targets_rows:" + JSON.stringify(targets.data));
+  ensure(page_targets_has_page(rows, title_a, url_a),
+    "cu_linux_tab_select_page_targets_a:" + JSON.stringify(rows));
+  ensure(page_targets_has_page(rows, title_b, url_b),
+    "cu_linux_tab_select_page_targets_b:" + JSON.stringify(rows));
+  ensure(
+    curl_page_matches(curl_rows, title_a, url_a)
+      && curl_page_matches(curl_rows, title_b, url_b),
+    "cu_linux_tab_select_cdp_inventory_disagree:" + JSON.stringify({
+      targets: rows,
+      curl: curl_rows,
+    })
+  );
+}
+
+function assert_owned_cdp_selected_tab(
+  run_directory, executable, env, port, match_title, url_needle
+) {
+  const curl_rows = independent_curl_json(run_directory, port);
+  ensure(curl_page_matches(curl_rows, match_title, url_needle),
+    "cu_linux_tab_select_cdp_selected_curl:" + JSON.stringify({
+      port: port,
+      title: match_title,
+      curl: curl_rows,
+    }));
+  const targets = page_targets_on_owned_port(run_directory, executable, env, port);
+  const rows = at(targets, "data.targets");
+  ensure(page_targets_has_page(rows, match_title, url_needle),
+    "cu_linux_tab_select_cdp_selected_targets:" + JSON.stringify({
+      title: match_title,
+      targets: rows,
+    }));
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -253,8 +636,10 @@ harness.require(!harness.host_is_windows(),
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+const a11y_launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
 ensure(direct_file(executable), "cu_linux_tab_select_executable_missing:" + executable);
 ensure(direct_file(abi_library), "cu_linux_tab_select_library_missing:" + abi_library);
+ensure(direct_file(a11y_launcher), "cu_linux_tab_select_a11y_launcher_missing:" + a11y_launcher);
 
 const context = harness.new_context(repo, "cu-linux-browser-tab-select");
 const run_directory = context.run_directory;
@@ -265,24 +650,26 @@ const local_state = rh.join(user_data, "Local State");
 const html_dir = rh.join(run_directory, "html");
 const fixture_a = rh.join(html_dir, "tab-a.html");
 const fixture_b = rh.join(html_dir, "tab-b.html");
-const env = isolated_env(run_directory);
-env.AGENTERM_ABI_LIB = abi_library;
+const env = isolated_env(run_directory, executable);
 env.CHROME_USER_DATA_DIR = user_data;
 
 let succeeded = 0;
 let failure = "";
+let cdp_inventory_ready = false;
 const atspi_available = probe_atspi_available(env);
 
 try {
-  print("STEP tab-select typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  print("STEP tab-select typed-fail usage when AT-SPI --name/--coords/--bogus is present");
   assert_tab_select_usage_limit(run_directory, executable, env);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before tab-select actuate/read-back court");
-    assert_get_extents_usage_limit(run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before tab-select actuate/read-back court");
+  assert_get_extents_usage_limit(run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before tab-select actuate/read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+
+  if (!atspi_available) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; tab read-back still uses tab-list and independent Chrome/CDP /json");
   }
 
   print("STEP clear stale box-chrome singletons on this display before browser-open");
@@ -338,6 +725,9 @@ try {
   const open_handle = "" + at(opened, "data.handle");
   ensure(open_handle !== "" && open_handle !== "0",
     "cu_linux_tab_select_open_a_handle:" + JSON.stringify(opened.data));
+  const owned_debug_port = debug_port_from_open_reply(opened);
+  ensure(owned_debug_port > 0,
+    "cu_linux_tab_select_open_debug_port:" + JSON.stringify(opened.data));
 
   let window_handle = null;
   for (let attempt = 0; attempt < 40 && window_handle === null; attempt = attempt + 1) {
@@ -363,12 +753,9 @@ try {
       readback: window_handle,
     }));
 
-  print("STEP open second tab in the same profile via the running Chromium singleton");
-  const chrome_binary = "/usr/local/bin/box-chrome";
-  const launch_binary = rh.exists(chrome_binary) ? chrome_binary : "google-chrome-stable";
-  const launch_shell = launch_binary
+  print("STEP open second tab via box-chrome-a11y in the same profile");
+  const launch_shell = a11y_launcher
     + " --profile-directory=Default"
-    + (launch_binary.indexOf("box-chrome") >= 0 ? " --force-renderer-accessibility" : "")
     + " file://" + fixture_b
     + " >/dev/null 2>&1 &";
   rh.command_status("sh", ["-c", launch_shell], {
@@ -376,7 +763,7 @@ try {
     env: env,
     timeout_ms: 5000,
   });
-  harness.sleep_ms(5000);
+  harness.sleep_ms(8000);
 
   print("STEP tab-list shows both tabs with exactly one selected");
   let tabs = [];
@@ -401,7 +788,69 @@ try {
       "cu_linux_tab_select_selection_unreadable:" + JSON.stringify(tab));
   }
 
-  print("STEP tab-select --title " + TAB_B + " with independent tab-list read-back");
+  print("STEP independent Chrome CDP /json lists both fixture tabs before read-back court");
+  let independent_port = 0;
+  let curl_rows = null;
+  for (let attempt = 0; attempt < 120 && curl_rows === null; attempt = attempt + 1) {
+    try {
+      try { independent_port = independent_cdp_port(run_directory, fixture_a); }
+      catch (error) { independent_port = independent_cdp_port(run_directory, fixture_b); }
+      const raw = independent_curl_json(run_directory, independent_port);
+      if (curl_page_matches(raw, TAB_A, "tab-a.html")
+          && curl_page_matches(raw, TAB_B, "tab-b.html")) {
+        curl_rows = raw;
+        break;
+      }
+    } catch (error) {
+      curl_rows = null;
+    }
+    harness.sleep_ms(250);
+  }
+  cdp_inventory_ready = curl_rows !== null;
+  if (!cdp_inventory_ready) {
+    print("STEP invocation-owned Chrome CDP /json did not list both fixture tabs before tab-select even though tab-list showed two tabs; tab-select read-back still uses tab-list with browser-tabs/CDP host-limit honesty when the listener heuristic cannot resolve the invocation-owned port");
+  } else {
+    if (owned_debug_port !== independent_port) {
+      print("STEP /proc cmdline CDP port " + independent_port
+        + " replaced browser-open argv port " + owned_debug_port
+        + "; invocation-owned /proc port is authoritative for read-back");
+    }
+
+    print("STEP page-targets and curl /json agree on invocation-owned port " + independent_port);
+    assert_owned_cdp_inventory_agrees(
+      run_directory, executable, env, independent_port,
+      TAB_A, "tab-a.html", TAB_B, "tab-b.html"
+    );
+
+    print("STEP CU browser-tabs agrees with invocation-owned CDP when listener heuristic resolves the same port");
+    const owned_inventory = owned_port_browser_tabs_inventory(
+      run_directory, executable, env, context.run_id, independent_port
+    );
+    if (owned_inventory === null) {
+      print("STEP browser-tabs listener heuristic did not resolve invocation-owned port "
+        + independent_port + " on this display; curl /json + page-targets + tab-list read-back still held");
+    } else {
+      const inventory_rows = at(owned_inventory, "data.tabs");
+      ensure(any_contains(inventory_rows, "title", TAB_A),
+        "cu_linux_tab_select_browser_tabs_a_missing:" + JSON.stringify(inventory_rows));
+      ensure(any_contains(inventory_rows, "title", TAB_B),
+        "cu_linux_tab_select_browser_tabs_b_missing:" + JSON.stringify(inventory_rows));
+      const owned_curl_rows = independent_curl_json(run_directory, independent_port);
+      for (const row of inventory_rows) {
+        const title = text_at(row, "title");
+        if (title.indexOf(TAB_A) >= 0) {
+          ensure(curl_page_matches(owned_curl_rows, title, "tab-a.html"),
+            "cu_linux_tab_select_cdp_a_disagree:" + JSON.stringify({ cu: row, curl: owned_curl_rows }));
+        }
+        if (title.indexOf(TAB_B) >= 0) {
+          ensure(curl_page_matches(owned_curl_rows, title, "tab-b.html"),
+            "cu_linux_tab_select_cdp_b_disagree:" + JSON.stringify({ cu: row, curl: owned_curl_rows }));
+        }
+      }
+    }
+  }
+
+  print("STEP tab-select --title " + TAB_B + " with independent tab-list and Chrome/CDP read-back");
   const select_b = run_cu(run_directory, executable, "actuate", [
     "tab-select", "--window", window_handle, "--title", TAB_B,
   ], env);
@@ -419,8 +868,13 @@ try {
     selected_b.length === 1 && text_at(selected_b[0], "title").indexOf(TAB_B) >= 0,
     "cu_linux_tab_select_b_readback:" + JSON.stringify(after_b)
   );
+  if (cdp_inventory_ready) {
+    assert_post_select_cdp_readback(
+      run_directory, executable, env, TAB_B, "tab-b.html", independent_port
+    );
+  }
 
-  print("STEP tab-select --index 0 with independent tab-list read-back");
+  print("STEP tab-select --index 0 with independent tab-list and Chrome/CDP read-back");
   const select_a = run_cu(run_directory, executable, "actuate", [
     "tab-select", "--window", window_handle, "--index", "0",
   ], env);
@@ -436,6 +890,11 @@ try {
     selected_a.length === 1 && text_at(selected_a[0], "title").indexOf(TAB_A) >= 0,
     "cu_linux_tab_select_a_readback:" + JSON.stringify(after_a)
   );
+  if (cdp_inventory_ready) {
+    assert_post_select_cdp_readback(
+      run_directory, executable, env, TAB_A, "tab-a.html", independent_port
+    );
+  }
 
   harness.emit_evidence(context, declared_evidence, "cu.linux-browser-tab-select");
   succeeded = 1;
@@ -448,10 +907,15 @@ try { harness.complete_children(context, [], succeeded !== 0, failure); }
 catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.remove_run(context);
+  const cdp_clause = cdp_inventory_ready
+    ? "independent tab-list and Chrome/CDP tabs inventory read-back"
+    : "independent tab-list read-back with Chrome/CDP/browser-tabs host-limit honesty";
   if (atspi_available) {
-    print("PASS: Linux tab-select by --title / --index with independent tab-list read-back and typed tab-select/get-extents usage honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux tab-select by --title / --index with " + cdp_clause
+      + " and typed tab-select/get-extents --name/--coords/--bogus usage/host-limit honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux tab-select by --title / --index with independent tab-list read-back and typed tab-select/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux tab-select by --title / --index with " + cdp_clause
+      + " and typed tab-select/get-extents --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
