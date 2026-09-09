@@ -2,9 +2,11 @@
 // Acceptance is smoke read-back only: CU menu invoke on a disposable GTK menubar
 // must change observable fixture state that an independent AT-SPI probe agrees
 // with, refuse disabled items typed without side effects, and round-trip a
-// checkable item's mark. Typed usage and AT-SPI host-limit paths must hold when
-// the independent pyatspi desktop probe is unavailable. AT-SPI/--name only; no
-// --coords or screenshot degradation.
+// checkable item's mark. Typed menu-invoke usage must reject AT-SPI --name and
+// other unexpected arguments; typed get-extents --name usage/host-limit paths must
+// hold before the native actuate/read-back court. Typed usage and AT-SPI
+// host-limit paths must hold when the independent pyatspi desktop probe is
+// unavailable. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -17,6 +19,7 @@ const declared_evidence = [
 
 const MENU_DEPTH = 1;
 const MAX_NODES = 1000;
+const AT_SPI_PROBE_NAME = "Menu Invoke Court Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -91,7 +94,20 @@ function run_cu(run_directory, executable, grant, cu_args) {
   return document;
 }
 
-function probe_atspi_available() {
+function invoke_get_extents_reply(run_directory, executable, cu_args, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(cu_args), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_menu_invoke_honesty_extents_cli:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function probe_atspi_available(executable) {
   const script = [
     "import sys",
     "try:",
@@ -102,24 +118,110 @@ function probe_atspi_available() {
     "    print('0')",
   ].join("\n");
   const output = rh.command("python3", ["-c", script], {
-    env: cu_env(""),
+    env: cu_env(executable),
     timeout_ms: 10000,
   });
   return output.success === true && output.stdout.trim() === "1";
 }
 
-function assert_menu_invoke_usage_limit(run_directory, executable) {
-  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
-    "menu", "invoke", "--window", "0", "--path", "File/Do Thing",
-  ]);
-  ensure(!output_success(reply), "cu_linux_menu_invoke_honesty_usage_ok:" + JSON.stringify(reply));
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function assert_menu_invoke_usage_limit(run_directory, executable, env) {
+  const flat_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "menu-invoke", "--window", "1", "--path", "File/Do Thing", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_menu_invoke_honesty_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
   ensure(
-    text_at(reply, "error.code") === "usage",
-    "cu_linux_menu_invoke_honesty_usage_code:" + JSON.stringify(reply.error)
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_menu_invoke_honesty_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
   );
   ensure(
-    text_at(reply, "error.message").indexOf("non-zero") >= 0,
-    "cu_linux_menu_invoke_honesty_usage_message:" + JSON.stringify(reply.error)
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_menu_invoke_honesty_usage_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(flat_with_name, "error.message")),
+    "cu_linux_menu_invoke_honesty_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "menu", "invoke", "--window", "1", "--path", "File/Do Thing", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_menu_invoke_honesty_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_menu_invoke_honesty_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(grouped_with_name, "error.message")),
+    "cu_linux_menu_invoke_honesty_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const zero_window = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "menu", "invoke", "--window", "0", "--path", "File/Do Thing",
+  ], env);
+  ensure(!output_success(zero_window),
+    "cu_linux_menu_invoke_honesty_usage_zero_window_ok:" + JSON.stringify(zero_window));
+  ensure(
+    text_at(zero_window, "error.code") === "usage",
+    "cu_linux_menu_invoke_honesty_usage_zero_window_code:" + JSON.stringify(zero_window.error)
+  );
+  ensure(
+    text_at(zero_window, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_menu_invoke_honesty_usage_zero_window_message:" + JSON.stringify(zero_window.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "menu", "invoke", "--window", "1", "--path", "File/Do Thing", "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_menu_invoke_honesty_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_menu_invoke_honesty_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(with_bogus, "error.message")),
+    "cu_linux_menu_invoke_honesty_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_menu_invoke_honesty_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_menu_invoke_honesty_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_menu_invoke_honesty_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_menu_invoke_honesty_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_menu_invoke_honesty_extents_unavailable_code:" + code
   );
 }
 
@@ -384,18 +486,26 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
-const atspi_available = probe_atspi_available();
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 
 try {
+  print("STEP menu invoke typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_menu_invoke_usage_limit(run_directory, executable, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
   if (!atspi_available) {
-    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
-    assert_menu_invoke_usage_limit(run_directory, executable);
+    print("STEP menu invoke typed-fail host-limit when independent pyatspi desktop probe is unavailable");
     assert_menu_invoke_host_limit_when_atspi_absent(run_directory, executable);
     succeeded = 1;
   } else {
-    print("STEP menu invoke typed-fails usage when --window handle is zero");
-    assert_menu_invoke_usage_limit(run_directory, executable);
-
     print("STEP start owned GTK fixture and resolve one window handle");
   fixture = harness.start({
     program: "python3",
@@ -543,7 +653,11 @@ if (fixture >= 0) {
 if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
-  print("PASS: Linux menu invoke honesty (CU menu path agrees with independent AT-SPI read-back)");
+  if (atspi_available) {
+    print("PASS: Linux menu invoke honesty (CU menu path agrees with independent AT-SPI read-back with typed menu-invoke/get-extents usage honesty; AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux menu invoke typed-fails with typed get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
+  }
 }
 if (failure !== "") { throw failure; }
 return;
