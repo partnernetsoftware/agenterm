@@ -5730,7 +5730,7 @@
     },
     {
       "id": "cu-linux-window-opacity-smoke",
-      "description": "Linux window-opacity --opacity/--expect on a disposable GTK fixture window: typed usage/miss/host-limit before fixture; independent xprop _NET_WM_WINDOW_OPACITY and windows inventory opacity must match --expect after set and after restore to opaque; no --coords.",
+      "description": "Linux window-opacity --opacity/--expect on a disposable GTK fixture window: typed usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths hold before the window-opacity actuate/read-back court; typed usage/miss/host-limit before fixture; independent xprop _NET_WM_WINDOW_OPACITY and windows inventory opacity must match --expect after set and after restore to opaque; no --coords.",
       "entry": "scripts/qjs/cu-linux-window-opacity-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
