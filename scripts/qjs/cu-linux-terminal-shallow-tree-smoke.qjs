@@ -1,14 +1,17 @@
 // CEO: Linux terminal_a11y_shallow_tree host-limit honesty with independent read-back.
 // When xfce4-terminal is available, launch it without AT-SPI registration
 // (GTK_A11Y=none, NO_AT_BRIDGE=1) so tree --window reports visited=1 frame
-// fallback and term-read typed-fails terminal_buffer_not_found on the same handle.
-// terminal-list must typed-fail control_unavailable with AgenTerm sock host-limit
-// and independent absent-socket proof before any shallow terminal fixture exists.
-// Capabilities and doctor must document the shallow frame plus pty-* / terminal-*
-// alternatives. Independent pyatspi must find zero application roots for the
-// terminal pid; independent xprop _NET_WM_NAME and xwininfo Map State must agree
-// with the frame-only tree name on the same handle. AT-SPI/--name only;
-// no --coords or screenshot.
+// fallback and term-read/term-send/term-wait typed-fail terminal_buffer_not_found
+// on the same handle. terminal-list must typed-fail control_unavailable with
+// AgenTerm sock host-limit and independent absent-socket proof before any shallow
+// terminal fixture exists; terminal-list/term-read usage must reject unexpected
+// arguments. query --role terminal must honestly return zero matches; get-text
+// --name on the frame title must typed-fail a11y_text_unavailable. Capabilities
+// and doctor must document the shallow frame plus pty-* / terminal-* alternatives.
+// Independent pyatspi must find zero application roots for the terminal pid;
+// independent xprop _NET_WM_NAME
+// and xwininfo Map State must agree with the frame-only tree name on the same
+// handle. AT-SPI/--name only; no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -137,12 +140,12 @@ function cu_env(executable, context, shallow) {
   return env;
 }
 
-function run_cu_reply(run_directory, executable, context, shallow, arguments) {
-  const argv = ["--target", "current", "--grant", "observe"];
+function run_cu_reply(run_directory, executable, context, shallow, arguments, grant, env) {
+  const argv = ["--target", "current", "--grant", grant === undefined ? "observe" : grant];
   for (const argument of arguments) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: cu_env(executable, context, shallow),
+    env: env === undefined ? cu_env(executable, context, shallow) : env,
     timeout_ms: 120000,
   });
   const trimmed = output.stdout.trim();
@@ -150,15 +153,42 @@ function run_cu_reply(run_directory, executable, context, shallow, arguments) {
   return JSON.parse(trimmed);
 }
 
-function run_cu(run_directory, executable, context, shallow, arguments) {
-  const document = run_cu_reply(run_directory, executable, context, shallow, arguments);
+function run_cu(run_directory, executable, context, shallow, arguments, grant) {
+  const document = run_cu_reply(run_directory, executable, context, shallow, arguments, grant);
   ensure(flag_at(document, "ok"),
     "cu_linux_terminal_shallow_tree_reply:" + JSON.stringify(document));
   return document;
 }
 
-function run_cu_expect_error(run_directory, executable, context, shallow, arguments, expected_code) {
-  const document = run_cu_reply(run_directory, executable, context, shallow, arguments);
+function cu_env_allow_foreground(executable, context, shallow) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_INSTANCE_DIR: context.instance_directory,
+    AGENTERM_WORKSPACE_PATH: context.workspace_path,
+    AGENTERM_SETTINGS_PATH: context.settings_path,
+    AGENTERM_INSTANCE: "ephemeral:cu-linux-terminal-shallow-" + context.run_id,
+  };
+  if (shallow === true) {
+    env.GTK_A11Y = "none";
+    env.NO_AT_BRIDGE = "1";
+  }
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu_expect_error(run_directory, executable, context, shallow, arguments, expected_code, grant, env) {
+  const document = run_cu_reply(run_directory, executable, context, shallow, arguments, grant, env);
   ensure(
     flag_at(document, "ok") !== true
       && text_at(document, "error.code") === expected_code,
@@ -215,6 +245,64 @@ function assert_hint(hint, label) {
   const alternatives = at(hint, "alternatives");
   ensure(Array.isArray(alternatives) && alternatives.length >= 2,
     label + "_alternatives:" + JSON.stringify(hint));
+  const joined = alternatives.join(" ");
+  ensure(joined.indexOf("pty-") >= 0 && joined.indexOf("terminal-") >= 0,
+    label + "_pty_terminal:" + joined);
+}
+
+function assert_terminal_list_usage_limit(run_directory, executable, context) {
+  for (const arguments of [
+    ["terminal-list", "--bogus"],
+    ["terminal-list", "--name", "decoy"],
+  ]) {
+    const reply = run_cu_reply(run_directory, executable, context, false, arguments);
+    ensure(
+      flag_at(reply, "ok") !== true && text_at(reply, "error.code") === "usage",
+      "cu_linux_terminal_shallow_tree_terminal_list_usage:" + JSON.stringify(reply)
+    );
+    ensure(
+      text_at(reply, "command") === "usage",
+      "cu_linux_terminal_shallow_tree_terminal_list_usage_command:" + JSON.stringify(reply)
+    );
+    const message = text_at(reply, "error.message");
+    ensure(
+      message.indexOf("unexpected") >= 0,
+      "cu_linux_terminal_shallow_tree_terminal_list_usage_message:" + message
+    );
+  }
+}
+
+function assert_term_read_usage_limit(run_directory, executable, context, shallow, handle) {
+  const reply = run_cu_reply(run_directory, executable, context, shallow, [
+    "term-read", "" + handle, "--name", "decoy",
+  ]);
+  ensure(
+    flag_at(reply, "ok") !== true && text_at(reply, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_term_read_usage:" + JSON.stringify(reply)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("--name") >= 0
+      || text_at(reply, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_terminal_shallow_tree_term_read_usage_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_terminal_buffer_host_limit(detail, label) {
+  ensure(text_at(detail, "limit") === "host",
+    label + "_limit:" + JSON.stringify(detail));
+  ensure(text_at(detail, "group") === "terminal",
+    label + "_group:" + JSON.stringify(detail));
+  ensure(text_at(detail, "mechanism") === "at-spi2-window-frame-fallback",
+    label + "_mechanism:" + JSON.stringify(detail));
+  ensure(
+    text_at(detail, "signal").indexOf("visited=1") >= 0,
+    label + "_signal:" + JSON.stringify(detail)
+  );
+  ensure(int_at(detail, "tree.visited") === 1,
+    label + "_tree:" + JSON.stringify(detail));
+  const alternatives = at(detail, "alternatives");
+  ensure(Array.isArray(alternatives) && alternatives.length >= 2,
+    label + "_alternatives:" + JSON.stringify(detail));
   const joined = alternatives.join(" ");
   ensure(joined.indexOf("pty-") >= 0 && joined.indexOf("terminal-") >= 0,
     label + "_pty_terminal:" + joined);
@@ -326,6 +414,9 @@ let terminal = -1;
 let succeeded = 0;
 let failure = "";
 try {
+  print("STEP terminal-list typed-fails usage on unexpected arguments before shallow terminal fixture");
+  assert_terminal_list_usage_limit(context.run_directory, executable, context);
+
   print("STEP terminal-list typed-fails control_unavailable with AgenTerm sock host-limit before shallow terminal fixture");
   const missing_terminal = run_cu_reply(
     context.run_directory, executable, context, false, ["terminal-list"]
@@ -407,31 +498,66 @@ try {
   print("STEP independent xprop _NET_WM_NAME and xwininfo Map State agree with frame-only tree name");
   independent_frame_readback(context.run_directory, executable, context, handle, title);
 
+  print("STEP term-read typed-fails usage when --name is supplied on the shallow frame handle");
+  assert_term_read_usage_limit(context.run_directory, executable, context, true, handle);
+
   print("STEP term-read typed-fails terminal_buffer_not_found with host-limit detail on the shallow frame handle");
   const term_read_error = run_cu_expect_error(
     context.run_directory, executable, context, true,
     ["term-read", "" + handle],
     "terminal_buffer_not_found"
   );
-  const term_read_detail = at(term_read_error, "error.detail");
-  ensure(text_at(term_read_detail, "limit") === "host",
-    "cu_linux_terminal_shallow_tree_term_read_limit:" + JSON.stringify(term_read_detail));
-  ensure(text_at(term_read_detail, "group") === "terminal",
-    "cu_linux_terminal_shallow_tree_term_read_group:" + JSON.stringify(term_read_detail));
-  ensure(text_at(term_read_detail, "mechanism") === "at-spi2-window-frame-fallback",
-    "cu_linux_terminal_shallow_tree_term_read_mechanism:" + JSON.stringify(term_read_detail));
-  ensure(
-    text_at(term_read_detail, "signal").indexOf("visited=1") >= 0,
-    "cu_linux_terminal_shallow_tree_term_read_signal:" + JSON.stringify(term_read_detail)
+  assert_terminal_buffer_host_limit(
+    at(term_read_error, "error.detail"),
+    "cu_linux_terminal_shallow_tree_term_read"
   );
-  ensure(int_at(term_read_detail, "tree.visited") === 1,
-    "cu_linux_terminal_shallow_tree_term_read_tree:" + JSON.stringify(term_read_detail));
-  const term_read_alternatives = at(term_read_detail, "alternatives");
-  ensure(Array.isArray(term_read_alternatives) && term_read_alternatives.length >= 2,
-    "cu_linux_terminal_shallow_tree_term_read_alternatives:" + JSON.stringify(term_read_detail));
-  const term_read_joined = term_read_alternatives.join(" ");
-  ensure(term_read_joined.indexOf("pty-") >= 0 && term_read_joined.indexOf("terminal-") >= 0,
-    "cu_linux_terminal_shallow_tree_term_read_pty_terminal:" + term_read_joined);
+
+  print("STEP term-send --foreground typed-fails terminal_buffer_not_found with the same host-limit detail");
+  const term_send_error = run_cu_expect_error(
+    context.run_directory, executable, context, true,
+    ["term-send", "" + handle, "--foreground", "echo"],
+    "terminal_buffer_not_found",
+    "observe,actuate",
+    cu_env_allow_foreground(executable, context, true)
+  );
+  assert_terminal_buffer_host_limit(
+    at(term_send_error, "error.detail"),
+    "cu_linux_terminal_shallow_tree_term_send"
+  );
+
+  print("STEP term-wait typed-fails terminal_buffer_not_found with the same host-limit detail");
+  const term_wait_error = run_cu_expect_error(
+    context.run_directory, executable, context, true,
+    ["term-wait", "" + handle, "decoy", "--timeout-ms", "1000"],
+    "terminal_buffer_not_found"
+  );
+  assert_terminal_buffer_host_limit(
+    at(term_wait_error, "error.detail"),
+    "cu_linux_terminal_shallow_tree_term_wait"
+  );
+
+  print("STEP query --role terminal honestly returns zero matches on the shallow frame tree");
+  const query = run_cu(context.run_directory, executable, context, true, [
+    "query", "--window", "" + handle, "--role", "terminal",
+  ]);
+  const query_nodes = at(query, "data.nodes");
+  ensure(
+    int_at(query, "data.matched") === 0
+      && int_at(query, "data.returned") === 0
+      && Array.isArray(query_nodes) && query_nodes.length === 0
+      && int_at(query, "data.visited") === 1,
+    "cu_linux_terminal_shallow_tree_query_matches:" + JSON.stringify(query.data)
+  );
+  print("STEP get-text --name typed-fails a11y_text_unavailable because the frame has no text interface");
+  const get_text_error = run_cu_expect_error(
+    context.run_directory, executable, context, true,
+    ["get-text", "--window", "" + handle, "--name", title],
+    "a11y_text_unavailable"
+  );
+  ensure(
+    text_at(get_text_error, "error.message").indexOf("text interface") >= 0,
+    "cu_linux_terminal_shallow_tree_get_text_message:" + JSON.stringify(get_text_error.error)
+  );
 
   print("STEP independent pyatspi finds zero registered application roots for the terminal pid");
   const probe = independent_shallow_probe(executable, context, terminal_pid);
@@ -457,7 +583,7 @@ if (terminal >= 0) {
 if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
-  print("PASS: Linux terminal shallow-tree host-limit honesty with independent read-back");
+  print("PASS: Linux terminal shallow-tree host-limit honesty with independent read-back (term-read/term-send/term-wait/query/get-text usage and typed unsupported)");
 }
 if (failure !== "") { throw failure; }
 return;

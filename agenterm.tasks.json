@@ -5734,7 +5734,7 @@
     },
     {
       "id": "cu-linux-terminal-shallow-tree-smoke",
-      "description": "Linux xfce4-terminal without AT-SPI registration: terminal-list usage/control_unavailable with absent-socket proof before fixture; capabilities/doctor document terminal_a11y_shallow_tree plus pty-*/terminal-* alternatives; windows --pid/--title agree; tree visited=1 frame read-back with xprop/xwininfo; term-read/term-send/term-wait terminal_buffer_not_found, query zero terminal matches, get-text --name a11y_text_unavailable, pyatspi zero roots/roles; no --coords.",
+      "description": "Linux xfce4-terminal without AT-SPI registration: terminal-list usage/control_unavailable with absent-socket proof before fixture; capabilities/doctor document terminal_a11y_shallow_tree plus pty-*/terminal-* alternatives; windows --pid/--title agree; tree visited=1 frame read-back with xprop/xwininfo; term-read/term-send/term-wait terminal_buffer_not_found, query zero terminal matches, get-text --name a11y_text_unavailable, pyatspi zero roots; no --coords.",
       "entry": "scripts/qjs/cu-linux-terminal-shallow-tree-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
