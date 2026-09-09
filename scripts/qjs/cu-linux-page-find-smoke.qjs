@@ -1,6 +1,7 @@
-// CEO: Linux page-find honesty — CU CDP page-find matches independent DOM probe.
-// Acceptance is smoke read-back only: page-find --selector text/count must agree
-// with a separate CDP Runtime.evaluate querySelectorAll probe on the same target.
+// CEO: Linux page-find honesty — CU CDP page-find matches independent CDP probe.
+// Acceptance is smoke read-back only: --selector/--text/--role node text/count must
+// agree with a separate CDP DOM or AX-tree probe on the same disposable target.
+// Typed usage, miss, and no-CDP host-limit paths must hold before actuation.
 // Disposable Chrome profile; --port/--target-id only; no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -58,19 +59,26 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments, env) {
+function output_success(document) { return flag_at(document, "ok"); }
+
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
-  for (const argument of arguments) { argv.push("" + argument); }
+  for (let index = 0; index < cu_args.length; index = index + 1) {
+    argv.push("" + cu_args[index]);
+  }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
     env: env,
     timeout_ms: 60000,
   });
-  ensure(output.success === true, "cu_linux_page_find_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_page_find_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_page_find_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_page_find_cli:" + output.stdout + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, cu_args, env) {
+  const document = run_cu_reply(run_directory, executable, grant, cu_args, env);
+  ensure(output_success(document), "cu_linux_page_find_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -81,7 +89,91 @@ function page_target(rows) {
   return null;
 }
 
-function independent_probe_script() {
+function assert_page_find_usage(run_directory, executable, env, port) {
+  const missing_query = run_cu_reply(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", "unused",
+  ], env);
+  ensure(!output_success(missing_query), "cu_linux_page_find_usage_ok:" + JSON.stringify(missing_query));
+  ensure(
+    text_at(missing_query, "error.code") === "usage",
+    "cu_linux_page_find_usage_code:" + JSON.stringify(missing_query.error)
+  );
+  ensure(
+    text_at(missing_query, "error.message").indexOf("exactly one") >= 0,
+    "cu_linux_page_find_usage_message:" + JSON.stringify(missing_query.error)
+  );
+
+  const dual_query = run_cu_reply(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", "unused",
+    "--selector", "#q", "--text", "x",
+  ], env);
+  ensure(!output_success(dual_query), "cu_linux_page_find_dual_ok:" + JSON.stringify(dual_query));
+  ensure(
+    text_at(dual_query, "error.code") === "usage",
+    "cu_linux_page_find_dual_code:" + JSON.stringify(dual_query.error)
+  );
+  ensure(
+    text_at(dual_query, "error.message").indexOf("got 2") >= 0,
+    "cu_linux_page_find_dual_message:" + JSON.stringify(dual_query.error)
+  );
+
+  const name_alone = run_cu_reply(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", "unused", "--name", "foo",
+  ], env);
+  ensure(!output_success(name_alone), "cu_linux_page_find_name_ok:" + JSON.stringify(name_alone));
+  ensure(
+    text_at(name_alone, "error.code") === "usage",
+    "cu_linux_page_find_name_code:" + JSON.stringify(name_alone.error)
+  );
+}
+
+function assert_no_cdp_listener(run_directory, executable, env, port) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", "unused", "--selector", "#q",
+  ], env);
+  ensure(reply.ok !== true, "cu_linux_page_find_false_success:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_page_find_host_limit_code:" + JSON.stringify(reply)
+  );
+  const message = text_at(reply, "error.message");
+  ensure(
+    message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
+    "cu_linux_page_find_host_limit_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_page_find_miss(run_directory, executable, env, port, target_id) {
+  const bad_target = run_cu_reply(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", "deadbeef", "--selector", "#hero",
+  ], env);
+  ensure(!output_success(bad_target), "cu_linux_page_find_bad_target_ok:" + JSON.stringify(bad_target));
+  ensure(
+    text_at(bad_target, "error.code") === "cdp_target_not_found",
+    "cu_linux_page_find_bad_target_code:" + JSON.stringify(bad_target.error)
+  );
+
+  const selector_miss = run_cu_reply(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", target_id, "--selector", "#missing",
+  ], env);
+  ensure(!output_success(selector_miss), "cu_linux_page_find_selector_miss_ok:" + JSON.stringify(selector_miss));
+  ensure(
+    text_at(selector_miss, "error.code") === "cdp_node_not_found",
+    "cu_linux_page_find_selector_miss_code:" + JSON.stringify(selector_miss.error)
+  );
+
+  const text_miss = run_cu_reply(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", target_id,
+    "--text", "ZZZNOTFOUND-" + target_id,
+  ], env);
+  ensure(!output_success(text_miss), "cu_linux_page_find_text_miss_ok:" + JSON.stringify(text_miss));
+  ensure(
+    text_at(text_miss, "error.code") === "cdp_node_not_found",
+    "cu_linux_page_find_text_miss_code:" + JSON.stringify(text_miss.error)
+  );
+}
+
+function independent_css_probe_script() {
   return [
     "import json, sys, urllib.request",
     "import websocket",
@@ -146,8 +238,234 @@ function independent_probe_script() {
   ].join("\n");
 }
 
-function independent_probe(run_directory, executable, probe_config_json) {
-  const output = rh.command("python3", ["-c", independent_probe_script(), probe_config_json], {
+function independent_ax_probe_script() {
+  return [
+    "import json, sys, urllib.request",
+    "import websocket",
+    "",
+    "config = json.loads(sys.argv[1])",
+    "port = config['port']",
+    "target_id = config['target_id']",
+    "mode = config['mode']",
+    "",
+    "INTERACTIVE_ROLES = {",
+    "    'button', 'link', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'tab',",
+    "    'checkbox', 'radio', 'switch', 'option', 'treeitem', 'textbox', 'searchbox',",
+    "    'combobox', 'spinbutton', 'slider', 'listbox',",
+    "}",
+    "VALUE_ROLES = {'textbox', 'searchbox', 'combobox', 'spinbutton', 'slider'}",
+    "",
+    "DESCRIBE_FN = r'''function() {",
+    "  const el = this.nodeType === 3 ? this.parentElement : this;",
+    "  const parts = [];",
+    "  let cur = el;",
+    "  while (cur && cur.nodeType === 1 && parts.length < 8) {",
+    "    let s = cur.tagName.toLowerCase();",
+    "    if (cur.id) { parts.unshift(s + '#' + cur.id); break; }",
+    "    const p = cur.parentElement;",
+    "    if (p) {",
+    "      const same = Array.from(p.children).filter(c => c.tagName === cur.tagName);",
+    "      if (same.length > 1) s += ':nth-of-type(' + (same.indexOf(cur) + 1) + ')';",
+    "    }",
+    "    parts.unshift(s);",
+    "    cur = p;",
+    "  }",
+    "  const text = this.nodeType === 3 ? (this.nodeValue || '') : (el ? (el.innerText || el.textContent || '') : '');",
+    "  const editable = !!(el && (el.isContentEditable || ((el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && !el.disabled && !el.readOnly)));",
+    "  return {",
+    "    path: parts.join(' > '),",
+    "    tag: el ? el.tagName.toLowerCase() : '#text',",
+    "    text: text.trim().slice(0, 500),",
+    "    role: el ? el.getAttribute('role') : null,",
+    "    name: el ? (el.getAttribute('aria-label') || el.getAttribute('name') || el.getAttribute('placeholder') || null) : null,",
+    "    value: (el && el.value !== undefined) ? String(el.value) : null,",
+    "    editable: editable,",
+    "  };",
+    "}'''",
+    "",
+    "def contains_ci(haystack, needle):",
+    "    return needle.lower() in haystack.lower()",
+    "",
+    "def parse_tree(result):",
+    "    nodes = []",
+    "    for node in result.get('nodes', []):",
+    "        if not isinstance(node, dict):",
+    "            continue",
+    "        editable = False",
+    "        for prop in node.get('properties', []):",
+    "            if prop.get('name') == 'editable':",
+    "                val = prop.get('value', {}).get('value')",
+    "                if val not in (False, 'false'):",
+    "                    editable = True",
+    "        value = None",
+    "        if isinstance(node.get('value'), dict):",
+    "            raw = node['value'].get('value')",
+    "            if raw is not None:",
+    "                value = str(raw)",
+    "        nodes.append({",
+    "            'id': node.get('nodeId', ''),",
+    "            'parent': node.get('parentId'),",
+    "            'children': list(node.get('childIds', [])),",
+    "            'role': node.get('role', {}).get('value', ''),",
+    "            'name': node.get('name', {}).get('value', ''),",
+    "            'value': value,",
+    "            'ignored': bool(node.get('ignored', False)),",
+    "            'editable': editable,",
+    "            'backend_node_id': node.get('backendDOMNodeId'),",
+    "        })",
+    "    return nodes",
+    "",
+    "def node_text(node):",
+    "    value = node.get('value')",
+    "    if value and node['role'].lower() in VALUE_ROLES:",
+    "        return value",
+    "    return node.get('name') or ''",
+    "",
+    "def document_order(nodes):",
+    "    index = {node['id']: i for i, node in enumerate(nodes)}",
+    "    seen = [False] * len(nodes)",
+    "    order = []",
+    "    stack = [i for i, node in enumerate(nodes) if not node.get('parent')]",
+    "    stack.reverse()",
+    "    while stack:",
+    "        position = stack.pop()",
+    "        if seen[position]:",
+    "            continue",
+    "        seen[position] = True",
+    "        order.append(position)",
+    "        for child in reversed(nodes[position]['children']):",
+    "            if child in index and not seen[index[child]]:",
+    "                stack.append(index[child])",
+    "    for i in range(len(nodes)):",
+    "        if not seen[i]:",
+    "            order.append(i)",
+    "    return order",
+    "",
+    "def find_ax_nodes(nodes, mode, text=None, role=None, name=None):",
+    "    by_id = {node['id']: node for node in nodes}",
+    "    order = document_order(nodes)",
+    "    if mode == 'role':",
+    "        out = []",
+    "        for i in order:",
+    "            node = nodes[i]",
+    "            if node['ignored']:",
+    "                continue",
+    "            if node['role'].lower() != role.lower():",
+    "                continue",
+    "            if name is not None and not contains_ci(node.get('name') or '', name):",
+    "                continue",
+    "            if node.get('backend_node_id') is not None:",
+    "                out.append(node)",
+    "        return out",
+    "    hits = []",
+    "    for i in order:",
+    "        node = nodes[i]",
+    "        if node['ignored']:",
+    "            continue",
+    "        if contains_ci(node_text(node), text):",
+    "            hits.append(node)",
+    "    hit_ids = {node['id'] for node in hits}",
+    "    def has_hit_descendant(node):",
+    "        stack = list(node['children'])",
+    "        while stack:",
+    "            cid = stack.pop()",
+    "            if cid in hit_ids:",
+    "                return True",
+    "            child = by_id.get(cid)",
+    "            if child:",
+    "                stack.extend(child['children'])",
+    "        return False",
+    "    out = []",
+    "    for hit in hits:",
+    "        if has_hit_descendant(hit):",
+    "            continue",
+    "        chosen = hit",
+    "        cursor = hit.get('parent')",
+    "        depth = 0",
+    "        while cursor and depth < 6:",
+    "            depth += 1",
+    "            parent = by_id.get(cursor)",
+    "            if not parent:",
+    "                break",
+    "            if parent['role'].lower() in INTERACTIVE_ROLES:",
+    "                if contains_ci(node_text(parent), text):",
+    "                    chosen = parent",
+    "                break",
+    "            cursor = parent.get('parent')",
+    "        if chosen.get('backend_node_id') is None:",
+    "            continue",
+    "        if not any(node['id'] == chosen['id'] for node in out):",
+    "            out.append(chosen)",
+    "    return out",
+    "",
+    "targets = json.loads(urllib.request.urlopen(",
+    "    'http://127.0.0.1:%d/json' % port, timeout=5).read().decode())",
+    "ws_url = None",
+    "for row in targets:",
+    "    if row.get('id') == target_id:",
+    "        ws_url = row.get('webSocketDebuggerUrl')",
+    "        break",
+    "if not ws_url:",
+    "    raise SystemExit('cu_linux_page_find_probe_target_missing')",
+    "",
+    "counter = [0]",
+    "def send(ws, method, params=None):",
+    "    counter[0] += 1",
+    "    msg_id = counter[0]",
+    "    ws.send(json.dumps({'id': msg_id, 'method': method, 'params': params or {}}))",
+    "    while True:",
+    "        raw = ws.recv()",
+    "        data = json.loads(raw)",
+    "        if data.get('id') != msg_id:",
+    "            continue",
+    "        if 'error' in data:",
+    "            raise SystemExit('cu_linux_page_find_probe_cdp:' + json.dumps(data['error']))",
+    "        return data.get('result', {})",
+    "",
+    "def describe_node(ws, backend_node_id):",
+    "    resolved = send(ws, 'DOM.resolveNode', {'backendNodeId': int(backend_node_id)})",
+    "    object_id = resolved['object']['objectId']",
+    "    result = send(ws, 'Runtime.callFunctionOn', {",
+    "        'objectId': object_id,",
+    "        'functionDeclaration': DESCRIBE_FN,",
+    "        'returnByValue': True,",
+    "    })",
+    "    if result.get('exceptionDetails'):",
+    "        raise SystemExit('cu_linux_page_find_probe_describe:' + json.dumps(result['exceptionDetails']))",
+    "    return result['result']['value']",
+    "",
+    "ws = websocket.create_connection(ws_url, timeout=30)",
+    "try:",
+    "    send(ws, 'Runtime.enable')",
+    "    send(ws, 'DOM.enable')",
+    "    tree = send(ws, 'Accessibility.getFullAXTree', {})",
+    "    nodes = parse_tree(tree)",
+    "    if mode == 'text':",
+    "        matched = find_ax_nodes(nodes, 'text', text=config['text'])",
+    "    else:",
+    "        matched = find_ax_nodes(nodes, 'role', role=config['role'], name=config.get('name'))",
+    "    total = len(matched)",
+    "    described = []",
+    "    for node in matched[:200]:",
+    "        bid = node['backend_node_id']",
+    "        desc = describe_node(ws, bid)",
+    "        described.append({",
+    "            'node': bid,",
+    "            'tag': desc.get('tag', ''),",
+    "            'role': node['role'],",
+    "            'name': node.get('name') or '',",
+    "            'text': desc.get('text', ''),",
+    "            'value': desc.get('value'),",
+    "            'editable': bool(desc.get('editable', False)),",
+    "        })",
+    "    print(json.dumps({'total': total, 'nodes': described}))",
+    "finally:",
+    "    ws.close()",
+  ].join("\n");
+}
+
+function independent_css_probe(run_directory, executable, probe_json) {
+  const output = rh.command("python3", ["-c", independent_css_probe_script(), probe_json], {
     cwd: run_directory,
     env: cu_env(executable),
     timeout_ms: 45000,
@@ -159,7 +477,20 @@ function independent_probe(run_directory, executable, probe_config_json) {
   return document;
 }
 
-function normalize_cu_node(row) {
+function independent_ax_probe(run_directory, executable, probe_json) {
+  const output = rh.command("python3", ["-c", independent_ax_probe_script(), probe_json], {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_page_find_ax_probe:" + output.stderr + output.stdout);
+  const document = JSON.parse(output.stdout.trim());
+  ensure(typeof document.total === "number", "cu_linux_page_find_ax_probe_total");
+  ensure(Array.isArray(document.nodes), "cu_linux_page_find_ax_probe_nodes");
+  return document;
+}
+
+function normalize_css_node(row) {
   const value = at(row, "value");
   return {
     tag: text_at(row, "tag"),
@@ -169,7 +500,20 @@ function normalize_cu_node(row) {
   };
 }
 
-function nodes_agree(cu_reply, probe, label) {
+function normalize_ax_node(row) {
+  const value = at(row, "value");
+  return {
+    node: at(row, "node"),
+    tag: text_at(row, "tag"),
+    role: text_at(row, "role"),
+    name: text_at(row, "name"),
+    text: text_at(row, "text"),
+    value: value === undefined || value === null ? null : "" + value,
+    editable: flag_at(row, "editable"),
+  };
+}
+
+function css_nodes_agree(cu_reply, probe, label) {
   ensure(text_at(cu_reply, "data.via") === "DOM.querySelectorAll",
     "cu_linux_page_find_via_" + label + ":" + JSON.stringify(cu_reply.data));
   ensure(at(cu_reply, "data.total") === probe.total,
@@ -190,7 +534,35 @@ function nodes_agree(cu_reply, probe, label) {
       probe: probe.nodes.length,
     }));
   for (let index = 0; index < cu_nodes.length; index = index + 1) {
-    const cu = normalize_cu_node(cu_nodes[index]);
+    const cu = normalize_css_node(cu_nodes[index]);
+    const dom = probe.nodes[index];
+    ensure(JSON.stringify(cu) === JSON.stringify(dom),
+      "cu_linux_page_find_mismatch_" + label + "_" + index + ":" + JSON.stringify({ cu: cu, dom: dom }));
+  }
+}
+
+function ax_nodes_agree(cu_reply, probe, label) {
+  ensure(text_at(cu_reply, "data.via") === "Accessibility.getFullAXTree",
+    "cu_linux_page_find_via_" + label + ":" + JSON.stringify(cu_reply.data));
+  ensure(at(cu_reply, "data.total") === probe.total,
+    "cu_linux_page_find_total_" + label + ":" + JSON.stringify({
+      cu: at(cu_reply, "data.total"),
+      probe: probe.total,
+    }));
+  ensure(at(cu_reply, "data.returned") === probe.nodes.length,
+    "cu_linux_page_find_returned_" + label + ":" + JSON.stringify({
+      cu: at(cu_reply, "data.returned"),
+      probe: probe.nodes.length,
+    }));
+  const cu_nodes = at(cu_reply, "data.nodes");
+  ensure(Array.isArray(cu_nodes), "cu_linux_page_find_rows_" + label);
+  ensure(cu_nodes.length === probe.nodes.length,
+    "cu_linux_page_find_count_" + label + ":" + JSON.stringify({
+      cu: cu_nodes.length,
+      probe: probe.nodes.length,
+    }));
+  for (let index = 0; index < cu_nodes.length; index = index + 1) {
+    const cu = normalize_ax_node(cu_nodes[index]);
     const dom = probe.nodes[index];
     ensure(JSON.stringify(cu) === JSON.stringify(dom),
       "cu_linux_page_find_mismatch_" + label + "_" + index + ":" + JSON.stringify({ cu: cu, dom: dom }));
@@ -239,6 +611,12 @@ try {
   ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
     "cu_linux_page_find_port_in_use:" + port);
 
+  print("STEP page-find typed usage rejects missing or conflicting node queries before Chrome starts");
+  assert_page_find_usage(run_directory, executable, env, port);
+
+  print("STEP page-find typed-fails no CDP listener on the owned free port before Chrome starts");
+  assert_no_cdp_listener(run_directory, executable, env, port);
+
   print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
   chrome_child = harness.start({
     program: launcher,
@@ -276,27 +654,66 @@ try {
   }
   ensure(target_id !== "", "cu_linux_page_find_target_missing");
 
-  const cases = [
-    { selector: "#hero", label: "hero" },
-    { selector: ".item", label: "items" },
-    { selector: "#q", label: "input" },
-  ];
+  print("STEP page-find typed miss paths reject bad targets and absent nodes");
+  assert_page_find_miss(run_directory, executable, env, port, target_id);
 
-  for (let index = 0; index < cases.length; index = index + 1) {
-    const test_case = cases[index];
-    print("STEP page-find --selector " + test_case.selector + " agrees with independent CDP DOM probe");
-    const probe_config = JSON.stringify({
-      port: port,
-      target_id: target_id,
-      selector: test_case.selector,
-    });
-    const probe = independent_probe(run_directory, executable, probe_config);
-    const found = run_cu(run_directory, executable, "observe", [
-      "page-find", "--port", "" + port, "--target-id", target_id,
-      "--selector", test_case.selector,
-    ], env);
-    nodes_agree(found, probe, test_case.label);
-  }
+  print("STEP page-find --selector #hero agrees with independent CDP DOM probe");
+  const hero_probe_json = JSON.stringify({ port: port, target_id: target_id, selector: "#hero" });
+  const hero_probe = independent_css_probe(run_directory, executable, hero_probe_json);
+  const hero_found = run_cu(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", target_id, "--selector", "#hero",
+  ], env);
+  css_nodes_agree(hero_found, hero_probe, "hero_css");
+
+  print("STEP page-find --selector .item agrees with independent CDP DOM probe");
+  const items_probe_json = JSON.stringify({ port: port, target_id: target_id, selector: ".item" });
+  const items_probe = independent_css_probe(run_directory, executable, items_probe_json);
+  const items_found = run_cu(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", target_id, "--selector", ".item",
+  ], env);
+  css_nodes_agree(items_found, items_probe, "items_css");
+
+  print("STEP page-find --selector #q agrees with independent CDP DOM probe");
+  const input_probe_json = JSON.stringify({ port: port, target_id: target_id, selector: "#q" });
+  const input_probe = independent_css_probe(run_directory, executable, input_probe_json);
+  const input_found = run_cu(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", target_id, "--selector", "#q",
+  ], env);
+  css_nodes_agree(input_found, input_probe, "input_css");
+
+  print("STEP page-find --text CEO agrees with independent CDP AX probe");
+  const hero_text_json = JSON.stringify({ port: port, target_id: target_id, mode: "text", text: "CEO" });
+  const hero_text_probe = independent_ax_probe(run_directory, executable, hero_text_json);
+  const hero_text_found = run_cu(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", target_id, "--text", "CEO",
+  ], env);
+  ax_nodes_agree(hero_text_found, hero_text_probe, "hero_text");
+
+  print("STEP page-find --text input value agrees with independent CDP AX probe");
+  const input_text_json = JSON.stringify({ port: port, target_id: target_id, mode: "text", text: seed_value });
+  const input_text_probe = independent_ax_probe(run_directory, executable, input_text_json);
+  const input_text_found = run_cu(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", target_id, "--text", seed_value,
+  ], env);
+  ax_nodes_agree(input_text_found, input_text_probe, "input_text");
+
+  print("STEP page-find --role heading agrees with independent CDP AX probe");
+  const hero_role_json = JSON.stringify({ port: port, target_id: target_id, mode: "role", role: "heading" });
+  const hero_role_probe = independent_ax_probe(run_directory, executable, hero_role_json);
+  const hero_role_found = run_cu(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", target_id, "--role", "heading",
+  ], env);
+  ax_nodes_agree(hero_role_found, hero_role_probe, "hero_role");
+
+  print("STEP page-find --role textbox agrees with independent CDP AX probe");
+  const input_role_json = JSON.stringify({
+    port: port, target_id: target_id, mode: "role", role: "textbox",
+  });
+  const input_role_probe = independent_ax_probe(run_directory, executable, input_role_json);
+  const input_role_found = run_cu(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", target_id, "--role", "textbox",
+  ], env);
+  ax_nodes_agree(input_role_found, input_role_probe, "input_role");
 
   harness.emit_evidence(context, declared_evidence, "cu.linux-page-find-honesty");
   succeeded = 1;
@@ -310,5 +727,5 @@ if (chrome_child >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_page_find_failed");
 harness.remove_run(context);
-print("PASS: Linux page-find CDP selector text/count matches independent DOM probe (no --coords)");
+print("PASS: Linux page-find usage/miss/host-limit honesty + independent CDP DOM/AX probe read-back (no --coords)");
 return;
