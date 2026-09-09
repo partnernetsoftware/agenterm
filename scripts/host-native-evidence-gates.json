@@ -283,6 +283,13 @@
       ]
     },
     {
+      "id": "cu-linux-get-text-honesty-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-get-text-readback"
+      ]
+    },
+    {
       "id": "cu-linux-boot-identity-smoke",
       "platform": "linux",
       "evidence": [

@@ -663,9 +663,6 @@ async fn focused_node_via_actuation_hint(
     let Some(hint) = app_focus_hint_for_window(window_handle) else {
         return Ok(None);
     };
-    if let Some(node) = read_focus_hint_node(conn, &hint.object).await {
-        return Ok(Some(node));
-    }
     let identity = window_handle.and_then(window_identity);
     let roots = registry_children(conn).await?;
     let selected = select_roots(conn, roots, identity.as_ref()).await?;
@@ -720,27 +717,6 @@ async fn focused_node_via_actuation_hint(
         }
     }
     Ok(None)
-}
-
-async fn read_focus_hint_node(
-    conn: &zbus::Connection,
-    object: &BusObject,
-) -> Option<AccessibilityNode> {
-    let Ok(Ok(proxy)) = timeout(NODE_TIMEOUT, open_bus_object(conn, object)).await else {
-        return None;
-    };
-    let role = role_name(&proxy).await;
-    let states = states_from_proxy_with_role(&proxy, &role).await;
-    let focusable = states.iter().any(|state| state == "focusable")
-        || states.iter().any(|state| state == "editable");
-    if !focusable
-        || !states
-            .iter()
-            .any(|state| state == "showing" || state == "visible")
-    {
-        return None;
-    }
-    Some(read_node(&proxy, object.path.clone(), None).await)
 }
 
 async fn focused_node_via_live_probe(
