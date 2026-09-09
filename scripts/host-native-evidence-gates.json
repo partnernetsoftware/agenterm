@@ -253,6 +253,13 @@
       ]
     },
     {
+      "id": "cu-linux-focused-honesty-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-focused-readback"
+      ]
+    },
+    {
       "id": "cu-linux-login-session-smoke",
       "platform": "linux",
       "evidence": [
