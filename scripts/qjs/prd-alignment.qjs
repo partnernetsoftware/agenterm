@@ -248,6 +248,7 @@ const evidence_suites = {
   "control-center-macos-smoke": true,
   "cu-linux-smoke": true,
   "cu-linux-external-terminal-send-smoke": true,
+  "cu-linux-shell-exec-smoke": true,
   "cu-linux-pty-smoke": true,
   "cu-scroll-wheel-smoke": true,
   "cu-linux-scroll-smoke": true,
@@ -266,6 +267,8 @@ const evidence_suites = {
   "cu-linux-page-hover-smoke": true,
   "cu-linux-browser-profiles-open-smoke": true,
   "cu-linux-gtk-entry-focused-send-text-smoke": true,
+  "cu-linux-gtk-entry-text-smoke": true,
+  "cu-linux-gtk-entry-caret-smoke": true,
   "cu-linux-gtk-button-focus-smoke": true,
   "cu-linux-gtk-entry-paste-smoke": true,
   "cu-linux-gtk-entry-send-keys-smoke": true,
@@ -280,6 +283,7 @@ const evidence_suites = {
   "cu-linux-browser-tab-select-smoke": true,
   "cu-linux-tab-list-honesty-smoke": true,
   "cu-linux-tab-close-smoke": true,
+  "cu-linux-window-title-contains-smoke": true,
   "cu-linux-window-move-smoke": true,
   "cu-linux-raise-activate-smoke": true,
   "cu-linux-orderwin-smoke": true,
@@ -287,7 +291,9 @@ const evidence_suites = {
   "cu-linux-keyboard-layout-smoke": true,
   "cu-linux-network-interfaces-smoke": true,
   "cu-linux-network-dns-smoke": true,
+  "cu-linux-network-routes-smoke": true,
   "cu-linux-network-probe-smoke": true,
+  "cu-linux-proxy-env-smoke": true,
   "cu-linux-file-inspect-smoke": true,
   "cu-linux-file-mode-smoke": true,
   "cu-linux-file-attributes-smoke": true,
@@ -453,10 +459,12 @@ const evidence_suites = {
   "workbench-smoke": true
 };
 const evidence_gates = [];
+const evidence_gate_by_id = {};
 for (const gate of gate_manifest.required_gates) {
   const gate_id = "" + gate.id;
   if (evidence_suites[gate_id] === true) {
     evidence_gates.push(gate);
+    evidence_gate_by_id[gate_id] = gate;
   }
 }
 const host_native_manifest = rh.parse_file(rh.join(repo, "scripts/host-native-evidence-gates.json"));
@@ -468,7 +476,16 @@ for (const gate of host_native_manifest.gates) {
       && (gate.platform === "linux" || gate.platform === "macos"),
     "prd_alignment_host_native_gate:" + gate.id
   );
-  evidence_gates.push(gate);
+  const existing_gate = evidence_gate_by_id[host_gate_id];
+  if (existing_gate !== undefined) {
+    rh.require(
+      JSON.stringify(existing_gate.evidence) === JSON.stringify(gate.evidence),
+      "prd_alignment_host_native_evidence_mismatch:" + gate.id
+    );
+  } else {
+    evidence_gates.push(gate);
+    evidence_gate_by_id[host_gate_id] = gate;
+  }
 }
 // The evidence suites live at scripts/qjs/<suite>.qjs since 2026-08-29;
 // the check reads their source for the evidence ids they emit.
@@ -519,18 +536,20 @@ for (const gate of evidence_gates) {
     const evidence_key = "" + evidence_id;
     well_formed_name(evidence_key, "prd_alignment_evidence_id");
     rh.require(
-      registered_evidence[evidence_key] !== true,
-      "prd_alignment_evidence_duplicate:" + evidence_key
-    );
-    rh.require(
       suite_source.includes("EVIDENCE " + evidence_key)
         || suite_source.includes("Write-Evidence '" + evidence_key + "'")
         || suite_source.includes("'" + evidence_key + "'")
         || suite_source.includes("\"" + evidence_key + "\""),
       "prd_alignment_evidence_not_emitted:" + evidence_key
     );
-    registered_evidence[evidence_key] = true;
-    registered_count = registered_count + 1;
+    // Host-native registration mirrors the owning qualification gate, and a
+    // few aggregate Linux journeys intentionally emit a dedicated court's
+    // evidence too. Validate every declaration above, but count each public
+    // evidence identity once when comparing it with the capability contract.
+    if (registered_evidence[evidence_key] !== true) {
+      registered_evidence[evidence_key] = true;
+      registered_count = registered_count + 1;
+    }
   }
 }
 

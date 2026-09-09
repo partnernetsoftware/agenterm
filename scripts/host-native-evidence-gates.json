@@ -456,7 +456,8 @@
       "id": "cu-linux-gtk-rclick-smoke",
       "platform": "linux",
       "evidence": [
-        "cu.linux-gtk-rclick-context-menu"
+        "cu.linux-gtk-rclick-context-menu",
+        "cu.linux-gtk-rclick-context-menu-blocker"
       ]
     },
     {
@@ -867,6 +868,7 @@
       "id": "cu-linux-gtk-entry-send-keys-smoke",
       "platform": "linux",
       "evidence": [
+        "cu.linux-gtk-entry-send-keys-get-text",
         "cu.linux-gtk-entry-send-keys-ctrl-home",
         "cu.linux-gtk-entry-send-keys-ctrl-end",
         "cu.linux-gtk-entry-send-keys-ctrl-c",
