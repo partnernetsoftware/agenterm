@@ -1,5 +1,8 @@
 // CEO: Linux external-terminal visible send + AgenTerm terminal-control host-limit
-// honesty with independent read-back. Missing Unix socket authority returns typed
+// honesty with independent read-back. Typed terminal-send/term-send usage must
+// reject AT-SPI --name and other unexpected arguments; typed get-extents --name
+// usage/host-limit paths must hold before the AgenTerm sock and external
+// term-read read-back courts. Missing Unix socket authority returns typed
 // control_unavailable with detail.limit=host/group=terminal; present authority
 // proves terminal-send/wait/read on one live tab. External GTK terminal buffer
 // proves term-send --foreground with independent term-read token match.
@@ -13,6 +16,8 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-external-terminal-send",
 ];
+
+const AT_SPI_PROBE_NAME = "External Terminal Court Anchor";
 
 const EXTERNAL_TERMINAL_FIXTURE = `#!/usr/bin/env python3
 import os
@@ -76,6 +81,8 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
+function output_success(document) { return at(document, "ok") === true; }
+
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
   if (value_at === undefined || value_at === null) { return -1; }
@@ -88,19 +95,229 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function cu_env(run_directory, terminal_env) {
+function cu_env(run_directory, terminal_env, executable) {
   const env = {
     AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
     AGENTERM_NO_ACTIVATE: "1",
   };
+  if (executable !== undefined) {
+    env.AGENTERM_ABI_LIB = rh.join(rh.parent(executable), "libagenterm.so");
+  }
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
   for (const name of Object.keys(terminal_env)) {
     env[name] = terminal_env[name];
   }
   return env;
 }
 
-function cu_visible_env(run_directory, terminal_env) {
-  const env = cu_env(run_directory, terminal_env);
+function invoke_actuate_reply(run_directory, executable, terminal_env, arguments) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe,actuate",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: cu_env(run_directory, terminal_env, executable),
+    timeout_ms: 60000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_external_terminal_send_actuate_cli:" + output.stdout + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(
+    text_at(reply, "command") === "terminal-send"
+      || text_at(reply, "command") === "term-send"
+      || text_at(reply, "command") === "usage",
+    "cu_linux_external_terminal_send_actuate_command:" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function invoke_get_extents_reply(run_directory, executable, terminal_env, arguments) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: cu_env(run_directory, terminal_env, executable),
+    timeout_ms: 60000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_external_terminal_send_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function probe_atspi_available(executable, run_directory, terminal_env) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    cwd: run_directory,
+    env: cu_env(run_directory, terminal_env, executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_rejects_atspi_name(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0
+    || message.indexOf("exactly one text argument") >= 0;
+}
+
+function assert_terminal_send_usage_limit(run_directory, executable, terminal_env) {
+  const flat_with_name = invoke_actuate_reply(run_directory, executable, terminal_env, [
+    "terminal-send", "--tab", "@1", "--name", AT_SPI_PROBE_NAME, "--", "hello",
+  ]);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_external_terminal_send_terminal_send_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_external_terminal_send_terminal_send_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_external_terminal_send_terminal_send_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    usage_rejects_atspi_name(text_at(flat_with_name, "error.message")),
+    "cu_linux_external_terminal_send_terminal_send_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = invoke_actuate_reply(run_directory, executable, terminal_env, [
+    "terminal", "send", "--tab", "@1", "--name", AT_SPI_PROBE_NAME, "--", "hello",
+  ]);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_external_terminal_send_terminal_send_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_external_terminal_send_terminal_send_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    usage_rejects_atspi_name(text_at(grouped_with_name, "error.message")),
+    "cu_linux_external_terminal_send_terminal_send_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = invoke_actuate_reply(run_directory, executable, terminal_env, [
+    "terminal-send", "--tab", "@1", "--bogus", "--", "hello",
+  ]);
+  ensure(!output_success(with_bogus),
+    "cu_linux_external_terminal_send_terminal_send_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_external_terminal_send_terminal_send_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0
+      || usage_rejects_atspi_name(text_at(with_bogus, "error.message")),
+    "cu_linux_external_terminal_send_terminal_send_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_term_send_usage_limit(run_directory, executable, terminal_env) {
+  const flat_with_name = invoke_actuate_reply(run_directory, executable, terminal_env, [
+    "term-send", "1", "--foreground", "--name", AT_SPI_PROBE_NAME, "--", "hello",
+  ]);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_external_terminal_send_term_send_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_external_terminal_send_term_send_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_external_terminal_send_term_send_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    usage_rejects_atspi_name(text_at(flat_with_name, "error.message")),
+    "cu_linux_external_terminal_send_term_send_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = invoke_actuate_reply(run_directory, executable, terminal_env, [
+    "term", "send", "1", "--foreground", "--name", AT_SPI_PROBE_NAME, "--", "hello",
+  ]);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_external_terminal_send_term_send_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_external_terminal_send_term_send_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    usage_rejects_atspi_name(text_at(grouped_with_name, "error.message")),
+    "cu_linux_external_terminal_send_term_send_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = invoke_actuate_reply(run_directory, executable, terminal_env, [
+    "term-send", "1", "--foreground", "--bogus", "--", "hello",
+  ]);
+  ensure(!output_success(with_bogus),
+    "cu_linux_external_terminal_send_term_send_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_external_terminal_send_term_send_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    usage_rejects_atspi_name(text_at(with_bogus, "error.message")),
+    "cu_linux_external_terminal_send_term_send_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, terminal_env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, terminal_env, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ]);
+  ensure(!output_success(zero_handle),
+    "cu_linux_external_terminal_send_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_external_terminal_send_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_external_terminal_send_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable, terminal_env) {
+  const env = cu_env(run_directory, terminal_env, executable);
+  env.AT_SPI_BUS_ADDRESS = "invalid";
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 60000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_external_terminal_send_extents_unavailable_cli:" + output.stdout + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(!output_success(reply),
+    "cu_linux_external_terminal_send_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_external_terminal_send_extents_unavailable_code:" + code
+  );
+}
+
+function cu_visible_env(run_directory, terminal_env, executable) {
+  const env = cu_env(run_directory, terminal_env, executable);
   const visible = {};
   for (const name of Object.keys(env)) {
     if (name !== "AGENTERM_NO_ACTIVATE") { visible[name] = env[name]; }
@@ -111,7 +328,7 @@ function cu_visible_env(run_directory, terminal_env) {
 function run_cu_json(run_directory, executable, terminal_env, arguments) {
   const output = rh.command(executable, arguments, {
     cwd: run_directory,
-    env: cu_env(run_directory, terminal_env),
+    env: cu_env(run_directory, terminal_env, executable),
     timeout_ms: 60000,
   });
   ensure(output.success === true, "cu_linux_external_terminal_send_cli:" + output.stdout + output.stderr);
@@ -125,7 +342,7 @@ function run_cu_json(run_directory, executable, terminal_env, arguments) {
 function run_cu_reply(run_directory, executable, terminal_env, arguments) {
   const output = rh.command(executable, arguments, {
     cwd: run_directory,
-    env: cu_env(run_directory, terminal_env),
+    env: cu_env(run_directory, terminal_env, executable),
     timeout_ms: 60000,
   });
   const trimmed = output.stdout.trim();
@@ -138,7 +355,7 @@ function run_cu_visible_json(run_directory, executable, terminal_env, arguments)
     program: executable,
     args: arguments,
     current_dir: run_directory,
-    env: cu_visible_env(run_directory, terminal_env),
+    env: cu_visible_env(run_directory, terminal_env, executable),
     env_remove: ["AGENTERM_NO_ACTIVATE"],
     timeout_ms: 60000,
   });
@@ -150,12 +367,12 @@ function run_cu_visible_json(run_directory, executable, terminal_env, arguments)
   return document;
 }
 
-function run_agenterm(run_directory, agenterm, terminal_env, arguments) {
+function run_agenterm(run_directory, agenterm, executable, terminal_env, arguments) {
   const all = ["cli", "--address", terminal_env.AGENTERM_IPC_ADDRESS];
   for (const argument of arguments) { all.push(argument); }
   const output = rh.command(agenterm, all, {
     cwd: run_directory,
-    env: cu_env(run_directory, terminal_env),
+    env: cu_env(run_directory, terminal_env, executable),
     timeout_ms: 60000,
   });
   ensure(output.success === true, "cu_linux_external_terminal_send_agenterm:" + output.stdout + output.stderr);
@@ -227,10 +444,23 @@ const terminal_env = {
 let terminal_server = -1;
 let external_fixture = -1;
 let external_fixture_pid = 0;
+const atspi_available = probe_atspi_available(executable, run_directory, terminal_env);
 let succeeded = 0;
 let failure = "";
 
 try {
+  print("STEP terminal-send/term-send typed-fail usage when AT-SPI --name or other unexpected arguments are present");
+  assert_terminal_send_usage_limit(run_directory, executable, terminal_env);
+  assert_term_send_usage_limit(run_directory, executable, terminal_env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, terminal_env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable, terminal_env);
+  }
+
   print("STEP terminal-list typed-fails control_unavailable with host-limit detail before any AgenTerm authority exists");
   const missing = run_cu_reply(run_directory, executable, terminal_env, [
     "--target", "current", "--grant", "observe", "terminal-list",
@@ -242,7 +472,7 @@ try {
     program: agenterm,
     args: ["server", "--address", terminal_env.AGENTERM_IPC_ADDRESS],
     current_dir: run_directory,
-    env: cu_env(run_directory, terminal_env),
+    env: cu_env(run_directory, terminal_env, executable),
     timeout_ms: 60000,
   });
   let terminal_ready = null;
@@ -259,7 +489,7 @@ try {
   const terminal_epoch = text_at(terminal_ready, "data.server_epoch");
   ensure(terminal_scope !== "" && terminal_epoch !== "", "cu_linux_external_terminal_send_authority");
 
-  const tab_id = run_agenterm(run_directory, agenterm, terminal_env, [
+  const tab_id = run_agenterm(run_directory, agenterm, executable, terminal_env, [
     "new-window", "-d", "-P", "-F", "#{window_id}",
     "-n", "cu-external-terminal-" + context.run_id, "--", "sh", "-c", "stty -echo; exec sh",
   ]);
@@ -309,8 +539,8 @@ try {
     "cu_linux_external_terminal_send_terminal_read:" + JSON.stringify({ marker: marker, text: terminal_text })
   );
 
-  run_agenterm(run_directory, agenterm, terminal_env, ["kill-window", "-t", tab_id]);
-  run_agenterm(run_directory, agenterm, terminal_env, ["shutdown"]);
+  run_agenterm(run_directory, agenterm, executable, terminal_env, ["kill-window", "-t", tab_id]);
+  run_agenterm(run_directory, agenterm, executable, terminal_env, ["shutdown"]);
   harness.wait(terminal_server, 10000);
   terminal_server = -1;
 
@@ -384,4 +614,8 @@ if (terminal_server >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_external_terminal_send_failed");
 harness.remove_run(context);
-print("PASS: Linux external-terminal visible send with AgenTerm sock host-limit honesty and independent read-back");
+if (atspi_available) {
+  print("PASS: Linux external-terminal visible send with typed terminal-send/term-send/get-extents usage honesty and independent read-back (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux external-terminal visible send with typed terminal-send/term-send/get-extents host-limit honesty and independent read-back (AT-SPI --name, no --coords)");
+}

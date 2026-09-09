@@ -5614,13 +5614,13 @@
     },
     {
       "id": "cu-linux-external-terminal-send-smoke",
-      "description": "Explicit visible Linux court for exact-window external-terminal send: focus the owned AT-SPI terminal buffer, inject one unique token, verify the same-buffer postcondition, and restore the prior foreground window.",
+      "description": "Explicit visible Linux court for exact-window external-terminal send: typed terminal-send/term-send/get-extents AT-SPI --name usage or host-limit honesty before AgenTerm sock and external term-read read-back courts; focus the owned AT-SPI terminal buffer, inject one unique token, verify the same-buffer postcondition, and restore the prior foreground window; abi-dev, no --coords.",
       "entry": "scripts/qjs/cu-linux-external-terminal-send-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
         ".",
-        "target/debug/agenterm-cu"
+        "target/abi-dev/agenterm-cu"
       ],
       "dependencies": [],
       "platforms": [
