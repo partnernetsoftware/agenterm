@@ -1,8 +1,11 @@
-// CEO: Linux browser-open then independent browser-tabs inventory read-back.
-// Typed browser-tabs/browser-open usage must reject AT-SPI --name and other
-// unexpected arguments; typed get-extents --name usage/host-limit paths must
-// hold before the browser-open/browser-tabs actuate/read-back court.
-// AT-SPI/--name only; no --coords or screenshot degradation.
+// CEO: Linux browser-open then independent Chrome/CDP tabs inventory read-back.
+// Typed browser-tabs/browser-open usage must reject AT-SPI --name, --coords,
+// --bogus, and other unexpected arguments; typed get-extents --name usage AND
+// host-limit paths must both hold before the browser-open/browser-tabs
+// actuate/read-back court. Independent curl /json (and AT-SPI tab names when
+// the desktop probe is live) must agree with CU browser-tabs. Prefer
+// host-limit clarity over fake success. AT-SPI/--name only; no --coords or
+// screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -35,7 +38,23 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
+
 function output_success(document) { return flag_at(document, "ok"); }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function get_extents_misuse_message_ok(message, token) {
+  return usage_rejects_unexpected(message, token)
+    || message.indexOf("--name") >= 0;
+}
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -130,103 +149,66 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
-function usage_message_mentions_unexpected(message) {
-  return message.indexOf("--name") >= 0
-    || message.indexOf("unexpected") >= 0;
+function assert_unexpected_flag(
+  run_directory, executable, grant, arguments, env, label, token
+) {
+  const reply = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(
+    !output_success(reply),
+    "cu_linux_browser_tabs_usage_" + label + "_ok:" + JSON.stringify(reply)
+  );
+  ensure(
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_browser_tabs_usage_" + label + "_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "command") === "usage",
+    "cu_linux_browser_tabs_usage_" + label + "_command:" + JSON.stringify(reply)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(reply, "error.message"), token),
+    "cu_linux_browser_tabs_usage_" + label + "_message:" + JSON.stringify(reply.error)
+  );
 }
 
-function assert_browser_tabs_usage_limit(run_directory, executable, env) {
-  const flat_tabs = run_cu_reply(run_directory, executable, "observe", [
+function assert_browser_tabs_unexpected_usage(run_directory, executable, env) {
+  assert_unexpected_flag(run_directory, executable, "observe", [
     "browser-tabs", "--match", "fixture", "--name", AT_SPI_PROBE_NAME,
-  ], env);
-  ensure(!output_success(flat_tabs),
-    "cu_linux_browser_tabs_usage_flat_name_ok:" + JSON.stringify(flat_tabs));
-  ensure(
-    text_at(flat_tabs, "error.code") === "usage",
-    "cu_linux_browser_tabs_usage_flat_name_code:" + JSON.stringify(flat_tabs.error)
-  );
-  ensure(
-    text_at(flat_tabs, "command") === "usage",
-    "cu_linux_browser_tabs_usage_flat_name_command:" + JSON.stringify(flat_tabs)
-  );
-  ensure(
-    usage_message_mentions_unexpected(text_at(flat_tabs, "error.message")),
-    "cu_linux_browser_tabs_usage_flat_name_message:" + JSON.stringify(flat_tabs.error)
-  );
-
-  const grouped_tabs = run_cu_reply(run_directory, executable, "observe", [
+  ], env, "flat_name", "--name");
+  assert_unexpected_flag(run_directory, executable, "observe", [
     "browser", "tabs", "--match", "fixture", "--name", AT_SPI_PROBE_NAME,
-  ], env);
-  ensure(!output_success(grouped_tabs),
-    "cu_linux_browser_tabs_usage_grouped_name_ok:" + JSON.stringify(grouped_tabs));
-  ensure(
-    text_at(grouped_tabs, "error.code") === "usage",
-    "cu_linux_browser_tabs_usage_grouped_name_code:" + JSON.stringify(grouped_tabs.error)
-  );
-  ensure(
-    usage_message_mentions_unexpected(text_at(grouped_tabs, "error.message")),
-    "cu_linux_browser_tabs_usage_grouped_name_message:" + JSON.stringify(grouped_tabs.error)
-  );
-
-  const tabs_bogus = run_cu_reply(run_directory, executable, "observe", [
+  ], env, "grouped_name", "--name");
+  assert_unexpected_flag(run_directory, executable, "observe", [
     "browser-tabs", "--match", "fixture", "--bogus",
-  ], env);
-  ensure(!output_success(tabs_bogus),
-    "cu_linux_browser_tabs_usage_bogus_ok:" + JSON.stringify(tabs_bogus));
-  ensure(
-    text_at(tabs_bogus, "error.code") === "usage",
-    "cu_linux_browser_tabs_usage_bogus_code:" + JSON.stringify(tabs_bogus.error)
-  );
-  ensure(
-    usage_message_mentions_unexpected(text_at(tabs_bogus, "error.message")),
-    "cu_linux_browser_tabs_usage_bogus_message:" + JSON.stringify(tabs_bogus.error)
-  );
+  ], env, "flat_bogus", "--bogus");
+  assert_unexpected_flag(run_directory, executable, "observe", [
+    "browser", "tabs", "--match", "fixture", "--bogus",
+  ], env, "grouped_bogus", "--bogus");
+  assert_unexpected_flag(run_directory, executable, "observe", [
+    "browser-tabs", "--match", "fixture", "--coords", "10,10",
+  ], env, "flat_coords", "--coords");
+  assert_unexpected_flag(run_directory, executable, "observe", [
+    "browser", "tabs", "--match", "fixture", "--coords", "10,10",
+  ], env, "grouped_coords", "--coords");
 
-  const flat_open = run_cu_reply(run_directory, executable, "actuate", [
+  assert_unexpected_flag(run_directory, executable, "actuate", [
     "browser-open", "--profile", "court-alpha", "--name", AT_SPI_PROBE_NAME,
-  ], env);
-  ensure(!output_success(flat_open),
-    "cu_linux_browser_tabs_open_usage_flat_name_ok:" + JSON.stringify(flat_open));
-  ensure(
-    text_at(flat_open, "error.code") === "usage",
-    "cu_linux_browser_tabs_open_usage_flat_name_code:" + JSON.stringify(flat_open.error)
-  );
-  ensure(
-    text_at(flat_open, "command") === "usage",
-    "cu_linux_browser_tabs_open_usage_flat_name_command:" + JSON.stringify(flat_open)
-  );
-  ensure(
-    usage_message_mentions_unexpected(text_at(flat_open, "error.message")),
-    "cu_linux_browser_tabs_open_usage_flat_name_message:" + JSON.stringify(flat_open.error)
-  );
-
-  const grouped_open = run_cu_reply(run_directory, executable, "actuate", [
+  ], env, "open_flat_name", "--name");
+  assert_unexpected_flag(run_directory, executable, "actuate", [
     "browser", "open", "--profile", "court-alpha", "--name", AT_SPI_PROBE_NAME,
-  ], env);
-  ensure(!output_success(grouped_open),
-    "cu_linux_browser_tabs_open_usage_grouped_name_ok:" + JSON.stringify(grouped_open));
-  ensure(
-    text_at(grouped_open, "error.code") === "usage",
-    "cu_linux_browser_tabs_open_usage_grouped_name_code:" + JSON.stringify(grouped_open.error)
-  );
-  ensure(
-    usage_message_mentions_unexpected(text_at(grouped_open, "error.message")),
-    "cu_linux_browser_tabs_open_usage_grouped_name_message:" + JSON.stringify(grouped_open.error)
-  );
-
-  const open_bogus = run_cu_reply(run_directory, executable, "actuate", [
+  ], env, "open_grouped_name", "--name");
+  assert_unexpected_flag(run_directory, executable, "actuate", [
     "browser-open", "--profile", "court-alpha", "--bogus",
-  ], env);
-  ensure(!output_success(open_bogus),
-    "cu_linux_browser_tabs_open_usage_bogus_ok:" + JSON.stringify(open_bogus));
-  ensure(
-    text_at(open_bogus, "error.code") === "usage",
-    "cu_linux_browser_tabs_open_usage_bogus_code:" + JSON.stringify(open_bogus.error)
-  );
-  ensure(
-    usage_message_mentions_unexpected(text_at(open_bogus, "error.message")),
-    "cu_linux_browser_tabs_open_usage_bogus_message:" + JSON.stringify(open_bogus.error)
-  );
+  ], env, "open_flat_bogus", "--bogus");
+  assert_unexpected_flag(run_directory, executable, "actuate", [
+    "browser", "open", "--profile", "court-alpha", "--bogus",
+  ], env, "open_grouped_bogus", "--bogus");
+  assert_unexpected_flag(run_directory, executable, "actuate", [
+    "browser-open", "--profile", "court-alpha", "--coords", "10,10",
+  ], env, "open_flat_coords", "--coords");
+  assert_unexpected_flag(run_directory, executable, "actuate", [
+    "browser", "open", "--profile", "court-alpha", "--coords", "10,10",
+  ], env, "open_grouped_coords", "--coords");
 }
 
 function assert_get_extents_usage_limit(run_directory, executable, env) {
@@ -242,6 +224,60 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_browser_tabs_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_browser_tabs_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_browser_tabs_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_browser_tabs_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_browser_tabs_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_browser_tabs_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_browser_tabs_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_browser_tabs_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    get_extents_misuse_message_ok(text_at(extents_coords, "error.message"), "--coords"),
+    "cu_linux_browser_tabs_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_browser_tabs_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_browser_tabs_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_browser_tabs_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    get_extents_misuse_message_ok(text_at(extents_bogus, "error.message"), "--bogus"),
+    "cu_linux_browser_tabs_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -281,6 +317,130 @@ function chrome_handles(document) {
   return handles;
 }
 
+function independent_cdp_port(run_directory, needle) {
+  const script = [
+    "import os, sys",
+    "needle = sys.argv[1]",
+    "found = []",
+    "for name in os.listdir('/proc'):",
+    "    if not name.isdigit():",
+    "        continue",
+    "    path = '/proc/' + name + '/cmdline'",
+    "    try:",
+    "        data = open(path, 'rb').read().split(b'\\0')",
+    "    except OSError:",
+    "        continue",
+    "    words = [w.decode('utf-8', 'replace') for w in data if w]",
+    "    text = ' '.join(words)",
+    "    if needle not in text:",
+    "        continue",
+    "    if any(w.startswith('--type=') for w in words):",
+    "        continue",
+    "    port = ''",
+    "    i = 0",
+    "    while i < len(words):",
+    "        word = words[i]",
+    "        if word.startswith('--remote-debugging-port='):",
+    "            port = word.split('=', 1)[1]",
+    "        elif word == '--remote-debugging-port' and i + 1 < len(words):",
+    "            port = words[i + 1]",
+    "        i += 1",
+    "    if port.isdigit() and int(port) > 0:",
+    "        found.append(port)",
+    "print(','.join(sorted(set(found))))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, needle], {
+    cwd: run_directory,
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true,
+    "cu_linux_browser_tabs_proc_cmdline:" + output.stderr + output.stdout);
+  const text = output.stdout.trim();
+  ensure(text !== "",
+    "cu_linux_browser_tabs_independent_cdp_port_missing:" + needle);
+  const parts = text.split(",");
+  ensure(parts.length === 1,
+    "cu_linux_browser_tabs_independent_cdp_port_ambiguous:" + text);
+  return rh.parse_int(parts[0]);
+}
+
+function independent_curl_json(run_directory, port) {
+  const output = rh.command("curl", [
+    "-s", "--max-time", "5", "http://127.0.0.1:" + port + "/json",
+  ], {
+    cwd: run_directory,
+    timeout_ms: 10000,
+  });
+  ensure(
+    output.success === true && output.stdout.trim() !== "",
+    "cu_linux_browser_tabs_curl:" + output.stdout + output.stderr
+  );
+  return JSON.parse(output.stdout.trim());
+}
+
+function curl_page_matches(raw, title_needle, url_needle) {
+  if (!Array.isArray(raw)) { return false; }
+  for (const row of raw) {
+    const title = row.title === undefined || row.title === null ? "" : "" + row.title;
+    const url = row.url === undefined || row.url === null ? "" : "" + row.url;
+    const type = row.type === undefined || row.type === null ? "" : "" + row.type;
+    if (type !== "" && type !== "page") { continue; }
+    if (title.indexOf(title_needle) >= 0 && url.indexOf(url_needle) >= 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function independent_atspi_tab_titles(run_directory, executable, env, title_needle) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "want = sys.argv[1]",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "names = []",
+    "def walk(node, depth):",
+    "    if node is None or depth > 24:",
+    "        return",
+    "    name = node.name or ''",
+    "    role = ''",
+    "    try:",
+    "        role = node.getRoleName() or ''",
+    "    except Exception:",
+    "        role = ''",
+    "    role_l = role.lower()",
+    "    if want in name and ('tab' in role_l or 'page' in role_l or 'document' in role_l or 'frame' in role_l):",
+    "        names.append({'name': name, 'role': role})",
+    "    try:",
+    "        count = node.childCount",
+    "    except Exception:",
+    "        return",
+    "    for i in range(count):",
+    "        try:",
+    "            child = node.getChildAtIndex(i)",
+    "        except Exception:",
+    "            continue",
+    "        walk(child, depth + 1)",
+    "for i in range(desktop.childCount):",
+    "    app = desktop.getChildAtIndex(i)",
+    "    if app is None:",
+    "        continue",
+    "    walk(app, 0)",
+    "print(json.dumps(names))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, title_needle], {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 20000,
+  });
+  if (output.success !== true) {
+    return null;
+  }
+  const trimmed = output.stdout.trim();
+  if (trimmed === "") { return null; }
+  return JSON.parse(trimmed);
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -309,15 +469,17 @@ let succeeded = 0;
 let failure = "";
 
 try {
-  print("STEP browser-tabs/browser-open typed-fails usage when AT-SPI --name or other unexpected arguments are present");
-  assert_browser_tabs_usage_limit(run_directory, executable, env);
+  print("STEP browser-tabs/browser-open typed-fail usage when AT-SPI --name/--coords/--bogus is present");
+  assert_browser_tabs_unexpected_usage(run_directory, executable, env);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before browser-open/browser-tabs read-back");
-    assert_get_extents_usage_limit(run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before browser-open/browser-tabs court");
+  assert_get_extents_usage_limit(run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before browser-open/browser-tabs court");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+
+  if (!atspi_available) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; tab read-back still uses independent Chrome/CDP /json");
   }
 
   print("STEP write synthetic Chromium Local State under an invocation-owned HOME");
@@ -374,7 +536,25 @@ try {
       readback: readback_handle,
     }));
 
-  print("STEP browser-tabs independently lists the opened tab by title match");
+  print("STEP independent Chrome CDP /json lists the opened tab by title and URL");
+  const independent_port = independent_cdp_port(run_directory, fixture);
+  let curl_rows = null;
+  for (let attempt = 0; attempt < 40 && curl_rows === null; attempt = attempt + 1) {
+    try {
+      const raw = independent_curl_json(run_directory, independent_port);
+      if (curl_page_matches(raw, fixture_title, "fixture.html")) {
+        curl_rows = raw;
+        break;
+      }
+    } catch (error) {
+      curl_rows = null;
+    }
+    harness.sleep_ms(250);
+  }
+  ensure(curl_rows !== null,
+    "cu_linux_browser_tabs_independent_cdp_missing:" + independent_port);
+
+  print("STEP browser-tabs independently lists the opened tab by title match and agrees with curl /json");
   let tabs = null;
   for (let attempt = 0; attempt < 40 && tabs === null; attempt = attempt + 1) {
     const reply = run_cu(run_directory, executable, "observe", [
@@ -393,6 +573,11 @@ try {
     "cu_linux_browser_tabs_mechanism:" + JSON.stringify(tabs.data));
   ensure(flag_at(tabs, "data.verified") === true && flag_at(tabs, "data.focus_changed") === false,
     "cu_linux_browser_tabs_contract:" + JSON.stringify(tabs.data));
+  ensure(int_at(tabs, "data.port") === independent_port,
+    "cu_linux_browser_tabs_port_mismatch:" + JSON.stringify({
+      cu: at(tabs, "data.port"),
+      independent: independent_port,
+    }));
   const tab_rows = at(tabs, "data.tabs");
   ensure(Array.isArray(tab_rows) && tab_rows.length >= 1,
     "cu_linux_browser_tabs_rows:" + JSON.stringify(tab_rows));
@@ -402,6 +587,29 @@ try {
   ensure(text_at(tab, "url").indexOf("fixture.html") >= 0,
     "cu_linux_browser_tabs_url:" + JSON.stringify(tab));
   ensure(at(tab, "tab_id") >= 1, "cu_linux_browser_tabs_tab_id:" + JSON.stringify(tab));
+  ensure(
+    curl_page_matches(curl_rows, text_at(tab, "title"), "fixture.html"),
+    "cu_linux_browser_tabs_curl_disagree:" + JSON.stringify({
+      cu: tab,
+      curl: curl_rows,
+    })
+  );
+
+  if (atspi_available) {
+    print("STEP independent AT-SPI tab/document names include the opened title when the desktop probe is live");
+    const atspi_names = independent_atspi_tab_titles(
+      run_directory, executable, env, fixture_title
+    );
+    if (atspi_names === null || !Array.isArray(atspi_names) || atspi_names.length < 1) {
+      print("STEP independent AT-SPI tab names unavailable on this host; Chrome/CDP /json read-back already held");
+    } else {
+      ensure(
+        atspi_names.length >= 1,
+        "cu_linux_browser_tabs_atspi_empty:" + JSON.stringify(atspi_names)
+      );
+    }
+  }
+
   harness.emit_evidence(context, declared_evidence, "cu.linux-browser-tabs-inventory");
 
   succeeded = 1;
@@ -415,9 +623,9 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux browser-open + independent browser-tabs inventory read-back with typed browser-tabs/browser-open/get-extents usage honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux browser-open + independent Chrome/CDP tabs inventory read-back with typed browser-tabs/browser-open --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux browser-open + independent browser-tabs inventory read-back with typed browser-tabs/browser-open/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux browser-open + independent Chrome/CDP tabs inventory read-back with typed browser-tabs/browser-open --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
