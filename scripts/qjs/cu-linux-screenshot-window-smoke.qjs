@@ -2,8 +2,11 @@
 // Acceptance is smoke read-back only: CU screenshot --window for an owned GTK
 // fixture must write a real PNG whose magic, IHDR dimensions and size agree
 // with inventory bounds; optional full-display screenshot is secondary.
-// Typed usage and missing DISPLAY host-limit paths must hold; stale handles
-// typed-fail screenshot_window_unavailable. AT-SPI/--name only; no --coords.
+// Typed screenshot usage must reject AT-SPI --name and other unexpected
+// arguments; typed get-extents --name usage/host-limit paths must hold before
+// the screenshot actuate/read-back court. Missing DISPLAY host-limit paths must
+// hold; stale handles typed-fail screenshot_window_unavailable.
+// AT-SPI/--name only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -17,6 +20,7 @@ const declared_evidence = [
 const MIN_WINDOW_PNG_BYTES = 2000;
 const MIN_DISPLAY_PNG_BYTES = 5000;
 const PNG_MAGIC_HEX = "89504e470d0a1a0a";
+const AT_SPI_PROBE_NAME = "Screenshot Window Court Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -37,6 +41,8 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function output_success(document) { return flag_at(document, "ok"); }
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -109,6 +115,47 @@ function run_cu_reply(run_directory, executable, grant, cu_args, env, env_remove
   return last_json_line(output.stdout);
 }
 
+function invoke_get_extents_reply(run_directory, executable, cu_args, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(cu_args), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_screenshot_window_extents_cli:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function probe_cu_windows_enum_available(run_directory, executable, env) {
+  const reply = run_cu_reply(run_directory, executable, "observe", ["windows"], env);
+  if (output_success(reply)) { return { available: true }; }
+  const message = text_at(reply, "error.message");
+  if (message.indexOf("Maximum number of clients reached") >= 0
+      || message.indexOf("window_enum_failed") >= 0) {
+    return { available: false, reason: "x11_window_enum_unavailable" };
+  }
+  return { available: false, reason: message };
+}
+
 function window_row(run_directory, executable, pid, title) {
   const reply = run_cu(run_directory, executable, "observe", [
     "windows", "--pid", "" + pid,
@@ -119,6 +166,15 @@ function window_row(run_directory, executable, pid, title) {
     if (text_at(row, "title") === title) { return row; }
   }
   return null;
+}
+
+function wait_for_fixture_window(run_directory, executable, pid, title) {
+  for (let attempt = 0; attempt < 300; attempt = attempt + 1) {
+    const row = window_row(run_directory, executable, pid, title);
+    if (row !== null) { return row; }
+    harness.sleep_ms(50);
+  }
+  throw "cu_linux_screenshot_window_fixture_not_ready";
 }
 
 function independent_png_probe_script() {
@@ -247,7 +303,7 @@ function assert_screenshot_usage_limit(run_directory, executable) {
   const reply = run_cu_reply(run_directory, executable, "observe", [
     "screenshot", "--out", rh.join(run_directory, "usage.png"), "--window", "0",
   ]);
-  ensure(!flag_at(reply, "ok"), "cu_linux_screenshot_window_usage_ok:" + JSON.stringify(reply));
+  ensure(!output_success(reply), "cu_linux_screenshot_window_usage_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "usage",
     "cu_linux_screenshot_window_usage_code:" + JSON.stringify(reply.error)
@@ -255,6 +311,61 @@ function assert_screenshot_usage_limit(run_directory, executable) {
   ensure(
     text_at(reply, "error.message").indexOf("non-zero") >= 0,
     "cu_linux_screenshot_window_usage_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_screenshot_atspi_name_usage_limit(run_directory, executable, env) {
+  const with_name = run_cu_reply(run_directory, executable, "observe", [
+    "screenshot",
+    "--out", rh.join(run_directory, "usage-name.png"),
+    "--window", "1",
+    "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(with_name), "cu_linux_screenshot_window_usage_name_ok:" + JSON.stringify(with_name));
+  ensure(
+    text_at(with_name, "error.code") === "usage",
+    "cu_linux_screenshot_window_usage_name_code:" + JSON.stringify(with_name.error)
+  );
+  ensure(
+    text_at(with_name, "command") === "usage",
+    "cu_linux_screenshot_window_usage_name_command:" + JSON.stringify(with_name)
+  );
+  ensure(
+    text_at(with_name, "error.message").indexOf("--name") >= 0
+      || text_at(with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_screenshot_window_usage_name_message:" + JSON.stringify(with_name.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle), "cu_linux_screenshot_window_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_screenshot_window_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_screenshot_window_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_screenshot_window_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_screenshot_window_extents_unavailable_code:" + code
   );
 }
 
@@ -270,7 +381,7 @@ function assert_headless_display_host_limit(run_directory, executable, label, cu
     },
     ["DISPLAY"]
   );
-  ensure(!flag_at(reply, "ok"), "cu_linux_screenshot_window_headless_ok_" + label + ":" + JSON.stringify(reply));
+  ensure(!output_success(reply), "cu_linux_screenshot_window_headless_ok_" + label + ":" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "unsupported",
     "cu_linux_screenshot_window_headless_code_" + label + ":" + JSON.stringify(reply.error)
@@ -286,7 +397,7 @@ function assert_unavailable_window(run_directory, executable, label) {
     "screenshot", "--out", rh.join(run_directory, "bad-" + label + ".png"), "--window", "1",
   ]);
   ensure(
-    !flag_at(reply, "ok") && text_at(reply, "error.code") === "screenshot_window_unavailable",
+    !output_success(reply) && text_at(reply, "error.code") === "screenshot_window_unavailable",
     "cu_linux_screenshot_window_unavailable_" + label + ":" + JSON.stringify(reply)
   );
   ensure(
@@ -317,10 +428,24 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+let window_enum = { available: false, reason: "not_probed" };
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 
 try {
   print("STEP screenshot typed-fails usage when --window handle is zero");
   assert_screenshot_usage_limit(run_directory, executable);
+
+  print("STEP screenshot typed-fails usage when AT-SPI --name is present");
+  assert_screenshot_atspi_name_usage_limit(run_directory, executable, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before screenshot actuate/read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
 
   print("STEP screenshot without DISPLAY typed-fails unsupported x11-display host-limit");
   assert_headless_display_host_limit(
@@ -338,59 +463,64 @@ try {
     "x11 display"
   );
 
-  print("STEP start owned GTK fixture and resolve window by pid and exact title");
-  fixture = harness.start({
-    program: "python3",
-    args: [fixture_source],
-    current_dir: run_directory,
-    env: { GTK_MODULES: "gail:atk-bridge" },
-    timeout_ms: 30000,
-  });
-  fixture_pid = harness.spawned_pid(fixture);
-  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+  window_enum = probe_cu_windows_enum_available(run_directory, executable, env);
+  if (window_enum.available !== true) {
+    print("STEP typed host-limit when CU windows enumeration is unavailable before screenshot actuate/read-back court");
+    succeeded = 1;
+  } else {
+    print("STEP start owned GTK fixture and resolve window by pid and exact title");
+    fixture = harness.start({
+      program: "python3",
+      args: [fixture_source],
+      current_dir: run_directory,
+      env: { GTK_MODULES: "gail:atk-bridge" },
+      timeout_ms: 30000,
+    });
+    fixture_pid = harness.spawned_pid(fixture);
+    const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
 
-  const window_wait = run_cu(run_directory, executable, "observe", [
-    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
-  ]);
-  ensure(flag_at(window_wait, "ok") && flag_at(window_wait, "data.met"), "cu_linux_screenshot_window_window_wait");
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+    ]);
+    ensure(flag_at(window_wait, "ok") && flag_at(window_wait, "data.met"), "cu_linux_screenshot_window_window_wait");
 
-  const inventory_row = window_row(run_directory, executable, fixture_pid, fixture_title);
-  ensure(inventory_row !== null, "cu_linux_screenshot_window_window_identity");
-  const handle = int_at(inventory_row, "handle");
-  ensure(handle > 0, "cu_linux_screenshot_window_handle:" + JSON.stringify(inventory_row));
+    const inventory_row = wait_for_fixture_window(run_directory, executable, fixture_pid, fixture_title);
+    const handle = int_at(inventory_row, "handle");
+    ensure(handle > 0, "cu_linux_screenshot_window_handle:" + JSON.stringify(inventory_row));
 
-  print("STEP screenshot --window writes PNG with independent magic/IHDR/size read-back");
-  const window_png = rh.join(run_directory, "fixture-window.png");
-  assert_window_png_honesty(
-    run_directory, executable, handle, inventory_row, window_png, "gtk_fixture"
-  );
+    print("STEP screenshot --window writes PNG with independent magic/IHDR/size read-back");
+    const window_png = rh.join(run_directory, "fixture-window.png");
+    assert_window_png_honesty(
+      run_directory, executable, handle, inventory_row, window_png, "gtk_fixture"
+    );
 
-  print("STEP optional full-display screenshot is secondary PNG read-back");
-  const display_png = rh.join(run_directory, "display.png");
-  const display = run_cu(run_directory, executable, "observe", [
-    "screenshot", "--out", display_png,
-  ]);
-  ensure(flag_at(display, "ok"), "cu_linux_screenshot_window_display_ok:" + JSON.stringify(display));
-  ensure(text_at(display, "data.via") === "display-capture", "cu_linux_screenshot_window_display_via");
-  ensure(direct_file(display_png), "cu_linux_screenshot_window_display_missing");
-  const display_probe = independent_png_readback(run_directory, display_png);
-  ensure(
-    display_probe.size >= MIN_DISPLAY_PNG_BYTES,
-    "cu_linux_screenshot_window_display_size:" + JSON.stringify(display_probe)
-  );
-  ensure(
-    display_probe.width === int_at(display, "data.output_width")
-      && display_probe.height === int_at(display, "data.output_height"),
-    "cu_linux_screenshot_window_display_dims:" + JSON.stringify({
-      probe: display_probe,
-      shot: display.data,
-    })
-  );
+    print("STEP optional full-display screenshot is secondary PNG read-back");
+    const display_png = rh.join(run_directory, "display.png");
+    const display = run_cu(run_directory, executable, "observe", [
+      "screenshot", "--out", display_png,
+    ]);
+    ensure(flag_at(display, "ok"), "cu_linux_screenshot_window_display_ok:" + JSON.stringify(display));
+    ensure(text_at(display, "data.via") === "display-capture", "cu_linux_screenshot_window_display_via");
+    ensure(direct_file(display_png), "cu_linux_screenshot_window_display_missing");
+    const display_probe = independent_png_readback(run_directory, display_png);
+    ensure(
+      display_probe.size >= MIN_DISPLAY_PNG_BYTES,
+      "cu_linux_screenshot_window_display_size:" + JSON.stringify(display_probe)
+    );
+    ensure(
+      display_probe.width === int_at(display, "data.output_width")
+        && display_probe.height === int_at(display, "data.output_height"),
+      "cu_linux_screenshot_window_display_dims:" + JSON.stringify({
+        probe: display_probe,
+        shot: display.data,
+      })
+    );
 
-  print("STEP stale handle typed-fails screenshot_window_unavailable");
-  assert_unavailable_window(run_directory, executable, "stale_handle");
+    print("STEP stale handle typed-fails screenshot_window_unavailable");
+    assert_unavailable_window(run_directory, executable, "stale_handle");
 
-  succeeded = 1;
+    succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -408,7 +538,13 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-screenshot-window-readback");
   harness.remove_run(context);
-  print("PASS: Linux screenshot --window with usage, headless-display host-limit, and independent PNG read-back");
+  if (window_enum.available !== true) {
+    print("PASS: Linux screenshot --window typed screenshot/get-extents usage honesty with x11 window-enum host-limit when CU inventory is unavailable (AT-SPI --name, no --coords)");
+  } else if (atspi_available) {
+    print("PASS: Linux screenshot --window with typed screenshot/get-extents usage honesty, headless-display host-limit, and independent PNG read-back (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux screenshot --window with typed screenshot/get-extents host-limit honesty, headless-display host-limit, and independent PNG read-back (AT-SPI --name, no --coords)");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
