@@ -19,227 +19,254 @@ function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function proc_scan_script() {
-  return [
-    "import json, os",
-    "rows = {}",
-    "for entry in os.scandir('/proc'):",
-    "    if not entry.name.isdigit():",
-    "        continue",
-    "    pid = int(entry.name)",
+function verify_inventory_with_retry(run_directory, executable) {
+  const script = [
+    "import json, os, subprocess, sys",
+    "cu = sys.argv[1]",
+    "run_dir = sys.argv[2]",
+    "max_visited = " + MAX_VISITED,
+    "max_results = " + MAX_RESULTS,
+    "def proc_scan():",
+    "    rows = {}",
+    "    for entry in os.scandir('/proc'):",
+    "        if not entry.name.isdigit():",
+    "            continue",
+    "        pid = int(entry.name)",
+    "        try:",
+    "            exe = os.readlink(f'/proc/{pid}/exe')",
+    "        except OSError:",
+    "            continue",
+    "        executable_name = os.path.basename(exe)",
+    "        if not executable_name:",
+    "            continue",
+    "        try:",
+    "            with open(f'/proc/{pid}/stat') as handle:",
+    "                stat = handle.read()",
+    "        except OSError:",
+    "            continue",
+    "        close = stat.rfind(')')",
+    "        if close < 0:",
+    "            continue",
+    "        fields = stat[close + 1:].split()",
+    "        if len(fields) < 2:",
+    "            continue",
+    "        rows[pid] = {",
+    "            'pid': pid,",
+    "            'parent_pid': int(fields[1]),",
+    "            'executable_name': executable_name,",
+    "        }",
+    "    return rows",
+    "def intersect_probe(left, right):",
+    "    stable = {}",
+    "    for pid, left_row in left.items():",
+    "        right_row = right.get(pid)",
+    "        if right_row is None:",
+    "            continue",
+    "        if right_row['parent_pid'] != left_row['parent_pid']:",
+    "            continue",
+    "        if right_row['executable_name'] != left_row['executable_name']:",
+    "            continue",
+    "        stable[pid] = left_row",
+    "    return stable",
+    "def invoke_ps(arguments):",
+    "    proc = subprocess.run(",
+    "        [cu, '--target', 'current', '--grant', 'observe'] + arguments,",
+    "        cwd=run_dir, capture_output=True, text=True,",
+    "        env={**os.environ, 'AGENTERM_NO_ACTIVATE': '1'},",
+    "        timeout=120)",
+    "    if proc.returncode != 0:",
+    "        raise SystemExit('cu_linux_ps_invoke:' + proc.stderr)",
+    "    reply = json.loads(proc.stdout)",
+    "    if not reply.get('ok') or reply.get('command') != 'ps':",
+    "        raise SystemExit('cu_linux_ps_reply:' + proc.stdout)",
+    "    return reply['data']",
+    "def fetch_inventory():",
+    "    offset = 0",
+    "    processes = []",
+    "    header = None",
+    "    while True:",
+    "        data = invoke_ps([",
+    "            'ps', '--sort', 'pid',",
+    "            '--max-visited', str(max_visited),",
+    "            '--max', str(max_results),",
+    "            '--offset', str(offset),",
+    "        ])",
+    "        if header is None:",
+    "            header = data",
+    "        batch = data.get('processes') or []",
+    "        processes.extend(batch)",
+    "        if data.get('truncated') is not True:",
+    "            break",
+    "        if data.get('next_offset') is None:",
+    "            raise SystemExit('cu_linux_ps_next_offset')",
+    "        offset = int(data['next_offset'])",
+    "    header['processes'] = processes",
+    "    header['returned'] = len(processes)",
+    "    return header",
+    "def read_proc_pid(pid):",
     "    try:",
-    "        exe = os.readlink(f'/proc/{pid}/exe')",
+    "        exe = os.path.basename(os.readlink(f'/proc/{pid}/exe'))",
+    "        stat = open(f'/proc/{pid}/stat').read()",
     "    except OSError:",
-    "        continue",
-    "    executable_name = os.path.basename(exe)",
-    "    if not executable_name:",
-    "        continue",
-    "    try:",
-    "        with open(f'/proc/{pid}/stat') as handle:",
-    "            stat = handle.read()",
-    "    except OSError:",
-    "        continue",
+    "        return None",
     "    close = stat.rfind(')')",
-    "    if close < 0:",
-    "        continue",
     "    fields = stat[close + 1:].split()",
-    "    if len(fields) < 2:",
-    "        continue",
-    "    rows[str(pid)] = {",
+    "    return {",
     "        'pid': pid,",
     "        'parent_pid': int(fields[1]),",
-    "        'executable_name': executable_name,",
+    "        'executable_name': exe,",
     "    }",
-    "print(json.dumps(list(rows.values())))",
+    "def compare_inventory(probe, inventory, label):",
+    "    if inventory.get('verified') is not True:",
+    "        raise RuntimeError(label + ':verified')",
+    "    if inventory.get('coverage_complete') is not True:",
+    "        raise RuntimeError(label + ':coverage_complete')",
+    "    if inventory.get('truncated_scan') is True:",
+    "        raise RuntimeError(label + ':truncated_scan')",
+    "    rows = inventory.get('processes') or []",
+    "    if inventory.get('returned') != len(rows):",
+    "        raise RuntimeError(label + ':returned_shape')",
+    "    by_pid = {}",
+    "    for row in rows:",
+    "        pid = int(row['pid'])",
+    "        if pid in by_pid:",
+    "            raise RuntimeError(label + ':duplicate:' + str(pid))",
+    "        by_pid[pid] = row",
+    "    matched_live = 0",
+    "    for pid, expected in probe.items():",
+    "        row = by_pid.get(pid)",
+    "        if row is None:",
+    "            raise RuntimeError(label + ':missing_live:' + str(pid))",
+    "        if int(row['parent_pid']) != expected['parent_pid']:",
+    "            raise RuntimeError(label + ':parent_pid:' + str(pid))",
+    "        if row['executable_name'] != expected['executable_name']:",
+    "            raise RuntimeError(label + ':executable_name:' + str(pid))",
+    "        matched_live += 1",
+    "    if matched_live != len(probe):",
+    "        raise RuntimeError(label + ':live_coverage')",
+    "    if inventory.get('matched', 0) < matched_live:",
+    "        raise RuntimeError(label + ':matched')",
+    "    for pid, row in by_pid.items():",
+    "        if pid in probe:",
+    "            continue",
+    "        live = read_proc_pid(pid)",
+    "        if live is None:",
+    "            continue",
+    "        if int(row['parent_pid']) != live['parent_pid']:",
+    "            raise RuntimeError(label + ':stale_parent_pid:' + str(pid))",
+    "        if row['executable_name'] != live['executable_name']:",
+    "            raise RuntimeError(label + ':stale_executable_name:' + str(pid))",
+    "        raise RuntimeError(label + ':unexpected_live_pid:' + str(pid))",
+    "last_error = ''",
+    "for attempt in range(2):",
+    "    before = proc_scan()",
+    "    inventory = fetch_inventory()",
+    "    after = proc_scan()",
+    "    stable = intersect_probe(before, after)",
+    "    if len(stable) > max_visited:",
+    "        raise SystemExit('cu_linux_ps_probe_too_large:' + str(len(stable)))",
+    "    try:",
+    "        compare_inventory(stable, inventory, 'cu_linux_ps_inventory')",
+    "        print('inventory', len(stable))",
+    "        sys.exit(0)",
+    "    except RuntimeError as error:",
+    "        last_error = str(error)",
+    "raise SystemExit(last_error or 'cu_linux_ps_inventory_retry_exhausted')",
   ].join("\n");
+  const output = rh.command("python3", ["-c", script, executable, run_directory], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 120000,
+  });
+  ensure(output.success === true, "cu_linux_ps_inventory:" + output.stderr + output.stdout);
 }
 
-function pid_readback_script() {
-  return [
-    "import json, os, sys",
-    "pid = int(sys.argv[1])",
+function verify_exact_pid(run_directory, executable, pid) {
+  const script = [
+    "import json, os, subprocess, sys",
+    "cu = sys.argv[1]",
+    "run_dir = sys.argv[2]",
+    "pid = int(sys.argv[3])",
     "exe = os.path.basename(os.readlink(f'/proc/{pid}/exe'))",
     "stat = open(f'/proc/{pid}/stat').read()",
     "close = stat.rfind(')')",
     "fields = stat[close + 1:].split()",
-    "ppid = int(fields[1])",
-    "print(json.dumps({'pid': pid, 'parent_pid': ppid, 'executable_name': exe}))",
+    "expected = {'pid': pid, 'parent_pid': int(fields[1]), 'executable_name': exe}",
+    "proc = subprocess.run(",
+    "    [cu, '--target', 'current', '--grant', 'observe', 'ps', '--pid', str(pid)],",
+    "    cwd=run_dir, capture_output=True, text=True,",
+    "    env={**os.environ, 'AGENTERM_NO_ACTIVATE': '1'}, timeout=60)",
+    "if proc.returncode != 0:",
+    "    raise SystemExit('cu_linux_ps_exact_cli:' + proc.stderr)",
+    "reply = json.loads(proc.stdout)",
+    "if not reply.get('ok') or reply.get('command') != 'ps':",
+    "    raise SystemExit('cu_linux_ps_exact_reply')",
+    "data = reply['data']",
+    "rows = data.get('processes') or []",
+    "if data.get('returned') != 1 or len(rows) != 1:",
+    "    raise SystemExit('cu_linux_ps_exact_shape')",
+    "row = rows[0]",
+    "if int(row['pid']) != pid:",
+    "    raise SystemExit('cu_linux_ps_exact_pid')",
+    "if int(row['parent_pid']) != expected['parent_pid']:",
+    "    raise SystemExit('cu_linux_ps_exact_parent_pid')",
+    "if row['executable_name'] != expected['executable_name']:",
+    "    raise SystemExit('cu_linux_ps_exact_executable_name')",
+    "print('exact', pid)",
   ].join("\n");
-}
-
-function scan_proc(run_directory) {
-  const output = rh.command("python3", ["-c", proc_scan_script()], {
+  const output = rh.command("python3", ["-c", script, executable, run_directory, "" + pid], {
     cwd: run_directory,
     env: { AGENTERM_NO_ACTIVATE: "1" },
-    timeout_ms: 120000,
+    timeout_ms: 60000,
   });
-  ensure(output.success === true, "cu_linux_ps_proc_scan:" + output.stderr);
-  const rows = JSON.parse(output.stdout.trim());
-  const by_pid = {};
-  for (let index = 0; index < rows.length; index = index + 1) {
-    const row = rows[index];
-    by_pid[row.pid] = row;
-  }
-  return by_pid;
-}
-
-function read_proc_pid(run_directory, pid) {
-  const output = rh.command("python3", ["-c", pid_readback_script(), "" + pid], {
-    cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
-    timeout_ms: 30000,
-  });
-  ensure(output.success === true, "cu_linux_ps_proc_pid:" + pid + ":" + output.stderr);
-  return JSON.parse(output.stdout.trim());
-}
-
-function invoke_ps(run_directory, executable, arguments) {
-  const output = rh.command(executable, [
-    "--target", "current", "--grant", "observe",
-  ].concat(arguments), {
-    cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
-    timeout_ms: 120000,
-  });
-  ensure(output.success === true, "cu_linux_ps_invoke:" + output.stderr);
-  const reply = JSON.parse(output.stdout.trim());
-  ensure(reply.ok === true && reply.command === "ps",
-         "cu_linux_ps_reply:" + output.stdout.trim());
-  return reply.data;
-}
-
-function fetch_inventory(run_directory, executable) {
-  let offset = 0;
-  const processes = [];
-  let header = null;
-  while (true) {
-    const data = invoke_ps(run_directory, executable, [
-      "ps", "--sort", "pid",
-      "--max-visited", "" + MAX_VISITED,
-      "--max", "" + MAX_RESULTS,
-      "--offset", "" + offset,
-    ]);
-    if (header === null) { header = data; }
-    const batch = data.processes || [];
-    for (let index = 0; index < batch.length; index = index + 1) {
-      processes.push(batch[index]);
-    }
-    if (data.truncated !== true) { break; }
-    ensure(data.next_offset !== undefined && data.next_offset !== null,
-           "cu_linux_ps_next_offset");
-    offset = parseInt("" + data.next_offset, 10);
-  }
-  header.processes = processes;
-  header.returned = processes.length;
-  return header;
-}
-
-function compare_inventory(run_directory, probe, inventory, label) {
-  ensure(inventory.verified === true, label + ":verified");
-  ensure(inventory.coverage_complete === true, label + ":coverage_complete");
-  ensure(inventory.truncated_scan !== true, label + ":truncated_scan");
-  const rows = inventory.processes || [];
-  ensure(inventory.returned === rows.length, label + ":returned_shape");
-  const by_pid = {};
-  for (let index = 0; index < rows.length; index = index + 1) {
-    const row = rows[index];
-    const pid = parseInt("" + row.pid, 10);
-    ensure(by_pid[pid] === undefined, label + ":duplicate:" + pid);
-    by_pid[pid] = row;
-  }
-  let matched_live = 0;
-  const probe_keys = Object.keys(probe);
-  for (let index = 0; index < probe_keys.length; index = index + 1) {
-    const pid = parseInt(probe_keys[index], 10);
-    const expected = probe[pid];
-    const row = by_pid[pid];
-    ensure(row !== undefined, label + ":missing_live:" + pid);
-    ensure(parseInt("" + row.parent_pid, 10) === expected.parent_pid,
-           label + ":parent_pid:" + pid);
-    ensure(row.executable_name === expected.executable_name,
-           label + ":executable_name:" + pid);
-    matched_live = matched_live + 1;
-  }
-  ensure(matched_live === Object.keys(probe).length, label + ":live_coverage");
-  ensure(inventory.matched >= matched_live, label + ":matched");
-  for (let index = 0; index < rows.length; index = index + 1) {
-    const row = rows[index];
-    const pid = parseInt("" + row.pid, 10);
-    if (probe[pid] !== undefined) { continue; }
-    let live = null;
-    try { live = read_proc_pid(run_directory, pid); } catch (error) { live = null; }
-    if (live === null) { continue; }
-    ensure(parseInt("" + row.parent_pid, 10) === live.parent_pid,
-           label + ":stale_parent_pid:" + pid);
-    ensure(row.executable_name === live.executable_name,
-           label + ":stale_executable_name:" + pid);
-    throw label + ":unexpected_live_pid:" + pid;
-  }
-}
-
-function intersect_probe(left, right) {
-  const stable = {};
-  const keys = Object.keys(left);
-  for (let index = 0; index < keys.length; index = index + 1) {
-    const pid = parseInt(keys[index], 10);
-    const right_row = right[pid];
-    const left_row = left[pid];
-    if (right_row === undefined) { continue; }
-    if (right_row.parent_pid !== left_row.parent_pid) { continue; }
-    if (right_row.executable_name !== left_row.executable_name) { continue; }
-    stable[pid] = left_row;
-  }
-  return stable;
-}
-
-function verify_inventory_with_retry(run_directory, executable) {
-  let last_error = "";
-  for (let attempt = 0; attempt < 2; attempt = attempt + 1) {
-    const before = scan_proc(run_directory);
-    const inventory = fetch_inventory(run_directory, executable);
-    const after = scan_proc(run_directory);
-    const stable = intersect_probe(before, after);
-    if (Object.keys(stable).length > MAX_VISITED) {
-      throw "cu_linux_ps_probe_too_large:" + Object.keys(stable).length;
-    }
-    try {
-      compare_inventory(run_directory, stable, inventory, "cu_linux_ps_inventory");
-      return;
-    } catch (error) {
-      last_error = "" + error;
-    }
-  }
-  throw last_error;
-}
-
-function verify_exact_pid(run_directory, executable, pid) {
-  const expected = read_proc_pid(run_directory, pid);
-  const data = invoke_ps(run_directory, executable, ["ps", "--pid", "" + pid]);
-  ensure(data.returned === 1 && (data.processes || []).length === 1,
-         "cu_linux_ps_exact_shape");
-  const row = data.processes[0];
-  ensure(parseInt("" + row.pid, 10) === pid, "cu_linux_ps_exact_pid");
-  ensure(parseInt("" + row.parent_pid, 10) === expected.parent_pid,
-         "cu_linux_ps_exact_parent_pid");
-  ensure(row.executable_name === expected.executable_name,
-         "cu_linux_ps_exact_executable_name");
+  ensure(output.success === true, "cu_linux_ps_exact:" + output.stderr + output.stdout);
 }
 
 function verify_child_filter(run_directory, executable, pid, name_substring) {
-  const expected = read_proc_pid(run_directory, pid);
-  ensure(expected.executable_name.toLowerCase().indexOf(name_substring.toLowerCase()) >= 0,
-         "cu_linux_ps_child_name_probe");
-  const data = invoke_ps(run_directory, executable, [
-    "ps", "--pid", "" + pid, "--name", name_substring,
-  ]);
-  ensure(data.returned === 1 && (data.processes || []).length === 1,
-         "cu_linux_ps_child_shape");
-  const row = data.processes[0];
-  ensure(parseInt("" + row.pid, 10) === pid, "cu_linux_ps_child_pid");
-  ensure(parseInt("" + row.parent_pid, 10) === expected.parent_pid,
-         "cu_linux_ps_child_parent_pid");
-  ensure(row.executable_name === expected.executable_name,
-         "cu_linux_ps_child_executable_name");
+  const script = [
+    "import json, os, subprocess, sys",
+    "cu = sys.argv[1]",
+    "run_dir = sys.argv[2]",
+    "pid = int(sys.argv[3])",
+    "name_substring = sys.argv[4]",
+    "exe = os.path.basename(os.readlink(f'/proc/{pid}/exe'))",
+    "stat = open(f'/proc/{pid}/stat').read()",
+    "close = stat.rfind(')')",
+    "fields = stat[close + 1:].split()",
+    "expected = {'pid': pid, 'parent_pid': int(fields[1]), 'executable_name': exe}",
+    "if name_substring.lower() not in expected['executable_name'].lower():",
+    "    raise SystemExit('cu_linux_ps_child_name_probe')",
+    "proc = subprocess.run(",
+    "    [cu, '--target', 'current', '--grant', 'observe',",
+    "     'ps', '--pid', str(pid), '--name', name_substring],",
+    "    cwd=run_dir, capture_output=True, text=True,",
+    "    env={**os.environ, 'AGENTERM_NO_ACTIVATE': '1'}, timeout=60)",
+    "if proc.returncode != 0:",
+    "    raise SystemExit('cu_linux_ps_child_cli:' + proc.stderr)",
+    "reply = json.loads(proc.stdout)",
+    "if not reply.get('ok') or reply.get('command') != 'ps':",
+    "    raise SystemExit('cu_linux_ps_child_reply')",
+    "data = reply['data']",
+    "rows = data.get('processes') or []",
+    "if data.get('returned') != 1 or len(rows) != 1:",
+    "    raise SystemExit('cu_linux_ps_child_shape')",
+    "row = rows[0]",
+    "if int(row['pid']) != pid:",
+    "    raise SystemExit('cu_linux_ps_child_pid')",
+    "if int(row['parent_pid']) != expected['parent_pid']:",
+    "    raise SystemExit('cu_linux_ps_child_parent_pid')",
+    "if row['executable_name'] != expected['executable_name']:",
+    "    raise SystemExit('cu_linux_ps_child_executable_name')",
+    "print('child', pid)",
+  ].join("\n");
+  const output = rh.command("python3", [
+    "-c", script, executable, run_directory, "" + pid, name_substring,
+  ], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true, "cu_linux_ps_child:" + output.stderr + output.stdout);
 }
 
 const args = rh.args();
