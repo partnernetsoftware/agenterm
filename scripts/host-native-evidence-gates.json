@@ -374,6 +374,13 @@
       ]
     },
     {
+      "id": "cu-linux-snapshot-diff-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-atspi-snapshot-diff"
+      ]
+    },
+    {
       "id": "cu-linux-storage-devices-smoke",
       "platform": "linux",
       "evidence": [
