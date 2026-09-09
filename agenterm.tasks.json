@@ -5908,7 +5908,7 @@
     },
     {
       "id": "cu-linux-window-close-smoke",
-      "description": "Linux close --snapshot --expect gone on a disposable GTK fixture window: independent windows inventory must no longer list the closed handle; typed refusals when the destructive gate is incomplete; no --coords.",
+      "description": "Linux close --snapshot --expect gone on a disposable GTK fixture window: independent pyatspi frame and windows inventory read-back after close; typed usage, missing-window, destructive-gate refusals, and AT-SPI host-limit; no --coords.",
       "entry": "scripts/qjs/cu-linux-window-close-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

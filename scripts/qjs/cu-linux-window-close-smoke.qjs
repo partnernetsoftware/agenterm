@@ -1,7 +1,9 @@
 // CEO: close --snapshot --expect gone on a disposable GTK fixture window.
-// Acceptance is smoke read-back only: independent windows inventory must
-// no longer list the closed handle/title. Typed refusals when the destructive
-// gate is incomplete. AT-SPI/--name only; no --coords or screenshot.
+// Acceptance is smoke read-back only: independent windows inventory and
+// pyatspi frame probes must no longer list the closed title after actuation.
+// Typed refusals when the destructive gate is incomplete; usage and missing-
+// window paths; AT-SPI host-limit when the snapshot bus is unavailable.
+// AT-SPI/--name only; no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -40,7 +42,10 @@ function direct_file(path) {
 }
 
 function cu_env(executable) {
-  const env = { AGENTERM_NO_ACTIVATE: "1" };
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
   for (const key of [
     "DISPLAY",
     "XDG_RUNTIME_DIR",
@@ -72,18 +77,20 @@ function run_cu(run_directory, executable, grant, arguments) {
   return document;
 }
 
-function run_cu_reply(run_directory, executable, grant, arguments) {
+function run_cu_reply(run_directory, executable, grant, arguments, env) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of arguments) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: cu_env(executable),
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
   });
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_linux_window_close_empty_reply:" + output.stderr);
   return JSON.parse(trimmed);
 }
+
+function output_success(document) { return flag_at(document, "ok"); }
 
 function close_refused(run_directory, executable, grant, arguments, code) {
   const reply = run_cu_reply(run_directory, executable, grant, ["close"].concat(arguments));
@@ -92,6 +99,113 @@ function close_refused(run_directory, executable, grant, arguments, code) {
     "cu_linux_window_close_refused:" + code + ":" + JSON.stringify(reply)
   );
   return reply;
+}
+
+function probe_atspi_available() {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(""),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_close_usage_limit(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "actuate", [
+    "close", "--window", "0", "--snapshot", "--expect", "gone",
+  ]);
+  ensure(!output_success(reply), "cu_linux_window_close_usage_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_window_close_usage_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_window_close_usage_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_close_missing_window(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "actuate", [
+    "close", "--window", "99999999", "--snapshot", "--expect", "gone",
+  ]);
+  ensure(!output_success(reply), "cu_linux_window_close_missing_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "window_not_found",
+    "cu_linux_window_close_missing_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.detail.effect") === "not_performed"
+      && text_at(reply, "error.detail.reason") === "target_absent",
+    "cu_linux_window_close_missing_detail:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_close_host_limit_when_atspi_absent(
+  run_directory, executable, handle_text, pid, title
+) {
+  const reply = run_cu_reply(run_directory, executable, "actuate", [
+    "close",
+    "--window", handle_text,
+    "--pid", "" + pid,
+    "--title", title,
+    "--snapshot", "--expect", "gone",
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_window_close_unavailable_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "a11y_backend_failed",
+    "cu_linux_window_close_unavailable_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.detail.effect") === "not_performed",
+    "cu_linux_window_close_unavailable_effect:" + JSON.stringify(reply.error)
+  );
+  const message = text_at(reply, "error.message").toLowerCase();
+  ensure(
+    message.indexOf("address") >= 0
+      || message.indexOf("accessibility") >= 0
+      || message.indexOf("bus") >= 0,
+    "cu_linux_window_close_unavailable_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function independent_atspi_frame_present(executable, title) {
+  const script = [
+    "import json, sys, pyatspi",
+    "title = sys.argv[1]",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "for index in range(desktop.childCount):",
+    "    app = desktop.getChildAtIndex(index)",
+    "    if app is None:",
+    "        continue",
+    "    for child_index in range(app.childCount):",
+    "        frame = app.getChildAtIndex(child_index)",
+    "        if frame is not None and (frame.name or '') == title:",
+    "            print(json.dumps({'present': True}))",
+    "            raise SystemExit(0)",
+    "print(json.dumps({'present': False}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, title], {
+    env: cu_env(executable),
+    timeout_ms: 30000,
+  });
+  ensure(
+    output.success === true,
+    "cu_linux_window_close_atspi_probe:" + output.stderr + output.stdout
+  );
+  return flag_at(JSON.parse(output.stdout.trim()), "present");
 }
 
 function window_rows(reply) {
@@ -135,6 +249,14 @@ rh.create_dir_all(run_directory);
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
 ensure(direct_file(fixture_source), "cu_linux_window_close_fixture_missing:" + fixture_source);
 
+print("STEP close typed-fails usage when --window handle is zero");
+assert_close_usage_limit(run_directory, executable);
+print("STEP close typed-fails window_not_found when handle is absent from inventory");
+assert_close_missing_window(run_directory, executable);
+
+const atspi_available = probe_atspi_available();
+let atspi_full = atspi_available;
+
 let fixture = -1;
 let fixture_pid = 0;
 try {
@@ -167,6 +289,18 @@ try {
     second_handle > 0 && second_handle !== main_handle,
     "cu_linux_window_close_second_handle:" + JSON.stringify(second_row)
   );
+
+  if (atspi_full) {
+    print("STEP independent pyatspi baseline: both fixture frames must be present");
+    ensure(
+      independent_atspi_frame_present(executable, fixture_title),
+      "cu_linux_window_close_atspi_main_missing:" + fixture_title
+    );
+    ensure(
+      independent_atspi_frame_present(executable, second_title),
+      "cu_linux_window_close_atspi_second_missing:" + second_title
+    );
+  }
 
   print("STEP close without snapshot, postcondition or target is refused typed; wrong pid/title too");
   const no_snapshot = close_refused(
@@ -217,62 +351,92 @@ try {
     "cu_linux_window_close_refusal_closed_it"
   );
 
-  print("STEP close --pid --title --snapshot --expect gone closes the second window; inventory reads it gone");
-  const closed = run_cu(run_directory, executable, "actuate", [
-    "close",
-    "--window", second_text,
-    "--pid", "" + fixture_pid,
-    "--title", second_title,
-    "--snapshot", "--expect", "gone",
-  ]);
-  ensure(
-    flag_at(closed, "data.performed")
-      && flag_at(closed, "data.verified")
-      && text_at(closed, "data.addressing") === "window-handle"
-      && text_at(closed, "data.action") === "close"
-      && text_at(closed, "data.postcondition") === "gone"
-      && text_at(closed, "data.verification.method") === "window-inventory"
-      && int_at(closed, "data.verification.polls") >= 1
-      && text_at(closed, "data.target.title") === second_title
-      && int_at(closed, "data.target.pid") === fixture_pid
-      && at(closed, "data.after.present") === false
-      && flag_at(closed, "data.snapshot.in_receipt"),
-    "cu_linux_window_close_reply:" + JSON.stringify(closed.data)
+  print("STEP close typed-fails a11y_backend_failed when AT-SPI bus is unavailable for snapshot");
+  assert_close_host_limit_when_atspi_absent(
+    run_directory, executable, second_text, fixture_pid, second_title
   );
-
-  print("STEP independent windows inventory read-back: title and handle must be absent");
-  let closed_gone = 0;
-  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
-    const rows = fixture_inventory(run_directory, executable, fixture_pid);
-    let title_present = false;
-    for (const row of rows) {
-      if (text_at(row, "title") === second_title) { title_present = true; break; }
-    }
-    const handle_present = inventory_has_handle(rows, second_handle);
-    if (!title_present && !handle_present) {
-      closed_gone = 1;
-      break;
-    }
-    harness.sleep_ms(50);
+  ensure(
+    window_row(run_directory, executable, fixture_pid, second_title) !== null,
+    "cu_linux_window_close_host_limit_closed_it"
+  );
+  if (atspi_full) {
+    ensure(
+      independent_atspi_frame_present(executable, second_title),
+      "cu_linux_window_close_host_limit_atspi_gone:" + second_title
+    );
   }
-  ensure(closed_gone === 1, "cu_linux_window_close_window_lingers");
 
-  print("STEP closing one window must not kill the process or remove the main window");
-  ensure(harness.process_present(fixture_pid) !== 0, "cu_linux_window_close_killed_process");
-  ensure(
-    window_row(run_directory, executable, fixture_pid, fixture_title) !== null,
-    "cu_linux_window_close_main_gone"
-  );
+  if (!atspi_full) {
+    print("STEP host-limit only: independent pyatspi desktop probe unavailable for close read-back");
+  } else {
+    print("STEP close --pid --title --snapshot --expect gone closes the second window; inventory reads it gone");
+    const closed = run_cu(run_directory, executable, "actuate", [
+      "close",
+      "--window", second_text,
+      "--pid", "" + fixture_pid,
+      "--title", second_title,
+      "--snapshot", "--expect", "gone",
+    ]);
+    ensure(
+      flag_at(closed, "data.performed")
+        && flag_at(closed, "data.verified")
+        && text_at(closed, "data.addressing") === "window-handle"
+        && text_at(closed, "data.action") === "close"
+        && text_at(closed, "data.postcondition") === "gone"
+        && text_at(closed, "data.verification.method") === "window-inventory"
+        && int_at(closed, "data.verification.polls") >= 1
+        && text_at(closed, "data.target.title") === second_title
+        && int_at(closed, "data.target.pid") === fixture_pid
+        && at(closed, "data.after.present") === false
+        && flag_at(closed, "data.snapshot.in_receipt"),
+      "cu_linux_window_close_reply:" + JSON.stringify(closed.data)
+    );
 
-  print("STEP closing the same handle again is window_not_found with nothing performed");
-  const closed_again = close_refused(
-    run_directory, executable, "actuate",
-    ["--window", second_text, "--snapshot", "--expect", "gone"], "window_not_found"
-  );
-  ensure(
-    text_at(closed_again, "error.detail.effect") === "not_performed",
-    "cu_linux_window_close_again:" + JSON.stringify(closed_again)
-  );
+    print("STEP independent windows inventory read-back: title and handle must be absent");
+    let closed_gone = 0;
+    for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+      const rows = fixture_inventory(run_directory, executable, fixture_pid);
+      let title_present = false;
+      for (const row of rows) {
+        if (text_at(row, "title") === second_title) { title_present = true; break; }
+      }
+      const handle_present = inventory_has_handle(rows, second_handle);
+      if (!title_present && !handle_present) {
+        closed_gone = 1;
+        break;
+      }
+      harness.sleep_ms(50);
+    }
+    ensure(closed_gone === 1, "cu_linux_window_close_window_lingers");
+
+    print("STEP independent pyatspi read-back: closed frame must be absent, main frame must remain");
+    ensure(
+      !independent_atspi_frame_present(executable, second_title),
+      "cu_linux_window_close_atspi_second_lingers:" + second_title
+    );
+    ensure(
+      independent_atspi_frame_present(executable, fixture_title),
+      "cu_linux_window_close_atspi_main_gone:" + fixture_title
+    );
+
+    print("STEP closing one window must not kill the process or remove the main window");
+    ensure(harness.process_present(fixture_pid) !== 0, "cu_linux_window_close_killed_process");
+    ensure(
+      window_row(run_directory, executable, fixture_pid, fixture_title) !== null,
+      "cu_linux_window_close_main_gone"
+    );
+
+    print("STEP closing the same handle again is window_not_found with nothing performed");
+    const closed_again = close_refused(
+      run_directory, executable, "actuate",
+      ["--window", second_text, "--snapshot", "--expect", "gone"], "window_not_found"
+    );
+    ensure(
+      text_at(closed_again, "error.detail.effect") === "not_performed"
+        && text_at(closed_again, "error.detail.reason") === "target_absent",
+      "cu_linux_window_close_again:" + JSON.stringify(closed_again)
+    );
+  }
 } finally {
   if (fixture_pid !== 0) {
     rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
@@ -285,5 +449,9 @@ try {
 const context = harness.new_context(repo, "cu-linux-window-close");
 harness.emit_evidence(context, declared_evidence, "cu.linux-close-expect-gone");
 harness.remove_run(context);
-print("PASS: CEO Linux close --snapshot --expect gone with independent windows inventory read-back");
+if (atspi_full) {
+  print("PASS: CEO Linux close --snapshot --expect gone with independent pyatspi and windows inventory read-back");
+} else {
+  print("PASS: CEO Linux close typed-fails usage, missing-window, and AT-SPI host-limit when desktop probe is unavailable");
+}
 return;
