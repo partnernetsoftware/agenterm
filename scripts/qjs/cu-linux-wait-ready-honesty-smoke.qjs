@@ -2,9 +2,10 @@
 // independent AT-SPI / on-disk marker read-back. Acceptance is smoke
 // read-back only: CU wait met and returned node/marker must agree with
 // pyatspi named-node probes or a direct JSON read of the ready-path file,
-// never worker self-report alone. Typed wait usage must reject AT-SPI --name
-// and other unexpected arguments; typed get-extents --name usage/host-limit
-// paths must hold before the wait-ready read-back court. Timeout exit-code
+// never worker self-report alone. Typed wait usage must reject AT-SPI --name,
+// --coords, --bogus, and other unexpected arguments; typed get-extents --name
+// usage AND host-limit paths must both hold before the wait-ready read-back
+// court. Timeout exit-code
 // honesty and AT-SPI host-limit paths must hold when conditions miss or the
 // independent pyatspi desktop probe is unavailable. AT-SPI/--name only;
 // no --coords or screenshot degradation.
@@ -44,6 +45,11 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -158,7 +164,7 @@ function assert_wait_atspi_name_usage_limit(run_directory, executable) {
     "cu_linux_wait_ready_usage_name_command:" + JSON.stringify(bare_name)
   );
   ensure(
-    text_at(bare_name, "error.message").indexOf("--name") >= 0
+    usage_rejects_unexpected(text_at(bare_name, "error.message"), "--name")
       || text_at(bare_name, "error.message").indexOf("requires one of") >= 0,
     "cu_linux_wait_ready_usage_name_message:" + JSON.stringify(bare_name.error)
   );
@@ -177,8 +183,7 @@ function assert_wait_atspi_name_usage_limit(run_directory, executable) {
     "cu_linux_wait_ready_usage_ready_name_code:" + JSON.stringify(ready_path_with_name.error)
   );
   ensure(
-    text_at(ready_path_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(ready_path_with_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(ready_path_with_name, "error.message"), "--name"),
     "cu_linux_wait_ready_usage_ready_name_message:" + JSON.stringify(ready_path_with_name.error)
   );
 
@@ -191,10 +196,53 @@ function assert_wait_atspi_name_usage_limit(run_directory, executable) {
     "cu_linux_wait_ready_usage_bogus_code:" + JSON.stringify(with_bogus.error)
   );
   ensure(
-    text_at(with_bogus, "error.message").indexOf("requires one of") >= 0
-      || text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    text_at(with_bogus, "command") === "usage",
+    "cu_linux_wait_ready_usage_bogus_command:" + JSON.stringify(with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus")
+      || text_at(with_bogus, "error.message").indexOf("requires one of") >= 0,
     "cu_linux_wait_ready_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+
+  const with_coords = run_cu_reply(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "1000", "--coords", "10,10",
+  ]);
+  ensure(!output_success(with_coords), "cu_linux_wait_ready_usage_coords_ok:" + JSON.stringify(with_coords));
+  ensure(
+    text_at(with_coords, "error.code") === "usage",
+    "cu_linux_wait_ready_usage_coords_code:" + JSON.stringify(with_coords.error)
+  );
+  ensure(
+    text_at(with_coords, "command") === "usage",
+    "cu_linux_wait_ready_usage_coords_command:" + JSON.stringify(with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords")
+      || text_at(with_coords, "error.message").indexOf("requires one of") >= 0,
+    "cu_linux_wait_ready_usage_coords_message:" + JSON.stringify(with_coords.error)
+  );
+
+  const ready_path_with_coords = run_cu_reply(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "1000",
+    "--ready-path", rh.join(run_directory, "usage-probe-ready-coords.json"),
+    "--coords", "10,10",
+  ]);
+  ensure(
+    !output_success(ready_path_with_coords),
+    "cu_linux_wait_ready_usage_ready_coords_ok:" + JSON.stringify(ready_path_with_coords)
+  );
+  ensure(
+    text_at(ready_path_with_coords, "error.code") === "usage",
+    "cu_linux_wait_ready_usage_ready_coords_code:" + JSON.stringify(ready_path_with_coords.error)
+  );
+  ensure(
+    text_at(ready_path_with_coords, "command") === "usage",
+    "cu_linux_wait_ready_usage_ready_coords_command:" + JSON.stringify(ready_path_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(ready_path_with_coords, "error.message"), "--coords"),
+    "cu_linux_wait_ready_usage_ready_coords_message:" + JSON.stringify(ready_path_with_coords.error)
   );
 }
 
@@ -210,6 +258,59 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_wait_ready_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name), "cu_linux_wait_ready_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_wait_ready_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_wait_ready_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_wait_ready_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords), "cu_linux_wait_ready_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_wait_ready_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_wait_ready_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_wait_ready_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus), "cu_linux_wait_ready_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_wait_ready_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_wait_ready_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_wait_ready_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -524,7 +625,7 @@ try {
   print("STEP wait typed-fails usage when no condition flag is present");
   assert_wait_usage_limit(run_directory, executable);
 
-  print("STEP wait typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  print("STEP wait typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
   assert_wait_atspi_name_usage_limit(run_directory, executable);
 
   print("STEP wait --ready-path timeout exits non-zero with honest timeout code when marker never appears");
@@ -532,7 +633,7 @@ try {
   assert_wait_ready_path_timeout_honesty(run_directory, executable, absent_ready_path);
 
   if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before wait-ready read-back court");
+    print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before wait-ready read-back court");
     assert_get_extents_usage_limit(run_directory, executable, env);
   } else {
     print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
@@ -708,7 +809,7 @@ if (chrome_child >= 0) {
 ensure(succeeded === 1, failure || "cu_linux_wait_ready_failed");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: Linux wait node-name + ready-path honesty with typed wait/get-extents usage honesty, timeout exit-code honesty, and independent read-back (AT-SPI --name, no --coords)");
+  print("PASS: Linux wait node-name + ready-path honesty with typed wait --name/--coords/--bogus and get-extents --name usage/host-limit honesty, timeout exit-code honesty, and independent read-back (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: Linux wait node-name + ready-path honesty with typed wait/get-extents host-limit honesty, timeout exit-code honesty, and independent read-back (AT-SPI --name, no --coords)");
+  print("PASS: Linux wait node-name + ready-path honesty with typed wait --name/--coords/--bogus usage and get-extents --name host-limit honesty, timeout exit-code honesty, and independent read-back (AT-SPI --name, no --coords)");
 }
