@@ -1,7 +1,8 @@
 // CEO: Linux ime-status observe with independent session-bus read-back.
 // Acceptance is smoke read-back only: ok JSON must match ibus/fcitx CLI or
-// dbus facts; unsupported must carry typed alternatives and match bus probes.
-// No --coords or screenshot degradation.
+// dbus facts; unsupported must carry typed alternatives and match bus probes;
+// headless-display must carry typed x11-display host-limit detail. Env snapshot
+// fields must match GTK_IM_MODULE, QT_IM_MODULE and XMODIFIERS. No --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -53,12 +54,20 @@ function cu_env() {
   return env;
 }
 
-function run_cu(run_directory, executable, arguments) {
+function headless_cu_env() {
+  const env = { AGENTERM_NO_ACTIVATE: "1" };
+  for (const key of ["XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  return env;
+}
+
+function run_cu_with_env(run_directory, executable, arguments, env) {
   const argv = ["--target", "current", "--grant", "observe"];
   for (const argument of arguments) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: cu_env(),
+    env: env,
     timeout_ms: 120000,
   });
   ensure(output.success === true || output.exit_code === 1, "cu_linux_ime_status_cli:" + output.stdout + output.stderr);
@@ -67,6 +76,33 @@ function run_cu(run_directory, executable, arguments) {
   const document = JSON.parse(trimmed);
   ensure(text_at(document, "command") === "ime-status", "cu_linux_ime_status_command:" + JSON.stringify(document));
   return document;
+}
+
+function run_cu(run_directory, executable, arguments) {
+  return run_cu_with_env(run_directory, executable, arguments, cu_env());
+}
+
+function expected_env_snapshot() {
+  const snapshot = {};
+  if (rh.has_env("GTK_IM_MODULE") && rh.env_or("GTK_IM_MODULE", "").trim() !== "") {
+    snapshot.gtk_im_module = rh.env_or("GTK_IM_MODULE", "").trim();
+  }
+  if (rh.has_env("QT_IM_MODULE") && rh.env_or("QT_IM_MODULE", "").trim() !== "") {
+    snapshot.qt_im_module = rh.env_or("QT_IM_MODULE", "").trim();
+  }
+  if (rh.has_env("XMODIFIERS") && rh.env_or("XMODIFIERS", "").trim() !== "") {
+    snapshot.xmodifiers = rh.env_or("XMODIFIERS", "").trim();
+  }
+  return snapshot;
+}
+
+function assert_env_readback(env_object) {
+  const expected = expected_env_snapshot();
+  for (const key of ["gtk_im_module", "qt_im_module", "xmodifiers"]) {
+    const actual = text_at(env_object, key);
+    const expected_value = text_at(expected, key);
+    ensure(actual === expected_value, "cu_linux_ime_status_env_mismatch:" + key + ":" + actual + "!=" + expected_value);
+  }
 }
 
 function safe_command(program, args, options) {
@@ -189,6 +225,11 @@ function assert_ok_readback(reply) {
   ensure(typeof at(data, "full_shape") === "boolean", "cu_linux_ime_status_full_shape:" + JSON.stringify(data));
   ensure(typeof at(data, "session_bus_available") === "boolean", "cu_linux_ime_status_session_bus:" + JSON.stringify(data));
   ensure(at(data, "env") !== undefined && at(data, "env") !== null, "cu_linux_ime_status_env:" + JSON.stringify(data));
+  assert_env_readback(at(data, "env"));
+  ensure(
+    flag_at(data, "session_bus_available") === session_bus_connected(),
+    "cu_linux_ime_status_session_bus_mismatch:" + JSON.stringify(data)
+  );
 
   const independent = independent_framework_facts(framework);
   ensure(independent !== null, "cu_linux_ime_status_independent_missing:" + framework);
@@ -197,9 +238,20 @@ function assert_ok_readback(reply) {
   ensure(flag_at(independent, "open") === flag_at(data, "open"), "cu_linux_ime_status_open_mismatch:" + JSON.stringify(data));
 }
 
+function assert_headless_readback(reply) {
+  ensure(!flag_at(reply, "ok"), "cu_linux_ime_status_headless_unexpected_ok:" + JSON.stringify(reply));
+  ensure(text_at(reply, "error.code") === "headless-display", "cu_linux_ime_status_headless_code:" + JSON.stringify(reply.error));
+  ensure(text_at(reply, "error.message") !== "", "cu_linux_ime_status_headless_message:" + JSON.stringify(reply.error));
+  const detail = at(reply, "error.detail");
+  ensure(text_at(detail, "effect") === "not_performed", "cu_linux_ime_status_headless_effect:" + JSON.stringify(detail));
+  ensure(text_at(detail, "required_mechanism") === "x11-display", "cu_linux_ime_status_headless_mechanism:" + JSON.stringify(detail));
+  ensure(at(detail, "alternatives").length > 0, "cu_linux_ime_status_headless_alternatives:" + JSON.stringify(detail));
+}
+
 function assert_unsupported_readback(reply) {
   ensure(!flag_at(reply, "ok"), "cu_linux_ime_status_unexpected_ok:" + JSON.stringify(reply));
   ensure(text_at(reply, "error.code") === "ime_unsupported", "cu_linux_ime_status_code:" + JSON.stringify(reply.error));
+  ensure(text_at(reply, "error.message") !== "", "cu_linux_ime_status_message:" + JSON.stringify(reply.error));
   const detail = at(reply, "error.detail");
   ensure(text_at(detail, "effect") === "not_performed", "cu_linux_ime_status_effect:" + JSON.stringify(detail));
   ensure(text_at(detail, "required_mechanism") === "linux-session-input-method", "cu_linux_ime_status_mechanism:" + JSON.stringify(detail));
@@ -207,6 +259,7 @@ function assert_unsupported_readback(reply) {
   ensure(at(detail, "probed_frameworks").length > 0, "cu_linux_ime_status_probed:" + JSON.stringify(detail));
   ensure(typeof at(detail, "session_bus_available") === "boolean", "cu_linux_ime_status_detail_bus:" + JSON.stringify(detail));
   ensure(at(detail, "env") !== undefined && at(detail, "env") !== null, "cu_linux_ime_status_detail_env:" + JSON.stringify(detail));
+  assert_env_readback(at(detail, "env"));
 
   const bus_connected = session_bus_connected();
   ensure(flag_at(detail, "session_bus_available") === bus_connected, "cu_linux_ime_status_bus_mismatch:" + bus_connected + ":" + JSON.stringify(detail));
@@ -231,7 +284,34 @@ const reply = run_cu(repo, executable, ["ime-status"]);
 if (flag_at(reply, "ok")) {
   assert_ok_readback(reply);
   print("PASS ime-status ok with independent framework read-back");
-  return;
+} else {
+  assert_unsupported_readback(reply);
+  print("PASS ime-status typed unsupported with independent bus/framework read-back");
 }
-assert_unsupported_readback(reply);
-print("PASS ime-status typed unsupported with independent bus/framework read-back");
+
+function run_cu_headless(run_directory, executable, arguments) {
+  const argv = ["--target", "current", "--grant", "observe"];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.run_spec({
+    program: executable,
+    args: argv,
+    current_dir: run_directory,
+    env: headless_cu_env(),
+    env_remove: ["DISPLAY"],
+    timeout_ms: 120000,
+  });
+  ensure(output.success === true || output.exit_code === 1, "cu_linux_ime_status_headless_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_ime_status_headless_empty");
+  const document = JSON.parse(trimmed);
+  ensure(text_at(document, "command") === "ime-status", "cu_linux_ime_status_headless_command:" + JSON.stringify(document));
+  return document;
+}
+
+print("STEP ime-status without DISPLAY returns typed headless-display host-limit detail");
+const headless_reply = run_cu_headless(repo, executable, ["ime-status"]);
+assert_headless_readback(headless_reply);
+print("PASS ime-status headless-display with typed x11-display host-limit detail");
+
+const context = harness.new_context(repo, "cu-linux-ime-status");
+harness.emit_evidence(context, declared_evidence, "cu.linux-ime-status");
