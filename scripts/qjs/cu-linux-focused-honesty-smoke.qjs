@@ -3,7 +3,8 @@
 // focused --window, the actuation target, and an independent AT-SPI deepest
 // STATE_FOCUSED node (name + role) must agree. Typed focused and focus
 // usage plus typed get-extents --name usage/host-limit paths must hold
-// before the focused observe/read-back court. Focused/focus/get-extents
+// before the focused observe/read-back court; focus --coords/--bogus must
+// reject or stay accessibility-tree --name. Focused/focus/get-extents
 // host-limit paths must hold on an invalid AT-SPI bus (and when the
 // independent pyatspi desktop probe is unavailable). AT-SPI/--name only;
 // no --coords or screenshot degradation.
@@ -58,6 +59,17 @@ function direct_file(path) {
 
 function normalize_role(role) {
   return ("" + role).trim().toLowerCase().split("_").join(" ");
+}
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function misuse_code_ok(code) {
+  return code === "usage"
+    || code === "invalid_input"
+    || code === "unsupported";
 }
 
 function cu_env(executable) {
@@ -205,8 +217,7 @@ function assert_focused_usage_limit(run_directory, executable) {
     "cu_linux_focused_honesty_name_command:" + JSON.stringify(with_name)
   );
   ensure(
-    text_at(with_name, "error.message").indexOf("--name") >= 0
-      || text_at(with_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(with_name, "error.message"), "--name"),
     "cu_linux_focused_honesty_name_message:" + JSON.stringify(with_name.error)
   );
 
@@ -219,9 +230,29 @@ function assert_focused_usage_limit(run_directory, executable) {
     "cu_linux_focused_honesty_bogus_code:" + JSON.stringify(with_bogus.error)
   );
   ensure(
-    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    text_at(with_bogus, "command") === "usage",
+    "cu_linux_focused_honesty_bogus_command:" + JSON.stringify(with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
     "cu_linux_focused_honesty_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+
+  const with_coords = run_cu_reply(run_directory, executable, "observe", [
+    "focused", "--window", "1", "--coords", "10,10",
+  ]);
+  ensure(!output_success(with_coords), "cu_linux_focused_honesty_coords_ok:" + JSON.stringify(with_coords));
+  ensure(
+    text_at(with_coords, "error.code") === "usage",
+    "cu_linux_focused_honesty_coords_code:" + JSON.stringify(with_coords.error)
+  );
+  ensure(
+    text_at(with_coords, "command") === "usage",
+    "cu_linux_focused_honesty_coords_command:" + JSON.stringify(with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords"),
+    "cu_linux_focused_honesty_coords_message:" + JSON.stringify(with_coords.error)
   );
 }
 
@@ -286,6 +317,23 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_focused_honesty_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name), "cu_linux_focused_honesty_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_focused_honesty_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_focused_honesty_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_focused_honesty_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
 }
 
@@ -412,9 +460,48 @@ function independent_focus_probe(run_directory, executable, fixture_title) {
   return document;
 }
 
+function assert_focus_reject_coords_or_stay_named(
+  run_directory, executable, handle, focus_name, label
+) {
+  const focus_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "focus", "--window", handle, "--name", focus_name, "--coords", "10,10",
+  ]);
+  if (!output_success(focus_coords)) {
+    ensure(
+      misuse_code_ok(text_at(focus_coords, "error.code")),
+      "cu_linux_focused_honesty_focus_coords_code_" + label + ":" + JSON.stringify(focus_coords.error)
+    );
+  } else {
+    ensure(
+      text_at(focus_coords, "data.addressing") === "accessibility-tree"
+        && text_at(focus_coords, "data.matched.name") === focus_name,
+      "cu_linux_focused_honesty_focus_coords_named_" + label + ":" + JSON.stringify(focus_coords.data)
+    );
+  }
+
+  const focus_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "focus", "--window", handle, "--name", focus_name, "--bogus",
+  ]);
+  if (!output_success(focus_bogus)) {
+    ensure(
+      misuse_code_ok(text_at(focus_bogus, "error.code")),
+      "cu_linux_focused_honesty_focus_bogus_code_" + label + ":" + JSON.stringify(focus_bogus.error)
+    );
+  } else {
+    ensure(
+      text_at(focus_bogus, "data.addressing") === "accessibility-tree"
+        && text_at(focus_bogus, "data.matched.name") === focus_name,
+      "cu_linux_focused_honesty_focus_bogus_named_" + label + ":" + JSON.stringify(focus_bogus.data)
+    );
+  }
+}
+
 function assert_focused_agreement(
   run_directory, executable, handle, fixture_title, focus_name, label
 ) {
+  print("STEP focus --name " + focus_name + " with --coords/--bogus rejects or stays accessibility-tree before focused read-back");
+  assert_focus_reject_coords_or_stay_named(run_directory, executable, handle, focus_name, label);
+
   print("STEP focus --name " + focus_name + " then compare CU focused with pyatspi STATE_FOCUSED");
   const focused_act = run_cu(run_directory, executable, "observe,actuate", [
     "focus", "--window", handle, "--name", focus_name,
@@ -499,19 +586,21 @@ const env = cu_env(executable);
 const atspi_available = probe_atspi_available();
 
 try {
-  print("STEP focused typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  print("STEP focused typed-fails usage when AT-SPI --name, --coords, --bogus, or other unexpected arguments are present");
   assert_focused_usage_limit(run_directory, executable);
 
   print("STEP focus typed-fails usage when --name is missing or --window is zero before focused read-back court");
   assert_focus_usage_limit(run_directory, executable);
 
-  print("STEP get-extents typed-fail invalid_input when --window is zero before focused read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero or --name is missing before focused read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
-  print("STEP focused/focus/get-extents typed-fail host-limit on invalid AT-SPI bus before focused read-back court");
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before focused read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+
+  print("STEP focused/focus typed-fail host-limit on invalid AT-SPI bus before focused read-back court");
   assert_focused_host_limit_when_atspi_absent(run_directory, executable);
   assert_focus_host_limit_when_atspi_absent(run_directory, executable);
-  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
   if (!atspi_available) {
     print("STEP independent pyatspi desktop probe is unavailable; usage/host-limit court is the evidence");
@@ -561,9 +650,9 @@ if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux CU focused matches independent pyatspi STATE_FOCUSED after focus --name with typed focused/focus/get-extents usage/host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux CU focused matches independent pyatspi STATE_FOCUSED after focus --name with typed focused/focus --coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux focused/focus typed-fail with typed get-extents usage/host-limit honesty when independent pyatspi desktop probe is unavailable");
+    print("PASS: Linux focused/focus typed-fail with typed focused --coords/--bogus and get-extents --name usage/host-limit honesty when independent pyatspi desktop probe is unavailable");
   }
 }
 if (failure !== "") { throw failure; }
