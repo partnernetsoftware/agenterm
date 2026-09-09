@@ -367,6 +367,13 @@
       ]
     },
     {
+      "id": "cu-linux-processor-topology-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-processor-topology-readback"
+      ]
+    },
+    {
       "id": "cu-linux-ps-smoke",
       "platform": "linux",
       "evidence": [
