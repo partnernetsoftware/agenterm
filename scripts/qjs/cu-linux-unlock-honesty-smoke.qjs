@@ -1,8 +1,10 @@
 // CEO: Linux unlock honesty with independent pyatspi tree depth/node-count read-back.
-// Acceptance is smoke read-back only: CU unlock returned_before/returned_after and
-// grew must agree with independent AT-SPI BFS counts on the same owned Chrome
-// window before and after the poke. AT-SPI/--name only; no --coords or
-// screenshot degradation.
+// Acceptance is smoke read-back only: CU unlock returned_before/returned_after,
+// web_nodes_before/web_nodes_after, grew, and org.a11y.Status snapshots must
+// agree with independent AT-SPI BFS counts and dbus-send flag facts on the same
+// owned Chrome window before and after the poke. Typed usage and AT-SPI
+// host-limit paths must hold when the independent pyatspi desktop probe is
+// unavailable. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -68,20 +70,177 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function last_json_line(text) {
+  const lines = text.trim().split("\n");
+  for (let index = lines.length - 1; index >= 0; index = index - 1) {
+    const line = lines[index].trim();
+    if (line !== "") { return JSON.parse(line); }
+  }
+  throw "cu_linux_unlock_honesty_missing_json";
+}
+
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
-  for (const argument of arguments) { argv.push("" + argument); }
+  for (const argument of cu_args) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: cu_env(executable),
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 60000,
   });
-  ensure(output.success === true, "cu_linux_unlock_honesty_cli:" + output.stdout + output.stderr);
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_unlock_honesty_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_unlock_honesty_reply:" + JSON.stringify(document));
+  ensure(output.stdout.trim() !== "", "cu_linux_unlock_honesty_cli:" + output.stdout + output.stderr);
+  return last_json_line(output.stdout);
+}
+
+function output_success(document) { return flag_at(document, "ok"); }
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments);
+  ensure(output_success(document), "cu_linux_unlock_honesty_reply:" + JSON.stringify(document));
   return document;
+}
+
+function probe_atspi_available() {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(""),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_unlock_usage_limit(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "unlock", "--window", "0",
+  ]);
+  ensure(!output_success(reply), "cu_linux_unlock_honesty_usage_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_unlock_honesty_usage_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_unlock_honesty_usage_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_unlock_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "unlock", "--window", "1",
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_unlock_honesty_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
+    "cu_linux_unlock_honesty_unavailable_code:" + code
+  );
+  if (code === "a11y_backend_failed") {
+    const message = text_at(reply, "error.message").toLowerCase();
+    ensure(
+      message.indexOf("accessibility") >= 0
+        || message.indexOf("address") >= 0
+        || message.indexOf("bus") >= 0,
+      "cu_linux_unlock_honesty_unavailable_message:" + JSON.stringify(reply.error)
+    );
+  }
+}
+
+function safe_command(program, args, options) {
+  try {
+    return rh.command(program, args, options);
+  } catch (error) {
+    return null;
+  }
+}
+
+function dbus_name_has_owner(service, env) {
+  const output = safe_command("dbus-send", [
+    "--session",
+    "--dest=org.freedesktop.DBus",
+    "--type=method_call",
+    "--print-reply",
+    "/org/freedesktop/DBus",
+    "org.freedesktop.DBus.NameHasOwner",
+    "string:" + service,
+  ], {
+    env: env,
+    timeout_ms: 10000,
+  });
+  return output !== null && output.success === true && output.stdout.indexOf("boolean true") >= 0;
+}
+
+function independent_a11y_status_flag(flag, env) {
+  const output = safe_command("dbus-send", [
+    "--session",
+    "--dest=org.a11y.Bus",
+    "--type=method_call",
+    "--print-reply",
+    "/org/a11y/bus",
+    "org.freedesktop.DBus.Properties.Get",
+    "string:org.a11y.Status",
+    "string:" + flag,
+  ], {
+    env: env,
+    timeout_ms: 10000,
+  });
+  if (output === null || !output.success) { return null; }
+  if (output.stdout.indexOf("boolean true") >= 0) { return true; }
+  if (output.stdout.indexOf("boolean false") >= 0) { return false; }
+  return null;
+}
+
+function independent_a11y_status_flags(env) {
+  if (!dbus_name_has_owner("org.a11y.Bus", env)) { return null; }
+  const flags = {};
+  for (const flag of ["IsEnabled", "ScreenReaderEnabled"]) {
+    const value = independent_a11y_status_flag(flag, env);
+    if (value === null) { return null; }
+    flags[flag] = value;
+  }
+  return flags;
+}
+
+function assert_a11y_status_readback(label, snapshot) {
+  const status = text_at(snapshot, "status");
+  ensure(
+    status === "ok" || status === "partial",
+    "cu_linux_unlock_honesty_a11y_status_" + label + ":" + JSON.stringify(snapshot)
+  );
+  ensure(
+    text_at(snapshot, "org_a11y_status.destination") === "org.a11y.Bus",
+    "cu_linux_unlock_honesty_a11y_destination_" + label + ":" + JSON.stringify(snapshot)
+  );
+  for (const flag of ["IsEnabled", "ScreenReaderEnabled"]) {
+    ensure(
+      text_at(snapshot, "org_a11y_status.flags." + flag + ".read") === "ok",
+      "cu_linux_unlock_honesty_a11y_flag_read_" + label + "_" + flag + ":" + JSON.stringify(snapshot)
+    );
+    const value = at(snapshot, "org_a11y_status.flags." + flag + ".value");
+    ensure(
+      value === true || value === false,
+      "cu_linux_unlock_honesty_a11y_flag_value_" + label + "_" + flag + ":" + JSON.stringify(snapshot)
+    );
+  }
+  const independent = independent_a11y_status_flags(cu_env(""));
+  ensure(independent !== null, "cu_linux_unlock_honesty_a11y_independent_missing_" + label);
+  for (const flag of ["IsEnabled", "ScreenReaderEnabled"]) {
+    ensure(
+      at(independent, flag) === at(snapshot, "org_a11y_status.flags." + flag + ".value"),
+      "cu_linux_unlock_honesty_a11y_flag_mismatch_" + label + "_" + flag + ":"
+        + JSON.stringify({ snapshot: snapshot.org_a11y_status.flags[flag], independent: independent })
+    );
+  }
 }
 
 function chrome_window(run_directory, executable, title_prefix) {
@@ -194,6 +353,10 @@ const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
 ensure(direct_file(executable), "cu_linux_unlock_honesty_executable_missing:" + executable);
 ensure(direct_file(abi_library), "cu_linux_unlock_honesty_library_missing:" + abi_library);
 
+const uname = rh.command("/usr/bin/uname", ["-s"], { timeout_ms: 10000 });
+ensure(uname.success === true && uname.stdout.trim() === "Linux",
+  "cu_linux_unlock_honesty_requires_linux");
+
 const context = harness.new_context(repo, "cu-linux-unlock-honesty");
 const run_directory = rh.join(repo, "target/cu-linux-unlock-honesty-smoke-run");
 rh.create_dir_all(run_directory);
@@ -211,8 +374,18 @@ const port = 9900 + (rh.pid() % 500);
 let chrome_child = -1;
 let succeeded = 0;
 let failure = "";
+const atspi_available = probe_atspi_available();
 
 try {
+  if (!atspi_available) {
+    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    assert_unlock_usage_limit(run_directory, executable);
+    assert_unlock_host_limit_when_atspi_absent(run_directory, executable);
+    succeeded = 1;
+  } else {
+    print("STEP unlock typed-fails usage when --window handle is zero");
+    assert_unlock_usage_limit(run_directory, executable);
+
   const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
     cwd: run_directory,
     timeout_ms: 3000,
@@ -258,7 +431,7 @@ try {
   const chrome_pid = window.pid;
   ensure(chrome_pid > 0, "cu_linux_unlock_honesty_pid:" + JSON.stringify(window));
 
-  print("STEP independent pyatspi tree stats before unlock");
+  print("STEP locked baseline: independent pyatspi tree stats before unlock");
   const before_native = wait_native_ready(run_directory, executable, chrome_pid, 10);
 
   print("STEP CU unlock pokes org.a11y.Status and re-reads the bounded tree");
@@ -281,13 +454,16 @@ try {
       "cu_linux_unlock_honesty_poke:" + JSON.stringify(unlocked.data)
     );
 
-    print("STEP independent pyatspi tree stats after unlock agree with CU counts");
+    print("STEP unlocked readback: independent pyatspi tree stats after unlock agree with CU counts");
     const after_native = native_tree_stats(run_directory, executable, chrome_pid);
     const cu_before = int_at(unlocked, "data.returned_before");
     const cu_after = int_at(unlocked, "data.returned");
     const cu_web_before = int_at(unlocked, "data.web_nodes_before");
     const cu_web_after = int_at(unlocked, "data.web_nodes_after");
     const grew = flag_at(unlocked, "data.grew");
+
+    assert_a11y_status_readback("before", at(unlocked, "data.a11y_status_before"));
+    assert_a11y_status_readback("after", at(unlocked, "data.a11y_status_after"));
 
     ensure(
       after_native.count >= before_native.count,
@@ -305,6 +481,16 @@ try {
         + JSON.stringify({ cu_after: cu_after, native_after: after_native.count })
     );
     ensure(
+      cu_web_before === before_native.web_nodes,
+      "cu_linux_unlock_honesty_cu_web_before_mismatch:"
+        + JSON.stringify({ cu_web_before: cu_web_before, native_before: before_native.web_nodes })
+    );
+    ensure(
+      cu_web_after === after_native.web_nodes,
+      "cu_linux_unlock_honesty_cu_web_after_mismatch:"
+        + JSON.stringify({ cu_web_after: cu_web_after, native_after: after_native.web_nodes })
+    );
+    ensure(
       grew === (after_native.count > before_native.count || after_native.web_nodes > before_native.web_nodes),
       "cu_linux_unlock_honesty_grew_mismatch:"
         + JSON.stringify({
@@ -316,18 +502,20 @@ try {
         })
     );
     if (after_native.count > before_native.count || after_native.web_nodes > before_native.web_nodes) {
-      print("PASS unlock grew native tree before " + before_native.count + " after " + after_native.count
+      print("PASS unlocked: native tree grew before " + before_native.count + " after " + after_native.count
         + " web " + before_native.web_nodes + " -> " + after_native.web_nodes);
     } else {
       ensure(
         text_at(unlocked, "data.ax") === "empty-chrome" || text_at(unlocked, "data.ax") === "content",
         "cu_linux_unlock_honesty_no_growth_unexpected_ax:" + JSON.stringify(unlocked.data)
       );
-      print("PASS unlock agreement without growth native "
-        + before_native.count + " cu " + cu_before + " -> " + cu_after
+      print("PASS locked baseline and unlocked agreement without growth native "
+        + before_native.count + " web " + before_native.web_nodes
+        + " cu " + cu_before + " -> " + cu_after
         + " ax=" + text_at(unlocked, "data.ax"));
     }
     succeeded = 1;
+  }
   }
 } catch (error) {
   failure = "" + error;
@@ -340,7 +528,11 @@ if (chrome_child >= 0) {
 if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
-  print("PASS: Linux unlock honesty with independent AT-SPI read-back");
+  if (atspi_available) {
+    print("PASS: Linux unlock honesty with independent AT-SPI read-back (locked, unlocked, org.a11y.Status)");
+  } else {
+    print("PASS: Linux unlock typed-fails when independent pyatspi desktop probe is unavailable");
+  }
 }
 if (failure !== "") { throw failure; }
 return;
