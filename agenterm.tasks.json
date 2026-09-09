@@ -1477,6 +1477,25 @@
         "task.cu-linux-page-hover-smoke"
       ]
     },
+    "cu-linux-page-drag-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-page-drag-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-page-drag-smoke"
+      ]
+    },
     "cu-linux-browser-tabs-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -6534,6 +6553,26 @@
       "id": "cu-linux-page-hover-smoke",
       "description": "Linux page-hover moves the CDP pointer and independent page-js read-back shows CSS :hover, computed style change, and title on a disposable control; typed page-hover/get-extents AT-SPI/--name court before actuate; no --coords.",
       "entry": "scripts/qjs/cu-linux-page-hover-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-page-drag-smoke",
+      "description": "Linux CDP page-drag between viewport CSS points with typed page-drag/get-extents AT-SPI/--name court before actuate, usage/zero-distance/miss/no-CDP host-limit paths, and independent page-js trusted mousedown/mousemove/mouseup endpoint read-back; disposable Chrome, no --coords.",
+      "entry": "scripts/qjs/cu-linux-page-drag-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

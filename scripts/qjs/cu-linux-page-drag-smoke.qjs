@@ -1,0 +1,551 @@
+// CEO: Linux CDP page-drag honesty — drag between viewport CSS points on a
+// disposable page; prove trusted mousedown/mousemove/mouseup endpoint read-back
+// via independent page-js (not page-drag performed/verified alone). Typed
+// page-drag usage must reject AT-SPI --name, --bogus, and zero-distance;
+// typed get-extents --name usage/host-limit paths must hold before the
+// page-drag actuate/read-back court. A free port must typed-fail before any
+// owned Chrome exists. Distinct from AT-SPI drag --from-name/--to-name.
+// Disposable Chrome+CDP; --port/--target-id only; no --coords.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-cdp-page-drag",
+  "cu.linux-cdp-page-drag-readback",
+];
+
+const AT_SPI_PROBE_NAME = "Page Drag Court Anchor";
+const MISSING_NODE = "agenterm-no-such-page-drag-node";
+
+const drag_readback_expr = "(function(){"
+  + "const log=window.__ceoDragLog||[];"
+  + "function has(type,id){"
+  + "return log.some(function(e){return e.type===type&&e.trusted===true&&e.id===id;});"
+  + "}"
+  + "return{"
+  + "drag_done:document.body.dataset.drag||'',"
+  + "log:log.map(function(e){return{type:e.type,trusted:e.trusted,id:e.id};}),"
+  + "has_mousedown_from:has('mousedown','drag-from'),"
+  + "has_mousemove:log.some(function(e){return e.type==='mousemove'&&e.trusted===true;}),"
+  + "has_mouseup_to:has('mouseup','drag-to')"
+  + "};})()";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function output_success(document) { return flag_at(document, "ok"); }
+
+function run_cu_reply(run_directory, executable, grant, arguments, env) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 60000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_page_drag_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_page_drag_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function assert_page_drag_usage_limit(run_directory, executable, env, port) {
+  const missing_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-drag", "--port", "" + port, "--target-id", "unused",
+  ], env);
+  ensure(!output_success(missing_coords), "cu_linux_page_drag_usage_ok:" + JSON.stringify(missing_coords));
+  ensure(
+    text_at(missing_coords, "error.code") === "usage",
+    "cu_linux_page_drag_usage_code:" + JSON.stringify(missing_coords.error)
+  );
+  ensure(
+    text_at(missing_coords, "error.message").indexOf("--x1") >= 0,
+    "cu_linux_page_drag_usage_message:" + JSON.stringify(missing_coords.error)
+  );
+
+  const missing_y2 = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-drag", "--port", "" + port, "--target-id", "unused",
+    "--x1", "10", "--y1", "10", "--x2", "20",
+  ], env);
+  ensure(!output_success(missing_y2), "cu_linux_page_drag_missing_y2_ok:" + JSON.stringify(missing_y2));
+  ensure(
+    text_at(missing_y2, "error.code") === "usage",
+    "cu_linux_page_drag_missing_y2_code:" + JSON.stringify(missing_y2.error)
+  );
+  ensure(
+    text_at(missing_y2, "error.message").indexOf("--y2") >= 0,
+    "cu_linux_page_drag_missing_y2_message:" + JSON.stringify(missing_y2.error)
+  );
+
+  const bad_x1 = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-drag", "--port", "" + port, "--target-id", "unused",
+    "--x1", "-1", "--y1", "10", "--x2", "20", "--y2", "10",
+  ], env);
+  ensure(!output_success(bad_x1), "cu_linux_page_drag_bad_x1_ok:" + JSON.stringify(bad_x1));
+  ensure(
+    text_at(bad_x1, "error.code") === "usage",
+    "cu_linux_page_drag_bad_x1_code:" + JSON.stringify(bad_x1.error)
+  );
+  ensure(
+    text_at(bad_x1, "error.message").indexOf("viewport CSS coordinate") >= 0,
+    "cu_linux_page_drag_bad_x1_message:" + JSON.stringify(bad_x1.error)
+  );
+
+  const zero_distance = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-drag", "--port", "" + port, "--target-id", "unused",
+    "--x1", "10", "--y1", "10", "--x2", "10", "--y2", "10",
+  ], env);
+  ensure(!output_success(zero_distance), "cu_linux_page_drag_zero_distance_ok:" + JSON.stringify(zero_distance));
+  ensure(
+    text_at(zero_distance, "error.code") === "usage",
+    "cu_linux_page_drag_zero_distance_code:" + JSON.stringify(zero_distance.error)
+  );
+  ensure(
+    text_at(zero_distance, "error.message").indexOf("distinct") >= 0,
+    "cu_linux_page_drag_zero_distance_message:" + JSON.stringify(zero_distance.error)
+  );
+}
+
+function assert_page_drag_usage_rejects_name(run_directory, executable, env, port) {
+  const flat_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-drag", "--port", "" + port, "--target-id", "unused",
+    "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20",
+    "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_page_drag_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_page_drag_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_page_drag_usage_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(flat_with_name, "error.message")),
+    "cu_linux_page_drag_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page", "drag", "--port", "" + port, "--target-id", "unused",
+    "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20",
+    "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_page_drag_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_page_drag_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(grouped_with_name, "error.message")),
+    "cu_linux_page_drag_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-drag", "--port", "" + port, "--target-id", "unused",
+    "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20", "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_page_drag_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_page_drag_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_page_drag_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_page_drag_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_page_drag_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_page_drag_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_page_drag_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_page_drag_extents_unavailable_code:" + code
+  );
+}
+
+function assert_no_cdp_listener(run_directory, executable, env, port) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-drag", "--port", "" + port, "--target-id", "unused",
+    "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20",
+  ], env);
+  ensure(reply.ok !== true, "cu_linux_page_drag_false_success:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_page_drag_host_limit_code:" + JSON.stringify(reply)
+  );
+  const message = text_at(reply, "error.message");
+  ensure(
+    message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
+    "cu_linux_page_drag_host_limit_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_page_drag_miss_target(run_directory, executable, env, port) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-drag", "--port", "" + port, "--target-id", "deadbeef",
+    "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20",
+  ], env);
+  ensure(!output_success(reply), "cu_linux_page_drag_miss_target_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "cdp_target_not_found",
+    "cu_linux_page_drag_miss_target_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("--target-id") >= 0,
+    "cu_linux_page_drag_miss_target_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_page_drag_miss_point(run_directory, executable, env, port, target_id) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-drag", "--port", "" + port, "--target-id", target_id,
+    "--x1", "99999", "--y1", "99999", "--x2", "99998", "--y2", "99998",
+  ], env);
+  ensure(!output_success(reply), "cu_linux_page_drag_miss_point_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "cdp_point_not_found",
+    "cu_linux_page_drag_miss_point_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("viewport point") >= 0,
+    "cu_linux_page_drag_miss_point_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function cdp_ready(run_directory, port) {
+  const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  return probe.success === true && probe.stdout.indexOf("Browser") >= 0;
+}
+
+function page_target(rows) {
+  for (const row of rows) {
+    if (text_at(row, "type") === "page") { return row; }
+  }
+  return null;
+}
+
+function center(box) {
+  return {
+    x: box.x + box.width / 2,
+    y: box.y + box.height / 2,
+  };
+}
+
+function drag_readback(run_directory, executable, env, port, target_id) {
+  const read = run_cu(run_directory, executable, "observe", [
+    "page-js", "--port", "" + port, "--target-id", target_id,
+    "--expression", drag_readback_expr,
+  ], env);
+  return at(read, "data.value");
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+ensure(direct_file(executable), "cu_linux_page_drag_executable_missing:" + executable);
+ensure(direct_file(abi_library), "cu_linux_page_drag_library_missing:" + abi_library);
+
+const context = harness.new_context(repo, "cu-linux-page-drag");
+const run_directory = context.run_directory;
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
+
+const fixture_title = "CEO CDP Drag " + context.run_id;
+const fixture = rh.join(run_directory, "cdp-drag.html");
+const fixture_html = "<!DOCTYPE html><html><head><title>"
+  + fixture_title + "</title></head><body>"
+  + "<div id='drag-from' aria-label='" + AT_SPI_PROBE_NAME
+  + "' style='display:inline-block;width:80px;height:40px;margin:40px'>From</div>"
+  + "<div id='drag-to' style='display:inline-block;width:80px;height:40px;margin:40px'>To</div>"
+  + "<script>window.__ceoDragLog=[];(function(){"
+  + "var from=document.getElementById('drag-from');"
+  + "var to=document.getElementById('drag-to');"
+  + "from.addEventListener('mousedown',function(e){"
+  + "window.__ceoDragLog.push({type:'mousedown',trusted:e.isTrusted,id:from.id,x:e.clientX,y:e.clientY});"
+  + "});"
+  + "document.addEventListener('mousemove',function(e){"
+  + "if(e.buttons===1){window.__ceoDragLog.push({type:'mousemove',trusted:e.isTrusted,id:(e.target&&e.target.id)||'',x:e.clientX,y:e.clientY});}"
+  + "});"
+  + "to.addEventListener('mouseup',function(e){"
+  + "window.__ceoDragLog.push({type:'mouseup',trusted:e.isTrusted,id:to.id,x:e.clientX,y:e.clientY});"
+  + "if(e.isTrusted){document.body.dataset.drag='done';}"
+  + "});"
+  + "})();</script>"
+  + "</body></html>";
+rh.write_text(fixture, fixture_html);
+
+const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
+const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
+const port = 9700 + (rh.pid() % 500);
+let chrome_child = -1;
+let succeeded = 0;
+let failure = "";
+
+try {
+  const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+    "cu_linux_page_drag_port_in_use:" + port);
+
+  print("STEP typed usage limits reject missing coordinates, invalid points, or zero-distance before Chrome starts");
+  assert_page_drag_usage_limit(run_directory, executable, env, port);
+
+  print("STEP page-drag typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_page_drag_usage_rejects_name(run_directory, executable, env, port);
+
+  print("STEP page-drag typed-fails no CDP listener on the owned free port before Chrome starts");
+  assert_no_cdp_listener(run_directory, executable, env, port);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before page-drag actuate court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
+  print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
+  chrome_child = harness.start({
+    program: launcher,
+    args: [
+      "--user-data-dir=" + profile,
+      "--remote-debugging-port=" + port,
+      "--remote-debugging-address=127.0.0.1",
+      "--new-window",
+      "about:blank",
+    ],
+    current_dir: run_directory,
+    env: env,
+    timeout_ms: 45000,
+  });
+  for (let attempt = 0; attempt < 80 && !cdp_ready(run_directory, port); attempt = attempt + 1) {
+    harness.sleep_ms(250);
+  }
+  ensure(cdp_ready(run_directory, port), "cu_linux_page_drag_cdp_not_ready:" + port);
+
+  print("STEP page-drag typed-fails cdp_target_not_found for a bogus --target-id");
+  assert_page_drag_miss_target(run_directory, executable, env, port);
+
+  const targets = run_cu(run_directory, executable, "observe", [
+    "page-targets", "--port", "" + port,
+  ], env);
+  const target = page_target(targets.data.targets);
+  ensure(target !== null && text_at(target, "id") !== "", "cu_linux_page_drag_target_missing");
+  const target_id = text_at(target, "id");
+
+  print("STEP page-nav loads the disposable drag fixture in this owned tab");
+  const nav = run_cu(run_directory, executable, "observe,actuate", [
+    "page-nav", "--port", "" + port, "--target-id", target_id,
+    "--url", "file://" + fixture, "--wait-ms", "10000",
+  ], env);
+  ensure(
+    flag_at(nav, "data.verified") && text_at(nav, "data.final_title") === fixture_title,
+    "cu_linux_page_drag_nav:" + JSON.stringify(nav.data)
+  );
+
+  print("STEP page-find locates drag-from and drag-to viewport boxes");
+  const from_find = run_cu(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", target_id, "--selector", "#drag-from",
+  ], env);
+  const to_find = run_cu(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", target_id, "--selector", "#drag-to",
+  ], env);
+  const from_nodes = at(from_find, "data.nodes");
+  const to_nodes = at(to_find, "data.nodes");
+  ensure(
+    at(from_find, "data.returned") === 1 && from_nodes.length === 1
+      && at(to_find, "data.returned") === 1 && to_nodes.length === 1,
+    "cu_linux_page_drag_find:" + JSON.stringify({ from_find: from_find.data, to_find: to_find.data })
+  );
+  const from_xy = center(from_nodes[0].box);
+  const to_xy = center(to_nodes[0].box);
+  ensure(
+    from_xy.x !== to_xy.x || from_xy.y !== to_xy.y,
+    "cu_linux_page_drag_fixture_geometry:" + JSON.stringify({ from_xy, to_xy })
+  );
+
+  print("STEP independent page-js baseline proves drag has not completed yet");
+  const baseline = drag_readback(run_directory, executable, env, port, target_id);
+  ensure(
+    text_at(baseline, "drag_done") === ""
+      && flag_at(baseline, "has_mousedown_from") === false
+      && flag_at(baseline, "has_mouseup_to") === false,
+    "cu_linux_page_drag_baseline:" + JSON.stringify(baseline)
+  );
+
+  print("STEP page-drag --x1/--y1 -> --x2/--y2 actuates the held left-button sequence (receipt not acceptance)");
+  const dragged = run_cu(run_directory, executable, "observe,actuate", [
+    "page-drag", "--port", "" + port, "--target-id", target_id,
+    "--x1", "" + from_xy.x, "--y1", "" + from_xy.y,
+    "--x2", "" + to_xy.x, "--y2", "" + to_xy.y,
+  ], env);
+  ensure(
+    dragged.command === "page-drag"
+      && flag_at(dragged, "data.performed")
+      && flag_at(dragged, "data.release_attempted"),
+    "cu_linux_page_drag_shape:" + JSON.stringify(dragged)
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-drag");
+
+  print("STEP independent page-js read-back proves trusted mousedown/mousemove/mouseup endpoints");
+  let readback = null;
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    readback = drag_readback(run_directory, executable, env, port, target_id);
+    if (text_at(readback, "drag_done") === "done"
+      && flag_at(readback, "has_mousedown_from")
+      && flag_at(readback, "has_mousemove")
+      && flag_at(readback, "has_mouseup_to")) {
+      break;
+    }
+    harness.sleep_ms(250);
+  }
+  ensure(
+    text_at(readback, "drag_done") === "done"
+      && flag_at(readback, "has_mousedown_from")
+      && flag_at(readback, "has_mousemove")
+      && flag_at(readback, "has_mouseup_to"),
+    "cu_linux_page_drag_readback:" + JSON.stringify(readback)
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-drag-readback");
+
+  print("STEP typed miss path rejects viewport points outside rendered content");
+  assert_page_drag_miss_point(run_directory, executable, env, port, target_id);
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (chrome_child >= 0) {
+  try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
+}
+
+ensure(succeeded === 1, failure || "cu_linux_page_drag_failed");
+harness.remove_run(context);
+if (atspi_available) {
+  print("PASS: Linux page-drag usage/host-limit/miss honesty + independent trusted mousedown/mousemove/mouseup page-js read-back with typed page-drag/get-extents usage honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux page-drag usage/host-limit/miss honesty + independent trusted mousedown/mousemove/mouseup page-js read-back with typed get-extents host-limit honesty (AT-SPI --name, no --coords)");
+}
+return;
