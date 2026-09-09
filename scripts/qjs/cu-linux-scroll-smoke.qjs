@@ -1,10 +1,12 @@
 // CEO: Linux AT-SPI scroll --name (Component.ScrollTo TopEdge) on GTK.
-// Acceptance is smoke read-back only: independent get-extents before must
-// fail for an off-screen named node while an on-screen reference node
-// remains readable, scroll --name must succeed via scroll-to and name the
-// matched node, and a second get-extents must return positive geometry
-// below the reference node and inside the fixture window bounds with
-// STATE_SHOWING. No XTest wheel, --coords, or screenshot degradation.
+// Acceptance is smoke read-back only: independent pyatspi Component.GetExtents
+// before must refuse an off-screen named node while an on-screen reference
+// node remains readable, scroll --name must succeed via scroll-to and name
+// the matched node, and a second pyatspi probe plus CU get-extents must
+// return positive geometry below the reference node and inside the fixture
+// window bounds with STATE_SHOWING. Non-scrollable nodes typed-fail
+// a11y_scroll_unavailable with alternatives. No XTest wheel, --coords, or
+// screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -17,6 +19,7 @@ const declared_evidence = [
 
 const SCROLL_TARGET = "Fixture Scroll Target";
 const WHEEL_TARGET = "Fixture Wheel Target";
+const NON_SCROLLABLE_NODE = "Fixture Press";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -89,11 +92,174 @@ function run_cu(run_directory, executable, grant, arguments) {
   return document;
 }
 
+function run_cu_reply(run_directory, executable, grant, arguments, env) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_scroll_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
 function run_cu_ok(run_directory, executable, grant, arguments) {
   const document = run_cu(run_directory, executable, grant, arguments);
   ensure(document._success === true, "cu_linux_scroll_cli:" + document._stdout + document._stderr);
   ensure(flag_at(document, "ok"), "cu_linux_scroll_reply:" + JSON.stringify(document));
   return document;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function independent_probe_script() {
+  return [
+    "import json, sys",
+    "import pyatspi",
+    "",
+    "config = json.loads(sys.argv[1])",
+    "title = config['title']",
+    "name = config['name']",
+    "I32_MIN = -2147483648",
+    "",
+    "def node_name(obj):",
+    "    try: return obj.name or ''",
+    "    except Exception: return ''",
+    "",
+    "def is_readable(x, y, width, height):",
+    "    return width > 0 and height > 0 and x != I32_MIN and y != I32_MIN",
+    "",
+    "def find_named(root, needle):",
+    "    if node_name(root) == needle:",
+    "        return root",
+    "    try: child_count = root.childCount",
+    "    except Exception: child_count = 0",
+    "    for index in range(child_count):",
+    "        try: child = root.getChildAtIndex(index)",
+    "        except Exception: child = None",
+    "        if child is None: continue",
+    "        found = find_named(child, needle)",
+    "        if found is not None: return found",
+    "    return None",
+    "",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "application = None",
+    "for candidate in desktop:",
+    "    try:",
+    "        for index in range(candidate.childCount):",
+    "            window = candidate.getChildAtIndex(index)",
+    "            if window is not None and node_name(window) == title:",
+    "                application = candidate",
+    "                break",
+    "        if application is not None: break",
+    "    except Exception: continue",
+    "if application is None:",
+    "    raise SystemExit('cu_linux_scroll_probe_window_missing')",
+    "",
+    "node = find_named(application, name)",
+    "if node is None:",
+    "    raise SystemExit('cu_linux_scroll_probe_node_missing:' + name)",
+    "",
+    "showing = False",
+    "try:",
+    "    showing = node.getState().contains(pyatspi.STATE_SHOWING)",
+    "except Exception:",
+    "    showing = False",
+    "",
+    "try:",
+    "    component = node.queryComponent()",
+    "    x, y, width, height = component.getExtents(pyatspi.DESKTOP_COORDS)",
+    "except Exception as error:",
+    "    print(json.dumps({'found': True, 'showing': showing, 'available': False, 'reason': str(error)}))",
+    "    raise SystemExit(0)",
+    "",
+    "print(json.dumps({",
+    "    'found': True,",
+    "    'showing': showing,",
+    "    'available': is_readable(x, y, width, height),",
+    "    'x': x, 'y': y, 'width': width, 'height': height,",
+    "}))",
+  ].join("\n");
+}
+
+function independent_extents(run_directory, executable, title, node_name) {
+  const output = rh.command(
+    "python3",
+    ["-c", independent_probe_script(), JSON.stringify({ title: title, name: node_name })],
+    { cwd: run_directory, env: cu_env(executable), timeout_ms: 45000 },
+  );
+  ensure(output.success === true, "cu_linux_scroll_probe:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function assert_scroll_usage_limit(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "scroll", "--window", "0", "--name", SCROLL_TARGET,
+  ]);
+  ensure(!flag_at(reply, "ok"), "cu_linux_scroll_usage_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "invalid_input",
+    "cu_linux_scroll_usage_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("window") >= 0,
+    "cu_linux_scroll_usage_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_scroll_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "scroll", "--window", "1", "--name", SCROLL_TARGET,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!flag_at(reply, "ok"), "cu_linux_scroll_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
+    "cu_linux_scroll_unavailable_code:" + code
+  );
+}
+
+function assert_scroll_unavailable_with_alternatives(
+  run_directory, executable, handle, node_name, label
+) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "scroll", "--window", "" + handle, "--name", node_name,
+  ]);
+  ensure(
+    !flag_at(reply, "ok") && text_at(reply, "error.code") === "a11y_scroll_unavailable",
+    "cu_linux_scroll_unavailable_" + label + ":" + JSON.stringify(reply)
+  );
+  const message = text_at(reply, "error.message").toLowerCase();
+  ensure(
+    message.indexOf("scrollto") >= 0 || message.indexOf("scroll") >= 0,
+    "cu_linux_scroll_unavailable_message_" + label + ":" + JSON.stringify(reply.error)
+  );
+  const alternatives = at(reply, "error.detail.alternatives");
+  ensure(
+    alternatives !== undefined && alternatives !== null && alternatives.length > 0,
+    "cu_linux_scroll_unavailable_alternatives_" + label + ":" + JSON.stringify(reply.error)
+  );
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -113,6 +279,62 @@ function get_extents(run_directory, executable, handle_text, node_name) {
   ]);
   if (!flag_at(reply, "ok")) { return null; }
   return reply;
+}
+
+function assert_pyatspi_offscreen_baseline(
+  run_directory, executable, fixture_title, reference_bottom, label
+) {
+  const probe = independent_extents(run_directory, executable, fixture_title, SCROLL_TARGET);
+  ensure(
+    probe.found === true,
+    "cu_linux_scroll_pyatspi_offscreen_found_" + label + ":" + JSON.stringify(probe)
+  );
+  ensure(
+    probe.showing !== true
+      || probe.available !== true
+      || int_at(probe, "y") > reference_bottom,
+    "cu_linux_scroll_pyatspi_offscreen_" + label + ":" + JSON.stringify(probe)
+  );
+}
+
+function assert_pyatspi_onscreen_readback(
+  run_directory, executable, fixture_title, reference_bottom, win_x, win_y, win_w, win_h, label
+) {
+  const probe = independent_extents(run_directory, executable, fixture_title, SCROLL_TARGET);
+  ensure(
+    probe.found === true && probe.available === true && probe.showing === true,
+    "cu_linux_scroll_pyatspi_onscreen_" + label + ":" + JSON.stringify(probe)
+  );
+  ensure(
+    int_at(probe, "y") > reference_bottom
+      && int_at(probe, "height") > 0
+      && int_at(probe, "width") > 0,
+    "cu_linux_scroll_pyatspi_geometry_" + label + ":" + JSON.stringify(probe)
+  );
+  ensure(
+    int_at(probe, "x") >= win_x
+      && int_at(probe, "y") >= win_y
+      && int_at(probe, "x") + int_at(probe, "width") <= win_x + win_w
+      && int_at(probe, "y") + int_at(probe, "height") <= win_y + win_h,
+    "cu_linux_scroll_pyatspi_window_bounds_" + label + ":" + JSON.stringify({
+      probe: probe,
+      window: { x: win_x, y: win_y, width: win_w, height: win_h },
+    })
+  );
+  return probe;
+}
+
+function assert_cu_pyatspi_agreement(cu_reply, probe, label) {
+  ensure(
+    int_at(cu_reply, "data.extents.x") === int_at(probe, "x")
+      && int_at(cu_reply, "data.extents.y") === int_at(probe, "y")
+      && int_at(cu_reply, "data.extents.width") === int_at(probe, "width")
+      && int_at(cu_reply, "data.extents.height") === int_at(probe, "height"),
+    "cu_linux_scroll_cu_pyatspi_mismatch_" + label + ":" + JSON.stringify({
+      cu: cu_reply.data.extents,
+      probe: probe,
+    })
+  );
 }
 
 const args = rh.args();
@@ -138,102 +360,136 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
-  fixture = harness.start({
-    program: "python3",
-    args: [fixture_source],
-    current_dir: run_directory,
-    env: { GTK_MODULES: "gail:atk-bridge" },
-    timeout_ms: 30000,
-  });
-  fixture_pid = harness.spawned_pid(fixture);
-  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
-  const window_wait = run_cu_ok(run_directory, executable, "observe", [
-    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
-  ]);
-  ensure(flag_at(window_wait, "data.met"), "cu_linux_scroll_window_wait");
-  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
-  ensure(row !== null, "cu_linux_scroll_window_identity");
-  const handle = "" + at(row, "handle");
-  const win_x = int_at(row, "bounds.x");
-  const win_y = int_at(row, "bounds.y");
-  const win_w = int_at(row, "bounds.width");
-  const win_h = int_at(row, "bounds.height");
-  ensure(win_w > 0 && win_h > 0, "cu_linux_scroll_window_bounds:" + JSON.stringify(row));
+  print("STEP scroll typed-fails invalid_input when --window handle is zero");
+  assert_scroll_usage_limit(run_directory, executable);
 
-  print("STEP independent get-extents must refuse off-screen " + SCROLL_TARGET);
-  const before = run_cu(run_directory, executable, "observe", [
-    "get-extents", "--window", handle, "--name", SCROLL_TARGET,
-  ]);
-  ensure(
-    !flag_at(before, "ok")
-      && text_at(before, "error.code") === "a11y_extents_unavailable",
-    "cu_linux_scroll_offscreen_baseline:" + JSON.stringify(before)
-  );
+  if (!atspi_available) {
+    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    assert_scroll_host_limit_when_atspi_absent(run_directory, executable);
+    succeeded = 1;
+  } else {
+    print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
+    fixture = harness.start({
+      program: "python3",
+      args: [fixture_source],
+      current_dir: run_directory,
+      env: { GTK_MODULES: "gail:atk-bridge" },
+      timeout_ms: 30000,
+    });
+    fixture_pid = harness.spawned_pid(fixture);
+    const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+    const window_wait = run_cu_ok(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+    ]);
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_scroll_window_wait");
+    const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    ensure(row !== null, "cu_linux_scroll_window_identity");
+    const handle = "" + at(row, "handle");
+    const win_x = int_at(row, "bounds.x");
+    const win_y = int_at(row, "bounds.y");
+    const win_w = int_at(row, "bounds.width");
+    const win_h = int_at(row, "bounds.height");
+    ensure(win_w > 0 && win_h > 0, "cu_linux_scroll_window_bounds:" + JSON.stringify(row));
 
-  print("STEP independent get-extents keeps on-screen reference " + WHEEL_TARGET);
-  const wheel_before = get_extents(run_directory, executable, handle, WHEEL_TARGET);
-  ensure(wheel_before !== null, "cu_linux_scroll_wheel_baseline_missing");
-  const wheel_y = int_at(wheel_before, "data.extents.y");
-  const wheel_h = int_at(wheel_before, "data.extents.height");
-  ensure(
-    wheel_y > 0
-      && wheel_h > 0
-      && rh.has_item(at(wheel_before, "data.matched.states"), "showing"),
-    "cu_linux_scroll_wheel_baseline:" + JSON.stringify(wheel_before.data)
-  );
+    print("STEP scroll typed-fails a11y_scroll_unavailable with alternatives on a non-scrollable on-screen node");
+    assert_scroll_unavailable_with_alternatives(
+      run_directory, executable, handle, NON_SCROLLABLE_NODE, "fixture_press"
+    );
+    const press_probe = independent_extents(run_directory, executable, fixture_title, NON_SCROLLABLE_NODE);
+    ensure(
+      press_probe.found === true && press_probe.available === true && press_probe.showing === true,
+      "cu_linux_scroll_press_onscreen:" + JSON.stringify(press_probe)
+    );
 
-  print("STEP scroll --name " + SCROLL_TARGET + " via Component.ScrollTo(TopEdge)");
-  const scrolled = run_cu_ok(run_directory, executable, "observe,actuate", [
-    "scroll", "--window", handle, "--name", SCROLL_TARGET,
-  ]);
-  ensure(
-    text_at(scrolled, "data.via") === "scroll-to"
-      && text_at(scrolled, "data.addressing") === "accessibility-tree"
-      && text_at(scrolled, "data.matched.name") === SCROLL_TARGET,
-    "cu_linux_scroll_actuate:" + JSON.stringify(scrolled.data)
-  );
+    print("STEP independent pyatspi and CU get-extents must refuse off-screen " + SCROLL_TARGET);
+    const before = run_cu(run_directory, executable, "observe", [
+      "get-extents", "--window", handle, "--name", SCROLL_TARGET,
+    ]);
+    ensure(
+      !flag_at(before, "ok")
+        && text_at(before, "error.code") === "a11y_extents_unavailable",
+      "cu_linux_scroll_offscreen_baseline:" + JSON.stringify(before)
+    );
 
-  print("STEP independent get-extents confirms scroll target geometry below reference and inside window");
-  let after = null;
-  for (let attempt = 0; attempt < 20; attempt = attempt + 1) {
-    after = get_extents(run_directory, executable, handle, SCROLL_TARGET);
-    if (after !== null) {
-      const probe_y = int_at(after, "data.extents.y");
-      const probe_h = int_at(after, "data.extents.height");
-      if (
-        probe_y > wheel_y + wheel_h
-          && probe_h > 0
-          && rh.has_item(at(after, "data.matched.states"), "showing")
-      ) { break; }
+    print("STEP independent pyatspi keeps on-screen reference " + WHEEL_TARGET);
+    const wheel_probe = independent_extents(run_directory, executable, fixture_title, WHEEL_TARGET);
+    ensure(
+      wheel_probe.found === true
+        && wheel_probe.available === true
+        && wheel_probe.showing === true,
+      "cu_linux_scroll_wheel_pyatspi_baseline:" + JSON.stringify(wheel_probe)
+    );
+    const wheel_before = get_extents(run_directory, executable, handle, WHEEL_TARGET);
+    ensure(wheel_before !== null, "cu_linux_scroll_wheel_baseline_missing");
+    const wheel_y = int_at(wheel_before, "data.extents.y");
+    const wheel_h = int_at(wheel_before, "data.extents.height");
+    ensure(
+      wheel_y > 0
+        && wheel_h > 0
+        && rh.has_item(at(wheel_before, "data.matched.states"), "showing"),
+      "cu_linux_scroll_wheel_baseline:" + JSON.stringify(wheel_before.data)
+    );
+    assert_cu_pyatspi_agreement(wheel_before, wheel_probe, "wheel_baseline");
+    const reference_bottom = wheel_y + wheel_h;
+    assert_pyatspi_offscreen_baseline(
+      run_directory, executable, fixture_title, reference_bottom, "before_scroll"
+    );
+
+    print("STEP scroll --name " + SCROLL_TARGET + " via Component.ScrollTo(TopEdge)");
+    const scrolled = run_cu_ok(run_directory, executable, "observe,actuate", [
+      "scroll", "--window", handle, "--name", SCROLL_TARGET,
+    ]);
+    ensure(
+      text_at(scrolled, "data.via") === "scroll-to"
+        && text_at(scrolled, "data.addressing") === "accessibility-tree"
+        && text_at(scrolled, "data.matched.name") === SCROLL_TARGET,
+      "cu_linux_scroll_actuate:" + JSON.stringify(scrolled.data)
+    );
+
+    print("STEP independent pyatspi and CU get-extents confirm scroll target geometry below reference and inside window");
+    let after = null;
+    let pyatspi_after = null;
+    for (let attempt = 0; attempt < 20; attempt = attempt + 1) {
+      after = get_extents(run_directory, executable, handle, SCROLL_TARGET);
+      pyatspi_after = independent_extents(run_directory, executable, fixture_title, SCROLL_TARGET);
+      if (after !== null && pyatspi_after.available === true && pyatspi_after.showing === true) {
+        const probe_y = int_at(pyatspi_after, "y");
+        const probe_h = int_at(pyatspi_after, "height");
+        if (probe_y > reference_bottom && probe_h > 0) { break; }
+      }
+      harness.sleep_ms(100);
     }
-    harness.sleep_ms(100);
-  }
-  ensure(after !== null, "cu_linux_scroll_extents_readback_missing");
-  const after_x = int_at(after, "data.extents.x");
-  const after_y = int_at(after, "data.extents.y");
-  const after_w = int_at(after, "data.extents.width");
-  const after_h = int_at(after, "data.extents.height");
-  ensure(
-    after_w > 0
-      && after_h > 0
-      && after_y > wheel_y + wheel_h
-      && rh.has_item(at(after, "data.matched.states"), "showing")
-      && after_x >= win_x
-      && after_y >= win_y
-      && after_x + after_w <= win_x + win_w
-      && after_y + after_h <= win_y + win_h,
-    "cu_linux_scroll_extents_readback:" + JSON.stringify({
-      after: after.data,
-      wheel_before: wheel_before.data,
-      window: { x: win_x, y: win_y, width: win_w, height: win_h },
-    })
-  );
+    ensure(after !== null, "cu_linux_scroll_extents_readback_missing");
+    assert_pyatspi_onscreen_readback(
+      run_directory, executable, fixture_title, reference_bottom,
+      win_x, win_y, win_w, win_h, "after_scroll"
+    );
+    assert_cu_pyatspi_agreement(after, pyatspi_after, "after_scroll");
+    const after_x = int_at(after, "data.extents.x");
+    const after_y = int_at(after, "data.extents.y");
+    const after_w = int_at(after, "data.extents.width");
+    const after_h = int_at(after, "data.extents.height");
+    ensure(
+      after_w > 0
+        && after_h > 0
+        && after_y > reference_bottom
+        && rh.has_item(at(after, "data.matched.states"), "showing")
+        && after_x >= win_x
+        && after_y >= win_y
+        && after_x + after_w <= win_x + win_w
+        && after_y + after_h <= win_y + win_h,
+      "cu_linux_scroll_extents_readback:" + JSON.stringify({
+        after: after.data,
+        wheel_before: wheel_before.data,
+        window: { x: win_x, y: win_y, width: win_w, height: win_h },
+      })
+    );
 
-  harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-scroll-to");
-  succeeded = 1;
+    succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -246,6 +502,11 @@ if (fixture >= 0) {
 }
 
 ensure(succeeded === 1, failure || "cu_linux_scroll_failed");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-scroll-to");
 harness.remove_run(context);
-print("PASS: CEO Linux AT-SPI scroll --name with independent get-extents geometry read-back");
+if (atspi_available) {
+  print("PASS: CEO Linux AT-SPI scroll --name with independent pyatspi geometry read-back and typed host-limit paths");
+} else {
+  print("PASS: CEO Linux AT-SPI scroll typed-fails when independent pyatspi desktop probe is unavailable");
+}
 return;

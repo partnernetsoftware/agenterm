@@ -6408,7 +6408,7 @@
     },
     {
       "id": "cu-linux-scroll-smoke",
-      "description": "Linux AT-SPI scroll --name (Component.ScrollTo TopEdge) on a GTK ScrolledWindow fixture: independent get-extents before must fail for an off-screen named node while an on-screen reference node stays readable, scroll must succeed via scroll-to and name the matched node, and a second get-extents must return positive geometry below the reference and inside the fixture window bounds with STATE_SHOWING; no XTest wheel, --coords, or screenshot degradation.",
+      "description": "Linux AT-SPI scroll --name (Component.ScrollTo TopEdge) on a GTK ScrolledWindow fixture: independent pyatspi Component.GetExtents before must refuse an off-screen named node while an on-screen reference node stays readable, scroll on a non-scrollable on-screen node typed-fails a11y_scroll_unavailable with alternatives, scroll must succeed via scroll-to and name the matched node, and a second pyatspi probe plus CU get-extents must agree on geometry below the reference and inside the fixture window bounds with STATE_SHOWING; typed host-limit when pyatspi is unavailable; no XTest wheel, --coords, or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-scroll-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
