@@ -7407,7 +7407,7 @@
     },
     {
       "id": "cu-linux-wait-ready-honesty-smoke",
-      "description": "Linux CU wait --node-name-contains and wait --ready-path on disposable GTK and Chrome targets agree with independent pyatspi named-node probes and a direct on-disk ready-path marker read-back; typed wait usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage AND host-limit paths before the wait-ready read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux wait --node-name-contains and --ready-path on GTK/Chrome agree with independent pyatspi and on-disk marker read-back; wait --name/--coords/--bogus usage_rejects_unexpected (never fake command=usage); get-extents --name usage AND host-limit always run, --coords/--bogus command=usage, no atspi gating, before process-state/desktop-state and wait-ready read-back; process-state/desktop-state fixture binding courts; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-wait-ready-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

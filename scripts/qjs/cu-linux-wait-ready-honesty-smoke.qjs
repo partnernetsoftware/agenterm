@@ -3,9 +3,11 @@
 // read-back only: CU wait met and returned node/marker must agree with
 // pyatspi named-node probes or a direct JSON read of the ready-path file,
 // never worker self-report alone. Typed wait usage must reject AT-SPI --name,
-// --coords, --bogus, and other unexpected arguments; typed get-extents --name
-// usage AND host-limit paths must both hold before the wait-ready read-back
-// court. Timeout exit-code
+// --coords, --bogus, and other unexpected arguments (usage_rejects_unexpected,
+// never fake command=usage); typed get-extents --name usage AND host-limit
+// paths must both hold before process-state, desktop-state, and the wait-ready
+// read-back court (no atspi_available gating). process-state and desktop-state
+// fixture binding courts must hold before actuate/read-back. Timeout exit-code
 // honesty and AT-SPI host-limit paths must hold when conditions miss or the
 // independent pyatspi desktop probe is unavailable. AT-SPI/--name only;
 // no --coords or screenshot degradation.
@@ -25,6 +27,8 @@ const PRESS_BUTTON = "Fixture Press";
 const ENTRY_NAME = "Fixture Entry";
 const CHROME_FIELD = "GetTextField";
 const AT_SPI_PROBE_NAME = "Wait Ready Court Anchor";
+const DESKTOP_STATE_DEPTH = 3;
+const DESKTOP_STATE_MAX_NODES = 64;
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -427,10 +431,58 @@ function chrome_window(run_directory, executable, title_prefix) {
       return {
         handle: "" + at(row, "handle"),
         pid: int_at(row, "process_id"),
+        title: text_at(row, "title"),
+        row: row,
       };
     }
   }
   return null;
+}
+
+function assert_fixture_process_state(run_directory, executable, fixture_pid) {
+  const process_state = run_cu(run_directory, executable, "observe", [
+    "process-state", "--pid", "" + fixture_pid,
+  ]);
+  ensure(
+    text_at(process_state, "command") === "process-state",
+    "cu_linux_wait_ready_process_state_command:" + JSON.stringify(process_state)
+  );
+  ensure(
+    int_at(process_state, "data.pid") === fixture_pid
+      && text_at(process_state, "data.state") === "live"
+      && text_at(process_state, "data.start_identity") !== ""
+      && flag_at(process_state, "data.verified"),
+    "cu_linux_wait_ready_process_state:" + JSON.stringify(process_state.data)
+  );
+}
+
+function assert_fixture_desktop_state(
+  run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+) {
+  const state = run_cu(run_directory, executable, "observe", [
+    "desktop-state", "--window", handle_text,
+    "--depth", "" + DESKTOP_STATE_DEPTH,
+    "--max-nodes", "" + DESKTOP_STATE_MAX_NODES,
+  ]);
+  ensure(
+    text_at(state, "command") === "desktop-state",
+    "cu_linux_wait_ready_desktop_state_command:" + JSON.stringify(state)
+  );
+  ensure(
+    int_at(state, "data.window.handle") === int_at(inventory_row, "handle")
+      && text_at(state, "data.window.title") === fixture_title
+      && text_at(state, "data.window.title") === text_at(inventory_row, "title")
+      && int_at(state, "data.window.process_id") === fixture_pid,
+    "cu_linux_wait_ready_desktop_state_window:" + JSON.stringify({
+      state: state.data.window,
+      inventory: inventory_row,
+    })
+  );
+  ensure(
+    int_at(state, "data.tree.returned") > 0
+      && int_at(state, "data.tree.returned") <= DESKTOP_STATE_MAX_NODES,
+    "cu_linux_wait_ready_desktop_state_tree:" + JSON.stringify(state.data.tree)
+  );
 }
 
 function independent_named_node_probe(title, node_name) {
@@ -632,13 +684,11 @@ try {
   const absent_ready_path = rh.join(run_directory, "absent-ready-marker.json");
   assert_wait_ready_path_timeout_honesty(run_directory, executable, absent_ready_path);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before wait-ready read-back court");
-    assert_get_extents_usage_limit(run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
-  }
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before process-state/desktop-state and wait-ready read-back court");
+  assert_get_extents_usage_limit(run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before process-state/desktop-state and wait-ready read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
   if (!atspi_available) {
     print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
@@ -666,6 +716,14 @@ try {
 
   print("STEP wait --node-name-contains timeout exits non-zero with honest timeout code when node never appears");
   assert_wait_node_timeout_honesty(run_directory, executable, handle_text);
+
+  print("STEP process-state binds the owned fixture pid before wait-ready actuate/read-back court");
+  assert_fixture_process_state(run_directory, executable, fixture_pid);
+
+  print("STEP desktop-state window row agrees with inventory before wait-ready actuate/read-back court");
+  assert_fixture_desktop_state(
+    run_directory, executable, fixture_pid, fixture_title, handle_text, row
+  );
 
   print("STEP GTK: wait --node-name-contains must met with accessibility-tree node");
   const node_wait = run_cu(run_directory, executable, "observe", [
@@ -764,6 +822,16 @@ try {
   ensure(chrome_row !== null, "cu_linux_wait_ready_chrome_window_missing");
   const chrome_handle = chrome_row.handle;
   const chrome_pid = chrome_row.pid;
+  const chrome_inventory_row = chrome_row.row;
+  const chrome_window_title = chrome_row.title;
+
+  print("STEP process-state binds the owned Chrome pid before wait-ready actuate/read-back court");
+  assert_fixture_process_state(run_directory, executable, chrome_pid);
+
+  print("STEP desktop-state window row agrees with inventory before wait-ready actuate/read-back court");
+  assert_fixture_desktop_state(
+    run_directory, executable, chrome_pid, chrome_window_title, chrome_handle, chrome_inventory_row
+  );
 
   const unlocked = run_cu(run_directory, executable, "observe,actuate", [
     "unlock", "--window", chrome_handle,
@@ -809,7 +877,7 @@ if (chrome_child >= 0) {
 ensure(succeeded === 1, failure || "cu_linux_wait_ready_failed");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: Linux wait node-name + ready-path honesty with typed wait --name/--coords/--bogus and get-extents --name usage/host-limit honesty, timeout exit-code honesty, and independent read-back (AT-SPI --name, no --coords)");
+  print("PASS: Linux wait node-name + ready-path honesty with typed wait --name/--coords/--bogus usage_rejects_unexpected (never fake command=usage), get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (no atspi gating), process-state/desktop-state courts before actuate/read-back, timeout exit-code honesty, and independent read-back (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: Linux wait node-name + ready-path honesty with typed wait --name/--coords/--bogus usage and get-extents --name host-limit honesty, timeout exit-code honesty, and independent read-back (AT-SPI --name, no --coords)");
+  print("PASS: Linux wait node-name + ready-path honesty with typed wait --name/--coords/--bogus usage_rejects_unexpected (never fake command=usage), get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (no atspi gating), timeout exit-code honesty, and independent read-back (AT-SPI --name, no --coords)");
 }
