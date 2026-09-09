@@ -7144,7 +7144,7 @@
     },
     {
       "id": "cu-linux-displays-smoke",
-      "description": "Linux displays inventory returns frame geometry plus physical size/DPI/scale with independent xrandr/X11 read-back; typed displays usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the scale/DPI read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux displays inventory returns frame geometry plus physical size/DPI/scale with independent xrandr/X11 read-back; typed displays usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage AND host-limit paths before the scale/DPI read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-displays-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
