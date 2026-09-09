@@ -234,6 +234,13 @@
       ]
     },
     {
+      "id": "cu-linux-process-maps-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-process-maps-readback"
+      ]
+    },
+    {
       "id": "cu-linux-process-threads-smoke",
       "platform": "linux",
       "evidence": [
