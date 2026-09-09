@@ -6561,7 +6561,7 @@
     },
     {
       "id": "cu-linux-page-files-smoke",
-      "description": "Linux CDP page-files sets input[type=file] without a native picker and independent page-js FileList basename+size read-back proves the exact observed files; typed page-files usage rejects AT-SPI --name/--bogus and missing --selector/FILE; typed get-extents --name usage/host-limit court before actuate; no-CDP host-limit and bad-target miss paths; disposable Chrome+CDP; --port/--target-id/--selector only; no --coords.",
+      "description": "Linux CDP page-files sets input[type=file] without a native picker and independent page-js FileList basename+size read-back proves the exact observed files; typed page-files usage rejects AT-SPI --name/--coords/--bogus and missing --selector/FILE; typed get-extents --name usage/host-limit court before actuate; no-CDP host-limit and bad-target miss paths; disposable Chrome+CDP; --port/--target-id/--selector only; no --coords in the actuate court.",
       "entry": "scripts/qjs/cu-linux-page-files-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
