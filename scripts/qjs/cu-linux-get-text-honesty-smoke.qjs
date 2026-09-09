@@ -3,10 +3,13 @@
 // text node must agree with a separate AT-SPI Text.GetText probe on the same
 // node; empty text and missing Text interface must typed-fail honestly on both
 // sides. Typed get-text usage must reject missing --window/--name, --role
-// without --name, --coords/--bogus misuse or stay on accessibility-tree/gettext;
-// typed get-extents --name usage AND host-limit paths must both hold before the
-// get-text read-back court. Prefer host-limit clarity over fake success.
-// AT-SPI/--name only; no --coords or screenshot degradation.
+// without --name, and --coords/--bogus via usage_rejects_unexpected, or stay
+// accessibility-tree/gettext (CLI host-limit: unexpected flags may typed-fail
+// a11y rather than command=usage; never --coords/XTest). Typed get-extents
+// --name usage AND host-limit paths must both hold before the get-text
+// read-back court, including get-extents --coords/--bogus command=usage.
+// Prefer host-limit clarity over fake success. AT-SPI/--name only; no --coords
+// or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -116,10 +119,6 @@ function invoke_get_extents_reply(run_directory, executable, arguments, env) {
   return JSON.parse(trimmed);
 }
 
-function misuse_code_ok(code) {
-  return code === "invalid_input" || code === "usage";
-}
-
 function usage_rejects_unexpected(message, token) {
   return message.indexOf(token) >= 0
     || message.indexOf("unexpected") >= 0;
@@ -178,26 +177,25 @@ function assert_get_text_usage_limit(run_directory, executable) {
   ]);
   ensure(!output_success(role_without_name),
     "cu_linux_get_text_honesty_role_ok:" + JSON.stringify(role_without_name));
+  const role_code = text_at(role_without_name, "error.code");
   ensure(
-    text_at(role_without_name, "error.code") === "usage"
-      || text_at(role_without_name, "error.code") === "invalid_input",
+    role_code === "usage" || role_code === "invalid_input",
     "cu_linux_get_text_honesty_role_code:" + JSON.stringify(role_without_name.error)
   );
   ensure(
     text_at(role_without_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_get_text_honesty_role_message:" + JSON.stringify(role_without_name.error)
   );
-  if (text_at(role_without_name, "error.code") === "usage") {
-    ensure(
-      text_at(role_without_name, "command") === "usage",
-      "cu_linux_get_text_honesty_role_command:" + JSON.stringify(role_without_name)
-    );
-    ensure(
-      usage_rejects_unexpected(text_at(role_without_name, "error.message"), "--role")
-        || text_at(role_without_name, "error.message").indexOf("--name") >= 0,
-      "cu_linux_get_text_honesty_role_usage_message:" + JSON.stringify(role_without_name.error)
-    );
-  }
+  ensure(
+    role_code !== "usage" || text_at(role_without_name, "command") === "usage",
+    "cu_linux_get_text_honesty_role_command:" + JSON.stringify(role_without_name)
+  );
+  ensure(
+    role_code !== "usage"
+      || usage_rejects_unexpected(text_at(role_without_name, "error.message"), "--role")
+      || text_at(role_without_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_get_text_honesty_role_usage_message:" + JSON.stringify(role_without_name.error)
+  );
 
   const focused_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-text", "--window", "1", "--coords", "10,10",
@@ -205,23 +203,17 @@ function assert_get_text_usage_limit(run_directory, executable) {
   ensure(!output_success(focused_coords),
     "cu_linux_get_text_honesty_focused_coords_ok:" + JSON.stringify(focused_coords));
   const focused_coords_code = text_at(focused_coords, "error.code");
+  const focused_coords_command = text_at(focused_coords, "command");
   ensure(
-    misuse_code_ok(focused_coords_code)
-      || focused_coords_code === "a11y_focus_unavailable"
-      || focused_coords_code === "a11y_backend_failed"
-      || focused_coords_code === "bad_handle",
-    "cu_linux_get_text_honesty_focused_coords_code:" + JSON.stringify(focused_coords.error)
+    (focused_coords_command === "usage"
+      && focused_coords_code === "usage"
+      && usage_rejects_unexpected(text_at(focused_coords, "error.message"), "--coords"))
+      || (focused_coords_command === "get-text"
+        && (focused_coords_code === "a11y_focus_unavailable"
+          || focused_coords_code === "a11y_backend_failed"
+          || focused_coords_code === "bad_handle")),
+    "cu_linux_get_text_honesty_focused_coords_code:" + JSON.stringify(focused_coords)
   );
-  if (misuse_code_ok(focused_coords_code)) {
-    ensure(
-      text_at(focused_coords, "command") === "usage",
-      "cu_linux_get_text_honesty_focused_coords_command:" + JSON.stringify(focused_coords)
-    );
-    ensure(
-      usage_rejects_unexpected(text_at(focused_coords, "error.message"), "--coords"),
-      "cu_linux_get_text_honesty_focused_coords_message:" + JSON.stringify(focused_coords.error)
-    );
-  }
   ensure(
     JSON.stringify(focused_coords).indexOf("coordinate") < 0
       && JSON.stringify(focused_coords).indexOf("XTest") < 0,
@@ -234,23 +226,17 @@ function assert_get_text_usage_limit(run_directory, executable) {
   ensure(!output_success(focused_bogus),
     "cu_linux_get_text_honesty_focused_bogus_ok:" + JSON.stringify(focused_bogus));
   const focused_bogus_code = text_at(focused_bogus, "error.code");
+  const focused_bogus_command = text_at(focused_bogus, "command");
   ensure(
-    misuse_code_ok(focused_bogus_code)
-      || focused_bogus_code === "a11y_focus_unavailable"
-      || focused_bogus_code === "a11y_backend_failed"
-      || focused_bogus_code === "bad_handle",
-    "cu_linux_get_text_honesty_focused_bogus_code:" + JSON.stringify(focused_bogus.error)
+    (focused_bogus_command === "usage"
+      && focused_bogus_code === "usage"
+      && usage_rejects_unexpected(text_at(focused_bogus, "error.message"), "--bogus"))
+      || (focused_bogus_command === "get-text"
+        && (focused_bogus_code === "a11y_focus_unavailable"
+          || focused_bogus_code === "a11y_backend_failed"
+          || focused_bogus_code === "bad_handle")),
+    "cu_linux_get_text_honesty_focused_bogus_code:" + JSON.stringify(focused_bogus)
   );
-  if (misuse_code_ok(focused_bogus_code)) {
-    ensure(
-      text_at(focused_bogus, "command") === "usage",
-      "cu_linux_get_text_honesty_focused_bogus_command:" + JSON.stringify(focused_bogus)
-    );
-    ensure(
-      usage_rejects_unexpected(text_at(focused_bogus, "error.message"), "--bogus"),
-      "cu_linux_get_text_honesty_focused_bogus_message:" + JSON.stringify(focused_bogus.error)
-    );
-  }
 
   const named_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-text", "--window", "1", "--name", ENTRY_NAME, "--coords", "10,10",
@@ -258,23 +244,17 @@ function assert_get_text_usage_limit(run_directory, executable) {
   ensure(!output_success(named_coords),
     "cu_linux_get_text_honesty_named_coords_ok:" + JSON.stringify(named_coords));
   const named_coords_code = text_at(named_coords, "error.code");
+  const named_coords_command = text_at(named_coords, "command");
   ensure(
-    misuse_code_ok(named_coords_code)
-      || named_coords_code === "a11y_node_not_found"
-      || named_coords_code === "a11y_backend_failed"
-      || named_coords_code === "bad_handle",
-    "cu_linux_get_text_honesty_named_coords_code:" + JSON.stringify(named_coords.error)
+    (named_coords_command === "usage"
+      && named_coords_code === "usage"
+      && usage_rejects_unexpected(text_at(named_coords, "error.message"), "--coords"))
+      || (named_coords_command === "get-text"
+        && (named_coords_code === "a11y_node_not_found"
+          || named_coords_code === "a11y_backend_failed"
+          || named_coords_code === "bad_handle")),
+    "cu_linux_get_text_honesty_named_coords_code:" + JSON.stringify(named_coords)
   );
-  if (misuse_code_ok(named_coords_code)) {
-    ensure(
-      text_at(named_coords, "command") === "usage",
-      "cu_linux_get_text_honesty_named_coords_command:" + JSON.stringify(named_coords)
-    );
-    ensure(
-      usage_rejects_unexpected(text_at(named_coords, "error.message"), "--coords"),
-      "cu_linux_get_text_honesty_named_coords_message:" + JSON.stringify(named_coords.error)
-    );
-  }
   ensure(
     JSON.stringify(named_coords).indexOf("coordinate") < 0
       && JSON.stringify(named_coords).indexOf("XTest") < 0,
@@ -287,23 +267,17 @@ function assert_get_text_usage_limit(run_directory, executable) {
   ensure(!output_success(named_bogus),
     "cu_linux_get_text_honesty_named_bogus_ok:" + JSON.stringify(named_bogus));
   const named_bogus_code = text_at(named_bogus, "error.code");
+  const named_bogus_command = text_at(named_bogus, "command");
   ensure(
-    misuse_code_ok(named_bogus_code)
-      || named_bogus_code === "a11y_node_not_found"
-      || named_bogus_code === "a11y_backend_failed"
-      || named_bogus_code === "bad_handle",
-    "cu_linux_get_text_honesty_named_bogus_code:" + JSON.stringify(named_bogus.error)
+    (named_bogus_command === "usage"
+      && named_bogus_code === "usage"
+      && usage_rejects_unexpected(text_at(named_bogus, "error.message"), "--bogus"))
+      || (named_bogus_command === "get-text"
+        && (named_bogus_code === "a11y_node_not_found"
+          || named_bogus_code === "a11y_backend_failed"
+          || named_bogus_code === "bad_handle")),
+    "cu_linux_get_text_honesty_named_bogus_code:" + JSON.stringify(named_bogus)
   );
-  if (misuse_code_ok(named_bogus_code)) {
-    ensure(
-      text_at(named_bogus, "command") === "usage",
-      "cu_linux_get_text_honesty_named_bogus_command:" + JSON.stringify(named_bogus)
-    );
-    ensure(
-      usage_rejects_unexpected(text_at(named_bogus, "error.message"), "--bogus"),
-      "cu_linux_get_text_honesty_named_bogus_message:" + JSON.stringify(named_bogus.error)
-    );
-  }
 }
 
 function assert_get_extents_usage_limit(run_directory, executable, env) {
@@ -566,21 +540,18 @@ function assert_get_text_reject_coords_or_stay_named(
     "get-text", "--window", handle, "--name", ENTRY_NAME, "--coords", "10,10",
   ]);
   if (!output_success(get_text_coords)) {
-    const coords_code = text_at(get_text_coords, "error.code");
     ensure(
-      misuse_code_ok(coords_code),
+      text_at(get_text_coords, "error.code") === "usage",
       "cu_linux_get_text_honesty_get_text_coords_code_" + label + ":" + JSON.stringify(get_text_coords.error)
     );
-    if (misuse_code_ok(coords_code)) {
-      ensure(
-        text_at(get_text_coords, "command") === "usage",
-        "cu_linux_get_text_honesty_get_text_coords_command_" + label + ":" + JSON.stringify(get_text_coords)
-      );
-      ensure(
-        usage_rejects_unexpected(text_at(get_text_coords, "error.message"), "--coords"),
-        "cu_linux_get_text_honesty_get_text_coords_message_" + label + ":" + JSON.stringify(get_text_coords.error)
-      );
-    }
+    ensure(
+      text_at(get_text_coords, "command") === "usage",
+      "cu_linux_get_text_honesty_get_text_coords_command_" + label + ":" + JSON.stringify(get_text_coords)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(get_text_coords, "error.message"), "--coords"),
+      "cu_linux_get_text_honesty_get_text_coords_message_" + label + ":" + JSON.stringify(get_text_coords.error)
+    );
   } else {
     ensure(
       text_at(get_text_coords, "data.via") === "gettext"
@@ -593,21 +564,18 @@ function assert_get_text_reject_coords_or_stay_named(
     "get-text", "--window", handle, "--name", ENTRY_NAME, "--bogus",
   ]);
   if (!output_success(get_text_bogus)) {
-    const bogus_code = text_at(get_text_bogus, "error.code");
     ensure(
-      misuse_code_ok(bogus_code),
+      text_at(get_text_bogus, "error.code") === "usage",
       "cu_linux_get_text_honesty_get_text_bogus_code_" + label + ":" + JSON.stringify(get_text_bogus.error)
     );
-    if (misuse_code_ok(bogus_code)) {
-      ensure(
-        text_at(get_text_bogus, "command") === "usage",
-        "cu_linux_get_text_honesty_get_text_bogus_command_" + label + ":" + JSON.stringify(get_text_bogus)
-      );
-      ensure(
-        usage_rejects_unexpected(text_at(get_text_bogus, "error.message"), "--bogus"),
-        "cu_linux_get_text_honesty_get_text_bogus_message_" + label + ":" + JSON.stringify(get_text_bogus.error)
-      );
-    }
+    ensure(
+      text_at(get_text_bogus, "command") === "usage",
+      "cu_linux_get_text_honesty_get_text_bogus_command_" + label + ":" + JSON.stringify(get_text_bogus)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(get_text_bogus, "error.message"), "--bogus"),
+      "cu_linux_get_text_honesty_get_text_bogus_message_" + label + ":" + JSON.stringify(get_text_bogus.error)
+    );
   } else {
     ensure(
       text_at(get_text_bogus, "data.via") === "gettext"
@@ -624,21 +592,18 @@ function assert_get_text_reject_coords_or_stay_focused(
     "get-text", "--window", handle, "--coords", "10,10",
   ]);
   if (!output_success(get_text_coords)) {
-    const coords_code = text_at(get_text_coords, "error.code");
     ensure(
-      misuse_code_ok(coords_code),
+      text_at(get_text_coords, "error.code") === "usage",
       "cu_linux_get_text_honesty_focused_coords_code_" + label + ":" + JSON.stringify(get_text_coords.error)
     );
-    if (misuse_code_ok(coords_code)) {
-      ensure(
-        text_at(get_text_coords, "command") === "usage",
-        "cu_linux_get_text_honesty_focused_coords_command_" + label + ":" + JSON.stringify(get_text_coords)
-      );
-      ensure(
-        usage_rejects_unexpected(text_at(get_text_coords, "error.message"), "--coords"),
-        "cu_linux_get_text_honesty_focused_coords_message_" + label + ":" + JSON.stringify(get_text_coords.error)
-      );
-    }
+    ensure(
+      text_at(get_text_coords, "command") === "usage",
+      "cu_linux_get_text_honesty_focused_coords_command_" + label + ":" + JSON.stringify(get_text_coords)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(get_text_coords, "error.message"), "--coords"),
+      "cu_linux_get_text_honesty_focused_coords_message_" + label + ":" + JSON.stringify(get_text_coords.error)
+    );
   } else {
     ensure(
       text_at(get_text_coords, "data.via") === "gettext"
@@ -651,21 +616,18 @@ function assert_get_text_reject_coords_or_stay_focused(
     "get-text", "--window", handle, "--bogus",
   ]);
   if (!output_success(get_text_bogus)) {
-    const bogus_code = text_at(get_text_bogus, "error.code");
     ensure(
-      misuse_code_ok(bogus_code),
+      text_at(get_text_bogus, "error.code") === "usage",
       "cu_linux_get_text_honesty_focused_bogus_code_" + label + ":" + JSON.stringify(get_text_bogus.error)
     );
-    if (misuse_code_ok(bogus_code)) {
-      ensure(
-        text_at(get_text_bogus, "command") === "usage",
-        "cu_linux_get_text_honesty_focused_bogus_command_" + label + ":" + JSON.stringify(get_text_bogus)
-      );
-      ensure(
-        usage_rejects_unexpected(text_at(get_text_bogus, "error.message"), "--bogus"),
-        "cu_linux_get_text_honesty_focused_bogus_message_" + label + ":" + JSON.stringify(get_text_bogus.error)
-      );
-    }
+    ensure(
+      text_at(get_text_bogus, "command") === "usage",
+      "cu_linux_get_text_honesty_focused_bogus_command_" + label + ":" + JSON.stringify(get_text_bogus)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(get_text_bogus, "error.message"), "--bogus"),
+      "cu_linux_get_text_honesty_focused_bogus_message_" + label + ":" + JSON.stringify(get_text_bogus.error)
+    );
   } else {
     ensure(
       text_at(get_text_bogus, "data.via") === "gettext"
@@ -746,15 +708,17 @@ try {
   print("STEP get-text typed-fail usage when --window/--name is missing, --role lacks --name, or --coords/--bogus is present (usage_rejects_unexpected)");
   assert_get_text_usage_limit(run_directory, executable);
 
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected) before get-text read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before get-text read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
   print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before get-text read-back court");
   assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
+  print("STEP get-text typed-fail host-limit when AT-SPI bus address is invalid before get-text read-back court");
+  assert_get_text_host_limit_when_atspi_absent(run_directory, executable);
+
   if (!atspi_available) {
-    print("STEP get-text typed-fail host-limit when independent pyatspi desktop probe is unavailable");
-    assert_get_text_host_limit_when_atspi_absent(run_directory, executable);
+    print("STEP independent pyatspi desktop probe unavailable: get-extents and get-text host-limit already held");
     succeeded = 1;
   } else {
   print("STEP start owned GTK fixture and resolve window by pid and exact title");
@@ -866,9 +830,9 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-get-text-readback");
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux CU get-text matches independent pyatspi Text.GetText with typed get-text --coords/--bogus usage_rejects_unexpected and get-extents --name usage/host-limit honesty (seed, empty, unavailable; AT-SPI --name, no --coords)");
+    print("PASS: Linux CU get-text matches independent pyatspi Text.GetText with typed get-text --coords/--bogus usage_rejects_unexpected and get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty (seed, empty, unavailable; AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux CU get-text typed-fails with typed get-text --coords/--bogus usage_rejects_unexpected and get-extents --name usage/host-limit honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
+    print("PASS: Linux CU get-text typed-fails with typed get-text --coords/--bogus usage_rejects_unexpected and get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
