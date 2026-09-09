@@ -644,9 +644,13 @@ ACU-only cutover
 │  │  └─ Linux/Windows native desktop qualification remains delivery evidence debt
 │  ├─ [x] acu.dynamic.077 · native `query --subrole` preserves macOS `AXSubrole` through ABI 1.29;
 │  │  └─ public owned Save Panel qjswasm court proves a deterministic `AXDialog` accessory probe
-│  ├─ [x] acu.dynamic.078 · invalid legacy `tree --page` is closed usage;
-│  │  └─ valid `tree --max-value-bytes` maps to native UTF-8 previews,
-│  │     byte-length/digest metadata and explicit provider-incomplete truth
+│  ├─ [~] acu.dynamic.078 · static legacy `elements` maps to native `query` with
+│  │  ├─ the archived depth 12 / max 200 / actionable-by-default projection;
+│  │  ├─ filtering before paging and original flatten indices shared with `invoke --index`;
+│  │  ├─ invalid legacy `tree --page` and non-MCU tree/index/offset flags closed as usage;
+│  │  ├─ valid `tree --max-value-bytes` maps to bounded previews and completeness truth;
+│  │  └─ [ ] acu.dynamic.078.page-index-space · browser debug-read elements stay typed
+│  │     until their separate page indices have a complete browser identity binding
 │  ├─ [x] acu.dynamic.084 · archived `windows watch` timing, event/window ceilings and
 │  │  state/type/all filters map to bounded native per-sample semantics;
 │  │  ├─ event type selection precedes the ceiling and truncation requires a retained max+1 event

@@ -269,6 +269,40 @@ function query(rest, flags) {
   return exec(joined(["query", "--window", handle], flags, rest));
 }
 
+function elements(rest, flags) {
+  const names = Object.keys(flags);
+  const allowed = ["actionable", "max", "depth", "page", "tab-id", "profile"];
+  for (let i = 0; i < names.length; i = i + 1) {
+    if (!contains(allowed, names[i])) {
+      return usage("elements",
+        "elements accepts only --actionable, --max, --depth, --page, --tab-id and --profile");
+    }
+  }
+  const handle = take_handle(rest);
+  if (handle === null || rest_length(rest) !== 0) {
+    return usage("elements", "elements needs exactly one HANDLE");
+  }
+  if (legacy.flagTruthy(flags.page)) {
+    return todo("acu.dynamic.078.page-index-space", "elements",
+      "legacy page elements use a browser page index space distinct from accessibility indices");
+  }
+  if (!bounded_integer(flags, "depth", 1, 12)) {
+    return usage("elements", "elements --depth must be within 1..12");
+  }
+  if (!bounded_integer(flags, "max", 1, 2000)) {
+    return usage("elements", "elements --max must be within 1..2000");
+  }
+  const depth = flags.depth === undefined ? "12" : "" + flags.depth;
+  const max = flags.max === undefined ? "200" : "" + flags.max;
+  const actionable = flags.actionable === undefined || !legacy.flagIsFalse(flags.actionable);
+  const out = [
+    "query", "--window", handle, "--depth", "12", "--max-depth", depth,
+    "--max", max, "--offset", "0"
+  ];
+  if (actionable) { out.push("--actionable"); }
+  return exec(out);
+}
+
 function invoke(rest, flags) {
   const handle = flags.window !== undefined ? "" + flags.window : take_handle(rest);
   flags.window = undefined;
@@ -504,6 +538,7 @@ export function rewrite(input) {
 
   if (contains(DIRECT_VERBS, verb)) { return exec(joined([verb], flags, rest)); }
 
+  if (verb === "elements") { return elements(rest, flags); }
   if (verb === "query") { return query(rest, flags); }
   if (verb === "invoke") { return invoke(rest, flags); }
   if (verb === "verify" || verb === "wait" || verb === "observe" || verb === "focused") {

@@ -793,14 +793,15 @@
       "classification": "resolved"
     },
     {
-      "gap_id": "acu.dynamic.078",
+      "gap_id": "acu.dynamic.078.page-index-space",
       "argv": [
-        "tree",
+        "elements",
         "Window#1",
         "--page",
-        "2"
+        "--tab-id",
+        "4"
       ],
-      "classification": "resolved"
+      "classification": "dynamic-stay"
     },
     {
       "gap_id": "acu.dynamic.079",
