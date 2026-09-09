@@ -7222,7 +7222,7 @@
     },
     {
       "id": "cu-linux-menu-inspect-smoke",
-      "description": "Linux menu inspect menu-bar paths/items for one owned GTK fixture window match an independent pyatspi AT-SPI menu walk on the same application; typed menu-inspect usage rejects AT-SPI --name and typed get-extents --name usage/host-limit paths hold before the native read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux menu inspect menu-bar paths/items for one owned GTK fixture window match an independent pyatspi AT-SPI menu walk on the same application; typed menu-inspect usage rejects AT-SPI --name/--coords/--bogus and other unexpected arguments; typed get-extents --name usage AND host-limit paths both hold before the native observe/read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-menu-inspect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
