@@ -6250,7 +6250,7 @@
     },
     {
       "id": "cu-linux-topmost-expect-smoke",
-      "description": "Linux topmost/untopmost --expect on a GTK fixture: typed usage rejects AT-SPI --name/--coords/--bogus (usage_rejects_unexpected); typed get-extents --name usage AND host-limit (usage_rejects_unexpected --coords/--bogus) before actuate court; destructive-gate, missing-window and headless host-limit; independent xprop _NET_WM_STATE_ABOVE, pyatspi showing/visible, and windows above match --expect; AT-SPI --name only; no --coords.",
+      "description": "Linux topmost/untopmost --expect on a GTK fixture: typed --name/--coords/--bogus uses usage_rejects_unexpected or honest non-usage failure (never fake command=usage); get-extents --name usage AND host-limit always run with command=usage on --coords/--bogus, no atspi_available gating, before process-state/desktop-state and xprop/pyatspi/inventory read-back; destructive-gate, missing-window, headless host-limit; AT-SPI --name only; no --coords.",
       "entry": "scripts/qjs/cu-linux-topmost-expect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6330,7 +6330,7 @@
     },
     {
       "id": "cu-linux-raise-activate-smoke",
-      "description": "Linux activate/raise with independent xprop _NET_ACTIVE_WINDOW, windows --focused inventory, and pyatspi STATE_ACTIVE read-back; typed activate/raise usage_rejects_unexpected for AT-SPI --name/--coords/--bogus; get-extents --name usage/host-limit and --coords/--bogus command=usage before actuate/read-back; missing-window and headless host-limit before fixture; background raise fails foreground_changed; AT-SPI handles only, no --coords.",
+      "description": "Linux activate/raise with xprop _NET_ACTIVE_WINDOW, windows inventory, and pyatspi STATE_ACTIVE read-back; typed activate/raise --name/--coords/--bogus uses usage_rejects_unexpected or honest non-usage failure (never fake command=usage); get-extents --name usage AND host-limit always run with command=usage on --coords/--bogus, no atspi gating, before process-state/desktop-state and actuate/read-back; missing-window/headless host-limit; background raise foreground_changed; AT-SPI --name only; no --coords.",
       "entry": "scripts/qjs/cu-linux-raise-activate-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7587,7 +7587,7 @@
     },
     {
       "id": "cu-linux-windows-watch-smoke",
-      "description": "Linux windows-watch appeared/disappeared/title diffs match independent windows inventory handle/title/field diffs over the same poll window; typed windows-watch usage rejects AT-SPI --name/--coords/--bogus and other unexpected arguments; typed get-extents --name usage/host-limit paths before the windows-watch read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux windows-watch appeared/disappeared/title diffs match independent windows inventory handle/title/field diffs; typed windows-watch --name/--coords/--bogus uses usage_rejects_unexpected or honest non-usage failure (never fake command=usage); get-extents --name usage AND host-limit always run with command=usage on --coords/--bogus; process-state/desktop-state binding before read-back; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-windows-watch-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
