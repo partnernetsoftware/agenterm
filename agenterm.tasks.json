@@ -6627,7 +6627,7 @@
     },
     {
       "id": "cu-linux-page-hover-smoke",
-      "description": "Linux page-hover moves the CDP pointer and independent page-js read-back shows CSS :hover, computed style change, and title on a disposable control; typed page-hover/get-extents AT-SPI/--name court before actuate; no --coords.",
+      "description": "Linux page-hover moves the CDP pointer and independent page-js read-back shows CSS :hover, computed style change, and title on a disposable control; typed page-hover --name/--coords/--bogus and get-extents --name usage/host-limit courts before actuate; no --coords.",
       "entry": "scripts/qjs/cu-linux-page-hover-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
