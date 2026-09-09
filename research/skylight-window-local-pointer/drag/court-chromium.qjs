@@ -692,6 +692,7 @@ function receipt_proves_pre_down_failure(result) {
     "path_invalid", "control_path_invalid", "event_create_failed",
     "focus_tuple_precondition_failed", "focus_tuple_unavailable",
     "focus_tuple_ambiguous", "focus_lease_set_failed",
+    "focus_lease_attribute_not_settable",
     "focus_lease_acquire_unverified", "focus_lease_acquire_failed",
     "focus_lease_drift", "g6a_host_state_changed",
     "phase_handshake_publish_failed", "phase_handshake_timeout",
@@ -1173,6 +1174,12 @@ try {
       && Array.isArray(dry_reply.focus_lease.unavailable_fields)
       && JSON.stringify(dry_reply.focus_lease.not_sampled_fields)
         === JSON.stringify(["application.key_window"])
+      && typeof dry_reply.focus_lease.settable_fields === "object"
+      && dry_reply.focus_lease.settable_fields !== null
+      && typeof dry_reply.focus_lease.settable_fields.application_focused_window
+        === "boolean"
+      && typeof dry_reply.focus_lease.settable_fields.peer_focused === "boolean"
+      && typeof dry_reply.focus_lease.settable_fields.target_focused === "boolean"
       && JSON.stringify(dry_reply.focus_lease.prior)
         === JSON.stringify(dry_reply.focus_lease.restore.readback)
       && JSON.stringify(dry_reply.focus_lease.target)
@@ -1267,7 +1274,8 @@ try {
               && reply.error !== null && typeof reply.error.code === "string"
             ? reply.error.code : "unstructured";
           if (["provider_unavailable", "focus_tuple_unavailable",
-              "focus_tuple_ambiguous", "host_state_unavailable"].includes(pre_down_code)) {
+              "focus_tuple_ambiguous", "focus_lease_attribute_not_settable",
+              "host_state_unavailable"].includes(pre_down_code)) {
             dependency_failure = "injector failed before its first down:" + pre_down_code;
           } else {
             behavioral_failure = "acu004_pre_down_safety_failure:" + pre_down_code;
@@ -1414,7 +1422,14 @@ const dry_error_code = dry_cycle !== null && dry_cycle.injector !== null
 const dry_phase_error = dry_cycle !== null ? text_at(dry_cycle, "phase_error") : "";
 const dry_dependency = ["focus_tuple_unavailable", "focus_tuple_ambiguous",
   "provider_unavailable", "focus_lease_set_failed",
+  "focus_lease_attribute_not_settable",
   "phase_handshake_publish_failed", "phase_handshake_timeout"].includes(dry_error_code)
+  || (dry_cycle !== null && dry_cycle.injector !== null
+    && typeof dry_cycle.injector.focus_lease === "object"
+    && dry_cycle.injector.focus_lease !== null
+    && typeof dry_cycle.injector.focus_lease.settable_fields === "object"
+    && dry_cycle.injector.focus_lease.settable_fields !== null
+    && dry_cycle.injector.focus_lease.settable_fields.application_focused_window === false)
   || dry_phase_error.startsWith("acu004_page_focus_phase_unavailable:");
 const dry_immediate_safety_failure = dry_cycle !== null
   && dry_cycle.injector !== null

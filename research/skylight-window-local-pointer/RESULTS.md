@@ -316,3 +316,28 @@ activation, raise or any criterion change. This valid but unproved attempt
 remains count 1 of 3; the next authorized run uses counters 2 / 1 / 1 after the
 corrected source is frozen and reachable. No evidence, PRD state, ledger state
 or compatibility TODO changes from this result.
+
+## Chromium focus-lease drag dry attempt 2 · 2026-09-10
+
+- Repository source SHA: `4adee184fe68f3839b05b13d9ae3efd61d8c91c4`.
+- Drag source digest:
+  `fefe6707860e9fb9d362b91436d605440299b75377aad732e0833acef1426f80`.
+- Host: macOS build 25F80, arm64; Google Chrome 152.0.7977.83.
+- Counters: dependency-state attempt 2, cumulative attempt 2, repair count 1,
+  run number 1.
+- Pointer events: zero; completed triplets: zero; cleanup verified.
+- Adjudication: `INCONCLUSIVE_DRY_NOT_PROVEN`, counted as attempt 2 of 3 in
+  the current dependency state.
+
+The corrected injector waited the archived fixed 40 milliseconds after the
+single application focused-window set. The read-back still showed peer A, so
+the target acquisition remained unverified and no acquired-page phase or
+pointer event was published. G6a remained unchanged at every sample; the
+original peer tuple restored and read back exactly; the receipt reported no
+unknown effect, release failure or cleanup failure.
+
+This repeat narrows the timing concern but does not exhaust the precommitted
+three attempts in the current dependency state. It does not select retirement,
+register evidence, change PRD or ledger state, or close `acu.dynamic.004`.
+Attempt 3 is forbidden until this result and its unchanged decision boundary
+have been reviewed and frozen at a reachable source.

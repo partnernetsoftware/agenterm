@@ -745,3 +745,36 @@ attempts. During a lease-only dry run, an unverified restore is
 another unproved A -> B -> A closure and consumes the attempt. Only a G6a change
 or an explicitly recorded forbidden action can take an immediate dry-stage
 retirement branch; the post-down release/restore kill rule remains unchanged.
+
+#### 10.6.7 Dry attempt 2
+
+Source `4adee184fe68f3839b05b13d9ae3efd61d8c91c4`, probe digest
+`fefe6707860e9fb9d362b91436d605440299b75377aad732e0833acef1426f80`,
+ran dependency-state attempt 2, cumulative attempt 2, repair count 1 and run
+number 1. The injector used the archived fixed 40-millisecond settle after its
+single focus set. Acquisition still read back peer A rather than target B.
+G6a, restoration and cleanup remained verified, and no pointer event or
+triplet ran.
+
+The decision is the second counted `INCONCLUSIVE_DRY_NOT_PROVEN` in this
+dependency state, not retirement. The result registers no evidence and changes
+no PRD, ledger or compatibility state. A third attempt is not authorized until
+this trace and the unchanged exhaustion boundary are reviewed and frozen.
+
+The next authorized execution is dependency-state attempt 3, cumulative
+attempt 3, repair count 1, run number 1, from a frozen reachable source, with
+no further repair: the only remaining difference from the archived click path
+is that path's optional application activation, which this experiment forbids.
+Before the lease, the injector records whether the application focused-window
+attribute and both window focused attributes are settable. This is observation
+only and does not consume a repair; an application attribute reported as not
+settable makes the run dependency-inconclusive before any retirement decision.
+
+If attempt 3 again fails to prove A -> B -> A with G6a unchanged and no
+forbidden action, section 10.6.3(1) selects macOS HANDLE typed retirement with
+rationale `measured-safety-failure`, recorded only as: on this host and
+Chromium build, the application-level focused-window setter was accepted but
+never changed the read-back tuple for a background application in 3 of 3
+fresh-fixture lease-only attempts, and no pointer event was posted. That record
+may not claim that background drag is impossible, that any release failed, or
+that the archived click lease was wrong.

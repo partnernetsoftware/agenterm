@@ -333,6 +333,35 @@ private final class AXWindowReader {
         return number.boolValue
     }
 
+    private func attributeSettable(_ element: AXUIElement, _ attribute: CFString) throws -> Bool {
+        var settable = DarwinBoolean(false)
+        let status = AXUIElementIsAttributeSettable(element, attribute, &settable)
+        guard status == .success else {
+            throw InjectorFailure.typed(
+                "focus_tuple_unavailable",
+                "an AX focus attribute's settable state could not be sampled"
+            )
+        }
+        return settable.boolValue
+    }
+
+    func settableFields(pid: pid_t, peer: UInt32, target: UInt32) throws -> [String: Bool] {
+        let app = AXUIElementCreateApplication(pid)
+        let peerElement = try windowElement(pid: pid, id: peer)
+        let targetElement = try windowElement(pid: pid, id: target)
+        return [
+            "application_focused_window": try attributeSettable(
+                app, kAXFocusedWindowAttribute as CFString
+            ),
+            "peer_focused": try attributeSettable(
+                peerElement, kAXFocusedAttribute as CFString
+            ),
+            "target_focused": try attributeSettable(
+                targetElement, kAXFocusedAttribute as CFString
+            )
+        ]
+    }
+
     func tuple(pid: pid_t, peer: UInt32, target: UInt32) throws -> FocusTuple {
         let peerElement = try windowElement(pid: pid, id: peer)
         let targetElement = try windowElement(pid: pid, id: target)
@@ -905,6 +934,7 @@ private func run() throws -> [String: Any] {
     var restoreVerifiedNs: UInt64?
     var priorFocus: FocusTuple? = expectedPriorFocus ?? (mode == .releaseOnly ? nil : initialFocus)
     var targetFocus: FocusTuple? = expectedTargetFocus ?? (mode == .releaseOnly ? initialFocus : nil)
+    var settableFields: [String: Bool]?
     var phaseReceipts: [PhaseReceipt] = []
 
     func recordFailure(_ code: String, _ message: String) {
@@ -940,6 +970,23 @@ private func run() throws -> [String: Any] {
             recordFailure("host_state_unavailable", "a bounded host-state sample failed")
         }
         return nil
+    }
+
+    do {
+        settableFields = try ax.settableFields(pid: pid, peer: peerWindow, target: window)
+        if settableFields?["application_focused_window"] != true {
+            recordFailure(
+                "focus_lease_attribute_not_settable",
+                "the application focused-window attribute is not settable"
+            )
+        }
+    } catch let InjectorFailure.typed(code, message) {
+        recordFailure(code, message)
+    } catch {
+        recordFailure(
+            "focus_tuple_unavailable",
+            "the AX focus attribute settable states could not be sampled"
+        )
     }
 
     func sampleAfter(_ label: String, postedNs: UInt64, expectedFocus: FocusTuple?) {
@@ -1223,6 +1270,7 @@ private func run() throws -> [String: Any] {
             "target": targetFocus?.json as Any? ?? NSNull(),
             "unavailable_fields": unavailableFocusFields,
             "not_sampled_fields": notSampledFocusFields,
+            "settable_fields": settableFields as Any? ?? NSNull(),
             "acquire": [
                 "attempted": acquireAttempted,
                 "verified": acquireVerified,

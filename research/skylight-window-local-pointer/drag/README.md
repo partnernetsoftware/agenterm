@@ -17,9 +17,12 @@ implements its lease-only dry cycle, G6a/G6b receipts and one-way decision tree.
 Dry attempt 1 sent zero pointer events and did not prove acquisition because an
 immediate AX read-back still showed peer A. The archived lease uses a fixed
 40-millisecond set-to-read-back delay; the corrected injector now matches that
-input and records the delay. It must not run again until this correction has
-passed review and is frozen at one reachable commit. The next authorized
-execution uses dry attempt 2, repair count 1 and run number 1.
+input and records the delay. Dry attempt 2 used that delay but still read back
+peer A, with zero pointer events and unchanged G6a, restoration and cleanup.
+It is the second counted `INCONCLUSIVE_DRY_NOT_PROVEN`, not retirement. The
+next frozen source records AX attribute settable states as observation only;
+this does not consume another repair or change the lease. Attempt 3 is the
+terminal attempt of this dependency state.
 
 `page.html` has no external resources. The parent court loads it twice as:
 
@@ -47,10 +50,10 @@ is the cumulative count across dependency states and repairs and never resets.
 records both counters; retirement by exhaustion requires three failed attempts
 in one dependency state or all six cumulative attempts.
 
-For the next authorized dry attempt, set the counters explicitly:
+The next authorized attempt uses these explicit counters:
 
 ```sh
-ACU004_DRY_ATTEMPT=2 ACU004_DRY_STATE_ATTEMPT=2 \
+ACU004_DRY_ATTEMPT=3 ACU004_DRY_STATE_ATTEMPT=3 \
   ACU004_REPAIR_COUNT=1 ACU004_RUN_NUMBER=1 \
   AGENTERM_CU_BROWSER_EXE=~/path/to/Chromium \
   ./research/skylight-window-local-pointer/run-drag-current-host.sh
