@@ -2534,25 +2534,6 @@
         "task.cu-linux-gtk-entry-selection-smoke"
       ]
     },
-    "cu-linux-gtk-entry-text-smoke": {
-      "inputs": [
-        "built-agenterm-cu",
-        "built-libagenterm",
-        "display-session"
-      ],
-      "outputs": [
-        "cu-linux-gtk-entry-text-evidence"
-      ],
-      "budget": {
-        "timeout_ms": 120000,
-        "max_operations": 1000000000,
-        "max_output_bytes": 1048576
-      },
-      "network": [],
-      "evidence": [
-        "task.cu-linux-gtk-entry-text-smoke"
-      ]
-    },
     "cu-linux-gtk-entry-focused-send-text-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -6744,26 +6725,6 @@
       "id": "cu-linux-screenshot-window-smoke",
       "description": "Linux screenshot --window for an owned GTK fixture writes a real PNG whose independent magic/IHDR/size read-back agrees with inventory bounds; optional full-display screenshot secondary; zero handle usage and missing DISPLAY unsupported host-limit; stale handle typed screenshot_window_unavailable; no --coords.",
       "entry": "scripts/qjs/cu-linux-screenshot-window-smoke.qjs",
-      "profile": "tool",
-      "cwd": ".",
-      "args": [
-        ".",
-        "target/abi-dev/agenterm-cu"
-      ],
-      "dependencies": [],
-      "platforms": [
-        "linux"
-      ],
-      "side_effects": [
-        "artifact_write",
-        "process_spawn",
-        "gui_spawn"
-      ]
-    },
-    {
-      "id": "cu-linux-gtk-entry-text-smoke",
-      "description": "Linux GTK entry focus → send-text --name → get-text --name with independent pyatspi Text.GetText read-back == SEED; typed focus/send-text/get-text usage and host-limit paths when --window/--name are missing or the AT-SPI bus is unavailable; typed get-extents --name usage/host-limit paths before the actuate/read-back court; miss paths must not mutate the entry; AT-SPI --name; no --coords.",
-      "entry": "scripts/qjs/cu-linux-gtk-entry-text-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
