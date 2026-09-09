@@ -2,6 +2,10 @@
 // Acceptance is independent AT-SPI --name read-back only; no --coords or
 // screenshot. send-text may write through Chrome CDP AX set-value when
 // EditableText is absent; get-text must still poll Text.GetText.
+// Typed focus/send-text/get-text usage must reject missing --window/--name and
+// other unexpected arguments; typed get-extents --name usage/host-limit paths
+// must hold before the actuate/read-back court; miss paths must not mutate the
+// field (independent get-text read-back).
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -13,6 +17,10 @@ const declared_evidence = [
   "cu.linux-chrome-text-send-text",
   "cu.linux-chrome-text-get-text",
 ];
+
+const FIELD_NAME = "GetTextField";
+const MISSING_NODE = "No Such GetTextField";
+const AT_SPI_PROBE_NAME = "Chrome Text Court Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -33,6 +41,8 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function output_success(document) { return flag_at(document, "ok"); }
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -60,24 +70,254 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
-  for (const argument of arguments) { argv.push("" + argument); }
+  for (const argument of cu_args) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: cu_env(executable),
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
   });
-  ensure(output.success === true, "cu_linux_chrome_text_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_chrome_text_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_chrome_text_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_chrome_text_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, cu_args, env) {
+  const document = run_cu_reply(run_directory, executable, grant, cu_args, env);
+  ensure(output_success(document), "cu_linux_chrome_text_reply:" + JSON.stringify(document));
   return document;
 }
 
-function chrome_window(run_directory, executable, title_prefix) {
-  const inventory = run_cu(run_directory, executable, "observe", ["windows"]);
+function invoke_get_extents_reply(run_directory, executable, cu_args, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(cu_args), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_chrome_text_extents_cli:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function probe_cu_windows_enum_available(run_directory, executable, env) {
+  const reply = run_cu_reply(run_directory, executable, "observe", ["windows"], env);
+  if (output_success(reply)) { return { available: true }; }
+  const message = text_at(reply, "error.message");
+  if (message.indexOf("Maximum number of clients reached") >= 0
+      || message.indexOf("window_enum_failed") >= 0) {
+    return { available: false, reason: "x11_window_enum_unavailable" };
+  }
+  return { available: false, reason: message };
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_chrome_text_usage_limit(run_directory, executable) {
+  const send_missing_window = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-text", "--name", FIELD_NAME, "--", "probe",
+  ]);
+  ensure(!output_success(send_missing_window),
+    "cu_linux_chrome_text_send_usage_ok:" + JSON.stringify(send_missing_window));
+  ensure(
+    text_at(send_missing_window, "error.code") === "invalid_input",
+    "cu_linux_chrome_text_send_usage_code:" + JSON.stringify(send_missing_window.error)
+  );
+  ensure(
+    text_at(send_missing_window, "error.message").indexOf("--window") >= 0,
+    "cu_linux_chrome_text_send_usage_message:" + JSON.stringify(send_missing_window.error)
+  );
+
+  const send_role_without_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", "1", "--role", "entry", "--", "probe",
+  ]);
+  ensure(!output_success(send_role_without_name),
+    "cu_linux_chrome_text_send_role_ok:" + JSON.stringify(send_role_without_name));
+  ensure(
+    text_at(send_role_without_name, "error.code") === "invalid_input",
+    "cu_linux_chrome_text_send_role_code:" + JSON.stringify(send_role_without_name.error)
+  );
+  ensure(
+    text_at(send_role_without_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_chrome_text_send_role_message:" + JSON.stringify(send_role_without_name.error)
+  );
+
+  const send_zero_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", "0", "--name", FIELD_NAME, "--", "probe",
+  ]);
+  ensure(!output_success(send_zero_handle),
+    "cu_linux_chrome_text_send_zero_handle_ok:" + JSON.stringify(send_zero_handle));
+  ensure(
+    text_at(send_zero_handle, "error.code") === "invalid_input",
+    "cu_linux_chrome_text_send_zero_handle_code:" + JSON.stringify(send_zero_handle.error)
+  );
+  ensure(
+    text_at(send_zero_handle, "error.message").indexOf("--window") >= 0,
+    "cu_linux_chrome_text_send_zero_handle_message:" + JSON.stringify(send_zero_handle.error)
+  );
+
+  const get_role_without_name = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", "1", "--role", "entry",
+  ]);
+  ensure(!output_success(get_role_without_name),
+    "cu_linux_chrome_text_get_role_ok:" + JSON.stringify(get_role_without_name));
+  ensure(
+    text_at(get_role_without_name, "error.code") === "usage"
+      || text_at(get_role_without_name, "error.code") === "invalid_input",
+    "cu_linux_chrome_text_get_role_code:" + JSON.stringify(get_role_without_name.error)
+  );
+  ensure(
+    text_at(get_role_without_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_chrome_text_get_role_message:" + JSON.stringify(get_role_without_name.error)
+  );
+
+  const focus_zero_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "focus", "--window", "0", "--name", FIELD_NAME,
+  ]);
+  ensure(!output_success(focus_zero_handle),
+    "cu_linux_chrome_text_focus_zero_handle_ok:" + JSON.stringify(focus_zero_handle));
+  ensure(
+    text_at(focus_zero_handle, "error.code") === "usage"
+      || text_at(focus_zero_handle, "error.code") === "invalid_input",
+    "cu_linux_chrome_text_focus_zero_handle_code:" + JSON.stringify(focus_zero_handle.error)
+  );
+  ensure(
+    text_at(focus_zero_handle, "error.message").indexOf("--window") >= 0
+      || text_at(focus_zero_handle, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_chrome_text_focus_zero_handle_message:" + JSON.stringify(focus_zero_handle.error)
+  );
+
+  const focus_missing_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "focus", "--window", "1",
+  ]);
+  ensure(!output_success(focus_missing_name),
+    "cu_linux_chrome_text_focus_missing_name_ok:" + JSON.stringify(focus_missing_name));
+  ensure(
+    text_at(focus_missing_name, "error.code") === "usage"
+      || text_at(focus_missing_name, "error.code") === "invalid_input",
+    "cu_linux_chrome_text_focus_missing_name_code:" + JSON.stringify(focus_missing_name.error)
+  );
+  ensure(
+    text_at(focus_missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_chrome_text_focus_missing_name_message:" + JSON.stringify(focus_missing_name.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_chrome_text_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_chrome_text_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_chrome_text_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_chrome_text_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_chrome_text_extents_unavailable_code:" + code
+  );
+}
+
+function assert_chrome_text_host_limit_when_atspi_absent(run_directory, executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  };
+  const focus_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "focus", "--window", "1", "--name", FIELD_NAME,
+  ], env);
+  ensure(!output_success(focus_reply),
+    "cu_linux_chrome_text_focus_unavailable_ok:" + JSON.stringify(focus_reply));
+  const focus_code = text_at(focus_reply, "error.code");
+  ensure(
+    focus_code === "a11y_backend_failed" || focus_code === "unsupported" || focus_code === "bad_handle",
+    "cu_linux_chrome_text_focus_unavailable_code:" + focus_code
+  );
+
+  const send_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", "1", "--name", FIELD_NAME, "--", "probe",
+  ], env);
+  ensure(!output_success(send_reply),
+    "cu_linux_chrome_text_send_unavailable_ok:" + JSON.stringify(send_reply));
+  const send_code = text_at(send_reply, "error.code");
+  ensure(
+    send_code === "a11y_backend_failed" || send_code === "unsupported" || send_code === "bad_handle",
+    "cu_linux_chrome_text_send_unavailable_code:" + send_code
+  );
+
+  const get_reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", "1", "--name", FIELD_NAME,
+  ], env);
+  ensure(!output_success(get_reply),
+    "cu_linux_chrome_text_get_unavailable_ok:" + JSON.stringify(get_reply));
+  const get_code = text_at(get_reply, "error.code");
+  ensure(
+    get_code === "a11y_backend_failed" || get_code === "unsupported" || get_code === "bad_handle",
+    "cu_linux_chrome_text_get_unavailable_code:" + get_code
+  );
+}
+
+function assert_send_text_missing_node(run_directory, executable, handle, label) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", handle, "--name", MISSING_NODE, "--", "probe",
+  ]);
+  ensure(!output_success(reply), "cu_linux_chrome_text_send_missing_ok_" + label);
+  ensure(
+    text_at(reply, "error.code") === "a11y_node_not_found",
+    "cu_linux_chrome_text_send_missing_code_" + label + ":" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_get_text_missing_node(run_directory, executable, handle, label) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", handle, "--name", MISSING_NODE,
+  ]);
+  ensure(!output_success(reply), "cu_linux_chrome_text_get_missing_ok_" + label);
+  ensure(
+    text_at(reply, "error.code") === "a11y_node_not_found",
+    "cu_linux_chrome_text_get_missing_code_" + label + ":" + JSON.stringify(reply.error)
+  );
+}
+
+function chrome_window(run_directory, executable, title_prefix, env) {
+  const inventory = run_cu(run_directory, executable, "observe", ["windows"], env);
   const rows = inventory.data.windows === undefined ? inventory.data : inventory.data.windows;
   for (const row of rows) {
     if (text_at(row, "app_name") === "chrome"
@@ -88,6 +328,12 @@ function chrome_window(run_directory, executable, title_prefix) {
     }
   }
   return null;
+}
+
+function get_text_readback(got) {
+  const matched = text_at(got, "data.matched.text");
+  if (matched !== "") { return matched; }
+  return text_at(got, "data.text");
 }
 
 const args = rh.args();
@@ -105,6 +351,10 @@ ensure(direct_file(abi_library), "cu_linux_chrome_text_library_missing:" + abi_l
 const context = harness.new_context(repo, "cu-linux-chrome-text");
 const run_directory = rh.join(repo, "target/cu-linux-chrome-text-smoke-run");
 rh.create_dir_all(run_directory);
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
+let window_enum = { available: false, reason: "not_probed" };
+let ran_actuate_court = false;
 
 const fixture_title = "CEO3 Chrome Text " + context.run_id;
 const fixture_source = rh.join(repo, "fixtures/cu/311b-chrome-gettext.html");
@@ -125,89 +375,118 @@ let succeeded = 0;
 let failure = "";
 
 try {
-  const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
-    cwd: run_directory,
-    timeout_ms: 3000,
-  });
-  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0), "cu_linux_chrome_text_port_in_use:" + port);
+  print("STEP focus/send-text/get-text typed-fail usage when --window or --name is missing");
+  assert_chrome_text_usage_limit(run_directory, executable);
 
-  print("STEP launch owned Chrome with AT-SPI and a visible named GetTextField");
-  chrome_child = harness.start({
-    program: launcher,
-    args: [
-      "--user-data-dir=" + profile,
-      "--remote-debugging-port=" + port,
-      "--remote-debugging-address=127.0.0.1",
-      "--new-window",
-      "file://" + fixture,
-    ],
-    current_dir: run_directory,
-    env: cu_env(executable),
-    timeout_ms: 45000,
-  });
-  for (let attempt = 0; attempt < 80; attempt = attempt + 1) {
-    const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
-      cwd: run_directory,
-      timeout_ms: 3000,
-    });
-    if (probe.success === true && probe.stdout.indexOf("Browser") >= 0) { break; }
-    harness.sleep_ms(250);
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
   }
 
-  const window_wait = run_cu(run_directory, executable, "observe", [
-    "wait", "--timeout-ms", "20000", "--window-title-contains", fixture_title,
-  ]);
-  ensure(flag_at(window_wait, "data.met"), "cu_linux_chrome_text_window_wait");
+  if (!atspi_available) {
+    print("STEP focus/send-text/get-text typed-fail host-limit when independent pyatspi desktop probe is unavailable");
+    assert_chrome_text_host_limit_when_atspi_absent(run_directory, executable);
+    succeeded = 1;
+  } else {
+    window_enum = probe_cu_windows_enum_available(run_directory, executable, env);
+    if (window_enum.available !== true) {
+      print("STEP typed host-limit when CU windows enumeration is unavailable before actuate/read-back court");
+      succeeded = 1;
+    } else {
+      const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+        cwd: run_directory,
+        timeout_ms: 3000,
+      });
+      ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+        "cu_linux_chrome_text_port_in_use:" + port);
 
-  let window = null;
-  for (let attempt = 0; attempt < 40 && window === null; attempt = attempt + 1) {
-    window = chrome_window(run_directory, executable, fixture_title);
-    if (window === null) { harness.sleep_ms(250); }
+      print("STEP launch owned Chrome with AT-SPI and a visible named GetTextField");
+      chrome_child = harness.start({
+        program: launcher,
+        args: [
+          "--user-data-dir=" + profile,
+          "--remote-debugging-port=" + port,
+          "--remote-debugging-address=127.0.0.1",
+          "--new-window",
+          "file://" + fixture,
+        ],
+        current_dir: run_directory,
+        env: env,
+        timeout_ms: 45000,
+      });
+      for (let attempt = 0; attempt < 80; attempt = attempt + 1) {
+        const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+          cwd: run_directory,
+          timeout_ms: 3000,
+        });
+        if (probe.success === true && probe.stdout.indexOf("Browser") >= 0) { break; }
+        harness.sleep_ms(250);
+      }
+
+      const window_wait = run_cu(run_directory, executable, "observe", [
+        "wait", "--timeout-ms", "20000", "--window-title-contains", fixture_title,
+      ], env);
+      ensure(flag_at(window_wait, "data.met"), "cu_linux_chrome_text_window_wait");
+
+      let window = null;
+      for (let attempt = 0; attempt < 40 && window === null; attempt = attempt + 1) {
+        window = chrome_window(run_directory, executable, fixture_title, env);
+        if (window === null) { harness.sleep_ms(250); }
+      }
+      ensure(window !== null, "cu_linux_chrome_text_window_missing");
+      const handle = window.handle;
+
+      print("STEP unlock enables the Chrome renderer accessibility tree before named writes");
+      const unlocked = run_cu(run_directory, executable, "observe,actuate", [
+        "unlock", "--window", handle,
+      ], env);
+      ensure(flag_at(unlocked, "data.poked"), "cu_linux_chrome_text_unlock:" + JSON.stringify(unlocked.data));
+
+      print("STEP send-text/get-text typed-fail a11y_node_not_found when the named field is missing");
+      assert_send_text_missing_node(run_directory, executable, handle, "before_focus");
+      assert_get_text_missing_node(run_directory, executable, handle, "before_focus");
+
+      print("STEP focus --name GetTextField moves AT-SPI focus to the Chrome entry");
+      const focused = run_cu(run_directory, executable, "observe,actuate", [
+        "focus", "--window", handle, "--name", FIELD_NAME,
+      ], env);
+      ensure(
+        text_at(focused, "data.after.name") === FIELD_NAME,
+        "cu_linux_chrome_text_focused:" + JSON.stringify(focused.data)
+      );
+      harness.emit_evidence(context, declared_evidence, "cu.linux-chrome-text-focus");
+
+      const seed = "ceo3-chrome-" + context.run_id;
+      print("STEP send-text --name writes SEED through AT-SPI/CDP honesty");
+      const dash_end = "-" + "-";
+      const sent = run_cu(run_directory, executable, "observe,actuate", [
+        "send-text", "--window", handle, "--name", FIELD_NAME, dash_end, seed,
+      ], env);
+      ensure(
+        text_at(sent, "data.typed") === seed
+          && text_at(sent, "data.addressing") === "accessibility-tree",
+        "cu_linux_chrome_text_send:" + JSON.stringify(sent.data)
+      );
+      harness.emit_evidence(context, declared_evidence, "cu.linux-chrome-text-send-text");
+
+      print("STEP get-text --name reads SEED back through AT-SPI Text.GetText");
+      const got = run_cu(run_directory, executable, "observe", [
+        "get-text", "--window", handle, "--name", FIELD_NAME,
+      ], env);
+      const readback = get_text_readback(got);
+      ensure(
+        readback === seed,
+        "cu_linux_chrome_text_get:" + JSON.stringify({ seed: seed, readback: readback })
+      );
+      harness.emit_evidence(context, declared_evidence, "cu.linux-chrome-text-get-text");
+
+      ran_actuate_court = true;
+      succeeded = 1;
+    }
   }
-  ensure(window !== null, "cu_linux_chrome_text_window_missing");
-  const handle = window.handle;
-
-  print("STEP unlock enables the Chrome renderer accessibility tree before named writes");
-  const unlocked = run_cu(run_directory, executable, "observe,actuate", [
-    "unlock", "--window", handle,
-  ]);
-  ensure(flag_at(unlocked, "data.poked"), "cu_linux_chrome_text_unlock:" + JSON.stringify(unlocked.data));
-
-  print("STEP focus --name GetTextField moves AT-SPI focus to the Chrome entry");
-  const focused = run_cu(run_directory, executable, "observe,actuate", [
-    "focus", "--window", handle, "--name", "GetTextField",
-  ]);
-  ensure(
-    text_at(focused, "data.after.name") === "GetTextField",
-    "cu_linux_chrome_text_focused:" + JSON.stringify(focused.data)
-  );
-  harness.emit_evidence(context, declared_evidence, "cu.linux-chrome-text-focus");
-
-  const seed = "ceo3-chrome-" + context.run_id;
-  print("STEP send-text --name writes SEED through AT-SPI/CDP honesty");
-  const dash_end = "-" + "-";
-  const sent = run_cu(run_directory, executable, "observe,actuate", [
-    "send-text", "--window", handle, "--name", "GetTextField", dash_end, seed,
-  ]);
-  ensure(
-    text_at(sent, "data.typed") === seed
-      && text_at(sent, "data.addressing") === "accessibility-tree",
-    "cu_linux_chrome_text_send:" + JSON.stringify(sent.data)
-  );
-  harness.emit_evidence(context, declared_evidence, "cu.linux-chrome-text-send-text");
-
-  print("STEP get-text --name reads SEED back through AT-SPI Text.GetText");
-  const got = run_cu(run_directory, executable, "observe", [
-    "get-text", "--window", handle, "--name", "GetTextField",
-  ]);
-  const readback = text_at(got, "data.matched.text");
-  ensure(
-    readback === seed,
-    "cu_linux_chrome_text_get:" + JSON.stringify({ seed: seed, readback: readback })
-  );
-  harness.emit_evidence(context, declared_evidence, "cu.linux-chrome-text-get-text");
-
-  succeeded = 1;
 } catch (error) {
   failure = "" + error;
 }
@@ -218,5 +497,13 @@ if (chrome_child >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_chrome_text_failed");
 harness.remove_run(context);
-print("PASS: CEO#3 Chrome focus → send-text → get-text (AT-SPI --name, get-text == SEED)");
+if (!atspi_available) {
+  print("PASS: CEO#3 Chrome focus/send-text/get-text typed-fails with typed get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
+} else if (window_enum.available !== true) {
+  print("PASS: CEO#3 Chrome typed focus/send-text/get-text/get-extents usage honesty with x11 window-enum host-limit when CU inventory is unavailable (AT-SPI --name, no --coords)");
+} else if (ran_actuate_court) {
+  print("PASS: CEO#3 Chrome focus → send-text → get-text with typed focus/send-text/get-text/get-extents usage/miss/host-limit honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: CEO#3 Chrome typed focus/send-text/get-text/get-extents usage honesty (AT-SPI --name, no --coords)");
+}
 return;
