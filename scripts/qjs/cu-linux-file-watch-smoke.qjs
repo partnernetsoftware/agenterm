@@ -1,15 +1,16 @@
-// Linux public black-box court for bounded single-directory file-watch via inotify.
+// CEO: Linux file-watch honesty with independent filesystem read-back.
+// Acceptance is smoke read-back only: bounded single-directory inotify events
+// for direct-entry create, modify, rename and remove must agree with an
+// independent filesystem read-back; nested and outside changes must not leak;
+// max-events 1 truncates and returns early. Typed file-watch usage must reject
+// AT-SPI --name and other unexpected arguments; typed get-extents --name
+// usage/host-limit paths must hold before the inotify read-back court.
+// AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Light-weight, not a stress test. Each watcher is an owned agenterm-cu child
-// observing one temp directory under the run directory; the court makes a
-// handful of direct-entry changes, then checks the final JSON against an
-// independent filesystem read-back. inotify may coalesce neighbouring changes
-// on one entry, so the court asserts at-least-once delivery per kind it can
-// separate, never exact counts.
-//
-// Readiness: after spawning a watcher the court confirms the child is running
-// through the harness, then allows one bounded 250 ms start buffer before the
-// first change. There is no production readiness seam.
+// observing one temp directory under the run directory. inotify may coalesce
+// neighbouring changes on one entry, so the court asserts at-least-once
+// delivery per kind it can separate, never exact counts.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -18,6 +19,7 @@ import * as harness from "lib/test_harness";
 
 const declared_evidence = ["cu.linux-file-watch"];
 
+const AT_SPI_PROBE_NAME = "File Watch Court Anchor";
 const PROVIDER = "linux-inotify";
 const MODE = "native-events";
 const START_BUFFER_MS = 250;
@@ -29,21 +31,198 @@ function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function text_at(value, dotted) {
+function at(value, dotted) {
   let current = value;
   for (const key of dotted.split(".")) {
     current = rh.field(current, key);
   }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const current = at(value, dotted);
   if (current === undefined || current === null) { return ""; }
   return "" + current;
 }
 
-function cu_env(run_directory, label) {
-  return {
+function output_success(document) { return at(document, "ok") === true; }
+
+function cu_atspi_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function cu_env(run_directory, label, executable) {
+  const env = {
     HOME: run_directory,
     AGENTERM_NO_ACTIVATE: "1",
     AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, label + "-audit.jsonl"),
   };
+  const atspi = cu_atspi_env(executable);
+  env.AGENTERM_ABI_LIB = atspi.AGENTERM_ABI_LIB;
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (atspi[key] !== undefined) { env[key] = atspi[key]; }
+  }
+  return env;
+}
+
+function invoke_observe_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_file_watch_observe_cli:" + output.stdout + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(
+    text_at(reply, "command") === "file-watch" || text_at(reply, "command") === "usage",
+    "cu_linux_file_watch_observe_command:" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_file_watch_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_atspi_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0
+    || message.indexOf("requires exactly one") >= 0;
+}
+
+function assert_file_watch_usage_limit(run_directory, executable, directory, env) {
+  const flat_with_name = invoke_observe_reply(run_directory, executable, [
+    "file-watch", directory, "--duration-ms", "100", "--max-events", "1",
+    "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_file_watch_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_file_watch_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_file_watch_usage_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(flat_with_name, "error.message")),
+    "cu_linux_file_watch_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = invoke_observe_reply(run_directory, executable, [
+    "file", "observe", directory, "--duration-ms", "100", "--max-events", "1",
+    "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_file_watch_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_file_watch_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(grouped_with_name, "error.message")),
+    "cu_linux_file_watch_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = invoke_observe_reply(run_directory, executable, [
+    "file-watch", directory, "--duration-ms", "100", "--max-events", "1", "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_file_watch_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_file_watch_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(with_bogus, "error.message")),
+    "cu_linux_file_watch_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_file_watch_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_file_watch_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_file_watch_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_file_watch_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_file_watch_extents_unavailable_code:" + code
+  );
 }
 
 function cu_args(arguments) {
@@ -59,7 +238,7 @@ function parse_reply(stdout, label) {
 function invoke(run_directory, executable, label, arguments, expect_success) {
   const output = rh.command(executable, cu_args(arguments), {
     cwd: run_directory,
-    env: cu_env(run_directory, label),
+    env: cu_env(run_directory, label, executable),
     timeout_ms: 60000
   });
   const reply = parse_reply(output.stdout, label);
@@ -78,7 +257,7 @@ function start_watcher(context, executable, label, directory, duration_ms, max_e
       "--max-events", "" + max_events
     ]),
     current_dir: context.run_directory,
-    env: cu_env(context.run_directory, label),
+    env: cu_env(context.run_directory, label, executable),
     timeout_ms: duration_ms + 30000
   }, label);
   const started_ms = rh.now_ms();
@@ -167,6 +346,8 @@ ensure(uname.success === true && uname.stdout.trim() === "Linux",
 
 const context = harness.new_context(repo, "cu-linux-file-watch");
 const run_directory = context.run_directory;
+const env = cu_env(run_directory, "usage", executable);
+const atspi_available = probe_atspi_available(executable);
 const watch_dir = rh.join(run_directory, "watch-root");
 const outside_file = rh.join(run_directory, "outside.txt");
 rh.create_dir_all(watch_dir);
@@ -175,6 +356,17 @@ const children = [];
 let succeeded = 0;
 let failure = "";
 try {
+  print("STEP file-watch typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_file_watch_usage_limit(run_directory, executable, watch_dir, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before inotify read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
   print("STEP the native provider answers one short watch, then capabilities declare it honestly");
   const probe = invoke(run_directory, executable, "probe",
     ["file-watch", watch_dir, "--duration-ms", "100", "--max-events", "1"], true);
@@ -305,7 +497,11 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
-  print("PASS: Linux file-watch delivers bounded single-directory inotify events with independent filesystem read-back");
+  if (atspi_available) {
+    print("PASS: Linux file-watch delivers bounded single-directory inotify events with independent filesystem read-back and typed file-watch/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux file-watch delivers bounded single-directory inotify events with independent filesystem read-back and typed file-watch/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
