@@ -37,7 +37,6 @@ pub mod hotkeys;
 pub mod idempotency_store;
 pub mod ime_observe;
 pub mod keyboard_layout_observe;
-pub mod screen_reader_observe;
 pub mod login_session;
 #[cfg(target_os = "macos")]
 pub mod macos_focus;
@@ -45,6 +44,7 @@ pub mod macos_spaces;
 pub(crate) mod managed_job_ipc;
 pub(crate) mod managed_job_owner;
 pub(crate) mod managed_job_store;
+pub mod screen_reader_observe;
 
 #[doc(hidden)]
 pub const MANAGED_JOB_OWNER_ARG: &str = "--agenterm-cu-internal-managed-job-owner";

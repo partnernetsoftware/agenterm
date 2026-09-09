@@ -607,8 +607,8 @@ fn unreachable_job_error(name: &str, error: CuError) -> CuError {
 }
 
 fn sole_job(client: &ControlClient, name: &str) -> Result<(Value, Value), CuError> {
-    let inventory =
-        terminal_inventory_with_client(client).map_err(|error| unreachable_job_error(name, error))?;
+    let inventory = terminal_inventory_with_client(client)
+        .map_err(|error| unreachable_job_error(name, error))?;
     let tabs = inventory["tabs"]
         .as_array()
         .ok_or_else(|| CuError::new("pty_job_state_invalid", "PTY inventory omitted tabs"))?;

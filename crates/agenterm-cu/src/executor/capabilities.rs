@@ -2103,9 +2103,7 @@ mod tests {
                 .as_str()
                 .is_some_and(|signal| signal.contains("visited=1"))
         );
-        let alternatives = hint["alternatives"]
-            .as_array()
-            .expect("alternatives");
+        let alternatives = hint["alternatives"].as_array().expect("alternatives");
         let joined = alternatives
             .iter()
             .filter_map(serde_json::Value::as_str)
@@ -2118,10 +2116,7 @@ mod tests {
         });
         assert!(reply.ok);
         let data = reply.data.expect("capabilities data");
-        assert_eq!(
-            data["verbs"]["tree"]["host_shallow_terminal_tree"],
-            hint
-        );
+        assert_eq!(data["verbs"]["tree"]["host_shallow_terminal_tree"], hint);
         assert_eq!(
             data["verbs"]["term-read"]["host_shallow_terminal_tree"],
             hint

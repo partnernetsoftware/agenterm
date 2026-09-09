@@ -25,13 +25,12 @@ pub fn status_payload() -> Result<Value, CuError> {
         Err(AccessibilityTreeError::Unsupported { reason }) => {
             Err(unsupported_error(reason.into_owned()))
         }
-        Err(AccessibilityTreeError::Failed { code, message }) => Err(
-            CuError::new(code, message).with_detail(json!({
+        Err(AccessibilityTreeError::Failed { code, message }) => Err(CuError::new(code, message)
+            .with_detail(json!({
                 "effect": "not_performed",
                 "required_mechanism": "linux-atspi-session-bus",
                 "alternatives": alternatives(),
-            })),
-        ),
+            }))),
         Err(_) => Err(CuError::new(
             "screen_reader_unavailable",
             "screen-reader status probe failed with an unclassified error",
