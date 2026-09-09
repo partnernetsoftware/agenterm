@@ -20,7 +20,7 @@ const corpus_gap_ids = [];
 for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
   corpus_gap_ids.push(corpus.dynamic_rows[i].gap_id);
 }
-require(compat.LEGACY_TODO_GAP_IDS.length === 9,
+require(compat.LEGACY_TODO_GAP_IDS.length === 8,
   "legacy TODO catalog count drifted from the reviewed archive");
 for (let i = 0; i < compat.LEGACY_TODO_GAP_IDS.length; i = i + 1) {
   const gap_id = compat.LEGACY_TODO_GAP_IDS[i];
@@ -62,7 +62,7 @@ let dynamic_stays = 0;
 let permanent_rejections = 0;
 const resolved_exec = ["acu.dynamic.003", "acu.dynamic.021", "acu.dynamic.050", "acu.dynamic.051",
   "acu.dynamic.066", "acu.dynamic.067", "acu.dynamic.075", "acu.dynamic.079", "acu.dynamic.082", "acu.dynamic.091", "acu.dynamic.092",
-  "acu.dynamic.072", "acu.dynamic.076", "acu.dynamic.077", "acu.dynamic.084", "acu.dynamic.086", "acu.dynamic.087", "acu.dynamic.096"];
+  "acu.dynamic.072", "acu.dynamic.076", "acu.dynamic.077", "acu.dynamic.084", "acu.dynamic.085", "acu.dynamic.086", "acu.dynamic.087", "acu.dynamic.096"];
 const resolved_todo = [];
 const resolved_usage = ["acu.dynamic.058", "acu.dynamic.078", "acu.dynamic.083",
   "acu.dynamic.088", "acu.dynamic.094"];
@@ -74,7 +74,6 @@ const resolved_compound = {
   "acu.dynamic.073": "apps-page",
   "acu.dynamic.080": "focused-pid",
   "acu.dynamic.081": "observe-roles",
-  "acu.dynamic.085": "windows-space-page",
   "acu.dynamic.093": "selector-dclick"
 };
 let resolved_checked = 0;
@@ -119,6 +118,9 @@ for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
         same_argv(mapped.argv, ["--target", "current", "--grant", "observe,actuate",
           "windows-watch", "--space", "1", "--duration-ms", "10000",
           "--interval-ms", "500", "--max-events", "500", "--max-windows", "2000"], row.gap_id);
+      } else if (row.gap_id === "acu.dynamic.085") {
+        same_argv(mapped.argv, ["--target", "current", "--grant", "observe,actuate",
+          "windows", "--space", "1"], row.gap_id);
       } else if (row.gap_id === "acu.dynamic.086") {
         same_argv(mapped.argv, ["--target", "current", "--grant", "observe,actuate",
           "app-menu-inspect", "--app", "Editor"], row.gap_id);
@@ -323,8 +325,9 @@ todo_case(["elements", "Window#1", "--actionable", "true"],
   "acu.dynamic.078", "legacy elements projection");
 todo_case(["observe", "Window#1", "--action", "press"],
   "acu.dynamic.081", "legacy observe filter");
-todo_case(["windows", "--space", "7", "--occluded", "true"],
-  "acu.dynamic.085", "legacy windows Space filter");
+require(compat.canonicalize(["windows", "--space", "7", "--occluded", "true",
+  "--ax-role", "AXWindow", "--ax-scan-max", "50", "--meta"]).kind === "exec",
+  "legacy windows Space, state and AX filters map to native execution");
 
 const signal_plan = compat.canonicalize([
   "--target", "current", "--grant", "observe", "privilege", "plan",
@@ -385,7 +388,7 @@ require(tree_value_bound.kind === "exec", "native tree value shape must remain d
 require(exact_profile_tabs.kind === "exec", "native browser profile id must remain direct");
 require(compat.canonicalize(["observe", "Window#1", "--role", "Button"]).kind === "observe-roles",
   "resolved observe role projection must remain direct");
-require(compat.canonicalize(["windows", "--space", "7"]).kind === "windows-space-page",
+require(compat.canonicalize(["windows", "--space", "7"]).kind === "exec",
   "resolved windows Space projection must remain direct");
 
 "compat-corpus.qjs PASS frozen corpus + legacy TODO boundary coverage";

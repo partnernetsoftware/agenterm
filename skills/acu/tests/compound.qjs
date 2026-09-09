@@ -65,19 +65,6 @@ require(apps_reply.data.apps.length === 3, "apps projection mutated reply");
 fails(compound.apps_page(apps_reply, "", -1, 1),
   "acu_compound_page_invalid", "apps offset");
 
-const windows_reply = { ok: true, data: [
-  { handle: 1, process_id: 10, spaces: ["1", "2"] },
-  { handle: 2, process_id: 11, spaces: [2] },
-  { handle: 3, process_id: 12, spaces: ["2"] },
-  { handle: 4, process_id: 13 }
-] };
-const windows = ok(compound.windows_space_page(windows_reply, "2", 1, 1), "space page");
-require(windows.windows.length === 1 && windows.windows[0].handle === 2, "space match/page");
-require(windows.visited === 4 && windows.matched === 3 && windows.returned === 1,
-  "space counts");
-require(windows.offset === 1 && windows.truncated === true, "space page metadata");
-require(windows.filter.space === "2", "space filter metadata");
-
 require(compound.normalize_role("AXText Area") === "textarea", "AX normalization");
 require(compound.normalize_role("push-button") === "button", "role synonym");
 const observe_reply = { ok: true, data: {

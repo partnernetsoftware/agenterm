@@ -24,7 +24,7 @@ export const LEGACY_TODO_GAP_IDS = [
   "acu.dynamic.004", "acu.dynamic.005", "acu.dynamic.018",
   "acu.dynamic.054", "acu.dynamic.057",
   "acu.dynamic.075", "acu.dynamic.078",
-  "acu.dynamic.081", "acu.dynamic.085"
+  "acu.dynamic.081"
 ];
 
 function contains(values, wanted) {
@@ -471,25 +471,6 @@ function known_dynamic_boundary(argv) {
     append(native, ["--duration-ms", "" + duration_ms, "--interval-ms", "" + interval_ms,
       "--max-events", "" + event_ceiling, "--max-windows", "" + window_ceiling]);
     return { kind: "exec", argv: native };
-  }
-  if (verb === "windows" && sub !== "watch" && has_arg(argv, "--space")) {
-    if (has_any_arg(argv, ["--ax-meta", "--ax-role", "--ax-subrole",
-        "--ax-identifier", "--ax-scan-max", "--onscreen", "--occluded",
-        "--all", "--type"])) {
-      return todo("acu.dynamic.085", "windows",
-        "legacy Space inventory filters need a lossless typed projection");
-    }
-    const parsed = without_value_flags(argv, ["space", "offset", "max"]);
-    if (!parsed.ok) { return { kind: "usage", command: "windows", message: parsed.message }; }
-    const offset = optional_integer(parsed.values.offset, 0, "windows --offset");
-    const max = optional_integer(parsed.values.max, 1, "windows --max");
-    if (parsed.values.space === null || !offset.ok || !max.ok) {
-      return { kind: "usage", command: "windows", message: parsed.values.space === null
-        ? "windows --space requires a value" : (!offset.ok ? offset.message : max.message) };
-    }
-    return compound_plan("windows-space-page", "windows", {
-      argv: parsed.argv, space: parsed.values.space, offset: offset.value, max: max.value
-    });
   }
   if (verb === "privilege" && sub === "apply"
       && (!has_arg(argv, "--request") || !has_arg(argv, "--approve"))) {

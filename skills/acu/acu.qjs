@@ -112,11 +112,6 @@ function execute_compound(request) {
     return projected_reply(request.command, reply,
       compound.apps_page(reply, request.match, request.offset, request.max));
   }
-  if (request.kind === "windows-space-page") {
-    const reply = acu.argv(prefixed(request.globals, request.argv));
-    return projected_reply(request.command, reply,
-      compound.windows_space_page(reply, request.space, request.offset, request.max));
-  }
   if (request.kind === "focused-pid") {
     const windows = acu.argv(prefixed(request.globals,
       ["windows", "--pid", "" + request.pid, "--max", "2"]));

@@ -1076,6 +1076,15 @@
       ]
     },
     {
+      "id": "cu-macos-windows-inventory-filters-smoke",
+      "platform": "macos",
+      "evidence": [
+        "cu.windows-inventory.macos-state",
+        "cu.windows-inventory.macos-ax-root",
+        "cu.windows-inventory.macos-bounds"
+      ]
+    },
+    {
       "id": "cu-simulator-lifecycle-smoke",
       "platform": "macos",
       "evidence": [

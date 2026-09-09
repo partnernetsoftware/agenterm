@@ -1,0 +1,370 @@
+// Public macOS black-box court for static window inventory filters.
+//
+// The court compiles the repository's owned Cocoa accessibility fixture. It
+// proves that managed-Space, visibility, occlusion and AX-root filters run on
+// the complete candidate inventory before paging, and that every incomplete
+// native observation stays visible as a typed result. No browser or network
+// endpoint is used, and the fixture never activates the foreground app.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.windows-inventory.macos-state",
+  "cu.windows-inventory.macos-ax-root",
+  "cu.windows-inventory.macos-bounds"
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) { current = rh.field(current, key); }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const current = at(value, dotted);
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function int_at(value, dotted) {
+  return rh.int_of(at(value, dotted));
+}
+
+function flag_at(value, dotted) {
+  return at(value, dotted) === true;
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(run_directory, label) {
+  return {
+    HOME: run_directory,
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, label + "-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, label + "-receipts.jsonl")
+  };
+}
+
+function cu_args(arguments) {
+  return ["--target", "current", "--grant", "observe"].concat(arguments);
+}
+
+function parse_reply(output, label) {
+  const stdout = ("" + output.stdout).trim();
+  ensure(stdout !== "",
+    "cu_macos_windows_inventory_empty_reply:" + label + ":" + output.stderr);
+  return JSON.parse(stdout);
+}
+
+function invoke_reply(run_directory, executable, label, arguments) {
+  const output = rh.command(executable, cu_args(arguments), {
+    cwd: run_directory,
+    env: cu_env(run_directory, label),
+    timeout_ms: 30000
+  });
+  return parse_reply(output, label);
+}
+
+function invoke_ok(run_directory, executable, label, arguments) {
+  const reply = invoke_reply(run_directory, executable, label, arguments);
+  ensure(flag_at(reply, "ok"),
+    "cu_macos_windows_inventory_cli:" + label + ":" + JSON.stringify(reply));
+  return reply;
+}
+
+function compile_fixture(run_directory, repo) {
+  const source = rh.join(repo, "examples/objc/agenterm_ax_fixture.m");
+  ensure(direct_file(source), "cu_macos_windows_inventory_fixture_source_missing");
+  const fixture = rh.join(run_directory, "agenterm_ax_fixture");
+  const compiled = rh.command("clang", [
+    "-fobjc-arc", "-framework", "Cocoa", "-Wall", "-Wextra", "-Werror",
+    source, "-o", fixture
+  ], { cwd: repo, timeout_ms: 60000 });
+  ensure(compiled.success === true && direct_file(fixture),
+    "cu_macos_windows_inventory_fixture_compile:"
+      + compiled.stdout + compiled.stderr);
+  return fixture;
+}
+
+function inventory_args(pid, extra) {
+  const arguments = ["windows", "--pid", "" + pid];
+  for (const item of extra) { arguments.push(item); }
+  return arguments;
+}
+
+function find_title(data, title) {
+  for (const row of data.windows) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+function wait_for_fixture(run_directory, executable, pid, main_title, second_title) {
+  const waited = invoke_ok(run_directory, executable, "fixture-wait", [
+    "wait", "--timeout-ms", "5000", "--window-title-contains", main_title
+  ]);
+  ensure(flag_at(waited, "data.met"), "cu_macos_windows_inventory_fixture_wait");
+  const inventory = invoke_ok(run_directory, executable, "fixture-inventory", inventory_args(pid, [
+    "--title", "agenterm-ax-", "--all", "--meta", "--max", "8"
+  ]));
+  ensure(int_at(inventory, "data.matched") === 2
+      && int_at(inventory, "data.returned") === 2
+      && flag_at(inventory, "data.truncated") === false,
+    "cu_macos_windows_inventory_fixture_count:" + JSON.stringify(inventory));
+  const main = find_title(inventory.data, main_title);
+  const second = find_title(inventory.data, second_title);
+  ensure(main !== null && second !== null
+      && int_at(main, "process_id") === pid
+      && int_at(second, "process_id") === pid
+      && int_at(main, "handle") > 0
+      && int_at(second, "handle") > 0,
+    "cu_macos_windows_inventory_fixture_identity:" + JSON.stringify(inventory.data));
+  return { main: main, second: second };
+}
+
+function act_window(run_directory, executable, verb, handle, expected_state, label) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe,actuate",
+    verb, "--window", "" + handle, "--expect", expected_state
+  ], {
+    cwd: run_directory,
+    env: cu_env(run_directory, label),
+    timeout_ms: 30000
+  });
+  const reply = parse_reply(output, label);
+  ensure(flag_at(reply, "ok")
+      && flag_at(reply, "data.verified")
+      && flag_at(reply, "data.frontmost_app_unchanged"),
+    "cu_macos_windows_inventory_action:" + label + ":" + JSON.stringify(reply));
+  if (expected_state === "minimized") {
+    ensure(flag_at(reply, "data.after.minimized"),
+      "cu_macos_windows_inventory_minimized_readback:" + label);
+  } else {
+    ensure(flag_at(reply, "data.after.minimized") === false,
+      "cu_macos_windows_inventory_restored_readback:" + label);
+  }
+}
+
+function assert_inventory_envelope(data, pid, label) {
+  ensure(text_at(data, "mechanism") === "libagenterm",
+    label + ":mechanism:" + JSON.stringify(data));
+  ensure(rh.is_array(data.windows)
+      && int_at(data, "returned") === data.windows.length
+      && int_at(data, "filter.pid") === pid,
+    label + ":shape:" + JSON.stringify(data));
+  for (const row of data.windows) {
+    ensure(int_at(row, "process_id") === pid,
+      label + ":foreign_window:" + JSON.stringify(row));
+  }
+}
+
+function assert_empty_filter(reply, label) {
+  ensure(flag_at(reply, "ok")
+      && int_at(reply, "data.matched") === 0
+      && int_at(reply, "data.returned") === 0
+      && reply.data.windows.length === 0
+      && flag_at(reply, "data.truncated") === false,
+    label + ":" + JSON.stringify(reply));
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable),
+  "cu_macos_windows_inventory_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-macos-windows-inventory-filters");
+const run_directory = context.run_directory;
+const children = [];
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP compile and identify the two owned no-activate Cocoa windows");
+  const fixture_executable = compile_fixture(run_directory, repo);
+  const fixture = harness.start_child(context, {
+    program: fixture_executable,
+    args: [],
+    current_dir: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 60000
+  }, "ax-fixture");
+  children.push(fixture);
+  const main_title = "agenterm-ax-fixture-" + fixture.pid;
+  const second_title = "agenterm-ax-second-" + fixture.pid;
+  const owned = wait_for_fixture(
+    run_directory, executable, fixture.pid, main_title, second_title);
+  const main_handle = int_at(owned.main, "handle");
+
+  print("STEP managed Space, onscreen and occlusion truth filter the owned window before paging");
+  ensure(rh.is_array(owned.main.spaces) && owned.main.spaces.length >= 1,
+    "cu_macos_windows_inventory_space_membership:" + JSON.stringify(owned.main));
+  const space_id = rh.int_of(owned.main.spaces[0]);
+  ensure(space_id > 0, "cu_macos_windows_inventory_space_id");
+  const occluded_percent = int_at(owned.main, "occluded_percent");
+  ensure(occluded_percent >= 0 && occluded_percent <= 100,
+    "cu_macos_windows_inventory_occlusion_percent:" + JSON.stringify(owned.main));
+  const state = invoke_ok(run_directory, executable, "state-filter", inventory_args(fixture.pid, [
+    "--title", main_title,
+    "--space", "" + space_id,
+    "--onscreen", "true",
+    "--occluded", occluded_percent > 0 ? "true" : "false",
+    "--all", "--meta", "--offset", "0", "--max", "1"
+  ]));
+  assert_inventory_envelope(state.data, fixture.pid,
+    "cu_macos_windows_inventory_state");
+  const state_row = state.data.windows[0];
+  ensure(int_at(state, "data.matched") === 1
+      && int_at(state, "data.returned") === 1
+      && int_at(state_row, "handle") === main_handle
+      && flag_at(state_row, "onscreen")
+      && (int_at(state_row, "occluded_percent") > 0)
+        === (occluded_percent > 0)
+      && int_at(state, "data.filter.space") === space_id
+      && text_at(state, "data.filter.onscreen") === "true",
+    "cu_macos_windows_inventory_state_truth:" + JSON.stringify(state.data));
+
+  print("STEP a minimized window is visible only through --all --onscreen false");
+  act_window(run_directory, executable, "minimize", main_handle, "minimized", "minimize-main");
+  const ordinary_offscreen = invoke_ok(
+    run_directory, executable, "ordinary-offscreen", inventory_args(fixture.pid, [
+      "--title", main_title, "--onscreen", "false", "--meta", "--max", "2"
+    ]));
+  assert_empty_filter(ordinary_offscreen,
+    "cu_macos_windows_inventory_offscreen_requires_all");
+  const all_offscreen = invoke_ok(
+    run_directory, executable, "all-offscreen", inventory_args(fixture.pid, [
+      "--title", main_title, "--all", "--onscreen", "false",
+      "--minimized", "true", "--meta", "--max", "2"
+    ]));
+  const offscreen_row = all_offscreen.data.windows[0];
+  ensure(int_at(all_offscreen, "data.matched") === 1
+      && int_at(all_offscreen, "data.returned") === 1
+      && int_at(offscreen_row, "handle") === main_handle
+      && flag_at(offscreen_row, "minimized")
+      && flag_at(offscreen_row, "onscreen") === false
+      && flag_at(all_offscreen, "data.filter.all"),
+    "cu_macos_windows_inventory_all_offscreen:" + JSON.stringify(all_offscreen.data));
+  act_window(run_directory, executable, "restore", main_handle, "restored", "restore-main");
+
+  print("STEP AX root metadata exposes the fixture's real role, subrole and absent identifier");
+  const roots = invoke_ok(run_directory, executable, "ax-roots", inventory_args(fixture.pid, [
+    "--title", "agenterm-ax-", "--all", "--ax-meta", "--ax-scan-max", "8",
+    "--offset", "0", "--max", "8"
+  ]));
+  assert_inventory_envelope(roots.data, fixture.pid,
+    "cu_macos_windows_inventory_ax_roots");
+  ensure(int_at(roots, "data.ax_scan.candidates") === 2
+      && int_at(roots, "data.ax_scan.scanned") === 2
+      && int_at(roots, "data.ax_scan.matched") === 2
+      && int_at(roots, "data.ax_scan.unavailable") === 0
+      && flag_at(roots, "data.ax_scan.truncated") === false
+      && flag_at(roots, "data.truncated") === false,
+    "cu_macos_windows_inventory_ax_scan_complete:" + JSON.stringify(roots.data));
+  for (const row of roots.data.windows) {
+    ensure(text_at(row, "ax_root.status") === "ok"
+        && text_at(row, "ax_root.role") === "window"
+        && text_at(row, "ax_root.subrole") === "AXStandardWindow"
+        && at(row, "ax_root.identifier") === null
+        && rh.is_array(row.ax_root.actions),
+      "cu_macos_windows_inventory_ax_root_metadata:" + JSON.stringify(row));
+  }
+
+  print("STEP AX exact matches run before offset/max and exact mismatches remain empty");
+  const paged_roots = invoke_ok(
+    run_directory, executable, "ax-filter-page", inventory_args(fixture.pid, [
+      "--title", "agenterm-ax-", "--all", "--ax-role", "window",
+      "--ax-subrole", "AXStandardWindow",
+      "--ax-scan-max", "8", "--offset", "1", "--max", "1"
+    ]));
+  ensure(int_at(paged_roots, "data.ax_scan.candidates") === 2
+      && int_at(paged_roots, "data.ax_scan.scanned") === 2
+      && int_at(paged_roots, "data.ax_scan.matched") === 2
+      && int_at(paged_roots, "data.matched") === 2
+      && int_at(paged_roots, "data.offset") === 1
+      && int_at(paged_roots, "data.returned") === 1
+      && text_at(paged_roots.data.windows[0], "ax_root.role") === "window"
+      && text_at(paged_roots.data.windows[0], "ax_root.subrole") === "AXStandardWindow",
+    "cu_macos_windows_inventory_ax_before_page:" + JSON.stringify(paged_roots.data));
+  const role_miss = invoke_ok(
+    run_directory, executable, "ax-role-miss", inventory_args(fixture.pid, [
+      "--title", "agenterm-ax-", "--all", "--ax-role", "dialog",
+      "--ax-scan-max", "8", "--max", "8"
+    ]));
+  assert_empty_filter(role_miss, "cu_macos_windows_inventory_ax_role_exact");
+  const identifier_miss = invoke_ok(
+    run_directory, executable, "ax-identifier-miss", inventory_args(fixture.pid, [
+      "--title", "agenterm-ax-", "--all", "--ax-identifier", "fixture-window",
+      "--ax-scan-max", "8", "--max", "8"
+    ]));
+  assert_empty_filter(identifier_miss,
+    "cu_macos_windows_inventory_ax_identifier_exact");
+
+  print("STEP an exhausted AX candidate ceiling reports both scan and envelope truncation");
+  const bounded = invoke_ok(run_directory, executable, "ax-scan-bound", inventory_args(fixture.pid, [
+    "--title", "agenterm-ax-", "--all", "--ax-meta", "--ax-scan-max", "1",
+    "--offset", "0", "--max", "8"
+  ]));
+  ensure(int_at(bounded, "data.ax_scan.candidates") === 2
+      && int_at(bounded, "data.ax_scan.scanned") === 1
+      && int_at(bounded, "data.ax_scan.matched") === 1
+      && int_at(bounded, "data.ax_scan.unavailable") === 0
+      && int_at(bounded, "data.ax_scan.max") === 1
+      && flag_at(bounded, "data.ax_scan.truncated")
+      && flag_at(bounded, "data.truncated")
+      && int_at(bounded, "data.returned") === 1,
+    "cu_macos_windows_inventory_ax_bound:" + JSON.stringify(bounded.data));
+
+  print("STEP invalid managed Space and AX scan bounds fail typed without inventory output");
+  const bad_space = invoke_reply(run_directory, executable, "typed-space-zero", [
+    "windows", "--space", "0"
+  ]);
+  ensure(flag_at(bad_space, "ok") === false
+      && text_at(bad_space, "error.code") === "usage",
+    "cu_macos_windows_inventory_bad_space:" + JSON.stringify(bad_space));
+  const bad_scan = invoke_reply(run_directory, executable, "typed-scan-zero", [
+    "windows", "--ax-meta", "--ax-scan-max", "0"
+  ]);
+  ensure(flag_at(bad_scan, "ok") === false
+      && text_at(bad_scan, "error.code") === "invalid_command",
+    "cu_macos_windows_inventory_bad_scan:" + JSON.stringify(bad_scan));
+  const orphan_scan = invoke_reply(run_directory, executable, "typed-scan-without-ax", [
+    "windows", "--ax-scan-max", "1"
+  ]);
+  ensure(flag_at(orphan_scan, "ok") === false
+      && text_at(orphan_scan, "error.code") === "usage",
+    "cu_macos_windows_inventory_orphan_scan:" + JSON.stringify(orphan_scan));
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, children, succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  for (const id of declared_evidence) {
+    harness.emit_evidence(context, declared_evidence, id);
+  }
+  harness.remove_run(context);
+  print("PASS: macOS static window inventory filters complete candidates before bounded paging");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

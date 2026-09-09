@@ -5095,7 +5095,11 @@ only a lookup key; if either identity is missing or they differ, discard the
 snapshot instead of attaching it to a recycled process. Keep the native scan
 ceiling independent from caller-facing offset/limit pagination, and expose
 truncation plus read-error counts rather than silently presenting partial data
-as complete.
+as complete. Apply identity, state and provider-backed filters to the complete
+captured candidate set before caller offset/limit pagination. If an expensive
+per-row provider has its own scan ceiling, report that ceiling and its
+truncation separately and propagate incompleteness to the top-level result;
+never let a short filtered page imply that unscanned candidates did not match.
 
 Native paths and thread names are byte sequences until the public encoding
 boundary. Preserve invalid UTF-8 with the shared lossless byte representation;

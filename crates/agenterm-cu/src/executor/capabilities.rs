@@ -464,7 +464,19 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         },
         "verbs": {
             "capabilities": { "status": "available" },
-            "windows": capability_verb(mechanism::Capability::WindowEnumerate, serde_json::json!({})),
+            "windows": capability_verb(
+                mechanism::Capability::WindowEnumerate,
+                serde_json::json!({
+                    "filters": ["pid", "app", "title", "space", "focused", "minimized", "onscreen", "occluded", "all", "browser-profile", "ax-role", "ax-subrole", "ax-identifier"],
+                    "ax_root_scan_max": 1000,
+                    "all_inventory": "abi-1.36",
+                    "space_filter": if cfg!(target_os = "macos") {
+                        "skylight-private-read"
+                    } else {
+                        "unsupported"
+                    },
+                }),
+            ),
             "windows-watch": capability_verb(
                 mechanism::Capability::WindowEnumerate,
                 serde_json::json!({
@@ -1771,7 +1783,22 @@ fn doctor_check_failed(check: &serde_json::Value) -> bool {
 pub(super) fn doctor_payload() -> Result<serde_json::Value, CuError> {
     let permissions = permissions_declaration();
     let windows = doctor_check(
-        windows_payload(observe::WindowFilter::default(), None, Some(0), Some(1)),
+        windows_payload(
+            observe::WindowFilter::default(),
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            Some(0),
+            Some(1),
+        ),
         "returned",
     );
     let displays = doctor_check(displays_payload(), "returned");

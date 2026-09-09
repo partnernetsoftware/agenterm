@@ -1039,8 +1039,9 @@ The compatibility corpus now has zero static STAY spellings and 2 dynamic TODO
 witnesses after lossless projections for exact simulator application status,
 exact Linux and macOS application facts, `resource top`, focused
 PID, observe role, wait absence, platform-default-shell PTY, selector-rooted
-trees, bounded filtered query watch, and Space filtering evaluated inside every
-window-watch poll. The application slice now also has a native bounded
+trees, bounded filtered query watch, Space filtering evaluated inside every
+window-watch poll, and static Space/state/AX-root filtering over the complete
+window inventory before paging. The application slice now also has a native bounded
 `app-watch`: it binds `app-facts` canonical executable identity to process start
 identities and reports only whole-application launch/quit boundary crossings;
 the exact `apps watch APP` spelling reaches it with archived MCU timing defaults

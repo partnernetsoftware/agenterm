@@ -3348,6 +3348,24 @@
         "task.cu-macos-windows-watch-filters-smoke"
       ]
     },
+    "cu-macos-windows-inventory-filters-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-macos-windows-inventory-filters-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-macos-windows-inventory-filters-smoke"
+      ]
+    },
     "cu-clipboard-roundtrip-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -8817,6 +8835,26 @@
       "id": "cu-macos-windows-watch-filters-smoke",
       "description": "Prove that macOS windows-watch applies minimized, onscreen, occlusion and event-kind filters inside each bounded sample; retains complete all-window truth through ABI 1.36; filters before its event ceiling; and rejects unsupported truth or invalid bounds with typed errors. The court owns one no-activate Cocoa fixture and restores its window before cleanup.",
       "entry": "scripts/qjs/cu-macos-windows-watch-filters-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-macos-windows-inventory-filters-smoke",
+      "description": "Prove that static macOS windows inventory applies managed-Space, onscreen, occlusion and accessibility-root filters to the complete candidate set before paging; includes off-screen windows through --all; reports bounded AX scan truncation; and rejects invalid bounds without inventing native truth. The court owns one no-activate two-window Cocoa fixture and restores it before cleanup.",
+      "entry": "scripts/qjs/cu-macos-windows-inventory-filters-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
