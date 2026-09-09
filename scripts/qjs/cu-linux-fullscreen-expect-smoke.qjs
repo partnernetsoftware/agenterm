@@ -1,9 +1,11 @@
 // CEO: fullscreen/unfullscreen --expect fullscreen|unfullscreen on Linux.
 // Acceptance is smoke read-back only: independent xprop _NET_WM_STATE and
 // windows inventory fullscreen field must match --expect after each verb.
-// Typed usage, destructive-gate refusals, missing-window and headless
-// host-limit paths must hold before any owned fixture window exists.
-// No --coords or screenshot.
+// Typed fullscreen/unfullscreen usage must reject AT-SPI --name and other
+// unexpected arguments; typed get-extents --name usage/host-limit paths must
+// hold before the actuate/read-back court. Destructive-gate refusals,
+// missing-window and headless host-limit paths must also hold before any
+// owned fixture window exists. AT-SPI --name only; no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -15,6 +17,7 @@ const declared_evidence = [
 ];
 
 const MISSING_HANDLE = "99999999";
+const AT_SPI_PROBE_NAME = "Fullscreen Expect Court Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -98,6 +101,36 @@ function run_cu(run_directory, executable, grant, arguments) {
   return document;
 }
 
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_fullscreen_expect_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
 function fullscreen_refused(run_directory, executable, arguments, code) {
   const reply = run_cu_reply(run_directory, executable, "actuate", ["fullscreen"].concat(arguments));
   ensure(
@@ -137,6 +170,95 @@ function assert_fullscreen_usage_limit(run_directory, executable) {
   ensure(
     text_at(unfullscreen_zero, "error.code") === "usage",
     "cu_linux_fullscreen_expect_unfullscreen_usage_code:" + JSON.stringify(unfullscreen_zero.error)
+  );
+}
+
+function assert_fullscreen_atspi_name_usage_limit(run_directory, executable) {
+  const fullscreen_with_name = run_cu_reply(run_directory, executable, "actuate", [
+    "fullscreen", "--window", "1", "--name", AT_SPI_PROBE_NAME, "--expect", "fullscreen",
+  ]);
+  ensure(!output_success(fullscreen_with_name),
+    "cu_linux_fullscreen_expect_usage_fullscreen_name_ok:" + JSON.stringify(fullscreen_with_name));
+  ensure(
+    text_at(fullscreen_with_name, "error.code") === "usage",
+    "cu_linux_fullscreen_expect_usage_fullscreen_name_code:" + JSON.stringify(fullscreen_with_name.error)
+  );
+  ensure(
+    text_at(fullscreen_with_name, "command") === "usage",
+    "cu_linux_fullscreen_expect_usage_fullscreen_name_command:" + JSON.stringify(fullscreen_with_name)
+  );
+  ensure(
+    text_at(fullscreen_with_name, "error.message").indexOf("--name") >= 0
+      || text_at(fullscreen_with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_fullscreen_expect_usage_fullscreen_name_message:" + JSON.stringify(fullscreen_with_name.error)
+  );
+
+  const unfullscreen_with_name = run_cu_reply(run_directory, executable, "actuate", [
+    "unfullscreen", "--window", "1", "--name", AT_SPI_PROBE_NAME, "--expect", "unfullscreen",
+  ]);
+  ensure(!output_success(unfullscreen_with_name),
+    "cu_linux_fullscreen_expect_usage_unfullscreen_name_ok:" + JSON.stringify(unfullscreen_with_name));
+  ensure(
+    text_at(unfullscreen_with_name, "error.code") === "usage",
+    "cu_linux_fullscreen_expect_usage_unfullscreen_name_code:" + JSON.stringify(unfullscreen_with_name.error)
+  );
+  ensure(
+    text_at(unfullscreen_with_name, "command") === "usage",
+    "cu_linux_fullscreen_expect_usage_unfullscreen_name_command:" + JSON.stringify(unfullscreen_with_name)
+  );
+  ensure(
+    text_at(unfullscreen_with_name, "error.message").indexOf("--name") >= 0
+      || text_at(unfullscreen_with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_fullscreen_expect_usage_unfullscreen_name_message:" + JSON.stringify(unfullscreen_with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "actuate", [
+    "fullscreen", "--window", "1", "--expect", "fullscreen", "--bogus",
+  ]);
+  ensure(!output_success(with_bogus),
+    "cu_linux_fullscreen_expect_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_fullscreen_expect_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_fullscreen_expect_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ]);
+  ensure(!output_success(zero_handle),
+    "cu_linux_fullscreen_expect_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_fullscreen_expect_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_fullscreen_expect_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_fullscreen_expect_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_fullscreen_expect_extents_unavailable_code:" + code
   );
 }
 
@@ -293,6 +415,19 @@ print("STEP fullscreen/unfullscreen without DISPLAY typed-fails unsupported host
 assert_headless_host_limit(run_directory, executable, "fullscreen", "fullscreen");
 assert_headless_host_limit(run_directory, executable, "unfullscreen", "unfullscreen");
 
+const atspi_available = probe_atspi_available(executable);
+
+print("STEP fullscreen/unfullscreen typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+assert_fullscreen_atspi_name_usage_limit(run_directory, executable);
+
+if (atspi_available) {
+  print("STEP get-extents typed-fail invalid_input when --window is zero before fullscreen read-back court");
+  assert_get_extents_usage_limit(run_directory, executable);
+} else {
+  print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+}
+
 let fixture = -1;
 let fixture_pid = 0;
 try {
@@ -402,5 +537,9 @@ try {
 const context = harness.new_context(repo, "cu-linux-fullscreen-expect");
 harness.emit_evidence(context, declared_evidence, "cu.linux-fullscreen-expect-state");
 harness.remove_run(context);
-print("PASS: Linux fullscreen/unfullscreen usage/host-limit/miss honesty + independent xprop and windows inventory fullscreen read-back (no --coords)");
+if (atspi_available) {
+  print("PASS: Linux fullscreen/unfullscreen matches independent xprop and windows inventory fullscreen read-back with typed fullscreen/unfullscreen/get-extents usage honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux fullscreen/unfullscreen matches independent xprop and windows inventory fullscreen read-back with typed fullscreen/unfullscreen/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+}
 return;

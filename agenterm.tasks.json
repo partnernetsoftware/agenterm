@@ -5690,7 +5690,7 @@
     },
     {
       "id": "cu-linux-resize-expect-smoke",
-      "description": "Linux resize --expect WxH on a named GTK fixture window: typed usage, destructive-gate, missing-window and headless host-limit paths; independent windows inventory bounds and xwininfo Width/Height must match --expect after resize; no --coords.",
+      "description": "Linux resize --expect WxH on a named GTK fixture window: typed resize usage rejects AT-SPI --name; typed get-extents --name usage/host-limit court before actuate; destructive-gate, missing-window and headless host-limit paths; independent windows inventory bounds and xwininfo Width/Height must match --expect after resize; no --coords.",
       "entry": "scripts/qjs/cu-linux-resize-expect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5843,7 +5843,7 @@
     },
     {
       "id": "cu-linux-maximize-expect-smoke",
-      "description": "Linux maximize/unmaximize --expect maximized|unmaximized on a disposable GTK fixture window: typed usage, destructive-gate, missing-window and headless host-limit paths; independent xprop _NET_WM_STATE and windows inventory maximized field must match --expect after each verb; no --coords.",
+      "description": "Linux maximize/unmaximize --expect maximized|unmaximized on a disposable GTK fixture window: typed usage, destructive-gate, missing-window and headless host-limit paths; typed maximize/unmaximize usage rejects AT-SPI --name and typed get-extents --name usage/host-limit paths hold before actuate; independent xprop _NET_WM_STATE and windows inventory maximized field must match --expect after each verb; no --coords.",
       "entry": "scripts/qjs/cu-linux-maximize-expect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5863,7 +5863,7 @@
     },
     {
       "id": "cu-linux-fullscreen-expect-smoke",
-      "description": "Linux fullscreen/unfullscreen --expect fullscreen|unfullscreen on a disposable GTK fixture window: typed usage, destructive-gate, missing-window and headless host-limit paths; independent xprop _NET_WM_STATE and windows inventory fullscreen field must match --expect after each verb; no --coords.",
+      "description": "Linux fullscreen/unfullscreen --expect fullscreen|unfullscreen on a disposable GTK fixture window: typed fullscreen/unfullscreen/get-extents AT-SPI --name usage or host-limit honesty, destructive-gate, missing-window and headless host-limit paths; independent xprop _NET_WM_STATE and windows inventory fullscreen field must match --expect after each verb; no --coords.",
       "entry": "scripts/qjs/cu-linux-fullscreen-expect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
