@@ -246,6 +246,13 @@
       ]
     },
     {
+      "id": "cu-linux-capabilities-honesty-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-capabilities-honesty-readback"
+      ]
+    },
+    {
       "id": "cu-linux-unlock-honesty-smoke",
       "platform": "linux",
       "evidence": [
@@ -481,6 +488,13 @@
       "platform": "linux",
       "evidence": [
         "cu.linux-audio-status-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-resource-status-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-resource-status-readback"
       ]
     },
     {
