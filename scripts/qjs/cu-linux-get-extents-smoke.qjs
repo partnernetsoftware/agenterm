@@ -4,11 +4,15 @@
 // query on the same named node, both must typed-fail for unreadable rects,
 // and typed usage/miss/host-limit paths must hold when addressing is invalid
 // or the independent pyatspi desktop probe is unavailable. Typed get-extents
-// usage must reject zero --window, missing --name, and --coords/--bogus misuse;
-// get-extents --name usage/host-limit courts must run before actuate/read-back.
-// Named get-extents with --coords/--bogus must reject or stay accessibility-tree.
-// Prefer host-limit clarity over fake success. AT-SPI/--name only; no --coords
-// or screenshot degradation.
+// usage must reject zero --window, missing --name, and --coords/--bogus misuse
+// via usage_rejects_unexpected with command=usage (or honest non-usage typed
+// failure, never fake command=usage); get-extents --name usage AND host-limit
+// courts always run before the actuate/read-back court (no atspi_available
+// gating). Named get-extents with --coords/--bogus must reject as command=usage
+// or stay accessibility-tree. Court density aligns with maximize-expect,
+// process-state, and desktop-state get-extents embeds. Prefer host-limit
+// clarity over fake success. AT-SPI/--name only; no --coords or screenshot
+// degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -222,11 +226,18 @@ function assert_get_extents_reject_coords_or_stay_named(
     "get-extents", "--window", "" + handle, "--name", node_name, "--coords", "10,10",
   ]);
   if (!output_success(extents_coords)) {
-    const coords_code = text_at(extents_coords, "error.code");
     ensure(
-      coords_code === "usage" || coords_code === "invalid_input"
-        || coords_code === "a11y_extents_unavailable",
+      text_at(extents_coords, "error.code") === "usage",
       "cu_linux_get_extents_coords_code_" + label + ":" + JSON.stringify(extents_coords.error)
+    );
+    ensure(
+      text_at(extents_coords, "command") === "usage",
+      "cu_linux_get_extents_coords_command_" + label + ":" + JSON.stringify(extents_coords)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+        || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+      "cu_linux_get_extents_coords_message_" + label + ":" + JSON.stringify(extents_coords.error)
     );
   } else {
     ensure(
@@ -240,11 +251,18 @@ function assert_get_extents_reject_coords_or_stay_named(
     "get-extents", "--window", "" + handle, "--name", node_name, "--bogus",
   ]);
   if (!output_success(extents_bogus)) {
-    const bogus_code = text_at(extents_bogus, "error.code");
     ensure(
-      bogus_code === "usage" || bogus_code === "invalid_input"
-        || bogus_code === "a11y_extents_unavailable",
+      text_at(extents_bogus, "error.code") === "usage",
       "cu_linux_get_extents_bogus_code_" + label + ":" + JSON.stringify(extents_bogus.error)
+    );
+    ensure(
+      text_at(extents_bogus, "command") === "usage",
+      "cu_linux_get_extents_bogus_command_" + label + ":" + JSON.stringify(extents_bogus)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+        || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+      "cu_linux_get_extents_bogus_message_" + label + ":" + JSON.stringify(extents_bogus.error)
     );
   } else {
     ensure(
@@ -508,7 +526,7 @@ let failure = "";
 const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before actuate/read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before actuate/read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
   print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before actuate/read-back court");
@@ -539,7 +557,7 @@ try {
     const handle = int_at(inventory_row, "handle");
     ensure(handle > 0, "cu_linux_get_extents_handle:" + JSON.stringify(inventory_row));
 
-    print("STEP get-extents --name with --coords/--bogus rejects or stays accessibility-tree before actuate/read-back court");
+    print("STEP get-extents --name with --coords/--bogus rejects as command=usage or stays accessibility-tree before actuate/read-back court");
     assert_get_extents_reject_coords_or_stay_named(
       run_directory, executable, handle, COURT_PROBE_NAME, "fixture_press"
     );
@@ -582,9 +600,9 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-get-extents-readback");
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux get-extents matches independent AT-SPI Component.GetExtents(Screen) read-back with typed get-extents --coords/--bogus usage honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux get-extents matches independent AT-SPI Component.GetExtents(Screen) read-back with typed get-extents --coords/--bogus usage_rejects_unexpected plus command=usage honesty and get-extents --name usage AND host-limit courts (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux get-extents typed-fails with get-extents --coords/--bogus usage and host-limit honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
+    print("PASS: Linux get-extents typed-fails with get-extents --coords/--bogus usage_rejects_unexpected plus command=usage and get-extents --name usage AND host-limit honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }

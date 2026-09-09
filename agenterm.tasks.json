@@ -7049,7 +7049,7 @@
     },
     {
       "id": "cu-linux-get-extents-smoke",
-      "description": "Linux get-extents --name for owned GTK fixture nodes matches independent AT-SPI Component.GetExtents(Screen) read-back, both typed-fail for unreadable rects, typed get-extents --coords/--bogus usage AND invalid-bus host-limit courts always run before read-back, and miss/host-limit paths hold; no --coords.",
+      "description": "Linux get-extents --name for owned GTK fixture nodes matches independent AT-SPI Component.GetExtents(Screen) read-back, both typed-fail for unreadable rects, typed get-extents --coords/--bogus usage_rejects_unexpected plus command=usage AND invalid-bus host-limit courts always run before read-back, named --coords/--bogus rejects as command=usage or stays accessibility-tree, and miss/host-limit paths hold; no --coords.",
       "entry": "scripts/qjs/cu-linux-get-extents-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
