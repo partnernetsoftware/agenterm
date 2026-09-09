@@ -7626,7 +7626,7 @@
     },
     {
       "id": "cu-linux-file-mode-smoke",
-      "description": "Linux file-mode observe before_mode and actuate apply/restore agree with independent os.lstat permission read-back on a temp regular file; typed file-mode/get-extents AT-SPI --name usage and host-limit honesty before chmod/mode court; permission-denied open host-limit when independent os.open probe is denied; final symlink refusal; no --coords.",
+      "description": "Linux file-mode observe before_mode and actuate apply/restore agree with independent os.lstat permission read-back on a temp regular file; typed file-mode usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage AND host-limit paths before the chmod/mode read-back court; permission-denied open host-limit when independent os.open probe is denied; final symlink refusal; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-file-mode-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
