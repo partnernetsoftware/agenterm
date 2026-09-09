@@ -136,3 +136,31 @@ PUBLIC_LOC 0/20, PUBLIC_OFF 0/20, no peer delivery, no host-state change, and
 verified cleanup. Thus the two required complete current-host discriminator
 runs agree; this still does not substitute for the separate 1,000-action
 PRIVATE repeat.
+
+## Chromium PRIVATE repeat attempt 1 · 2026-09-09
+
+- Repository source SHA: `05671a5051083385aaaaa6d768935d1f5973369d`.
+- Repeat source digest:
+  `6448014f69c7dbca8c12a24747f3162e676a3b773a07886e7cc4f3355cd8a95f`.
+- Verdict: `INCONCLUSIVE` before a structured behavioral verdict.
+- Runtime failure: qjswasm exhausted its hard `max_steps` ceiling even though
+  the runner requested the maximum one-billion-operation budget.
+- Cleanup audit: the backend trap prevented the court's cleanup report, but a
+  bounded process inventory immediately afterward found neither the owned
+  Chromium profile process nor the guard process alive. The abandoned ignored
+  run directory was moved to the system trash.
+
+This is a specification/runner-budget failure, not evidence for or against the
+PRIVATE route. No partial action count is claimed because the trapped guest
+could not emit an authenticated final report. Two explicitly non-qualifying
+detector runs then measured the same source: 10/10 exact in 10,562 ms and 50/50
+exact in 34,718 ms, both with zero loss, duplicate, peer delivery or host drift
+and with cleanup verified. They establish that 50 actions fit one fresh step
+budget; they do not add to the required 1,000.
+
+The experiment protocol now isolates only the incidental qjswasm step budget:
+one parent retains the same live profile, A/B window identities and guard while
+20 fresh top-level calls cover contiguous 50-action blocks. The per-action
+criteria and first-failure kill rule are unchanged. This correction was frozen
+before any qualifying chunked run; no behavioral result was available when the
+protocol changed.
