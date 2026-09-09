@@ -2,9 +2,10 @@
 // Acceptance is smoke read-back only: CU login-session status must agree with facts
 // derived outside agenterm-cu, or return typed login_session_unsupported with Linux
 // systemd-logind alternatives (never macOS claims). Typed login-session usage must
-// reject AT-SPI --name and other unexpected arguments; typed get-extents --name
-// usage/host-limit paths must hold before the loginctl read-back court. Observe-only;
-// no lock apply. AT-SPI/--name only; no --coords.
+// reject AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed
+// get-extents --name usage AND host-limit paths must both hold before the loginctl
+// read-back court. Prefer host-limit clarity over fake success. Observe-only; no lock
+// apply. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -30,6 +31,11 @@ function text_at(v, d) {
 }
 
 function output_success(document) { return at(document, "ok") === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
 
 function cu_env(exe) {
   const env = {
@@ -109,7 +115,11 @@ function assert_login_session_usage_limit(dir, exe, env) {
     "cu_linux_login_session_usage_status_name_code:" + JSON.stringify(status_with_name.error)
   );
   ensure(
-    text_at(status_with_name, "error.message").indexOf("--name") >= 0,
+    text_at(status_with_name, "command") === "usage",
+    "cu_linux_login_session_usage_status_name_command:" + JSON.stringify(status_with_name)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(status_with_name, "error.message"), "--name"),
     "cu_linux_login_session_usage_status_name_message:" + JSON.stringify(status_with_name.error)
   );
 
@@ -121,7 +131,11 @@ function assert_login_session_usage_limit(dir, exe, env) {
     "cu_linux_login_session_usage_plan_name_code:" + JSON.stringify(plan_with_name.error)
   );
   ensure(
-    text_at(plan_with_name, "error.message").indexOf("--name") >= 0,
+    text_at(plan_with_name, "command") === "usage",
+    "cu_linux_login_session_usage_plan_name_command:" + JSON.stringify(plan_with_name)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(plan_with_name, "error.message"), "--name"),
     "cu_linux_login_session_usage_plan_name_message:" + JSON.stringify(plan_with_name.error)
   );
 
@@ -134,7 +148,11 @@ function assert_login_session_usage_limit(dir, exe, env) {
     "cu_linux_login_session_usage_plan_ttl_name_code:" + JSON.stringify(plan_ttl_with_name.error)
   );
   ensure(
-    text_at(plan_ttl_with_name, "error.message").indexOf("--name") >= 0,
+    text_at(plan_ttl_with_name, "command") === "usage",
+    "cu_linux_login_session_usage_plan_ttl_name_command:" + JSON.stringify(plan_ttl_with_name)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(plan_ttl_with_name, "error.message"), "--name"),
     "cu_linux_login_session_usage_plan_ttl_name_message:" + JSON.stringify(plan_ttl_with_name.error)
   );
 
@@ -145,6 +163,96 @@ function assert_login_session_usage_limit(dir, exe, env) {
     text_at(status_bogus, "error.code") === "usage",
     "cu_linux_login_session_usage_status_bogus_code:" + JSON.stringify(status_bogus.error)
   );
+  ensure(
+    text_at(status_bogus, "command") === "usage",
+    "cu_linux_login_session_usage_status_bogus_command:" + JSON.stringify(status_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(status_bogus, "error.message"), "--bogus"),
+    "cu_linux_login_session_usage_status_bogus_message:" + JSON.stringify(status_bogus.error)
+  );
+
+  const plan_bogus = invoke_reply(dir, exe, ["plan", "lock", "--bogus"], env);
+  ensure(!output_success(plan_bogus),
+    "cu_linux_login_session_usage_plan_bogus_ok:" + JSON.stringify(plan_bogus));
+  ensure(
+    text_at(plan_bogus, "error.code") === "usage",
+    "cu_linux_login_session_usage_plan_bogus_code:" + JSON.stringify(plan_bogus.error)
+  );
+  ensure(
+    text_at(plan_bogus, "command") === "usage",
+    "cu_linux_login_session_usage_plan_bogus_command:" + JSON.stringify(plan_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(plan_bogus, "error.message"), "--bogus"),
+    "cu_linux_login_session_usage_plan_bogus_message:" + JSON.stringify(plan_bogus.error)
+  );
+
+  const plan_ttl_bogus = invoke_reply(dir, exe,
+    ["plan", "lock", "--ttl-seconds", "60", "--bogus"], env);
+  ensure(!output_success(plan_ttl_bogus),
+    "cu_linux_login_session_usage_plan_ttl_bogus_ok:" + JSON.stringify(plan_ttl_bogus));
+  ensure(
+    text_at(plan_ttl_bogus, "error.code") === "usage",
+    "cu_linux_login_session_usage_plan_ttl_bogus_code:" + JSON.stringify(plan_ttl_bogus.error)
+  );
+  ensure(
+    text_at(plan_ttl_bogus, "command") === "usage",
+    "cu_linux_login_session_usage_plan_ttl_bogus_command:" + JSON.stringify(plan_ttl_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(plan_ttl_bogus, "error.message"), "--bogus"),
+    "cu_linux_login_session_usage_plan_ttl_bogus_message:" + JSON.stringify(plan_ttl_bogus.error)
+  );
+
+  const status_coords = invoke_reply(dir, exe, ["status", "--coords", "10,10"], env);
+  ensure(!output_success(status_coords),
+    "cu_linux_login_session_usage_status_coords_ok:" + JSON.stringify(status_coords));
+  ensure(
+    text_at(status_coords, "error.code") === "usage",
+    "cu_linux_login_session_usage_status_coords_code:" + JSON.stringify(status_coords.error)
+  );
+  ensure(
+    text_at(status_coords, "command") === "usage",
+    "cu_linux_login_session_usage_status_coords_command:" + JSON.stringify(status_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(status_coords, "error.message"), "--coords"),
+    "cu_linux_login_session_usage_status_coords_message:" + JSON.stringify(status_coords.error)
+  );
+
+  const plan_coords = invoke_reply(dir, exe, ["plan", "lock", "--coords", "10,10"], env);
+  ensure(!output_success(plan_coords),
+    "cu_linux_login_session_usage_plan_coords_ok:" + JSON.stringify(plan_coords));
+  ensure(
+    text_at(plan_coords, "error.code") === "usage",
+    "cu_linux_login_session_usage_plan_coords_code:" + JSON.stringify(plan_coords.error)
+  );
+  ensure(
+    text_at(plan_coords, "command") === "usage",
+    "cu_linux_login_session_usage_plan_coords_command:" + JSON.stringify(plan_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(plan_coords, "error.message"), "--coords"),
+    "cu_linux_login_session_usage_plan_coords_message:" + JSON.stringify(plan_coords.error)
+  );
+
+  const plan_ttl_coords = invoke_reply(dir, exe,
+    ["plan", "lock", "--ttl-seconds", "60", "--coords", "10,10"], env);
+  ensure(!output_success(plan_ttl_coords),
+    "cu_linux_login_session_usage_plan_ttl_coords_ok:" + JSON.stringify(plan_ttl_coords));
+  ensure(
+    text_at(plan_ttl_coords, "error.code") === "usage",
+    "cu_linux_login_session_usage_plan_ttl_coords_code:" + JSON.stringify(plan_ttl_coords.error)
+  );
+  ensure(
+    text_at(plan_ttl_coords, "command") === "usage",
+    "cu_linux_login_session_usage_plan_ttl_coords_command:" + JSON.stringify(plan_ttl_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(plan_ttl_coords, "error.message"), "--coords"),
+    "cu_linux_login_session_usage_plan_ttl_coords_message:" + JSON.stringify(plan_ttl_coords.error)
+  );
 
   const missing_subcommand = invoke_reply(dir, exe, [], env);
   ensure(!output_success(missing_subcommand),
@@ -152,6 +260,10 @@ function assert_login_session_usage_limit(dir, exe, env) {
   ensure(
     text_at(missing_subcommand, "error.code") === "usage",
     "cu_linux_login_session_usage_missing_subcommand_code:" + JSON.stringify(missing_subcommand.error)
+  );
+  ensure(
+    text_at(missing_subcommand, "command") === "usage",
+    "cu_linux_login_session_usage_missing_subcommand_command:" + JSON.stringify(missing_subcommand)
   );
 }
 
@@ -168,6 +280,62 @@ function assert_get_extents_usage_limit(dir, exe, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_login_session_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(dir, exe, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_login_session_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_login_session_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_login_session_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_login_session_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(dir, exe, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_login_session_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_login_session_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_login_session_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_login_session_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(dir, exe, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_login_session_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_login_session_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_login_session_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_login_session_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -246,15 +414,17 @@ const ctx = harness.new_context(repo, "cu-linux-login-session");
 const env = cu_env(exe);
 const atspi_available = probe_atspi_available(exe);
 
-print("STEP login-session typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+print("STEP login-session typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
 assert_login_session_usage_limit(ctx.run_directory, exe, env);
 
-if (atspi_available) {
-  print("STEP get-extents typed-fail invalid_input when --window is zero before loginctl read-back");
-  assert_get_extents_usage_limit(ctx.run_directory, exe, env);
-} else {
-  print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-  assert_get_extents_host_limit_when_atspi_absent(ctx.run_directory, exe);
+print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before loginctl read-back court");
+assert_get_extents_usage_limit(ctx.run_directory, exe, env);
+
+print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before loginctl read-back court");
+assert_get_extents_host_limit_when_atspi_absent(ctx.run_directory, exe);
+
+if (atspi_available !== true) {
+  print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; loginctl read-back court still runs when probe facts exist");
 }
 
 const p = probe();
@@ -268,9 +438,9 @@ if (p === null) {
   harness.emit_evidence(ctx, declared_evidence, "cu.linux-login-session-readback");
   harness.remove_run(ctx);
   if (atspi_available) {
-    print("PASS: Linux login-session typed unsupported with independent probe absence read-back and typed login-session/get-extents usage honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux login-session typed unsupported with independent probe absence read-back and typed login-session --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux login-session typed unsupported with independent probe absence read-back and typed login-session/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux login-session typed unsupported with independent probe absence read-back and typed login-session --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
   }
   return;
 }
@@ -288,7 +458,7 @@ ensure(rh.field(st,"data.locked")===p.locked,"locked");
 harness.emit_evidence(ctx, declared_evidence, "cu.linux-login-session-readback");
 harness.remove_run(ctx);
 if (atspi_available) {
-  print("PASS: Linux login-session status matches independent loginctl/session-env read-back with typed login-session/get-extents usage honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux login-session status matches independent loginctl/session-env read-back with typed login-session --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: Linux login-session status matches independent loginctl/session-env read-back with typed login-session/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux login-session status matches independent loginctl/session-env read-back with typed login-session --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
 }

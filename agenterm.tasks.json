@@ -8086,7 +8086,7 @@
     },
     {
       "id": "cu-linux-login-session-smoke",
-      "description": "Linux login-session status matches independent loginctl/session-env read-back or returns typed systemd-logind unsupported honesty without macOS claims; typed login-session usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the loginctl court; observe-only, no lock apply; AT-SPI/--name only, no --coords.",
+      "description": "Linux login-session status matches independent loginctl/session-env read-back or returns typed systemd-logind unsupported honesty without macOS claims; typed login-session usage rejects AT-SPI --name, --coords, and --bogus; typed get-extents --name usage AND host-limit paths before the loginctl court; observe-only, no lock apply; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-login-session-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
