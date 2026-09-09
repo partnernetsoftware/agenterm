@@ -6706,7 +6706,7 @@
     },
     {
       "id": "cu-linux-screenshot-window-smoke",
-      "description": "Linux screenshot --window for an owned GTK fixture writes a real PNG whose independent magic/IHDR/size read-back agrees with inventory bounds; optional full-display screenshot secondary; stale handle typed screenshot_window_unavailable; no --coords.",
+      "description": "Linux screenshot --window for an owned GTK fixture writes a real PNG whose independent magic/IHDR/size read-back agrees with inventory bounds; optional full-display screenshot secondary; zero handle usage and missing DISPLAY unsupported host-limit; stale handle typed screenshot_window_unavailable; no --coords.",
       "entry": "scripts/qjs/cu-linux-screenshot-window-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

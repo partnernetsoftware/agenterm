@@ -2,7 +2,8 @@
 // Acceptance is smoke read-back only: CU screenshot --window for an owned GTK
 // fixture must write a real PNG whose magic, IHDR dimensions and size agree
 // with inventory bounds; optional full-display screenshot is secondary.
-// AT-SPI/--name only; no --coords or screenshot degradation.
+// Typed usage and missing DISPLAY host-limit paths must hold; stale handles
+// typed-fail screenshot_window_unavailable. AT-SPI/--name only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -15,6 +16,7 @@ const declared_evidence = [
 
 const MIN_WINDOW_PNG_BYTES = 2000;
 const MIN_DISPLAY_PNG_BYTES = 5000;
+const PNG_MAGIC_HEX = "89504e470d0a1a0a";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -82,17 +84,29 @@ function run_cu(run_directory, executable, grant, cu_args) {
   return JSON.parse(trimmed);
 }
 
-function run_cu_reply(run_directory, executable, grant, cu_args) {
+function last_json_line(text) {
+  const lines = text.trim().split("\n");
+  for (let index = lines.length - 1; index >= 0; index = index - 1) {
+    const line = lines[index].trim();
+    if (line !== "") { return JSON.parse(line); }
+  }
+  throw "cu_linux_screenshot_window_missing_json";
+}
+
+function run_cu_reply(run_directory, executable, grant, cu_args, env, env_remove) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of cu_args) { argv.push("" + argument); }
-  const output = rh.command(executable, argv, {
-    cwd: run_directory,
-    env: cu_env(executable),
+  const spec = {
+    program: executable,
+    args: argv,
+    current_dir: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
-  });
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_screenshot_window_empty_reply:" + output.stderr);
-  return JSON.parse(trimmed);
+  };
+  if (env_remove !== undefined && env_remove.length > 0) { spec.env_remove = env_remove; }
+  const output = rh.command_spec(spec);
+  ensure(output.stdout.trim() !== "", "cu_linux_screenshot_window_empty_reply:" + output.stderr);
+  return last_json_line(output.stdout);
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -125,7 +139,28 @@ function independent_png_probe_script() {
   ].join("\n");
 }
 
+function independent_png_magic_hex(path) {
+  const script = [
+    "import sys",
+    "path = sys.argv[1]",
+    "data = open(path, 'rb').read(8)",
+    "if len(data) != 8:",
+    "    raise SystemExit('cu_linux_screenshot_window_magic_short')",
+    "print(data.hex())",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, path], { timeout_ms: 10000 });
+  ensure(
+    output.success === true && output.stdout.trim() !== "",
+    "cu_linux_screenshot_window_magic:" + output.stdout + output.stderr
+  );
+  return output.stdout.trim().toLowerCase();
+}
+
 function independent_png_readback(run_directory, path) {
+  ensure(
+    independent_png_magic_hex(path) === PNG_MAGIC_HEX,
+    "cu_linux_screenshot_window_magic_mismatch:" + path
+  );
   const output = rh.command(
     "python3",
     ["-c", independent_png_probe_script(), path],
@@ -208,6 +243,44 @@ function assert_window_png_honesty(run_directory, executable, handle, inventory_
   }
 }
 
+function assert_screenshot_usage_limit(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "screenshot", "--out", rh.join(run_directory, "usage.png"), "--window", "0",
+  ]);
+  ensure(!flag_at(reply, "ok"), "cu_linux_screenshot_window_usage_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_screenshot_window_usage_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_screenshot_window_usage_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_headless_display_host_limit(run_directory, executable, label, cu_args, message_needle) {
+  const reply = run_cu_reply(
+    run_directory,
+    executable,
+    "observe",
+    cu_args,
+    {
+      AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+      AGENTERM_NO_ACTIVATE: "1",
+    },
+    ["DISPLAY"]
+  );
+  ensure(!flag_at(reply, "ok"), "cu_linux_screenshot_window_headless_ok_" + label + ":" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_screenshot_window_headless_code_" + label + ":" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").toLowerCase().indexOf(message_needle) >= 0,
+    "cu_linux_screenshot_window_headless_message_" + label + ":" + JSON.stringify(reply.error)
+  );
+}
+
 function assert_unavailable_window(run_directory, executable, label) {
   const reply = run_cu_reply(run_directory, executable, "observe", [
     "screenshot", "--out", rh.join(run_directory, "bad-" + label + ".png"), "--window", "1",
@@ -215,6 +288,10 @@ function assert_unavailable_window(run_directory, executable, label) {
   ensure(
     !flag_at(reply, "ok") && text_at(reply, "error.code") === "screenshot_window_unavailable",
     "cu_linux_screenshot_window_unavailable_" + label + ":" + JSON.stringify(reply)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("not a current top-level") >= 0,
+    "cu_linux_screenshot_window_unavailable_message_" + label + ":" + JSON.stringify(reply.error)
   );
 }
 
@@ -242,6 +319,25 @@ let succeeded = 0;
 let failure = "";
 
 try {
+  print("STEP screenshot typed-fails usage when --window handle is zero");
+  assert_screenshot_usage_limit(run_directory, executable);
+
+  print("STEP screenshot without DISPLAY typed-fails unsupported x11-display host-limit");
+  assert_headless_display_host_limit(
+    run_directory,
+    executable,
+    "display",
+    ["screenshot", "--out", rh.join(run_directory, "headless-display.png")],
+    "x11 display"
+  );
+  assert_headless_display_host_limit(
+    run_directory,
+    executable,
+    "window",
+    ["screenshot", "--out", rh.join(run_directory, "headless-window.png"), "--window", "1"],
+    "x11 display"
+  );
+
   print("STEP start owned GTK fixture and resolve window by pid and exact title");
   fixture = harness.start({
     program: "python3",
@@ -312,7 +408,7 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-screenshot-window-readback");
   harness.remove_run(context);
-  print("PASS: Linux screenshot --window matches independent PNG file read-back");
+  print("PASS: Linux screenshot --window with usage, headless-display host-limit, and independent PNG read-back");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
