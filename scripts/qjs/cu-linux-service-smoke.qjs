@@ -155,6 +155,45 @@ function probe_script() {
   ].join("\n");
 }
 
+function probe_absence() {
+  const script = [
+    "import json, os, shutil, sys",
+    "def systemctl_bin():",
+    "    for candidate in ('systemctl', '/usr/bin/systemctl', '/bin/systemctl'):",
+    "        if shutil.which(candidate) or os.path.isfile(candidate):",
+    "            return candidate",
+    "    return None",
+    "def has_dbus_python():",
+    "    try:",
+    "        import dbus  # noqa: F401",
+    "        return True",
+    "    except ImportError:",
+    "        return False",
+    "def systemd_bus_reachable(scope):",
+    "    try:",
+    "        import dbus",
+    "        bus = dbus.SessionBus() if scope == 'user' else dbus.SystemBus()",
+    "        bus.get_object('org.freedesktop.systemd1', '/org/freedesktop/systemd1')",
+    "        return True",
+    "    except Exception:",
+    "        return False",
+    "print(json.dumps({",
+    "    'systemctl': systemctl_bin() is not None,",
+    "    'dbus_python': has_dbus_python(),",
+    "    'session_systemd_bus': systemd_bus_reachable('user'),",
+    "    'system_systemd_bus': systemd_bus_reachable('system'),",
+    "    'xdg_runtime_dir': os.environ.get('XDG_RUNTIME_DIR', ''),",
+    "    'dbus_session_bus_address': os.environ.get('DBUS_SESSION_BUS_ADDRESS', ''),",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_service_absence_probe:" + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
 function independent_probe() {
   const output = rh.command("python3", ["-c", probe_script()], {
     env: cu_env(),
@@ -166,14 +205,92 @@ function independent_probe() {
   return parsed.scopes;
 }
 
+const missing_service_name = "com.example.agenterm.missing-court.service";
+
+function missing_status_script() {
+  return [
+    "import json, os, shutil, subprocess, sys",
+    "def map_state(active):",
+    "    return {",
+    "        'active': 'running', 'reloading': 'running',",
+    "        'activating': 'activating', 'deactivating': 'deactivating',",
+    "        'inactive': 'loaded_inactive', 'failed': 'failed',",
+    "    }.get(active, 'unknown')",
+    "def systemctl_bin():",
+    "    for candidate in ('systemctl', '/usr/bin/systemctl', '/bin/systemctl'):",
+    "        if shutil.which(candidate) or os.path.isfile(candidate):",
+    "            return candidate",
+    "    return None",
+    "def dbus_missing(scope, name):",
+    "    try:",
+    "        import dbus",
+    "    except ImportError:",
+    "        return None",
+    "    try:",
+    "        bus = dbus.SessionBus() if scope == 'user' else dbus.SystemBus()",
+    "        manager = bus.get_object('org.freedesktop.systemd1', '/org/freedesktop/systemd1')",
+    "        iface = dbus.Interface(manager, 'org.freedesktop.systemd1.Manager')",
+    "        iface.GetUnit(name)",
+    "        return {'missing': False, 'name': name}",
+    "    except Exception as error:",
+    "        text = str(error)",
+    "        if 'NoSuchUnit' in text or 'not loaded' in text:",
+    "            return {'missing': True, 'name': name}",
+    "        return None",
+    "def systemctl_missing(scope, name):",
+    "    sc = systemctl_bin()",
+    "    if sc is None:",
+    "        return None",
+    "    cmd = [sc]",
+    "    if scope == 'user':",
+    "        cmd.append('--user')",
+    "    cmd.extend(['show', name, '--property=Id,ActiveState,SubState,Description', '--value'])",
+    "    out = subprocess.run(cmd, capture_output=True, text=True)",
+    "    if out.returncode != 0:",
+    "        return {'missing': True, 'name': name}",
+    "    values = [line.strip() for line in out.stdout.splitlines() if line.strip() != '']",
+    "    if len(values) < 4:",
+    "        return None",
+    "    return {'missing': False, 'name': values[0], 'state': map_state(values[1]), 'substate': values[2]}",
+    "scope = sys.argv[1]",
+    "name = sys.argv[2]",
+    "result = dbus_missing(scope, name)",
+    "mechanism = 'dbus-python'",
+    "if result is None:",
+    "    result = systemctl_missing(scope, name)",
+    "    mechanism = 'systemctl'",
+    "if result is None:",
+    "    print(json.dumps({'available': False})); sys.exit(0)",
+    "print(json.dumps({'available': True, 'mechanism': mechanism, 'result': result}))",
+  ].join("\n");
+}
+
+function independent_missing_status(scope, name) {
+  const output = rh.command("python3", ["-c", missing_status_script(), scope, name], {
+    env: cu_env(),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_service_missing_probe:" + output.stderr);
+  const parsed = JSON.parse(output.stdout.trim());
+  if (parsed.available !== true || !parsed.result) { return null; }
+  return parsed;
+}
+
 function verify_unsupported(reply) {
   ensure(reply.ok !== true, "cu_linux_service_false_success");
   ensure(text_at(reply, "error.code") === "service_unsupported", "cu_linux_service_code:" + JSON.stringify(reply.error));
+  ensure(text_at(reply, "error.message").length > 0, "cu_linux_service_message");
+  ensure(text_at(reply, "error.message").indexOf("macOS") < 0, "cu_linux_service_macos_claim");
   const detail = at(reply, "error.detail");
   ensure(text_at(detail, "os") === "linux", "cu_linux_service_os");
+  ensure(text_at(detail, "required_os") === "linux", "cu_linux_service_required_os");
+  ensure(text_at(detail, "provider") === "none", "cu_linux_service_provider");
+  ensure(text_at(detail, "limit") === "host", "cu_linux_service_limit");
+  ensure(text_at(detail, "group") === "system", "cu_linux_service_group");
   ensure(text_at(detail, "mechanism").indexOf("systemd") >= 0, "cu_linux_service_mechanism");
   const alts = at(detail, "alternatives");
   ensure(Array.isArray(alts) && alts.length > 0, "cu_linux_service_alternatives");
+  ensure(JSON.stringify(alts).indexOf("systemctl") >= 0, "cu_linux_service_systemctl_alt");
   ensure(JSON.stringify(reply).indexOf("launchctl") < 0 || text_at(detail, "required_os") === "macos",
          "cu_linux_service_no_macos_claim");
 }
@@ -226,6 +343,23 @@ function verify_status_scope(run_directory, executable, scope, name, probe) {
   ensure(text_at(data, "substate") === probe_row.substate, "cu_linux_service_status_substate:" + name);
 }
 
+function verify_missing_status_scope(run_directory, executable, scope) {
+  const missing_probe = independent_missing_status(scope, missing_service_name);
+  ensure(missing_probe !== null, "cu_linux_service_missing_probe_unavailable:" + scope);
+  ensure(missing_probe.result.missing === true, "cu_linux_service_missing_probe_not_missing:" + scope);
+  const status_args = scope === "system"
+    ? ["system-status", missing_service_name]
+    : ["status", missing_service_name];
+  const reply = invoke(run_directory, executable, status_args, true);
+  const data = reply.data;
+  const expected_scope = scope === "system" ? "system" : "user";
+  ensure(text_at(data, "identity.name") === missing_service_name, "cu_linux_service_missing_name");
+  ensure(text_at(data, "identity.scope") === expected_scope, "cu_linux_service_missing_scope");
+  ensure(text_at(data, "identity.provider") === "systemd", "cu_linux_service_missing_provider");
+  ensure(text_at(data, "state") === "missing", "cu_linux_service_missing_state:" + scope);
+  ensure(text_at(data, "substate") === "", "cu_linux_service_missing_substate:" + scope);
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -240,11 +374,18 @@ const context = harness.new_context(repo, "cu-linux-service");
 const scopes = independent_probe();
 
 if (scopes === null) {
-  print("STEP typed unsupported when independent systemd probe is absent");
+  const absence = probe_absence();
+  print("STEP typed unsupported when independent systemd probe is absent"
+    + " (systemctl=" + absence.systemctl
+    + " dbus_python=" + absence.dbus_python
+    + " session_bus=" + absence.session_systemd_bus
+    + " system_bus=" + absence.system_systemd_bus + ")");
   verify_unsupported(invoke(context.run_directory, executable, ["list", "--max", "8"], false));
   verify_unsupported(invoke(context.run_directory, executable, ["system-list", "--max", "8"], false));
-  verify_unsupported(invoke(context.run_directory, executable, ["status", "dbus.service"], false));
-  verify_unsupported(invoke(context.run_directory, executable, ["system-status", "dbus.service"], false));
+  verify_unsupported(invoke(context.run_directory, executable,
+    ["status", missing_service_name], false));
+  verify_unsupported(invoke(context.run_directory, executable,
+    ["system-status", missing_service_name], false));
   harness.emit_evidence(context, declared_evidence, "cu.linux-service-readback");
   harness.remove_run(context);
   print("PASS: CEO Linux service typed unsupported with independent probe absence read-back");
@@ -262,6 +403,9 @@ for (const scope of ["user", "system"]) {
   const max_items = scope === "system" ? 8 : 16;
   const name = verify_list_scope(context.run_directory, executable, scope, probe, max_items);
   verify_status_scope(context.run_directory, executable, scope, name, probe);
+  print("STEP missing service status for " + scope + " agrees with independent "
+    + "systemctl/dbus read-back (" + missing_service_name + ")");
+  verify_missing_status_scope(context.run_directory, executable, scope);
 }
 
 harness.emit_evidence(context, declared_evidence, "cu.linux-service-readback");
