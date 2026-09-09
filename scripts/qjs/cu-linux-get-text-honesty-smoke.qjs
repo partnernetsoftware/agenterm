@@ -1,7 +1,8 @@
 // CEO: Linux get-text honesty with independent pyatspi Text.GetText read-back.
 // Acceptance is smoke read-back only: CU get-text on a named or focused GTK
 // text node must agree with a separate AT-SPI Text.GetText probe on the same
-// node. AT-SPI/--name only; no --coords or screenshot degradation.
+// node; empty text and missing Text interface must typed-fail honestly on both
+// sides. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -11,6 +12,8 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-get-text-readback",
 ];
+
+const UNAVAILABLE_NODE = "Fixture Check";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -78,6 +81,19 @@ function run_cu(run_directory, executable, grant, cu_args) {
   const document = JSON.parse(trimmed);
   ensure(flag_at(document, "ok"), "cu_linux_get_text_honesty_reply:" + JSON.stringify(document));
   return document;
+}
+
+function run_cu_reply(run_directory, executable, grant, cu_args) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of cu_args) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_get_text_honesty_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -159,6 +175,27 @@ function independent_probe_script() {
     "    candidates.sort(key=lambda item: item[0], reverse=True)",
     "    return candidates[0][1]",
     "",
+    "def named_text_unavailable(root, pattern):",
+    "    hits = []",
+    "    def walk(obj):",
+    "        name = obj.name or ''",
+    "        if pattern in name:",
+    "            try:",
+    "                obj.queryText()",
+    "                hits.append('has_text')",
+    "            except Exception:",
+    "                hits.append('no_text')",
+    "        for index in range(obj.childCount):",
+    "            child = obj.getChildAtIndex(index)",
+    "            if child is not None:",
+    "                walk(child)",
+    "    walk(root)",
+    "    if len(hits) != 1:",
+    "        raise SystemExit('cu_linux_get_text_probe_unavailable_count:' + str(len(hits)))",
+    "    if hits[0] != 'no_text':",
+    "        raise SystemExit('cu_linux_get_text_probe_unavailable_should_refuse')",
+    "    return False",
+    "",
     "frame = find_frame()",
     "if frame is None:",
     "    raise SystemExit('cu_linux_get_text_probe_window_missing')",
@@ -167,6 +204,10 @@ function independent_probe_script() {
     "    text = named_text(frame, name_pattern)",
     "elif mode == 'focused':",
     "    text = focused_text(frame)",
+    "elif mode == 'unavailable':",
+    "    named_text_unavailable(frame, name_pattern)",
+    "    print(json.dumps({'mode': mode, 'available': False}))",
+    "    raise SystemExit(0)",
     "else:",
     "    raise SystemExit('cu_linux_get_text_probe_mode:' + mode)",
     "",
@@ -182,6 +223,9 @@ function independent_probe(run_directory, executable, probe_config_json) {
   });
   ensure(output.success === true, "cu_linux_get_text_probe:" + output.stderr + output.stdout);
   const document = JSON.parse(output.stdout.trim());
+  if (document.available === false) {
+    return document;
+  }
   ensure(typeof document.text === "string", "cu_linux_get_text_probe_text");
   return document;
 }
@@ -198,6 +242,34 @@ function assert_get_text_agreement(run_directory, executable, handle, title, cu_
     "cu_linux_get_text_mismatch_" + label + ":" + JSON.stringify({ cu: cu_text, probe: probe.text })
   );
   return cu_text;
+}
+
+function assert_get_text_unavailable(run_directory, executable, handle, title, node_name, label) {
+  const cu = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", "" + handle, "--name", node_name,
+  ]);
+  ensure(
+    !flag_at(cu, "ok") && text_at(cu, "error.code") === "a11y_text_unavailable",
+    "cu_linux_get_text_cu_unavailable_" + label + ":" + JSON.stringify(cu)
+  );
+  const probe = independent_probe(
+    run_directory, executable,
+    JSON.stringify({ title: title, mode: "unavailable", name_pattern: node_name })
+  );
+  ensure(
+    probe.available === false,
+    "cu_linux_get_text_probe_should_refuse_" + label + ":" + JSON.stringify(probe)
+  );
+}
+
+function refocus_entry(run_directory, executable, handle) {
+  const focused_act = run_cu(run_directory, executable, "observe,actuate", [
+    "focus", "--window", handle, "--name", "Fixture Entry",
+  ]);
+  ensure(
+    flag_at(focused_act, "data.verified"),
+    "cu_linux_get_text_honesty_focus_verified:" + JSON.stringify(focused_act.data)
+  );
 }
 
 const args = rh.args();
@@ -246,9 +318,7 @@ try {
   ensure(int_at(inventory_row, "handle") > 0, "cu_linux_get_text_honesty_handle:" + JSON.stringify(inventory_row));
 
   print("STEP focus --name and seed text through AT-SPI send-text on disposable entry");
-  run_cu(run_directory, executable, "observe,actuate", [
-    "focus", "--window", handle, "--name", "Fixture Entry",
-  ]);
+  refocus_entry(run_directory, executable, handle);
   const seed = "ceo-get-text-" + context.run_id;
   const sent = run_cu(run_directory, executable, "observe,actuate", [
     "send-text", "--window", handle, "--name", "Fixture Entry", "--", seed,
@@ -268,7 +338,8 @@ try {
   );
   ensure(named_text === seed, "cu_linux_get_text_honesty_named_seed:" + named_text + ":" + seed);
 
-  print("STEP get-text --window focused path agrees with independent pyatspi Text.GetText");
+  print("STEP re-focus then get-text --window focused path agrees with independent pyatspi Text.GetText");
+  refocus_entry(run_directory, executable, handle);
   const focused_text = assert_get_text_agreement(
     run_directory, executable, handle, fixture_title,
     ["get-text", "--window", handle],
@@ -276,6 +347,36 @@ try {
     "focused"
   );
   ensure(focused_text === seed, "cu_linux_get_text_honesty_focused_seed:" + focused_text + ":" + seed);
+
+  print("STEP clear entry and prove empty get-text --name and focused paths with independent read-back");
+  const cleared = run_cu(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", handle, "--name", "Fixture Entry", "--", "",
+  ]);
+  ensure(
+    text_at(cleared, "data.typed") === ""
+      && text_at(cleared, "data.addressing") === "accessibility-tree",
+    "cu_linux_get_text_honesty_clear:" + JSON.stringify(cleared.data)
+  );
+  const named_empty = assert_get_text_agreement(
+    run_directory, executable, handle, fixture_title,
+    ["get-text", "--window", handle, "--name", "Fixture Entry"],
+    JSON.stringify({ title: fixture_title, mode: "named", name_pattern: "Fixture Entry" }),
+    "named_empty"
+  );
+  ensure(named_empty === "", "cu_linux_get_text_honesty_named_empty:" + named_empty);
+  refocus_entry(run_directory, executable, handle);
+  const focused_empty = assert_get_text_agreement(
+    run_directory, executable, handle, fixture_title,
+    ["get-text", "--window", handle],
+    JSON.stringify({ title: fixture_title, mode: "focused" }),
+    "focused_empty"
+  );
+  ensure(focused_empty === "", "cu_linux_get_text_honesty_focused_empty:" + focused_empty);
+
+  print("STEP get-text typed-fails a11y_text_unavailable when independent pyatspi probe has no Text interface");
+  assert_get_text_unavailable(
+    run_directory, executable, handle, fixture_title, UNAVAILABLE_NODE, "check_without_text"
+  );
 
   succeeded = 1;
 } catch (error) {
@@ -295,7 +396,7 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-get-text-readback");
   harness.remove_run(context);
-  print("PASS: Linux CU get-text matches independent pyatspi Text.GetText (named and focused)");
+  print("PASS: Linux CU get-text matches independent pyatspi Text.GetText (seed, empty, unavailable)");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
