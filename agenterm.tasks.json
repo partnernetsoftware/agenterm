@@ -5849,7 +5849,7 @@
     },
     {
       "id": "cu-linux-hide-show-smoke",
-      "description": "Linux app hide/show state on a disposable GTK fixture with independent windows inventory read-back; no --coords.",
+      "description": "Linux app hide/show with typed usage/miss/headless host-limit paths and independent windows inventory plus xprop map-state read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-hide-show-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
