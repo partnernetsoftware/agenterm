@@ -1,13 +1,14 @@
 // CEO#5: movewin --window HANDLE --x X --y Y --expect XxY on Linux.
 // Acceptance is smoke read-back only: independent windows inventory bounds,
-// xwininfo Absolute upper-left, and AT-SPI get-extents --name on an owned
-// fixture node must match the requested window origin shift. Typed movewin
-// usage must reject AT-SPI --name and other unexpected arguments; typed
-// get-extents --name usage/host-limit paths must hold before the movewin
-// actuate/read-back court. Destructive-gate refusals, missing-window and
-// headless host-limit paths must also hold before any owned fixture window
-// exists. AT-SPI/--name only; no --coords, screenshot, or coordinate
-// degradation.
+// xwininfo Absolute upper-left, xprop WM_NAME/_NET_FRAME_EXTENTS geometry,
+// and AT-SPI get-extents --name on an owned fixture node must match the
+// requested window origin shift. Typed movewin usage must reject AT-SPI
+// --name, --coords, --bogus, and other unexpected arguments; typed
+// get-extents --name usage AND host-limit paths must both hold before the
+// movewin actuate/read-back court. Destructive-gate refusals, missing-window
+// and headless host-limit paths must also hold before any owned fixture
+// window exists. Prefer host-limit clarity over fake success. AT-SPI/--name
+// only; no --coords, screenshot, or coordinate degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -48,6 +49,11 @@ function text_of(value) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -139,17 +145,12 @@ function probe_cu_windows_enum_available(run_directory, executable, env) {
   return { available: false, reason: message };
 }
 
-function usage_message_mentions_unexpected(message) {
-  return message.indexOf("--name") >= 0
-    || message.indexOf("unexpected") >= 0;
-}
-
-function assert_movewin_atspi_name_usage_limit(run_directory, executable) {
+function assert_movewin_unexpected_usage(run_directory, executable, env) {
   const with_name = run_cu_reply(run_directory, executable, "actuate", [
     "movewin", "--window", "1",
     "--x", "100", "--y", "100", "--expect", "100x100",
     "--name", AT_SPI_PROBE_NAME,
-  ]);
+  ], env);
   ensure(!output_success(with_name),
     "cu_linux_window_move_usage_name_ok:" + JSON.stringify(with_name));
   ensure(
@@ -161,7 +162,7 @@ function assert_movewin_atspi_name_usage_limit(run_directory, executable) {
     "cu_linux_window_move_usage_name_command:" + JSON.stringify(with_name)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(with_name, "error.message")),
+    usage_rejects_unexpected(text_at(with_name, "error.message"), "--name"),
     "cu_linux_window_move_usage_name_message:" + JSON.stringify(with_name.error)
   );
 
@@ -169,7 +170,7 @@ function assert_movewin_atspi_name_usage_limit(run_directory, executable) {
     "movewin", "--window", "1",
     "--x", "100", "--y", "100", "--expect", "100x100",
     "--bogus",
-  ]);
+  ], env);
   ensure(!output_success(with_bogus),
     "cu_linux_window_move_usage_bogus_ok:" + JSON.stringify(with_bogus));
   ensure(
@@ -177,9 +178,32 @@ function assert_movewin_atspi_name_usage_limit(run_directory, executable) {
     "cu_linux_window_move_usage_bogus_code:" + JSON.stringify(with_bogus.error)
   );
   ensure(
-    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    text_at(with_bogus, "command") === "usage",
+    "cu_linux_window_move_usage_bogus_command:" + JSON.stringify(with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
     "cu_linux_window_move_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+
+  const with_coords = run_cu_reply(run_directory, executable, "actuate", [
+    "movewin", "--window", "1",
+    "--x", "100", "--y", "100", "--expect", "100x100",
+    "--coords", "10,10",
+  ], env);
+  ensure(!output_success(with_coords),
+    "cu_linux_window_move_usage_coords_ok:" + JSON.stringify(with_coords));
+  ensure(
+    text_at(with_coords, "error.code") === "usage",
+    "cu_linux_window_move_usage_coords_code:" + JSON.stringify(with_coords.error)
+  );
+  ensure(
+    text_at(with_coords, "command") === "usage",
+    "cu_linux_window_move_usage_coords_command:" + JSON.stringify(with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords"),
+    "cu_linux_window_move_usage_coords_message:" + JSON.stringify(with_coords.error)
   );
 }
 
@@ -196,6 +220,62 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_window_move_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_window_move_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_window_move_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_window_move_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_window_move_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_window_move_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_window_move_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_window_move_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_window_move_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_window_move_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_window_move_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_window_move_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_window_move_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -368,6 +448,94 @@ function independent_xwininfo_origin(run_directory, executable, handle) {
   return origin;
 }
 
+function parse_xprop_quoted_name(stdout, property_name) {
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.indexOf(property_name) !== 0) { continue; }
+    if (trimmed.indexOf("not found") >= 0) { return ""; }
+    const eq = trimmed.indexOf("=");
+    if (eq < 0) { continue; }
+    let value = trimmed.slice(eq + 1).trim();
+    if (value.length >= 2 && value.charAt(0) === "\"") {
+      value = value.slice(1);
+      if (value.charAt(value.length - 1) === "\"") {
+        value = value.slice(0, value.length - 1);
+      }
+    }
+    return value;
+  }
+  return "";
+}
+
+function parse_xprop_frame_extents(stdout) {
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.indexOf("_NET_FRAME_EXTENTS") !== 0) { continue; }
+    if (trimmed.indexOf("not found") >= 0) {
+      return { available: false, left: 0, right: 0, top: 0, bottom: 0 };
+    }
+    const eq = trimmed.indexOf("=");
+    if (eq < 0) { continue; }
+    const parts = trimmed.slice(eq + 1).trim().split(",");
+    if (parts.length < 4) { continue; }
+    return {
+      available: true,
+      left: rh.parse_int(parts[0].trim()),
+      right: rh.parse_int(parts[1].trim()),
+      top: rh.parse_int(parts[2].trim()),
+      bottom: rh.parse_int(parts[3].trim()),
+    };
+  }
+  return { available: false, left: 0, right: 0, top: 0, bottom: 0 };
+}
+
+function independent_xprop_geometry(run_directory, executable, handle) {
+  const output = rh.command("xprop", [
+    "-id", "" + handle,
+    "_NET_FRAME_EXTENTS",
+    "_NET_WM_NAME",
+    "WM_NAME",
+  ], {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true,
+    "cu_linux_window_move_xprop:" + output.stderr + output.stdout);
+  const net_name = parse_xprop_quoted_name(output.stdout, "_NET_WM_NAME");
+  const wm_name = parse_xprop_quoted_name(output.stdout, "WM_NAME");
+  const name = net_name !== "" ? net_name : wm_name;
+  ensure(name !== "", "cu_linux_window_move_xprop_name:" + output.stdout);
+  const extents = parse_xprop_frame_extents(output.stdout);
+  return {
+    name: name,
+    frame_extents_available: extents.available === true,
+    left: extents.left,
+    right: extents.right,
+    top: extents.top,
+    bottom: extents.bottom,
+  };
+}
+
+function assert_xprop_geometry_agrees(probe, title, prior, label) {
+  ensure(
+    probe.name === title,
+    "cu_linux_window_move_xprop_title_" + label + ":" + JSON.stringify(probe)
+  );
+  if (prior === null) { return; }
+  ensure(
+    probe.frame_extents_available === prior.frame_extents_available
+      && probe.left === prior.left
+      && probe.right === prior.right
+      && probe.top === prior.top
+      && probe.bottom === prior.bottom,
+    "cu_linux_window_move_xprop_frame_changed_" + label + ":" + JSON.stringify({
+      before: prior,
+      after: probe,
+    })
+  );
+}
+
 function independent_probe_script() {
   return [
     "import json, sys",
@@ -479,7 +647,7 @@ function assert_named_extents_agreement(
   };
 }
 
-function probe_atspi_available() {
+function probe_atspi_available(executable) {
   const script = [
     "import sys",
     "try:",
@@ -490,7 +658,7 @@ function probe_atspi_available() {
     "    print('0')",
   ].join("\n");
   const output = rh.command("python3", ["-c", script], {
-    env: cu_env(""),
+    env: cu_env(executable),
     timeout_ms: 10000,
   });
   return output.success === true && output.stdout.trim() === "1";
@@ -523,16 +691,14 @@ try {
   print("STEP movewin typed-fails usage when --window handle is zero or geometry args are incomplete");
   assert_movewin_usage_limit(run_directory, executable);
 
-  print("STEP movewin typed-fails usage when AT-SPI --name or other unexpected arguments are present");
-  assert_movewin_atspi_name_usage_limit(run_directory, executable);
+  print("STEP movewin typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
+  assert_movewin_unexpected_usage(run_directory, executable, env);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before movewin actuate/read-back court");
-    assert_get_extents_usage_limit(run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
-  }
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before movewin actuate/read-back court");
+  assert_get_extents_usage_limit(run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before movewin actuate/read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
   print("STEP movewin typed-fails refused destructive_gate when --window target is missing");
   assert_movewin_destructive_gate(run_directory, executable);
@@ -543,12 +709,13 @@ try {
   print("STEP movewin without DISPLAY typed-fails unsupported host-limit");
   assert_headless_host_limit(run_directory, executable);
 
+  if (atspi_available !== true) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; movewin read-back still uses xwininfo/xprop/inventory");
+  }
+
   window_enum = probe_cu_windows_enum_available(run_directory, executable, env);
   if (window_enum.available !== true) {
     print("STEP typed host-limit when CU windows enumeration is unavailable before movewin actuate/read-back court");
-    succeeded = 1;
-  } else if (atspi_available !== true) {
-    print("STEP typed host-limit when pyatspi desktop probe is unavailable before movewin actuate/read-back court");
     succeeded = 1;
   } else {
     fixture = harness.start({
@@ -579,12 +746,20 @@ try {
     print("STEP baseline windows bounds read (" + before.x + "," + before.y + ")");
     ensure(before.width > 0 && before.height > 0, "cu_linux_window_move_before_size");
 
-    print("STEP baseline independent get-extents --name " + NAMED_NODE + " agrees with pyatspi");
-    const node_before = assert_named_extents_agreement(
-      run_directory, executable, handle_text, fixture_title, NAMED_NODE, "baseline"
-    );
+    print("STEP baseline independent xprop WM_NAME/_NET_FRAME_EXTENTS geometry");
+    const xprop_before = independent_xprop_geometry(
+      run_directory, executable, int_at(row, "handle"));
+    assert_xprop_geometry_agrees(xprop_before, fixture_title, null, "baseline");
 
-    print("STEP invalid_input refusals on a live handle must not change inventory, xwininfo, or AT-SPI extents");
+    let node_before = null;
+    if (atspi_available) {
+      print("STEP baseline independent get-extents --name " + NAMED_NODE + " agrees with pyatspi");
+      node_before = assert_named_extents_agreement(
+        run_directory, executable, handle_text, fixture_title, NAMED_NODE, "baseline"
+      );
+    }
+
+    print("STEP invalid_input refusals on a live handle must not change inventory, xwininfo, xprop, or AT-SPI extents");
     move_refused(run_directory, executable, [
       "--window", handle_text,
       "--x", "" + target_x, "--y", "" + target_y,
@@ -603,17 +778,22 @@ try {
       refusal_xwininfo.x === before.x && refusal_xwininfo.y === before.y,
       "cu_linux_window_move_refusal_xwininfo_changed:" + JSON.stringify(refusal_xwininfo)
     );
-    const node_refusal = assert_named_extents_agreement(
-      run_directory, executable, handle_text, fixture_title, NAMED_NODE, "refusal"
-    );
-    ensure(
-      node_refusal.x === node_before.x && node_refusal.y === node_before.y
-        && node_refusal.width === node_before.width && node_refusal.height === node_before.height,
-      "cu_linux_window_move_refusal_extents_changed:" + JSON.stringify({
-        before: node_before,
-        after: node_refusal,
-      })
-    );
+    const xprop_refusal = independent_xprop_geometry(
+      run_directory, executable, int_at(refusal_row, "handle"));
+    assert_xprop_geometry_agrees(xprop_refusal, fixture_title, xprop_before, "refusal");
+    if (atspi_available) {
+      const node_refusal = assert_named_extents_agreement(
+        run_directory, executable, handle_text, fixture_title, NAMED_NODE, "refusal"
+      );
+      ensure(
+        node_refusal.x === node_before.x && node_refusal.y === node_before.y
+          && node_refusal.width === node_before.width && node_refusal.height === node_before.height,
+        "cu_linux_window_move_refusal_extents_changed:" + JSON.stringify({
+          before: node_before,
+          after: node_refusal,
+        })
+      );
+    }
 
     print("STEP movewin --window " + handle_text + " --x " + target_x + " --y " + target_y + " --expect " + expect_token);
     const moved = run_cu(run_directory, executable, "actuate", [
@@ -648,22 +828,29 @@ try {
         + ") want(" + target_x + "," + target_y + ")"
     );
 
-    print("STEP independent get-extents --name " + NAMED_NODE + " must shift by the same screen delta as the window");
-    const node_after = assert_named_extents_agreement(
-      run_directory, executable, handle_text, fixture_title, NAMED_NODE, "after_move"
-    );
-    ensure(
-      node_after.x === node_before.x + DELTA_X && node_after.y === node_before.y + DELTA_Y,
-      "cu_linux_window_move_named_origin_shift:got(" + node_after.x + "," + node_after.y
-        + ") want(" + (node_before.x + DELTA_X) + "," + (node_before.y + DELTA_Y) + ")"
-    );
-    ensure(
-      node_after.width === node_before.width && node_after.height === node_before.height,
-      "cu_linux_window_move_named_size_preserved:" + JSON.stringify({
-        before: node_before,
-        after: node_after,
-      })
-    );
+    print("STEP independent xprop WM_NAME/_NET_FRAME_EXTENTS geometry must keep identity and frame after the origin shift");
+    const xprop_after = independent_xprop_geometry(
+      run_directory, executable, int_at(after_row, "handle"));
+    assert_xprop_geometry_agrees(xprop_after, fixture_title, xprop_before, "after_move");
+
+    if (atspi_available) {
+      print("STEP independent get-extents --name " + NAMED_NODE + " must shift by the same screen delta as the window");
+      const node_after = assert_named_extents_agreement(
+        run_directory, executable, handle_text, fixture_title, NAMED_NODE, "after_move"
+      );
+      ensure(
+        node_after.x === node_before.x + DELTA_X && node_after.y === node_before.y + DELTA_Y,
+        "cu_linux_window_move_named_origin_shift:got(" + node_after.x + "," + node_after.y
+          + ") want(" + (node_before.x + DELTA_X) + "," + (node_before.y + DELTA_Y) + ")"
+      );
+      ensure(
+        node_after.width === node_before.width && node_after.height === node_before.height,
+        "cu_linux_window_move_named_size_preserved:" + JSON.stringify({
+          before: node_before,
+          after: node_after,
+        })
+      );
+    }
 
     succeeded = 1;
   }
@@ -682,11 +869,11 @@ if (succeeded !== 0 && failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-window-move-expect");
   harness.remove_run(context);
   if (window_enum.available !== true) {
-    print("PASS: Linux movewin typed movewin/get-extents usage honesty with x11 window-enum host-limit when CU inventory is unavailable (AT-SPI --name, no --coords)");
+    print("PASS: Linux movewin usage/host-limit/miss honesty with typed movewin --name/--coords/--bogus and get-extents --name usage/host-limit courts when CU inventory is unavailable (AT-SPI --name, no --coords)");
   } else if (atspi_available) {
-    print("PASS: Linux movewin --expect with typed movewin/get-extents usage honesty, headless-display host-limit, and independent windows/xwininfo/AT-SPI get-extents --name read-back (AT-SPI --name, no --coords)");
+    print("PASS: Linux movewin --expect usage/host-limit/miss honesty + independent windows inventory, xwininfo origin, xprop geometry, and pyatspi get-extents --name read-back with typed movewin --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux movewin typed movewin/get-extents host-limit honesty with headless-display host-limit when pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
+    print("PASS: Linux movewin --expect usage/host-limit/miss honesty + independent windows inventory, xwininfo origin, and xprop geometry read-back with typed movewin --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }

@@ -5915,7 +5915,7 @@
     },
     {
       "id": "cu-linux-window-move-smoke",
-      "description": "Linux movewin --expect XxY on a disposable GTK fixture with independent windows inventory, xwininfo origin, and AT-SPI get-extents --name read-back; typed movewin/get-extents --name usage and host-limit honesty before actuate court; no --coords.",
+      "description": "Linux movewin --expect XxY on a disposable GTK fixture with independent windows inventory, xwininfo origin, xprop WM_NAME/_NET_FRAME_EXTENTS geometry, and AT-SPI get-extents --name read-back; typed movewin usage rejects AT-SPI --name/--coords/--bogus and typed get-extents --name usage AND host-limit paths both hold before actuate; no --coords.",
       "entry": "scripts/qjs/cu-linux-window-move-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
