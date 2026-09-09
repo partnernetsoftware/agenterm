@@ -626,6 +626,13 @@
       ]
     },
     {
+      "id": "cu-linux-app-facts-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-app-facts-readback"
+      ]
+    },
+    {
       "id": "cu-linux-gtk-entry-focused-send-text-smoke",
       "platform": "linux",
       "evidence": [
