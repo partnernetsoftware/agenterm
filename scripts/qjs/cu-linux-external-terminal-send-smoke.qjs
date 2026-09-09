@@ -1,44 +1,387 @@
-// Explicit visible wrapper for the Linux external-terminal send mode. The
-// ordinary Linux journey remains no-activate; this court owns the temporary
-// foreground activation and keyboard-input effect against its GTK fixture.
+// CEO: Linux external-terminal visible send + AgenTerm terminal-control host-limit
+// honesty with independent read-back. Missing Unix socket authority returns typed
+// control_unavailable with detail.limit=host/group=terminal; present authority
+// proves terminal-send/wait/read on one live tab. External GTK terminal buffer
+// proves term-send --foreground with independent term-read token match.
+// AT-SPI/--name only; no --coords or screenshot.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
 import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
 
-const EVIDENCE = "cu.linux-external-terminal-send";
+const declared_evidence = [
+  "cu.linux-external-terminal-send",
+];
 
-function require(condition, message) {
+const EXTERNAL_TERMINAL_FIXTURE = `#!/usr/bin/env python3
+import os
+import signal
+import sys
+
+import gi
+
+gi.require_version("Atk", "1.0")
+gi.require_version("Gtk", "3.0")
+from gi.repository import Atk, Gtk
+
+pid = os.getpid()
+window = Gtk.Window(title="agenterm-linux-external-terminal-%d" % pid)
+window.set_default_size(440, 220)
+window.set_focus_on_map(False)
+window.set_accept_focus(True)
+
+view = Gtk.TextView()
+view.set_can_focus(True)
+view.set_editable(True)
+view.set_cursor_visible(False)
+buffer = view.get_buffer()
+buffer.set_text("DECOY\\nACU_EXTERNAL_TERMINAL_BASE_%d_TAIL\\n\\n" % pid)
+accessible = view.get_accessible()
+accessible.set_name("Owned External Terminal Buffer")
+accessible.set_role(Atk.Role.TERMINAL)
+
+scroll = Gtk.ScrolledWindow()
+scroll.add(view)
+window.add(scroll)
+window.show_all()
+
+def terminate(_signal, _frame):
+    Gtk.main_quit()
+
+signal.signal(signal.SIGTERM, terminate)
+signal.signal(signal.SIGINT, terminate)
+sys.stdout.write("ready %d\\n" % pid)
+sys.stdout.flush()
+Gtk.main()
+`;
+
+function ensure(condition, message) {
   if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return -1; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(run_directory, terminal_env) {
+  const env = {
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const name of Object.keys(terminal_env)) {
+    env[name] = terminal_env[name];
+  }
+  return env;
+}
+
+function cu_visible_env(run_directory, terminal_env) {
+  const env = cu_env(run_directory, terminal_env);
+  const visible = {};
+  for (const name of Object.keys(env)) {
+    if (name !== "AGENTERM_NO_ACTIVATE") { visible[name] = env[name]; }
+  }
+  return visible;
+}
+
+function run_cu_json(run_directory, executable, terminal_env, arguments) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: cu_env(run_directory, terminal_env),
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true, "cu_linux_external_terminal_send_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_external_terminal_send_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_external_terminal_send_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function run_cu_reply(run_directory, executable, terminal_env, arguments) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: cu_env(run_directory, terminal_env),
+    timeout_ms: 60000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_external_terminal_send_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu_visible_json(run_directory, executable, terminal_env, arguments) {
+  const output = rh.command_spec({
+    program: executable,
+    args: arguments,
+    current_dir: run_directory,
+    env: cu_visible_env(run_directory, terminal_env),
+    env_remove: ["AGENTERM_NO_ACTIVATE"],
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true, "cu_linux_external_terminal_send_visible_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_external_terminal_send_visible_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_external_terminal_send_visible_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function run_agenterm(run_directory, agenterm, terminal_env, arguments) {
+  const all = ["cli", "--address", terminal_env.AGENTERM_IPC_ADDRESS];
+  for (const argument of arguments) { all.push(argument); }
+  const output = rh.command(agenterm, all, {
+    cwd: run_directory,
+    env: cu_env(run_directory, terminal_env),
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true, "cu_linux_external_terminal_send_agenterm:" + output.stdout + output.stderr);
+  return output.stdout.trim();
+}
+
+function window_row(run_directory, executable, terminal_env, pid, title) {
+  const reply = run_cu_json(run_directory, executable, terminal_env, [
+    "--target", "current", "--grant", "observe", "windows", "--pid", "" + pid,
+  ]);
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+function assert_terminal_host_limit(reply) {
+  ensure(
+    !flag_at(reply, "ok") && text_at(reply, "error.code") === "control_unavailable",
+    "cu_linux_external_terminal_send_missing_sock_code:" + JSON.stringify(reply)
+  );
+  const detail = at(reply, "error.detail");
+  ensure(
+    text_at(detail, "control") === "unavailable"
+      && text_at(detail, "authority") === "unreachable"
+      && text_at(detail, "limit") === "host"
+      && text_at(detail, "group") === "terminal"
+      && text_at(detail, "mechanism") === "agenterm-unix-control-socket",
+    "cu_linux_external_terminal_send_missing_sock_detail:" + JSON.stringify(detail)
+  );
+  const alternatives = at(detail, "alternatives");
+  ensure(
+    Array.isArray(alternatives) && alternatives.length >= 2,
+    "cu_linux_external_terminal_send_missing_sock_alternatives:" + JSON.stringify(detail)
+  );
+}
+
+function terminal_tab(rows, tab_id) {
+  for (const row of rows) {
+    if (text_at(row, "id") === tab_id) { return row; }
+  }
+  return null;
 }
 
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
-  print(EVIDENCE);
+  for (const id of declared_evidence) { print(id); }
   return;
 }
-
-require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
-const cu = rh.absolute(args[1]);
-const agenterm = rh.join(rh.parent(cu), "agenterm");
-const journey = rh.join(repo, "scripts/qjs/cu-linux-smoke.qjs");
-const output = rh.command(
-  agenterm,
-  [
-    "cli", "script", "run", journey,
-    "--profile", "tool", "--cwd", repo, "--project-root", repo,
-    "--timeout-ms", "300000", "--max-operations", "1000000000",
-    "--", repo, cu, "--visible-external-terminal-send"
-  ],
-  { cwd: repo, timeout_ms: 320000 }
-);
-require(
-  output.success === true,
-  "cu_linux_external_terminal_send_child:" + output.stdout + output.stderr
-);
-let observed = false;
-for (const line of output.stdout.split("\n")) {
-  if (line.trim() === "EVIDENCE " + EVIDENCE) { observed = true; }
+const executable = rh.absolute(args[1]);
+const agenterm = rh.join(rh.parent(executable), "agenterm");
+ensure(direct_file(executable), "cu_linux_external_terminal_send_executable_missing:" + executable);
+ensure(direct_file(agenterm), "cu_linux_external_terminal_send_agenterm_missing:" + agenterm);
+
+const context = harness.new_context(repo, "cu-linux-external-terminal-send");
+const run_directory = rh.join(repo, "target/cu-linux-external-terminal-send-smoke-run");
+rh.create_dir_all(run_directory);
+const terminal_env = {
+  AGENTERM_INSTANCE: "ephemeral:cu-linux-external-terminal-" + context.run_id,
+  AGENTERM_IPC_ADDRESS: "" + context.address,
+  AGENTERM_INSTANCE_DIR: "" + context.instance_directory,
+  AGENTERM_WORKSPACE_PATH: "" + context.workspace_path,
+  AGENTERM_SETTINGS_PATH: "" + context.settings_path,
+};
+
+let terminal_server = -1;
+let external_fixture = -1;
+let external_fixture_pid = 0;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP terminal-list typed-fails control_unavailable with host-limit detail before any AgenTerm authority exists");
+  const missing = run_cu_reply(run_directory, executable, terminal_env, [
+    "--target", "current", "--grant", "observe", "terminal-list",
+  ]);
+  assert_terminal_host_limit(missing);
+
+  print("STEP AgenTerm present path: terminal-send / terminal-wait / terminal-read agree on one literal token");
+  terminal_server = harness.start({
+    program: agenterm,
+    args: ["server", "--address", terminal_env.AGENTERM_IPC_ADDRESS],
+    current_dir: run_directory,
+    env: cu_env(run_directory, terminal_env),
+    timeout_ms: 60000,
+  });
+  let terminal_ready = null;
+  for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
+    const candidate = run_cu_reply(run_directory, executable, terminal_env, [
+      "--target", "current", "--grant", "observe", "terminal-list",
+    ]);
+    if (flag_at(candidate, "ok")) { terminal_ready = candidate; break; }
+    ensure(harness.state(terminal_server) !== "exited", "cu_linux_external_terminal_send_server_early_exit");
+    harness.sleep_ms(25);
+  }
+  ensure(terminal_ready !== null, "cu_linux_external_terminal_send_server_not_ready");
+  const terminal_scope = text_at(terminal_ready, "data.server_scope_id");
+  const terminal_epoch = text_at(terminal_ready, "data.server_epoch");
+  ensure(terminal_scope !== "" && terminal_epoch !== "", "cu_linux_external_terminal_send_authority");
+
+  const tab_id = run_agenterm(run_directory, agenterm, terminal_env, [
+    "new-window", "-d", "-P", "-F", "#{window_id}",
+    "-n", "cu-external-terminal-" + context.run_id, "--", "sh", "-c", "stty -echo; exec sh",
+  ]);
+  ensure(tab_id.startsWith("@"), "cu_linux_external_terminal_send_tab_id:" + tab_id);
+
+  let terminal_inventory = null;
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    const candidate = run_cu_json(run_directory, executable, terminal_env, [
+      "--target", "current", "--grant", "observe", "terminal-list",
+    ]);
+    if (terminal_tab(candidate.data.tabs, tab_id) !== null) {
+      terminal_inventory = candidate;
+      break;
+    }
+    harness.sleep_ms(25);
+  }
+  ensure(terminal_inventory !== null, "cu_linux_external_terminal_send_tab_missing");
+
+  const marker = "ACU_EXT_TERM_PRESENT_" + context.run_id;
+  const terminal_input = "printf '" + marker + "\\n'; exit\r";
+  const terminal_send = run_cu_json(run_directory, executable, terminal_env, [
+    "--target", "current", "--grant", "observe,actuate", "terminal-send",
+    "--tab", tab_id, "--", terminal_input,
+  ]);
+  ensure(
+    text_at(terminal_send, "data.tab_id") === tab_id
+      && flag_at(terminal_send, "data.performed")
+      && flag_at(terminal_send, "data.verified"),
+    "cu_linux_external_terminal_send_terminal_send:" + JSON.stringify(terminal_send.data)
+  );
+  const terminal_wait = run_cu_json(run_directory, executable, terminal_env, [
+    "--target", "current", "--grant", "observe", "terminal-wait",
+    "--tab", tab_id, "--contains", marker, "--timeout-ms", "10000",
+  ]);
+  ensure(
+    text_at(terminal_wait, "data.state") === "matched"
+      && flag_at(terminal_wait, "data.completed"),
+    "cu_linux_external_terminal_send_terminal_wait:" + JSON.stringify(terminal_wait.data)
+  );
+  const terminal_read = run_cu_json(run_directory, executable, terminal_env, [
+    "--target", "current", "--grant", "observe", "terminal-read",
+    "--tab", tab_id, "--max-bytes", "16384",
+  ]);
+  const terminal_text = text_at(terminal_read, "data.text");
+  ensure(
+    terminal_text.indexOf(marker) >= 0,
+    "cu_linux_external_terminal_send_terminal_read:" + JSON.stringify({ marker: marker, text: terminal_text })
+  );
+
+  run_agenterm(run_directory, agenterm, terminal_env, ["kill-window", "-t", tab_id]);
+  run_agenterm(run_directory, agenterm, terminal_env, ["shutdown"]);
+  harness.wait(terminal_server, 10000);
+  terminal_server = -1;
+
+  print("STEP external GTK terminal buffer: term-send --foreground injects one token verified by independent term-read");
+  const fixture_source = rh.join(run_directory, "external-terminal-fixture.py");
+  rh.write_text(fixture_source, EXTERNAL_TERMINAL_FIXTURE);
+  external_fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  external_fixture_pid = harness.spawned_pid(external_fixture);
+  const external_title = "agenterm-linux-external-terminal-" + external_fixture_pid;
+  const window_wait = run_cu_json(run_directory, executable, terminal_env, [
+    "--target", "current", "--grant", "observe", "wait",
+    "--timeout-ms", "15000", "--window-title-contains", external_title,
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_external_terminal_send_external_window_wait");
+  const external_row = window_row(run_directory, executable, terminal_env, external_fixture_pid, external_title);
+  ensure(external_row !== null, "cu_linux_external_terminal_send_external_window_identity");
+  const external_handle = "" + int_at(external_row, "handle");
+  const before_read = run_cu_json(run_directory, executable, terminal_env, [
+    "--target", "current", "--grant", "observe", "term-read",
+    external_handle, "--max-bytes", "4096",
+  ]);
+  const before_text = text_at(before_read, "data.text");
+  const visible_token = "visiblelinuxterm" + external_fixture_pid;
+  ensure(before_text.indexOf(visible_token) < 0, "cu_linux_external_terminal_send_token_preexists");
+
+  const visible_send = run_cu_visible_json(run_directory, executable, terminal_env, [
+    "--target", "current", "--grant", "observe,actuate", "term-send",
+    external_handle, "--foreground", "--enter", "false",
+    "--expect", visible_token, "--", visible_token,
+  ]);
+  ensure(
+    flag_at(visible_send, "data.performed")
+      && flag_at(visible_send, "data.verified")
+      && flag_at(visible_send, "data.focus_restored")
+      && flag_at(visible_send, "data.buffer_changed"),
+    "cu_linux_external_terminal_send_visible_send:" + JSON.stringify(visible_send.data)
+  );
+
+  const after_read = run_cu_json(run_directory, executable, terminal_env, [
+    "--target", "current", "--grant", "observe", "term-read",
+    external_handle, "--max-bytes", "4096",
+  ]);
+  const after_text = text_at(after_read, "data.text");
+  ensure(
+    after_text.indexOf(visible_token) >= 0,
+    "cu_linux_external_terminal_send_independent_readback:"
+      + JSON.stringify({ token: visible_token, text: after_text })
+  );
+
+  harness.emit_evidence(context, declared_evidence, "cu.linux-external-terminal-send");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
 }
-require(observed, "cu_linux_external_terminal_send_evidence_missing");
-print("EVIDENCE " + EVIDENCE);
-print("PASS: Linux exact-window external-terminal visible send verified one new same-buffer token and restored foreground focus");
-return;
+
+if (external_fixture_pid > 0) {
+  rh.command("kill", ["-TERM", "" + external_fixture_pid], { cwd: run_directory, timeout_ms: 5000 });
+}
+if (external_fixture >= 0) {
+  harness.wait(external_fixture, 5000);
+}
+if (terminal_server >= 0) {
+  try { harness.wait(terminal_server, 5000); } catch (_error) {}
+}
+
+ensure(succeeded === 1, failure || "cu_linux_external_terminal_send_failed");
+harness.remove_run(context);
+print("PASS: Linux external-terminal visible send with AgenTerm sock host-limit honesty and independent read-back");

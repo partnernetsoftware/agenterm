@@ -18,7 +18,19 @@ const CAPTURE_MAX_BYTES: usize = 1_048_576;
 const MAX_WAIT_MS: u64 = 86_400_000;
 
 fn client() -> Result<ControlClient, CuError> {
-    ControlClient::from_environment().map_err(|error| CuError::new(error.code, error.message))
+    ControlClient::from_environment()
+        .map_err(|error| CuError::new(error.code, error.message))
+}
+
+fn terminal_control_transport_error(error: agenterm_control_client::ClientError) -> CuError {
+    if error.code == "control_unavailable" {
+        let transport = error.message;
+        CuError::new(error.code, transport.clone()).with_detail(
+            crate::host_limit::terminal_control_unavailable_detail(transport),
+        )
+    } else {
+        CuError::new(error.code, error.message)
+    }
 }
 
 pub(super) fn request(
@@ -30,7 +42,7 @@ pub(super) fn request(
 ) -> Result<ControlResponse, CuError> {
     let response = client
         .request(args, operation, intent, timeout)
-        .map_err(|error| CuError::new(error.code, error.message))?;
+        .map_err(terminal_control_transport_error)?;
     if response.ok {
         Ok(response)
     } else {

@@ -218,6 +218,25 @@ pub(crate) fn simulator_unsupported(verb: &str) -> CuError {
     )
 }
 
+pub(crate) fn terminal_control_unavailable_detail(
+    transport: impl Into<String>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "os": crate::mcu_surface::host_os(),
+        "limit": "host",
+        "group": "terminal",
+        "mechanism": "agenterm-unix-control-socket",
+        "authority": "unreachable",
+        "control": "unavailable",
+        "transport": transport.into(),
+        "alternatives": [
+            "agenterm server (start the AgenTerm GUI or headless server before terminal-list)",
+            "pty-start NAME (headless authority when only PTY control is needed)",
+            "term-read / term-send (external desktop terminals via AT-SPI; not AgenTerm-owned tabs)",
+        ],
+    })
+}
+
 pub(crate) fn pty_control_unavailable_detail(
     instance: &str,
     transport: impl Into<String>,
@@ -294,6 +313,24 @@ mod tests {
         let error = login_session_unsupported();
         assert_eq!(error.code, "login_session_unsupported");
         assert!(!error.message.contains("Unsupported:"));
+    }
+
+    #[test]
+    fn terminal_control_unavailable_detail_is_host_limit_typed() {
+        let detail = terminal_control_unavailable_detail(
+            "IPC transport Io for unix:/tmp/agenterm.sock: No such file or directory (os error 2)",
+        );
+        assert_eq!(detail["os"], crate::mcu_surface::host_os());
+        assert_eq!(detail["limit"], "host");
+        assert_eq!(detail["group"], "terminal");
+        assert_eq!(detail["mechanism"], "agenterm-unix-control-socket");
+        assert_eq!(detail["authority"], "unreachable");
+        assert_eq!(detail["control"], "unavailable");
+        assert!(
+            detail["alternatives"]
+                .as_array()
+                .is_some_and(|rows| rows.len() >= 2)
+        );
     }
 
     #[test]
