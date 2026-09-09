@@ -1,4 +1,7 @@
 // CEO: Linux tab-select by --title / --index with independent tab-list read-back.
+// Typed tab-select usage must reject AT-SPI --name and other unexpected
+// arguments; typed get-extents --name usage/host-limit paths must hold before
+// the tab-select actuate/read-back court. AT-SPI/--name only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -11,6 +14,7 @@ const declared_evidence = [
 
 const TAB_A_PREFIX = "CEO Tab Select A";
 const TAB_B_PREFIX = "CEO Tab Select B";
+const AT_SPI_PROBE_NAME = "Tab Select Court Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -31,6 +35,8 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function output_success(document) { return flag_at(document, "ok"); }
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -63,7 +69,7 @@ function isolated_env(run_directory) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments, env) {
+function run_cu_reply(run_directory, executable, grant, arguments, env) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of arguments) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
@@ -71,12 +77,148 @@ function run_cu(run_directory, executable, grant, arguments, env) {
     env: env,
     timeout_ms: 60000,
   });
-  ensure(output.success === true, "cu_linux_tab_select_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_tab_select_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_tab_select_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_tab_select_empty:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_tab_select_reply:" + JSON.stringify(document));
   return document;
+}
+
+function invoke_actuate_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "actuate",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_tab_select_actuate_cli:" + output.stdout + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(
+    text_at(reply, "command") === "tab-select" || text_at(reply, "command") === "usage",
+    "cu_linux_tab_select_actuate_command:" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_tab_select_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function probe_atspi_available(env) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: env,
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_tab_select_usage_limit(run_directory, executable, env) {
+  const flat_with_name = invoke_actuate_reply(run_directory, executable, [
+    "tab-select", "--window", "1", "--title", "unused", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_tab_select_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_tab_select_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_tab_select_usage_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    text_at(flat_with_name, "error.message").indexOf("--name") >= 0
+      || text_at(flat_with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_tab_select_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = invoke_actuate_reply(run_directory, executable, [
+    "tab", "select", "--window", "1", "--title", "unused", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_tab_select_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_tab_select_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    text_at(grouped_with_name, "error.message").indexOf("--name") >= 0
+      || text_at(grouped_with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_tab_select_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = invoke_actuate_reply(run_directory, executable, [
+    "tab-select", "--window", "1", "--title", "unused", "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_tab_select_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_tab_select_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_tab_select_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_tab_select_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_tab_select_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_tab_select_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_tab_select_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_tab_select_extents_unavailable_code:" + code
+  );
 }
 
 function tab_rows(reply) {
@@ -129,8 +271,20 @@ env.CHROME_USER_DATA_DIR = user_data;
 
 let succeeded = 0;
 let failure = "";
+const atspi_available = probe_atspi_available(env);
 
 try {
+  print("STEP tab-select typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_tab_select_usage_limit(run_directory, executable, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before tab-select actuate/read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
   print("STEP clear stale box-chrome singletons on this display before browser-open");
   rh.command_status("pkill", ["-9", "-f", "/usr/local/bin/box-chrome"], { timeout_ms: 5000 });
   harness.sleep_ms(1000);
@@ -294,7 +448,11 @@ try { harness.complete_children(context, [], succeeded !== 0, failure); }
 catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.remove_run(context);
-  print("PASS: Linux tab-select by --title / --index with independent tab-list read-back");
+  if (atspi_available) {
+    print("PASS: Linux tab-select by --title / --index with independent tab-list read-back and typed tab-select/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux tab-select by --title / --index with independent tab-list read-back and typed tab-select/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
