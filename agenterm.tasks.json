@@ -7028,7 +7028,7 @@
     },
     {
       "id": "cu-linux-process-fds-smoke",
-      "description": "Linux process-fds descriptor count, paths and kinds match independent /proc/<pid>/fd read-back for current and chosen PID; no --coords.",
+      "description": "Linux process-fds descriptor count, paths and kinds match independent /proc/<pid>/fd read-back for current and chosen PID; permission-denied directories typed-fail with host-limit detail; no --coords.",
       "entry": "scripts/qjs/cu-linux-process-fds-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
