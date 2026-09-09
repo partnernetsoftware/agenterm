@@ -3697,6 +3697,23 @@
         "task.cu-linux-network-dns-smoke"
       ]
     },
+    "cu-linux-network-routes-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-network-routes-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-network-routes-smoke"
+      ]
+    },
     "cu-linux-network-probe-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -7362,7 +7379,7 @@
     },
     {
       "id": "cu-linux-process-state-smoke",
-      "description": "Linux process-state pid, live/dead classification and start identity match independent /proc/<pid>/stat and status read-back for current and chosen PID; no --coords.",
+      "description": "Linux process-state pid, live/dead classification and start identity match independent /proc/<pid>/stat and status read-back for current and chosen PID; typed process-state usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /proc status/stat read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-process-state-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -8975,6 +8992,25 @@
       "id": "cu-linux-network-dns-smoke",
       "description": "Linux network-dns observe matches independent /etc/resolv.conf or resolvectl read-back for resolvers, search domains and coverage; typed network-dns usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the DNS/resolv read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-network-dns-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-network-routes-smoke",
+      "description": "Linux network-routes observe matches independent ip -j route show table all and sysfs ifindex read-back; typed network-routes usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the routes/sysfs read-back court; AT-SPI/--name only, no --coords.",
+      "entry": "scripts/qjs/cu-linux-network-routes-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
