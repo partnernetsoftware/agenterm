@@ -2487,7 +2487,12 @@ Destroyed with monotonic seq and t_ms; stops at --max-events (<= 5000,
 default 200) with truncated true; reports polls / emitted / filtered /
 stopped. --ready-path publishes a caller-owned no-overwrite JSON marker
 after the complete poll-diff baseline and before its duration starts; native
-notifications reject it until subscription readiness is available.
+notifications reject it until subscription readiness is available. Poll-diff
+events project the node's actions, bounds, depth, states and text from the same
+before/after walk that created the event; notification-mode events mark those
+tree facts incomplete. The legacy `cli acu observe` filters this captured event
+set before paging it. Unknown boolean facts match neither true nor false, and
+the unpublished `required` state fails typed `observe_filter_unavailable`.
 ```
 
 ### `snapshot`

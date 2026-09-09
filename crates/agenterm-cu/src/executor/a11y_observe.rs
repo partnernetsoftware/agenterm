@@ -871,6 +871,12 @@ pub(super) fn native_observe_payload(
                 "id": event.node_id,
                 "role": event.role,
                 "name": event.name,
+                "actions": null,
+                "bounds": null,
+                "depth": null,
+                "states": null,
+                "text": null,
+                "facts_complete": false,
             },
         }));
     }
@@ -890,6 +896,51 @@ pub(super) fn native_observe_payload(
         "stopped": if total >= max_events { "max-events" } else { "deadline" },
         "events": emitted,
     })
+}
+
+fn observe_node_index(
+    tree: &mechanism::A11yTree,
+) -> std::collections::HashMap<&str, &mechanism::A11yNode> {
+    tree.nodes
+        .iter()
+        .map(|node| (node.id.as_str(), node))
+        .collect()
+}
+
+fn project_observe_event_facts(
+    event: &observe::ObserveEvent,
+    previous: &std::collections::HashMap<&str, &mechanism::A11yNode>,
+    current: &std::collections::HashMap<&str, &mechanism::A11yNode>,
+    value: &mut serde_json::Value,
+) {
+    let id = event.node.get("id").and_then(serde_json::Value::as_str);
+    let node = if event.notification == "Destroyed" {
+        id.and_then(|id| previous.get(id).or_else(|| current.get(id)).copied())
+    } else {
+        id.and_then(|id| current.get(id).or_else(|| previous.get(id)).copied())
+    };
+    let Some(object) = value
+        .get_mut("node")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    if let Some(node) = node {
+        object.insert("actions".into(), serde_json::json!(node.actions));
+        object.insert("bounds".into(), serde_json::json!(node.bounds));
+        object.insert(
+            "depth".into(),
+            serde_json::json!(observe::node_depth(&node.id)),
+        );
+        object.insert("states".into(), serde_json::json!(node.states));
+        object.insert("text".into(), serde_json::json!(node.text));
+        object.insert("facts_complete".into(), serde_json::Value::Bool(true));
+    } else {
+        for name in ["actions", "bounds", "depth", "states", "text"] {
+            object.insert(name.into(), serde_json::Value::Null);
+        }
+        object.insert("facts_complete".into(), serde_json::Value::Bool(false));
+    }
 }
 
 /// `observe`: poll the bounded tree and emit the semantic differences
@@ -1004,6 +1055,8 @@ pub(super) fn observe_payload(
             }
         };
         let t_ms = started.elapsed().as_millis() as u64;
+        let previous_nodes = observe_node_index(&previous);
+        let current_nodes = observe_node_index(&current);
         for event in observe::diff_events(&previous, &current) {
             if !wanted.iter().any(|name| name == event.notification) {
                 filtered += 1;
@@ -1016,6 +1069,7 @@ pub(super) fn observe_payload(
             }
             let mut value = serde_json::to_value(&event)
                 .map_err(|error| CuError::new("serialize", error.to_string()))?;
+            project_observe_event_facts(&event, &previous_nodes, &current_nodes, &mut value);
             value["seq"] = serde_json::json!(seq);
             value["t_ms"] = serde_json::json!(t_ms);
             seq += 1;
@@ -1292,6 +1346,79 @@ mod tests {
             visited: 4,
             returned: 4,
         }
+    }
+
+    #[test]
+    fn observe_event_facts_use_current_nodes_and_previous_nodes_for_destroyed_events() {
+        let previous = selector_tree();
+        let mut current = selector_tree();
+        current.nodes[2].actions = vec!["press".into()];
+        current.nodes[2].states = vec!["enabled".into(), "focused".into()];
+        current.nodes[2].text = Some("current value".into());
+        current.nodes[2].bounds.x = 41;
+        let event = observe::ObserveEvent {
+            notification: "StateChanged",
+            node: serde_json::json!({"id":"/0/0/0","role":"button","name":"inside"}),
+            field: Some("state"),
+            before: serde_json::Value::Null,
+            after: serde_json::Value::Null,
+        };
+        let mut value = serde_json::to_value(&event).expect("serialize event");
+        project_observe_event_facts(
+            &event,
+            &observe_node_index(&previous),
+            &observe_node_index(&current),
+            &mut value,
+        );
+        assert_eq!(value["node"]["actions"], serde_json::json!(["press"]));
+        assert_eq!(
+            value["node"]["states"],
+            serde_json::json!(["enabled", "focused"])
+        );
+        assert_eq!(value["node"]["bounds"]["x"], 41);
+        assert_eq!(value["node"]["depth"], 2);
+        assert_eq!(value["node"]["text"], "current value");
+        assert_eq!(value["node"]["facts_complete"], true);
+
+        let destroyed = observe::ObserveEvent {
+            notification: "Destroyed",
+            node: serde_json::json!({"id":"/0/0/0","role":"button","name":"inside"}),
+            field: None,
+            before: serde_json::Value::Null,
+            after: serde_json::Value::Null,
+        };
+        current.nodes.remove(2);
+        let mut value = serde_json::to_value(&destroyed).expect("serialize event");
+        project_observe_event_facts(
+            &destroyed,
+            &observe_node_index(&previous),
+            &observe_node_index(&current),
+            &mut value,
+        );
+        assert_eq!(value["node"]["bounds"]["x"], 0);
+        assert_eq!(value["node"]["actions"], serde_json::json!([]));
+        assert_eq!(value["node"]["facts_complete"], true);
+    }
+
+    #[test]
+    fn notification_events_publish_explicitly_unavailable_tree_facts() {
+        let data = native_observe_payload(
+            7,
+            50,
+            2,
+            &["Created".into()],
+            vec![mechanism::A11yEvent {
+                notification: "Created".into(),
+                node_id: "/0/1".into(),
+                role: "button".into(),
+                name: "new".into(),
+                t_ms: 1,
+            }],
+        );
+        assert_eq!(data["events"][0]["node"]["facts_complete"], false);
+        assert!(data["events"][0]["node"]["actions"].is_null());
+        assert!(data["events"][0]["node"]["bounds"].is_null());
+        assert!(data["events"][0]["node"]["depth"].is_null());
     }
 
     #[test]

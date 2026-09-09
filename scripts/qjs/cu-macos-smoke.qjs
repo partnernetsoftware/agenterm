@@ -1784,6 +1784,12 @@ try {
     ensure(int_at(event, "seq") === expected_seq, "cu_macos_smoke_observe_seq:" + JSON.stringify(event));
     ensure(int_at(event, "t_ms") >= last_t, "cu_macos_smoke_observe_monotonic:" + JSON.stringify(event));
     ensure(text_at(event, "notification") === "ValueChanged", "cu_macos_smoke_observe_filter:" + JSON.stringify(event));
+    ensure(event.node.facts_complete === true
+        && Array.isArray(event.node.actions)
+        && Array.isArray(event.node.states)
+        && event.node.bounds !== null && typeof event.node.bounds === "object"
+        && int_at(event, "node.depth") >= 0,
+      "cu_macos_smoke_observe_same_walk_facts:" + JSON.stringify(event));
     expected_seq = expected_seq + 1;
     last_t = int_at(event, "t_ms");
     if (text_at(event, "node.identifier") === "fixture-field"
@@ -1866,6 +1872,10 @@ try {
   for (const event of native_events.events) {
     ensure(int_at(event, "seq") === native_seq, "cu_macos_smoke_native_seq:" + JSON.stringify(event));
     ensure(int_at(event, "t_ms") >= native_last_t, "cu_macos_smoke_native_monotonic:" + JSON.stringify(event));
+    ensure(event.node.facts_complete === false
+        && event.node.actions === null && event.node.bounds === null
+        && event.node.depth === null && event.node.states === null,
+      "cu_macos_smoke_native_sparse_facts:" + JSON.stringify(event));
     native_seq = native_seq + 1;
     native_last_t = int_at(event, "t_ms");
     if (text_at(event, "notification") === "ValueChanged") {
