@@ -1,12 +1,13 @@
 // CEO: Linux AT-SPI drag --from-name/--to-name via GenerateMouseEvent between
-// named node extents centers. Acceptance is smoke read-back only: typed usage,
-// miss, and host-limit paths must hold when --window/--from-name/--to-name are
-// missing or the independent pyatspi desktop probe is unavailable; independent
-// pyatspi extents geometry before drag, CU get-extents must agree, drag receipt
-// must name both nodes and report performed without worker data.verified, then
-// independent xdotool pointer lands on pyatspi target center and CU
-// pointer-position agrees. AT-SPI/--name only; no --coords or screenshot
-// degradation.
+// named node extents centers. Acceptance is smoke read-back only: typed drag
+// usage (--bogus and zero-handle), miss, and host-limit paths must hold when
+// --window/--from-name/--to-name are missing or the independent pyatspi desktop
+// probe is unavailable; typed get-extents --name usage/host-limit paths must
+// hold before the drag actuate/read-back court; independent pyatspi extents
+// geometry before drag, CU get-extents must agree, drag receipt must name both
+// nodes and report performed without worker data.verified, then independent
+// xdotool pointer lands on pyatspi target center and CU pointer-position
+// agrees. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -94,6 +95,19 @@ function run_cu(run_directory, executable, grant, cu_args) {
   return document;
 }
 
+function invoke_get_extents_reply(run_directory, executable, cu_args, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(cu_args), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_atspi_drag_extents_cli:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
 function probe_atspi_available(executable) {
   const script = [
     "import sys",
@@ -163,6 +177,56 @@ function assert_drag_usage_limit(run_directory, executable) {
   ensure(
     text_at(one_name, "error.message").indexOf("both names") >= 0,
     "cu_linux_atspi_drag_one_name_message:" + JSON.stringify(one_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "drag",
+    "--window", "1",
+    "--from-name", DRAG_SOURCE,
+    "--to-name", DRAG_TARGET,
+    "--bogus",
+  ]);
+  ensure(!output_success(with_bogus), "cu_linux_atspi_drag_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_atspi_drag_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_atspi_drag_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", DRAG_SOURCE,
+  ], env);
+  ensure(!output_success(zero_handle), "cu_linux_atspi_drag_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_atspi_drag_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_atspi_drag_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", DRAG_SOURCE,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_atspi_drag_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_atspi_drag_extents_unavailable_code:" + code
   );
 }
 
@@ -321,11 +385,20 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP drag typed-fail usage when --window, --from-name, or --to-name is missing");
+  print("STEP drag typed-fail usage when --window, --from-name, --to-name, or --bogus is unexpected");
   assert_drag_usage_limit(run_directory, executable);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before drag actuate/read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
 
   if (!atspi_available) {
     print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
@@ -481,9 +554,9 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux named drag with pyatspi extents, xdotool pointer read-back, and typed usage/miss/host-limit paths (AT-SPI --name, no --coords)");
+    print("PASS: Linux named drag with pyatspi extents, xdotool pointer read-back, and typed drag/get-extents usage/miss/host-limit paths (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux named drag typed-fails when independent pyatspi desktop probe is unavailable");
+    print("PASS: Linux named drag typed-fails with drag/get-extents usage/host-limit honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
