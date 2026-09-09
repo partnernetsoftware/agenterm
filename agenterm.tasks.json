@@ -7110,7 +7110,7 @@
     },
     {
       "id": "cu-linux-gtk-entry-send-keys-smoke",
-      "description": "Linux GTK entry N\u22652 send-keys --name \u2192 get-text roundtrips plus semantic chords with independent get-caret/get-selection/clipboard-read/get-text read-back; typed send-keys/get-text reject missing/zero --window, --role-without--name, --coords/--bogus via usage_rejects_unexpected or stay --name/host-limit; get-extents --name usage AND host-limit (command=usage --coords/--bogus) always before actuate; AT-SPI --name; no --coords.",
+      "description": "Linux GTK entry N\u22652 send-keys --name \u2192 get-text roundtrips plus semantic chords with independent get-caret/get-selection/clipboard-read/get-text read-back; typed send-keys/get-text --coords/--bogus usage_rejects_unexpected (never fake command=usage); get-extents --name usage+host-limit always run, --coords/--bogus command=usage; process-state/desktop-state before actuate; miss paths must not mutate the entry; AT-SPI --name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-send-keys-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
