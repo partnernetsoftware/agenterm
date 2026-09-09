@@ -191,6 +191,13 @@
       ]
     },
     {
+      "id": "cu-linux-terminal-shallow-tree-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-terminal-shallow-tree-readback"
+      ]
+    },
+    {
       "id": "cu-linux-pty-smoke",
       "platform": "linux",
       "evidence": [
