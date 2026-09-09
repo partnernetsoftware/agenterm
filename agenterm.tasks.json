@@ -6950,7 +6950,7 @@
     },
     {
       "id": "cu-linux-atspi-drag-smoke",
-      "description": "Linux named drag --from-name/--to-name via AT-SPI GenerateMouseEvent: typed drag usage_rejects_unexpected (--coords/--bogus and zero-handle), miss, and host-limit; typed get-extents --name usage AND host-limit (command=usage on --coords/--bogus) always before actuate/read-back; independent pyatspi extents, CU get-extents agreement, drag receipt names both nodes without worker verified, xdotool pointer on pyatspi target center and CU pointer-position agrees; AT-SPI/--name only, no --coords.",
+      "description": "Linux named drag --from-name/--to-name via AT-SPI GenerateMouseEvent: typed drag --coords/--bogus uses usage_rejects_unexpected or honest non-usage failure (never fake command=usage); get-extents --name usage AND host-limit always with command=usage on --coords/--bogus, no atspi gating, before process-state/desktop-state and actuate/read-back; independent pyatspi extents + CU agreement, named drag receipt, xdotool/CU pointer on target; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-atspi-drag-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
