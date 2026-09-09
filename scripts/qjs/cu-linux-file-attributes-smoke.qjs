@@ -2,8 +2,10 @@
 // Acceptance is smoke read-back only: CU file-attributes xattr inventory for one
 // regular file must agree with names, byte lengths, SHA-256 digests and optional
 // value_hex derived outside agenterm-cu via os.listxattr/getxattr. When getfattr
-// is installed, its name inventory must agree as well.
-// No --coords or screenshot degradation.
+// is installed, its name inventory must agree as well. Typed file-attributes
+// usage must reject AT-SPI --name and other unexpected arguments; typed
+// get-extents --name usage/host-limit paths must hold before the xattr read-back
+// court. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -14,9 +16,27 @@ const declared_evidence = [
   "cu.linux-file-attributes-readback",
 ];
 
+const AT_SPI_PROBE_NAME = "File Attributes Court Anchor";
+
 function ensure(condition, message) {
   if (!condition) { throw message; }
 }
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const current = at(value, dotted);
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function output_success(document) { return at(document, "ok") === true; }
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -24,8 +44,28 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function isolated_env(run_directory) {
-  return {
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function isolated_env(run_directory, executable) {
+  const env = {
     HOME: rh.join(run_directory, "home"),
     USERPROFILE: rh.join(run_directory, "home"),
     XDG_CONFIG_HOME: rh.join(run_directory, "config"),
@@ -35,32 +75,171 @@ function isolated_env(run_directory) {
     AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-requests.json"),
     AGENTERM_NO_ACTIVATE: "1",
   };
+  const cu = cu_env(executable);
+  env.AGENTERM_ABI_LIB = cu.AGENTERM_ABI_LIB;
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (cu[key] !== undefined) { env[key] = cu[key]; }
+  }
+  return env;
 }
 
-function invoke(run_directory, executable, arguments, expected_error) {
-  const argv = ["--target", "current", "--grant", "observe"].concat(arguments);
-  const output = rh.command(executable, argv, {
+function invoke_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
     cwd: run_directory,
-    env: isolated_env(run_directory),
+    env: env,
     timeout_ms: 30000,
   });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_file_attributes_cli:" + output.stdout + output.stderr);
   let reply = null;
   try { reply = JSON.parse(output.stdout.trim()); }
   catch (error) { throw "cu_linux_file_attributes_invalid_reply"; }
-  ensure(reply.command === "file-attributes", "cu_linux_file_attributes_wrong_command");
+  ensure(
+    text_at(reply, "command") === "file-attributes" || text_at(reply, "command") === "usage",
+    "cu_linux_file_attributes_wrong_command:" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_file_attributes_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function invoke(run_directory, executable, arguments, expected_error, env) {
+  const reply = invoke_reply(run_directory, executable, arguments, env);
   if (expected_error !== undefined) {
-    ensure(output.success !== true && reply.ok !== true,
-      "cu_linux_file_attributes_expected_failure");
-    ensure(reply.error.code === expected_error,
-      "cu_linux_file_attributes_wrong_error:" + reply.error.code);
+    ensure(!output_success(reply), "cu_linux_file_attributes_expected_failure");
+    ensure(text_at(reply, "error.code") === expected_error,
+      "cu_linux_file_attributes_wrong_error:" + JSON.stringify(reply.error));
     return reply.error;
   }
-  ensure(output.success === true && reply.ok === true,
-    "cu_linux_file_attributes_failed:" + JSON.stringify(reply));
+  ensure(output_success(reply), "cu_linux_file_attributes_failed:" + JSON.stringify(reply));
   return reply.data;
 }
 
-function verify_readback(run_directory, executable, fixture) {
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0
+    || message.indexOf("requires PATH") >= 0;
+}
+
+function assert_file_attributes_usage_limit(run_directory, executable, fixture, env) {
+  const flat_with_name = invoke_reply(run_directory, executable, [
+    "file-attributes", fixture, "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_file_attributes_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_file_attributes_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_file_attributes_usage_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(flat_with_name, "error.message")),
+    "cu_linux_file_attributes_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = invoke_reply(run_directory, executable, [
+    "file", "attributes", fixture, "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_file_attributes_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_file_attributes_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(grouped_with_name, "error.message")),
+    "cu_linux_file_attributes_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = invoke_reply(run_directory, executable, [
+    "file-attributes", fixture, "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_file_attributes_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_file_attributes_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(with_bogus, "error.message")),
+    "cu_linux_file_attributes_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_file_attributes_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_file_attributes_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_file_attributes_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_file_attributes_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_file_attributes_extents_unavailable_code:" + code
+  );
+}
+
+function verify_readback(run_directory, executable, fixture, env) {
   const script = [
     "import hashlib, json, os, shutil, subprocess, sys",
     "path = sys.argv[1]",
@@ -142,7 +321,7 @@ function verify_readback(run_directory, executable, fixture) {
   ].join("\n");
   const output = rh.command("/usr/bin/python3", ["-c", script, fixture, executable], {
     cwd: run_directory,
-    env: isolated_env(run_directory),
+    env: env,
     timeout_ms: 30000,
   });
   ensure(output.success === true,
@@ -181,6 +360,8 @@ ensure(uname.success === true && uname.stdout.trim() === "Linux",
 
 const context = harness.new_context(repo, "cu-linux-file-attributes");
 const run_directory = context.run_directory;
+const env = isolated_env(run_directory, executable);
+const atspi_available = probe_atspi_available(executable);
 const fixture = rh.join(run_directory, "fixture.bin");
 const link = rh.join(run_directory, "fixture-link.bin");
 const attr_alpha = "user.agenterm.cu.alpha";
@@ -191,8 +372,19 @@ let failure = "";
 try {
   prepare_fixture(fixture, attr_alpha, attr_beta);
 
+  print("STEP file-attributes typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_file_attributes_usage_limit(run_directory, executable, fixture, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before xattr read-back");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
   print("STEP file-attributes inventory matches independent os.listxattr/getxattr read-back");
-  verify_readback(run_directory, executable, fixture);
+  verify_readback(run_directory, executable, fixture, env);
 
   print("STEP final symlink is refused rather than followed");
   const linked = rh.command("/bin/ln", ["-s", fixture, link], {
@@ -200,7 +392,7 @@ try {
     timeout_ms: 10000,
   });
   ensure(linked.success === true, "cu_linux_file_attributes_link_setup_failed");
-  invoke(run_directory, executable, ["file-attributes", link], "file_attributes_not_regular");
+  invoke(run_directory, executable, ["file-attributes", link], "file_attributes_not_regular", env);
 
   succeeded = 1;
 } catch (error) {
@@ -211,9 +403,13 @@ let completion_failure = "";
 try { harness.complete_children(context, [], succeeded !== 0, failure); }
 catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
-  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.emit_evidence(context, declared_evidence, "cu.linux-file-attributes-readback");
   harness.remove_run(context);
-  print("PASS: Linux file-attributes xattr inventory matches independent os.listxattr read-back");
+  if (atspi_available) {
+    print("PASS: Linux file-attributes xattr inventory matches independent os.listxattr read-back with typed file-attributes/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux file-attributes xattr inventory matches independent os.listxattr read-back with typed file-attributes/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
