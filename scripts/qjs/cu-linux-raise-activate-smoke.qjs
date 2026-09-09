@@ -104,6 +104,24 @@ function window_rows(run_directory, executable, pid) {
   return by_title;
 }
 
+function independent_net_active_window(run_directory, executable) {
+  const output = rh.command("xprop", ["-root", "_NET_ACTIVE_WINDOW"], {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true,
+    "cu_linux_raise_activate_xprop_active:" + output.stderr + output.stdout);
+  const marker = "window id # ";
+  const start = output.stdout.indexOf(marker);
+  ensure(start >= 0,
+    "cu_linux_raise_activate_xprop_active_parse:" + output.stdout);
+  const token = output.stdout.slice(start + marker.length).trim().split(" ")[0];
+  ensure(token.length > 2 && token.slice(0, 2) === "0x",
+    "cu_linux_raise_activate_xprop_active_token:" + token);
+  return token.toLowerCase();
+}
+
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
   const metadata = rh.symlink_metadata(path);
@@ -230,9 +248,22 @@ try {
   );
 
   print("STEP raise within the foreground application reorders by read-back without changing desktop frontmost pid");
-  run_cu(run_directory, executable, "observe,actuate", [
+  const reactivated_main = run_cu(run_directory, executable, "observe,actuate", [
     "activate", "--window", main_handle,
   ]);
+  ensure(
+    flag_at(reactivated_main, "data.verified") && flag_at(reactivated_main, "data.after.focused"),
+    "cu_linux_raise_activate_reactivate_reply:" + JSON.stringify(reactivated_main.data)
+  );
+  focused = focused_row(run_directory, executable);
+  ensure(
+    int_at(focused, "handle") === int_at(main_row, "handle")
+      && int_at(focused, "process_id") === fixture_pid
+      && text_at(focused, "title") === fixture_title,
+    "cu_linux_raise_activate_reactivate_focus:" + JSON.stringify(focused)
+  );
+  const active_before_raise = independent_net_active_window(run_directory, executable);
+  const front_pid_before_raise = int_at(focused, "process_id");
   run_cu(run_directory, executable, "observe,actuate", [
     "orderwin", "--window", second_handle, "--relation", "above", "--relative", main_handle,
   ]);
@@ -240,6 +271,15 @@ try {
   ensure(
     int_at(stacked[second_title], "z_index") < int_at(stacked[fixture_title], "z_index"),
     "cu_linux_raise_activate_orderwin_readback:" + JSON.stringify(stacked)
+  );
+  focused = focused_row(run_directory, executable);
+  ensure(
+    int_at(focused, "process_id") === front_pid_before_raise,
+    "cu_linux_raise_activate_orderwin_front:" + JSON.stringify(focused)
+  );
+  ensure(
+    independent_net_active_window(run_directory, executable) === active_before_raise,
+    "cu_linux_raise_activate_orderwin_active:" + active_before_raise
   );
   const raised = run_cu(run_directory, executable, "observe,actuate", [
     "raise", "--window", main_handle,
@@ -257,8 +297,13 @@ try {
   focused = focused_row(run_directory, executable);
   ensure(
     int_at(focused, "handle") === int_at(main_row, "handle")
-      && int_at(focused, "process_id") === fixture_pid,
+      && int_at(focused, "process_id") === fixture_pid
+      && int_at(focused, "process_id") === front_pid_before_raise,
     "cu_linux_raise_activate_raise_focus:" + JSON.stringify(focused)
+  );
+  ensure(
+    independent_net_active_window(run_directory, executable) === active_before_raise,
+    "cu_linux_raise_activate_raise_active:" + active_before_raise
   );
 } finally {
   if (witness_pid !== 0) {
