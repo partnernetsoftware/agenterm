@@ -1,6 +1,8 @@
 // CEO: Linux CDP page-scroll honesty — wheel scroll on a disposable container.
-// Acceptance is smoke read-back only: independent page-js scrollTop must increase
-// after page-scroll --dy; distinct from AT-SPI scroll-to / scroll-wheel. No --coords.
+// Acceptance is smoke read-back only: independent page-js scrollTop and wheel
+// effect must increase after page-scroll --dy; distinct from AT-SPI scroll-to /
+// scroll-wheel. Typed usage, miss, and no-CDP host-limit paths must hold.
+// --port/--target-id only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -11,6 +13,16 @@ const declared_evidence = [
   "cu.linux-cdp-page-scroll-actuate",
   "cu.linux-cdp-page-scroll-readback",
 ];
+
+const scroll_readback_expr = "(function(){"
+  + "const el=document.getElementById('scroll');"
+  + "if(!el){return{missing:true};}"
+  + "return{"
+  + "scrollTop:el.scrollTop,"
+  + "wheelEvents:window.__ceoWheelCount||0,"
+  + "scrollHeight:el.scrollHeight,"
+  + "clientHeight:el.clientHeight"
+  + "};})()";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -44,6 +56,8 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
+function output_success(document) { return flag_at(document, "ok"); }
+
 function cu_env(executable) {
   const env = {
     AGENTERM_NO_ACTIVATE: "1",
@@ -64,7 +78,7 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments, env) {
+function run_cu_reply(run_directory, executable, grant, arguments, env) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of arguments) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
@@ -72,12 +86,100 @@ function run_cu(run_directory, executable, grant, arguments, env) {
     env: env,
     timeout_ms: 60000,
   });
-  ensure(output.success === true, "cu_linux_page_scroll_cli:" + output.stdout + output.stderr);
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_page_scroll_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_page_scroll_reply:" + JSON.stringify(document));
+  const lines = output.stdout.split("\n");
+  let json_line = "";
+  for (let index = lines.length - 1; index >= 0; index = index - 1) {
+    const line = lines[index].trim();
+    if (line.charAt(0) === "{") {
+      json_line = line;
+      break;
+    }
+  }
+  ensure(json_line !== "", "cu_linux_page_scroll_cli:" + output.stdout + output.stderr);
+  return JSON.parse(json_line);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_page_scroll_reply:" + JSON.stringify(document));
   return document;
+}
+
+function assert_x11_display_usable(run_directory, env) {
+  const output = rh.command("xdpyinfo", [], {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 5000,
+  });
+  if (output.success === true) { return; }
+  const text = output.stdout + output.stderr;
+  ensure(
+    text.indexOf("Maximum number of clients reached") < 0
+      && text.indexOf("unable to open display") < 0,
+    "cu_linux_page_scroll_host_limit:x11_display_unavailable:" + text.trim()
+  );
+  ensure(false, "cu_linux_page_scroll_host_limit:xdpyinfo:" + text.trim());
+}
+
+function assert_no_cdp_listener(run_directory, executable, env, port) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "page-targets", "--port", "" + port,
+  ], env);
+  ensure(reply.ok !== true, "cu_linux_page_scroll_false_success:" + JSON.stringify(reply));
+  ensure(text_at(reply, "error.code") === "unsupported",
+    "cu_linux_page_scroll_host_limit_code:" + JSON.stringify(reply));
+  const message = text_at(reply, "error.message");
+  ensure(
+    message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
+    "cu_linux_page_scroll_host_limit_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_scroll_usage(run_directory, executable, env, port) {
+  const missing_xy = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-scroll", "--port", "" + port, "--target-id", "unused",
+    "--dy", "120",
+  ], env);
+  ensure(!output_success(missing_xy), "cu_linux_page_scroll_usage_ok_xy:" + JSON.stringify(missing_xy));
+  ensure(
+    text_at(missing_xy, "error.code") === "usage",
+    "cu_linux_page_scroll_usage_code_xy:" + JSON.stringify(missing_xy.error)
+  );
+  ensure(
+    text_at(missing_xy, "error.message").indexOf("--x") >= 0
+      && text_at(missing_xy, "error.message").indexOf("--y") >= 0,
+    "cu_linux_page_scroll_usage_message_xy:" + JSON.stringify(missing_xy.error)
+  );
+
+  const zero_delta = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-scroll", "--port", "" + port, "--target-id", "unused",
+    "--x", "10", "--y", "10", "--dx", "0", "--dy", "0",
+  ], env);
+  ensure(!output_success(zero_delta), "cu_linux_page_scroll_usage_ok_delta:" + JSON.stringify(zero_delta));
+  ensure(
+    text_at(zero_delta, "error.code") === "usage",
+    "cu_linux_page_scroll_usage_code_delta:" + JSON.stringify(zero_delta.error)
+  );
+  ensure(
+    text_at(zero_delta, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_page_scroll_usage_message_delta:" + JSON.stringify(zero_delta.error)
+  );
+}
+
+function assert_scroll_miss_bad_target(run_directory, executable, env, port) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-scroll", "--port", "" + port, "--target-id", "deadbeef",
+    "--x", "10", "--y", "10", "--dy", "120",
+  ], env);
+  ensure(!output_success(reply), "cu_linux_page_scroll_miss_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "cdp_target_not_found",
+    "cu_linux_page_scroll_miss_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("--target-id") >= 0,
+    "cu_linux_page_scroll_miss_message:" + JSON.stringify(reply.error)
+  );
 }
 
 function page_target(rows) {
@@ -87,12 +189,20 @@ function page_target(rows) {
   return null;
 }
 
-function scroll_top(run_directory, executable, env, port, target_id) {
+function scroll_readback(run_directory, executable, env, port, target_id) {
   const read = run_cu(run_directory, executable, "observe", [
     "page-js", "--port", "" + port, "--target-id", target_id,
-    "--expression", "document.getElementById('scroll').scrollTop",
+    "--expression", scroll_readback_expr,
   ], env);
-  return number_at(read, "data.value");
+  return at(read, "data.value");
+}
+
+function cdp_ready(run_directory, port) {
+  const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  return probe.success === true && probe.stdout.indexOf("Browser") >= 0;
 }
 
 const args = rh.args();
@@ -117,6 +227,10 @@ const fixture_html = "<!DOCTYPE html><html><head><title>"
   + fixture_title + "</title></head><body>"
   + "<div id='scroll' style='height:120px;overflow:auto'>"
   + "<div style='height:1000px'>Tall</div></div>"
+  + "<script>"
+  + "window.__ceoWheelCount=0;"
+  + "document.getElementById('scroll').addEventListener('wheel',function(){window.__ceoWheelCount++;},{passive:true});"
+  + "</script>"
   + "</body></html>";
 rh.write_text(fixture, fixture_html);
 
@@ -128,12 +242,21 @@ let succeeded = 0;
 let failure = "";
 
 try {
+  print("STEP verify the configured X11 display is usable before owning Chrome");
+  assert_x11_display_usable(run_directory, env);
+
   const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
     cwd: run_directory,
     timeout_ms: 3000,
   });
   ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
     "cu_linux_page_scroll_port_in_use:" + port);
+
+  print("STEP page-scroll typed-fails usage when --x/--y or wheel delta are missing");
+  assert_scroll_usage(run_directory, executable, env, port);
+
+  print("STEP page-targets --port typed-fails no CDP listener on the owned free port before Chrome starts");
+  assert_no_cdp_listener(run_directory, executable, env, port);
 
   print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
   chrome_child = harness.start({
@@ -149,14 +272,13 @@ try {
     env: env,
     timeout_ms: 45000,
   });
-  for (let attempt = 0; attempt < 80; attempt = attempt + 1) {
-    const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
-      cwd: run_directory,
-      timeout_ms: 3000,
-    });
-    if (probe.success === true && probe.stdout.indexOf("Browser") >= 0) { break; }
+  for (let attempt = 0; attempt < 80 && !cdp_ready(run_directory, port); attempt = attempt + 1) {
     harness.sleep_ms(250);
   }
+  ensure(cdp_ready(run_directory, port), "cu_linux_page_scroll_cdp_not_ready:" + port);
+
+  print("STEP page-scroll typed-fails cdp_target_not_found for a bogus --target-id");
+  assert_scroll_miss_bad_target(run_directory, executable, env, port);
 
   const targets = run_cu(run_directory, executable, "observe", [
     "page-targets", "--port", "" + port,
@@ -176,9 +298,15 @@ try {
     "cu_linux_page_scroll_nav:" + JSON.stringify(nav.data)
   );
 
-  print("STEP independent page-js records container scrollTop before actuation");
-  const before_top = scroll_top(run_directory, executable, env, port, target_id);
-  ensure(before_top === 0, "cu_linux_page_scroll_before_top:" + before_top);
+  print("STEP independent page-js records scrollTop and wheel baseline before actuation");
+  const before = scroll_readback(run_directory, executable, env, port, target_id);
+  ensure(
+    flag_at(before, "missing") !== true
+      && number_at(before, "scrollTop") === 0
+      && number_at(before, "wheelEvents") === 0
+      && number_at(before, "scrollHeight") > number_at(before, "clientHeight"),
+    "cu_linux_page_scroll_before:" + JSON.stringify(before)
+  );
 
   print("STEP page-find #scroll locates the scrollable container center");
   const found = run_cu(run_directory, executable, "observe", [
@@ -206,11 +334,12 @@ try {
   );
   harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-scroll-actuate");
 
-  print("STEP independent page-js read-back proves scrollTop increased");
-  const after_top = scroll_top(run_directory, executable, env, port, target_id);
+  print("STEP independent page-js read-back proves scrollTop and wheel effect increased");
+  const after = scroll_readback(run_directory, executable, env, port, target_id);
   ensure(
-    after_top > before_top,
-    "cu_linux_page_scroll_readback:" + JSON.stringify({ before: before_top, after: after_top })
+    number_at(after, "scrollTop") > number_at(before, "scrollTop")
+      && number_at(after, "wheelEvents") > number_at(before, "wheelEvents"),
+    "cu_linux_page_scroll_readback:" + JSON.stringify({ before: before, after: after })
   );
   harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-scroll-readback");
 
@@ -225,5 +354,5 @@ if (chrome_child >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_page_scroll_failed");
 harness.remove_run(context);
-print("PASS: CEO CDP page-scroll with independent page-js scrollTop read-back (no --coords)");
+print("PASS: Linux CDP page-scroll with usage/miss/host-limit paths and independent scrollTop/wheel read-back (no --coords)");
 return;
