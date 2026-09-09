@@ -1,4 +1,7 @@
-// CEO: Linux keyboard layout observe with independent setxkbmap read-back.
+// CEO: Linux keyboard layout observe with independent setxkbmap and xprop read-back.
+// Acceptance is smoke read-back only: ok JSON must match XKB facts; missing DISPLAY
+// must return typed headless-display host-limit detail. No --coords or screenshot
+// degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -13,48 +16,163 @@ function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function text_at(value, dotted) {
+function at(value, dotted) {
   let current = value;
   for (const key of dotted.split(".")) {
     current = rh.field(current, key);
   }
-  if (current === undefined || current === null) { return ""; }
-  return "" + current;
+  return current;
 }
 
-function run_cu(run_directory, executable, arguments) {
-  const output = rh.command(executable, [
-    "--target", "current", "--grant", "observe",
-  ].concat(arguments), {
-    cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function cu_env() {
+  const env = { AGENTERM_NO_ACTIVATE: "1" };
+  for (const key of ["DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, arguments, env, env_remove) {
+  const spec = {
+    program: executable,
+    args: ["--target", "current", "--grant", "observe"].concat(arguments),
+    current_dir: run_directory,
+    env: env,
     timeout_ms: 30000,
-  });
-  ensure(output.success === true, "cu_linux_keyboard_layout_cli:" + output.stdout + output.stderr);
+  };
+  if (env_remove !== undefined && env_remove.length > 0) { spec.env_remove = env_remove; }
+  const output = rh.command_spec(spec);
+  ensure(output.success === true || output.exit_code === 1, "cu_linux_keyboard_layout_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_linux_keyboard_layout_empty");
   const document = JSON.parse(trimmed);
+  ensure(text_at(document, "command") === "keyboard-layout", "cu_linux_keyboard_layout_command:" + JSON.stringify(document));
   return document;
 }
 
-function independent_layout_id() {
-  const output = rh.command("setxkbmap", ["-query"], {
-    timeout_ms: 10000,
-  });
-  ensure(output.success === true, "setxkbmap_query_failed:" + output.stderr);
+function layout_id(layout, variant) {
+  if (variant === "") { return layout; }
+  return layout + "+" + variant;
+}
+
+function layout_name(layout, variant) {
+  if (variant === "") { return layout; }
+  return layout + " (" + variant + ")";
+}
+
+function parse_setxkbmap_query(stdout) {
+  let rules = "";
+  let model = "";
   let layout = "";
   let variant = "";
-  for (const line of output.stdout.split("\n")) {
+  for (const line of stdout.split("\n")) {
     const trimmed = line.trim();
-    if (trimmed.startsWith("layout:")) {
+    if (trimmed.startsWith("rules:")) {
+      rules = trimmed.slice("rules:".length).trim();
+    } else if (trimmed.startsWith("model:")) {
+      model = trimmed.slice("model:".length).trim();
+    } else if (trimmed.startsWith("layout:")) {
       layout = trimmed.slice("layout:".length).trim();
     } else if (trimmed.startsWith("variant:")) {
       variant = trimmed.slice("variant:".length).trim();
     }
   }
   ensure(layout !== "", "setxkbmap_layout_missing");
-  if (variant === "") { return layout; }
-  return layout + "+" + variant;
+  return {
+    rules,
+    model,
+    layout,
+    variant,
+    id: layout_id(layout, variant),
+    name: layout_name(layout, variant),
+  };
+}
+
+function parse_xprop_rules_names(stdout) {
+  const marker = "_XKB_RULES_NAMES";
+  const equals = stdout.indexOf("=");
+  ensure(stdout.indexOf(marker) >= 0 && equals >= 0, "xprop_xkb_rules_names_missing:" + stdout);
+  const tail = stdout.slice(equals + 1).trim();
+  const parts = [];
+  let index = 0;
+  while (index < tail.length) {
+    while (index < tail.length && tail.charCodeAt(index) === 32) { index = index + 1; }
+    if (index >= tail.length) { break; }
+    if (tail.charCodeAt(index) !== 34) { break; }
+    index = index + 1;
+    let start = index;
+    while (index < tail.length && tail.charCodeAt(index) !== 34) { index = index + 1; }
+    parts.push(tail.slice(start, index));
+    if (index < tail.length) { index = index + 1; }
+    while (index < tail.length && (tail.charCodeAt(index) === 32 || tail.charCodeAt(index) === 44)) {
+      index = index + 1;
+    }
+  }
+  ensure(parts.length >= 3, "xprop_xkb_rules_names_incomplete:" + stdout);
+  const rules = parts[0];
+  const model = parts[1];
+  const layout = parts[2];
+  const variant = parts.length > 3 ? parts[3] : "";
+  ensure(layout !== "", "xprop_layout_missing:" + stdout);
+  return {
+    rules,
+    model,
+    layout,
+    variant,
+    id: layout_id(layout, variant),
+    name: layout_name(layout, variant),
+  };
+}
+
+function independent_xkb_facts(env) {
+  const setxkbmap = rh.command("setxkbmap", ["-query"], {
+    env: env,
+    timeout_ms: 10000,
+  });
+  ensure(setxkbmap.success === true, "setxkbmap_query_failed:" + setxkbmap.stderr);
+  const from_setxkbmap = parse_setxkbmap_query(setxkbmap.stdout);
+
+  const xprop = rh.command("xprop", ["-root", "_XKB_RULES_NAMES"], {
+    env: env,
+    timeout_ms: 10000,
+  });
+  ensure(xprop.success === true, "xprop_xkb_rules_names_failed:" + xprop.stderr);
+  const from_xprop = parse_xprop_rules_names(xprop.stdout);
+
+  ensure(from_setxkbmap.rules === from_xprop.rules, "setxkbmap_xprop_rules_mismatch:" + JSON.stringify({ setxkbmap: from_setxkbmap, xprop: from_xprop }));
+  ensure(from_setxkbmap.model === from_xprop.model, "setxkbmap_xprop_model_mismatch:" + JSON.stringify({ setxkbmap: from_setxkbmap, xprop: from_xprop }));
+  ensure(from_setxkbmap.layout === from_xprop.layout, "setxkbmap_xprop_layout_mismatch:" + JSON.stringify({ setxkbmap: from_setxkbmap, xprop: from_xprop }));
+  ensure(from_setxkbmap.variant === from_xprop.variant, "setxkbmap_xprop_variant_mismatch:" + JSON.stringify({ setxkbmap: from_setxkbmap, xprop: from_xprop }));
+  ensure(from_setxkbmap.id === from_xprop.id, "setxkbmap_xprop_id_mismatch:" + JSON.stringify({ setxkbmap: from_setxkbmap, xprop: from_xprop }));
+  return from_xprop;
+}
+
+function assert_headless_host_limit(reply) {
+  ensure(!flag_at(reply, "ok"), "cu_linux_keyboard_layout_headless_ok:" + JSON.stringify(reply));
+  ensure(text_at(reply, "error.code") === "headless-display", "cu_linux_keyboard_layout_headless_code:" + JSON.stringify(reply.error));
+  const detail = at(reply, "error.detail");
+  ensure(text_at(detail, "effect") === "not_performed", "cu_linux_keyboard_layout_headless_effect:" + JSON.stringify(detail));
+  ensure(text_at(detail, "required_mechanism") === "x11-display", "cu_linux_keyboard_layout_headless_mechanism:" + JSON.stringify(detail));
+  ensure(at(detail, "alternatives").length > 0, "cu_linux_keyboard_layout_headless_alternatives:" + JSON.stringify(detail));
+}
+
+function assert_ok_readback(reply, independent) {
+  ensure(flag_at(reply, "ok"), "cu_linux_keyboard_layout_reply:" + JSON.stringify(reply));
+  ensure(text_at(reply, "data.provider") === "x11-xkb-rules-names", "keyboard_layout_provider:" + JSON.stringify(reply.data));
+  ensure(text_at(reply, "data.rules") === independent.rules, "keyboard_layout_rules_mismatch");
+  ensure(text_at(reply, "data.model") === independent.model, "keyboard_layout_model_mismatch");
+  ensure(text_at(reply, "data.layout") === independent.layout, "keyboard_layout_layout_mismatch");
+  ensure(text_at(reply, "data.variant") === independent.variant, "keyboard_layout_variant_mismatch");
+  ensure(text_at(reply, "data.id") === independent.id, "keyboard_layout_id_mismatch:" + text_at(reply, "data.id") + "!=" + independent.id);
+  ensure(text_at(reply, "data.name") === independent.name, "keyboard_layout_name_mismatch:" + text_at(reply, "data.name") + "!=" + independent.name);
 }
 
 const args = rh.args();
@@ -72,20 +190,19 @@ const context = harness.new_context(repo, "cu-linux-keyboard-layout");
 let succeeded = 0;
 let failure = "";
 try {
-  print("STEP independent setxkbmap read-back captures the active layout id");
-  const expected_id = independent_layout_id();
-  ensure(expected_id !== "", "independent_layout_id");
+  print("STEP keyboard-layout typed-fails headless-display host-limit when DISPLAY is unset");
+  const headless_env = { AGENTERM_NO_ACTIVATE: "1" };
+  assert_headless_host_limit(run_cu(context.run_directory, executable, ["keyboard-layout"], headless_env, ["DISPLAY"]));
 
-  print("STEP keyboard-layout observe returns the same layout id/name");
-  const reply = run_cu(context.run_directory, executable, ["keyboard-layout"]);
-  ensure(reply.ok === true && reply.command === "keyboard-layout", "keyboard_layout_reply");
-  const observed_id = text_at(reply, "data.id");
-  const observed_name = text_at(reply, "data.name");
-  const observed_layout = text_at(reply, "data.layout");
-  ensure(observed_id === expected_id, "keyboard_layout_id_mismatch:" + observed_id + "!=" + expected_id);
-  ensure(observed_layout !== "", "keyboard_layout_component");
-  ensure(observed_name !== "", "keyboard_layout_name");
-  ensure(text_at(reply, "data.provider") !== "", "keyboard_layout_provider");
+  print("STEP independent setxkbmap and xprop _XKB_RULES_NAMES read-back agree on XKB facts");
+  const env = cu_env();
+  ensure(text_at({ display: rh.env_or("DISPLAY", "") }, "display") !== "", "cu_linux_keyboard_layout_display_missing");
+  const independent = independent_xkb_facts(env);
+  ensure(independent.id !== "", "independent_layout_id");
+
+  print("STEP keyboard-layout observe returns the same XKB id/name/rules/model as independent read-back");
+  const reply = run_cu(context.run_directory, executable, ["keyboard-layout"], env);
+  assert_ok_readback(reply, independent);
 
   succeeded = 1;
 } catch (error) {
@@ -98,7 +215,7 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-keyboard-layout-name");
   harness.remove_run(context);
-  print("PASS: CEO Linux keyboard-layout observe with independent setxkbmap read-back");
+  print("PASS: CEO Linux keyboard-layout observe with independent setxkbmap/xprop read-back and headless host-limit honesty");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

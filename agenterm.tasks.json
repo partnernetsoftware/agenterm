@@ -6692,7 +6692,7 @@
     },
     {
       "id": "cu-linux-keyboard-layout-smoke",
-      "description": "Linux keyboard-layout observe returns the active XKB layout id/name with independent setxkbmap read-back; no --coords.",
+      "description": "Linux keyboard-layout observe returns active XKB rules/model/layout/variant with independent setxkbmap and xprop _XKB_RULES_NAMES read-back; missing DISPLAY returns typed headless-display host-limit; no --coords.",
       "entry": "scripts/qjs/cu-linux-keyboard-layout-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
