@@ -8,6 +8,7 @@ pub use crate::contract::app_facts::{
 /// Resolve one exact application and return requested metadata facts.
 ///
 /// Linux uses bounded XDG desktop-entry discovery and direct procfs reads.
+/// macOS uses bounded bundle discovery plus CoreFoundation and Security facts.
 /// Other hosts remain typed unsupported until their native adapter lands.
 pub fn query(selector: &str, options: AppFactsOptions) -> Result<AppFacts, AppFactsError> {
     if selector.is_empty()
@@ -22,17 +23,17 @@ pub fn query(selector: &str, options: AppFactsOptions) -> Result<AppFacts, AppFa
             ),
         ));
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         crate::selected::app_facts::query(selector, options)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         let _ = options;
         Err(AppFactsError::new(
             AppFactsErrorKind::Unsupported,
             "app_facts_platform_unsupported",
-            "application facts are currently implemented on Linux hosts only",
+            "application facts are currently implemented on Linux and macOS hosts only",
         ))
     }
 }
@@ -48,7 +49,7 @@ mod tests {
         assert_eq!(error.code(), "app_facts_invalid_selector");
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     #[test]
     fn unimplemented_hosts_fail_typed() {
         let error = query("example", AppFactsOptions::default()).unwrap_err();

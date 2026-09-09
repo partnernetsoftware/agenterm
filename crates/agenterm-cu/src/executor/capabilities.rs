@@ -1170,14 +1170,14 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         verbs.insert(
             "app-facts".into(),
             serde_json::json!({
-                "status": if cfg!(target_os = "linux") { "available" } else { "unsupported" },
+                "status": if cfg!(any(target_os = "linux", target_os = "macos")) { "available" } else { "unsupported" },
                 "group": "discover",
                 "mode": "exact-native-application-facts",
                 "grant": "observe",
-                "selector": ["normalized-path", "desktop-entry-id", "unique-name"],
+                "selector": ["normalized-path", "desktop-entry-id", "bundle-id", "unique-name"],
                 "identity_bracketed": true,
                 "window_evidence": false,
-                "platforms": ["linux"],
+                "platforms": ["linux", "macos"],
             }),
         );
         verbs.insert(

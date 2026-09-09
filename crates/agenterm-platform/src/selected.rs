@@ -35,6 +35,10 @@ pub(crate) const fn platform_kind() -> crate::PlatformKind {
 #[path = "adapters/linux/app_facts.rs"]
 pub(crate) mod app_facts;
 
+#[cfg(target_os = "macos")]
+#[path = "adapters/macos/app_facts.rs"]
+pub(crate) mod app_facts;
+
 #[cfg(all(feature = "host-boot-identity", target_os = "linux"))]
 #[path = "adapters/linux/host_boot_identity.rs"]
 pub(crate) mod host_boot_identity;
