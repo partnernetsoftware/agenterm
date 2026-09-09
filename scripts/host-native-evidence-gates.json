@@ -212,6 +212,14 @@
       ]
     },
     {
+      "id": "cu-linux-process-argv-cwd-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-process-argv-readback",
+        "cu.linux-process-cwd-readback"
+      ]
+    },
+    {
       "id": "cu-linux-process-fds-smoke",
       "platform": "linux",
       "evidence": [
@@ -223,6 +231,13 @@
       "platform": "linux",
       "evidence": [
         "cu.linux-process-sockets-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-process-state-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-process-state-readback"
       ]
     },
     {
@@ -358,6 +373,13 @@
       "platform": "linux",
       "evidence": [
         "cu.linux-get-extents-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-invoke-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-atspi-invoke-readback"
       ]
     },
     {
