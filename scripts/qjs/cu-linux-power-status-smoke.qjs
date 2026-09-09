@@ -88,6 +88,19 @@ function independent_uptime_milliseconds() {
   return value;
 }
 
+function independent_proc_uptime_milliseconds() {
+  const script = [
+    "with open('/proc/uptime') as handle:",
+    "    seconds = float(handle.read().split()[0])",
+    "print(int(seconds * 1000))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], { timeout_ms: 10000 });
+  ensure(output.success === true, "cu_linux_power_status_proc_uptime_probe:" + output.stderr);
+  const value = Number(output.stdout.trim());
+  ensure(value === value && value >= 0, "cu_linux_power_status_proc_uptime_shape:" + output.stdout);
+  return value;
+}
+
 function independent_boot_identity(host_identity, boot_id) {
   const script = [
     "import hashlib, struct, sys",
@@ -135,6 +148,11 @@ const context = harness.new_context(repo, "cu-linux-power-status");
 let succeeded = 0;
 let failure = "";
 try {
+  print("STEP observation refuses to invent an unenrolled host identity");
+  const missing = invoke(context.run_directory, executable,
+    ["--target", "current", "--grant", "observe", "power", "status"], false, "missing");
+  ensure(missing.error.code === "host_identity_unavailable", "cu_linux_power_status_missing_identity");
+
   print("STEP explicit setup enrolls the private installation identity");
   const setup = invoke(context.run_directory, executable,
     ["--target", "current", "--grant", "actuate", "setup", "--bin-dir",
@@ -158,6 +176,10 @@ try {
   ensure(text_at(reply, "data.verified") === "true"
          && text_at(reply, "data.atomic_snapshot") === "false",
          "cu_linux_power_status_truth_fields");
+  ensure(text_at(reply, "data.host_identity_scope") === "installation"
+         && text_at(reply, "data.boot_identity_scope") === "installation-and-boot"
+         && text_at(reply, "data.boot_anchor") === "native-boot-instance",
+         "cu_linux_power_status_scope_fields");
   ensure(reply.data.host_uuid === undefined && reply.data.start_identity === undefined,
          "cu_linux_power_status_native_identity_leak");
 
@@ -169,6 +191,10 @@ try {
   ensure(uptime_near(uptime_ms, uptime_before, uptime_after),
          "cu_linux_power_status_uptime_mismatch:cu=" + uptime_ms
          + ":before=" + uptime_before + ":after=" + uptime_after);
+  const proc_uptime_ms = independent_proc_uptime_milliseconds();
+  ensure(uptime_near(uptime_ms, proc_uptime_ms, proc_uptime_ms),
+         "cu_linux_power_status_proc_uptime_mismatch:cu=" + uptime_ms
+         + ":proc=" + proc_uptime_ms);
 
   print("STEP independent boot_id derivation matches the reported boot_identity");
   const expected_boot_identity = independent_boot_identity(
