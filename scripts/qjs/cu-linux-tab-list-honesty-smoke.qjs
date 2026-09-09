@@ -2,10 +2,14 @@
 // Acceptance is smoke read-back only: CU tab-list on box-chrome-a11y must agree
 // with a separate AT-SPI page-tab-list / page-tab (or Chromium application-frame)
 // walk for the same browser window. Typed tab-list usage must reject AT-SPI --name,
-// --coords, --bogus, and other unexpected arguments; typed get-extents --name usage
-// AND host-limit paths must both hold before the tab-list actuate/read-back court.
-// Prefer host-limit clarity over fake success. AT-SPI/--name only; no --coords or
-// screenshot degradation.
+// --coords, --bogus, and other unexpected arguments via usage_rejects_unexpected
+// (or an honest non-usage typed failure; never fake command=usage). Typed
+// get-extents --name usage AND host-limit courts must both hold before
+// process-state, desktop-state, and the tab-list actuate/read-back court (no
+// if/else gating those courts on atspi_available), including get-extents
+// --coords/--bogus command=usage. process-state and desktop-state fixture
+// binding courts must hold before actuate/read-back. Prefer host-limit clarity
+// over fake success. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -19,6 +23,8 @@ const declared_evidence = [
 const TAB_A_PREFIX = "CEO Tab List A";
 const TAB_B_PREFIX = "CEO Tab List B";
 const AT_SPI_PROBE_NAME = "Tab List Court Anchor";
+const DESKTOP_STATE_DEPTH = 3;
+const DESKTOP_STATE_MAX_NODES = 64;
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -180,6 +186,10 @@ function assert_tab_list_usage_limit(run_directory, executable, env) {
     "cu_linux_tab_list_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
   );
   ensure(
+    text_at(grouped_with_name, "command") === "usage",
+    "cu_linux_tab_list_usage_grouped_name_command:" + JSON.stringify(grouped_with_name)
+  );
+  ensure(
     usage_rejects_unexpected(text_at(grouped_with_name, "error.message"), "--name"),
     "cu_linux_tab_list_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
   );
@@ -210,6 +220,10 @@ function assert_tab_list_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(grouped_with_bogus, "error.code") === "usage",
     "cu_linux_tab_list_usage_grouped_bogus_code:" + JSON.stringify(grouped_with_bogus.error)
+  );
+  ensure(
+    text_at(grouped_with_bogus, "command") === "usage",
+    "cu_linux_tab_list_usage_grouped_bogus_command:" + JSON.stringify(grouped_with_bogus)
   );
   ensure(
     usage_rejects_unexpected(text_at(grouped_with_bogus, "error.message"), "--bogus"),
@@ -322,6 +336,52 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
       || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_tab_list_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
+  );
+}
+
+function assert_fixture_process_state(run_directory, executable, fixture_pid, env) {
+  const process_state = run_cu(run_directory, executable, "observe", [
+    "process-state", "--pid", "" + fixture_pid,
+  ], env);
+  ensure(
+    text_at(process_state, "command") === "process-state",
+    "cu_linux_tab_list_honesty_process_state_command:" + JSON.stringify(process_state)
+  );
+  ensure(
+    int_at(process_state, "data.pid") === fixture_pid
+      && text_at(process_state, "data.state") === "live"
+      && text_at(process_state, "data.start_identity") !== ""
+      && flag_at(process_state, "data.verified"),
+    "cu_linux_tab_list_honesty_process_state:" + JSON.stringify(process_state.data)
+  );
+}
+
+function assert_fixture_desktop_state(
+  run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row, env
+) {
+  const state = run_cu(run_directory, executable, "observe", [
+    "desktop-state", "--window", handle_text,
+    "--depth", "" + DESKTOP_STATE_DEPTH,
+    "--max-nodes", "" + DESKTOP_STATE_MAX_NODES,
+  ], env);
+  ensure(
+    text_at(state, "command") === "desktop-state",
+    "cu_linux_tab_list_honesty_desktop_state_command:" + JSON.stringify(state)
+  );
+  ensure(
+    int_at(state, "data.window.handle") === int_at(inventory_row, "handle")
+      && text_at(state, "data.window.title") === fixture_title
+      && text_at(state, "data.window.title") === text_at(inventory_row, "title")
+      && int_at(state, "data.window.process_id") === fixture_pid,
+    "cu_linux_tab_list_honesty_desktop_state_window:" + JSON.stringify({
+      state: state.data.window,
+      inventory: inventory_row,
+    })
+  );
+  ensure(
+    int_at(state, "data.tree.returned") > 0
+      && int_at(state, "data.tree.returned") <= DESKTOP_STATE_MAX_NODES,
+    "cu_linux_tab_list_honesty_desktop_state_tree:" + JSON.stringify(state.data.tree)
   );
 }
 
@@ -607,17 +667,17 @@ let failure = "";
 const atspi_available = probe_atspi_available(env);
 
 try {
-  print("STEP tab-list typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
+  print("STEP tab-list typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present (usage_rejects_unexpected + command=usage, or honest non-usage typed failure; never fake command=usage)");
   assert_tab_list_usage_limit(run_directory, executable, env);
 
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before tab-list actuate/read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before process-state/desktop-state and tab-list actuate/read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
-  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before tab-list actuate/read-back court");
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before process-state/desktop-state and tab-list actuate/read-back court");
   assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
   if (atspi_available !== true) {
-    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; tab-list read-back still requires AT-SPI");
+    print("STEP independent pyatspi desktop probe unavailable: get-extents usage AND host-limit already held (no atspi gating); tab-list read-back still requires AT-SPI");
   }
 
   print("STEP clear stale box-chrome singletons on this display before browser-open");
@@ -674,6 +734,7 @@ try {
 
   let window_handle = null;
   let chrome_pid = 0;
+  let inventory_row = null;
   for (let attempt = 0; attempt < 40 && window_handle === null; attempt = attempt + 1) {
     const inventory = run_cu(run_directory, executable, "observe", ["windows"], env);
     const rows = inventory.data.windows === undefined ? inventory.data : inventory.data.windows;
@@ -686,6 +747,7 @@ try {
           && before_set[handle] !== true) {
         window_handle = handle;
         chrome_pid = int_at(row, "process_id");
+        inventory_row = row;
         break;
       }
     }
@@ -693,6 +755,16 @@ try {
   }
   ensure(window_handle !== null, "cu_linux_tab_list_honesty_window_missing");
   ensure(chrome_pid > 0, "cu_linux_tab_list_honesty_pid:" + chrome_pid);
+  ensure(inventory_row !== null, "cu_linux_tab_list_honesty_inventory_missing");
+
+  print("STEP process-state binds the owned fixture pid before tab-list actuate/read-back court");
+  assert_fixture_process_state(run_directory, executable, chrome_pid, env);
+
+  print("STEP desktop-state window row agrees with inventory before tab-list actuate/read-back court");
+  assert_fixture_desktop_state(
+    run_directory, executable, chrome_pid, text_at(inventory_row, "title"),
+    window_handle, inventory_row, env
+  );
 
   print("STEP open second tab via box-chrome-a11y in the same profile");
   const launch_shell = a11y_launcher
@@ -753,9 +825,9 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux CU tab-list matches independent AT-SPI tab-strip walk with typed tab-list --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux CU tab-list matches independent AT-SPI tab-strip walk with typed tab-list --name/--coords/--bogus usage_rejects_unexpected or honest non-usage (never fake command=usage), get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (no atspi gating), and process-state/desktop-state courts before actuate (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux CU tab-list matches independent AT-SPI tab-strip walk with typed tab-list --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux CU tab-list matches independent AT-SPI tab-strip walk with typed tab-list --name/--coords/--bogus usage_rejects_unexpected or honest non-usage (never fake command=usage) and get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
