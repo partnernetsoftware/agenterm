@@ -51,6 +51,11 @@ function misuse_code_ok(code) {
   return code === "invalid_input" || code === "usage";
 }
 
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
   if (value_at === undefined || value_at === null) { return 0; }
@@ -194,8 +199,8 @@ function assert_rclick_usage_limit(run_directory, executable) {
     "cu_linux_gtk_rclick_coords_code:" + JSON.stringify(rclick_coords.error)
   );
   ensure(
-    text_at(rclick_coords, "error.message").indexOf("--degraded") >= 0
-      || text_at(rclick_coords, "error.message").indexOf("--coords") >= 0,
+    usage_rejects_unexpected(text_at(rclick_coords, "error.message"), "--coords")
+      || text_at(rclick_coords, "error.message").indexOf("--degraded") >= 0,
     "cu_linux_gtk_rclick_coords_message:" + JSON.stringify(rclick_coords.error)
   );
 
@@ -211,14 +216,23 @@ function assert_rclick_usage_limit(run_directory, executable) {
     "cu_linux_gtk_rclick_name_coords_code:" + JSON.stringify(rclick_name_coords.error)
   );
   ensure(
-    text_at(rclick_name_coords, "error.message").indexOf("--coords") >= 0,
+    usage_rejects_unexpected(text_at(rclick_name_coords, "error.message"), "--coords"),
     "cu_linux_gtk_rclick_name_coords_message:" + JSON.stringify(rclick_name_coords.error)
   );
 
   const rclick_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
-    "rclick", "--window", "1", "--name", TARGET_NAME, "--bogus",
+    "rclick", "--window", "1", "--bogus",
   ]);
   ensure(!output_success(rclick_bogus), "cu_linux_gtk_rclick_bogus_ok:" + JSON.stringify(rclick_bogus));
+  ensure(
+    text_at(rclick_bogus, "error.code") === "invalid_input",
+    "cu_linux_gtk_rclick_bogus_code:" + JSON.stringify(rclick_bogus.error)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(rclick_bogus, "error.message"), "--bogus")
+      || text_at(rclick_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_rclick_bogus_message:" + JSON.stringify(rclick_bogus.error)
+  );
 
   const click_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     "click", "--window", "1", "--coords", "10,10",
@@ -229,8 +243,8 @@ function assert_rclick_usage_limit(run_directory, executable) {
     "cu_linux_gtk_rclick_click_coords_code:" + JSON.stringify(click_coords.error)
   );
   ensure(
-    text_at(click_coords, "error.message").indexOf("--degraded") >= 0
-      || text_at(click_coords, "error.message").indexOf("--coords") >= 0,
+    usage_rejects_unexpected(text_at(click_coords, "error.message"), "--coords")
+      || text_at(click_coords, "error.message").indexOf("--degraded") >= 0,
     "cu_linux_gtk_rclick_click_coords_message:" + JSON.stringify(click_coords.error)
   );
 
@@ -246,14 +260,23 @@ function assert_rclick_usage_limit(run_directory, executable) {
     "cu_linux_gtk_rclick_click_name_coords_code:" + JSON.stringify(click_name_coords.error)
   );
   ensure(
-    text_at(click_name_coords, "error.message").indexOf("--coords") >= 0,
+    usage_rejects_unexpected(text_at(click_name_coords, "error.message"), "--coords"),
     "cu_linux_gtk_rclick_click_name_coords_message:" + JSON.stringify(click_name_coords.error)
   );
 
   const click_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
-    "click", "--window", "1", "--name", MENU_ITEM_NAME, "--bogus",
+    "click", "--window", "1", "--bogus",
   ]);
   ensure(!output_success(click_bogus), "cu_linux_gtk_rclick_click_bogus_ok:" + JSON.stringify(click_bogus));
+  ensure(
+    text_at(click_bogus, "error.code") === "invalid_input",
+    "cu_linux_gtk_rclick_click_bogus_code:" + JSON.stringify(click_bogus.error)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(click_bogus, "error.message"), "--bogus")
+      || text_at(click_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_rclick_click_bogus_message:" + JSON.stringify(click_bogus.error)
+  );
 }
 
 function assert_actuate_reject_coords_or_stay_named(
@@ -317,6 +340,42 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_gtk_rclick_extents_missing_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords), "cu_linux_gtk_rclick_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_gtk_rclick_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_gtk_rclick_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_rclick_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus), "cu_linux_gtk_rclick_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_gtk_rclick_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_gtk_rclick_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_rclick_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
