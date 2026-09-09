@@ -8275,7 +8275,7 @@
     },
     {
       "id": "cu-linux-file-xattr-mutation-smoke",
-      "description": "Linux identity-bound xattr preview (performed=false), actuate set with file-attributes read-back, actuate remove with native absence read-back, redacted replies, typed file-xattr-set/file-xattr-remove/get-extents AT-SPI --name usage and host-limit honesty before the xattr mutate/read-back court, permission-denied open host-limit when independent os.open probe is denied, and final-symlink refusal through the public agenterm-cu CLI; no --coords.",
+      "description": "Linux identity-bound xattr preview (performed=false), actuate set with file-attributes read-back, actuate remove with native absence read-back, redacted replies, typed file-xattr-set/file-xattr-remove --name/--coords/--bogus and get-extents --name usage and host-limit honesty before the xattr mutate/read-back court, permission-denied open host-limit when independent os.open probe is denied, and final-symlink refusal through the public agenterm-cu CLI; no --coords.",
       "entry": "scripts/qjs/cu-linux-file-xattr-mutation-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
