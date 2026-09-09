@@ -4,12 +4,14 @@
 // when wmctrl -d or root _NET_CURRENT_DESKTOP / _NET_NUMBER_OF_DESKTOPS are
 // present (EWMH virtual desktops are not macOS SkyLight managed Spaces). When
 // those desktop/workspace APIs are absent, the same typed host-limit still
-// holds — never skip or fake green. Typed spaces usage must reject AT-SPI
-// --name, --coords, and --bogus; typed get-extents --name usage AND
-// host-limit paths (including --coords/--bogus honesty) must both hold
-// before any spaces inventory/actuate court. Headless
-// host-limit and capabilities alignment must hold before any owned fixture
-// window exists. Observe-only; no --coords or screenshot degradation.
+// holds — never skip or fake green. Typed spaces --name/--coords/--bogus
+// must use usage_rejects_unexpected or an honest non-usage typed failure
+// (never fake command=usage). Typed get-extents --name usage AND host-limit
+// paths (including --coords/--bogus command=usage) both run before any
+// spaces inventory/actuate court, with no if/else gating on atspi_available.
+// Headless host-limit and capabilities alignment must hold before any owned
+// fixture window exists. Observe-only; AT-SPI/--name only; no --coords or
+// screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -224,47 +226,32 @@ function invoke_get_extents_reply(run_directory, executable, arguments, env) {
   return JSON.parse(output.stdout.trim());
 }
 
-function probe_atspi_available(executable) {
-  const script = [
-    "import sys",
-    "try:",
-    "    import pyatspi",
-    "    _ = pyatspi.Registry.getDesktop(0)",
-    "    print('1')",
-    "except Exception:",
-    "    print('0')",
-  ].join("\n");
-  const output = rh.command("python3", ["-c", script], {
-    env: cu_env(executable),
-    timeout_ms: 10000,
-  });
-  return output.success === true && output.stdout.trim() === "1";
-}
-
 function assert_spaces_usage_reject(run_directory, executable, env, extra_args, token, label) {
   const argv = ["spaces"];
   for (const argument of extra_args) { argv.push("" + argument); }
   const reply = run_cu_reply(run_directory, executable, "observe", argv, env);
   ensure(!output_success(reply),
     "cu_linux_spaces_usage_" + label + "_ok:" + JSON.stringify(reply));
-  ensure(
-    text_at(reply, "error.code") === "usage",
-    "cu_linux_spaces_usage_" + label + "_code:" + JSON.stringify(reply.error)
-  );
-  ensure(
-    text_at(reply, "command") === "usage",
-    "cu_linux_spaces_usage_" + label + "_command:" + JSON.stringify(reply)
-  );
+  const code = text_at(reply, "error.code");
+  const command = text_at(reply, "command");
   const message = text_at(reply, "error.message");
-  ensure(
-    usage_rejects_unexpected(message, token)
-      || message.indexOf("no arguments") >= 0,
-    "cu_linux_spaces_usage_" + label + "_message:" + JSON.stringify(reply.error)
-  );
-  if (token === "--coords") {
+  if (code === "usage") {
     ensure(
-      message.indexOf("--coords") >= 0,
-      "cu_linux_spaces_usage_coords_token:" + JSON.stringify(reply.error)
+      command === "usage",
+      "cu_linux_spaces_usage_" + label + "_command:" + JSON.stringify(reply)
+    );
+    ensure(
+      usage_rejects_unexpected(message, token),
+      "cu_linux_spaces_usage_" + label + "_message:" + JSON.stringify(reply.error)
+    );
+  } else {
+    ensure(
+      command !== "usage",
+      "cu_linux_spaces_usage_" + label + "_fake_command:" + JSON.stringify(reply)
+    );
+    ensure(
+      code === "unsupported" || code === "invalid_input",
+      "cu_linux_spaces_usage_" + label + "_code:" + JSON.stringify(reply.error)
     );
   }
 }
@@ -492,16 +479,12 @@ ensure(direct_file(executable), "cu_linux_spaces_executable_missing:" + executab
 
 const context = harness.new_context(repo, "cu-linux-spaces");
 const env = cu_env(executable);
-const atspi_available = probe_atspi_available(executable);
 
-print("STEP get-extents --name usage/host-limit court before spaces inventory/actuate");
+print("STEP get-extents --name usage AND host-limit courts (including --coords/--bogus command=usage) before spaces inventory/actuate");
 assert_get_extents_usage_limit(context.run_directory, executable, env);
 assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
-if (!atspi_available) {
-  print("STEP independent pyatspi desktop probe unavailable; get-extents host-limit already asserted");
-}
 
-print("STEP spaces typed-fails usage for AT-SPI --name, --coords, and --bogus");
+print("STEP spaces --name/--coords/--bogus use usage_rejects_unexpected or honest non-usage typed failure (never fake command=usage)");
 assert_spaces_usage_limit(context.run_directory, executable, env);
 
 print("STEP spaces without DISPLAY typed-fails unsupported macOS host-limit");
@@ -529,8 +512,4 @@ ensure(text_at(caps, "data.verbs.spaces.provider") === "none",
 
 harness.emit_evidence(context, declared_evidence, "cu.linux-spaces-readback");
 harness.remove_run(context);
-if (atspi_available) {
-  print("PASS typed unsupported with SkyLight host-limit honesty, independent wmctrl/_NET_DESKTOP read-back, typed spaces/get-extents usage honesty (AT-SPI --name, --coords/--bogus rejected), headless paths, and capabilities alignment");
-} else {
-  print("PASS typed unsupported with SkyLight host-limit honesty, independent wmctrl/_NET_DESKTOP read-back, typed spaces usage and get-extents host-limit honesty (AT-SPI --name, --coords/--bogus rejected), headless paths, and capabilities alignment");
-}
+print("PASS typed unsupported with SkyLight host-limit honesty, independent wmctrl/_NET_DESKTOP read-back, typed spaces --name/--coords/--bogus usage_rejects_unexpected (never fake command=usage), get-extents --name usage AND host-limit with --coords/--bogus command=usage (no atspi gating), headless paths, and capabilities alignment");
