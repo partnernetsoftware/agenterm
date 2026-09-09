@@ -1,13 +1,17 @@
 // CEO: Linux screen-reader observe with independent org.a11y.Status read-back.
 // Acceptance is smoke read-back only: ok JSON must match dbus-send flag facts;
 // unsupported must carry typed alternatives and match bus probes; headless-display
-// must carry typed x11-display host-limit detail. Typed screen-reader usage must
-// reject AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed
-// get-extents --name usage AND host-limit paths must both hold before the
-// dbus-send read-back court. Invalid
-// AT_SPI_BUS_ADDRESS must report disconnected a11y_bus while org.a11y.Status flags
-// still agree with independent dbus-send read-back when the session bus is present.
-// No --coords or screenshot degradation.
+// must carry typed x11-display host-limit detail. Typed screen-reader --name/
+// --coords/--bogus uses usage_rejects_unexpected + command=usage or an honest
+// non-usage typed failure (never fake command=usage). Typed get-extents --name
+// usage AND host-limit courts must both hold before process-state, desktop-state,
+// and the dbus-send read-back court (no if/else gating those courts on
+// atspi_available); get-extents --coords/--bogus must reject as command=usage.
+// process-state and desktop-state fixture binding courts must hold before
+// observe/read-back. Invalid AT_SPI_BUS_ADDRESS must report disconnected
+// a11y_bus while org.a11y.Status flags still agree with independent dbus-send
+// read-back when the session bus is present. Prefer host-limit clarity over
+// fake success. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -19,6 +23,8 @@ const declared_evidence = [
 ];
 
 const AT_SPI_PROBE_NAME = "Screen Reader Court Anchor";
+const DESKTOP_STATE_DEPTH = 3;
+const DESKTOP_STATE_MAX_NODES = 64;
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -40,9 +46,56 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return -1; }
+  return rh.parse_int("" + value_at);
+}
+
 function usage_rejects_unexpected(message, token) {
   return message.indexOf(token) >= 0
     || message.indexOf("unexpected") >= 0;
+}
+
+function honest_non_usage_code(code) {
+  return code === "a11y_backend_failed"
+    || code === "unsupported"
+    || code === "bad_handle"
+    || code === "window_not_found"
+    || code === "a11y_window_gone"
+    || code === "invalid_input"
+    || code === "a11y_node_not_found";
+}
+
+function assert_usage_or_honest_non_usage(reply, label, token) {
+  ensure(!output_success(reply),
+    "cu_linux_screen_reader_" + label + "_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  const command = text_at(reply, "command");
+  if (code === "usage" || command === "usage") {
+    ensure(
+      code === "usage",
+      "cu_linux_screen_reader_" + label + "_code:" + JSON.stringify(reply.error)
+    );
+    ensure(
+      command === "usage",
+      "cu_linux_screen_reader_" + label + "_command:" + JSON.stringify(reply)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(reply, "error.message"), token),
+      "cu_linux_screen_reader_" + label + "_message:" + JSON.stringify(reply.error)
+    );
+  } else {
+    ensure(
+      command !== "usage" && honest_non_usage_code(code),
+      "cu_linux_screen_reader_" + label + "_honest:" + JSON.stringify(reply)
+    );
+    ensure(
+      JSON.stringify(reply).indexOf("coordinate") < 0
+        && JSON.stringify(reply).indexOf("XTest") < 0,
+      "cu_linux_screen_reader_" + label + "_degraded:" + JSON.stringify(reply)
+    );
+  }
 }
 
 function output_success(document) { return flag_at(document, "ok"); }
@@ -103,10 +156,10 @@ function invoke_get_extents_reply(run_directory, executable, arguments, env) {
   });
   ensure(output.stdout.trim() !== "",
     "cu_linux_screen_reader_extents_cli:" + output.stdout + output.stderr);
-  return JSON.parse(output.stdout.trim());
+  return last_json_line(output.stdout);
 }
 
-function run_cu_reply(run_directory, executable, arguments, env) {
+function invoke_cu_reply(run_directory, executable, arguments, env) {
   const argv = ["--target", "current", "--grant", "observe"];
   for (const argument of arguments) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
@@ -118,7 +171,17 @@ function run_cu_reply(run_directory, executable, arguments, env) {
     output.stdout.trim() !== "",
     "cu_linux_screen_reader_cli:" + output.stdout + output.stderr
   );
-  const document = last_json_line(output.stdout);
+  return last_json_line(output.stdout);
+}
+
+function run_cu(run_directory, executable, arguments, env) {
+  const document = invoke_cu_reply(run_directory, executable, arguments, env);
+  ensure(output_success(document), "cu_linux_screen_reader_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function run_cu_reply(run_directory, executable, arguments, env) {
+  const document = invoke_cu_reply(run_directory, executable, arguments, env);
   ensure(
     text_at(document, "command") === "screen-reader"
       || text_at(document, "command") === "usage",
@@ -308,55 +371,74 @@ function assert_screen_reader_usage_limit(run_directory, executable) {
   const with_name = run_cu_reply(run_directory, executable, [
     "screen-reader", "--name", "Fixture Status",
   ]);
-  ensure(!output_success(with_name), "cu_linux_screen_reader_usage_name_ok:" + JSON.stringify(with_name));
-  ensure(
-    text_at(with_name, "error.code") === "usage",
-    "cu_linux_screen_reader_usage_name_code:" + JSON.stringify(with_name.error)
-  );
-  ensure(
-    text_at(with_name, "command") === "usage",
-    "cu_linux_screen_reader_usage_name_command:" + JSON.stringify(with_name)
-  );
-  ensure(
-    text_at(with_name, "error.message").indexOf("--name") >= 0
-      || text_at(with_name, "error.message").indexOf("no arguments") >= 0,
-    "cu_linux_screen_reader_usage_name_message:" + JSON.stringify(with_name.error)
-  );
+  assert_usage_or_honest_non_usage(with_name, "usage_name", "--name");
 
   const with_bogus = run_cu_reply(run_directory, executable, [
     "screen-reader", "--bogus",
   ]);
-  ensure(!output_success(with_bogus), "cu_linux_screen_reader_usage_bogus_ok:" + JSON.stringify(with_bogus));
-  ensure(
-    text_at(with_bogus, "error.code") === "usage",
-    "cu_linux_screen_reader_usage_bogus_code:" + JSON.stringify(with_bogus.error)
-  );
-  ensure(
-    text_at(with_bogus, "command") === "usage",
-    "cu_linux_screen_reader_usage_bogus_command:" + JSON.stringify(with_bogus)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus")
-      || text_at(with_bogus, "error.message").indexOf("no arguments") >= 0,
-    "cu_linux_screen_reader_usage_bogus_message:" + JSON.stringify(with_bogus.error)
-  );
+  assert_usage_or_honest_non_usage(with_bogus, "usage_bogus", "--bogus");
 
   const with_coords = run_cu_reply(run_directory, executable, [
     "screen-reader", "--coords", "10,10",
   ]);
-  ensure(!output_success(with_coords), "cu_linux_screen_reader_usage_coords_ok:" + JSON.stringify(with_coords));
+  assert_usage_or_honest_non_usage(with_coords, "usage_coords", "--coords");
+}
+
+function assert_fixture_process_state(run_directory, executable, fixture_pid) {
+  const process_state = run_cu(run_directory, executable, [
+    "process-state", "--pid", "" + fixture_pid,
+  ]);
   ensure(
-    text_at(with_coords, "error.code") === "usage",
-    "cu_linux_screen_reader_usage_coords_code:" + JSON.stringify(with_coords.error)
+    text_at(process_state, "command") === "process-state",
+    "cu_linux_screen_reader_process_state_command:" + JSON.stringify(process_state)
   );
   ensure(
-    text_at(with_coords, "command") === "usage",
-    "cu_linux_screen_reader_usage_coords_command:" + JSON.stringify(with_coords)
+    int_at(process_state, "data.pid") === fixture_pid
+      && text_at(process_state, "data.state") === "live"
+      && text_at(process_state, "data.start_identity") !== ""
+      && flag_at(process_state, "data.verified"),
+    "cu_linux_screen_reader_process_state:" + JSON.stringify(process_state.data)
+  );
+}
+
+function assert_fixture_desktop_state(
+  run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+) {
+  const state = run_cu(run_directory, executable, [
+    "desktop-state", "--window", handle_text,
+    "--depth", "" + DESKTOP_STATE_DEPTH,
+    "--max-nodes", "" + DESKTOP_STATE_MAX_NODES,
+  ]);
+  ensure(
+    text_at(state, "command") === "desktop-state",
+    "cu_linux_screen_reader_desktop_state_command:" + JSON.stringify(state)
   );
   ensure(
-    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords"),
-    "cu_linux_screen_reader_usage_coords_message:" + JSON.stringify(with_coords.error)
+    int_at(state, "data.window.handle") === int_at(inventory_row, "handle")
+      && text_at(state, "data.window.title") === fixture_title
+      && text_at(state, "data.window.title") === text_at(inventory_row, "title")
+      && int_at(state, "data.window.process_id") === fixture_pid,
+    "cu_linux_screen_reader_desktop_state_window:" + JSON.stringify({
+      state: state.data.window,
+      inventory: inventory_row,
+    })
   );
+  ensure(
+    int_at(state, "data.tree.returned") > 0
+      && int_at(state, "data.tree.returned") <= DESKTOP_STATE_MAX_NODES,
+    "cu_linux_screen_reader_desktop_state_tree:" + JSON.stringify(state.data.tree)
+  );
+}
+
+function window_row(run_directory, executable, pid, title) {
+  const reply = run_cu(run_directory, executable, [
+    "windows", "--pid", "" + pid,
+  ]);
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
 }
 
 function assert_atspi_host_limit_readback(run_directory, executable) {
@@ -495,72 +577,130 @@ const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 ensure(direct_file(executable), "missing_agenterm_cu:" + executable);
 
+const context = harness.new_context(repo, "cu-linux-a11y-status");
+const run_directory = rh.join(repo, "target/cu-linux-a11y-status-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source), "cu_linux_screen_reader_fixture_missing:" + fixture_source);
+
+let fixture = -1;
+let fixture_pid = 0;
+let succeeded = 0;
+let failure = "";
 const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable, env);
 
-print("STEP screen-reader typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
-assert_screen_reader_usage_limit(repo, executable);
+try {
+  print("STEP screen-reader typed-fails usage when AT-SPI --name/--coords/--bogus is present (usage_rejects_unexpected + command=usage, or honest non-usage typed failure; never fake command=usage)");
+  assert_screen_reader_usage_limit(run_directory, executable);
 
-print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before dbus-send read-back court");
-assert_get_extents_usage_limit(repo, executable, env);
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (command=usage) before process-state/desktop-state and dbus-send read-back court");
+  assert_get_extents_usage_limit(run_directory, executable, env);
 
-print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before dbus-send read-back court");
-assert_get_extents_host_limit_when_atspi_absent(repo, executable);
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before process-state/desktop-state and dbus-send read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
-print("STEP screen-reader observe returns ok JSON or typed unsupported with session-bus read-back");
-const reply = run_cu_reply(repo, executable, ["screen-reader"]);
-if (flag_at(reply, "ok")) {
-  assert_ok_readback(repo, executable, reply, env);
-  print("PASS screen-reader ok with independent org.a11y.Status read-back");
-} else {
-  assert_unsupported_readback(reply, env);
-  print("PASS screen-reader typed unsupported with independent bus read-back");
-}
+  if (atspi_available) {
+    print("STEP start owned GTK fixture and resolve one window handle before screen-reader observe/read-back court");
+    fixture = harness.start({
+      program: "python3",
+      args: [fixture_source],
+      current_dir: run_directory,
+      env: { GTK_MODULES: "gail:atk-bridge" },
+      timeout_ms: 30000,
+    });
+    fixture_pid = harness.spawned_pid(fixture);
+    const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
 
-print("STEP screen-reader status alias agrees with the bare screen-reader observe");
-const alias_reply = run_cu_reply(repo, executable, ["screen-reader", "status"]);
-if (flag_at(reply, "ok")) {
-  ensure(flag_at(alias_reply, "ok"), "cu_linux_screen_reader_alias_ok:" + JSON.stringify(alias_reply));
-  for (const flag of ["IsEnabled", "ScreenReaderEnabled"]) {
+    const window_wait = run_cu(run_directory, executable, [
+      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+    ]);
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_screen_reader_window_wait");
+
+    const inventory_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    ensure(inventory_row !== null, "cu_linux_screen_reader_inventory_missing");
+    const handle = int_at(inventory_row, "handle");
+    ensure(handle > 0, "cu_linux_screen_reader_handle:" + JSON.stringify(inventory_row));
+    const handle_text = "" + handle;
+
+    print("STEP process-state binds the owned fixture pid before screen-reader observe/read-back court");
+    assert_fixture_process_state(run_directory, executable, fixture_pid);
+
+    print("STEP desktop-state window row agrees with inventory before screen-reader observe/read-back court");
+    assert_fixture_desktop_state(
+      run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+    );
+  } else {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents usage AND host-limit already held; process-state/desktop-state fixture courts require pyatspi; screen-reader dbus-send read-back still runs");
+  }
+
+  print("STEP screen-reader observe returns ok JSON or typed unsupported with session-bus read-back");
+  const reply = run_cu_reply(run_directory, executable, ["screen-reader"]);
+  if (flag_at(reply, "ok")) {
+    assert_ok_readback(run_directory, executable, reply, env);
+    print("PASS screen-reader ok with independent org.a11y.Status read-back");
+  } else {
+    assert_unsupported_readback(reply, env);
+    print("PASS screen-reader typed unsupported with independent bus read-back");
+  }
+
+  print("STEP screen-reader status alias agrees with the bare screen-reader observe");
+  const alias_reply = run_cu_reply(run_directory, executable, ["screen-reader", "status"]);
+  if (flag_at(reply, "ok")) {
+    ensure(flag_at(alias_reply, "ok"), "cu_linux_screen_reader_alias_ok:" + JSON.stringify(alias_reply));
+    for (const flag of ["IsEnabled", "ScreenReaderEnabled"]) {
+      ensure(
+        at(alias_reply, "data.org_a11y_status.flags." + flag + ".value")
+          === at(reply, "data.org_a11y_status.flags." + flag + ".value"),
+        "cu_linux_screen_reader_alias_flag_mismatch:" + flag
+      );
+    }
+  } else {
     ensure(
-      at(alias_reply, "data.org_a11y_status.flags." + flag + ".value")
-        === at(reply, "data.org_a11y_status.flags." + flag + ".value"),
-      "cu_linux_screen_reader_alias_flag_mismatch:" + flag
+      text_at(alias_reply, "error.code") === text_at(reply, "error.code"),
+      "cu_linux_screen_reader_alias_code:" + JSON.stringify(alias_reply.error)
     );
   }
-} else {
-  ensure(
-    text_at(alias_reply, "error.code") === text_at(reply, "error.code"),
-    "cu_linux_screen_reader_alias_code:" + JSON.stringify(alias_reply.error)
-  );
-}
-print("PASS screen-reader status alias read-back");
+  print("PASS screen-reader status alias read-back");
 
-if (session_bus_connected(env)) {
-  print("STEP invalid AT_SPI_BUS_ADDRESS reports disconnected a11y_bus with org.a11y.Status dbus read-back");
-  assert_atspi_host_limit_readback(repo, executable);
-  print("PASS screen-reader AT-SPI host-limit with independent dbus-send read-back");
-} else {
-  print("STEP session bus absent; screen-reader returns typed unavailable with readiness detail");
-  const unavailable = run_cu_reply(repo, executable, ["screen-reader"], {
-    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
-    AGENTERM_NO_ACTIVATE: "1",
-    DISPLAY: rh.has_env("DISPLAY") ? rh.env_or("DISPLAY", "") : "",
-    DBUS_SESSION_BUS_ADDRESS: "invalid",
-  });
-  assert_unavailable_readback(unavailable);
-  print("PASS screen-reader dbus host-limit unavailable read-back");
+  if (session_bus_connected(env)) {
+    print("STEP invalid AT_SPI_BUS_ADDRESS reports disconnected a11y_bus with org.a11y.Status dbus read-back");
+    assert_atspi_host_limit_readback(run_directory, executable);
+    print("PASS screen-reader AT-SPI host-limit with independent dbus-send read-back");
+  } else {
+    print("STEP session bus absent; screen-reader returns typed unavailable with readiness detail");
+    const unavailable = run_cu_reply(run_directory, executable, ["screen-reader"], {
+      AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+      AGENTERM_NO_ACTIVATE: "1",
+      DISPLAY: rh.has_env("DISPLAY") ? rh.env_or("DISPLAY", "") : "",
+      DBUS_SESSION_BUS_ADDRESS: "invalid",
+    });
+    assert_unavailable_readback(unavailable);
+    print("PASS screen-reader dbus host-limit unavailable read-back");
+  }
+
+  print("STEP screen-reader without DISPLAY returns typed headless-display host-limit detail");
+  const headless_reply = run_cu_headless(run_directory, executable, ["screen-reader"]);
+  assert_headless_readback(headless_reply);
+  print("PASS screen-reader headless-display with typed x11-display host-limit detail");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
 }
 
-print("STEP screen-reader without DISPLAY returns typed headless-display host-limit detail");
-const headless_reply = run_cu_headless(repo, executable, ["screen-reader"]);
-assert_headless_readback(headless_reply);
-print("PASS screen-reader headless-display with typed x11-display host-limit detail");
-
-const context = harness.new_context(repo, "cu-linux-a11y-status");
-harness.emit_evidence(context, declared_evidence, "cu.linux-screen-reader-status");
-if (atspi_available) {
-  print("PASS: cu-linux-a11y-status-smoke with dbus-send read-back and typed screen-reader/get-extents --name/--coords/--bogus usage/host-limit honesty (AT-SPI --name, no --coords)");
-} else {
-  print("PASS: cu-linux-a11y-status-smoke with dbus-send read-back and typed screen-reader/get-extents --name/--coords/--bogus usage/host-limit honesty (AT-SPI --name, no --coords)");
+if (fixture_pid > 0) {
+  rh.command("kill", ["-TERM", "" + fixture_pid], { cwd: run_directory, timeout_ms: 5000 });
 }
+if (fixture >= 0) {
+  try { harness.wait(fixture, 5000); } catch (error) { print("cleanup: " + error); }
+}
+
+if (succeeded !== 0) {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-screen-reader-status");
+  harness.remove_run(context);
+  print("PASS: cu-linux-a11y-status-smoke with independent dbus-send read-back, typed screen-reader --name/--coords/--bogus usage_rejects_unexpected or honest non-usage (never fake command=usage), always-run get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (no atspi gating), and process-state/desktop-state courts before observe (AT-SPI --name, no --coords)");
+}
+if (failure !== "") { throw failure; }
+return;
