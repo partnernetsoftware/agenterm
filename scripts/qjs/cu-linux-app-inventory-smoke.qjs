@@ -3,9 +3,10 @@
 // CU apps --all must agree with facts derived outside agenterm-cu from the
 // same desktop-entry precedence the Linux adapter uses, and each running flag
 // must match the window-app-name join measured independently. Typed apps usage
-// must reject AT-SPI --name and other unexpected arguments; typed get-extents
-// --name usage/host-limit paths must hold before the desktop/app inventory
-// read-back court. AT-SPI/--name only; no --coords or screenshot degradation.
+// must reject AT-SPI --name, --coords, --bogus, and other unexpected arguments;
+// typed get-extents --name usage AND host-limit paths must both hold before
+// the desktop/app inventory read-back court. AT-SPI/--name only; no --coords
+// or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -40,7 +41,21 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
 function output_success(document) { return flag_at(document, "ok"); }
+
+function last_json_line(text) {
+  const lines = text.split("\n");
+  for (let index = lines.length - 1; index >= 0; index = index - 1) {
+    const line = lines[index].trim();
+    if (line.charAt(0) === "{") { return JSON.parse(line); }
+  }
+  throw "cu_linux_app_inventory_missing_json";
+}
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -78,7 +93,7 @@ function invoke_apps_reply(run_directory, executable, arguments, env) {
   });
   ensure(output.stdout.trim() !== "",
     "cu_linux_app_inventory_observe_cli:" + output.stdout + output.stderr);
-  const reply = JSON.parse(output.stdout.trim());
+  const reply = last_json_line(output.stdout);
   ensure(
     text_at(reply, "command") === "apps" || text_at(reply, "command") === "usage",
     "cu_linux_app_inventory_observe_command:" + JSON.stringify(reply)
@@ -96,7 +111,7 @@ function invoke_get_extents_reply(run_directory, executable, arguments, env) {
   });
   ensure(output.stdout.trim() !== "",
     "cu_linux_app_inventory_extents_cli:" + output.stdout + output.stderr);
-  return JSON.parse(output.stdout.trim());
+  return last_json_line(output.stdout);
 }
 
 function probe_atspi_available(executable) {
@@ -116,54 +131,45 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
+function assert_apps_unexpected_flag(run_directory, executable, env, arguments, label, token) {
+  const reply = invoke_apps_reply(run_directory, executable, arguments, env);
+  ensure(!output_success(reply),
+    "cu_linux_app_inventory_usage_" + label + "_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_app_inventory_usage_" + label + "_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "command") === "usage",
+    "cu_linux_app_inventory_usage_" + label + "_command:" + JSON.stringify(reply)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(reply, "error.message"), token),
+    "cu_linux_app_inventory_usage_" + label + "_message:" + JSON.stringify(reply.error)
+  );
+}
+
 function assert_apps_usage_limit(run_directory, executable, env) {
-  const all_with_name = invoke_apps_reply(run_directory, executable, [
+  assert_apps_unexpected_flag(run_directory, executable, env, [
     "apps", "--all", "--name", AT_SPI_PROBE_NAME,
-  ], env);
-  ensure(!output_success(all_with_name),
-    "cu_linux_app_inventory_usage_all_name_ok:" + JSON.stringify(all_with_name));
-  ensure(
-    text_at(all_with_name, "error.code") === "usage",
-    "cu_linux_app_inventory_usage_all_name_code:" + JSON.stringify(all_with_name.error)
-  );
-  ensure(
-    text_at(all_with_name, "command") === "usage",
-    "cu_linux_app_inventory_usage_all_name_command:" + JSON.stringify(all_with_name)
-  );
-  ensure(
-    text_at(all_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(all_with_name, "error.message").indexOf("unexpected") >= 0,
-    "cu_linux_app_inventory_usage_all_name_message:" + JSON.stringify(all_with_name.error)
-  );
-
-  const running_with_name = invoke_apps_reply(run_directory, executable, [
+  ], "all_name", "--name");
+  assert_apps_unexpected_flag(run_directory, executable, env, [
     "apps", "--name", AT_SPI_PROBE_NAME,
-  ], env);
-  ensure(!output_success(running_with_name),
-    "cu_linux_app_inventory_usage_running_name_ok:" + JSON.stringify(running_with_name));
-  ensure(
-    text_at(running_with_name, "error.code") === "usage",
-    "cu_linux_app_inventory_usage_running_name_code:" + JSON.stringify(running_with_name.error)
-  );
-  ensure(
-    text_at(running_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(running_with_name, "error.message").indexOf("unexpected") >= 0,
-    "cu_linux_app_inventory_usage_running_name_message:" + JSON.stringify(running_with_name.error)
-  );
+  ], "running_name", "--name");
 
-  const with_bogus = invoke_apps_reply(run_directory, executable, ["apps", "--bogus"], env);
-  ensure(!output_success(with_bogus),
-    "cu_linux_app_inventory_usage_bogus_ok:" + JSON.stringify(with_bogus));
-  ensure(
-    text_at(with_bogus, "error.code") === "usage",
-    "cu_linux_app_inventory_usage_bogus_code:" + JSON.stringify(with_bogus.error)
-  );
-  ensure(
-    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(with_bogus, "error.message").indexOf("--running") >= 0
-      || text_at(with_bogus, "error.message").indexOf("--all") >= 0,
-    "cu_linux_app_inventory_usage_bogus_message:" + JSON.stringify(with_bogus.error)
-  );
+  assert_apps_unexpected_flag(run_directory, executable, env, [
+    "apps", "--all", "--bogus",
+  ], "all_bogus", "--bogus");
+  assert_apps_unexpected_flag(run_directory, executable, env, [
+    "apps", "--bogus",
+  ], "running_bogus", "--bogus");
+
+  assert_apps_unexpected_flag(run_directory, executable, env, [
+    "apps", "--all", "--coords", "10,10",
+  ], "all_coords", "--coords");
+  assert_apps_unexpected_flag(run_directory, executable, env, [
+    "apps", "--coords", "10,10",
+  ], "running_coords", "--coords");
 }
 
 function assert_get_extents_usage_limit(run_directory, executable, env) {
@@ -179,6 +185,62 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_app_inventory_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_app_inventory_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_app_inventory_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_app_inventory_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_app_inventory_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_app_inventory_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_app_inventory_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_app_inventory_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_app_inventory_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_app_inventory_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_app_inventory_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_app_inventory_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_app_inventory_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -443,15 +505,17 @@ let succeeded = 0;
 let failure = "";
 let inventory_available = false;
 try {
-  print("STEP apps typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  print("STEP apps typed-fail usage when AT-SPI --name/--coords/--bogus is present");
   assert_apps_usage_limit(context.run_directory, executable, env);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before desktop/app inventory read-back");
-    assert_get_extents_usage_limit(context.run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before desktop/app inventory read-back court");
+  assert_get_extents_usage_limit(context.run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before desktop/app inventory read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+
+  if (!atspi_available) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; apps inventory read-back still uses desktop-entry/window comm");
   }
 
   print("STEP independent XDG desktop-entry and visible-window /proc comm probe");
@@ -495,15 +559,9 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-app-inventory-readback");
   harness.remove_run(context);
   if (inventory_available) {
-    if (atspi_available) {
-      print("PASS: Linux apps --all matches independent desktop-entry and window comm read-back with typed apps/get-extents usage honesty (AT-SPI --name, no --coords)");
-    } else {
-      print("PASS: Linux apps --all matches independent desktop-entry and window comm read-back with typed apps/get-extents host-limit honesty (AT-SPI --name, no --coords)");
-    }
-  } else if (atspi_available) {
-    print("PASS: Linux apps inventory typed gap with independent probe absence read-back and typed apps/get-extents usage honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux apps --all matches independent desktop-entry and window comm read-back with typed apps --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux apps inventory typed gap with independent probe absence read-back and typed apps/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux apps inventory typed gap with independent probe absence read-back and typed apps --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
