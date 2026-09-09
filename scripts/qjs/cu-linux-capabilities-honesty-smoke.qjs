@@ -13,7 +13,7 @@ const declared_evidence = [
 ];
 
 const PROBE_SCRIPT = [
-  "import glob, json, os, subprocess, sys",
+  "import glob, json, os, shutil, subprocess, sys",
   "display = os.environ.get('DISPLAY', '')",
   "def probe_atspi():",
   "    try:",
@@ -66,6 +66,26 @@ const PROBE_SCRIPT = [
   "        return True",
   "    except Exception:",
   "        return False",
+  "def probe_simulator_shutdown():",
+  "    if not sys.platform.startswith('darwin'):",
+  "        return False",
+  "    simctl = shutil.which('xcrun')",
+  "    if simctl is None:",
+  "        return False",
+  "    try:",
+  "        subprocess.check_call([simctl, 'simctl', 'help'], stdout=subprocess.DEVNULL,",
+  "                              stderr=subprocess.DEVNULL, timeout=5)",
+  "        return True",
+  "    except Exception:",
+  "        return False",
+  "def probe_spaces():",
+  "    if not sys.platform.startswith('darwin'):",
+  "        return False",
+  "    return os.path.exists('/System/Library/PrivateFrameworks/SkyLight.framework')",
+  "def probe_device_screenshot():",
+  "    if not sys.platform.startswith('darwin'):",
+  "        return False",
+  "    return os.path.exists('/System/Library/Frameworks/CoreMediaIO.framework')",
   "probes = {",
   "    'tree': probe_atspi(),",
   "    'query': probe_atspi(),",
@@ -76,9 +96,9 @@ const PROBE_SCRIPT = [
   "    'ps': probe_proc(),",
   "    'file-inspect': probe_file_inspect(),",
   "    'host-notify': probe_host_notify(),",
-  "    'simulator-shutdown': False,",
-  "    'spaces': False,",
-  "    'device-screenshot': False,",
+  "    'simulator-shutdown': probe_simulator_shutdown(),",
+  "    'spaces': probe_spaces(),",
+  "    'device-screenshot': probe_device_screenshot(),",
   "    'apps.installed': probe_apps_installed(),",
   "}",
   "print(json.dumps(probes))",
@@ -158,6 +178,21 @@ function apps_installed_status(verbs) {
   return text_at(declaration, "installed");
 }
 
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function verb_declaration(verbs, verb) {
+  const declaration = rh.field(verbs, verb);
+  ensure(declaration !== undefined && declaration !== null,
+         "cu_linux_capabilities_honesty_missing_declaration:" + verb);
+  return declaration;
+}
+
 function expect_status(actual, probe_available, label) {
   if (probe_available) {
     ensure(actual === "available", label + ":expected_available:cu=" + actual);
@@ -165,6 +200,33 @@ function expect_status(actual, probe_available, label) {
   }
   ensure(actual === "unsupported" || actual === "not-applicable" || actual === "failed",
          label + ":expected_absent:cu=" + actual);
+}
+
+function expect_host_limit_clarity(declaration, probe_available, label) {
+  if (probe_available) { return; }
+  const reason = text_at(declaration, "reason");
+  const platforms = at(declaration, "platforms");
+  const has_reason = reason.length > 0;
+  const has_platforms = Array.isArray(platforms) && platforms.length > 0;
+  ensure(has_reason || has_platforms,
+         label + ":missing_host_limit_metadata:" + JSON.stringify(declaration));
+  if (has_reason) {
+    const lower = reason.toLowerCase();
+    ensure(lower.indexOf("macos") >= 0 || lower.indexOf("skylight") >= 0,
+           label + ":reason_not_macos_specific:" + reason);
+  }
+  if (has_platforms && !has_reason) {
+    ensure(platforms.indexOf("macos") >= 0,
+           label + ":platforms_missing_macos:" + JSON.stringify(platforms));
+  }
+}
+
+function expect_spaces_host_limit(declaration, probe_available, label) {
+  expect_host_limit_clarity(declaration, probe_available, label);
+  if (probe_available) { return; }
+  ensure(text_at(declaration, "os") === "linux", label + ":spaces_os:" + text_at(declaration, "os"));
+  ensure(text_at(declaration, "provider") === "none",
+         label + ":spaces_provider:" + text_at(declaration, "provider"));
 }
 
 const args = rh.args();
@@ -197,10 +259,18 @@ try {
     "displays", "ps", "file-inspect", "host-notify",
     "simulator-shutdown", "spaces", "device-screenshot",
   ];
+  print("STEP unsupported verbs declare macOS host-limit metadata matching independent probes");
   for (const verb of bounded) {
+    const declaration = verb_declaration(verbs, verb);
     const actual = verb_status(verbs, verb);
     const label = "cu_linux_capabilities_honesty_" + verb.split("-").join("_");
-    expect_status(actual, probes[verb] === true, label);
+    const probe_available = probes[verb] === true;
+    expect_status(actual, probe_available, label);
+    if (verb === "spaces") {
+      expect_spaces_host_limit(declaration, probe_available, label);
+    } else {
+      expect_host_limit_clarity(declaration, probe_available, label);
+    }
   }
 
   const installed_actual = apps_installed_status(verbs);
