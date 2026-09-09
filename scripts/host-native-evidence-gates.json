@@ -198,6 +198,13 @@
       ]
     },
     {
+      "id": "cu-linux-file-copy-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-file-copy-readback"
+      ]
+    },
+    {
       "id": "cu-linux-external-terminal-send-smoke",
       "platform": "linux",
       "evidence": [
