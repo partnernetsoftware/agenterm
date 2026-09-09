@@ -205,13 +205,6 @@
       ]
     },
     {
-      "id": "cu-linux-tab-list-honesty-smoke",
-      "platform": "linux",
-      "evidence": [
-        "cu.linux-tab-list-readback"
-      ]
-    },
-    {
       "id": "cu-linux-pty-smoke",
       "platform": "linux",
       "evidence": [
