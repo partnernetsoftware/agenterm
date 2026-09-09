@@ -1,10 +1,14 @@
 // CEO: Linux CDP page-click honesty — click a named page control; prove with
 // independent page-js DOM read-back (not page-click performed/verified).
 // Typed page-click usage must reject AT-SPI --name, --coords, --bogus, and
-// other unexpected arguments; typed get-extents --name usage AND host-limit
-// paths must both hold before the page-click actuate/page-js DOM read-back
-// court. A free port must typed-fail before any owned Chrome exists. Distinct
-// from AT-SPI hover→click. Prefer host-limit clarity over fake success.
+// other unexpected arguments via usage_rejects_unexpected or honest non-usage
+// typed failure (never fake command=usage); typed get-extents --name usage AND
+// host-limit paths must both hold before process-state, desktop-state, and the
+// page-click actuate/page-js DOM read-back court (no atspi_available gating).
+// process-state and desktop-state fixture binding courts must hold before
+// actuate/read-back when the owned Chrome window is discoverable. A free port
+// must typed-fail before any owned Chrome exists. Distinct from AT-SPI
+// hover→click. Prefer host-limit clarity over fake success.
 // Disposable Chrome+CDP; --port/--target-id/--selector only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -19,6 +23,8 @@ const declared_evidence = [
 
 const AT_SPI_PROBE_NAME = "Page Click Court Anchor";
 const MISSING_NODE = "agenterm-no-such-page-click-node";
+const DESKTOP_STATE_DEPTH = 3;
+const DESKTOP_STATE_MAX_NODES = 64;
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -201,6 +207,10 @@ function assert_page_click_usage_rejects_name(run_directory, executable, env, po
     "cu_linux_page_click_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
   );
   ensure(
+    text_at(grouped_with_name, "command") === "usage",
+    "cu_linux_page_click_usage_grouped_name_command:" + JSON.stringify(grouped_with_name)
+  );
+  ensure(
     usage_rejects_unexpected(text_at(grouped_with_name, "error.message"), "--name"),
     "cu_linux_page_click_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
   );
@@ -235,6 +245,10 @@ function assert_page_click_usage_rejects_name(run_directory, executable, env, po
     "cu_linux_page_click_usage_grouped_bogus_code:" + JSON.stringify(grouped_with_bogus.error)
   );
   ensure(
+    text_at(grouped_with_bogus, "command") === "usage",
+    "cu_linux_page_click_usage_grouped_bogus_command:" + JSON.stringify(grouped_with_bogus)
+  );
+  ensure(
     usage_rejects_unexpected(text_at(grouped_with_bogus, "error.message"), "--bogus"),
     "cu_linux_page_click_usage_grouped_bogus_message:" + JSON.stringify(grouped_with_bogus.error)
   );
@@ -267,6 +281,10 @@ function assert_page_click_usage_rejects_name(run_directory, executable, env, po
   ensure(
     text_at(grouped_with_coords, "error.code") === "usage",
     "cu_linux_page_click_usage_grouped_coords_code:" + JSON.stringify(grouped_with_coords.error)
+  );
+  ensure(
+    text_at(grouped_with_coords, "command") === "usage",
+    "cu_linux_page_click_usage_grouped_coords_command:" + JSON.stringify(grouped_with_coords)
   );
   ensure(
     usage_rejects_unexpected(text_at(grouped_with_coords, "error.message"), "--coords"),
@@ -461,6 +479,52 @@ function window_row_for_title(run_directory, executable, env, title_needle) {
   return null;
 }
 
+function assert_fixture_process_state(run_directory, executable, fixture_pid, env) {
+  const process_state = run_cu(run_directory, executable, "observe", [
+    "process-state", "--pid", "" + fixture_pid,
+  ], env);
+  ensure(
+    text_at(process_state, "command") === "process-state",
+    "cu_linux_page_click_process_state_command:" + JSON.stringify(process_state)
+  );
+  ensure(
+    int_at(process_state, "data.pid") === fixture_pid
+      && text_at(process_state, "data.state") === "live"
+      && text_at(process_state, "data.start_identity") !== ""
+      && flag_at(process_state, "data.verified"),
+    "cu_linux_page_click_process_state:" + JSON.stringify(process_state.data)
+  );
+}
+
+function assert_fixture_desktop_state(
+  run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row, env
+) {
+  const state = run_cu(run_directory, executable, "observe", [
+    "desktop-state", "--window", handle_text,
+    "--depth", "" + DESKTOP_STATE_DEPTH,
+    "--max-nodes", "" + DESKTOP_STATE_MAX_NODES,
+  ], env);
+  ensure(
+    text_at(state, "command") === "desktop-state",
+    "cu_linux_page_click_desktop_state_command:" + JSON.stringify(state)
+  );
+  ensure(
+    int_at(state, "data.window.handle") === int_at(inventory_row, "handle")
+      && text_at(state, "data.window.title") === fixture_title
+      && text_at(state, "data.window.title") === text_at(inventory_row, "title")
+      && int_at(state, "data.window.process_id") === fixture_pid,
+    "cu_linux_page_click_desktop_state_window:" + JSON.stringify({
+      state: state.data.window,
+      inventory: inventory_row,
+    })
+  );
+  ensure(
+    int_at(state, "data.tree.returned") > 0
+      && int_at(state, "data.tree.returned") <= DESKTOP_STATE_MAX_NODES,
+    "cu_linux_page_click_desktop_state_tree:" + JSON.stringify(state.data.tree)
+  );
+}
+
 function assert_no_cdp_listener(run_directory, executable, env, port) {
   const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-click", "--port", "" + port, "--target-id", "unused", "--selector", "#go",
@@ -581,14 +645,14 @@ try {
   print("STEP page-click typed-fails no CDP listener on the owned free port before Chrome starts");
   assert_no_cdp_listener(run_directory, executable, env, port);
 
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before page-js DOM read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (command=usage) before process-state/desktop-state and page-js DOM read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
-  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before page-js DOM read-back court");
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before process-state/desktop-state and page-js DOM read-back court");
   assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
   if (atspi_available !== true) {
-    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; page-click read-back still uses independent page-js DOM");
+    print("STEP independent pyatspi desktop probe unavailable: get-extents usage AND host-limit already held (no atspi gating); process-state/desktop-state binding may be skipped when the owned Chrome window is not discoverable; page-click read-back still uses independent page-js DOM");
   }
 
   print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
@@ -631,24 +695,35 @@ try {
     "cu_linux_page_click_nav:" + JSON.stringify(nav.data)
   );
 
+  print("STEP wait for owned Chrome window before process-state/desktop-state and page-click actuate/read-back court");
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "20000", "--window-title-contains", fixture_title,
+  ], env);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_page_click_window_wait");
+
+  let window_row = null;
+  for (let attempt = 0; attempt < 40 && window_row === null; attempt = attempt + 1) {
+    window_row = window_row_for_title(run_directory, executable, env, fixture_title);
+    if (window_row === null) { harness.sleep_ms(250); }
+  }
+  ensure(window_row !== null, "cu_linux_page_click_window_missing:" + fixture_title);
+  const window_handle = "" + int_at(window_row, "handle");
+  const window_title = text_at(window_row, "title");
+  const chrome_pid = int_at(window_row, "process_id");
+  ensure(window_handle !== "" && window_handle !== "0",
+    "cu_linux_page_click_window_handle:" + JSON.stringify(window_row));
+  ensure(chrome_pid > 0, "cu_linux_page_click_chrome_pid:" + JSON.stringify(window_row));
+
+  print("STEP process-state binds the owned Chrome pid before page-click actuate/read-back court");
+  assert_fixture_process_state(run_directory, executable, chrome_pid, env);
+
+  print("STEP desktop-state window row agrees with inventory before page-click actuate/read-back court");
+  assert_fixture_desktop_state(
+    run_directory, executable, chrome_pid, window_title, window_handle, window_row, env
+  );
+
   if (atspi_available) {
-    print("STEP wait for owned Chrome window and unlock accessibility tree before named read-back");
-    const window_wait = run_cu(run_directory, executable, "observe", [
-      "wait", "--timeout-ms", "20000", "--window-title-contains", fixture_title,
-    ], env);
-    ensure(flag_at(window_wait, "data.met"), "cu_linux_page_click_window_wait");
-
-    let window_row = null;
-    for (let attempt = 0; attempt < 40 && window_row === null; attempt = attempt + 1) {
-      window_row = window_row_for_title(run_directory, executable, env, fixture_title);
-      if (window_row === null) { harness.sleep_ms(250); }
-    }
-    ensure(window_row !== null, "cu_linux_page_click_window_missing:" + fixture_title);
-    const window_handle = "" + int_at(window_row, "handle");
-    const window_title = text_at(window_row, "title");
-    ensure(window_handle !== "" && window_handle !== "0",
-      "cu_linux_page_click_window_handle:" + JSON.stringify(window_row));
-
+    print("STEP unlock accessibility tree before named get-extents read-back court");
     const unlocked = run_cu(run_directory, executable, "observe,actuate", [
       "unlock", "--window", window_handle,
     ], env);
@@ -707,8 +782,8 @@ if (chrome_child >= 0) {
 ensure(succeeded === 1, failure || "cu_linux_page_click_failed");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: Linux page-click usage/host-limit/miss honesty + independent page-js DOM read-back with typed page-click --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux page-click usage/host-limit/miss honesty + process-state/desktop-state courts + independent page-js DOM read-back with typed page-click --name/--coords/--bogus usage_rejects_unexpected (never fake command=usage), get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (no atspi gating) (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: Linux page-click usage/host-limit/miss honesty + independent page-js DOM read-back with typed page-click --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux page-click usage/host-limit/miss honesty + process-state/desktop-state courts + independent page-js DOM read-back with typed page-click --name/--coords/--bogus usage_rejects_unexpected (never fake command=usage), get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (no atspi gating) when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
 }
 return;
