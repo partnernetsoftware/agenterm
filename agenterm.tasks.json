@@ -6606,7 +6606,7 @@
     },
     {
       "id": "cu-linux-gtk-entry-caret-smoke",
-      "description": "Linux GTK entry set-caret / get-caret roundtrip by --name after send-text seeds SEED; AT-SPI --name; no --coords.",
+      "description": "Linux GTK entry set-caret / get-caret roundtrip by --name after send-text seeds SEED with independent pyatspi Text.CaretOffset read-back; typed usage and host-limit paths when the named entry is missing or has no Text caret interface; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-caret-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
