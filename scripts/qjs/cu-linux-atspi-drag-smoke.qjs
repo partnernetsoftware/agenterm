@@ -1,10 +1,12 @@
 // CEO: Linux AT-SPI drag --from-name/--to-name via GenerateMouseEvent between
-// named node extents centers. Acceptance is smoke read-back only: independent
+// named node extents centers. Acceptance is smoke read-back only: typed usage,
+// miss, and host-limit paths must hold when --window/--from-name/--to-name are
+// missing or the independent pyatspi desktop probe is unavailable; independent
 // pyatspi extents geometry before drag, CU get-extents must agree, drag receipt
 // must name both nodes and report performed without worker data.verified, then
-// independent xdotool pointer-position must equal the pyatspi target center
-// and CU pointer-position must agree. AT-SPI/--name only; no --coords or
-// screenshot degradation.
+// independent xdotool pointer lands on pyatspi target center and CU
+// pointer-position agrees. AT-SPI/--name only; no --coords or screenshot
+// degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -17,6 +19,7 @@ const declared_evidence = [
 
 const DRAG_SOURCE = "Fixture Drag Source";
 const DRAG_TARGET = "Fixture Drag Target";
+const MISSING_NODE = "No Such Drag Node";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -36,7 +39,12 @@ function text_at(value, dotted) {
   return "" + value_at;
 }
 
-function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
+
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
 function direct_file(path) {
@@ -65,25 +73,149 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, cu_args) {
+function output_success(document) { return flag_at(document, "ok"); }
+
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of cu_args) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: cu_env(executable),
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
   });
-  ensure(output.success === true, "cu_linux_atspi_drag_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_atspi_drag_empty");
+  ensure(trimmed !== "", "cu_linux_atspi_drag_empty_reply:" + output.stderr);
   return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, cu_args) {
+  const document = run_cu_reply(run_directory, executable, grant, cu_args);
+  ensure(output_success(document), "cu_linux_atspi_drag_cli:" + JSON.stringify(document));
+  return document;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_drag_usage_limit(run_directory, executable) {
+  const missing_window = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "drag",
+  ]);
+  ensure(!output_success(missing_window), "cu_linux_atspi_drag_usage_window_ok:" + JSON.stringify(missing_window));
+  ensure(
+    text_at(missing_window, "error.code") === "usage",
+    "cu_linux_atspi_drag_usage_window_code:" + JSON.stringify(missing_window.error)
+  );
+  ensure(
+    text_at(missing_window, "error.message").indexOf("--window") >= 0,
+    "cu_linux_atspi_drag_usage_window_message:" + JSON.stringify(missing_window.error)
+  );
+
+  const missing_addressing = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "drag", "--window", "1",
+  ]);
+  ensure(!output_success(missing_addressing), "cu_linux_atspi_drag_usage_address_ok:" + JSON.stringify(missing_addressing));
+  ensure(
+    text_at(missing_addressing, "error.code") === "usage",
+    "cu_linux_atspi_drag_usage_address_code:" + JSON.stringify(missing_addressing.error)
+  );
+  ensure(
+    text_at(missing_addressing, "error.message").indexOf("--from-name") >= 0
+      || text_at(missing_addressing, "error.message").indexOf("--from") >= 0,
+    "cu_linux_atspi_drag_usage_address_message:" + JSON.stringify(missing_addressing.error)
+  );
+
+  const zero_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "drag", "--window", "0", "--from-name", DRAG_SOURCE, "--to-name", DRAG_TARGET,
+  ]);
+  ensure(!output_success(zero_handle), "cu_linux_atspi_drag_zero_handle_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "usage",
+    "cu_linux_atspi_drag_zero_handle_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_atspi_drag_zero_handle_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const one_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "drag", "--window", "1", "--from-name", DRAG_SOURCE,
+  ]);
+  ensure(!output_success(one_name), "cu_linux_atspi_drag_one_name_ok:" + JSON.stringify(one_name));
+  ensure(
+    text_at(one_name, "error.code") === "usage",
+    "cu_linux_atspi_drag_one_name_code:" + JSON.stringify(one_name.error)
+  );
+  ensure(
+    text_at(one_name, "error.message").indexOf("both names") >= 0,
+    "cu_linux_atspi_drag_one_name_message:" + JSON.stringify(one_name.error)
+  );
+}
+
+function assert_drag_missing_node(run_directory, executable, handle, label) {
+  const from_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "drag",
+    "--window", handle,
+    "--from-name", MISSING_NODE,
+    "--to-name", DRAG_TARGET,
+  ]);
+  ensure(!output_success(from_missing), "cu_linux_atspi_drag_from_missing_ok_" + label);
+  ensure(
+    text_at(from_missing, "error.code") === "a11y_node_not_found",
+    "cu_linux_atspi_drag_from_missing_code_" + label + ":" + JSON.stringify(from_missing.error)
+  );
+
+  const to_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "drag",
+    "--window", handle,
+    "--from-name", DRAG_SOURCE,
+    "--to-name", MISSING_NODE,
+  ]);
+  ensure(!output_success(to_missing), "cu_linux_atspi_drag_to_missing_ok_" + label);
+  ensure(
+    text_at(to_missing, "error.code") === "a11y_node_not_found",
+    "cu_linux_atspi_drag_to_missing_code_" + label + ":" + JSON.stringify(to_missing.error)
+  );
+}
+
+function assert_drag_host_limit_when_atspi_absent(run_directory, executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  };
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "drag",
+    "--window", "1",
+    "--from-name", DRAG_SOURCE,
+    "--to-name", DRAG_TARGET,
+  ], env);
+  ensure(!output_success(reply), "cu_linux_atspi_drag_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
+    "cu_linux_atspi_drag_unavailable_code:" + code
+  );
 }
 
 function window_row(run_directory, executable, pid, title) {
   const reply = run_cu(run_directory, executable, "observe", [
     "windows", "--pid", "" + pid,
   ]);
-  ensure(flag_at(reply, "ok"), "cu_linux_atspi_drag_windows:" + JSON.stringify(reply));
   const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
   for (const row of rows) {
     if (text_at(row, "title") === title) { return row; }
@@ -189,8 +321,17 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const atspi_available = probe_atspi_available(executable);
 
 try {
+  print("STEP drag typed-fail usage when --window, --from-name, or --to-name is missing");
+  assert_drag_usage_limit(run_directory, executable);
+
+  if (!atspi_available) {
+    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    assert_drag_host_limit_when_atspi_absent(run_directory, executable);
+    succeeded = 1;
+  } else {
   print("STEP start owned GTK fixture and resolve window by pid and exact title");
   fixture = harness.start({
     program: "python3",
@@ -211,6 +352,9 @@ try {
   ensure(inventory_row !== null, "cu_linux_atspi_drag_window_identity");
   const handle = "" + int_at(inventory_row, "handle");
   ensure(int_at(inventory_row, "handle") > 0, "cu_linux_atspi_drag_handle:" + JSON.stringify(inventory_row));
+
+  print("STEP drag typed-fail a11y_node_not_found when --from-name or --to-name misses");
+  assert_drag_missing_node(run_directory, executable, handle, "before_actuate");
 
   print("STEP independent pyatspi extents prove source is above target before drag");
   const pyatspi_source = independent_pyatspi_extents(
@@ -317,7 +461,9 @@ try {
     })
   );
 
+  harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-drag");
   succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -333,9 +479,12 @@ let completion_failure = "";
 try { harness.complete_children(context, [], succeeded !== 0, failure); }
 catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
-  harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-drag");
   harness.remove_run(context);
-  print("PASS: Linux named drag with independent pyatspi extents and xdotool pointer read-back");
+  if (atspi_available) {
+    print("PASS: Linux named drag with pyatspi extents, xdotool pointer read-back, and typed usage/miss/host-limit paths (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux named drag typed-fails when independent pyatspi desktop probe is unavailable");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
