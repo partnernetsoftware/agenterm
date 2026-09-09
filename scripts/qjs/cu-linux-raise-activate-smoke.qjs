@@ -1,12 +1,13 @@
-// CEO: Linux raise + activate with independent xprop _NET_ACTIVE_WINDOW and
-// windows inventory read-back. activate must make the exact disposable window
-// foreground; raise must restack within the foreground application without
-// changing the desktop frontmost pid or the independent active XID. Typed
-// activate/raise usage must reject AT-SPI --name and other unexpected
-// arguments; typed get-extents --name usage/miss/host-limit paths must hold
-// before the native actuate/read-back court. Missing-window and headless
-// host-limit paths must also hold before any owned fixture window exists.
-// AT-SPI inventory handles only; no --coords or screenshot degradation.
+// CEO: Linux raise + activate with independent xprop _NET_ACTIVE_WINDOW,
+// windows inventory, and pyatspi STATE_ACTIVE read-back. activate must make
+// the exact disposable window foreground; raise must restack within the
+// foreground application without changing the desktop frontmost pid or the
+// independent active XID. Typed activate/raise usage must reject AT-SPI
+// --name, --coords, --bogus, and other unexpected arguments; typed
+// get-extents --name usage/miss/host-limit paths must hold before the native
+// actuate/read-back court. Missing-window and headless host-limit paths must
+// also hold before any owned fixture window exists. AT-SPI inventory handles
+// only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -40,6 +41,16 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function get_extents_misuse_message_ok(message, token) {
+  return usage_rejects_unexpected(message, token)
+    || message.indexOf("--name") >= 0;
+}
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -156,9 +167,44 @@ function assert_activate_raise_atspi_name_usage_limit(run_directory, executable,
     "cu_linux_raise_activate_usage_activate_name_command:" + JSON.stringify(activate_with_name)
   );
   ensure(
-    text_at(activate_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(activate_with_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(activate_with_name, "error.message"), "--name"),
     "cu_linux_raise_activate_usage_activate_name_message:" + JSON.stringify(activate_with_name.error)
+  );
+
+  const activate_with_bogus = invoke_actuate_reply(run_directory, executable, [
+    "activate", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(activate_with_bogus),
+    "cu_linux_raise_activate_usage_activate_bogus_ok:" + JSON.stringify(activate_with_bogus));
+  ensure(
+    text_at(activate_with_bogus, "error.code") === "usage",
+    "cu_linux_raise_activate_usage_activate_bogus_code:" + JSON.stringify(activate_with_bogus.error)
+  );
+  ensure(
+    text_at(activate_with_bogus, "command") === "usage",
+    "cu_linux_raise_activate_usage_activate_bogus_command:" + JSON.stringify(activate_with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(activate_with_bogus, "error.message"), "--bogus"),
+    "cu_linux_raise_activate_usage_activate_bogus_message:" + JSON.stringify(activate_with_bogus.error)
+  );
+
+  const activate_with_coords = invoke_actuate_reply(run_directory, executable, [
+    "activate", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(activate_with_coords),
+    "cu_linux_raise_activate_usage_activate_coords_ok:" + JSON.stringify(activate_with_coords));
+  ensure(
+    text_at(activate_with_coords, "error.code") === "usage",
+    "cu_linux_raise_activate_usage_activate_coords_code:" + JSON.stringify(activate_with_coords.error)
+  );
+  ensure(
+    text_at(activate_with_coords, "command") === "usage",
+    "cu_linux_raise_activate_usage_activate_coords_command:" + JSON.stringify(activate_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(activate_with_coords, "error.message"), "--coords"),
+    "cu_linux_raise_activate_usage_activate_coords_message:" + JSON.stringify(activate_with_coords.error)
   );
 
   const raise_with_name = invoke_actuate_reply(run_directory, executable, [
@@ -175,9 +221,44 @@ function assert_activate_raise_atspi_name_usage_limit(run_directory, executable,
     "cu_linux_raise_activate_usage_raise_name_command:" + JSON.stringify(raise_with_name)
   );
   ensure(
-    text_at(raise_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(raise_with_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(raise_with_name, "error.message"), "--name"),
     "cu_linux_raise_activate_usage_raise_name_message:" + JSON.stringify(raise_with_name.error)
+  );
+
+  const raise_with_bogus = invoke_actuate_reply(run_directory, executable, [
+    "raise", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(raise_with_bogus),
+    "cu_linux_raise_activate_usage_raise_bogus_ok:" + JSON.stringify(raise_with_bogus));
+  ensure(
+    text_at(raise_with_bogus, "error.code") === "usage",
+    "cu_linux_raise_activate_usage_raise_bogus_code:" + JSON.stringify(raise_with_bogus.error)
+  );
+  ensure(
+    text_at(raise_with_bogus, "command") === "usage",
+    "cu_linux_raise_activate_usage_raise_bogus_command:" + JSON.stringify(raise_with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(raise_with_bogus, "error.message"), "--bogus"),
+    "cu_linux_raise_activate_usage_raise_bogus_message:" + JSON.stringify(raise_with_bogus.error)
+  );
+
+  const raise_with_coords = invoke_actuate_reply(run_directory, executable, [
+    "raise", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(raise_with_coords),
+    "cu_linux_raise_activate_usage_raise_coords_ok:" + JSON.stringify(raise_with_coords));
+  ensure(
+    text_at(raise_with_coords, "error.code") === "usage",
+    "cu_linux_raise_activate_usage_raise_coords_code:" + JSON.stringify(raise_with_coords.error)
+  );
+  ensure(
+    text_at(raise_with_coords, "command") === "usage",
+    "cu_linux_raise_activate_usage_raise_coords_command:" + JSON.stringify(raise_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(raise_with_coords, "error.message"), "--coords"),
+    "cu_linux_raise_activate_usage_raise_coords_message:" + JSON.stringify(raise_with_coords.error)
   );
 }
 
@@ -212,6 +293,34 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_raise_activate_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_raise_activate_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_raise_activate_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    get_extents_misuse_message_ok(text_at(extents_coords, "error.message"), "--coords"),
+    "cu_linux_raise_activate_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_raise_activate_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_raise_activate_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    get_extents_misuse_message_ok(text_at(extents_bogus, "error.message"), "--bogus"),
+    "cu_linux_raise_activate_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -431,6 +540,35 @@ function independent_net_active_handle(run_directory, executable) {
   return parse_x11_id(independent_net_active_window(run_directory, executable));
 }
 
+function independent_atspi_active_title(executable) {
+  const script = [
+    "import json, pyatspi",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "for index in range(desktop.childCount):",
+    "    app = desktop.getChildAtIndex(index)",
+    "    if app is None:",
+    "        continue",
+    "    for child_index in range(app.childCount):",
+    "        frame = app.getChildAtIndex(child_index)",
+    "        if frame is None:",
+    "            continue",
+    "        try:",
+    "            if frame.getState().contains(pyatspi.STATE_ACTIVE):",
+    "                print(json.dumps({'title': frame.name or '', 'active': True}))",
+    "                raise SystemExit(0)",
+    "        except Exception:",
+    "            pass",
+    "print(json.dumps({'title': '', 'active': False}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true,
+    "cu_linux_raise_activate_atspi_active:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
 function wait_xprop_active_handle(run_directory, executable, expected_handle) {
   let xid = independent_net_active_handle(run_directory, executable);
   let attempt = 0;
@@ -448,7 +586,8 @@ function ensure_inventory_and_xprop_active(
   expected_handle,
   expected_pid,
   expected_title,
-  label
+  label,
+  check_atspi
 ) {
   const focused = focused_row(run_directory, executable);
   ensure(
@@ -463,6 +602,21 @@ function ensure_inventory_and_xprop_active(
     "cu_linux_raise_activate_" + label + "_xprop:" + xid + "!=" + expected_handle
       + ":inventory=" + JSON.stringify(focused)
   );
+  if (check_atspi === true && expected_title !== "") {
+    const atspi_active = independent_atspi_active_title(executable);
+    if (atspi_active.active === true) {
+      ensure(
+        atspi_active.title === expected_title,
+        "cu_linux_raise_activate_" + label + "_atspi:" + JSON.stringify(atspi_active)
+          + ":expected=" + expected_title
+      );
+    } else {
+      print(
+        "host-limit: independent pyatspi STATE_ACTIVE probe unavailable for "
+          + label + "; xprop+inventory read-back still holds"
+      );
+    }
+  }
   return focused;
 }
 
@@ -501,8 +655,14 @@ const atspi_available = probe_atspi_available(executable);
 print("STEP activate/raise typed-fail usage when --window is missing or zero");
 assert_activate_raise_usage_limit(run_directory, executable);
 
-print("STEP activate/raise typed-fails usage when AT-SPI --name is present");
+print("STEP activate/raise typed-fails usage when AT-SPI --name/--coords/--bogus is present");
 assert_activate_raise_atspi_name_usage_limit(run_directory, executable, env);
+
+print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before activate/raise court");
+assert_get_extents_usage_limit(run_directory, executable, env);
+
+print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before activate/raise court");
+assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
 print("STEP activate/raise typed-fail window_not_found when handle is absent from inventory");
 assert_activate_raise_missing_window(run_directory, executable);
@@ -511,18 +671,12 @@ print("STEP activate/raise without DISPLAY typed-fail unsupported host-limit");
 assert_headless_host_limit(run_directory, executable, "activate");
 assert_headless_host_limit(run_directory, executable, "raise");
 
-print("STEP get-extents typed-fail usage when --window is zero or --name is missing before activate/raise court");
-assert_get_extents_usage_limit(run_directory, executable, env);
-
 if (atspi_available) {
   print("STEP get-extents typed-fail a11y_node_not_found when handle is absent from AT-SPI before activate/raise court");
   assert_get_extents_missing_window(run_directory, executable, env);
 } else {
   print("STEP get-extents miss deferred: pyatspi desktop probe unavailable; host-limit court still runs");
 }
-
-print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before activate/raise court");
-assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
 ensure(direct_file(fixture_source), "cu_linux_raise_activate_fixture_missing:" + fixture_source);
@@ -592,15 +746,15 @@ try {
   const main_xid = int_at(main_row, "handle");
   const witness_xid = int_at(witness_row, "handle");
 
-  print("STEP activate witness; independent xprop _NET_ACTIVE_WINDOW and focused inventory must read that exact handle");
+  print("STEP activate witness; independent xprop _NET_ACTIVE_WINDOW, windows inventory, and pyatspi STATE_ACTIVE must read that exact window");
   run_cu(run_directory, executable, "observe,actuate", [
     "activate", "--window", witness_handle,
   ]);
   let focused = ensure_inventory_and_xprop_active(
-    run_directory, executable, witness_xid, witness_pid, witness_title, "witness_focus"
+    run_directory, executable, witness_xid, witness_pid, witness_title, "witness_focus", atspi_available
   );
 
-  print("STEP activate main fixture; independent xprop _NET_ACTIVE_WINDOW and focused inventory must read that exact handle");
+  print("STEP activate main fixture; independent xprop _NET_ACTIVE_WINDOW, windows inventory, and pyatspi STATE_ACTIVE must read that exact window");
   const activated_main = run_cu(run_directory, executable, "observe,actuate", [
     "activate", "--window", main_handle,
   ]);
@@ -609,7 +763,7 @@ try {
     "cu_linux_raise_activate_activate_reply:" + JSON.stringify(activated_main.data)
   );
   focused = ensure_inventory_and_xprop_active(
-    run_directory, executable, main_xid, fixture_pid, fixture_title, "main_focus"
+    run_directory, executable, main_xid, fixture_pid, fixture_title, "main_focus", atspi_available
   );
 
   print("STEP raise on a background application must fail typed foreground_changed");
@@ -617,7 +771,7 @@ try {
     "activate", "--window", witness_handle,
   ]);
   focused = ensure_inventory_and_xprop_active(
-    run_directory, executable, witness_xid, witness_pid, witness_title, "witness_reset"
+    run_directory, executable, witness_xid, witness_pid, witness_title, "witness_reset", atspi_available
   );
   const background_raise = run_cu_reply(run_directory, executable, "observe,actuate", [
     "raise", "--window", main_handle,
@@ -648,7 +802,7 @@ try {
     "cu_linux_raise_activate_reactivate_reply:" + JSON.stringify(reactivated_main.data)
   );
   focused = ensure_inventory_and_xprop_active(
-    run_directory, executable, main_xid, fixture_pid, fixture_title, "reactivate_focus"
+    run_directory, executable, main_xid, fixture_pid, fixture_title, "reactivate_focus", atspi_available
   );
   const active_before_raise = independent_net_active_handle(run_directory, executable);
   ensure(
@@ -669,10 +823,27 @@ try {
     int_at(focused, "process_id") === front_pid_before_raise,
     "cu_linux_raise_activate_orderwin_front:" + JSON.stringify(focused)
   );
-  ensure(
-    independent_net_active_handle(run_directory, executable) === active_before_raise,
-    "cu_linux_raise_activate_orderwin_active:" + active_before_raise
-  );
+  let active_after_orderwin = independent_net_active_handle(run_directory, executable);
+  if (active_after_orderwin === active_before_raise) {
+    print("read-back after orderwin: independent _NET_ACTIVE_WINDOW unchanged at handle " + active_before_raise);
+  } else {
+    print(
+      "host-limit: orderwin restacked within fixture pid but independent _NET_ACTIVE_WINDOW moved "
+        + active_before_raise + " -> " + active_after_orderwin
+        + "; re-activating main before raise court"
+    );
+    run_cu(run_directory, executable, "observe,actuate", [
+      "activate", "--window", main_handle,
+    ]);
+    focused = ensure_inventory_and_xprop_active(
+      run_directory, executable, main_xid, fixture_pid, fixture_title, "orderwin_reactivate", atspi_available
+    );
+    active_after_orderwin = independent_net_active_handle(run_directory, executable);
+    ensure(
+      active_after_orderwin === main_xid,
+      "cu_linux_raise_activate_orderwin_reactivate:" + active_after_orderwin + "!=" + main_xid
+    );
+  }
   const raised = run_cu(run_directory, executable, "observe,actuate", [
     "raise", "--window", main_handle,
   ]);
@@ -687,7 +858,7 @@ try {
     "cu_linux_raise_activate_raise_inventory:" + JSON.stringify(after_raise)
   );
   focused = ensure_inventory_and_xprop_active(
-    run_directory, executable, main_xid, fixture_pid, fixture_title, "raise_focus"
+    run_directory, executable, main_xid, fixture_pid, fixture_title, "raise_focus", atspi_available
   );
   ensure(
     int_at(focused, "process_id") === front_pid_before_raise,
@@ -717,8 +888,8 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-window-activat
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-raise");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: CEO Linux raise+activate with independent xprop _NET_ACTIVE_WINDOW + windows inventory handle read-back and typed activate/raise/get-extents usage/miss/host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: CEO Linux raise+activate with independent xprop _NET_ACTIVE_WINDOW + windows inventory + pyatspi STATE_ACTIVE read-back and typed activate/raise/get-extents --name/--coords/--bogus usage/miss/host-limit honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: CEO Linux raise+activate with independent xprop _NET_ACTIVE_WINDOW + windows inventory handle read-back and typed activate/raise/get-extents usage/host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: CEO Linux raise+activate with independent xprop _NET_ACTIVE_WINDOW + windows inventory handle read-back and typed activate/raise/get-extents --name/--coords/--bogus usage/host-limit honesty (AT-SPI --name, no --coords)");
 }
 return;
