@@ -6985,7 +6985,7 @@
     },
     {
       "id": "cu-linux-gtk-entry-send-keys-smoke",
-      "description": "Linux GTK entry N≥2 send-keys --name → get-text roundtrips plus semantic modifier chords with independent get-caret/get-selection/clipboard-read/get-text read-back; typed send-keys/get-text reject missing/zero --window, --role-without--name, and --coords/--bogus or stay accessibility-tree --name; host-limit when AT-SPI absent; get-extents --name usage/host-limit court before actuate; AT-SPI --name; no --coords.",
+      "description": "Linux GTK entry N\u22652 send-keys --name \u2192 get-text roundtrips plus semantic modifier chords with independent get-caret/get-selection/clipboard-read/get-text read-back; typed send-keys/get-text reject missing/zero --window, --role-without--name, and --coords/--bogus or stay accessibility-tree --name; host-limit when AT-SPI absent; get-extents --name usage/host-limit court before actuate; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-send-keys-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7005,7 +7005,7 @@
     },
     {
       "id": "cu-linux-gtk-entry-text-smoke",
-      "description": "Linux GTK entry focus --name then N≥2 send-text --name → get-text roundtrips with independent pyatspi Text.GetText == SEED read-back; typed focus/send-text/get-text reject missing/zero --window, --role-without--name, and --coords/--bogus or stay accessibility-tree --name; host-limit when AT-SPI absent; typed get-extents --name usage/host-limit court before actuate; miss paths must not mutate the entry; AT-SPI --name; no --coords.",
+      "description": "Linux GTK entry focus --name then N\u22652 send-text --name \u2192 get-text roundtrips with independent pyatspi Text.GetText == SEED read-back; typed focus/send-text/get-text reject missing/zero --window, --role-without--name, and --coords/--bogus or stay accessibility-tree --name; host-limit when AT-SPI absent; typed get-extents --name usage/host-limit court before actuate; miss paths must not mutate the entry; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-text-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7045,7 +7045,7 @@
     },
     {
       "id": "cu-linux-get-text-honesty-smoke",
-      "description": "Linux CU get-text on a named or focused GTK text node matches independent pyatspi AT-SPI Text.GetText read-back on the same node; typed get-text usage rejects missing/zero --window, --role-without--name, and --coords/--bogus misuse or stays accessibility-tree/gettext; typed get-extents --name usage/host-limit court before read-back; AT-SPI/--name only, no --coords.",
+      "description": "Linux CU get-text on a named or focused GTK text node matches independent pyatspi AT-SPI Text.GetText read-back on the same node; typed get-text usage and get-extents --name usage/host-limit paths before the read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-get-text-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7085,7 +7085,7 @@
     },
     {
       "id": "cu-linux-screenshot-window-smoke",
-      "description": "Linux screenshot --window for an owned GTK fixture writes a real PNG whose independent magic/IHDR/size read-back agrees with inventory bounds; optional full-display screenshot secondary; typed screenshot usage rejects AT-SPI --name, --coords, --bogus; typed get-extents --name usage/host-limit before screenshot actuate/read-back court; zero handle usage and missing DISPLAY unsupported host-limit; stale handle typed screenshot_window_unavailable; no --coords.",
+      "description": "Linux screenshot --window for an owned GTK fixture writes a real PNG whose independent magic/IHDR/size read-back agrees with inventory bounds; optional full-display screenshot secondary; typed screenshot usage rejects AT-SPI --name; typed get-extents --name usage/host-limit before screenshot actuate/read-back court; zero handle usage and missing DISPLAY unsupported host-limit; stale handle typed screenshot_window_unavailable; no --coords.",
       "entry": "scripts/qjs/cu-linux-screenshot-window-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7302,7 +7302,7 @@
     },
     {
       "id": "cu-linux-pointer-smoke",
-      "description": "Linux pointer-position observes absolute screen coordinates and pointer-grab/ungrab verify with independent xdotool and X11 grab-probe read-back on DISPLAY=:2; hover --name delivers AT-SPI pointer with typed usage (zero-handle), miss, and host-limit paths; typed get-extents --name usage/host-limit paths before hover actuate/read-back court; independent pyatspi extents plus xdotool read-back on the session display; AT-SPI/--name only, no --coords.",
+      "description": "Linux pointer-position observes absolute screen coordinates and pointer-grab/ungrab verify with independent xdotool and X11 grab-probe read-back on DISPLAY=:2; hover --name delivers AT-SPI pointer with typed usage (zero-handle), --coords/--bogus misuse or stay on accessibility-tree, miss, and host-limit paths; typed get-extents --name usage/host-limit court before hover actuate/read-back; independent pyatspi extents plus xdotool read-back on the session display; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-pointer-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
