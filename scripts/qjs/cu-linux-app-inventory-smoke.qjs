@@ -2,8 +2,10 @@
 // visible-window /proc comm read-back. Acceptance is smoke read-back only:
 // CU apps --all must agree with facts derived outside agenterm-cu from the
 // same desktop-entry precedence the Linux adapter uses, and each running flag
-// must match the window-app-name join measured independently. No --coords or
-// screenshot degradation.
+// must match the window-app-name join measured independently. Typed apps usage
+// must reject AT-SPI --name and other unexpected arguments; typed get-extents
+// --name usage/host-limit paths must hold before the desktop/app inventory
+// read-back court. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -16,23 +18,29 @@ const declared_evidence = [
 
 const MAX_INSTALLED_APPS = 2048;
 const MAX_ENTRY_BYTES = 128 * 1024;
+const AT_SPI_PROBE_NAME = "App Inventory Court Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function text_at(value, dotted) {
+function at(value, dotted) {
   let current = value;
   for (const key of dotted.split(".")) {
     current = rh.field(current, key);
   }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const current = at(value, dotted);
   if (current === undefined || current === null) { return ""; }
   return "" + current;
 }
 
-function flag_at(value, dotted) {
-  return rh.field(value, dotted) === true;
-}
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function output_success(document) { return flag_at(document, "ok"); }
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -40,20 +48,164 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function cu_env() {
-  const env = { AGENTERM_NO_ACTIVATE: "1" };
-  for (const key of ["DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]) {
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
     if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
   }
   return env;
 }
 
-function invoke(run_directory, executable, arguments, expect_success) {
+function invoke_apps_reply(run_directory, executable, arguments, env) {
   const output = rh.command(executable, [
     "--target", "current", "--grant", "observe",
   ].concat(arguments), {
     cwd: run_directory,
-    env: cu_env(),
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_app_inventory_observe_cli:" + output.stdout + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(
+    text_at(reply, "command") === "apps" || text_at(reply, "command") === "usage",
+    "cu_linux_app_inventory_observe_command:" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_app_inventory_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_apps_usage_limit(run_directory, executable, env) {
+  const all_with_name = invoke_apps_reply(run_directory, executable, [
+    "apps", "--all", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(all_with_name),
+    "cu_linux_app_inventory_usage_all_name_ok:" + JSON.stringify(all_with_name));
+  ensure(
+    text_at(all_with_name, "error.code") === "usage",
+    "cu_linux_app_inventory_usage_all_name_code:" + JSON.stringify(all_with_name.error)
+  );
+  ensure(
+    text_at(all_with_name, "command") === "usage",
+    "cu_linux_app_inventory_usage_all_name_command:" + JSON.stringify(all_with_name)
+  );
+  ensure(
+    text_at(all_with_name, "error.message").indexOf("--name") >= 0
+      || text_at(all_with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_app_inventory_usage_all_name_message:" + JSON.stringify(all_with_name.error)
+  );
+
+  const running_with_name = invoke_apps_reply(run_directory, executable, [
+    "apps", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(running_with_name),
+    "cu_linux_app_inventory_usage_running_name_ok:" + JSON.stringify(running_with_name));
+  ensure(
+    text_at(running_with_name, "error.code") === "usage",
+    "cu_linux_app_inventory_usage_running_name_code:" + JSON.stringify(running_with_name.error)
+  );
+  ensure(
+    text_at(running_with_name, "error.message").indexOf("--name") >= 0
+      || text_at(running_with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_app_inventory_usage_running_name_message:" + JSON.stringify(running_with_name.error)
+  );
+
+  const with_bogus = invoke_apps_reply(run_directory, executable, ["apps", "--bogus"], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_app_inventory_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_app_inventory_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--running") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--all") >= 0,
+    "cu_linux_app_inventory_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_app_inventory_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_app_inventory_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_app_inventory_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_app_inventory_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_app_inventory_extents_unavailable_code:" + code
+  );
+}
+
+function invoke(run_directory, executable, arguments, expect_success, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 30000,
   });
   ensure(output.success === expect_success,
@@ -190,9 +342,9 @@ function probe_script() {
   ].join("\n");
 }
 
-function independent_probe() {
+function independent_probe(executable) {
   const output = rh.command("python3", ["-c", probe_script()], {
-    env: cu_env(),
+    env: cu_env(executable),
     timeout_ms: 30000,
   });
   ensure(output.success === true, "cu_linux_app_inventory_probe:" + output.stderr);
@@ -263,8 +415,8 @@ function assert_readback(data, probe) {
   }
 }
 
-function verify_unavailable(run_directory, executable, reason) {
-  const reply = invoke(run_directory, executable, ["apps", "--all"], true);
+function verify_unavailable(run_directory, executable, env, reason) {
+  const reply = invoke(run_directory, executable, ["apps", "--all"], true, env);
   ensure(reply.command === "apps", "cu_linux_app_inventory_unavailable_command");
   const data = reply.data;
   ensure(flag_at(data, "installed_available") !== true,
@@ -280,41 +432,80 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 }
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
-const executable = rh.absolute(args[1]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
 ensure(direct_file(executable), "missing_agenterm_cu:" + executable);
 
 const context = harness.new_context(repo, "cu-linux-app-inventory");
-const probe = independent_probe();
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
+let succeeded = 0;
+let failure = "";
+let inventory_available = false;
+try {
+  print("STEP apps typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_apps_usage_limit(context.run_directory, executable, env);
 
-if (probe.inventory.available !== true) {
-  print("STEP typed gap when independent desktop-entry probe cannot read applications");
-  verify_unavailable(context.run_directory, executable, probe.inventory.reason);
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before desktop/app inventory read-back");
+    assert_get_extents_usage_limit(context.run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+  }
+
+  print("STEP independent XDG desktop-entry and visible-window /proc comm probe");
+  const probe = independent_probe(executable);
+  inventory_available = probe.inventory.available === true;
+
+  if (!inventory_available) {
+    print("STEP typed gap when independent desktop-entry probe cannot read applications");
+    verify_unavailable(context.run_directory, executable, env, probe.inventory.reason);
+    succeeded = 1;
+  } else {
+    print("STEP apps --all installed inventory matches independent XDG desktop-entry read-back");
+    const reply = invoke(context.run_directory, executable, ["apps", "--all"], true, env);
+    const data = assert_inventory_shape(reply);
+    ensure(data.installed_apps.length > 0, "cu_linux_app_inventory_empty_host");
+    assert_readback(data, probe);
+
+    print("STEP running-only apps inventory still reports window-backed running applications");
+    const running = invoke(context.run_directory, executable, ["apps"], true, env);
+    ensure(running.command === "apps", "cu_linux_app_inventory_running_command");
+    ensure(flag_at(running.data, "running_only") === true,
+           "cu_linux_app_inventory_running_only");
+    ensure(Array.isArray(running.data.apps), "cu_linux_app_inventory_running_rows");
+    for (let index = 0; index < running.data.apps.length; index += 1) {
+      const row = running.data.apps[index];
+      ensure(text_at(row, "app_name") !== "", "cu_linux_app_inventory_running_name");
+      ensure(rh.int_of(rh.field(row, "window_count")) >= 1,
+             "cu_linux_app_inventory_running_window_count");
+    }
+
+    succeeded = 1;
+  }
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-app-inventory-readback");
   harness.remove_run(context);
-  print("PASS: CEO Linux apps inventory typed gap with independent probe absence read-back");
-  return;
+  if (inventory_available) {
+    if (atspi_available) {
+      print("PASS: Linux apps --all matches independent desktop-entry and window comm read-back with typed apps/get-extents usage honesty (AT-SPI --name, no --coords)");
+    } else {
+      print("PASS: Linux apps --all matches independent desktop-entry and window comm read-back with typed apps/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    }
+  } else if (atspi_available) {
+    print("PASS: Linux apps inventory typed gap with independent probe absence read-back and typed apps/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux apps inventory typed gap with independent probe absence read-back and typed apps/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  }
 }
-
-print("STEP apps --all installed inventory matches independent XDG desktop-entry read-back");
-const reply = invoke(context.run_directory, executable, ["apps", "--all"], true);
-const data = assert_inventory_shape(reply);
-ensure(data.installed_apps.length > 0, "cu_linux_app_inventory_empty_host");
-assert_readback(data, probe);
-
-print("STEP running-only apps inventory still reports window-backed running applications");
-const running = invoke(context.run_directory, executable, ["apps"], true);
-ensure(running.command === "apps", "cu_linux_app_inventory_running_command");
-ensure(flag_at(running.data, "running_only") === true,
-       "cu_linux_app_inventory_running_only");
-ensure(Array.isArray(running.data.apps), "cu_linux_app_inventory_running_rows");
-for (let index = 0; index < running.data.apps.length; index += 1) {
-  const row = running.data.apps[index];
-  ensure(text_at(row, "app_name") !== "", "cu_linux_app_inventory_running_name");
-  ensure(rh.int_of(rh.field(row, "window_count")) >= 1,
-         "cu_linux_app_inventory_running_window_count");
-}
-
-harness.emit_evidence(context, declared_evidence, "cu.linux-app-inventory-readback");
-harness.remove_run(context);
-print("PASS: CEO Linux apps inventory matches independent desktop-entry and window comm read-back");
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
 return;
