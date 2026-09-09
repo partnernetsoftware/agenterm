@@ -1,9 +1,11 @@
 // CEO: Linux focused honesty with independent pyatspi STATE_FOCUSED read-back.
 // Acceptance is smoke read-back only: CU focused --window on a disposable GTK
 // fixture must agree with an independent AT-SPI deepest STATE_FOCUSED node
-// (name + role) after focus --name actuation. Typed usage and AT-SPI
-// host-limit paths must hold when the independent pyatspi desktop probe is
-// unavailable. AT-SPI/--name only; no --coords or screenshot degradation.
+// (name + role) after focus --name actuation. Typed focused usage must reject
+// AT-SPI --name and other unexpected arguments; typed get-extents --name
+// usage/host-limit paths must hold before the focused observe/read-back court.
+// AT-SPI host-limit paths must hold when the independent pyatspi desktop probe
+// is unavailable. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -18,6 +20,8 @@ const FOCUS_CASES = [
   { label: "entry", name: "Fixture Entry" },
   { label: "button", name: "Fixture Press" },
 ];
+
+const AT_SPI_PROBE_NAME = FOCUS_CASES[0].name;
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -104,6 +108,19 @@ function run_cu(run_directory, executable, grant, arguments) {
   return document;
 }
 
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_focused_honesty_extents_cli:" + output.stderr);
+  return last_json_line(trimmed);
+}
+
 function probe_atspi_available() {
   const script = [
     "import sys",
@@ -122,17 +139,81 @@ function probe_atspi_available() {
 }
 
 function assert_focused_usage_limit(run_directory, executable) {
-  const reply = run_cu_reply(run_directory, executable, "observe", [
+  const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "focused", "--window", "0",
   ]);
-  ensure(!output_success(reply), "cu_linux_focused_honesty_usage_ok:" + JSON.stringify(reply));
+  ensure(!output_success(zero_handle), "cu_linux_focused_honesty_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
-    text_at(reply, "error.code") === "usage",
-    "cu_linux_focused_honesty_usage_code:" + JSON.stringify(reply.error)
+    text_at(zero_handle, "error.code") === "usage",
+    "cu_linux_focused_honesty_usage_code:" + JSON.stringify(zero_handle.error)
   );
   ensure(
-    text_at(reply, "error.message").indexOf("non-zero") >= 0,
-    "cu_linux_focused_honesty_usage_message:" + JSON.stringify(reply.error)
+    text_at(zero_handle, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_focused_honesty_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const with_name = run_cu_reply(run_directory, executable, "observe", [
+    "focused", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ]);
+  ensure(!output_success(with_name), "cu_linux_focused_honesty_name_ok:" + JSON.stringify(with_name));
+  ensure(
+    text_at(with_name, "error.code") === "usage",
+    "cu_linux_focused_honesty_name_code:" + JSON.stringify(with_name.error)
+  );
+  ensure(
+    text_at(with_name, "command") === "usage",
+    "cu_linux_focused_honesty_name_command:" + JSON.stringify(with_name)
+  );
+  ensure(
+    text_at(with_name, "error.message").indexOf("--name") >= 0
+      || text_at(with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_focused_honesty_name_message:" + JSON.stringify(with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "focused", "--window", "1", "--bogus",
+  ]);
+  ensure(!output_success(with_bogus), "cu_linux_focused_honesty_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_focused_honesty_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_focused_honesty_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle), "cu_linux_focused_honesty_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_focused_honesty_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_focused_honesty_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_focused_honesty_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_focused_honesty_extents_unavailable_code:" + code
   );
 }
 
@@ -311,46 +392,54 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const env = cu_env(executable);
 const atspi_available = probe_atspi_available();
 
 try {
+  print("STEP focused typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_focused_usage_limit(run_directory, executable);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before focused read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
   if (!atspi_available) {
-    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
-    assert_focused_usage_limit(run_directory, executable);
+    print("STEP focused typed-fail host-limit when independent pyatspi desktop probe is unavailable");
     assert_focused_host_limit_when_atspi_absent(run_directory, executable);
     succeeded = 1;
   } else {
-    print("STEP focused typed-fails usage when --window handle is zero");
-    assert_focused_usage_limit(run_directory, executable);
-
     print("STEP start owned GTK fixture and resolve one window handle");
-  fixture = harness.start({
-    program: "python3",
-    args: [fixture_source],
-    current_dir: run_directory,
-    env: { GTK_MODULES: "gail:atk-bridge" },
-    timeout_ms: 30000,
-  });
-  fixture_pid = harness.spawned_pid(fixture);
-  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+    fixture = harness.start({
+      program: "python3",
+      args: [fixture_source],
+      current_dir: run_directory,
+      env: { GTK_MODULES: "gail:atk-bridge" },
+      timeout_ms: 30000,
+    });
+    fixture_pid = harness.spawned_pid(fixture);
+    const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
 
-  const window_wait = run_cu(run_directory, executable, "observe", [
-    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
-  ]);
-  ensure(flag_at(window_wait, "data.met"), "cu_linux_focused_honesty_window_wait");
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+    ]);
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_focused_honesty_window_wait");
 
-  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
-  ensure(row !== null, "cu_linux_focused_honesty_inventory_missing");
-  const handle = "" + int_at(row, "handle");
-  ensure(int_at(row, "handle") > 0, "cu_linux_focused_honesty_handle:" + JSON.stringify(row));
+    const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    ensure(row !== null, "cu_linux_focused_honesty_inventory_missing");
+    const handle = "" + int_at(row, "handle");
+    ensure(int_at(row, "handle") > 0, "cu_linux_focused_honesty_handle:" + JSON.stringify(row));
 
-  for (const focus_case of FOCUS_CASES) {
-    assert_focused_agreement(
-      run_directory, executable, handle, fixture_title, focus_case.name, focus_case.label
-    );
-  }
+    for (const focus_case of FOCUS_CASES) {
+      assert_focused_agreement(
+        run_directory, executable, handle, fixture_title, focus_case.name, focus_case.label
+      );
+    }
 
-  succeeded = 1;
+    succeeded = 1;
   }
 } catch (error) {
   failure = "" + error;
@@ -367,9 +456,9 @@ if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux CU focused matches independent pyatspi STATE_FOCUSED (entry and button)");
+    print("PASS: Linux CU focused matches independent pyatspi STATE_FOCUSED with typed focused/get-extents usage honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux focused typed-fails when independent pyatspi desktop probe is unavailable");
+    print("PASS: Linux focused typed-fails with typed get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
   }
 }
 if (failure !== "") { throw failure; }
