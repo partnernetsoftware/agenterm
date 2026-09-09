@@ -7011,7 +7011,7 @@
     },
     {
       "id": "cu-linux-process-environment-smoke",
-      "description": "Linux process-environment key presence and values match independent /proc/<pid>/environ read-back for current and chosen PID; no --coords.",
+      "description": "Linux process-environment key presence and values match independent /proc/<pid>/environ read-back for current and chosen PID; typed process-environment usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /proc/<pid>/environ read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-process-environment-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
