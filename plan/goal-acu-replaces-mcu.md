@@ -653,6 +653,12 @@ shapes fail typed instead of being ignored.
   approval-expiring, durably at-most-once and guarded by post-state readback
   plus same-device rollback, but it stays `platform-limited` until a separate
   explicit audible mutation court proves the effect and restoration.
+- Native device claims now distinguish serial preservation from configuration:
+  no serial flags observe the retained line settings without a setter or later
+  restore, while an explicit serial request is read back and its prior state is
+  restored on release. The public Unix PTY court proves 19200 is preserved,
+  57600 is applied, and release returns the fixture to 19200; optional native
+  values outside the portable vocabulary remain explicit `unmapped` facts.
 - `device.inventory` has left the pure gap state. Public `device-list` now
   returns bounded USB/Bluetooth/audio/camera/GPU rows through platform-owned
   providers; low-entropy native identifiers remain private and become

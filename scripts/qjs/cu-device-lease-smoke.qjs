@@ -9,7 +9,7 @@
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
-const declared_evidence = ["cu.device-lease"];
+const declared_evidence = ["cu.device-lease", "cu.device-serial-preserve"];
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -87,13 +87,37 @@ function end_session(run_directory, executable, env, session) {
   ], true).data;
 }
 
-function claim_args(request_id, session, device_id, ttl) {
+function claim_args(request_id, session, device_id, ttl, baud) {
   const args = mutation_prefix(request_id, session.session_id, session.lease);
   return append_all(args, [
     "device-claim", device_id, "--ttl-seconds", "" + ttl,
-    "--baud", "9600", "--data-bits", "8", "--parity", "none",
+    "--baud", "" + baud, "--data-bits", "8", "--parity", "none",
     "--stop-bits", "1", "--flow", "none"
   ]);
+}
+
+function preserve_claim_args(request_id, session, device_id, ttl) {
+  const args = mutation_prefix(request_id, session.session_id, session.lease);
+  return append_all(args, [
+    "device-claim", device_id, "--ttl-seconds", "" + ttl
+  ]);
+}
+
+function fixture_baud(registry_root, token) {
+  const query = rh.join(registry_root, token + ".termios-query");
+  const response = rh.join(registry_root, token + ".termios-response.json");
+  rh.try_remove_file(response);
+  rh.write_text(query, "query\n");
+  for (let poll = 0; poll < 500; poll = poll + 1) {
+    if (direct_file(response)) {
+      const observed = JSON.parse(rh.read_text(response));
+      rh.try_remove_file(response);
+      ensure(observed.schema_version === 1, "cu_device_lease_fixture_termios_schema");
+      return observed.baud;
+    }
+    harness.sleep_ms(10);
+  }
+  throw "cu_device_lease_fixture_termios_timeout";
 }
 
 const args = rh.args();
@@ -115,14 +139,19 @@ const fixture_stderr = rh.join(run_directory, "device-fixture.stderr");
 const owned_children = [];
 let fixture = null;
 let fixture_reaped = false;
+let preserve_fixture = null;
+let preserve_fixture_reaped = false;
 let token = "";
+let preserve_token = "";
 let env = null;
 let primary_session = null;
 let secondary_session = null;
 let expiry_session = null;
+let preserve_session = null;
 let primary_ended = false;
 let secondary_ended = false;
 let expiry_ended = false;
+let preserve_ended = false;
 let succeeded = 0;
 let failure = "";
 
@@ -138,7 +167,10 @@ try {
   print("STEP start the env-gated owner-bound PTY fixture and wait for its opaque token");
   fixture = harness.start_child(context, {
     program: executable,
-    args: ["--agenterm-cu-internal-device-io-fixture", registry_root, "120000"],
+    args: [
+      "--agenterm-cu-internal-device-io-fixture", registry_root, "120000",
+      "--initial-baud", "19200"
+    ],
     current_dir: run_directory,
     env: { NATIVE_DEVICE_TEST_FIXTURE_CREATE: "1" },
     stdout_path: fixture_stdout,
@@ -175,15 +207,19 @@ try {
   ensure(device !== null && device.id.startsWith("agt-device-v1-"), "cu_device_lease_inventory");
   ensure(device.path === undefined && device.locator === undefined, "cu_device_lease_locator_leak");
 
-  print("STEP claim one exact native object and prove request replay never returns authority or opens twice");
+  print("STEP configured claim reads back 57600 and proves one exact retained object");
   primary_session = start_session(run_directory, executable, env, "device-court", 120);
-  const claim_command = claim_args("device-court-claim", primary_session, device.id, 60);
+  const claim_command = claim_args(
+    "device-court-claim", primary_session, device.id, 60, 57600
+  );
   const claimed = invoke(run_directory, executable, env, claim_command, true).data;
   const lease_id = claimed.lease_id;
   const generation = claimed.generation;
   const lease = claimed.lease;
   ensure(claimed.state === "active" && claimed.owner_live === true, "cu_device_lease_claim_active");
   ensure(claimed.exclusive === "kernel" && lease.length === 64, "cu_device_lease_claim_authority");
+  ensure(claimed.serial.mode === "configured" && claimed.serial.baud === 57600,
+         "cu_device_lease_serial_configured");
   const replayed = invoke(run_directory, executable, env, claim_command, true).data;
   ensure(replayed.lease_id === lease_id && replayed.generation === generation,
          "cu_device_lease_replay_identity");
@@ -267,9 +303,13 @@ try {
   ], true).data;
   ensure(status.state === "released" && status.owner_live === false, "cu_device_lease_status");
 
+  print("STEP configured release restores the original 19200 line rate");
+  ensure(fixture_baud(registry_root, token) === 19200,
+         "cu_device_lease_serial_restored");
+
   print("STEP session-end releases a second active device owner instead of orphaning it");
   const second_claim = invoke(run_directory, executable, env,
-    claim_args("device-court-session-end-claim", primary_session, device.id, 60), true).data;
+    claim_args("device-court-session-end-claim", primary_session, device.id, 60, 9600), true).data;
   const ended = end_session(run_directory, executable, env, primary_session);
   primary_ended = true;
   ensure(ended.devices.released === 1 && ended.devices.failed_count === 0,
@@ -284,7 +324,7 @@ try {
   print("STEP lease expiry closes and restores the retained native object without caller cleanup");
   expiry_session = start_session(run_directory, executable, env, "device-court-expiry", 30);
   const expiring = invoke(run_directory, executable, env,
-    claim_args("device-court-expiry-claim", expiry_session, device.id, 3), true).data;
+    claim_args("device-court-expiry-claim", expiry_session, device.id, 3, 9600), true).data;
   harness.sleep_ms(4200);
   const expired = invoke(run_directory, executable, env, [
     "--target", "current", "--grant", "observe",
@@ -312,12 +352,84 @@ try {
   ensure(fixture_result.success === true && fixture_result.exit_code === 0,
          "cu_device_lease_fixture_exit");
   ensure(harness.process_present(fixture.pid) === 0, "cu_device_lease_fixture_orphan");
+
+  print("STEP a fresh bare claim preserves and reports a non-default line rate without a setter");
+  const preserve_stdout = rh.join(run_directory, "device-preserve-fixture.stdout");
+  const preserve_stderr = rh.join(run_directory, "device-preserve-fixture.stderr");
+  preserve_fixture = harness.start_child(context, {
+    program: executable,
+    args: [
+      "--agenterm-cu-internal-device-io-fixture", registry_root, "30000",
+      "--initial-baud", "19200"
+    ],
+    current_dir: run_directory,
+    env: { NATIVE_DEVICE_TEST_FIXTURE_CREATE: "1" },
+    stdout_path: preserve_stdout,
+    stderr_path: preserve_stderr,
+    timeout_ms: 35000
+  }, "device-preserve-fixture");
+  owned_children.push(preserve_fixture);
+  for (let poll = 0; poll < 500; poll = poll + 1) {
+    if (direct_file(preserve_stdout)) {
+      const ready_text = rh.read_text(preserve_stdout).trim();
+      if (ready_text.startsWith("{") && ready_text.endsWith("}")) {
+        const ready = JSON.parse(ready_text);
+        if (typeof ready.token === "string" && ready.token.length === 64) {
+          preserve_token = ready.token;
+          break;
+        }
+      }
+    }
+    ensure(harness.child_state(preserve_fixture) !== "exited",
+           "cu_device_lease_preserve_fixture_early_exit");
+    harness.sleep_ms(10);
+  }
+  ensure(preserve_token.length === 64, "cu_device_lease_preserve_fixture_not_ready");
+  const preserve_env = fixture_env(run_directory, registry_root, preserve_token);
+  const preserve_inventory = invoke(run_directory, executable, preserve_env, [
+    "--target", "current", "--grant", "observe",
+    "device-list", "--type", "usb", "--max", "50"
+  ], true).data;
+  let preserve_device = null;
+  for (const row of preserve_inventory.devices) {
+    if (row.transport === "private-pty-fixture") { preserve_device = row; }
+  }
+  ensure(preserve_device !== null, "cu_device_lease_preserve_inventory");
+  preserve_session = start_session(run_directory, executable, preserve_env, "device-preserve", 30);
+  const preserve_command = preserve_claim_args(
+    "device-court-preserve", preserve_session, preserve_device.id, 20
+  );
+  const preserved = invoke(run_directory, executable, preserve_env, preserve_command, true).data;
+  ensure(preserved.serial.mode === "preserved" && preserved.serial.baud === 19200,
+         "cu_device_lease_serial_preserved");
+  const preserve_release_args = mutation_prefix(
+    "device-court-preserve-release", preserve_session.session_id, preserve_session.lease
+  );
+  append_all(preserve_release_args, [
+    "device-release", preserved.lease_id, "--generation", "" + preserved.generation,
+    "--lease", preserved.lease
+  ]);
+  invoke(run_directory, executable, preserve_env, preserve_release_args, true);
+  ensure(fixture_baud(registry_root, preserve_token) === 19200,
+         "cu_device_lease_preserve_close_changed_serial");
+  end_session(run_directory, executable, preserve_env, preserve_session);
+  preserve_ended = true;
+  ensure(rh.try_remove_file(rh.join(registry_root, preserve_token + ".json")),
+         "cu_device_lease_preserve_registry_cleanup");
+  const preserve_result = harness.child_wait(preserve_fixture, 5000);
+  preserve_fixture_reaped = true;
+  ensure(preserve_result.success === true && preserve_result.exit_code === 0,
+         "cu_device_lease_preserve_fixture_exit");
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
 }
 
 if (env !== null) {
+  if (preserve_session !== null && !preserve_ended) {
+    try { end_session(run_directory, executable, fixture_env(run_directory, registry_root, preserve_token), preserve_session); }
+    catch (cleanup_error) { print("cleanup preserve session failed"); }
+  }
   if (expiry_session !== null && !expiry_ended) {
     try { end_session(run_directory, executable, env, expiry_session); }
     catch (cleanup_error) { print("cleanup expiry session failed"); }
@@ -331,6 +443,10 @@ if (env !== null) {
     catch (cleanup_error) { print("cleanup primary session failed"); }
   }
 }
+if (preserve_token !== "") {
+  try { rh.try_remove_file(rh.join(registry_root, preserve_token + ".json")); }
+  catch (cleanup_error) { print("cleanup preserve fixture registry failed"); }
+}
 if (token !== "") {
   try { rh.try_remove_file(rh.join(registry_root, token + ".json")); }
   catch (cleanup_error) { print("cleanup fixture registry failed"); }
@@ -343,12 +459,21 @@ if (fixture !== null && !fixture_reaped) {
   try { harness.child_wait(fixture, 3000); fixture_reaped = true; }
   catch (cleanup_error) { print("cleanup fixture wait failed"); }
 }
+if (preserve_fixture !== null && !preserve_fixture_reaped) {
+  if (harness.child_state(preserve_fixture) === "running") {
+    try { harness.child_kill(preserve_fixture); }
+    catch (cleanup_error) { print("cleanup preserve fixture kill failed"); }
+  }
+  try { harness.child_wait(preserve_fixture, 3000); preserve_fixture_reaped = true; }
+  catch (cleanup_error) { print("cleanup preserve fixture wait failed"); }
+}
 
 let completion_failure = "";
 try { harness.complete_children(context, owned_children, succeeded !== 0, failure); }
 catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.device-lease");
+  harness.emit_evidence(context, declared_evidence, "cu.device-serial-preserve");
   harness.remove_run(context);
   print("PASS: device claim, replay, authority refusal, exact I/O, renewal, release and session cleanup");
 }

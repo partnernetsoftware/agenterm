@@ -2509,6 +2509,18 @@ flowchart LR
   TTL expiry. It also proves that durable state and audit contain no locator,
   lease secret, byte payload or fixture token.
 
+  `acu.native.device.serial-preserve` is now part of that same public journey.
+  A claim with no serial options retains exclusive ownership and reports the
+  current line settings without invoking a serial setter; closing that claim
+  does not overwrite a state it never changed. A claim with any serial option
+  uses the documented defaults for omitted fields, requires exact native
+  readback, and restores the prior settings on release. The owner launch wire
+  distinguishes `preserve` from `configure`, while the durable schema remains
+  backward-readable and publishes `null` plus bounded `unmapped` reasons for
+  native values outside the portable vocabulary. The Unix PTY court starts at
+  19200, proves bare-claim preservation, applies and reads back 57600, then
+  proves release restored 19200.
+
   At exact source `a21dfcff4227ca9dfcb6d55a13da9bbbf4e84187`, the same
   checked-in public journey also passed in `lnx-x86_64-desktop` and
   `lnx-aarch64-desktop`: each court verified the uploaded manifest before
@@ -2553,6 +2565,7 @@ device.claim + byte I/O
 ├─ [x] opaque public id → private re-enumeration → exact native object
 ├─ [x] resident fd/HANDLE owner + exclusive TTL lease + session/target lock
 ├─ [x] serial vocabulary validated and native configuration read back
+├─ [x] no serial flags preserve and report current settings without a setter or restore
 ├─ [x] read/write bounded to 64 KiB; timeout bounded to 300 s
 ├─ [x] durable crash states contain no locator, payload or plaintext lease
 ├─ [x] setup refresh defers around active/uncertain owners without disrupting them

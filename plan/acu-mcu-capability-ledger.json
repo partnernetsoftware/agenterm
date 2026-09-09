@@ -1764,13 +1764,13 @@
           "qualification": {
             "schema": 2,
             "platforms": {
-              "linux": {"result": "native-qualified", "gate": "cu-device-lease-smoke", "evidence": ["cu.device-lease"]},
-              "macos": {"result": "native-qualified", "gate": "cu-device-lease-smoke", "evidence": ["cu.device-lease"]},
+              "linux": {"result": "native-qualified", "gate": "cu-device-lease-smoke", "evidence": ["cu.device-lease", "cu.device-serial-preserve"]},
+              "macos": {"result": "native-qualified", "gate": "cu-device-lease-smoke", "evidence": ["cu.device-lease", "cu.device-serial-preserve"]},
               "windows": {"result": "pending", "blocker_code": "native-windows-com-public-court-not-run"}
             }
           },
-          "evidence": ["cu.device-lease"],
-          "note": "Portable serial values are validated before launch, applied by the selected native adapter and read back on the retained object. Unsupported combinations fail typed rather than silently degrading.",
+          "evidence": ["cu.device-lease", "cu.device-serial-preserve"],
+          "note": "Without serial flags, the retained exact object is opened exclusively but its current line settings are only observed: no native setter runs and close does not restore an unmodified state. With any serial flag, portable values and defaults are validated before launch, applied by the selected adapter, read back on the retained object and restored on release. The durable record distinguishes preserved from configured mode and reports optional observations with bounded unmapped reasons rather than guessing. The public Unix PTY court starts at 19200, proves a bare claim preserves 19200, applies and reads back 57600, then proves release restored 19200. Unsupported combinations fail typed rather than silently degrading.",
           "next": "run the portable subset and restoration contract on a Windows COM court"
         },
         {

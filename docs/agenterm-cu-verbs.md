@@ -1190,7 +1190,7 @@ usage:
                [--parity none|even|odd] [--stop-bits 1|2]
                [--flow none|software|hardware]
 
-Claims the opaque device id with one resident process holding one kernel-exclusive native handle. The lease secret is returned only by the first successful call; preserve it privately. Serial defaults are 9600/8/none/1/none.
+Claims the opaque device id with one resident process holding one kernel-exclusive native handle. The lease secret is returned only by the first successful call; preserve it privately. Without serial options, the current line settings are preserved and reported with `serial.mode=preserved`; no serial setter or restore is performed. When any serial option is present, omitted serial fields default to 9600/8/none/1/none, exact native readback is reported with `serial.mode=configured`, and release restores the prior settings. Optional observed fields use null plus bounded `unmapped` reason tokens from `baud`, `baud-split`, `data_bits`, `parity`, `stop_bits`, `flow-mixed` and `raw_mode` when the host cannot represent a native value. On Unix, `raw_mode` means `ICANON`, `ECHO`, `ISIG`, `ICRNL`, `IXON` and `OPOST` are all clear; Windows reports it as unmapped.
 ```
 
 ### `device-status`
@@ -1207,7 +1207,7 @@ agenterm-cu device-status    (also: device status)
 usage:
   device status LEASE_ID --generation N
 
-Reports state, exact owner liveness, byte counters and expiry without returning authority or a native locator.
+Reports state, exact owner liveness, byte counters, serial preservation/configuration facts and expiry without returning authority or a native locator.
 ```
 
 ### `device-read`

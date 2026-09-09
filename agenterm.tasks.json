@@ -9041,7 +9041,7 @@
     },
     {
       "id": "cu-device-lease-smoke",
-      "description": "Prove Unix native device claim, exact replay, lease authority refusal, bounded binary I/O, renewal, explicit release and session-owned cleanup over one owner-bound private PTY fixture.",
+      "description": "Prove Unix native device claim, exact replay, lease authority refusal, preserved line settings without a setter, configured readback plus restoration, bounded binary I/O, renewal, explicit release and session-owned cleanup over one owner-bound private PTY fixture.",
       "entry": "scripts/qjs/cu-device-lease-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

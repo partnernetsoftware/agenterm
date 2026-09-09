@@ -4849,6 +4849,15 @@ non-retryable uncertainty unless the platform proves a stronger result. Test
 the public journey with an invocation-owned, private-registry fixture; never
 grant test authority by accepting a caller-supplied raw device path.
 
+When a PTY court needs to prove that a claim preserves pre-existing termios,
+keep one fixture-owned slave descriptor alive after setting the initial line
+state. On macOS, closing the final slave descriptor can reset the PTY before the
+product reopens it, turning a non-default preservation test into a false default
+case. The fixture may retain that descriptor while the product opens its own
+exact handle; compare the termios flags and speeds during the claim and again
+after close. A preserve request must never call `tcsetattr`, and its close path
+must not restore a state it did not mutate.
+
 ## Keep host dispatch acceptance distinct from handler success
 
 Opening a path or URL through LaunchServices, `xdg-open`, or `ShellExecuteW`

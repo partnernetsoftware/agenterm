@@ -76,16 +76,27 @@ pub fn run_device_io_test_fixture(args: &[String]) -> i32 {
     {
         use std::io::Write as _;
 
-        if args.len() != 2 {
+        if args.len() != 2 && args.len() != 4 {
             return 2;
         }
         let lifetime_ms = match args[1].parse::<u64>() {
             Ok(value) if (1_000..=300_000).contains(&value) => value,
             _ => return 2,
         };
+        let initial_baud = if args.len() == 4 && args[2] == "--initial-baud" {
+            match args[3].parse::<u32>() {
+                Ok(value) => Some(value),
+                Err(_) => return 2,
+            }
+        } else if args.len() == 2 {
+            None
+        } else {
+            return 2;
+        };
         let fixture = match agenterm_platform::device_io::create_test_fixture(
             std::path::Path::new(&args[0]),
             std::time::Duration::from_millis(lifetime_ms),
+            initial_baud,
         ) {
             Ok(fixture) => fixture,
             Err(error) => {

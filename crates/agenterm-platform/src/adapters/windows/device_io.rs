@@ -3,8 +3,9 @@ use std::{io, mem::size_of, ptr};
 use windows_sys::Win32::{
     Devices::{
         Communication::{
-            COMMTIMEOUTS, DCB, EVENPARITY, GetCommState, GetCommTimeouts, NOPARITY, ODDPARITY,
-            ONESTOPBIT, SetCommState, SetCommTimeouts, TWOSTOPBITS,
+            COMMTIMEOUTS, DCB, EVENPARITY, GetCommState, GetCommTimeouts, MARKPARITY, NOPARITY,
+            ODDPARITY, ONE5STOPBITS, ONESTOPBIT, SPACEPARITY, SetCommState, SetCommTimeouts,
+            TWOSTOPBITS,
         },
         DeviceAndDriverInstallation::{
             DIGCF_DEVICEINTERFACE, DIGCF_PRESENT, HDEVINFO, SP_DEVICE_INTERFACE_DATA,
@@ -38,11 +39,12 @@ pub(crate) struct NativeOpenedDevice {
     original_dcb: DCB,
     original_timeouts: COMMTIMEOUTS,
     active_timeouts: COMMTIMEOUTS,
+    restore_on_close: bool,
     restored: bool,
 }
 impl Drop for NativeOpenedDevice {
     fn drop(&mut self) {
-        if !self.restored {
+        if self.restore_on_close && !self.restored {
             let _ = restore_raw(self.handle.0, &self.original_dcb, &self.original_timeouts);
         }
     }
@@ -98,9 +100,8 @@ pub(crate) fn matches_record(resolved: &NativeResolvedDevice, record: &NativeDev
 
 pub(crate) fn open_exclusive(
     resolved: &NativeResolvedDevice,
-    config: SerialConfiguration,
-) -> Result<NativeOpenedDevice, DeviceIoError> {
-    validate_config(config)?;
+    request: SerialRequest,
+) -> Result<(NativeOpenedDevice, SerialOutcome), DeviceIoError> {
     // SAFETY: path is a provider-produced, bounded, NUL-terminated device-interface path.
     let raw = unsafe {
         CreateFileW(
@@ -145,51 +146,71 @@ pub(crate) fn open_exclusive(
             "opened COM interface does not expose serial state and timeouts",
         ));
     }
-    let mut requested = original_dcb;
-    configure_dcb(&mut requested, config);
-    let requested_timeouts = COMMTIMEOUTS {
-        ReadIntervalTimeout: u32::MAX,
-        ReadTotalTimeoutMultiplier: 0,
-        ReadTotalTimeoutConstant: 0,
-        WriteTotalTimeoutMultiplier: 0,
-        WriteTotalTimeoutConstant: 1_000,
+    let (outcome, active_timeouts, restore_on_close) = match request {
+        SerialRequest::Preserve => (
+            SerialOutcome::Preserved(observe_dcb(&original_dcb)),
+            original_timeouts,
+            false,
+        ),
+        SerialRequest::Configure(config) => {
+            validate_config(config)?;
+            let mut requested = original_dcb;
+            configure_dcb(&mut requested, config);
+            let requested_timeouts = COMMTIMEOUTS {
+                ReadIntervalTimeout: u32::MAX,
+                ReadTotalTimeoutMultiplier: 0,
+                ReadTotalTimeoutConstant: 0,
+                WriteTotalTimeoutMultiplier: 0,
+                WriteTotalTimeoutConstant: 1_000,
+            };
+            if unsafe { SetCommState(handle.0, &requested) } == 0
+                || unsafe { SetCommTimeouts(handle.0, &requested_timeouts) } == 0
+            {
+                let _ = restore_raw(handle.0, &original_dcb, &original_timeouts);
+                return Err(error(
+                    DeviceIoErrorKind::SerialApplyFailed,
+                    "device-serial-apply-failed",
+                    "COM serial configuration could not be applied",
+                ));
+            }
+            let mut actual = DCB {
+                DCBlength: size_of::<DCB>() as u32,
+                ..DCB::default()
+            };
+            let mut actual_timeouts = COMMTIMEOUTS::default();
+            if unsafe { GetCommState(handle.0, &mut actual) } == 0
+                || unsafe { GetCommTimeouts(handle.0, &mut actual_timeouts) } == 0
+                || !dcb_matches(&actual, config)
+                || !timeouts_match(&actual_timeouts, &requested_timeouts)
+            {
+                let _ = restore_raw(handle.0, &original_dcb, &original_timeouts);
+                return Err(error(
+                    DeviceIoErrorKind::SerialReadbackMismatch,
+                    "device-serial-readback-mismatch",
+                    "COM serial configuration readback differed from the request",
+                ));
+            }
+            (
+                SerialOutcome::Applied {
+                    requested: config,
+                    observed: observe_dcb(&actual),
+                },
+                actual_timeouts,
+                true,
+            )
+        }
     };
-    // SAFETY: handle and initialized structures are valid.
-    if unsafe { SetCommState(handle.0, &requested) } == 0
-        || unsafe { SetCommTimeouts(handle.0, &requested_timeouts) } == 0
-    {
-        let _ = restore_raw(handle.0, &original_dcb, &original_timeouts);
-        return Err(error(
-            DeviceIoErrorKind::SerialApplyFailed,
-            "device-serial-apply-failed",
-            "COM serial configuration could not be applied",
-        ));
-    }
-    let mut actual = DCB {
-        DCBlength: size_of::<DCB>() as u32,
-        ..DCB::default()
-    };
-    let mut actual_timeouts = COMMTIMEOUTS::default();
-    // SAFETY: handle is live and output structures are writable.
-    if unsafe { GetCommState(handle.0, &mut actual) } == 0
-        || unsafe { GetCommTimeouts(handle.0, &mut actual_timeouts) } == 0
-        || !dcb_matches(&actual, config)
-        || !timeouts_match(&actual_timeouts, &requested_timeouts)
-    {
-        let _ = restore_raw(handle.0, &original_dcb, &original_timeouts);
-        return Err(error(
-            DeviceIoErrorKind::SerialReadbackMismatch,
-            "device-serial-readback-mismatch",
-            "COM serial configuration readback differed from the request",
-        ));
-    }
-    Ok(NativeOpenedDevice {
-        handle,
-        original_dcb,
-        original_timeouts,
-        active_timeouts: requested_timeouts,
-        restored: false,
-    })
+    Ok((
+        NativeOpenedDevice {
+            handle,
+            original_dcb,
+            original_timeouts,
+            active_timeouts,
+            restore_on_close,
+            restored: false,
+        },
+        outcome,
+    ))
 }
 
 pub(crate) fn read_once(
@@ -293,6 +314,10 @@ pub(crate) fn write_once(
 }
 
 pub(crate) fn close_restore(mut device: NativeOpenedDevice) -> Result<(), DeviceIoError> {
+    if !device.restore_on_close {
+        device.restored = true;
+        return Ok(());
+    }
     let result = restore_raw(
         device.handle.0,
         &device.original_dcb,
@@ -300,6 +325,65 @@ pub(crate) fn close_restore(mut device: NativeOpenedDevice) -> Result<(), Device
     );
     device.restored = result.is_ok();
     result
+}
+
+fn observe_dcb(dcb: &DCB) -> SerialObservation {
+    let mut unmapped = vec!["raw_mode"];
+    let data_bits = match dcb.ByteSize {
+        5 => Some(SerialDataBits::Five),
+        6 => Some(SerialDataBits::Six),
+        7 => Some(SerialDataBits::Seven),
+        8 => Some(SerialDataBits::Eight),
+        _ => {
+            unmapped.push("data_bits");
+            None
+        }
+    };
+    let parity = match dcb.Parity {
+        NOPARITY => Some(SerialParity::None),
+        EVENPARITY => Some(SerialParity::Even),
+        ODDPARITY => Some(SerialParity::Odd),
+        MARKPARITY | SPACEPARITY => {
+            unmapped.push("parity");
+            None
+        }
+        _ => {
+            unmapped.push("parity");
+            None
+        }
+    };
+    let stop_bits = match dcb.StopBits {
+        ONESTOPBIT => Some(SerialStopBits::One),
+        TWOSTOPBITS => Some(SerialStopBits::Two),
+        ONE5STOPBITS => {
+            unmapped.push("stop_bits");
+            None
+        }
+        _ => {
+            unmapped.push("stop_bits");
+            None
+        }
+    };
+    let hardware = dcb._bitfield & (1 << 2) != 0 && dcb._bitfield & (3 << 12) == 2 << 12;
+    let software = dcb._bitfield & ((1 << 8) | (1 << 9)) != 0;
+    let flow_control = match (hardware, software) {
+        (false, false) => Some(SerialFlowControl::None),
+        (false, true) => Some(SerialFlowControl::Software),
+        (true, false) => Some(SerialFlowControl::Hardware),
+        (true, true) => {
+            unmapped.push("flow-mixed");
+            None
+        }
+    };
+    SerialObservation {
+        baud_rate: Some(dcb.BaudRate),
+        data_bits,
+        parity,
+        stop_bits,
+        flow_control,
+        raw_mode: None,
+        unmapped,
+    }
 }
 
 fn enumerate_com_interfaces() -> Result<Vec<NativeResolvedDevice>, DeviceIoError> {
@@ -579,5 +663,28 @@ mod tests {
         let mut dcb = DCB::default();
         configure_dcb(&mut dcb, config);
         assert!(dcb_matches(&dcb, config));
+    }
+
+    #[test]
+    fn dcb_observation_reports_unmapped_native_fields_without_guessing() {
+        let mut dcb = DCB {
+            BaudRate: 19_200,
+            ByteSize: 8,
+            Parity: MARKPARITY,
+            StopBits: ONE5STOPBITS,
+            ..DCB::default()
+        };
+        dcb._bitfield |= (1 << 2) | (2 << 12) | (1 << 8);
+        let observed = observe_dcb(&dcb);
+        assert_eq!(observed.baud_rate, Some(19_200));
+        assert_eq!(observed.data_bits, Some(SerialDataBits::Eight));
+        assert_eq!(observed.parity, None);
+        assert_eq!(observed.stop_bits, None);
+        assert_eq!(observed.flow_control, None);
+        assert_eq!(observed.raw_mode, None);
+        assert_eq!(
+            observed.unmapped,
+            ["raw_mode", "parity", "stop_bits", "flow-mixed"]
+        );
     }
 }

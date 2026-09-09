@@ -21,8 +21,8 @@ use crate::{
         DeviceOperation, DeviceProtocolError, DeviceResult, client_request, client_session_release,
     },
     device_lease_owner::{
-        DeviceLeaseLaunch, LAUNCH_SCHEMA_VERSION, SerialConfigurationWire, SerialFlowWire,
-        SerialParityWire,
+        DeviceLeaseLaunch, LAUNCH_SCHEMA_VERSION, SerialFlowWire, SerialParityWire,
+        SerialRequestWire,
     },
     device_lease_store::{DeviceLeaseRecord, DeviceLeaseState, DeviceLeaseStore},
     idempotency_store::FinalReplay,
@@ -824,15 +824,11 @@ fn state_name(state: &DeviceLeaseState) -> &'static str {
     }
 }
 
-fn serial_wire(serial: Option<&DeviceSerialConfiguration>) -> SerialConfigurationWire {
-    let serial = serial.cloned().unwrap_or(DeviceSerialConfiguration {
-        baud: 9_600,
-        data_bits: 8,
-        parity: DeviceSerialParity::None,
-        stop_bits: 1,
-        flow: DeviceSerialFlow::None,
-    });
-    SerialConfigurationWire {
+fn serial_wire(serial: Option<&DeviceSerialConfiguration>) -> SerialRequestWire {
+    let Some(serial) = serial else {
+        return SerialRequestWire::Preserve;
+    };
+    SerialRequestWire::Configure {
         baud: serial.baud,
         data_bits: serial.data_bits,
         parity: match serial.parity {

@@ -7,7 +7,10 @@ use std::{
 };
 
 use agenterm_platform::{
-    device_io::{self, DeviceReadOutcome, DeviceWriteOutcome, OpenedDevice, SerialConfiguration},
+    device_io::{
+        self, DeviceReadOutcome, DeviceWriteOutcome, OpenedDevice, SerialConfiguration,
+        SerialObservation, SerialOutcome, SerialRequest,
+    },
     process::start_identity,
 };
 use serde::{Deserialize, Serialize};
@@ -15,10 +18,10 @@ use sha2::{Digest, Sha256};
 
 use crate::device_lease_store::{
     DeviceLeaseHandle, DeviceLeaseRecord, DeviceLeaseState, DeviceLeaseStore, DeviceOwnerIdentity,
-    DeviceSerialRecord,
+    DeviceSerialMode, DeviceSerialRecord,
 };
 
-pub(crate) const LAUNCH_SCHEMA_VERSION: u32 = 1;
+pub(crate) const LAUNCH_SCHEMA_VERSION: u32 = 2;
 const LAUNCH_MAX_BYTES: usize = 32 * 1024;
 pub(crate) const TTL_MIN_MS: u64 = 1;
 pub(crate) const TTL_MAX_MS: u64 = 86_400_000;
@@ -40,17 +43,20 @@ pub(crate) struct DeviceLeaseLaunch {
     pub session_id: String,
     pub session_lease: String,
     pub ttl_ms: u64,
-    pub serial: SerialConfigurationWire,
+    pub serial: SerialRequestWire,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct SerialConfigurationWire {
-    pub baud: u32,
-    pub data_bits: u8,
-    pub parity: SerialParityWire,
-    pub stop_bits: u8,
-    pub flow: SerialFlowWire,
+#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum SerialRequestWire {
+    Preserve,
+    Configure {
+        baud: u32,
+        data_bits: u8,
+        parity: SerialParityWire,
+        stop_bits: u8,
+        flow: SerialFlowWire,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -341,8 +347,7 @@ pub(crate) fn start_owner_from_launch(
             return Err(map_device_error(error));
         }
     };
-    let actual = opened.serial_configuration();
-    let serial_record = serial_record(actual);
+    let serial_record = serial_record(opened.serial_outcome());
     store
         .mark_active(
             &launch.handle,
@@ -413,69 +418,169 @@ fn validate_launch(launch: &DeviceLeaseLaunch) -> Result<(), DeviceOwnerError> {
     Ok(())
 }
 
-impl SerialConfigurationWire {
-    pub(crate) fn to_platform(self) -> Result<SerialConfiguration, DeviceOwnerError> {
+impl SerialRequestWire {
+    pub(crate) fn to_platform(self) -> Result<SerialRequest, DeviceOwnerError> {
         use agenterm_platform::device_io::{
             SerialDataBits, SerialFlowControl, SerialParity, SerialStopBits,
         };
-        let data_bits = match self.data_bits {
+        let Self::Configure {
+            baud,
+            data_bits,
+            parity,
+            stop_bits,
+            flow,
+        } = self
+        else {
+            return Ok(SerialRequest::Preserve);
+        };
+        let data_bits = match data_bits {
             5 => SerialDataBits::Five,
             6 => SerialDataBits::Six,
             7 => SerialDataBits::Seven,
             8 => SerialDataBits::Eight,
             _ => return Err(DeviceOwnerError::new("device_serial_invalid")),
         };
-        let stop_bits = match self.stop_bits {
+        let stop_bits = match stop_bits {
             1 => SerialStopBits::One,
             2 => SerialStopBits::Two,
             _ => return Err(DeviceOwnerError::new("device_serial_invalid")),
         };
-        Ok(SerialConfiguration {
-            baud_rate: self.baud,
+        Ok(SerialRequest::Configure(SerialConfiguration {
+            baud_rate: baud,
             data_bits,
-            parity: match self.parity {
+            parity: match parity {
                 SerialParityWire::None => SerialParity::None,
                 SerialParityWire::Even => SerialParity::Even,
                 SerialParityWire::Odd => SerialParity::Odd,
             },
             stop_bits,
-            flow_control: match self.flow {
+            flow_control: match flow {
                 SerialFlowWire::None => SerialFlowControl::None,
                 SerialFlowWire::Software => SerialFlowControl::Software,
                 SerialFlowWire::Hardware => SerialFlowControl::Hardware,
             },
-        })
+        }))
     }
 }
 
-fn serial_record(serial: SerialConfiguration) -> DeviceSerialRecord {
+fn serial_record(outcome: &SerialOutcome) -> DeviceSerialRecord {
+    match outcome {
+        SerialOutcome::Preserved(observed) => {
+            serial_observation_record(DeviceSerialMode::Preserved, observed)
+        }
+        SerialOutcome::Applied { observed, .. } => {
+            serial_observation_record(DeviceSerialMode::Configured, observed)
+        }
+    }
+}
+
+fn serial_observation_record(
+    mode: DeviceSerialMode,
+    serial: &SerialObservation,
+) -> DeviceSerialRecord {
     use agenterm_platform::device_io::{
         SerialDataBits, SerialFlowControl, SerialParity, SerialStopBits,
     };
     DeviceSerialRecord {
+        mode,
         baud: serial.baud_rate,
-        data_bits: match serial.data_bits {
+        data_bits: serial.data_bits.map(|value| match value {
             SerialDataBits::Five => 5,
             SerialDataBits::Six => 6,
             SerialDataBits::Seven => 7,
             SerialDataBits::Eight => 8,
-        },
-        parity: match serial.parity {
-            SerialParity::None => "none",
-            SerialParity::Even => "even",
-            SerialParity::Odd => "odd",
-        }
-        .to_owned(),
-        stop_bits: match serial.stop_bits {
+        }),
+        parity: serial.parity.map(|value| {
+            match value {
+                SerialParity::None => "none",
+                SerialParity::Even => "even",
+                SerialParity::Odd => "odd",
+            }
+            .to_owned()
+        }),
+        stop_bits: serial.stop_bits.map(|value| match value {
             SerialStopBits::One => 1,
             SerialStopBits::Two => 2,
-        },
-        flow: match serial.flow_control {
-            SerialFlowControl::None => "none",
-            SerialFlowControl::Software => "software",
-            SerialFlowControl::Hardware => "hardware",
+        }),
+        flow: serial.flow_control.map(|value| {
+            match value {
+                SerialFlowControl::None => "none",
+                SerialFlowControl::Software => "software",
+                SerialFlowControl::Hardware => "hardware",
+            }
+            .to_owned()
+        }),
+        raw_mode: serial.raw_mode,
+        unmapped: serial
+            .unmapped
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn launch(serial: SerialRequestWire) -> DeviceLeaseLaunch {
+        DeviceLeaseLaunch {
+            schema_version: LAUNCH_SCHEMA_VERSION,
+            state_path: PathBuf::from("/var/empty/device-leases.json"),
+            identity_state_dir: PathBuf::from("/var/empty/device-identity"),
+            handle: DeviceLeaseHandle {
+                lease_id: "00000000-0000-4000-8000-000000000001".to_owned(),
+                generation: 1,
+                owner_nonce: "owner-nonce".to_owned(),
+            },
+            device_id: format!("agt-device-v1-{}", "0".repeat(64)),
+            lease_secret: "1".repeat(64),
+            session_id: "session-one".to_owned(),
+            session_lease: "session-lease".to_owned(),
+            ttl_ms: 60_000,
+            serial,
         }
-        .to_owned(),
+    }
+
+    #[test]
+    fn launch_wire_v2_distinguishes_preserve_from_configure() {
+        let preserve = serde_json::to_vec(&launch(SerialRequestWire::Preserve)).unwrap();
+        let decoded = read_launch(preserve.as_slice()).unwrap();
+        assert!(matches!(decoded.serial, SerialRequestWire::Preserve));
+
+        let configure = SerialRequestWire::Configure {
+            baud: 57_600,
+            data_bits: 8,
+            parity: SerialParityWire::None,
+            stop_bits: 1,
+            flow: SerialFlowWire::None,
+        };
+        let configured = serde_json::to_vec(&launch(configure)).unwrap();
+        let decoded = read_launch(configured.as_slice()).unwrap();
+        assert!(matches!(
+            decoded.serial,
+            SerialRequestWire::Configure { baud: 57_600, .. }
+        ));
+    }
+
+    #[test]
+    fn launch_wire_rejects_v1_and_untagged_serial() {
+        let mut old_version = serde_json::to_value(launch(SerialRequestWire::Preserve)).unwrap();
+        old_version["schema_version"] = serde_json::json!(1);
+        let failure =
+            read_launch(serde_json::to_vec(&old_version).unwrap().as_slice()).unwrap_err();
+        assert_eq!(failure.code, "device_owner_launch_invalid");
+
+        let mut untagged = serde_json::to_value(launch(SerialRequestWire::Preserve)).unwrap();
+        untagged["serial"] = serde_json::json!({
+            "baud": 9600,
+            "data_bits": 8,
+            "parity": "none",
+            "stop_bits": 1,
+            "flow": "none"
+        });
+        let failure = read_launch(serde_json::to_vec(&untagged).unwrap().as_slice()).unwrap_err();
+        assert_eq!(failure.code, "device_owner_launch_invalid");
     }
 }
 

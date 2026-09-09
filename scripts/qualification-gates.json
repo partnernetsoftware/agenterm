@@ -984,7 +984,8 @@
     {
       "id": "cu-device-lease-smoke",
       "evidence": [
-        "cu.device-lease"
+        "cu.device-lease",
+        "cu.device-serial-preserve"
       ]
     },
     {

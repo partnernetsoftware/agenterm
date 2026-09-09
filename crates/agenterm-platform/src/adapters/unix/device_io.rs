@@ -32,7 +32,10 @@ const FIXTURE_TOKEN_BYTES: usize = 32;
 
 pub(crate) struct NativeDeviceIoTestFixture {
     master: OwnedFd,
+    slave: OwnedFd,
     registry_path: PathBuf,
+    termios_query_path: PathBuf,
+    termios_response_path: PathBuf,
     token_digest: String,
     deadline: Instant,
 }
@@ -48,12 +51,14 @@ pub(crate) struct NativeResolvedDevice {
 pub(crate) struct NativeOpenedDevice {
     file: fs::File,
     original: libc::termios,
+    restore_on_close: bool,
     restored: bool,
 }
 
 pub(crate) fn create_test_fixture(
     registry_root: &Path,
     lifetime: Duration,
+    initial_baud: Option<u32>,
 ) -> Result<(NativeDeviceIoTestFixture, String), DeviceIoError> {
     if std::env::var_os("NATIVE_DEVICE_TEST_FIXTURE_CREATE").as_deref()
         != Some(std::ffi::OsStr::new("1"))
@@ -95,6 +100,8 @@ pub(crate) fn create_test_fixture(
     let token = encode_hex(&token_bytes);
     let token_digest = sha256_hex(token.as_bytes());
     let registry_path = registry_root.join(format!("{token}.json"));
+    let termios_query_path = registry_root.join(format!("{token}.termios-query"));
+    let termios_response_path = registry_root.join(format!("{token}.termios-response.json"));
     if fs::symlink_metadata(&registry_path).is_ok() {
         return Err(fixture_failure(
             "device-fixture-collision",
@@ -103,6 +110,9 @@ pub(crate) fn create_test_fixture(
     }
 
     let (master, slave) = open_pty_pair()?;
+    if let Some(rate) = initial_baud {
+        set_fixture_baud(slave.as_raw_fd(), rate)?;
+    }
     let locator = tty_path(&slave)?;
     let locator_text = locator.to_str().ok_or_else(|| {
         fixture_failure(
@@ -137,7 +147,6 @@ pub(crate) fn create_test_fixture(
         fixture_failure("device-fixture-registry-invalid", failure.to_string())
     })?;
     write_private_atomic(&registry_path, &bytes).map_err(fixture_io)?;
-    drop(slave);
     let deadline = Instant::now().checked_add(lifetime).ok_or_else(|| {
         fixture_failure(
             "device-fixture-deadline-invalid",
@@ -147,7 +156,10 @@ pub(crate) fn create_test_fixture(
     Ok((
         NativeDeviceIoTestFixture {
             master,
+            slave,
             registry_path,
+            termios_query_path,
+            termios_response_path,
             token_digest,
             deadline,
         },
@@ -156,25 +168,49 @@ pub(crate) fn create_test_fixture(
 }
 
 pub(crate) fn run_test_fixture(fixture: NativeDeviceIoTestFixture) -> Result<(), DeviceIoError> {
+    let NativeDeviceIoTestFixture {
+        master,
+        slave,
+        registry_path,
+        termios_query_path,
+        termios_response_path,
+        token_digest,
+        deadline,
+    } = fixture;
     let mut buffer = [0_u8; 64 * 1024];
     let result = 'fixture: loop {
         if matches!(
-            fs::symlink_metadata(&fixture.registry_path),
+            fs::symlink_metadata(&registry_path),
             Err(error) if error.kind() == io::ErrorKind::NotFound
         ) {
             break Ok(());
         }
-        if Instant::now() >= fixture.deadline {
+        if Instant::now() >= deadline {
             break Ok(());
         }
+        if fs::symlink_metadata(&termios_query_path)
+            .is_ok_and(|metadata| metadata.is_file() && !metadata_is_link_like(&metadata))
+        {
+            let observed = read_termios(master.as_raw_fd())?;
+            let response = serde_json::json!({
+                "schema_version": 1,
+                "baud": observed.baud_rate,
+                "raw_mode": observed.raw_mode,
+                "unmapped": observed.unmapped,
+            });
+            let bytes = serde_json::to_vec(&response).map_err(|failure| {
+                fixture_failure("device-fixture-termios-invalid", failure.to_string())
+            })?;
+            write_private_atomic(&termios_response_path, &bytes).map_err(|failure| {
+                fixture_failure("device-fixture-termios-write", failure.to_string())
+            })?;
+            fs::remove_file(&termios_query_path).map_err(|failure| {
+                fixture_failure("device-fixture-termios-query-remove", failure.to_string())
+            })?;
+        }
         // SAFETY: master is live and buffer is writable for its full length.
-        let count = unsafe {
-            libc::read(
-                fixture.master.as_raw_fd(),
-                buffer.as_mut_ptr().cast(),
-                buffer.len(),
-            )
-        };
+        let count =
+            unsafe { libc::read(master.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len()) };
         if count > 0 {
             let mut offset = 0_usize;
             let count = count as usize;
@@ -182,7 +218,7 @@ pub(crate) fn run_test_fixture(fixture: NativeDeviceIoTestFixture) -> Result<(),
                 // SAFETY: the remaining buffer is readable and master is live.
                 let written = unsafe {
                     libc::write(
-                        fixture.master.as_raw_fd(),
+                        master.as_raw_fd(),
                         buffer[offset..count].as_ptr().cast(),
                         count - offset,
                     )
@@ -196,6 +232,9 @@ pub(crate) fn run_test_fixture(fixture: NativeDeviceIoTestFixture) -> Result<(),
                     std::thread::sleep(Duration::from_millis(2));
                     continue;
                 }
+                if matches!(failure.raw_os_error(), Some(libc::EIO) | Some(libc::ENOTTY)) {
+                    break;
+                }
                 break 'fixture Err(fixture_io(failure));
             }
         } else {
@@ -203,6 +242,7 @@ pub(crate) fn run_test_fixture(fixture: NativeDeviceIoTestFixture) -> Result<(),
             if count == 0
                 || failure.kind() == io::ErrorKind::WouldBlock
                 || failure.raw_os_error() == Some(libc::EIO)
+                || failure.raw_os_error() == Some(libc::ENOTTY)
             {
                 std::thread::sleep(Duration::from_millis(5));
                 continue;
@@ -210,7 +250,10 @@ pub(crate) fn run_test_fixture(fixture: NativeDeviceIoTestFixture) -> Result<(),
             break Err(fixture_io(failure));
         }
     };
-    remove_owned_registry(&fixture.registry_path, &fixture.token_digest);
+    drop(slave);
+    let _ = fs::remove_file(&termios_query_path);
+    let _ = fs::remove_file(&termios_response_path);
+    remove_owned_registry(&registry_path, &token_digest);
     result
 }
 
@@ -378,7 +421,7 @@ pub(crate) fn append_test_fixture(
 
 impl Drop for NativeOpenedDevice {
     fn drop(&mut self) {
-        if !self.restored {
+        if self.restore_on_close && !self.restored {
             let _ = restore(&self.file, &self.original);
         }
     }
@@ -429,9 +472,8 @@ pub(crate) fn matches_record(resolved: &NativeResolvedDevice, record: &NativeDev
 
 pub(crate) fn open_exclusive(
     resolved: &NativeResolvedDevice,
-    config: SerialConfiguration,
-) -> Result<NativeOpenedDevice, DeviceIoError> {
-    let baud = baud(config.baud_rate)?;
+    request: SerialRequest,
+) -> Result<(NativeOpenedDevice, SerialOutcome), DeviceIoError> {
     use std::os::unix::ffi::OsStrExt as _;
     let path = std::path::Path::new(&resolved.path);
     let bytes = path.as_os_str().as_bytes();
@@ -484,44 +526,61 @@ pub(crate) fn open_exclusive(
     }
     // SAFETY: successful tcgetattr initialized original.
     let original = unsafe { original.assume_init() };
-    let mut requested = original;
-    // SAFETY: cfmakeraw mutates an initialized termios value.
-    unsafe { libc::cfmakeraw(&mut requested) };
-    apply_config(&mut requested, config, baud);
-    // SAFETY: fd and requested termios are valid.
-    if unsafe { libc::tcsetattr(file.as_raw_fd(), libc::TCSANOW, &requested) } != 0 {
-        let _ = restore(&file, &original);
-        return Err(error(
-            DeviceIoErrorKind::SerialApplyFailed,
-            "device-serial-apply-failed",
-            "serial configuration could not be applied",
-        ));
-    }
-    let mut actual = MaybeUninit::<libc::termios>::uninit();
-    // SAFETY: tcgetattr initializes actual on success.
-    if unsafe { libc::tcgetattr(file.as_raw_fd(), actual.as_mut_ptr()) } != 0 {
-        let _ = restore(&file, &original);
-        return Err(error(
-            DeviceIoErrorKind::SerialReadbackMismatch,
-            "device-serial-readback-mismatch",
-            "serial configuration could not be read back",
-        ));
-    }
-    // SAFETY: successful tcgetattr initialized actual.
-    let actual = unsafe { actual.assume_init() };
-    if !config_matches(&actual, config, baud) {
-        let _ = restore(&file, &original);
-        return Err(error(
-            DeviceIoErrorKind::SerialReadbackMismatch,
-            "device-serial-readback-mismatch",
-            "serial configuration readback differed from the request",
-        ));
-    }
-    Ok(NativeOpenedDevice {
-        file,
-        original,
-        restored: false,
-    })
+    let (outcome, restore_on_close) = match request {
+        SerialRequest::Preserve => (SerialOutcome::Preserved(observe_termios(&original)), false),
+        SerialRequest::Configure(config) => {
+            let baud = baud(config.baud_rate)?;
+            let mut requested = original;
+            // SAFETY: cfmakeraw mutates an initialized termios value.
+            unsafe { libc::cfmakeraw(&mut requested) };
+            apply_config(&mut requested, config, baud);
+            // SAFETY: fd and requested termios are valid.
+            if unsafe { libc::tcsetattr(file.as_raw_fd(), libc::TCSANOW, &requested) } != 0 {
+                let _ = restore(&file, &original);
+                return Err(error(
+                    DeviceIoErrorKind::SerialApplyFailed,
+                    "device-serial-apply-failed",
+                    "serial configuration could not be applied",
+                ));
+            }
+            let mut actual = MaybeUninit::<libc::termios>::uninit();
+            // SAFETY: tcgetattr initializes actual on success.
+            if unsafe { libc::tcgetattr(file.as_raw_fd(), actual.as_mut_ptr()) } != 0 {
+                let _ = restore(&file, &original);
+                return Err(error(
+                    DeviceIoErrorKind::SerialReadbackMismatch,
+                    "device-serial-readback-mismatch",
+                    "serial configuration could not be read back",
+                ));
+            }
+            // SAFETY: successful tcgetattr initialized actual.
+            let actual = unsafe { actual.assume_init() };
+            if !config_matches(&actual, config, baud) {
+                let _ = restore(&file, &original);
+                return Err(error(
+                    DeviceIoErrorKind::SerialReadbackMismatch,
+                    "device-serial-readback-mismatch",
+                    "serial configuration readback differed from the request",
+                ));
+            }
+            (
+                SerialOutcome::Applied {
+                    requested: config,
+                    observed: observe_termios(&actual),
+                },
+                true,
+            )
+        }
+    };
+    Ok((
+        NativeOpenedDevice {
+            file,
+            original,
+            restore_on_close,
+            restored: false,
+        },
+        outcome,
+    ))
 }
 
 pub(crate) fn read_once(
@@ -584,9 +643,96 @@ pub(crate) fn write_once(
 }
 
 pub(crate) fn close_restore(mut device: NativeOpenedDevice) -> Result<(), DeviceIoError> {
+    if !device.restore_on_close {
+        device.restored = true;
+        return Ok(());
+    }
     let result = restore(&device.file, &device.original);
     device.restored = result.is_ok();
     result
+}
+
+fn observe_termios(term: &libc::termios) -> SerialObservation {
+    let input_speed = unsafe { libc::cfgetispeed(term) };
+    let output_speed = unsafe { libc::cfgetospeed(term) };
+    let mut unmapped = Vec::new();
+    let baud_rate = if input_speed == output_speed {
+        baud_rate(input_speed)
+    } else {
+        unmapped.push("baud-split");
+        None
+    };
+    if baud_rate.is_none() && input_speed == output_speed {
+        unmapped.push("baud");
+    }
+    let data_bits = match term.c_cflag & libc::CSIZE {
+        libc::CS5 => Some(SerialDataBits::Five),
+        libc::CS6 => Some(SerialDataBits::Six),
+        libc::CS7 => Some(SerialDataBits::Seven),
+        libc::CS8 => Some(SerialDataBits::Eight),
+        _ => {
+            unmapped.push("data_bits");
+            None
+        }
+    };
+    let parity = observe_parity(term, &mut unmapped);
+    let stop_bits = Some(if term.c_cflag & libc::CSTOPB == 0 {
+        SerialStopBits::One
+    } else {
+        SerialStopBits::Two
+    });
+    let hardware = term.c_cflag & libc::CRTSCTS != 0;
+    let software = term.c_iflag & (libc::IXON | libc::IXOFF) != 0;
+    let flow_control = match (hardware, software) {
+        (false, false) => Some(SerialFlowControl::None),
+        (false, true) => Some(SerialFlowControl::Software),
+        (true, false) => Some(SerialFlowControl::Hardware),
+        (true, true) => {
+            unmapped.push("flow-mixed");
+            None
+        }
+    };
+    let raw_mode = Some(
+        term.c_lflag & (libc::ICANON | libc::ECHO | libc::ISIG) == 0
+            && term.c_iflag & (libc::ICRNL | libc::IXON) == 0
+            && term.c_oflag & libc::OPOST == 0,
+    );
+    SerialObservation {
+        baud_rate,
+        data_bits,
+        parity,
+        stop_bits,
+        flow_control,
+        raw_mode,
+        unmapped,
+    }
+}
+
+fn observe_parity(term: &libc::termios, _unmapped: &mut Vec<&'static str>) -> Option<SerialParity> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    if term.c_cflag & libc::PARENB != 0 && term.c_cflag & libc::CMSPAR != 0 {
+        _unmapped.push("parity");
+        return None;
+    }
+    Some(if term.c_cflag & libc::PARENB == 0 {
+        SerialParity::None
+    } else if term.c_cflag & libc::PARODD != 0 {
+        SerialParity::Odd
+    } else {
+        SerialParity::Even
+    })
+}
+
+fn baud_rate(speed: libc::speed_t) -> Option<u32> {
+    match speed {
+        libc::B9600 => Some(9_600),
+        libc::B19200 => Some(19_200),
+        libc::B38400 => Some(38_400),
+        libc::B57600 => Some(57_600),
+        libc::B115200 => Some(115_200),
+        libc::B230400 => Some(230_400),
+        _ => None,
+    }
 }
 
 fn restore(file: &fs::File, original: &libc::termios) -> Result<(), DeviceIoError> {
@@ -706,6 +852,37 @@ fn open_pty_pair() -> Result<(OwnedFd, OwnedFd), DeviceIoError> {
     }
     // SAFETY: successful openpty transferred two distinct owned descriptors.
     Ok(unsafe { (OwnedFd::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) })
+}
+
+fn set_fixture_baud(fd: std::os::fd::RawFd, rate: u32) -> Result<(), DeviceIoError> {
+    let speed = baud(rate)?;
+    let mut term = MaybeUninit::<libc::termios>::uninit();
+    if unsafe { libc::tcgetattr(fd, term.as_mut_ptr()) } != 0 {
+        return Err(fixture_failure(
+            "device-fixture-termios-read",
+            io::Error::last_os_error().to_string(),
+        ));
+    }
+    let mut term = unsafe { term.assume_init() };
+    if unsafe { libc::cfsetispeed(&mut term, speed) } != 0
+        || unsafe { libc::cfsetospeed(&mut term, speed) } != 0
+        || unsafe { libc::tcsetattr(fd, libc::TCSANOW, &term) } != 0
+    {
+        return Err(fixture_io(io::Error::last_os_error()));
+    }
+    Ok(())
+}
+
+fn read_termios(fd: std::os::fd::RawFd) -> Result<SerialObservation, DeviceIoError> {
+    let mut term = MaybeUninit::<libc::termios>::uninit();
+    if unsafe { libc::tcgetattr(fd, term.as_mut_ptr()) } != 0 {
+        return Err(fixture_failure(
+            "device-fixture-termios-read",
+            io::Error::last_os_error().to_string(),
+        ));
+    }
+    let term = unsafe { term.assume_init() };
+    Ok(observe_termios(&term))
 }
 
 fn tty_path(slave: &OwnedFd) -> Result<PathBuf, DeviceIoError> {
@@ -829,5 +1006,101 @@ mod tests {
             baud(123_456).unwrap_err().code(),
             "device-serial-unsupported"
         );
+    }
+
+    #[test]
+    fn preserve_observes_without_mutating_or_restoring_termios() {
+        let (_master, slave) = open_pty_pair().unwrap();
+        set_fixture_baud(slave.as_raw_fd(), 19_200).unwrap();
+        let before = read_termios(slave.as_raw_fd());
+        let path = tty_path(&slave).unwrap();
+        let metadata = fs::symlink_metadata(&path).unwrap();
+        let resolved = NativeResolvedDevice {
+            path: path.into_os_string(),
+            identity: b"fixture".to_vec(),
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            raw_device: metadata.rdev(),
+        };
+        let (native, outcome) = open_exclusive(&resolved, SerialRequest::Preserve).unwrap();
+        let SerialOutcome::Preserved(observed) = outcome else {
+            panic!("preserve request must report a preserved observation");
+        };
+        assert_eq!(observed.baud_rate, Some(19_200));
+        let during = read_termios(native.file.as_raw_fd());
+        assert_termios_flags_eq(&before, &during);
+        close_restore(native).unwrap();
+
+        let after = read_termios(slave.as_raw_fd());
+        assert_termios_flags_eq(&before, &after);
+    }
+
+    #[test]
+    fn configure_restores_the_observed_original_termios() {
+        let (_master, slave) = open_pty_pair().unwrap();
+        set_fixture_baud(slave.as_raw_fd(), 19_200).unwrap();
+        let before = read_termios(slave.as_raw_fd());
+        let path = tty_path(&slave).unwrap();
+        let metadata = fs::symlink_metadata(&path).unwrap();
+        let resolved = NativeResolvedDevice {
+            path: path.into_os_string(),
+            identity: b"fixture".to_vec(),
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            raw_device: metadata.rdev(),
+        };
+        let config = SerialConfiguration {
+            baud_rate: 57_600,
+            data_bits: SerialDataBits::Eight,
+            parity: SerialParity::None,
+            stop_bits: SerialStopBits::One,
+            flow_control: SerialFlowControl::None,
+        };
+        let (native, outcome) =
+            open_exclusive(&resolved, SerialRequest::Configure(config)).unwrap();
+        let SerialOutcome::Applied { observed, .. } = outcome else {
+            panic!("configure request must report applied settings");
+        };
+        assert_eq!(observed.baud_rate, Some(57_600));
+        close_restore(native).unwrap();
+        let after = read_termios(slave.as_raw_fd());
+        assert_eq!(observe_termios(&after), observe_termios(&before));
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn mark_or_space_parity_is_unmapped_only_when_parity_is_enabled() {
+        let mut term = unsafe { std::mem::zeroed::<libc::termios>() };
+        term.c_cflag = libc::PARENB | libc::CMSPAR;
+        let mut unmapped = Vec::new();
+        assert_eq!(observe_parity(&term, &mut unmapped), None);
+        assert_eq!(unmapped, ["parity"]);
+
+        term.c_cflag = libc::CMSPAR;
+        unmapped.clear();
+        assert_eq!(
+            observe_parity(&term, &mut unmapped),
+            Some(SerialParity::None)
+        );
+        assert!(unmapped.is_empty());
+    }
+
+    fn read_termios(fd: std::os::fd::RawFd) -> libc::termios {
+        let mut term = MaybeUninit::<libc::termios>::uninit();
+        assert_eq!(unsafe { libc::tcgetattr(fd, term.as_mut_ptr()) }, 0);
+        unsafe { term.assume_init() }
+    }
+
+    fn assert_termios_flags_eq(left: &libc::termios, right: &libc::termios) {
+        assert_eq!(unsafe { libc::cfgetispeed(left) }, unsafe {
+            libc::cfgetispeed(right)
+        });
+        assert_eq!(unsafe { libc::cfgetospeed(left) }, unsafe {
+            libc::cfgetospeed(right)
+        });
+        assert_eq!(left.c_iflag, right.c_iflag);
+        assert_eq!(left.c_oflag, right.c_oflag);
+        assert_eq!(left.c_cflag, right.c_cflag);
+        assert_eq!(left.c_lflag, right.c_lflag);
     }
 }

@@ -56,11 +56,37 @@ pub(crate) struct DeviceOwnerIdentity {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct DeviceSerialRecord {
-    pub baud: u32,
-    pub data_bits: u8,
-    pub parity: String,
-    pub stop_bits: u8,
-    pub flow: String,
+    #[serde(default = "configured_serial_mode")]
+    pub mode: DeviceSerialMode,
+    #[serde(default)]
+    pub baud: Option<u32>,
+    #[serde(default)]
+    pub data_bits: Option<u8>,
+    #[serde(default)]
+    pub parity: Option<String>,
+    #[serde(default)]
+    pub stop_bits: Option<u8>,
+    #[serde(default)]
+    pub flow: Option<String>,
+    #[serde(default)]
+    pub raw_mode: Option<bool>,
+    #[serde(default = "legacy_serial_unmapped")]
+    pub unmapped: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DeviceSerialMode {
+    Preserved,
+    Configured,
+}
+
+const fn configured_serial_mode() -> DeviceSerialMode {
+    DeviceSerialMode::Configured
+}
+
+fn legacy_serial_unmapped() -> Vec<String> {
+    vec!["raw_mode".to_owned()]
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -770,12 +796,54 @@ fn validate_owner(owner: &DeviceOwnerIdentity) -> Result<(), CuError> {
 }
 
 fn validate_serial(serial: &DeviceSerialRecord) -> Result<(), CuError> {
-    if serial.baud == 0
-        || !(5..=8).contains(&serial.data_bits)
-        || !matches!(serial.parity.as_str(), "none" | "even" | "odd")
-        || !matches!(serial.stop_bits, 1 | 2)
-        || !matches!(serial.flow.as_str(), "none" | "software" | "hardware")
-    {
+    let fields_valid = serial.baud.is_none_or(|value| value != 0)
+        && serial
+            .data_bits
+            .is_none_or(|value| (5..=8).contains(&value))
+        && serial
+            .parity
+            .as_deref()
+            .is_none_or(|value| matches!(value, "none" | "even" | "odd"))
+        && serial.stop_bits.is_none_or(|value| matches!(value, 1 | 2))
+        && serial
+            .flow
+            .as_deref()
+            .is_none_or(|value| matches!(value, "none" | "software" | "hardware"))
+        && serial.unmapped.len() <= 8
+        && serial.unmapped.iter().all(|value| {
+            matches!(
+                value.as_str(),
+                "baud"
+                    | "baud-split"
+                    | "data_bits"
+                    | "parity"
+                    | "stop_bits"
+                    | "flow-mixed"
+                    | "raw_mode"
+            )
+        })
+        && serial
+            .unmapped
+            .iter()
+            .enumerate()
+            .all(|(index, value)| !serial.unmapped[..index].contains(value));
+    let configured_complete = serial.mode != DeviceSerialMode::Configured
+        || (serial.baud.is_some()
+            && serial.data_bits.is_some()
+            && serial.parity.is_some()
+            && serial.stop_bits.is_some()
+            && serial.flow.is_some());
+    let observation_consistent =
+        field_matches_unmapped(
+            serial.baud.is_some(),
+            &serial.unmapped,
+            &["baud", "baud-split"],
+        ) && field_matches_unmapped(serial.data_bits.is_some(), &serial.unmapped, &["data_bits"])
+            && field_matches_unmapped(serial.parity.is_some(), &serial.unmapped, &["parity"])
+            && field_matches_unmapped(serial.stop_bits.is_some(), &serial.unmapped, &["stop_bits"])
+            && field_matches_unmapped(serial.flow.is_some(), &serial.unmapped, &["flow-mixed"])
+            && field_matches_unmapped(serial.raw_mode.is_some(), &serial.unmapped, &["raw_mode"]);
+    if !fields_valid || !configured_complete || !observation_consistent {
         Err(CuError::new(
             "device_serial_invalid",
             "device serial readback is outside the closed serial contract",
@@ -783,6 +851,13 @@ fn validate_serial(serial: &DeviceSerialRecord) -> Result<(), CuError> {
     } else {
         Ok(())
     }
+}
+
+fn field_matches_unmapped(present: bool, unmapped: &[String], reasons: &[&str]) -> bool {
+    let reason_present = reasons
+        .iter()
+        .any(|reason| unmapped.iter().any(|value| value == reason));
+    present != reason_present
 }
 
 fn validate_live_expiry(now_utc_ms: i64, expires_at_utc_ms: i64) -> Result<(), CuError> {
@@ -1010,11 +1085,14 @@ mod tests {
                 &owner,
                 "kernel",
                 Some(DeviceSerialRecord {
-                    baud: 115_200,
-                    data_bits: 8,
-                    parity: "none".to_owned(),
-                    stop_bits: 1,
-                    flow: "none".to_owned(),
+                    mode: DeviceSerialMode::Configured,
+                    baud: Some(115_200),
+                    data_bits: Some(8),
+                    parity: Some("none".to_owned()),
+                    stop_bits: Some(1),
+                    flow: Some("none".to_owned()),
+                    raw_mode: Some(true),
+                    unmapped: Vec::new(),
                 }),
                 3_000,
             )
@@ -1036,6 +1114,48 @@ mod tests {
         assert!(!disk.contains("/dev/"));
         assert!(!disk.contains("COM3"));
         assert!(!disk.contains("payload"));
+    }
+
+    #[test]
+    fn legacy_serial_record_defaults_to_configured_with_unknown_raw_mode() {
+        let legacy = serde_json::json!({
+            "baud": 19200,
+            "data_bits": 8,
+            "parity": "none",
+            "stop_bits": 1,
+            "flow": "none"
+        });
+        let record: DeviceSerialRecord = serde_json::from_value(legacy).unwrap();
+        assert_eq!(record.mode, DeviceSerialMode::Configured);
+        assert_eq!(record.baud, Some(19_200));
+        assert_eq!(record.raw_mode, None);
+        assert_eq!(record.unmapped, ["raw_mode"]);
+        validate_serial(&record).unwrap();
+        let round_trip: DeviceSerialRecord =
+            serde_json::from_value(serde_json::to_value(&record).unwrap()).unwrap();
+        assert_eq!(round_trip, record);
+    }
+
+    #[test]
+    fn preserved_serial_record_round_trips_partial_observation() {
+        let record = DeviceSerialRecord {
+            mode: DeviceSerialMode::Preserved,
+            baud: None,
+            data_bits: Some(8),
+            parity: Some("none".to_owned()),
+            stop_bits: Some(1),
+            flow: None,
+            raw_mode: None,
+            unmapped: vec![
+                "baud".to_owned(),
+                "flow-mixed".to_owned(),
+                "raw_mode".to_owned(),
+            ],
+        };
+        validate_serial(&record).unwrap();
+        let round_trip: DeviceSerialRecord =
+            serde_json::from_value(serde_json::to_value(&record).unwrap()).unwrap();
+        assert_eq!(round_trip, record);
     }
 
     #[test]

@@ -22,7 +22,7 @@ impl ResolvedDevice {
 
 pub struct OpenedDevice {
     native: Option<crate::selected::device_io::NativeOpenedDevice>,
-    serial: SerialConfiguration,
+    serial: SerialOutcome,
 }
 
 /// Invocation-owned PTY device used only by the public black-box court.
@@ -57,8 +57,10 @@ impl DeviceIoTestFixture {
 pub fn create_test_fixture(
     registry_root: &Path,
     lifetime: Duration,
+    initial_baud: Option<u32>,
 ) -> Result<DeviceIoTestFixture, DeviceIoError> {
-    let (native, token) = crate::selected::device_io::create_test_fixture(registry_root, lifetime)?;
+    let (native, token) =
+        crate::selected::device_io::create_test_fixture(registry_root, lifetime, initial_baud)?;
     Ok(DeviceIoTestFixture { native, token })
 }
 
@@ -68,10 +70,10 @@ impl OpenedDevice {
         DeviceExclusiveMode::Kernel
     }
 
-    /// The configuration accepted by exact native readback after opening.
+    /// The preserved or configured line settings observed on the opened handle.
     #[must_use]
-    pub const fn serial_configuration(&self) -> SerialConfiguration {
-        self.serial
+    pub const fn serial_outcome(&self) -> &SerialOutcome {
+        &self.serial
     }
 
     pub fn read_once(&mut self, max_bytes: usize) -> Result<DeviceReadOutcome, DeviceIoError> {
@@ -142,9 +144,9 @@ pub fn resolve(private_state_dir: &Path, public_id: &str) -> Result<ResolvedDevi
 
 pub fn open_exclusive(
     resolved: &ResolvedDevice,
-    serial: SerialConfiguration,
+    serial: SerialRequest,
 ) -> Result<OpenedDevice, DeviceIoError> {
-    let native = crate::selected::device_io::open_exclusive(&resolved.native, serial)?;
+    let (native, serial) = crate::selected::device_io::open_exclusive(&resolved.native, serial)?;
     let fresh =
         crate::device_inventory::resolve_native(&resolved.private_state_dir, &resolved.public_id)
             .map_err(|_| {

@@ -43,6 +43,32 @@ pub struct SerialConfiguration {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SerialRequest {
+    Preserve,
+    Configure(SerialConfiguration),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SerialObservation {
+    pub baud_rate: Option<u32>,
+    pub data_bits: Option<SerialDataBits>,
+    pub parity: Option<SerialParity>,
+    pub stop_bits: Option<SerialStopBits>,
+    pub flow_control: Option<SerialFlowControl>,
+    pub raw_mode: Option<bool>,
+    pub unmapped: Vec<&'static str>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SerialOutcome {
+    Preserved(SerialObservation),
+    Applied {
+        requested: SerialConfiguration,
+        observed: SerialObservation,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DeviceExclusiveMode {
     Kernel,
 }
