@@ -1,9 +1,10 @@
 // CEO: Linux process argv/cwd honesty with independent /proc/<pid>/cmdline and cwd read-back.
 // Acceptance is smoke read-back only: CU process-argv and process-cwd must agree with argv
 // boundaries and working-directory facts derived outside agenterm-cu for the same live PID.
-// Typed process-argv and process-cwd usage must reject AT-SPI --name and other unexpected
-// arguments; typed get-extents --name usage/host-limit paths must hold before the /proc
-// cmdline+cwd read-back court. AT-SPI/--name only; no --coords or screenshot degradation.
+// Typed process-argv and process-cwd usage must reject AT-SPI --name, --coords, --bogus,
+// and other unexpected arguments; typed get-extents --name usage AND host-limit paths
+// must both hold before the /proc cmdline+cwd read-back court. Prefer host-limit
+// clarity over fake success. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -36,6 +37,11 @@ function text_at(value, dotted) {
 }
 
 function output_success(document) { return at(document, "ok") === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
 
 function cu_env(executable) {
   const env = {
@@ -106,74 +112,64 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
-function assert_process_argv_usage_limit(run_directory, executable, env, pid) {
-  const with_name = invoke_observe_reply(run_directory, executable, [
-    "process-argv", "--pid", "" + pid, "--name", AT_SPI_PROBE_NAME,
-  ], env);
-  ensure(!output_success(with_name),
-    "cu_linux_process_argv_usage_name_ok:" + JSON.stringify(with_name));
+function assert_unexpected_usage(run_directory, executable, env, arguments, label, token) {
+  const reply = invoke_observe_reply(run_directory, executable, arguments, env);
+  ensure(!output_success(reply),
+    "cu_linux_process_argv_cwd_usage_" + label + "_ok:" + JSON.stringify(reply));
   ensure(
-    text_at(with_name, "error.code") === "usage",
-    "cu_linux_process_argv_usage_name_code:" + JSON.stringify(with_name.error)
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_process_argv_cwd_usage_" + label + "_code:" + JSON.stringify(reply.error)
   );
   ensure(
-    text_at(with_name, "command") === "usage",
-    "cu_linux_process_argv_usage_name_command:" + JSON.stringify(with_name)
+    text_at(reply, "command") === "usage",
+    "cu_linux_process_argv_cwd_usage_" + label + "_command:" + JSON.stringify(reply)
   );
   ensure(
-    text_at(with_name, "error.message").indexOf("--name") >= 0
-      || text_at(with_name, "error.message").indexOf("unexpected") >= 0,
-    "cu_linux_process_argv_usage_name_message:" + JSON.stringify(with_name.error)
-  );
-
-  const with_bogus = invoke_observe_reply(run_directory, executable, [
-    "process-argv", "--pid", "" + pid, "--bogus",
-  ], env);
-  ensure(!output_success(with_bogus),
-    "cu_linux_process_argv_usage_bogus_ok:" + JSON.stringify(with_bogus));
-  ensure(
-    text_at(with_bogus, "error.code") === "usage",
-    "cu_linux_process_argv_usage_bogus_code:" + JSON.stringify(with_bogus.error)
-  );
-  ensure(
-    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0,
-    "cu_linux_process_argv_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+    usage_rejects_unexpected(text_at(reply, "error.message"), token),
+    "cu_linux_process_argv_cwd_usage_" + label + "_message:" + JSON.stringify(reply.error)
   );
 }
 
-function assert_process_cwd_usage_limit(run_directory, executable, env, pid) {
-  const with_name = invoke_observe_reply(run_directory, executable, [
-    "process-cwd", "--pid", "" + pid, "--name", AT_SPI_PROBE_NAME,
-  ], env);
-  ensure(!output_success(with_name),
-    "cu_linux_process_cwd_usage_name_ok:" + JSON.stringify(with_name));
-  ensure(
-    text_at(with_name, "error.code") === "usage",
-    "cu_linux_process_cwd_usage_name_code:" + JSON.stringify(with_name.error)
-  );
-  ensure(
-    text_at(with_name, "command") === "usage",
-    "cu_linux_process_cwd_usage_name_command:" + JSON.stringify(with_name)
-  );
-  ensure(
-    text_at(with_name, "error.message").indexOf("--name") >= 0
-      || text_at(with_name, "error.message").indexOf("unexpected") >= 0,
-    "cu_linux_process_cwd_usage_name_message:" + JSON.stringify(with_name.error)
-  );
+function assert_process_argv_usage_limit(run_directory, executable, env) {
+  assert_unexpected_usage(run_directory, executable, env, [
+    "process-argv", "--pid", "1", "--name", AT_SPI_PROBE_NAME,
+  ], "argv_flat_name", "--name");
+  assert_unexpected_usage(run_directory, executable, env, [
+    "process", "argv", "--pid", "1", "--name", AT_SPI_PROBE_NAME,
+  ], "argv_grouped_name", "--name");
+  assert_unexpected_usage(run_directory, executable, env, [
+    "process-argv", "--pid", "1", "--coords", "10,10",
+  ], "argv_flat_coords", "--coords");
+  assert_unexpected_usage(run_directory, executable, env, [
+    "process", "argv", "--pid", "1", "--coords", "10,10",
+  ], "argv_grouped_coords", "--coords");
+  assert_unexpected_usage(run_directory, executable, env, [
+    "process-argv", "--pid", "1", "--bogus",
+  ], "argv_flat_bogus", "--bogus");
+  assert_unexpected_usage(run_directory, executable, env, [
+    "process", "argv", "--pid", "1", "--bogus",
+  ], "argv_grouped_bogus", "--bogus");
+}
 
-  const with_bogus = invoke_observe_reply(run_directory, executable, [
-    "process-cwd", "--pid", "" + pid, "--bogus",
-  ], env);
-  ensure(!output_success(with_bogus),
-    "cu_linux_process_cwd_usage_bogus_ok:" + JSON.stringify(with_bogus));
-  ensure(
-    text_at(with_bogus, "error.code") === "usage",
-    "cu_linux_process_cwd_usage_bogus_code:" + JSON.stringify(with_bogus.error)
-  );
-  ensure(
-    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0,
-    "cu_linux_process_cwd_usage_bogus_message:" + JSON.stringify(with_bogus.error)
-  );
+function assert_process_cwd_usage_limit(run_directory, executable, env) {
+  assert_unexpected_usage(run_directory, executable, env, [
+    "process-cwd", "--pid", "1", "--name", AT_SPI_PROBE_NAME,
+  ], "cwd_flat_name", "--name");
+  assert_unexpected_usage(run_directory, executable, env, [
+    "process", "cwd", "--pid", "1", "--name", AT_SPI_PROBE_NAME,
+  ], "cwd_grouped_name", "--name");
+  assert_unexpected_usage(run_directory, executable, env, [
+    "process-cwd", "--pid", "1", "--coords", "10,10",
+  ], "cwd_flat_coords", "--coords");
+  assert_unexpected_usage(run_directory, executable, env, [
+    "process", "cwd", "--pid", "1", "--coords", "10,10",
+  ], "cwd_grouped_coords", "--coords");
+  assert_unexpected_usage(run_directory, executable, env, [
+    "process-cwd", "--pid", "1", "--bogus",
+  ], "cwd_flat_bogus", "--bogus");
+  assert_unexpected_usage(run_directory, executable, env, [
+    "process", "cwd", "--pid", "1", "--bogus",
+  ], "cwd_grouped_bogus", "--bogus");
 }
 
 function assert_get_extents_usage_limit(run_directory, executable, env) {
@@ -189,6 +185,62 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_process_argv_cwd_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_process_argv_cwd_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_process_argv_cwd_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_process_argv_cwd_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_process_argv_cwd_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_process_argv_cwd_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_process_argv_cwd_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_process_argv_cwd_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_process_argv_cwd_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_process_argv_cwd_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_process_argv_cwd_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_process_argv_cwd_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_process_argv_cwd_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -306,16 +358,18 @@ const self_pid = rh.pid();
 let succeeded = 0;
 let failure = "";
 try {
-  print("STEP process-argv/process-cwd typed-fail usage when AT-SPI --name or other unexpected arguments are present");
-  assert_process_argv_usage_limit(context.run_directory, executable, env, self_pid);
-  assert_process_cwd_usage_limit(context.run_directory, executable, env, self_pid);
+  print("STEP process-argv/process-cwd typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
+  assert_process_argv_usage_limit(context.run_directory, executable, env);
+  assert_process_cwd_usage_limit(context.run_directory, executable, env);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before /proc cmdline+cwd read-back");
-    assert_get_extents_usage_limit(context.run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before /proc cmdline+cwd read-back court");
+  assert_get_extents_usage_limit(context.run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before /proc cmdline+cwd read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+
+  if (atspi_available !== true) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; process argv/cwd read-back still uses /proc cmdline, exe and cwd");
   }
 
   print("STEP process argv/cwd observe matches independent /proc cmdline, exe and cwd read-back for self");
@@ -345,9 +399,9 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-process-cwd-readback");
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux process argv/cwd match independent /proc/<pid>/cmdline and cwd read-back with typed process-argv/process-cwd/get-extents usage honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux process argv/cwd match independent /proc/<pid>/cmdline and cwd read-back with typed process-argv/process-cwd --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux process argv/cwd match independent /proc/<pid>/cmdline and cwd read-back with typed process-argv/process-cwd/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux process argv/cwd match independent /proc/<pid>/cmdline and cwd read-back with typed process-argv/process-cwd --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
