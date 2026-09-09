@@ -1,9 +1,9 @@
 // CEO: Linux AT-SPI drag --from-name/--to-name via GenerateMouseEvent between
 // named node extents centers. Acceptance is smoke read-back only: typed drag
-// usage (--bogus and zero-handle), miss, and host-limit paths must hold when
-// --window/--from-name/--to-name are missing or the independent pyatspi desktop
-// probe is unavailable; typed get-extents --name usage/host-limit paths must
-// hold before the drag actuate/read-back court; independent pyatspi extents
+// usage (--coords/--bogus and zero-handle), miss, and host-limit paths must hold
+// when --window/--from-name/--to-name are missing or the independent pyatspi
+// desktop probe is unavailable; typed get-extents --name usage AND host-limit
+// paths must both hold before the drag actuate/read-back court; independent pyatspi extents
 // geometry before drag, CU get-extents must agree, drag receipt must name both
 // nodes and report performed without worker data.verified, then independent
 // xdotool pointer lands on pyatspi target center and CU pointer-position
@@ -47,6 +47,11 @@ function int_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -192,9 +197,33 @@ function assert_drag_usage_limit(run_directory, executable) {
     "cu_linux_atspi_drag_usage_bogus_code:" + JSON.stringify(with_bogus.error)
   );
   ensure(
-    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    text_at(with_bogus, "command") === "usage",
+    "cu_linux_atspi_drag_usage_bogus_command:" + JSON.stringify(with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
     "cu_linux_atspi_drag_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+
+  const with_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "drag",
+    "--window", "1",
+    "--from-name", DRAG_SOURCE,
+    "--to-name", DRAG_TARGET,
+    "--coords", "10,10",
+  ]);
+  ensure(!output_success(with_coords), "cu_linux_atspi_drag_usage_coords_ok:" + JSON.stringify(with_coords));
+  ensure(
+    text_at(with_coords, "error.code") === "usage",
+    "cu_linux_atspi_drag_usage_coords_code:" + JSON.stringify(with_coords.error)
+  );
+  ensure(
+    text_at(with_coords, "command") === "usage",
+    "cu_linux_atspi_drag_usage_coords_command:" + JSON.stringify(with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords"),
+    "cu_linux_atspi_drag_usage_coords_message:" + JSON.stringify(with_coords.error)
   );
 }
 
@@ -210,6 +239,23 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_atspi_drag_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name), "cu_linux_atspi_drag_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_atspi_drag_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_atspi_drag_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_atspi_drag_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
 }
 
@@ -389,13 +435,17 @@ const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP drag typed-fail usage when --window, --from-name, --to-name, or --bogus is unexpected");
+  print("STEP drag typed-fail usage when --window, --from-name, --to-name, --coords, or --bogus is unexpected");
   assert_drag_usage_limit(run_directory, executable);
 
   if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before drag actuate/read-back court");
+    print("STEP get-extents typed-fail usage when --window is zero or --name is missing before drag actuate/read-back court");
     assert_get_extents_usage_limit(run_directory, executable, env);
+    print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before drag actuate/read-back court");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
   } else {
+    print("STEP get-extents typed-fail usage when --window is zero before drag actuate/read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
     print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
     assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
   }
@@ -554,9 +604,9 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux named drag with pyatspi extents, xdotool pointer read-back, and typed drag/get-extents usage/miss/host-limit paths (AT-SPI --name, no --coords)");
+    print("PASS: Linux named drag with pyatspi extents, xdotool pointer read-back, and typed drag --coords/--bogus plus get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux named drag typed-fails with drag/get-extents usage/host-limit honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
+    print("PASS: Linux named drag typed-fails with drag --coords/--bogus and get-extents --name usage/host-limit honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
