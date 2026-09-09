@@ -1417,10 +1417,34 @@ pub enum TargetError {
     },
 }
 
-fn node_is_showing(node: &A11yNode) -> bool {
-    node.states
+pub(crate) fn node_is_showing(node: &A11yNode) -> bool {
+    if node
+        .states
+        .iter()
+        .any(|state| matches!(state.as_str(), "invisible" | "offscreen" | "defunct" | "invalid"))
+    {
+        return false;
+    }
+    if node
+        .states
         .iter()
         .any(|state| state.eq_ignore_ascii_case("showing") || state.eq_ignore_ascii_case("visible"))
+    {
+        return true;
+    }
+    // GTK popover/menu children can be on-screen without publishing
+    // Showing/Visible on AT-SPI while still appearing in the tree walk.
+    node.states
+        .iter()
+        .any(|state| state.eq_ignore_ascii_case("enabled"))
+        && (node
+            .states
+            .iter()
+            .any(|state| state.eq_ignore_ascii_case("sensitive"))
+            || node
+                .states
+                .iter()
+                .any(|state| state.eq_ignore_ascii_case("focusable")))
 }
 
 /// Resolve a target to exactly one node of the flattened tree. `node` and
@@ -2412,6 +2436,26 @@ mod tests {
             resolve_target(&flat, &mixed),
             Err(TargetError::Invalid(_))
         ));
+    }
+
+    #[test]
+    fn gtk_popover_button_without_showing_state_resolves_by_name() {
+        let mut popover_item = node("/0/5", "button", "Context Do Thing", &["click"]);
+        popover_item.states = vec![
+            "enabled".into(),
+            "focusable".into(),
+            "sensitive".into(),
+        ];
+        let t = tree(vec![node("/0", "window", "w", &[]), popover_item], false);
+        let flat = flatten(&t);
+        let by_name = TargetSpec {
+            name: Some("Context Do Thing".into()),
+            ..TargetSpec::default()
+        };
+        assert_eq!(
+            resolve_target(&flat, &by_name).unwrap().node.id,
+            "/0/5"
+        );
     }
 
     fn menu_node(

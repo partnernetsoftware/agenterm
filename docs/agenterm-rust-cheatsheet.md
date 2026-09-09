@@ -1981,8 +1981,11 @@ substring matcher as `wait --node-name-contains`, then call the existing
 `--node` or `--coords`, and return typed `a11y_node_not_found` on a miss.
 Two or more showing/visible hits must return typed `a11y_node_ambiguous`
 with the match count — never silently pick the first. The same uniqueness
-rule applies to `wait --node-name-contains`. Never satisfy a name click
-with a screenshot or degraded coordinates.
+rule applies to `wait --node-name-contains`. GTK popover/menu children
+sometimes publish `enabled` + `focusable`/`sensitive` without
+`showing`/`visible`; treat those as name-addressable when no negative
+visibility state is present. Never satisfy a name click with a screenshot
+or degraded coordinates.
 
 `agenterm-cu send-keys --name` is the same rule plus a native Device/key delivery:
 resolve the unique showing node, then send the chord through AT-SPI

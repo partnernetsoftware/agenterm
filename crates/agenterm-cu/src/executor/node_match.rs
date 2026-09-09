@@ -73,9 +73,7 @@ pub(super) fn node_matches(
 }
 
 pub(super) fn node_is_showing(node: &mechanism::A11yNode) -> bool {
-    node.states
-        .iter()
-        .any(|state| state.eq_ignore_ascii_case("showing") || state.eq_ignore_ascii_case("visible"))
+    observe::node_is_showing(node)
 }
 
 pub(super) fn target_error(error: observe::TargetError) -> CuError {
@@ -144,6 +142,16 @@ mod tests {
         let matched = require_unique_showing_node(&one_showing, "Tab search", None)
             .expect("hidden twin is not a match");
         assert_eq!(matched.id, "/0/1");
+    }
+
+    #[test]
+    fn gtk_popover_button_without_showing_state_is_name_addressable() {
+        let popover_item = node(
+            "Context Do Thing",
+            "button",
+            &["enabled", "focusable", "sensitive"],
+        );
+        assert!(node_matches(&popover_item, "context do thing", None));
     }
 
     #[test]

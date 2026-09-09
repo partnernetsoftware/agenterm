@@ -253,6 +253,7 @@ const evidence_suites = {
   "cu-linux-scroll-smoke": true,
   "cu-linux-atspi-drag-smoke": true,
   "cu-linux-double-click-smoke": true,
+  "cu-linux-gtk-rclick-smoke": true,
   "cu-linux-hover-click-smoke": true,
   "cu-linux-chrome-text-smoke": true,
   "cu-linux-unlock-honesty-smoke": true,
