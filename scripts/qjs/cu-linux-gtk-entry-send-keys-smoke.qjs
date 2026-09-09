@@ -7,7 +7,8 @@
 // --window, --role-without--name, and --coords/--bogus misuse or stay on
 // accessibility-tree --name; host-limit paths must hold when --window/--name
 // are missing or the AT-SPI bus is unavailable; typed get-extents --name
-// usage/host-limit paths must hold before the native actuate/read-back court;
+// usage/host-limit paths (including --coords/--bogus honesty) must hold
+// before the native actuate/read-back court;
 // miss paths must not mutate the entry (independent get-text read-back).
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -49,6 +50,15 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function misuse_code_ok(code) {
+  return code === "invalid_input" || code === "usage";
+}
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -219,15 +229,69 @@ function assert_send_keys_usage_limit(run_directory, executable) {
     "send-keys", "--window", "1", "--coords", "10,10", "--", "ctrl+home",
   ]);
   ensure(!output_success(send_keys_coords), "cu_linux_gtk_entry_send_keys_coords_ok:" + JSON.stringify(send_keys_coords));
+  ensure(
+    text_at(send_keys_coords, "error.code") === "a11y_focus_unavailable"
+      || misuse_code_ok(text_at(send_keys_coords, "error.code")),
+    "cu_linux_gtk_entry_send_keys_coords_code:" + JSON.stringify(send_keys_coords.error)
+  );
+  if (misuse_code_ok(text_at(send_keys_coords, "error.code"))) {
+    ensure(
+      usage_rejects_unexpected(text_at(send_keys_coords, "error.message"), "--coords")
+        || text_at(send_keys_coords, "error.message").indexOf("--name") >= 0,
+      "cu_linux_gtk_entry_send_keys_coords_message:" + JSON.stringify(send_keys_coords.error)
+    );
+  }
+
+  const send_keys_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-keys", "--window", "1", "--bogus", "--", "ctrl+home",
+  ]);
+  ensure(!output_success(send_keys_bogus), "cu_linux_gtk_entry_send_keys_bogus_ok:" + JSON.stringify(send_keys_bogus));
+  ensure(
+    text_at(send_keys_bogus, "error.code") === "a11y_focus_unavailable"
+      || misuse_code_ok(text_at(send_keys_bogus, "error.code")),
+    "cu_linux_gtk_entry_send_keys_bogus_code:" + JSON.stringify(send_keys_bogus.error)
+  );
+  if (misuse_code_ok(text_at(send_keys_bogus, "error.code"))) {
+    ensure(
+      usage_rejects_unexpected(text_at(send_keys_bogus, "error.message"), "--bogus")
+        || text_at(send_keys_bogus, "error.message").indexOf("--name") >= 0,
+      "cu_linux_gtk_entry_send_keys_bogus_message:" + JSON.stringify(send_keys_bogus.error)
+    );
+  }
 
   const get_text_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-text", "--window", "1", "--coords", "10,10",
   ]);
   ensure(!output_success(get_text_coords), "cu_linux_gtk_entry_send_keys_get_text_coords_ok:" + JSON.stringify(get_text_coords));
-}
+  ensure(
+    text_at(get_text_coords, "error.code") === "a11y_focus_unavailable"
+      || misuse_code_ok(text_at(get_text_coords, "error.code")),
+    "cu_linux_gtk_entry_send_keys_get_text_coords_code:" + JSON.stringify(get_text_coords.error)
+  );
+  if (misuse_code_ok(text_at(get_text_coords, "error.code"))) {
+    ensure(
+      usage_rejects_unexpected(text_at(get_text_coords, "error.message"), "--coords")
+        || text_at(get_text_coords, "error.message").indexOf("--name") >= 0,
+      "cu_linux_gtk_entry_send_keys_get_text_coords_message:" + JSON.stringify(get_text_coords.error)
+    );
+  }
 
-function misuse_code_ok(code) {
-  return code === "invalid_input" || code === "usage";
+  const get_text_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", "1", "--bogus",
+  ]);
+  ensure(!output_success(get_text_bogus), "cu_linux_gtk_entry_send_keys_get_text_bogus_ok:" + JSON.stringify(get_text_bogus));
+  ensure(
+    text_at(get_text_bogus, "error.code") === "a11y_focus_unavailable"
+      || misuse_code_ok(text_at(get_text_bogus, "error.code")),
+    "cu_linux_gtk_entry_send_keys_get_text_bogus_code:" + JSON.stringify(get_text_bogus.error)
+  );
+  if (misuse_code_ok(text_at(get_text_bogus, "error.code"))) {
+    ensure(
+      usage_rejects_unexpected(text_at(get_text_bogus, "error.message"), "--bogus")
+        || text_at(get_text_bogus, "error.message").indexOf("--name") >= 0,
+      "cu_linux_gtk_entry_send_keys_get_text_bogus_message:" + JSON.stringify(get_text_bogus.error)
+    );
+  }
 }
 
 function assert_get_text_reject_coords_or_stay_named(
@@ -240,6 +304,11 @@ function assert_get_text_reject_coords_or_stay_named(
     ensure(
       misuse_code_ok(text_at(get_text_coords, "error.code")),
       "cu_linux_gtk_entry_send_keys_get_text_coords_code_" + label + ":" + JSON.stringify(get_text_coords.error)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(get_text_coords, "error.message"), "--coords")
+        || text_at(get_text_coords, "error.message").indexOf("--name") >= 0,
+      "cu_linux_gtk_entry_send_keys_get_text_coords_message_" + label + ":" + JSON.stringify(get_text_coords.error)
     );
   } else {
     ensure(
@@ -256,6 +325,11 @@ function assert_get_text_reject_coords_or_stay_named(
     ensure(
       misuse_code_ok(text_at(get_text_bogus, "error.code")),
       "cu_linux_gtk_entry_send_keys_get_text_bogus_code_" + label + ":" + JSON.stringify(get_text_bogus.error)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(get_text_bogus, "error.message"), "--bogus")
+        || text_at(get_text_bogus, "error.message").indexOf("--name") >= 0,
+      "cu_linux_gtk_entry_send_keys_get_text_bogus_message_" + label + ":" + JSON.stringify(get_text_bogus.error)
     );
   } else {
     ensure(
@@ -275,6 +349,11 @@ function assert_send_keys_reject_coords_or_stay_named(run_directory, executable,
       misuse_code_ok(text_at(send_keys_coords, "error.code")),
       "cu_linux_gtk_entry_send_keys_name_coords_code_" + label + ":" + JSON.stringify(send_keys_coords.error)
     );
+    ensure(
+      usage_rejects_unexpected(text_at(send_keys_coords, "error.message"), "--coords")
+        || text_at(send_keys_coords, "error.message").indexOf("--name") >= 0,
+      "cu_linux_gtk_entry_send_keys_name_coords_message_" + label + ":" + JSON.stringify(send_keys_coords.error)
+    );
   } else {
     ensure(
       text_at(send_keys_coords, "data.addressing") === "accessibility-tree",
@@ -289,6 +368,11 @@ function assert_send_keys_reject_coords_or_stay_named(run_directory, executable,
     ensure(
       misuse_code_ok(text_at(send_keys_bogus, "error.code")),
       "cu_linux_gtk_entry_send_keys_bogus_code_" + label + ":" + JSON.stringify(send_keys_bogus.error)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(send_keys_bogus, "error.message"), "--bogus")
+        || text_at(send_keys_bogus, "error.message").indexOf("--name") >= 0,
+      "cu_linux_gtk_entry_send_keys_bogus_message_" + label + ":" + JSON.stringify(send_keys_bogus.error)
     );
   } else {
     ensure(
@@ -332,8 +416,50 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_gtk_entry_send_keys_extents_missing_name_code:" + JSON.stringify(missing_name.error)
   );
   ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_gtk_entry_send_keys_extents_missing_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_gtk_entry_send_keys_extents_missing_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_gtk_entry_send_keys_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_gtk_entry_send_keys_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_gtk_entry_send_keys_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_entry_send_keys_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_gtk_entry_send_keys_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_gtk_entry_send_keys_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_gtk_entry_send_keys_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_entry_send_keys_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -446,11 +572,11 @@ const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP send-keys/get-text typed-fail usage for missing/zero --window, --role-without--name, and --coords misuse");
+  print("STEP send-keys/get-text typed-fail usage for missing/zero --window, --role-without--name, and --coords/--bogus misuse");
   assert_send_keys_usage_limit(run_directory, executable);
 
   if (atspi_available) {
-    print("STEP get-extents typed-fail usage when --window is zero or --name is missing before actuate/read-back court");
+    print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is misused before actuate/read-back court");
     assert_get_extents_usage_limit(run_directory, executable, env);
   } else {
     print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
@@ -746,7 +872,7 @@ if (fixture >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_gtk_entry_send_keys_failed");
 if (atspi_available) {
-  print("PASS: CEO#10 GTK entry " + SEND_KEYS_ROUND_COUNT + " send-keys --name → get-text roundtrips plus semantic modifier chords with independent get-caret/get-selection/clipboard-read/get-text read-back and typed send-keys/get-text/get-extents usage/miss/host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: CEO#10 GTK entry " + SEND_KEYS_ROUND_COUNT + " send-keys --name → get-text roundtrips plus semantic modifier chords with independent get-caret/get-selection/clipboard-read/get-text read-back and typed send-keys/get-text/get-extents usage/--coords/--bogus/miss/host-limit honesty (AT-SPI --name, no --coords)");
 } else {
   print("PASS: CEO#10 GTK entry send-keys/get-text typed-fails with typed get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
 }
