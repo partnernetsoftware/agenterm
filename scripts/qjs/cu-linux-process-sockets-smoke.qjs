@@ -1,7 +1,9 @@
 // CEO: Linux process-sockets honesty with independent /proc/<pid>/fd inode join and
 // /proc/<pid>/net read-back. Acceptance is smoke read-back only: CU process-sockets
 // socket rows must agree with facts derived outside agenterm-cu for the same PID.
-// No --coords or screenshot degradation.
+// Typed process-sockets usage must reject AT-SPI --name and other unexpected arguments;
+// typed get-extents --name usage/host-limit paths must hold before the /proc fd/net
+// read-back court. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -12,8 +14,179 @@ const declared_evidence = [
   "cu.linux-process-sockets-readback",
 ];
 
+const AT_SPI_PROBE_NAME = "Process Sockets Court Anchor";
+
 function ensure(condition, message) {
   if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const current = at(value, dotted);
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function output_success(document) { return at(document, "ok") === true; }
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function invoke_observe_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_process_sockets_observe_cli:" + output.stdout + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(
+    text_at(reply, "command") === "process-sockets" || text_at(reply, "command") === "usage",
+    "cu_linux_process_sockets_observe_command:" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_process_sockets_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_process_sockets_usage_limit(run_directory, executable, env) {
+  const flat_with_name = invoke_observe_reply(run_directory, executable, [
+    "process-sockets", "--pid", "1", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_process_sockets_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_process_sockets_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_process_sockets_usage_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    text_at(flat_with_name, "error.message").indexOf("--name") >= 0
+      || text_at(flat_with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_process_sockets_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = invoke_observe_reply(run_directory, executable, [
+    "process", "sockets", "1", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_process_sockets_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_process_sockets_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    text_at(grouped_with_name, "error.message").indexOf("--name") >= 0
+      || text_at(grouped_with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_process_sockets_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = invoke_observe_reply(run_directory, executable, [
+    "process-sockets", "--pid", "1", "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_process_sockets_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_process_sockets_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_process_sockets_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_process_sockets_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_process_sockets_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_process_sockets_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_process_sockets_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_process_sockets_extents_unavailable_code:" + code
+  );
 }
 
 function direct_file(path) {
@@ -22,7 +195,7 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function verify_readback(run_directory, executable, pid, expected_port) {
+function verify_readback(run_directory, executable, pid, expected_port, env) {
   const script = [
     "import json, os, socket, struct, subprocess, sys",
     "",
@@ -217,7 +390,7 @@ function verify_readback(run_directory, executable, pid, expected_port) {
   ].join("\n");
   const output = rh.command("python3", ["-c", script, "" + pid, executable, "" + expected_port], {
     cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
+    env: env,
     timeout_ms: 30000,
   });
   ensure(output.success === true, "cu_linux_process_sockets_readback:" + output.stderr + output.stdout);
@@ -284,7 +457,7 @@ function find_denied_probe_pid() {
   return JSON.parse(output.stdout.trim());
 }
 
-function assert_permission_denied_host_limit(run_directory, executable, pid) {
+function assert_permission_denied_host_limit(run_directory, executable, pid, env) {
   const script = [
     "import json, os, subprocess, sys",
     "pid = int(sys.argv[1])",
@@ -321,14 +494,14 @@ function assert_permission_denied_host_limit(run_directory, executable, pid) {
   ].join("\n");
   const output = rh.command("python3", ["-c", script, "" + pid, executable], {
     cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
+    env: env,
     timeout_ms: 30000,
   });
   ensure(output.success === true,
          "cu_linux_process_sockets_permission_denied:" + output.stderr + output.stdout);
 }
 
-function verify_unavailable_when_probe_denied(run_directory, executable, probe) {
+function verify_unavailable_when_probe_denied(run_directory, executable, probe, env) {
   const script = [
     "import json, subprocess, sys",
     "pid = int(sys.argv[1])",
@@ -358,7 +531,7 @@ function verify_unavailable_when_probe_denied(run_directory, executable, probe) 
   ].join("\n");
   const output = rh.command("python3", ["-c", script, "" + probe.pid, executable], {
     cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
+    env: env,
     timeout_ms: 30000,
   });
   ensure(output.success === true,
@@ -379,17 +552,30 @@ if (!rh.exists(executable) && harness.host_is_windows()) { executable = executab
 harness.require(rh.exists(executable), "agenterm-cu executable missing");
 
 const context = harness.new_context(repo, "cu-linux-process-sockets");
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 const self_probe = probe_fd_directory(rh.pid());
 const denied_probe = find_denied_probe_pid();
 const children = [];
 let succeeded = 0;
 let failure = "";
 try {
+  print("STEP process-sockets typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_process_sockets_usage_limit(context.run_directory, executable, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before /proc fd/net read-back");
+    assert_get_extents_usage_limit(context.run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+  }
+
   if (!self_probe.readable) {
     print("STEP typed host-limit when independent /proc/<pid>/fd socket probe is unreadable or denied"
       + " (readable=" + self_probe.readable
       + " error_kind=" + self_probe.error_kind + ")");
-    verify_unavailable_when_probe_denied(context.run_directory, executable, self_probe);
+    verify_unavailable_when_probe_denied(context.run_directory, executable, self_probe, env);
     succeeded = 1;
   } else {
     print("STEP start invocation-owned loopback TCP listener");
@@ -421,13 +607,13 @@ try {
 
     print("STEP process-sockets observe matches independent /proc/<pid>/fd inode join"
       + " and /proc/<pid>/net read-back");
-    verify_readback(context.run_directory, executable, listener.pid, ready.port);
+    verify_readback(context.run_directory, executable, listener.pid, ready.port, env);
 
     if (denied_probe.denied === true) {
       print("STEP process-sockets typed-fails permission-denied host-limit when independent"
         + " /proc/" + denied_probe.pid + "/fd socket probe is denied");
       assert_permission_denied_host_limit(
-        context.run_directory, executable, denied_probe.pid);
+        context.run_directory, executable, denied_probe.pid, env);
     } else {
       print("STEP skip permission-denied host-limit: no independent denied /proc/<pid>/fd probe on this host");
     }
@@ -443,11 +629,23 @@ if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, "cu.linux-process-sockets-readback");
   harness.remove_run(context);
   if (self_probe.readable) {
-    print("PASS: Linux process-sockets matches independent /proc/<pid>/fd and net read-back"
-      + " with permission-denied host-limit honesty");
+    if (atspi_available) {
+      print("PASS: Linux process-sockets matches independent /proc/<pid>/fd and net read-back"
+        + " with typed process-sockets/get-extents usage honesty (AT-SPI --name, no --coords)");
+    } else {
+      print("PASS: Linux process-sockets matches independent /proc/<pid>/fd and net read-back"
+        + " with typed process-sockets/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    }
   } else {
-    print("PASS: Linux process-sockets typed-fails when independent /proc/<pid>/fd socket probe"
-      + " is unreadable or denied");
+    if (atspi_available) {
+      print("PASS: Linux process-sockets typed-fails when independent /proc/<pid>/fd socket probe"
+        + " is unreadable or denied with typed process-sockets/get-extents usage honesty"
+        + " (AT-SPI --name, no --coords)");
+    } else {
+      print("PASS: Linux process-sockets typed-fails when independent /proc/<pid>/fd socket probe"
+        + " is unreadable or denied with typed process-sockets/get-extents host-limit honesty"
+        + " (AT-SPI --name, no --coords)");
+    }
   }
 }
 if (failure !== "") { throw failure; }
