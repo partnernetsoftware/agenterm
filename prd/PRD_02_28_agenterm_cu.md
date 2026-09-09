@@ -612,6 +612,9 @@ ACU-only cutover
 │  │     `research-budget-exhausted-without-a-discriminating-result`: the final
 │  │     zero-pointer focus-lease dry reported its controlling AX attribute not settable,
 │  │     after the only specification-preserving 40 ms repair still read back peer A
+│  │  ├─ [x] §10.5 measured that the first private down changed Chromium's AX main and
+│  │     focused window while the physical pointer and foreground guard stayed fixed;
+│  │     release and cleanup still closed
 │  │  ├─ [x] §10.6 is exhausted; this does not prove background drag impossible, and no
 │  │     replay or new mechanism is allowed without a new explicit precommitment
 │  │  └─ [ ] Linux and Windows exact-window held-button delivery remain real gaps
@@ -2450,9 +2453,10 @@ flowchart LR
   display courts remain; spaces are explicitly macOS-only.
 - [~] Global pointer movement has a registered macOS owned-fixture court with
   independent position read-back and exact restoration. Exact-window pixel
-  delivery is reclassified from `platform-limited` to `gap`: no host supplies
-  it today, and `cu.macos-pointer-refusals` proves an honest refusal rather
-  than parity.
+  delivery remains `platform-limited`: the macOS HANDLE shape is intentionally
+  typed-retired after the bounded research budget ended without a discriminating
+  result, while Linux and Windows remain gaps. `cu.macos-pointer-refusals` proves
+  an honest refusal rather than capability parity.
 
   `network-probe` is implemented as an Observe
   facade: resolve once through the host resolver, deduplicate/freeze addresses,

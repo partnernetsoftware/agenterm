@@ -531,7 +531,7 @@
           "mcu_shape": "click/move/drag/scroll --to HANDLE including optional macOS private provider",
           "acu_shape": null,
           "state": "platform-limited",
-          "platforms": {"macos": "typed-rejected-after-native-experiment", "linux": "gap", "windows": "gap"},
+          "platforms": {"macos": "typed-intentional-retirement", "linux": "gap", "windows": "gap"},
           "qualification": {
             "schema": 2,
             "platforms": {
