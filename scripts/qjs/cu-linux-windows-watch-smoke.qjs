@@ -119,7 +119,7 @@ function verify_windows_watch(run_directory, executable) {
     "def rename():",
     "    w.set_title(title_b)",
     "    return False",
-    "GLib.timeout_add(400, rename)",
+    "GLib.timeout_add(800, rename)",
     "signal.signal(signal.SIGTERM, lambda *_: Gtk.main_quit())",
     "Gtk.main()",
     "'''",

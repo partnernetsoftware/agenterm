@@ -781,6 +781,13 @@
       ]
     },
     {
+      "id": "cu-linux-windows-watch-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-windows-watch-readback"
+      ]
+    },
+    {
       "id": "cu-linux-app-facts-smoke",
       "platform": "linux",
       "evidence": [
