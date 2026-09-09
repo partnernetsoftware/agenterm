@@ -7255,7 +7255,7 @@
     },
     {
       "id": "cu-linux-menu-invoke-honesty-smoke",
-      "description": "Linux menu invoke on a disposable GTK menubar changes fixture state that independent pyatspi label, menu-item action/state, and checked-state read-back agree with; typed menu-invoke usage rejects AT-SPI --name and typed get-extents --name usage/host-limit paths hold before the actuate/read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux menu invoke on a disposable GTK menubar changes fixture state that independent pyatspi label, menu-item action/state, and checked-state read-back agree with; typed menu-invoke usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage AND host-limit paths both hold before the actuate/read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-menu-invoke-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
