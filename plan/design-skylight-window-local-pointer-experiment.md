@@ -166,3 +166,125 @@ after an owned Chromium/Electron fixture distinguishes the public and private
 routes and a previous-generation arm64 court supplies C9. Until then ACU gaps
 074 and 095 remain typed TODOs; no private provider, durable receipt or release
 linkage is authorized.
+
+## 9. Precommitted discriminating extension · Chromium wheel delivery
+
+The AppKit run answered whether the private route can work on one host, but it
+did not answer whether ACU needs that route. The next run therefore changes
+only the owned fixture and oracle. It does not widen the candidate provider or
+the supported-host claim.
+
+### 9.1 Frozen setup
+
+- Reuse the ACU-owned profile, process identity and cleanup boundary exercised
+  by `scripts/qjs/cu-browser-session-smoke.qjs`. `browser-session-start
+  --bridge` owns the temporary profile and returns the actual ephemeral CDP
+  endpoint; two subsequent `browser-bridge-window-open` calls create the
+  normal windows and exact CDP targets. Never attach to a user profile or an
+  already-running browser.
+- Create two normal browser windows in one owned profile. Require each window
+  to settle at a distinct, stable read-back rectangle and give each page an
+  independent `wheel` counter,
+  last delta, last client coordinate and monotonic sequence. Register the
+  listener as non-passive and call `preventDefault()` so page scrolling cannot
+  become the oracle.
+- Keep a separate owned non-browser guard application in front. Open peer
+  window A focused, then target window B without focus, and only then let the
+  guard take foreground ownership. B remains non-key and is the only addressed
+  target. Neither browser window may become foreground during the comparison.
+  This prevents a process-level key-window fallback from counting as exact
+  delivery.
+- Resolve B to exactly one on-screen layer-zero `CGWindowID` by browser owner
+  PID, a short per-window nonce title and its independently read-back rectangle.
+  The title is candidate discovery, never final authority: after discovering
+  both native handles, place them at distinct non-overlapping rectangles with
+  exact read-back, then require a unique native/bridge bounds bijection. Zero
+  or multiple matches are `window_identity_ambiguous` before injection.
+  Preserve the browser-native window id, CDP target id, `CGWindowID`, owner PID
+  and rectangle in the result.
+- Run three arms. `PRIVATE` stamps B and posts through SkyLight at B's midpoint.
+  `PUBLIC_LOC` uses `CGEventPostToPid` with the same public event fields and
+  screen location. `PUBLIC_OFF` uses the public route with the same delta but a
+  point outside B; it detects key-window or process fallback independently of
+  location hit-testing. Freshly create the event for every arm.
+- Randomize the three-arm order from a recorded seed and reset both page
+  counters before each arm. Run 20 triplets before any repeatability expansion.
+- Read delivery only through the addressed page's counter and independently
+  read the peer page, physical pointer, foreground PID and foreground window
+  before and after every arm. A provider return value is never delivery proof.
+
+The experiment may reuse product lifecycle and read-only CDP/bridge mechanisms
+to own the fixture and read counters. The candidate injection remains under
+`research/skylight-window-local-pointer/`; no private symbol enters a product
+binary.
+
+### 9.2 Discriminator and criteria
+
+The Boolean discriminator is evaluated per triplet:
+
+```text
+private_exact = B advances once with the requested delta and A stays unchanged
+public_loc_exact = PUBLIC_LOC advances B once and A stays unchanged
+public_off_target = PUBLIC_OFF advances B despite its point being outside B
+discriminates = private_exact && !public_loc_exact
+```
+
+| ID | Criterion | Nature | Pass condition |
+|---|---|---|---|
+| D1 | Owned fixture identity | Safety | the exact profile, browser process, native B window and page oracle are unique before both arms |
+| D2 | Equivalent inputs | Validity | PRIVATE and PUBLIC_LOC differ only by route-specific window stamping/posting; PUBLIC_OFF differs only by its recorded control location |
+| D3 | Private exact delivery | Behavioral | every private arm advances B exactly once with the requested delta and never advances A |
+| D4 | Public location non-equivalence | Discriminator | no PUBLIC_LOC arm produces `public_loc_exact`; delivery to A or no delivery is recorded separately |
+| D5 | Public fallback classification | Diagnostic | every PUBLIC_OFF arm is classified as target fallback, peer fallback or no delivery; it cannot satisfy exact delivery |
+| D6 | Host-state preservation | Safety | pointer, foreground PID and foreground window are unchanged after every arm |
+| D7 | Stable comparison | Reliability | all 20 triplets agree with `discriminates=true`; no private loss, double delivery or ambiguous mapping occurs |
+| D8 | Cleanup | Safety | both browser windows, the owned profile and the guard are removed or stopped and independently observed absent |
+
+`PASS` requires D1–D8, including 20/20 private exact deliveries and 0/20
+PUBLIC_LOC exact deliveries. `FAIL_NONDISTINGUISHING` requires both PRIVATE and
+PUBLIC_LOC to deliver exactly to B in all 20 triplets while PUBLIC_OFF never
+does; the public route is sufficient for this court and the private route is
+retired. A PUBLIC_LOC result between 1/20 and 19/20 is
+`INCONCLUSIVE_UNSTABLE`, not evidence for private migration. `FAIL_PRIVATE`
+means the private route misses, misdelivers or changes host state. Missing
+browser, missing symbols, identity ambiguity or an unavailable independent
+oracle is `INCONCLUSIVE`, never a pass.
+
+### 9.3 Decision and sequencing
+
+```mermaid
+flowchart TD
+    S["owned Chromium fixture + exact B identity"] --> V{"D1-D2 valid?"}
+    V -->|no| I["INCONCLUSIVE\nfix fixture or stop"]
+    V -->|yes| P{"private exact and preserving?"}
+    P -->|no| K["FAIL_PRIVATE\nreject product migration"]
+    P -->|yes| B{"PUBLIC_LOC exact count?"}
+    B -->|20/20| N["FAIL_NONDISTINGUISHING\npublic route is sufficient for this court"]
+    B -->|1..19| U["INCONCLUSIVE_UNSTABLE\nno migration claim"]
+    B -->|0/20| R{"20/20 triplets satisfy D3-D7?"}
+    R -->|no| K
+    R -->|yes| C["discriminator PASS\nonly now schedule C9"]
+```
+
+Kill criterion: any private misdelivery, focus/pointer drift, identity ambiguity
+after an injection attempt, need to activate the browser, or disagreement
+between two complete 20-triplet runs ends the product-migration case. Do not
+tune private event fields after observing either public arm. Time box the
+fixture and two complete current-host runs to one focused implementation day.
+If D1–D2 cannot be made deterministic in that box, record `INCONCLUSIVE` and
+stop.
+
+C9 is deliberately downstream. A previous-generation arm64 host is not spent
+on this experiment unless D1–D8 first pass on the current host and a subsequent
+1,000-action Chromium PRIVATE repeat has zero loss, misdelivery or host-state
+drift. Only then rerun the unchanged source digest and seed protocol on the
+previous supported macOS generation; any source or criterion change resets
+both host results.
+
+### 9.4 Explicitly not answered
+
+- whether PID-targeted public delivery is documented or future-stable;
+- whether an Electron build behaves differently from the owned Chromium build;
+- hover gap 095 (the first discriminator is wheel-only for gap 074);
+- policy acceptance of private APIs, even if the discriminator passes;
+- product rollout, durable receipts or platform qualification.
