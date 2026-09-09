@@ -1,7 +1,9 @@
 // CEO: Linux desktop-state bounded snapshot with independent AT-SPI/X11 read-back.
 // Acceptance is smoke read-back only: desktop-state window/tree/pointer fields
 // must match separate windows inventory, tree, get-text --name, pointer-position,
-// and xprop WM_NAME observations. AT-SPI/--name only; no --coords or screenshot
+// and xprop WM_NAME observations. Typed get-extents --name usage/miss/host-limit
+// paths and independent pyatspi extents agreement must hold before the EWMH/X11
+// desktop-state read-back court. AT-SPI/--name only; no --coords or screenshot
 // degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -17,6 +19,8 @@ const DEPTH = 3;
 const MAX_NODES = 64;
 const FIXTURE_ENTRY_NAME = "Fixture Entry";
 const FIXTURE_ENTRY_SEED = "seed";
+const BUTTON_NAME = "Fixture Press";
+const MISSING_NODE = "No Such Button";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -44,6 +48,8 @@ function int_at(value, dotted) {
   return rh.parse_int("" + value_at);
 }
 
+function output_success(document) { return flag_at(document, "ok"); }
+
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
   const metadata = rh.symlink_metadata(path);
@@ -70,20 +76,180 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function run_cu_reply(run_directory, executable, grant, cu_args, env, env_remove) {
   const argv = ["--target", "current", "--grant", grant];
-  for (const argument of arguments) { argv.push("" + argument); }
-  const output = rh.command(executable, argv, {
+  for (const argument of cu_args) { argv.push("" + argument); }
+  const spec = {
+    program: executable,
+    args: argv,
+    current_dir: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  };
+  if (env_remove !== undefined && env_remove.length > 0) { spec.env_remove = env_remove; }
+  const output = rh.command_spec(spec);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_desktop_state_empty:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env, env_remove) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env, env_remove);
+  ensure(output_success(document), "cu_linux_desktop_state_cli:" + JSON.stringify(document));
+  return document;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_get_extents_usage_limit(run_directory, executable) {
+  const zero_handle = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "0", "--name", BUTTON_NAME,
+  ]);
+  ensure(!output_success(zero_handle), "cu_linux_desktop_state_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_desktop_state_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_desktop_state_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1", "--name", BUTTON_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_desktop_state_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
+    "cu_linux_desktop_state_extents_unavailable_code:" + code
+  );
+}
+
+function assert_windows_headless_host_limit(run_directory, executable) {
+  const reply = run_cu_reply(
+    run_directory,
+    executable,
+    "observe",
+    ["windows", "--max", "1"],
+    {
+      AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+      AGENTERM_NO_ACTIVATE: "1",
+    },
+    ["DISPLAY"]
+  );
+  ensure(!output_success(reply), "cu_linux_desktop_state_headless_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_desktop_state_headless_code:" + JSON.stringify(reply.error)
+  );
+  const message = text_at(reply, "error.message").toLowerCase();
+  ensure(
+    message.indexOf("window enumeration") >= 0
+      || message.indexOf("mechanism unavailable") >= 0,
+    "cu_linux_desktop_state_headless_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_get_extents_missing_node(run_directory, executable, handle, label) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", handle, "--name", MISSING_NODE,
+  ]);
+  ensure(!output_success(reply), "cu_linux_desktop_state_extents_missing_ok_" + label);
+  ensure(
+    text_at(reply, "error.code") === "a11y_node_not_found",
+    "cu_linux_desktop_state_extents_missing_code_" + label + ":" + JSON.stringify(reply.error)
+  );
+}
+
+function independent_pyatspi_extents(run_directory, executable, fixture_title, node_name) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "title = sys.argv[1]",
+    "want = sys.argv[2]",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "def find_frame():",
+    "    for i in range(desktop.childCount):",
+    "        app = desktop.getChildAtIndex(i)",
+    "        if app is None:",
+    "            continue",
+    "        for j in range(app.childCount):",
+    "            w = app.getChildAtIndex(j)",
+    "            if w is not None and w.name == title:",
+    "                return w",
+    "    return None",
+    "def walk(node):",
+    "    if node is None:",
+    "        return None",
+    "    if (node.name or '') == want:",
+    "        return node",
+    "    for k in range(node.childCount):",
+    "        hit = walk(node.getChildAtIndex(k))",
+    "        if hit is not None:",
+    "            return hit",
+    "    return None",
+    "frame = find_frame()",
+    "if frame is None:",
+    "    raise SystemExit('cu_linux_desktop_state_atspi_no_frame')",
+    "node = walk(frame)",
+    "if node is None:",
+    "    raise SystemExit('cu_linux_desktop_state_atspi_miss:' + want)",
+    "component = node.queryComponent()",
+    "ext = component.getExtents(pyatspi.DESKTOP_COORDS)",
+    "x, y, w, h = int(ext.x), int(ext.y), int(ext.width), int(ext.height)",
+    "print(json.dumps({",
+    "    'name': want,",
+    "    'x': x, 'y': y, 'width': w, 'height': h,",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, fixture_title, node_name], {
     cwd: run_directory,
     env: cu_env(executable),
-    timeout_ms: 45000,
+    timeout_ms: 30000,
   });
-  ensure(output.success === true, "cu_linux_desktop_state_cli:" + output.stdout + output.stderr);
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_desktop_state_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_desktop_state_reply:" + JSON.stringify(document));
-  return document;
+  ensure(output.success === true, "cu_linux_desktop_state_pyatspi:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function assert_get_extents_agreement(run_directory, executable, handle, fixture_title, node_name) {
+  const pyatspi_button = independent_pyatspi_extents(
+    run_directory, executable, fixture_title, node_name
+  );
+  const button_extents = run_cu(run_directory, executable, "observe", [
+    "get-extents", "--window", handle, "--name", node_name,
+  ]);
+  ensure(
+    int_at(button_extents, "data.extents.x") === pyatspi_button.x
+      && int_at(button_extents, "data.extents.y") === pyatspi_button.y
+      && int_at(button_extents, "data.extents.width") === pyatspi_button.width
+      && int_at(button_extents, "data.extents.height") === pyatspi_button.height,
+    "cu_linux_desktop_state_extents_agree:" + JSON.stringify({
+      cu: button_extents.data.extents,
+      pyatspi_button: pyatspi_button,
+    })
+  );
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -114,10 +280,10 @@ function parse_xprop_wm_name(stdout) {
   return end < 0 ? "" : tail.slice(0, end);
 }
 
-function independent_wm_name(run_directory, handle) {
+function independent_wm_name(run_directory, handle, executable) {
   const xprop = rh.command("xprop", ["-id", "" + handle, "WM_NAME"], {
     cwd: run_directory,
-    env: cu_env(""),
+    env: cu_env(executable),
     timeout_ms: 10000,
   });
   if (!xprop.success) { return ""; }
@@ -161,6 +327,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_desktop_state_executable_missing:" + executable);
 const context = harness.new_context(repo, "cu-linux-desktop-state");
 const run_directory = rh.join(repo, "target/cu-linux-desktop-state-smoke-run");
 rh.create_dir_all(run_directory);
@@ -172,8 +339,20 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const atspi_available = probe_atspi_available(executable);
 
 try {
+  print("STEP get-extents typed-fail invalid_input when --window handle is zero");
+  assert_get_extents_usage_limit(run_directory, executable);
+
+  print("STEP windows without DISPLAY typed-fail unsupported host-limit");
+  assert_windows_headless_host_limit(run_directory, executable);
+
+  if (!atspi_available) {
+    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
   print("STEP start owned GTK fixture and resolve window by pid and exact title");
   fixture = harness.start({
     program: "python3",
@@ -194,15 +373,24 @@ try {
   ensure(inventory_row !== null, "cu_linux_desktop_state_inventory_missing");
   const handle = int_at(inventory_row, "handle");
   ensure(handle > 0, "cu_linux_desktop_state_handle:" + JSON.stringify(inventory_row));
+  const handle_text = "" + handle;
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail a11y_node_not_found when the named button is missing");
+    assert_get_extents_missing_node(run_directory, executable, handle_text, "before_desktop_state");
+
+    print("STEP independent pyatspi extents and CU get-extents --name agree before desktop-state read-back");
+    assert_get_extents_agreement(run_directory, executable, handle_text, fixture_title, BUTTON_NAME);
+  }
 
   print("STEP activate fixture so focused desktop-state can resolve one window");
   run_cu(run_directory, executable, "observe,actuate", [
-    "activate", "--window", "" + handle,
+    "activate", "--window", handle_text,
   ]);
 
   print("STEP desktop-state --window composes bounded inventory, tree and pointer");
   const state = run_cu(run_directory, executable, "observe", [
-    "desktop-state", "--window", "" + handle,
+    "desktop-state", "--window", handle_text,
     "--depth", "" + DEPTH, "--max-nodes", "" + MAX_NODES,
   ]);
   ensure(
@@ -213,7 +401,7 @@ try {
   assert_desktop_state_schema(data, "explicit", MAX_NODES);
 
   print("STEP independent xprop WM_NAME matches desktop-state window title");
-  const xprop_title = independent_wm_name(run_directory, handle);
+  const xprop_title = independent_wm_name(run_directory, handle, executable);
   ensure(
     xprop_title !== "" && xprop_title === text_at(data, "window.title"),
     "cu_linux_desktop_state_xprop_title:" + JSON.stringify({
@@ -249,7 +437,7 @@ try {
 
   print("STEP independent tree read-back matches desktop-state tree budget and window");
   const tree = run_cu(run_directory, executable, "observe", [
-    "tree", "--window", "" + handle,
+    "tree", "--window", handle_text,
     "--depth", "" + DEPTH, "--max-nodes", "" + MAX_NODES,
   ]);
   ensure(
@@ -264,7 +452,7 @@ try {
 
   print("STEP independent get-text --name reads fixture entry seed through AT-SPI");
   const entry_text = run_cu(run_directory, executable, "observe", [
-    "get-text", "--window", "" + handle, "--name", FIXTURE_ENTRY_NAME,
+    "get-text", "--window", handle_text, "--name", FIXTURE_ENTRY_NAME,
   ]);
   let readback = text_at(entry_text, "data.matched.text");
   if (readback === "") { readback = text_at(entry_text, "data.text"); }
@@ -277,7 +465,7 @@ try {
   );
   print("STEP independent query --text-exact finds the named entry in the accessibility tree");
   const query = run_cu(run_directory, executable, "observe", [
-    "query", "--window", "" + handle,
+    "query", "--window", handle_text,
     "--depth", "" + DEPTH, "--max-nodes", "" + MAX_NODES,
     "--text-exact", FIXTURE_ENTRY_NAME,
   ]);
@@ -331,5 +519,9 @@ if (fixture >= 0) {
 ensure(succeeded === 1, failure || "cu_linux_desktop_state_failed");
 harness.emit_evidence(context, declared_evidence, "cu.linux-desktop-state");
 harness.remove_run(context);
-print("PASS: Linux desktop-state bounded snapshot with independent AT-SPI/X11 read-back");
+if (atspi_available) {
+  print("PASS: desktop-state bounded snapshot with get-extents --name pyatspi agreement, typed usage/miss/host-limit honesty, and independent AT-SPI/X11 read-back (no --coords)");
+} else {
+  print("PASS: desktop-state bounded snapshot with typed get-extents host-limit honesty and independent AT-SPI/X11 read-back (no --coords)");
+}
 return;
