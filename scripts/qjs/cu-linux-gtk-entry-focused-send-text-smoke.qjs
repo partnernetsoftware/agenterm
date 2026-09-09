@@ -1,10 +1,11 @@
 // CEO: GTK entry focus --name then bare send-text --window (no --name).
-// Acceptance: independent get-text --window (no --name) == SEED through
+// Acceptance: N>=2 independent get-text --window (no --name) == SEED through
 // AT-SPI live-probe focused path; no --coords or screenshot degradation.
-// Typed focus/send-text/get-text/focused usage and host-limit paths must hold
-// when --window/--name are missing or the AT-SPI bus is unavailable; typed
-// get-extents --name usage/host-limit paths must hold before the native
-// actuate/read-back court.
+// Typed focus/send-text/get-text/focused usage must reject missing/zero
+// --window/--name and --coords/--bogus (or stay on the AT-SPI focused/named
+// path — never coordinate degradation). Typed get-extents --name
+// usage/host-limit paths must hold before the native actuate/read-back court;
+// host-limit paths must hold when the AT-SPI bus is unavailable.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -18,6 +19,7 @@ const declared_evidence = [
 ];
 
 const ENTRY_NAME = "Fixture Entry";
+const READBACK_COUNT = 2;
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -37,9 +39,28 @@ function text_at(value, dotted) {
   return "" + value_at;
 }
 
+function int_at(value, dotted) {
+  const raw = at(value, dotted);
+  if (typeof raw === "number") { return raw; }
+  return parseInt("" + raw, 10);
+}
+
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
 function output_success(document) { return flag_at(document, "ok"); }
+
+function misuse_code_ok(code) {
+  return code === "invalid_input" || code === "usage";
+}
+
+function last_json_line(text) {
+  const lines = text.trim().split("\n");
+  for (let index = lines.length - 1; index >= 0; index = index - 1) {
+    const line = lines[index].trim();
+    if (line !== "") { return JSON.parse(line); }
+  }
+  throw "cu_linux_gtk_entry_focused_send_missing_json";
+}
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -67,6 +88,14 @@ function cu_env(executable) {
   return env;
 }
 
+function invalid_atspi_env(executable) {
+  return {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  };
+}
+
 function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of cu_args) { argv.push("" + argument); }
@@ -77,7 +106,7 @@ function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   });
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_linux_gtk_entry_focused_send_cli:" + output.stderr);
-  return JSON.parse(trimmed);
+  return last_json_line(trimmed);
 }
 
 function run_cu(run_directory, executable, grant, arguments, env) {
@@ -96,7 +125,7 @@ function invoke_get_extents_reply(run_directory, executable, arguments, env) {
   });
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_linux_gtk_entry_focused_send_extents_cli:" + output.stderr);
-  return JSON.parse(trimmed);
+  return last_json_line(trimmed);
 }
 
 function probe_atspi_available(executable) {
@@ -114,6 +143,15 @@ function probe_atspi_available(executable) {
     timeout_ms: 10000,
   });
   return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_host_limit_code(code, label, reply) {
+  const allowed = code === "a11y_backend_failed"
+    || code === "unsupported"
+    || code === "bad_handle"
+    || code === "a11y_node_not_found"
+    || code === "a11y_focus_unavailable";
+  ensure(allowed, label + ":" + code + ":" + JSON.stringify(reply.error));
 }
 
 function assert_focused_send_text_usage_limit(run_directory, executable) {
@@ -205,6 +243,239 @@ function assert_focused_send_text_usage_limit(run_directory, executable) {
     text_at(focused_zero, "error.message").indexOf("non-zero") >= 0,
     "cu_linux_gtk_entry_focused_send_focused_zero_message:" + JSON.stringify(focused_zero.error)
   );
+
+  const focused_coords = run_cu_reply(run_directory, executable, "observe", [
+    "focused", "--window", "1", "--coords", "10,10",
+  ]);
+  ensure(!output_success(focused_coords),
+    "cu_linux_gtk_entry_focused_send_focused_coords_ok:" + JSON.stringify(focused_coords));
+  ensure(
+    text_at(focused_coords, "error.code") === "usage",
+    "cu_linux_gtk_entry_focused_send_focused_coords_code:" + JSON.stringify(focused_coords.error)
+  );
+  ensure(
+    text_at(focused_coords, "error.message").indexOf("--coords") >= 0
+      || text_at(focused_coords, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_gtk_entry_focused_send_focused_coords_message:" + JSON.stringify(focused_coords.error)
+  );
+
+  const focused_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "focused", "--window", "1", "--bogus",
+  ]);
+  ensure(!output_success(focused_bogus),
+    "cu_linux_gtk_entry_focused_send_focused_bogus_ok:" + JSON.stringify(focused_bogus));
+  ensure(
+    text_at(focused_bogus, "error.code") === "usage",
+    "cu_linux_gtk_entry_focused_send_focused_bogus_code:" + JSON.stringify(focused_bogus.error)
+  );
+  ensure(
+    text_at(focused_bogus, "error.message").indexOf("--bogus") >= 0
+      || text_at(focused_bogus, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_gtk_entry_focused_send_focused_bogus_message:" + JSON.stringify(focused_bogus.error)
+  );
+
+  const focus_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "focus", "--window", "1", "--name", ENTRY_NAME, "--coords", "10,10",
+  ]);
+  ensure(!output_success(focus_coords),
+    "cu_linux_gtk_entry_focused_send_focus_coords_ok:" + JSON.stringify(focus_coords));
+  ensure(
+    misuse_code_ok(text_at(focus_coords, "error.code"))
+      || text_at(focus_coords, "error.code") === "a11y_node_not_found"
+      || text_at(focus_coords, "error.code") === "a11y_backend_failed"
+      || text_at(focus_coords, "error.code") === "bad_handle",
+    "cu_linux_gtk_entry_focused_send_focus_coords_code:" + JSON.stringify(focus_coords.error)
+  );
+  ensure(
+    JSON.stringify(focus_coords).indexOf("coordinate") < 0
+      && JSON.stringify(focus_coords).indexOf("XTest") < 0,
+    "cu_linux_gtk_entry_focused_send_focus_coords_degraded:" + JSON.stringify(focus_coords)
+  );
+
+  const focus_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "focus", "--window", "1", "--name", ENTRY_NAME, "--bogus",
+  ]);
+  ensure(!output_success(focus_bogus),
+    "cu_linux_gtk_entry_focused_send_focus_bogus_ok:" + JSON.stringify(focus_bogus));
+  ensure(
+    misuse_code_ok(text_at(focus_bogus, "error.code"))
+      || text_at(focus_bogus, "error.code") === "a11y_node_not_found"
+      || text_at(focus_bogus, "error.code") === "a11y_backend_failed"
+      || text_at(focus_bogus, "error.code") === "bad_handle",
+    "cu_linux_gtk_entry_focused_send_focus_bogus_code:" + JSON.stringify(focus_bogus.error)
+  );
+
+  const send_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", "1", "--coords", "10,10", "--", "probe",
+  ]);
+  ensure(!output_success(send_coords),
+    "cu_linux_gtk_entry_focused_send_send_coords_ok:" + JSON.stringify(send_coords));
+  ensure(
+    misuse_code_ok(text_at(send_coords, "error.code"))
+      || text_at(send_coords, "error.code") === "a11y_focus_unavailable"
+      || text_at(send_coords, "error.code") === "a11y_backend_failed"
+      || text_at(send_coords, "error.code") === "bad_handle",
+    "cu_linux_gtk_entry_focused_send_send_coords_code:" + JSON.stringify(send_coords.error)
+  );
+  ensure(
+    JSON.stringify(send_coords).indexOf("coordinate") < 0
+      && JSON.stringify(send_coords).indexOf("XTest") < 0,
+    "cu_linux_gtk_entry_focused_send_send_coords_degraded:" + JSON.stringify(send_coords)
+  );
+
+  const send_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", "1", "--bogus", "--", "probe",
+  ]);
+  ensure(!output_success(send_bogus),
+    "cu_linux_gtk_entry_focused_send_send_bogus_ok:" + JSON.stringify(send_bogus));
+  ensure(
+    misuse_code_ok(text_at(send_bogus, "error.code"))
+      || text_at(send_bogus, "error.code") === "a11y_focus_unavailable"
+      || text_at(send_bogus, "error.code") === "a11y_backend_failed"
+      || text_at(send_bogus, "error.code") === "bad_handle",
+    "cu_linux_gtk_entry_focused_send_send_bogus_code:" + JSON.stringify(send_bogus.error)
+  );
+
+  const get_text_coords = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", "1", "--coords", "10,10",
+  ]);
+  ensure(!output_success(get_text_coords),
+    "cu_linux_gtk_entry_focused_send_get_text_coords_ok:" + JSON.stringify(get_text_coords));
+  ensure(
+    misuse_code_ok(text_at(get_text_coords, "error.code"))
+      || text_at(get_text_coords, "error.code") === "a11y_focus_unavailable"
+      || text_at(get_text_coords, "error.code") === "a11y_backend_failed"
+      || text_at(get_text_coords, "error.code") === "bad_handle",
+    "cu_linux_gtk_entry_focused_send_get_text_coords_code:" + JSON.stringify(get_text_coords.error)
+  );
+  ensure(
+    JSON.stringify(get_text_coords).indexOf("coordinate") < 0
+      && JSON.stringify(get_text_coords).indexOf("XTest") < 0,
+    "cu_linux_gtk_entry_focused_send_get_text_coords_degraded:" + JSON.stringify(get_text_coords)
+  );
+
+  const get_text_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", "1", "--bogus",
+  ]);
+  ensure(!output_success(get_text_bogus),
+    "cu_linux_gtk_entry_focused_send_get_text_bogus_ok:" + JSON.stringify(get_text_bogus));
+  ensure(
+    misuse_code_ok(text_at(get_text_bogus, "error.code"))
+      || text_at(get_text_bogus, "error.code") === "a11y_focus_unavailable"
+      || text_at(get_text_bogus, "error.code") === "a11y_backend_failed"
+      || text_at(get_text_bogus, "error.code") === "bad_handle",
+    "cu_linux_gtk_entry_focused_send_get_text_bogus_code:" + JSON.stringify(get_text_bogus.error)
+  );
+}
+
+function assert_focus_reject_coords_or_stay_named(run_directory, executable, handle, label) {
+  const focus_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "focus", "--window", handle, "--name", ENTRY_NAME, "--coords", "10,10",
+  ]);
+  if (!output_success(focus_coords)) {
+    ensure(
+      misuse_code_ok(text_at(focus_coords, "error.code")),
+      "cu_linux_gtk_entry_focused_send_focus_coords_code_" + label + ":" + JSON.stringify(focus_coords.error)
+    );
+  } else {
+    ensure(
+      text_at(focus_coords, "data.addressing") === "accessibility-tree"
+        && (text_at(focus_coords, "data.matched.name") === ENTRY_NAME
+          || flag_at(focus_coords, "data.verified")),
+      "cu_linux_gtk_entry_focused_send_focus_coords_named_" + label + ":" + JSON.stringify(focus_coords.data)
+    );
+  }
+
+  const focus_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "focus", "--window", handle, "--name", ENTRY_NAME, "--bogus",
+  ]);
+  if (!output_success(focus_bogus)) {
+    ensure(
+      misuse_code_ok(text_at(focus_bogus, "error.code")),
+      "cu_linux_gtk_entry_focused_send_focus_bogus_code_" + label + ":" + JSON.stringify(focus_bogus.error)
+    );
+  } else {
+    ensure(
+      text_at(focus_bogus, "data.addressing") === "accessibility-tree"
+        && (text_at(focus_bogus, "data.matched.name") === ENTRY_NAME
+          || flag_at(focus_bogus, "data.verified")),
+      "cu_linux_gtk_entry_focused_send_focus_bogus_named_" + label + ":" + JSON.stringify(focus_bogus.data)
+    );
+  }
+}
+
+function assert_send_text_reject_coords_or_stay_focused(
+  run_directory, executable, handle, expected_text, label
+) {
+  const send_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", handle, "--coords", "10,10", "--", expected_text,
+  ]);
+  if (!output_success(send_coords)) {
+    ensure(
+      misuse_code_ok(text_at(send_coords, "error.code")),
+      "cu_linux_gtk_entry_focused_send_send_coords_code_" + label + ":" + JSON.stringify(send_coords.error)
+    );
+  } else {
+    ensure(
+      text_at(send_coords, "data.addressing") === "accessibility-tree"
+        && text_at(send_coords, "data.action") === "send-text"
+        && text_at(send_coords, "data.typed") === expected_text,
+      "cu_linux_gtk_entry_focused_send_send_coords_degraded_" + label + ":" + JSON.stringify(send_coords.data)
+    );
+  }
+
+  const send_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", handle, "--bogus", "--", expected_text,
+  ]);
+  if (!output_success(send_bogus)) {
+    ensure(
+      misuse_code_ok(text_at(send_bogus, "error.code")),
+      "cu_linux_gtk_entry_focused_send_send_bogus_code_" + label + ":" + JSON.stringify(send_bogus.error)
+    );
+  } else {
+    ensure(
+      text_at(send_bogus, "data.addressing") === "accessibility-tree"
+        && text_at(send_bogus, "data.action") === "send-text"
+        && text_at(send_bogus, "data.typed") === expected_text,
+      "cu_linux_gtk_entry_focused_send_send_bogus_degraded_" + label + ":" + JSON.stringify(send_bogus.data)
+    );
+  }
+}
+
+function assert_get_text_reject_coords_or_stay_focused(
+  run_directory, executable, handle, expected_text, label
+) {
+  const get_text_coords = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", handle, "--coords", "10,10",
+  ]);
+  if (!output_success(get_text_coords)) {
+    ensure(
+      misuse_code_ok(text_at(get_text_coords, "error.code")),
+      "cu_linux_gtk_entry_focused_send_get_text_coords_code_" + label + ":" + JSON.stringify(get_text_coords.error)
+    );
+  } else {
+    ensure(
+      text_at(get_text_coords, "data.via") === "gettext"
+        && text_at(get_text_coords, "data.text") === expected_text,
+      "cu_linux_gtk_entry_focused_send_get_text_coords_degraded_" + label + ":" + JSON.stringify(get_text_coords.data)
+    );
+  }
+
+  const get_text_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", handle, "--bogus",
+  ]);
+  if (!output_success(get_text_bogus)) {
+    ensure(
+      misuse_code_ok(text_at(get_text_bogus, "error.code")),
+      "cu_linux_gtk_entry_focused_send_get_text_bogus_code_" + label + ":" + JSON.stringify(get_text_bogus.error)
+    );
+  } else {
+    ensure(
+      text_at(get_text_bogus, "data.via") === "gettext"
+        && text_at(get_text_bogus, "data.text") === expected_text,
+      "cu_linux_gtk_entry_focused_send_get_text_bogus_degraded_" + label + ":" + JSON.stringify(get_text_bogus.data)
+    );
+  }
 }
 
 function assert_get_extents_usage_limit(run_directory, executable, env) {
@@ -221,41 +492,46 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_gtk_entry_focused_send_extents_usage_message:" + JSON.stringify(zero_handle.error)
   );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_gtk_entry_focused_send_extents_missing_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_gtk_entry_focused_send_extents_missing_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_entry_focused_send_extents_missing_name_message:" + JSON.stringify(missing_name.error)
+  );
 }
 
 function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
   const reply = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--name", ENTRY_NAME,
-  ], {
-    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
-    AGENTERM_NO_ACTIVATE: "1",
-    AT_SPI_BUS_ADDRESS: "invalid",
-  });
+  ], invalid_atspi_env(executable));
   ensure(!output_success(reply),
     "cu_linux_gtk_entry_focused_send_extents_unavailable_ok:" + JSON.stringify(reply));
-  const code = text_at(reply, "error.code");
-  ensure(
-    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
-      || code === "a11y_node_not_found",
-    "cu_linux_gtk_entry_focused_send_extents_unavailable_code:" + code
+  assert_host_limit_code(
+    text_at(reply, "error.code"),
+    "cu_linux_gtk_entry_focused_send_extents_unavailable_code",
+    reply
   );
 }
 
 function assert_focused_send_text_host_limit_when_atspi_absent(run_directory, executable) {
-  const env = {
-    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
-    AGENTERM_NO_ACTIVATE: "1",
-    AT_SPI_BUS_ADDRESS: "invalid",
-  };
+  const env = invalid_atspi_env(executable);
   const focus_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "focus", "--window", "1", "--name", ENTRY_NAME,
   ], env);
   ensure(!output_success(focus_reply),
     "cu_linux_gtk_entry_focused_send_focus_unavailable_ok:" + JSON.stringify(focus_reply));
-  const focus_code = text_at(focus_reply, "error.code");
-  ensure(
-    focus_code === "a11y_backend_failed" || focus_code === "unsupported" || focus_code === "bad_handle",
-    "cu_linux_gtk_entry_focused_send_focus_unavailable_code:" + focus_code
+  assert_host_limit_code(
+    text_at(focus_reply, "error.code"),
+    "cu_linux_gtk_entry_focused_send_focus_unavailable_code",
+    focus_reply
   );
 
   const send_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
@@ -263,10 +539,10 @@ function assert_focused_send_text_host_limit_when_atspi_absent(run_directory, ex
   ], env);
   ensure(!output_success(send_reply),
     "cu_linux_gtk_entry_focused_send_send_unavailable_ok:" + JSON.stringify(send_reply));
-  const send_code = text_at(send_reply, "error.code");
-  ensure(
-    send_code === "a11y_backend_failed" || send_code === "unsupported" || send_code === "bad_handle",
-    "cu_linux_gtk_entry_focused_send_send_unavailable_code:" + send_code
+  assert_host_limit_code(
+    text_at(send_reply, "error.code"),
+    "cu_linux_gtk_entry_focused_send_send_unavailable_code",
+    send_reply
   );
 
   const get_reply = run_cu_reply(run_directory, executable, "observe", [
@@ -274,10 +550,10 @@ function assert_focused_send_text_host_limit_when_atspi_absent(run_directory, ex
   ], env);
   ensure(!output_success(get_reply),
     "cu_linux_gtk_entry_focused_send_get_unavailable_ok:" + JSON.stringify(get_reply));
-  const get_code = text_at(get_reply, "error.code");
-  ensure(
-    get_code === "a11y_backend_failed" || get_code === "unsupported" || get_code === "bad_handle",
-    "cu_linux_gtk_entry_focused_send_get_unavailable_code:" + get_code
+  assert_host_limit_code(
+    text_at(get_reply, "error.code"),
+    "cu_linux_gtk_entry_focused_send_get_unavailable_code",
+    get_reply
   );
 
   const focused_reply = run_cu_reply(run_directory, executable, "observe", [
@@ -285,11 +561,10 @@ function assert_focused_send_text_host_limit_when_atspi_absent(run_directory, ex
   ], env);
   ensure(!output_success(focused_reply),
     "cu_linux_gtk_entry_focused_send_focused_unavailable_ok:" + JSON.stringify(focused_reply));
-  const focused_code = text_at(focused_reply, "error.code");
-  ensure(
-    focused_code === "a11y_backend_failed" || focused_code === "unsupported" || focused_code === "bad_handle"
-      || focused_code === "a11y_focus_unavailable",
-    "cu_linux_gtk_entry_focused_send_focused_unavailable_code:" + focused_code
+  assert_host_limit_code(
+    text_at(focused_reply, "error.code"),
+    "cu_linux_gtk_entry_focused_send_focused_unavailable_code",
+    focused_reply
   );
 }
 
@@ -302,6 +577,28 @@ function window_row(run_directory, executable, pid, title) {
     if (text_at(row, "title") === title) { return row; }
   }
   return null;
+}
+
+function assert_focused_get_text(run_directory, executable, handle, expected, label) {
+  const got = run_cu(run_directory, executable, "observe", [
+    "get-text", "--window", handle,
+  ]);
+  const readback = text_at(got, "data.text");
+  ensure(
+    readback === expected && text_at(got, "data.via") === "gettext",
+    "cu_linux_gtk_entry_focused_send_get_" + label + ":" + JSON.stringify({
+      seed: expected,
+      readback: readback,
+    })
+  );
+  const focused = run_cu(run_directory, executable, "observe", [
+    "focused", "--window", handle,
+  ]);
+  ensure(
+    text_at(focused, "data.node.name") === ENTRY_NAME,
+    "cu_linux_gtk_entry_focused_send_focused_" + label + ":" + JSON.stringify(focused.data)
+  );
+  return got;
 }
 
 const args = rh.args();
@@ -328,20 +625,20 @@ const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP focus/send-text/get-text/focused typed-fail usage when --window or --name is missing");
+  print("STEP focus/send-text/get-text/focused typed-fail usage when --window/--name is missing and when --coords/--bogus is supplied");
   assert_focused_send_text_usage_limit(run_directory, executable);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
-    assert_get_extents_usage_limit(run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
-  }
+  print("STEP get-extents typed-fail usage when --window is zero or --name is missing before actuate/read-back court");
+  assert_get_extents_usage_limit(run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit on invalid AT-SPI bus before actuate/read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+
+  print("STEP focus/send-text/get-text/focused typed-fail host-limit on invalid AT-SPI bus before actuate/read-back court");
+  assert_focused_send_text_host_limit_when_atspi_absent(run_directory, executable);
 
   if (!atspi_available) {
-    print("STEP focus/send-text/get-text/focused typed-fail host-limit when independent pyatspi desktop probe is unavailable");
-    assert_focused_send_text_host_limit_when_atspi_absent(run_directory, executable);
+    print("STEP independent pyatspi desktop probe is unavailable; usage/host-limit court is the evidence");
     harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-focus");
     harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-focused-send-text");
     harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-focused-get-text");
@@ -365,6 +662,17 @@ try {
     ensure(row !== null, "cu_linux_gtk_entry_focused_send_window_identity");
     const handle = "" + at(row, "handle");
 
+    print("STEP get-extents --name locates the GTK entry before focus/send-text actuate/read-back court");
+    const entry_extents = run_cu(run_directory, executable, "observe", [
+      "get-extents", "--window", handle, "--name", ENTRY_NAME,
+    ]);
+    ensure(
+      text_at(entry_extents, "data.matched.name") === ENTRY_NAME
+        && int_at(entry_extents, "data.extents.width") > 0
+        && int_at(entry_extents, "data.extents.height") > 0,
+      "cu_linux_gtk_entry_focused_send_extents_before_actuate:" + JSON.stringify(entry_extents.data)
+    );
+
     print("STEP focus --name moves AT-SPI focus to the GTK entry");
     const focused_act = run_cu(run_directory, executable, "observe,actuate", [
       "focus", "--window", handle, "--name", ENTRY_NAME,
@@ -382,6 +690,9 @@ try {
     );
     harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-focus");
 
+    print("STEP focus --name with --coords/--bogus rejects or stays accessibility-tree");
+    assert_focus_reject_coords_or_stay_named(run_directory, executable, handle, "after_focus");
+
     const seed = "ceo-focused-send-" + context.run_id;
     print("STEP send-text --window without --name writes SEED into the focused control");
     const sent = run_cu(run_directory, executable, "observe,actuate", [
@@ -395,15 +706,22 @@ try {
     );
     harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-focused-send-text");
 
-    print("STEP independent get-text --window without --name reads SEED via AT-SPI Text.GetText");
-    const got = run_cu(run_directory, executable, "observe", [
-      "get-text", "--window", handle,
-    ]);
-    const readback = text_at(got, "data.text");
-    ensure(
-      readback === seed && text_at(got, "data.via") === "gettext",
-      "cu_linux_gtk_entry_focused_send_get:" + JSON.stringify({ seed: seed, readback: readback })
+    print("STEP send-text --window with --coords/--bogus rejects or stays accessibility-tree");
+    assert_send_text_reject_coords_or_stay_focused(
+      run_directory, executable, handle, seed, "after_send"
     );
+
+    print("STEP " + READBACK_COUNT + " independent get-text --window without --name reads SEED via AT-SPI Text.GetText");
+    for (let probe = 1; probe <= READBACK_COUNT; probe += 1) {
+      print("STEP get-text read-back " + probe + "/" + READBACK_COUNT);
+      assert_focused_get_text(run_directory, executable, handle, seed, "probe_" + probe);
+      if (probe === 1) {
+        print("STEP get-text --window with --coords/--bogus rejects or stays gettext");
+        assert_get_text_reject_coords_or_stay_focused(
+          run_directory, executable, handle, seed, "probe_1"
+        );
+      }
+    }
     harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-focused-get-text");
 
     succeeded = 1;
@@ -422,8 +740,8 @@ if (fixture >= 0) {
 ensure(succeeded === 1, failure || "cu_linux_gtk_entry_focused_send_failed");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: CEO GTK entry focus --name → send-text --window → get-text --window with typed focus/send-text/get-text/focused/get-extents usage honesty (AT-SPI focused path, no --coords)");
+  print("PASS: CEO GTK entry focus --name → send-text --window → " + READBACK_COUNT + " get-text --window read-backs with typed focus/send-text/get-text/focused --coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI focused path, no --coords)");
 } else {
-  print("PASS: CEO GTK entry focus/send-text/get-text/focused typed-fails with typed get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
+  print("PASS: CEO GTK entry focus/send-text/get-text/focused typed-fails with typed get-extents --name usage/host-limit honesty when independent pyatspi desktop probe is unavailable");
 }
 return;
