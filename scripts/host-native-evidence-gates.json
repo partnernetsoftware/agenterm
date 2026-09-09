@@ -747,6 +747,13 @@
       ]
     },
     {
+      "id": "cu-linux-network-interfaces-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-network-interfaces-ip-sysfs"
+      ]
+    },
+    {
       "id": "cu-linux-raise-activate-smoke",
       "platform": "linux",
       "evidence": [
