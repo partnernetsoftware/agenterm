@@ -9,7 +9,9 @@ pub use crate::contract::app_facts::{
 ///
 /// Linux uses bounded XDG desktop-entry discovery and direct procfs reads.
 /// macOS uses bounded bundle discovery plus CoreFoundation and Security facts.
-/// Other hosts remain typed unsupported until their native adapter lands.
+/// Windows uses bounded Uninstall registration and native executable facts
+/// when the `app-facts` feature is enabled. Other hosts remain typed
+/// unsupported until their native adapter lands.
 pub fn query(selector: &str, options: AppFactsOptions) -> Result<AppFacts, AppFactsError> {
     if selector.is_empty()
         || selector.len() > MAX_APP_FACTS_SELECTOR_BYTES
@@ -23,17 +25,25 @@ pub fn query(selector: &str, options: AppFactsOptions) -> Result<AppFacts, AppFa
             ),
         ));
     }
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "macos",
+        all(target_os = "windows", feature = "app-facts")
+    ))]
     {
         crate::selected::app_facts::query(selector, options)
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "macos",
+        all(target_os = "windows", feature = "app-facts")
+    )))]
     {
         let _ = options;
         Err(AppFactsError::new(
             AppFactsErrorKind::Unsupported,
             "app_facts_platform_unsupported",
-            "application facts are currently implemented on Linux and macOS hosts only",
+            "application facts are unavailable because this host has no selected native adapter",
         ))
     }
 }
@@ -49,7 +59,11 @@ mod tests {
         assert_eq!(error.code(), "app_facts_invalid_selector");
     }
 
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "macos",
+        all(target_os = "windows", feature = "app-facts")
+    )))]
     #[test]
     fn unimplemented_hosts_fail_typed() {
         let error = query("example", AppFactsOptions::default()).unwrap_err();

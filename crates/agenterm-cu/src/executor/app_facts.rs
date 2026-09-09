@@ -149,12 +149,23 @@ fn app_facts_not_found_message(selector: &str) -> String {
              application alias; app-inspect --app accepts the same process-name substring"
         )
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
     {
         format!(
             "application selector '{selector}' matched no installed application bundle id, \
              normalized path, or exact display name"
         )
+    }
+    #[cfg(target_os = "windows")]
+    {
+        format!(
+            "application selector '{selector}' matched no installed Uninstall key id, \
+             normalized executable path, or exact display name"
+        )
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        format!("application selector '{selector}' matched no native application")
     }
 }
 

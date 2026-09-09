@@ -39,6 +39,10 @@ pub(crate) mod app_facts;
 #[path = "adapters/macos/app_facts.rs"]
 pub(crate) mod app_facts;
 
+#[cfg(all(target_os = "windows", feature = "app-facts"))]
+#[path = "adapters/windows/app_facts.rs"]
+pub(crate) mod app_facts;
+
 #[cfg(all(feature = "host-boot-identity", target_os = "linux"))]
 #[path = "adapters/linux/host_boot_identity.rs"]
 pub(crate) mod host_boot_identity;

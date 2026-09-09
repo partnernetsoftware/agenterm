@@ -193,6 +193,17 @@ cap, and keep `bWatchSubtree` false plus a separator check for a non-recursive
 single-directory contract. Rename-old and rename-new are independent removed and
 created facts; do not require them to arrive in one batch.
 
+Windows application facts need three independent lifetime and honesty brackets.
+Enumerate both 32-bit and 64-bit Uninstall views under HKLM and HKCU, then
+canonicalize and deduplicate executable paths before deciding uniqueness. For a
+negative running fact, use the ToolHelp executable basename to narrow candidates
+before opening process handles; an inaccessible same-name candidate makes the
+fact unavailable, while unrelated protected processes do not. Embedded
+Authenticode inspection owns the CryptQuery store, message and certificate with
+RAII, and every `WinVerifyTrust` VERIFY call must receive a matching CLOSE. If
+the public contract says embedded signatures only, do not publish a successful
+catalog-signature fallback as verification of an absent embedded signature.
+
 When a binary format has both converter inspection and runtime loading, keep
 one structural validator and split capability *description* from capability
 *availability*. Static inspection may parse manifests, imports and export
