@@ -1,0 +1,496 @@
+// CEO: Linux CDP page-nav honesty — navigate one owned tab and prove with
+// independent page-targets / curl /json URL read-back (not page-nav receipt alone).
+// Typed page-nav usage must reject AT-SPI --name and other unexpected arguments;
+// typed get-extents --name usage/host-limit paths must hold before the page-nav
+// actuate/read-back court. Typed usage, miss, and no-CDP host-limit paths must
+// hold. --port/--target-id only; no --coords.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-cdp-page-nav",
+  "cu.linux-cdp-page-nav-readback",
+];
+
+const AT_SPI_PROBE_NAME = "Page Nav Court Anchor";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function output_success(document) { return flag_at(document, "ok"); }
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu_reply(run_directory, executable, grant, arguments, env) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 60000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_page_nav_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_page_nav_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function assert_page_nav_usage(run_directory, executable, env, port) {
+  const missing_url = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-nav", "--port", "" + port, "--target-id", "unused",
+  ], env);
+  ensure(!output_success(missing_url), "cu_linux_page_nav_usage_ok_url:" + JSON.stringify(missing_url));
+  ensure(
+    text_at(missing_url, "error.code") === "usage",
+    "cu_linux_page_nav_usage_code_url:" + JSON.stringify(missing_url.error)
+  );
+  ensure(
+    text_at(missing_url, "error.message").indexOf("--url") >= 0,
+    "cu_linux_page_nav_usage_message_url:" + JSON.stringify(missing_url.error)
+  );
+}
+
+function assert_page_nav_usage_rejects_name(run_directory, executable, env, port) {
+  const flat_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-nav", "--port", "" + port, "--target-id", "unused",
+    "--url", "about:blank", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_page_nav_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_page_nav_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_page_nav_usage_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(flat_with_name, "error.message")),
+    "cu_linux_page_nav_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page", "nav", "--port", "" + port, "--target-id", "unused",
+    "--url", "about:blank", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_page_nav_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_page_nav_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(grouped_with_name, "error.message")),
+    "cu_linux_page_nav_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-nav", "--port", "" + port, "--target-id", "unused",
+    "--url", "about:blank", "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_page_nav_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_page_nav_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_page_nav_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_page_nav_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_page_nav_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_page_nav_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_page_nav_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_page_nav_extents_unavailable_code:" + code
+  );
+}
+
+function assert_no_cdp_listener(run_directory, executable, env, port) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-nav", "--port", "" + port, "--target-id", "unused", "--url", "about:blank",
+  ], env);
+  ensure(reply.ok !== true, "cu_linux_page_nav_false_success:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_page_nav_host_limit_code:" + JSON.stringify(reply)
+  );
+  const message = text_at(reply, "error.message");
+  ensure(
+    message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
+    "cu_linux_page_nav_host_limit_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_page_nav_miss_bad_target(run_directory, executable, env, port) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-nav", "--port", "" + port, "--target-id", "deadbeef", "--url", "about:blank",
+  ], env);
+  ensure(!output_success(reply), "cu_linux_page_nav_miss_target_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "cdp_target_not_found",
+    "cu_linux_page_nav_miss_target_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("--target-id") >= 0,
+    "cu_linux_page_nav_miss_target_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function page_target(rows) {
+  for (const row of rows) {
+    if (text_at(row, "type") === "page") { return row; }
+  }
+  return null;
+}
+
+function curl_json(run_directory, port, path) {
+  const output = rh.command("curl", ["-s", "--max-time", "5", "http://127.0.0.1:" + port + path], {
+    cwd: run_directory,
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true && output.stdout.trim() !== "",
+    "cu_linux_page_nav_curl:" + path + ":" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function normalize_curl_target(raw) {
+  return {
+    id: raw.id === undefined || raw.id === null ? "" : "" + raw.id,
+    url: raw.url === undefined || raw.url === null ? "" : "" + raw.url,
+    title: raw.title === undefined || raw.title === null ? "" : "" + raw.title,
+  };
+}
+
+function normalize_cu_target(row) {
+  return {
+    id: text_at(row, "id"),
+    url: text_at(row, "url"),
+    title: text_at(row, "title"),
+  };
+}
+
+function target_row_by_id(rows, target_id) {
+  for (const row of rows) {
+    if (text_at(row, "id") === target_id) { return row; }
+  }
+  return null;
+}
+
+function curl_target_by_id(run_directory, port, target_id) {
+  const raw = curl_json(run_directory, port, "/json");
+  ensure(Array.isArray(raw), "cu_linux_page_nav_curl_rows:" + JSON.stringify(raw));
+  for (let index = 0; index < raw.length; index = index + 1) {
+    const normalized = normalize_curl_target(raw[index]);
+    if (normalized.id === target_id) { return normalized; }
+  }
+  return null;
+}
+
+function assert_page_targets_url_readback(
+  run_directory, executable, env, port, target_id, fixture_url, fixture_title
+) {
+  let last_error = "cu_linux_page_nav_readback_missing";
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    const curl = curl_target_by_id(run_directory, port, target_id);
+    if (curl === null
+        || curl.url.indexOf(fixture_url) < 0
+        || curl.title.indexOf(fixture_title) < 0) {
+      harness.sleep_ms(250);
+      continue;
+    }
+    const reply = run_cu(run_directory, executable, "observe", [
+      "page-targets", "--port", "" + port,
+    ], env);
+    const cu_row = target_row_by_id(at(reply, "data.targets"), target_id);
+    if (cu_row === null) {
+      harness.sleep_ms(250);
+      continue;
+    }
+    const cu = normalize_cu_target(cu_row);
+    try {
+      ensure(cu.url.indexOf(fixture_url) >= 0,
+        "cu_linux_page_nav_cu_url:" + JSON.stringify({ cu: cu, want: fixture_url }));
+      ensure(cu.title.indexOf(fixture_title) >= 0,
+        "cu_linux_page_nav_cu_title:" + JSON.stringify({ cu: cu, want: fixture_title }));
+      ensure(cu.url === curl.url && cu.title === curl.title,
+        "cu_linux_page_nav_targets_curl_mismatch:" + JSON.stringify({ cu: cu, curl: curl }));
+      return { cu: cu, curl: curl };
+    } catch (error) {
+      last_error = "" + error;
+      harness.sleep_ms(250);
+    }
+  }
+  throw last_error;
+}
+
+function page_js_location(run_directory, executable, env, port, target_id) {
+  const read = run_cu(run_directory, executable, "observe", [
+    "page-js", "--port", "" + port, "--target-id", target_id,
+    "--expression", "({ href: location.href, title: document.title })",
+  ], env);
+  return {
+    href: text_at(read, "data.value.href"),
+    title: text_at(read, "data.value.title"),
+  };
+}
+
+function cdp_ready(run_directory, port) {
+  const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  return probe.success === true && probe.stdout.indexOf("Browser") >= 0;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+ensure(direct_file(executable), "cu_linux_page_nav_executable_missing:" + executable);
+ensure(direct_file(abi_library), "cu_linux_page_nav_library_missing:" + abi_library);
+
+const context = harness.new_context(repo, "cu-linux-page-nav");
+const run_directory = context.run_directory;
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
+
+const fixture_title = "CEO Page Nav " + context.run_id;
+const fixture = rh.join(run_directory, "cdp-nav.html");
+const fixture_html = "<!DOCTYPE html><html><head><title>"
+  + fixture_title + "</title></head><body>"
+  + "<button type='button' aria-label='" + AT_SPI_PROBE_NAME + "'>anchor</button>"
+  + "<p id='marker'>" + context.run_id + "</p>"
+  + "</body></html>";
+rh.write_text(fixture, fixture_html);
+
+const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
+const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
+const port = 9600 + (rh.pid() % 500);
+const nav_url = "file://" + fixture;
+let chrome_child = -1;
+let succeeded = 0;
+let failure = "";
+
+try {
+  const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+    "cu_linux_page_nav_port_in_use:" + port);
+
+  print("STEP page-nav typed-fails usage when --url is missing");
+  assert_page_nav_usage(run_directory, executable, env, port);
+
+  print("STEP page-nav typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_page_nav_usage_rejects_name(run_directory, executable, env, port);
+
+  print("STEP page-nav typed-fails no CDP listener on the owned free port before Chrome starts");
+  assert_no_cdp_listener(run_directory, executable, env, port);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before page-nav actuate court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
+  print("STEP launch owned Chrome with CDP port and a disposable about:blank tab");
+  chrome_child = harness.start({
+    program: launcher,
+    args: [
+      "--user-data-dir=" + profile,
+      "--remote-debugging-port=" + port,
+      "--remote-debugging-address=127.0.0.1",
+      "--new-window",
+      "about:blank",
+    ],
+    current_dir: run_directory,
+    env: env,
+    timeout_ms: 45000,
+  });
+  for (let attempt = 0; attempt < 80 && !cdp_ready(run_directory, port); attempt = attempt + 1) {
+    harness.sleep_ms(250);
+  }
+  ensure(cdp_ready(run_directory, port), "cu_linux_page_nav_cdp_not_ready:" + port);
+
+  print("STEP page-nav typed-fails cdp_target_not_found for a bogus --target-id");
+  assert_page_nav_miss_bad_target(run_directory, executable, env, port);
+
+  const targets = run_cu(run_directory, executable, "observe", [
+    "page-targets", "--port", "" + port,
+  ], env);
+  const target = page_target(targets.data.targets);
+  ensure(target !== null && text_at(target, "id") !== "", "cu_linux_page_nav_target_missing");
+  const target_id = text_at(target, "id");
+
+  print("STEP independent page-targets baseline shows about:blank before navigation");
+  const before = assert_page_targets_url_readback(
+    run_directory, executable, env, port, target_id, "about:blank", ""
+  );
+  ensure(
+    before.cu.url.indexOf("about:blank") >= 0,
+    "cu_linux_page_nav_before_url:" + JSON.stringify(before)
+  );
+
+  print("STEP page-nav loads the disposable HTML fixture in this owned tab");
+  const nav = run_cu(run_directory, executable, "observe,actuate", [
+    "page-nav", "--port", "" + port, "--target-id", target_id,
+    "--url", nav_url, "--wait-ms", "10000",
+  ], env);
+  ensure(
+    flag_at(nav, "data.verified") && text_at(nav, "data.final_title") === fixture_title,
+    "cu_linux_page_nav_actuate:" + JSON.stringify(nav.data)
+  );
+  ensure(
+    text_at(nav, "data.final_url").indexOf("cdp-nav.html") >= 0,
+    "cu_linux_page_nav_final_url:" + JSON.stringify(nav.data)
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-nav");
+
+  print("STEP independent page-targets and curl /json URL read-back agree after navigation");
+  const readback = assert_page_targets_url_readback(
+    run_directory, executable, env, port, target_id, "cdp-nav.html", fixture_title
+  );
+  ensure(
+    readback.cu.url === readback.curl.url && readback.cu.title === readback.curl.title,
+    "cu_linux_page_nav_readback:" + JSON.stringify(readback)
+  );
+
+  print("STEP independent page-js location.href and document.title match page-targets read-back");
+  const js = page_js_location(run_directory, executable, env, port, target_id);
+  ensure(
+    js.href.indexOf("cdp-nav.html") >= 0 && js.title === fixture_title,
+    "cu_linux_page_nav_js_readback:" + JSON.stringify({ js: js, targets: readback.cu })
+  );
+  ensure(
+    js.href === readback.cu.url && js.title === readback.cu.title,
+    "cu_linux_page_nav_js_targets_mismatch:" + JSON.stringify({ js: js, targets: readback.cu })
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-nav-readback");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (chrome_child >= 0) {
+  try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
+}
+
+ensure(succeeded === 1, failure || "cu_linux_page_nav_failed");
+harness.remove_run(context);
+if (atspi_available) {
+  print("PASS: Linux CDP page-nav usage/miss/host-limit honesty + independent page-targets/URL read-back with typed page-nav/get-extents usage honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux CDP page-nav usage/miss/host-limit honesty + independent page-targets/URL read-back with typed get-extents host-limit honesty (AT-SPI --name, no --coords)");
+}
+return;

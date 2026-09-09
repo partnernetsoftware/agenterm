@@ -1287,6 +1287,25 @@
         "task.cu-linux-cdp-page-fill-smoke"
       ]
     },
+    "cu-linux-page-nav-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-page-nav-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-page-nav-smoke"
+      ]
+    },
     "cu-linux-browser-profiles-open-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -6239,6 +6258,26 @@
       "id": "cu-linux-cdp-page-fill-smoke",
       "description": "Linux CDP page-nav to a disposable file:// input fixture, page-fill usage/miss/no-CDP host-limit honesty, page-fill --clear writes SEED, and independent page-js input.value read-back equals SEED; typed page-fill/get-extents AT-SPI/--name court before actuate; no --coords.",
       "entry": "scripts/qjs/cu-linux-cdp-page-fill-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-page-nav-smoke",
+      "description": "Linux CDP page-nav from about:blank to a disposable file:// fixture with typed page-nav/get-extents AT-SPI/--name court before actuate, usage/miss/no-CDP host-limit paths, and independent page-targets plus curl /json URL/title read-back agreeing with page-js location.href; no --coords.",
+      "entry": "scripts/qjs/cu-linux-page-nav-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
