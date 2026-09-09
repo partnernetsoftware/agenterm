@@ -223,6 +223,150 @@ function verify_readback(run_directory, executable, pid, expected_port) {
   ensure(output.success === true, "cu_linux_process_sockets_readback:" + output.stderr + output.stdout);
 }
 
+function probe_fd_directory(pid) {
+  const script = [
+    "import json, os, sys",
+    "pid = int(sys.argv[1])",
+    "proc_path = f'/proc/{pid}'",
+    "fd_path = f'{proc_path}/fd'",
+    "exists = os.path.exists(proc_path)",
+    "readable = False",
+    "error_kind = None",
+    "if exists:",
+    "    try:",
+    "        with os.scandir(fd_path):",
+    "            readable = True",
+    "    except OSError as error:",
+    "        if error.errno == 13:",
+    "            error_kind = 'PermissionDenied'",
+    "        elif error.errno == 2:",
+    "            error_kind = 'NotFound'",
+    "        else:",
+    "            error_kind = error.__class__.__name__",
+    "print(json.dumps({",
+    "    'pid': pid,",
+    "    'exists': exists,",
+    "    'readable': readable,",
+    "    'error_kind': error_kind,",
+    "    'fd_path': fd_path,",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, "" + pid], {
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true, "cu_linux_process_sockets_probe:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function find_denied_probe_pid() {
+  const script = [
+    "import json, os",
+    "for candidate in (1,):",
+    "    proc_path = f'/proc/{candidate}'",
+    "    if not os.path.exists(proc_path):",
+    "        continue",
+    "    try:",
+    "        with os.scandir(f'{proc_path}/fd'):",
+    "            pass",
+    "    except OSError as error:",
+    "        if error.errno == 13:",
+    "            print(json.dumps({'pid': candidate, 'denied': True}))",
+    "            raise SystemExit",
+    "print(json.dumps({'denied': False}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true,
+         "cu_linux_process_sockets_denied_probe:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function assert_permission_denied_host_limit(run_directory, executable, pid) {
+  const script = [
+    "import json, os, subprocess, sys",
+    "pid = int(sys.argv[1])",
+    "cu = sys.argv[2]",
+    "fd_path = f'/proc/{pid}/fd'",
+    "try:",
+    "    with os.scandir(fd_path):",
+    "        raise SystemExit('cu_linux_process_sockets_denied_probe_readable')",
+    "except OSError as probe_error:",
+    "    if probe_error.errno != 13:",
+    "        raise SystemExit(f'cu_linux_process_sockets_denied_probe_errno:{probe_error.errno}')",
+    "proc = subprocess.run(",
+    "    [cu, '--target', 'current', '--grant', 'observe',",
+    "     'process-sockets', '--pid', str(pid), '--limit', '16', '--max-visited', '256'],",
+    "    capture_output=True, text=True, timeout=30)",
+    "if proc.returncode == 0:",
+    "    raise SystemExit('cu_linux_process_sockets_denied_ok:' + proc.stdout)",
+    "reply = json.loads(proc.stdout)",
+    "if reply.get('ok') is not False:",
+    "    raise SystemExit('cu_linux_process_sockets_denied_ok_state:' + proc.stdout)",
+    "error = reply.get('error') or {}",
+    "code = error.get('code') or ''",
+    "if code != 'process_inspection_permission_denied':",
+    "    raise SystemExit('cu_linux_process_sockets_denied_code:' + code)",
+    "detail = error.get('detail') or {}",
+    "if detail.get('kind') != 'PermissionDenied':",
+    "    raise SystemExit('cu_linux_process_sockets_denied_kind:' + json.dumps(detail))",
+    "if detail.get('subject') != 'sockets':",
+    "    raise SystemExit('cu_linux_process_sockets_denied_subject:' + json.dumps(detail))",
+    "message = error.get('message') or ''",
+    "if 'Permission denied' not in message and '/proc/' not in message:",
+    "    raise SystemExit('cu_linux_process_sockets_denied_message:' + message)",
+    "print(json.dumps({'code': code, 'pid': pid, 'fd_path': fd_path}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, "" + pid, executable], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true,
+         "cu_linux_process_sockets_permission_denied:" + output.stderr + output.stdout);
+}
+
+function verify_unavailable_when_probe_denied(run_directory, executable, probe) {
+  const script = [
+    "import json, subprocess, sys",
+    "pid = int(sys.argv[1])",
+    "cu = sys.argv[2]",
+    "proc = subprocess.run(",
+    "    [cu, '--target', 'current', '--grant', 'observe',",
+    "     'process-sockets', '--pid', str(pid), '--limit', '16', '--max-visited', '256'],",
+    "    capture_output=True, text=True, timeout=30)",
+    "if proc.returncode == 0:",
+    "    raise SystemExit('cu_linux_process_sockets_unavailable_ok:' + proc.stdout)",
+    "reply = json.loads(proc.stdout)",
+    "if reply.get('ok') is not False:",
+    "    raise SystemExit('cu_linux_process_sockets_unavailable_ok_state:' + proc.stdout)",
+    "error = reply.get('error') or {}",
+    "code = error.get('code') or ''",
+    "if code != 'process_inspection_permission_denied':",
+    "    raise SystemExit('cu_linux_process_sockets_unavailable_code:' + code)",
+    "detail = error.get('detail') or {}",
+    "if detail.get('kind') != 'PermissionDenied':",
+    "    raise SystemExit('cu_linux_process_sockets_unavailable_kind:' + json.dumps(detail))",
+    "if detail.get('subject') != 'sockets':",
+    "    raise SystemExit('cu_linux_process_sockets_unavailable_subject:' + json.dumps(detail))",
+    "message = error.get('message') or ''",
+    "if 'Permission denied' not in message and '/proc/' not in message:",
+    "    raise SystemExit('cu_linux_process_sockets_unavailable_message:' + message)",
+    "print(json.dumps({'code': code, 'pid': pid}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, "" + probe.pid, executable], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true,
+         "cu_linux_process_sockets_unavailable:" + output.stderr + output.stdout);
+  ensure(probe.error_kind === "PermissionDenied",
+         "cu_linux_process_sockets_probe_not_denied:" + JSON.stringify(probe));
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -235,41 +379,61 @@ if (!rh.exists(executable) && harness.host_is_windows()) { executable = executab
 harness.require(rh.exists(executable), "agenterm-cu executable missing");
 
 const context = harness.new_context(repo, "cu-linux-process-sockets");
+const self_probe = probe_fd_directory(rh.pid());
+const denied_probe = find_denied_probe_pid();
 const children = [];
 let succeeded = 0;
 let failure = "";
 try {
-  print("STEP start invocation-owned loopback TCP listener");
-  const stdout_path = rh.join(context.run_directory, "listener.stdout");
-  const stderr_path = rh.join(context.run_directory, "listener.stderr");
-  const listener = harness.start_child(context, {
-    program: executable,
-    args: ["--agenterm-cu-internal-network-probe-fixture", "1", "30000"],
-    current_dir: context.run_directory,
-    env: { AGENTERM_CU_INTERNAL_TEST_FIXTURE: "1" },
-    stdout_path: stdout_path,
-    stderr_path: stderr_path,
-    timeout_ms: 35000,
-  }, "process-sockets-listener");
-  children.push(listener);
-  let ready = null;
-  for (let poll = 0; poll < 400; poll = poll + 1) {
-    if (direct_file(stdout_path)) {
-      const text = rh.read_text(stdout_path).trim();
-      if (text.startsWith("{") && text.endsWith("}")) {
-        const candidate = JSON.parse(text);
-        if (candidate.port > 0) { ready = candidate; break; }
+  if (!self_probe.readable) {
+    print("STEP typed host-limit when independent /proc/<pid>/fd socket probe is unreadable or denied"
+      + " (readable=" + self_probe.readable
+      + " error_kind=" + self_probe.error_kind + ")");
+    verify_unavailable_when_probe_denied(context.run_directory, executable, self_probe);
+    succeeded = 1;
+  } else {
+    print("STEP start invocation-owned loopback TCP listener");
+    const stdout_path = rh.join(context.run_directory, "listener.stdout");
+    const stderr_path = rh.join(context.run_directory, "listener.stderr");
+    const listener = harness.start_child(context, {
+      program: executable,
+      args: ["--agenterm-cu-internal-network-probe-fixture", "1", "30000"],
+      current_dir: context.run_directory,
+      env: { AGENTERM_CU_INTERNAL_TEST_FIXTURE: "1" },
+      stdout_path: stdout_path,
+      stderr_path: stderr_path,
+      timeout_ms: 35000,
+    }, "process-sockets-listener");
+    children.push(listener);
+    let ready = null;
+    for (let poll = 0; poll < 400; poll = poll + 1) {
+      if (direct_file(stdout_path)) {
+        const text = rh.read_text(stdout_path).trim();
+        if (text.startsWith("{") && text.endsWith("}")) {
+          const candidate = JSON.parse(text);
+          if (candidate.port > 0) { ready = candidate; break; }
+        }
       }
+      ensure(harness.child_state(listener) !== "exited", "cu_linux_process_sockets_listener_early_exit");
+      harness.sleep_ms(10);
     }
-    ensure(harness.child_state(listener) !== "exited", "cu_linux_process_sockets_listener_early_exit");
-    harness.sleep_ms(10);
+    ensure(ready !== null, "cu_linux_process_sockets_listener_not_ready");
+
+    print("STEP process-sockets observe matches independent /proc/<pid>/fd inode join"
+      + " and /proc/<pid>/net read-back");
+    verify_readback(context.run_directory, executable, listener.pid, ready.port);
+
+    if (denied_probe.denied === true) {
+      print("STEP process-sockets typed-fails permission-denied host-limit when independent"
+        + " /proc/" + denied_probe.pid + "/fd socket probe is denied");
+      assert_permission_denied_host_limit(
+        context.run_directory, executable, denied_probe.pid);
+    } else {
+      print("STEP skip permission-denied host-limit: no independent denied /proc/<pid>/fd probe on this host");
+    }
+
+    succeeded = 1;
   }
-  ensure(ready !== null, "cu_linux_process_sockets_listener_not_ready");
-
-  print("STEP process-sockets observe matches independent /proc fd inode join and net read-back");
-  verify_readback(context.run_directory, executable, listener.pid, ready.port);
-
-  succeeded = 1;
 } catch (error) {
   failure = "" + error;
 }
@@ -278,7 +442,13 @@ const completion = harness.complete_children(context, children, succeeded !== 0,
 if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, "cu.linux-process-sockets-readback");
   harness.remove_run(context);
-  print("PASS: Linux process-sockets matches independent /proc/<pid>/fd and net read-back");
+  if (self_probe.readable) {
+    print("PASS: Linux process-sockets matches independent /proc/<pid>/fd and net read-back"
+      + " with permission-denied host-limit honesty");
+  } else {
+    print("PASS: Linux process-sockets typed-fails when independent /proc/<pid>/fd socket probe"
+      + " is unreadable or denied");
+  }
 }
 if (failure !== "") { throw failure; }
 ensure(completion.cleanup.completed_pids.length === children.length, "cu_linux_process_sockets_cleanup");
