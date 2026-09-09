@@ -1,13 +1,14 @@
 // CEO: Linux CDP page-hover honesty — hover a page control; prove CSS :hover,
 // title, and computed style change via independent page-js read-back.
 // Typed page-hover usage must reject AT-SPI --name, --coords, --bogus, and other
-// unexpected arguments; typed get-extents --name usage AND host-limit paths must
-// both hold before the page-hover actuate/read-back court. Typed usage and
-// host-limit paths must hold when coordinates are missing, invalid, or the
-// viewport point misses rendered content; a free port must typed-fail before any
-// owned Chrome exists. Prefer host-limit clarity over fake success. Distinct
-// from AT-SPI hover→click. Disposable Chrome profile; AT-SPI/--name only; no
-// --coords or screenshot.
+// unexpected arguments (usage_rejects_unexpected); typed get-extents --name
+// usage AND host-limit paths must both hold before the page-hover
+// actuate/read-back court, including get-extents --coords/--bogus command=usage
+// honesty. Typed usage and host-limit paths must hold when coordinates are
+// missing, invalid, or the viewport point misses rendered content; a free port
+// must typed-fail before any owned Chrome exists. Prefer host-limit clarity
+// over fake success. Distinct from AT-SPI hover→click. Disposable Chrome
+// profile; AT-SPI/--name only; no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -107,11 +108,6 @@ function probe_atspi_available(executable) {
 function usage_rejects_unexpected(message, token) {
   return message.indexOf(token) >= 0
     || message.indexOf("unexpected") >= 0;
-}
-
-function get_extents_misuse_message_ok(message, token) {
-  return usage_rejects_unexpected(message, token)
-    || message.indexOf("--name") >= 0;
 }
 
 function assert_page_hover_unexpected_flag(
@@ -223,7 +219,8 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_page_hover_extents_coords_command:" + JSON.stringify(extents_coords)
   );
   ensure(
-    get_extents_misuse_message_ok(text_at(extents_coords, "error.message"), "--coords"),
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_hover_extents_coords_message:" + JSON.stringify(extents_coords.error)
   );
 
@@ -241,7 +238,8 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_page_hover_extents_bogus_command:" + JSON.stringify(extents_bogus)
   );
   ensure(
-    get_extents_misuse_message_ok(text_at(extents_bogus, "error.message"), "--bogus"),
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_hover_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
@@ -430,12 +428,14 @@ try {
   print("STEP page-hover typed-fails no CDP listener on the owned free port before Chrome starts");
   assert_no_cdp_listener(run_directory, executable, env, port);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before page-hover actuate/read-back court");
-    assert_get_extents_usage_limit(run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before page-hover actuate/read-back court");
+  assert_get_extents_usage_limit(run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before page-hover actuate/read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+
+  if (!atspi_available) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; page-hover read-back still uses independent page-js");
   }
 
   print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
@@ -544,8 +544,8 @@ if (chrome_child >= 0) {
 ensure(succeeded === 1, failure || "cu_linux_page_hover_failed");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: Linux page-hover usage/host-limit/miss honesty + independent :hover page-js read-back with typed page-hover --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux page-hover usage/host-limit/miss honesty + independent :hover page-js read-back with typed page-hover --name/--coords/--bogus and get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: Linux page-hover usage/host-limit/miss honesty + independent :hover page-js read-back with typed page-hover --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux page-hover usage/host-limit/miss honesty + independent :hover page-js read-back with typed page-hover --name/--coords/--bogus usage and get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty (AT-SPI --name, no --coords)");
 }
 return;
