@@ -2,14 +2,16 @@
 // Acceptance is smoke read-back only: CU tree --flat node names/roles/states
 // for one owned GTK fixture window must agree with an independent AT-SPI dump
 // of the same application walk (BFS order, matching depth/node budget, volatile
-// focus/active/armed/selected states excluded). Typed tree/elements usage must
-// reject AT-SPI --name, --coords, --bogus, and other unexpected arguments
-// (usage_rejects_unexpected); typed get-extents --name usage AND host-limit
-// paths (usage_rejects_unexpected --coords/--bogus) must both hold before the
-// tree observe/read-back court. Typed usage and AT-SPI host-limit paths must
-// hold when the independent pyatspi desktop probe is unavailable. Prefer
-// host-limit clarity over fake success. AT-SPI/--name only; no --coords or
-// screenshot degradation.
+// focus/active/armed/selected states excluded). Typed tree/elements --name/
+// --coords/--bogus uses usage_rejects_unexpected + command=usage or an honest
+// non-usage typed failure (never fake command=usage). Typed get-extents --name
+// usage AND host-limit courts must both hold before process-state, desktop-state,
+// and the tree observe/read-back court (no if/else gating those courts on
+// atspi_available); get-extents --coords/--bogus must reject as command=usage.
+// process-state and desktop-state fixture binding courts must hold before
+// observe/read-back. Typed usage and AT-SPI host-limit paths must hold when the
+// independent pyatspi desktop probe is unavailable. Prefer host-limit clarity
+// over fake success. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -28,6 +30,8 @@ const NAMED_FIXTURE_NODES = [
   "Fixture Press",
   "Fixture Check",
 ];
+const DESKTOP_STATE_DEPTH = 3;
+const DESKTOP_STATE_MAX_NODES = 64;
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -144,6 +148,47 @@ function usage_rejects_unexpected(message, token) {
     || message.indexOf("unexpected") >= 0;
 }
 
+function honest_non_usage_code(code) {
+  return code === "a11y_backend_failed"
+    || code === "unsupported"
+    || code === "bad_handle"
+    || code === "window_not_found"
+    || code === "a11y_window_gone"
+    || code === "invalid_input"
+    || code === "a11y_node_not_found";
+}
+
+function assert_usage_or_honest_non_usage(reply, label, token) {
+  ensure(!output_success(reply),
+    "cu_linux_tree_honesty_" + label + "_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  const command = text_at(reply, "command");
+  if (code === "usage" || command === "usage") {
+    ensure(
+      code === "usage",
+      "cu_linux_tree_honesty_" + label + "_code:" + JSON.stringify(reply.error)
+    );
+    ensure(
+      command === "usage",
+      "cu_linux_tree_honesty_" + label + "_command:" + JSON.stringify(reply)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(reply, "error.message"), token),
+      "cu_linux_tree_honesty_" + label + "_message:" + JSON.stringify(reply.error)
+    );
+  } else {
+    ensure(
+      command !== "usage" && honest_non_usage_code(code),
+      "cu_linux_tree_honesty_" + label + "_honest:" + JSON.stringify(reply)
+    );
+    ensure(
+      JSON.stringify(reply).indexOf("coordinate") < 0
+        && JSON.stringify(reply).indexOf("XTest") < 0,
+      "cu_linux_tree_honesty_" + label + "_degraded:" + JSON.stringify(reply)
+    );
+  }
+}
+
 function assert_tree_usage_limit(run_directory, executable) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "tree", "--window", "0",
@@ -203,89 +248,35 @@ function assert_tree_usage_limit(run_directory, executable) {
     "cu_linux_tree_honesty_elements_name_message:" + JSON.stringify(elements_with_name.error)
   );
 
-  const elements_with_bogus = run_cu_reply(run_directory, executable, "observe", [
+  assert_usage_or_honest_non_usage(run_cu_reply(run_directory, executable, "observe", [
     "elements", "--window", "1",
     "--depth", "" + TREE_DEPTH,
     "--max-nodes", "" + MAX_NODES,
     "--bogus",
-  ]);
-  ensure(!output_success(elements_with_bogus),
-    "cu_linux_tree_honesty_elements_bogus_ok:" + JSON.stringify(elements_with_bogus));
-  ensure(
-    text_at(elements_with_bogus, "error.code") === "usage",
-    "cu_linux_tree_honesty_elements_bogus_code:" + JSON.stringify(elements_with_bogus.error)
-  );
-  ensure(
-    text_at(elements_with_bogus, "command") === "usage",
-    "cu_linux_tree_honesty_elements_bogus_command:" + JSON.stringify(elements_with_bogus)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(elements_with_bogus, "error.message"), "--bogus"),
-    "cu_linux_tree_honesty_elements_bogus_message:" + JSON.stringify(elements_with_bogus.error)
-  );
+  ]), "elements_bogus", "--bogus");
 
-  const elements_with_coords = run_cu_reply(run_directory, executable, "observe", [
+  assert_usage_or_honest_non_usage(run_cu_reply(run_directory, executable, "observe", [
     "elements", "--window", "1",
     "--depth", "" + TREE_DEPTH,
     "--max-nodes", "" + MAX_NODES,
     "--coords", "10,10",
-  ]);
-  ensure(!output_success(elements_with_coords),
-    "cu_linux_tree_honesty_elements_coords_ok:" + JSON.stringify(elements_with_coords));
-  ensure(
-    text_at(elements_with_coords, "error.code") === "usage",
-    "cu_linux_tree_honesty_elements_coords_code:" + JSON.stringify(elements_with_coords.error)
-  );
-  ensure(
-    text_at(elements_with_coords, "command") === "usage",
-    "cu_linux_tree_honesty_elements_coords_command:" + JSON.stringify(elements_with_coords)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(elements_with_coords, "error.message"), "--coords"),
-    "cu_linux_tree_honesty_elements_coords_message:" + JSON.stringify(elements_with_coords.error)
-  );
+  ]), "elements_coords", "--coords");
 
-  const with_bogus = run_cu_reply(run_directory, executable, "observe", [
+  assert_usage_or_honest_non_usage(run_cu_reply(run_directory, executable, "observe", [
     "tree", "--window", "1",
     "--depth", "" + TREE_DEPTH,
     "--max-nodes", "" + MAX_NODES,
     "--flat",
     "--bogus",
-  ]);
-  ensure(!output_success(with_bogus), "cu_linux_tree_honesty_bogus_ok:" + JSON.stringify(with_bogus));
-  ensure(
-    text_at(with_bogus, "error.code") === "usage",
-    "cu_linux_tree_honesty_bogus_code:" + JSON.stringify(with_bogus.error)
-  );
-  ensure(
-    text_at(with_bogus, "command") === "usage",
-    "cu_linux_tree_honesty_bogus_command:" + JSON.stringify(with_bogus)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
-    "cu_linux_tree_honesty_bogus_message:" + JSON.stringify(with_bogus.error)
-  );
+  ]), "bogus", "--bogus");
 
-  const with_coords = run_cu_reply(run_directory, executable, "observe", [
+  assert_usage_or_honest_non_usage(run_cu_reply(run_directory, executable, "observe", [
     "tree", "--window", "1",
     "--depth", "" + TREE_DEPTH,
     "--max-nodes", "" + MAX_NODES,
     "--flat",
     "--coords", "10,10",
-  ]);
-  ensure(!output_success(with_coords), "cu_linux_tree_honesty_coords_ok:" + JSON.stringify(with_coords));
-  ensure(
-    text_at(with_coords, "error.code") === "usage",
-    "cu_linux_tree_honesty_coords_code:" + JSON.stringify(with_coords.error)
-  );
-  ensure(
-    text_at(with_coords, "command") === "usage",
-    "cu_linux_tree_honesty_coords_command:" + JSON.stringify(with_coords)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords"),
-    "cu_linux_tree_honesty_coords_message:" + JSON.stringify(with_coords.error)
-  );
+  ]), "coords", "--coords");
 }
 
 function assert_get_extents_usage_limit(run_directory, executable, env) {
@@ -367,6 +358,10 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AT_SPI_BUS_ADDRESS: "invalid",
   });
   ensure(!output_success(reply), "cu_linux_tree_honesty_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "command") !== "usage",
+    "cu_linux_tree_honesty_extents_unavailable_fake_usage:" + JSON.stringify(reply)
+  );
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
@@ -394,8 +389,16 @@ function assert_tree_host_limit_when_atspi_absent(run_directory, executable) {
     "--depth", "" + TREE_DEPTH,
     "--max-nodes", "" + MAX_NODES,
     "--flat",
-  ], { AGENTERM_NO_ACTIVATE: "1", AT_SPI_BUS_ADDRESS: "invalid" });
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
   ensure(!output_success(reply), "cu_linux_tree_honesty_unavailable_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "command") !== "usage",
+    "cu_linux_tree_honesty_unavailable_fake_usage:" + JSON.stringify(reply)
+  );
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
@@ -410,6 +413,52 @@ function assert_tree_host_limit_when_atspi_absent(run_directory, executable) {
       "cu_linux_tree_honesty_unavailable_message:" + JSON.stringify(reply.error)
     );
   }
+}
+
+function assert_fixture_process_state(run_directory, executable, fixture_pid) {
+  const process_state = run_cu(run_directory, executable, "observe", [
+    "process-state", "--pid", "" + fixture_pid,
+  ]);
+  ensure(
+    text_at(process_state, "command") === "process-state",
+    "cu_linux_tree_honesty_process_state_command:" + JSON.stringify(process_state)
+  );
+  ensure(
+    int_at(process_state, "data.pid") === fixture_pid
+      && text_at(process_state, "data.state") === "live"
+      && text_at(process_state, "data.start_identity") !== ""
+      && flag_at(process_state, "data.verified"),
+    "cu_linux_tree_honesty_process_state:" + JSON.stringify(process_state.data)
+  );
+}
+
+function assert_fixture_desktop_state(
+  run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+) {
+  const state = run_cu(run_directory, executable, "observe", [
+    "desktop-state", "--window", handle_text,
+    "--depth", "" + DESKTOP_STATE_DEPTH,
+    "--max-nodes", "" + DESKTOP_STATE_MAX_NODES,
+  ]);
+  ensure(
+    text_at(state, "command") === "desktop-state",
+    "cu_linux_tree_honesty_desktop_state_command:" + JSON.stringify(state)
+  );
+  ensure(
+    int_at(state, "data.window.handle") === int_at(inventory_row, "handle")
+      && text_at(state, "data.window.title") === fixture_title
+      && text_at(state, "data.window.title") === text_at(inventory_row, "title")
+      && int_at(state, "data.window.process_id") === fixture_pid,
+    "cu_linux_tree_honesty_desktop_state_window:" + JSON.stringify({
+      state: state.data.window,
+      inventory: inventory_row,
+    })
+  );
+  ensure(
+    int_at(state, "data.tree.returned") > 0
+      && int_at(state, "data.tree.returned") <= DESKTOP_STATE_MAX_NODES,
+    "cu_linux_tree_honesty_desktop_state_tree:" + JSON.stringify(state.data.tree)
+  );
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -613,18 +662,20 @@ const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP tree/elements typed-fails usage when --window handle is zero or AT-SPI --name/--coords/--bogus is present (usage_rejects_unexpected)");
+  print("STEP tree/elements typed-fails usage when --window handle is zero or AT-SPI --name/--coords/--bogus is present (usage_rejects_unexpected + command=usage, or honest non-usage typed failure; never fake command=usage)");
   assert_tree_usage_limit(run_directory, executable);
 
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected) before tree read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (command=usage) before process-state/desktop-state and tree observe/read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
-  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before tree read-back court");
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before process-state/desktop-state and tree observe/read-back court");
   assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
+  print("STEP tree typed-fail host-limit when AT-SPI bus address is invalid before process-state/desktop-state and tree observe/read-back court");
+  assert_tree_host_limit_when_atspi_absent(run_directory, executable);
+
   if (!atspi_available) {
-    print("STEP tree typed-fail host-limit when independent pyatspi desktop probe is unavailable");
-    assert_tree_host_limit_when_atspi_absent(run_directory, executable);
+    print("STEP independent pyatspi desktop probe unavailable: get-extents usage AND host-limit already held; tree read-back requires pyatspi");
     succeeded = 1;
   } else {
     print("STEP start owned GTK fixture and resolve one window handle");
@@ -647,6 +698,15 @@ try {
   ensure(inventory_row !== null, "cu_linux_tree_honesty_inventory_missing");
   const handle = int_at(inventory_row, "handle");
   ensure(handle > 0, "cu_linux_tree_honesty_handle:" + JSON.stringify(inventory_row));
+  const handle_text = "" + handle;
+
+  print("STEP process-state binds the owned fixture pid before tree observe/read-back court");
+  assert_fixture_process_state(run_directory, executable, fixture_pid);
+
+  print("STEP desktop-state window row agrees with inventory before tree observe/read-back court");
+  assert_fixture_desktop_state(
+    run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+  );
 
   print("STEP CU tree --flat returns a bounded flat projection for the fixture window");
   const tree = run_cu(run_directory, executable, "observe", [
@@ -707,9 +767,9 @@ if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux tree --flat names/roles/states match independent AT-SPI dump with typed tree/elements --name/--coords/--bogus usage_rejects_unexpected and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux tree --flat names/roles/states match independent AT-SPI dump with typed tree/elements --name/--coords/--bogus usage_rejects_unexpected or honest non-usage (never fake command=usage), get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (no atspi gating), and process-state/desktop-state courts before observe (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux tree typed-fails with typed tree/elements --name/--coords/--bogus usage_rejects_unexpected and get-extents --name host-limit honesty when independent pyatspi desktop probe is unavailable");
+    print("PASS: Linux tree typed-fails with typed tree/elements --name/--coords/--bogus usage_rejects_unexpected or honest non-usage (never fake command=usage) and get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }

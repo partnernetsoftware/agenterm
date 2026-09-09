@@ -6392,7 +6392,7 @@
     },
     {
       "id": "cu-linux-tree-honesty-smoke",
-      "description": "Linux tree --flat names/roles/states match independent pyatspi BFS dump with depth/max-nodes budget honesty; volatile focus/active/armed/selected excluded; typed tree/elements --name/--coords/--bogus usage (usage_rejects_unexpected); typed get-extents --name usage AND host-limit (usage_rejects_unexpected --coords/--bogus) before tree observe/read-back court; typed usage and AT-SPI host-limit when pyatspi unavailable; AT-SPI/--name only, no --coords.",
+      "description": "Linux tree --flat names/roles/states match independent pyatspi BFS dump; volatile focus/active/armed/selected excluded; tree/elements --name/--coords/--bogus usage_rejects_unexpected or honest non-usage (never fake command=usage); get-extents --name usage AND host-limit always run, --coords/--bogus command=usage, no atspi gating, before process-state/desktop-state and tree observe/read-back; process-state/desktop-state fixture binding courts; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-tree-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
