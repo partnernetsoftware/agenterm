@@ -361,6 +361,8 @@
         "cu.linux-external-terminal-observe",
         "cu.linux-external-terminal-send",
         "cu.linux-pty-missing-sock",
+        "cu.linux-pty-present-sock",
+        "cu.linux-pty-stale-sock",
         "cu.linux-pty-start",
         "cu.linux-pty-send",
         "cu.linux-pty-wait",

@@ -5617,7 +5617,7 @@
     },
     {
       "id": "cu-linux-pty-smoke",
-      "description": "Linux headless PTY + AgenTerm Unix-socket honesty: pty-start/read/send/wait with independent socket and base64 read-back; absent authority typed pty_job_not_found with control unavailable; abi-dev, no --coords.",
+      "description": "Linux headless PTY + AgenTerm Unix-socket honesty: typed usage rejects AT-SPI --name; pty-start/read/send/wait with independent socket, process-sockets listener, and base64 read-back; missing/stale authority typed pty_job_not_found with ENOENT/ECONNREFUSED transport and independent socket-node proof across observe and actuate verbs; abi-dev, no --coords.",
       "entry": "scripts/qjs/cu-linux-pty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5734,7 +5734,7 @@
     },
     {
       "id": "cu-linux-terminal-shallow-tree-smoke",
-      "description": "Linux xfce4-terminal without AT-SPI registration: terminal-list typed-fails control_unavailable with independent absent AgenTerm sock proof before fixture; capabilities/doctor document terminal_a11y_shallow_tree host limit plus pty-*/terminal-* alternatives; windows --pid/--title agree; tree --window visited=1 frame read-back agrees with independent xprop _NET_WM_NAME and xwininfo Map State; term-read terminal_buffer_not_found and pyatspi zero registered roots; no --coords.",
+      "description": "Linux xfce4-terminal without AT-SPI registration: terminal-list usage/control_unavailable with absent-socket proof before fixture; capabilities/doctor document terminal_a11y_shallow_tree plus pty-*/terminal-* alternatives; windows --pid/--title agree; tree visited=1 frame read-back with xprop/xwininfo; term-read/term-send/term-wait terminal_buffer_not_found, query zero terminal matches, get-text --name a11y_text_unavailable, pyatspi zero roots/roles; no --coords.",
       "entry": "scripts/qjs/cu-linux-terminal-shallow-tree-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

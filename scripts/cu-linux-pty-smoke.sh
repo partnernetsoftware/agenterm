@@ -67,6 +67,61 @@ if not payload.get("ok") or payload.get("command") != want:
 PY
 }
 
+json_payload_from_mixed_output() {
+  python3 - "$1" <<'PY'
+import json, sys
+text = sys.argv[1].strip()
+for line in reversed(text.splitlines()):
+    line = line.strip()
+    if not line.startswith("{"):
+        continue
+    try:
+        payload = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    if isinstance(payload, dict):
+        print(json.dumps(payload))
+        raise SystemExit(0)
+raise SystemExit(f"mixed output lacked JSON payload: {text!r}")
+PY
+}
+
+assert_usage_rejects_name() {
+  local verb="$1"
+  local grant="$2"
+  shift 2
+  local raw
+  raw="$(cu_json --target current --grant "$grant" "$verb" "$JOB" "$@" --name "Court Anchor" 2>&1 || true)"
+  local payload
+  payload="$(json_payload_from_mixed_output "$raw")"
+  assert_code "$payload" "usage"
+  python3 - "$payload" "$verb" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+verb = sys.argv[2]
+message = (payload.get("error") or {}).get("message") or ""
+want = f'{verb} received unexpected "--name"'
+if message != want:
+    raise SystemExit(f"unexpected usage message: {message}")
+PY
+}
+
+assert_usage_rejects_send_without_text() {
+  local raw
+  raw="$(cu_json --target current --grant actuate pty-send "$JOB" 2>&1 || true)"
+  local payload
+  payload="$(json_payload_from_mixed_output "$raw")"
+  assert_code "$payload" "usage"
+  python3 - "$payload" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+message = (payload.get("error") or {}).get("message") or ""
+want = "pty-send requires exactly one non-empty text argument after --; quote text containing spaces"
+if message != want:
+    raise SystemExit(f"unexpected usage message: {message}")
+PY
+}
+
 socket_path_for_scope() {
   python3 - "$1" <<'PY'
 import json, sys
@@ -243,6 +298,35 @@ if matches[0] != expected:
 PY
 }
 
+independent_process_sockets_listen_readback() {
+  local pid="$1"
+  local sock="$2"
+  local payload
+  payload="$(cu_json --target current --grant observe process-sockets --pid "$pid" --family unix)"
+  python3 - "$payload" "$sock" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+sock = sys.argv[2]
+if not payload.get("ok") or payload.get("command") != "process-sockets":
+    raise SystemExit(f"unexpected process-sockets reply: {payload}")
+rows = (payload.get("data") or {}).get("sockets") or []
+listeners = [
+    row for row in rows
+    if row.get("family") == "Unix"
+    and row.get("endpoint") == sock
+    and row.get("state") == "unconnected"
+]
+if len(listeners) != 1:
+    raise SystemExit(f"independent process-sockets listener rows for {sock}: {rows}")
+PY
+}
+
+echo "STEP typed usage rejects AT-SPI --name on pty verbs before any authority exists"
+assert_usage_rejects_name "pty-read" "observe"
+assert_usage_rejects_name "pty-status" "observe"
+assert_usage_rejects_name "pty-wait" "observe" --contains noop
+assert_usage_rejects_send_without_text
+
 echo "STEP missing authority typed-fails pty_job_not_found before any state exists"
 [[ ! -e "$STATE_DIR" ]] || { echo "FAIL: state dir pre-exists: $STATE_DIR" >&2; exit 1; }
 MISSING_STATUS="$(cu_json --target current --grant observe pty-status "$JOB" 2>&1 || true)"
@@ -251,10 +335,22 @@ assert_pty_host_limit_detail "$MISSING_STATUS" "$JOB" "missing"
 MISSING_READ="$(cu_json --target current --grant observe pty-read "$JOB" 2>&1 || true)"
 assert_code "$MISSING_READ" "pty_job_not_found"
 assert_pty_host_limit_detail "$MISSING_READ" "$JOB" "missing"
+MISSING_SEND="$(cu_json --target current --grant actuate pty-send "$JOB" -- noop 2>&1 || true)"
+assert_code "$MISSING_SEND" "pty_job_not_found"
+assert_pty_host_limit_detail "$MISSING_SEND" "$JOB" "missing"
+MISSING_WAIT="$(cu_json --target current --grant observe pty-wait "$JOB" --contains "$TOKEN" --timeout-ms 1000 2>&1 || true)"
+assert_code "$MISSING_WAIT" "pty_job_not_found"
+assert_pty_host_limit_detail "$MISSING_WAIT" "$JOB" "missing"
 MISSING_SOCK="$(socket_path_from_transport "$MISSING_READ")"
 MISSING_STATUS_SOCK="$(socket_path_from_transport "$MISSING_STATUS")"
 [[ "$MISSING_STATUS_SOCK" == "$MISSING_SOCK" ]] || {
   echo "FAIL: missing transport socket disagrees across observe verbs: $MISSING_STATUS_SOCK != $MISSING_SOCK" >&2
+  exit 1
+}
+MISSING_SEND_SOCK="$(socket_path_from_transport "$MISSING_SEND")"
+MISSING_WAIT_SOCK="$(socket_path_from_transport "$MISSING_WAIT")"
+[[ "$MISSING_SEND_SOCK" == "$MISSING_SOCK" && "$MISSING_WAIT_SOCK" == "$MISSING_SOCK" ]] || {
+  echo "FAIL: missing transport socket disagrees across actuate/observe verbs: send=$MISSING_SEND_SOCK wait=$MISSING_WAIT_SOCK read=$MISSING_SOCK" >&2
   exit 1
 }
 independent_missing_sock_absent "$MISSING_SOCK"
@@ -270,6 +366,7 @@ SOCK="$(socket_path_for_scope "$SCOPE")"
 }
 independent_runtime_socket_matches "$SCOPE" "$SOCK"
 independent_socket_live "$SOCK"
+independent_process_sockets_listen_readback "$SERVER_PID" "$SOCK"
 PRESENT_STATUS="$(cu_json --target current --grant observe pty-status "$JOB")"
 assert_present_pty_status_readback "$PRESENT_STATUS" "$JOB" "$SCOPE" "$SOCK"
 
@@ -301,6 +398,12 @@ assert_pty_host_limit_detail "$STALE_READ" "$JOB" "stale"
 STALE_STATUS="$(cu_json --target current --grant observe pty-status "$JOB" 2>&1 || true)"
 assert_code "$STALE_STATUS" "pty_job_not_found"
 assert_pty_host_limit_detail "$STALE_STATUS" "$JOB" "stale"
+STALE_SEND="$(cu_json --target current --grant actuate pty-send "$JOB" -- noop 2>&1 || true)"
+assert_code "$STALE_SEND" "pty_job_not_found"
+assert_pty_host_limit_detail "$STALE_SEND" "$JOB" "stale"
+STALE_WAIT="$(cu_json --target current --grant observe pty-wait "$JOB" --contains "$TOKEN" --timeout-ms 1000 2>&1 || true)"
+assert_code "$STALE_WAIT" "pty_job_not_found"
+assert_pty_host_limit_detail "$STALE_WAIT" "$JOB" "stale"
 STALE_SOCK="$(socket_path_from_transport "$STALE_READ")"
 STALE_STATUS_SOCK="$(socket_path_from_transport "$STALE_STATUS")"
 [[ "$STALE_SOCK" == "$SOCK" ]] || {
@@ -311,6 +414,12 @@ STALE_STATUS_SOCK="$(socket_path_from_transport "$STALE_STATUS")"
   echo "FAIL: stale transport socket disagrees across observe verbs: $STALE_STATUS_SOCK != $STALE_SOCK" >&2
   exit 1
 }
+STALE_SEND_SOCK="$(socket_path_from_transport "$STALE_SEND")"
+STALE_WAIT_SOCK="$(socket_path_from_transport "$STALE_WAIT")"
+[[ "$STALE_SEND_SOCK" == "$STALE_SOCK" && "$STALE_WAIT_SOCK" == "$STALE_SOCK" ]] || {
+  echo "FAIL: stale transport socket disagrees across actuate/observe verbs: send=$STALE_SEND_SOCK wait=$STALE_WAIT_SOCK read=$STALE_SOCK" >&2
+  exit 1
+}
 independent_stale_sock_unreachable "$STALE_SOCK"
 
 echo "STEP pty-stop + pty-prune reclaim stale state"
@@ -319,4 +428,4 @@ PRUNE="$(cu_json --target current --grant actuate pty-prune "$JOB" --expect stal
 assert_ok_command "$PRUNE" "pty-prune"
 [[ ! -e "$STATE_DIR" ]] || { echo "FAIL: state dir remains after prune: $STATE_DIR" >&2; exit 1; }
 
-echo "PASS: Linux pty missing/stale/present sock host-limit read-back with independent transport, instance, and socket-node proof"
+echo "PASS: Linux pty typed-usage/missing/stale/present sock host-limit read-back with independent transport, process-sockets, instance, and socket-node proof"

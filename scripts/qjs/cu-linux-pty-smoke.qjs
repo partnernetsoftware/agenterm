@@ -1,9 +1,12 @@
 // CEO: Linux headless PTY + AgenTerm Unix-socket honesty with independent read-back.
 // Proves pty-start / pty-send / pty-wait / pty-read on a live authority and typed
 // pty_job_not_found when the deterministic Unix socket authority is missing or stale.
-// Present authority uses independent runtime path, fuser, connect, and pty-status
-// instance/scope read-back; missing authority uses ENOENT transport + absent socket
-// node proof; stale authority uses ECONNREFUSED transport + dead socket node proof.
+// Typed usage rejects AT-SPI --name on observe pty verbs and missing -- text on pty-send
+// before any authority exists. Present
+// authority uses independent runtime path, fuser, connect, process-sockets listener
+// read-back, and pty-status instance/scope proof; missing authority uses ENOENT
+// transport plus absent socket node proof across observe and actuate verbs; stale
+// authority uses ECONNREFUSED transport plus dead socket node proof.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -12,6 +15,8 @@ import * as harness from "lib/test_harness";
 
 const declared_evidence = [
   "cu.linux-pty-missing-sock",
+  "cu.linux-pty-present-sock",
+  "cu.linux-pty-stale-sock",
   "cu.linux-pty-start",
   "cu.linux-pty-send",
   "cu.linux-pty-wait",
@@ -73,9 +78,11 @@ ensure(
 
 const context = harness.new_context(repo, "cu-linux-pty");
 harness.emit_evidence(context, declared_evidence, "cu.linux-pty-missing-sock");
+harness.emit_evidence(context, declared_evidence, "cu.linux-pty-present-sock");
+harness.emit_evidence(context, declared_evidence, "cu.linux-pty-stale-sock");
 harness.emit_evidence(context, declared_evidence, "cu.linux-pty-start");
 harness.emit_evidence(context, declared_evidence, "cu.linux-pty-send");
 harness.emit_evidence(context, declared_evidence, "cu.linux-pty-wait");
 harness.emit_evidence(context, declared_evidence, "cu.linux-pty-read");
 harness.remove_run(context);
-print("PASS: Linux PTY missing/stale/present sock host-limit honesty with independent read-back");
+print("PASS: Linux PTY typed-usage/missing/stale/present sock host-limit honesty with independent read-back");
