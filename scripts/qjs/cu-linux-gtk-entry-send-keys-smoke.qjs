@@ -1,10 +1,12 @@
 // CEO#10: GTK entry semantic modifier chords by --name.
 // Plant SEED with send-text, move caret with ctrl+home/ctrl+end, select-all
 // with ctrl+a, clear with backspace. Independent get-caret/get-selection/
-// get-text prove each chord mutated the entry. Typed usage and host-limit
-// paths must hold when --window/--name are missing or the AT-SPI bus is
-// unavailable; miss paths must not mutate the entry (independent get-text
-// read-back). AT-SPI --name only; no --coords or screenshot degradation.
+// get-text prove each chord mutated the entry. Typed send-keys usage and
+// host-limit paths must hold when --window/--name are missing or the AT-SPI
+// bus is unavailable; typed get-extents --name usage/host-limit paths must
+// hold before the native actuate/read-back court; miss paths must not mutate
+// the entry (independent get-text read-back). AT-SPI --name only; no --coords
+// or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -97,6 +99,19 @@ function run_cu(run_directory, executable, grant, arguments, env) {
   return document;
 }
 
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_gtk_entry_send_keys_extents_cli:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
 function probe_atspi_available(executable) {
   const script = [
     "import sys",
@@ -181,6 +196,38 @@ function assert_send_keys_unsupported_chord(run_directory, executable, handle) {
   );
 }
 
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", ENTRY_NAME,
+  ], env);
+  ensure(!output_success(zero_handle), "cu_linux_gtk_entry_send_keys_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_gtk_entry_send_keys_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_gtk_entry_send_keys_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", ENTRY_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_gtk_entry_send_keys_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_gtk_entry_send_keys_extents_unavailable_code:" + code
+  );
+}
+
 function assert_send_keys_host_limit_when_atspi_absent(run_directory, executable) {
   const env = {
     AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
@@ -195,6 +242,16 @@ function assert_send_keys_host_limit_when_atspi_absent(run_directory, executable
   ensure(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
     "cu_linux_gtk_entry_send_keys_unavailable_code:" + code
+  );
+
+  const get_text_reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", "1", "--name", ENTRY_NAME,
+  ], env);
+  ensure(!output_success(get_text_reply), "cu_linux_gtk_entry_send_keys_get_text_unavailable_ok:" + JSON.stringify(get_text_reply));
+  const get_text_code = text_at(get_text_reply, "error.code");
+  ensure(
+    get_text_code === "a11y_backend_failed" || get_text_code === "unsupported" || get_text_code === "bad_handle",
+    "cu_linux_gtk_entry_send_keys_get_text_unavailable_code:" + get_text_code
   );
 }
 
@@ -259,14 +316,23 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
 try {
   print("STEP send-keys typed-fail usage when --window or --name is missing or the chord is unsupported");
   assert_send_keys_usage_limit(run_directory, executable);
 
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
   if (!atspi_available) {
-    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    print("STEP send-keys/get-text typed-fail host-limit when independent pyatspi desktop probe is unavailable");
     assert_send_keys_host_limit_when_atspi_absent(run_directory, executable);
     succeeded = 1;
   } else {
@@ -491,7 +557,7 @@ if (fixture >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_gtk_entry_send_keys_failed");
 if (atspi_available) {
-  print("PASS: CEO#10 GTK entry semantic modifier chords by --name with independent get-caret/get-selection/clipboard-read/get-text read-back and usage/miss/host-limit honesty");
+  print("PASS: CEO#10 GTK entry semantic modifier chords by --name with independent get-caret/get-selection/clipboard-read/get-text read-back and typed send-keys/get-extents usage/miss/host-limit honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: CEO#10 GTK entry send-keys typed-fails when independent pyatspi desktop probe is unavailable");
+  print("PASS: CEO#10 GTK entry send-keys/get-text typed-fails with typed get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
 }
