@@ -1,7 +1,9 @@
 // CEO: Linux raise + activate with independent windows inventory read-back.
 // activate must make the exact disposable window foreground; raise must
 // restack within the foreground application without changing the desktop
-// frontmost pid. No --coords, no screenshot degradation.
+// frontmost pid. Typed usage, missing-window and headless host-limit paths
+// must hold before any owned fixture window exists. AT-SPI inventory
+// handles only; no --name, no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -12,6 +14,8 @@ const declared_evidence = [
   "cu.linux-atspi-window-activate",
   "cu.linux-atspi-raise",
 ];
+
+const MISSING_HANDLE = "99999999";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -42,6 +46,7 @@ function int_at(value, dotted) {
 function cu_env(executable) {
   const env = {
     AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
   };
   for (const key of [
     "DISPLAY",
@@ -58,31 +63,145 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu_reply(run_directory, executable, grant, arguments) {
+function run_cu_reply(run_directory, executable, grant, arguments, env, env_remove) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of arguments) { argv.push("" + argument); }
-  const output = rh.command(executable, argv, {
-    cwd: run_directory,
-    env: cu_env(executable),
+  const spec = {
+    program: executable,
+    args: argv,
+    current_dir: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
-  });
+  };
+  if (env_remove !== undefined && env_remove.length > 0) { spec.env_remove = env_remove; }
+  const output = rh.command_spec(spec);
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_linux_raise_activate_empty:" + output.stderr);
   return JSON.parse(trimmed);
 }
 
+function output_success(document) { return flag_at(document, "ok"); }
+
 function run_cu(run_directory, executable, grant, arguments) {
-  const output = rh.command(executable, ["--target", "current", "--grant", grant].concat(arguments), {
-    cwd: run_directory,
-    env: cu_env(executable),
-    timeout_ms: 45000,
-  });
-  ensure(output.success === true, "cu_linux_raise_activate_cli:" + output.stdout + output.stderr);
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_raise_activate_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_raise_activate_reply:" + JSON.stringify(document));
+  const document = run_cu_reply(run_directory, executable, grant, arguments);
+  ensure(output_success(document), "cu_linux_raise_activate_reply:" + JSON.stringify(document));
   return document;
+}
+
+function assert_activate_raise_usage_limit(run_directory, executable) {
+  const missing_activate = run_cu_reply(run_directory, executable, "actuate", ["activate"]);
+  ensure(!output_success(missing_activate), "cu_linux_raise_activate_usage_activate_ok:" + JSON.stringify(missing_activate));
+  ensure(
+    text_at(missing_activate, "error.code") === "usage",
+    "cu_linux_raise_activate_usage_activate_code:" + JSON.stringify(missing_activate.error)
+  );
+  ensure(
+    text_at(missing_activate, "error.message").indexOf("--window") >= 0,
+    "cu_linux_raise_activate_usage_activate_message:" + JSON.stringify(missing_activate.error)
+  );
+
+  const missing_raise = run_cu_reply(run_directory, executable, "actuate", ["raise"]);
+  ensure(!output_success(missing_raise), "cu_linux_raise_activate_usage_raise_ok:" + JSON.stringify(missing_raise));
+  ensure(
+    text_at(missing_raise, "error.code") === "usage",
+    "cu_linux_raise_activate_usage_raise_code:" + JSON.stringify(missing_raise.error)
+  );
+  ensure(
+    text_at(missing_raise, "error.message").indexOf("--window") >= 0,
+    "cu_linux_raise_activate_usage_raise_message:" + JSON.stringify(missing_raise.error)
+  );
+
+  const zero_activate = run_cu_reply(run_directory, executable, "actuate", [
+    "activate", "--window", "0",
+  ]);
+  ensure(!output_success(zero_activate), "cu_linux_raise_activate_zero_activate_ok:" + JSON.stringify(zero_activate));
+  ensure(
+    text_at(zero_activate, "error.code") === "usage",
+    "cu_linux_raise_activate_zero_activate_code:" + JSON.stringify(zero_activate.error)
+  );
+  ensure(
+    text_at(zero_activate, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_raise_activate_zero_activate_message:" + JSON.stringify(zero_activate.error)
+  );
+
+  const zero_raise = run_cu_reply(run_directory, executable, "actuate", [
+    "raise", "--window", "0",
+  ]);
+  ensure(!output_success(zero_raise), "cu_linux_raise_activate_zero_raise_ok:" + JSON.stringify(zero_raise));
+  ensure(
+    text_at(zero_raise, "error.code") === "usage",
+    "cu_linux_raise_activate_zero_raise_code:" + JSON.stringify(zero_raise.error)
+  );
+  ensure(
+    text_at(zero_raise, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_raise_activate_zero_raise_message:" + JSON.stringify(zero_raise.error)
+  );
+
+  const stray_flag = run_cu_reply(run_directory, executable, "actuate", [
+    "raise", "--window", "1", "--force",
+  ]);
+  ensure(!output_success(stray_flag), "cu_linux_raise_activate_stray_flag_ok:" + JSON.stringify(stray_flag));
+  ensure(
+    text_at(stray_flag, "error.code") === "usage",
+    "cu_linux_raise_activate_stray_flag_code:" + JSON.stringify(stray_flag.error)
+  );
+  ensure(
+    text_at(stray_flag, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_raise_activate_stray_flag_message:" + JSON.stringify(stray_flag.error)
+  );
+}
+
+function assert_activate_raise_missing_window(run_directory, executable) {
+  const missing_activate = run_cu_reply(run_directory, executable, "actuate", [
+    "activate", "--window", MISSING_HANDLE,
+  ]);
+  ensure(!output_success(missing_activate), "cu_linux_raise_activate_missing_activate_ok:" + JSON.stringify(missing_activate));
+  ensure(
+    text_at(missing_activate, "error.code") === "window_not_found",
+    "cu_linux_raise_activate_missing_activate_code:" + JSON.stringify(missing_activate.error)
+  );
+  ensure(
+    text_at(missing_activate, "error.message").indexOf(MISSING_HANDLE) >= 0,
+    "cu_linux_raise_activate_missing_activate_message:" + JSON.stringify(missing_activate.error)
+  );
+
+  const missing_raise = run_cu_reply(run_directory, executable, "actuate", [
+    "raise", "--window", MISSING_HANDLE,
+  ]);
+  ensure(!output_success(missing_raise), "cu_linux_raise_activate_missing_raise_ok:" + JSON.stringify(missing_raise));
+  ensure(
+    text_at(missing_raise, "error.code") === "window_not_found",
+    "cu_linux_raise_activate_missing_raise_code:" + JSON.stringify(missing_raise.error)
+  );
+  ensure(
+    text_at(missing_raise, "error.message").indexOf(MISSING_HANDLE) >= 0,
+    "cu_linux_raise_activate_missing_raise_message:" + JSON.stringify(missing_raise.error)
+  );
+}
+
+function assert_headless_host_limit(run_directory, executable, verb) {
+  const reply = run_cu_reply(
+    run_directory,
+    executable,
+    "actuate",
+    [verb, "--window", "1"],
+    {
+      AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+      AGENTERM_NO_ACTIVATE: "1",
+    },
+    ["DISPLAY"]
+  );
+  ensure(!output_success(reply), "cu_linux_raise_activate_headless_" + verb + "_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_raise_activate_headless_" + verb + "_code:" + JSON.stringify(reply.error)
+  );
+  const message = text_at(reply, "error.message").toLowerCase();
+  ensure(
+    message.indexOf("window enumeration") >= 0
+      || message.indexOf("mechanism unavailable") >= 0,
+    "cu_linux_raise_activate_headless_" + verb + "_message:" + JSON.stringify(reply.error)
+  );
 }
 
 function focused_row(run_directory, executable) {
@@ -138,6 +257,16 @@ const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const run_directory = rh.join(repo, "target/cu-linux-raise-activate-smoke-run");
 rh.create_dir_all(run_directory);
+
+print("STEP activate/raise typed-fail usage when --window is missing or zero");
+assert_activate_raise_usage_limit(run_directory, executable);
+
+print("STEP activate/raise typed-fail window_not_found when handle is absent from inventory");
+assert_activate_raise_missing_window(run_directory, executable);
+
+print("STEP activate/raise without DISPLAY typed-fail unsupported host-limit");
+assert_headless_host_limit(run_directory, executable, "activate");
+assert_headless_host_limit(run_directory, executable, "raise");
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
 ensure(direct_file(fixture_source), "cu_linux_raise_activate_fixture_missing:" + fixture_source);

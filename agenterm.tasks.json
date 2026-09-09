@@ -5968,7 +5968,7 @@
     },
     {
       "id": "cu-linux-raise-activate-smoke",
-      "description": "Linux activate and raise with independent windows --focused inventory read-back; background raise must fail foreground_changed; AT-SPI/--name only, no --coords.",
+      "description": "Linux activate and raise with independent windows --focused inventory read-back; typed usage/miss/host-limit before fixture; background raise must fail foreground_changed; AT-SPI inventory handles only, no --name, no --coords.",
       "entry": "scripts/qjs/cu-linux-raise-activate-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
