@@ -1,5 +1,5 @@
-// CEO: Linux CDP page-nav → page-fill → independent page-find value read-back.
-// Acceptance is page-find --selector value == SEED only; no --coords or screenshot.
+// CEO: Linux CDP page-nav → page-fill → independent page-js DOM value read-back.
+// Acceptance is page-js input.value == SEED only; no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -9,7 +9,7 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-cdp-page-nav",
   "cu.linux-cdp-page-fill",
-  "cu.linux-cdp-page-find-readback",
+  "cu.linux-cdp-page-fill-readback",
 ];
 
 function ensure(condition, message) {
@@ -79,6 +79,14 @@ function page_target(rows) {
     if (text_at(row, "type") === "page") { return row; }
   }
   return null;
+}
+
+function input_value(run_directory, executable, env, port, target_id) {
+  const read = run_cu(run_directory, executable, "observe", [
+    "page-js", "--port", "" + port, "--target-id", target_id,
+    "--expression", "document.getElementById('q').value",
+  ], env);
+  return text_at(read, "data.value");
 }
 
 const args = rh.args();
@@ -178,6 +186,13 @@ try {
   );
   const node_id = "" + found_nodes[0].node;
 
+  print("STEP independent page-js baseline proves #q starts empty before fill");
+  const before_value = input_value(run_directory, executable, env, port, target_id);
+  ensure(
+    before_value === "",
+    "cu_linux_cdp_page_fill_before:" + JSON.stringify({ value: before_value })
+  );
+
   print("STEP page-fill --clear writes SEED through CDP DOM focus + insertText");
   const filled = run_cu(run_directory, executable, "observe,actuate", [
     "page-fill", "--port", "" + port, "--target-id", target_id,
@@ -189,19 +204,17 @@ try {
   );
   harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-fill");
 
-  print("STEP independent page-find read-back proves the field value mutated to SEED");
-  const readback = run_cu(run_directory, executable, "observe", [
-    "page-find", "--port", "" + port, "--target-id", target_id, "--selector", "#q",
-  ], env);
-  const readback_nodes = at(readback, "data.nodes");
-  const value = readback_nodes === undefined || readback_nodes.length !== 1
-    ? ""
-    : "" + readback_nodes[0].value;
+  print("STEP independent page-js read-back proves the field value mutated to SEED");
+  let readback_value = "";
+  for (let attempt = 0; attempt < 40 && readback_value !== seed; attempt = attempt + 1) {
+    readback_value = input_value(run_directory, executable, env, port, target_id);
+    if (readback_value !== seed) { harness.sleep_ms(250); }
+  }
   ensure(
-    value === seed,
-    "cu_linux_cdp_page_fill_readback:" + JSON.stringify({ seed: seed, value: value })
+    readback_value === seed,
+    "cu_linux_cdp_page_fill_readback:" + JSON.stringify({ seed: seed, value: readback_value })
   );
-  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-find-readback");
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-fill-readback");
 
   succeeded = 1;
 } catch (error) {
@@ -214,5 +227,5 @@ if (chrome_child >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_cdp_page_fill_failed");
 harness.remove_run(context);
-print("PASS: CEO CDP page-nav → page-fill → page-find value read-back (no --coords)");
+print("PASS: CEO CDP page-nav → page-fill → independent page-js DOM read-back (no --coords)");
 return;

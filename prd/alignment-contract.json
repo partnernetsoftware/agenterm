@@ -196,7 +196,7 @@
         "cu.linux-chrome-text-get-text",
         "cu.linux-cdp-page-nav",
         "cu.linux-cdp-page-fill",
-        "cu.linux-cdp-page-find-readback",
+        "cu.linux-cdp-page-fill-readback",
         "cu.linux-cdp-page-click",
         "cu.linux-cdp-page-click-readback",
         "cu.linux-cdp-page-targets-readback",
