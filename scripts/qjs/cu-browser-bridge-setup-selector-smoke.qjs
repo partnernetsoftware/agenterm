@@ -234,6 +234,18 @@ try {
       && JSON.parse(invalid.stdout.trim()).error.code === "usage"
       && !rh.exists(registration_path(refused_home, "chrome")),
     "cu_browser_bridge_setup_duplicate_selector");
+  const unknown = rh.command(executable, [
+    "--target", "current", "--grant", "observe,actuate",
+    "browser-bridge-setup", "--browser", "foo"
+  ], {
+    cwd: refused_home,
+    env: isolated_env(refused_home, "unknown"),
+    timeout_ms: 30000
+  });
+  ensure(unknown.success === false
+      && JSON.parse(unknown.stdout.trim()).error.code === "usage"
+      && !rh.exists(registration_path(refused_home, "chrome")),
+    "cu_browser_bridge_setup_unknown_selector");
   succeeded = 1;
 } catch (error) {
   failure = "" + error;

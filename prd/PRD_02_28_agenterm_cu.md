@@ -685,7 +685,8 @@ ACU-only cutover
 │  │  ├─ [x] legacy setup maps its Chrome-only or Brave three-registration scope to
 │  │  │  repeated closed `--browser` selectors without widening to discovered Chromium/Edge
 │  │  │  └─ missing roots are reported but never created; unknown app labels and ignored
-│  │  │     profile/timeout flags are intentional typed boundaries
+│  │  │     profile/timeout flags are intentional typed boundaries; Windows rejects any
+│  │  │     selector set containing unmapped Brave-Origin before registering the remainder
 │  │  ├─ [ ] legacy reload and managed-profile lifecycle retain acu.dynamic.075 until their
 │  │  │  mutation scope, lease authority and persistent ownership models align
 │  │  └─ owned-profile macOS qjswasm court is wired; Linux/Windows native courts remain
