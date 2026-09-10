@@ -845,20 +845,21 @@
         {
           "id": "browser.profile.open",
           "mcu_shape": "browser open against one existing profile",
-          "acu_shape": "browser-open using one exact existing local profile on macOS",
+          "acu_shape": "browser-open resolves one exact existing Local State profile and launches its browser-specific window or URL with bounded live-window read-back",
           "state": "platform-limited",
-          "platforms": {"macos": "native-live-court-pending", "linux": "typed-unsupported", "windows": "typed-unsupported"},
+          "platforms": {"macos": "native-live-court-pending", "linux": "native-public-court-incomplete", "windows": "typed-unsupported-court-pending"},
           "qualification": {
             "schema": 2,
             "platforms": {
-              "linux": {"result": "pending", "blocker_code": "no-registered-public-actuation-evidence"},
+              "linux": {"result": "pending", "blocker_code": "owned-focus-cleanup-receipt-not-proven"},
               "macos": {"result": "pending", "blocker_code": "no-registered-public-actuation-evidence"},
               "windows": {"result": "pending", "blocker_code": "no-registered-public-actuation-evidence"}
             }
           },
           "evidence": [],
-          "note": "Opening is an actuating focus and live-window contract. Inventory evidence, shell-script anecdotes or a typed argument refusal cannot qualify it.",
-          "next": "run one owned-profile macOS public qjswasm court with receipt, exact profile/window read-back, focus accounting and cleanup; retain typed unsupported on Linux and Windows until native providers exist"
+          "declared_evidence": ["cu.linux-browser-open-window"],
+          "note": "Opening is an actuating focus and live-window contract. Inventory evidence, shell-script anecdotes or a typed argument refusal cannot qualify it. Linux already implements browser-open and registers cu-linux-browser-profiles-open-smoke, which proves one returned handle appears as a new Chrome window. That court is not qualification yet: it broadly kills matching Chrome processes before the run, does not own and close the launched browser window or process, emits evidence before exact cleanup, removes the run directory without validating or preserving any run-local effect receipt, and does not prove focus accounting. The evidence id is already present in qualification-gates, host-native-evidence-gates and alignment-contract; this cell records it only as declared evidence and does not accept it as qualification evidence or promote Linux.",
+          "next": "replace the Linux court's broad process cleanup with baseline-preserving owned lifecycle, exact profile/window/focus read-back, post-cleanup inventory and a durable receipt; audit whether this Linux-only evidence belongs in both qualification-gates and host-native-evidence-gates; run one equivalent owned-profile macOS public qjswasm court; retain Windows typed unsupported until its refusal has a public court"
         },
         {
           "id": "browser.managed-profile",

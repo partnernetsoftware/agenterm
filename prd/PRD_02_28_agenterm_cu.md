@@ -2995,7 +2995,10 @@ browser.profile
 │  ├─ macOS public qjswasm court green
 │  ├─ Linux native court pending
 │  └─ Windows provider landed · native court pending
-└─ [~] open · separate actuation/focus/live-window receipt court pending
+└─ [~] open · separate actuation/focus/live-window receipt
+   ├─ Linux implementation + public gate present · owned cleanup/focus/receipt pending
+   ├─ macOS native court pending
+   └─ Windows typed refusal court pending
 ```
 
 Profile inventory and profile opening are separate ledger leaves. The
@@ -3007,6 +3010,22 @@ browser or reads the real host profile. That evidence cannot qualify
 `browser-open`:
 opening owns actuation, focus accounting, a live profile/window postcondition,
 receipt closure and cleanup.
+
+The Linux `cu-linux-browser-profiles-open-smoke` is a declared intermediate
+gate, not qualification evidence for the open leaf. It proves that
+`browser-open` accepts the synthetic profile selector and that the returned
+handle appears as a new Chrome window, but its setup broadly kills matching
+Chrome processes, it does not own and close the launched browser object, it
+emits its token before exact cleanup, and it removes the run directory without
+validating or preserving any run-local effect receipt. Its evidence id is
+already present in the required, Linux host-native and alignment registries;
+this leaf deliberately does not cite it as qualification evidence, and the
+duplicate gate ownership remains a separate registration audit.
+The ledger therefore records Linux as `native-public-court-incomplete` rather
+than the stale `typed-unsupported`, while keeping the qualification result
+pending. A replacement court must preserve an arbitrary baseline, own only its
+delta, prove exact profile/window/focus state, close that delta, restore the
+baseline, and retain the receipt before this cell can turn green.
 
 ```mermaid
 flowchart LR
