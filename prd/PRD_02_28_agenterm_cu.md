@@ -3022,14 +3022,27 @@ handle appears as a new Chrome window, but its setup broadly kills matching
 Chrome processes, it does not own and close the launched browser object, it
 emits its token before exact cleanup, and it removes the run directory without
 validating or preserving any run-local effect receipt. Its evidence id is
-already present in the required, Linux host-native and alignment registries;
+already present in the registered catalog, Linux host-native and alignment
+registries;
 this leaf deliberately does not cite it as qualification evidence, and the
-duplicate gate ownership remains a separate registration audit.
+registered-catalog entry supplies public discovery while the host-native entry
+adds Linux platform ownership; neither makes it Candidate qualification
+evidence.
 The ledger therefore records Linux as `native-public-court-incomplete` rather
 than the stale `typed-unsupported`, while keeping the qualification result
 pending. A replacement court must preserve an arbitrary baseline, own only its
 delta, prove exact profile/window/focus state, close that delta, restore the
 baseline, and retain the receipt before this cell can turn green.
+
+The macOS court is preceded by the frozen singleton-safety precommitment in
+[`plan/design-browser-profile-open-singleton-safety-experiment.md`](../plan/design-browser-profile-open-singleton-safety-experiment.md).
+It tests only whether an `open -n <canonical bundle path>` request carrying the
+exact one-time user-data root is handed to an already-contained browser without
+leaving an uncontained process. This is a deliberately stronger mechanism than
+today's name-selected `open -na` product call; the result cannot validate that
+existing call. It does not call `browser-open`, qualify this cell or authorize
+evidence registration. A non-passing result leaves this leaf pending and
+forbids using a real Chromium Profile as a substitute fixture.
 
 ```mermaid
 flowchart LR
