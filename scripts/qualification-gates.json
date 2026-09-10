@@ -837,7 +837,6 @@
       "id": "cu-browser-session-smoke",
       "evidence": [
         "cu.browser-managed-profile.macos",
-        "cu.browser-bridge-owned-profile.macos",
         "cu.browser-profile-tabs.macos",
         "cu.browser-bridge-reload.macos",
         "cu.browser-bridge-nav.macos",
@@ -1026,6 +1025,13 @@
       "id": "cu-browser-bridge-setup-selector-smoke",
       "evidence": [
         "cu.browser-bridge-setup.synthetic-home"
+      ]
+    },
+    {
+      "id": "cu-browser-extension-reload-smoke",
+      "evidence": [
+        "cu.browser-bridge-owned-profile.macos",
+        "cu.browser-extension-reload-upgrade.macos"
       ]
     },
     {

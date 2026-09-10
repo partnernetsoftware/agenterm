@@ -546,11 +546,29 @@ require(unknown_profile_action.kind === "usage"
 const bridge_extension_reload = compat.canonicalize([
   "browser", "bridge", "reload", "--profile", "11111111"
 ]);
-require(bridge_extension_reload.kind === "todo"
-    && bridge_extension_reload.gap_id === "acu.dynamic.075.bridge-extension-reload"
-    && bridge_extension_reload.message.includes("extension-code reload")
-    && bridge_extension_reload.message.includes("only reconnects Native Messaging"),
-  "legacy extension reload must not alias the native connection reload");
+require(bridge_extension_reload.kind === "usage"
+    && bridge_extension_reload.code === "request_identity_required",
+  "legacy extension reload must require explicit durable request identity");
+const identified_bridge_extension_reload = compat.canonicalize([
+  "--request-id", "reload-request", "--session", "reload-session",
+  "--session-lease", "reload-lease", "browser", "bridge", "reload",
+  "--profile", "11111111", "--force"
+]);
+require(identified_bridge_extension_reload.kind === "bridge-extension-reload"
+    && identified_bridge_extension_reload.profile === "11111111"
+    && identified_bridge_extension_reload.force === true
+    && identified_bridge_extension_reload.session === "reload-session"
+    && identified_bridge_extension_reload.session_lease === "reload-lease",
+  "legacy extension reload must preserve explicit identity and force:"
+    + JSON.stringify(identified_bridge_extension_reload));
+const named_bridge_extension_reload = compat.canonicalize([
+  "--request-id", "reload-request", "--session", "reload-session",
+  "--session-lease", "reload-lease", "browser", "bridge", "reload",
+  "--profile", "Default"
+]);
+require(named_bridge_extension_reload.kind === "todo"
+    && named_bridge_extension_reload.gap_id === "acu.dynamic.075.profile-name-binding",
+  "legacy extension reload must retain the human profile alias gap");
 const page_elements = compat.canonicalize([
   "elements", "Window#1", "--page", "--tab-id", "4"
 ]);

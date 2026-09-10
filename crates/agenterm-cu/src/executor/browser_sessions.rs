@@ -25,7 +25,6 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     CuError,
-    browser_bridge::install_for_current_user,
     browser_session::{
         BrowserSessionPaths, BrowserSessionRecord, BrowserSessionState, FileObjectIdentity,
         OWNER_MARKER_FILE, ProcessIdentity, create_session_directories, publish_record,
@@ -37,8 +36,18 @@ use crate::{
     },
 };
 
+#[cfg(windows)]
+use crate::browser_bridge::install_for_current_user;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use crate::browser_bridge::{ACU_NATIVE_HOST_NAME, materialize_for_owned_profile};
+use crate::browser_bridge::{BrowserBridgeInstall, BrowserBridgeInstallError, BrowserSetupEffect};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use agenterm_platform::filesystem::protect_private_directory;
+
 const MARKER_BYTES: &[u8] = b"agenterm-cu-browser-session-v1\n";
 const MAX_INVENTORY: usize = 4_096;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const OWNED_NATIVE_MANIFEST_MAX_BYTES: usize = 64 * 1024;
 static NEXT_NONCE: AtomicU64 = AtomicU64::new(1);
 
 pub(super) fn browser_session_start_payload(
@@ -62,22 +71,40 @@ pub(super) fn browser_session_start_payload(
         Err(error) => return Err(state_unavailable(error)),
     }
     let browser = canonical_browser(browser)?;
-    let bridge_extension = if bridge {
+    let bridge_install = if bridge {
         let current_executable = std::env::current_exe().map_err(|_| {
             CuError::new(
                 "browser_bridge_current_executable_unavailable",
                 "current browser bridge executable is unavailable",
             )
         })?;
-        Some(
-            install_for_current_user(&current_executable)
-                .map_err(|error| CuError::new(error.code, error.code))?
-                .extension,
-        )
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let install = materialize_for_owned_profile(&current_executable);
+        #[cfg(windows)]
+        let install = install_for_current_user(&current_executable);
+        Some(install.map_err(bridge_install_error)?)
     } else {
         None
     };
     create_session_directories(&paths).map_err(state_unavailable)?;
+    if let Some(install) = bridge_install.as_ref()
+        && let Err(error) =
+            publish_owned_native_manifest(&paths.profile, &install.native_manifest_file)
+    {
+        let cleanup_verified = remove_tree(&paths.directory).is_ok();
+        return Err(CuError::new(
+            "browser_session_bridge_manifest_publish_failed",
+            "the owned browser profile native-host manifest could not be published",
+        )
+        .with_detail(json!({
+            "effect": "performed-partial",
+            "retry_safe": false,
+            "shared_publication": bridge_install_summary(install),
+            "owned_manifest_written": false,
+            "session_cleanup_verified": cleanup_verified,
+            "failure_kind": format!("{:?}", error.kind()),
+        })));
+    }
     write_private_atomic(&paths.profile.join(OWNER_MARKER_FILE), MARKER_BYTES)
         .map_err(state_unavailable)?;
     let profile_identity = opened_identity(&paths.profile)?;
@@ -88,7 +115,7 @@ pub(super) fn browser_session_start_payload(
         name: name.to_owned(),
         session_nonce: nonce.clone(),
         executable: browser,
-        bridge_extension,
+        bridge_extension: bridge_install.map(|install| install.extension),
         ready_timeout_ms,
         ttl_ms,
     };
@@ -153,6 +180,68 @@ pub(super) fn browser_session_start_payload(
         ));
     }
     wait_for_start(&paths, &starting, &mut owner_child, ready_timeout_ms)
+}
+
+fn bridge_install_error(error: BrowserBridgeInstallError) -> CuError {
+    let code = error.code;
+    match error.receipt {
+        Some(receipt) => {
+            CuError::new(code, "browser bridge materialization failed").with_detail(json!({
+                "effect": receipt.effect,
+                "retry_safe": receipt.effect == BrowserSetupEffect::NotPerformed,
+                "shared_publication": bridge_install_summary(&receipt),
+            }))
+        }
+        None => CuError::new(code, "browser bridge materialization failed").with_detail(json!({
+            "effect": "not-performed",
+            "retry_safe": true,
+        })),
+    }
+}
+
+fn bridge_install_summary(install: &BrowserBridgeInstall) -> Value {
+    json!({
+        "effect": install.effect,
+        "complete": install.complete,
+        "bundle_materialized": install.bundle_materialized,
+        "native_manifest_file_written": install.native_manifest_file_written,
+        "registration_count": install.registrations.len(),
+    })
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn publish_owned_native_manifest(profile: &Path, source: &Path) -> std::io::Result<()> {
+    let file = open_existing_path(source, ExistingEntryType::File)?;
+    let metadata = file.metadata()?;
+    if metadata.len() > OWNED_NATIVE_MANIFEST_MAX_BYTES as u64 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "browser bridge native manifest exceeds its byte ceiling",
+        ));
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take((OWNED_NATIVE_MANIFEST_MAX_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > OWNED_NATIVE_MANIFEST_MAX_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "browser bridge native manifest exceeds its byte ceiling",
+        ));
+    }
+    let directory = profile.join("NativeMessagingHosts");
+    fs::create_dir_all(&directory)?;
+    protect_private_directory(&directory)?;
+    write_private_atomic(
+        &directory.join(format!("{ACU_NATIVE_HOST_NAME}.json")),
+        &bytes,
+    )
+}
+
+#[cfg(windows)]
+fn publish_owned_native_manifest(_profile: &Path, _source: &Path) -> std::io::Result<()> {
+    // Chromium resolves per-user native hosts from HKCU on Windows; setup has
+    // already published that registration before the owned profile is created.
+    Ok(())
 }
 
 pub(super) fn browser_session_status_payload(name: &str) -> Result<Value, CuError> {
@@ -625,5 +714,56 @@ mod tests {
                 "browser_session_remove_intent_required"
             );
         }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn owned_profile_receives_the_exact_native_manifest() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .unwrap()
+            .join("target/browser-session-tests")
+            .join(format!("owned-native-manifest-{}", new_nonce("test")));
+        let profile = root.join("profile");
+        let source = root.join("native-host.json");
+        fs::create_dir_all(&profile).unwrap();
+        write_private_atomic(&source, b"{\"name\":\"fixture\"}\n").unwrap();
+
+        publish_owned_native_manifest(&profile, &source).unwrap();
+
+        let destination = profile
+            .join("NativeMessagingHosts")
+            .join(format!("{ACU_NATIVE_HOST_NAME}.json"));
+        assert_eq!(fs::read(destination).unwrap(), b"{\"name\":\"fixture\"}\n");
+        remove_tree(&root).unwrap();
+    }
+
+    #[test]
+    fn bridge_materialization_failure_preserves_effect_without_paths() {
+        let receipt = BrowserBridgeInstall {
+            effect: BrowserSetupEffect::PerformedPartial,
+            requested_browsers: Vec::new(),
+            discovered_roots: Vec::new(),
+            extension: PathBuf::from("/synthetic/private/extension"),
+            native_manifest_file: PathBuf::from("/synthetic/private/native-host.json"),
+            replaced_extension: false,
+            bundle_materialized: true,
+            native_manifest_file_written: false,
+            registrations: Vec::new(),
+            extension_loaded: false,
+            manual_activation_required: true,
+            complete: false,
+            idempotent_rerun: true,
+        };
+        let mapped = bridge_install_error(BrowserBridgeInstallError {
+            code: "browser_bridge_native_manifest_publish_failed",
+            receipt: Some(Box::new(receipt)),
+        });
+        let detail = mapped.detail.unwrap();
+        assert_eq!(detail["effect"], "performed-partial");
+        assert_eq!(detail["retry_safe"], false);
+        assert_eq!(detail["shared_publication"]["bundle_materialized"], true);
+        assert!(!detail.to_string().contains("/synthetic/private"));
     }
 }

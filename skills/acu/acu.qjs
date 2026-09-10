@@ -201,6 +201,41 @@ function execute_compound(request) {
     return projected_reply(request.command, connections,
       compound.bridge_status_projection(selected.value, connections));
   }
+  if (request.kind === "bridge-extension-reload") {
+    const connections = acu.argv(prefixed(request.globals,
+      ["browser-bridge-connections"]));
+    if (connections.ok !== true) { return connections; }
+    if (connections.data === null || connections.data === undefined
+        || !Array.isArray(connections.data.connections)) {
+      return acu_error(request.command, "browser_bridge_response_invalid",
+        "browser-bridge-connections reply lacks connections");
+    }
+    const statuses = {};
+    for (let i = 0; i < connections.data.connections.length; i = i + 1) {
+      const row = connections.data.connections[i];
+      if (row === null || typeof row !== "object"
+          || typeof row.connection_id !== "string") {
+        return acu_error(request.command, "browser_bridge_response_invalid",
+          "browser-bridge-connections reply contains an incomplete identity");
+      }
+      statuses[row.connection_id] = acu.argv(prefixed(request.globals,
+        ["browser-bridge-status", row.connection_id]));
+    }
+    const selected = compound.bridge_select_connection(
+      connections, statuses, request.profile);
+    if (!selected.ok) {
+      return projection_error(request.command, selected);
+    }
+    const reload_argv = [
+      "browser-bridge-extension-reload", selected.value.connection_id,
+      "--session", request.session, "--lease", request.session_lease,
+      "--ttl-seconds", "60", "--timeout-ms", "20000"
+    ];
+    if (request.force) { reload_argv.push("--force"); }
+    const reloaded = acu.argv(prefixed(request.globals, reload_argv));
+    return projected_reply(request.command, reloaded,
+      compound.bridge_extension_reload_projection(selected.value, reloaded));
+  }
   if (request.kind === "bridge-open") {
     const connections = acu.argv(prefixed(request.globals,
       ["browser-bridge-connections"]));

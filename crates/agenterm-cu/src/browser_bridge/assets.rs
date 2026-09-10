@@ -41,8 +41,12 @@ pub fn extension_assets() -> &'static [ExtensionAsset] {
 /// self-reference; publication substitutes the hexadecimal digest exactly
 /// once without changing the source asset embedded in this binary.
 pub fn extension_build_id() -> String {
+    extension_build_id_for(ASSETS)
+}
+
+fn extension_build_id_for(assets: &[ExtensionAsset]) -> String {
     let mut digest = Sha256::new();
-    for asset in ASSETS {
+    for asset in assets {
         let path = asset.relative_path.as_bytes();
         digest.update((path.len() as u64).to_le_bytes());
         digest.update(path);
@@ -212,6 +216,28 @@ mod tests {
     use super::*;
     use serde_json::Value;
 
+    const HISTORICAL_1_6_ASSETS: &[ExtensionAsset] = &[
+        ExtensionAsset {
+            relative_path: "manifest.json",
+            bytes: include_bytes!(
+                "../../assets/browser-bridge-history/protocol-6-extension-1.6.0/manifest.json"
+            ),
+        },
+        ExtensionAsset {
+            relative_path: "background.js",
+            bytes: include_bytes!(
+                "../../assets/browser-bridge-history/protocol-6-extension-1.6.0/background.js"
+            ),
+        },
+    ];
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
     #[test]
     fn embedded_bundle_is_small_unique_and_uses_only_relative_leaf_paths() {
         assert_eq!(ASSETS.len(), 2);
@@ -239,6 +265,48 @@ mod tests {
             std::str::from_utf8(&rendered)
                 .unwrap()
                 .contains(&extension_build_id())
+        );
+    }
+
+    #[test]
+    fn protocol_six_extension_one_six_fixture_is_byte_frozen() {
+        let manifest = HISTORICAL_1_6_ASSETS[0].bytes;
+        let background = HISTORICAL_1_6_ASSETS[1].bytes;
+        assert_eq!(manifest.len(), 726);
+        assert_eq!(background.len(), 52_804);
+        assert_eq!(
+            sha256_hex(manifest),
+            "2c5f1032268872e6a02da5fd4c88804d9f3af00aab5b919eb2a82d7194c8f760"
+        );
+        assert_eq!(
+            sha256_hex(background),
+            "bb4020051f0d6d2ae162406e90b5da5936a0a25fb22fecbe5b0261cfb6f0d3fc"
+        );
+        assert_eq!(
+            extension_build_id_for(HISTORICAL_1_6_ASSETS),
+            "4a37746b30ffb6ce76a246d661dde34cbf2f266d2d94eafaad74549dd93d679f"
+        );
+        assert_eq!(
+            background
+                .windows(BUILD_ID_PLACEHOLDER.len())
+                .filter(|window| *window == BUILD_ID_PLACEHOLDER)
+                .count(),
+            1
+        );
+        let build_id = extension_build_id_for(HISTORICAL_1_6_ASSETS);
+        let start = background
+            .windows(BUILD_ID_PLACEHOLDER.len())
+            .position(|window| window == BUILD_ID_PLACEHOLDER)
+            .unwrap();
+        let mut materialized =
+            Vec::with_capacity(background.len() - BUILD_ID_PLACEHOLDER.len() + build_id.len());
+        materialized.extend_from_slice(&background[..start]);
+        materialized.extend_from_slice(build_id.as_bytes());
+        materialized.extend_from_slice(&background[start + BUILD_ID_PLACEHOLDER.len()..]);
+        assert_eq!(materialized.len(), 52_852);
+        assert_eq!(
+            sha256_hex(&materialized),
+            "db7f6d7d31dd51cc775de506724de59e8363133d7512e8eb0a216d54b538a70e"
         );
     }
 

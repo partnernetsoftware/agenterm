@@ -53,6 +53,9 @@ exact(defaults.argv, [
 require(defaults.globals.target === "current", "default target data");
 require(defaults.globals.grant === "observe,actuate", "default grant data");
 require(defaults.globals.grant_id === null, "default grant id data");
+require(defaults.globals.request_id === null, "default request id data");
+require(defaults.globals.session === null, "default session data");
+require(defaults.globals.session_lease === null, "default session lease data");
 
 const explicit = legacy.extractGlobals([
   "query", "Window#1", "--target=", "--grant-id", "grant\n id",
@@ -77,6 +80,9 @@ exact(routed.prefix, [
   "--session-lease", "lease-1"
 ], "routed and repeatable globals");
 require(routed.globals.target === null, "routed target does not invent current");
+require(routed.globals.request_id === "request-1", "routed request id data");
+require(routed.globals.session === "session-1", "routed session data");
+require(routed.globals.session_lease === "lease-1", "routed session lease data");
 
 const roundTrip = JSON.parse(JSON.stringify(explicit));
 exact(roundTrip.prefix, explicit.prefix, "json-compatible prefix");

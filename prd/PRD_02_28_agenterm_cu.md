@@ -690,9 +690,10 @@ ACU-only cutover
 │  │  ├─ [x] legacy managed-profile create/list/start/status/stop/remove are permanently
 │  │  │  typed-retired before dispatch because their caller lease, store and Trash recovery
 │  │  │  cannot alias the resident ACU browser-session authority or permanent deletion
-│  │  ├─ [~] acu.dynamic.075.bridge-extension-reload · protocol 6 seeds a distinct profile-level
-│  │  │  extension-code reload hook with deterministic build identity, current no-op and forced
-│  │  │  unique-replacement proof; an owned stale-to-current court is still required to close it
+│  │  ├─ [x] acu.dynamic.075.bridge-extension-reload · protocol 6 owns a distinct profile-level
+│  │  │  extension-code reload under explicit durable request/session identity; a macOS owned
+│  │  │  court proves frozen 1.6 source becomes one exact same-profile 1.7 replacement without
+│  │  │  tab-identity or desktop-focus drift, and durable replay creates no second effect
 │  │  └─ owned-profile macOS qjswasm court is wired; Linux/Windows native courts remain
 │  ├─ [x] acu.dynamic.076 · `inspect --app` maps to native bounded `app-inspect`;
 │  │  ├─ whole matching window set + foreground identity are bracketed as one observation
@@ -1033,16 +1034,22 @@ flowchart LR
   start creates and launches immediately, and there is no create-only alias.
   A three-platform public qjswasm court verifies all six refusals, their
   migration distinctions and an unchanged synthetic HOME. This does not retire
-  the separately qualified ACU-owned browser-session lifecycle. Profile-level
-  extension-code reload remains `acu.dynamic.075.bridge-extension-reload`.
-  Protocol 6 publishes a deterministic materialized build identity and seeds a
-  distinct profile-level hook that proves an already-current no-op or one
-  forced unique replacement with the same profile and complete tab inventory.
-  It does not close the compatibility shape until an owned stale-to-current
-  court proves the replacement loaded the exact published build. Native
+  the separately qualified ACU-owned browser-session lifecycle. Protocol 6 now
+  owns a distinct profile-level extension-code reload, never an alias for
+  connection reload. It publishes a deterministic materialized build identity
+  and requires explicit durable request, session and lease identity. A macOS
+  owned-profile court loads frozen 1.6 source, publishes exact 1.7 source,
+  proves the old worker did not reload early, then proves one accepted effect
+  becomes one unique same-profile 1.7 replacement with unchanged tab identity
+  and desktop focus. Replaying the same durable request creates no further
+  connection; current no-op and explicit force are also proved. The court uses
+  an invocation-owned Chrome for Testing profile and disables Chromium's
+  unsupported-developer-extension feature only for that unpacked fixture;
+  production browser policy is unchanged. Human profile
+  names remain the separate `acu.dynamic.075.profile-name-binding` gap. Native
   `browser-bridge-reload` still proves only a Native Messaging reconnect and
-  cannot stand in for Chromium hot-loading new extension code. The macOS owned
-  profile court is wired; Linux and Windows native qualification remains.
+  cannot stand in for Chromium hot-loading new extension code. Linux and
+  Windows native qualification remains.
 - [~] Desktop closure tranche: `snapshot`/`diff`, `hit`/`zoom`, `raise`, and
   gated `minimize`/`restore` are live in the macOS Cocoa/AX public journey.
   The same source state must still pass Linux AT-SPI2 and Windows UIA courts;
@@ -1191,10 +1198,18 @@ flowchart LR
   extension cannot restore an unrelated foreground application. Success
   requires exact state, tab identity and final browser focus read-back; a failed
   postcondition attempts rollback and never becomes success. This is useful
-  implementation depth. `browser-session-start --bridge` now materializes the fixed
-  current-user host registration and passes the exact extension directory to
-  Chromium's isolated owned Profile. A public macOS qjswasm court has proved a
-  real fixed extension connection, persistent Profile identity, exact
+  implementation depth. `browser-session-start --bridge` now materializes the
+  fixed extension and native-host manifest without requiring a pre-existing
+  default browser Profile. On macOS and Linux it publishes that exact bounded
+  manifest into the isolated owned Profile's `NativeMessagingHosts` directory
+  before passing the exact extension directory to Chromium; Windows retains its
+  per-product HKCU registration boundary, so its owned-session bridge still
+  requires a discovered product root and remains pending an isolated registry
+  bootstrap court. An independent public macOS qjswasm
+  court starts the session from a synthetic HOME with no default browser root,
+  proves one exact fixed-extension connection, and proves stop/remove cleanup
+  without creating a default browser root. The broader owned-Profile court has
+  proved persistent Profile identity, exact
   status/tab/window inventory, stop →
   Native Messaging host EOF cleanup, same-name restart and TTL cleanup without
   changing foreground focus. The same court creates real windows, binds one
@@ -3049,7 +3064,7 @@ flowchart LR
     `retry_safe` is true if and only if the effect is `not-performed`.
   - **Evidence:** the owned-profile macOS qjswasm court navigates to its existing
     loopback DevTools HTTP endpoint without external network access, checks protocol 6,
-    extension version 1.6.0, its materialized build identity and the closed 12-command
+    extension version 1.7.0, its materialized build identity and the closed 12-command
     catalog, proves root-frame/loader
     commit and debugger detach, reads the same tab and URL through `browser-bridge-tabs`, and emits
     `cu.browser-bridge-nav.macos` only with unchanged browser and desktop focus.

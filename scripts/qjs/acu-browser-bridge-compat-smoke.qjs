@@ -218,11 +218,28 @@ try {
   const extension_reload = compat.canonicalize([
     "browser", "bridge", "reload", "--profile", PROFILE_A.substring(0, 8)
   ]);
-  ensure(extension_reload.kind === "todo"
-      && extension_reload.gap_id === "acu.dynamic.075.bridge-extension-reload"
-      && extension_reload.message.indexOf("extension-code reload") >= 0
-      && extension_reload.message.indexOf("only reconnects Native Messaging") >= 0,
-    "acu_browser_bridge_extension_reload_stays_distinct");
+  ensure(extension_reload.kind === "usage"
+      && extension_reload.code === "request_identity_required",
+    "acu_browser_bridge_extension_reload_requires_identity");
+  const identified_extension_reload = compat.canonicalize([
+    "--request-id", "reload-request", "--session", "reload-session",
+    "--session-lease", "reload-lease", "browser", "bridge", "reload",
+    "--profile", PROFILE_A.substring(0, 8), "--force"
+  ]);
+  ensure(identified_extension_reload.kind === "bridge-extension-reload"
+      && identified_extension_reload.profile === PROFILE_A.substring(0, 8)
+      && identified_extension_reload.force === true
+      && identified_extension_reload.session === "reload-session"
+      && identified_extension_reload.session_lease === "reload-lease",
+    "acu_browser_bridge_extension_reload_route");
+  const named_extension_reload = compat.canonicalize([
+    "--request-id", "reload-request", "--session", "reload-session",
+    "--session-lease", "reload-lease", "browser", "bridge", "reload",
+    "--profile", "Default"
+  ]);
+  ensure(named_extension_reload.kind === "todo"
+      && named_extension_reload.gap_id === "acu.dynamic.075.profile-name-binding",
+    "acu_browser_bridge_extension_reload_named_profile_gap");
 
   const matched_nav = compat.canonicalize([
     "browser", "nav", "https://example.test/next", "--port", "9333",

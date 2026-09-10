@@ -1785,6 +1785,7 @@ impl Executor {
                 timeout_ms,
                 ..
             } => browser_bridge_extension_reload_payload(
+                require_effect_request(job_request, "browser-bridge-extension-reload")?,
                 connection_id,
                 *force,
                 session_id,

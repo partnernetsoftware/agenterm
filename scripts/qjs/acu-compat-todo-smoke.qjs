@@ -43,13 +43,19 @@ require_ok(rh.exists(launcher) && rh.metadata(launcher).is_file,
   "acu_compat_launcher_missing");
 
 const cases = [
-  [["drag", "10", "20", "30", "40", "--to", "Window#1"], "acu.dynamic.004"],
-  [["browser", "bridge", "reload", "--profile", "11111111"],
-    "acu.dynamic.075.bridge-extension-reload"]
+  [["drag", "10", "20", "30", "40", "--to", "Window#1"], "acu.dynamic.004"]
 ];
 for (let i = 0; i < cases.length; i = i + 1) {
   require_todo(launcher, cases[i][0], cases[i][1]);
 }
+
+const bridge_reload_identity = run(launcher, [
+  "browser", "bridge", "reload", "--profile", "11111111"
+]);
+require_ok(bridge_reload_identity.ok === false
+    && bridge_reload_identity.alert === undefined
+    && bridge_reload_identity.error.code === "request_identity_required",
+  "legacy bridge reload must require explicit durable request identity");
 
 const bridge_status = invoke(launcher, ["browser", "bridge", "status"], 1);
 require_ok(bridge_status.ok === false && bridge_status.command === "browser"

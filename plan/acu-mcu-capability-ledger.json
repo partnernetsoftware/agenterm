@@ -870,7 +870,7 @@
             "platforms": {
               "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
               "macos": {"result": "native-qualified", "gate": "cu-browser-session-smoke", "evidence": ["cu.browser-managed-profile.macos"]},
-              "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
+              "windows": {"result": "pending", "blocker_code": "registry-bootstrap-court-not-run"}
             }
           },
           "evidence": ["cu.browser-managed-profile.macos", "agenterm-cu browser session owner/store tests"],
@@ -941,13 +941,13 @@
             "schema": 2,
             "platforms": {
               "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
-              "macos": {"result": "native-qualified", "gate": "cu-browser-session-smoke", "evidence": ["cu.browser-bridge-owned-profile.macos", "cu.browser-bridge-reload.macos", "cu.browser-bridge-nav.macos"]},
-              "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
+              "macos": {"result": "native-qualified", "gate": "cu-browser-extension-reload-smoke", "evidence": ["cu.browser-bridge-owned-profile.macos"]},
+              "windows": {"result": "pending", "blocker_code": "registry-bootstrap-court-not-run"}
             }
           },
           "evidence": ["cu.browser-bridge-owned-profile.macos", "cu.browser-bridge-reload.macos", "cu.browser-bridge-nav.macos", "acu.compat-browser-bridge"],
-          "note": "The macOS public qjswasm court starts an ACU-owned isolated Profile with the exact protocol-6 fixed extension and deterministic materialized build identity, proves its persistent profile instance identity, leases one exact tab to an explicit ACU runtime session, replaces the Native Messaging connection in the background, and accepts only one new process-bound host with the same profile identity and tab while desktop focus stays unchanged. The distinct profile-level extension-code hook proves an already-current no-op and a forced unique replacement with exact build, tab-inventory and focus postconditions; this migration seed does not close the legacy reload gap without a stale-to-current court. On the tab lock, browser-bridge-nav accepts only HTTP(S) and proves a debugger root-frame commit: cross-document navigation binds Page.navigate frameId/loaderId to Page.frameNavigated, while the closed same-document case retains the root loader. Requested, committed and observed URLs remain distinct; redirects are informational, not failures. The command refuses foreground targets and JavaScript dialogs instead of activating or dismissing them, proves debugger detach, and reports effect as not-performed, performed or unknown with retry_safe true only for not-performed. The compatibility adapter resolves legacy bridge status by validating every entry in the complete live-connection inventory and selecting one exact profile-instance prefix; it withholds legacy installation/manifest fields that native status does not observe. Positional legacy browser open uses the same exact selection before one atomic minimized, unfocused window-open whose browser and desktop focus postconditions are verified. Session end proves exact lock release and browser stop reaps the host. Exact legacy setup selection is recorded separately. Native browser-bridge-reload still names reload_scope=native-connection and does not claim Chromium hot-loaded new extension code.",
-          "next": "prove the same owned-Profile identity, target-lock, reconnect, focus and cleanup contract with native Chromium-family executables on Linux and Windows; keep extension-code update activation as a separate setup boundary"
+          "note": "The independent macOS public qjswasm court starts browser-session-start --bridge from an invocation-owned synthetic HOME with no default Chromium-family Profile, proves one exact protocol-6 fixed-extension connection and status identity, then proves stop removes that connection and remove closes the owned session without creating a default browser root. The same court separately proves frozen 1.6 source becomes the exact published 1.7 build, durable replay schedules no second effect, and current no-op plus explicit force preserve exact build, tab-identity and focus postconditions. The broader owned-Profile court proves persistent profile identity, explicit runtime-session tab locks, native-connection replacement and cleanup; its separate evidence owns those deeper shapes. On the tab lock, browser-bridge-nav accepts only HTTP(S) and proves a debugger root-frame commit: cross-document navigation binds Page.navigate frameId/loaderId to Page.frameNavigated, while the closed same-document case retains the root loader. Requested, committed and observed URLs remain distinct; redirects are informational, not failures. The command refuses foreground targets and JavaScript dialogs instead of activating or dismissing them, proves debugger detach, and reports effect as not-performed, performed or unknown with retry_safe true only for not-performed. The compatibility adapter resolves legacy bridge status by validating every entry in the complete live-connection inventory and selecting one exact profile-instance prefix; it withholds legacy installation/manifest fields that native status does not observe. Positional legacy browser open uses the same exact selection before one atomic minimized, unfocused window-open whose browser and desktop focus postconditions are verified. Exact legacy setup selection is recorded separately. Native browser-bridge-reload still names reload_scope=native-connection and does not claim Chromium hot-loaded new extension code.",
+          "next": "prove the same owned-Profile identity, target-lock, reconnect, extension-code reload, focus and cleanup contracts with native Chromium-family executables on Linux; on Windows first prove the discovered-product-root and isolated HKCU bootstrap boundary"
         },
         {
           "id": "browser.profile-name-binding",
@@ -987,19 +987,20 @@
         {
           "id": "browser.legacy-lifecycle-mapping",
           "mcu_shape": "browser bridge reload as profile-level Chromium extension-code reload with version read-back",
-          "acu_shape": null,
-          "state": "gap",
+          "acu_shape": "browser-bridge-extension-reload CONNECTION_ID under explicit durable request/session/session-lease identity and a canonical profile-level lock; exact published/loaded build identities, current no-op, accepted effect, unique same-profile replacement, unchanged tab identity and desktop focus",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-public-qjswasm", "linux": "native-court-pending", "windows": "native-court-pending"},
           "qualification": {
             "schema": 2,
             "platforms": {
-              "linux": {"result": "pending", "blocker_code": "profile-extension-reload-not-implemented"},
-              "macos": {"result": "pending", "blocker_code": "profile-extension-reload-not-implemented"},
-              "windows": {"result": "pending", "blocker_code": "profile-extension-reload-not-implemented"}
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-browser-extension-reload-smoke", "evidence": ["cu.browser-extension-reload-upgrade.macos"]},
+              "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
             }
           },
-          "evidence": [],
-          "note": "Stable TODO acu.dynamic.075.bridge-extension-reload remains for the archived profile-level extension-code reload. Protocol 6 now exposes a separate profile lock, deterministic source/loaded build identities, a verified current no-op and a forced unique replacement; protocol-5 records return a typed manual bootstrap boundary without incompatible I/O. This is a migration seed, not stale-to-current proof. Native browser-bridge-reload remains an exact tab/session Native Messaging reconnect whose reload_scope receipt does not claim Chromium hot-loaded new extension code. Exact setup selection, positional open and the separately retired managed-profile lifecycle are no longer part of this gap.",
-          "next": "freeze a later loaded build under the same protocol, publish the next exact build, and prove one stale-to-current extension-code reload in an owned profile before removing the compatibility TODO"
+          "evidence": ["cu.browser-extension-reload-upgrade.macos", "acu.compat-browser-bridge"],
+          "note": "Protocol 6 owns a distinct profile-level extension-code reload. The macOS court uses an invocation-owned Chrome for Testing profile with the unsupported-developer-extension feature disabled only for that unpacked-extension fixture; production browser policy is unchanged. It loads frozen 1.6 source, publishes exact 1.7 source, proves the old worker remains loaded before the command, then proves one accepted effect becomes one unique same-profile 1.7 replacement with unchanged tab identity and desktop focus; durable replay creates no further connection. Current no-op and explicit force are separately proved. Protocol-5 records return a typed manual bootstrap boundary without incompatible I/O. Compatibility requires explicit durable request/session/session-lease identity; human profile names remain acu.dynamic.075.profile-name-binding. Native browser-bridge-reload remains connection-only and is not used as an alias.",
+          "next": "run the same frozen-stale-source, exact replacement, durable replay and focus-preservation court on Linux and Windows native Chromium hosts"
         },
         {
           "id": "browser.closed-tree",

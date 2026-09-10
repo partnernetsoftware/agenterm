@@ -1,0 +1,427 @@
+// Public macOS court for one real stale-to-current extension-code reload.
+// It uses only an invocation-owned HOME/profile and a frozen protocol-6 1.6
+// extension fixture; no real browser profile or installed extension is touched.
+// Args: REPO AGENTERM_CU_EXE; AGENTERM_CU_BROWSER_EXE names Chromium.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.browser-bridge-owned-profile.macos",
+  "cu.browser-extension-reload-upgrade.macos"
+];
+const EXTENSION_ID = "knofdkmmpkbnjhdkcjddbakbpmgpmjpe";
+const OLD_BUILD_ID = "4a37746b30ffb6ce76a246d661dde34cbf2f266d2d94eafaad74549dd93d679f";
+const OLD_BACKGROUND_SHA = "db7f6d7d31dd51cc775de506724de59e8363133d7512e8eb0a216d54b538a70e";
+const OLD_MANIFEST_SHA = "2c5f1032268872e6a02da5fd4c88804d9f3af00aab5b919eb2a82d7194c8f760";
+
+function ensure(condition, message) { if (!condition) { throw message; } }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function host_is_macos() {
+  return !harness.host_is_windows() && rh.exists("/System/Library/CoreServices");
+}
+
+function isolated_env(home, run) {
+  return {
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: rh.join(home, "config"),
+    LOCALAPPDATA: rh.join(home, "AppData/Local"),
+    XDG_CONFIG_HOME: rh.join(home, "config"),
+    XDG_DATA_HOME: rh.join(home, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run, "cu-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(run, "cu-receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run, "cu-runtime.json"),
+    AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run, "cu-idempotency.json"),
+    AGENTERM_NO_ACTIVATE: "1"
+  };
+}
+
+function invoke(executable, env, cwd, grant, arguments, expected_success) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: cwd, env: env, timeout_ms: 45000
+  });
+  ensure(output.success === expected_success,
+    "cu_browser_extension_reload_exit:" + arguments[0] + ":" + output.exit_code);
+  ensure(output.stdout.trim() !== "", "cu_browser_extension_reload_empty_reply");
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expected_success,
+    "cu_browser_extension_reload_reply:" + arguments[0]);
+  return reply;
+}
+
+function browser_family(browser) {
+  const value = browser.toLowerCase();
+  if (value.indexOf("brave") >= 0) { return "brave-browser"; }
+  if (value.indexOf("chromium") >= 0) { return "chromium"; }
+  if (value.indexOf("edge") >= 0) { return "edge"; }
+  return "chrome";
+}
+
+function browser_root(home, family) {
+  const support = rh.join(home, "Library/Application Support");
+  if (family === "brave-browser") {
+    return rh.join(support, "BraveSoftware/Brave-Browser");
+  }
+  if (family === "chromium") { return rh.join(support, "Chromium"); }
+  if (family === "edge") { return rh.join(support, "Microsoft Edge"); }
+  return rh.join(support, "Google/Chrome");
+}
+
+function connection_present(rows, id) {
+  for (const row of rows) { if (row.connection_id === id) { return true; } }
+  return false;
+}
+
+function connections(executable, env, cwd) {
+  const reply = invoke(executable, env, cwd, "observe",
+    ["browser-bridge-connections"], true);
+  ensure(reply.data.truncated === false,
+    "cu_browser_extension_reload_inventory_truncated");
+  return reply.data.connections;
+}
+
+function wait_one_added(executable, env, cwd, baseline, deadline) {
+  let last_count = -1;
+  while (rh.now_ms() < deadline) {
+    const rows = connections(executable, env, cwd);
+    const added = [];
+    for (const row of rows) {
+      if (!connection_present(baseline, row.connection_id)) { added.push(row); }
+    }
+    last_count = added.length;
+    if (added.length === 1) { return added[0]; }
+    ensure(added.length < 2, "cu_browser_extension_reload_connection_ambiguous");
+    rh.sleep_ms(50);
+  }
+  throw "cu_browser_extension_reload_connection_timeout:last_added=" + last_count;
+}
+
+function wait_replacement(executable, env, cwd, baseline, old_id, deadline) {
+  while (rh.now_ms() < deadline) {
+    const rows = connections(executable, env, cwd);
+    const added = [];
+    for (const row of rows) {
+      if (!connection_present(baseline, row.connection_id)) { added.push(row); }
+    }
+    if (!connection_present(rows, old_id) && added.length === 1) { return added[0]; }
+    ensure(added.length < 2, "cu_browser_extension_reload_reconnect_ambiguous");
+    rh.sleep_ms(50);
+  }
+  throw "cu_browser_extension_reload_reconnect_timeout";
+}
+
+function wait_absent(executable, env, cwd, connection_id, deadline) {
+  while (rh.now_ms() < deadline) {
+    if (!connection_present(connections(executable, env, cwd), connection_id)) { return; }
+    rh.sleep_ms(50);
+  }
+  throw "cu_browser_owned_profile_connection_cleanup_timeout";
+}
+
+function status(executable, env, cwd, connection_id) {
+  return invoke(executable, env, cwd, "observe",
+    ["browser-bridge-status", connection_id], true).data.result;
+}
+
+function exact_two_files(directory) {
+  const rows = rh.read_dir(directory);
+  ensure(rows.length === 2, "cu_browser_extension_reload_extension_inventory");
+  let background = false;
+  let manifest = false;
+  for (const row of rows) {
+    ensure(row.is_file === true && row.is_symlink !== true,
+      "cu_browser_extension_reload_extension_entry");
+    if (row.name === "background.js") { background = true; }
+    if (row.name === "manifest.json") { manifest = true; }
+  }
+  ensure(background && manifest, "cu_browser_extension_reload_extension_names");
+}
+
+function ensure_no_persisted_unsupported_developer_reason(profile) {
+  const names = ["Preferences", "Secure Preferences"];
+  for (const name of names) {
+    const path = rh.join(profile, "Default/" + name);
+    if (!direct_file(path)) { continue; }
+    const preferences = JSON.parse(rh.read_text(path));
+    const extensions = preferences.extensions;
+    if (extensions === undefined || extensions.settings === undefined) { continue; }
+    const record = extensions.settings[EXTENSION_ID];
+    if (record === undefined || record.disable_reasons === undefined) { continue; }
+    ensure(Array.isArray(record.disable_reasons),
+      "cu_browser_extension_reload_disable_reasons_shape");
+    for (const reason of record.disable_reasons) {
+      ensure(reason !== 16777216,
+        "cu_browser_extension_reload_unsupported_developer_extension");
+    }
+  }
+}
+
+function replace_extension_source(old_path, current_path, run) {
+  const manifest_stage = rh.join(old_path, "manifest.json.current");
+  const background_stage = rh.join(old_path, "background.js.current");
+  rh.copy(rh.join(current_path, "manifest.json"), manifest_stage);
+  rh.copy(rh.join(current_path, "background.js"), background_stage);
+  ensure(direct_file(manifest_stage) && direct_file(background_stage),
+    "cu_browser_extension_reload_source_stage");
+  rh.rename(manifest_stage, rh.join(old_path, "manifest.json"));
+  rh.rename(background_stage, rh.join(old_path, "background.js"));
+  exact_two_files(old_path);
+  return old_path;
+}
+
+function effect(executable, env, cwd, request_id, session, connection_id, force) {
+  const args = [
+    "--request-id", request_id,
+    "--session", session.session_id,
+    "--session-lease", session.lease,
+    "browser-bridge-extension-reload", connection_id
+  ];
+  if (force) { args.push("--force"); }
+  args.push("--session"); args.push(session.session_id);
+  args.push("--lease"); args.push(session.lease);
+  args.push("--ttl-seconds"); args.push("60");
+  args.push("--timeout-ms"); args.push("30000");
+  return invoke(executable, env, cwd, "observe,actuate", args, true);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+const browser_input = rh.env_or("AGENTERM_CU_BROWSER_EXE", "");
+ensure(browser_input !== "", "cu_browser_extension_reload_browser_env_missing");
+const browser = rh.absolute(browser_input);
+ensure(direct_file(executable), "cu_browser_extension_reload_executable_missing");
+ensure(direct_file(browser), "cu_browser_extension_reload_browser_missing");
+ensure(host_is_macos(), "cu_browser_extension_reload_requires_macos");
+
+const context = harness.new_context(repo, "cu-browser-extension-reload");
+const run = context.run_directory;
+const home = rh.join(run, "home");
+const profile = rh.join(run, "profile");
+const env = isolated_env(home, run);
+const children = [];
+let runtime_session = null;
+let clean_session_exists = false;
+let succeeded = 0;
+let failure = "";
+
+try {
+  const family = browser_family(browser);
+  ensure(!rh.exists(browser_root(home, family)),
+    "cu_browser_owned_profile_clean_home_precondition");
+  let baseline = connections(executable, env, run);
+
+  print("STEP prove browser-session-start --bridge from a clean synthetic HOME");
+  const owned = invoke(executable, env, run, "observe,actuate", [
+    "browser-session-start", "clean-home-bridge", "--browser", browser, "--bridge",
+    "--ready-timeout-ms", "15000", "--ttl-ms", "60000"
+  ], true);
+  clean_session_exists = true;
+  ensure(owned.data.state === "ready" && owned.data.owned === true,
+    "cu_browser_owned_profile_start");
+  const owned_connection = wait_one_added(executable, env, run, baseline,
+    rh.now_ms() + 20000);
+  const owned_status = status(executable, env, run, owned_connection.connection_id);
+  ensure(owned_status.protocol === 6 && owned_status.extension_version === "1.7.0",
+    "cu_browser_owned_profile_extension_identity");
+  const stopped = invoke(executable, env, run, "actuate", [
+    "browser-session-stop", "clean-home-bridge", "--expect", "stopped",
+    "--timeout-ms", "15000"
+  ], true);
+  ensure(stopped.data.state === "stopped" && stopped.data.owner_observation === "dead",
+    "cu_browser_owned_profile_stop");
+  wait_absent(executable, env, run, owned_connection.connection_id, rh.now_ms() + 10000);
+  const removed = invoke(executable, env, run, "actuate", [
+    "browser-session-remove", "clean-home-bridge", "--expect", "stopped"
+  ], true);
+  ensure(removed.data.state === "removed" && removed.data.verified === true,
+    "cu_browser_owned_profile_remove");
+  clean_session_exists = false;
+  ensure(!rh.exists(browser_root(home, family)),
+    "cu_browser_owned_profile_created_default_root");
+
+  rh.create_dir_all(browser_root(home, family));
+  baseline = connections(executable, env, run);
+
+  print("STEP publish the exact current extension and native host into a synthetic HOME");
+  const setup = invoke(executable, env, run, "observe,actuate",
+    ["browser-bridge-setup", "--browser", family], true).data;
+  ensure(setup.complete === true && setup.bundle_materialized === true
+      && direct_file(rh.join(setup.extension, "background.js"))
+      && direct_file(rh.join(setup.extension, "manifest.json")),
+    "cu_browser_extension_reload_setup");
+  const current_manifest = JSON.parse(rh.read_text(rh.join(setup.extension, "manifest.json")));
+  ensure(current_manifest.version === "1.7.0",
+    "cu_browser_extension_reload_current_version");
+  const owned_native_hosts = rh.join(profile, "NativeMessagingHosts");
+  rh.create_dir_all(owned_native_hosts);
+  rh.copy(setup.native_manifest_file,
+    rh.join(owned_native_hosts, "software.partnernet.agenterm_acu.browser_bridge.json"));
+  print("STEP materialize the frozen protocol-six extension-1.6 source");
+  const fixture = rh.join(repo,
+    "crates/agenterm-cu/assets/browser-bridge-history/protocol-6-extension-1.6.0");
+  const identity = JSON.parse(rh.read_text(rh.join(fixture, "identity.json")));
+  ensure(identity.protocol === 6 && identity.extension_version === "1.6.0"
+      && identity.build_id === OLD_BUILD_ID,
+    "cu_browser_extension_reload_history_identity");
+  const old_extension = rh.join(run, "extension-under-test");
+  rh.create_dir_all(old_extension);
+  const raw_background = rh.read_text(rh.join(fixture, "background.js"));
+  ensure(raw_background.split("__ACU_BUILD_ID__").length === 2,
+    "cu_browser_extension_reload_history_placeholder");
+  rh.write_text(rh.join(old_extension, "background.js"),
+    raw_background.replace("__ACU_BUILD_ID__", OLD_BUILD_ID));
+  rh.copy(rh.join(fixture, "manifest.json"), rh.join(old_extension, "manifest.json"));
+  exact_two_files(old_extension);
+  ensure(rh.sha256_file(rh.join(old_extension, "background.js")) === OLD_BACKGROUND_SHA
+      && rh.sha256_file(rh.join(old_extension, "manifest.json")) === OLD_MANIFEST_SHA,
+    "cu_browser_extension_reload_history_digest");
+
+  print("STEP launch one owned Chromium profile from the frozen source");
+  const browser_spec = harness.configured_spec_with_env(context, browser, [
+    "--headless=new", "--user-data-dir=" + profile, "--remote-debugging-port=0",
+    "--no-first-run", "--no-default-browser-check", "--disable-background-networking",
+    "--disable-component-update", "--disable-sync", "--enable-logging=stderr", "--v=1",
+    // This owned unpacked-extension fixture enables the same developer surface
+    // a user selects in chrome://extensions; production profiles are untouched.
+    "--disable-features=ExtensionDisableUnsupportedDeveloper",
+    "--disable-extensions-except=" + old_extension,
+    "--load-extension=" + old_extension,
+    "data:text/html,<title>Extension reload court</title>"
+  ], env, []);
+  browser_spec.stdout_path = rh.join(run, "browser.stdout");
+  browser_spec.stderr_path = rh.join(run, "browser.stderr");
+  const browser_child = harness.start_child(context, browser_spec, "owned-browser");
+  children.push(browser_child);
+  const old_connection = wait_one_added(executable, env, run, baseline,
+    rh.now_ms() + 20000);
+  ensure(old_connection.protocol === 6
+      && old_connection.endpoint.extension_id === EXTENSION_ID,
+    "cu_browser_extension_reload_stale_connection_identity");
+
+  print("STEP replace only the owned source path while the old worker stays loaded");
+  replace_extension_source(old_extension, setup.extension, run);
+  const before_command = connections(executable, env, run);
+  let owned_before_command = 0;
+  for (const row of before_command) {
+    if (!connection_present(baseline, row.connection_id)) { owned_before_command = owned_before_command + 1; }
+  }
+  ensure(owned_before_command === 1
+      && connection_present(before_command, old_connection.connection_id),
+    "cu_browser_extension_reload_no_early_reload");
+
+  runtime_session = invoke(executable, env, run, "observe,actuate", [
+    "session-start", "--label", "extension-reload-court", "--ttl-seconds", "120"
+  ], true).data;
+  const stale_request = "extension-stale-" + rh.pid();
+  const stale = effect(executable, env, run, stale_request, runtime_session,
+    old_connection.connection_id, false);
+  ensure(stale.data.reloaded === true && stale.data.effect === "performed"
+      && stale.data.retry_safe === false
+      && stale.data.old_connection_id === old_connection.connection_id
+      && stale.data.connection_id !== old_connection.connection_id
+      && stale.data.old_connection_gone === true && stale.data.unique_reconnect === true
+      && stale.data.loaded_identity_before.extension_version === "1.6.0"
+      && stale.data.loaded_identity_before.build_id === OLD_BUILD_ID
+      && stale.data.source_identity.extension_version === "1.7.0"
+      && stale.data.loaded_identity_after.extension_version === "1.7.0"
+      && stale.data.loaded_identity_after.build_id === stale.data.source_identity.build_id
+      && stale.data.tabs_unchanged === true
+      && stale.data.tabs_identity_digest.length === 64
+      && stale.data.focus_changed === false && stale.data.verified === true,
+    "cu_browser_extension_reload_stale_transition");
+  const current_connection = stale.data.connection_id;
+  wait_replacement(executable, env, run, baseline, old_connection.connection_id,
+    rh.now_ms() + 2000);
+
+  print("STEP durable replay cannot schedule a second browser effect");
+  const replay = effect(executable, env, run, stale_request, runtime_session,
+    old_connection.connection_id, false);
+  ensure(replay.data.effect === "not_repeated"
+      && replay.data.idempotent === true,
+    "cu_browser_extension_reload_replay_receipt");
+  const after_replay = connections(executable, env, run);
+  let owned_after_replay = 0;
+  for (const row of after_replay) {
+    if (!connection_present(baseline, row.connection_id)) { owned_after_replay = owned_after_replay + 1; }
+  }
+  ensure(owned_after_replay === 1,
+    "cu_browser_extension_reload_replay_created_connection");
+
+  print("STEP current no-op and explicit force keep the same closed identity contract");
+  const noop = effect(executable, env, run, "extension-noop-" + rh.pid(),
+    runtime_session, current_connection, false);
+  ensure(noop.data.reloaded === false && noop.data.reason === "already-current"
+      && noop.data.effect === "not-performed" && noop.data.retry_safe === true
+      && noop.data.connection_id === current_connection && noop.data.verified === true,
+    "cu_browser_extension_reload_current_noop");
+  const forced = effect(executable, env, run, "extension-force-" + rh.pid(),
+    runtime_session, current_connection, true);
+  ensure(forced.data.reloaded === true && forced.data.effect === "performed"
+      && forced.data.retry_safe === false
+      && forced.data.old_connection_id === current_connection
+      && forced.data.connection_id !== current_connection
+      && forced.data.old_connection_gone === true && forced.data.unique_reconnect === true
+      && forced.data.loaded_identity_after.extension_version === "1.7.0"
+      && forced.data.tabs_unchanged === true && forced.data.focus_changed === false
+      && forced.data.verified === true,
+    "cu_browser_extension_reload_forced_transition");
+
+  const ended = invoke(executable, env, run, "observe,actuate", [
+    "session-end", runtime_session.session_id, "--lease", runtime_session.lease, "--confirm"
+  ], true);
+  ensure(ended.data.released_locks === 1,
+    "cu_browser_extension_reload_profile_lock_not_released");
+  runtime_session = null;
+  harness.child_kill(browser_child);
+  harness.child_wait(browser_child, 5000);
+  ensure_no_persisted_unsupported_developer_reason(profile);
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (runtime_session !== null) {
+  try {
+    invoke(executable, env, run, "observe,actuate", [
+      "session-end", runtime_session.session_id, "--lease", runtime_session.lease, "--confirm"
+    ], true);
+  } catch (_) {}
+}
+if (clean_session_exists) {
+  try {
+    invoke(executable, env, run, "actuate", [
+      "browser-session-stop", "clean-home-bridge", "--expect", "stopped",
+      "--timeout-ms", "15000"
+    ], true);
+    invoke(executable, env, run, "actuate", [
+      "browser-session-remove", "clean-home-bridge", "--expect", "stopped"
+    ], true);
+  } catch (_) {}
+}
+let completion_failure = "";
+try { harness.complete_children(context, children, succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence,
+    "cu.browser-bridge-owned-profile.macos");
+  harness.emit_evidence(context, declared_evidence,
+    "cu.browser-extension-reload-upgrade.macos");
+  harness.remove_run(context);
+  print("PASS: stale extension source becomes one exact current replacement");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }

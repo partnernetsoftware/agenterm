@@ -1326,6 +1326,7 @@ pub(super) fn browser_bridge_reload_payload(
 }
 
 pub(super) fn browser_bridge_extension_reload_payload(
+    request: &super::managed_jobs::JobRequestContext<'_>,
     connection_id: &ConnectionId,
     force: bool,
     session_id: &str,
@@ -1333,6 +1334,7 @@ pub(super) fn browser_bridge_extension_reload_payload(
     ttl_seconds: u64,
     timeout_ms: u64,
 ) -> Result<Value, CuError> {
+    require_extension_reload_identity(request, session_id, lease)?;
     if ttl_seconds.saturating_mul(1_000) < timeout_ms.saturating_add(LOCK_DEADLINE_MARGIN_MS) {
         return Err(CuError::new(
             "browser_bridge_lock_ttl_invalid",
@@ -1584,6 +1586,39 @@ pub(super) fn browser_bridge_extension_reload_payload(
         "verified": true,
         "warnings": ["debugger sessions in this profile were detached by extension reload"],
     }))
+}
+
+fn require_extension_reload_identity(
+    request: &super::managed_jobs::JobRequestContext<'_>,
+    session_id: &str,
+    lease: &str,
+) -> Result<(), CuError> {
+    if extension_reload_identity_matches(
+        request.session_id,
+        request.session_lease,
+        session_id,
+        lease,
+    ) {
+        return Ok(());
+    }
+    Err(CuError::new(
+        "browser_bridge_request_identity_mismatch",
+        "the extension reload command identity must equal the durable request session identity",
+    )
+    .with_detail(json!({
+        "reload_scope": "extension-code",
+        "effect": "not-performed",
+        "retry_safe": true,
+    })))
+}
+
+fn extension_reload_identity_matches(
+    request_session_id: &str,
+    request_session_lease: &str,
+    command_session_id: &str,
+    command_lease: &str,
+) -> bool {
+    request_session_id == command_session_id && request_session_lease == command_lease
 }
 
 fn reload_profile_inventory_until(
@@ -2294,6 +2329,28 @@ mod tests {
         let mut activated = second;
         activated.tabs[1].active = true;
         assert_ne!(first_identity, tab_inventory_identity(&activated));
+    }
+
+    #[test]
+    fn extension_reload_binds_command_identity_to_durable_request() {
+        assert!(extension_reload_identity_matches(
+            "session-a",
+            "lease-a",
+            "session-a",
+            "lease-a"
+        ));
+        assert!(!extension_reload_identity_matches(
+            "session-a",
+            "lease-a",
+            "session-b",
+            "lease-a"
+        ));
+        assert!(!extension_reload_identity_matches(
+            "session-a",
+            "lease-a",
+            "session-a",
+            "lease-b"
+        ));
     }
 
     #[test]

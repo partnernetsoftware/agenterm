@@ -18,6 +18,8 @@ pub use host::{
     RequestLedger, list_live_connections, run_native_host, send_to_connection,
     send_to_connection_with_timeout,
 };
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub use installer::materialize_for_owned_profile;
 pub use installer::{
     BrowserBridgeInstall, BrowserBridgeInstallError, BrowserBridgeInstallPaths,
     BrowserRegistrationOutcome, BrowserRegistrationPlan, BrowserRegistrationReceipt,
@@ -34,7 +36,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 pub const PROTOCOL_VERSION: u32 = 6;
-pub const BRIDGE_EXTENSION_VERSION: &str = "1.6.0";
+pub const BRIDGE_EXTENSION_VERSION: &str = "1.7.0";
 pub const REQUEST_MAX_BYTES: usize = 1024 * 1024;
 pub const NATIVE_MESSAGE_MAX_BYTES: usize = REQUEST_MAX_BYTES;
 pub const ACU_NATIVE_HOST_NAME: &str = "software.partnernet.agenterm_acu.browser_bridge";

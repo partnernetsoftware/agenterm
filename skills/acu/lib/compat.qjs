@@ -342,8 +342,21 @@ function known_dynamic_boundary(argv) {
     return compound_plan("bridge-status", "browser", { profile: parsed.values.profile });
   }
   if (verb === "browser" && sub === "bridge" && argv[2] === "reload") {
-    return todo("acu.dynamic.075.bridge-extension-reload", "browser",
-      "legacy browser bridge reload requires profile-level Chromium extension-code reload and version read-back; browser-bridge-reload only reconnects Native Messaging and is not a fallback");
+    const parsed = without_value_flags(argv, ["profile"]);
+    if (!parsed.ok) { return { kind: "usage", command: "browser", message: parsed.message }; }
+    const switched = without_switch_flags(parsed.argv, ["force"]);
+    if (!switched.ok) { return { kind: "usage", command: "browser", message: switched.message }; }
+    if (switched.argv.length !== 3) {
+      return { kind: "usage", command: "browser",
+        message: "browser bridge reload accepts only --profile PROFILE_INSTANCE_PREFIX and --force" };
+    }
+    if (parsed.values.profile !== null && !lower_hex_prefix(parsed.values.profile)) {
+      return todo("acu.dynamic.075.profile-name-binding", "browser",
+        "browser bridge reload human profile names need a verified MV3 profile identity binding");
+    }
+    return compound_plan("bridge-extension-reload", "browser", {
+      profile: parsed.values.profile, force: switched.values.force
+    });
   }
   if (verb === "browser" && sub === "nav") {
     const valued = without_value_flags(argv,
@@ -767,6 +780,17 @@ export function canonicalize(input) {
   if (boundary !== null) {
     if (boundary.kind === "exec") { return exec_with_prefix(extracted.prefix, boundary.argv); }
     if (boundary.kind !== "usage" && boundary.kind !== "todo") {
+      if (boundary.kind === "bridge-extension-reload") {
+        const globals = extracted.globals;
+        if (typeof globals.request_id !== "string" || globals.request_id.length === 0
+            || typeof globals.session !== "string" || globals.session.length === 0
+            || typeof globals.session_lease !== "string" || globals.session_lease.length === 0) {
+          return { kind: "usage", code: "request_identity_required", command: "browser",
+            message: "browser bridge reload requires explicit --request-id, --session and --session-lease; implicit compatibility sessions are not accepted" };
+        }
+        boundary.session = globals.session;
+        boundary.session_lease = globals.session_lease;
+      }
       boundary.globals = copy(extracted.prefix);
     }
     return boundary;
@@ -789,6 +813,7 @@ export function canonicalize(input) {
       || mapped.kind === "observe-filters"
       || mapped.kind === "elements-page" || mapped.kind === "bridge-status"
       || mapped.kind === "bridge-open" || mapped.kind === "bridge-nav"
+      || mapped.kind === "bridge-extension-reload"
       || mapped.kind === "cdp-nav"
       || mapped.kind === "selector-dclick") {
     mapped.globals = copy(extracted.prefix);

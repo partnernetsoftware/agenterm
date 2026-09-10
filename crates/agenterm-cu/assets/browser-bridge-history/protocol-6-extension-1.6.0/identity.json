@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "source_commit": "fb1663d5afc8594bf9552db8ff28650b488b248f",
+  "protocol": 6,
+  "extension_version": "1.6.0",
+  "build_id": "4a37746b30ffb6ce76a246d661dde34cbf2f266d2d94eafaad74549dd93d679f",
+  "assets": [
+    {
+      "path": "manifest.json",
+      "git_blob_oid": "773a5610c72ec1e91a4603373aeae4bc7a6f9268",
+      "raw_bytes": 726,
+      "raw_sha256": "2c5f1032268872e6a02da5fd4c88804d9f3af00aab5b919eb2a82d7194c8f760",
+      "materialized_sha256": "2c5f1032268872e6a02da5fd4c88804d9f3af00aab5b919eb2a82d7194c8f760"
+    },
+    {
+      "path": "background.js",
+      "git_blob_oid": "628cf88a6d76ea67d4c2dd7d15c3fde7ca08b356",
+      "raw_bytes": 52804,
+      "raw_sha256": "bb4020051f0d6d2ae162406e90b5da5936a0a25fb22fecbe5b0261cfb6f0d3fc",
+      "materialized_bytes": 52852,
+      "materialized_sha256": "db7f6d7d31dd51cc775de506724de59e8363133d7512e8eb0a216d54b538a70e"
+    }
+  ]
+}

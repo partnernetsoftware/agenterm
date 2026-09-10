@@ -180,6 +180,9 @@ pub struct BrowserBridgeInstall {
     /// Setup cannot activate an unpacked extension inside Chromium.
     pub extension_loaded: bool,
     pub manual_activation_required: bool,
+    /// The requested publication plan completed. The internal owned-profile
+    /// materialization plan deliberately has zero browser registrations;
+    /// public setup plans require at least one registration target.
     pub complete: bool,
     /// A caller may deliberately rerun the same selector set after repairing a
     /// partial registration. This does not authorize an automatic retry.
@@ -219,7 +222,11 @@ pub fn install_for_current_user(
     executable: &Path,
 ) -> Result<BrowserBridgeInstall, BrowserBridgeInstallError> {
     validate_current_executable(executable)?;
-    install_at(executable, BrowserBridgeInstallPaths::for_current_user()?)
+    install_at(
+        executable,
+        BrowserBridgeInstallPaths::for_current_user()?,
+        true,
+    )
 }
 
 pub fn install_for_current_user_selected(
@@ -230,7 +237,21 @@ pub fn install_for_current_user_selected(
     install_at(
         executable,
         BrowserBridgeInstallPaths::for_current_user_selected(requested)?,
+        true,
     )
+}
+
+/// Publish the fixed extension and native-host manifest for an isolated owned
+/// profile without requiring or mutating any default browser profile.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub fn materialize_for_owned_profile(
+    executable: &Path,
+) -> Result<BrowserBridgeInstall, BrowserBridgeInstallError> {
+    validate_current_executable(executable)?;
+    let mut paths = BrowserBridgeInstallPaths::for_current_user()?;
+    paths.targets.clear();
+    paths.skipped_registrations.clear();
+    install_at(executable, paths, false)
 }
 
 fn validate_current_executable(executable: &Path) -> Result<(), BrowserBridgeInstallError> {
@@ -256,9 +277,10 @@ fn validate_current_executable(executable: &Path) -> Result<(), BrowserBridgeIns
 fn install_at(
     executable: &Path,
     paths: BrowserBridgeInstallPaths,
+    require_registration: bool,
 ) -> Result<BrowserBridgeInstall, BrowserBridgeInstallError> {
     let mut receipt = BrowserBridgeInstall::empty(&paths);
-    if paths.targets.is_empty() {
+    if require_registration && paths.targets.is_empty() {
         return Err(error("browser_bridge_no_supported_browser_profile").with_receipt(receipt));
     }
     let manifest = native_host_manifest(executable)
@@ -775,7 +797,7 @@ mod tests {
 
         let executable = root.join("agenterm-cu");
         fs::write(&executable, b"fixture").unwrap();
-        let receipt = install_at(&executable, paths).unwrap();
+        let receipt = install_at(&executable, paths, true).unwrap();
         assert_eq!(receipt.effect, BrowserSetupEffect::Performed);
         assert!(receipt.complete && receipt.idempotent_rerun);
         assert_eq!(receipt.registrations.len(), 3);
@@ -857,11 +879,38 @@ mod tests {
             skipped_registrations: Vec::new(),
         };
         assert_eq!(
-            install_at(&root.join("unused"), paths).unwrap_err().code,
+            install_at(&root.join("unused"), paths, true)
+                .unwrap_err()
+                .code,
             "browser_bridge_no_supported_browser_profile"
         );
         assert!(!root.join("extension").exists());
         assert!(!root.join("native-host.json").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn owned_profile_materialization_does_not_require_a_default_browser_root() {
+        let root = fixture("owned-no-roots");
+        let executable = root.join("agenterm-cu");
+        fs::write(&executable, b"fixture").unwrap();
+        let paths = BrowserBridgeInstallPaths {
+            extension: root.join("extension"),
+            native_manifest_file: root.join("native-host.json"),
+            requested_browsers: Vec::new(),
+            discovered_roots: Vec::new(),
+            targets: Vec::new(),
+            skipped_registrations: Vec::new(),
+        };
+
+        let receipt = install_at(&executable, paths, false).unwrap();
+
+        assert!(receipt.complete);
+        assert!(receipt.bundle_materialized);
+        assert!(receipt.native_manifest_file_written);
+        assert!(receipt.registrations.is_empty());
+        assert!(receipt.extension.is_dir());
+        assert!(receipt.native_manifest_file.is_file());
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -896,7 +945,7 @@ mod tests {
             ],
             skipped_registrations: Vec::new(),
         };
-        let failure = install_at(&executable, paths).unwrap_err();
+        let failure = install_at(&executable, paths, true).unwrap_err();
         assert_eq!(failure.code, "browser_bridge_registration_partial");
         let receipt = failure.receipt.unwrap();
         assert!(receipt.bundle_materialized);

@@ -410,6 +410,7 @@ const evidence_suites = {
   "cu-browser-session-smoke": true,
   "cu-browser-profile-inventory-smoke": true,
   "cu-browser-bridge-setup-selector-smoke": true,
+  "cu-browser-extension-reload-smoke": true,
   "cu-terminal-viewport-smoke": true,
   "cu-simulator-readonly-smoke": true,
   "cu-simulator-lifecycle-smoke": true,

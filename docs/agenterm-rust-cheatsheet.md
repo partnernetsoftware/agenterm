@@ -1836,6 +1836,17 @@ reaped. `--load-extension` in argv, an installed manifest, or an empty window
 inventory is supporting mechanism evidence; only the live connection closes
 the activation claim.
 
+On macOS and Linux, Chromium resolves the per-user `NativeMessagingHosts`
+directory from the active user-data directory. An owned launch with a custom
+`--user-data-dir` therefore cannot rely on registration under a browser's
+default profile root. Before launch, copy the already-published native-host
+manifest into the owned profile's `NativeMessagingHosts` directory through a
+bounded exact read and private atomic write; clean up the owned session if that
+publication fails. Windows keeps the per-user HKCU registration instead.
+Consequently, a Windows owned bridge session still depends on a discovered
+product root until an isolated current-user registry bootstrap is proved; do
+not describe the Unix clean-HOME result as a cross-platform contract.
+
 When a loaded unpacked extension must identify its exact source build, keep one
 fixed-width placeholder in the reviewed embedded JavaScript, hash the raw
 manifest and placeholder-bearing source with explicit path/length framing, and

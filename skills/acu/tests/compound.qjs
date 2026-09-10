@@ -175,6 +175,49 @@ fails(compound.observe_roles({ ok: true, data: { events: [{ node: {} }] } }, "bu
 
 const page_connection = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 const page_profile = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const reload_selected = {
+  connection_id: page_connection,
+  profile_instance_id: page_profile
+};
+const reload_noop = ok(compound.bridge_extension_reload_projection(reload_selected, {
+  ok: true, data: {
+    reloaded: false, reason: "already-current", reload_scope: "extension-code",
+    effect: "not-performed", retry_safe: true, connection_id: page_connection,
+    profile_instance_id: page_profile,
+    loaded_identity: { protocol: 6, extension_version: "1.7.0", build_id: "a" },
+    source_identity: { protocol: 6, extension_version: "1.7.0", build_id: "a" },
+    verified: true
+  }
+}), "extension reload no-op projection");
+require(reload_noop.reloaded === false && reload_noop.current === true
+    && reload_noop.effect === "not-performed" && reload_noop.retry_safe === true,
+  "extension reload no-op identity");
+const replacement_connection = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+const reload_performed = ok(compound.bridge_extension_reload_projection(reload_selected, {
+  ok: true, data: {
+    reloaded: true, reload_scope: "extension-code", effect: "performed",
+    retry_safe: false, old_connection_id: page_connection,
+    connection_id: replacement_connection, profile_instance_id: page_profile,
+    old_connection_gone: true, unique_reconnect: true, tabs_unchanged: true,
+    tabs_identity_digest: page_connection, focus_changed: false,
+    acknowledgement: { accepted: true, reload_scope: "extension-code" },
+    loaded_identity_before: { extension_version: "1.6.0" },
+    loaded_identity_after: { extension_version: "1.7.0" },
+    source_identity: { extension_version: "1.7.0" }, verified: true
+  }
+}), "extension reload performed projection");
+require(reload_performed.reloaded === true
+    && reload_performed.previous_connection_id === page_connection
+    && reload_performed.connection_id === replacement_connection
+    && reload_performed.effect === "performed" && reload_performed.retry_safe === false,
+  "extension reload performed identity");
+fails(compound.bridge_extension_reload_projection(reload_selected, {
+  ok: true, data: {
+    reloaded: true, reload_scope: "extension-code", effect: "unknown",
+    retry_safe: false, profile_instance_id: page_profile, verified: true
+  }
+}), "browser_bridge_extension_reload_postcondition_failed",
+"extension reload uncertain success projection");
 const page_tab = ok(compound.elements_page_tab({ ok: true, data: {
   mechanism: "mv3-native-messaging", connection_id: page_connection,
   profile_instance_id: page_profile, returned: 1, truncated: false,

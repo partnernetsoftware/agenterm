@@ -219,6 +219,9 @@ export function extractGlobals(argv) {
       grant: grant,
       grant_id: grantId,
       grant_store: grantStore,
+      request_id: seen["request-id"] === true ? values["request-id"] : null,
+      session: seen.session === true ? values.session : null,
+      session_lease: seen["session-lease"] === true ? values["session-lease"] : null,
       json: json
     },
     prefix: prefix,

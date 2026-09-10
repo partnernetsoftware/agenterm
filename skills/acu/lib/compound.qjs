@@ -846,6 +846,75 @@ export function bridge_status_projection(selected, connections_reply) {
   });
 }
 
+export function bridge_extension_reload_projection(selected, reply) {
+  if (!object_value(selected) || !lower_hex(selected.connection_id, 64)
+      || !lower_hex(selected.profile_instance_id, 32)) {
+    return failure("browser_bridge_response_invalid",
+      "selected bridge connection is incomplete");
+  }
+  const unpacked = reply_data(reply, "browser-bridge-extension-reload reply");
+  if (!unpacked.ok) { return unpacked; }
+  const data = unpacked.value;
+  if (!object_value(data) || data.reload_scope !== "extension-code"
+      || data.profile_instance_id !== selected.profile_instance_id
+      || typeof data.reloaded !== "boolean" || data.verified !== true) {
+    return failure("browser_bridge_extension_reload_postcondition_failed",
+      "legacy browser bridge reload lacks exact profile-level reload proof");
+  }
+  if (data.reloaded === false) {
+    if (data.reason !== "already-current" || data.effect !== "not-performed"
+        || data.retry_safe !== true || data.connection_id !== selected.connection_id
+        || !object_value(data.loaded_identity) || !object_value(data.source_identity)) {
+      return failure("browser_bridge_extension_reload_postcondition_failed",
+        "legacy browser bridge reload no-op is not the verified current identity");
+    }
+    return success({
+      reloaded: false,
+      reason: "already-current",
+      current: true,
+      reload_scope: "extension-code",
+      connection_id: selected.connection_id,
+      profile_instance_id: selected.profile_instance_id,
+      effect: "not-performed",
+      retry_safe: true,
+      loaded_identity: clone(data.loaded_identity),
+      source_identity: clone(data.source_identity),
+      verified: true
+    });
+  }
+  if (data.effect !== "performed" || data.retry_safe !== false
+      || data.old_connection_id !== selected.connection_id
+      || !lower_hex(data.connection_id, 64)
+      || data.connection_id === selected.connection_id
+      || data.old_connection_gone !== true || data.unique_reconnect !== true
+      || data.tabs_unchanged !== true || !lower_hex(data.tabs_identity_digest, 64)
+      || data.focus_changed !== false || !object_value(data.acknowledgement)
+      || data.acknowledgement.accepted !== true
+      || data.acknowledgement.reload_scope !== "extension-code"
+      || !object_value(data.loaded_identity_before)
+      || !object_value(data.loaded_identity_after)
+      || !object_value(data.source_identity)) {
+    return failure("browser_bridge_extension_reload_postcondition_failed",
+      "legacy browser bridge reload did not prove one exact current replacement");
+  }
+  return success({
+    reloaded: true,
+    reason: "stale-or-forced",
+    current: true,
+    reload_scope: "extension-code",
+    previous_connection_id: selected.connection_id,
+    connection_id: data.connection_id,
+    profile_instance_id: selected.profile_instance_id,
+    effect: "performed",
+    retry_safe: false,
+    tabs_identity_digest: data.tabs_identity_digest,
+    loaded_identity_before: clone(data.loaded_identity_before),
+    loaded_identity_after: clone(data.loaded_identity_after),
+    source_identity: clone(data.source_identity),
+    verified: true
+  });
+}
+
 export function bridge_window_open_projection(selected, reply, legacy_timeout) {
   if (!object_value(selected) || !lower_hex(selected.connection_id, 64)
       || !lower_hex(selected.profile_instance_id, 32) || !positive_integer(selected.pid)) {

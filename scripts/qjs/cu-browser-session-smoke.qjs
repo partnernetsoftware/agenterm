@@ -5,7 +5,6 @@ import * as harness from "lib/test_harness";
 
 const declared_evidence = [
   "cu.browser-managed-profile.macos",
-  "cu.browser-bridge-owned-profile.macos",
   "cu.browser-profile-tabs.macos",
   "cu.browser-bridge-reload.macos",
   "cu.browser-bridge-nav.macos",
@@ -72,7 +71,7 @@ function invoke(grant, arguments) {
 }
 
 function invoke_acu(arguments) {
-  const argv = ["cli", "acu"];
+  const argv = ["cli", "--address", context.address, "acu"];
   for (const argument of arguments) { argv.push("" + argument); }
   const output = rh.command(product, argv, {
     cwd: context.run_directory,
@@ -90,7 +89,9 @@ function invoke_acu(arguments) {
 }
 
 function require_ok(result, label) {
-  ensure(result.output.success === true && result.reply.ok === true, label);
+  const code = result.reply && result.reply.error && result.reply.error.code
+    ? result.reply.error.code : "unknown";
+  ensure(result.output.success === true && result.reply.ok === true, label + ":" + code);
   return result.reply;
 }
 
@@ -179,12 +180,18 @@ function cleanup() {
 
 function restore_exact_focus(handle, label) {
   if (handle === null) { return; }
-  const current = invoke("observe", ["windows", "--focused", "true", "--max", "2"]);
-  if (current.reply.ok === true && current.reply.data.returned === 1 &&
-      current.reply.data.windows[0].handle === handle) { return; }
-  const restored = invoke("actuate", ["activate", "--window", "" + handle]);
-  ensure(restored.reply.ok === true && restored.reply.data.verified === true,
-    label);
+  let last_code = "focus_not_observed";
+  for (let attempt = 0; attempt < 4; attempt = attempt + 1) {
+    const current = invoke("observe", ["windows", "--focused", "true", "--max", "2"]);
+    if (current.reply.ok === true && current.reply.data.returned === 1 &&
+        current.reply.data.windows[0].handle === handle) { return; }
+    const restored = invoke("actuate", ["activate", "--window", "" + handle]);
+    if (restored.reply.ok === true && restored.reply.data.verified === true) { return; }
+    last_code = restored.reply && restored.reply.error && restored.reply.error.code
+      ? restored.reply.error.code : "unknown";
+    rh.sleep_ms(50);
+  }
+  throw label + ":" + last_code;
 }
 
 function shutdown_focus_fixture() {
@@ -270,7 +277,7 @@ try {
     "browser-bridge-status", bridge_id
   ]), "cu_browser_bridge_status_failed");
   ensure(bridge_status.data.result.protocol === 6, "cu_browser_bridge_protocol");
-  ensure(bridge_status.data.result.extension_version === "1.6.0",
+  ensure(bridge_status.data.result.extension_version === "1.7.0",
     "cu_browser_bridge_extension_version");
   ensure(typeof bridge_status.data.result.build_id === "string" &&
     bridge_status.data.result.build_id.length === 64,
@@ -507,50 +514,6 @@ try {
     "cu_browser_bridge_audit_leaked_identity_or_lease");
   bridge_id = reloaded.data.connection_id;
 
-  print("STEP protocol-six extension reload hook proves a current no-op and one exact replacement");
-  const extension_noop = bridge_effect("bridge-extension-noop-" + rh.pid(), [
-    "browser-bridge-extension-reload", bridge_id,
-    "--session", runtime_session.session_id,
-    "--lease", runtime_session.lease,
-    "--ttl-seconds", "60", "--timeout-ms", "20000"
-  ]);
-  ensure(extension_noop.data.reloaded === false &&
-    extension_noop.data.reason === "already-current" &&
-    extension_noop.data.reload_scope === "extension-code" &&
-    extension_noop.data.effect === "not-performed" &&
-    extension_noop.data.retry_safe === true &&
-    extension_noop.data.connection_id === bridge_id &&
-    extension_noop.data.profile_instance_id === profile_instance_id &&
-    extension_noop.data.loaded_identity.build_id === bridge_status.data.result.build_id &&
-    extension_noop.data.verified === true,
-    "cu_browser_bridge_extension_noop_unverified");
-  const extension_reloaded = bridge_effect("bridge-extension-force-" + rh.pid(), [
-    "browser-bridge-extension-reload", bridge_id, "--force",
-    "--session", runtime_session.session_id,
-    "--lease", runtime_session.lease,
-    "--ttl-seconds", "60", "--timeout-ms", "20000"
-  ]);
-  ensure(extension_reloaded.data.reloaded === true &&
-    extension_reloaded.data.reload_scope === "extension-code" &&
-    extension_reloaded.data.effect === "performed" &&
-    extension_reloaded.data.retry_safe === false &&
-    extension_reloaded.data.old_connection_id === bridge_id &&
-    extension_reloaded.data.connection_id !== bridge_id &&
-    extension_reloaded.data.profile_instance_id === profile_instance_id &&
-    extension_reloaded.data.loaded_identity_after.protocol === 6 &&
-    extension_reloaded.data.loaded_identity_after.extension_version === "1.6.0" &&
-    extension_reloaded.data.loaded_identity_after.build_id === bridge_status.data.result.build_id &&
-    extension_reloaded.data.acknowledgement.accepted === true &&
-    extension_reloaded.data.acknowledgement.reload_scope === "extension-code" &&
-    extension_reloaded.data.old_connection_gone === true &&
-    extension_reloaded.data.unique_reconnect === true &&
-    extension_reloaded.data.tabs_unchanged === true &&
-    typeof extension_reloaded.data.tabs_identity_digest === "string" &&
-    extension_reloaded.data.tabs_identity_digest.length === 64 &&
-    extension_reloaded.data.focus_changed === false &&
-    extension_reloaded.data.verified === true,
-    "cu_browser_bridge_extension_reload_unverified");
-  bridge_id = extension_reloaded.data.connection_id;
   const live_windows = require_ok(invoke("observe", [
     "browser-bridge-windows", bridge_id
   ]), "cu_browser_bridge_live_windows_failed");

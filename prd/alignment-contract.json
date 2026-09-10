@@ -456,6 +456,7 @@
         "cu.browser-managed-profile.macos",
         "cu.browser-profile-inventory.synthetic-home",
         "cu.browser-bridge-setup.synthetic-home",
+        "cu.browser-extension-reload-upgrade.macos",
         "cu.browser-bridge-owned-profile.macos",
         "cu.browser-profile-tabs.macos",
         "cu.browser-bridge-reload.macos",

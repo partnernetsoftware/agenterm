@@ -300,7 +300,7 @@ MCU retirement blockers
 │  │  ├─ [x] macOS owned Profile loads exact extension; live connection + host EOF/TTL cleanup qjswasm court
 │  │  ├─ [x] child-frame closed shadow: exact read/type/focus/press/files + secret-free durable evidence
 │  │  ├─ [ ] exact human profile/application binding
-│  │  ├─ [~] protocol-6 extension-code reload hook proves current no-op and forced unique replacement; stale-to-current proof remains
+│  │  ├─ [x] protocol-6 extension-code reload proves frozen 1.6 source becomes one exact 1.7 replacement; durable replay, current no-op, and forced replacement are separately proved
 │  │  ├─ [ ] native background-browser focus bridge for the no-focused-browser case
 │  │  └─ [ ] Linux/Windows owned-Profile bridge courts
 │  ├─ [~] privilege plan/broker/OS consent
@@ -1197,12 +1197,14 @@ caller-visible owner lease cannot become a hidden resident session authority,
 and recoverable Trash removal cannot become permanent verified deletion.
 Their messages point to `browser-session-*` only as explicit migrations and
 state that session start launches immediately with no create-only equivalent.
-The remaining lifecycle gap is narrower. Protocol 6 publishes a deterministic
-extension build identity and a separate profile-level code-reload hook that
-proves an already-current no-op or one forced unique replacement without tab
-or desktop-focus drift. Native bridge reload remains connection-only, and the
-compatibility gap stays open until an owned stale-to-current extension court
-proves that a different loaded build becomes the exact published build.
+Protocol 6 now owns a separate profile-level code-reload operation under
+explicit durable request/session identity. Its macOS owned-profile court loads
+frozen 1.6 source, publishes exact 1.7 source, and proves one accepted effect
+becomes one unique same-profile current replacement without tab-identity or
+desktop-focus drift; durable replay creates no second effect. Native bridge
+reload remains connection-only. Human profile names remain the narrower
+`acu.dynamic.075.profile-name-binding` gap, and Linux/Windows reload courts are
+still pending.
 
 The separate `browser.window-lifecycle` leaf has now left the gap set. A fixed
 MV3 connection owns explicit `window-open`, bounded identity inventory and
