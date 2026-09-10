@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "grant_selector": "grant-fixture-opaque-01",
+  "store_selector": "store-fixture-opaque-01",
+  "binding": {
+    "target": "target-fixture-01",
+    "session": "session-fixture-01"
+  },
+  "operation": "shell-exec",
+  "issued_at_utc_ms": 1000000,
+  "not_before_utc_ms": 1000000,
+  "expires_at_utc_ms": 1060000,
+  "now_utc_ms": 1001000,
+  "generation": 1,
+  "max_uses": 1,
+  "idempotency_key": "request-fixture-01",
+  "payload_digest": "4a706a0676633a2f9e625c915bb67da894c81dd1f94694ff405d67b84f4b5948",
+  "marker": "m1",
+  "session_deadline_ms": 60000,
+  "call_ceiling": 1,
+  "failure_schedule": ["F-1", "F0", "F1", "F2", "F3"],
+  "protocol_cases": [
+    {"name":"legal-shell","request":{"command":"shell-exec","idempotency_key":"request-fixture-01"}},
+    {"name":"job-start","request":{"command":"job-start"}},
+    {"name":"device-claim","request":{"command":"device-claim"}},
+    {"name":"shell-job-operation","request":{"command":"shell-exec","idempotency_key":"request-fixture-01","operation":"job-start"}},
+    {"name":"shell-device-operation","request":{"command":"shell-exec","idempotency_key":"request-fixture-01","operation":"device-claim"}},
+    {"name":"extra-job","request":{"command":"shell-exec","idempotency_key":"request-fixture-01","job":{"argv":[]}}},
+    {"name":"extra-device","request":{"command":"shell-exec","idempotency_key":"request-fixture-01","device":{"id":"fixture"}}},
+    {"name":"extra-binding","request":{"command":"shell-exec","idempotency_key":"request-fixture-01","binding":{"target":"target-fixture-01","session":"session-fixture-01"}}},
+    {"name":"extra-clock","request":{"command":"shell-exec","idempotency_key":"request-fixture-01","now_utc_ms":1000000}},
+    {"name":"extra-session","request":{"command":"shell-exec","idempotency_key":"request-fixture-01","session_lease":"fixture"}},
+    {"name":"extra-generation","request":{"command":"shell-exec","idempotency_key":"request-fixture-01","generation":2}}
+  ]
+}
