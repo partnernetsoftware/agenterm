@@ -972,7 +972,7 @@ def patch_tasks_json() -> None:
 def patch_qualification_gates() -> None:
     path = ROOT / "scripts/qualification-gates.json"
     data = json.loads(path.read_text())
-    gates = data["required_gates"]
+    gates = data["registered_gates"]
     if not any(g.get("id") == "cu-linux-login-session-smoke" for g in gates):
         insert_at = next(
             i for i, g in enumerate(gates) if g.get("id") == "cu-linux-boot-identity-smoke"

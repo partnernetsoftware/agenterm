@@ -1303,6 +1303,17 @@ debt rather than an API gap. `power.action-apply` stays a separate TODO
 until its provider owns pre-effect reservation, terminal-effect uncertainty and
 replay refusal.
 
+The qualification registry now separates two roles that had drifted into one
+array. The exact 37-gate Windows Candidate execution set remains
+`required_gates`; the later 128 task/evidence declarations move to
+`registered_gates`. Candidate result admission, timing and receipts consume only
+the required set. Declaration scans, PRD alignment, retirement accounting and
+the UTM resolver consume the union. An early exact-set comparison prevents the
+driver and required manifest from diverging again, while host-native manifests
+remain the platform-ownership annotation and must agree byte-for-byte when they
+repeat a registered gate. This repair changes no capability state and grants no
+platform evidence.
+
 ## Hard gates
 
 - **R0 Accounting:** zero unclassified MCU public command shapes.

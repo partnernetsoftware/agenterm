@@ -21,9 +21,9 @@
 //     `.` spelled as the absolute repo) and runs
 //     `WORKER cli script run --profile tool --timeout-ms N --max-operations
 //     1000000000 REPO/scripts/qjs/ENTRY.qjs -- FIXED... EXTRA...` with the
-//     repo as the child's directory. No `--project-root`: measured
-//     2026-08-29 at a56afd0c, it makes `lib/rh_compat` unresolvable for the
-//     child (fixed on main by c538685d; the cwd spelling works on both).
+//     repo as the child's directory. `--project-root REPO` now makes both
+//     entry-relative `lib/*` and repository-root `skills/*` imports reachable;
+//     c538685d fixed the older resolver behavior that rejected the former.
 //   - The worker. rh required $AGENTERM_BOOTSTRAP_WORKER (bootstrap.sh sets
 //     it). It is still preferred; without it the driver uses
 //     REPO/target/debug/agenterm(.exe), so the lanes can be driven directly.
@@ -201,6 +201,8 @@ function script_run_arguments(repo, entry, timeout_ms, script_arguments) {
     arguments_list.push("--max-string-bytes");
     arguments_list.push("8388608");
   }
+  arguments_list.push("--project-root");
+  arguments_list.push(repo);
   arguments_list.push(path.join(repo, "scripts/qjs/" + entry + ".qjs"));
   arguments_list.push("--");
   for (const item of script_arguments) { arguments_list.push("" + item); }
@@ -719,7 +721,7 @@ function quick_prd_alignment_spec(unix_bootstrap, bootstrap_worker, repo, quick_
 function assert_declarations(worker, repo, scratch, sequence, gate_manifest, report_each) {
   let sequence_value = rh.int_of(sequence);
   const problems = [];
-  for (const gate of gate_manifest.required_gates) {
+  for (const gate of qualification.catalog_gates(gate_manifest)) {
     if (gate.evidence.length === 0) { continue; }
     const gate_id = "" + gate.id;
     let suite_id = gate_id;
@@ -813,6 +815,26 @@ function smoke_gate_ids() {
   ];
 }
 
+// This is the full lane's independently encoded execution set. The manifest's
+// required_gates must stay exactly equal to it; registered_gates is discovery
+// and UTM catalog data and must never become Candidate receipt work.
+function qualification_execution_gate_ids() {
+  return [
+    "repo-lint", "rustfmt", "clippy", "unit-tests", "artifact-build",
+    "artifact-build-fast", "task-catalog", "mcp-conformance",
+    "migration-audit", "artifact-verification", "readme-examples",
+    "docs-site", "supply-chain", "target-report", "internal-version-policy",
+    "qualification-selftest", "package-boundary-selftest",
+    "harness-cleanup-selftest", "diagnostic-bundle-selftest",
+    "release-preflight", "preflight-benchmark", "prd-alignment",
+    "startup-smoke", "wake-smoke", "cli-smoke", "server-smoke",
+    "native-ipc-smoke", "native-ipc-compat-smoke", "remote-ui-smoke",
+    "remote-ui-upgrade-smoke", "fleet-smoke", "script-smoke", "theme-smoke",
+    "working-context-smoke", "workbench-smoke", "control-center-smoke",
+    "cu-windows-smoke"
+  ];
+}
+
 function copy_release_fast_fixture(repo, upgrade_fixture) {
   rh.copy(path.join(repo, "target/release-fast/agenterm.exe"), upgrade_fixture);
 }
@@ -884,7 +906,7 @@ const gate_manifest_path = path.join(repo, "scripts/qualification-gates.json");
 if (list_evidence !== 0) {
   // Data only: the manifest's declarations, one `GATE EVIDENCE-ID` per line.
   const manifest = qualification.read_manifest(gate_manifest_path);
-  for (const gate of manifest.required_gates) {
+  for (const gate of qualification.catalog_gates(manifest)) {
     for (const id of gate.evidence) { print("" + gate.id + " " + id); }
   }
   return;
@@ -1060,6 +1082,12 @@ if (release !== 0 && include_stress !== 0) {
 const timing_kind = release !== 0 ? "candidate" : "ordinary";
 const smoke_included = skip_smoke !== 0 ? 0 : 1;
 const gate_manifest = context.manifest;
+const required_gate_ids = [];
+for (const gate of gate_manifest.required_gates) { required_gate_ids.push("" + gate.id); }
+require(
+  qualification.exact_values(required_gate_ids, qualification_execution_gate_ids()) !== 0,
+  "qualification_required_gate_execution_set_mismatch"
+);
 const timing_gate_ids = [];
 for (const gate of gate_manifest.required_gates) { timing_gate_ids.push("" + gate.id); }
 let timing = qualification.new_timing(

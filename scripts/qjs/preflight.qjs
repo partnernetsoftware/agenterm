@@ -496,7 +496,7 @@ if (artifact_passed !== 0) {
 
 let gate_manifest_passed = 1;
 const gate_manifest = JSON.parse(rh.read_text(rh.join(repo, "scripts/qualification-gates.json")));
-if (gate_manifest.schema_version !== 1) {
+if (gate_manifest.schema_version !== 2) {
   gate_manifest_passed = 0;
 }
 if (gate_manifest_passed !== 0) {
@@ -505,7 +505,8 @@ if (gate_manifest_passed !== 0) {
   }
 }
 if (gate_manifest_passed !== 0) {
-  if (!rh.is_array(gate_manifest.required_gates)) {
+  if (!rh.is_array(gate_manifest.required_gates)
+      || !rh.is_array(gate_manifest.registered_gates)) {
     gate_manifest_passed = 0;
   }
 }
@@ -517,11 +518,22 @@ if (gate_manifest_passed !== 0) {
 if (gate_manifest_passed !== 0) {
   const ids = {};
   let ids_count = 0;
+  let required_count = 0;
+  let registered_count = 0;
+  const declared_gates = [];
+  for (const gate of gate_manifest.required_gates) {
+    declared_gates.push(gate);
+    required_count = required_count + 1;
+  }
+  for (const gate of gate_manifest.registered_gates) {
+    declared_gates.push(gate);
+    registered_count = registered_count + 1;
+  }
   const gate_alphabet = [];
   for (const c of rh.LOWER) { gate_alphabet.push(c); }
   for (const c of rh.DIGITS) { gate_alphabet.push(c); }
   gate_alphabet.push("-");
-  for (const required_entry of gate_manifest.required_gates) {
+  for (const required_entry of declared_gates) {
     const gate_id = required_entry.id;
     if (gate_id.length < 2) {
       gate_manifest_passed = 0;
@@ -550,7 +562,9 @@ if (gate_manifest_passed !== 0) {
     gates.push({
       id: "gate-manifest",
       passed: 1,
-      detail: "required_gates=" + ids_count
+      detail: "required_gates=" + required_count
+        + ",registered_gates=" + registered_count
+        + ",declared_gates=" + ids_count
     });
   } else {
     gates.push({

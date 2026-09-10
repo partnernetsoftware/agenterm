@@ -2464,8 +2464,12 @@ flowchart LR
   arm64 UTM court; its compact runtime receipt is local and gitignored.
   Both Windows ISAs compile, so `network.routes` is now `native`.
   The reusable UTM caller now resolves the task entry from
-  `agenterm.tasks.json` and the complete required evidence set from
-  `scripts/qualification-gates.json` before it leases a VM. It rejects legacy
+  `agenterm.tasks.json` and its complete required evidence set from the
+  declared evidence catalog—the `required_gates` and
+  `registered_gates` arrays in `scripts/qualification-gates.json`—before it
+  leases a VM. `required_gates` remains the exact Candidate run set;
+  `registered_gates` supplies task evidence discovery without becoming a
+  Candidate receipt requirement. The caller rejects legacy
   caller-supplied evidence/PASS overrides and accepts a run only when exit zero
   carries exactly that machine-declared evidence multiset. Human-readable
   `PASS:` text remains in the compact receipt for diagnosis, but wording drift

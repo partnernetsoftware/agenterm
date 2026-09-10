@@ -23,6 +23,12 @@ def resolve(repo: pathlib.Path, task_id: str):
         )
     except (OSError, json.JSONDecodeError) as error:
         fail(f"manifest_unavailable:{type(error).__name__}")
+    if (
+        gate_manifest.get("schema_version") != 2
+        or not isinstance(gate_manifest.get("required_gates"), list)
+        or not isinstance(gate_manifest.get("registered_gates"), list)
+    ):
+        fail("qualification_manifest_schema")
 
     tasks = [
         task for task in task_manifest.get("tasks", []) if task.get("id") == task_id
@@ -35,9 +41,12 @@ def resolve(repo: pathlib.Path, task_id: str):
     if not (repo / expected_entry).is_file():
         fail("task_entry_missing")
 
+    declared_gates = gate_manifest.get("required_gates", []) + gate_manifest.get(
+        "registered_gates", []
+    )
     gates = [
         gate
-        for gate in gate_manifest.get("required_gates", [])
+        for gate in declared_gates
         if gate.get("id") == task_id
     ]
     if len(gates) != 1:

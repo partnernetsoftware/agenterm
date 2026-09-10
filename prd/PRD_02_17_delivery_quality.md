@@ -1233,3 +1233,25 @@ flowchart LR
   The cell remains BLOCKED with no product verdict until the `utm-court` image
   restores a verifiable interactive worker; the other four cells do not
   substitute for it.
+
+### Qualification gate ownership
+
+- [x] The qualification manifest has two machine-enforced roles. Its 37
+  `required_gates` are exactly the gates the full Windows Candidate lane runs,
+  must all pass, and alone enter the qualification receipt. Its 128
+  `registered_gates` are the broader public evidence and UTM task catalog;
+  they are declaration-checked but cannot be reported as Candidate results.
+- **User problem:** Candidate qualification must be able to publish an exact
+  receipt without losing the evidence catalog needed by native UTM courts.
+- **Invariant:** the driver's independently encoded execution set equals
+  `required_gates`; gate and evidence identities are unique across both roles;
+  host-native duplicates must declare the same evidence bytes.
+- **Observable evidence:** manifest/preflight checks report both populations,
+  the qualification self-test proves a registered gate cannot enter results,
+  and the UTM resolver reads the union while preserving exact evidence matching.
+- **Safe failure:** role drift, cross-role duplication, a missing suite, or an
+  execution-set mismatch fails before expensive Candidate work or VM leasing.
+- **Public black-box owner:** `check --release --include-stress` owns Candidate
+  results and receipts; `utm-task-contract.py` owns native-task evidence lookup.
+- **Excluded scope:** this split does not qualify any platform-limited evidence,
+  run a host-native court, or change the receipt schema.

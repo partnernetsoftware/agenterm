@@ -11,6 +11,7 @@
 import * as rh from "lib/rh_compat";
 import * as path from "lib/path";
 import * as harness from "lib/test_harness";
+import * as qualification from "lib/qualification";
 
 function assert_ok(condition, message) {
   if (!condition) { throw message; }
@@ -211,6 +212,21 @@ const repo = rh.absolute(args[0]);
 const cli = rh.absolute(args[1]);
 assert_ok(rh.exists(cli), "qualification_selftest_cli_missing");
 const manifest_path = path.join(repo, "scripts/qualification-gates.json");
+const role_manifest = qualification.read_manifest(manifest_path);
+assert_ok(role_manifest.schema_version === 2, "qualification_selftest_manifest_schema");
+assert_ok(
+  qualification.gate_declared(role_manifest, role_manifest.required_gates[0].id) !== 0,
+  "qualification_selftest_required_gate_declared"
+);
+assert_ok(
+  qualification.gate_declared(role_manifest, role_manifest.registered_gates[0].id) === 0,
+  "qualification_selftest_registered_gate_cannot_report"
+);
+assert_ok(
+  qualification.catalog_gates(role_manifest).length
+    === role_manifest.required_gates.length + role_manifest.registered_gates.length,
+  "qualification_selftest_catalog_gate_union"
+);
 
 const missing_manifest = path.join(repo, "target/qualification/missing-gates.json");
 expect_rejection("qualification_manifest_missing", would_reject_read_manifest(missing_manifest));

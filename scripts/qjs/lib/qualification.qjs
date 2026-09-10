@@ -118,18 +118,20 @@ export function read_manifest(p) {
     "qualification_manifest_missing:" + p
   );
   const manifest = rh.parse_file(p);
+  q_require(rh.int_of(manifest.schema_version) === 2, "qualification_manifest_schema");
+  q_require(rh.int_of(manifest.receipt_schema_version) === 1, "qualification_receipt_schema");
   q_require(
-    rh.int_of(manifest.schema_version) === 1
-      && rh.int_of(manifest.receipt_schema_version) === 1,
-    "qualification_manifest_schema"
-  );
-  q_require(
-    rh.is_array(manifest.required_gates) && manifest.required_gates.length > 0,
+    rh.is_array(manifest.required_gates)
+      && manifest.required_gates.length > 0
+      && rh.is_array(manifest.registered_gates),
     "qualification_manifest_empty"
   );
   const gate_ids = {};
   const evidence_ids = {};
-  for (const gate of manifest.required_gates) {
+  const declared_gates = [];
+  for (const gate of manifest.required_gates) { declared_gates.push(gate); }
+  for (const gate of manifest.registered_gates) { declared_gates.push(gate); }
+  for (const gate of declared_gates) {
     const gate_id = "" + gate.id;
     q_require(
       valid_id(gate_id, 0) !== 0 && gate_ids[gate_id] === undefined,
@@ -198,11 +200,20 @@ export function assert_process_observation(context) {
 }
 
 export function gate_declared(manifest, gate_key) {
+  // Qualification results are valid only for the exact Candidate run set.
+  // registered_gates is a discovery/UTM catalog and must never enter a receipt.
   const key = "" + gate_key;
   for (const gate of manifest.required_gates) {
     if ("" + gate.id === key) { return 1; }
   }
   return 0;
+}
+
+export function catalog_gates(manifest) {
+  const gates = [];
+  for (const gate of manifest.required_gates) { gates.push(gate); }
+  for (const gate of manifest.registered_gates) { gates.push(gate); }
+  return gates;
 }
 
 export function evidence_from_output(output) {

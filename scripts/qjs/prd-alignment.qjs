@@ -464,7 +464,10 @@ const evidence_suites = {
 };
 const evidence_gates = [];
 const evidence_gate_by_id = {};
-for (const gate of gate_manifest.required_gates) {
+const qualification_catalog_gates = [];
+for (const gate of gate_manifest.required_gates) { qualification_catalog_gates.push(gate); }
+for (const gate of gate_manifest.registered_gates) { qualification_catalog_gates.push(gate); }
+for (const gate of qualification_catalog_gates) {
   const gate_id = "" + gate.id;
   if (evidence_suites[gate_id] === true) {
     evidence_gates.push(gate);
@@ -472,6 +475,7 @@ for (const gate of gate_manifest.required_gates) {
   }
 }
 const host_native_manifest = rh.parse_file(rh.join(repo, "scripts/host-native-evidence-gates.json"));
+rh.require(gate_manifest.schema_version === 2, "prd_alignment_qualification_schema");
 rh.require(host_native_manifest.schema_version === 1, "prd_alignment_host_native_schema");
 for (const gate of host_native_manifest.gates) {
   const host_gate_id = "" + gate.id;

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "receipt_schema_version": 1,
   "required_gates": [
     {
@@ -261,7 +261,9 @@
         "cu.windows-uia-destructive-close",
         "cu.windows-uia-cleanup"
       ]
-    },
+    }
+  ],
+  "registered_gates": [
     {
       "id": "cu-runtime-capability-core-windows-smoke",
       "evidence": [
