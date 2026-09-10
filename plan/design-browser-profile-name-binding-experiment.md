@@ -297,3 +297,25 @@ and makes the failure path prove a 0/0 connection inventory after stopping the
 browser. This does not change G1-G7, the A0/A1/B decision order or any kill
 criterion. Attempt 2 is terminal for validity failures and may run only from a
 new reviewed commit reachable from `origin/main`.
+
+### Attempt 2 and terminal research disposition
+
+Attempt 2 at source `6e675b05549cae3e69c94db16080c98a5720af4f`
+and input digest
+`bc816430bd53f079571128949c859486e944a82dccac8b707e3a364167956eb2`
+returned `INCONCLUSIVE_FIXTURE_EXHAUSTED` with
+`profile_binding_connection_cleanup_unverified`. The browser process was
+stopped, but the post-stop inventory did not prove the required 0/0 state
+within the bounded cleanup window. Cleanup is part of G1 validity, so values
+computed before that failure are non-authoritative execution trace rather than
+an A0, A1 or B decision. The pure G7 model self-test remains a separately
+reproducible static fact; it is not a selection verdict or implementation
+authorization.
+
+Both authorized attempts are consumed and a third run is forbidden. The
+experiment therefore ends without a profile-name-binding design verdict and
+does not change compatibility, ledger, evidence or product state. A future
+investigation requires a new precommitment that first proves the stopped
+browser child owns the bridge connection process identity, preserves a bounded
+failure stage in its receipt, and defines cleanup independently of provisional
+selector results.

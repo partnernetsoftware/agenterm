@@ -1203,11 +1203,11 @@ frozen 1.6 source, publishes exact 1.7 source, and proves one accepted effect
 becomes one unique same-profile current replacement without tab-identity or
 desktop-focus drift; durable replay creates no second effect. Native bridge
 reload remains connection-only. Human profile names remain the narrower
-`acu.dynamic.075.profile-name-binding` gap. A frozen alias-trap experiment now
-decides whether any accepted shared identity edge exists; independent singleton
-name/install/connection sets are not treated as a binding, and the fallback
-design is an explicit durable alias receipt. Linux/Windows reload courts are
-still pending.
+`acu.dynamic.075.profile-name-binding` gap. Its frozen alias-trap research
+budget ended after two validity failures without an A0/A1/B verdict, so the
+TODO remains. Any continuation requires a new precommitment that proves the
+stopped browser child owns the bridge connection process identity and retains
+a bounded failure stage. Linux/Windows reload courts are still pending.
 
 The separate `browser.window-lifecycle` leaf has now left the gap set. A fixed
 MV3 connection owns explicit `window-open`, bounded identity inventory and

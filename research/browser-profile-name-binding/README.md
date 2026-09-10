@@ -40,5 +40,10 @@ pushed commit containing the first result and the reviewed fixture repair.
 Attempt 1 used installed stable Google Chrome and ended before G1 with
 `selector_observation_no_connection`. The reviewed attempt-2 fixture uses the
 installed Brave Origin application; this changes only the browser fixture, not
-the criteria. Attempt 2 remains forbidden until this result and repair are in a
-new reviewed commit reachable from `origin/main`.
+the criteria. Attempt 2 reached post-stop cleanup but could not prove an empty
+connection inventory, so G1 validity failed and the terminal result is
+`INCONCLUSIVE_FIXTURE_EXHAUSTED`. Both attempts are consumed, no A0/A1/B design
+was selected, and a third run is forbidden. The compatibility TODO, ledger and
+evidence state remain unchanged. Any continuation requires a new
+precommitment that proves the stopped browser child owns the bridge connection
+process identity and preserves a bounded failure stage in the receipt.

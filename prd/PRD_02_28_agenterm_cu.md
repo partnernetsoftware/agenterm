@@ -679,7 +679,7 @@ ACU-only cutover
 │  │  │  the minimized unfocused window atomically with browser + desktop focus read-back
 │  │  ├─ the frozen no-argument witness is resolved; this does not close every legacy option
 │  │  ├─ [ ] acu.dynamic.075.profile-name-binding · human `--profile` / `--app` stays typed TODO
-│  │  │  └─ [~] decisive alias-trap research · frozen A/B ground truth decides archived cardinality, verified two-part identity, or explicit durable binding
+│  │  │  └─ [ ] decisive alias-trap research exhausted · two validity failures produced no A0/A1/B verdict; any continuation needs a new precommitment
 │  │  ├─ [x] acu.dynamic.075.bridge-nav · navigation without an explicit CDP endpoint selects
 │  │  │  one exact MV3 profile/tab under an explicit session and proves an HTTP(S) debugger
 │  │  │  root-frame/loader commit without browser or desktop focus drift
