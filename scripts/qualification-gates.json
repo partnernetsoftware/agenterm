@@ -1030,6 +1030,12 @@
       ]
     },
     {
+      "id": "cu-browser-bridge-contract-smoke",
+      "evidence": [
+        "cu.browser-bridge-cli-contract"
+      ]
+    },
+    {
       "id": "cu-browser-extension-reload-smoke",
       "evidence": [
         "cu.browser-bridge-owned-profile.macos",

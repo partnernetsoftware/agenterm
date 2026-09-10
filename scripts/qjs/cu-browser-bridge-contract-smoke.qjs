@@ -51,7 +51,29 @@ try {
   ensure(inventory.command === "browser-bridge-connections", "cu_browser_bridge_inventory_command");
   ensure(Array.isArray(inventory.data.connections), "cu_browser_bridge_inventory_rows");
   ensure(inventory.data.visited >= inventory.data.connections.length, "cu_browser_bridge_inventory_visited");
+  ensure(inventory.data.live === inventory.data.connections.length, "cu_browser_bridge_inventory_live");
+  ensure(Number.isInteger(inventory.data.stale_observed), "cu_browser_bridge_inventory_stale");
+  ensure(Number.isInteger(inventory.data.retained_unknown), "cu_browser_bridge_inventory_unknown");
+  ensure(Number.isInteger(inventory.data.foreign_rejected), "cu_browser_bridge_inventory_foreign");
+  ensure(Number.isInteger(inventory.data.unreadable), "cu_browser_bridge_inventory_unreadable");
+  ensure(Number.isInteger(inventory.data.dropped_candidates), "cu_browser_bridge_inventory_dropped");
+  ensure(typeof inventory.data.enumeration_complete === "boolean", "cu_browser_bridge_inventory_enumeration_complete");
+  ensure(typeof inventory.data.candidates_complete === "boolean", "cu_browser_bridge_inventory_candidates_complete");
   ensure(typeof inventory.data.truncated === "boolean", "cu_browser_bridge_inventory_truncated");
+  ensure(
+    inventory.data.live + inventory.data.stale_observed + inventory.data.retained_unknown +
+      inventory.data.foreign_rejected + inventory.data.unreadable === inventory.data.visited,
+    "cu_browser_bridge_inventory_classification_sum"
+  );
+  ensure(
+    inventory.data.truncated ===
+      (!inventory.data.enumeration_complete || !inventory.data.candidates_complete),
+    "cu_browser_bridge_inventory_truncation_summary"
+  );
+  ensure(
+    inventory.data.dropped_candidates === 0 || inventory.data.candidates_complete === false,
+    "cu_browser_bridge_inventory_dropped_completeness"
+  );
 
   print("STEP an exact but absent connection fails typed");
   const missing_id = "1111111111111111111111111111111111111111111111111111111111111111";

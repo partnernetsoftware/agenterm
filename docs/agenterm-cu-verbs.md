@@ -5484,7 +5484,7 @@ usage:
   browser-bridge-connections
   browser bridge connections
 
-Lists a bounded inventory of current-user bridge connections only after each record's exact process-start identity and fixed extension/native-host endpoint are validated. Stale or foreign records are not returned.
+Lists a bounded, sequential (non-atomic) inventory of current-user bridge records. Only records with an exact live process-start identity and the fixed extension/native-host endpoint enter connections. The payload separately counts live, proven stale, retained-unknown, foreign-rejected and unreadable disk records; these counts sum to visited and never expose pids or native reason text. dropped_candidates and the enumeration_complete / candidates_complete booleans disclose bounded coverage, while truncated remains their compatibility summary. stale_observed counts records, not processes or browsers. An exact-ID operation whose process identity is temporarily unavailable fails before IPC with browser_bridge_connection_identity_unknown instead of claiming the record is stale.
 ```
 
 ### `browser-bridge-status`

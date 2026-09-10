@@ -16,7 +16,8 @@ use agenterm_platform::{
     filesystem::{host_directories, protect_private_directory, write_private_atomic},
     filesystem_open::{ExistingEntryType, open_existing_path},
     ipc::{IpcEndpoint, IpcTransportErrorCode, NativeListener, NativeStream},
-    process_observation, user_identity,
+    process_observation::{self, IdentityVerdict},
+    user_identity,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -945,7 +946,7 @@ fn read_frame_with_deadline(
         .map_err(|_| BridgeHostError::new("browser_bridge_message_invalid"))
 }
 
-fn load_live_record_at(
+fn read_connection_record_at(
     root: &std::path::Path,
     id: &ConnectionId,
 ) -> Result<ConnectionRecord, BridgeHostError> {
@@ -968,24 +969,20 @@ fn load_live_record_at(
     }
     let record: ConnectionRecord = serde_json::from_slice(&encoded)
         .map_err(|_| BridgeHostError::new("browser_bridge_state_invalid"))?;
-    validate_live_record(&record, id)?;
     Ok(record)
 }
 
-fn validate_live_record(
+fn validate_record_contract(
     record: &ConnectionRecord,
     id: &ConnectionId,
+    owner_kind: &str,
+    owner_digest: &str,
 ) -> Result<(), BridgeHostError> {
-    let (owner_kind, owner_digest) = current_owner()?;
     if record.schema_version != CONNECTION_SCHEMA
         || record.owner_kind != owner_kind
         || record.owner_digest != owner_digest
         || &record.entry.connection_id != id
         || !matches!(record.entry.protocol, 5 | PROTOCOL_VERSION)
-        || process_observation::start_identity(record.entry.process.pid)
-            .ok()
-            .as_deref()
-            != Some(record.entry.process.start_identity.as_str())
     {
         return Err(BridgeHostError::new("browser_bridge_connection_stale"));
     }
@@ -1000,6 +997,62 @@ fn validate_live_record(
         )
         .map_err(|_| BridgeHostError::new("browser_bridge_state_invalid"))?;
     Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ConnectionRecordClass {
+    Live,
+    StaleObserved,
+    RetainedUnknown,
+    ForeignRejected,
+}
+
+fn classify_record(
+    record: &ConnectionRecord,
+    id: &ConnectionId,
+    owner_kind: &str,
+    owner_digest: &str,
+    identity: impl FnOnce() -> IdentityVerdict,
+) -> ConnectionRecordClass {
+    if validate_record_contract(record, id, owner_kind, owner_digest).is_err() {
+        return ConnectionRecordClass::ForeignRejected;
+    }
+    match identity() {
+        IdentityVerdict::Live => ConnectionRecordClass::Live,
+        IdentityVerdict::PidReused | IdentityVerdict::Dead => ConnectionRecordClass::StaleObserved,
+        IdentityVerdict::IdentityUnavailable | IdentityVerdict::Unobservable => {
+            ConnectionRecordClass::RetainedUnknown
+        }
+    }
+}
+
+fn load_live_record_at(
+    root: &std::path::Path,
+    id: &ConnectionId,
+) -> Result<ConnectionRecord, BridgeHostError> {
+    let record = read_connection_record_at(root, id)?;
+    let (owner_kind, owner_digest) = current_owner()?;
+    validate_record_contract(&record, id, &owner_kind, &owner_digest)?;
+    let identity = process_observation::verify_identity(
+        record.entry.process.pid,
+        &record.entry.process.start_identity,
+    );
+    require_live_record(record, identity)
+}
+
+fn require_live_record(
+    record: ConnectionRecord,
+    identity: IdentityVerdict,
+) -> Result<ConnectionRecord, BridgeHostError> {
+    match identity {
+        IdentityVerdict::Live => Ok(record),
+        IdentityVerdict::PidReused | IdentityVerdict::Dead => {
+            Err(BridgeHostError::new("browser_bridge_connection_stale"))
+        }
+        IdentityVerdict::IdentityUnavailable | IdentityVerdict::Unobservable => Err(
+            BridgeHostError::new("browser_bridge_connection_identity_unknown"),
+        ),
+    }
 }
 
 fn id_random_bytes(id: &ConnectionId) -> Result<[u8; 32], BridgeHostError> {
@@ -1017,9 +1070,25 @@ fn id_random_bytes(id: &ConnectionId) -> Result<[u8; 32], BridgeHostError> {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ConnectionInventory {
     pub connections: Vec<ConnectionEntry>,
-    /// Candidate records actually identity-validated; never exceeds the scan ceiling.
+    /// Candidate record paths admitted to bounded validation.
     pub visited: usize,
-    /// More directory entries existed than could enter this bounded inventory.
+    /// Records whose exact process identity was proven live.
+    pub live: usize,
+    /// Records proven obsolete because the PID is dead or now has another identity.
+    pub stale_observed: usize,
+    /// Records retained on disk because exact process identity could not be observed.
+    pub retained_unknown: usize,
+    /// Records rejected for owner, schema, id, protocol, or fixed endpoint mismatch.
+    pub foreign_rejected: usize,
+    /// Candidate record paths that could not be opened, bounded, read, or decoded.
+    pub unreadable: usize,
+    /// Valid candidate ids excluded by the fixed validation ceiling.
+    pub dropped_candidates: usize,
+    /// Whether the directory iterator completed without an entry-level error.
+    pub enumeration_complete: bool,
+    /// Whether every parsed candidate id entered validation.
+    pub candidates_complete: bool,
+    /// Compatibility summary: either enumeration or candidate coverage is incomplete.
     pub truncated: bool,
 }
 
@@ -1028,12 +1097,27 @@ pub fn list_live_connections() -> Result<ConnectionInventory, BridgeHostError> {
 }
 
 fn inventory_at(root: &std::path::Path) -> Result<ConnectionInventory, BridgeHostError> {
+    inventory_at_with(root, process_observation::verify_identity)
+}
+
+fn inventory_at_with(
+    root: &std::path::Path,
+    verify: impl Fn(u32, &str) -> IdentityVerdict,
+) -> Result<ConnectionInventory, BridgeHostError> {
     let entries = match fs::read_dir(root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Ok(ConnectionInventory {
                 connections: Vec::new(),
                 visited: 0,
+                live: 0,
+                stale_observed: 0,
+                retained_unknown: 0,
+                foreign_rejected: 0,
+                unreadable: 0,
+                dropped_candidates: 0,
+                enumeration_complete: true,
+                candidates_complete: true,
                 truncated: false,
             });
         }
@@ -1043,16 +1127,18 @@ fn inventory_at(root: &std::path::Path) -> Result<ConnectionInventory, BridgeHos
     // private directory. Memory and record validation stay bounded, and an OS
     // enumeration prefix can never nondeterministically choose the result.
     let mut candidates = BTreeSet::new();
-    let mut directory_entries = 0usize;
+    let mut dropped_candidates = 0usize;
     let mut enumeration_incomplete = false;
     for entry in entries {
         let Ok(entry) = entry else {
             enumeration_incomplete = true;
             continue;
         };
-        directory_entries = directory_entries.saturating_add(1);
-        let path = entry.path();
-        let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+        let file_name = entry.file_name();
+        let Some(stem) = file_name
+            .to_str()
+            .and_then(|value| value.strip_suffix(".json"))
+        else {
             continue;
         };
         let Ok(id) = ConnectionId::parse(stem) else {
@@ -1061,19 +1147,69 @@ fn inventory_at(root: &std::path::Path) -> Result<ConnectionInventory, BridgeHos
         candidates.insert(id);
         if candidates.len() > CONNECTION_SCAN_MAX {
             candidates.pop_last();
+            dropped_candidates = dropped_candidates.saturating_add(1);
         }
     }
     let visited = candidates.len();
+    let (owner_kind, owner_digest) = current_owner()?;
     let mut connections = Vec::new();
+    let mut live = 0usize;
+    let mut stale_observed = 0usize;
+    let mut retained_unknown = 0usize;
+    let mut foreign_rejected = 0usize;
+    let mut unreadable = 0usize;
     for id in candidates {
-        if let Ok(record) = load_live_record_at(root, &id) {
-            connections.push(record.entry);
+        let record = match read_connection_record_at(root, &id) {
+            Ok(record) => record,
+            Err(_) => {
+                unreadable = unreadable.saturating_add(1);
+                continue;
+            }
+        };
+        let class = classify_record(&record, &id, &owner_kind, &owner_digest, || {
+            verify(
+                record.entry.process.pid,
+                &record.entry.process.start_identity,
+            )
+        });
+        match class {
+            ConnectionRecordClass::Live => {
+                live = live.saturating_add(1);
+                connections.push(record.entry);
+            }
+            ConnectionRecordClass::StaleObserved => {
+                stale_observed = stale_observed.saturating_add(1)
+            }
+            ConnectionRecordClass::RetainedUnknown => {
+                retained_unknown = retained_unknown.saturating_add(1)
+            }
+            ConnectionRecordClass::ForeignRejected => {
+                foreign_rejected = foreign_rejected.saturating_add(1)
+            }
         }
     }
+    let enumeration_complete = !enumeration_incomplete;
+    let candidates_complete = dropped_candidates == 0;
+    debug_assert_eq!(live, connections.len());
+    debug_assert_eq!(
+        live.saturating_add(stale_observed)
+            .saturating_add(retained_unknown)
+            .saturating_add(foreign_rejected)
+            .saturating_add(unreadable),
+        visited
+    );
     Ok(ConnectionInventory {
         connections,
         visited,
-        truncated: enumeration_incomplete || directory_entries > CONNECTION_SCAN_MAX,
+        live,
+        stale_observed,
+        retained_unknown,
+        foreign_rejected,
+        unreadable,
+        dropped_candidates,
+        enumeration_complete,
+        candidates_complete,
+        truncated: !enumeration_complete || !candidates_complete,
     })
 }
 
@@ -1466,18 +1602,87 @@ mod tests {
                 protocol: PROTOCOL_VERSION,
             },
         };
-        validate_live_record(&record, &id).unwrap();
+        validate_record_contract(&record, &id, &record.owner_kind, &record.owner_digest).unwrap();
+        assert_eq!(
+            classify_record(
+                &record,
+                &id,
+                &record.owner_kind,
+                &record.owner_digest,
+                || IdentityVerdict::Live,
+            ),
+            ConnectionRecordClass::Live
+        );
+        assert_eq!(
+            require_live_record(record.clone(), IdentityVerdict::Live)
+                .unwrap()
+                .entry
+                .connection_id,
+            record.entry.connection_id
+        );
+        for verdict in [IdentityVerdict::PidReused, IdentityVerdict::Dead] {
+            assert_eq!(
+                classify_record(
+                    &record,
+                    &id,
+                    &record.owner_kind,
+                    &record.owner_digest,
+                    || verdict,
+                ),
+                ConnectionRecordClass::StaleObserved
+            );
+            assert_eq!(
+                require_live_record(record.clone(), verdict)
+                    .unwrap_err()
+                    .code,
+                "browser_bridge_connection_stale"
+            );
+        }
+        for verdict in [
+            IdentityVerdict::IdentityUnavailable,
+            IdentityVerdict::Unobservable,
+        ] {
+            assert_eq!(
+                classify_record(
+                    &record,
+                    &id,
+                    &record.owner_kind,
+                    &record.owner_digest,
+                    || verdict,
+                ),
+                ConnectionRecordClass::RetainedUnknown
+            );
+            assert_eq!(
+                require_live_record(record.clone(), verdict)
+                    .unwrap_err()
+                    .code,
+                "browser_bridge_connection_identity_unknown"
+            );
+        }
         record.entry.process.start_identity.push_str("-replacement");
         assert_eq!(
-            validate_live_record(&record, &id).unwrap_err().code,
-            "browser_bridge_connection_stale"
+            classify_record(
+                &record,
+                &id,
+                &record.owner_kind,
+                &record.owner_digest,
+                || IdentityVerdict::PidReused,
+            ),
+            ConnectionRecordClass::StaleObserved
         );
         record.entry.process.start_identity =
             process_observation::start_identity(std::process::id()).unwrap();
+        let expected_owner_digest = record.owner_digest.clone();
         record.owner_digest.push('0');
         assert_eq!(
-            validate_live_record(&record, &id).unwrap_err().code,
-            "browser_bridge_connection_stale"
+            classify_record(
+                &record,
+                &id,
+                &record.owner_kind,
+                &expected_owner_digest,
+                || panic!("foreign records must not trigger process observation"),
+            ),
+            ConnectionRecordClass::ForeignRejected
         );
     }
 
@@ -1526,6 +1731,14 @@ mod tests {
         let inventory = inventory_at(&root).unwrap();
         assert_eq!(inventory.visited, CONNECTION_SCAN_MAX);
         assert!(inventory.truncated);
+        assert!(inventory.enumeration_complete);
+        assert!(!inventory.candidates_complete);
+        assert_eq!(inventory.dropped_candidates, 2);
+        assert_eq!(inventory.live, CONNECTION_SCAN_MAX);
+        assert_eq!(inventory.stale_observed, 0);
+        assert_eq!(inventory.retained_unknown, 0);
+        assert_eq!(inventory.foreign_rejected, 0);
+        assert_eq!(inventory.unreadable, 0);
         assert_eq!(inventory.connections.len(), CONNECTION_SCAN_MAX);
         assert_eq!(
             inventory
@@ -1540,6 +1753,94 @@ mod tests {
                 .windows(2)
                 .all(|pair| pair[0].connection_id < pair[1].connection_id)
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn connection_inventory_keeps_unknown_distinct_and_ignores_junk_for_coverage() {
+        let root = std::env::temp_dir().join(format!(
+            "agenterm-cu-browser-inventory-classification-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir(&root).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let (owner_kind, owner_digest) = current_owner().unwrap();
+        let live_process = ProcessIdentity {
+            pid: std::process::id(),
+            start_identity: process_observation::start_identity(std::process::id()).unwrap(),
+        };
+        for (serial, process, foreign, readable) in [
+            (1_u8, live_process.clone(), false, true),
+            (
+                2,
+                ProcessIdentity {
+                    pid: i32::MAX as u32,
+                    start_identity: "missing-process".into(),
+                },
+                false,
+                true,
+            ),
+            (3, live_process.clone(), true, true),
+            (4, live_process.clone(), false, false),
+            (
+                5,
+                ProcessIdentity {
+                    pid: 7,
+                    start_identity: "temporarily-unavailable".into(),
+                },
+                false,
+                true,
+            ),
+        ] {
+            let id = ConnectionId::from_random([serial; 32]).unwrap();
+            let mut record = ConnectionRecord {
+                schema_version: CONNECTION_SCHEMA,
+                owner_kind: owner_kind.clone(),
+                owner_digest: owner_digest.clone(),
+                entry: ConnectionEntry {
+                    connection_id: id.clone(),
+                    process,
+                    endpoint: ConnectionEndpoint::NativeMessaging {
+                        native_host: ACU_NATIVE_HOST_NAME.into(),
+                        extension_id: ACU_EXTENSION_ID.into(),
+                    },
+                    protocol: PROTOCOL_VERSION,
+                },
+            };
+            if foreign {
+                record.owner_digest.push('0');
+            }
+            let bytes = if readable {
+                serde_json::to_vec(&record).unwrap()
+            } else {
+                b"{".to_vec()
+            };
+            fs::write(root.join(format!("{}.json", id.as_str())), bytes).unwrap();
+        }
+        for serial in 0..=CONNECTION_SCAN_MAX {
+            fs::write(root.join(format!("junk-{serial}")), b"not a record").unwrap();
+        }
+
+        let inventory = inventory_at_with(&root, |pid, expected| {
+            if pid == 7 {
+                IdentityVerdict::IdentityUnavailable
+            } else {
+                process_observation::verify_identity(pid, expected)
+            }
+        })
+        .unwrap();
+        assert_eq!(inventory.visited, 5);
+        assert_eq!(inventory.live, 1);
+        assert_eq!(inventory.connections.len(), 1);
+        assert_eq!(inventory.stale_observed, 1);
+        assert_eq!(inventory.retained_unknown, 1);
+        assert_eq!(inventory.foreign_rejected, 1);
+        assert_eq!(inventory.unreadable, 1);
+        assert_eq!(inventory.dropped_candidates, 0);
+        assert!(inventory.enumeration_complete);
+        assert!(inventory.candidates_complete);
+        assert!(!inventory.truncated);
         fs::remove_dir_all(root).unwrap();
     }
 

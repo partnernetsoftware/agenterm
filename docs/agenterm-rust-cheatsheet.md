@@ -1225,7 +1225,11 @@ unobservable. Use `process_observation::verify_identity` and exhaustively match
 all five `IdentityVerdict` variants. Only `Dead` and `PidReused` prove the
 frozen process absent. `IdentityUnavailable` and `Unobservable` must remain a
 typed unknown (or conservatively continue observation) and must never authorize
-a terminal state or destructive cleanup.
+a terminal state or destructive cleanup. Read-only persisted-record inventories
+have the same obligation: count unavailable/unobservable identities separately
+from records proven stale, and reject schema/owner/endpoint mismatches before
+performing the process observation so foreign records cannot contaminate either
+liveness count.
 
 This is not semantics-free: `CommandLineToArgvW` differs from modern MSVC rules
 for ambiguous hand-crafted quote sequences, and loading Shell32 can hurt a
