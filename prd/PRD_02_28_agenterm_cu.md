@@ -454,7 +454,12 @@ flowchart LR
 - [~] Whole-window foreground activation is now a separate vertical slice:
   `activate --window H` flows through `agenterm-platform`, additive
   `libagenterm` ABI 1.26, the ACU command/receipt layer and exact focused-window
-  inventory read-back. It is deliberately distinct from accessibility-node
+  inventory read-back. The postcondition now uses the same resolved-focus
+  path as `windows --focused`: a native inventory mark wins, then the
+  frontmost application's own focused window, then that application's
+  topmost inventory window. Success still requires the resolved handle to be
+  exactly `H`; mechanism acknowledgement alone never verifies activation.
+  It is deliberately distinct from accessibility-node
   `focus` and application-local `raise`. A live macOS round trip activated a
   background text-editor window and restored the prior foreground window, both
   verified on the first poll; Windows x86_64 and Linux x86_64 cross-builds are

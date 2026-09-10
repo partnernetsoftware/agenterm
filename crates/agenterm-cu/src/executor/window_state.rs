@@ -23,11 +23,33 @@ const STATE_READBACK_POLL: Duration = Duration::from_millis(25);
 /// at all, so it polls for less time than a minimize animation needs.
 const RAISE_READBACK: Duration = Duration::from_millis(500);
 
-fn focused_window(
-    window: isize,
-) -> Result<Option<mechanism::window_enumerate::WindowInfo>, CuError> {
-    let rows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
-    Ok(rows.into_iter().find(|row| row.handle == window))
+struct WindowFocusReadback {
+    row: Option<mechanism::window_enumerate::WindowInfo>,
+    focus: observe::FocusResolution,
+}
+
+impl WindowFocusReadback {
+    fn requested_is_focused(&self, requested: isize) -> bool {
+        self.row.is_some() && self.focus.handle == Some(requested)
+    }
+}
+
+fn window_focus_readback(window: isize) -> Result<WindowFocusReadback, CuError> {
+    let mut rows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    // Stacking is an optional refinement, as it is for `windows` and the
+    // browser bridge. Inventory order remains the bounded fallback.
+    let stacking = mechanism::window_enumerate::stacking().unwrap_or_default();
+    let focus = super::windows::resolve_inventory_focus(&mut rows, &stacking);
+    let row = rows.into_iter().find(|row| row.handle == window);
+    Ok(WindowFocusReadback { row, focus })
+}
+
+fn activation_verified(
+    mechanism_succeeded: bool,
+    readback_succeeded: bool,
+    requested_focused: bool,
+) -> bool {
+    mechanism_succeeded && readback_succeeded && requested_focused
 }
 
 /// `activate --window H`: request desktop-wide foreground activation and
@@ -41,7 +63,8 @@ pub(super) fn activate_payload(
             "activate requires --window <handle> (a non-zero handle from `windows`)".into(),
         ));
     }
-    let Some(before_row) = focused_window(window)? else {
+    let before = window_focus_readback(window)?;
+    let Some(before_row) = before.row.as_ref() else {
         return Err(CuError::new(
             "window_not_found",
             format!("no top-level window with handle {window}"),
@@ -53,7 +76,7 @@ pub(super) fn activate_payload(
         "app_name": before_row.app_name,
         "title": before_row.title,
     });
-    let before_focused = before_row.focused;
+    let before_focused = before.requested_is_focused(window);
     let ticket = receipts.reserve(
         "activate",
         window,
@@ -69,19 +92,22 @@ pub(super) fn activate_payload(
         .map(map_mechanism_err);
     let started = Instant::now();
     let mut polls = 0usize;
-    let mut after_row = Some(before_row);
+    let mut after = Some(before);
     let mut readback_error = None;
     while mechanism_error.is_none() && started.elapsed() < STATE_READBACK {
         polls += 1;
-        match focused_window(window) {
-            Ok(row) => after_row = row,
+        match window_focus_readback(window) {
+            Ok(readback) => after = Some(readback),
             Err(error) => {
-                after_row = None;
+                after = None;
                 readback_error = Some(error);
                 break;
             }
         }
-        if after_row.as_ref().is_some_and(|row| row.focused) {
+        if after
+            .as_ref()
+            .is_some_and(|readback| readback.requested_is_focused(window))
+        {
             break;
         }
         // A competing foreground owner can steal focus between polls; keep
@@ -89,9 +115,17 @@ pub(super) fn activate_payload(
         let _ = mechanism::window_op::activate(window);
         thread::sleep(STATE_READBACK_POLL);
     }
-    let after_present = after_row.is_some();
-    let after_focused = after_row.as_ref().is_some_and(|row| row.focused);
-    let verified = mechanism_error.is_none() && readback_error.is_none() && after_focused;
+    let after_present = after
+        .as_ref()
+        .is_some_and(|readback| readback.row.is_some());
+    let after_focused = after
+        .as_ref()
+        .is_some_and(|readback| readback.requested_is_focused(window));
+    let verified = activation_verified(
+        mechanism_error.is_none(),
+        readback_error.is_none(),
+        after_focused,
+    );
     let reason = if mechanism_error.is_some() {
         Some("mechanism_failed")
     } else if readback_error.is_some() {
@@ -104,8 +138,9 @@ pub(super) fn activate_payload(
         None
     };
     let verification = serde_json::json!({
-        "method": "window-inventory-focused-readback",
+        "method": "resolved-window-focus-readback",
         "reason": reason,
+        "focus_resolution": after.as_ref().map(|readback| readback.focus.json()),
         "polls": polls,
         "elapsed_ms": started.elapsed().as_millis(),
     });
@@ -1995,6 +2030,58 @@ pub(super) fn orderwin_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn focus_readback(raw_focused: bool, resolved_handle: Option<isize>) -> WindowFocusReadback {
+        WindowFocusReadback {
+            row: Some(mechanism::window_enumerate::WindowInfo {
+                handle: 7,
+                title: "fixture".into(),
+                process_id: 42,
+                app_name: "Fixture".into(),
+                bounds: mechanism::window_enumerate::WindowBounds {
+                    x: 0,
+                    y: 0,
+                    width: 100,
+                    height: 100,
+                },
+                focused: raw_focused,
+                minimized: false,
+                maximized: false,
+                fullscreen: false,
+                above: false,
+            }),
+            focus: observe::FocusResolution {
+                app: Some(FrontmostApp {
+                    name: "Fixture".into(),
+                    pid: 42,
+                    bundle_id: None,
+                }),
+                handle: resolved_handle,
+                via: Some("frontmost-app-front-window"),
+                reason: None,
+            },
+        }
+    }
+
+    #[test]
+    fn activate_uses_resolved_focus_for_the_exact_requested_handle() {
+        let fallback = focus_readback(false, Some(7));
+        assert!(fallback.requested_is_focused(7));
+        assert!(!fallback.row.as_ref().unwrap().focused);
+
+        // Resolving a sibling from the same application is not sufficient:
+        // activation verifies the exact requested native handle.
+        let sibling = focus_readback(false, Some(8));
+        assert!(!sibling.requested_is_focused(7));
+    }
+
+    #[test]
+    fn mechanism_success_without_exact_focus_is_not_verified() {
+        assert!(!activation_verified(true, true, false));
+        assert!(!activation_verified(true, false, true));
+        assert!(!activation_verified(false, true, true));
+        assert!(activation_verified(true, true, true));
+    }
 
     #[test]
     fn the_gate_names_every_missing_part_and_performs_nothing() {

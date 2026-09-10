@@ -422,6 +422,18 @@ pub(super) fn resolve_inventory_focus(
     } else {
         app.as_ref().and_then(|app| focused_window_of(app.pid))
     };
+    resolve_inventory_focus_from_facts(windows, stacking, app, ax_window)
+}
+
+/// Pure core shared by public inventory and actuation read-back. Keeping the
+/// host facts injectable makes the fallback order independently testable
+/// without touching the real desktop.
+fn resolve_inventory_focus_from_facts(
+    windows: &mut [WindowInfo],
+    stacking: &[mechanism::window_enumerate::WindowStacking],
+    app: Option<FrontmostApp>,
+    ax_window: Option<isize>,
+) -> observe::FocusResolution {
     let focus = observe::resolve_focus(windows, stacking, app, ax_window);
     observe::apply_focus(windows, &focus);
     focus
@@ -1526,6 +1538,102 @@ pub(super) fn zoom_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn focus_window(handle: isize, pid: u32, focused: bool) -> WindowInfo {
+        WindowInfo {
+            handle,
+            title: format!("window-{handle}"),
+            process_id: pid,
+            app_name: format!("app-{pid}"),
+            bounds: mechanism::window_enumerate::WindowBounds {
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 100,
+            },
+            focused,
+            minimized: false,
+            maximized: false,
+            fullscreen: false,
+            above: false,
+        }
+    }
+
+    fn focus_app(pid: u32) -> FrontmostApp {
+        FrontmostApp {
+            name: format!("app-{pid}"),
+            pid,
+            bundle_id: None,
+        }
+    }
+
+    #[test]
+    fn resolved_focus_keeps_a_mechanism_mark() {
+        let mut windows = vec![focus_window(1, 10, true), focus_window(2, 20, false)];
+        let focus =
+            resolve_inventory_focus_from_facts(&mut windows, &[], Some(focus_app(20)), Some(2));
+        assert_eq!(focus.handle, Some(1));
+        assert_eq!(focus.via, Some("inventory-mark"));
+        assert!(windows[0].focused);
+        assert!(!windows[1].focused);
+    }
+
+    #[test]
+    fn resolved_focus_accepts_only_the_frontmost_apps_ax_window() {
+        let mut windows = vec![focus_window(1, 10, false), focus_window(2, 20, false)];
+        let focus =
+            resolve_inventory_focus_from_facts(&mut windows, &[], Some(focus_app(20)), Some(2));
+        assert_eq!(focus.handle, Some(2));
+        assert_eq!(focus.via, Some("ax-focused-window"));
+        assert_eq!(windows.iter().filter(|row| row.focused).count(), 1);
+        assert!(windows[1].focused);
+    }
+
+    #[test]
+    fn resolved_focus_falls_back_within_the_frontmost_app() {
+        let mut windows = vec![
+            focus_window(1, 10, false),
+            focus_window(2, 20, false),
+            focus_window(3, 20, false),
+        ];
+        let stacking = [
+            mechanism::window_enumerate::WindowStacking {
+                handle: 1,
+                z_index: 0,
+                occluded_percent: 0,
+            },
+            mechanism::window_enumerate::WindowStacking {
+                handle: 3,
+                z_index: 1,
+                occluded_percent: 0,
+            },
+            mechanism::window_enumerate::WindowStacking {
+                handle: 2,
+                z_index: 2,
+                occluded_percent: 0,
+            },
+        ];
+        let focus =
+            resolve_inventory_focus_from_facts(&mut windows, &stacking, Some(focus_app(20)), None);
+        assert_eq!(focus.handle, Some(3));
+        assert_eq!(focus.via, Some("frontmost-app-front-window"));
+        assert!(windows.iter().find(|row| row.handle == 3).unwrap().focused);
+        assert!(!windows.iter().find(|row| row.handle == 1).unwrap().focused);
+    }
+
+    #[test]
+    fn resolved_focus_refuses_foreign_ax_and_missing_frontmost_windows() {
+        let mut windows = vec![focus_window(1, 10, false)];
+        let focus =
+            resolve_inventory_focus_from_facts(&mut windows, &[], Some(focus_app(20)), Some(1));
+        assert_eq!(focus.handle, None);
+        assert_eq!(focus.reason, Some("frontmost_app_has_no_inventory_window"));
+        assert!(!windows[0].focused);
+
+        let focus = resolve_inventory_focus_from_facts(&mut windows, &[], None, None);
+        assert_eq!(focus.handle, None);
+        assert_eq!(focus.reason, Some("no_frontmost_app"));
+    }
 
     #[test]
     fn app_inspection_name_matching_is_case_insensitive_but_not_exact_only() {

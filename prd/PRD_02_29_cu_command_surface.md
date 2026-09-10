@@ -89,6 +89,16 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   the pop-up read back" (slice 2, 2026-08-30). Linux / Windows run the same
   verbs on their own backends with partial mappings (see PRD 30); live
   evidence there is not claimed.
+- [~] `activate --window H` has the desktop-wide `desktop-foreground`
+  postcondition. Its read-back uses the same resolved-focus model published by
+  `windows --focused` and verifies only when that model returns the exact
+  requested handle; activating another window of the same application is not
+  success, and a successful native mechanism call is only `performed`, never
+  sufficient for `verified`. The receipt exposes the focus resolution's
+  `via` / `reason` so a missing frontmost application, an unrepresented
+  frontmost window, and a different resolved handle remain distinguishable.
+  The pure resolver and exact-handle regressions are covered; a dedicated
+  macOS public activation court remains pending, so this leaf stays partial.
 - [x] Chromium idle chrome is not an empty page: `tree` / `query` JSON
   carries `ax` plus `next_actions` that name a deeper
   `query --role WebArea` (never screenshot, never “install extension”).
