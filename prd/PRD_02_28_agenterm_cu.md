@@ -687,8 +687,11 @@ ACU-only cutover
 │  │  │  └─ missing roots are reported but never created; unknown app labels and ignored
 │  │  │     profile/timeout flags are intentional typed boundaries; Windows rejects any
 │  │  │     selector set containing unmapped Brave-Origin before registering the remainder
-│  │  ├─ [ ] legacy reload and managed-profile lifecycle retain acu.dynamic.075 until their
-│  │  │  mutation scope, lease authority and persistent ownership models align
+│  │  ├─ [x] legacy managed-profile create/list/start/status/stop/remove are permanently
+│  │  │  typed-retired before dispatch because their caller lease, store and Trash recovery
+│  │  │  cannot alias the resident ACU browser-session authority or permanent deletion
+│  │  ├─ [ ] acu.dynamic.075.bridge-extension-reload · profile-level extension-code reload
+│  │  │  still needs version read-back; native reload proves only Native Messaging reconnect
 │  │  └─ owned-profile macOS qjswasm court is wired; Linux/Windows native courts remain
 │  ├─ [x] acu.dynamic.076 · `inspect --app` maps to native bounded `app-inspect`;
 │  │  ├─ whole matching window set + foreground identity are bracketed as one observation
@@ -1020,10 +1023,20 @@ flowchart LR
   exact connection; human profile names and `--app` remain typed under the
   profile-binding gap. Legacy `--timeout` is accepted but explicitly reported
   as ignored because the native bridge owns its bounded exchange timeout.
-  Profile lifecycle and reload remain under the
-  parent gap because their stores and leases differ. The macOS owned
-  profile court is wired; Linux and
-  Windows native qualification remains.
+  The archived managed-profile create/list/start/status/stop/remove lifecycle
+  is permanently typed-retired before native dispatch. Its caller-visible
+  owner lease and `managedProfiles` store cannot be represented by ACU's
+  resident session owner without inventing hidden authority; its recoverable
+  Trash removal cannot be represented by permanent verified session deletion.
+  Retirement messages name `browser-session-*` only as explicit migrations:
+  start creates and launches immediately, and there is no create-only alias.
+  A three-platform public qjswasm court verifies all six refusals, their
+  migration distinctions and an unchanged synthetic HOME. This does not retire
+  the separately qualified ACU-owned browser-session lifecycle. Profile-level
+  extension-code reload remains `acu.dynamic.075.bridge-extension-reload`:
+  native `browser-bridge-reload` proves only a Native Messaging reconnect and
+  cannot stand in for Chromium hot-loading new extension code. The macOS owned
+  profile court is wired; Linux and Windows native qualification remains.
 - [~] Desktop closure tranche: `snapshot`/`diff`, `hit`/`zoom`, `raise`, and
   gated `minimize`/`restore` are live in the macOS Cocoa/AX public journey.
   The same source state must still pass Linux AT-SPI2 and Windows UIA courts;

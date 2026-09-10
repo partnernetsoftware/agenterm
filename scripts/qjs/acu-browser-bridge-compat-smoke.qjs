@@ -215,6 +215,14 @@ try {
   ensure(human_profile.kind === "todo"
       && human_profile.gap_id === "acu.dynamic.075.profile-name-binding",
     "acu_browser_bridge_human_profile_typed");
+  const extension_reload = compat.canonicalize([
+    "browser", "bridge", "reload", "--profile", PROFILE_A.substring(0, 8)
+  ]);
+  ensure(extension_reload.kind === "todo"
+      && extension_reload.gap_id === "acu.dynamic.075.bridge-extension-reload"
+      && extension_reload.message.indexOf("extension-code reload") >= 0
+      && extension_reload.message.indexOf("only reconnects Native Messaging") >= 0,
+    "acu_browser_bridge_extension_reload_stays_distinct");
 
   const matched_nav = compat.canonicalize([
     "browser", "nav", "https://example.test/next", "--port", "9333",

@@ -1,0 +1,143 @@
+// Public black-box court for the retired legacy managed-browser-profile
+// lifecycle. Every recognized spelling must fail in the compatibility layer
+// before native dispatch or filesystem mutation. Current browser-session
+// commands remain a migration, not an alias for the archived store or lease.
+// Args: REPO AGENTERM_LAUNCHER | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["acu.compat-browser-managed-profile-retired"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function isolated_env(context, home) {
+  return {
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: rh.join(home, "AppData/Roaming"),
+    LOCALAPPDATA: rh.join(home, "AppData/Local"),
+    XDG_CONFIG_HOME: rh.join(home, ".config"),
+    XDG_DATA_HOME: rh.join(home, ".local/share"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_CU_AUDIT_PATH: rh.join(context.run_directory, "audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(context.run_directory, "receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(context.run_directory, "runtime.json")
+  };
+}
+
+function invoke(launcher, context, home, argv) {
+  const command = ["cli", "acu"];
+  for (let i = 0; i < argv.length; i = i + 1) { command.push(argv[i]); }
+  const result = rh.command(launcher, command, {
+    cwd: home,
+    env: isolated_env(context, home),
+    timeout_ms: 30000
+  });
+  ensure(!result.timed_out && result.exit_code === 2,
+    "acu_browser_profile_retirement_exit:" + argv[2] + ":" + result.stderr);
+  return JSON.parse(result.stdout.trim());
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (let i = 0; i < declared_evidence.length; i = i + 1) {
+    print(declared_evidence[i]);
+  }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_LAUNCHER");
+const repo = rh.absolute(args[0]);
+let launcher = rh.absolute(args[1]);
+if (!direct_file(launcher) && harness.host_is_windows()
+    && direct_file(launcher + ".exe")) {
+  launcher = launcher + ".exe";
+}
+ensure(direct_file(launcher), "acu_browser_profile_retirement_launcher_missing");
+
+const context = harness.new_context(repo, "acu-browser-profile-lifecycle-retirement");
+let succeeded = 0;
+let failure = "";
+
+try {
+  const home = rh.join(context.run_directory, "synthetic-home");
+  rh.create_dir_all(rh.join(home, ".Trash"));
+  const legacy_root = rh.join(home, ".local/state/mcu/browser/profiles");
+  rh.create_dir_all(rh.join(legacy_root, "legacy-profile"));
+  const legacy_record = rh.join(legacy_root, "legacy-profile/profile.json");
+  rh.write_text(legacy_record, "sentinel-store\n");
+  rh.write_text(rh.join(home, ".Trash/keep.txt"), "sentinel-trash\n");
+  const before_profiles = JSON.stringify(rh.tree_summary(legacy_root, 1000));
+  const before_trash = JSON.stringify(rh.tree_summary(rh.join(home, ".Trash"), 1000));
+
+  const shapes = [
+    ["browser", "profile", "create", "legacy-profile"],
+    ["browser", "profile", "list"],
+    ["browser", "profile", "start", "legacy-profile", "--lease", "legacy-owner", "--ttl", "300"],
+    ["browser", "profile", "status", "legacy-profile"],
+    ["browser", "profile", "stop", "legacy-profile", "--lease", "legacy-owner"],
+    ["browser", "profile", "remove", "legacy-profile", "--lease", "legacy-owner"],
+    ["browser", "profile", "remove", "legacy-profile", "--lease", "legacy-owner", "--apply"]
+  ];
+  for (let i = 0; i < shapes.length; i = i + 1) {
+    const reply = invoke(launcher, context, home, shapes[i]);
+    ensure(reply.ok === false && reply.command === "browser"
+        && reply.data === null && reply.alert === undefined,
+      "acu_browser_profile_retirement_envelope:" + shapes[i][2]);
+    ensure(reply.error.code === "retired"
+        && reply.error.gap_id === undefined && reply.error.todo === undefined
+        && reply.error.message.includes("permanently retired")
+        && reply.error.message.includes("browser-session-"),
+      "acu_browser_profile_retirement_typed:" + shapes[i][2]);
+  }
+
+  const create = invoke(launcher, context, home, shapes[0]);
+  ensure(create.error.message.includes("no create-only replacement")
+      && create.error.message.includes("starts immediately")
+      && create.error.message.includes("converted to milliseconds"),
+    "acu_browser_profile_create_migration_truth");
+  const remove = invoke(launcher, context, home, shapes[6]);
+  ensure(remove.error.message.includes("Trash")
+      && remove.error.message.includes("permanently deletes"),
+    "acu_browser_profile_remove_migration_truth");
+
+  const unknown = invoke(launcher, context, home, [
+    "browser", "profile", "rename", "legacy-profile"
+  ]);
+  ensure(unknown.error.code === "usage" && unknown.alert === undefined
+      && unknown.error.todo === undefined && unknown.error.gap_id === undefined,
+    "acu_browser_profile_unknown_action_usage");
+
+  const after_profiles = JSON.stringify(rh.tree_summary(legacy_root, 1000));
+  const after_trash = JSON.stringify(rh.tree_summary(rh.join(home, ".Trash"), 1000));
+  ensure(after_profiles === before_profiles,
+    "acu_browser_profile_retirement_mutated_legacy_store");
+  ensure(after_trash === before_trash,
+    "acu_browser_profile_retirement_mutated_trash");
+  ensure(rh.read_text(legacy_record) === "sentinel-store\n"
+      && rh.read_text(rh.join(home, ".Trash/keep.txt")) === "sentinel-trash\n",
+    "acu_browser_profile_retirement_changed_sentinel");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence,
+    "acu.compat-browser-managed-profile-retired");
+  harness.remove_run(context);
+  print("PASS: legacy managed browser profiles are retired before dispatch with explicit ACU session migrations");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

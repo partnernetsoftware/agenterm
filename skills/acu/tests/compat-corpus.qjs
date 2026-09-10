@@ -503,8 +503,54 @@ require(compat.canonicalize([
 require(compat.canonicalize([
   "browser", "open", "https://example.test/background", "extra"
 ]).kind === "usage", "legacy positional browser open must keep its exact shape");
-todo_case(["browser", "profile", "create", "legacy-profile"],
-  "acu.dynamic.075", "legacy managed browser profile");
+const retired_profile_shapes = [
+  ["create", "legacy-profile"],
+  ["list"],
+  ["start", "legacy-profile", "--lease", "legacy-owner", "--ttl", "300"],
+  ["status", "legacy-profile"],
+  ["stop", "legacy-profile", "--lease", "legacy-owner"],
+  ["remove", "legacy-profile", "--lease", "legacy-owner"],
+  ["remove", "legacy-profile", "--lease", "legacy-owner", "--apply"]
+];
+for (let i = 0; i < retired_profile_shapes.length; i = i + 1) {
+  const shape = ["browser", "profile"];
+  for (let j = 0; j < retired_profile_shapes[i].length; j = j + 1) {
+    shape.push(retired_profile_shapes[i][j]);
+  }
+  const retired = compat.canonicalize(shape);
+  require(retired.kind === "usage" && retired.code === "retired"
+      && retired.command === "browser"
+      && retired.message.includes("permanently retired")
+      && retired.message.includes("browser-session-"),
+    "legacy managed browser profile must be a typed retirement:" + retired_profile_shapes[i][0]);
+}
+const retired_profile_create = compat.canonicalize([
+  "browser", "profile", "create", "legacy-profile"
+]);
+require(retired_profile_create.message.includes("no create-only replacement")
+    && retired_profile_create.message.includes("starts immediately")
+    && retired_profile_create.message.includes("converted to milliseconds"),
+  "legacy profile create must not claim a one-to-one session replacement");
+const retired_profile_remove = compat.canonicalize([
+  "browser", "profile", "remove", "legacy-profile", "--lease", "legacy-owner", "--apply"
+]);
+require(retired_profile_remove.message.includes("Trash")
+    && retired_profile_remove.message.includes("permanently deletes"),
+  "legacy profile remove must disclose the incompatible deletion contract");
+const unknown_profile_action = compat.canonicalize([
+  "browser", "profile", "rename", "legacy-profile"
+]);
+require(unknown_profile_action.kind === "usage"
+    && unknown_profile_action.code === undefined,
+  "unknown browser profile actions must remain ordinary usage");
+const bridge_extension_reload = compat.canonicalize([
+  "browser", "bridge", "reload", "--profile", "11111111"
+]);
+require(bridge_extension_reload.kind === "todo"
+    && bridge_extension_reload.gap_id === "acu.dynamic.075.bridge-extension-reload"
+    && bridge_extension_reload.message.includes("extension-code reload")
+    && bridge_extension_reload.message.includes("only reconnects Native Messaging"),
+  "legacy extension reload must not alias the native connection reload");
 const page_elements = compat.canonicalize([
   "elements", "Window#1", "--page", "--tab-id", "4"
 ]);

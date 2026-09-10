@@ -60,6 +60,33 @@ function todo(gap_id, command, message) {
   return { kind: "todo", gap_id: gap_id, command: command, message: message };
 }
 
+function retired_browser_profile(action) {
+  const prefix = "browser profile " + action
+    + " is permanently retired: the archived managed-profile store and caller-visible owner lease are not aliases of ACU browser sessions; ";
+  if (action === "create") {
+    return { kind: "usage", code: "retired", command: "browser",
+      message: prefix + "there is no create-only replacement; browser-session-start NAME --browser PATH [--bridge] --ttl-ms N starts immediately, and legacy --ttl seconds must be converted to milliseconds" };
+  }
+  if (action === "list") {
+    return { kind: "usage", code: "retired", command: "browser",
+      message: prefix + "use browser-session-list only for ACU-owned sessions" };
+  }
+  if (action === "start") {
+    return { kind: "usage", code: "retired", command: "browser",
+      message: prefix + "use browser-session-start NAME --browser PATH [--bridge] --ttl-ms N to create and immediately start an ACU-owned session, converting legacy --ttl seconds to milliseconds" };
+  }
+  if (action === "status") {
+    return { kind: "usage", code: "retired", command: "browser",
+      message: prefix + "use browser-session-status NAME only for an ACU-owned session" };
+  }
+  if (action === "stop") {
+    return { kind: "usage", code: "retired", command: "browser",
+      message: prefix + "use browser-session-stop NAME --expect stopped for an ACU-owned session; the archived caller lease is not accepted" };
+  }
+  return { kind: "usage", code: "retired", command: "browser",
+    message: prefix + "the archived --apply operation moved a profile to Trash, while browser-session-remove NAME --expect stopped|failed permanently deletes only a verified terminal ACU-owned session" };
+}
+
 function copy(values) {
   const out = [];
   append(out, values);
@@ -314,6 +341,10 @@ function known_dynamic_boundary(argv) {
     }
     return compound_plan("bridge-status", "browser", { profile: parsed.values.profile });
   }
+  if (verb === "browser" && sub === "bridge" && argv[2] === "reload") {
+    return todo("acu.dynamic.075.bridge-extension-reload", "browser",
+      "legacy browser bridge reload requires profile-level Chromium extension-code reload and version read-back; browser-bridge-reload only reconnects Native Messaging and is not a fallback");
+  }
   if (verb === "browser" && sub === "nav") {
     const valued = without_value_flags(argv,
       ["port", "pid", "match", "profile", "app", "tab-id"]);
@@ -427,6 +458,15 @@ function known_dynamic_boundary(argv) {
         message: "browser bridge setup --app must name Brave, Brave Browser, Brave Origin or a Chrome family application" };
     }
     return { kind: "exec", argv: native };
+  }
+  if (verb === "browser" && sub === "profile") {
+    const action = argv.length > 2 ? argv[2] : undefined;
+    if (action === "create" || action === "list" || action === "start"
+        || action === "status" || action === "stop" || action === "remove") {
+      return retired_browser_profile(action);
+    }
+    return { kind: "usage", command: "browser",
+      message: "browser profile requires create, list, start, status, stop or remove" };
   }
   if (verb === "browser" && (sub === "open" || sub === "bridge"
       || sub === "profile")) {

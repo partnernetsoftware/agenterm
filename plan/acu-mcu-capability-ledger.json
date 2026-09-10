@@ -861,8 +861,8 @@
         },
         {
           "id": "browser.managed-profile",
-          "mcu_shape": "browser profile create/list/start/status/stop/remove with owner lease and TTL",
-          "acu_shape": "browser-session-start/list/status/stop/remove over a private atomic registry, owner lease, generation/nonce and owner/browser start identities",
+          "mcu_shape": "owned browser automation profile/session lifecycle",
+          "acu_shape": "browser-session-start/list/status/stop/remove over a private atomic registry, resident internal owner identity, generation/session nonce and owner/browser start identities",
           "state": "platform-limited",
           "platforms": {"macos": "native-public-qjswasm", "linux": "native-court-pending", "windows": "native-court-pending"},
           "qualification": {
@@ -874,8 +874,44 @@
             }
           },
           "evidence": ["cu.browser-managed-profile.macos", "agenterm-cu browser session owner/store tests"],
-          "note": "The macOS public qjswasm court uses an isolated HOME and an exact caller-supplied browser executable. It proves ready owner/browser identities, list/status generation continuity, explicit stop, verified removal, same-name restart and TTL-owned process cleanup without foreground activation. The archived managed-profile store and receipt lease are not aliases of this session store; legacy create/list/start/status/stop/remove remain typed acu.dynamic.075 until their authority model is explicitly retired or mapped.",
+          "note": "The macOS public qjswasm court uses an isolated HOME and an exact caller-supplied browser executable. It proves ready owner/browser identities, list/status generation continuity, explicit stop, verified removal, same-name restart and TTL-owned process cleanup without foreground activation. Its owner identity, generation and session nonce are internal resident authority, not the archived caller-visible owner lease. The archived managed-profile lifecycle is recorded separately as a permanent typed retirement; this ACU-owned session lifecycle remains active.",
           "next": "run the same public qjswasm lifecycle court with native browser executables on Linux and Windows; add crash-recovery evidence before cross-platform promotion"
+        },
+        {
+          "id": "browser.legacy-managed-profile-lifecycle",
+          "mcu_shape": "browser profile create/list/start/status/stop/remove over the archived managedProfiles store, caller-visible owner lease and recoverable Trash removal",
+          "acu_shape": null,
+          "state": "retired",
+          "platforms": {"macos": "typed-intentional-retirement", "linux": "typed-intentional-retirement", "windows": "typed-intentional-retirement"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "typed-intentional-retirement",
+                "gate": "acu-browser-profile-lifecycle-retirement-smoke",
+                "evidence": ["acu.compat-browser-managed-profile-retired"],
+                "error_code": "retired",
+                "rationale": "The archived caller-visible lease and managedProfiles store cannot be represented by ACU's resident session owner without inventing hidden authority; recoverable Trash removal cannot be represented by permanent verified session deletion."
+              },
+              "macos": {
+                "result": "typed-intentional-retirement",
+                "gate": "acu-browser-profile-lifecycle-retirement-smoke",
+                "evidence": ["acu.compat-browser-managed-profile-retired"],
+                "error_code": "retired",
+                "rationale": "The archived caller-visible lease and managedProfiles store cannot be represented by ACU's resident session owner without inventing hidden authority; recoverable Trash removal cannot be represented by permanent verified session deletion."
+              },
+              "windows": {
+                "result": "typed-intentional-retirement",
+                "gate": "acu-browser-profile-lifecycle-retirement-smoke",
+                "evidence": ["acu.compat-browser-managed-profile-retired"],
+                "error_code": "retired",
+                "rationale": "The archived caller-visible lease and managedProfiles store cannot be represented by ACU's resident session owner without inventing hidden authority; recoverable Trash removal cannot be represented by permanent verified session deletion."
+              }
+            }
+          },
+          "evidence": ["acu.compat-browser-managed-profile-retired"],
+          "note": "All six archived spellings fail before native dispatch with code retired. The messages name browser-session-start/list/status/stop/remove only as explicit migrations, never as aliases: start creates and launches immediately, session authority is not a caller-visible legacy lease, the stores are disjoint, and remove permanently deletes only a verified terminal ACU-owned session instead of moving an archived profile to Trash.",
+          "next": "keep the retirement court on all three platforms and preserve the active browser.managed-profile session capability as a separate contract"
         },
         {
           "id": "browser.bridge-setup-selector",
@@ -950,20 +986,20 @@
         },
         {
           "id": "browser.legacy-lifecycle-mapping",
-          "mcu_shape": "browser bridge reload and managed profile create/list/start/status/stop/remove",
+          "mcu_shape": "browser bridge reload as profile-level Chromium extension-code reload with version read-back",
           "acu_shape": null,
           "state": "gap",
           "qualification": {
             "schema": 2,
             "platforms": {
-              "linux": {"result": "pending", "blocker_code": "legacy-browser-authority-not-mapped"},
-              "macos": {"result": "pending", "blocker_code": "legacy-browser-authority-not-mapped"},
-              "windows": {"result": "pending", "blocker_code": "legacy-browser-authority-not-mapped"}
+              "linux": {"result": "pending", "blocker_code": "profile-extension-reload-not-implemented"},
+              "macos": {"result": "pending", "blocker_code": "profile-extension-reload-not-implemented"},
+              "windows": {"result": "pending", "blocker_code": "profile-extension-reload-not-implemented"}
             }
           },
           "evidence": [],
-          "note": "Stable TODO acu.dynamic.075 remains for these archived shapes. Exact setup selection is no longer part of this gap. Native reload owns an exact tab/session lease rather than profile-level extension reload, and browser-session uses a different persistent store and owner model. Positional legacy browser open is no longer in this gap because native window-open can carry minimized state in the single create effect.",
-          "next": "decide each shape independently: add exact native selector/state support where semantics can align, otherwise publish a permanent typed retirement with an explicit migration path"
+          "note": "Stable TODO acu.dynamic.075.bridge-extension-reload remains for the archived profile-level extension-code reload. Native browser-bridge-reload owns an exact tab/session lease and reconnects Native Messaging only; its reload_scope receipt explicitly does not claim Chromium hot-loaded new extension code. Exact setup selection, positional open and the separately retired managed-profile lifecycle are no longer part of this gap.",
+          "next": "add a distinct profile-level extension reload only with before/after extension-version proof, profile lock, durable at-most-once receipt and a live owned-profile public court; never widen native-connection reload"
         },
         {
           "id": "browser.closed-tree",

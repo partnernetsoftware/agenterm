@@ -686,6 +686,12 @@
       ]
     },
     {
+      "id": "acu-browser-profile-lifecycle-retirement-smoke",
+      "evidence": [
+        "acu.compat-browser-managed-profile-retired"
+      ]
+    },
+    {
       "id": "acu-storage-legacy-boundary-smoke",
       "evidence": [
         "acu.compat-storage-legacy-boundary"

@@ -295,11 +295,12 @@ MCU retirement blockers
 │  │  ├─ [x] fixed-identity protocol-5 MV3 navigation accepts only HTTP(S), owns one exact profile/tab lock under an explicit session, proves debugger root-frame/loader commit, and intentionally refuses foreground/dialog handling without browser or desktop focus drift
 │  │  ├─ [x] positional legacy browser open selects one exact bridge connection and atomically creates a minimized unfocused window
 │  │  ├─ [x] legacy bridge setup preserves the archived Chrome-only or Brave three-registration scope through exact repeated selectors and a synthetic-HOME court
+│  │  ├─ [x] legacy managed-profile create/list/start/status/stop/remove fail with permanent typed retirement before dispatch; browser-session verbs are explicit non-alias migrations
 │  │  ├─ [x] guarded exact `window-state`: closed state vocabulary + focus/tab read-back + rollback
 │  │  ├─ [x] macOS owned Profile loads exact extension; live connection + host EOF/TTL cleanup qjswasm court
 │  │  ├─ [x] child-frame closed shadow: exact read/type/focus/press/files + secret-free durable evidence
 │  │  ├─ [ ] exact human profile/application binding
-│  │  ├─ [ ] legacy reload and managed-profile leases need matching mutation authority and ownership semantics
+│  │  ├─ [ ] profile-level extension-code reload needs version proof; native reload is connection-only
 │  │  ├─ [ ] native background-browser focus bridge for the no-focused-browser case
 │  │  └─ [ ] Linux/Windows owned-Profile bridge courts
 │  ├─ [~] privilege plan/broker/OS consent
@@ -1188,6 +1189,17 @@ inventory and status, explicit stop, verified removal, same-name restart and
 TTL-owned cleanup in an isolated headless profile without foreground change.
 Linux and Windows native courts plus crash-recovery evidence remain required,
 so the row is `platform-limited`, not yet cross-platform native.
+
+That active session contract is not a compatibility alias for the archived
+managed-profile lifecycle. The six legacy profile spellings now fail with the
+permanent `retired` code before native dispatch: the archived store and
+caller-visible owner lease cannot become a hidden resident session authority,
+and recoverable Trash removal cannot become permanent verified deletion.
+Their messages point to `browser-session-*` only as explicit migrations and
+state that session start launches immediately with no create-only equivalent.
+The remaining lifecycle gap is narrower: profile-level Chromium extension-code
+reload still needs version read-back, while native bridge reload proves only a
+Native Messaging reconnection.
 
 The separate `browser.window-lifecycle` leaf has now left the gap set. A fixed
 MV3 connection owns explicit `window-open`, bounded identity inventory and

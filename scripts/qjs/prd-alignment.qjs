@@ -384,6 +384,7 @@ const evidence_suites = {
   "acu-zoom-legacy-rect-smoke": true,
   "acu-elements-page-compat-smoke": true,
   "acu-browser-bridge-compat-smoke": true,
+  "acu-browser-profile-lifecycle-retirement-smoke": true,
   "acu-storage-legacy-boundary-smoke": true,
   "acu-resource-volumes-compat-smoke": true,
   "cu-process-inventory-smoke": true,

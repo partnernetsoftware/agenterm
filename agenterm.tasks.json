@@ -5239,6 +5239,24 @@
         "task.acu-browser-bridge-compat-smoke"
       ]
     },
+    "acu-browser-profile-lifecycle-retirement-smoke": {
+      "inputs": [
+        "built-agenterm-with-acu-provider",
+        "acu-compatibility-corpus"
+      ],
+      "outputs": [
+        "acu-browser-profile-lifecycle-retirement-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 60000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.acu-browser-profile-lifecycle-retirement-smoke"
+      ]
+    },
     "acu-storage-legacy-boundary-smoke": {
       "inputs": [
         "acu-compatibility-corpus"
@@ -10976,7 +10994,7 @@
     },
     {
       "id": "acu-compat-todo-smoke",
-      "description": "Prove archived legacy gaps and retirements keep stable typed identities before dispatch, including raw-path device lifecycle retirement and its explicit-session migration; repaired elements and observe projections reach native providers, the privilege signal plan stays read-only, and unknown spellings remain native usage errors.",
+      "description": "Prove archived legacy gaps and retirements keep stable typed identities before dispatch, including raw-path device lifecycle retirement, explicit-session migration and profile-level extension reload distinct from Native Messaging reconnect; repaired elements and observe projections reach native providers, the privilege signal plan stays read-only, and unknown spellings remain native usage errors.",
       "entry": "scripts/qjs/acu-compat-todo-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -11089,6 +11107,27 @@
       ],
       "side_effects": [
         "artifact_write"
+      ]
+    },
+    {
+      "id": "acu-browser-profile-lifecycle-retirement-smoke",
+      "description": "Prove every archived managed-browser-profile lifecycle spelling fails with the permanent retired code before native dispatch or synthetic-HOME mutation, names the non-equivalent ACU browser-session migration, and leaves unknown profile actions as ordinary usage.",
+      "entry": "scripts/qjs/acu-browser-profile-lifecycle-retirement-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
       ]
     },
     {
