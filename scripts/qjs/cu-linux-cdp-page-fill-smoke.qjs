@@ -46,8 +46,6 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
-
 function cu_env(executable) {
   const env = {
     AGENTERM_NO_ACTIVATE: "1",
@@ -83,7 +81,7 @@ function run_cu_reply(run_directory, executable, grant, arguments, env) {
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  ensure(output_success(document), "cu_linux_cdp_page_fill_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_cdp_page_fill_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -114,7 +112,7 @@ function assert_page_fill_unexpected_flag(
 ) {
   const reply = run_cu_reply(run_directory, executable, "observe,actuate", arguments, env);
   ensure(
-    !output_success(reply),
+    !rh.output_success(reply),
     "cu_linux_cdp_page_fill_usage_" + label + "_ok:" + JSON.stringify(reply)
   );
   ensure(
@@ -175,7 +173,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  ensure(!rh.output_success(zero_handle),
     "cu_linux_cdp_page_fill_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -189,7 +187,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  ensure(!rh.output_success(missing_name),
     "cu_linux_cdp_page_fill_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
@@ -207,7 +205,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_cdp_page_fill_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -226,7 +224,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_cdp_page_fill_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -251,7 +249,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_cdp_page_fill_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
@@ -265,7 +263,7 @@ function assert_page_fill_usage(run_directory, executable, env, port) {
   const missing_text = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-fill", "--port", "" + port, "--target-id", "unused", "--node", "1",
   ], env);
-  ensure(!output_success(missing_text), "cu_linux_cdp_page_fill_usage_ok_text:" + JSON.stringify(missing_text));
+  ensure(!rh.output_success(missing_text), "cu_linux_cdp_page_fill_usage_ok_text:" + JSON.stringify(missing_text));
   ensure(
     text_at(missing_text, "error.code") === "usage",
     "cu_linux_cdp_page_fill_usage_code_text:" + JSON.stringify(missing_text.error)
@@ -278,7 +276,7 @@ function assert_page_fill_usage(run_directory, executable, env, port) {
   const empty_text = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-fill", "--port", "" + port, "--target-id", "unused", "--node", "1", "--text", "",
   ], env);
-  ensure(!output_success(empty_text), "cu_linux_cdp_page_fill_usage_ok_empty:" + JSON.stringify(empty_text));
+  ensure(!rh.output_success(empty_text), "cu_linux_cdp_page_fill_usage_ok_empty:" + JSON.stringify(empty_text));
   ensure(
     text_at(empty_text, "error.code") === "usage",
     "cu_linux_cdp_page_fill_usage_code_empty:" + JSON.stringify(empty_text.error)
@@ -291,7 +289,7 @@ function assert_page_fill_usage(run_directory, executable, env, port) {
   const missing_node = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-fill", "--port", "" + port, "--target-id", "unused", "--text", "seed",
   ], env);
-  ensure(!output_success(missing_node), "cu_linux_cdp_page_fill_usage_ok_node:" + JSON.stringify(missing_node));
+  ensure(!rh.output_success(missing_node), "cu_linux_cdp_page_fill_usage_ok_node:" + JSON.stringify(missing_node));
   ensure(
     text_at(missing_node, "error.code") === "usage",
     "cu_linux_cdp_page_fill_usage_code_node:" + JSON.stringify(missing_node.error)
@@ -325,7 +323,7 @@ function assert_page_fill_miss_bad_target(run_directory, executable, env, port) 
     "page-fill", "--port", "" + port, "--target-id", "deadbeef",
     "--node", "1", "--text", "seed",
   ], env);
-  ensure(!output_success(reply), "cu_linux_cdp_page_fill_miss_target_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_cdp_page_fill_miss_target_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "cdp_target_not_found",
     "cu_linux_cdp_page_fill_miss_target_code:" + JSON.stringify(reply.error)
@@ -343,7 +341,7 @@ function assert_page_fill_miss_bad_selector(
     "page-fill", "--port", "" + port, "--target-id", target_id,
     "--selector", "#missing-not-present", "--text", "mutated",
   ], env);
-  ensure(!output_success(reply), "cu_linux_cdp_page_fill_miss_selector_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_cdp_page_fill_miss_selector_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "cdp_node_not_found",
     "cu_linux_cdp_page_fill_miss_selector_code:" + JSON.stringify(reply.error)

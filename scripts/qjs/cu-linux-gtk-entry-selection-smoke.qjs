@@ -113,8 +113,6 @@ function assert_host_limit_code(code, label, reply) {
   ensure(allowed, label + ":" + code + ":" + JSON.stringify(reply.error));
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
-
 function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of cu_args) { argv.push("" + argument); }
@@ -130,7 +128,7 @@ function run_cu_reply(run_directory, executable, grant, cu_args, env) {
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  ensure(output_success(document), "cu_linux_gtk_entry_selection_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_gtk_entry_selection_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -183,7 +181,7 @@ function assert_selection_usage_limit(run_directory, executable) {
   const missing_window = run_cu_reply(run_directory, executable, "observe", [
     "get-selection", "--name", ENTRY_NAME,
   ]);
-  ensure(!output_success(missing_window), "cu_linux_gtk_entry_selection_usage_ok:" + JSON.stringify(missing_window));
+  ensure(!rh.output_success(missing_window), "cu_linux_gtk_entry_selection_usage_ok:" + JSON.stringify(missing_window));
   ensure(
     text_at(missing_window, "error.code") === "invalid_input",
     "cu_linux_gtk_entry_selection_usage_code:" + JSON.stringify(missing_window.error)
@@ -196,7 +194,7 @@ function assert_selection_usage_limit(run_directory, executable) {
   const missing_name = run_cu_reply(run_directory, executable, "observe", [
     "get-selection", "--window", "1",
   ]);
-  ensure(!output_success(missing_name), "cu_linux_gtk_entry_selection_name_ok:" + JSON.stringify(missing_name));
+  ensure(!rh.output_success(missing_name), "cu_linux_gtk_entry_selection_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_gtk_entry_selection_name_code:" + JSON.stringify(missing_name.error)
@@ -213,7 +211,7 @@ function assert_selection_usage_limit(run_directory, executable) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "get-selection", "--window", "0", "--name", ENTRY_NAME,
   ]);
-  ensure(!output_success(zero_handle), "cu_linux_gtk_entry_selection_zero_handle_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_gtk_entry_selection_zero_handle_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_gtk_entry_selection_zero_handle_code:" + JSON.stringify(zero_handle.error)
@@ -226,7 +224,7 @@ function assert_selection_usage_limit(run_directory, executable) {
   const select_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
     "select", "--window", "1", "--start", "0", "--end", "1",
   ]);
-  ensure(!output_success(select_missing), "cu_linux_gtk_entry_selection_select_usage_ok:" + JSON.stringify(select_missing));
+  ensure(!rh.output_success(select_missing), "cu_linux_gtk_entry_selection_select_usage_ok:" + JSON.stringify(select_missing));
   ensure(
     text_at(select_missing, "error.code") === "usage",
     "cu_linux_gtk_entry_selection_select_usage_code:" + JSON.stringify(select_missing.error)
@@ -243,7 +241,7 @@ function assert_selection_usage_limit(run_directory, executable) {
   const bad_range = run_cu_reply(run_directory, executable, "observe,actuate", [
     "select", "--window", "1", "--name", ENTRY_NAME, "--start", "2", "--end", "1",
   ]);
-  ensure(!output_success(bad_range), "cu_linux_gtk_entry_selection_bad_range_ok:" + JSON.stringify(bad_range));
+  ensure(!rh.output_success(bad_range), "cu_linux_gtk_entry_selection_bad_range_ok:" + JSON.stringify(bad_range));
   ensure(
     text_at(bad_range, "error.code") === "invalid_input",
     "cu_linux_gtk_entry_selection_bad_range_code:" + JSON.stringify(bad_range.error)
@@ -256,7 +254,7 @@ function assert_selection_usage_limit(run_directory, executable) {
   const get_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-selection", "--window", "1", "--coords", "10,10",
   ]);
-  ensure(!output_success(get_coords), "cu_linux_gtk_entry_selection_coords_ok:" + JSON.stringify(get_coords));
+  ensure(!rh.output_success(get_coords), "cu_linux_gtk_entry_selection_coords_ok:" + JSON.stringify(get_coords));
   ensure(
     text_at(get_coords, "error.code") === "usage",
     "cu_linux_gtk_entry_selection_coords_code:" + JSON.stringify(get_coords.error)
@@ -274,7 +272,7 @@ function assert_selection_usage_limit(run_directory, executable) {
   const get_bogus = run_cu_reply(run_directory, executable, "observe", [
     "get-selection", "--window", "1", "--bogus",
   ]);
-  ensure(!output_success(get_bogus), "cu_linux_gtk_entry_selection_bogus_ok:" + JSON.stringify(get_bogus));
+  ensure(!rh.output_success(get_bogus), "cu_linux_gtk_entry_selection_bogus_ok:" + JSON.stringify(get_bogus));
   ensure(
     text_at(get_bogus, "error.code") === "usage",
     "cu_linux_gtk_entry_selection_bogus_code:" + JSON.stringify(get_bogus.error)
@@ -292,7 +290,7 @@ function assert_selection_usage_limit(run_directory, executable) {
   const select_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     "select", "--window", "1", "--start", "0", "--end", "1", "--coords", "10,10",
   ]);
-  ensure(!output_success(select_coords), "cu_linux_gtk_entry_selection_select_coords_ok:" + JSON.stringify(select_coords));
+  ensure(!rh.output_success(select_coords), "cu_linux_gtk_entry_selection_select_coords_ok:" + JSON.stringify(select_coords));
   ensure(
     text_at(select_coords, "error.code") === "usage",
     "cu_linux_gtk_entry_selection_select_coords_code:" + JSON.stringify(select_coords.error)
@@ -310,7 +308,7 @@ function assert_selection_usage_limit(run_directory, executable) {
   const select_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
     "select", "--window", "1", "--start", "0", "--end", "1", "--bogus",
   ]);
-  ensure(!output_success(select_bogus), "cu_linux_gtk_entry_selection_select_bogus_ok:" + JSON.stringify(select_bogus));
+  ensure(!rh.output_success(select_bogus), "cu_linux_gtk_entry_selection_select_bogus_ok:" + JSON.stringify(select_bogus));
   ensure(
     text_at(select_bogus, "error.code") === "usage",
     "cu_linux_gtk_entry_selection_select_bogus_code:" + JSON.stringify(select_bogus.error)
@@ -327,7 +325,7 @@ function assert_selection_usage_limit(run_directory, executable) {
 }
 
 function assert_named_stay_or_misuse(reply, label, via, token) {
-  if (!output_success(reply)) {
+  if (!rh.output_success(reply)) {
     ensure(
       text_at(reply, "error.code") === "usage",
       "cu_linux_gtk_entry_selection_" + label + "_code:" + JSON.stringify(reply.error)
@@ -418,7 +416,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", ENTRY_NAME,
   ], env);
-  ensure(!output_success(zero_handle), "cu_linux_gtk_entry_selection_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_gtk_entry_selection_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_gtk_entry_selection_extents_usage_code:" + JSON.stringify(zero_handle.error)
@@ -431,7 +429,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name), "cu_linux_gtk_entry_selection_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(!rh.output_success(missing_name), "cu_linux_gtk_entry_selection_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_gtk_entry_selection_extents_usage_name_code:" + JSON.stringify(missing_name.error)
@@ -448,7 +446,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords), "cu_linux_gtk_entry_selection_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(!rh.output_success(extents_coords), "cu_linux_gtk_entry_selection_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
     "cu_linux_gtk_entry_selection_extents_coords_code:" + JSON.stringify(extents_coords.error)
@@ -466,7 +464,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus), "cu_linux_gtk_entry_selection_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(!rh.output_success(extents_bogus), "cu_linux_gtk_entry_selection_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
     "cu_linux_gtk_entry_selection_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
@@ -486,7 +484,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
   const reply = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--name", ENTRY_NAME,
   ], invalid_atspi_env(executable));
-  ensure(!output_success(reply), "cu_linux_gtk_entry_selection_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_gtk_entry_selection_extents_unavailable_ok:" + JSON.stringify(reply));
   assert_host_limit_code(
     text_at(reply, "error.code"),
     "cu_linux_gtk_entry_selection_extents_unavailable_code",
@@ -499,7 +497,7 @@ function assert_selection_host_limit_when_atspi_absent(run_directory, executable
   const get_reply = run_cu_reply(run_directory, executable, "observe", [
     "get-selection", "--window", "1", "--name", ENTRY_NAME,
   ], env);
-  ensure(!output_success(get_reply), "cu_linux_gtk_entry_selection_unavailable_ok:" + JSON.stringify(get_reply));
+  ensure(!rh.output_success(get_reply), "cu_linux_gtk_entry_selection_unavailable_ok:" + JSON.stringify(get_reply));
   assert_host_limit_code(
     text_at(get_reply, "error.code"),
     "cu_linux_gtk_entry_selection_unavailable_code",
@@ -509,7 +507,7 @@ function assert_selection_host_limit_when_atspi_absent(run_directory, executable
   const select_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "select", "--window", "1", "--name", ENTRY_NAME, "--start", "0", "--end", "1",
   ], env);
-  ensure(!output_success(select_reply), "cu_linux_gtk_entry_selection_select_unavailable_ok:" + JSON.stringify(select_reply));
+  ensure(!rh.output_success(select_reply), "cu_linux_gtk_entry_selection_select_unavailable_ok:" + JSON.stringify(select_reply));
   assert_host_limit_code(
     text_at(select_reply, "error.code"),
     "cu_linux_gtk_entry_selection_select_unavailable_code",
@@ -567,7 +565,7 @@ function assert_selection_missing_node(run_directory, executable, handle, label)
   const get_reply = run_cu_reply(run_directory, executable, "observe", [
     "get-selection", "--window", handle, "--name", MISSING_NODE,
   ]);
-  ensure(!output_success(get_reply), "cu_linux_gtk_entry_selection_missing_ok_" + label);
+  ensure(!rh.output_success(get_reply), "cu_linux_gtk_entry_selection_missing_ok_" + label);
   ensure(
     text_at(get_reply, "error.code") === "a11y_node_not_found",
     "cu_linux_gtk_entry_selection_missing_code_" + label + ":" + JSON.stringify(get_reply.error)
@@ -576,7 +574,7 @@ function assert_selection_missing_node(run_directory, executable, handle, label)
   const select_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "select", "--window", handle, "--name", MISSING_NODE, "--start", "0", "--end", "1",
   ]);
-  ensure(!output_success(select_reply), "cu_linux_gtk_entry_selection_select_missing_ok_" + label);
+  ensure(!rh.output_success(select_reply), "cu_linux_gtk_entry_selection_select_missing_ok_" + label);
   ensure(
     text_at(select_reply, "error.code") === "a11y_node_not_found",
     "cu_linux_gtk_entry_selection_select_missing_code_" + label + ":" + JSON.stringify(select_reply.error)
@@ -591,7 +589,7 @@ function assert_selection_unavailable(run_directory, executable, handle, node_na
   const get_reply = run_cu_reply(run_directory, executable, "observe", [
     "get-selection", "--window", handle, "--name", node_name,
   ]);
-  ensure(!output_success(get_reply), "cu_linux_gtk_entry_selection_unavailable_ok_" + label);
+  ensure(!rh.output_success(get_reply), "cu_linux_gtk_entry_selection_unavailable_ok_" + label);
   const get_code = text_at(get_reply, "error.code");
   ensure(
     selection_unavailable_code_ok(get_code),
@@ -609,7 +607,7 @@ function assert_selection_unavailable(run_directory, executable, handle, node_na
   const select_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "select", "--window", handle, "--name", node_name, "--start", "0", "--end", "1",
   ]);
-  ensure(!output_success(select_reply), "cu_linux_gtk_entry_selection_select_unavailable_ok_" + label);
+  ensure(!rh.output_success(select_reply), "cu_linux_gtk_entry_selection_select_unavailable_ok_" + label);
   const select_code = text_at(select_reply, "error.code");
   ensure(
     selection_unavailable_code_ok(select_code),

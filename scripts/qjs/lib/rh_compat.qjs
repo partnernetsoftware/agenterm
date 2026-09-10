@@ -106,6 +106,22 @@ export function symlink_metadata(p) {
   return JSON.parse(door(fs_symlink_metadata(p), "fs_symlink_metadata " + p));
 }
 
+// Returns true only for an existing regular file whose symlink metadata says
+// it is not a symlink. The symlink is not followed: a symlink to a file, a
+// directory, and a missing path all answer false.
+export function is_direct_file(p) {
+  if (!exists(p)) { return false; }
+  const metadata = symlink_metadata(p);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+// Returns true only when the top-level `ok` member is the boolean `true`.
+// A missing key, `null`, `false`, `0`, `1`, a string and a nested object all
+// answer false, and nothing is thrown.
+export function output_success(document) {
+  return field(document, "ok") === true;
+}
+
 export function read_dir(p) {
   return JSON.parse(door(fs_read_dir(p), "fs_read_dir " + p));
 }

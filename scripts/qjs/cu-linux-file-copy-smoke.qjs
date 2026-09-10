@@ -38,8 +38,6 @@ function text_at(value, dotted) {
   return "" + current;
 }
 
-function output_success(document) { return at(document, "ok") === true; }
-
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
   const metadata = rh.symlink_metadata(path);
@@ -128,12 +126,12 @@ function invoke_get_extents_reply(run_directory, executable, arguments, env) {
 function invoke(run_directory, executable, grant, arguments, expected_error, env) {
   const reply = invoke_reply(run_directory, executable, grant, arguments, env);
   if (expected_error !== undefined) {
-    ensure(!output_success(reply), "cu_linux_file_copy_expected_failure");
+    ensure(!rh.output_success(reply), "cu_linux_file_copy_expected_failure");
     ensure(text_at(reply, "error.code") === expected_error,
       "cu_linux_file_copy_wrong_error:" + JSON.stringify(reply.error));
     return reply.error;
   }
-  ensure(output_success(reply), "cu_linux_file_copy_failed:" + JSON.stringify(reply));
+  ensure(rh.output_success(reply), "cu_linux_file_copy_failed:" + JSON.stringify(reply));
   return reply.data;
 }
 
@@ -168,7 +166,7 @@ function assert_file_copy_usage_limit(run_directory, executable, source, destina
   const flat_with_name = invoke_reply(run_directory, executable, "observe", [
     "file-copy", source, destination, "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(flat_with_name),
+  ensure(!rh.output_success(flat_with_name),
     "cu_linux_file_copy_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
   ensure(
     text_at(flat_with_name, "error.code") === "usage",
@@ -186,7 +184,7 @@ function assert_file_copy_usage_limit(run_directory, executable, source, destina
   const grouped_with_name = invoke_reply(run_directory, executable, "observe", [
     "file", "copy", source, destination, "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(grouped_with_name),
+  ensure(!rh.output_success(grouped_with_name),
     "cu_linux_file_copy_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
   ensure(
     text_at(grouped_with_name, "error.code") === "usage",
@@ -204,7 +202,7 @@ function assert_file_copy_usage_limit(run_directory, executable, source, destina
   const flat_with_bogus = invoke_reply(run_directory, executable, "observe", [
     "file-copy", source, destination, "--bogus",
   ], env);
-  ensure(!output_success(flat_with_bogus),
+  ensure(!rh.output_success(flat_with_bogus),
     "cu_linux_file_copy_usage_flat_bogus_ok:" + JSON.stringify(flat_with_bogus));
   ensure(
     text_at(flat_with_bogus, "error.code") === "usage",
@@ -222,7 +220,7 @@ function assert_file_copy_usage_limit(run_directory, executable, source, destina
   const grouped_with_bogus = invoke_reply(run_directory, executable, "observe", [
     "file", "copy", source, destination, "--bogus",
   ], env);
-  ensure(!output_success(grouped_with_bogus),
+  ensure(!rh.output_success(grouped_with_bogus),
     "cu_linux_file_copy_usage_grouped_bogus_ok:" + JSON.stringify(grouped_with_bogus));
   ensure(
     text_at(grouped_with_bogus, "error.code") === "usage",
@@ -240,7 +238,7 @@ function assert_file_copy_usage_limit(run_directory, executable, source, destina
   const flat_with_coords = invoke_reply(run_directory, executable, "observe", [
     "file-copy", source, destination, "--coords", "10,10",
   ], env);
-  ensure(!output_success(flat_with_coords),
+  ensure(!rh.output_success(flat_with_coords),
     "cu_linux_file_copy_usage_flat_coords_ok:" + JSON.stringify(flat_with_coords));
   ensure(
     text_at(flat_with_coords, "error.code") === "usage",
@@ -258,7 +256,7 @@ function assert_file_copy_usage_limit(run_directory, executable, source, destina
   const grouped_with_coords = invoke_reply(run_directory, executable, "observe", [
     "file", "copy", source, destination, "--coords", "10,10",
   ], env);
-  ensure(!output_success(grouped_with_coords),
+  ensure(!rh.output_success(grouped_with_coords),
     "cu_linux_file_copy_usage_grouped_coords_ok:" + JSON.stringify(grouped_with_coords));
   ensure(
     text_at(grouped_with_coords, "error.code") === "usage",
@@ -278,7 +276,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  ensure(!rh.output_success(zero_handle),
     "cu_linux_file_copy_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -292,7 +290,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  ensure(!rh.output_success(missing_name),
     "cu_linux_file_copy_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
@@ -310,7 +308,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_file_copy_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -329,7 +327,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_file_copy_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -354,7 +352,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_file_copy_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
@@ -403,7 +401,7 @@ function assert_file_copy_open_denied_host_limit(
   const arguments = ["file-copy", source, destination];
   if (apply === true) { arguments.push("--apply"); }
   const reply = invoke_reply(run_directory, executable, grant, arguments, env);
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_file_copy_denied_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "file_transaction_entry_invalid",

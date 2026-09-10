@@ -39,8 +39,6 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
-function output_success(document) { return flag_at(document, "ok"); }
-
 function usage_rejects_unexpected(message, token) {
   return message.indexOf(token) >= 0
     || message.indexOf("unexpected") >= 0;
@@ -117,7 +115,7 @@ function run_cu_reply(run_directory, executable, grant, arguments, env) {
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  ensure(output_success(document), "cu_linux_tab_select_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_tab_select_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -173,7 +171,7 @@ function assert_tab_select_usage_limit(run_directory, executable, env) {
   const flat_with_name = invoke_actuate_reply(run_directory, executable, [
     "tab-select", "--window", "1", "--title", "unused", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(flat_with_name),
+  ensure(!rh.output_success(flat_with_name),
     "cu_linux_tab_select_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
   ensure(
     text_at(flat_with_name, "error.code") === "usage",
@@ -191,7 +189,7 @@ function assert_tab_select_usage_limit(run_directory, executable, env) {
   const grouped_with_name = invoke_actuate_reply(run_directory, executable, [
     "tab", "select", "--window", "1", "--title", "unused", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(grouped_with_name),
+  ensure(!rh.output_success(grouped_with_name),
     "cu_linux_tab_select_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
   ensure(
     text_at(grouped_with_name, "error.code") === "usage",
@@ -209,7 +207,7 @@ function assert_tab_select_usage_limit(run_directory, executable, env) {
   const with_bogus = invoke_actuate_reply(run_directory, executable, [
     "tab-select", "--window", "1", "--title", "unused", "--bogus",
   ], env);
-  ensure(!output_success(with_bogus),
+  ensure(!rh.output_success(with_bogus),
     "cu_linux_tab_select_usage_bogus_ok:" + JSON.stringify(with_bogus));
   ensure(
     text_at(with_bogus, "error.code") === "usage",
@@ -227,7 +225,7 @@ function assert_tab_select_usage_limit(run_directory, executable, env) {
   const flat_with_coords = invoke_actuate_reply(run_directory, executable, [
     "tab-select", "--window", "1", "--title", "unused", "--coords", "10,10",
   ], env);
-  ensure(!output_success(flat_with_coords),
+  ensure(!rh.output_success(flat_with_coords),
     "cu_linux_tab_select_usage_flat_coords_ok:" + JSON.stringify(flat_with_coords));
   ensure(
     text_at(flat_with_coords, "error.code") === "usage",
@@ -245,7 +243,7 @@ function assert_tab_select_usage_limit(run_directory, executable, env) {
   const grouped_with_coords = invoke_actuate_reply(run_directory, executable, [
     "tab", "select", "--window", "1", "--title", "unused", "--coords", "10,10",
   ], env);
-  ensure(!output_success(grouped_with_coords),
+  ensure(!rh.output_success(grouped_with_coords),
     "cu_linux_tab_select_usage_grouped_coords_ok:" + JSON.stringify(grouped_with_coords));
   ensure(
     text_at(grouped_with_coords, "error.code") === "usage",
@@ -265,7 +263,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  ensure(!rh.output_success(zero_handle),
     "cu_linux_tab_select_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -279,7 +277,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  ensure(!rh.output_success(missing_name),
     "cu_linux_tab_select_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
@@ -297,7 +295,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_tab_select_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -316,7 +314,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_tab_select_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -341,7 +339,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_tab_select_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
@@ -470,7 +468,7 @@ function page_targets_on_owned_port(run_directory, executable, env, port) {
       "page-targets", "--port", "" + port,
     ], env);
     last_reply = reply;
-    if (output_success(reply)) { return reply; }
+    if (rh.output_success(reply)) { return reply; }
     harness.sleep_ms(250);
   }
   ensure(false, "cu_linux_tab_select_page_targets_retry:" + JSON.stringify(last_reply));
@@ -504,13 +502,13 @@ function owned_port_browser_tabs_inventory(
   for (let attempt = 0; attempt < 12; attempt = attempt + 1) {
     const reply = browser_tabs_reply(run_directory, executable, env, match_text);
     last_reply = reply;
-    if (output_success(reply)
+    if (rh.output_success(reply)
         && text_at(reply, "data.mechanism") === "cdp-json"
         && int_at(reply, "data.port") === port
         && at(reply, "data.returned") >= 1) {
       return reply;
     }
-    if (!output_success(reply)
+    if (!rh.output_success(reply)
         && text_at(reply, "error.code") !== "browser_bridge_presentation_changed") {
       ensure(false, "cu_linux_tab_select_browser_tabs:" + JSON.stringify(reply));
     }

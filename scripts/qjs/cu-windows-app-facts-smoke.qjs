@@ -56,12 +56,6 @@ function text_at(value, dotted) {
   return "" + current;
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
-
 function backslashes(value) {
   return ("" + value).replaceAll("/", "\\");
 }
@@ -114,7 +108,7 @@ function assert_reasoned_with(fact, status, needle, message) {
 // shell and nothing leaves the current user's own hive, store and run dir.
 function inbox(name) {
   const candidate = rh.join(rh.env_or("WINDIR", "C:/Windows"), "System32/" + name);
-  ensure(direct_file(candidate), "cu_windows_app_facts_inbox_missing:" + name);
+  ensure(rh.is_direct_file(candidate), "cu_windows_app_facts_inbox_missing:" + name);
   return candidate;
 }
 
@@ -124,7 +118,7 @@ function find_csc(windows) {
     rh.join(windows, "Microsoft.NET/Framework/v4.0.30319/csc.exe")
   ];
   for (const candidate of candidates) {
-    if (direct_file(candidate)) { return candidate; }
+    if (rh.is_direct_file(candidate)) { return candidate; }
   }
   throw "BLOCKED:windows-csc-unavailable";
 }
@@ -154,7 +148,7 @@ function register_fixture(reg, key, display_name, version, executable) {
 
 function copy_executable(source, target) {
   rh.copy(source, target);
-  ensure(direct_file(target), "cu_windows_app_facts_fixture_copy_missing:" + target);
+  ensure(rh.is_direct_file(target), "cu_windows_app_facts_fixture_copy_missing:" + target);
   return target;
 }
 
@@ -220,7 +214,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
-ensure(direct_file(executable), "cu_windows_app_facts_executable_missing:" + executable);
+ensure(rh.is_direct_file(executable), "cu_windows_app_facts_executable_missing:" + executable);
 const reg = inbox("reg.exe");
 const powershell = inbox("WindowsPowerShell/v1.0/powershell.exe");
 const csc = find_csc(rh.env_or("WINDIR", "C:/Windows"));
@@ -256,7 +250,7 @@ try {
     + "{ Thread.Sleep(120000); } return 0; } }");
   run_tool(csc, ["/nologo", "/target:exe", "/platform:anycpu", "/out:" + backslashes(fixture),
     backslashes(fixture_source)], "compile-fixture");
-  ensure(direct_file(fixture), "cu_windows_app_facts_compiled_fixture_missing");
+  ensure(rh.is_direct_file(fixture), "cu_windows_app_facts_compiled_fixture_missing");
   const probe = invoke(run_directory, executable, environment,
     ["app-facts", "--selector", fixture], true);
   assert_common_identity(probe.data, fixture, fixture);

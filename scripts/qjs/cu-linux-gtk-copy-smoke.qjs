@@ -88,8 +88,6 @@ function cu_env(executable) {
   return env;
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
-
 function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of cu_args) { argv.push("" + argument); }
@@ -105,7 +103,7 @@ function run_cu_reply(run_directory, executable, grant, cu_args, env) {
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  ensure(output_success(document), "cu_linux_gtk_copy_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_gtk_copy_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -157,7 +155,7 @@ function assert_clipboard_usage_limit(run_directory, executable) {
   const read_bogus = run_cu_reply(run_directory, executable, "observe", [
     "clipboard-read", "--bogus",
   ]);
-  ensure(!output_success(read_bogus), "cu_linux_gtk_copy_clipboard_read_bogus_ok:" + JSON.stringify(read_bogus));
+  ensure(!rh.output_success(read_bogus), "cu_linux_gtk_copy_clipboard_read_bogus_ok:" + JSON.stringify(read_bogus));
   ensure(
     text_at(read_bogus, "error.code") === "usage",
     "cu_linux_gtk_copy_clipboard_read_bogus_code:" + JSON.stringify(read_bogus.error)
@@ -170,7 +168,7 @@ function assert_clipboard_usage_limit(run_directory, executable) {
   const write_bogus = run_cu_reply(run_directory, executable, "actuate", [
     "clipboard-write", "--type", text_type, "--text", "probe", "--bogus",
   ]);
-  ensure(!output_success(write_bogus), "cu_linux_gtk_copy_clipboard_write_bogus_ok:" + JSON.stringify(write_bogus));
+  ensure(!rh.output_success(write_bogus), "cu_linux_gtk_copy_clipboard_write_bogus_ok:" + JSON.stringify(write_bogus));
   ensure(
     text_at(write_bogus, "error.code") === "usage",
     "cu_linux_gtk_copy_clipboard_write_bogus_code:" + JSON.stringify(write_bogus.error)
@@ -179,7 +177,7 @@ function assert_clipboard_usage_limit(run_directory, executable) {
   const clear_name = run_cu_reply(run_directory, executable, "observe,actuate", [
     "clipboard-clear", "--apply", "--name", ENTRY_NAME,
   ]);
-  ensure(!output_success(clear_name), "cu_linux_gtk_copy_clipboard_clear_name_ok:" + JSON.stringify(clear_name));
+  ensure(!rh.output_success(clear_name), "cu_linux_gtk_copy_clipboard_clear_name_ok:" + JSON.stringify(clear_name));
   ensure(
     text_at(clear_name, "error.code") === "usage",
     "cu_linux_gtk_copy_clipboard_clear_name_code:" + JSON.stringify(clear_name.error)
@@ -200,7 +198,7 @@ function assert_copy_unexpected_usage(run_directory, executable) {
   const copy_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
     "copy", "--bogus",
   ]);
-  ensure(!output_success(copy_bogus), "cu_linux_gtk_copy_bogus_ok:" + JSON.stringify(copy_bogus));
+  ensure(!rh.output_success(copy_bogus), "cu_linux_gtk_copy_bogus_ok:" + JSON.stringify(copy_bogus));
   ensure(
     text_at(copy_bogus, "error.code") === "usage",
     "cu_linux_gtk_copy_bogus_code:" + JSON.stringify(copy_bogus.error)
@@ -217,7 +215,7 @@ function assert_copy_reject_coords_or_stay_named(
   const copy_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     "copy", "--window", handle, "--name", ENTRY_NAME, "--coords", "10,10",
   ]);
-  if (!output_success(copy_coords)) {
+  if (!rh.output_success(copy_coords)) {
     ensure(
       text_at(copy_coords, "error.code") === "usage",
       "cu_linux_gtk_copy_name_coords_code_" + label + ":" + JSON.stringify(copy_coords.error)
@@ -240,7 +238,7 @@ function assert_copy_reject_coords_or_stay_named(
   const copy_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
     "copy", "--window", handle, "--name", ENTRY_NAME, "--bogus",
   ]);
-  if (!output_success(copy_bogus)) {
+  if (!rh.output_success(copy_bogus)) {
     ensure(
       text_at(copy_bogus, "error.code") === "usage",
       "cu_linux_gtk_copy_name_bogus_code_" + label + ":" + JSON.stringify(copy_bogus.error)
@@ -265,7 +263,7 @@ function assert_copy_usage_limit(run_directory, executable) {
   const missing_window = run_cu_reply(run_directory, executable, "observe,actuate", [
     "copy", "--name", ENTRY_NAME,
   ]);
-  ensure(!output_success(missing_window), "cu_linux_gtk_copy_usage_ok:" + JSON.stringify(missing_window));
+  ensure(!rh.output_success(missing_window), "cu_linux_gtk_copy_usage_ok:" + JSON.stringify(missing_window));
   ensure(
     text_at(missing_window, "error.code") === "usage",
     "cu_linux_gtk_copy_usage_code:" + JSON.stringify(missing_window.error)
@@ -282,7 +280,7 @@ function assert_copy_usage_limit(run_directory, executable) {
   const role_without_name = run_cu_reply(run_directory, executable, "observe,actuate", [
     "copy", "--window", "1", "--role", "entry",
   ]);
-  ensure(!output_success(role_without_name), "cu_linux_gtk_copy_role_ok:" + JSON.stringify(role_without_name));
+  ensure(!rh.output_success(role_without_name), "cu_linux_gtk_copy_role_ok:" + JSON.stringify(role_without_name));
   ensure(
     text_at(role_without_name, "error.code") === "usage",
     "cu_linux_gtk_copy_role_code:" + JSON.stringify(role_without_name.error)
@@ -299,7 +297,7 @@ function assert_copy_usage_limit(run_directory, executable) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
     "copy", "--window", "0", "--name", ENTRY_NAME,
   ]);
-  ensure(!output_success(zero_handle), "cu_linux_gtk_copy_zero_handle_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_gtk_copy_zero_handle_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "usage",
     "cu_linux_gtk_copy_zero_handle_code:" + JSON.stringify(zero_handle.error)
@@ -318,7 +316,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", ENTRY_NAME,
   ], env);
-  ensure(!output_success(zero_handle), "cu_linux_gtk_copy_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_gtk_copy_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_gtk_copy_extents_usage_code:" + JSON.stringify(zero_handle.error)
@@ -331,7 +329,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name), "cu_linux_gtk_copy_extents_missing_name_ok:" + JSON.stringify(missing_name));
+  ensure(!rh.output_success(missing_name), "cu_linux_gtk_copy_extents_missing_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_gtk_copy_extents_missing_name_code:" + JSON.stringify(missing_name.error)
@@ -348,7 +346,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_gtk_copy_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -367,7 +365,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_gtk_copy_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -392,7 +390,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply), "cu_linux_gtk_copy_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_gtk_copy_extents_unavailable_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "command") !== "usage",
     "cu_linux_gtk_copy_extents_unavailable_fake_usage:" + JSON.stringify(reply)
@@ -414,7 +412,7 @@ function assert_copy_host_limit_when_atspi_absent(run_directory, executable) {
   const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "copy", "--window", "1", "--name", ENTRY_NAME,
   ], env);
-  ensure(!output_success(reply), "cu_linux_gtk_copy_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_gtk_copy_unavailable_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "command") !== "usage",
     "cu_linux_gtk_copy_unavailable_fake_usage:" + JSON.stringify(reply)
@@ -476,7 +474,7 @@ function assert_copy_missing_node(run_directory, executable, handle, label) {
   const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "copy", "--window", handle, "--name", MISSING_NODE,
   ]);
-  ensure(!output_success(reply), "cu_linux_gtk_copy_missing_ok_" + label);
+  ensure(!rh.output_success(reply), "cu_linux_gtk_copy_missing_ok_" + label);
   ensure(
     text_at(reply, "error.code") === "a11y_node_not_found",
     "cu_linux_gtk_copy_missing_code_" + label + ":" + JSON.stringify(reply.error)

@@ -153,7 +153,7 @@ function honest_non_usage_code(code) {
 }
 
 function assert_usage_or_honest_non_usage(reply, label, token) {
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_capabilities_honesty_" + label + "_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   const command = text_at(reply, "command");
@@ -225,7 +225,7 @@ function invoke_reply(run_directory, executable, arguments) {
 
 function invoke(run_directory, executable, arguments) {
   const reply = invoke_reply(run_directory, executable, arguments);
-  ensure(output_success(reply), "cu_linux_capabilities_honesty_exit:" + JSON.stringify(reply));
+  ensure(rh.output_success(reply), "cu_linux_capabilities_honesty_exit:" + JSON.stringify(reply));
   ensure(text_at(reply, "command") === "capabilities",
          "cu_linux_capabilities_honesty_command:" + JSON.stringify(reply));
   return reply;
@@ -259,7 +259,7 @@ function run_cu_reply(run_directory, executable, grant, arguments, env) {
 
 function run_cu(run_directory, executable, grant, arguments) {
   const document = run_cu_reply(run_directory, executable, grant, arguments);
-  ensure(output_success(document),
+  ensure(rh.output_success(document),
     "cu_linux_capabilities_honesty_reply:" + JSON.stringify(document));
   return document;
 }
@@ -297,7 +297,7 @@ function assert_get_extents_usage_limit(run_directory, executable) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ]);
-  ensure(!output_success(zero_handle),
+  ensure(!rh.output_success(zero_handle),
     "cu_linux_capabilities_honesty_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -311,7 +311,7 @@ function assert_get_extents_usage_limit(run_directory, executable) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ]);
-  ensure(!output_success(missing_name),
+  ensure(!rh.output_success(missing_name),
     "cu_linux_capabilities_honesty_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
@@ -329,7 +329,7 @@ function assert_get_extents_usage_limit(run_directory, executable) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ]);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_capabilities_honesty_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -348,7 +348,7 @@ function assert_get_extents_usage_limit(run_directory, executable) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ]);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_capabilities_honesty_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -373,7 +373,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_capabilities_honesty_extents_unavailable_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "command") !== "usage",
@@ -474,8 +474,6 @@ function at(value, dotted) {
   }
   return current;
 }
-
-function output_success(document) { return at(document, "ok") === true; }
 
 function verb_declaration(verbs, verb) {
   const declaration = rh.field(verbs, verb);

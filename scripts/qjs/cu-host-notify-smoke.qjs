@@ -5,11 +5,6 @@ import * as harness from "lib/test_harness";
 
 const declared_evidence = ["cu.host-notify.macos"];
 function ensure(condition, message) { if (!condition) { throw message; } }
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 function invoke(run_directory, executable, arguments, expected_error) {
   const argv = ["--target", "current", "--grant", "actuate"];
   for (const argument of arguments) { argv.push(argument); }
@@ -37,7 +32,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
-ensure(direct_file(executable), "cu_host_notify_executable_missing");
+ensure(rh.is_direct_file(executable), "cu_host_notify_executable_missing");
 const context = harness.new_context(repo, "cu-host-notify");
 const run_directory = context.run_directory;
 let succeeded = 0;

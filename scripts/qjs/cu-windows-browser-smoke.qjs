@@ -76,12 +76,6 @@ function text_at(value, dotted) { return text_of(at(value, dotted)); }
 function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
-
 function remove_directory_bounded(path) {
   if (!rh.exists(path)) { return true; }
   for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
@@ -112,7 +106,7 @@ function installed_browser() {
     candidates.push({ app: "brave", path: rh.join(local_app_data, "BraveSoftware/Brave-Browser/Application/brave.exe") });
   }
   for (const candidate of candidates) {
-    if (direct_file(candidate.path)) { return candidate; }
+    if (rh.is_direct_file(candidate.path)) { return candidate; }
   }
   return null;
 }
@@ -180,9 +174,9 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
-ensure(direct_file(executable), "cu_windows_browser_executable_missing:" + executable);
+ensure(rh.is_direct_file(executable), "cu_windows_browser_executable_missing:" + executable);
 ensure(
-  direct_file(rh.join(rh.parent(executable), "agenterm.dll")),
+  rh.is_direct_file(rh.join(rh.parent(executable), "agenterm.dll")),
   "cu_windows_browser_library_missing:" + rh.parent(executable)
 );
 

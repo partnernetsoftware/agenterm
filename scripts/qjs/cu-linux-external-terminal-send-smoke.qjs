@@ -99,8 +99,6 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
-function output_success(document) { return at(document, "ok") === true; }
-
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
   if (value_at === undefined || value_at === null) { return -1; }
@@ -206,7 +204,7 @@ function assert_terminal_send_usage_limit(run_directory, executable, terminal_en
   const flat_with_name = invoke_actuate_reply(run_directory, executable, terminal_env, [
     "terminal-send", "--tab", "@1", "--name", AT_SPI_PROBE_NAME, "--", "hello",
   ]);
-  ensure(!output_success(flat_with_name),
+  ensure(!rh.output_success(flat_with_name),
     "cu_linux_external_terminal_send_terminal_send_flat_name_ok:" + JSON.stringify(flat_with_name));
   ensure(
     text_at(flat_with_name, "error.code") === "usage",
@@ -224,7 +222,7 @@ function assert_terminal_send_usage_limit(run_directory, executable, terminal_en
   const grouped_with_name = invoke_actuate_reply(run_directory, executable, terminal_env, [
     "terminal", "send", "--tab", "@1", "--name", AT_SPI_PROBE_NAME, "--", "hello",
   ]);
-  ensure(!output_success(grouped_with_name),
+  ensure(!rh.output_success(grouped_with_name),
     "cu_linux_external_terminal_send_terminal_send_grouped_name_ok:" + JSON.stringify(grouped_with_name));
   ensure(
     text_at(grouped_with_name, "error.code") === "usage",
@@ -238,7 +236,7 @@ function assert_terminal_send_usage_limit(run_directory, executable, terminal_en
   const with_bogus = invoke_actuate_reply(run_directory, executable, terminal_env, [
     "terminal-send", "--tab", "@1", "--bogus", "--", "hello",
   ]);
-  ensure(!output_success(with_bogus),
+  ensure(!rh.output_success(with_bogus),
     "cu_linux_external_terminal_send_terminal_send_bogus_ok:" + JSON.stringify(with_bogus));
   ensure(
     text_at(with_bogus, "error.code") === "usage",
@@ -252,7 +250,7 @@ function assert_terminal_send_usage_limit(run_directory, executable, terminal_en
   const with_coords = invoke_actuate_reply(run_directory, executable, terminal_env, [
     "terminal-send", "--tab", "@1", "--coords", "10,10", "--", "hello",
   ]);
-  ensure(!output_success(with_coords),
+  ensure(!rh.output_success(with_coords),
     "cu_linux_external_terminal_send_terminal_send_coords_ok:" + JSON.stringify(with_coords));
   ensure(
     text_at(with_coords, "error.code") === "usage",
@@ -272,7 +270,7 @@ function assert_term_send_usage_limit(run_directory, executable, terminal_env) {
   const flat_with_name = invoke_actuate_reply(run_directory, executable, terminal_env, [
     "term-send", "1", "--foreground", "--name", AT_SPI_PROBE_NAME, "--", "hello",
   ]);
-  ensure(!output_success(flat_with_name),
+  ensure(!rh.output_success(flat_with_name),
     "cu_linux_external_terminal_send_term_send_flat_name_ok:" + JSON.stringify(flat_with_name));
   ensure(
     text_at(flat_with_name, "error.code") === "usage",
@@ -290,7 +288,7 @@ function assert_term_send_usage_limit(run_directory, executable, terminal_env) {
   const grouped_with_name = invoke_actuate_reply(run_directory, executable, terminal_env, [
     "term", "send", "1", "--foreground", "--name", AT_SPI_PROBE_NAME, "--", "hello",
   ]);
-  ensure(!output_success(grouped_with_name),
+  ensure(!rh.output_success(grouped_with_name),
     "cu_linux_external_terminal_send_term_send_grouped_name_ok:" + JSON.stringify(grouped_with_name));
   ensure(
     text_at(grouped_with_name, "error.code") === "usage",
@@ -304,7 +302,7 @@ function assert_term_send_usage_limit(run_directory, executable, terminal_env) {
   const with_bogus = invoke_actuate_reply(run_directory, executable, terminal_env, [
     "term-send", "1", "--foreground", "--bogus", "--", "hello",
   ]);
-  ensure(!output_success(with_bogus),
+  ensure(!rh.output_success(with_bogus),
     "cu_linux_external_terminal_send_term_send_bogus_ok:" + JSON.stringify(with_bogus));
   ensure(
     text_at(with_bogus, "error.code") === "usage",
@@ -318,7 +316,7 @@ function assert_term_send_usage_limit(run_directory, executable, terminal_env) {
   const with_coords = invoke_actuate_reply(run_directory, executable, terminal_env, [
     "term-send", "1", "--foreground", "--coords", "10,10", "--", "hello",
   ]);
-  ensure(!output_success(with_coords),
+  ensure(!rh.output_success(with_coords),
     "cu_linux_external_terminal_send_term_send_coords_ok:" + JSON.stringify(with_coords));
   ensure(
     text_at(with_coords, "error.code") === "usage",
@@ -338,7 +336,7 @@ function assert_get_extents_usage_limit(run_directory, executable, terminal_env)
   const zero_handle = invoke_get_extents_reply(run_directory, executable, terminal_env, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ]);
-  ensure(!output_success(zero_handle),
+  ensure(!rh.output_success(zero_handle),
     "cu_linux_external_terminal_send_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -352,7 +350,7 @@ function assert_get_extents_usage_limit(run_directory, executable, terminal_env)
   const missing_name = invoke_get_extents_reply(run_directory, executable, terminal_env, [
     "get-extents", "--window", "1",
   ]);
-  ensure(!output_success(missing_name),
+  ensure(!rh.output_success(missing_name),
     "cu_linux_external_terminal_send_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
@@ -370,7 +368,7 @@ function assert_get_extents_usage_limit(run_directory, executable, terminal_env)
   const extents_coords = invoke_get_extents_reply(run_directory, executable, terminal_env, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ]);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_external_terminal_send_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -389,7 +387,7 @@ function assert_get_extents_usage_limit(run_directory, executable, terminal_env)
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, terminal_env, [
     "get-extents", "--window", "1", "--bogus",
   ]);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_external_terminal_send_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -420,7 +418,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
   ensure(output.stdout.trim() !== "",
     "cu_linux_external_terminal_send_extents_unavailable_cli:" + output.stdout + output.stderr);
   const reply = JSON.parse(output.stdout.trim());
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_external_terminal_send_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
@@ -519,7 +517,7 @@ function assert_terminal_list_usage_limit(run_directory, executable, terminal_en
   const with_coords = run_cu_reply(run_directory, executable, terminal_env, [
     "--target", "current", "--grant", "observe", "terminal-list", "--coords", "10,10",
   ]);
-  ensure(!output_success(with_coords),
+  ensure(!rh.output_success(with_coords),
     "cu_linux_external_terminal_send_terminal_list_coords_ok:" + JSON.stringify(with_coords));
   ensure(
     text_at(with_coords, "error.code") === "usage",
@@ -537,7 +535,7 @@ function assert_terminal_list_usage_limit(run_directory, executable, terminal_en
   const with_bogus = run_cu_reply(run_directory, executable, terminal_env, [
     "--target", "current", "--grant", "observe", "terminal-list", "--bogus",
   ]);
-  ensure(!output_success(with_bogus),
+  ensure(!rh.output_success(with_bogus),
     "cu_linux_external_terminal_send_terminal_list_bogus_ok:" + JSON.stringify(with_bogus));
   ensure(
     text_at(with_bogus, "error.code") === "usage",
@@ -773,7 +771,7 @@ try {
       external_handle, "--foreground", "--enter", "false",
       "--expect", visible_token, "--", visible_token,
     ]);
-    if (output_success(visible_send)) { break; }
+    if (rh.output_success(visible_send)) { break; }
     if (text_at(visible_send, "error.code") !== "window_activation_failed") { break; }
     if (flag_at(visible_send, "error.detail.input_dispatched")) { break; }
     harness.sleep_ms(250);
@@ -784,7 +782,7 @@ try {
     external_handle, "--max-bytes", "4096",
   ]);
   const after_text = text_at(after_read, "data.text");
-  if (output_success(visible_send)) {
+  if (rh.output_success(visible_send)) {
     ensure(
       flag_at(visible_send, "data.performed")
         && flag_at(visible_send, "data.verified")

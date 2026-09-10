@@ -59,8 +59,6 @@ function usage_rejects_unexpected(message, token) {
     || message.indexOf("unexpected") >= 0;
 }
 
-function output_success(document) { return at(document, "ok") === true; }
-
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
   const metadata = rh.symlink_metadata(path);
@@ -108,7 +106,7 @@ function invoke_clipboard_reply(run_directory, executable, grant, arguments, env
 
 function invoke(run_directory, executable, grant, arguments, env) {
   const reply = invoke_clipboard_reply(run_directory, executable, grant, arguments, env);
-  ensure(output_success(reply),
+  ensure(rh.output_success(reply),
     "cu_linux_clipboard_mime_exit:" + arguments[0] + ":" + JSON.stringify(reply));
   return reply;
 }
@@ -128,7 +126,7 @@ function run_cu_reply(run_directory, executable, grant, cu_args, env) {
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  ensure(output_success(document),
+  ensure(rh.output_success(document),
     "cu_linux_clipboard_mime_cu_reply:" + JSON.stringify(document));
   return document;
 }
@@ -165,7 +163,7 @@ function probe_atspi_available(executable) {
 
 function assert_clipboard_usage_reject(run_directory, executable, grant, arguments, env, label, token) {
   const reply = invoke_clipboard_reply(run_directory, executable, grant, arguments, env);
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_clipboard_mime_usage_" + label + "_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "usage",
@@ -192,7 +190,7 @@ function assert_clipboard_usage_limit(run_directory, executable, env) {
   const read_flat = invoke_clipboard_reply(run_directory, executable, "observe", [
     "clipboard-read", "--type", TEXT_TYPE, "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(read_flat),
+  ensure(!rh.output_success(read_flat),
     "cu_linux_clipboard_mime_read_flat_name_ok:" + JSON.stringify(read_flat));
   ensure(
     text_at(read_flat, "error.code") === "usage",
@@ -210,7 +208,7 @@ function assert_clipboard_usage_limit(run_directory, executable, env) {
   const read_grouped = invoke_clipboard_reply(run_directory, executable, "observe", [
     "clipboard", "read", "--type", TEXT_TYPE, "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(read_grouped),
+  ensure(!rh.output_success(read_grouped),
     "cu_linux_clipboard_mime_read_grouped_name_ok:" + JSON.stringify(read_grouped));
   ensure(
     text_at(read_grouped, "error.code") === "usage",
@@ -228,7 +226,7 @@ function assert_clipboard_usage_limit(run_directory, executable, env) {
   const write_flat = invoke_clipboard_reply(run_directory, executable, "actuate", [
     "clipboard-write", "--type", TEXT_TYPE, "--text", "denied", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(write_flat),
+  ensure(!rh.output_success(write_flat),
     "cu_linux_clipboard_mime_write_flat_name_ok:" + JSON.stringify(write_flat));
   ensure(
     text_at(write_flat, "error.code") === "usage",
@@ -246,7 +244,7 @@ function assert_clipboard_usage_limit(run_directory, executable, env) {
   const write_grouped = invoke_clipboard_reply(run_directory, executable, "actuate", [
     "clipboard", "write", "--type", TEXT_TYPE, "--text", "denied", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(write_grouped),
+  ensure(!rh.output_success(write_grouped),
     "cu_linux_clipboard_mime_write_grouped_name_ok:" + JSON.stringify(write_grouped));
   ensure(
     text_at(write_grouped, "error.code") === "usage",
@@ -264,7 +262,7 @@ function assert_clipboard_usage_limit(run_directory, executable, env) {
   const clear_flat = invoke_clipboard_reply(run_directory, executable, "actuate", [
     "clipboard-clear", "--apply", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(clear_flat),
+  ensure(!rh.output_success(clear_flat),
     "cu_linux_clipboard_mime_clear_flat_name_ok:" + JSON.stringify(clear_flat));
   ensure(
     text_at(clear_flat, "error.code") === "usage",
@@ -282,7 +280,7 @@ function assert_clipboard_usage_limit(run_directory, executable, env) {
   const clear_grouped = invoke_clipboard_reply(run_directory, executable, "actuate", [
     "clipboard", "clear", "--apply", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(clear_grouped),
+  ensure(!rh.output_success(clear_grouped),
     "cu_linux_clipboard_mime_clear_grouped_name_ok:" + JSON.stringify(clear_grouped));
   ensure(
     text_at(clear_grouped, "error.code") === "usage",
@@ -322,13 +320,13 @@ function assert_clipboard_empty_host_limit(run_directory, executable, env) {
   const cleared = invoke_clipboard_reply(run_directory, executable, "actuate", [
     "clipboard-clear", "--apply",
   ], env);
-  ensure(output_success(cleared),
+  ensure(rh.output_success(cleared),
     "cu_linux_clipboard_mime_clear_before_empty:" + JSON.stringify(cleared));
 
   const inventory = invoke_clipboard_reply(run_directory, executable, "observe", [
     "clipboard-read", "--metadata-only",
   ], env);
-  ensure(output_success(inventory),
+  ensure(rh.output_success(inventory),
     "cu_linux_clipboard_mime_empty_inventory:" + JSON.stringify(inventory));
   ensure(
     at(inventory, "data.types_available") === true
@@ -340,7 +338,7 @@ function assert_clipboard_empty_host_limit(run_directory, executable, env) {
     const missing = invoke_clipboard_reply(run_directory, executable, "observe", [
       "clipboard-read", "--type", mime,
     ], env);
-    ensure(!output_success(missing),
+    ensure(!rh.output_success(missing),
       "cu_linux_clipboard_mime_missing_" + mime + "_ok:" + JSON.stringify(missing));
     ensure(
       text_at(missing, "error.code") === "clipboard_failed",
@@ -353,7 +351,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  ensure(!rh.output_success(zero_handle),
     "cu_linux_clipboard_mime_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -367,7 +365,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  ensure(!rh.output_success(missing_name),
     "cu_linux_clipboard_mime_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
@@ -385,7 +383,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_clipboard_mime_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -404,7 +402,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_clipboard_mime_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -429,7 +427,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_clipboard_mime_extents_unavailable_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "command") !== "usage",

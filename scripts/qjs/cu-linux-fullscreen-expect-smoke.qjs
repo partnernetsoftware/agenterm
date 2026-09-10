@@ -117,11 +117,9 @@ function run_cu_reply(run_directory, executable, grant, arguments, env, env_remo
   return JSON.parse(trimmed);
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
-
 function run_cu(run_directory, executable, grant, arguments) {
   const document = run_cu_reply(run_directory, executable, grant, arguments);
-  ensure(output_success(document), "cu_linux_fullscreen_expect_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_fullscreen_expect_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -158,7 +156,7 @@ function probe_atspi_available(executable) {
 function fullscreen_refused(run_directory, executable, arguments, code) {
   const reply = run_cu_reply(run_directory, executable, "actuate", ["fullscreen"].concat(arguments));
   ensure(
-    !output_success(reply) && text_at(reply, "error.code") === code,
+    !rh.output_success(reply) && text_at(reply, "error.code") === code,
     "cu_linux_fullscreen_expect_refused:" + code + ":" + JSON.stringify(reply)
   );
   return reply;
@@ -167,7 +165,7 @@ function fullscreen_refused(run_directory, executable, arguments, code) {
 function unfullscreen_refused(run_directory, executable, arguments, code) {
   const reply = run_cu_reply(run_directory, executable, "actuate", ["unfullscreen"].concat(arguments));
   ensure(
-    !output_success(reply) && text_at(reply, "error.code") === code,
+    !rh.output_success(reply) && text_at(reply, "error.code") === code,
     "cu_linux_fullscreen_expect_unfullscreen_refused:" + code + ":" + JSON.stringify(reply)
   );
   return reply;
@@ -177,7 +175,7 @@ function assert_fullscreen_usage_limit(run_directory, executable) {
   const fullscreen_zero = run_cu_reply(run_directory, executable, "actuate", [
     "fullscreen", "--window", "0", "--expect", "fullscreen",
   ]);
-  ensure(!output_success(fullscreen_zero), "cu_linux_fullscreen_expect_usage_ok:" + JSON.stringify(fullscreen_zero));
+  ensure(!rh.output_success(fullscreen_zero), "cu_linux_fullscreen_expect_usage_ok:" + JSON.stringify(fullscreen_zero));
   ensure(
     text_at(fullscreen_zero, "error.code") === "usage",
     "cu_linux_fullscreen_expect_usage_code:" + JSON.stringify(fullscreen_zero.error)
@@ -190,7 +188,7 @@ function assert_fullscreen_usage_limit(run_directory, executable) {
   const unfullscreen_zero = run_cu_reply(run_directory, executable, "actuate", [
     "unfullscreen", "--window", "0", "--expect", "unfullscreen",
   ]);
-  ensure(!output_success(unfullscreen_zero), "cu_linux_fullscreen_expect_unfullscreen_usage_ok:" + JSON.stringify(unfullscreen_zero));
+  ensure(!rh.output_success(unfullscreen_zero), "cu_linux_fullscreen_expect_unfullscreen_usage_ok:" + JSON.stringify(unfullscreen_zero));
   ensure(
     text_at(unfullscreen_zero, "error.code") === "usage",
     "cu_linux_fullscreen_expect_unfullscreen_usage_code:" + JSON.stringify(unfullscreen_zero.error)
@@ -200,7 +198,7 @@ function assert_fullscreen_usage_limit(run_directory, executable) {
 function assert_actuate_usage_reject(run_directory, executable, env, arguments, token, label) {
   const reply = run_cu_reply(run_directory, executable, "actuate", arguments, env);
   ensure(
-    !output_success(reply),
+    !rh.output_success(reply),
     "cu_linux_fullscreen_expect_usage_" + label + "_ok:" + JSON.stringify(reply)
   );
   const code = text_at(reply, "error.code");
@@ -252,7 +250,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
   ensure(
-    !output_success(zero_handle),
+    !rh.output_success(zero_handle),
     "cu_linux_fullscreen_expect_extents_usage_ok:" + JSON.stringify(zero_handle)
   );
   ensure(
@@ -268,7 +266,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "get-extents", "--window", "1",
   ], env);
   ensure(
-    !output_success(missing_name),
+    !rh.output_success(missing_name),
     "cu_linux_fullscreen_expect_extents_usage_name_ok:" + JSON.stringify(missing_name)
   );
   ensure(
@@ -288,7 +286,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
   ensure(
-    !output_success(extents_coords),
+    !rh.output_success(extents_coords),
     "cu_linux_fullscreen_expect_extents_coords_ok:" + JSON.stringify(extents_coords)
   );
   ensure(
@@ -309,7 +307,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "get-extents", "--window", "1", "--bogus",
   ], env);
   ensure(
-    !output_success(extents_bogus),
+    !rh.output_success(extents_bogus),
     "cu_linux_fullscreen_expect_extents_bogus_ok:" + JSON.stringify(extents_bogus)
   );
   ensure(
@@ -335,7 +333,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_fullscreen_expect_extents_unavailable_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "command") !== "usage",
@@ -396,7 +394,7 @@ function assert_fullscreen_missing_window(run_directory, executable) {
   const reply = run_cu_reply(run_directory, executable, "actuate", [
     "fullscreen", "--window", MISSING_HANDLE, "--expect", "fullscreen",
   ]);
-  ensure(!output_success(reply), "cu_linux_fullscreen_expect_missing_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_fullscreen_expect_missing_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "window_op_failed",
     "cu_linux_fullscreen_expect_missing_code:" + JSON.stringify(reply.error)
@@ -409,7 +407,7 @@ function assert_fullscreen_missing_window(run_directory, executable) {
   const unfullscreen_reply = run_cu_reply(run_directory, executable, "actuate", [
     "unfullscreen", "--window", MISSING_HANDLE, "--expect", "unfullscreen",
   ]);
-  ensure(!output_success(unfullscreen_reply), "cu_linux_fullscreen_expect_unfullscreen_missing_ok:" + JSON.stringify(unfullscreen_reply));
+  ensure(!rh.output_success(unfullscreen_reply), "cu_linux_fullscreen_expect_unfullscreen_missing_ok:" + JSON.stringify(unfullscreen_reply));
   ensure(
     text_at(unfullscreen_reply, "error.code") === "window_op_failed",
     "cu_linux_fullscreen_expect_unfullscreen_missing_code:" + JSON.stringify(unfullscreen_reply.error)
@@ -432,7 +430,7 @@ function assert_headless_host_limit(run_directory, executable, verb, label) {
     },
     ["DISPLAY"]
   );
-  ensure(!output_success(reply), "cu_linux_fullscreen_expect_headless_ok_" + label + ":" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_fullscreen_expect_headless_ok_" + label + ":" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "unsupported",
     "cu_linux_fullscreen_expect_headless_code_" + label + ":" + JSON.stringify(reply.error)
@@ -527,7 +525,7 @@ function assert_get_extents_reject_coords_or_stay_named(
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "" + handle, "--name", node_name, "--coords", "10,10",
   ]);
-  if (!output_success(extents_coords)) {
+  if (!rh.output_success(extents_coords)) {
     ensure(
       text_at(extents_coords, "error.code") === "usage",
       "cu_linux_fullscreen_expect_named_extents_coords_code_" + label + ":"
@@ -556,7 +554,7 @@ function assert_get_extents_reject_coords_or_stay_named(
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "" + handle, "--name", node_name, "--bogus",
   ]);
-  if (!output_success(extents_bogus)) {
+  if (!rh.output_success(extents_bogus)) {
     ensure(
       text_at(extents_bogus, "error.code") === "usage",
       "cu_linux_fullscreen_expect_named_extents_bogus_code_" + label + ":"

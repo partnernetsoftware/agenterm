@@ -126,11 +126,9 @@ function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   return last_json_line(output.stdout);
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
-
 function run_cu(run_directory, executable, grant, arguments) {
   const document = run_cu_reply(run_directory, executable, grant, arguments);
-  ensure(output_success(document), "cu_linux_focused_honesty_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_focused_honesty_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -197,7 +195,7 @@ function assert_host_limit_code(code, allow_focus_unavailable, label, reply) {
 function assert_usage_or_honest_reject(run_directory, executable, grant, cu_args, token, label) {
   const reply = run_cu_reply(run_directory, executable, grant, cu_args);
   ensure(
-    !output_success(reply),
+    !rh.output_success(reply),
     "cu_linux_focused_honesty_" + label + "_ok:" + JSON.stringify(reply)
   );
   const code = text_at(reply, "error.code");
@@ -228,7 +226,7 @@ function assert_focused_usage_limit(run_directory, executable) {
   const missing_window = run_cu_reply(run_directory, executable, "observe", [
     "focused",
   ]);
-  ensure(!output_success(missing_window), "cu_linux_focused_honesty_missing_window_ok:" + JSON.stringify(missing_window));
+  ensure(!rh.output_success(missing_window), "cu_linux_focused_honesty_missing_window_ok:" + JSON.stringify(missing_window));
   ensure(
     text_at(missing_window, "error.code") === "usage",
     "cu_linux_focused_honesty_missing_window_code:" + JSON.stringify(missing_window.error)
@@ -241,7 +239,7 @@ function assert_focused_usage_limit(run_directory, executable) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "focused", "--window", "0",
   ]);
-  ensure(!output_success(zero_handle), "cu_linux_focused_honesty_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_focused_honesty_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "usage",
     "cu_linux_focused_honesty_usage_code:" + JSON.stringify(zero_handle.error)
@@ -254,7 +252,7 @@ function assert_focused_usage_limit(run_directory, executable) {
   const with_name = run_cu_reply(run_directory, executable, "observe", [
     "focused", "--window", "1", "--name", AT_SPI_PROBE_NAME,
   ]);
-  ensure(!output_success(with_name), "cu_linux_focused_honesty_name_ok:" + JSON.stringify(with_name));
+  ensure(!rh.output_success(with_name), "cu_linux_focused_honesty_name_ok:" + JSON.stringify(with_name));
   ensure(
     text_at(with_name, "error.code") === "usage",
     "cu_linux_focused_honesty_name_code:" + JSON.stringify(with_name.error)
@@ -280,7 +278,7 @@ function assert_focus_usage_limit(run_directory, executable) {
   const missing_name = run_cu_reply(run_directory, executable, "observe,actuate", [
     "focus", "--window", "1",
   ]);
-  ensure(!output_success(missing_name), "cu_linux_focused_honesty_focus_usage_ok:" + JSON.stringify(missing_name));
+  ensure(!rh.output_success(missing_name), "cu_linux_focused_honesty_focus_usage_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_focused_honesty_focus_usage_code:" + JSON.stringify(missing_name.error)
@@ -298,7 +296,7 @@ function assert_focus_usage_limit(run_directory, executable) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
     "focus", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ]);
-  ensure(!output_success(zero_handle), "cu_linux_focused_honesty_focus_zero_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_focused_honesty_focus_zero_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_focused_honesty_focus_zero_code:" + JSON.stringify(zero_handle.error)
@@ -312,7 +310,7 @@ function assert_focus_usage_limit(run_directory, executable) {
     "focus", "--name", AT_SPI_PROBE_NAME,
   ]);
   ensure(
-    !output_success(name_without_window),
+    !rh.output_success(name_without_window),
     "cu_linux_focused_honesty_focus_name_only_ok:" + JSON.stringify(name_without_window)
   );
   ensure(
@@ -336,7 +334,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle), "cu_linux_focused_honesty_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_focused_honesty_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_focused_honesty_extents_usage_code:" + JSON.stringify(zero_handle.error)
@@ -349,7 +347,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name), "cu_linux_focused_honesty_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(!rh.output_success(missing_name), "cu_linux_focused_honesty_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_focused_honesty_extents_usage_name_code:" + JSON.stringify(missing_name.error)
@@ -366,7 +364,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords), "cu_linux_focused_honesty_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(!rh.output_success(extents_coords), "cu_linux_focused_honesty_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
     "cu_linux_focused_honesty_extents_coords_code:" + JSON.stringify(extents_coords.error)
@@ -384,7 +382,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus), "cu_linux_focused_honesty_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(!rh.output_success(extents_bogus), "cu_linux_focused_honesty_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
     "cu_linux_focused_honesty_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
@@ -404,7 +402,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
   const reply = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
   ], invalid_atspi_env(executable));
-  ensure(!output_success(reply), "cu_linux_focused_honesty_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_focused_honesty_extents_unavailable_ok:" + JSON.stringify(reply));
   assert_host_limit_code(
     text_at(reply, "error.code"),
     false,
@@ -417,7 +415,7 @@ function assert_focused_host_limit_when_atspi_absent(run_directory, executable) 
   const reply = run_cu_reply(run_directory, executable, "observe", [
     "focused", "--window", "1",
   ], invalid_atspi_env(executable));
-  ensure(!output_success(reply), "cu_linux_focused_honesty_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_focused_honesty_unavailable_ok:" + JSON.stringify(reply));
   assert_host_limit_code(
     text_at(reply, "error.code"),
     true,
@@ -430,7 +428,7 @@ function assert_focus_host_limit_when_atspi_absent(run_directory, executable) {
   const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "focus", "--window", "1", "--name", AT_SPI_PROBE_NAME,
   ], invalid_atspi_env(executable));
-  ensure(!output_success(reply), "cu_linux_focused_honesty_focus_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_focused_honesty_focus_unavailable_ok:" + JSON.stringify(reply));
   assert_host_limit_code(
     text_at(reply, "error.code"),
     false,
@@ -575,7 +573,7 @@ function assert_get_extents_reject_coords_or_stay_named(
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "" + handle, "--name", node_name, "--coords", "10,10",
   ]);
-  if (!output_success(extents_coords)) {
+  if (!rh.output_success(extents_coords)) {
     ensure(
       text_at(extents_coords, "error.code") === "usage",
       "cu_linux_focused_honesty_extents_coords_code_" + label + ":" + JSON.stringify(extents_coords.error)
@@ -600,7 +598,7 @@ function assert_get_extents_reject_coords_or_stay_named(
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "" + handle, "--name", node_name, "--bogus",
   ]);
-  if (!output_success(extents_bogus)) {
+  if (!rh.output_success(extents_bogus)) {
     ensure(
       text_at(extents_bogus, "error.code") === "usage",
       "cu_linux_focused_honesty_extents_bogus_code_" + label + ":" + JSON.stringify(extents_bogus.error)
@@ -624,7 +622,7 @@ function assert_get_extents_reject_coords_or_stay_named(
 }
 
 function assert_named_misuse_or_stay(reply, label, token, stay_addressing, stay_name) {
-  if (!output_success(reply)) {
+  if (!rh.output_success(reply)) {
     const code = text_at(reply, "error.code");
     const command = text_at(reply, "command");
     if (code === "usage" || command === "usage") {
@@ -729,7 +727,7 @@ function assert_focused_agreement(
     "focused", "--window", handle, "--role", "menu bar",
   ]);
   ensure(
-    !output_success(role_mismatch),
+    !rh.output_success(role_mismatch),
     "cu_linux_focused_honesty_role_mismatch_ok_" + label + ":" + JSON.stringify(role_mismatch)
   );
   ensure(

@@ -68,7 +68,7 @@ function honest_non_usage_code(code) {
 }
 
 function assert_usage_or_honest_non_usage(reply, label, token) {
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_screen_reader_" + label + "_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   const command = text_at(reply, "command");
@@ -97,8 +97,6 @@ function assert_usage_or_honest_non_usage(reply, label, token) {
     );
   }
 }
-
-function output_success(document) { return flag_at(document, "ok"); }
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -176,7 +174,7 @@ function invoke_cu_reply(run_directory, executable, arguments, env) {
 
 function run_cu(run_directory, executable, arguments, env) {
   const document = invoke_cu_reply(run_directory, executable, arguments, env);
-  ensure(output_success(document), "cu_linux_screen_reader_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_screen_reader_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -281,7 +279,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  ensure(!rh.output_success(zero_handle),
     "cu_linux_screen_reader_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -295,7 +293,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  ensure(!rh.output_success(missing_name),
     "cu_linux_screen_reader_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
@@ -313,7 +311,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_screen_reader_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -332,7 +330,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_screen_reader_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -357,7 +355,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_screen_reader_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
@@ -445,7 +443,7 @@ function assert_atspi_host_limit_readback(run_directory, executable) {
   const env = cu_env(executable);
   env.AT_SPI_BUS_ADDRESS = "invalid";
   const reply = run_cu_reply(run_directory, executable, ["screen-reader"], env);
-  ensure(output_success(reply), "cu_linux_screen_reader_atspi_host_ok:" + JSON.stringify(reply));
+  ensure(rh.output_success(reply), "cu_linux_screen_reader_atspi_host_ok:" + JSON.stringify(reply));
   const data = at(reply, "data");
   ensure(
     flag_at(data, "a11y_bus.connected") === false,

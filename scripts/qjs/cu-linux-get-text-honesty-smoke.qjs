@@ -46,8 +46,6 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
-function output_success(document) { return flag_at(document, "ok"); }
-
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
   if (value_at === undefined || value_at === null) { return -1; }
@@ -139,7 +137,7 @@ function honest_non_usage_code(code) {
 }
 
 function assert_usage_or_honest_non_usage(reply, label, token) {
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_get_text_honesty_" + label + "_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   const command = text_at(reply, "command");
@@ -171,7 +169,7 @@ function assert_usage_or_honest_non_usage(reply, label, token) {
 }
 
 function assert_named_stay_or_misuse(reply, label, via, token) {
-  if (!output_success(reply)) {
+  if (!rh.output_success(reply)) {
     const code = text_at(reply, "error.code");
     const command = text_at(reply, "command");
     if (code === "usage" || command === "usage") {
@@ -230,7 +228,7 @@ function assert_get_text_usage_limit(run_directory, executable) {
   const named_zero = run_cu_reply(run_directory, executable, "observe", [
     "get-text", "--window", "0", "--name", ENTRY_NAME,
   ]);
-  ensure(!output_success(named_zero),
+  ensure(!rh.output_success(named_zero),
     "cu_linux_get_text_honesty_named_zero_ok:" + JSON.stringify(named_zero));
   ensure(
     text_at(named_zero, "error.code") === "invalid_input",
@@ -244,7 +242,7 @@ function assert_get_text_usage_limit(run_directory, executable) {
   const focused_zero = run_cu_reply(run_directory, executable, "observe", [
     "get-text", "--window", "0",
   ]);
-  ensure(!output_success(focused_zero),
+  ensure(!rh.output_success(focused_zero),
     "cu_linux_get_text_honesty_focused_zero_ok:" + JSON.stringify(focused_zero));
   ensure(
     text_at(focused_zero, "error.code") === "invalid_input"
@@ -260,7 +258,7 @@ function assert_get_text_usage_limit(run_directory, executable) {
   const role_without_name = run_cu_reply(run_directory, executable, "observe", [
     "get-text", "--window", "1", "--role", "entry",
   ]);
-  ensure(!output_success(role_without_name),
+  ensure(!rh.output_success(role_without_name),
     "cu_linux_get_text_honesty_role_ok:" + JSON.stringify(role_without_name));
   const role_code = text_at(role_without_name, "error.code");
   ensure(
@@ -303,7 +301,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", ENTRY_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  ensure(!rh.output_success(zero_handle),
     "cu_linux_get_text_honesty_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -317,7 +315,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  ensure(!rh.output_success(missing_name),
     "cu_linux_get_text_honesty_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
@@ -335,7 +333,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_get_text_honesty_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -354,7 +352,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_get_text_honesty_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -379,7 +377,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_get_text_honesty_extents_unavailable_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "command") !== "usage",
@@ -402,7 +400,7 @@ function assert_get_text_host_limit_when_atspi_absent(run_directory, executable)
   const named_reply = run_cu_reply(run_directory, executable, "observe", [
     "get-text", "--window", "1", "--name", ENTRY_NAME,
   ], env);
-  ensure(!output_success(named_reply),
+  ensure(!rh.output_success(named_reply),
     "cu_linux_get_text_honesty_named_unavailable_ok:" + JSON.stringify(named_reply));
   ensure(
     text_at(named_reply, "command") !== "usage",
@@ -417,7 +415,7 @@ function assert_get_text_host_limit_when_atspi_absent(run_directory, executable)
   const focused_reply = run_cu_reply(run_directory, executable, "observe", [
     "get-text", "--window", "1",
   ], env);
-  ensure(!output_success(focused_reply),
+  ensure(!rh.output_success(focused_reply),
     "cu_linux_get_text_honesty_focused_unavailable_ok:" + JSON.stringify(focused_reply));
   ensure(
     text_at(focused_reply, "command") !== "usage",
@@ -677,7 +675,7 @@ function assert_get_text_unavailable(run_directory, executable, handle, title, n
     "get-text", "--window", "" + handle, "--name", node_name,
   ]);
   ensure(
-    !output_success(cu) && text_at(cu, "error.code") === "a11y_text_unavailable",
+    !rh.output_success(cu) && text_at(cu, "error.code") === "a11y_text_unavailable",
     "cu_linux_get_text_cu_unavailable_" + label + ":" + JSON.stringify(cu)
   );
   const probe = independent_probe(

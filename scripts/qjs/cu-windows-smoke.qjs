@@ -83,12 +83,6 @@ function text_at(value, dotted) { return text_of(at(value, dotted)); }
 function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
-
 // Most Win32 APIs accept `/`, but csc.exe reserves it as the option prefix.
 // Normalize only at that external compiler boundary; keep the shared path
 // helpers platform-neutral.
@@ -125,14 +119,14 @@ function framework_csc() {
     rh.join(windows, "Microsoft.NET/Framework/v4.0.30319/csc.exe")
   ];
   for (const candidate of candidates) {
-    if (direct_file(candidate)) { return candidate; }
+    if (rh.is_direct_file(candidate)) { return candidate; }
   }
   throw "cu_windows_smoke_framework_csc_missing";
 }
 
 function windows_inbox(name) {
   const candidate = rh.join(rh.env_or("WINDIR", "C:/Windows"), "System32/" + name);
-  ensure(direct_file(candidate), "cu_windows_smoke_inbox_missing:" + name);
+  ensure(rh.is_direct_file(candidate), "cu_windows_smoke_inbox_missing:" + name);
   return candidate;
 }
 
@@ -283,9 +277,9 @@ const visible_external_terminal_send = args.length === 3;
 if (visible_external_terminal_send) {
   declared_evidence.push("cu.windows-external-terminal-send");
 }
-ensure(direct_file(executable), "cu_windows_smoke_executable_missing:" + executable);
+ensure(rh.is_direct_file(executable), "cu_windows_smoke_executable_missing:" + executable);
 ensure(
-  direct_file(rh.join(rh.parent(executable), "agenterm.dll")),
+  rh.is_direct_file(rh.join(rh.parent(executable), "agenterm.dll")),
   "cu_windows_smoke_library_missing:" + rh.parent(executable)
 );
 
@@ -433,7 +427,7 @@ try {
 
   print("STEP start the owned WinForms fixture and resolve its two windows by pid and exact title");
   const fixture_template = rh.join(repo, "examples/csharp/agenterm_uia_fixture.cs");
-  ensure(direct_file(fixture_template), "cu_windows_smoke_fixture_missing:" + fixture_template);
+  ensure(rh.is_direct_file(fixture_template), "cu_windows_smoke_fixture_missing:" + fixture_template);
   const fixture_source = rh.join(run_directory, "agenterm-uia-fixture.cs");
   let fixture_text = rh.read_text(fixture_template);
   const entry_anchor = "        var check = new CheckBox {";
@@ -464,7 +458,7 @@ try {
     csc_path(fixture_source)
   ], { cwd: run_directory, timeout_ms: 60000 });
   ensure(
-    compile.success === true && direct_file(fixture_executable),
+    compile.success === true && rh.is_direct_file(fixture_executable),
     "cu_windows_smoke_fixture_compile:" + compile.stdout + compile.stderr
   );
   fixture = harness.start({
@@ -743,7 +737,7 @@ try {
 
   print("STEP terminal control binds scope+epoch+@tab, sends literal input, waits and reads the finalized remain-on-exit tab, and refuses a late send typed");
   const terminal_gui_executable = rh.join(rh.parent(executable), "agenterm.exe");
-  ensure(direct_file(terminal_gui_executable), "cu_windows_smoke_terminal_gui_missing");
+  ensure(rh.is_direct_file(terminal_gui_executable), "cu_windows_smoke_terminal_gui_missing");
   terminal_gui = harness.start({
     program: terminal_gui_executable,
     args: [],
@@ -1070,7 +1064,7 @@ try {
       && int_at(shot, "data.output_height") === int_at(placed_row, "bounds.height"),
     "cu_windows_smoke_shot_size:" + JSON.stringify(shot.data) + JSON.stringify(placed_row.bounds)
   );
-  ensure(direct_file(shot_path), "cu_windows_smoke_shot_missing");
+  ensure(rh.is_direct_file(shot_path), "cu_windows_smoke_shot_missing");
   ensure(rh.metadata(shot_path).len > 2000, "cu_windows_smoke_shot_empty");
 
   print("STEP close without a snapshot, a postcondition or a target is refused typed; with all three the second window closes and the handle reads back gone");

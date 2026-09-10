@@ -53,8 +53,6 @@ function int_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
-function output_success(document) { return flag_at(document, "ok"); }
-
 function usage_rejects_unexpected(message, token) {
   return message.indexOf(token) >= 0
     || message.indexOf("unexpected") >= 0;
@@ -118,7 +116,7 @@ function run_cu_reply(run_directory, executable, grant, cu_args, env) {
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  ensure(output_success(document), "cu_linux_gtk_entry_focused_send_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_gtk_entry_focused_send_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -165,7 +163,7 @@ function assert_focused_send_text_usage_limit(run_directory, executable) {
   const focus_missing_name = run_cu_reply(run_directory, executable, "observe,actuate", [
     "focus", "--window", "1",
   ]);
-  ensure(!output_success(focus_missing_name),
+  ensure(!rh.output_success(focus_missing_name),
     "cu_linux_gtk_entry_focused_send_focus_missing_name_ok:" + JSON.stringify(focus_missing_name));
   ensure(
     text_at(focus_missing_name, "error.code") === "usage"
@@ -180,7 +178,7 @@ function assert_focused_send_text_usage_limit(run_directory, executable) {
   const focus_zero_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
     "focus", "--window", "0", "--name", ENTRY_NAME,
   ]);
-  ensure(!output_success(focus_zero_handle),
+  ensure(!rh.output_success(focus_zero_handle),
     "cu_linux_gtk_entry_focused_send_focus_zero_ok:" + JSON.stringify(focus_zero_handle));
   ensure(
     text_at(focus_zero_handle, "error.code") === "usage"
@@ -196,7 +194,7 @@ function assert_focused_send_text_usage_limit(run_directory, executable) {
   const send_name_without_window = run_cu_reply(run_directory, executable, "observe,actuate", [
     "send-text", "--name", ENTRY_NAME, "--", "probe",
   ]);
-  ensure(!output_success(send_name_without_window),
+  ensure(!rh.output_success(send_name_without_window),
     "cu_linux_gtk_entry_focused_send_send_name_ok:" + JSON.stringify(send_name_without_window));
   ensure(
     text_at(send_name_without_window, "error.code") === "invalid_input",
@@ -210,7 +208,7 @@ function assert_focused_send_text_usage_limit(run_directory, executable) {
   const send_role_without_name = run_cu_reply(run_directory, executable, "observe,actuate", [
     "send-text", "--window", "1", "--role", "entry", "--", "probe",
   ]);
-  ensure(!output_success(send_role_without_name),
+  ensure(!rh.output_success(send_role_without_name),
     "cu_linux_gtk_entry_focused_send_send_role_ok:" + JSON.stringify(send_role_without_name));
   ensure(
     text_at(send_role_without_name, "error.code") === "invalid_input",
@@ -224,7 +222,7 @@ function assert_focused_send_text_usage_limit(run_directory, executable) {
   const get_text_zero = run_cu_reply(run_directory, executable, "observe", [
     "get-text", "--window", "0",
   ]);
-  ensure(!output_success(get_text_zero),
+  ensure(!rh.output_success(get_text_zero),
     "cu_linux_gtk_entry_focused_send_get_text_zero_ok:" + JSON.stringify(get_text_zero));
   ensure(
     text_at(get_text_zero, "error.code") === "usage"
@@ -240,7 +238,7 @@ function assert_focused_send_text_usage_limit(run_directory, executable) {
   const focused_zero = run_cu_reply(run_directory, executable, "observe", [
     "focused", "--window", "0",
   ]);
-  ensure(!output_success(focused_zero),
+  ensure(!rh.output_success(focused_zero),
     "cu_linux_gtk_entry_focused_send_focused_zero_ok:" + JSON.stringify(focused_zero));
   ensure(
     text_at(focused_zero, "error.code") === "usage",
@@ -254,7 +252,7 @@ function assert_focused_send_text_usage_limit(run_directory, executable) {
   const focused_coords = run_cu_reply(run_directory, executable, "observe", [
     "focused", "--window", "1", "--coords", "10,10",
   ]);
-  ensure(!output_success(focused_coords),
+  ensure(!rh.output_success(focused_coords),
     "cu_linux_gtk_entry_focused_send_focused_coords_ok:" + JSON.stringify(focused_coords));
   ensure(
     text_at(focused_coords, "error.code") === "usage",
@@ -272,7 +270,7 @@ function assert_focused_send_text_usage_limit(run_directory, executable) {
   const focused_bogus = run_cu_reply(run_directory, executable, "observe", [
     "focused", "--window", "1", "--bogus",
   ]);
-  ensure(!output_success(focused_bogus),
+  ensure(!rh.output_success(focused_bogus),
     "cu_linux_gtk_entry_focused_send_focused_bogus_ok:" + JSON.stringify(focused_bogus));
   ensure(
     text_at(focused_bogus, "error.code") === "usage",
@@ -290,7 +288,7 @@ function assert_focused_send_text_usage_limit(run_directory, executable) {
   const focus_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     "focus", "--window", "1", "--name", ENTRY_NAME, "--coords", "10,10",
   ]);
-  ensure(!output_success(focus_coords),
+  ensure(!rh.output_success(focus_coords),
     "cu_linux_gtk_entry_focused_send_focus_coords_ok:" + JSON.stringify(focus_coords));
   const focus_coords_code = text_at(focus_coords, "error.code");
   const focus_coords_command = text_at(focus_coords, "command");
@@ -313,7 +311,7 @@ function assert_focused_send_text_usage_limit(run_directory, executable) {
   const focus_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
     "focus", "--window", "1", "--name", ENTRY_NAME, "--bogus",
   ]);
-  ensure(!output_success(focus_bogus),
+  ensure(!rh.output_success(focus_bogus),
     "cu_linux_gtk_entry_focused_send_focus_bogus_ok:" + JSON.stringify(focus_bogus));
   const focus_bogus_code = text_at(focus_bogus, "error.code");
   const focus_bogus_command = text_at(focus_bogus, "command");
@@ -331,7 +329,7 @@ function assert_focused_send_text_usage_limit(run_directory, executable) {
   const send_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     "send-text", "--window", "1", "--coords", "10,10", "--", "probe",
   ]);
-  ensure(!output_success(send_coords),
+  ensure(!rh.output_success(send_coords),
     "cu_linux_gtk_entry_focused_send_send_coords_ok:" + JSON.stringify(send_coords));
   const send_coords_code = text_at(send_coords, "error.code");
   const send_coords_command = text_at(send_coords, "command");
@@ -354,7 +352,7 @@ function assert_focused_send_text_usage_limit(run_directory, executable) {
   const send_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
     "send-text", "--window", "1", "--bogus", "--", "probe",
   ]);
-  ensure(!output_success(send_bogus),
+  ensure(!rh.output_success(send_bogus),
     "cu_linux_gtk_entry_focused_send_send_bogus_ok:" + JSON.stringify(send_bogus));
   const send_bogus_code = text_at(send_bogus, "error.code");
   const send_bogus_command = text_at(send_bogus, "command");
@@ -372,7 +370,7 @@ function assert_focused_send_text_usage_limit(run_directory, executable) {
   const get_text_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-text", "--window", "1", "--coords", "10,10",
   ]);
-  ensure(!output_success(get_text_coords),
+  ensure(!rh.output_success(get_text_coords),
     "cu_linux_gtk_entry_focused_send_get_text_coords_ok:" + JSON.stringify(get_text_coords));
   const get_text_coords_code = text_at(get_text_coords, "error.code");
   const get_text_coords_command = text_at(get_text_coords, "command");
@@ -395,7 +393,7 @@ function assert_focused_send_text_usage_limit(run_directory, executable) {
   const get_text_bogus = run_cu_reply(run_directory, executable, "observe", [
     "get-text", "--window", "1", "--bogus",
   ]);
-  ensure(!output_success(get_text_bogus),
+  ensure(!rh.output_success(get_text_bogus),
     "cu_linux_gtk_entry_focused_send_get_text_bogus_ok:" + JSON.stringify(get_text_bogus));
   const get_text_bogus_code = text_at(get_text_bogus, "error.code");
   const get_text_bogus_command = text_at(get_text_bogus, "command");
@@ -415,7 +413,7 @@ function assert_focus_reject_coords_or_stay_named(run_directory, executable, han
   const focus_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     "focus", "--window", handle, "--name", ENTRY_NAME, "--coords", "10,10",
   ]);
-  if (!output_success(focus_coords)) {
+  if (!rh.output_success(focus_coords)) {
     ensure(
       text_at(focus_coords, "error.code") === "usage",
       "cu_linux_gtk_entry_focused_send_focus_coords_code_" + label + ":" + JSON.stringify(focus_coords.error)
@@ -440,7 +438,7 @@ function assert_focus_reject_coords_or_stay_named(run_directory, executable, han
   const focus_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
     "focus", "--window", handle, "--name", ENTRY_NAME, "--bogus",
   ]);
-  if (!output_success(focus_bogus)) {
+  if (!rh.output_success(focus_bogus)) {
     ensure(
       text_at(focus_bogus, "error.code") === "usage",
       "cu_linux_gtk_entry_focused_send_focus_bogus_code_" + label + ":" + JSON.stringify(focus_bogus.error)
@@ -469,7 +467,7 @@ function assert_send_text_reject_coords_or_stay_focused(
   const send_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     "send-text", "--window", handle, "--coords", "10,10", "--", expected_text,
   ]);
-  if (!output_success(send_coords)) {
+  if (!rh.output_success(send_coords)) {
     ensure(
       text_at(send_coords, "error.code") === "usage",
       "cu_linux_gtk_entry_focused_send_send_coords_code_" + label + ":" + JSON.stringify(send_coords.error)
@@ -494,7 +492,7 @@ function assert_send_text_reject_coords_or_stay_focused(
   const send_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
     "send-text", "--window", handle, "--bogus", "--", expected_text,
   ]);
-  if (!output_success(send_bogus)) {
+  if (!rh.output_success(send_bogus)) {
     ensure(
       text_at(send_bogus, "error.code") === "usage",
       "cu_linux_gtk_entry_focused_send_send_bogus_code_" + label + ":" + JSON.stringify(send_bogus.error)
@@ -523,7 +521,7 @@ function assert_get_text_reject_coords_or_stay_focused(
   const get_text_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-text", "--window", handle, "--coords", "10,10",
   ]);
-  if (!output_success(get_text_coords)) {
+  if (!rh.output_success(get_text_coords)) {
     ensure(
       text_at(get_text_coords, "error.code") === "usage",
       "cu_linux_gtk_entry_focused_send_get_text_coords_code_" + label + ":" + JSON.stringify(get_text_coords.error)
@@ -547,7 +545,7 @@ function assert_get_text_reject_coords_or_stay_focused(
   const get_text_bogus = run_cu_reply(run_directory, executable, "observe", [
     "get-text", "--window", handle, "--bogus",
   ]);
-  if (!output_success(get_text_bogus)) {
+  if (!rh.output_success(get_text_bogus)) {
     ensure(
       text_at(get_text_bogus, "error.code") === "usage",
       "cu_linux_gtk_entry_focused_send_get_text_bogus_code_" + label + ":" + JSON.stringify(get_text_bogus.error)
@@ -575,7 +573,7 @@ function assert_get_extents_reject_coords_or_stay_named(
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "" + handle, "--name", ENTRY_NAME, "--coords", "10,10",
   ]);
-  if (!output_success(extents_coords)) {
+  if (!rh.output_success(extents_coords)) {
     ensure(
       text_at(extents_coords, "error.code") === "usage",
       "cu_linux_gtk_entry_focused_send_extents_coords_code_" + label + ":" + JSON.stringify(extents_coords.error)
@@ -600,7 +598,7 @@ function assert_get_extents_reject_coords_or_stay_named(
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "" + handle, "--name", ENTRY_NAME, "--bogus",
   ]);
-  if (!output_success(extents_bogus)) {
+  if (!rh.output_success(extents_bogus)) {
     ensure(
       text_at(extents_bogus, "error.code") === "usage",
       "cu_linux_gtk_entry_focused_send_extents_bogus_code_" + label + ":" + JSON.stringify(extents_bogus.error)
@@ -627,7 +625,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", ENTRY_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  ensure(!rh.output_success(zero_handle),
     "cu_linux_gtk_entry_focused_send_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -641,7 +639,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  ensure(!rh.output_success(missing_name),
     "cu_linux_gtk_entry_focused_send_extents_missing_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
@@ -659,7 +657,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_gtk_entry_focused_send_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -678,7 +676,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_gtk_entry_focused_send_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -699,7 +697,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
   const reply = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--name", ENTRY_NAME,
   ], invalid_atspi_env(executable));
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_gtk_entry_focused_send_extents_unavailable_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "command") !== "usage",
@@ -717,7 +715,7 @@ function assert_focused_send_text_host_limit_when_atspi_absent(run_directory, ex
   const focus_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "focus", "--window", "1", "--name", ENTRY_NAME,
   ], env);
-  ensure(!output_success(focus_reply),
+  ensure(!rh.output_success(focus_reply),
     "cu_linux_gtk_entry_focused_send_focus_unavailable_ok:" + JSON.stringify(focus_reply));
   ensure(
     text_at(focus_reply, "command") !== "usage",
@@ -732,7 +730,7 @@ function assert_focused_send_text_host_limit_when_atspi_absent(run_directory, ex
   const send_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "send-text", "--window", "1", "--", "probe",
   ], env);
-  ensure(!output_success(send_reply),
+  ensure(!rh.output_success(send_reply),
     "cu_linux_gtk_entry_focused_send_send_unavailable_ok:" + JSON.stringify(send_reply));
   ensure(
     text_at(send_reply, "command") !== "usage",
@@ -747,7 +745,7 @@ function assert_focused_send_text_host_limit_when_atspi_absent(run_directory, ex
   const get_reply = run_cu_reply(run_directory, executable, "observe", [
     "get-text", "--window", "1",
   ], env);
-  ensure(!output_success(get_reply),
+  ensure(!rh.output_success(get_reply),
     "cu_linux_gtk_entry_focused_send_get_unavailable_ok:" + JSON.stringify(get_reply));
   ensure(
     text_at(get_reply, "command") !== "usage",
@@ -762,7 +760,7 @@ function assert_focused_send_text_host_limit_when_atspi_absent(run_directory, ex
   const focused_reply = run_cu_reply(run_directory, executable, "observe", [
     "focused", "--window", "1",
   ], env);
-  ensure(!output_success(focused_reply),
+  ensure(!rh.output_success(focused_reply),
     "cu_linux_gtk_entry_focused_send_focused_unavailable_ok:" + JSON.stringify(focused_reply));
   ensure(
     text_at(focused_reply, "command") !== "usage",

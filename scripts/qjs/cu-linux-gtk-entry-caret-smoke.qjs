@@ -101,8 +101,6 @@ function cu_env(executable) {
   return env;
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
-
 function assert_entry_text(run_directory, executable, handle, expected, label) {
   const got = run_cu(run_directory, executable, "observe", [
     "get-text", "--window", handle, "--name", ENTRY_NAME,
@@ -133,7 +131,7 @@ function run_cu_reply(run_directory, executable, grant, cu_args, env) {
 
 function run_cu(run_directory, executable, grant, arguments) {
   const document = run_cu_reply(run_directory, executable, grant, arguments);
-  ensure(output_success(document), "cu_linux_gtk_entry_caret_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_gtk_entry_caret_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -270,7 +268,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", ENTRY_NAME,
   ], env);
-  ensure(!output_success(zero_handle), "cu_linux_gtk_entry_caret_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_gtk_entry_caret_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_gtk_entry_caret_extents_usage_code:" + JSON.stringify(zero_handle.error)
@@ -283,7 +281,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name), "cu_linux_gtk_entry_caret_extents_missing_name_ok:" + JSON.stringify(missing_name));
+  ensure(!rh.output_success(missing_name), "cu_linux_gtk_entry_caret_extents_missing_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_gtk_entry_caret_extents_missing_name_code:" + JSON.stringify(missing_name.error)
@@ -300,7 +298,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_gtk_entry_caret_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -319,7 +317,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_gtk_entry_caret_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -344,7 +342,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply), "cu_linux_gtk_entry_caret_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_gtk_entry_caret_extents_unavailable_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "command") !== "usage",
     "cu_linux_gtk_entry_caret_extents_unavailable_fake_usage:" + JSON.stringify(reply)
@@ -385,7 +383,7 @@ function assert_caret_agreement(run_directory, executable, handle, fixture_title
 }
 
 function assert_usage_or_honest_non_usage(reply, label, token) {
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_gtk_entry_caret_" + label + "_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   const command = text_at(reply, "command");
@@ -417,7 +415,7 @@ function assert_usage_or_honest_non_usage(reply, label, token) {
 }
 
 function assert_named_stay_or_misuse(reply, label, via, token, require_addressing) {
-  if (!output_success(reply)) {
+  if (!rh.output_success(reply)) {
     const code = text_at(reply, "error.code");
     const command = text_at(reply, "command");
     if (code === "usage" || command === "usage") {
@@ -516,7 +514,7 @@ function assert_caret_usage_limit(run_directory, executable) {
   const missing_name = run_cu_reply(run_directory, executable, "observe", [
     "get-caret", "--window", "1",
   ]);
-  ensure(!output_success(missing_name), "cu_linux_gtk_entry_caret_usage_ok:" + JSON.stringify(missing_name));
+  ensure(!rh.output_success(missing_name), "cu_linux_gtk_entry_caret_usage_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_gtk_entry_caret_usage_code:" + JSON.stringify(missing_name.error)
@@ -533,7 +531,7 @@ function assert_caret_usage_limit(run_directory, executable) {
   const get_role = run_cu_reply(run_directory, executable, "observe", [
     "get-caret", "--window", "1", "--role", "entry",
   ]);
-  ensure(!output_success(get_role), "cu_linux_gtk_entry_caret_get_role_ok:" + JSON.stringify(get_role));
+  ensure(!rh.output_success(get_role), "cu_linux_gtk_entry_caret_get_role_ok:" + JSON.stringify(get_role));
   ensure(
     text_at(get_role, "error.code") === "usage"
       || text_at(get_role, "error.code") === "invalid_input",
@@ -547,7 +545,7 @@ function assert_caret_usage_limit(run_directory, executable) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "get-caret", "--window", "0", "--name", ENTRY_NAME,
   ]);
-  ensure(!output_success(zero_handle), "cu_linux_gtk_entry_caret_zero_handle_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_gtk_entry_caret_zero_handle_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_gtk_entry_caret_zero_handle_code:" + JSON.stringify(zero_handle.error)
@@ -560,7 +558,7 @@ function assert_caret_usage_limit(run_directory, executable) {
   const set_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
     "set-caret", "--window", "1", "--offset", "0",
   ]);
-  ensure(!output_success(set_missing), "cu_linux_gtk_entry_caret_set_usage_ok:" + JSON.stringify(set_missing));
+  ensure(!rh.output_success(set_missing), "cu_linux_gtk_entry_caret_set_usage_ok:" + JSON.stringify(set_missing));
   ensure(
     text_at(set_missing, "error.code") === "usage"
       || text_at(set_missing, "error.code") === "invalid_input",
@@ -570,7 +568,7 @@ function assert_caret_usage_limit(run_directory, executable) {
   const set_role = run_cu_reply(run_directory, executable, "observe,actuate", [
     "set-caret", "--window", "1", "--role", "entry", "--offset", "0",
   ]);
-  ensure(!output_success(set_role), "cu_linux_gtk_entry_caret_set_role_ok:" + JSON.stringify(set_role));
+  ensure(!rh.output_success(set_role), "cu_linux_gtk_entry_caret_set_role_ok:" + JSON.stringify(set_role));
   ensure(
     text_at(set_role, "error.code") === "usage"
       || text_at(set_role, "error.code") === "invalid_input",
@@ -607,7 +605,7 @@ function assert_caret_host_limit_when_atspi_absent(run_directory, executable) {
   const get_reply = run_cu_reply(run_directory, executable, "observe", [
     "get-caret", "--window", "1", "--name", ENTRY_NAME,
   ], env);
-  ensure(!output_success(get_reply), "cu_linux_gtk_entry_caret_unavailable_ok:" + JSON.stringify(get_reply));
+  ensure(!rh.output_success(get_reply), "cu_linux_gtk_entry_caret_unavailable_ok:" + JSON.stringify(get_reply));
   ensure(
     text_at(get_reply, "command") !== "usage",
     "cu_linux_gtk_entry_caret_unavailable_fake_usage:" + JSON.stringify(get_reply)
@@ -622,7 +620,7 @@ function assert_caret_host_limit_when_atspi_absent(run_directory, executable) {
   const set_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "set-caret", "--window", "1", "--name", ENTRY_NAME, "--offset", "0",
   ], env);
-  ensure(!output_success(set_reply), "cu_linux_gtk_entry_caret_set_unavailable_ok:" + JSON.stringify(set_reply));
+  ensure(!rh.output_success(set_reply), "cu_linux_gtk_entry_caret_set_unavailable_ok:" + JSON.stringify(set_reply));
   ensure(
     text_at(set_reply, "command") !== "usage",
     "cu_linux_gtk_entry_caret_set_unavailable_fake_usage:" + JSON.stringify(set_reply)
@@ -639,7 +637,7 @@ function assert_caret_missing_node(run_directory, executable, handle, label) {
   const get_reply = run_cu_reply(run_directory, executable, "observe", [
     "get-caret", "--window", handle, "--name", MISSING_NODE,
   ]);
-  ensure(!output_success(get_reply), "cu_linux_gtk_entry_caret_missing_ok_" + label);
+  ensure(!rh.output_success(get_reply), "cu_linux_gtk_entry_caret_missing_ok_" + label);
   ensure(
     text_at(get_reply, "error.code") === "a11y_node_not_found",
     "cu_linux_gtk_entry_caret_missing_code_" + label + ":" + JSON.stringify(get_reply.error)
@@ -648,7 +646,7 @@ function assert_caret_missing_node(run_directory, executable, handle, label) {
   const set_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "set-caret", "--window", handle, "--name", MISSING_NODE, "--offset", "0",
   ]);
-  ensure(!output_success(set_reply), "cu_linux_gtk_entry_caret_set_missing_ok_" + label);
+  ensure(!rh.output_success(set_reply), "cu_linux_gtk_entry_caret_set_missing_ok_" + label);
   ensure(
     text_at(set_reply, "error.code") === "a11y_node_not_found",
     "cu_linux_gtk_entry_caret_set_missing_code_" + label + ":" + JSON.stringify(set_reply.error)
@@ -663,7 +661,7 @@ function assert_caret_unavailable(run_directory, executable, handle, fixture_tit
   const get_reply = run_cu_reply(run_directory, executable, "observe", [
     "get-caret", "--window", handle, "--name", node_name,
   ]);
-  ensure(!output_success(get_reply), "cu_linux_gtk_entry_caret_unavailable_ok_" + label);
+  ensure(!rh.output_success(get_reply), "cu_linux_gtk_entry_caret_unavailable_ok_" + label);
   const get_code = text_at(get_reply, "error.code");
   ensure(
     caret_unavailable_code_ok(get_code),
@@ -681,7 +679,7 @@ function assert_caret_unavailable(run_directory, executable, handle, fixture_tit
   const set_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "set-caret", "--window", handle, "--name", node_name, "--offset", "0",
   ]);
-  ensure(!output_success(set_reply), "cu_linux_gtk_entry_caret_set_unavailable_ok_" + label);
+  ensure(!rh.output_success(set_reply), "cu_linux_gtk_entry_caret_set_unavailable_ok_" + label);
   const set_code = text_at(set_reply, "error.code");
   ensure(
     caret_unavailable_code_ok(set_code),

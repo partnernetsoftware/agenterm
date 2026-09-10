@@ -83,8 +83,6 @@ function cu_env(executable) {
   return env;
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
-
 function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of cu_args) { argv.push("" + argument); }
@@ -100,7 +98,7 @@ function run_cu_reply(run_directory, executable, grant, cu_args, env) {
 
 function run_cu(run_directory, executable, grant, arguments) {
   const document = run_cu_reply(run_directory, executable, grant, arguments);
-  ensure(output_success(document), "cu_linux_double_click_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_double_click_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -138,7 +136,7 @@ function assert_double_click_usage_limit(run_directory, executable) {
   const click_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
     "click", "--window", "1", "--count", "2",
   ]);
-  ensure(!output_success(click_missing), "cu_linux_double_click_click_usage_ok:" + JSON.stringify(click_missing));
+  ensure(!rh.output_success(click_missing), "cu_linux_double_click_click_usage_ok:" + JSON.stringify(click_missing));
   ensure(
     text_at(click_missing, "error.code") === "invalid_input",
     "cu_linux_double_click_click_usage_code:" + JSON.stringify(click_missing.error)
@@ -151,7 +149,7 @@ function assert_double_click_usage_limit(run_directory, executable) {
   const dclick_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
     "dclick", "--window", "1",
   ]);
-  ensure(!output_success(dclick_missing), "cu_linux_double_click_dclick_usage_ok:" + JSON.stringify(dclick_missing));
+  ensure(!rh.output_success(dclick_missing), "cu_linux_double_click_dclick_usage_ok:" + JSON.stringify(dclick_missing));
   ensure(
     text_at(dclick_missing, "error.code") === "invalid_input",
     "cu_linux_double_click_dclick_usage_code:" + JSON.stringify(dclick_missing.error)
@@ -164,7 +162,7 @@ function assert_double_click_usage_limit(run_directory, executable) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
     "click", "--window", "0", "--name", BUTTON_NAME, "--count", "2",
   ]);
-  ensure(!output_success(zero_handle), "cu_linux_double_click_zero_handle_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_double_click_zero_handle_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_double_click_zero_handle_code:" + JSON.stringify(zero_handle.error)
@@ -184,7 +182,7 @@ function coords_misuse_message_ok(message) {
 }
 
 function leftover_bogus_ok(reply) {
-  if (output_success(reply)) {
+  if (rh.output_success(reply)) {
     return text_at(reply, "data.addressing") === "accessibility-tree";
   }
   const code = text_at(reply, "error.code");
@@ -205,7 +203,7 @@ function leftover_bogus_ok(reply) {
 
 function assert_click_coords_rejected(run_directory, executable, args, label) {
   const reply = run_cu_reply(run_directory, executable, "observe,actuate", args);
-  ensure(!output_success(reply), "cu_linux_double_click_" + label + "_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_double_click_" + label + "_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
     code === "invalid_input" || code === "usage",
@@ -247,7 +245,7 @@ function assert_double_click_coords_bogus_usage(run_directory, executable) {
   ]);
   ensure(
     leftover_bogus_ok(click_bogus_missing_name)
-      && !output_success(click_bogus_missing_name),
+      && !rh.output_success(click_bogus_missing_name),
     "cu_linux_double_click_click_bogus_missing_name_ok:" + JSON.stringify(click_bogus_missing_name)
   );
   const click_bogus_code = text_at(click_bogus_missing_name, "error.code");
@@ -273,7 +271,7 @@ function assert_double_click_coords_bogus_usage(run_directory, executable) {
   ]);
   ensure(
     leftover_bogus_ok(dclick_bogus_missing_name)
-      && !output_success(dclick_bogus_missing_name),
+      && !rh.output_success(dclick_bogus_missing_name),
     "cu_linux_double_click_dclick_bogus_missing_name_ok:" + JSON.stringify(dclick_bogus_missing_name)
   );
   const dclick_bogus_code = text_at(dclick_bogus_missing_name, "error.code");
@@ -301,7 +299,7 @@ function assert_double_click_coords_bogus_usage(run_directory, executable) {
     leftover_bogus_ok(click_bogus_named),
     "cu_linux_double_click_click_bogus_named:" + JSON.stringify(click_bogus_named)
   );
-  if (output_success(click_bogus_named)) {
+  if (rh.output_success(click_bogus_named)) {
     ensure(
       int_at(click_bogus_named, "data.clicks") === 2,
       "cu_linux_double_click_click_bogus_named_clicks:" + JSON.stringify(click_bogus_named.data)
@@ -315,7 +313,7 @@ function assert_double_click_coords_bogus_usage(run_directory, executable) {
     leftover_bogus_ok(dclick_bogus_named),
     "cu_linux_double_click_dclick_bogus_named:" + JSON.stringify(dclick_bogus_named)
   );
-  if (output_success(dclick_bogus_named)) {
+  if (rh.output_success(dclick_bogus_named)) {
     ensure(
       int_at(dclick_bogus_named, "data.clicks") === 2
         && text_at(dclick_bogus_named, "data.addressing") === "accessibility-tree",
@@ -328,7 +326,7 @@ function assert_double_click_missing_node(run_directory, executable, handle, lab
   const click_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
     "click", "--window", handle, "--name", MISSING_NODE, "--count", "2",
   ]);
-  ensure(!output_success(click_missing), "cu_linux_double_click_click_missing_ok_" + label);
+  ensure(!rh.output_success(click_missing), "cu_linux_double_click_click_missing_ok_" + label);
   ensure(
     text_at(click_missing, "error.code") === "a11y_node_not_found",
     "cu_linux_double_click_click_missing_code_" + label + ":" + JSON.stringify(click_missing.error)
@@ -337,7 +335,7 @@ function assert_double_click_missing_node(run_directory, executable, handle, lab
   const dclick_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
     "dclick", "--window", handle, "--name", MISSING_NODE,
   ]);
-  ensure(!output_success(dclick_missing), "cu_linux_double_click_dclick_missing_ok_" + label);
+  ensure(!rh.output_success(dclick_missing), "cu_linux_double_click_dclick_missing_ok_" + label);
   ensure(
     text_at(dclick_missing, "error.code") === "a11y_node_not_found",
     "cu_linux_double_click_dclick_missing_code_" + label + ":" + JSON.stringify(dclick_missing.error)
@@ -348,7 +346,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", BUTTON_NAME,
   ], env);
-  ensure(!output_success(zero_handle), "cu_linux_double_click_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_double_click_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_double_click_extents_usage_code:" + JSON.stringify(zero_handle.error)
@@ -361,7 +359,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name), "cu_linux_double_click_extents_missing_name_ok:" + JSON.stringify(missing_name));
+  ensure(!rh.output_success(missing_name), "cu_linux_double_click_extents_missing_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_double_click_extents_missing_name_code:" + JSON.stringify(missing_name.error)
@@ -378,7 +376,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords), "cu_linux_double_click_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(!rh.output_success(extents_coords), "cu_linux_double_click_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
     "cu_linux_double_click_extents_coords_code:" + JSON.stringify(extents_coords.error)
@@ -396,7 +394,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus), "cu_linux_double_click_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(!rh.output_success(extents_bogus), "cu_linux_double_click_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
     "cu_linux_double_click_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
@@ -420,7 +418,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply), "cu_linux_double_click_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_double_click_extents_unavailable_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "command") !== "usage",
     "cu_linux_double_click_extents_unavailable_fake_usage:" + JSON.stringify(reply)
@@ -460,7 +458,7 @@ function assert_fixture_desktop_state(
       "--depth", "" + DESKTOP_STATE_DEPTH,
       "--max-nodes", "" + DESKTOP_STATE_MAX_NODES,
     ]);
-    if (output_success(state)) { break; }
+    if (rh.output_success(state)) { break; }
     if (text_at(state, "error.code") === "desktop_state_changed" && attempt < 7) {
       harness.sleep_ms(100);
       continue;
@@ -497,7 +495,7 @@ function assert_double_click_host_limit_when_atspi_absent(run_directory, executa
   const click_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "click", "--window", "1", "--name", BUTTON_NAME, "--count", "2",
   ], env);
-  ensure(!output_success(click_reply), "cu_linux_double_click_click_unavailable_ok:" + JSON.stringify(click_reply));
+  ensure(!rh.output_success(click_reply), "cu_linux_double_click_click_unavailable_ok:" + JSON.stringify(click_reply));
   ensure(
     text_at(click_reply, "command") !== "usage",
     "cu_linux_double_click_click_unavailable_fake_usage:" + JSON.stringify(click_reply)
@@ -511,7 +509,7 @@ function assert_double_click_host_limit_when_atspi_absent(run_directory, executa
   const dclick_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "dclick", "--window", "1", "--name", BUTTON_NAME,
   ], env);
-  ensure(!output_success(dclick_reply), "cu_linux_double_click_dclick_unavailable_ok:" + JSON.stringify(dclick_reply));
+  ensure(!rh.output_success(dclick_reply), "cu_linux_double_click_dclick_unavailable_ok:" + JSON.stringify(dclick_reply));
   ensure(
     text_at(dclick_reply, "command") !== "usage",
     "cu_linux_double_click_dclick_unavailable_fake_usage:" + JSON.stringify(dclick_reply)
