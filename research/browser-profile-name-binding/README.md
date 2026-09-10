@@ -47,3 +47,9 @@ was selected, and a third run is forbidden. The compatibility TODO, ledger and
 evidence state remain unchanged. Any continuation requires a new
 precommitment that proves the stopped browser child owns the bridge connection
 process identity and preserves a bounded failure stage in the receipt.
+
+`budget-exhausted.json` is the machine-readable terminal marker. The runner
+and the browser path of the court reject every further attempt with
+`profile_binding_research_budget_exhausted` before creating a fixture or
+starting a process. A future precommitment must replace this frozen court rather
+than relabel an additional run as attempt 1 or 2.

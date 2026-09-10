@@ -14,6 +14,7 @@ LOCAL_STATE="$ROOT/fixtures/local-state.json"
 PREFERENCES="$ROOT/fixtures/preferences.json"
 MANIFEST="$REPO/crates/agenterm-cu/assets/browser-bridge/manifest.json"
 BACKGROUND="$REPO/crates/agenterm-cu/assets/browser-bridge/background.js"
+BUDGET_MARKER="$ROOT/budget-exhausted.json"
 
 require_file() {
   [ -f "$1" ] || {
@@ -21,6 +22,30 @@ require_file() {
     exit 2
   }
 }
+
+require_file "$BUDGET_MARKER" budget-exhausted.json
+if perl -MJSON::PP -e '
+  local $/;
+  my $codec = JSON::PP->new->canonical(1);
+  my $text = <>;
+  my $marker = eval { $codec->decode($text) };
+  exit 1 if $@;
+  my $expected = {
+    schema => 1,
+    experiment => "acu.dynamic.075.profile-name-binding",
+    budget_exhausted => JSON::PP::true,
+    attempts_consumed => 2,
+    terminal_verdict => "INCONCLUSIVE_FIXTURE_EXHAUSTED"
+  };
+  exit !($codec->encode($marker) eq $codec->encode($expected));
+' "$BUDGET_MARKER"
+then
+  printf '%s\n' "profile_binding_research_budget_exhausted" >&2
+  exit 2
+else
+  printf '%s\n' "profile_binding_budget_marker_invalid" >&2
+  exit 2
+fi
 
 require_file "$AGENTERM_EXE" AGENTERM_EXE
 require_file "$AGENTERM_CU_EXE" AGENTERM_CU_EXE
@@ -58,6 +83,7 @@ for input in \
   plan/design-browser-profile-name-binding-experiment.md \
   research/browser-profile-name-binding/README.md \
   research/browser-profile-name-binding/RESULTS.md \
+  research/browser-profile-name-binding/budget-exhausted.json \
   research/browser-profile-name-binding/run-current-host.sh \
   research/browser-profile-name-binding/court-current-host.qjs \
   research/browser-profile-name-binding/binding-model.qjs \
@@ -80,6 +106,7 @@ set -- \
   plan/design-browser-profile-name-binding-experiment.md \
   research/browser-profile-name-binding/README.md \
   research/browser-profile-name-binding/RESULTS.md \
+  research/browser-profile-name-binding/budget-exhausted.json \
   research/browser-profile-name-binding/run-current-host.sh \
   research/browser-profile-name-binding/court-current-host.qjs \
   research/browser-profile-name-binding/binding-model.qjs \

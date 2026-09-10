@@ -232,6 +232,7 @@ is covered, and G4b is evaluated only after the A-owned arm can restart.
 ```text
 research/browser-profile-name-binding/
 ├── README.md
+├── budget-exhausted.json
 ├── court-current-host.qjs
 ├── binding-model.qjs
 ├── run-current-host.sh
@@ -319,3 +320,9 @@ investigation requires a new precommitment that first proves the stopped
 browser child owns the bridge connection process identity, preserves a bounded
 failure stage in its receipt, and defines cleanup independently of provisional
 selector results.
+
+The tracked `budget-exhausted.json` marker freezes that terminal disposition.
+Both the runner and the browser path of the court reject any later attempt with
+`profile_binding_research_budget_exhausted` before fixture creation or process
+launch. A future precommitment must replace this court and marker explicitly;
+renaming another execution to attempt 1 or 2 is not authorized.

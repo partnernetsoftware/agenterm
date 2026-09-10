@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "experiment": "acu.dynamic.075.profile-name-binding",
+  "budget_exhausted": true,
+  "attempts_consumed": 2,
+  "terminal_verdict": "INCONCLUSIVE_FIXTURE_EXHAUSTED"
+}

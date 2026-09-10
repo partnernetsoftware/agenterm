@@ -60,3 +60,7 @@ Any future investigation requires a new precommitment. Before spending another
 run, it must prove that the browser child being stopped owns the bridge
 connection process identity, preserve a bounded failure stage in the receipt,
 and define cleanup independently of provisional selector results.
+
+The tracked `budget-exhausted.json` marker makes this terminal disposition
+executable: both the runner and the browser path of the court reject any later
+attempt before fixture creation or process launch.
