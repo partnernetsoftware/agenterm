@@ -127,6 +127,8 @@ function binding_store(scenario) {
 }
 
 function authority_ok(store, authority) {
+  // Fault injection deliberately bypasses this gate so the self-test proves
+  // that unauthorized create/replace/revoke would violate downstream state.
   if (injected(store.scenario, "wrong_authority")) { return true; }
   return authority.explicit_request === true
     && authority.runtime_session === true

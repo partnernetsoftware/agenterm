@@ -108,8 +108,9 @@ The negative-arm ground truth is frozen independently of the fields under test:
 2. Baseline C is empty.
 3. Only B starts; exactly one new connection appears after that start.
 4. Stopping B removes that exact connection.
-5. B's directory is outside A's catalog root, the scanner reports it visited
-   neither B nor a parent of B, and B is absent from `N_all`, N and I.
+5. B's directory is outside every enumerated scanner root, which proves that
+   neither B nor a parent of B can be visited by this bounded scan, and B is
+   absent from `N_all`, N and I.
 
 Any failure here is `INCONCLUSIVE_FIXTURE`; the trap is not armed. `I` always
 means the archived-observable installed set below the catalog roots, not every
@@ -124,6 +125,15 @@ The accepted-boundary edge inventory is exhaustive:
 | Connection record | none | connection id, host process identity, protocol | Host identity is not browser Profile identity |
 | Strict status | none | profile instance, extension id, protocol, version, build id | Pass only if a bounded candidate file independently carries a collision-resistant Profile-unique value from the same trusted issuer |
 | Owned-session receipt | controlled Profile object identity | connection observed after start | Valid only for that owned object; it cannot generalize to an arbitrary default Profile name |
+
+The court records one decision object for every field in the verified union of
+these surfaces: presence on each side, same-issuer status, injectivity,
+Profile uniqueness and final eligibility. On the currently accepted schemas,
+the only field present on both sides is the fixed extension id; it has the same
+issuer but is neither injective nor Profile-unique, so G4a is expected to reject
+A1 without running its positive arm. `SELECT_VERIFIED_IMPLICIT_EDGE` remains a
+model-locked counterfactual branch and may become executable only under a new
+precommitment that explicitly extends and re-freezes the accepted surfaces.
 
 Display name, directory, extension id, protocol, version, build id, connection
 id and host PID are explicitly non-edges unless the opposite side carries an

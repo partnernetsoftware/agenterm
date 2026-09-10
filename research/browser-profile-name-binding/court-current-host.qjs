@@ -258,17 +258,46 @@ function bounded_edge_inventory(candidate_fields, connection_fields, status_fiel
   for (const field of connection_surface) {
     if (!candidate_fields.includes(field)) { connection_only.push(field); }
   }
+  const all_fields = [];
+  for (const field of candidate_fields) { all_fields.push(field); }
+  for (const field of connection_surface) {
+    if (!all_fields.includes(field)) { all_fields.push(field); }
+  }
+  const field_decisions = [];
+  let eligible = false;
+  for (const field of all_fields) {
+    const candidate_present = candidate_fields.includes(field);
+    const connection_present = connection_surface.includes(field);
+    const same_issuer = candidate_present && connection_present
+      && field === "extension-id";
+    const injective = false;
+    const profile_unique = false;
+    const field_eligible = same_issuer && injective && profile_unique;
+    if (field_eligible) { eligible = true; }
+    field_decisions.push({
+      field: field,
+      candidate_present: candidate_present,
+      connection_present: connection_present,
+      same_issuer: same_issuer,
+      injective: injective,
+      profile_unique: profile_unique,
+      eligible: field_eligible
+    });
+  }
   const rejected_non_unique = [];
-  for (const field of shared) { rejected_non_unique.push(field); }
+  for (const field of shared) {
+    if (field === "extension-id") { rejected_non_unique.push(field); }
+  }
   ensure(candidate_only.length === 8 && shared.length === 1
-      && shared[0] === "extension-id",
+      && shared[0] === "extension-id" && field_decisions.length === 19,
     "profile_binding_edge_inventory_classification_changed");
   return {
-    eligible: shared.length > rejected_non_unique.length,
+    eligible: eligible,
     ground_truth_conflict: false,
     candidate_only: candidate_only,
     connection_only: connection_only,
-    rejected_non_unique: rejected_non_unique
+    rejected_non_unique: rejected_non_unique,
+    field_decisions: field_decisions
   };
 }
 
@@ -369,7 +398,12 @@ if (args.length === 1 && args[0] === "--self-test") {
       "profile-instance", "commands"]);
   ensure(edge.eligible === false && edge.candidate_only.length === 8
       && edge.rejected_non_unique.length === 1
-      && edge.rejected_non_unique[0] === "extension-id",
+      && edge.rejected_non_unique[0] === "extension-id"
+      && edge.field_decisions.length === 19
+      && edge.field_decisions[5].field === "extension-id"
+      && edge.field_decisions[5].same_issuer === true
+      && edge.field_decisions[5].injective === false
+      && edge.field_decisions[5].profile_unique === false,
     "profile_binding_edge_inventory_self_test");
   print("PASS: profile binding decision model");
   return;
@@ -435,8 +469,8 @@ try {
   }
   ensure(existing_roots === 1,
     "profile_binding_candidate_root_cardinality_invalid");
-  const scanner_visited_live_b_or_parent = !live_b_outside_scan_roots
-    || existing_roots !== 1;
+  const scan_scope_proves_live_b_unvisited = live_b_outside_scan_roots
+    && existing_roots === 1;
   const candidate = candidate_observation(candidate_root);
   ensure(candidate.visited_labels.length === 3,
     "profile_binding_scanner_scope_invalid");
@@ -567,7 +601,7 @@ try {
     exact_status: exact_status,
     exact_prefix_control: exact_prefix_control,
     live_b_outside_scan_roots: live_b_outside_scan_roots,
-    scanner_visited_live_b_or_parent: scanner_visited_live_b_or_parent,
+    scan_scope_proves_live_b_unvisited: scan_scope_proves_live_b_unvisited,
     cleanup_connections: cleanup_rows.length,
     edge_inventory: edge
   };
