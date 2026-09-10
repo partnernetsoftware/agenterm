@@ -25,6 +25,10 @@ read_browser_version() {
   ' "$1"
 }
 
+session_name_for_run() {
+  printf 'pbv2-%.27s' "$1"
+}
+
 run_broker() {
   broker_state_root=${AGENTERM_PROFILE_BINDING_V2_STATE_ROOT:-$STATE_ROOT}
   perl - "$broker_state_root" "$TEMPLATE" "$@" <<'PERL'
@@ -390,15 +394,15 @@ sub load_template {
     'prefix-control'=>'1f2eafe23d5f86e82c528bf9f9c117e60b828f604100df8fbfbe945e24486021',
     preflight=>'6f4417c6af9a45a7a676c597b3b422250ce1908b766c4cb9f22f5f55f99a2941',
     'registry-hygiene'=>'304d2db0eaa00edbd4a5ce28b1adb71ceb537c47c04c031187e84eb8045f023f',
-    'root-removal'=>'7f6cf7a94cbe8653526ffdffab3ba830a8aa727011d44f134cf0895572971601',
-    'session-ready'=>'483091ce0809117137a8db821f01779fdf723cf9adb06773e732a5098f8d7ba8',
-    stop=>'00aab8fd67bc33605dc3fdfeefcc4625157985e6e2e23ba0a7fcbfa51163e910',
+    'root-removal'=>'21d2e2cca533e3967133a84dae887496222218034a379c8e539dbd02f97fc3e4',
+    'session-ready'=>'79ef33c3f165b69ac025390d4219454830d75eac677e3bd044e36aee34a87d57',
+    stop=>'e24d288d38017175c3e327998928d6e69e077e57f1ee720c9eb0bce78216ad76',
     surface=>'bccbefa219e9346b688f69056d3c46ca8a5636500977b97e899afd9248140b19',
     terminal=>'f3335468cb0a21334f13fd8fd46f1298dee416789238735b2e6b1cbd238ffd29',
-    'termination-proof'=>'76b5cff2ff53d40584778ead9cb9ce8ea8ed38ccbfe492326a13548aeb53efa6');
+    'termination-proof'=>'9e7012f2bf1ac59b1f41abff27d4ef7145d596611aa7daa07873001935c934c5');
   for my $stage (@stages) {
     my $variant = $stage eq 'candidate' || $stage eq 'connection-ready'
-      || $stage eq 'ownership';
+      || $stage eq 'ownership' || $stage eq 'session-ready';
     exact_keys($t->{stages}{$stage},$variant ? [qw(required optional one_of)] : [qw(required optional)],'template_stage');
     ref($t->{stages}{$stage}{required}) eq 'HASH' && ref($t->{stages}{$stage}{optional}) eq 'HASH' or fail('template_stage_members');
     my @schemas=($t->{stages}{$stage});
@@ -697,6 +701,9 @@ if ($operation eq 'schema-check') {
   validate_facts($template,'candidate',{preferences_digest=>('b'x64),preferences_row_count=>1,candidate_root_identity_digest=>('c'x64),live_root_identity_digest=>('d'x64),candidate_ancestor_symlinks_absent=>JSON::PP::true,live_ancestor_symlinks_absent=>JSON::PP::true,live_root_outside_candidate=>JSON::PP::true,root_file_objects_distinct=>JSON::PP::true,N=>1,I=>1,C=>0});
   validate_facts($template,'connection-ready',{host_identity_digest=>('a'x64),row_count=>1,ready=>JSON::PP::true,complete=>JSON::PP::true});
   validate_facts($template,'connection-ready',{host_identity_digest=>('a'x64),connection_identity_digest=>('b'x64),ready=>JSON::PP::true,complete=>JSON::PP::true});
+  validate_facts($template,'session-ready',{ready=>JSON::PP::false,complete=>JSON::PP::false,failure_class=>'session-name-invalid'});
+  my $mixed_session=eval { validate_facts($template,'session-ready',{owner_identity_digest=>('a'x64),browser_identity_digest=>('b'x64),ready=>JSON::PP::true,complete=>JSON::PP::true,failure_class=>'refused'}); 1 };
+  !$mixed_session or fail('template_session_ready_one_of_not_exact');
   my $mixed=eval { validate_facts($template,'candidate',{local_state_digest=>('a'x64),local_state_row_count=>1,N_all=>1,N=>1}); 1 };
   !$mixed or fail('template_candidate_one_of_not_exact');
   my $numeric_string=eval { validate_facts($template,'a0-control',{outcome=>1}); 1 };
@@ -1051,6 +1058,10 @@ case "${1:-}" in
       || emit_failure self_test_browser_version_probe_failed
     [ "$normalized_version" = 'Brave Browser 152.1.94.121' ] \
       || emit_failure self_test_browser_version_not_trimmed
+    session_probe=$(session_name_for_run 0123456789abcdef0123456789abcdef)
+    [ "$session_probe" = 'pbv2-0123456789abcdef0123456789a' ] \
+      || emit_failure self_test_session_name_derivation
+    [ "${#session_probe}" -eq 32 ] || emit_failure self_test_session_name_length
     { [ ! -e "$formal_state" ] && [ ! -L "$formal_state" ]; } || emit_failure self_test_formal_state_present_after
     printf '%s\n' '{"schema":"agenterm.profile-binding-v2-self-test/v1","code":"ok","formal_attempts_consumed":false}'
     exit 0
@@ -1131,7 +1142,7 @@ LANE=$(mktemp -d "${TMPDIR:-/tmp}/agenterm-profile-binding-v2-run.XXXXXX")
 LANE=$(CDPATH= cd -- "$LANE" && pwd -P)
 trap 'rm -rf -- "$LANE"' EXIT HUP INT TERM
 mkdir "$LANE/candidate"
-SESSION="profile-binding-v2-$RUN_ID"
+SESSION=$(session_name_for_run "$RUN_ID")
 
 # The court's preflight is deliberately no-side-effect. It must emit the same
 # canonical candidate object; reserve happens only after this independent

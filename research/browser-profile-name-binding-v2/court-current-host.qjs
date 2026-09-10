@@ -185,10 +185,12 @@ function validate_template_contract(template) {
   exact_stage_schema(template.stages, "baseline", {
     row_count:"safe_integer", normalized_row_digest:"sha256", complete:"boolean"
   }, {baseline_preserved:"boolean", owned_delta:"boolean"}, null);
-  exact_stage_schema(template.stages, "session-ready", {
-    owner_identity_digest:"sha256", browser_identity_digest:"sha256",
-    ready:"boolean"
-  }, {complete:"boolean"}, null);
+  exact_stage_schema(template.stages, "session-ready", {}, {}, [
+    {required:{owner_identity_digest:"sha256", browser_identity_digest:"sha256",
+      ready:"boolean"}, optional:{complete:"boolean"}},
+    {required:{ready:"boolean", complete:"boolean", failure_class:"string"},
+      optional:{}}
+  ]);
   exact_stage_schema(template.stages, "connection-ready", {}, {}, [
     {required:{host_identity_digest:"sha256", row_count:"safe_integer",
       ready:"boolean", complete:"boolean"}, optional:{}},
@@ -251,12 +253,12 @@ function validate_template_contract(template) {
   }, {}, null);
   exact_stage_schema(template.stages, "stop", {
     public_stop_succeeded:"boolean"
-  }, {}, null);
+  }, {stop_required:"boolean"}, null);
   exact_stage_schema(template.stages, "termination-proof", {
     owner_absent:"boolean", browser_absent:"boolean", host_absent:"boolean",
     group_absent:"boolean", ps_row_count:"safe_integer",
     process_state_observation_count:"safe_integer"
-  }, {}, null);
+  }, {proof_inputs_available:"boolean"}, null);
   exact_stage_schema(template.stages, "final-inventory", {
     row_count:"safe_integer", normalized_row_digest:"sha256", complete:"boolean",
     baseline_preserved:"boolean", owned_delta:"boolean"
@@ -268,7 +270,7 @@ function validate_template_contract(template) {
   }, {}, null);
   exact_stage_schema(template.stages, "root-removal", {
     root_removal_succeeded:"boolean", root_absent:"boolean"
-  }, {}, null);
+  }, {session_remove_required:"boolean"}, null);
   exact_stage_schema(template.stages, "terminal", {
     primary_cause:"nullable_string", cleanup_status:"string",
     final_inventory_status:"string", terminal_code:"string"
@@ -326,15 +328,95 @@ function isolated_env(home, lane) {
   };
 }
 
-function cu(config, grant, argv, deadline_ms) {
+function cu_attempt(config, grant, argv, deadline_ms) {
   const args = ["--target", "current", "--grant", grant];
   for (let i = 0; i < argv.length; i = i + 1) { args.push("" + argv[i]); }
   const output = rh.command(config.cu_exe, args, {
     cwd: config.repo, env: config.env, timeout_ms: deadline_ms
   });
-  const reply = parse_json_line(output, "profile_binding_v2_public_cli");
-  ensure(reply.ok === true, "profile_binding_v2_public_cli_refused");
-  return reply;
+  if (output.timed_out === true) {
+    return {reply:null, failure_class:"timeout"};
+  }
+  if (output.stdout_truncated === true || output.stderr_truncated === true) {
+    return {reply:null, failure_class:"output-truncated"};
+  }
+  const text = output.stdout.trim();
+  if (text === "" || text.indexOf("\n") >= 0) {
+    return {reply:null, failure_class:"reply-shape"};
+  }
+  let reply = null;
+  try { reply = JSON.parse(text); }
+  catch (_) { return {reply:null, failure_class:"reply-json"}; }
+  if (reply === null || typeof reply !== "object" || Array.isArray(reply)) {
+    return {reply:null, failure_class:"reply-shape"};
+  }
+  if (output.success === true && reply.ok === true) {
+    return {reply:reply, failure_class:null};
+  }
+  let code = "";
+  if (reply !== null && typeof reply === "object" && reply.error !== null
+      && typeof reply.error === "object" && typeof reply.error.code === "string") {
+    code = reply.error.code;
+  }
+  if (code === "browser_session_name_invalid") {
+    return {reply:reply, failure_class:"session-name-invalid"};
+  }
+  if (code === "browser_session_exists") {
+    return {reply:reply, failure_class:"session-already-exists"};
+  }
+  if (code === "browser_session_ready_timeout") {
+    return {reply:reply, failure_class:"ready-timeout"};
+  }
+  return {reply:reply, failure_class:"public-cli-refused"};
+}
+
+function cu(config, grant, argv, deadline_ms) {
+  const attempt = cu_attempt(config, grant, argv, deadline_ms);
+  ensure(attempt.failure_class === null,
+    "profile_binding_v2_public_cli_" + attempt.failure_class);
+  return attempt.reply;
+}
+
+function session_data_failure_class(data) {
+  if (data === null || typeof data !== "object" || Array.isArray(data)) {
+    return "reply-data-invalid";
+  }
+  if (data.state !== "ready" || data.owned !== true) {
+    return "session-not-ready";
+  }
+  if (!exact_process_identity(data.owner) || !exact_process_identity(data.browser)) {
+    return "process-identity-invalid";
+  }
+  return null;
+}
+
+ensure(session_data_failure_class(null) === "reply-data-invalid"
+    && session_data_failure_class({state:"starting", owned:true})
+      === "session-not-ready"
+    && session_data_failure_class({state:"ready", owned:true,
+      owner:{pid:1, start_identity:"a"}, browser:null})
+      === "process-identity-invalid"
+    && session_data_failure_class({state:"ready", owned:true,
+      owner:{pid:1, start_identity:"a"},
+      browser:{pid:2, start_identity:"b"}}) === null,
+  "profile_binding_v2_session_data_classification_self_test");
+
+function session_start_attempt(config) {
+  let attempt = null;
+  try {
+    attempt = cu_attempt(config, "actuate",
+      ["browser-session-start", config.session,
+       "--browser", config.browser_exe, "--bridge", "--ready-timeout-ms", "30000",
+       "--ttl-ms", "300000"], 32000);
+  } catch (_) {
+    return {reply:null, failure_class:"command-failed"};
+  }
+  if (attempt.failure_class !== null) { return attempt; }
+  const failure_class = session_data_failure_class(attempt.reply.data);
+  if (failure_class !== null) {
+    return {reply:attempt.reply, failure_class:failure_class};
+  }
+  return attempt;
 }
 
 function browser_family(version_text) {
@@ -368,6 +450,30 @@ function trim_ascii_boundary(value) {
   }
   return value.substring(first, last);
 }
+
+// Mirrors the public browser-session name contract: 1..32 ASCII bytes, a
+// lowercase first byte, then only lowercase ASCII, digits, or hyphen.
+function portable_session_name(value) {
+  if (typeof value !== "string" || value.length < 1 || value.length > 32) {
+    return false;
+  }
+  const first = value.charCodeAt(0);
+  if (first < 97 || first > 122) { return false; }
+  for (let i = 1; i < value.length; i = i + 1) {
+    const code = value.charCodeAt(i);
+    if (!((code >= 97 && code <= 122) || (code >= 48 && code <= 57)
+        || code === 45)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+ensure(portable_session_name("pbv2-0123456789abcdef0123456789a") === true
+    && portable_session_name("pbv2-0123456789abcdef0123456789ab") === false
+    && portable_session_name("1pbv2") === false
+    && portable_session_name("pbv2_bad") === false,
+  "profile_binding_v2_session_name_contract_self_test");
 
 function browser_root(home, family) {
   const support = rh.join(home, "Library/Application Support");
@@ -464,6 +570,8 @@ function frozen_input_digest(config) {
 function preflight(config) {
   ensure(rh.exists("/System/Library/CoreServices"),
     "profile_binding_v2_requires_macos");
+  ensure(portable_session_name(config.session),
+    "profile_binding_v2_session_name_invalid");
   ensure(direct_file(config.agenterm_exe) && direct_file(config.cu_exe)
       && direct_file(config.browser_exe)
       && direct_file(config.state_exe), "profile_binding_v2_executable_missing");
@@ -1272,17 +1380,21 @@ function cleanup(config, journal, baseline, session, connection, frozen_group,
     return {cleanup_status:"not-run", inventory_status:"not-run",
       v3a:false, v3b:false};
   }
+  const stop_required = session !== null;
   let stop_ok = false;
-  try {
-    const reply = cu(config, "actuate", ["browser-session-stop", config.session,
-      "--expect", "stopped", "--timeout-ms", "20000"], 22000);
-    stop_ok = reply.data.state === "stopped";
-  } catch (_) { stop_ok = false; }
+  if (stop_required) {
+    try {
+      const reply = cu(config, "actuate", ["browser-session-stop", config.session,
+        "--expect", "stopped", "--timeout-ms", "20000"], 22000);
+      stop_ok = reply.data.state === "stopped";
+    } catch (_) { stop_ok = false; }
+  }
   if (!journal.persistence_failed) {
     try {
       journal_stage(journal, "stop", "public-cli", 20000,
-        stop_ok ? "PUBLIC_STOP_SUCCEEDED" : "PUBLIC_STOP_FAILED",
-        {public_stop_succeeded:stop_ok});
+        !stop_required ? "PUBLIC_STOP_NOT_REQUIRED"
+          : (stop_ok ? "PUBLIC_STOP_SUCCEEDED" : "PUBLIC_STOP_FAILED"),
+        {public_stop_succeeded:stop_ok, stop_required:stop_required});
     } catch (_) {}
   }
 
@@ -1291,7 +1403,9 @@ function cleanup(config, journal, baseline, session, connection, frozen_group,
   let host_absent = false;
   let process_state_observation_count = 0;
   let post_ps = {row_count:0, frozen_group_count:-1};
-  if (session !== null && connection !== null && frozen_group > 0) {
+  const proof_inputs_available = session !== null && connection !== null
+    && frozen_group > 0;
+  if (proof_inputs_available) {
     try {
       owner_absent = public_process_observation(config, session.owner, "dead", 2500);
       process_state_observation_count = process_state_observation_count + 1;
@@ -1309,11 +1423,13 @@ function cleanup(config, journal, baseline, session, connection, frozen_group,
   if (!journal.persistence_failed) {
     try {
       journal_stage(journal, "termination-proof", "independent-ps",
-        15000, v3a ? "TERMINATION_PROVED" : "TERMINATION_UNPROVED", {
+        15000, !proof_inputs_available ? "TERMINATION_NOT_APPLICABLE"
+          : (v3a ? "TERMINATION_PROVED" : "TERMINATION_UNPROVED"), {
           owner_absent:owner_absent, browser_absent:browser_absent,
           host_absent:host_absent, group_absent:group_absent,
           ps_row_count:post_ps.row_count,
-          process_state_observation_count:process_state_observation_count
+          process_state_observation_count:process_state_observation_count,
+          proof_inputs_available:proof_inputs_available
         });
     } catch (_) {}
   }
@@ -1341,20 +1457,25 @@ function cleanup(config, journal, baseline, session, connection, frozen_group,
     } catch (_) {}
   }
 
+  const session_remove_required = session !== null;
   let removed = false;
-  try {
-    const reply = cu(config, "actuate", ["browser-session-remove", config.session,
-      "--expect", "stopped"], 20000);
-    removed = reply.data.state === "removed" && reply.data.verified === true;
-  } catch (_) { removed = false; }
+  if (session_remove_required) {
+    try {
+      const reply = cu(config, "actuate", ["browser-session-remove", config.session,
+        "--expect", "stopped"], 20000);
+      removed = reply.data.state === "removed" && reply.data.verified === true;
+    } catch (_) { removed = false; }
+  }
   try { rh.try_remove_dir_all(config.home); } catch (_) {}
   const root_absent = !rh.exists(config.home);
   const v3b = removed && root_absent;
   if (!journal.persistence_failed) {
     try {
       journal_stage(journal, "root-removal", "filesystem-witness", 20000,
-        v3b ? "ROOT_REMOVAL_PROVED" : "ROOT_REMOVAL_UNPROVED",
-        {root_removal_succeeded:removed, root_absent:root_absent});
+        !session_remove_required ? "ROOT_REMOVAL_NOT_APPLICABLE"
+          : (v3b ? "ROOT_REMOVAL_PROVED" : "ROOT_REMOVAL_UNPROVED"),
+        {root_removal_succeeded:removed, root_absent:root_absent,
+          session_remove_required:session_remove_required});
     } catch (_) {}
   }
   return {cleanup_status:v3a && v3b ? "pass" : "fail",
@@ -1396,13 +1517,14 @@ function execute(config) {
     rh.create_dir_all(config.home);
     if (config.mode === "decision") { make_fixture(config, pf.facts.browser_family); }
     lifecycle_attempted = true;
-    session = cu(config, "actuate", ["browser-session-start", config.session,
-      "--browser", config.browser_exe, "--bridge", "--ready-timeout-ms", "30000",
-      "--ttl-ms", "300000"], 32000).data;
-    ensure(session.state === "ready" && session.owned === true
-        && exact_process_identity(session.owner)
-        && exact_process_identity(session.browser),
-      "profile_binding_v2_session_not_ready");
+    const session_attempt = session_start_attempt(config);
+    if (session_attempt.failure_class !== null) {
+      journal_stage(journal, "session-ready", "public-cli", 30000,
+        "SESSION_START_FAILED", {ready:false, complete:false,
+          failure_class:session_attempt.failure_class});
+      throw "INCONCLUSIVE_DEPENDENCY";
+    }
+    session = session_attempt.reply.data;
     journal_stage(journal, "session-ready", "public-cli", 30000,
       "SESSION_READY", {
         owner_identity_digest:identity_digest(

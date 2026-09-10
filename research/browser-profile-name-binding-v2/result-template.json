@@ -36,8 +36,12 @@
       "optional": {"baseline_preserved": "boolean", "owned_delta": "boolean"}
     },
     "session-ready": {
-      "required": {"owner_identity_digest": "sha256", "browser_identity_digest": "sha256", "ready": "boolean"},
-      "optional": {"complete": "boolean"}
+      "required": {},
+      "optional": {},
+      "one_of": [
+        {"required": {"owner_identity_digest": "sha256", "browser_identity_digest": "sha256", "ready": "boolean"}, "optional": {"complete": "boolean"}},
+        {"required": {"ready": "boolean", "complete": "boolean", "failure_class": "string"}, "optional": {}}
+      ]
     },
     "connection-ready": {
       "required": {},
@@ -77,10 +81,10 @@
       "required": {"model_digest": "sha256", "matrix_digest": "sha256", "create": "boolean", "resolve": "boolean", "restart_revalidate": "boolean", "target_stale": "boolean", "collision": "boolean", "generation_conflict": "boolean", "revoke": "boolean", "active_pair_unique": "boolean", "active_alias_per_instance": "boolean", "duplicate_alias_typed": "boolean", "identity_build_stale_typed": "boolean", "inventory_cardinality_typed": "boolean", "authority_matrix_complete": "boolean", "generation_cas": "boolean", "rename_requires_replace": "boolean", "revoke_not_found_typed": "boolean"},
       "optional": {}
     },
-    "stop": {"required": {"public_stop_succeeded": "boolean"}, "optional": {}},
+    "stop": {"required": {"public_stop_succeeded": "boolean"}, "optional": {"stop_required": "boolean"}},
     "termination-proof": {
       "required": {"owner_absent": "boolean", "browser_absent": "boolean", "host_absent": "boolean", "group_absent": "boolean", "ps_row_count": "safe_integer", "process_state_observation_count": "safe_integer"},
-      "optional": {}
+      "optional": {"proof_inputs_available": "boolean"}
     },
     "final-inventory": {
       "required": {"row_count": "safe_integer", "normalized_row_digest": "sha256", "complete": "boolean", "baseline_preserved": "boolean", "owned_delta": "boolean"},
@@ -90,7 +94,7 @@
       "required": {"row_count": "safe_integer", "normalized_row_digest": "sha256", "complete": "boolean", "baseline_preserved": "boolean", "owned_delta": "boolean", "visited_count": "safe_integer"},
       "optional": {}
     },
-    "root-removal": {"required": {"root_removal_succeeded": "boolean", "root_absent": "boolean"}, "optional": {}},
+    "root-removal": {"required": {"root_removal_succeeded": "boolean", "root_absent": "boolean"}, "optional": {"session_remove_required": "boolean"}},
     "terminal": {
       "required": {"primary_cause": "nullable_string", "cleanup_status": "string", "final_inventory_status": "string", "terminal_code": "string"},
       "optional": {}

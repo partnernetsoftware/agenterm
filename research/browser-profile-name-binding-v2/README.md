@@ -81,6 +81,14 @@ STATE_EXE __state stage KIND ORDINAL RUN_ID CANDIDATE_PATH
 STATE_EXE __state finish KIND ORDINAL RUN_ID CANDIDATE_PATH
 ```
 
+The session name is deterministically derived as `pbv2-` plus the first 27
+hexadecimal characters of the 32-character run id. It is therefore exactly 32
+ASCII bytes and preserves the public session-name contract: non-empty, at most
+32 bytes, lowercase ASCII first, then only lowercase ASCII, digits, or hyphen.
+The court mirrors all four checks during its no-side-effect preflight, before
+reservation. Any future change to the public validator or this mirror must
+update both sides together.
+
 `APP` uses the public catalog spelling, not a bundle identifier. This
 implementation admits `Google Chrome` for the frozen Google Chrome prefix and
 `Brave Browser` for the frozen Brave Browser prefix. It recognizes the other
@@ -172,6 +180,17 @@ The separate court owns browser lifecycle, stage ordering, cleanup, and exact
 receipt mirroring. The separate binding model owns only G7. Neither component
 may write the external ledger or journal directly.
 
+If public session start fails after reservation, the court first persists a
+`session-ready` stage with terminal-neutral `SESSION_START_FAILED` and one of a
+fixed set of redacted failure classes. The mapping covers command failure,
+timeout or truncation, malformed replies, public refusal, non-ready state, and
+malformed process identities. Raw product errors never become receipt terminal
+codes. Cleanup stages also record whether stop, termination proof, and session
+removal were applicable, so `false` no longer ambiguously means both “still
+present” and “never created.”
+
 ## Result status
 
-No lifecycle rehearsal or decision has been run. See `RESULTS.md`.
+`R1` was consumed and finished as `INCONCLUSIVE_DEPENDENCY`; it produced no
+design decision. Its source repair is recorded in `RESULTS.md`. `R2` remains
+available and `D1` remains locked pending a successful rehearsal.
