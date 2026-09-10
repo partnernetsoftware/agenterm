@@ -325,4 +325,6 @@ The tracked `budget-exhausted.json` marker freezes that terminal disposition.
 Both the runner and the browser path of the court reject any later attempt with
 `profile_binding_research_budget_exhausted` before fixture creation or process
 launch. A future precommitment must replace this court and marker explicitly;
-renaming another execution to attempt 1 or 2 is not authorized.
+renaming another execution to attempt 1 or 2 is not authorized. Editing only
+the marker cannot reopen the frozen court and is rejected as
+`profile_binding_budget_reopen_requires_new_precommitment`.

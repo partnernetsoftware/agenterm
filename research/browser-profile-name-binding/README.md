@@ -52,4 +52,6 @@ process identity and preserves a bounded failure stage in the receipt.
 and the browser path of the court reject every further attempt with
 `profile_binding_research_budget_exhausted` before creating a fixture or
 starting a process. A future precommitment must replace this frozen court rather
-than relabel an additional run as attempt 1 or 2.
+than relabel an additional run as attempt 1 or 2. Editing only the marker cannot
+reopen the court and is rejected as
+`profile_binding_budget_reopen_requires_new_precommitment`.

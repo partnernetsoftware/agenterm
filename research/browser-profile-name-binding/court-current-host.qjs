@@ -156,26 +156,32 @@ function exact_keys(value, expected) {
   return true;
 }
 
-function budget_marker_valid(marker) {
+function budget_marker_well_formed(marker) {
   return exact_keys(marker, ["schema", "experiment", "budget_exhausted",
       "attempts_consumed", "terminal_verdict"])
     && marker.schema === 1
     && marker.experiment === "acu.dynamic.075.profile-name-binding"
-    && marker.budget_exhausted === true
+    && (marker.budget_exhausted === true
+      || marker.budget_exhausted === false)
     && marker.attempts_consumed === 2
     && marker.terminal_verdict === "INCONCLUSIVE_FIXTURE_EXHAUSTED";
 }
 
 function reject_exhausted_budget(repo) {
+  // This frozen precommitment has no open execution state. Reopening requires
+  // a new precommitment that replaces this court and marker together.
   const path = rh.join(repo,
     "research/browser-profile-name-binding/budget-exhausted.json");
   ensure(direct_file(path), "profile_binding_budget_marker_missing");
   let marker = null;
   try { marker = JSON.parse(rh.read_text(path)); }
   catch (_) { ensure(false, "profile_binding_budget_marker_invalid"); }
-  ensure(budget_marker_valid(marker), "profile_binding_budget_marker_invalid");
-  ensure(marker.budget_exhausted !== true,
-    "profile_binding_research_budget_exhausted");
+  ensure(budget_marker_well_formed(marker),
+    "profile_binding_budget_marker_invalid");
+  if (marker.budget_exhausted === false) {
+    ensure(false, "profile_binding_budget_reopen_requires_new_precommitment");
+  }
+  ensure(false, "profile_binding_research_budget_exhausted");
 }
 
 function exact_connection_entry(row) {
@@ -443,49 +449,49 @@ if (args.length === 1 && args[0] === "--self-test") {
       && !repair_fixture_allowed(2, "chrome")
       && !repair_fixture_allowed(2, "chromium"),
     "profile_binding_repair_fixture_self_test");
-  ensure(budget_marker_valid({
+  ensure(budget_marker_well_formed({
     schema: 1,
     experiment: "acu.dynamic.075.profile-name-binding",
     budget_exhausted: true,
     attempts_consumed: 2,
     terminal_verdict: "INCONCLUSIVE_FIXTURE_EXHAUSTED"
-  }) && !budget_marker_valid({
+  }) && budget_marker_well_formed({
     schema: 1,
     experiment: "acu.dynamic.075.profile-name-binding",
     budget_exhausted: false,
     attempts_consumed: 2,
     terminal_verdict: "INCONCLUSIVE_FIXTURE_EXHAUSTED"
-  }) && !budget_marker_valid({
+  }) && !budget_marker_well_formed({
     schema: 1,
     experiment: "acu.dynamic.075.profile-name-binding",
     budget_exhausted: true,
     attempts_consumed: 1,
     terminal_verdict: "INCONCLUSIVE_FIXTURE_EXHAUSTED"
-  }) && !budget_marker_valid({
+  }) && !budget_marker_well_formed({
     schema: 1,
     experiment: "acu.dynamic.075.profile-name-binding",
     budget_exhausted: true,
     attempts_consumed: 2,
     terminal_verdict: "INCONCLUSIVE_FIXTURE_EXHAUSTED",
     extra: true
-  }) && !budget_marker_valid({
+  }) && !budget_marker_well_formed({
     schema: 2,
     experiment: "acu.dynamic.075.profile-name-binding",
     budget_exhausted: true,
     attempts_consumed: 2,
     terminal_verdict: "INCONCLUSIVE_FIXTURE_EXHAUSTED"
-  }) && !budget_marker_valid({
+  }) && !budget_marker_well_formed({
     schema: 1,
     experiment: "acu.dynamic.075.profile-name-binding",
     budget_exhausted: true,
     attempts_consumed: 2
-  }) && !budget_marker_valid({
+  }) && !budget_marker_well_formed({
     schema: 1,
     experiment: "acu.dynamic.075.profile-name-binding-other",
     budget_exhausted: true,
     attempts_consumed: 2,
     terminal_verdict: "INCONCLUSIVE_FIXTURE_EXHAUSTED"
-  }) && !budget_marker_valid({
+  }) && !budget_marker_well_formed({
     schema: 1,
     experiment: "acu.dynamic.075.profile-name-binding",
     budget_exhausted: true,

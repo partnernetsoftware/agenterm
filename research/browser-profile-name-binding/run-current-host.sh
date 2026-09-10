@@ -24,28 +24,35 @@ require_file() {
 }
 
 require_file "$BUDGET_MARKER" budget-exhausted.json
-if perl -MJSON::PP -e '
+MARKER_STATE=$(perl -MJSON::PP -e '
   local $/;
   my $codec = JSON::PP->new->canonical(1);
   my $text = <>;
   my $marker = eval { $codec->decode($text) };
   exit 1 if $@;
-  my $expected = {
+  my $expected_exhausted = {
     schema => 1,
     experiment => "acu.dynamic.075.profile-name-binding",
     budget_exhausted => JSON::PP::true,
     attempts_consumed => 2,
     terminal_verdict => "INCONCLUSIVE_FIXTURE_EXHAUSTED"
   };
-  exit !($codec->encode($marker) eq $codec->encode($expected));
-' "$BUDGET_MARKER"
-then
-  printf '%s\n' "profile_binding_research_budget_exhausted" >&2
-  exit 2
-else
+  my $expected_reopen = { %$expected_exhausted,
+    budget_exhausted => JSON::PP::false };
+  my $actual = $codec->encode($marker);
+  if ($actual eq $codec->encode($expected_exhausted)) { print "exhausted"; exit 0; }
+  if ($actual eq $codec->encode($expected_reopen)) { print "reopen"; exit 0; }
+  exit 1;
+' "$BUDGET_MARKER") || {
   printf '%s\n' "profile_binding_budget_marker_invalid" >&2
   exit 2
-fi
+}
+case "$MARKER_STATE" in
+  exhausted) printf '%s\n' "profile_binding_research_budget_exhausted" >&2 ;;
+  reopen) printf '%s\n' "profile_binding_budget_reopen_requires_new_precommitment" >&2 ;;
+  *) printf '%s\n' "profile_binding_budget_marker_invalid" >&2 ;;
+esac
+exit 2
 
 require_file "$AGENTERM_EXE" AGENTERM_EXE
 require_file "$AGENTERM_CU_EXE" AGENTERM_CU_EXE
