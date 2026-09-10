@@ -225,9 +225,7 @@ fn read_buffer(identity: &ExternalWindowIdentity) -> Result<TerminalBuffer, CuEr
     }
     revalidate_window(identity)?;
     if candidates.is_empty() {
-        return Err(
-            text_error.unwrap_or_else(|| terminal_buffer_not_found_error(&tree)),
-        );
+        return Err(text_error.unwrap_or_else(|| terminal_buffer_not_found_error(&tree)));
     }
     select_candidate(candidates)
 }

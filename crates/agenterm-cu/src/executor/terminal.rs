@@ -18,8 +18,7 @@ const CAPTURE_MAX_BYTES: usize = 1_048_576;
 const MAX_WAIT_MS: u64 = 86_400_000;
 
 fn client() -> Result<ControlClient, CuError> {
-    ControlClient::from_environment()
-        .map_err(|error| CuError::new(error.code, error.message))
+    ControlClient::from_environment().map_err(|error| CuError::new(error.code, error.message))
 }
 
 fn terminal_control_transport_error(error: agenterm_control_client::ClientError) -> CuError {

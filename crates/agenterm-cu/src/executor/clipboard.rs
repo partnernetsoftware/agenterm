@@ -450,8 +450,9 @@ pub(super) fn clipboard_write_file(path: &str) -> Result<serde_json::Value, CuEr
         let uri_bytes = file_uri_list_bytes(&canonical);
         mechanism::clipboard::publish_type(CLIPBOARD_URI_LIST_TYPE, &uri_bytes)
             .map_err(map_mechanism_err)?;
-        let stored = mechanism::clipboard::get_type(CLIPBOARD_URI_LIST_TYPE, MAX_CLIPBOARD_TYPE_BYTES)
-            .map_err(map_mechanism_err)?;
+        let stored =
+            mechanism::clipboard::get_type(CLIPBOARD_URI_LIST_TYPE, MAX_CLIPBOARD_TYPE_BYTES)
+                .map_err(map_mechanism_err)?;
         let verified = stored == uri_bytes;
         return Ok(serde_json::json!({
             "path": abs_path,
