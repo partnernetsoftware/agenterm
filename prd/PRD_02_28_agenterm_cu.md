@@ -1008,7 +1008,12 @@ flowchart LR
   verifiable binding to the extension profile identity exists; the stable
   `acu.dynamic.075.profile-name-binding` TODO makes that missing sub-shape
   visible instead of misclassifying it as usage or treating the frozen
-  no-argument witness as full closure. Legacy `browser bridge status` now
+  no-argument witness as full closure. The first decisive experiment exhausted
+  both attempts without a valid verdict; the replacement owned-lifecycle
+  precommitment is frozen in
+  `plan/design-browser-profile-name-binding-owned-lifecycle-experiment.md` but
+  has not run, selected a design, changed this TODO or registered evidence.
+  Legacy `browser bridge status` now
   validates the complete live-connection inventory plus each closed status
   reply, then selects one exact profile-instance prefix without reading tabs;
   fields about installation and manifests remain withheld rather than guessed.
