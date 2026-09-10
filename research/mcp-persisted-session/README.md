@@ -6,15 +6,18 @@ negative lifecycle control A0, bounded derived-session alternative A1, and
 request-direct alternative B against the frozen design in
 `plan/design-mcp-persisted-session-experiment.md`.
 
-From the repository root, after this exact directory is committed and reachable
-from `origin/main`, run one frozen attempt:
+This precommitment is closed. Attempt 1 was consumed and voided after its only
+invocation lane disappeared before independent review. Do not run this harness
+again under the current precommitment; the command below is retained only as a
+historical record of the frozen procedure:
 
 ```sh
 research/mcp-persisted-session/run.sh 1
 ```
 
-Attempt `2` is reserved for the single fixture-only repair allowed by the
-precommitment. The runner rejects any later attempt. It builds only into
+Attempt `2` was reserved for the single fixture-only repair allowed by the
+precommitment, but no review chain exists and it is not authorized. The runner
+rejects any later attempt. It builds only into
 `target/research-mcp-persisted-session`, runs the pure `--self-test` before
 creating an invocation directory, and writes one bounded receipt under that
 repo-local lane as well as to stdout. Keep the invocation directory only until

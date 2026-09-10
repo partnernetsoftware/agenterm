@@ -329,5 +329,17 @@ facts back in this order:
 
 ## 12. Result
 
-Not run. No option is selected until `research/mcp-persisted-session/RESULTS.md`
-contains the reviewed, reproducible C1-C7 trace.
+Attempt 1 ran against frozen commit
+`f7046fa2d6330b3d7e2e1ff4e72253d6cd5787bd` and exited zero, but its invocation
+lane disappeared before independent review. The original receipt, metadata and
+attempt ledger are unrecoverable, and the deletion source could not be
+identified. The frozen procedure therefore consumes and voids the attempt. No
+option is selected and no evidence is registered.
+
+The terminal observation was seen before the artifacts were lost, so the
+blind condition is no longer intact and this precommitment cannot be rerun as
+written. Any further experiment must begin with a new precommitment, new input
+digest and new attempt budget; it must disclose this void run and the prior
+observation without treating either as evidence. That future design must also
+place budget state outside the disposable build lane and preserve a validated
+receipt outside that lane before reporting success.

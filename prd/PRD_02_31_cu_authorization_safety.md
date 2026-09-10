@@ -289,6 +289,10 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   dispatch retains the original session context. This is an internal kernel,
   not MCP promotion: the closed provider envelope, explicit sidecar grant
   selection, session-lifetime budget and six-cell public court remain open.
+  The frozen MCP persisted-session comparison consumed its first attempt, but
+  its invocation lane disappeared before independent review; the run is void,
+  no alternative or evidence was accepted, and the disclosed observation means
+  any renewed comparison requires a new precommitment and budget.
 - [~] A sealed `TargetBinding` contract now separates opaque provider identity
   and exact desktop-session identity from routing material. Current, SSH and
   VNC fail typed when no crate-owned verified provider is available; RDP stays
