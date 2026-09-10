@@ -1238,9 +1238,18 @@ flowchart LR
 
 - [x] The qualification manifest has two machine-enforced roles. Its 37
   `required_gates` are exactly the gates the full Windows Candidate lane runs,
-  must all pass, and alone enter the qualification receipt. Its 128
+  must all pass, and alone enter the qualification receipt. Its 137
   `registered_gates` are the broader public evidence and UTM task catalog;
   they are declaration-checked but cannot be reported as Candidate results.
+- [x] The C-class ownership audit registered eight existing same-name
+  task/suite contracts: Linux displays, clipboard file-write and five CDP page
+  journeys, plus the macOS WebKit journey. It intentionally leaves
+  `platform-ux-parity-smoke` outside the catalog because its aggregate output
+  repeats four required-gate evidence ids, while its other six evidence ids
+  have no other owner. It leaves `acu-retirement-court` outside because no task
+  shares that id; its two differently named public tasks also share one court
+  entry, so neither shape satisfies the UTM resolver's exact task-id/suite-id
+  contract. Neither exception changes the 37-gate Candidate execution set.
 - **User problem:** Candidate qualification must be able to publish an exact
   receipt without losing the evidence catalog needed by native UTM courts.
 - **Invariant:** the driver's independently encoded execution set equals

@@ -609,6 +609,55 @@
       ]
     },
     {
+      "id": "cu-linux-clipboard-write-file-smoke",
+      "evidence": [
+        "cu.linux-clipboard-write-file-roundtrip"
+      ]
+    },
+    {
+      "id": "cu-linux-displays-smoke",
+      "evidence": [
+        "cu.linux-displays"
+      ]
+    },
+    {
+      "id": "cu-linux-page-dialog-smoke",
+      "evidence": [
+        "cu.linux-cdp-page-dialog-accept",
+        "cu.linux-cdp-page-dialog-accept-readback",
+        "cu.linux-cdp-page-dialog-dismiss",
+        "cu.linux-cdp-page-dialog-dismiss-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-page-download-smoke",
+      "evidence": [
+        "cu.linux-cdp-page-download",
+        "cu.linux-cdp-page-download-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-page-drag-smoke",
+      "evidence": [
+        "cu.linux-cdp-page-drag",
+        "cu.linux-cdp-page-drag-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-page-files-smoke",
+      "evidence": [
+        "cu.linux-cdp-page-files",
+        "cu.linux-cdp-page-files-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-page-type-smoke",
+      "evidence": [
+        "cu.linux-cdp-page-type",
+        "cu.linux-cdp-page-type-readback"
+      ]
+    },
+    {
       "id": "cu-linux-capabilities-honesty-smoke",
       "evidence": [
         "cu.linux-capabilities-honesty-readback"
@@ -1015,6 +1064,17 @@
         "cu.macos-pointer-move",
         "cu.macos-pointer-restored",
         "cu.macos-pointer-refusals"
+      ]
+    },
+    {
+      "id": "cu-macos-web-smoke",
+      "evidence": [
+        "cu.macos-web-window-identity",
+        "cu.macos-web-area-tree",
+        "cu.macos-web-unlock",
+        "cu.macos-web-scroll",
+        "cu.macos-web-invoke",
+        "cu.macos-web-fixture-cleanup"
       ]
     },
     {
