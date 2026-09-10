@@ -362,6 +362,7 @@ const evidence_suites = {
   "cu-windows-external-terminal-send-smoke": true,
   "cu-windows-browser-smoke": true,
   "cu-macos-smoke": true,
+  "cu-macos-window-activate-smoke": true,
   "cu-macos-external-terminal-send-smoke": true,
   "cu-macos-save-panel-smoke": true,
   "cu-macos-app-facts-smoke": true,

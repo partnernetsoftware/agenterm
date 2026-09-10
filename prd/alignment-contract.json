@@ -292,6 +292,16 @@
       ]
     },
     {
+      "id": "computer-use.macos-window-activate",
+      "kind": "behavior",
+      "status": "shipped",
+      "evidence_mode": "black-box",
+      "prd": "`activate --window H` has the desktop-wide `desktop-foreground`",
+      "evidence_ids": [
+        "cu.macos-window-activate"
+      ]
+    },
+    {
       "id": "computer-use.macos-current-pointer-click",
       "kind": "behavior",
       "status": "shipped",

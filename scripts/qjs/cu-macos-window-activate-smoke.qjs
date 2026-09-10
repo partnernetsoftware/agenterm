@@ -1,0 +1,334 @@
+// Public macOS black-box court for desktop-wide whole-window activation.
+// One invocation-owned two-window Cocoa application makes exact-handle
+// selection falsifiable. The user's original foreground is captured before
+// the visible test and must be restored before the court can succeed.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const EVIDENCE = "cu.macos-window-activate";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function run_reply(context, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: context.run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(context.run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RECEIPT_PATH: rh.join(context.run_directory, "cu-receipts.jsonl"),
+      AGENTERM_NO_ACTIVATE: "1"
+    },
+    timeout_ms: 30000
+  });
+  const text = output.stdout.trim();
+  ensure(text !== "", "cu_macos_window_activate_empty_reply");
+  const reply = JSON.parse(text);
+  return { output: output, reply: reply };
+}
+
+function invoke(context, executable, grant, arguments) {
+  const result = run_reply(context, executable, grant, arguments);
+  const output = result.output;
+  const reply = result.reply;
+  ensure(
+    output.success === true && reply.ok === true,
+    "cu_macos_window_activate_command:" + arguments[0] + ":" + JSON.stringify(reply.error)
+  );
+  ensure(reply.target === "current", "cu_macos_window_activate_target");
+  return reply;
+}
+
+function compile_helpers(context, repo) {
+  const fixture_source = rh.join(repo, "examples/objc/agenterm_ax_fixture.m");
+  const probe_source = rh.join(repo, "examples/objc/agenterm_frontmost_window_probe.m");
+  ensure(direct_file(fixture_source), "cu_macos_window_activate_fixture_source_missing");
+  ensure(direct_file(probe_source), "cu_macos_window_activate_probe_source_missing");
+  const fixture = rh.join(context.run_directory, "agenterm_ax_fixture");
+  const fixture_compiled = rh.command("clang", [
+    "-fobjc-arc", "-framework", "Cocoa", "-Wall", "-Wextra", "-Werror",
+    fixture_source, "-o", fixture
+  ], { cwd: repo, timeout_ms: 60000 });
+  ensure(
+    fixture_compiled.success === true && direct_file(fixture),
+    "cu_macos_window_activate_fixture_compile:" + fixture_compiled.stderr
+  );
+  const probe = rh.join(context.run_directory, "agenterm_frontmost_window_probe");
+  const probe_compiled = rh.command("clang", [
+    "-fobjc-arc", "-framework", "Cocoa", "-framework", "CoreGraphics",
+    "-Wall", "-Wextra", "-Werror", probe_source, "-o", probe
+  ], { cwd: repo, timeout_ms: 60000 });
+  ensure(
+    probe_compiled.success === true && direct_file(probe),
+    "cu_macos_window_activate_probe_compile:" + probe_compiled.stderr
+  );
+  return { fixture: fixture, probe: probe };
+}
+
+function wait_for_window(context, executable, pid, title) {
+  for (let poll = 0; poll < 250; poll = poll + 1) {
+    const inventory = invoke(context, executable, "observe", [
+      "windows", "--pid", "" + pid, "--title", title, "--max", "2"
+    ]);
+    if (inventory.data.returned === 1) {
+      const row = inventory.data.windows[0];
+      ensure(
+        row.process_id === pid && row.title === title && row.handle > 0,
+        "cu_macos_window_activate_window_identity"
+      );
+      return row;
+    }
+    harness.sleep_ms(20);
+  }
+  throw "cu_macos_window_activate_window_missing:" + pid;
+}
+
+function focused_row(context, executable) {
+  const focused = invoke(context, executable, "observe", [
+    "windows", "--focused", "true", "--max", "2"
+  ]);
+  if (focused.data.returned !== 1) { return null; }
+  return focused.data.windows[0];
+}
+
+function window_by_handle(context, executable, pid, handle) {
+  const inventory = invoke(context, executable, "observe", [
+    "windows", "--pid", "" + pid, "--max", "32"
+  ]);
+  for (const row of inventory.data.windows) {
+    if (row.handle === handle) { return row; }
+  }
+  return null;
+}
+
+function independent_front_window(context, probe) {
+  const output = rh.command(probe, [], { timeout_ms: 5000 });
+  harness.append_command_record_safe(
+    context, ["frontmost-window-probe"], output, false, []
+  );
+  ensure(
+    output.success === true && output.stdout.trim() !== "",
+    "cu_macos_window_activate_independent_probe"
+  );
+  const observed = JSON.parse(output.stdout.trim());
+  ensure(observed.pid > 0 && observed.handle > 0, "cu_macos_window_activate_probe_shape");
+  return observed;
+}
+
+function activate_exact(context, executable, probe, row, label) {
+  const activated = invoke(context, executable, "observe,actuate", [
+    "activate", "--window", "" + row.handle
+  ]);
+  const data = activated.data;
+  ensure(
+    data.postcondition === "desktop-foreground"
+      && data.scope === "desktop-foreground"
+      && data.performed === true
+      && data.verified === true
+      && data.after.present === true
+      && data.after.focused === true,
+    label + "_contract:" + JSON.stringify(data)
+  );
+  ensure(
+    data.target.handle === row.handle
+      && data.target.pid === row.process_id
+      && data.target.title === row.title,
+    label + "_identity:" + JSON.stringify(data.target)
+  );
+  ensure(
+    data.verification.method === "resolved-window-focus-readback"
+      && data.verification.reason === null
+      && data.verification.focus_resolution.handle === row.handle
+      && (data.verification.focus_resolution.via === "inventory-mark"
+        || data.verification.focus_resolution.via === "ax-focused-window"
+        || data.verification.focus_resolution.via === "frontmost-app-front-window"),
+    label + "_verification:" + JSON.stringify(data.verification)
+  );
+  ensure(
+    focused_row(context, executable).handle === row.handle,
+    label + "_independent_focused_readback"
+  );
+  const independent = independent_front_window(context, probe);
+  ensure(
+    independent.pid === row.process_id && independent.handle === row.handle,
+    label + "_independent_front_window"
+  );
+}
+
+function windows_absent(context, executable, pid) {
+  const inventory = invoke(context, executable, "observe", [
+    "windows", "--pid", "" + pid, "--max", "4"
+  ]);
+  return inventory.data.returned === 0;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  print(EVIDENCE);
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_macos_window_activate_executable_missing");
+
+const context = harness.new_context(repo, "cu-macos-window-activate");
+const children = [];
+const pids = [];
+let original_foreground = null;
+let original_independent = null;
+let probe = "";
+let succeeded = 0;
+let failure = "";
+try {
+  const helpers = compile_helpers(context, repo);
+  const fixture_executable = helpers.fixture;
+  probe = helpers.probe;
+  original_independent = independent_front_window(context, probe);
+  original_foreground = window_by_handle(
+    context, executable, original_independent.pid, original_independent.handle
+  );
+  ensure(
+    original_foreground !== null && original_foreground.handle > 0,
+    "cu_macos_window_activate_original_foreground_missing"
+  );
+  ensure(
+    original_independent.pid === original_foreground.process_id
+      && original_independent.handle === original_foreground.handle,
+    "cu_macos_window_activate_original_foreground_disagrees"
+  );
+
+  print("STEP start one owned non-activating two-window Cocoa application");
+  const fixture = harness.start_child(context, {
+    program: fixture_executable,
+    args: [],
+    current_dir: context.run_directory,
+    env: {},
+    timeout_ms: 30000
+  }, "two-window-cocoa-fixture");
+  children.push(fixture);
+  pids.push(fixture.pid);
+  const first_window = wait_for_window(
+    context, executable, fixture.pid, "agenterm-ax-fixture-" + fixture.pid
+  );
+  const second_window = wait_for_window(
+    context, executable, fixture.pid, "agenterm-ax-second-" + fixture.pid
+  );
+  ensure(
+    first_window.handle !== second_window.handle
+      && first_window.process_id === second_window.process_id,
+    "cu_macos_window_activate_fixture_alias"
+  );
+  const before = invoke(context, executable, "observe", [
+    "windows", "--pid", "" + fixture.pid, "--max", "4"
+  ]);
+  ensure(
+    before.data.returned === 2
+      && before.data.windows[0].focused === false
+      && before.data.windows[1].focused === false
+      && independent_front_window(context, probe).handle === original_foreground.handle,
+    "cu_macos_window_activate_background_fixture_reported_focused"
+  );
+
+  print("STEP observe-only authority refuses activation without changing foreground");
+  const refused = run_reply(context, executable, "observe", [
+    "activate", "--window", "" + first_window.handle
+  ]);
+  const refused_independent = independent_front_window(context, probe);
+  ensure(
+    refused.output.success === false
+      && refused.reply.ok === false
+      && refused.reply.error.code === "refused"
+      && refused_independent.pid === original_foreground.process_id
+      && refused_independent.handle === original_foreground.handle,
+    "cu_macos_window_activate_observe_only_refusal"
+  );
+
+  print("STEP establish the first exact owned window as desktop foreground");
+  activate_exact(context, executable, probe, first_window, "cu_macos_window_activate_first");
+
+  print("STEP activate the sibling window and reject same-application aliasing");
+  activate_exact(context, executable, probe, second_window, "cu_macos_window_activate_second");
+  ensure(
+    focused_row(context, executable).handle !== first_window.handle,
+    "cu_macos_window_activate_old_foreground_retained"
+  );
+
+  print("STEP restore the first owned window and read back the same exact handle");
+  activate_exact(context, executable, probe, first_window, "cu_macos_window_activate_restore");
+  ensure(
+    focused_row(context, executable).handle !== second_window.handle,
+    "cu_macos_window_activate_second_foreground_retained"
+  );
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+for (const child of children) {
+  try {
+    if (harness.child_state(child) === "running") { harness.child_kill(child); }
+    harness.child_wait(child, 3000);
+  } catch (cleanup_error) {
+    failure = failure + ":cu_macos_window_activate_fixture_unreaped:" + cleanup_error;
+    succeeded = 0;
+  }
+}
+for (const pid of pids) {
+  try {
+    if (!windows_absent(context, executable, pid)) {
+      failure = failure + ":cu_macos_window_activate_window_remained:" + pid;
+      succeeded = 0;
+    }
+  } catch (cleanup_observation_error) {
+    failure = failure + ":cu_macos_window_activate_cleanup_unobserved:" + cleanup_observation_error;
+    succeeded = 0;
+  }
+}
+if (original_independent !== null && probe !== "") {
+  try {
+    let restored = false;
+    for (let poll = 0; poll < 100; poll = poll + 1) {
+      const observed = independent_front_window(context, probe);
+      if (observed.pid === original_independent.pid
+          && observed.handle === original_independent.handle) {
+        restored = true;
+        break;
+      }
+      harness.sleep_ms(20);
+    }
+    if (!restored) {
+      failure = failure + ":cu_macos_window_activate_original_foreground_not_restored";
+      succeeded = 0;
+    }
+  } catch (foreground_observation_error) {
+    failure = failure + ":cu_macos_window_activate_original_foreground_unobserved:"
+      + foreground_observation_error;
+    succeeded = 0;
+  }
+}
+
+try { harness.complete_children(context, children, succeeded !== 0 && failure === "", failure); }
+catch (completion_error) {
+  failure = failure + ":cu_macos_window_activate_completion:" + completion_error;
+  succeeded = 0;
+}
+
+if (succeeded !== 0 && failure === "") {
+  harness.emit_evidence(context, [EVIDENCE], EVIDENCE);
+  harness.remove_run(context);
+  print("PASS: macOS whole-window activation selected two exact sibling handles and restored the pre-court foreground window");
+  return;
+}
+if (failure !== "") { throw failure; }
+throw "cu_macos_window_activate_failed";

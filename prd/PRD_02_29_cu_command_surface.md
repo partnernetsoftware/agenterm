@@ -89,7 +89,7 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   the pop-up read back" (slice 2, 2026-08-30). Linux / Windows run the same
   verbs on their own backends with partial mappings (see PRD 30); live
   evidence there is not claimed.
-- [~] `activate --window H` has the desktop-wide `desktop-foreground`
+- [x] `activate --window H` has the desktop-wide `desktop-foreground`
   postcondition. Its read-back uses the same resolved-focus model published by
   `windows --focused` and verifies only when that model returns the exact
   requested handle; activating another window of the same application is not
@@ -97,8 +97,17 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   sufficient for `verified`. The receipt exposes the focus resolution's
   `via` / `reason` so a missing frontmost application, an unrepresented
   frontmost window, and a different resolved handle remain distinguishable.
-  The pure resolver and exact-handle regressions are covered; a dedicated
-  macOS public activation court remains pending, so this leaf stays partial.
+  The pure resolver and exact-handle regressions are covered. macOS
+  whole-window activation has exact desktop-foreground read-back: the explicit
+  visible `cu-macos-window-activate-smoke` court first proves its non-frontmost
+  owned accessory windows are not guessed focused, then activates two sibling
+  handles in that one owned process. Each effect requires the receipt's exact
+  requested handle, `performed=true`, `verified=true`, resolved-focus details,
+  an independent NSWorkspace/CoreGraphics PID/CGWindowID match, and a separate
+  public `windows --focused` exact-handle read-back. The court never activates a
+  user window as cleanup: terminating its owned foreground fixture must let
+  macOS restore the exact pre-court PID/CGWindowID, and the independent probe
+  must verify that restoration before `cu.macos-window-activate` is emitted.
 - [x] Chromium idle chrome is not an empty page: `tree` / `query` JSON
   carries `ax` plus `next_actions` that name a deeper
   `query --role WebArea` (never screenshot, never “install extension”).

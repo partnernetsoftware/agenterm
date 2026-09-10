@@ -462,11 +462,17 @@ flowchart LR
   It is deliberately distinct from accessibility-node
   `focus` and application-local `raise`. A live macOS round trip activated a
   background text-editor window and restored the prior foreground window, both
-  verified on the first poll; Windows x86_64 and Linux x86_64 cross-builds are
-  green. The MCU adapter now rewrites its whole-window `focus H` to this verb,
-  so that compatibility fallback inventory falls from 31 to 30. Windows and
-  Linux native desktop journeys remain the promotion evidence; the source and
-  local macOS result alone do not promote the leaf. The first updated Windows
+  verified on the first poll. The registered explicit-visible macOS court now
+  makes that contract reproducible with one invocation-owned two-window Cocoa
+  application: a background negative observation preserves the frontmost-app
+  gate, exact sibling-handle activation makes same-application aliasing
+  falsifiable, an independent NSWorkspace/CoreGraphics probe verifies the exact
+  PID/CGWindowID, and terminating the owned fixture must restore that same
+  pre-court foreground before evidence emission. Windows x86_64
+  and Linux x86_64 cross-builds are green. The MCU adapter now rewrites its
+  whole-window `focus H` to this verb, so that compatibility fallback inventory
+  falls from 31 to 30. Windows and Linux native desktop journeys remain their
+  platform evidence. The first updated Windows
   x86_64 attempt reached a ready QEMU Guest Agent twice but the interactive
   desktop task produced no registration nonce, so the product journey never
   started; that attempt is recorded as court infrastructure blocked, the VM

@@ -104,6 +104,13 @@
       ]
     },
     {
+      "id": "cu-macos-window-activate-smoke",
+      "platform": "macos",
+      "evidence": [
+        "cu.macos-window-activate"
+      ]
+    },
+    {
       "id": "cu-runtime-capability-core-smoke",
       "platform": "macos",
       "evidence": [

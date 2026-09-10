@@ -699,6 +699,26 @@
         "task.cu-macos-smoke"
       ]
     },
+    "cu-macos-window-activate-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "desktop-session",
+        "explicit-visible-input-court"
+      ],
+      "outputs": [
+        "cu-macos-window-activate-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-macos-window-activate-smoke"
+      ]
+    },
     "cu-macos-external-terminal-send-smoke": {
       "inputs": [
         "built-agenterm",
@@ -5976,6 +5996,26 @@
       "id": "cu-macos-smoke",
       "description": "Prove the macOS agenterm-cu loop on owned fixtures: identity-bound process argv/usage/wait/kill, network and file observation, terminal control, bounded tree/query, exact-app global menu inspection/invocation, semantic writes, background input, geometry, screenshot, snapshot/diff, window lifecycle, receipts and owned cleanup.",
       "entry": "scripts/qjs/cu-macos-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-macos-window-activate-smoke",
+      "description": "Explicit visible macOS court for desktop-wide whole-window activation: select two exact sibling handles in one owned Cocoa application, verify public and independent foreground read-back, restore the pre-court foreground window, and reap the fixture.",
+      "entry": "scripts/qjs/cu-macos-window-activate-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

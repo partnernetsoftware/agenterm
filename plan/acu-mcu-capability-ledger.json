@@ -486,9 +486,10 @@
         {
           "id": "desktop.window.lifecycle",
           "mcu_shape": "close/minimize/restore/focus",
-          "acu_shape": "close/minimize/restore/focus with post-state readback",
+          "acu_shape": "close/minimize/restore plus activate --window with exact desktop-foreground post-state readback",
           "state": "delegated",
-          "evidence": ["cu.macos-ax-window-state", "cu.macos-ax-destructive-close", "cu.linux-atspi-minimized", "cu.windows-uia-destructive-close"]
+          "evidence": ["cu.macos-ax-window-state", "cu.macos-ax-destructive-close", "cu.macos-window-activate", "cu.linux-atspi-minimized", "cu.windows-uia-destructive-close"],
+          "note": "The explicit visible macOS court captures the pre-court foreground, proves a non-frontmost accessory app is not guessed focused, activates two exact sibling handles in one invocation-owned Cocoa process, and requires both public resolved-focus plus an independent NSWorkspace/CoreGraphics PID/CGWindowID read-back. It never activates a user window as cleanup: terminating the owned foreground fixture must restore the exact pre-court PID/CGWindowID before evidence emission. Whole-window activate remains distinct from accessibility-node focus and same-application raise."
         },
         {
           "id": "desktop.pointer.global",
