@@ -196,6 +196,9 @@
     "stage_statuses": "exact object with every stage_order key and a stage_status_values value",
     "criteria": "exact object with every criteria_keys key and a criterion_result_shape value",
     "terminal_code": "exactly one terminal_codes value",
+    "scan": "exact receipt_sections.scan object; when complete is true every nullable field is non-null; when complete is false a nullable field is null exactly when the corresponding measured fact is unavailable and is never synthesized as zero",
+    "scan_source": "receipt.scan and the scan-coverage stage derive from the same validated process-probe summary; every same-named field present in both is exactly equal, and a failed scan-coverage stage omits unavailable optional stage facts while receipt.scan retains their required keys as JSON null",
+    "sample_sequence_digest": "sha256 of the UTF-8 domain agenterm.singleton-safety.v1.sample-sequence, one 0x00 byte, and the RFC 8785 canonical JSON ordered sanitized sample array; zero samples uses the literal empty array and does not prove coverage",
     "journal_sha256": "sha256 of the exact authoritative journal file bytes after final atomic readback",
     "publication": "RFC 8785 canonical JSON followed by atomic replacement, readback and hashing before any lane mirror"
   },
@@ -209,12 +212,12 @@
     },
     "scan": {
       "sample_count": "safe_integer",
-      "window_duration_ms": "safe_integer",
-      "max_start_interval_ms": "safe_integer",
-      "max_enumeration_ms": "safe_integer",
-      "resolution_ms": "safe_integer",
-      "maximum_row_count": "safe_integer",
-      "maximum_group_member_count": "safe_integer",
+      "window_duration_ms": "nullable_safe_integer",
+      "max_start_interval_ms": "nullable_safe_integer",
+      "max_enumeration_ms": "nullable_safe_integer",
+      "resolution_ms": "nullable_safe_integer",
+      "maximum_row_count": "nullable_safe_integer",
+      "maximum_group_member_count": "nullable_safe_integer",
       "sample_sequence_digest": "sha256",
       "complete": "boolean"
     },
@@ -252,6 +255,7 @@
   },
   "stage_success_code": "stage_pass",
   "stage_pass_rules": {
+    "presence_default": "every pass_required fact must be present with a value valid for its declared type; exact_values and relational_values add constraints after this presence-and-type requirement",
     "boolean_default": "every boolean-valued required or pass_required fact must be true",
     "false_boolean_exceptions": ["scan-coverage.early_scanner_stop"],
     "exact_values": {
@@ -468,6 +472,7 @@
     "agenterm.singleton-safety.v1.sticky-descendant-closure",
     "agenterm.singleton-safety.v1.baseline-set",
     "agenterm.singleton-safety.v1.deviation-set",
+    "agenterm.singleton-safety.v1.sample-sequence",
     "agenterm.singleton-safety.v1.frozen-input",
     "agenterm.singleton-safety.v1.decision-trace"
   ],
@@ -481,6 +486,7 @@
   "fact_type_values": [
     "boolean",
     "safe_integer",
+    "nullable_safe_integer",
     "sha256",
     "nullable_sha256",
     "git_sha",
@@ -494,6 +500,7 @@
   "value_type_rules": {
     "boolean": "JSON boolean",
     "safe_integer": "JSON integer from 0 through 9007199254740991 inclusive",
+    "nullable_safe_integer": "safe_integer or JSON null",
     "sha256": "exactly 64 lowercase hexadecimal characters",
     "nullable_sha256": "sha256 or JSON null",
     "git_sha": "exactly 40 lowercase hexadecimal characters",
@@ -857,7 +864,8 @@
         "cleanup_veto_respected": "boolean",
         "residual_identity_digest": "nullable_sha256",
         "public_inventory_complete": "boolean",
-        "independent_inventory_complete": "boolean"
+        "independent_inventory_complete": "boolean",
+        "no_activate_enabled": "boolean"
       },
       "pass_required": [
         "owner_absent",
@@ -871,16 +879,18 @@
         "cleanup_veto_respected",
         "residual_identity_digest",
         "public_inventory_complete",
-        "independent_inventory_complete"
+        "independent_inventory_complete",
+        "no_activate_enabled"
       ]
     },
     "session-remove": {
       "required": {"complete": "boolean"},
       "optional": {
         "public_remove_succeeded": "boolean",
-        "session_registry_absent": "boolean"
+        "session_registry_absent": "boolean",
+        "no_activate_enabled": "boolean"
       },
-      "pass_required": ["public_remove_succeeded", "session_registry_absent"]
+      "pass_required": ["public_remove_succeeded", "session_registry_absent", "no_activate_enabled"]
     },
     "root-removal": {
       "required": {"complete": "boolean"},
@@ -888,13 +898,15 @@
         "root_identity_digest": "sha256",
         "removal_within_scratch_root": "boolean",
         "session_root_absent": "boolean",
-        "owned_chromium_root_absent": "boolean"
+        "owned_chromium_root_absent": "boolean",
+        "no_activate_enabled": "boolean"
       },
       "pass_required": [
         "root_identity_digest",
         "removal_within_scratch_root",
         "session_root_absent",
-        "owned_chromium_root_absent"
+        "owned_chromium_root_absent",
+        "no_activate_enabled"
       ]
     },
     "fixture-restore": {
@@ -904,14 +916,16 @@
         "public_frontmost_match": "boolean",
         "independent_frontmost_match": "boolean",
         "restore_elapsed_ms": "safe_integer",
-        "restore_within_deadline": "boolean"
+        "restore_within_deadline": "boolean",
+        "no_activate_enabled": "boolean"
       },
       "pass_required": [
         "fixture_foreground_identity_digest",
         "public_frontmost_match",
         "independent_frontmost_match",
         "restore_elapsed_ms",
-        "restore_within_deadline"
+        "restore_within_deadline",
+        "no_activate_enabled"
       ]
     },
     "original-restore": {
@@ -923,7 +937,8 @@
         "public_frontmost_match": "boolean",
         "independent_frontmost_match": "boolean",
         "restore_elapsed_ms": "safe_integer",
-        "restore_within_deadline": "boolean"
+        "restore_within_deadline": "boolean",
+        "no_activate_enabled": "boolean"
       },
       "pass_required": [
         "fixture_exit_succeeded",
@@ -932,7 +947,8 @@
         "public_frontmost_match",
         "independent_frontmost_match",
         "restore_elapsed_ms",
-        "restore_within_deadline"
+        "restore_within_deadline",
+        "no_activate_enabled"
       ]
     },
     "final-inventory": {
