@@ -533,3 +533,20 @@ durable alias binding** and identify the product implementation boundary; it may
 not call a human name a cryptographic identity. An inconclusive result leaves
 the stable TODO and gap unchanged. No result becomes product evidence until the
 implementation and its own public black-box court ship.
+
+## 9. Terminal record
+
+The precommitment closed on 2026-09-11 without a design verdict. Both permitted
+rehearsals finished inconclusive, neither produced `REHEARSAL_PASS`, and D1 is
+machine-ineligible: the immutable R1 and R2 ordinals are both consumed, and no
+successful rehearsal exists for a decision run to match. A0, A1 and B were not
+selected. No product evidence was registered, and the stable TODO and
+capability state remain unchanged.
+
+The complete attempt identities, ledger, stage traces, unavailable result
+items, deviations and reproduction boundary are recorded in
+`research/browser-profile-name-binding-v2/RESULTS.md`. This section is
+post-experiment history, not part of either completed run's frozen input. No
+criterion changed after either run. This harness must not be repaired or rerun
+in place; any further investigation requires a new precommitment and new
+budget.

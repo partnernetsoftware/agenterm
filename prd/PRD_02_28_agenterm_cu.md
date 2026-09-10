@@ -1009,10 +1009,15 @@ flowchart LR
   `acu.dynamic.075.profile-name-binding` TODO makes that missing sub-shape
   visible instead of misclassifying it as usage or treating the frozen
   no-argument witness as full closure. The first decisive experiment exhausted
-  both attempts without a valid verdict; the replacement owned-lifecycle
-  precommitment is frozen in
-  `plan/design-browser-profile-name-binding-owned-lifecycle-experiment.md` but
-  has not run, selected a design, changed this TODO or registered evidence.
+  both attempts without a valid verdict. Its replacement owned-lifecycle
+  experiment, frozen in
+  `plan/design-browser-profile-name-binding-owned-lifecycle-experiment.md`,
+  also ended without a decision: `R1` rejected an overlength derived session
+  name, while `R2` stopped before persisting its independent ownership witness.
+  Both rehearsal ordinals are consumed, neither produced `REHEARSAL_PASS`, and
+  D1 is machine-ineligible. No A0, A1 or B design was selected; this TODO and
+  the capability ledger remain unchanged, and no evidence was registered.
+  Further investigation requires a new precommitment and new budget.
   Legacy `browser bridge status` now
   validates the complete live-connection inventory plus each closed status
   reply, then selects one exact profile-instance prefix without reading tabs;

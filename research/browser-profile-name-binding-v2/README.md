@@ -197,6 +197,11 @@ present” and “never created.”
 
 ## Result status
 
-`R1` was consumed and finished as `INCONCLUSIVE_DEPENDENCY`; it produced no
-design decision. Its source repair is recorded in `RESULTS.md`. `R2` remains
-available and `D1` remains locked pending a successful rehearsal.
+`R1` finished as `INCONCLUSIVE_DEPENDENCY`. Its permitted source repair was
+rehearsed as `R2`, which finished as `INCONCLUSIVE_OWNERSHIP`. Neither
+rehearsal produced `REHEARSAL_PASS`: both immutable rehearsal ordinals are
+consumed, and D1 is independently blocked by both exhausted rehearsal budget
+and the absence of a matching successful rehearsal. The experiment is terminal
+without a design decision. Do not repair or rerun this harness in place;
+`RESULTS.md` is the durable terminal record, and any further investigation
+requires a new precommitment and new budget.
