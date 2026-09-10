@@ -151,6 +151,7 @@ The result records:
   exact Local State/Preferences fixture bytes;
 - `N_all`/N/I/C cardinalities and fixed labels;
 - every possible E field and its injectivity/issuer decision;
+- the A0 subdecision, separately from the terminal experiment verdict;
 - baseline/start/stop construction trace, restart, rename, duplicate-name and
   exact-prefix controls;
 - decision branch and excluded claims.
@@ -162,7 +163,7 @@ The result records:
    validity failure ends the experiment as `INCONCLUSIVE_FIXTURE_EXHAUSTED`.
 2. Inventory G4a before running a selector. If E claims A equals B against frozen
    construction, return `INCONCLUSIVE_GROUND_TRUTH_CONFLICT` and stop.
-3. Run A0 in the negative trap. If it selects B, return
+3. Run A0 in the negative trap. If it selects B, record
    `REJECT_ARCHIVED_CARDINALITY_ALIAS` as the A0 subdecision; A0 can never be
    revived. If it refuses, record the A0 subdecision
    `REJECT_A0_NOT_REPRODUCED`: that result may establish that a stricter
