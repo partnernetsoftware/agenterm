@@ -1,0 +1,676 @@
+// Pure adjudication model for the browser Profile name-binding experiment.
+//
+// This module has no tool door and performs no browser or filesystem work. The
+// browser court supplies facts using this bounded schema:
+// {
+//   attempt: 1 | 2,
+//   validity: {g1: bool, g2: bool, g6: bool},
+//   edge: {eligible: bool, ground_truth_conflict: bool},
+//   a0: {selection: "B" | "refused"},
+//   a1: {
+//     positive_selection: "A" | "B" | "refused",
+//     negative_selection: "refused" | "A" | "B",
+//     restart_persistent: bool,
+//     name: {
+//       unique_directory: bool, frozen_snapshot: bool,
+//       rename_stales_receipt: bool, old_name_stops: bool,
+//       renamed_name_does_not_inherit: bool,
+//       duplicate_name_typed_ambiguous: bool
+//     }
+//   }
+// }
+//
+// G7 facts are never accepted from the browser court. `adjudicate` obtains
+// them by running the bounded in-memory state machine below.
+//
+// Returned data contains fixed labels and booleans only. It never reflects a
+// path, PID, display name, directory, full instance id, prefix, or raw digest.
+
+function demand(condition, code) {
+  if (!condition) { throw code; }
+}
+
+function bool(value) {
+  return value === true;
+}
+
+function demand_boolean(value, code) {
+  demand(value === true || value === false, code);
+  return value;
+}
+
+function demand_boolean_fields(value, fields, code) {
+  demand(value !== null && typeof value === "object", code);
+  for (let i = 0; i < fields.length; i = i + 1) {
+    demand_boolean(value[fields[i]], code + ":" + fields[i]);
+  }
+}
+
+function blank_criteria() {
+  return {
+    G1: {measured: false, pass: false},
+    G2: {measured: false, pass: false},
+    G3: {measured: false, pass: false},
+    G4a: {measured: false, pass: false},
+    G4b: {measured: false, pass: false},
+    G5: {measured: false, pass: false},
+    G6: {measured: false, pass: false},
+    G7: {measured: false, pass: false}
+  };
+}
+
+function result(verdict, a0, a1, binding, criteria, trace) {
+  return {
+    verdict: verdict,
+    a0_subdecision: a0,
+    a1_decision: a1,
+    b_decision: binding,
+    criteria: criteria,
+    trace: trace
+  };
+}
+
+function name_gate_passes(name) {
+  demand_boolean_fields(name, [
+    "unique_directory", "frozen_snapshot", "rename_stales_receipt",
+    "old_name_stops", "renamed_name_does_not_inherit",
+    "duplicate_name_typed_ambiguous"
+  ], "binding_model_name_fact_invalid");
+  return bool(name.unique_directory)
+    && bool(name.frozen_snapshot)
+    && bool(name.rename_stales_receipt)
+    && bool(name.old_name_stops)
+    && bool(name.renamed_name_does_not_inherit)
+    && bool(name.duplicate_name_typed_ambiguous);
+}
+
+function binding_operations_pass(operations) {
+  demand_boolean_fields(operations, [
+    "create", "resolve", "restart_revalidate", "target_stale", "collision",
+    "generation_conflict", "revoke"
+  ], "binding_model_operation_fact_invalid");
+  return bool(operations.create)
+    && bool(operations.resolve)
+    && bool(operations.restart_revalidate)
+    && bool(operations.target_stale)
+    && bool(operations.collision)
+    && bool(operations.generation_conflict)
+    && bool(operations.revoke);
+}
+
+function binding_invariants_pass(invariants) {
+  demand_boolean_fields(invariants, [
+    "active_pair_unique", "instance_single_alias", "duplicate_alias_typed",
+    "identity_change_stale", "inventory_cardinality_typed", "explicit_request",
+    "runtime_session", "session_lease", "generation_cas",
+    "rename_requires_explicit_replace", "revoke_resolves_not_found"
+  ], "binding_model_invariant_fact_invalid");
+  return bool(invariants.active_pair_unique)
+    && bool(invariants.instance_single_alias)
+    && bool(invariants.duplicate_alias_typed)
+    && bool(invariants.identity_change_stale)
+    && bool(invariants.inventory_cardinality_typed)
+    && bool(invariants.explicit_request)
+    && bool(invariants.runtime_session)
+    && bool(invariants.session_lease)
+    && bool(invariants.generation_cas)
+    && bool(invariants.rename_requires_explicit_replace)
+    && bool(invariants.revoke_resolves_not_found);
+}
+
+function injected(scenario, name) {
+  return scenario === name;
+}
+
+function binding_store(scenario) {
+  return {scenario: scenario, records: []};
+}
+
+function authority_ok(store, authority) {
+  if (injected(store.scenario, "wrong_authority")) { return true; }
+  return authority.explicit_request === true
+    && authority.runtime_session === true
+    && authority.session_lease === true;
+}
+
+function generation_ok(store, expected, actual) {
+  return expected === actual || injected(store.scenario, "stale_generation");
+}
+
+function active_records(store, include_revoked) {
+  const out = [];
+  for (let i = 0; i < store.records.length; i = i + 1) {
+    if (store.records[i].active || include_revoked) { out.push(store.records[i]); }
+  }
+  return out;
+}
+
+function create_binding(store, request) {
+  if (!authority_ok(store, request.authority)) { return "authority_refused"; }
+  if (!generation_ok(store, request.expected_generation, 0)) {
+    return "generation_conflict";
+  }
+  const records = active_records(store, false);
+  for (let i = 0; i < records.length; i = i + 1) {
+    const record = records[i];
+    if (record.application === request.application && record.directory === request.directory) {
+      return "pair_collision";
+    }
+    if (record.alias === request.alias && !injected(store.scenario, "alias_collision")) {
+      return "alias_collision";
+    }
+    if (record.instance === request.instance
+      && !injected(store.scenario, "instance_collision")) {
+      return "instance_collision";
+    }
+  }
+  store.records.push({
+    application: request.application,
+    directory: request.directory,
+    alias: request.alias,
+    instance: request.instance,
+    build: request.build,
+    generation: 1,
+    active: true
+  });
+  return "created";
+}
+
+function one_alias_record(store, alias) {
+  const matches = [];
+  const include_revoked = injected(store.scenario, "revoked_resolve");
+  const records = active_records(store, include_revoked);
+  for (let i = 0; i < records.length; i = i + 1) {
+    if (records[i].alias === alias) { matches.push(records[i]); }
+  }
+  if (matches.length === 0) { return {status: "not_found", record: null}; }
+  if (matches.length > 1) { return {status: "alias_collision", record: null}; }
+  return {status: "found", record: matches[0]};
+}
+
+function resolve_binding(store, alias, inventory_count, live_instance, live_build) {
+  if (inventory_count === 0) { return "connection_count_zero"; }
+  if (inventory_count > 1) { return "connection_count_multiple"; }
+  const found = one_alias_record(store, alias);
+  if (found.status !== "found") { return found.status; }
+  if (found.record.instance !== live_instance
+    && !injected(store.scenario, "identity_drift")) {
+    return "target_stale";
+  }
+  if (found.record.build !== live_build
+    && !injected(store.scenario, "stale_build")) {
+    return "build_stale";
+  }
+  return "resolved";
+}
+
+function replace_alias(store, request) {
+  if (!authority_ok(store, request.authority)) { return "authority_refused"; }
+  const found = one_alias_record(store, request.old_alias);
+  if (found.status !== "found") { return found.status; }
+  if (!generation_ok(store, request.expected_generation, found.record.generation)) {
+    return "generation_conflict";
+  }
+  const records = active_records(store, false);
+  for (let i = 0; i < records.length; i = i + 1) {
+    if (records[i] !== found.record && records[i].alias === request.new_alias) {
+      return "alias_collision";
+    }
+  }
+  found.record.alias = request.new_alias;
+  found.record.generation = found.record.generation + 1;
+  return "replaced";
+}
+
+function revoke_binding(store, request) {
+  if (!authority_ok(store, request.authority)) { return "authority_refused"; }
+  const found = one_alias_record(store, request.alias);
+  if (found.status !== "found") { return found.status; }
+  if (!generation_ok(store, request.expected_generation, found.record.generation)) {
+    return "generation_conflict";
+  }
+  found.record.active = false;
+  found.record.generation = found.record.generation + 1;
+  return "revoked";
+}
+
+export function prove_explicit_binding_model(scenario) {
+  const fault = scenario === undefined ? "none" : scenario;
+  const allowed_faults = [
+    "none", "stale_generation", "alias_collision", "instance_collision",
+    "identity_drift", "stale_build", "restart_record_loss",
+    "restart_build_drift", "wrong_authority", "revoked_resolve"
+  ];
+  let known_fault = false;
+  for (let i = 0; i < allowed_faults.length; i = i + 1) {
+    if (fault === allowed_faults[i]) { known_fault = true; }
+  }
+  demand(known_fault, "binding_model_fault_invalid");
+
+  let store = binding_store(fault);
+  const good_authority = {
+    explicit_request: true,
+    runtime_session: true,
+    session_lease: true
+  };
+  const no_explicit_request = {
+    explicit_request: false,
+    runtime_session: true,
+    session_lease: true
+  };
+  const no_runtime_session = {
+    explicit_request: true,
+    runtime_session: false,
+    session_lease: true
+  };
+  const no_session_lease = {
+    explicit_request: true,
+    runtime_session: true,
+    session_lease: false
+  };
+
+  // Each missing authority component must leave the fresh store unchanged.
+  const explicit_request_refused = create_binding(store, {
+    application: "APP_PROBE_1", directory: "DIR_PROBE_1", alias: "ALIAS_PROBE_1",
+    instance: "INSTANCE_PROBE_1", build: "BUILD_PROBE_1",
+    expected_generation: 0, authority: no_explicit_request
+  }) === "authority_refused";
+  const runtime_session_refused = create_binding(store, {
+    application: "APP_PROBE_2", directory: "DIR_PROBE_2", alias: "ALIAS_PROBE_2",
+    instance: "INSTANCE_PROBE_2", build: "BUILD_PROBE_2",
+    expected_generation: 0, authority: no_runtime_session
+  }) === "authority_refused";
+  const session_lease_refused = create_binding(store, {
+    application: "APP_PROBE_3", directory: "DIR_PROBE_3", alias: "ALIAS_PROBE_3",
+    instance: "INSTANCE_PROBE_3", build: "BUILD_PROBE_3",
+    expected_generation: 0, authority: no_session_lease
+  }) === "authority_refused";
+  const authority_refused = explicit_request_refused
+    && runtime_session_refused
+    && session_lease_refused
+    && store.records.length === 0;
+
+  const create = create_binding(store, {
+    application: "APP_A", directory: "DIR_A", alias: "ALIAS_OLD",
+    instance: "INSTANCE_1", build: "BUILD_1",
+    expected_generation: 0, authority: good_authority
+  }) === "created";
+  const resolve = resolve_binding(store, "ALIAS_OLD", 1, "INSTANCE_1", "BUILD_1")
+    === "resolved";
+  // A restart is a serialization boundary, not a second lookup against the
+  // same object identity. Only the persisted record bytes cross it.
+  store = JSON.parse(JSON.stringify(store));
+  if (injected(store.scenario, "restart_record_loss")) { store.records = []; }
+  if (injected(store.scenario, "restart_build_drift")) {
+    store.records[0].build = "BUILD_2";
+  }
+  const restart_revalidate = resolve_binding(store, "ALIAS_OLD", 1,
+    "INSTANCE_1", "BUILD_1")
+    === "resolved";
+
+  // A changed live identity or extension build for the same Profile object
+  // must be stale rather than silently rebound.
+  const identity_stale = resolve_binding(store, "ALIAS_OLD", 1,
+    "INSTANCE_2", "BUILD_1") === "target_stale";
+  const build_stale = resolve_binding(store, "ALIAS_OLD", 1,
+    "INSTANCE_1", "BUILD_2") === "build_stale";
+  const target_stale = identity_stale && build_stale;
+  const inventory_cardinality_typed = resolve_binding(store, "ALIAS_OLD", 0,
+    "INSTANCE_1", "BUILD_1")
+    === "connection_count_zero"
+    && resolve_binding(store, "ALIAS_OLD", 2, "INSTANCE_1", "BUILD_1")
+      === "connection_count_multiple";
+
+  const alias_collision = create_binding(store, {
+    application: "APP_B", directory: "DIR_B", alias: "ALIAS_OLD",
+    instance: "INSTANCE_2", build: "BUILD_2",
+    expected_generation: 0, authority: good_authority
+  }) === "alias_collision";
+  const pair_collision = create_binding(store, {
+    application: "APP_A", directory: "DIR_A", alias: "ALIAS_OTHER",
+    instance: "INSTANCE_2", build: "BUILD_2",
+    expected_generation: 0, authority: good_authority
+  }) === "pair_collision";
+  const instance_collision = create_binding(store, {
+    application: "APP_B", directory: "DIR_B", alias: "ALIAS_OTHER",
+    instance: "INSTANCE_1", build: "BUILD_1",
+    expected_generation: 0, authority: good_authority
+  }) === "instance_collision";
+
+  const generation_conflict = replace_alias(store, {
+    old_alias: "ALIAS_OLD", new_alias: "ALIAS_BAD", expected_generation: 0,
+    authority: good_authority
+  }) === "generation_conflict";
+
+  // A display-name change alone creates no binding. Only an authorized CAS
+  // replace may move the alias to the same durable pair and instance.
+  const rename_did_not_bind = resolve_binding(store, "ALIAS_NEW", 1,
+    "INSTANCE_1", "BUILD_1")
+    === "not_found";
+  const replace_authority_refused = replace_alias(store, {
+    old_alias: "ALIAS_OLD", new_alias: "ALIAS_NEW", expected_generation: 1,
+    authority: no_explicit_request
+  }) === "authority_refused";
+  const old_alias_survived_refused_replace = resolve_binding(store, "ALIAS_OLD", 1,
+    "INSTANCE_1", "BUILD_1") === "resolved";
+  const explicit_replace = replace_alias(store, {
+    old_alias: "ALIAS_OLD", new_alias: "ALIAS_NEW", expected_generation: 1,
+    authority: good_authority
+  }) === "replaced";
+  const old_alias_stopped = resolve_binding(store, "ALIAS_OLD", 1,
+    "INSTANCE_1", "BUILD_1")
+    === "not_found";
+  const new_alias_resolved = resolve_binding(store, "ALIAS_NEW", 1,
+    "INSTANCE_1", "BUILD_1")
+    === "resolved";
+
+  const revoke_authority_refused = revoke_binding(store, {
+    alias: "ALIAS_NEW", expected_generation: 2, authority: no_session_lease
+  }) === "authority_refused";
+  const new_alias_survived_refused_revoke = resolve_binding(store, "ALIAS_NEW", 1,
+    "INSTANCE_1", "BUILD_1") === "resolved";
+  const revoke = revoke_binding(store, {
+    alias: "ALIAS_NEW", expected_generation: 2, authority: good_authority
+  }) === "revoked";
+  const revoked_not_found = resolve_binding(store, "ALIAS_NEW", 1,
+    "INSTANCE_1", "BUILD_1")
+    === "not_found";
+
+  const operations = {
+    create: create && authority_refused,
+    resolve: resolve,
+    restart_revalidate: restart_revalidate,
+    target_stale: target_stale,
+    collision: pair_collision && alias_collision && instance_collision,
+    generation_conflict: generation_conflict,
+    revoke: revoke_authority_refused && new_alias_survived_refused_revoke
+      && revoke && revoked_not_found
+  };
+  const invariants = {
+    active_pair_unique: pair_collision,
+    instance_single_alias: instance_collision,
+    duplicate_alias_typed: alias_collision,
+    identity_change_stale: identity_stale && build_stale,
+    inventory_cardinality_typed: inventory_cardinality_typed,
+    explicit_request: explicit_request_refused && replace_authority_refused,
+    runtime_session: runtime_session_refused,
+    session_lease: session_lease_refused && revoke_authority_refused,
+    generation_cas: generation_conflict,
+    rename_requires_explicit_replace: rename_did_not_bind
+      && replace_authority_refused && old_alias_survived_refused_replace
+      && explicit_replace
+      && old_alias_stopped && new_alias_resolved,
+    revoke_resolves_not_found: revoke && revoked_not_found
+  };
+  return {operations: operations, invariants: invariants};
+}
+
+export function adjudicate(facts) {
+  const criteria = blank_criteria();
+  const trace = [];
+  demand(facts !== null && typeof facts === "object", "binding_model_facts_invalid");
+  demand(facts.validity !== null && typeof facts.validity === "object",
+    "binding_model_validity_invalid");
+  demand(facts.attempt === 1 || facts.attempt === 2,
+    "binding_model_attempt_invalid");
+
+  criteria.G1.measured = true;
+  criteria.G1.pass = demand_boolean(facts.validity.g1, "binding_model_g1_invalid");
+  trace.push(criteria.G1.pass ? "G1_PASS" : "G1_INCONCLUSIVE_DEPENDENCY");
+  if (!criteria.G1.pass) {
+    return result(facts.attempt === 2 ? "INCONCLUSIVE_FIXTURE_EXHAUSTED"
+      : "INCONCLUSIVE_DEPENDENCY", "NOT_RUN", "NOT_RUN", "NOT_RUN",
+      criteria, trace);
+  }
+
+  criteria.G2.measured = true;
+  criteria.G2.pass = demand_boolean(facts.validity.g2, "binding_model_g2_invalid");
+  trace.push(criteria.G2.pass ? "G2_PASS" : "G2_INCONCLUSIVE_FIXTURE");
+  if (!criteria.G2.pass) {
+    return result(facts.attempt === 2 ? "INCONCLUSIVE_FIXTURE_EXHAUSTED"
+      : "INCONCLUSIVE_FIXTURE", "NOT_RUN", "NOT_RUN", "NOT_RUN",
+      criteria, trace);
+  }
+
+  criteria.G6.measured = true;
+  criteria.G6.pass = demand_boolean(facts.validity.g6, "binding_model_g6_invalid");
+  trace.push(criteria.G6.pass ? "G6_PASS" : "G6_INCONCLUSIVE_FIXTURE");
+  if (!criteria.G6.pass) {
+    return result(facts.attempt === 2 ? "INCONCLUSIVE_FIXTURE_EXHAUSTED"
+      : "INCONCLUSIVE_FIXTURE", "NOT_RUN", "NOT_RUN", "NOT_RUN",
+      criteria, trace);
+  }
+
+  demand(facts.edge !== null && typeof facts.edge === "object",
+    "binding_model_edge_invalid");
+  criteria.G4a.measured = true;
+  criteria.G4a.pass = demand_boolean(facts.edge.eligible, "binding_model_g4a_invalid");
+  demand_boolean(facts.edge.ground_truth_conflict, "binding_model_ground_truth_invalid");
+  if (bool(facts.edge.ground_truth_conflict)) {
+    criteria.G4a.pass = false;
+    trace.push("G4A_GROUND_TRUTH_CONFLICT");
+    return result("INCONCLUSIVE_GROUND_TRUTH_CONFLICT", "NOT_RUN", "NOT_RUN",
+      "NOT_RUN", criteria, trace);
+  }
+  trace.push(criteria.G4a.pass ? "G4A_ELIGIBLE" : "G4A_ABSENT");
+
+  demand(facts.a0 !== null && typeof facts.a0 === "object",
+    "binding_model_a0_invalid");
+  criteria.G3.measured = true;
+  criteria.G3.pass = facts.a0.selection === "B";
+  let a0 = "REJECT_A0_NOT_REPRODUCED";
+  if (facts.a0.selection === "B") {
+    a0 = "REJECT_ARCHIVED_CARDINALITY_ALIAS";
+  } else {
+    demand(facts.a0.selection === "refused", "binding_model_a0_selection_invalid");
+  }
+  trace.push(a0);
+
+  let a1 = "REJECT_VERIFIED_IMPLICIT_EDGE";
+  if (criteria.G4a.pass) {
+    demand(facts.a1 !== null && typeof facts.a1 === "object",
+      "binding_model_a1_invalid");
+    demand(facts.a1.name !== null && typeof facts.a1.name === "object",
+      "binding_model_a1_name_invalid");
+    demand(facts.a1.positive_selection === "A"
+      || facts.a1.positive_selection === "B"
+      || facts.a1.positive_selection === "refused",
+    "binding_model_a1_positive_selection_invalid");
+    demand(facts.a1.negative_selection === "A"
+      || facts.a1.negative_selection === "B"
+      || facts.a1.negative_selection === "refused",
+    "binding_model_a1_negative_selection_invalid");
+    const selections_pass = facts.a1.positive_selection === "A"
+      && facts.a1.negative_selection === "refused";
+    criteria.G4b.measured = true;
+    criteria.G4b.pass = demand_boolean(facts.a1.restart_persistent,
+      "binding_model_g4b_invalid");
+    criteria.G5.measured = true;
+    criteria.G5.pass = name_gate_passes(facts.a1.name);
+    if (selections_pass && criteria.G4b.pass && criteria.G5.pass) {
+      a1 = "SELECT_VERIFIED_IMPLICIT_EDGE";
+      trace.push("A1_POSITIVE_AND_NEGATIVE_SELECTIONS_PASS");
+      trace.push("G4B_PASS");
+      trace.push("G5_PASS");
+      trace.push(a1);
+      return result(a1, a0, a1, "NOT_RUN", criteria, trace);
+    }
+    trace.push(selections_pass ? "A1_SELECTIONS_PASS" : "A1_SELECTIONS_REJECTED");
+    trace.push(criteria.G4b.pass ? "G4B_PASS" : "G4B_REJECTED");
+    trace.push(criteria.G5.pass ? "G5_PASS" : "G5_REJECTED");
+  } else {
+    trace.push("A1_REJECTED_NO_G4A_EDGE");
+  }
+  trace.push(a1);
+
+  const binding_facts = prove_explicit_binding_model();
+  criteria.G7.measured = true;
+  criteria.G7.pass = binding_operations_pass(binding_facts.operations)
+    && binding_invariants_pass(binding_facts.invariants);
+  const binding = criteria.G7.pass
+    ? "SELECT_EXPLICIT_DURABLE_BINDING"
+    : "INCONCLUSIVE_BINDING_DESIGN";
+  trace.push(criteria.G7.pass ? "G7_PASS" : "G7_INCONCLUSIVE");
+  trace.push(binding);
+  return result(binding, a0, a1, binding, criteria, trace);
+}
+
+function passing_facts() {
+  return {
+    attempt: 1,
+    validity: {g1: true, g2: true, g6: true},
+    edge: {eligible: true, ground_truth_conflict: false},
+    a0: {selection: "B"},
+    a1: {
+      positive_selection: "A",
+      negative_selection: "refused",
+      restart_persistent: true,
+      name: {
+        unique_directory: true,
+        frozen_snapshot: true,
+        rename_stales_receipt: true,
+        old_name_stops: true,
+        renamed_name_does_not_inherit: true,
+        duplicate_name_typed_ambiguous: true
+      }
+    }
+  };
+}
+
+function expect(condition, label) {
+  demand(condition, "binding_model_self_test:" + label);
+}
+
+export function self_test() {
+  let facts = passing_facts();
+  let out = adjudicate(facts);
+  expect(out.verdict === "SELECT_VERIFIED_IMPLICIT_EDGE", "a1_selects");
+  expect(out.a0_subdecision === "REJECT_ARCHIVED_CARDINALITY_ALIAS", "a0_wrong_b");
+  expect(out.b_decision === "NOT_RUN", "b_not_run_after_a1");
+
+  facts = passing_facts();
+  facts.a0.selection = "refused";
+  out = adjudicate(facts);
+  expect(out.a0_subdecision === "REJECT_A0_NOT_REPRODUCED", "a0_refusal_rejects");
+
+  facts = passing_facts();
+  facts.edge.ground_truth_conflict = true;
+  out = adjudicate(facts);
+  expect(out.verdict === "INCONCLUSIVE_GROUND_TRUTH_CONFLICT", "g4a_conflict_stops");
+  expect(out.a0_subdecision === "NOT_RUN", "g4a_conflict_precedes_a0");
+
+  facts = passing_facts();
+  facts.edge.eligible = false;
+  out = adjudicate(facts);
+  expect(out.a1_decision === "REJECT_VERIFIED_IMPLICIT_EDGE", "g4a_absent_rejects_a1");
+  expect(out.verdict === "SELECT_EXPLICIT_DURABLE_BINDING", "g4a_absent_runs_b");
+
+  facts = passing_facts();
+  facts.a1.restart_persistent = false;
+  out = adjudicate(facts);
+  expect(!out.criteria.G4b.pass, "g4b_failure_visible");
+  expect(out.verdict === "SELECT_EXPLICIT_DURABLE_BINDING", "g4b_failure_runs_b");
+
+  const name_fields = [
+    "unique_directory", "frozen_snapshot", "rename_stales_receipt",
+    "old_name_stops", "renamed_name_does_not_inherit",
+    "duplicate_name_typed_ambiguous"
+  ];
+  for (let i = 0; i < name_fields.length; i = i + 1) {
+    facts = passing_facts();
+    facts.a1.name[name_fields[i]] = false;
+    out = adjudicate(facts);
+    expect(!out.criteria.G5.pass, "g5_branch_" + i);
+    expect(out.verdict === "SELECT_EXPLICIT_DURABLE_BINDING", "g5_runs_b_" + i);
+  }
+
+  facts = passing_facts();
+  facts.a1.positive_selection = "refused";
+  out = adjudicate(facts);
+  expect(out.a1_decision === "REJECT_VERIFIED_IMPLICIT_EDGE", "a1_positive_refused");
+  facts = passing_facts();
+  facts.a1.negative_selection = "B";
+  out = adjudicate(facts);
+  expect(out.a1_decision === "REJECT_VERIFIED_IMPLICIT_EDGE", "a1_negative_wrong");
+
+  const model = prove_explicit_binding_model();
+  const operations = [
+    "create", "resolve", "restart_revalidate", "target_stale", "collision",
+    "generation_conflict", "revoke"
+  ];
+  for (let i = 0; i < operations.length; i = i + 1) {
+    expect(model.operations[operations[i]], "g7_operation_" + i);
+  }
+
+  const invariants = [
+    "active_pair_unique", "instance_single_alias", "duplicate_alias_typed",
+    "identity_change_stale", "inventory_cardinality_typed", "explicit_request",
+    "runtime_session", "session_lease", "generation_cas",
+    "rename_requires_explicit_replace", "revoke_resolves_not_found"
+  ];
+  for (let i = 0; i < invariants.length; i = i + 1) {
+    expect(model.invariants[invariants[i]], "g7_invariant_" + i);
+  }
+
+  let failed_model = prove_explicit_binding_model("stale_generation");
+  expect(!failed_model.operations.generation_conflict, "inject_stale_generation");
+  expect(!failed_model.invariants.generation_cas, "inject_generation_cas");
+  failed_model = prove_explicit_binding_model("alias_collision");
+  expect(!failed_model.operations.collision, "inject_alias_collision_operation");
+  expect(!failed_model.invariants.duplicate_alias_typed, "inject_alias_collision");
+  failed_model = prove_explicit_binding_model("instance_collision");
+  expect(!failed_model.operations.collision, "inject_instance_collision_operation");
+  expect(!failed_model.invariants.instance_single_alias, "inject_instance_collision");
+  failed_model = prove_explicit_binding_model("identity_drift");
+  expect(!failed_model.operations.target_stale, "inject_identity_drift_operation");
+  expect(!failed_model.invariants.identity_change_stale, "inject_identity_drift");
+  failed_model = prove_explicit_binding_model("stale_build");
+  expect(!failed_model.operations.target_stale, "inject_stale_build_operation");
+  expect(!failed_model.invariants.identity_change_stale, "inject_stale_build");
+  failed_model = prove_explicit_binding_model("restart_record_loss");
+  expect(!failed_model.operations.restart_revalidate, "inject_restart_record_loss");
+  failed_model = prove_explicit_binding_model("restart_build_drift");
+  expect(!failed_model.operations.restart_revalidate, "inject_restart_build_drift");
+  failed_model = prove_explicit_binding_model("wrong_authority");
+  expect(!failed_model.operations.create, "inject_wrong_authority_operation");
+  expect(!failed_model.operations.revoke, "inject_wrong_authority_revoke");
+  expect(!failed_model.invariants.explicit_request, "inject_explicit_request");
+  expect(!failed_model.invariants.runtime_session, "inject_runtime_session");
+  expect(!failed_model.invariants.session_lease, "inject_session_lease");
+  expect(!failed_model.invariants.rename_requires_explicit_replace,
+    "inject_wrong_authority_replace");
+  failed_model = prove_explicit_binding_model("revoked_resolve");
+  expect(!failed_model.operations.revoke, "inject_revoked_resolve_operation");
+  expect(!failed_model.invariants.revoke_resolves_not_found, "inject_revoked_resolve");
+
+  facts = passing_facts();
+  facts.validity.g1 = false;
+  expect(adjudicate(facts).verdict === "INCONCLUSIVE_DEPENDENCY", "g1_exit");
+  facts = passing_facts();
+  facts.validity.g2 = false;
+  expect(adjudicate(facts).verdict === "INCONCLUSIVE_FIXTURE", "g2_exit");
+  facts = passing_facts();
+  facts.validity.g6 = false;
+  expect(adjudicate(facts).verdict === "INCONCLUSIVE_FIXTURE", "g6_exit");
+  facts = passing_facts();
+  facts.attempt = 2;
+  facts.validity.g1 = false;
+  expect(adjudicate(facts).verdict === "INCONCLUSIVE_FIXTURE_EXHAUSTED",
+    "g1_second_attempt_exhausted");
+  facts = passing_facts();
+  facts.attempt = 2;
+  facts.validity.g2 = false;
+  expect(adjudicate(facts).verdict === "INCONCLUSIVE_FIXTURE_EXHAUSTED",
+    "g2_second_attempt_exhausted");
+  facts = passing_facts();
+  facts.attempt = 2;
+  facts.validity.g6 = false;
+  expect(adjudicate(facts).verdict === "INCONCLUSIVE_FIXTURE_EXHAUSTED",
+    "g6_second_attempt_exhausted");
+  return true;
+}
+
+// Importing the model also runs its pure, deterministic branch lock. Direct
+// execution therefore exercises the same lock without needing a tool profile.
+const binding_model_self_test_passed = self_test();
+binding_model_self_test_passed;

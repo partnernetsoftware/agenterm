@@ -1,0 +1,641 @@
+// Decisive browser Profile name-binding research court.
+// Args: REPO AGENTERM_CU_EXE CHROMIUM_EXE SOURCE_SHA INPUT_DIGEST
+// EXPECTED_BUILD_ID AGENTERM_SHA AGENTERM_CU_SHA CHROMIUM_SHA ATTEMPT
+// This is research only: it emits no qualification evidence and mutates only
+// one invocation-owned synthetic HOME.
+import * as rh from "scripts/qjs/lib/rh_compat";
+import * as harness from "scripts/qjs/lib/test_harness";
+import * as model from "research/browser-profile-name-binding/binding-model";
+
+const EXTENSION_ID = "knofdkmmpkbnjhdkcjddbakbpmgpmjpe";
+
+function ensure(condition, code) {
+  if (!condition) { throw code; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function host_is_macos() {
+  return !harness.host_is_windows() && rh.exists("/System/Library/CoreServices");
+}
+
+function isolated_env(home, run) {
+  return {
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: rh.join(home, "config"),
+    LOCALAPPDATA: rh.join(home, "AppData/Local"),
+    XDG_CONFIG_HOME: rh.join(home, "config"),
+    XDG_DATA_HOME: rh.join(home, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run, "cu-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(run, "cu-receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run, "cu-runtime.json"),
+    AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run, "cu-idempotency.json"),
+    AGENTERM_NO_ACTIVATE: "1"
+  };
+}
+
+function invoke(executable, env, cwd, grant, arguments, expected_success) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: cwd, env: env, timeout_ms: 45000
+  });
+  ensure(output.success === expected_success,
+    "profile_binding_native_exit_mismatch");
+  ensure(output.stdout.trim() !== "", "profile_binding_native_reply_missing");
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expected_success, "profile_binding_native_reply_mismatch");
+  return reply;
+}
+
+function browser_family(browser) {
+  const value = browser.toLowerCase();
+  if (value.indexOf("brave origin") >= 0) { return "brave-origin"; }
+  if (value.indexOf("brave") >= 0) { return "brave-browser"; }
+  if (value.indexOf("chromium") >= 0) { return "chromium"; }
+  if (value.indexOf("edge") >= 0) { return "edge"; }
+  return "chrome";
+}
+
+function browser_root(home, family) {
+  const support = rh.join(home, "Library/Application Support");
+  if (family === "brave-browser") {
+    return rh.join(support, "BraveSoftware/Brave-Browser");
+  }
+  if (family === "brave-origin") {
+    return rh.join(support, "BraveSoftware/Brave-Origin");
+  }
+  if (family === "chromium") { return rh.join(support, "Chromium"); }
+  if (family === "edge") { return rh.join(support, "Microsoft Edge"); }
+  return rh.join(support, "Google/Chrome");
+}
+
+function browser_app(family) {
+  if (family === "brave-browser") { return "Brave Browser"; }
+  if (family === "brave-origin") { return "Brave Origin"; }
+  if (family === "chromium") { return "Chromium"; }
+  if (family === "edge") { return "Microsoft Edge"; }
+  return "Google Chrome";
+}
+
+function all_candidate_roots(home) {
+  return [
+    browser_root(home, "brave-browser"),
+    browser_root(home, "brave-origin"),
+    browser_root(home, "chrome"),
+    browser_root(home, "chromium"),
+    browser_root(home, "edge")
+  ];
+}
+
+function connection_present(rows, id) {
+  for (const row of rows) {
+    if (row.connection_id === id) { return true; }
+  }
+  return false;
+}
+
+function connection_inventory(executable, env, cwd) {
+  const reply = invoke(executable, env, cwd, "observe",
+    ["browser-bridge-connections"], true);
+  ensure(reply.data.truncated === false,
+    "profile_binding_connection_inventory_truncated");
+  return reply.data;
+}
+
+function connections(executable, env, cwd) {
+  const inventory = connection_inventory(executable, env, cwd);
+  ensure(inventory.visited === inventory.connections.length,
+    "profile_binding_connection_inventory_filtered_record");
+  return inventory.connections;
+}
+
+function wait_one_added(executable, env, cwd, baseline, deadline) {
+  while (rh.now_ms() < deadline) {
+    const rows = connections(executable, env, cwd);
+    const added = [];
+    for (const row of rows) {
+      if (!connection_present(baseline, row.connection_id)) { added.push(row); }
+    }
+    if (added.length === 1) { return added[0]; }
+    ensure(added.length < 2, "selector_observation_multiple_connections");
+    rh.sleep_ms(50);
+  }
+  throw "selector_observation_no_connection";
+}
+
+function wait_inventory_empty(executable, env, cwd, deadline) {
+  while (rh.now_ms() < deadline) {
+    const inventory = connection_inventory(executable, env, cwd);
+    if (inventory.visited === 0 && inventory.connections.length === 0) { return []; }
+    rh.sleep_ms(50);
+  }
+  throw "profile_binding_connection_cleanup_unverified";
+}
+
+function strict_status(executable, env, cwd, connection_id) {
+  return invoke(executable, env, cwd, "observe",
+    ["browser-bridge-status", connection_id], true).data.result;
+}
+
+function normalized(value) {
+  return value.trim().toLowerCase();
+}
+
+function exact_keys(value, expected) {
+  const keys = Object.keys(value);
+  if (keys.length !== expected.length) { return false; }
+  for (const key of expected) {
+    if (!keys.includes(key)) { return false; }
+  }
+  return true;
+}
+
+function exact_connection_entry(row) {
+  return exact_keys(row, ["connection_id", "process", "endpoint", "protocol"])
+    && exact_keys(row.process, ["pid", "start_identity"])
+    && exact_keys(row.endpoint, ["kind", "native_host", "extension_id"]);
+}
+
+function candidate_observation(root) {
+  const state_path = rh.join(root, "Local State");
+  const preferences_path = rh.join(root, "Profile 1/Preferences");
+  ensure(direct_file(state_path) && direct_file(preferences_path),
+    "profile_binding_candidate_fixture_missing");
+  const state = JSON.parse(rh.read_text(state_path));
+  const preferences = JSON.parse(rh.read_text(preferences_path));
+  ensure(exact_keys(state, ["profile"])
+      && exact_keys(state.profile, ["last_used", "profiles_order", "info_cache"])
+      && state.profile.last_used === "Profile 1"
+      && Array.isArray(state.profile.profiles_order)
+      && state.profile.profiles_order.length === 1
+      && state.profile.profiles_order[0] === "Profile 1"
+      && exact_keys(state.profile.info_cache, ["Profile 1"]),
+    "profile_binding_local_state_surface_changed");
+  const entry = state.profile.info_cache["Profile 1"];
+  ensure(entry !== undefined && exact_keys(entry, ["name"])
+      && normalized(entry.name) === "work",
+    "profile_binding_candidate_name_invalid");
+  ensure(exact_keys(preferences, ["extensions"])
+      && exact_keys(preferences.extensions, ["settings"])
+      && exact_keys(preferences.extensions.settings, [EXTENSION_ID]),
+    "profile_binding_preferences_surface_changed");
+  const setting = preferences.extensions.settings[EXTENSION_ID];
+  ensure(setting !== undefined
+      && exact_keys(setting, ["disable_reasons", "state"])
+      && Array.isArray(setting.disable_reasons)
+      && setting.disable_reasons.length === 0
+      && setting.state === 1,
+    "profile_binding_candidate_extension_absent");
+  return {
+    visited_labels: ["candidate-root", "candidate-a", "candidate-a-preferences"],
+    n_all: ["candidate-a"],
+    named_installed: ["candidate-a"],
+    installed: ["candidate-a"],
+    candidate_fields: ["application", "directory", "display-name",
+      "local-state-last-used", "local-state-profile-order", "extension-id",
+      "extension-disabled", "extension-state", "window-handles"]
+  };
+}
+
+function native_candidate_inventory(executable, env, cwd, family) {
+  const reply = invoke(executable, env, cwd, "observe",
+    ["browser-profiles", "--app", browser_app(family)], true).data;
+  ensure(exact_keys(reply, ["mechanism", "app", "local_state", "join",
+      "returned", "profiles", "unlisted_windows"])
+      && reply.mechanism === "local-state+window-inventory"
+      && reply.app === browser_app(family)
+      && reply.local_state.startsWith("~/")
+      && Array.isArray(reply.profiles)
+      && Array.isArray(reply.unlisted_windows)
+      && reply.unlisted_windows.length === 0
+      && reply.returned === 1 && reply.profiles.length === 1,
+    "profile_binding_native_candidate_cardinality");
+  ensure(exact_keys(reply.profiles[0], ["name", "directory", "last_used", "windows"])
+      && reply.profiles[0].directory === "Profile 1"
+      && normalized(reply.profiles[0].name) === "work",
+    "profile_binding_native_candidate_mismatch");
+  ensure(reply.profiles[0].last_used === true
+      && Array.isArray(reply.profiles[0].windows)
+      && reply.profiles[0].windows.length === 0,
+    "profile_binding_native_candidate_surface_changed");
+  return reply.profiles[0];
+}
+
+function archived_a0_selection(candidate, live_rows) {
+  if (candidate.named_installed.length !== 1
+      || candidate.installed.length !== 1
+      || live_rows.length !== 1) {
+    return "refused";
+  }
+  return "B";
+}
+
+function bounded_edge_inventory(candidate_fields, connection_fields, status_fields) {
+  ensure(candidate_fields.length === 9
+      && connection_fields.length === 7
+      && status_fields.length === 6,
+    "profile_binding_edge_inventory_incomplete");
+  const connection_surface = [];
+  for (const field of connection_fields) {
+    if (!connection_surface.includes(field)) { connection_surface.push(field); }
+  }
+  for (const field of status_fields) {
+    if (!connection_surface.includes(field)) { connection_surface.push(field); }
+  }
+  const candidate_only = [];
+  const shared = [];
+  for (const field of candidate_fields) {
+    if (connection_surface.includes(field)) { shared.push(field); }
+    else { candidate_only.push(field); }
+  }
+  const connection_only = [];
+  for (const field of connection_surface) {
+    if (!candidate_fields.includes(field)) { connection_only.push(field); }
+  }
+  const rejected_non_unique = [];
+  for (const field of shared) { rejected_non_unique.push(field); }
+  ensure(candidate_only.length === 8 && shared.length === 1
+      && shared[0] === "extension-id",
+    "profile_binding_edge_inventory_classification_changed");
+  return {
+    eligible: shared.length > rejected_non_unique.length,
+    ground_truth_conflict: false,
+    candidate_only: candidate_only,
+    connection_only: connection_only,
+    rejected_non_unique: rejected_non_unique
+  };
+}
+
+function private_prefix_control(rows, connection_id, profile_instance_id) {
+  ensure(profile_instance_id.length >= 12,
+    "profile_binding_instance_prefix_unavailable");
+  const prefix = profile_instance_id.substring(0, 12);
+  let matches = 0;
+  let selected = false;
+  for (const row of rows) {
+    if (row.profile_instance_id.startsWith(prefix)) {
+      matches = matches + 1;
+      if (row.connection_id === connection_id) { selected = true; }
+    }
+  }
+  return matches === 1 && selected;
+}
+
+function bounded_command_text(program, arguments, code) {
+  const output = rh.command(program, arguments, { timeout_ms: 10000 });
+  ensure(output.success === true, code);
+  const value = output.stdout.trim();
+  return value;
+}
+
+function host_build_text() {
+  const value = bounded_command_text("sw_vers", ["-buildVersion"],
+    "profile_binding_host_build_unavailable");
+  ensure(value.length > 0 && value.length <= 32
+      && rh.only_chars(value, ["0","1","2","3","4","5","6","7","8","9",
+        "a","b","c","d","e","f","g","h","i","j","k","l","m","n",
+        "o","p","q","r","s","t","u","v","w","x","y","z",
+        "A","B","C","D","E","F","G","H","I","J","K","L","M","N",
+        "O","P","Q","R","S","T","U","V","W","X","Y","Z",".","-","_"]),
+    "profile_binding_host_build_unavailable");
+  return value;
+}
+
+function host_architecture_text() {
+  const value = bounded_command_text("uname", ["-m"],
+    "profile_binding_host_architecture_unavailable");
+  ensure(value === "arm64" || value === "x86_64",
+    "profile_binding_host_architecture_unavailable");
+  return value;
+}
+
+function browser_version_text(program, family) {
+  const value = bounded_command_text(program, ["--version"],
+    "profile_binding_browser_version_unavailable");
+  const prefixes = family === "chrome"
+    ? ["Google Chrome ", "Google Chrome for Testing "]
+    : [browser_app(family) + " "];
+  let version = "";
+  for (const prefix of prefixes) {
+    if (value.startsWith(prefix)) { version = value.substring(prefix.length); }
+  }
+  ensure(version.length >= 5 && version.length <= 40
+      && version.split(".").length >= 3
+      && rh.only_chars(version, ["0","1","2","3","4","5","6","7","8","9","."]),
+    "profile_binding_browser_version_unavailable");
+  return version;
+}
+
+function failure_verdict(code, attempt) {
+  if (attempt === 2) { return "INCONCLUSIVE_FIXTURE_EXHAUSTED"; }
+  if (code === "profile_binding_connection_inventory_truncated"
+      || code === "profile_binding_connection_inventory_filtered_record"
+      || code === "selector_observation_no_connection"
+      || code === "profile_binding_strict_status_identity_failed") {
+    return "INCONCLUSIVE_DEPENDENCY";
+  }
+  return "INCONCLUSIVE_FIXTURE";
+}
+
+function safe_error_code(error) {
+  const text = "" + error;
+  const alphabet = [
+    "a","b","c","d","e","f","g","h","i","j","k","l","m",
+    "n","o","p","q","r","s","t","u","v","w","x","y","z",
+    "0","1","2","3","4","5","6","7","8","9","_"
+  ];
+  if (text.length > 0 && text.length <= 96 && rh.only_chars(text, alphabet)) {
+    return text;
+  }
+  return "profile_binding_dependency_failure";
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--self-test") {
+  model.self_test();
+  const edge = bounded_edge_inventory(
+    ["application", "directory", "display-name", "local-state-last-used",
+      "local-state-profile-order", "extension-id", "extension-disabled",
+      "extension-state", "window-handles"],
+    ["connection-id", "host-pid", "host-start-identity", "endpoint-kind",
+      "native-host", "extension-id", "protocol"],
+    ["protocol", "extension-id", "extension-version", "build-id",
+      "profile-instance", "commands"]);
+  ensure(edge.eligible === false && edge.candidate_only.length === 8
+      && edge.rejected_non_unique.length === 1
+      && edge.rejected_non_unique[0] === "extension-id",
+    "profile_binding_edge_inventory_self_test");
+  print("PASS: profile binding decision model");
+  return;
+}
+harness.require(args.length === 10,
+  "expected: REPO AGENTERM_CU_EXE CHROMIUM_EXE SOURCE_SHA INPUT_DIGEST EXPECTED_BUILD_ID AGENTERM_SHA AGENTERM_CU_SHA CHROMIUM_SHA ATTEMPT");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const browser = rh.absolute(args[2]);
+const source_sha = args[3];
+const input_digest = args[4];
+const expected_build_id = args[5];
+const agenterm_sha = args[6];
+const agenterm_cu_sha = args[7];
+const chromium_sha = args[8];
+const attempt = Number(args[9]);
+ensure(direct_file(executable), "profile_binding_executable_missing");
+ensure(direct_file(browser), "profile_binding_browser_missing");
+ensure(host_is_macos(), "profile_binding_current_host_not_macos");
+ensure(source_sha.length === 40 && rh.only_chars(source_sha, rh.HEX),
+  "profile_binding_source_identity_invalid");
+ensure(input_digest.length === 64 && rh.only_chars(input_digest, rh.HEX),
+  "profile_binding_digest_invalid");
+for (const digest of [expected_build_id, agenterm_sha, agenterm_cu_sha,
+    chromium_sha]) {
+  ensure(digest.length === 64 && rh.only_chars(digest, rh.HEX),
+    "profile_binding_binary_identity_invalid");
+}
+ensure(attempt === 1 || attempt === 2, "profile_binding_attempt_invalid");
+model.self_test();
+
+const context = harness.new_context(repo, "browser-profile-name-binding");
+const run = context.run_directory;
+const home = rh.join(run, "home");
+const live_b = rh.join(run, "live-profile-b");
+const family = browser_family(browser);
+const candidate_root = browser_root(home, family);
+const env = isolated_env(home, run);
+let browser_child = null;
+let live_connection_id = "";
+let report = null;
+let failure = "";
+let cleanup_verified = false;
+
+try {
+  const roots = all_candidate_roots(home);
+  let live_b_outside_scan_roots = true;
+  for (const root of roots) {
+    if (live_b.startsWith(root + "/")) { live_b_outside_scan_roots = false; }
+  }
+  ensure(live_b_outside_scan_roots,
+    "profile_binding_live_profile_inside_scan_root");
+  rh.create_dir_all(rh.join(candidate_root, "Profile 1"));
+  rh.copy(rh.join(repo,
+    "research/browser-profile-name-binding/fixtures/local-state.json"),
+    rh.join(candidate_root, "Local State"));
+  rh.copy(rh.join(repo,
+    "research/browser-profile-name-binding/fixtures/preferences.json"),
+    rh.join(candidate_root, "Profile 1/Preferences"));
+  let existing_roots = 0;
+  for (const root of roots) {
+    if (rh.exists(root)) { existing_roots = existing_roots + 1; }
+  }
+  ensure(existing_roots === 1,
+    "profile_binding_candidate_root_cardinality_invalid");
+  const scanner_visited_live_b_or_parent = !live_b_outside_scan_roots
+    || existing_roots !== 1;
+  const candidate = candidate_observation(candidate_root);
+  ensure(candidate.visited_labels.length === 3,
+    "profile_binding_scanner_scope_invalid");
+  native_candidate_inventory(executable, env, run, family);
+
+  const baseline = connections(executable, env, run);
+  ensure(baseline.length === 0, "profile_binding_baseline_not_empty");
+
+  const setup = invoke(executable, env, run, "observe,actuate",
+    ["browser-bridge-setup", "--browser", family], true).data;
+  ensure(setup.complete === true && setup.bundle_materialized === true,
+    "profile_binding_extension_materialization_failed");
+  const native_hosts = rh.join(live_b, "NativeMessagingHosts");
+  rh.create_dir_all(native_hosts);
+  rh.copy(setup.native_manifest_file,
+    rh.join(native_hosts, "software.partnernet.agenterm_acu.browser_bridge.json"));
+
+  const browser_spec = harness.configured_spec_with_env(context, browser, [
+    "--headless=new", "--user-data-dir=" + live_b, "--remote-debugging-port=0",
+    "--no-first-run", "--no-default-browser-check", "--disable-background-networking",
+    "--disable-component-update", "--disable-sync",
+    "--disable-features=ExtensionDisableUnsupportedDeveloper",
+    "--disable-extensions-except=" + setup.extension,
+    "--load-extension=" + setup.extension,
+    "data:text/html,<title>Profile binding court</title>"
+  ], env, []);
+  browser_spec.stdout_path = rh.join(run, "browser.stdout");
+  browser_spec.stderr_path = rh.join(run, "browser.stderr");
+  browser_child = harness.start_child(context, browser_spec, "live-profile-b");
+
+  const live = wait_one_added(executable, env, run, baseline,
+    rh.now_ms() + 20000);
+  ensure(exact_connection_entry(live),
+    "profile_binding_connection_surface_changed");
+  live_connection_id = live.connection_id;
+  const status = strict_status(executable, env, run, live_connection_id);
+  ensure(exact_keys(status, ["protocol", "extension_id", "extension_version",
+      "build_id", "profile_instance_id", "commands"]),
+    "profile_binding_status_surface_changed");
+  const exact_status = status.extension_id === EXTENSION_ID && status.protocol === 6
+      && status.extension_version === "1.7.0"
+      && status.build_id === expected_build_id;
+  ensure(exact_status,
+    "profile_binding_strict_status_identity_failed");
+  const current_rows = connections(executable, env, run);
+  ensure(current_rows.length === 1,
+    current_rows.length === 0
+      ? "selector_observation_no_connection"
+      : "selector_observation_multiple_connections");
+  ensure(exact_connection_entry(current_rows[0])
+      && current_rows[0].connection_id === live_connection_id
+      && current_rows[0].endpoint.extension_id === EXTENSION_ID
+      && current_rows[0].protocol === 6,
+    "profile_binding_connection_surface_changed");
+  const selector_rows = [{
+    connection_id: current_rows[0].connection_id,
+    profile_instance_id: status.profile_instance_id
+  }];
+  const exact_prefix_control = private_prefix_control(selector_rows,
+    live_connection_id, status.profile_instance_id);
+  ensure(exact_prefix_control,
+    "profile_binding_exact_prefix_control_failed");
+
+  const g2 = candidate.n_all.length === 1
+    && candidate.named_installed.length === 1
+    && candidate.installed.length === 1
+    && current_rows.length === 1;
+  const edge = bounded_edge_inventory(candidate.candidate_fields,
+    ["connection-id", "host-pid", "host-start-identity", "endpoint-kind",
+      "native-host", "extension-id", "protocol"],
+    ["protocol", "extension-id", "extension-version", "build-id",
+      "profile-instance", "commands"]);
+  const facts = {
+    attempt: attempt,
+    validity: { g1: true, g2: g2, g6: true },
+    edge: {
+      eligible: edge.eligible,
+      ground_truth_conflict: edge.ground_truth_conflict
+    },
+    a0: { selection: archived_a0_selection(candidate, current_rows) },
+    a1: {
+      positive_selection: "refused",
+      negative_selection: "refused",
+      restart_persistent: false,
+      name: {
+        unique_directory: false,
+        frozen_snapshot: false,
+        rename_stales_receipt: false,
+        old_name_stops: false,
+        renamed_name_does_not_inherit: false,
+        duplicate_name_typed_ambiguous: false
+      }
+    }
+  };
+  report = model.adjudicate(facts);
+
+  harness.child_kill(browser_child);
+  harness.child_wait(browser_child, 5000);
+  const cleanup_rows = wait_inventory_empty(executable, env, run,
+    rh.now_ms() + 10000);
+  facts.validity.cleanup_connections = 0;
+  cleanup_verified = true;
+  ensure(report.verdict !== undefined && report.a0_subdecision !== undefined,
+    "profile_binding_model_result_invalid");
+  report.schema_version = 1;
+  report.precommitment = "profile-name-binding-experiment";
+  report.source_sha = source_sha;
+  report.input_digest = input_digest;
+  report.attempt = attempt;
+  report.binary_identity = {
+    expected_extension_build_id: expected_build_id,
+    agenterm_sha256: agenterm_sha,
+    agenterm_cu_sha256: agenterm_cu_sha,
+    chromium_sha256: chromium_sha
+  };
+  report.host = {
+    os_build: host_build_text(),
+    architecture: host_architecture_text(),
+    browser_family: family,
+    browser_version: browser_version_text(browser, family)
+  };
+  report.observations = {
+    n_all: candidate.n_all.length,
+    named_installed: candidate.named_installed.length,
+    installed: candidate.installed.length,
+    live_connections: current_rows.length,
+    g2: g2,
+    exact_status: exact_status,
+    exact_prefix_control: exact_prefix_control,
+    live_b_outside_scan_roots: live_b_outside_scan_roots,
+    scanner_visited_live_b_or_parent: scanner_visited_live_b_or_parent,
+    cleanup_connections: cleanup_rows.length,
+    edge_inventory: edge
+  };
+  report.construction_trace = [
+    "baseline-empty", "candidate-a-idle", "live-b-only", "live-b-stopped",
+    "cleanup-empty"
+  ];
+  report.a1_arms = {
+    positive_run: false,
+    restart_run: false,
+    name_safety_run: false,
+    reason: "no-eligible-directory-instance-edge",
+    results: {
+      positive_selection: "not-run",
+      restart_persistence: "not-run",
+      name_snapshot: "not-run"
+    }
+  };
+  report.binding_model = model.prove_explicit_binding_model();
+  report.excluded_claims = [
+    "human-name-is-cryptographic-identity",
+    "owned-session-edge-generalizes-to-default-profiles",
+    "linux-or-windows-qualified",
+    "leveldb-access-authorized"
+  ];
+  report.cleanup_verified = true;
+  report.registers_evidence = false;
+  report.changes_product_state = false;
+} catch (error) {
+  failure = safe_error_code(error);
+}
+
+if (browser_child !== null && !cleanup_verified) {
+  try { harness.child_kill(browser_child); } catch (_) {}
+  try { harness.child_wait(browser_child, 5000); } catch (_) {}
+  if (live_connection_id !== "") {
+    try {
+      wait_inventory_empty(executable, env, run, rh.now_ms() + 10000);
+      cleanup_verified = true;
+    } catch (_) {}
+  }
+}
+
+if (failure !== "") {
+  const safe = {
+    schema_version: 1,
+    ok: false,
+    precommitment: "profile-name-binding-experiment",
+    source_sha: source_sha,
+    input_digest: input_digest,
+    attempt: attempt,
+    verdict: failure_verdict(failure, attempt),
+    binary_identity: {
+      expected_extension_build_id: expected_build_id,
+      agenterm_sha256: agenterm_sha,
+      agenterm_cu_sha256: agenterm_cu_sha,
+      chromium_sha256: chromium_sha
+    },
+    error: { code: failure },
+    cleanup_verified: cleanup_verified,
+    registers_evidence: false,
+    changes_product_state: false
+  };
+  try { harness.remove_run(context); } catch (_) {}
+  print(JSON.stringify(safe));
+  throw "profile_binding_experiment_failed";
+}
+
+harness.remove_run(context);
+print(JSON.stringify({ ok: true, data: report }));
+return;

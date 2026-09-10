@@ -61,7 +61,12 @@ identity edge, and a safe refusal is not implementation of the legacy selector.
    strings, command stdout/stderr, audit rows and retained cleanup bundles obey
    the same rule. Public high-entropy identifiers are 64 lowercase-hex SHA-256
    values over `agenterm-cu/profile-binding-experiment/v1\0` plus length-framed
-   field name, fixture label and identifier. Low-entropy human aliases,
+   field name, fixture label and identifier. The reproducibility input digest
+   instead uses the distinct `agenterm-cu/profile-binding-experiment/input/v1\0`
+   domain followed by the length-framed repo-relative name and exact bytes of
+   every frozen input. Executed program identities are conventional SHA-256 of
+   their exact bytes and are reported separately; they identify what ran but do
+   not claim those binaries were built from the source commit. Low-entropy human aliases,
    directories and paths are reported only as fixed fixture labels, never as
    raw hashes. The exact-prefix control uses 12 lowercase hex characters only
    inside the private invocation and never prints them.
@@ -114,8 +119,8 @@ The accepted-boundary edge inventory is exhaustive:
 
 | Surface | Candidate side | Connection side | Edge decision |
 |---|---|---|---|
-| Local State | application, directory, display name | none | No edge unless the connection authenticates the same candidate-specific value |
-| Preferences | fixed extension recorded, disabled flag | extension id | Extension id is shared and fails injectivity |
+| Local State | application, directory, display name, last-used and profile ordering | none | No edge unless the connection authenticates the same candidate-specific value; ordering and last-used state are mutable non-edges |
+| Preferences | fixed extension recorded, disabled flag and state | extension id | Extension id is shared and fails injectivity; disabled/state are local mutable facts |
 | Connection record | none | connection id, host process identity, protocol | Host identity is not browser Profile identity |
 | Strict status | none | profile instance, extension id, protocol, version, build id | Pass only if a bounded candidate file independently carries a collision-resistant Profile-unique value from the same trusted issuer |
 | Owned-session receipt | controlled Profile object identity | connection observed after start | Valid only for that owned object; it cannot generalize to an arbitrary default Profile name |
@@ -220,6 +225,9 @@ research/browser-profile-name-binding/
 ├── court-current-host.qjs
 ├── binding-model.qjs
 ├── run-current-host.sh
+├── fixtures/
+│   ├── local-state.json
+│   └── preferences.json
 └── RESULTS.md
 ```
 
