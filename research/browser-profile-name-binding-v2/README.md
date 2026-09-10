@@ -64,7 +64,9 @@ MODE REPO AGENTERM_EXE CU_EXE BROWSER_EXE APP SESSION STATE_EXE CANDIDATE_DIR SO
 
 `APP` is explicitly supplied and the preflight must prove that the bounded
 browser-version family maps to it and that public `browser-profiles` supports
-it. The no-side-effect preflight independently computes and returns exactly
+it. Both sides trim only boundary ASCII whitespace from the bounded version
+reply before comparing it; this preserves browsers whose `--version` command
+prints a space before its newline. The no-side-effect preflight independently computes and returns exactly
 `source_sha`, `input_digest`, `agenterm_sha256`, `agenterm_cu_sha256`,
 `browser_sha256`, `result_template_sha256`, `browser_family`, and
 `browser_version`. The runner compares all eight fields, then the broker-held

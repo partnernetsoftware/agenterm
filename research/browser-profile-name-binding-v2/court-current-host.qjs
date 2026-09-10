@@ -353,6 +353,22 @@ function app_for_family(family) {
   throw "profile_binding_v2_browser_profiles_family_unsupported";
 }
 
+function ascii_boundary_whitespace(code) {
+  return code === 32 || (code >= 9 && code <= 13);
+}
+
+function trim_ascii_boundary(value) {
+  let first = 0;
+  let last = value.length;
+  while (first < last && ascii_boundary_whitespace(value.charCodeAt(first))) {
+    first = first + 1;
+  }
+  while (last > first && ascii_boundary_whitespace(value.charCodeAt(last - 1))) {
+    last = last - 1;
+  }
+  return value.substring(first, last);
+}
+
 function browser_root(home, family) {
   const support = rh.join(home, "Library/Application Support");
   return family === "brave-browser"
@@ -397,7 +413,7 @@ function browser_version(config) {
   ensure(out.success === true && out.timed_out !== true
       && out.stdout_truncated !== true && out.stderr_truncated !== true,
     "profile_binding_v2_browser_version_unavailable");
-  const text = out.stdout.trim();
+  const text = trim_ascii_boundary(out.stdout);
   ensure(text !== "" && text.length <= 4096 && text.indexOf("\n") < 0,
     "profile_binding_v2_browser_version_shape");
   const family = browser_family(text);
@@ -405,6 +421,12 @@ function browser_version(config) {
     "profile_binding_v2_browser_app_family_mismatch");
   return {family: family, text: text};
 }
+
+ensure(trim_ascii_boundary(" \tBrave Browser 1 \r\n") === "Brave Browser 1",
+  "profile_binding_v2_ascii_version_trim_self_test");
+ensure(trim_ascii_boundary("\u00a0Brave Browser 1\u00a0") !== "Brave Browser 1"
+    && trim_ascii_boundary("\ufeffBrave Browser 1\ufeff") !== "Brave Browser 1",
+  "profile_binding_v2_unicode_version_trim_self_test");
 
 function exact_digest(actual, expected, code) {
   ensure(actual === expected, code);

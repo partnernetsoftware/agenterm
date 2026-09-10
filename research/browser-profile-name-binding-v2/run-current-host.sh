@@ -11,6 +11,20 @@ emit_failure() {
   exit 2
 }
 
+read_browser_version() {
+  perl -e '
+    use POSIX qw(:sys_wait_h);
+    my ($exe)=@ARGV; pipe(my $read,my $write) or exit 2; my $pid=fork(); defined($pid) or exit 2;
+    if (!$pid) { close($read); open(STDOUT,">&",$write) or exit 2; open(STDERR,">","/dev/null") or exit 2; exec {$exe} $exe,"--version"; exit 127 }
+    close($write); binmode($read); my $expired=0;
+    local $SIG{ALRM}=sub{$expired=1; kill "TERM",$pid; select undef,undef,undef,0.05; kill "KILL",$pid}; alarm 5;
+    my $b=""; while (1) { my $chunk=""; my $n=sysread($read,$chunk,4097-length($b)); defined($n) or exit 3; last if $n==0; $b.=$chunk; length($b)<=4096 or do { kill "KILL",$pid; waitpid($pid,0); exit 6 } }
+    close($read); waitpid($pid,0); alarm 0; exit 124 if $expired; $? == 0 or exit 4;
+    $b=~s/^[\x09-\x0d\x20]+//; $b=~s/[\x09-\x0d\x20]+\z//;
+    length($b)>0 && $b=~/^[\x20-\x7e]+$/ or exit 5; print $b;
+  ' "$1"
+}
+
 run_broker() {
   broker_state_root=${AGENTERM_PROFILE_BINDING_V2_STATE_ROOT:-$STATE_ROOT}
   perl - "$broker_state_root" "$TEMPLATE" "$@" <<'PERL'
@@ -1031,6 +1045,12 @@ case "${1:-}" in
     if AGENTERM_PROFILE_BINDING_V2_STATE_ROOT="$scratch/insecure-journal-state" run_broker inspect >/dev/null 2>&1; then
       emit_failure self_test_insecure_journal_root_accepted
     fi
+    printf '%s\n' '#!/bin/sh' "printf '  Brave Browser 152.1.94.121 \\n'" >"$scratch/version-probe"
+    chmod 0700 "$scratch/version-probe"
+    normalized_version=$(read_browser_version "$scratch/version-probe") \
+      || emit_failure self_test_browser_version_probe_failed
+    [ "$normalized_version" = 'Brave Browser 152.1.94.121' ] \
+      || emit_failure self_test_browser_version_not_trimmed
     { [ ! -e "$formal_state" ] && [ ! -L "$formal_state" ]; } || emit_failure self_test_formal_state_present_after
     printf '%s\n' '{"schema":"agenterm.profile-binding-v2-self-test/v1","code":"ok","formal_attempts_consumed":false}'
     exit 0
@@ -1081,16 +1101,7 @@ AGENTERM_SHA=$(shasum -a 256 "$AGENTERM_EXE" | awk '{print $1}')
 AGENTERM_CU_SHA=$(shasum -a 256 "$AGENTERM_CU_EXE" | awk '{print $1}')
 CHROMIUM_SHA=$(shasum -a 256 "$CHROMIUM_EXE" | awk '{print $1}')
 TEMPLATE_SHA=$(shasum -a 256 "$TEMPLATE" | awk '{print $1}')
-BROWSER_VERSION=$(perl -e '
-  use POSIX qw(:sys_wait_h);
-  my ($exe)=@ARGV; pipe(my $read,my $write) or exit 2; my $pid=fork(); defined($pid) or exit 2;
-  if (!$pid) { close($read); open(STDOUT,">&",$write) or exit 2; open(STDERR,">","/dev/null") or exit 2; exec {$exe} $exe,"--version"; exit 127 }
-  close($write); binmode($read); my $expired=0;
-  local $SIG{ALRM}=sub{$expired=1; kill "TERM",$pid; select undef,undef,undef,0.05; kill "KILL",$pid}; alarm 5;
-  my $b=""; while (1) { my $chunk=""; my $n=sysread($read,$chunk,4097-length($b)); defined($n) or exit 3; last if $n==0; $b.=$chunk; length($b)<=4096 or do { kill "KILL",$pid; waitpid($pid,0); exit 6 } }
-  close($read); waitpid($pid,0); alarm 0; exit 124 if $expired; $? == 0 or exit 4;
-  $b=~s/[\r\n]+\z//; length($b)>0 && $b=~/^[\x20-\x7e]+$/ or exit 5; print $b;
-' "$CHROMIUM_EXE") || emit_failure browser_version_unavailable
+BROWSER_VERSION=$(read_browser_version "$CHROMIUM_EXE") || emit_failure browser_version_unavailable
 case "$BROWSER_VERSION" in
   "Chrome for Testing "*) PREFIX_FAMILY="Chrome for Testing"; EXPECTED_APP="" ;;
   "Google Chrome "*) PREFIX_FAMILY="Google Chrome"; BROWSER_FAMILY="chrome"; EXPECTED_APP="Google Chrome" ;;
