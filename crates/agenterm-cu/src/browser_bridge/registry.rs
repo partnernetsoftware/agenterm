@@ -2,7 +2,13 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use super::{ACU_EXTENSION_ID, ACU_NATIVE_HOST_NAME};
+use super::{ACU_EXTENSION_ID, ACU_NATIVE_HOST_NAME, PROTOCOL_VERSION};
+
+const LEGACY_CONNECTION_PROTOCOL: u32 = 5;
+
+const fn legacy_connection_protocol() -> u32 {
+    LEGACY_CONNECTION_PROTOCOL
+}
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
@@ -107,6 +113,12 @@ pub struct ConnectionEntry {
     pub connection_id: ConnectionId,
     pub process: ProcessIdentity,
     pub endpoint: ConnectionEndpoint,
+    /// Native-host protocol generation. Records written by the immediately
+    /// preceding 1.5.0 host lack this field and deserialize as protocol 5 so
+    /// extension-code reload can return an honest manual bootstrap boundary
+    /// without sending an incompatible request.
+    #[serde(default = "legacy_connection_protocol")]
+    pub protocol: u32,
 }
 
 #[derive(Debug)]
@@ -150,6 +162,7 @@ impl ConnectionRegistry {
             connection_id: connection_id.clone(),
             process,
             endpoint,
+            protocol: PROTOCOL_VERSION,
         };
         self.entries.insert(connection_id, entry.clone());
         Ok(entry)
@@ -243,6 +256,18 @@ mod tests {
             ConnectionId::from_random([0; 32]),
             Err(RegistryError::RandomConnectionIdInvalid)
         );
+        assert_eq!(entry.protocol, PROTOCOL_VERSION);
+    }
+
+    #[test]
+    fn preceding_generation_records_default_to_protocol_five() {
+        let entry = registry()
+            .register(process(42, "start-100"), endpoint(), [0x5a; 32])
+            .unwrap();
+        let mut value = serde_json::to_value(entry).unwrap();
+        value.as_object_mut().unwrap().remove("protocol");
+        let legacy: ConnectionEntry = serde_json::from_value(value).unwrap();
+        assert_eq!(legacy.protocol, LEGACY_CONNECTION_PROTOCOL);
     }
 
     #[test]

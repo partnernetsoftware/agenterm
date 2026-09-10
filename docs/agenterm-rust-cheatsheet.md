@@ -1836,6 +1836,17 @@ reaped. `--load-extension` in argv, an installed manifest, or an empty window
 inventory is supporting mechanism evidence; only the live connection closes
 the activation claim.
 
+When a loaded unpacked extension must identify its exact source build, keep one
+fixed-width placeholder in the reviewed embedded JavaScript, hash the raw
+manifest and placeholder-bearing source with explicit path/length framing, and
+substitute that digest exactly once during atomic publication. Verify the
+published directory as the exact materialized file set before any reload; a
+manifest version alone cannot distinguish same-version source drift. Persist
+the native-host protocol generation in each connection record and give the
+immediately preceding schema an explicit default. A newer executor can then
+return a typed one-time manual reload boundary for an old connection without
+sending an incompatible probe or inventing unavailable version/build facts.
+
 Native Messaging connection identity is deliberately short-lived; it binds one
 host process, not the durable browser Profile. Persist a separate random Profile
 instance identity in extension-local storage, validate it as a closed protocol

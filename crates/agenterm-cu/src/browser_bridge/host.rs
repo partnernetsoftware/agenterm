@@ -46,8 +46,44 @@ pub struct BridgeStatus {
     pub protocol: u32,
     pub extension_id: String,
     pub extension_version: String,
+    pub build_id: String,
     pub profile_instance_id: super::ProfileInstanceId,
     pub commands: Vec<String>,
+}
+
+impl BridgeStatus {
+    fn validate_for(&self, reload_identity: bool) -> Result<(), BridgeHostError> {
+        let build_id_valid = self.build_id.len() == 64
+            && self
+                .build_id
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            && self.build_id.bytes().any(|byte| byte != b'0');
+        let version_valid = {
+            let parts = self.extension_version.split('.').collect::<Vec<_>>();
+            parts.len() == 3
+                && parts.iter().all(|part| {
+                    !part.is_empty()
+                        && part.len() <= 10
+                        && part.bytes().all(|byte| byte.is_ascii_digit())
+                        && (part.len() == 1 || !part.starts_with('0'))
+                })
+        };
+        if self.protocol != PROTOCOL_VERSION
+            || self.extension_id != ACU_EXTENSION_ID
+            || !build_id_valid
+            || !version_valid
+            || self.commands.iter().map(String::as_str).collect::<Vec<_>>() != super::COMMANDS
+            || (!reload_identity
+                && (self.extension_version != BRIDGE_EXTENSION_VERSION
+                    || self.build_id != super::extension_build_id()))
+        {
+            return Err(BridgeHostError::new(
+                "browser_bridge_status_identity_mismatch",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -95,28 +131,9 @@ impl BridgeResponse {
             "status" => {
                 let status: BridgeStatus = serde_json::from_value(result)
                     .map_err(|_| BridgeHostError::new("browser_bridge_response_invalid"))?;
-                if status.protocol != PROTOCOL_VERSION
-                    || status.extension_id != ACU_EXTENSION_ID
-                    || status.extension_version != BRIDGE_EXTENSION_VERSION
-                    || status.commands
-                        != [
-                            "status",
-                            "tabs",
-                            "windows",
-                            "window-open",
-                            "window-state",
-                            "nav",
-                            "debug-read",
-                            "debug-invoke",
-                            "debug-type",
-                            "debug-files",
-                            "reload",
-                        ]
-                {
-                    return Err(BridgeHostError::new(
-                        "browser_bridge_status_identity_mismatch",
-                    ));
-                }
+                status.validate_for(
+                    request.args.get("reload_identity").and_then(Value::as_bool) == Some(true),
+                )?;
             }
             "tabs" => serde_json::from_value::<TabsResult>(result)
                 .map_err(|_| BridgeHostError::new("browser_bridge_response_invalid"))?
@@ -187,6 +204,13 @@ impl BridgeResponse {
                 if !result.accepted || result.reload_scope != "native-connection" {
                     return Err(BridgeHostError::new("browser_bridge_reload_not_accepted"));
                 }
+            }
+            "extension-reload" => {
+                let args: super::ExtensionReloadRequest = request_args(request)?;
+                serde_json::from_value::<super::ExtensionReloadResult>(result)
+                    .map_err(|_| BridgeHostError::new("browser_bridge_response_invalid"))?
+                    .validate_for(&args)
+                    .map_err(BridgeHostError::protocol)?;
             }
             _ => return Err(BridgeHostError::new("browser_bridge_command_unknown")),
         }
@@ -266,6 +290,21 @@ fn validate_wire_error(
                 return Err(BridgeHostError::new("browser_bridge_response_invalid"));
             }
             _ => {}
+        }
+        return Ok(());
+    }
+    if request.command == "extension-reload" {
+        if !matches!(
+            error.code.as_str(),
+            "browser_bridge_extension_reload_args_invalid"
+                | "browser_bridge_extension_reload_identity_changed"
+                | "browser_bridge_extension_reload_actuation_failed"
+        ) || error.tab_id.is_some()
+            || error.detach.is_some()
+            || error.navigation.is_some()
+            || error.effect.as_deref() != Some("not-performed")
+        {
+            return Err(BridgeHostError::new("browser_bridge_response_invalid"));
         }
         return Ok(());
     }
@@ -584,6 +623,7 @@ fn publish_connection_at(
                 native_host: ACU_NATIVE_HOST_NAME.to_owned(),
                 extension_id: ACU_EXTENSION_ID.to_owned(),
             },
+            protocol: PROTOCOL_VERSION,
         },
     };
     let path = root.join(format!("{}.json", id.as_str()));
@@ -725,7 +765,7 @@ fn send_to_connection_at(
         .map_err(|_| BridgeHostError::new("browser_bridge_deadline_setup_failed"))?;
     let is_effect = matches!(
         request.command.as_str(),
-        "debug-invoke" | "debug-type" | "debug-files" | "window-open" | "nav"
+        "debug-invoke" | "debug-type" | "debug-files" | "window-open" | "nav" | "extension-reload"
     );
     write_all_with_deadline(&mut stream, &frame, deadline).map_err(|error| {
         if is_effect {
@@ -941,6 +981,7 @@ fn validate_live_record(
         || record.owner_kind != owner_kind
         || record.owner_digest != owner_digest
         || &record.entry.connection_id != id
+        || !matches!(record.entry.protocol, 5 | PROTOCOL_VERSION)
         || process_observation::start_identity(record.entry.process.pid)
             .ok()
             .as_deref()
@@ -1078,8 +1119,9 @@ mod tests {
             "protocol": PROTOCOL_VERSION,
             "extension_id": ACU_EXTENSION_ID,
             "extension_version": BRIDGE_EXTENSION_VERSION,
+            "build_id": crate::browser_bridge::extension_build_id(),
             "profile_instance_id": "1234567890abcdef1234567890abcdef",
-            "commands": ["status","tabs","windows","window-open","window-state","nav","debug-read","debug-invoke","debug-type","debug-files","reload"]
+            "commands": ["status","tabs","windows","window-open","window-state","nav","debug-read","debug-invoke","debug-type","debug-files","reload","extension-reload"]
         })
     }
 
@@ -1117,6 +1159,83 @@ mod tests {
                 .unwrap_err()
                 .code,
             "browser_bridge_request_conflict"
+        );
+    }
+
+    #[test]
+    fn reload_identity_status_allows_only_same_protocol_stale_builds() {
+        let mut request = request("status");
+        request
+            .args
+            .insert("reload_identity".into(), Value::Bool(true));
+        let mut stale = status_value();
+        stale["extension_version"] = "1.5.9".into();
+        stale["build_id"] = "ab".repeat(32).into();
+        let response: BridgeResponse = serde_json::from_value(json!({
+            "protocol": PROTOCOL_VERSION,
+            "id": request.id,
+            "ok": true,
+            "result": stale,
+        }))
+        .unwrap();
+        response.validate_for(&request).unwrap();
+
+        let mut strict_request = request.clone();
+        strict_request.args.clear();
+        assert_eq!(
+            response.validate_for(&strict_request).unwrap_err().code,
+            "browser_bridge_status_identity_mismatch"
+        );
+        let mut wrong_protocol = response;
+        wrong_protocol.result.as_mut().unwrap()["protocol"] = 5.into();
+        assert_eq!(
+            wrong_protocol.validate_for(&request).unwrap_err().code,
+            "browser_bridge_status_identity_mismatch"
+        );
+    }
+
+    #[test]
+    fn extension_reload_ack_is_closed_and_effect_errors_are_explicit() {
+        let mut request = request("extension-reload");
+        request.args = serde_json::from_value(json!({
+            "profile_instance_id": "1234567890abcdef1234567890abcdef",
+            "before_version": BRIDGE_EXTENSION_VERSION,
+            "before_build_id": crate::browser_bridge::extension_build_id(),
+        }))
+        .unwrap();
+        let acknowledgement = json!({
+            "accepted": true,
+            "reload_scope": "extension-code",
+            "scheduled": true,
+            "profile_instance_id": "1234567890abcdef1234567890abcdef",
+            "before_version": BRIDGE_EXTENSION_VERSION,
+            "before_build_id": crate::browser_bridge::extension_build_id(),
+        });
+        let response: BridgeResponse = serde_json::from_value(json!({
+            "protocol": PROTOCOL_VERSION,
+            "id": request.id,
+            "ok": true,
+            "result": acknowledgement,
+        }))
+        .unwrap();
+        response.validate_for(&request).unwrap();
+
+        let failure: BridgeResponse = serde_json::from_value(json!({
+            "protocol": PROTOCOL_VERSION,
+            "id": request.id,
+            "ok": false,
+            "error": {
+                "code": "browser_bridge_extension_reload_identity_changed",
+                "effect": "not-performed"
+            }
+        }))
+        .unwrap();
+        failure.validate_for(&request).unwrap();
+        let mut unknown = failure;
+        unknown.error.as_mut().unwrap().code = "browser_bridge_extension_reload_other".into();
+        assert_eq!(
+            unknown.validate_for(&request).unwrap_err().code,
+            "browser_bridge_response_invalid"
         );
     }
 
@@ -1344,6 +1463,7 @@ mod tests {
                     native_host: ACU_NATIVE_HOST_NAME.into(),
                     extension_id: ACU_EXTENSION_ID.into(),
                 },
+                protocol: PROTOCOL_VERSION,
             },
         };
         validate_live_record(&record, &id).unwrap();
@@ -1394,6 +1514,7 @@ mod tests {
                         native_host: ACU_NATIVE_HOST_NAME.into(),
                         extension_id: ACU_EXTENSION_ID.into(),
                     },
+                    protocol: PROTOCOL_VERSION,
                 },
             };
             fs::write(

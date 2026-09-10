@@ -1,7 +1,8 @@
 "use strict";
 
 const HOST = "software.partnernet.agenterm_acu.browser_bridge";
-const PROTOCOL = 5;
+const PROTOCOL = 6;
+const BUILD_ID = "__ACU_BUILD_ID__";
 const PROFILE_INSTANCE_KEY = "acuProfileInstanceId";
 // One extra result lets compatibility projections observe the legacy page
 // ceiling with a max+1 sentinel instead of reporting a false complete page.
@@ -30,6 +31,11 @@ const NAV_ERROR_CODES = new Set([
   "browser_bridge_nav_commit_timeout", "browser_bridge_nav_dialog_blocked",
   "browser_bridge_nav_failed", "browser_bridge_nav_postcondition_failed",
   "browser_bridge_nav_presentation_changed", "browser_bridge_nav_detach_failed"
+]);
+const EXTENSION_RELOAD_ERROR_CODES = new Set([
+  "browser_bridge_extension_reload_args_invalid",
+  "browser_bridge_extension_reload_identity_changed",
+  "browser_bridge_extension_reload_actuation_failed"
 ]);
 const NAV_COMMIT_TIMEOUT_MS = 20_000;
 const NAV_EVENT_MAX = 128;
@@ -115,11 +121,17 @@ function validateRequest(request) {
       !request.args || Array.isArray(request.args) || typeof request.args !== "object") {
     throw new Error("browser_bridge_request_invalid");
   }
-  if (!["status", "tabs", "windows", "window-open", "window-state", "nav", "debug-read", "debug-invoke", "debug-type", "debug-files", "reload"].includes(request.command)) {
+  if (!["status", "tabs", "windows", "window-open", "window-state", "nav", "debug-read", "debug-invoke", "debug-type", "debug-files", "reload", "extension-reload"].includes(request.command)) {
     throw new Error("browser_bridge_command_unknown");
   }
-  if (!["debug-read", "debug-invoke", "debug-type", "debug-files", "window-open", "window-state", "nav", "reload"].includes(request.command) && Object.keys(request.args).length !== 0) {
+  if (!["status", "debug-read", "debug-invoke", "debug-type", "debug-files", "window-open", "window-state", "nav", "reload", "extension-reload"].includes(request.command) && Object.keys(request.args).length !== 0) {
     throw new Error("browser_bridge_args_invalid");
+  }
+  if (request.command === "status") {
+    const keys = Object.keys(request.args).sort().join(",");
+    if (keys !== "" && (keys !== "reload_identity" || request.args.reload_identity !== true)) {
+      throw new Error("browser_bridge_args_invalid");
+    }
   }
   if (request.command === "nav" && !validNavArgs(request.args)) {
     throw new Error("browser_bridge_nav_args_invalid");
@@ -962,13 +974,30 @@ async function reloadBridge(args) {
   return { accepted: true, reload_scope: "native-connection", profile_instance_id: identity };
 }
 
+async function reloadExtension(args) {
+  if (!args || Array.isArray(args) || typeof args !== "object" ||
+      Object.keys(args).sort().join(",") !== "before_build_id,before_version,profile_instance_id") {
+    throw new Error("browser_bridge_extension_reload_args_invalid");
+  }
+  const identity = await profileInstanceId();
+  const version = chrome.runtime.getManifest().version;
+  if (args.profile_instance_id !== identity || args.before_version !== version ||
+      args.before_build_id !== BUILD_ID) {
+    throw new Error("browser_bridge_extension_reload_identity_changed");
+  }
+  setTimeout(() => chrome.runtime.reload(), 250);
+  return { accepted: true, reload_scope: "extension-code", scheduled: true,
+    profile_instance_id: identity, before_version: version, before_build_id: BUILD_ID };
+}
+
 async function dispatch(request) {
   validateRequest(request);
   if (request.command === "status") {
     return { protocol: PROTOCOL, extension_id: chrome.runtime.id,
       extension_version: chrome.runtime.getManifest().version,
+      build_id: BUILD_ID,
       profile_instance_id: await profileInstanceId(),
-      commands: ["status", "tabs", "windows", "window-open", "window-state", "nav", "debug-read", "debug-invoke", "debug-type", "debug-files", "reload"] };
+      commands: ["status", "tabs", "windows", "window-open", "window-state", "nav", "debug-read", "debug-invoke", "debug-type", "debug-files", "reload", "extension-reload"] };
   }
   if (request.command === "tabs") {
     const tabs = await chrome.tabs.query({});
@@ -1012,6 +1041,7 @@ async function dispatch(request) {
     return debugActuate(request.command, request.args);
   }
   if (request.command === "reload") return reloadBridge(request.args);
+  if (request.command === "extension-reload") return reloadExtension(request.args);
   return debugRead(request.args);
 }
 
@@ -1043,11 +1073,15 @@ function connect() {
         }
       } catch (error) {
         const isDebug = request && typeof request.command === "string" && request.command.startsWith("debug-");
+        const rawCode = String(error && error.message || "browser_bridge_failed")
+          .replace(/[\u0000-\u001f\u007f-\u009f]/gu, " ").slice(0, 96);
         const code = isDebug ? debugErrorCode(error, "browser_bridge_debug_failed") :
-          String(error && error.message || "browser_bridge_failed")
-            .replace(/[\u0000-\u001f\u007f-\u009f]/gu, " ").slice(0, 96);
+          request && request.command === "extension-reload"
+            ? (EXTENSION_RELOAD_ERROR_CODES.has(rawCode)
+              ? rawCode : "browser_bridge_extension_reload_actuation_failed")
+            : rawCode;
         const isEffect = request &&
-          ["debug-invoke", "debug-type", "debug-files", "window-open", "nav"].includes(request.command);
+          ["debug-invoke", "debug-type", "debug-files", "window-open", "nav", "extension-reload"].includes(request.command);
         const errorResult = { code: code || "browser_bridge_failed" };
         if (isEffect && isDebug) {
           errorResult.tab_id = request.args && request.args.tab_id;
@@ -1063,6 +1097,8 @@ function connect() {
             ? error.effect : "not-performed";
           errorResult.navigation = error && error.navigation;
           errorResult.detach = error && error.detach || { outcome: "already-detached" };
+        } else if (request && request.command === "extension-reload") {
+          errorResult.effect = "not-performed";
         }
         opened.postMessage({ protocol: PROTOCOL, id: request && request.id,
           ok: false, error: errorResult });

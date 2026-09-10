@@ -3919,6 +3919,18 @@ pub enum Command {
         ttl_seconds: u64,
         timeout_ms: u64,
     },
+    /// Ask one exact profile's loaded extension to reload its published code,
+    /// then prove a unique reconnect under the same persistent profile id.
+    BrowserBridgeExtensionReload {
+        target: TargetRef,
+        connection_id: ConnectionId,
+        #[serde(default, skip_serializing_if = "is_false")]
+        force: bool,
+        session_id: String,
+        lease: String,
+        ttl_seconds: u64,
+        timeout_ms: u64,
+    },
     /// Return bounded Chromium window state for one exact live bridge
     /// connection without changing browser focus or activation.
     BrowserBridgeWindows {
@@ -4585,6 +4597,7 @@ impl Command {
             Self::BrowserBridgeTabs { .. } => "browser-bridge-tabs".into(),
             Self::BrowserBridgeAttach { .. } => "browser-bridge-attach".into(),
             Self::BrowserBridgeReload { .. } => "browser-bridge-reload".into(),
+            Self::BrowserBridgeExtensionReload { .. } => "browser-bridge-extension-reload".into(),
             Self::BrowserBridgeWindows { .. } => "browser-bridge-windows".into(),
             Self::BrowserBridgeWindowOpen { .. } => "browser-bridge-window-open".into(),
             Self::BrowserBridgeWindowState { .. } => "browser-bridge-window-state".into(),
@@ -5033,6 +5046,7 @@ impl Command {
             | Self::BrowserBridgeTabs { target, .. }
             | Self::BrowserBridgeAttach { target, .. }
             | Self::BrowserBridgeReload { target, .. }
+            | Self::BrowserBridgeExtensionReload { target, .. }
             | Self::BrowserBridgeWindows { target, .. }
             | Self::BrowserBridgeWindowOpen { target, .. }
             | Self::BrowserBridgeWindowState { target, .. }
@@ -5178,6 +5192,7 @@ impl Command {
             | Self::BrowserBridgeSetup { .. }
             | Self::BrowserBridgeAttach { .. }
             | Self::BrowserBridgeReload { .. }
+            | Self::BrowserBridgeExtensionReload { .. }
             | Self::BrowserBridgeDebugInvoke { .. }
             | Self::BrowserBridgeDebugType { .. }
             | Self::BrowserBridgeDebugFiles { .. }
@@ -5425,6 +5440,32 @@ impl Command {
                 }
                 let minimum_lock_ms = timeout_ms.saturating_add(5_000);
                 if ttl_seconds.saturating_mul(1_000) < minimum_lock_ms {
+                    return Err(
+                        "browser bridge lock ttl_seconds must cover timeout_ms plus 5000ms",
+                    );
+                }
+                Ok(())
+            }
+            Self::BrowserBridgeExtensionReload {
+                session_id,
+                lease,
+                ttl_seconds,
+                timeout_ms,
+                ..
+            } => {
+                if session_id.is_empty() || session_id.len() > 128 || session_id.contains('\0') {
+                    return Err("browser bridge session_id must be in 1..=128 non-NUL bytes");
+                }
+                if lease.is_empty() || lease.len() > 128 || lease.contains('\0') {
+                    return Err("browser bridge lease must be in 1..=128 non-NUL bytes");
+                }
+                if !(1..=600).contains(ttl_seconds) {
+                    return Err("browser bridge lock ttl_seconds must be in 1..=600");
+                }
+                if !(500..=60_000).contains(timeout_ms) {
+                    return Err("browser bridge operation timeout_ms must be in 500..=60000");
+                }
+                if ttl_seconds.saturating_mul(1_000) < timeout_ms.saturating_add(5_000) {
                     return Err(
                         "browser bridge lock ttl_seconds must cover timeout_ms plus 5000ms",
                     );

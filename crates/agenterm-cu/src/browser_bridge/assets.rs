@@ -1,6 +1,13 @@
-use std::path::{Component, Path, PathBuf};
+use std::{
+    borrow::Cow,
+    collections::BTreeSet,
+    io::Read as _,
+    path::{Component, Path, PathBuf},
+};
 
+use agenterm_platform::filesystem_open::{ExistingEntryType, open_existing_path};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 #[cfg(test)]
 use super::PROTOCOL_VERSION;
@@ -23,8 +30,110 @@ const ASSETS: &[ExtensionAsset] = &[
     },
 ];
 
+const BUILD_ID_PLACEHOLDER: &[u8] = b"__ACU_BUILD_ID__";
+
 pub fn extension_assets() -> &'static [ExtensionAsset] {
     ASSETS
+}
+
+/// Stable identity of the raw, reviewable extension bundle. The JavaScript
+/// source contains one fixed-width placeholder, so the digest has no
+/// self-reference; publication substitutes the hexadecimal digest exactly
+/// once without changing the source asset embedded in this binary.
+pub fn extension_build_id() -> String {
+    let mut digest = Sha256::new();
+    for asset in ASSETS {
+        let path = asset.relative_path.as_bytes();
+        digest.update((path.len() as u64).to_le_bytes());
+        digest.update(path);
+        digest.update((asset.bytes.len() as u64).to_le_bytes());
+        digest.update(asset.bytes);
+    }
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+pub fn materialized_extension_asset(asset: &ExtensionAsset) -> Cow<'static, [u8]> {
+    if asset.relative_path != "background.js" {
+        return Cow::Borrowed(asset.bytes);
+    }
+    let occurrences = asset
+        .bytes
+        .windows(BUILD_ID_PLACEHOLDER.len())
+        .filter(|window| *window == BUILD_ID_PLACEHOLDER)
+        .count();
+    assert_eq!(
+        occurrences, 1,
+        "background build-id placeholder must be unique"
+    );
+    let start = asset
+        .bytes
+        .windows(BUILD_ID_PLACEHOLDER.len())
+        .position(|window| window == BUILD_ID_PLACEHOLDER)
+        .expect("checked unique build-id placeholder");
+    let build_id = extension_build_id();
+    let mut rendered = Vec::with_capacity(asset.bytes.len() - BUILD_ID_PLACEHOLDER.len() + 64);
+    rendered.extend_from_slice(&asset.bytes[..start]);
+    rendered.extend_from_slice(build_id.as_bytes());
+    rendered.extend_from_slice(&asset.bytes[start + BUILD_ID_PLACEHOLDER.len()..]);
+    Cow::Owned(rendered)
+}
+
+/// Proves that one already-published directory is exactly the bundle embedded
+/// in this binary. Extra files, links, short reads and any byte drift are all
+/// rejected; a caller may therefore use the returned id as the reload target.
+pub fn verify_materialized_extension(root: &Path) -> Result<String, MaterializationError> {
+    let _directory = open_existing_path(root, ExistingEntryType::Directory)
+        .map_err(|_| MaterializationError::PublishedBundleInvalid)?;
+    let expected = ASSETS
+        .iter()
+        .map(|asset| asset.relative_path.to_owned())
+        .collect::<BTreeSet<_>>();
+    let observed = published_names(root)?;
+    if observed != expected {
+        return Err(MaterializationError::PublishedBundleInvalid);
+    }
+    for asset in ASSETS {
+        let expected = materialized_extension_asset(asset);
+        let mut file = open_existing_path(&root.join(asset.relative_path), ExistingEntryType::File)
+            .map_err(|_| MaterializationError::PublishedBundleInvalid)?;
+        let metadata = file
+            .metadata()
+            .map_err(|_| MaterializationError::PublishedBundleInvalid)?;
+        if metadata.len() != expected.len() as u64 {
+            return Err(MaterializationError::PublishedBundleInvalid);
+        }
+        let mut bytes = Vec::with_capacity(expected.len());
+        (&mut file)
+            .take((expected.len() + 1) as u64)
+            .read_to_end(&mut bytes)
+            .map_err(|_| MaterializationError::PublishedBundleInvalid)?;
+        if bytes.as_slice() != expected.as_ref() {
+            return Err(MaterializationError::PublishedBundleInvalid);
+        }
+    }
+    if published_names(root)? != expected {
+        return Err(MaterializationError::PublishedBundleInvalid);
+    }
+    Ok(extension_build_id())
+}
+
+fn published_names(root: &Path) -> Result<BTreeSet<String>, MaterializationError> {
+    let mut names = BTreeSet::new();
+    for entry in
+        std::fs::read_dir(root).map_err(|_| MaterializationError::PublishedBundleInvalid)?
+    {
+        let entry = entry.map_err(|_| MaterializationError::PublishedBundleInvalid)?;
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| MaterializationError::PublishedBundleInvalid)?;
+        names.insert(name);
+    }
+    Ok(names)
 }
 
 /// A side-by-side staging plan. The caller writes every asset into `staging`,
@@ -78,6 +187,7 @@ pub enum MaterializationError {
     StagingAliasesDestination,
     AssetPathInvalid,
     ExecutablePathInvalid,
+    PublishedBundleInvalid,
 }
 
 /// Produces the per-user Chromium native-host manifest for the same
@@ -116,6 +226,20 @@ mod tests {
                 .components()
                 .all(|component| matches!(component, Component::Normal(_)))
         }));
+        assert_eq!(extension_build_id().len(), 64);
+        let source = std::str::from_utf8(ASSETS[1].bytes).unwrap();
+        assert_eq!(source.matches("__ACU_BUILD_ID__").count(), 1);
+        let rendered = materialized_extension_asset(&ASSETS[1]);
+        assert!(
+            !rendered
+                .windows(BUILD_ID_PLACEHOLDER.len())
+                .any(|row| row == BUILD_ID_PLACEHOLDER)
+        );
+        assert!(
+            std::str::from_utf8(&rendered)
+                .unwrap()
+                .contains(&extension_build_id())
+        );
     }
 
     #[test]
@@ -164,6 +288,40 @@ mod tests {
     }
 
     #[test]
+    fn published_bundle_identity_rejects_byte_drift_and_extra_files() {
+        let root = std::env::temp_dir().join(format!(
+            "agenterm-cu-extension-identity-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        for asset in ASSETS {
+            std::fs::write(
+                root.join(asset.relative_path),
+                materialized_extension_asset(asset),
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            verify_materialized_extension(&root).unwrap(),
+            extension_build_id()
+        );
+        std::fs::write(root.join("extra"), b"unexpected").unwrap();
+        assert_eq!(
+            verify_materialized_extension(&root),
+            Err(MaterializationError::PublishedBundleInvalid)
+        );
+        std::fs::remove_file(root.join("extra")).unwrap();
+        std::fs::write(root.join("manifest.json"), b"{}").unwrap();
+        assert_eq!(
+            verify_materialized_extension(&root),
+            Err(MaterializationError::PublishedBundleInvalid)
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn extension_manifest_matches_native_identity_and_permissions() {
         let manifest: Value = serde_json::from_slice(ASSETS[0].bytes).unwrap();
         assert_eq!(manifest["manifest_version"], 3);
@@ -188,9 +346,11 @@ mod tests {
             "debug-type",
             "debug-files",
             "reload",
+            "extension-reload",
         ] {
             assert!(source.contains(command));
         }
+        assert!(source.contains("\"reload\", \"extension-reload\"].includes(request.command)"));
         let actionable_filter = source
             .find("if (request.actionable && !actionable) continue;")
             .expect("debug-read provider-side actionable filter");

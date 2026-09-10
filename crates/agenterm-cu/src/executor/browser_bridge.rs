@@ -5,14 +5,16 @@ use std::{
 };
 
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 
 use crate::{
     browser_bridge::{
         BridgeRequest, BridgeStatus, BrowserSetupBrowser, ConnectionId, DEBUG_FILES_MAX_FILES,
         DebugFile, DebugFilesRequest, DebugInvokeRequest, DebugReadRequest, DebugTarget,
-        DebugTypeRequest, NavRequest, ProfileInstanceId, ReloadResult, TabsResult,
-        install_for_current_user_selected, list_live_connections, send_to_connection,
-        send_to_connection_with_timeout,
+        DebugTypeRequest, ExtensionReloadRequest, ExtensionReloadResult, NavRequest,
+        PROTOCOL_VERSION, ProfileInstanceId, ReloadResult, TabsResult, current_user_extension_path,
+        extension_build_id, install_for_current_user_selected, list_live_connections,
+        send_to_connection, send_to_connection_with_timeout, verify_materialized_extension,
     },
     reply::CuError,
 };
@@ -1323,6 +1325,403 @@ pub(super) fn browser_bridge_reload_payload(
     }))
 }
 
+pub(super) fn browser_bridge_extension_reload_payload(
+    connection_id: &ConnectionId,
+    force: bool,
+    session_id: &str,
+    lease: &str,
+    ttl_seconds: u64,
+    timeout_ms: u64,
+) -> Result<Value, CuError> {
+    if ttl_seconds.saturating_mul(1_000) < timeout_ms.saturating_add(LOCK_DEADLINE_MARGIN_MS) {
+        return Err(CuError::new(
+            "browser_bridge_lock_ttl_invalid",
+            "the profile lock TTL must cover the extension reload deadline plus 5000ms",
+        ));
+    }
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+    let inventory = list_live_connections().map_err(host_error)?;
+    if inventory.truncated {
+        return Err(CuError::new(
+            "browser_bridge_connection_inventory_truncated",
+            "the live bridge inventory is incomplete; profile reload uniqueness cannot be proven",
+        ));
+    }
+    let entry = inventory
+        .connections
+        .iter()
+        .find(|entry| &entry.connection_id == connection_id)
+        .ok_or_else(|| {
+            CuError::new(
+                "browser_bridge_connection_not_found",
+                "the requested browser bridge connection is not live",
+            )
+        })?;
+    if entry.protocol != PROTOCOL_VERSION {
+        return Err(extension_reload_manual_required(entry.protocol));
+    }
+
+    let published_path = current_user_extension_path().map_err(|error| {
+        CuError::new(
+            error.code,
+            "the published browser extension path is unavailable",
+        )
+    })?;
+    let published_build_id = verify_materialized_extension(&published_path).map_err(|_| {
+        CuError::new(
+            "browser_bridge_published_bundle_stale",
+            "the published extension directory is not the exact bundle embedded in this executable",
+        )
+        .with_detail(json!({
+            "effect": "not-performed",
+            "retry_safe": true,
+            "next_actions": ["run browser-bridge-setup for the intended browser set, then reload the unpacked extension if requested"],
+        }))
+    })?;
+    let embedded_build_id = extension_build_id();
+    if published_build_id != embedded_build_id {
+        return Err(CuError::new(
+            "browser_bridge_published_bundle_stale",
+            "the published and embedded extension build identities differ",
+        ));
+    }
+
+    let before_focus = desktop_focus_handle()?;
+    let (before_status, baseline) = reload_profile_inventory_until(connection_id, deadline)?;
+    let current = before_status.extension_version
+        == crate::browser_bridge::BRIDGE_EXTENSION_VERSION
+        && before_status.build_id == embedded_build_id;
+    if current && !force {
+        verify_focus_unchanged(before_focus, deadline)?;
+        return Ok(json!({
+            "reloaded": false,
+            "reason": "already-current",
+            "reload_scope": "extension-code",
+            "effect": "not-performed",
+            "retry_safe": true,
+            "connection_id": connection_id,
+            "profile_instance_id": before_status.profile_instance_id,
+            "loaded_identity": reload_identity(&before_status),
+            "source_identity": source_identity(&embedded_build_id),
+            "verified": true,
+        }));
+    }
+
+    let before_tabs = bridge_tabs_until(connection_id, deadline)?;
+    if before_tabs.truncated {
+        return Err(CuError::new(
+            "browser_bridge_tabs_inventory_truncated",
+            "the exact tab inventory is incomplete; extension reload is refused",
+        ));
+    }
+    let lock_target = extension_lock_target(&before_status.profile_instance_id);
+    let lock_before =
+        super::runtime::lock_acquire_payload(session_id, lease, &lock_target, ttl_seconds)?;
+    let request = ExtensionReloadRequest {
+        profile_instance_id: before_status.profile_instance_id.clone(),
+        before_version: before_status.extension_version.clone(),
+        before_build_id: before_status.build_id.clone(),
+    };
+    let args = serde_json::to_value(&request)
+        .ok()
+        .and_then(|value| value.as_object().cloned())
+        .expect("extension reload request is an object");
+    let acknowledgement: ExtensionReloadResult =
+        serde_json::from_value(browser_bridge_request_result_with_timeout(
+            connection_id,
+            "extension-reload",
+            args,
+            remaining_bridge_timeout(deadline)?,
+        )?)
+        .map_err(|_| {
+            extension_reload_effect_error(
+                CuError::new(
+                    "browser_bridge_response_invalid",
+                    "the extension reload acknowledgement was not the closed protocol shape",
+                ),
+                connection_id,
+                None,
+                false,
+            )
+        })?;
+    acknowledgement.validate_for(&request).map_err(|error| {
+        extension_reload_effect_error(
+            CuError::new(error.code, error.message),
+            connection_id,
+            None,
+            false,
+        )
+    })?;
+
+    let mut observed_new = BTreeSet::new();
+    let (new_connection, after_status) = loop {
+        let inventory = list_live_connections().map_err(|error| {
+            extension_reload_effect_error(host_error(error), connection_id, None, false)
+        })?;
+        if inventory.truncated {
+            return Err(extension_reload_effect_error(
+                CuError::new(
+                    "browser_bridge_connection_inventory_truncated",
+                    "the reconnect inventory became incomplete after extension reload was accepted",
+                ),
+                connection_id,
+                None,
+                false,
+            ));
+        }
+        let old_gone = !inventory
+            .connections
+            .iter()
+            .any(|entry| &entry.connection_id == connection_id);
+        let mut added = inventory
+            .connections
+            .iter()
+            .filter(|entry| !baseline.contains(&entry.connection_id))
+            .map(|entry| entry.connection_id.clone())
+            .collect::<Vec<_>>();
+        observed_new.extend(added.iter().cloned());
+        if added.len() > 1 {
+            return Err(extension_reload_effect_error(
+                CuError::new(
+                    "browser_bridge_reconnect_ambiguous",
+                    "more than one new host appeared after profile extension reload",
+                )
+                .with_detail(json!({ "matching_connections": added })),
+                connection_id,
+                None,
+                old_gone,
+            ));
+        }
+        if old_gone && added.len() == 1 {
+            let candidate = added.remove(0);
+            let status = bridge_status_until(&candidate, deadline).map_err(|error| {
+                extension_reload_effect_error(error, connection_id, Some(&candidate), true)
+            })?;
+            if status.profile_instance_id != before_status.profile_instance_id {
+                return Err(extension_reload_effect_error(
+                    CuError::new(
+                        "browser_bridge_extension_reload_identity_changed",
+                        "the replacement connection belongs to a different profile instance",
+                    ),
+                    connection_id,
+                    Some(&candidate),
+                    true,
+                ));
+            }
+            break (candidate, status);
+        }
+        if Instant::now() >= deadline {
+            return Err(extension_reload_effect_error(
+                CuError::new(
+                    "browser_bridge_reconnect_timeout",
+                    "the extension did not publish one unique replacement connection before the deadline",
+                )
+                .with_detail(json!({ "observed_new_connections": observed_new })),
+                connection_id,
+                None,
+                old_gone,
+            ));
+        }
+        thread::sleep(Duration::from_millis(50));
+    };
+    if after_status.extension_version != crate::browser_bridge::BRIDGE_EXTENSION_VERSION
+        || after_status.build_id != embedded_build_id
+    {
+        return Err(extension_reload_effect_error(
+            CuError::new(
+                "browser_bridge_extension_reload_not_current",
+                "the replacement connection did not load the exact embedded extension build",
+            ),
+            connection_id,
+            Some(&new_connection),
+            true,
+        ));
+    }
+    let after_tabs = bridge_tabs_until(&new_connection, deadline).map_err(|error| {
+        extension_reload_effect_error(error, connection_id, Some(&new_connection), true)
+    })?;
+    let before_tabs_identity = tab_inventory_identity(&before_tabs);
+    let after_tabs_identity = tab_inventory_identity(&after_tabs);
+    if before_tabs_identity != after_tabs_identity {
+        return Err(extension_reload_effect_error(
+            CuError::new(
+                "browser_bridge_extension_reload_tabs_changed",
+                "the bounded tab inventory changed across extension code reload",
+            ),
+            connection_id,
+            Some(&new_connection),
+            true,
+        ));
+    }
+    let tabs_identity_digest = tab_inventory_identity_digest(&before_tabs_identity);
+    let lock_after =
+        super::runtime::lock_acquire_payload(session_id, lease, &lock_target, ttl_seconds)
+            .map_err(|error| {
+                extension_reload_effect_error(error, connection_id, Some(&new_connection), true)
+            })?;
+    verify_focus_unchanged(before_focus, deadline).map_err(|error| {
+        extension_reload_effect_error(error, connection_id, Some(&new_connection), true)
+    })?;
+    Ok(json!({
+        "reloaded": true,
+        "reload_scope": "extension-code",
+        "effect": "performed",
+        "retry_safe": false,
+        "old_connection_id": connection_id,
+        "connection_id": new_connection,
+        "profile_instance_id": after_status.profile_instance_id,
+        "loaded_identity_before": reload_identity(&before_status),
+        "source_identity": source_identity(&embedded_build_id),
+        "loaded_identity_after": reload_identity(&after_status),
+        "acknowledgement": acknowledgement,
+        "lock_before": lock_before,
+        "lock_after": lock_after,
+        "old_connection_gone": true,
+        "unique_reconnect": true,
+        "tabs_unchanged": true,
+        "tabs_identity_digest": tabs_identity_digest,
+        "focus_changed": false,
+        "verified": true,
+        "warnings": ["debugger sessions in this profile were detached by extension reload"],
+    }))
+}
+
+fn reload_profile_inventory_until(
+    selected: &ConnectionId,
+    deadline: Instant,
+) -> Result<(BridgeStatus, BTreeSet<ConnectionId>), CuError> {
+    let inventory = list_live_connections().map_err(host_error)?;
+    if inventory.truncated {
+        return Err(CuError::new(
+            "browser_bridge_connection_inventory_truncated",
+            "the live bridge inventory is incomplete; profile uniqueness cannot be proven",
+        ));
+    }
+    let baseline = inventory
+        .connections
+        .iter()
+        .map(|entry| entry.connection_id.clone())
+        .collect::<BTreeSet<_>>();
+    let mut statuses = Vec::with_capacity(inventory.connections.len());
+    for entry in &inventory.connections {
+        if entry.protocol != PROTOCOL_VERSION {
+            continue;
+        }
+        let mut args = Map::new();
+        args.insert("reload_identity".into(), Value::Bool(true));
+        let raw = browser_bridge_request_result_with_timeout(
+            &entry.connection_id,
+            "status",
+            args,
+            remaining_bridge_timeout(deadline)?,
+        )?;
+        let status: BridgeStatus = serde_json::from_value(raw).map_err(|_| {
+            CuError::new(
+                "browser_bridge_response_invalid",
+                "reload identity status was not the closed protocol shape",
+            )
+        })?;
+        statuses.push((entry.connection_id.clone(), status));
+    }
+    let before = statuses
+        .iter()
+        .find(|(id, _)| id == selected)
+        .map(|(_, status)| status.clone())
+        .ok_or_else(|| {
+            CuError::new(
+                "browser_bridge_connection_not_found",
+                "the selected current-protocol connection disappeared before reload preflight",
+            )
+        })?;
+    let matching = statuses
+        .iter()
+        .filter(|(_, status)| status.profile_instance_id == before.profile_instance_id)
+        .count();
+    if matching != 1 {
+        return Err(CuError::new(
+            "browser_bridge_profile_connection_ambiguous",
+            "profile extension reload requires exactly one live connection for the profile",
+        )
+        .with_count(matching));
+    }
+    Ok((before, baseline))
+}
+
+fn tab_inventory_identity(tabs: &TabsResult) -> Vec<(u32, u32, bool)> {
+    let mut identity = tabs
+        .tabs
+        .iter()
+        .map(|tab| (tab.tab_id, tab.window_id, tab.active))
+        .collect::<Vec<_>>();
+    identity.sort_unstable();
+    identity
+}
+
+fn tab_inventory_identity_digest(identity: &[(u32, u32, bool)]) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"agenterm-cu/browser-bridge-tab-identity/v1\0");
+    digest.update((identity.len() as u64).to_le_bytes());
+    for (tab_id, window_id, active) in identity {
+        digest.update(tab_id.to_le_bytes());
+        digest.update(window_id.to_le_bytes());
+        digest.update([u8::from(*active)]);
+    }
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn extension_reload_manual_required(peer_protocol: u32) -> CuError {
+    CuError::new(
+        "browser_bridge_extension_reload_manual_required",
+        "the loaded extension predates the stable code-reload protocol and must be reloaded manually once",
+    )
+    .with_detail(json!({
+        "reload_scope": "extension-code",
+        "effect": "not-performed",
+        "retry_safe": true,
+        "loaded_identity": {
+            "protocol": peer_protocol,
+            "extension_version": Value::Null,
+            "build_id": Value::Null,
+            "commands": Value::Null,
+            "source": "connection-record",
+        },
+        "source_identity": source_identity(&extension_build_id()),
+        "next_actions": [
+            "run browser-bridge-setup for the intended browser set",
+            "reload the ACU Browser Bridge once in the browser extension manager",
+        ],
+    }))
+}
+
+fn reload_identity(status: &BridgeStatus) -> Value {
+    json!({
+        "protocol": status.protocol,
+        "extension_version": status.extension_version,
+        "build_id": status.build_id,
+        "commands": status.commands,
+    })
+}
+
+fn source_identity(build_id: &str) -> Value {
+    json!({
+        "protocol": PROTOCOL_VERSION,
+        "extension_version": crate::browser_bridge::BRIDGE_EXTENSION_VERSION,
+        "build_id": build_id,
+    })
+}
+
+fn extension_lock_target(profile: &ProfileInstanceId) -> String {
+    format!(
+        "browser:native:{}:profile:{}:extension",
+        crate::browser_bridge::ACU_EXTENSION_ID,
+        profile.as_str()
+    )
+}
+
 fn rollback_new_attach_lock(lock: Value, lease: &str, cause: CuError) -> CuError {
     let newly_acquired = lock.get("idempotent").and_then(Value::as_bool) == Some(false);
     let lock_id = lock
@@ -1379,6 +1778,24 @@ fn reload_effect_error(
         "connection_id": new_connection,
         "old_connection_gone": old_connection_gone,
         "retry_safe": false,
+    }))
+}
+
+fn extension_reload_effect_error(
+    cause: CuError,
+    old_connection: &ConnectionId,
+    new_connection: Option<&ConnectionId>,
+    old_connection_gone: bool,
+) -> CuError {
+    CuError::new(cause.code, cause.message).with_detail(json!({
+        "cause": cause.detail,
+        "reload_scope": "extension-code",
+        "effect": if old_connection_gone { "performed" } else { "unknown" },
+        "old_connection_id": old_connection,
+        "connection_id": new_connection,
+        "old_connection_gone": old_connection_gone,
+        "retry_safe": false,
+        "further_reload_forbidden": true,
     }))
 }
 
@@ -1714,6 +2131,7 @@ mod tests {
             protocol: crate::browser_bridge::PROTOCOL_VERSION,
             extension_id: crate::browser_bridge::ACU_EXTENSION_ID.into(),
             extension_version: crate::browser_bridge::BRIDGE_EXTENSION_VERSION.into(),
+            build_id: crate::browser_bridge::extension_build_id(),
             profile_instance_id: crate::browser_bridge::ProfileInstanceId::parse(profile).unwrap(),
             commands: Vec::new(),
         }
@@ -1839,6 +2257,46 @@ mod tests {
     }
 
     #[test]
+    fn extension_reload_tab_identity_ignores_dynamic_content_and_order() {
+        let first = TabsResult {
+            tabs: vec![
+                tab("changing title", "https://example.invalid/one"),
+                crate::browser_bridge::BrowserTab {
+                    tab_id: 9,
+                    window_id: 12,
+                    active: true,
+                    title: "other".into(),
+                    url: "https://example.invalid/two".into(),
+                },
+            ],
+            truncated: false,
+        };
+        let second = TabsResult {
+            tabs: vec![
+                crate::browser_bridge::BrowserTab {
+                    tab_id: 9,
+                    window_id: 12,
+                    active: true,
+                    title: "updated".into(),
+                    url: "https://example.invalid/redirected".into(),
+                },
+                tab("updated title", "https://example.invalid/changed"),
+            ],
+            truncated: false,
+        };
+        let first_identity = tab_inventory_identity(&first);
+        let second_identity = tab_inventory_identity(&second);
+        assert_eq!(first_identity, second_identity);
+        assert_eq!(
+            tab_inventory_identity_digest(&first_identity),
+            tab_inventory_identity_digest(&second_identity)
+        );
+        let mut activated = second;
+        activated.tabs[1].active = true;
+        assert_ne!(first_identity, tab_inventory_identity(&activated));
+    }
+
+    #[test]
     fn post_ack_error_discloses_effect_and_replacement_identity() {
         let old = ConnectionId::parse(&"1".repeat(64)).unwrap();
         let new = ConnectionId::parse(&"2".repeat(64)).unwrap();
@@ -1853,6 +2311,42 @@ mod tests {
         assert_eq!(detail["old_connection_gone"], true);
         assert_eq!(detail["connection_id"], new.as_str());
         assert_eq!(detail["retry_safe"], false);
+    }
+
+    #[test]
+    fn preceding_protocol_requires_manual_reload_without_inventing_loaded_identity() {
+        let error = extension_reload_manual_required(5);
+        assert_eq!(
+            error.code,
+            "browser_bridge_extension_reload_manual_required"
+        );
+        let detail = error.detail.unwrap();
+        assert_eq!(detail["effect"], "not-performed");
+        assert_eq!(detail["reload_scope"], "extension-code");
+        assert_eq!(detail["retry_safe"], true);
+        assert_eq!(detail["loaded_identity"]["protocol"], 5);
+        assert!(detail["loaded_identity"]["extension_version"].is_null());
+        assert!(detail["loaded_identity"]["build_id"].is_null());
+        assert!(detail["loaded_identity"]["commands"].is_null());
+        assert_eq!(detail["source_identity"]["protocol"], PROTOCOL_VERSION);
+    }
+
+    #[test]
+    fn extension_reload_post_ack_failure_is_never_retry_safe() {
+        let old = ConnectionId::parse(&"1".repeat(64)).unwrap();
+        let new = ConnectionId::parse(&"2".repeat(64)).unwrap();
+        let error = extension_reload_effect_error(
+            CuError::new("browser_bridge_extension_reload_not_current", "stale"),
+            &old,
+            Some(&new),
+            true,
+        );
+        let detail = error.detail.unwrap();
+        assert_eq!(detail["effect"], "performed");
+        assert_eq!(detail["reload_scope"], "extension-code");
+        assert_eq!(detail["retry_safe"], false);
+        assert_eq!(detail["further_reload_forbidden"], true);
+        assert_eq!(detail["connection_id"], new.as_str());
     }
 
     #[test]

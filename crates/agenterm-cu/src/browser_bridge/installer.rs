@@ -16,7 +16,8 @@ use agenterm_platform::{
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ACU_NATIVE_HOST_NAME, ExtensionMaterializationPlan, extension_assets, native_host_manifest,
+    ACU_NATIVE_HOST_NAME, ExtensionMaterializationPlan, extension_assets,
+    materialized_extension_asset, native_host_manifest,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -125,6 +126,16 @@ impl BrowserBridgeInstallPaths {
             requested,
         )
     }
+}
+
+pub fn current_user_extension_path() -> Result<PathBuf, BrowserBridgeInstallError> {
+    let directories = host_directories().map_err(|_| error("browser_bridge_home_unavailable"))?;
+    Ok(directories
+        .local_data
+        .join("agenterm")
+        .join("cu")
+        .join("browser-bridge")
+        .join("extension"))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -423,15 +434,16 @@ fn existing_regular_file(path: &Path) -> Result<bool, ()> {
 fn prepare_extension(staging: &Path) -> Result<(), BrowserBridgeInstallError> {
     for asset in extension_assets() {
         let destination = staging.join(asset.relative_path);
+        let materialized = materialized_extension_asset(asset);
         let mut file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&destination)
             .map_err(|_| error("browser_bridge_install_prepare_failed"))?;
-        file.write_all(asset.bytes)
+        file.write_all(&materialized)
             .and_then(|()| file.sync_all())
             .map_err(|_| error("browser_bridge_install_prepare_failed"))?;
-        if fs::read(&destination).ok().as_deref() != Some(asset.bytes) {
+        if fs::read(&destination).ok().as_deref() != Some(materialized.as_ref()) {
             return Err(error("browser_bridge_install_verify_failed"));
         }
     }
@@ -1006,13 +1018,13 @@ mod tests {
     }
 
     #[test]
-    fn prepared_bundle_is_byte_exact() {
+    fn prepared_bundle_is_the_exact_materialized_asset_set() {
         let root = fixture("bundle");
         prepare_extension(&root).unwrap();
         for asset in extension_assets() {
             assert_eq!(
                 fs::read(root.join(asset.relative_path)).unwrap(),
-                asset.bytes
+                materialized_extension_asset(asset).as_ref()
             );
         }
         fs::remove_dir_all(root).unwrap();

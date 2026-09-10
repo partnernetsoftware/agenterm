@@ -1776,6 +1776,22 @@ impl Executor {
                 *ttl_seconds,
                 *timeout_ms,
             ),
+            Command::BrowserBridgeExtensionReload {
+                connection_id,
+                force,
+                session_id,
+                lease,
+                ttl_seconds,
+                timeout_ms,
+                ..
+            } => browser_bridge_extension_reload_payload(
+                connection_id,
+                *force,
+                session_id,
+                lease,
+                *ttl_seconds,
+                *timeout_ms,
+            ),
             Command::BrowserBridgeWindows { connection_id, .. } => {
                 browser_bridge_request_payload(connection_id, "windows", serde_json::Map::new())
             }

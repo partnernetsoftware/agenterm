@@ -10,7 +10,8 @@ mod registry;
 
 pub use assets::{
     ExtensionAsset, ExtensionMaterializationPlan, MaterializationError, extension_assets,
-    native_host_manifest,
+    extension_build_id, materialized_extension_asset, native_host_manifest,
+    verify_materialized_extension,
 };
 pub use host::{
     BridgeHostError, BridgeResponse, BridgeStatus, BridgeWireError, ConnectionInventory,
@@ -21,7 +22,8 @@ pub use installer::{
     BrowserBridgeInstall, BrowserBridgeInstallError, BrowserBridgeInstallPaths,
     BrowserRegistrationOutcome, BrowserRegistrationPlan, BrowserRegistrationReceipt,
     BrowserRegistrationTarget, BrowserSetupBrowser, BrowserSetupDiscovery, BrowserSetupEffect,
-    ChromiumFamily, install_for_current_user, install_for_current_user_selected,
+    ChromiumFamily, current_user_extension_path, install_for_current_user,
+    install_for_current_user_selected,
 };
 pub use registry::{
     ConnectionEndpoint, ConnectionEntry, ConnectionId, ConnectionRegistry, ProcessIdentity,
@@ -31,8 +33,8 @@ pub use registry::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-pub const PROTOCOL_VERSION: u32 = 5;
-pub const BRIDGE_EXTENSION_VERSION: &str = "1.5.0";
+pub const PROTOCOL_VERSION: u32 = 6;
+pub const BRIDGE_EXTENSION_VERSION: &str = "1.6.0";
 pub const REQUEST_MAX_BYTES: usize = 1024 * 1024;
 pub const NATIVE_MESSAGE_MAX_BYTES: usize = REQUEST_MAX_BYTES;
 pub const ACU_NATIVE_HOST_NAME: &str = "software.partnernet.agenterm_acu.browser_bridge";
@@ -64,6 +66,7 @@ const COMMANDS: &[&str] = &[
     "debug-type",
     "debug-files",
     "reload",
+    "extension-reload",
 ];
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -142,11 +145,25 @@ impl BridgeRequest {
             ));
         }
         match self.command.as_str() {
-            "status" | "tabs" | "windows" if !self.args.is_empty() => {
-                Err(BridgeProtocolError::new(
-                    "browser_bridge_args_invalid",
-                    "this command takes an empty args object",
-                ))
+            "tabs" | "windows" if !self.args.is_empty() => Err(BridgeProtocolError::new(
+                "browser_bridge_args_invalid",
+                "this command takes an empty args object",
+            )),
+            "status" => {
+                let request: StatusRequest =
+                    serde_json::from_value(Value::Object(self.args.clone())).map_err(|error| {
+                        BridgeProtocolError::new(
+                            "browser_bridge_args_invalid",
+                            format!("status args are invalid: {error}"),
+                        )
+                    })?;
+                if !self.args.is_empty() && !request.reload_identity {
+                    return Err(BridgeProtocolError::new(
+                        "browser_bridge_args_invalid",
+                        "nonempty status args must request reload identity",
+                    ));
+                }
+                Ok(())
             }
             "debug-read" => {
                 let req: DebugReadRequest =
@@ -172,6 +189,16 @@ impl BridgeRequest {
                         format!("reload args are invalid: {e}"),
                     )
                 })?;
+                req.validate()
+            }
+            "extension-reload" => {
+                let req: ExtensionReloadRequest =
+                    serde_json::from_value(Value::Object(self.args.clone())).map_err(|e| {
+                        BridgeProtocolError::new(
+                            "browser_bridge_args_invalid",
+                            format!("extension-reload args are invalid: {e}"),
+                        )
+                    })?;
                 req.validate()
             }
             "window-state" => {
@@ -207,6 +234,98 @@ impl BridgeRequest {
             _ => Ok(()),
         }
     }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StatusRequest {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reload_identity: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExtensionReloadRequest {
+    pub profile_instance_id: ProfileInstanceId,
+    pub before_version: String,
+    pub before_build_id: String,
+}
+
+impl ExtensionReloadRequest {
+    pub fn validate(&self) -> Result<(), BridgeProtocolError> {
+        validate_version(&self.before_version)?;
+        validate_build_id(&self.before_build_id)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExtensionReloadResult {
+    pub accepted: bool,
+    pub reload_scope: String,
+    pub scheduled: bool,
+    pub profile_instance_id: ProfileInstanceId,
+    pub before_version: String,
+    pub before_build_id: String,
+}
+
+impl ExtensionReloadResult {
+    pub fn validate_for(
+        &self,
+        request: &ExtensionReloadRequest,
+    ) -> Result<(), BridgeProtocolError> {
+        if !self.accepted
+            || !self.scheduled
+            || self.reload_scope != "extension-code"
+            || self.profile_instance_id != request.profile_instance_id
+            || self.before_version != request.before_version
+            || self.before_build_id != request.before_build_id
+        {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_extension_reload_not_accepted",
+                "extension reload acknowledgement did not preserve its frozen identity",
+            ));
+        }
+        self.validate_identity()
+    }
+
+    fn validate_identity(&self) -> Result<(), BridgeProtocolError> {
+        validate_version(&self.before_version)?;
+        validate_build_id(&self.before_build_id)
+    }
+}
+
+fn validate_version(value: &str) -> Result<(), BridgeProtocolError> {
+    let parts = value.split('.').collect::<Vec<_>>();
+    if parts.len() != 3
+        || parts.iter().any(|part| {
+            part.is_empty()
+                || part.len() > 10
+                || part.bytes().any(|byte| !byte.is_ascii_digit())
+                || (part.len() > 1 && part.starts_with('0'))
+        })
+    {
+        return Err(BridgeProtocolError::new(
+            "browser_bridge_extension_version_invalid",
+            "extension version must be a bounded numeric major.minor.patch triple",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_build_id(value: &str) -> Result<(), BridgeProtocolError> {
+    if value.len() != 64
+        || value
+            .bytes()
+            .any(|byte| !byte.is_ascii_digit() && !(b'a'..=b'f').contains(&byte))
+        || value.bytes().all(|byte| byte == b'0')
+    {
+        return Err(BridgeProtocolError::new(
+            "browser_bridge_extension_build_id_invalid",
+            "extension build id must be 64 lowercase hexadecimal characters and nonzero",
+        ));
+    }
+    Ok(())
 }
 
 fn parse_debug_request<T: serde::de::DeserializeOwned>(
@@ -1496,6 +1615,19 @@ mod tests {
         nav.args
             .insert("url".into(), json!("https://example.test/landing"));
         nav.validate().unwrap();
+        let mut extension_reload = req("extension-reload");
+        extension_reload.args = serde_json::from_value(json!({
+            "profile_instance_id": "1234567890abcdef1234567890abcdef",
+            "before_version": BRIDGE_EXTENSION_VERSION,
+            "before_build_id": extension_build_id(),
+        }))
+        .unwrap();
+        extension_reload.validate().unwrap();
+        let mut reload_identity = req("status");
+        reload_identity
+            .args
+            .insert("reload_identity".into(), json!(true));
+        reload_identity.validate().unwrap();
         for command in ["read", "click", "type"] {
             assert_eq!(
                 req(command).validate().unwrap_err().code,
@@ -2198,7 +2330,7 @@ mod tests {
         assert_eq!(
             NavRequest {
                 tab_id: 7,
-                url: "https://user:secret@example.test/landing".into(),
+                url: format!("https://user:{}@example.test/landing", "<AUTH_CODE>"),
             }
             .validate()
             .unwrap_err()

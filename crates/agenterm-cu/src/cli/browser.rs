@@ -53,6 +53,9 @@ pub fn parse(
             "browser-bridge-tabs" => browser_bridge(target, Some("tabs"), args),
             "browser-bridge-attach" => browser_bridge(target, Some("attach"), args),
             "browser-bridge-reload" => browser_bridge(target, Some("reload"), args),
+            "browser-bridge-extension-reload" => {
+                browser_bridge(target, Some("extension-reload"), args)
+            }
             "browser-bridge-windows" => browser_bridge(target, Some("windows"), args),
             "browser-bridge-window-open" => browser_bridge(target, Some("window-open"), args),
             "browser-bridge-window-state" => browser_bridge(target, Some("window-state"), args),
@@ -1022,7 +1025,7 @@ fn browser_bridge(
     let action = match action {
         Some(action) => action,
         None => args.first().map(String::as_str).ok_or_else(|| {
-            "browser bridge requires setup | connections | status | tabs | attach | reload | windows | window-open | window-state | nav | debug-read | debug-invoke | debug-type | debug-files"
+            "browser bridge requires setup | connections | status | tabs | attach | reload | extension-reload | windows | window-open | window-state | nav | debug-read | debug-invoke | debug-type | debug-files"
                 .to_owned()
         })?,
     }
@@ -1033,6 +1036,7 @@ fn browser_bridge(
         && action != "tabs"
         && action != "attach"
         && action != "reload"
+        && action != "extension-reload"
         && action != "windows"
         && action != "window-open"
         && action != "window-state"
@@ -1043,7 +1047,7 @@ fn browser_bridge(
         && action != "debug-files"
     {
         return Err(format!(
-            "unknown browser bridge action {action:?}; expected setup | connections | status | tabs | attach | reload | windows | window-open | window-state | nav | debug-read | debug-invoke | debug-type | debug-files"
+            "unknown browser bridge action {action:?}; expected setup | connections | status | tabs | attach | reload | extension-reload | windows | window-open | window-state | nav | debug-read | debug-invoke | debug-type | debug-files"
         ));
     }
     if action.is_empty() {
@@ -1149,6 +1153,39 @@ fn browser_bridge(
                     timeout_ms,
                 })
             }
+        }
+        "extension-reload" => {
+            let force = take_switch(args, "--force");
+            let session_id = flag_text(args, "--session")?.ok_or_else(|| {
+                "browser bridge extension-reload requires --session ID".to_owned()
+            })?;
+            let lease = flag_text(args, "--lease")?.ok_or_else(|| {
+                "browser bridge extension-reload requires --lease TOKEN".to_owned()
+            })?;
+            let ttl_seconds = flag_parsed::<u64>(args, "--ttl-seconds")?.unwrap_or(60);
+            let timeout_ms = flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(20_000);
+            if !(1..=600).contains(&ttl_seconds) {
+                return Err(
+                    "browser bridge extension-reload --ttl-seconds must be in 1..=600".into(),
+                );
+            }
+            if !(500..=60_000).contains(&timeout_ms) {
+                return Err(
+                    "browser bridge extension-reload --timeout-ms must be in 500..=60000".into(),
+                );
+            }
+            if ttl_seconds.saturating_mul(1_000) < timeout_ms.saturating_add(5_000) {
+                return Err("browser bridge extension-reload --ttl-seconds must cover --timeout-ms plus 5000ms".into());
+            }
+            Ok(Command::BrowserBridgeExtensionReload {
+                target,
+                connection_id: exact_connection_id("browser bridge extension-reload", args)?,
+                force,
+                session_id,
+                lease,
+                ttl_seconds,
+                timeout_ms,
+            })
         }
         "windows" => Ok(Command::BrowserBridgeWindows {
             target,
@@ -1791,6 +1828,38 @@ mod tests {
                 ..
             })
         ));
+
+        let mut extension_reload = words(&[
+            &id,
+            "--force",
+            "--session",
+            "session-id",
+            "--lease",
+            "lease-token",
+            "--ttl-seconds",
+            "45",
+            "--timeout-ms",
+            "30000",
+        ]);
+        let parsed_extension_reload = browser_bridge(
+            TargetRef::Current,
+            Some("extension-reload"),
+            &mut extension_reload,
+        );
+        assert!(
+            matches!(
+                &parsed_extension_reload,
+                Ok(Command::BrowserBridgeExtensionReload {
+                    force: true,
+                    ttl_seconds: 45,
+                    timeout_ms: 30_000,
+                    session_id,
+                    lease,
+                    ..
+                }) if session_id == "session-id" && lease == "lease-token"
+            ),
+            "{parsed_extension_reload:?}"
+        );
 
         let common = [
             id.as_str(),

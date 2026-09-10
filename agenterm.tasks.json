@@ -9236,7 +9236,7 @@
     },
     {
       "id": "cu-browser-session-smoke",
-      "description": "Prove one ACU-owned isolated browser profile, protocol-5 MV3 identity, exact-tab ownership, background Native Messaging reconnect and HTTP(S) navigation with debugger root-frame/loader commit proof, same-tab inventory read-back, lock continuity and unchanged focus; also cover legacy status/open/page elements, closed-shadow effects, window lifecycle, CDP actuation, stat-only download, stop, host EOF and TTL cleanup.",
+      "description": "Prove one ACU-owned isolated browser profile, protocol-6 MV3 build identity, exact-tab ownership, background Native Messaging reconnect, the extension-code reload hook's current no-op and forced unique replacement, and HTTP(S) navigation with debugger commit proof; also cover legacy status/open/page elements, closed-shadow effects, window lifecycle, CDP actuation, download, stop, host EOF and TTL cleanup.",
       "entry": "scripts/qjs/cu-browser-session-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

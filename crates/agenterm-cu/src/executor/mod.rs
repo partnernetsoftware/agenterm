@@ -993,6 +993,7 @@ impl Executor {
             command,
             Command::BrowserBridgeAttach { .. }
                 | Command::BrowserBridgeReload { .. }
+                | Command::BrowserBridgeExtensionReload { .. }
                 | Command::BrowserBridgeNav { .. }
                 | Command::BrowserBridgeDebugInvoke { .. }
                 | Command::BrowserBridgeDebugType { .. }
@@ -1073,6 +1074,8 @@ fn browser_bridge_lock_audit_detail(reply: &CuReply) -> serde_json::Value {
         "effect": source.and_then(|value| value.get("effect")),
         "old_connection_gone": source.and_then(|value| value.get("old_connection_gone")),
         "unique_reconnect": source.and_then(|value| value.get("unique_reconnect")),
+        "tabs_unchanged": source.and_then(|value| value.get("tabs_unchanged")),
+        "tabs_identity_digest": source.and_then(|value| value.get("tabs_identity_digest")),
         "focus_changed": source.and_then(|value| value.get("focus_changed")),
         "focus_restored": source.and_then(|value| value.get("focus_restored")),
         "verified": source.and_then(|value| value.get("verified")),
@@ -1593,6 +1596,44 @@ mod tests {
         assert_eq!(record["detail"]["tab_content_redacted"], true);
         assert_eq!(record["detail"]["lease_redacted"], true);
         remove_audit_scratch(&path);
+    }
+
+    #[test]
+    fn extension_reload_audit_keeps_scope_and_postconditions_without_identity() {
+        let command = Command::BrowserBridgeExtensionReload {
+            target: TargetRef::Current,
+            connection_id: crate::browser_bridge::ConnectionId::parse(&"ab".repeat(32))
+                .expect("connection id"),
+            force: true,
+            session_id: "session-id".into(),
+            lease: "private-session-lease".into(),
+            ttl_seconds: 60,
+            timeout_ms: 20_000,
+        };
+        let reply = CuReply::ok(
+            &command,
+            serde_json::json!({
+                "reload_scope": "extension-code",
+                "effect": "performed",
+                "profile_instance_id": "private-profile-instance",
+                "connection_id": "private-connection-id",
+                "old_connection_gone": true,
+                "unique_reconnect": true,
+                "tabs_unchanged": true,
+                "tabs_identity_digest": "ab".repeat(32),
+                "focus_changed": false,
+                "verified": true,
+            }),
+        );
+        let detail = browser_bridge_lock_audit_detail(&reply);
+        assert_eq!(detail["reload_scope"], "extension-code");
+        assert_eq!(detail["effect"], "performed");
+        assert_eq!(detail["tabs_unchanged"], true);
+        assert_eq!(detail["tabs_identity_digest"], "ab".repeat(32));
+        let text = serde_json::to_string(&detail).unwrap();
+        assert!(!text.contains("private-profile-instance"));
+        assert!(!text.contains("private-connection-id"));
+        assert!(!text.contains("private-session-lease"));
     }
 
     #[test]

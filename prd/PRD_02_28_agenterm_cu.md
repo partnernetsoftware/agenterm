@@ -690,8 +690,9 @@ ACU-only cutover
 │  │  ├─ [x] legacy managed-profile create/list/start/status/stop/remove are permanently
 │  │  │  typed-retired before dispatch because their caller lease, store and Trash recovery
 │  │  │  cannot alias the resident ACU browser-session authority or permanent deletion
-│  │  ├─ [ ] acu.dynamic.075.bridge-extension-reload · profile-level extension-code reload
-│  │  │  still needs version read-back; native reload proves only Native Messaging reconnect
+│  │  ├─ [~] acu.dynamic.075.bridge-extension-reload · protocol 6 seeds a distinct profile-level
+│  │  │  extension-code reload hook with deterministic build identity, current no-op and forced
+│  │  │  unique-replacement proof; an owned stale-to-current court is still required to close it
 │  │  └─ owned-profile macOS qjswasm court is wired; Linux/Windows native courts remain
 │  ├─ [x] acu.dynamic.076 · `inspect --app` maps to native bounded `app-inspect`;
 │  │  ├─ whole matching window set + foreground identity are bracketed as one observation
@@ -1003,7 +1004,7 @@ flowchart LR
   page target before navigation. With no endpoint, the adapter now resolves one
   exact complete MV3 profile/tab inventory and calls `browser-bridge-nav` under
   the caller's durable request/session/session-lease identity. For HTTP(S), the
-  protocol-5 extension binds `Page.navigate` root `frameId`/`loaderId` to the
+  protocol-6 extension binds `Page.navigate` root `frameId`/`loaderId` to the
   committed `Page.frameNavigated` event, with a closed same-document path that
   retains the root loader. Requested, committed and observed URLs stay separate;
   redirects are informational and load state is bounded observation rather than
@@ -1033,8 +1034,13 @@ flowchart LR
   A three-platform public qjswasm court verifies all six refusals, their
   migration distinctions and an unchanged synthetic HOME. This does not retire
   the separately qualified ACU-owned browser-session lifecycle. Profile-level
-  extension-code reload remains `acu.dynamic.075.bridge-extension-reload`:
-  native `browser-bridge-reload` proves only a Native Messaging reconnect and
+  extension-code reload remains `acu.dynamic.075.bridge-extension-reload`.
+  Protocol 6 publishes a deterministic materialized build identity and seeds a
+  distinct profile-level hook that proves an already-current no-op or one
+  forced unique replacement with the same profile and complete tab inventory.
+  It does not close the compatibility shape until an owned stale-to-current
+  court proves the replacement loaded the exact published build. Native
+  `browser-bridge-reload` still proves only a Native Messaging reconnect and
   cannot stand in for Chromium hot-loading new extension code. The macOS owned
   profile court is wired; Linux and Windows native qualification remains.
 - [~] Desktop closure tranche: `snapshot`/`diff`, `hit`/`zoom`, `raise`, and
@@ -3042,8 +3048,9 @@ flowchart LR
     without activation or dismissal. Failures report `effect=not-performed|performed|unknown`;
     `retry_safe` is true if and only if the effect is `not-performed`.
   - **Evidence:** the owned-profile macOS qjswasm court navigates to its existing
-    loopback DevTools HTTP endpoint without external network access, checks protocol 5,
-    extension version 1.5.0 and the closed 11-command catalog, proves root-frame/loader
+    loopback DevTools HTTP endpoint without external network access, checks protocol 6,
+    extension version 1.6.0, its materialized build identity and the closed 12-command
+    catalog, proves root-frame/loader
     commit and debugger detach, reads the same tab and URL through `browser-bridge-tabs`, and emits
     `cu.browser-bridge-nav.macos` only with unchanged browser and desktop focus.
   - **Delivery:** Linux and Windows keep pending native-court cells until the

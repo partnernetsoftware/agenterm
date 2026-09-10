@@ -398,6 +398,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "browser-bridge-tabs",
         "browser-bridge-attach",
         "browser-bridge-reload",
+        "browser-bridge-extension-reload",
         "browser-bridge-windows",
         "browser-bridge-window-open",
         "browser-bridge-window-state",

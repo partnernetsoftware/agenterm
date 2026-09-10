@@ -269,19 +269,22 @@ try {
   const bridge_status = require_ok(invoke("observe", [
     "browser-bridge-status", bridge_id
   ]), "cu_browser_bridge_status_failed");
-  ensure(bridge_status.data.result.protocol === 5, "cu_browser_bridge_protocol");
-  ensure(bridge_status.data.result.extension_version === "1.5.0",
+  ensure(bridge_status.data.result.protocol === 6, "cu_browser_bridge_protocol");
+  ensure(bridge_status.data.result.extension_version === "1.6.0",
     "cu_browser_bridge_extension_version");
+  ensure(typeof bridge_status.data.result.build_id === "string" &&
+    bridge_status.data.result.build_id.length === 64,
+    "cu_browser_bridge_extension_build_identity");
   ensure(bridge_status.data.result.profile_instance_id.length === 32,
     "cu_browser_bridge_profile_identity");
   const profile_instance_id = bridge_status.data.result.profile_instance_id;
   const commands = bridge_status.data.result.commands;
-  ensure(commands.length === 11 && commands[0] === "status" && commands[1] === "tabs" &&
+  ensure(commands.length === 12 && commands[0] === "status" && commands[1] === "tabs" &&
     commands[2] === "windows" && commands[3] === "window-open" &&
     commands[4] === "window-state" && commands[5] === "nav" &&
     commands[6] === "debug-read" && commands[7] === "debug-invoke" &&
     commands[8] === "debug-type" && commands[9] === "debug-files" &&
-    commands[10] === "reload",
+    commands[10] === "reload" && commands[11] === "extension-reload",
     "cu_browser_bridge_commands");
   const legacy_status_focus_before = require_ok(invoke("observe", [
     "windows", "--focused", "true", "--max", "2"
@@ -503,6 +506,51 @@ try {
     !bridge_audit.includes(runtime_session.lease),
     "cu_browser_bridge_audit_leaked_identity_or_lease");
   bridge_id = reloaded.data.connection_id;
+
+  print("STEP protocol-six extension reload hook proves a current no-op and one exact replacement");
+  const extension_noop = bridge_effect("bridge-extension-noop-" + rh.pid(), [
+    "browser-bridge-extension-reload", bridge_id,
+    "--session", runtime_session.session_id,
+    "--lease", runtime_session.lease,
+    "--ttl-seconds", "60", "--timeout-ms", "20000"
+  ]);
+  ensure(extension_noop.data.reloaded === false &&
+    extension_noop.data.reason === "already-current" &&
+    extension_noop.data.reload_scope === "extension-code" &&
+    extension_noop.data.effect === "not-performed" &&
+    extension_noop.data.retry_safe === true &&
+    extension_noop.data.connection_id === bridge_id &&
+    extension_noop.data.profile_instance_id === profile_instance_id &&
+    extension_noop.data.loaded_identity.build_id === bridge_status.data.result.build_id &&
+    extension_noop.data.verified === true,
+    "cu_browser_bridge_extension_noop_unverified");
+  const extension_reloaded = bridge_effect("bridge-extension-force-" + rh.pid(), [
+    "browser-bridge-extension-reload", bridge_id, "--force",
+    "--session", runtime_session.session_id,
+    "--lease", runtime_session.lease,
+    "--ttl-seconds", "60", "--timeout-ms", "20000"
+  ]);
+  ensure(extension_reloaded.data.reloaded === true &&
+    extension_reloaded.data.reload_scope === "extension-code" &&
+    extension_reloaded.data.effect === "performed" &&
+    extension_reloaded.data.retry_safe === false &&
+    extension_reloaded.data.old_connection_id === bridge_id &&
+    extension_reloaded.data.connection_id !== bridge_id &&
+    extension_reloaded.data.profile_instance_id === profile_instance_id &&
+    extension_reloaded.data.loaded_identity_after.protocol === 6 &&
+    extension_reloaded.data.loaded_identity_after.extension_version === "1.6.0" &&
+    extension_reloaded.data.loaded_identity_after.build_id === bridge_status.data.result.build_id &&
+    extension_reloaded.data.acknowledgement.accepted === true &&
+    extension_reloaded.data.acknowledgement.reload_scope === "extension-code" &&
+    extension_reloaded.data.old_connection_gone === true &&
+    extension_reloaded.data.unique_reconnect === true &&
+    extension_reloaded.data.tabs_unchanged === true &&
+    typeof extension_reloaded.data.tabs_identity_digest === "string" &&
+    extension_reloaded.data.tabs_identity_digest.length === 64 &&
+    extension_reloaded.data.focus_changed === false &&
+    extension_reloaded.data.verified === true,
+    "cu_browser_bridge_extension_reload_unverified");
+  bridge_id = extension_reloaded.data.connection_id;
   const live_windows = require_ok(invoke("observe", [
     "browser-bridge-windows", bridge_id
   ]), "cu_browser_bridge_live_windows_failed");
