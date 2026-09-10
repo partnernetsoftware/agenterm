@@ -36,3 +36,9 @@ not change product state: first record its trace in `RESULTS.md` and the design,
 then review the selected branch before implementing anything. Because
 `RESULTS.md` is itself a digest input, any second attempt requires a new frozen,
 pushed commit containing the first result and the reviewed fixture repair.
+
+Attempt 1 used installed stable Google Chrome and ended before G1 with
+`selector_observation_no_connection`. The reviewed attempt-2 fixture uses the
+installed Brave Origin application; this changes only the browser fixture, not
+the criteria. Attempt 2 remains forbidden until this result and repair are in a
+new reviewed commit reachable from `origin/main`.

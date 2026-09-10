@@ -281,3 +281,19 @@ An A1 result must name the exact two-part directory/instance and frozen
 name/directory edges. A B result must say **explicit durable alias binding** and
 identify the migration boundary. The result may not call a human name
 cryptographic identity or generalize an owned-session edge to arbitrary Profiles.
+
+### Attempt 1 and the single fixture repair
+
+Attempt 1 at source `c576db84b7035b7cc353346ae936a49b53cf94ce`
+returned `INCONCLUSIVE_DEPENDENCY` with
+`selector_observation_no_connection` before any selection criterion ran. The
+fixture had selected installed stable Google Chrome; no bridge connection
+appeared within the bounded deadline. The run registered no evidence and made
+no product-state change. Its complete source/input/build identities are in the
+results file.
+
+The one authorized fixture repair selects installed Brave Origin for attempt 2
+and makes the failure path prove a 0/0 connection inventory after stopping the
+browser. This does not change G1-G7, the A0/A1/B decision order or any kill
+criterion. Attempt 2 is terminal for validity failures and may run only from a
+new reviewed commit reachable from `origin/main`.

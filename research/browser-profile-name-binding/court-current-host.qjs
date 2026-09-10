@@ -268,16 +268,19 @@ function bounded_edge_inventory(candidate_fields, connection_fields, status_fiel
   for (const field of all_fields) {
     const candidate_present = candidate_fields.includes(field);
     const connection_present = connection_surface.includes(field);
+    const evaluated = candidate_present && connection_present;
     const same_issuer = candidate_present && connection_present
       && field === "extension-id";
-    const injective = false;
-    const profile_unique = false;
-    const field_eligible = same_issuer && injective && profile_unique;
+    const injective = evaluated ? false : "not-applicable";
+    const profile_unique = evaluated ? false : "not-applicable";
+    const field_eligible = evaluated && same_issuer
+      && injective === true && profile_unique === true;
     if (field_eligible) { eligible = true; }
     field_decisions.push({
       field: field,
       candidate_present: candidate_present,
       connection_present: connection_present,
+      evaluated: evaluated,
       same_issuer: same_issuer,
       injective: injective,
       profile_unique: profile_unique,
@@ -372,6 +375,10 @@ function failure_verdict(code, attempt) {
   return "INCONCLUSIVE_FIXTURE";
 }
 
+function repair_fixture_allowed(attempt, family) {
+  return attempt === 1 || family === "brave-origin";
+}
+
 function safe_error_code(error) {
   const text = "" + error;
   const alphabet = [
@@ -401,10 +408,19 @@ if (args.length === 1 && args[0] === "--self-test") {
       && edge.rejected_non_unique[0] === "extension-id"
       && edge.field_decisions.length === 19
       && edge.field_decisions[5].field === "extension-id"
+      && edge.field_decisions[5].evaluated === true
       && edge.field_decisions[5].same_issuer === true
       && edge.field_decisions[5].injective === false
-      && edge.field_decisions[5].profile_unique === false,
+      && edge.field_decisions[5].profile_unique === false
+      && edge.field_decisions[0].evaluated === false
+      && edge.field_decisions[0].injective === "not-applicable"
+      && edge.field_decisions[0].profile_unique === "not-applicable",
     "profile_binding_edge_inventory_self_test");
+  ensure(repair_fixture_allowed(1, "chrome")
+      && repair_fixture_allowed(2, "brave-origin")
+      && !repair_fixture_allowed(2, "chrome")
+      && !repair_fixture_allowed(2, "chromium"),
+    "profile_binding_repair_fixture_self_test");
   print("PASS: profile binding decision model");
   return;
 }
@@ -435,11 +451,18 @@ for (const digest of [expected_build_id, agenterm_sha, agenterm_cu_sha,
 ensure(attempt === 1 || attempt === 2, "profile_binding_attempt_invalid");
 model.self_test();
 
+const selected_family = browser_family(browser);
+const selected_browser_version = browser_version_text(browser, selected_family);
+if (!repair_fixture_allowed(attempt, selected_family)) {
+  ensure(false,
+    "profile_binding_repair_fixture_invalid");
+}
+
 const context = harness.new_context(repo, "browser-profile-name-binding");
 const run = context.run_directory;
 const home = rh.join(run, "home");
 const live_b = rh.join(run, "live-profile-b");
-const family = browser_family(browser);
+const family = selected_family;
 const candidate_root = browser_root(home, family);
 const env = isolated_env(home, run);
 let browser_child = null;
@@ -590,7 +613,7 @@ try {
     os_build: host_build_text(),
     architecture: host_architecture_text(),
     browser_family: family,
-    browser_version: browser_version_text(browser, family)
+    browser_version: selected_browser_version
   };
   report.observations = {
     n_all: candidate.n_all.length,
@@ -637,12 +660,10 @@ try {
 if (browser_child !== null && !cleanup_verified) {
   try { harness.child_kill(browser_child); } catch (_) {}
   try { harness.child_wait(browser_child, 5000); } catch (_) {}
-  if (live_connection_id !== "") {
-    try {
-      wait_inventory_empty(executable, env, run, rh.now_ms() + 10000);
-      cleanup_verified = true;
-    } catch (_) {}
-  }
+  try {
+    wait_inventory_empty(executable, env, run, rh.now_ms() + 10000);
+    cleanup_verified = true;
+  } catch (_) {}
 }
 
 if (failure !== "") {
