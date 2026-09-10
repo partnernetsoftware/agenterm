@@ -175,6 +175,12 @@ keeping this pre-admission implementation defect would have consumed a formal
 `R1` slot out of proportion to what occurred. `RESULTS.md` also records the
 incident. The corrected test hard-fails if the formal experiment directory
 exists before it begins or appears after its temporary-root state-machine test.
+Once a formal attempt has created that directory, this E1 guard intentionally
+makes the built-in `--self-test` unavailable for the rest of the experiment.
+Later source repairs use read-only `--schema-check` plus independent review;
+restoring state-machine self-test execution would require a separately reviewed
+source change with an explicit fresh test root, never an ad-hoc bypass or
+removal of formal state.
 
 The separate court owns browser lifecycle, stage ordering, cleanup, and exact
 receipt mirroring. The separate binding model owns only G7. Neither component
