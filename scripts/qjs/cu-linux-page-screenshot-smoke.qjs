@@ -24,10 +24,6 @@ const MARKER_NAME = "ScreenshotMarker";
 const MISSING_NODE = "No Such Marker";
 const AT_SPI_PROBE_NAME = "Page Screenshot Court Anchor";
 
-function ensure(condition, message) {
-  if (!condition) { throw message; }
-}
-
 function at(value, dotted) {
   let current = value;
   for (const key of dotted.split(".")) {
@@ -86,13 +82,13 @@ function run_cu_reply(run_directory, executable, grant, arguments, env) {
     env: env,
     timeout_ms: 60000,
   });
-  ensure(output.stdout.trim() !== "", "cu_linux_page_screenshot_cli:" + output.stdout + output.stderr);
+  harness.require(output.stdout.trim() !== "", "cu_linux_page_screenshot_cli:" + output.stdout + output.stderr);
   return JSON.parse(output.stdout.trim());
 }
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  ensure(output_success(document), "cu_linux_page_screenshot_reply:" + JSON.stringify(document));
+  harness.require(output_success(document), "cu_linux_page_screenshot_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -123,17 +119,17 @@ function assert_page_screenshot_usage_rejects_unexpected(run_directory, executab
     "page-screenshot", "--port", "" + port, "--target-id", "unused",
     "--out", out_path, "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(flat_with_name),
+  harness.require(!output_success(flat_with_name),
     "cu_linux_page_screenshot_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
-  ensure(
+  harness.require(
     text_at(flat_with_name, "error.code") === "usage",
     "cu_linux_page_screenshot_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_name, "command") === "usage",
     "cu_linux_page_screenshot_usage_flat_name_command:" + JSON.stringify(flat_with_name)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_name, "error.message"), "--name"),
     "cu_linux_page_screenshot_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
   );
@@ -142,13 +138,13 @@ function assert_page_screenshot_usage_rejects_unexpected(run_directory, executab
     "page", "screenshot", "--port", "" + port, "--target-id", "unused",
     "--out", out_path, "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(grouped_with_name),
+  harness.require(!output_success(grouped_with_name),
     "cu_linux_page_screenshot_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
-  ensure(
+  harness.require(
     text_at(grouped_with_name, "error.code") === "usage",
     "cu_linux_page_screenshot_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_name, "error.message"), "--name"),
     "cu_linux_page_screenshot_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
   );
@@ -157,17 +153,17 @@ function assert_page_screenshot_usage_rejects_unexpected(run_directory, executab
     "page-screenshot", "--port", "" + port, "--target-id", "unused",
     "--out", out_path, "--bogus",
   ], env);
-  ensure(!output_success(flat_with_bogus),
+  harness.require(!output_success(flat_with_bogus),
     "cu_linux_page_screenshot_usage_flat_bogus_ok:" + JSON.stringify(flat_with_bogus));
-  ensure(
+  harness.require(
     text_at(flat_with_bogus, "error.code") === "usage",
     "cu_linux_page_screenshot_usage_flat_bogus_code:" + JSON.stringify(flat_with_bogus.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_bogus, "command") === "usage",
     "cu_linux_page_screenshot_usage_flat_bogus_command:" + JSON.stringify(flat_with_bogus)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_bogus, "error.message"), "--bogus"),
     "cu_linux_page_screenshot_usage_flat_bogus_message:" + JSON.stringify(flat_with_bogus.error)
   );
@@ -176,13 +172,13 @@ function assert_page_screenshot_usage_rejects_unexpected(run_directory, executab
     "page", "screenshot", "--port", "" + port, "--target-id", "unused",
     "--out", out_path, "--bogus",
   ], env);
-  ensure(!output_success(grouped_with_bogus),
+  harness.require(!output_success(grouped_with_bogus),
     "cu_linux_page_screenshot_usage_grouped_bogus_ok:" + JSON.stringify(grouped_with_bogus));
-  ensure(
+  harness.require(
     text_at(grouped_with_bogus, "error.code") === "usage",
     "cu_linux_page_screenshot_usage_grouped_bogus_code:" + JSON.stringify(grouped_with_bogus.error)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_bogus, "error.message"), "--bogus"),
     "cu_linux_page_screenshot_usage_grouped_bogus_message:" + JSON.stringify(grouped_with_bogus.error)
   );
@@ -191,17 +187,17 @@ function assert_page_screenshot_usage_rejects_unexpected(run_directory, executab
     "page-screenshot", "--port", "" + port, "--target-id", "unused",
     "--out", out_path, "--coords", "10,10",
   ], env);
-  ensure(!output_success(flat_with_coords),
+  harness.require(!output_success(flat_with_coords),
     "cu_linux_page_screenshot_usage_flat_coords_ok:" + JSON.stringify(flat_with_coords));
-  ensure(
+  harness.require(
     text_at(flat_with_coords, "error.code") === "usage",
     "cu_linux_page_screenshot_usage_flat_coords_code:" + JSON.stringify(flat_with_coords.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_coords, "command") === "usage",
     "cu_linux_page_screenshot_usage_flat_coords_command:" + JSON.stringify(flat_with_coords)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_coords, "error.message"), "--coords"),
     "cu_linux_page_screenshot_usage_flat_coords_message:" + JSON.stringify(flat_with_coords.error)
   );
@@ -210,13 +206,13 @@ function assert_page_screenshot_usage_rejects_unexpected(run_directory, executab
     "page", "screenshot", "--port", "" + port, "--target-id", "unused",
     "--out", out_path, "--coords", "10,10",
   ], env);
-  ensure(!output_success(grouped_with_coords),
+  harness.require(!output_success(grouped_with_coords),
     "cu_linux_page_screenshot_usage_grouped_coords_ok:" + JSON.stringify(grouped_with_coords));
-  ensure(
+  harness.require(
     text_at(grouped_with_coords, "error.code") === "usage",
     "cu_linux_page_screenshot_usage_grouped_coords_code:" + JSON.stringify(grouped_with_coords.error)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_coords, "error.message"), "--coords"),
     "cu_linux_page_screenshot_usage_grouped_coords_message:" + JSON.stringify(grouped_with_coords.error)
   );
@@ -226,12 +222,12 @@ function assert_page_screenshot_usage(run_directory, executable, env, port, out_
   const missing_out = run_cu_reply(run_directory, executable, "observe", [
     "page-screenshot", "--port", "" + port, "--target-id", "unused",
   ], env);
-  ensure(!output_success(missing_out), "cu_linux_page_screenshot_usage_ok:" + JSON.stringify(missing_out));
-  ensure(
+  harness.require(!output_success(missing_out), "cu_linux_page_screenshot_usage_ok:" + JSON.stringify(missing_out));
+  harness.require(
     text_at(missing_out, "error.code") === "usage",
     "cu_linux_page_screenshot_usage_code:" + JSON.stringify(missing_out.error)
   );
-  ensure(
+  harness.require(
     text_at(missing_out, "error.message").indexOf("--out") >= 0,
     "cu_linux_page_screenshot_usage_message:" + JSON.stringify(missing_out.error)
   );
@@ -240,12 +236,12 @@ function assert_page_screenshot_usage(run_directory, executable, env, port, out_
     "page-screenshot", "--port", "" + port, "--target-id", "unused",
     "--target-title", "CEO", "--out", out_path,
   ], env);
-  ensure(!output_success(dual_target), "cu_linux_page_screenshot_dual_ok:" + JSON.stringify(dual_target));
-  ensure(
+  harness.require(!output_success(dual_target), "cu_linux_page_screenshot_dual_ok:" + JSON.stringify(dual_target));
+  harness.require(
     text_at(dual_target, "error.code") === "usage",
     "cu_linux_page_screenshot_dual_code:" + JSON.stringify(dual_target.error)
   );
-  ensure(
+  harness.require(
     text_at(dual_target, "error.message").indexOf("at most one") >= 0,
     "cu_linux_page_screenshot_dual_message:" + JSON.stringify(dual_target.error)
   );
@@ -255,13 +251,13 @@ function assert_no_cdp_listener(run_directory, executable, env, port, out_path) 
   const reply = run_cu_reply(run_directory, executable, "observe", [
     "page-screenshot", "--port", "" + port, "--target-id", "unused", "--out", out_path,
   ], env);
-  ensure(reply.ok !== true, "cu_linux_page_screenshot_false_success:" + JSON.stringify(reply));
-  ensure(
+  harness.require(reply.ok !== true, "cu_linux_page_screenshot_false_success:" + JSON.stringify(reply));
+  harness.require(
     text_at(reply, "error.code") === "unsupported",
     "cu_linux_page_screenshot_host_limit_code:" + JSON.stringify(reply)
   );
   const message = text_at(reply, "error.message");
-  ensure(
+  harness.require(
     message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
     "cu_linux_page_screenshot_host_limit_message:" + JSON.stringify(reply.error)
   );
@@ -271,8 +267,8 @@ function assert_page_screenshot_miss(run_directory, executable, env, port, out_p
   const bad_target = run_cu_reply(run_directory, executable, "observe", [
     "page-screenshot", "--port", "" + port, "--target-id", "deadbeef", "--out", out_path,
   ], env);
-  ensure(!output_success(bad_target), "cu_linux_page_screenshot_miss_ok:" + JSON.stringify(bad_target));
-  ensure(
+  harness.require(!output_success(bad_target), "cu_linux_page_screenshot_miss_ok:" + JSON.stringify(bad_target));
+  harness.require(
     text_at(bad_target, "error.code") === "cdp_target_not_found",
     "cu_linux_page_screenshot_miss_code:" + JSON.stringify(bad_target.error)
   );
@@ -282,12 +278,12 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle), "cu_linux_page_screenshot_extents_usage_ok:" + JSON.stringify(zero_handle));
-  ensure(
+  harness.require(!output_success(zero_handle), "cu_linux_page_screenshot_extents_usage_ok:" + JSON.stringify(zero_handle));
+  harness.require(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_page_screenshot_extents_usage_code:" + JSON.stringify(zero_handle.error)
   );
-  ensure(
+  harness.require(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_page_screenshot_extents_usage_message:" + JSON.stringify(zero_handle.error)
   );
@@ -295,17 +291,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  harness.require(!output_success(missing_name),
     "cu_linux_page_screenshot_extents_usage_name_ok:" + JSON.stringify(missing_name));
-  ensure(
+  harness.require(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_page_screenshot_extents_usage_name_code:" + JSON.stringify(missing_name.error)
   );
-  ensure(
+  harness.require(
     text_at(missing_name, "command") === "usage",
     "cu_linux_page_screenshot_extents_usage_name_command:" + JSON.stringify(missing_name)
   );
-  ensure(
+  harness.require(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_screenshot_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
@@ -313,17 +309,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  harness.require(!output_success(extents_coords),
     "cu_linux_page_screenshot_extents_coords_ok:" + JSON.stringify(extents_coords));
-  ensure(
+  harness.require(
     text_at(extents_coords, "error.code") === "usage",
     "cu_linux_page_screenshot_extents_coords_code:" + JSON.stringify(extents_coords.error)
   );
-  ensure(
+  harness.require(
     text_at(extents_coords, "command") === "usage",
     "cu_linux_page_screenshot_extents_coords_command:" + JSON.stringify(extents_coords)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
       || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_screenshot_extents_coords_message:" + JSON.stringify(extents_coords.error)
@@ -332,17 +328,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  harness.require(!output_success(extents_bogus),
     "cu_linux_page_screenshot_extents_bogus_ok:" + JSON.stringify(extents_bogus));
-  ensure(
+  harness.require(
     text_at(extents_bogus, "error.code") === "usage",
     "cu_linux_page_screenshot_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
   );
-  ensure(
+  harness.require(
     text_at(extents_bogus, "command") === "usage",
     "cu_linux_page_screenshot_extents_bogus_command:" + JSON.stringify(extents_bogus)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
       || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_screenshot_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
@@ -357,9 +353,9 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply), "cu_linux_page_screenshot_extents_unavailable_ok:" + JSON.stringify(reply));
+  harness.require(!output_success(reply), "cu_linux_page_screenshot_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
-  ensure(
+  harness.require(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
       || code === "a11y_node_not_found",
     "cu_linux_page_screenshot_extents_unavailable_code:" + code
@@ -370,8 +366,8 @@ function assert_get_extents_missing_node(run_directory, executable, env, handle,
   const reply = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", handle, "--name", MISSING_NODE,
   ], env);
-  ensure(!output_success(reply), "cu_linux_page_screenshot_extents_missing_ok_" + label);
-  ensure(
+  harness.require(!output_success(reply), "cu_linux_page_screenshot_extents_missing_ok_" + label);
+  harness.require(
     text_at(reply, "error.code") === "a11y_node_not_found",
     "cu_linux_page_screenshot_extents_missing_code_" + label + ":" + JSON.stringify(reply.error)
   );
@@ -436,7 +432,7 @@ function independent_pyatspi_extents(run_directory, executable, env, fixture_tit
     env: env,
     timeout_ms: 30000,
   });
-  ensure(output.success === true, "cu_linux_page_screenshot_pyatspi:" + output.stderr + output.stdout);
+  harness.require(output.success === true, "cu_linux_page_screenshot_pyatspi:" + output.stderr + output.stdout);
   return JSON.parse(output.stdout.trim());
 }
 
@@ -447,7 +443,7 @@ function assert_get_extents_agreement(run_directory, executable, env, handle, fi
   const marker_extents = run_cu(run_directory, executable, "observe", [
     "get-extents", "--window", handle, "--name", node_name,
   ], env);
-  ensure(
+  harness.require(
     int_at(marker_extents, "data.extents.x") === pyatspi_marker.x
       && int_at(marker_extents, "data.extents.y") === pyatspi_marker.y
       && int_at(marker_extents, "data.extents.width") === pyatspi_marker.width
@@ -475,12 +471,12 @@ function assert_x11_display_usable(run_directory, env) {
   });
   if (output.success === true) { return; }
   const text = output.stdout + output.stderr;
-  ensure(
+  harness.require(
     text.indexOf("Maximum number of clients reached") < 0
       && text.indexOf("unable to open display") < 0,
     "cu_linux_page_screenshot_host_limit:x11_display_unavailable:" + text.trim()
   );
-  ensure(false, "cu_linux_page_screenshot_host_limit:xdpyinfo:" + text.trim());
+  harness.require(false, "cu_linux_page_screenshot_host_limit:xdpyinfo:" + text.trim());
 }
 
 function page_target(rows) {
@@ -507,7 +503,7 @@ function independent_png_magic_hex(path) {
   const output = rh.command("python3", ["-c", script, path], {
     timeout_ms: 10000,
   });
-  ensure(output.success === true && output.stdout.trim() !== "",
+  harness.require(output.success === true && output.stdout.trim() !== "",
     "cu_linux_page_screenshot_magic:" + output.stdout + output.stderr);
   return output.stdout.trim().toLowerCase();
 }
@@ -516,7 +512,7 @@ function independent_sha256(path) {
   const output = rh.command("sha256sum", [path], {
     timeout_ms: 10000,
   });
-  ensure(output.success === true && output.stdout.trim() !== "",
+  harness.require(output.success === true && output.stdout.trim() !== "",
     "cu_linux_page_screenshot_sha256:" + output.stdout + output.stderr);
   const line = output.stdout.trim();
   let token = "";
@@ -525,7 +521,7 @@ function independent_sha256(path) {
     if (ch === " " || ch === "\t") { break; }
     token = token + ch;
   }
-  ensure(token.length === 64, "cu_linux_page_screenshot_sha256_shape:" + token);
+  harness.require(token.length === 64, "cu_linux_page_screenshot_sha256_shape:" + token);
   return token;
 }
 
@@ -538,8 +534,8 @@ harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
-ensure(direct_file(executable), "cu_linux_page_screenshot_executable_missing:" + executable);
-ensure(direct_file(abi_library), "cu_linux_page_screenshot_library_missing:" + abi_library);
+harness.require(direct_file(executable), "cu_linux_page_screenshot_executable_missing:" + executable);
+harness.require(direct_file(abi_library), "cu_linux_page_screenshot_library_missing:" + abi_library);
 
 const context = harness.new_context(repo, "cu-linux-page-screenshot");
 const run_directory = context.run_directory;
@@ -570,7 +566,7 @@ try {
     cwd: run_directory,
     timeout_ms: 3000,
   });
-  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+  harness.require(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
     "cu_linux_page_screenshot_port_in_use:" + port);
 
   print("STEP page-screenshot typed usage rejects missing --out and dual target selectors before Chrome starts");
@@ -614,7 +610,7 @@ try {
   for (let attempt = 0; attempt < 80 && !cdp_ready(run_directory, port); attempt = attempt + 1) {
     harness.sleep_ms(250);
   }
-  ensure(cdp_ready(run_directory, port), "cu_linux_page_screenshot_cdp_not_ready:" + port);
+  harness.require(cdp_ready(run_directory, port), "cu_linux_page_screenshot_cdp_not_ready:" + port);
 
   print("STEP page-targets selects the owned fixture tab");
   let target_id = "";
@@ -629,7 +625,7 @@ try {
     }
     harness.sleep_ms(250);
   }
-  ensure(target_id !== "", "cu_linux_page_screenshot_target_missing");
+  harness.require(target_id !== "", "cu_linux_page_screenshot_target_missing");
 
   print("STEP page-screenshot typed miss paths reject bad targets before capture");
   assert_page_screenshot_miss(run_directory, executable, env, port, screenshot_path);
@@ -639,23 +635,23 @@ try {
     const window_wait = run_cu(run_directory, executable, "observe", [
       "wait", "--timeout-ms", "20000", "--window-title-contains", fixture_title,
     ], env);
-    ensure(flag_at(window_wait, "data.met"), "cu_linux_page_screenshot_window_wait");
+    harness.require(flag_at(window_wait, "data.met"), "cu_linux_page_screenshot_window_wait");
 
     let window_row = null;
     for (let attempt = 0; attempt < 40 && window_row === null; attempt = attempt + 1) {
       window_row = window_row_for_title(run_directory, executable, env, fixture_title);
       if (window_row === null) { harness.sleep_ms(250); }
     }
-    ensure(window_row !== null, "cu_linux_page_screenshot_window_missing:" + fixture_title);
+    harness.require(window_row !== null, "cu_linux_page_screenshot_window_missing:" + fixture_title);
     const window_handle = "" + int_at(window_row, "handle");
     const window_title = text_at(window_row, "title");
-    ensure(window_handle !== "" && window_handle !== "0",
+    harness.require(window_handle !== "" && window_handle !== "0",
       "cu_linux_page_screenshot_window_handle:" + JSON.stringify(window_row));
 
     const unlocked = run_cu(run_directory, executable, "observe,actuate", [
       "unlock", "--window", window_handle,
     ], env);
-    ensure(flag_at(unlocked, "data.poked"), "cu_linux_page_screenshot_unlock:" + JSON.stringify(unlocked.data));
+    harness.require(flag_at(unlocked, "data.poked"), "cu_linux_page_screenshot_unlock:" + JSON.stringify(unlocked.data));
 
     print("STEP get-extents typed-fail a11y_node_not_found when the named marker is missing");
     assert_get_extents_missing_node(run_directory, executable, env, window_handle, "before_capture");
@@ -671,29 +667,29 @@ try {
     "page-screenshot", "--port", "" + port, "--target-id", target_id,
     "--out", screenshot_path,
   ], env);
-  ensure(shot.command === "page-screenshot",
+  harness.require(shot.command === "page-screenshot",
     "cu_linux_page_screenshot_identity:" + JSON.stringify(shot));
-  ensure(text_at(shot, "data.out") === screenshot_path,
+  harness.require(text_at(shot, "data.out") === screenshot_path,
     "cu_linux_page_screenshot_out:" + JSON.stringify(shot.data));
-  ensure(flag_at(shot, "data.focus_changed") === false,
+  harness.require(flag_at(shot, "data.focus_changed") === false,
     "cu_linux_page_screenshot_focus:" + JSON.stringify(shot.data));
   const reported_sha = text_at(shot, "data.sha256");
-  ensure(reported_sha.length === 64, "cu_linux_page_screenshot_reply_sha:" + reported_sha);
+  harness.require(reported_sha.length === 64, "cu_linux_page_screenshot_reply_sha:" + reported_sha);
 
   print("STEP independent file read-back proves PNG magic, size, digest, and decode");
-  ensure(direct_file(screenshot_path), "cu_linux_page_screenshot_missing:" + screenshot_path);
+  harness.require(direct_file(screenshot_path), "cu_linux_page_screenshot_missing:" + screenshot_path);
   const file_len = rh.metadata(screenshot_path).len;
-  ensure(file_len > 1000, "cu_linux_page_screenshot_size:" + file_len);
-  ensure(independent_png_magic_hex(screenshot_path) === PNG_MAGIC_HEX,
+  harness.require(file_len > 1000, "cu_linux_page_screenshot_size:" + file_len);
+  harness.require(independent_png_magic_hex(screenshot_path) === PNG_MAGIC_HEX,
     "cu_linux_page_screenshot_magic_mismatch");
   const file_sha = independent_sha256(screenshot_path);
-  ensure(file_sha === reported_sha,
+  harness.require(file_sha === reported_sha,
     "cu_linux_page_screenshot_sha_mismatch:" + JSON.stringify({
       file: file_sha,
       reply: reported_sha,
     }));
   const decoded = inspect_png(screenshot_path);
-  ensure(decoded.width > 0 && decoded.height > 0 && decoded.samples > 0,
+  harness.require(decoded.width > 0 && decoded.height > 0 && decoded.samples > 0,
     "cu_linux_page_screenshot_decode:" + JSON.stringify(decoded));
 
   harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-screenshot-readback");
@@ -706,7 +702,7 @@ if (chrome_child >= 0) {
   try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
 }
 
-ensure(succeeded === 1, failure || "cu_linux_page_screenshot_failed");
+harness.require(succeeded === 1, failure || "cu_linux_page_screenshot_failed");
 harness.remove_run(context);
 if (atspi_available) {
   print("PASS: Linux page-screenshot CDP capture verified by independent PNG read-back with typed page-screenshot --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");

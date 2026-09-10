@@ -22,10 +22,6 @@ const declared_evidence = [
 const AT_SPI_PROBE_NAME = "Page Dialog Court Anchor";
 const MISSING_NODE = "agenterm-no-such-page-dialog-node";
 
-function ensure(condition, message) {
-  if (!condition) { throw message; }
-}
-
 function at(value, dotted) {
   let current = value;
   for (const key of dotted.split(".")) {
@@ -85,13 +81,13 @@ function run_cu_reply(run_directory, executable, grant, arguments, env) {
     timeout_ms: 60000,
   });
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_page_dialog_empty_reply:" + output.stderr);
+  harness.require(trimmed !== "", "cu_linux_page_dialog_empty_reply:" + output.stderr);
   return JSON.parse(trimmed);
 }
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  ensure(output_success(document), "cu_linux_page_dialog_reply:" + JSON.stringify(document));
+  harness.require(output_success(document), "cu_linux_page_dialog_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -122,13 +118,13 @@ function assert_page_dialog_usage(run_directory, executable, env, port) {
     "page-dialog", "--port", "" + port, "--target-id", "unused",
     "--dismiss", "--text", "seed",
   ], env);
-  ensure(!output_success(dismiss_with_text),
+  harness.require(!output_success(dismiss_with_text),
     "cu_linux_page_dialog_usage_dismiss_text_ok:" + JSON.stringify(dismiss_with_text));
-  ensure(
+  harness.require(
     text_at(dismiss_with_text, "error.code") === "usage",
     "cu_linux_page_dialog_usage_dismiss_text_code:" + JSON.stringify(dismiss_with_text.error)
   );
-  ensure(
+  harness.require(
     text_at(dismiss_with_text, "error.message").indexOf("--dismiss") >= 0
       || text_at(dismiss_with_text, "error.message").indexOf("--text") >= 0,
     "cu_linux_page_dialog_usage_dismiss_text_message:" + JSON.stringify(dismiss_with_text.error)
@@ -137,13 +133,13 @@ function assert_page_dialog_usage(run_directory, executable, env, port) {
   const bad_wait = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-dialog", "--port", "" + port, "--target-id", "unused", "--wait-ms", "0",
   ], env);
-  ensure(!output_success(bad_wait),
+  harness.require(!output_success(bad_wait),
     "cu_linux_page_dialog_usage_wait_ok:" + JSON.stringify(bad_wait));
-  ensure(
+  harness.require(
     text_at(bad_wait, "error.code") === "usage",
     "cu_linux_page_dialog_usage_wait_code:" + JSON.stringify(bad_wait.error)
   );
-  ensure(
+  harness.require(
     text_at(bad_wait, "error.message").indexOf("--wait-ms") >= 0,
     "cu_linux_page_dialog_usage_wait_message:" + JSON.stringify(bad_wait.error)
   );
@@ -154,17 +150,17 @@ function assert_page_dialog_usage_rejects_name(run_directory, executable, env, p
     "page-dialog", "--port", "" + port, "--target-id", "unused",
     "--text", "seed", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(flat_with_name),
+  harness.require(!output_success(flat_with_name),
     "cu_linux_page_dialog_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
-  ensure(
+  harness.require(
     text_at(flat_with_name, "error.code") === "usage",
     "cu_linux_page_dialog_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_name, "command") === "usage",
     "cu_linux_page_dialog_usage_flat_name_command:" + JSON.stringify(flat_with_name)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_name, "error.message"), "--name"),
     "cu_linux_page_dialog_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
   );
@@ -173,17 +169,17 @@ function assert_page_dialog_usage_rejects_name(run_directory, executable, env, p
     "page", "dialog", "--port", "" + port, "--target-id", "unused",
     "--text", "seed", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(grouped_with_name),
+  harness.require(!output_success(grouped_with_name),
     "cu_linux_page_dialog_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
-  ensure(
+  harness.require(
     text_at(grouped_with_name, "error.code") === "usage",
     "cu_linux_page_dialog_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
   );
-  ensure(
+  harness.require(
     text_at(grouped_with_name, "command") === "usage",
     "cu_linux_page_dialog_usage_grouped_name_command:" + JSON.stringify(grouped_with_name)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_name, "error.message"), "--name"),
     "cu_linux_page_dialog_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
   );
@@ -192,17 +188,17 @@ function assert_page_dialog_usage_rejects_name(run_directory, executable, env, p
     "page-dialog", "--port", "" + port, "--target-id", "unused",
     "--text", "seed", "--bogus",
   ], env);
-  ensure(!output_success(flat_with_bogus),
+  harness.require(!output_success(flat_with_bogus),
     "cu_linux_page_dialog_usage_flat_bogus_ok:" + JSON.stringify(flat_with_bogus));
-  ensure(
+  harness.require(
     text_at(flat_with_bogus, "error.code") === "usage",
     "cu_linux_page_dialog_usage_flat_bogus_code:" + JSON.stringify(flat_with_bogus.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_bogus, "command") === "usage",
     "cu_linux_page_dialog_usage_flat_bogus_command:" + JSON.stringify(flat_with_bogus)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_bogus, "error.message"), "--bogus"),
     "cu_linux_page_dialog_usage_flat_bogus_message:" + JSON.stringify(flat_with_bogus.error)
   );
@@ -211,17 +207,17 @@ function assert_page_dialog_usage_rejects_name(run_directory, executable, env, p
     "page", "dialog", "--port", "" + port, "--target-id", "unused",
     "--text", "seed", "--bogus",
   ], env);
-  ensure(!output_success(grouped_with_bogus),
+  harness.require(!output_success(grouped_with_bogus),
     "cu_linux_page_dialog_usage_grouped_bogus_ok:" + JSON.stringify(grouped_with_bogus));
-  ensure(
+  harness.require(
     text_at(grouped_with_bogus, "error.code") === "usage",
     "cu_linux_page_dialog_usage_grouped_bogus_code:" + JSON.stringify(grouped_with_bogus.error)
   );
-  ensure(
+  harness.require(
     text_at(grouped_with_bogus, "command") === "usage",
     "cu_linux_page_dialog_usage_grouped_bogus_command:" + JSON.stringify(grouped_with_bogus)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_bogus, "error.message"), "--bogus"),
     "cu_linux_page_dialog_usage_grouped_bogus_message:" + JSON.stringify(grouped_with_bogus.error)
   );
@@ -230,17 +226,17 @@ function assert_page_dialog_usage_rejects_name(run_directory, executable, env, p
     "page-dialog", "--port", "" + port, "--target-id", "unused",
     "--text", "seed", "--coords", "10,10",
   ], env);
-  ensure(!output_success(flat_with_coords),
+  harness.require(!output_success(flat_with_coords),
     "cu_linux_page_dialog_usage_flat_coords_ok:" + JSON.stringify(flat_with_coords));
-  ensure(
+  harness.require(
     text_at(flat_with_coords, "error.code") === "usage",
     "cu_linux_page_dialog_usage_flat_coords_code:" + JSON.stringify(flat_with_coords.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_coords, "command") === "usage",
     "cu_linux_page_dialog_usage_flat_coords_command:" + JSON.stringify(flat_with_coords)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_coords, "error.message"), "--coords"),
     "cu_linux_page_dialog_usage_flat_coords_message:" + JSON.stringify(flat_with_coords.error)
   );
@@ -249,17 +245,17 @@ function assert_page_dialog_usage_rejects_name(run_directory, executable, env, p
     "page", "dialog", "--port", "" + port, "--target-id", "unused",
     "--text", "seed", "--coords", "10,10",
   ], env);
-  ensure(!output_success(grouped_with_coords),
+  harness.require(!output_success(grouped_with_coords),
     "cu_linux_page_dialog_usage_grouped_coords_ok:" + JSON.stringify(grouped_with_coords));
-  ensure(
+  harness.require(
     text_at(grouped_with_coords, "error.code") === "usage",
     "cu_linux_page_dialog_usage_grouped_coords_code:" + JSON.stringify(grouped_with_coords.error)
   );
-  ensure(
+  harness.require(
     text_at(grouped_with_coords, "command") === "usage",
     "cu_linux_page_dialog_usage_grouped_coords_command:" + JSON.stringify(grouped_with_coords)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_coords, "error.message"), "--coords"),
     "cu_linux_page_dialog_usage_grouped_coords_message:" + JSON.stringify(grouped_with_coords.error)
   );
@@ -269,13 +265,13 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  harness.require(!output_success(zero_handle),
     "cu_linux_page_dialog_extents_usage_ok:" + JSON.stringify(zero_handle));
-  ensure(
+  harness.require(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_page_dialog_extents_usage_code:" + JSON.stringify(zero_handle.error)
   );
-  ensure(
+  harness.require(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_page_dialog_extents_usage_message:" + JSON.stringify(zero_handle.error)
   );
@@ -283,17 +279,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  harness.require(!output_success(missing_name),
     "cu_linux_page_dialog_extents_usage_name_ok:" + JSON.stringify(missing_name));
-  ensure(
+  harness.require(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_page_dialog_extents_usage_name_code:" + JSON.stringify(missing_name.error)
   );
-  ensure(
+  harness.require(
     text_at(missing_name, "command") === "usage",
     "cu_linux_page_dialog_extents_usage_name_command:" + JSON.stringify(missing_name)
   );
-  ensure(
+  harness.require(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_dialog_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
@@ -301,17 +297,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  harness.require(!output_success(extents_coords),
     "cu_linux_page_dialog_extents_coords_ok:" + JSON.stringify(extents_coords));
-  ensure(
+  harness.require(
     text_at(extents_coords, "error.code") === "usage",
     "cu_linux_page_dialog_extents_coords_code:" + JSON.stringify(extents_coords.error)
   );
-  ensure(
+  harness.require(
     text_at(extents_coords, "command") === "usage",
     "cu_linux_page_dialog_extents_coords_command:" + JSON.stringify(extents_coords)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
       || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_dialog_extents_coords_message:" + JSON.stringify(extents_coords.error)
@@ -320,17 +316,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  harness.require(!output_success(extents_bogus),
     "cu_linux_page_dialog_extents_bogus_ok:" + JSON.stringify(extents_bogus));
-  ensure(
+  harness.require(
     text_at(extents_bogus, "error.code") === "usage",
     "cu_linux_page_dialog_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
   );
-  ensure(
+  harness.require(
     text_at(extents_bogus, "command") === "usage",
     "cu_linux_page_dialog_extents_bogus_command:" + JSON.stringify(extents_bogus)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
       || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_dialog_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
@@ -345,10 +341,10 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  harness.require(!output_success(reply),
     "cu_linux_page_dialog_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
-  ensure(
+  harness.require(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
       || code === "a11y_node_not_found",
     "cu_linux_page_dialog_extents_unavailable_code:" + code
@@ -359,8 +355,8 @@ function assert_get_extents_missing_node(run_directory, executable, env, handle,
   const reply = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", handle, "--name", MISSING_NODE,
   ], env);
-  ensure(!output_success(reply), "cu_linux_page_dialog_extents_missing_ok_" + label);
-  ensure(
+  harness.require(!output_success(reply), "cu_linux_page_dialog_extents_missing_ok_" + label);
+  harness.require(
     text_at(reply, "error.code") === "a11y_node_not_found",
     "cu_linux_page_dialog_extents_missing_code_" + label + ":" + JSON.stringify(reply.error)
   );
@@ -412,7 +408,7 @@ function independent_pyatspi_extents(run_directory, env, window_title, node_name
     env: env,
     timeout_ms: 30000,
   });
-  ensure(output.success === true, "cu_linux_page_dialog_pyatspi:" + output.stderr + output.stdout);
+  harness.require(output.success === true, "cu_linux_page_dialog_pyatspi:" + output.stderr + output.stdout);
   return JSON.parse(output.stdout.trim());
 }
 
@@ -423,7 +419,7 @@ function assert_get_extents_agreement(run_directory, executable, env, handle, wi
   const anchor_extents = run_cu(run_directory, executable, "observe", [
     "get-extents", "--window", handle, "--name", node_name,
   ], env);
-  ensure(
+  harness.require(
     int_at(anchor_extents, "data.extents.x") === pyatspi_anchor.x
       && int_at(anchor_extents, "data.extents.y") === pyatspi_anchor.y
       && int_at(anchor_extents, "data.extents.width") === pyatspi_anchor.width
@@ -456,13 +452,13 @@ function assert_no_cdp_listener(run_directory, executable, env, port) {
   const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-dialog", "--port", "" + port, "--target-id", "unused", "--wait-ms", "500",
   ], env);
-  ensure(reply.ok !== true, "cu_linux_page_dialog_false_success:" + JSON.stringify(reply));
-  ensure(
+  harness.require(reply.ok !== true, "cu_linux_page_dialog_false_success:" + JSON.stringify(reply));
+  harness.require(
     text_at(reply, "error.code") === "unsupported",
     "cu_linux_page_dialog_host_limit_code:" + JSON.stringify(reply)
   );
   const message = text_at(reply, "error.message");
-  ensure(
+  harness.require(
     message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
     "cu_linux_page_dialog_host_limit_message:" + JSON.stringify(reply.error)
   );
@@ -472,12 +468,12 @@ function assert_page_dialog_miss_target(run_directory, executable, env, port) {
   const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-dialog", "--port", "" + port, "--target-id", "deadbeef", "--wait-ms", "500",
   ], env);
-  ensure(!output_success(reply), "cu_linux_page_dialog_miss_target_ok:" + JSON.stringify(reply));
-  ensure(
+  harness.require(!output_success(reply), "cu_linux_page_dialog_miss_target_ok:" + JSON.stringify(reply));
+  harness.require(
     text_at(reply, "error.code") === "cdp_target_not_found",
     "cu_linux_page_dialog_miss_target_code:" + JSON.stringify(reply.error)
   );
-  ensure(
+  harness.require(
     text_at(reply, "error.message").indexOf("--target-id") >= 0,
     "cu_linux_page_dialog_miss_target_message:" + JSON.stringify(reply.error)
   );
@@ -497,7 +493,7 @@ function arm_prompt_dialog(run_directory, executable, env, port, target_id) {
     "--expression",
     "setTimeout(()=>{document.body.dataset.dialog=prompt('Question','')||'dismissed'},100);'armed'",
   ], env);
-  ensure(
+  harness.require(
     text_at(armed, "data.value") === "armed",
     "cu_linux_page_dialog_not_armed:" + JSON.stringify(armed.data)
   );
@@ -509,18 +505,18 @@ function assert_page_dialog_not_open(
   const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-dialog", "--port", "" + port, "--target-id", target_id, "--wait-ms", "500",
   ], env);
-  ensure(!output_success(reply), "cu_linux_page_dialog_not_open_ok_" + label + ":" + JSON.stringify(reply));
-  ensure(
+  harness.require(!output_success(reply), "cu_linux_page_dialog_not_open_ok_" + label + ":" + JSON.stringify(reply));
+  harness.require(
     text_at(reply, "error.code") === "cdp_dialog_not_open",
     "cu_linux_page_dialog_not_open_code_" + label + ":" + JSON.stringify(reply.error)
   );
-  ensure(
+  harness.require(
     text_at(reply, "error.message").indexOf("nothing was handled") >= 0
       || text_at(reply, "error.message").indexOf("no JavaScript dialog") >= 0,
     "cu_linux_page_dialog_not_open_message_" + label + ":" + JSON.stringify(reply.error)
   );
   const unchanged = dialog_state(run_directory, executable, env, port, target_id);
-  ensure(
+  harness.require(
     unchanged === expected_state,
     "cu_linux_page_dialog_not_open_state_" + label + ":" + JSON.stringify({
       expected: expected_state,
@@ -553,8 +549,8 @@ harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
-ensure(direct_file(executable), "cu_linux_page_dialog_executable_missing:" + executable);
-ensure(direct_file(abi_library), "cu_linux_page_dialog_library_missing:" + abi_library);
+harness.require(direct_file(executable), "cu_linux_page_dialog_executable_missing:" + executable);
+harness.require(direct_file(abi_library), "cu_linux_page_dialog_library_missing:" + abi_library);
 
 const context = harness.new_context(repo, "cu-linux-page-dialog");
 const run_directory = context.run_directory;
@@ -584,7 +580,7 @@ try {
     cwd: run_directory,
     timeout_ms: 3000,
   });
-  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+  harness.require(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
     "cu_linux_page_dialog_port_in_use:" + port);
 
   print("STEP page-dialog typed-fails usage when --dismiss combines with --text or --wait-ms is invalid");
@@ -623,7 +619,7 @@ try {
   for (let attempt = 0; attempt < 80 && !cdp_ready(run_directory, port); attempt = attempt + 1) {
     harness.sleep_ms(250);
   }
-  ensure(cdp_ready(run_directory, port), "cu_linux_page_dialog_cdp_not_ready:" + port);
+  harness.require(cdp_ready(run_directory, port), "cu_linux_page_dialog_cdp_not_ready:" + port);
 
   print("STEP page-dialog typed-fails cdp_target_not_found for a bogus --target-id");
   assert_page_dialog_miss_target(run_directory, executable, env, port);
@@ -632,7 +628,7 @@ try {
     "page-targets", "--port", "" + port,
   ], env);
   const target = page_target(targets.data.targets);
-  ensure(target !== null && text_at(target, "id") !== "", "cu_linux_page_dialog_target_missing");
+  harness.require(target !== null && text_at(target, "id") !== "", "cu_linux_page_dialog_target_missing");
   const target_id = text_at(target, "id");
 
   print("STEP page-nav loads the disposable HTML fixture in this owned tab");
@@ -641,7 +637,7 @@ try {
     "page-nav", "--port", "" + port, "--target-id", target_id,
     "--url", nav_url, "--wait-ms", "10000",
   ], env);
-  ensure(
+  harness.require(
     flag_at(nav, "data.verified") && text_at(nav, "data.final_title") === fixture_title,
     "cu_linux_page_dialog_nav:" + JSON.stringify(nav.data)
   );
@@ -651,23 +647,23 @@ try {
     const window_wait = run_cu(run_directory, executable, "observe", [
       "wait", "--timeout-ms", "20000", "--window-title-contains", fixture_title,
     ], env);
-    ensure(flag_at(window_wait, "data.met"), "cu_linux_page_dialog_window_wait");
+    harness.require(flag_at(window_wait, "data.met"), "cu_linux_page_dialog_window_wait");
 
     let window_row = null;
     for (let attempt = 0; attempt < 40 && window_row === null; attempt = attempt + 1) {
       window_row = window_row_for_title(run_directory, executable, env, fixture_title);
       if (window_row === null) { harness.sleep_ms(250); }
     }
-    ensure(window_row !== null, "cu_linux_page_dialog_window_missing:" + fixture_title);
+    harness.require(window_row !== null, "cu_linux_page_dialog_window_missing:" + fixture_title);
     const window_handle = "" + int_at(window_row, "handle");
     const window_title = text_at(window_row, "title");
-    ensure(window_handle !== "" && window_handle !== "0",
+    harness.require(window_handle !== "" && window_handle !== "0",
       "cu_linux_page_dialog_window_handle:" + JSON.stringify(window_row));
 
     const unlocked = run_cu(run_directory, executable, "observe,actuate", [
       "unlock", "--window", window_handle,
     ], env);
-    ensure(flag_at(unlocked, "data.poked"), "cu_linux_page_dialog_unlock:" + JSON.stringify(unlocked.data));
+    harness.require(flag_at(unlocked, "data.poked"), "cu_linux_page_dialog_unlock:" + JSON.stringify(unlocked.data));
 
     print("STEP get-extents typed-fail a11y_node_not_found when the named anchor is missing");
     assert_get_extents_missing_node(run_directory, executable, env, window_handle, "before_dialog");
@@ -680,7 +676,7 @@ try {
 
   print("STEP independent page-js baseline proves dialog state starts empty");
   const before_state = dialog_state(run_directory, executable, env, port, target_id);
-  ensure(
+  harness.require(
     before_state === "",
     "cu_linux_page_dialog_before:" + JSON.stringify({ state: before_state })
   );
@@ -696,11 +692,11 @@ try {
     "page-dialog", "--port", "" + port, "--target-id", target_id,
     "--text", accept_secret, "--wait-ms", "5000",
   ], env);
-  ensure(
+  harness.require(
     flag_at(accepted, "data.verified"),
     "cu_linux_page_dialog_accept:" + JSON.stringify(accepted.data)
   );
-  ensure(
+  harness.require(
     JSON.stringify(accepted).indexOf(accept_secret) < 0,
     "cu_linux_page_dialog_accept_secret_leak:" + JSON.stringify(accepted.data)
   );
@@ -712,7 +708,7 @@ try {
     accept_readback = dialog_state(run_directory, executable, env, port, target_id);
     if (accept_readback !== accept_secret) { harness.sleep_ms(250); }
   }
-  ensure(
+  harness.require(
     accept_readback === accept_secret,
     "cu_linux_page_dialog_accept_readback:" + JSON.stringify({
       expected: accept_secret,
@@ -732,7 +728,7 @@ try {
     "page-dialog", "--port", "" + port, "--target-id", target_id,
     "--dismiss", "--wait-ms", "5000",
   ], env);
-  ensure(
+  harness.require(
     flag_at(dismissed, "data.verified"),
     "cu_linux_page_dialog_dismiss:" + JSON.stringify(dismissed.data)
   );
@@ -744,7 +740,7 @@ try {
     dismiss_readback = dialog_state(run_directory, executable, env, port, target_id);
     if (dismiss_readback !== "dismissed") { harness.sleep_ms(250); }
   }
-  ensure(
+  harness.require(
     dismiss_readback === "dismissed",
     "cu_linux_page_dialog_dismiss_readback:" + JSON.stringify({
       expected: "dismissed",
@@ -762,7 +758,7 @@ if (chrome_child >= 0) {
   try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
 }
 
-ensure(succeeded === 1, failure || "cu_linux_page_dialog_failed");
+harness.require(succeeded === 1, failure || "cu_linux_page_dialog_failed");
 harness.remove_run(context);
 if (atspi_available) {
   print("PASS: Linux page-dialog accept/dismiss usage/host-limit/miss honesty + independent page-js dialog-closed read-back with typed page-dialog --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");

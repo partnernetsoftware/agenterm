@@ -22,10 +22,6 @@ const MISSING_NODE = "agenterm-no-such-page-download-node";
 const DOWNLOAD_PAYLOAD = "acu-download-smoke";
 const SUGGESTED_FILENAME = "smoke.txt";
 
-function ensure(condition, message) {
-  if (!condition) { throw message; }
-}
-
 function at(value, dotted) {
   let current = value;
   for (const key of dotted.split(".")) {
@@ -85,13 +81,13 @@ function run_cu_reply(run_directory, executable, grant, arguments, env) {
     timeout_ms: 60000,
   });
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_page_download_empty_reply:" + output.stderr);
+  harness.require(trimmed !== "", "cu_linux_page_download_empty_reply:" + output.stderr);
   return JSON.parse(trimmed);
 }
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  ensure(output_success(document), "cu_linux_page_download_reply:" + JSON.stringify(document));
+  harness.require(output_success(document), "cu_linux_page_download_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -132,13 +128,13 @@ function assert_page_download_usage(run_directory, executable, env, port) {
     "page-download", "--port", "" + port, "--target-id", "unused",
     "--selector", "#dl",
   ], env);
-  ensure(!output_success(missing_dir),
+  harness.require(!output_success(missing_dir),
     "cu_linux_page_download_usage_ok_dir:" + JSON.stringify(missing_dir));
-  ensure(
+  harness.require(
     text_at(missing_dir, "error.code") === "usage",
     "cu_linux_page_download_usage_code_dir:" + JSON.stringify(missing_dir.error)
   );
-  ensure(
+  harness.require(
     text_at(missing_dir, "error.message").indexOf("--download-dir") >= 0,
     "cu_linux_page_download_usage_message_dir:" + JSON.stringify(missing_dir.error)
   );
@@ -147,13 +143,13 @@ function assert_page_download_usage(run_directory, executable, env, port) {
     "page-download", "--port", "" + port, "--target-id", "unused",
     "--download-dir", run_directory,
   ], env);
-  ensure(!output_success(missing_node),
+  harness.require(!output_success(missing_node),
     "cu_linux_page_download_usage_ok_node:" + JSON.stringify(missing_node));
-  ensure(
+  harness.require(
     text_at(missing_node, "error.code") === "usage",
     "cu_linux_page_download_usage_code_node:" + JSON.stringify(missing_node.error)
   );
-  ensure(
+  harness.require(
     text_at(missing_node, "error.message").indexOf("--selector") >= 0
       || text_at(missing_node, "error.message").indexOf("--text") >= 0
       || text_at(missing_node, "error.message").indexOf("--node") >= 0,
@@ -166,17 +162,17 @@ function assert_page_download_usage_rejects_name(run_directory, executable, env,
     "page-download", "--port", "" + port, "--target-id", "unused",
     "--selector", "#dl", "--download-dir", download_dir, "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(flat_with_name),
+  harness.require(!output_success(flat_with_name),
     "cu_linux_page_download_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
-  ensure(
+  harness.require(
     text_at(flat_with_name, "error.code") === "usage",
     "cu_linux_page_download_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_name, "command") === "usage",
     "cu_linux_page_download_usage_flat_name_command:" + JSON.stringify(flat_with_name)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_name, "error.message"), "--name"),
     "cu_linux_page_download_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
   );
@@ -185,13 +181,13 @@ function assert_page_download_usage_rejects_name(run_directory, executable, env,
     "page", "download", "--port", "" + port, "--target-id", "unused",
     "--selector", "#dl", "--download-dir", download_dir, "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(grouped_with_name),
+  harness.require(!output_success(grouped_with_name),
     "cu_linux_page_download_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
-  ensure(
+  harness.require(
     text_at(grouped_with_name, "error.code") === "usage",
     "cu_linux_page_download_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_name, "error.message"), "--name"),
     "cu_linux_page_download_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
   );
@@ -200,17 +196,17 @@ function assert_page_download_usage_rejects_name(run_directory, executable, env,
     "page-download", "--port", "" + port, "--target-id", "unused",
     "--selector", "#dl", "--download-dir", download_dir, "--bogus",
   ], env);
-  ensure(!output_success(flat_with_bogus),
+  harness.require(!output_success(flat_with_bogus),
     "cu_linux_page_download_usage_flat_bogus_ok:" + JSON.stringify(flat_with_bogus));
-  ensure(
+  harness.require(
     text_at(flat_with_bogus, "error.code") === "usage",
     "cu_linux_page_download_usage_flat_bogus_code:" + JSON.stringify(flat_with_bogus.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_bogus, "command") === "usage",
     "cu_linux_page_download_usage_flat_bogus_command:" + JSON.stringify(flat_with_bogus)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_bogus, "error.message"), "--bogus"),
     "cu_linux_page_download_usage_flat_bogus_message:" + JSON.stringify(flat_with_bogus.error)
   );
@@ -219,13 +215,13 @@ function assert_page_download_usage_rejects_name(run_directory, executable, env,
     "page", "download", "--port", "" + port, "--target-id", "unused",
     "--selector", "#dl", "--download-dir", download_dir, "--bogus",
   ], env);
-  ensure(!output_success(grouped_with_bogus),
+  harness.require(!output_success(grouped_with_bogus),
     "cu_linux_page_download_usage_grouped_bogus_ok:" + JSON.stringify(grouped_with_bogus));
-  ensure(
+  harness.require(
     text_at(grouped_with_bogus, "error.code") === "usage",
     "cu_linux_page_download_usage_grouped_bogus_code:" + JSON.stringify(grouped_with_bogus.error)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_bogus, "error.message"), "--bogus"),
     "cu_linux_page_download_usage_grouped_bogus_message:" + JSON.stringify(grouped_with_bogus.error)
   );
@@ -234,17 +230,17 @@ function assert_page_download_usage_rejects_name(run_directory, executable, env,
     "page-download", "--port", "" + port, "--target-id", "unused",
     "--selector", "#dl", "--download-dir", download_dir, "--coords", "10,10",
   ], env);
-  ensure(!output_success(flat_with_coords),
+  harness.require(!output_success(flat_with_coords),
     "cu_linux_page_download_usage_flat_coords_ok:" + JSON.stringify(flat_with_coords));
-  ensure(
+  harness.require(
     text_at(flat_with_coords, "error.code") === "usage",
     "cu_linux_page_download_usage_flat_coords_code:" + JSON.stringify(flat_with_coords.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_coords, "command") === "usage",
     "cu_linux_page_download_usage_flat_coords_command:" + JSON.stringify(flat_with_coords)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_coords, "error.message"), "--coords"),
     "cu_linux_page_download_usage_flat_coords_message:" + JSON.stringify(flat_with_coords.error)
   );
@@ -253,13 +249,13 @@ function assert_page_download_usage_rejects_name(run_directory, executable, env,
     "page", "download", "--port", "" + port, "--target-id", "unused",
     "--selector", "#dl", "--download-dir", download_dir, "--coords", "10,10",
   ], env);
-  ensure(!output_success(grouped_with_coords),
+  harness.require(!output_success(grouped_with_coords),
     "cu_linux_page_download_usage_grouped_coords_ok:" + JSON.stringify(grouped_with_coords));
-  ensure(
+  harness.require(
     text_at(grouped_with_coords, "error.code") === "usage",
     "cu_linux_page_download_usage_grouped_coords_code:" + JSON.stringify(grouped_with_coords.error)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_coords, "error.message"), "--coords"),
     "cu_linux_page_download_usage_grouped_coords_message:" + JSON.stringify(grouped_with_coords.error)
   );
@@ -269,13 +265,13 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  harness.require(!output_success(zero_handle),
     "cu_linux_page_download_extents_usage_ok:" + JSON.stringify(zero_handle));
-  ensure(
+  harness.require(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_page_download_extents_usage_code:" + JSON.stringify(zero_handle.error)
   );
-  ensure(
+  harness.require(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_page_download_extents_usage_message:" + JSON.stringify(zero_handle.error)
   );
@@ -283,17 +279,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  harness.require(!output_success(missing_name),
     "cu_linux_page_download_extents_usage_name_ok:" + JSON.stringify(missing_name));
-  ensure(
+  harness.require(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_page_download_extents_usage_name_code:" + JSON.stringify(missing_name.error)
   );
-  ensure(
+  harness.require(
     text_at(missing_name, "command") === "usage",
     "cu_linux_page_download_extents_usage_name_command:" + JSON.stringify(missing_name)
   );
-  ensure(
+  harness.require(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_download_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
@@ -301,17 +297,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  harness.require(!output_success(extents_coords),
     "cu_linux_page_download_extents_coords_ok:" + JSON.stringify(extents_coords));
-  ensure(
+  harness.require(
     text_at(extents_coords, "error.code") === "usage",
     "cu_linux_page_download_extents_coords_code:" + JSON.stringify(extents_coords.error)
   );
-  ensure(
+  harness.require(
     text_at(extents_coords, "command") === "usage",
     "cu_linux_page_download_extents_coords_command:" + JSON.stringify(extents_coords)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
       || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_download_extents_coords_message:" + JSON.stringify(extents_coords.error)
@@ -320,17 +316,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  harness.require(!output_success(extents_bogus),
     "cu_linux_page_download_extents_bogus_ok:" + JSON.stringify(extents_bogus));
-  ensure(
+  harness.require(
     text_at(extents_bogus, "error.code") === "usage",
     "cu_linux_page_download_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
   );
-  ensure(
+  harness.require(
     text_at(extents_bogus, "command") === "usage",
     "cu_linux_page_download_extents_bogus_command:" + JSON.stringify(extents_bogus)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
       || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_download_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
@@ -345,10 +341,10 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  harness.require(!output_success(reply),
     "cu_linux_page_download_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
-  ensure(
+  harness.require(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
       || code === "a11y_node_not_found",
     "cu_linux_page_download_extents_unavailable_code:" + code
@@ -359,8 +355,8 @@ function assert_get_extents_missing_node(run_directory, executable, env, handle,
   const reply = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", handle, "--name", MISSING_NODE,
   ], env);
-  ensure(!output_success(reply), "cu_linux_page_download_extents_missing_ok_" + label);
-  ensure(
+  harness.require(!output_success(reply), "cu_linux_page_download_extents_missing_ok_" + label);
+  harness.require(
     text_at(reply, "error.code") === "a11y_node_not_found",
     "cu_linux_page_download_extents_missing_code_" + label + ":" + JSON.stringify(reply.error)
   );
@@ -388,13 +384,13 @@ function assert_no_cdp_listener(run_directory, executable, env, port, download_d
     "page-download", "--port", "" + port, "--target-id", "unused",
     "--selector", "#dl", "--download-dir", download_dir,
   ], env);
-  ensure(reply.ok !== true, "cu_linux_page_download_false_success:" + JSON.stringify(reply));
-  ensure(
+  harness.require(reply.ok !== true, "cu_linux_page_download_false_success:" + JSON.stringify(reply));
+  harness.require(
     text_at(reply, "error.code") === "unsupported",
     "cu_linux_page_download_host_limit_code:" + JSON.stringify(reply)
   );
   const message = text_at(reply, "error.message");
-  ensure(
+  harness.require(
     message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
     "cu_linux_page_download_host_limit_message:" + JSON.stringify(reply.error)
   );
@@ -405,12 +401,12 @@ function assert_page_download_miss_bad_target(run_directory, executable, env, po
     "page-download", "--port", "" + port, "--target-id", "deadbeef",
     "--selector", "#dl", "--download-dir", download_dir,
   ], env);
-  ensure(!output_success(reply), "cu_linux_page_download_miss_target_ok:" + JSON.stringify(reply));
-  ensure(
+  harness.require(!output_success(reply), "cu_linux_page_download_miss_target_ok:" + JSON.stringify(reply));
+  harness.require(
     text_at(reply, "error.code") === "cdp_target_not_found",
     "cu_linux_page_download_miss_target_code:" + JSON.stringify(reply.error)
   );
-  ensure(
+  harness.require(
     text_at(reply, "error.message").indexOf("--target-id") >= 0,
     "cu_linux_page_download_miss_target_message:" + JSON.stringify(reply.error)
   );
@@ -433,7 +429,7 @@ function cdp_ready(run_directory, port) {
 
 function assert_download_dir_readback(download_dir, before_files, receipt_path, expected_size) {
   const after_files = regular_files_in_dir(download_dir);
-  ensure(
+  harness.require(
     after_files.length === before_files.length + 1,
     "cu_linux_page_download_dir_count:" + JSON.stringify({
       before: before_files,
@@ -443,10 +439,10 @@ function assert_download_dir_readback(download_dir, before_files, receipt_path, 
   let found = false;
   for (const path of after_files) {
     if (before_files.indexOf(path) >= 0) { continue; }
-    ensure(path === receipt_path,
+    harness.require(path === receipt_path,
       "cu_linux_page_download_dir_path:" + JSON.stringify({ path: path, receipt: receipt_path }));
-    ensure(direct_file(path), "cu_linux_page_download_dir_not_regular:" + path);
-    ensure(
+    harness.require(direct_file(path), "cu_linux_page_download_dir_not_regular:" + path);
+    harness.require(
       rh.metadata(path).len === expected_size,
       "cu_linux_page_download_dir_size:" + JSON.stringify({
         path: path,
@@ -457,7 +453,7 @@ function assert_download_dir_readback(download_dir, before_files, receipt_path, 
     found = true;
     break;
   }
-  ensure(found, "cu_linux_page_download_dir_missing_new_file:" + JSON.stringify(after_files));
+  harness.require(found, "cu_linux_page_download_dir_missing_new_file:" + JSON.stringify(after_files));
 }
 
 const args = rh.args();
@@ -469,8 +465,8 @@ harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
-ensure(direct_file(executable), "cu_linux_page_download_executable_missing:" + executable);
-ensure(direct_file(abi_library), "cu_linux_page_download_library_missing:" + abi_library);
+harness.require(direct_file(executable), "cu_linux_page_download_executable_missing:" + executable);
+harness.require(direct_file(abi_library), "cu_linux_page_download_library_missing:" + abi_library);
 
 const context = harness.new_context(repo, "cu-linux-page-download");
 const run_directory = context.run_directory;
@@ -503,7 +499,7 @@ try {
     cwd: run_directory,
     timeout_ms: 3000,
   });
-  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+  harness.require(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
     "cu_linux_page_download_port_in_use:" + port);
 
   print("STEP page-download typed-fails usage when --download-dir or node selector is missing");
@@ -540,7 +536,7 @@ try {
   for (let attempt = 0; attempt < 80 && !cdp_ready(run_directory, port); attempt = attempt + 1) {
     harness.sleep_ms(250);
   }
-  ensure(cdp_ready(run_directory, port), "cu_linux_page_download_cdp_not_ready:" + port);
+  harness.require(cdp_ready(run_directory, port), "cu_linux_page_download_cdp_not_ready:" + port);
 
   print("STEP page-download typed-fails cdp_target_not_found for a bogus --target-id");
   assert_page_download_miss_bad_target(run_directory, executable, env, port, download_dir);
@@ -549,7 +545,7 @@ try {
     "page-targets", "--port", "" + port,
   ], env);
   const target = page_target(targets.data.targets);
-  ensure(target !== null && text_at(target, "id") !== "", "cu_linux_page_download_target_missing");
+  harness.require(target !== null && text_at(target, "id") !== "", "cu_linux_page_download_target_missing");
   const target_id = text_at(target, "id");
 
   print("STEP page-nav loads the disposable HTML fixture in this owned tab");
@@ -558,7 +554,7 @@ try {
     "page-nav", "--port", "" + port, "--target-id", target_id,
     "--url", nav_url, "--wait-ms", "10000",
   ], env);
-  ensure(
+  harness.require(
     flag_at(nav, "data.verified") && text_at(nav, "data.final_title") === fixture_title,
     "cu_linux_page_download_nav:" + JSON.stringify(nav.data)
   );
@@ -568,22 +564,22 @@ try {
     const window_wait = run_cu(run_directory, executable, "observe", [
       "wait", "--timeout-ms", "20000", "--window-title-contains", fixture_title,
     ], env);
-    ensure(flag_at(window_wait, "data.met"), "cu_linux_page_download_window_wait");
+    harness.require(flag_at(window_wait, "data.met"), "cu_linux_page_download_window_wait");
 
     let window_row = null;
     for (let attempt = 0; attempt < 40 && window_row === null; attempt = attempt + 1) {
       window_row = window_row_for_title(run_directory, executable, env, fixture_title);
       if (window_row === null) { harness.sleep_ms(250); }
     }
-    ensure(window_row !== null, "cu_linux_page_download_window_missing:" + fixture_title);
+    harness.require(window_row !== null, "cu_linux_page_download_window_missing:" + fixture_title);
     const window_handle = "" + int_at(window_row, "handle");
-    ensure(window_handle !== "" && window_handle !== "0",
+    harness.require(window_handle !== "" && window_handle !== "0",
       "cu_linux_page_download_window_handle:" + JSON.stringify(window_row));
 
     const unlocked = run_cu(run_directory, executable, "observe,actuate", [
       "unlock", "--window", window_handle,
     ], env);
-    ensure(flag_at(unlocked, "data.poked"), "cu_linux_page_download_unlock:" + JSON.stringify(unlocked.data));
+    harness.require(flag_at(unlocked, "data.poked"), "cu_linux_page_download_unlock:" + JSON.stringify(unlocked.data));
 
     print("STEP get-extents typed-fail a11y_node_not_found when the named anchor is missing");
     assert_get_extents_missing_node(run_directory, executable, env, window_handle, "before_download");
@@ -591,7 +587,7 @@ try {
 
   print("STEP independent download-dir baseline proves the directory starts empty");
   const before_files = regular_files_in_dir(download_dir);
-  ensure(
+  harness.require(
     before_files.length === 0,
     "cu_linux_page_download_before:" + JSON.stringify({ download_dir: download_dir, files: before_files })
   );
@@ -601,20 +597,20 @@ try {
     "page-download", "--port", "" + port, "--target-id", target_id,
     "--selector", "#dl", "--download-dir", download_dir, "--wait-ms", "10000",
   ], env);
-  ensure(
+  harness.require(
     downloaded.command === "page-download" && text_at(downloaded, "data.state") === "completed",
     "cu_linux_page_download_actuate:" + JSON.stringify(downloaded.data)
   );
-  ensure(
+  harness.require(
     text_at(downloaded, "data.suggested_filename") === SUGGESTED_FILENAME,
     "cu_linux_page_download_suggested:" + JSON.stringify(downloaded.data)
   );
-  ensure(
+  harness.require(
     flag_at(downloaded, "data.content_read") === false && flag_at(downloaded, "data.focus_changed") === false,
     "cu_linux_page_download_authority:" + JSON.stringify(downloaded.data)
   );
   const receipt_path = text_at(downloaded, "data.final_path");
-  ensure(
+  harness.require(
     receipt_path.indexOf(download_dir) === 0,
     "cu_linux_page_download_escape:" + JSON.stringify({ receipt_path: receipt_path, download_dir: download_dir })
   );
@@ -634,7 +630,7 @@ try {
       harness.sleep_ms(250);
     }
   }
-  ensure(readback_ok, readback_error);
+  harness.require(readback_ok, readback_error);
   harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-download-readback");
 
   succeeded = 1;
@@ -646,7 +642,7 @@ if (chrome_child >= 0) {
   try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
 }
 
-ensure(succeeded === 1, failure || "cu_linux_page_download_failed");
+harness.require(succeeded === 1, failure || "cu_linux_page_download_failed");
 harness.remove_run(context);
 if (atspi_available) {
   print("PASS: Linux CDP page-download usage/miss/host-limit honesty + independent download-dir filesystem read-back with typed page-download --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");

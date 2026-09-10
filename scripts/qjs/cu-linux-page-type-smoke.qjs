@@ -26,10 +26,6 @@ const IDLE_FOCUS_EXPR = "(function(){var el=document.getElementById('idle');if(!
 const ACTIVE_ID_EXPR = "(document.activeElement&&document.activeElement.id)||''";
 const VALUE_EXPR = "document.getElementById('q').value";
 
-function ensure(condition, message) {
-  if (!condition) { throw message; }
-}
-
 function at(value, dotted) {
   let current = value;
   for (const key of dotted.split(".")) {
@@ -89,13 +85,13 @@ function run_cu_reply(run_directory, executable, grant, arguments, env) {
     timeout_ms: 60000,
   });
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_page_type_empty_reply:" + output.stderr);
+  harness.require(trimmed !== "", "cu_linux_page_type_empty_reply:" + output.stderr);
   return JSON.parse(trimmed);
 }
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  ensure(output_success(document), "cu_linux_page_type_reply:" + JSON.stringify(document));
+  harness.require(output_success(document), "cu_linux_page_type_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -125,13 +121,13 @@ function assert_page_type_usage(run_directory, executable, env, port) {
   const missing_text = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-type", "--port", "" + port, "--target-id", "unused",
   ], env);
-  ensure(!output_success(missing_text),
+  harness.require(!output_success(missing_text),
     "cu_linux_page_type_usage_ok_text:" + JSON.stringify(missing_text));
-  ensure(
+  harness.require(
     text_at(missing_text, "error.code") === "usage",
     "cu_linux_page_type_usage_code_text:" + JSON.stringify(missing_text.error)
   );
-  ensure(
+  harness.require(
     text_at(missing_text, "error.message").indexOf("--text") >= 0
       || text_at(missing_text, "error.message").indexOf("TEXT") >= 0,
     "cu_linux_page_type_usage_message_text:" + JSON.stringify(missing_text.error)
@@ -140,13 +136,13 @@ function assert_page_type_usage(run_directory, executable, env, port) {
   const empty_text = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-type", "--port", "" + port, "--target-id", "unused", "--text", "",
   ], env);
-  ensure(!output_success(empty_text),
+  harness.require(!output_success(empty_text),
     "cu_linux_page_type_usage_ok_empty:" + JSON.stringify(empty_text));
-  ensure(
+  harness.require(
     text_at(empty_text, "error.code") === "usage",
     "cu_linux_page_type_usage_code_empty:" + JSON.stringify(empty_text.error)
   );
-  ensure(
+  harness.require(
     text_at(empty_text, "error.message").indexOf("empty") >= 0,
     "cu_linux_page_type_usage_message_empty:" + JSON.stringify(empty_text.error)
   );
@@ -157,17 +153,17 @@ function assert_page_type_usage_rejects_name(run_directory, executable, env, por
     "page-type", "--port", "" + port, "--target-id", "unused",
     "--text", "seed", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(flat_with_name),
+  harness.require(!output_success(flat_with_name),
     "cu_linux_page_type_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
-  ensure(
+  harness.require(
     text_at(flat_with_name, "error.code") === "usage",
     "cu_linux_page_type_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_name, "command") === "usage",
     "cu_linux_page_type_usage_flat_name_command:" + JSON.stringify(flat_with_name)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_name, "error.message"), "--name"),
     "cu_linux_page_type_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
   );
@@ -176,13 +172,13 @@ function assert_page_type_usage_rejects_name(run_directory, executable, env, por
     "page", "type", "--port", "" + port, "--target-id", "unused",
     "--text", "seed", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(grouped_with_name),
+  harness.require(!output_success(grouped_with_name),
     "cu_linux_page_type_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
-  ensure(
+  harness.require(
     text_at(grouped_with_name, "error.code") === "usage",
     "cu_linux_page_type_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_name, "error.message"), "--name"),
     "cu_linux_page_type_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
   );
@@ -191,17 +187,17 @@ function assert_page_type_usage_rejects_name(run_directory, executable, env, por
     "page-type", "--port", "" + port, "--target-id", "unused",
     "--text", "seed", "--bogus",
   ], env);
-  ensure(!output_success(flat_with_bogus),
+  harness.require(!output_success(flat_with_bogus),
     "cu_linux_page_type_usage_flat_bogus_ok:" + JSON.stringify(flat_with_bogus));
-  ensure(
+  harness.require(
     text_at(flat_with_bogus, "error.code") === "usage",
     "cu_linux_page_type_usage_flat_bogus_code:" + JSON.stringify(flat_with_bogus.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_bogus, "command") === "usage",
     "cu_linux_page_type_usage_flat_bogus_command:" + JSON.stringify(flat_with_bogus)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_bogus, "error.message"), "--bogus"),
     "cu_linux_page_type_usage_flat_bogus_message:" + JSON.stringify(flat_with_bogus.error)
   );
@@ -210,13 +206,13 @@ function assert_page_type_usage_rejects_name(run_directory, executable, env, por
     "page", "type", "--port", "" + port, "--target-id", "unused",
     "--text", "seed", "--bogus",
   ], env);
-  ensure(!output_success(grouped_with_bogus),
+  harness.require(!output_success(grouped_with_bogus),
     "cu_linux_page_type_usage_grouped_bogus_ok:" + JSON.stringify(grouped_with_bogus));
-  ensure(
+  harness.require(
     text_at(grouped_with_bogus, "error.code") === "usage",
     "cu_linux_page_type_usage_grouped_bogus_code:" + JSON.stringify(grouped_with_bogus.error)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_bogus, "error.message"), "--bogus"),
     "cu_linux_page_type_usage_grouped_bogus_message:" + JSON.stringify(grouped_with_bogus.error)
   );
@@ -225,17 +221,17 @@ function assert_page_type_usage_rejects_name(run_directory, executable, env, por
     "page-type", "--port", "" + port, "--target-id", "unused",
     "--text", "seed", "--coords", "10,10",
   ], env);
-  ensure(!output_success(flat_with_coords),
+  harness.require(!output_success(flat_with_coords),
     "cu_linux_page_type_usage_flat_coords_ok:" + JSON.stringify(flat_with_coords));
-  ensure(
+  harness.require(
     text_at(flat_with_coords, "error.code") === "usage",
     "cu_linux_page_type_usage_flat_coords_code:" + JSON.stringify(flat_with_coords.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_coords, "command") === "usage",
     "cu_linux_page_type_usage_flat_coords_command:" + JSON.stringify(flat_with_coords)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_coords, "error.message"), "--coords"),
     "cu_linux_page_type_usage_flat_coords_message:" + JSON.stringify(flat_with_coords.error)
   );
@@ -244,13 +240,13 @@ function assert_page_type_usage_rejects_name(run_directory, executable, env, por
     "page", "type", "--port", "" + port, "--target-id", "unused",
     "--text", "seed", "--coords", "10,10",
   ], env);
-  ensure(!output_success(grouped_with_coords),
+  harness.require(!output_success(grouped_with_coords),
     "cu_linux_page_type_usage_grouped_coords_ok:" + JSON.stringify(grouped_with_coords));
-  ensure(
+  harness.require(
     text_at(grouped_with_coords, "error.code") === "usage",
     "cu_linux_page_type_usage_grouped_coords_code:" + JSON.stringify(grouped_with_coords.error)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_coords, "error.message"), "--coords"),
     "cu_linux_page_type_usage_grouped_coords_message:" + JSON.stringify(grouped_with_coords.error)
   );
@@ -260,13 +256,13 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  harness.require(!output_success(zero_handle),
     "cu_linux_page_type_extents_usage_ok:" + JSON.stringify(zero_handle));
-  ensure(
+  harness.require(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_page_type_extents_usage_code:" + JSON.stringify(zero_handle.error)
   );
-  ensure(
+  harness.require(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_page_type_extents_usage_message:" + JSON.stringify(zero_handle.error)
   );
@@ -274,17 +270,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  harness.require(!output_success(missing_name),
     "cu_linux_page_type_extents_usage_name_ok:" + JSON.stringify(missing_name));
-  ensure(
+  harness.require(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_page_type_extents_usage_name_code:" + JSON.stringify(missing_name.error)
   );
-  ensure(
+  harness.require(
     text_at(missing_name, "command") === "usage",
     "cu_linux_page_type_extents_usage_name_command:" + JSON.stringify(missing_name)
   );
-  ensure(
+  harness.require(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_type_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
@@ -292,17 +288,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  harness.require(!output_success(extents_coords),
     "cu_linux_page_type_extents_coords_ok:" + JSON.stringify(extents_coords));
-  ensure(
+  harness.require(
     text_at(extents_coords, "error.code") === "usage",
     "cu_linux_page_type_extents_coords_code:" + JSON.stringify(extents_coords.error)
   );
-  ensure(
+  harness.require(
     text_at(extents_coords, "command") === "usage",
     "cu_linux_page_type_extents_coords_command:" + JSON.stringify(extents_coords)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
       || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_type_extents_coords_message:" + JSON.stringify(extents_coords.error)
@@ -311,17 +307,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  harness.require(!output_success(extents_bogus),
     "cu_linux_page_type_extents_bogus_ok:" + JSON.stringify(extents_bogus));
-  ensure(
+  harness.require(
     text_at(extents_bogus, "error.code") === "usage",
     "cu_linux_page_type_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
   );
-  ensure(
+  harness.require(
     text_at(extents_bogus, "command") === "usage",
     "cu_linux_page_type_extents_bogus_command:" + JSON.stringify(extents_bogus)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
       || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_type_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
@@ -336,10 +332,10 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  harness.require(!output_success(reply),
     "cu_linux_page_type_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
-  ensure(
+  harness.require(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
       || code === "a11y_node_not_found",
     "cu_linux_page_type_extents_unavailable_code:" + code
@@ -350,8 +346,8 @@ function assert_get_extents_missing_node(run_directory, executable, env, handle,
   const reply = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", handle, "--name", MISSING_NODE,
   ], env);
-  ensure(!output_success(reply), "cu_linux_page_type_extents_missing_ok_" + label);
-  ensure(
+  harness.require(!output_success(reply), "cu_linux_page_type_extents_missing_ok_" + label);
+  harness.require(
     text_at(reply, "error.code") === "a11y_node_not_found",
     "cu_linux_page_type_extents_missing_code_" + label + ":" + JSON.stringify(reply.error)
   );
@@ -378,13 +374,13 @@ function assert_no_cdp_listener(run_directory, executable, env, port) {
   const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-type", "--port", "" + port, "--target-id", "unused", "--text", "seed",
   ], env);
-  ensure(reply.ok !== true, "cu_linux_page_type_false_success:" + JSON.stringify(reply));
-  ensure(
+  harness.require(reply.ok !== true, "cu_linux_page_type_false_success:" + JSON.stringify(reply));
+  harness.require(
     text_at(reply, "error.code") === "unsupported",
     "cu_linux_page_type_host_limit_code:" + JSON.stringify(reply)
   );
   const message = text_at(reply, "error.message");
-  ensure(
+  harness.require(
     message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
     "cu_linux_page_type_host_limit_message:" + JSON.stringify(reply.error)
   );
@@ -394,12 +390,12 @@ function assert_page_type_miss_bad_target(run_directory, executable, env, port) 
   const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-type", "--port", "" + port, "--target-id", "deadbeef", "--text", "seed",
   ], env);
-  ensure(!output_success(reply), "cu_linux_page_type_miss_target_ok:" + JSON.stringify(reply));
-  ensure(
+  harness.require(!output_success(reply), "cu_linux_page_type_miss_target_ok:" + JSON.stringify(reply));
+  harness.require(
     text_at(reply, "error.code") === "cdp_target_not_found",
     "cu_linux_page_type_miss_target_code:" + JSON.stringify(reply.error)
   );
-  ensure(
+  harness.require(
     text_at(reply, "error.message").indexOf("--target-id") >= 0,
     "cu_linux_page_type_miss_target_message:" + JSON.stringify(reply.error)
   );
@@ -439,7 +435,7 @@ function establish_input_focus(run_directory, executable, env, port, target_id) 
   const clicked = run_cu(run_directory, executable, "observe,actuate", [
     "page-click", "--port", "" + port, "--target-id", target_id, "--selector", "#q",
   ], env);
-  ensure(
+  harness.require(
     clicked.command === "page-click",
     "cu_linux_page_type_focus_click:" + JSON.stringify(clicked)
   );
@@ -448,7 +444,7 @@ function establish_input_focus(run_directory, executable, env, port, target_id) 
     active = page_js_text(run_directory, executable, env, port, target_id, ACTIVE_ID_EXPR);
     if (active !== "q") { harness.sleep_ms(250); }
   }
-  ensure(
+  harness.require(
     active === "q",
     "cu_linux_page_type_host_limit:focus_not_established:" + JSON.stringify({ active: active })
   );
@@ -463,8 +459,8 @@ harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
-ensure(direct_file(executable), "cu_linux_page_type_executable_missing:" + executable);
-ensure(direct_file(abi_library), "cu_linux_page_type_library_missing:" + abi_library);
+harness.require(direct_file(executable), "cu_linux_page_type_executable_missing:" + executable);
+harness.require(direct_file(abi_library), "cu_linux_page_type_library_missing:" + abi_library);
 
 const context = harness.new_context(repo, "cu-linux-page-type");
 const run_directory = context.run_directory;
@@ -495,7 +491,7 @@ try {
     cwd: run_directory,
     timeout_ms: 3000,
   });
-  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+  harness.require(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
     "cu_linux_page_type_port_in_use:" + port);
 
   print("STEP page-type typed-fails usage when --text is missing or empty");
@@ -534,7 +530,7 @@ try {
   for (let attempt = 0; attempt < 80 && !cdp_ready(run_directory, port); attempt = attempt + 1) {
     harness.sleep_ms(250);
   }
-  ensure(cdp_ready(run_directory, port), "cu_linux_page_type_cdp_not_ready:" + port);
+  harness.require(cdp_ready(run_directory, port), "cu_linux_page_type_cdp_not_ready:" + port);
 
   print("STEP page-type typed-fails cdp_target_not_found for a bogus --target-id");
   assert_page_type_miss_bad_target(run_directory, executable, env, port);
@@ -543,7 +539,7 @@ try {
     "page-targets", "--port", "" + port,
   ], env);
   const target = page_target(targets.data.targets);
-  ensure(target !== null && text_at(target, "id") !== "", "cu_linux_page_type_target_missing");
+  harness.require(target !== null && text_at(target, "id") !== "", "cu_linux_page_type_target_missing");
   const target_id = text_at(target, "id");
 
   print("STEP page-nav loads the disposable HTML fixture in this owned tab");
@@ -552,7 +548,7 @@ try {
     "page-nav", "--port", "" + port, "--target-id", target_id,
     "--url", nav_url, "--wait-ms", "10000",
   ], env);
-  ensure(
+  harness.require(
     flag_at(nav, "data.verified") && text_at(nav, "data.final_title") === fixture_title,
     "cu_linux_page_type_nav:" + JSON.stringify(nav.data)
   );
@@ -562,22 +558,22 @@ try {
     const window_wait = run_cu(run_directory, executable, "observe", [
       "wait", "--timeout-ms", "20000", "--window-title-contains", fixture_title,
     ], env);
-    ensure(flag_at(window_wait, "data.met"), "cu_linux_page_type_window_wait");
+    harness.require(flag_at(window_wait, "data.met"), "cu_linux_page_type_window_wait");
 
     let window_row = null;
     for (let attempt = 0; attempt < 40 && window_row === null; attempt = attempt + 1) {
       window_row = window_row_for_title(run_directory, executable, env, fixture_title);
       if (window_row === null) { harness.sleep_ms(250); }
     }
-    ensure(window_row !== null, "cu_linux_page_type_window_missing:" + fixture_title);
+    harness.require(window_row !== null, "cu_linux_page_type_window_missing:" + fixture_title);
     const window_handle = "" + int_at(window_row, "handle");
-    ensure(window_handle !== "" && window_handle !== "0",
+    harness.require(window_handle !== "" && window_handle !== "0",
       "cu_linux_page_type_window_handle:" + JSON.stringify(window_row));
 
     const unlocked = run_cu(run_directory, executable, "observe,actuate", [
       "unlock", "--window", window_handle,
     ], env);
-    ensure(flag_at(unlocked, "data.poked"), "cu_linux_page_type_unlock:" + JSON.stringify(unlocked.data));
+    harness.require(flag_at(unlocked, "data.poked"), "cu_linux_page_type_unlock:" + JSON.stringify(unlocked.data));
 
     print("STEP get-extents typed-fail a11y_node_not_found when the named anchor is missing");
     assert_get_extents_missing_node(run_directory, executable, env, window_handle, "before_type");
@@ -587,29 +583,29 @@ try {
   const no_focus = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-type", "--port", "" + port, "--target-id", target_id, "--text", seed,
   ], env);
-  ensure(!output_success(no_focus), "cu_linux_page_type_no_focus_ok:" + JSON.stringify(no_focus));
-  ensure(
+  harness.require(!output_success(no_focus), "cu_linux_page_type_no_focus_ok:" + JSON.stringify(no_focus));
+  harness.require(
     text_at(no_focus, "error.code") === "cdp_focus_not_found",
     "cu_linux_page_type_no_focus_code:" + JSON.stringify(no_focus.error)
   );
-  ensure(
+  harness.require(
     JSON.stringify(no_focus).indexOf(seed) < 0,
     "cu_linux_page_type_no_focus_leaked:" + JSON.stringify(no_focus)
   );
 
   print("STEP page-type typed-fails cdp_focus_not_editable when focus is a non-editable node");
   const idle_id = page_js_text(run_directory, executable, env, port, target_id, IDLE_FOCUS_EXPR);
-  ensure(idle_id === "idle", "cu_linux_page_type_idle_focus:" + JSON.stringify({ idle_id: idle_id }));
+  harness.require(idle_id === "idle", "cu_linux_page_type_idle_focus:" + JSON.stringify({ idle_id: idle_id }));
   const not_editable = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-type", "--port", "" + port, "--target-id", target_id, "--text", seed,
   ], env);
-  ensure(!output_success(not_editable),
+  harness.require(!output_success(not_editable),
     "cu_linux_page_type_not_editable_ok:" + JSON.stringify(not_editable));
-  ensure(
+  harness.require(
     text_at(not_editable, "error.code") === "cdp_focus_not_editable",
     "cu_linux_page_type_not_editable_code:" + JSON.stringify(not_editable.error)
   );
-  ensure(
+  harness.require(
     input_value(run_directory, executable, env, port, target_id) === "",
     "cu_linux_page_type_not_editable_mutated"
   );
@@ -617,7 +613,7 @@ try {
   print("STEP independent page-js baseline proves #q starts empty before type");
   establish_input_focus(run_directory, executable, env, port, target_id);
   const before_value = input_value(run_directory, executable, env, port, target_id);
-  ensure(
+  harness.require(
     before_value === "",
     "cu_linux_page_type_before:" + JSON.stringify({ value: before_value })
   );
@@ -626,11 +622,11 @@ try {
   const typed = run_cu(run_directory, executable, "observe,actuate", [
     "page-type", "--port", "" + port, "--target-id", target_id, "--text", seed,
   ], env);
-  ensure(
+  harness.require(
     typed.command === "page-type" && flag_at(typed, "data.performed"),
     "cu_linux_page_type_actuate:" + JSON.stringify(typed.data)
   );
-  ensure(
+  harness.require(
     JSON.stringify(typed).indexOf(seed) < 0,
     "cu_linux_page_type_leaked:" + JSON.stringify(typed)
   );
@@ -642,7 +638,7 @@ try {
     readback_value = input_value(run_directory, executable, env, port, target_id);
     if (readback_value !== seed) { harness.sleep_ms(250); }
   }
-  ensure(
+  harness.require(
     readback_value === seed,
     "cu_linux_page_type_readback:" + JSON.stringify({ seed: seed, value: readback_value })
   );
@@ -652,7 +648,7 @@ try {
   const grown = run_cu(run_directory, executable, "observe,actuate", [
     "page", "type", "--port", "" + port, "--target-id", target_id, suffix,
   ], env);
-  ensure(
+  harness.require(
     grown.command === "page-type" && flag_at(grown, "data.performed"),
     "cu_linux_page_type_append:" + JSON.stringify(grown.data)
   );
@@ -662,7 +658,7 @@ try {
     grown_value = input_value(run_directory, executable, env, port, target_id);
     if (grown_value !== expected_grown) { harness.sleep_ms(250); }
   }
-  ensure(
+  harness.require(
     grown_value === expected_grown,
     "cu_linux_page_type_append_readback:" + JSON.stringify({
       expected: expected_grown,
@@ -679,7 +675,7 @@ if (chrome_child >= 0) {
   try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
 }
 
-ensure(succeeded === 1, failure || "cu_linux_page_type_failed");
+harness.require(succeeded === 1, failure || "cu_linux_page_type_failed");
 harness.remove_run(context);
 if (atspi_available) {
   print("PASS: Linux CDP page-type usage/miss/host-limit honesty + independent page-js DOM read-back with typed page-type --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");

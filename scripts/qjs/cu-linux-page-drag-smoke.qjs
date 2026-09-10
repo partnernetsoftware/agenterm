@@ -34,10 +34,6 @@ const drag_readback_expr = "(function(){"
   + "has_mouseup_to:has('mouseup','drag-to')"
   + "};})()";
 
-function ensure(condition, message) {
-  if (!condition) { throw message; }
-}
-
 function at(value, dotted) {
   let current = value;
   for (const key of dotted.split(".")) {
@@ -97,13 +93,13 @@ function run_cu_reply(run_directory, executable, grant, arguments, env) {
     timeout_ms: 60000,
   });
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_page_drag_empty_reply:" + output.stderr);
+  harness.require(trimmed !== "", "cu_linux_page_drag_empty_reply:" + output.stderr);
   return JSON.parse(trimmed);
 }
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  ensure(output_success(document), "cu_linux_page_drag_reply:" + JSON.stringify(document));
+  harness.require(output_success(document), "cu_linux_page_drag_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -133,12 +129,12 @@ function assert_page_drag_usage_limit(run_directory, executable, env, port) {
   const missing_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-drag", "--port", "" + port, "--target-id", "unused",
   ], env);
-  ensure(!output_success(missing_coords), "cu_linux_page_drag_usage_ok:" + JSON.stringify(missing_coords));
-  ensure(
+  harness.require(!output_success(missing_coords), "cu_linux_page_drag_usage_ok:" + JSON.stringify(missing_coords));
+  harness.require(
     text_at(missing_coords, "error.code") === "usage",
     "cu_linux_page_drag_usage_code:" + JSON.stringify(missing_coords.error)
   );
-  ensure(
+  harness.require(
     text_at(missing_coords, "error.message").indexOf("--x1") >= 0,
     "cu_linux_page_drag_usage_message:" + JSON.stringify(missing_coords.error)
   );
@@ -147,12 +143,12 @@ function assert_page_drag_usage_limit(run_directory, executable, env, port) {
     "page-drag", "--port", "" + port, "--target-id", "unused",
     "--x1", "10", "--y1", "10", "--x2", "20",
   ], env);
-  ensure(!output_success(missing_y2), "cu_linux_page_drag_missing_y2_ok:" + JSON.stringify(missing_y2));
-  ensure(
+  harness.require(!output_success(missing_y2), "cu_linux_page_drag_missing_y2_ok:" + JSON.stringify(missing_y2));
+  harness.require(
     text_at(missing_y2, "error.code") === "usage",
     "cu_linux_page_drag_missing_y2_code:" + JSON.stringify(missing_y2.error)
   );
-  ensure(
+  harness.require(
     text_at(missing_y2, "error.message").indexOf("--y2") >= 0,
     "cu_linux_page_drag_missing_y2_message:" + JSON.stringify(missing_y2.error)
   );
@@ -161,12 +157,12 @@ function assert_page_drag_usage_limit(run_directory, executable, env, port) {
     "page-drag", "--port", "" + port, "--target-id", "unused",
     "--x1", "-1", "--y1", "10", "--x2", "20", "--y2", "10",
   ], env);
-  ensure(!output_success(bad_x1), "cu_linux_page_drag_bad_x1_ok:" + JSON.stringify(bad_x1));
-  ensure(
+  harness.require(!output_success(bad_x1), "cu_linux_page_drag_bad_x1_ok:" + JSON.stringify(bad_x1));
+  harness.require(
     text_at(bad_x1, "error.code") === "usage",
     "cu_linux_page_drag_bad_x1_code:" + JSON.stringify(bad_x1.error)
   );
-  ensure(
+  harness.require(
     text_at(bad_x1, "error.message").indexOf("viewport CSS coordinate") >= 0,
     "cu_linux_page_drag_bad_x1_message:" + JSON.stringify(bad_x1.error)
   );
@@ -175,12 +171,12 @@ function assert_page_drag_usage_limit(run_directory, executable, env, port) {
     "page-drag", "--port", "" + port, "--target-id", "unused",
     "--x1", "10", "--y1", "10", "--x2", "10", "--y2", "10",
   ], env);
-  ensure(!output_success(zero_distance), "cu_linux_page_drag_zero_distance_ok:" + JSON.stringify(zero_distance));
-  ensure(
+  harness.require(!output_success(zero_distance), "cu_linux_page_drag_zero_distance_ok:" + JSON.stringify(zero_distance));
+  harness.require(
     text_at(zero_distance, "error.code") === "usage",
     "cu_linux_page_drag_zero_distance_code:" + JSON.stringify(zero_distance.error)
   );
-  ensure(
+  harness.require(
     text_at(zero_distance, "error.message").indexOf("distinct") >= 0,
     "cu_linux_page_drag_zero_distance_message:" + JSON.stringify(zero_distance.error)
   );
@@ -192,17 +188,17 @@ function assert_page_drag_usage_rejects_name(run_directory, executable, env, por
     "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20",
     "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(flat_with_name),
+  harness.require(!output_success(flat_with_name),
     "cu_linux_page_drag_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
-  ensure(
+  harness.require(
     text_at(flat_with_name, "error.code") === "usage",
     "cu_linux_page_drag_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_name, "command") === "usage",
     "cu_linux_page_drag_usage_flat_name_command:" + JSON.stringify(flat_with_name)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_name, "error.message"), "--name"),
     "cu_linux_page_drag_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
   );
@@ -212,13 +208,13 @@ function assert_page_drag_usage_rejects_name(run_directory, executable, env, por
     "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20",
     "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(grouped_with_name),
+  harness.require(!output_success(grouped_with_name),
     "cu_linux_page_drag_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
-  ensure(
+  harness.require(
     text_at(grouped_with_name, "error.code") === "usage",
     "cu_linux_page_drag_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_name, "error.message"), "--name"),
     "cu_linux_page_drag_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
   );
@@ -227,17 +223,17 @@ function assert_page_drag_usage_rejects_name(run_directory, executable, env, por
     "page-drag", "--port", "" + port, "--target-id", "unused",
     "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20", "--bogus",
   ], env);
-  ensure(!output_success(flat_with_bogus),
+  harness.require(!output_success(flat_with_bogus),
     "cu_linux_page_drag_usage_flat_bogus_ok:" + JSON.stringify(flat_with_bogus));
-  ensure(
+  harness.require(
     text_at(flat_with_bogus, "error.code") === "usage",
     "cu_linux_page_drag_usage_flat_bogus_code:" + JSON.stringify(flat_with_bogus.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_bogus, "command") === "usage",
     "cu_linux_page_drag_usage_flat_bogus_command:" + JSON.stringify(flat_with_bogus)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_bogus, "error.message"), "--bogus"),
     "cu_linux_page_drag_usage_flat_bogus_message:" + JSON.stringify(flat_with_bogus.error)
   );
@@ -246,13 +242,13 @@ function assert_page_drag_usage_rejects_name(run_directory, executable, env, por
     "page", "drag", "--port", "" + port, "--target-id", "unused",
     "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20", "--bogus",
   ], env);
-  ensure(!output_success(grouped_with_bogus),
+  harness.require(!output_success(grouped_with_bogus),
     "cu_linux_page_drag_usage_grouped_bogus_ok:" + JSON.stringify(grouped_with_bogus));
-  ensure(
+  harness.require(
     text_at(grouped_with_bogus, "error.code") === "usage",
     "cu_linux_page_drag_usage_grouped_bogus_code:" + JSON.stringify(grouped_with_bogus.error)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_bogus, "error.message"), "--bogus"),
     "cu_linux_page_drag_usage_grouped_bogus_message:" + JSON.stringify(grouped_with_bogus.error)
   );
@@ -261,17 +257,17 @@ function assert_page_drag_usage_rejects_name(run_directory, executable, env, por
     "page-drag", "--port", "" + port, "--target-id", "unused",
     "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20", "--coords", "10,10",
   ], env);
-  ensure(!output_success(flat_with_coords),
+  harness.require(!output_success(flat_with_coords),
     "cu_linux_page_drag_usage_flat_coords_ok:" + JSON.stringify(flat_with_coords));
-  ensure(
+  harness.require(
     text_at(flat_with_coords, "error.code") === "usage",
     "cu_linux_page_drag_usage_flat_coords_code:" + JSON.stringify(flat_with_coords.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_coords, "command") === "usage",
     "cu_linux_page_drag_usage_flat_coords_command:" + JSON.stringify(flat_with_coords)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_coords, "error.message"), "--coords"),
     "cu_linux_page_drag_usage_flat_coords_message:" + JSON.stringify(flat_with_coords.error)
   );
@@ -280,13 +276,13 @@ function assert_page_drag_usage_rejects_name(run_directory, executable, env, por
     "page", "drag", "--port", "" + port, "--target-id", "unused",
     "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20", "--coords", "10,10",
   ], env);
-  ensure(!output_success(grouped_with_coords),
+  harness.require(!output_success(grouped_with_coords),
     "cu_linux_page_drag_usage_grouped_coords_ok:" + JSON.stringify(grouped_with_coords));
-  ensure(
+  harness.require(
     text_at(grouped_with_coords, "error.code") === "usage",
     "cu_linux_page_drag_usage_grouped_coords_code:" + JSON.stringify(grouped_with_coords.error)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_coords, "error.message"), "--coords"),
     "cu_linux_page_drag_usage_grouped_coords_message:" + JSON.stringify(grouped_with_coords.error)
   );
@@ -296,13 +292,13 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  harness.require(!output_success(zero_handle),
     "cu_linux_page_drag_extents_usage_ok:" + JSON.stringify(zero_handle));
-  ensure(
+  harness.require(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_page_drag_extents_usage_code:" + JSON.stringify(zero_handle.error)
   );
-  ensure(
+  harness.require(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_page_drag_extents_usage_message:" + JSON.stringify(zero_handle.error)
   );
@@ -310,17 +306,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  harness.require(!output_success(missing_name),
     "cu_linux_page_drag_extents_usage_name_ok:" + JSON.stringify(missing_name));
-  ensure(
+  harness.require(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_page_drag_extents_usage_name_code:" + JSON.stringify(missing_name.error)
   );
-  ensure(
+  harness.require(
     text_at(missing_name, "command") === "usage",
     "cu_linux_page_drag_extents_usage_name_command:" + JSON.stringify(missing_name)
   );
-  ensure(
+  harness.require(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_drag_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
@@ -328,17 +324,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  harness.require(!output_success(extents_coords),
     "cu_linux_page_drag_extents_coords_ok:" + JSON.stringify(extents_coords));
-  ensure(
+  harness.require(
     text_at(extents_coords, "error.code") === "usage",
     "cu_linux_page_drag_extents_coords_code:" + JSON.stringify(extents_coords.error)
   );
-  ensure(
+  harness.require(
     text_at(extents_coords, "command") === "usage",
     "cu_linux_page_drag_extents_coords_command:" + JSON.stringify(extents_coords)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
       || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_drag_extents_coords_message:" + JSON.stringify(extents_coords.error)
@@ -347,17 +343,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  harness.require(!output_success(extents_bogus),
     "cu_linux_page_drag_extents_bogus_ok:" + JSON.stringify(extents_bogus));
-  ensure(
+  harness.require(
     text_at(extents_bogus, "error.code") === "usage",
     "cu_linux_page_drag_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
   );
-  ensure(
+  harness.require(
     text_at(extents_bogus, "command") === "usage",
     "cu_linux_page_drag_extents_bogus_command:" + JSON.stringify(extents_bogus)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
       || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_drag_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
@@ -372,10 +368,10 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  harness.require(!output_success(reply),
     "cu_linux_page_drag_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
-  ensure(
+  harness.require(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
       || code === "a11y_node_not_found",
     "cu_linux_page_drag_extents_unavailable_code:" + code
@@ -387,13 +383,13 @@ function assert_no_cdp_listener(run_directory, executable, env, port) {
     "page-drag", "--port", "" + port, "--target-id", "unused",
     "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20",
   ], env);
-  ensure(reply.ok !== true, "cu_linux_page_drag_false_success:" + JSON.stringify(reply));
-  ensure(
+  harness.require(reply.ok !== true, "cu_linux_page_drag_false_success:" + JSON.stringify(reply));
+  harness.require(
     text_at(reply, "error.code") === "unsupported",
     "cu_linux_page_drag_host_limit_code:" + JSON.stringify(reply)
   );
   const message = text_at(reply, "error.message");
-  ensure(
+  harness.require(
     message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
     "cu_linux_page_drag_host_limit_message:" + JSON.stringify(reply.error)
   );
@@ -404,12 +400,12 @@ function assert_page_drag_miss_target(run_directory, executable, env, port) {
     "page-drag", "--port", "" + port, "--target-id", "deadbeef",
     "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20",
   ], env);
-  ensure(!output_success(reply), "cu_linux_page_drag_miss_target_ok:" + JSON.stringify(reply));
-  ensure(
+  harness.require(!output_success(reply), "cu_linux_page_drag_miss_target_ok:" + JSON.stringify(reply));
+  harness.require(
     text_at(reply, "error.code") === "cdp_target_not_found",
     "cu_linux_page_drag_miss_target_code:" + JSON.stringify(reply.error)
   );
-  ensure(
+  harness.require(
     text_at(reply, "error.message").indexOf("--target-id") >= 0,
     "cu_linux_page_drag_miss_target_message:" + JSON.stringify(reply.error)
   );
@@ -420,12 +416,12 @@ function assert_page_drag_miss_point(run_directory, executable, env, port, targe
     "page-drag", "--port", "" + port, "--target-id", target_id,
     "--x1", "99999", "--y1", "99999", "--x2", "99998", "--y2", "99998",
   ], env);
-  ensure(!output_success(reply), "cu_linux_page_drag_miss_point_ok:" + JSON.stringify(reply));
-  ensure(
+  harness.require(!output_success(reply), "cu_linux_page_drag_miss_point_ok:" + JSON.stringify(reply));
+  harness.require(
     text_at(reply, "error.code") === "cdp_point_not_found",
     "cu_linux_page_drag_miss_point_code:" + JSON.stringify(reply.error)
   );
-  ensure(
+  harness.require(
     text_at(reply, "error.message").indexOf("viewport point") >= 0,
     "cu_linux_page_drag_miss_point_message:" + JSON.stringify(reply.error)
   );
@@ -470,8 +466,8 @@ harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
-ensure(direct_file(executable), "cu_linux_page_drag_executable_missing:" + executable);
-ensure(direct_file(abi_library), "cu_linux_page_drag_library_missing:" + abi_library);
+harness.require(direct_file(executable), "cu_linux_page_drag_executable_missing:" + executable);
+harness.require(direct_file(abi_library), "cu_linux_page_drag_library_missing:" + abi_library);
 
 const context = harness.new_context(repo, "cu-linux-page-drag");
 const run_directory = context.run_directory;
@@ -514,7 +510,7 @@ try {
     cwd: run_directory,
     timeout_ms: 3000,
   });
-  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+  harness.require(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
     "cu_linux_page_drag_port_in_use:" + port);
 
   print("STEP typed usage limits reject missing coordinates, invalid points, or zero-distance before Chrome starts");
@@ -553,7 +549,7 @@ try {
   for (let attempt = 0; attempt < 80 && !cdp_ready(run_directory, port); attempt = attempt + 1) {
     harness.sleep_ms(250);
   }
-  ensure(cdp_ready(run_directory, port), "cu_linux_page_drag_cdp_not_ready:" + port);
+  harness.require(cdp_ready(run_directory, port), "cu_linux_page_drag_cdp_not_ready:" + port);
 
   print("STEP page-drag typed-fails cdp_target_not_found for a bogus --target-id");
   assert_page_drag_miss_target(run_directory, executable, env, port);
@@ -562,7 +558,7 @@ try {
     "page-targets", "--port", "" + port,
   ], env);
   const target = page_target(targets.data.targets);
-  ensure(target !== null && text_at(target, "id") !== "", "cu_linux_page_drag_target_missing");
+  harness.require(target !== null && text_at(target, "id") !== "", "cu_linux_page_drag_target_missing");
   const target_id = text_at(target, "id");
 
   print("STEP page-nav loads the disposable drag fixture in this owned tab");
@@ -570,7 +566,7 @@ try {
     "page-nav", "--port", "" + port, "--target-id", target_id,
     "--url", "file://" + fixture, "--wait-ms", "10000",
   ], env);
-  ensure(
+  harness.require(
     flag_at(nav, "data.verified") && text_at(nav, "data.final_title") === fixture_title,
     "cu_linux_page_drag_nav:" + JSON.stringify(nav.data)
   );
@@ -584,21 +580,21 @@ try {
   ], env);
   const from_nodes = at(from_find, "data.nodes");
   const to_nodes = at(to_find, "data.nodes");
-  ensure(
+  harness.require(
     at(from_find, "data.returned") === 1 && from_nodes.length === 1
       && at(to_find, "data.returned") === 1 && to_nodes.length === 1,
     "cu_linux_page_drag_find:" + JSON.stringify({ from_find: from_find.data, to_find: to_find.data })
   );
   const from_xy = center(from_nodes[0].box);
   const to_xy = center(to_nodes[0].box);
-  ensure(
+  harness.require(
     from_xy.x !== to_xy.x || from_xy.y !== to_xy.y,
     "cu_linux_page_drag_fixture_geometry:" + JSON.stringify({ from_xy, to_xy })
   );
 
   print("STEP independent page-js baseline proves drag has not completed yet");
   const baseline = drag_readback(run_directory, executable, env, port, target_id);
-  ensure(
+  harness.require(
     text_at(baseline, "drag_done") === ""
       && flag_at(baseline, "has_mousedown_from") === false
       && flag_at(baseline, "has_mouseup_to") === false,
@@ -611,7 +607,7 @@ try {
     "--x1", "" + from_xy.x, "--y1", "" + from_xy.y,
     "--x2", "" + to_xy.x, "--y2", "" + to_xy.y,
   ], env);
-  ensure(
+  harness.require(
     dragged.command === "page-drag"
       && flag_at(dragged, "data.performed")
       && flag_at(dragged, "data.release_attempted"),
@@ -631,7 +627,7 @@ try {
     }
     harness.sleep_ms(250);
   }
-  ensure(
+  harness.require(
     text_at(readback, "drag_done") === "done"
       && flag_at(readback, "has_mousedown_from")
       && flag_at(readback, "has_mousemove")
@@ -652,7 +648,7 @@ if (chrome_child >= 0) {
   try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
 }
 
-ensure(succeeded === 1, failure || "cu_linux_page_drag_failed");
+harness.require(succeeded === 1, failure || "cu_linux_page_drag_failed");
 harness.remove_run(context);
 if (atspi_available) {
   print("PASS: Linux page-drag usage/host-limit/miss honesty + independent trusted mousedown/mousemove/mouseup page-js read-back with typed page-drag --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");

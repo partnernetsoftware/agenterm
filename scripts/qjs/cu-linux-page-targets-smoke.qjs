@@ -21,10 +21,6 @@ const declared_evidence = [
 const ANCHOR_NAME = "Fixture Anchor";
 const MISSING_NODE = "No Such Anchor";
 
-function ensure(condition, message) {
-  if (!condition) { throw message; }
-}
-
 function at(value, dotted) {
   let current = value;
   for (const key of dotted.split(".")) {
@@ -88,13 +84,13 @@ function run_cu_reply(run_directory, executable, grant, arguments, env) {
     env: env,
     timeout_ms: 60000,
   });
-  ensure(output.stdout.trim() !== "", "cu_linux_page_targets_cli:" + output.stdout + output.stderr);
+  harness.require(output.stdout.trim() !== "", "cu_linux_page_targets_cli:" + output.stdout + output.stderr);
   return JSON.parse(output.stdout.trim());
 }
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  ensure(output_success(document), "cu_linux_page_targets_reply:" + JSON.stringify(document));
+  harness.require(output_success(document), "cu_linux_page_targets_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -119,16 +115,16 @@ function assert_page_targets_usage_limit(run_directory, executable, env, port) {
   const with_name = run_cu_reply(run_directory, executable, "observe", [
     "page-targets", "--port", "" + port, "--name", ANCHOR_NAME,
   ], env);
-  ensure(!output_success(with_name), "cu_linux_page_targets_usage_name_ok:" + JSON.stringify(with_name));
-  ensure(
+  harness.require(!output_success(with_name), "cu_linux_page_targets_usage_name_ok:" + JSON.stringify(with_name));
+  harness.require(
     text_at(with_name, "error.code") === "usage",
     "cu_linux_page_targets_usage_name_code:" + JSON.stringify(with_name.error)
   );
-  ensure(
+  harness.require(
     text_at(with_name, "command") === "usage",
     "cu_linux_page_targets_usage_name_command:" + JSON.stringify(with_name)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(with_name, "error.message"), "--name"),
     "cu_linux_page_targets_usage_name_message:" + JSON.stringify(with_name.error)
   );
@@ -136,16 +132,16 @@ function assert_page_targets_usage_limit(run_directory, executable, env, port) {
   const with_bogus = run_cu_reply(run_directory, executable, "observe", [
     "page-targets", "--port", "" + port, "--bogus",
   ], env);
-  ensure(!output_success(with_bogus), "cu_linux_page_targets_usage_bogus_ok:" + JSON.stringify(with_bogus));
-  ensure(
+  harness.require(!output_success(with_bogus), "cu_linux_page_targets_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  harness.require(
     text_at(with_bogus, "error.code") === "usage",
     "cu_linux_page_targets_usage_bogus_code:" + JSON.stringify(with_bogus.error)
   );
-  ensure(
+  harness.require(
     text_at(with_bogus, "command") === "usage",
     "cu_linux_page_targets_usage_bogus_command:" + JSON.stringify(with_bogus)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
     "cu_linux_page_targets_usage_bogus_message:" + JSON.stringify(with_bogus.error)
   );
@@ -153,16 +149,16 @@ function assert_page_targets_usage_limit(run_directory, executable, env, port) {
   const with_coords = run_cu_reply(run_directory, executable, "observe", [
     "page-targets", "--port", "" + port, "--coords", "10,10",
   ], env);
-  ensure(!output_success(with_coords), "cu_linux_page_targets_usage_coords_ok:" + JSON.stringify(with_coords));
-  ensure(
+  harness.require(!output_success(with_coords), "cu_linux_page_targets_usage_coords_ok:" + JSON.stringify(with_coords));
+  harness.require(
     text_at(with_coords, "error.code") === "usage",
     "cu_linux_page_targets_usage_coords_code:" + JSON.stringify(with_coords.error)
   );
-  ensure(
+  harness.require(
     text_at(with_coords, "command") === "usage",
     "cu_linux_page_targets_usage_coords_command:" + JSON.stringify(with_coords)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords"),
     "cu_linux_page_targets_usage_coords_message:" + JSON.stringify(with_coords.error)
   );
@@ -172,12 +168,12 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "0", "--name", ANCHOR_NAME,
   ], env);
-  ensure(!output_success(zero_handle), "cu_linux_page_targets_extents_usage_ok:" + JSON.stringify(zero_handle));
-  ensure(
+  harness.require(!output_success(zero_handle), "cu_linux_page_targets_extents_usage_ok:" + JSON.stringify(zero_handle));
+  harness.require(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_page_targets_extents_usage_code:" + JSON.stringify(zero_handle.error)
   );
-  ensure(
+  harness.require(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_page_targets_extents_usage_message:" + JSON.stringify(zero_handle.error)
   );
@@ -185,16 +181,16 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name), "cu_linux_page_targets_extents_usage_name_ok:" + JSON.stringify(missing_name));
-  ensure(
+  harness.require(!output_success(missing_name), "cu_linux_page_targets_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  harness.require(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_page_targets_extents_usage_name_code:" + JSON.stringify(missing_name.error)
   );
-  ensure(
+  harness.require(
     text_at(missing_name, "command") === "usage",
     "cu_linux_page_targets_extents_usage_name_command:" + JSON.stringify(missing_name)
   );
-  ensure(
+  harness.require(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_targets_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
@@ -202,16 +198,16 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords), "cu_linux_page_targets_extents_coords_ok:" + JSON.stringify(extents_coords));
-  ensure(
+  harness.require(!output_success(extents_coords), "cu_linux_page_targets_extents_coords_ok:" + JSON.stringify(extents_coords));
+  harness.require(
     text_at(extents_coords, "error.code") === "usage",
     "cu_linux_page_targets_extents_coords_code:" + JSON.stringify(extents_coords.error)
   );
-  ensure(
+  harness.require(
     text_at(extents_coords, "command") === "usage",
     "cu_linux_page_targets_extents_coords_command:" + JSON.stringify(extents_coords)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
       || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_targets_extents_coords_message:" + JSON.stringify(extents_coords.error)
@@ -220,16 +216,16 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus), "cu_linux_page_targets_extents_bogus_ok:" + JSON.stringify(extents_bogus));
-  ensure(
+  harness.require(!output_success(extents_bogus), "cu_linux_page_targets_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  harness.require(
     text_at(extents_bogus, "error.code") === "usage",
     "cu_linux_page_targets_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
   );
-  ensure(
+  harness.require(
     text_at(extents_bogus, "command") === "usage",
     "cu_linux_page_targets_extents_bogus_command:" + JSON.stringify(extents_bogus)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
       || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_targets_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
@@ -244,9 +240,9 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply), "cu_linux_page_targets_extents_unavailable_ok:" + JSON.stringify(reply));
+  harness.require(!output_success(reply), "cu_linux_page_targets_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
-  ensure(
+  harness.require(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
       || code === "a11y_node_not_found",
     "cu_linux_page_targets_extents_unavailable_code:" + code
@@ -257,8 +253,8 @@ function assert_get_extents_missing_node(run_directory, executable, env, handle,
   const reply = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", handle, "--name", MISSING_NODE,
   ], env);
-  ensure(!output_success(reply), "cu_linux_page_targets_extents_missing_ok_" + label);
-  ensure(
+  harness.require(!output_success(reply), "cu_linux_page_targets_extents_missing_ok_" + label);
+  harness.require(
     text_at(reply, "error.code") === "a11y_node_not_found",
     "cu_linux_page_targets_extents_missing_code_" + label + ":" + JSON.stringify(reply.error)
   );
@@ -310,7 +306,7 @@ function independent_pyatspi_extents(run_directory, executable, env, window_titl
     env: env,
     timeout_ms: 30000,
   });
-  ensure(output.success === true, "cu_linux_page_targets_pyatspi:" + output.stderr + output.stdout);
+  harness.require(output.success === true, "cu_linux_page_targets_pyatspi:" + output.stderr + output.stdout);
   return JSON.parse(output.stdout.trim());
 }
 
@@ -321,7 +317,7 @@ function assert_get_extents_agreement(run_directory, executable, env, handle, wi
   const anchor_extents = run_cu(run_directory, executable, "observe", [
     "get-extents", "--window", handle, "--name", node_name,
   ], env);
-  ensure(
+  harness.require(
     int_at(anchor_extents, "data.extents.x") === pyatspi_anchor.x
       && int_at(anchor_extents, "data.extents.y") === pyatspi_anchor.y
       && int_at(anchor_extents, "data.extents.width") === pyatspi_anchor.width
@@ -365,11 +361,11 @@ function assert_no_cdp_listener(run_directory, executable, env, port) {
   const reply = run_cu_reply(run_directory, executable, "observe", [
     "page-targets", "--port", "" + port,
   ], env);
-  ensure(reply.ok !== true, "cu_linux_page_targets_false_success:" + JSON.stringify(reply));
-  ensure(text_at(reply, "error.code") === "unsupported",
+  harness.require(reply.ok !== true, "cu_linux_page_targets_false_success:" + JSON.stringify(reply));
+  harness.require(text_at(reply, "error.code") === "unsupported",
     "cu_linux_page_targets_host_limit_code:" + JSON.stringify(reply));
   const message = text_at(reply, "error.message");
-  ensure(
+  harness.require(
     message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
     "cu_linux_page_targets_host_limit_message:" + JSON.stringify(reply.error)
   );
@@ -380,7 +376,7 @@ function curl_json(run_directory, port, path) {
     cwd: run_directory,
     timeout_ms: 10000,
   });
-  ensure(output.success === true && output.stdout.trim() !== "",
+  harness.require(output.success === true && output.stdout.trim() !== "",
     "cu_linux_page_targets_curl:" + path + ":" + output.stdout + output.stderr);
   return JSON.parse(output.stdout.trim());
 }
@@ -418,7 +414,7 @@ function targets_agree(cu_rows, curl_rows) {
     const normalized = normalize_curl_target(raw);
     if (normalized.id !== "") { curl_by_id[normalized.id] = normalized; }
   }
-  ensure(cu_rows.length === curl_rows.length,
+  harness.require(cu_rows.length === curl_rows.length,
     "cu_linux_page_targets_count:" + JSON.stringify({
       cu: cu_rows.length,
       curl: curl_rows.length,
@@ -426,8 +422,8 @@ function targets_agree(cu_rows, curl_rows) {
   for (const row of cu_rows) {
     const cu = normalize_cu_target(row);
     const curl = curl_by_id[cu.id];
-    ensure(curl !== undefined, "cu_linux_page_targets_missing_id:" + cu.id);
-    ensure(JSON.stringify(cu) === JSON.stringify(curl),
+    harness.require(curl !== undefined, "cu_linux_page_targets_missing_id:" + cu.id);
+    harness.require(JSON.stringify(cu) === JSON.stringify(curl),
       "cu_linux_page_targets_mismatch:" + JSON.stringify({ cu: cu, curl: curl }));
   }
 }
@@ -476,8 +472,8 @@ harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
-ensure(direct_file(executable), "cu_linux_page_targets_executable_missing:" + executable);
-ensure(direct_file(abi_library), "cu_linux_page_targets_library_missing:" + abi_library);
+harness.require(direct_file(executable), "cu_linux_page_targets_executable_missing:" + executable);
+harness.require(direct_file(abi_library), "cu_linux_page_targets_library_missing:" + abi_library);
 
 const context = harness.new_context(repo, "cu-linux-page-targets");
 const run_directory = context.run_directory;
@@ -503,7 +499,7 @@ try {
     cwd: run_directory,
     timeout_ms: 3000,
   });
-  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+  harness.require(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
     "cu_linux_page_targets_port_in_use:" + port);
 
   print("STEP page-targets typed-fails usage when AT-SPI --name/--coords/--bogus is present");
@@ -548,24 +544,24 @@ try {
   const window_wait = run_cu(run_directory, executable, "observe", [
     "wait", "--timeout-ms", "20000", "--window-title-contains", fixture_title,
   ], env);
-  ensure(flag_at(window_wait, "data.met"), "cu_linux_page_targets_window_wait");
+  harness.require(flag_at(window_wait, "data.met"), "cu_linux_page_targets_window_wait");
 
   let window_row = null;
   for (let attempt = 0; attempt < 40 && window_row === null; attempt = attempt + 1) {
     window_row = window_row_for_title(run_directory, executable, env, fixture_title);
     if (window_row === null) { harness.sleep_ms(250); }
   }
-  ensure(window_row !== null, "cu_linux_page_targets_window_missing:" + fixture_title);
+  harness.require(window_row !== null, "cu_linux_page_targets_window_missing:" + fixture_title);
   const window_handle = "" + int_at(window_row, "handle");
   const window_title = text_at(window_row, "title");
-  ensure(window_handle !== "" && window_handle !== "0",
+  harness.require(window_handle !== "" && window_handle !== "0",
     "cu_linux_page_targets_window_handle:" + JSON.stringify(window_row));
 
   print("STEP unlock enables the Chrome renderer accessibility tree before named read-back");
   const unlocked = run_cu(run_directory, executable, "observe,actuate", [
     "unlock", "--window", window_handle,
   ], env);
-  ensure(flag_at(unlocked, "data.poked"), "cu_linux_page_targets_unlock:" + JSON.stringify(unlocked.data));
+  harness.require(flag_at(unlocked, "data.poked"), "cu_linux_page_targets_unlock:" + JSON.stringify(unlocked.data));
 
   if (atspi_available) {
     print("STEP get-extents typed-fail a11y_node_not_found when the named anchor is missing");
@@ -583,13 +579,13 @@ try {
     ["page-targets", "--port", "" + port],
     fixture_title
   );
-  ensure(at(targets, "data.port") === port,
+  harness.require(at(targets, "data.port") === port,
     "cu_linux_page_targets_port:" + JSON.stringify(targets.data));
-  ensure(text_at(targets, "data.via") === "/json",
+  harness.require(text_at(targets, "data.via") === "/json",
     "cu_linux_page_targets_via:" + JSON.stringify(targets.data));
 
   const cu_rows = at(targets, "data.targets");
-  ensure(Array.isArray(cu_rows), "cu_linux_page_targets_rows:" + JSON.stringify(cu_rows));
+  harness.require(Array.isArray(cu_rows), "cu_linux_page_targets_rows:" + JSON.stringify(cu_rows));
 
   const page_rows = [];
   for (const row of cu_rows) {
@@ -599,14 +595,14 @@ try {
   for (let index = 0; index < page_rows.length && !fixture_seen; index = index + 1) {
     if (text_at(page_rows[index], "title").indexOf(fixture_title) >= 0) { fixture_seen = true; }
   }
-  ensure(fixture_seen,
+  harness.require(fixture_seen,
     "cu_linux_page_targets_fixture_title:" + JSON.stringify(page_rows));
-  ensure(at(targets, "data.pages") === page_rows.length,
+  harness.require(at(targets, "data.pages") === page_rows.length,
     "cu_linux_page_targets_pages:" + JSON.stringify(targets.data));
 
   print("STEP page-targets --pid resolves the owned browser process and agrees with curl /json");
   const browser_pid = browser_pid_for_title(run_directory, executable, env, fixture_title);
-  ensure(browser_pid > 0, "cu_linux_page_targets_browser_pid:" + fixture_title);
+  harness.require(browser_pid > 0, "cu_linux_page_targets_browser_pid:" + fixture_title);
   agree_page_targets_with_curl(
     run_directory, executable, env, port,
     ["page-targets", "--pid", "" + browser_pid],
@@ -623,7 +619,7 @@ if (chrome_child >= 0) {
   try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
 }
 
-ensure(succeeded === 1, failure || "cu_linux_page_targets_failed");
+harness.require(succeeded === 1, failure || "cu_linux_page_targets_failed");
 harness.remove_run(context);
 if (atspi_available) {
   print("PASS: page-targets CDP /json read-back with typed page-targets --name/--coords/--bogus usage_rejects_unexpected, get-extents --name pyatspi agreement, and get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty before CDP read-back (AT-SPI --name, no --coords)");

@@ -21,10 +21,6 @@ const declared_evidence = [
 
 const AT_SPI_PROBE_NAME = "Page Hover Court Anchor";
 
-function ensure(condition, message) {
-  if (!condition) { throw message; }
-}
-
 function at(value, dotted) {
   let current = value;
   for (const key of dotted.split(".")) {
@@ -78,13 +74,13 @@ function run_cu_reply(run_directory, executable, grant, arguments, env) {
     timeout_ms: 60000,
   });
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_page_hover_empty_reply:" + output.stderr);
+  harness.require(trimmed !== "", "cu_linux_page_hover_empty_reply:" + output.stderr);
   return JSON.parse(trimmed);
 }
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  ensure(output_success(document), "cu_linux_page_hover_reply:" + JSON.stringify(document));
+  harness.require(output_success(document), "cu_linux_page_hover_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -114,19 +110,19 @@ function assert_page_hover_unexpected_flag(
   run_directory, executable, env, arguments, label, token
 ) {
   const reply = run_cu_reply(run_directory, executable, "observe,actuate", arguments, env);
-  ensure(
+  harness.require(
     !output_success(reply),
     "cu_linux_page_hover_usage_" + label + "_ok:" + JSON.stringify(reply)
   );
-  ensure(
+  harness.require(
     text_at(reply, "error.code") === "usage",
     "cu_linux_page_hover_usage_" + label + "_code:" + JSON.stringify(reply.error)
   );
-  ensure(
+  harness.require(
     text_at(reply, "command") === "usage",
     "cu_linux_page_hover_usage_" + label + "_command:" + JSON.stringify(reply)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(reply, "error.message"), token),
     "cu_linux_page_hover_usage_" + label + "_message:" + JSON.stringify(reply.error)
   );
@@ -176,13 +172,13 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  harness.require(!output_success(zero_handle),
     "cu_linux_page_hover_extents_usage_ok:" + JSON.stringify(zero_handle));
-  ensure(
+  harness.require(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_page_hover_extents_usage_code:" + JSON.stringify(zero_handle.error)
   );
-  ensure(
+  harness.require(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_page_hover_extents_usage_message:" + JSON.stringify(zero_handle.error)
   );
@@ -190,17 +186,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  harness.require(!output_success(missing_name),
     "cu_linux_page_hover_extents_usage_name_ok:" + JSON.stringify(missing_name));
-  ensure(
+  harness.require(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_page_hover_extents_usage_name_code:" + JSON.stringify(missing_name.error)
   );
-  ensure(
+  harness.require(
     text_at(missing_name, "command") === "usage",
     "cu_linux_page_hover_extents_usage_name_command:" + JSON.stringify(missing_name)
   );
-  ensure(
+  harness.require(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_hover_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
@@ -208,17 +204,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  harness.require(!output_success(extents_coords),
     "cu_linux_page_hover_extents_coords_ok:" + JSON.stringify(extents_coords));
-  ensure(
+  harness.require(
     text_at(extents_coords, "error.code") === "usage",
     "cu_linux_page_hover_extents_coords_code:" + JSON.stringify(extents_coords.error)
   );
-  ensure(
+  harness.require(
     text_at(extents_coords, "command") === "usage",
     "cu_linux_page_hover_extents_coords_command:" + JSON.stringify(extents_coords)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
       || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_hover_extents_coords_message:" + JSON.stringify(extents_coords.error)
@@ -227,17 +223,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  harness.require(!output_success(extents_bogus),
     "cu_linux_page_hover_extents_bogus_ok:" + JSON.stringify(extents_bogus));
-  ensure(
+  harness.require(
     text_at(extents_bogus, "error.code") === "usage",
     "cu_linux_page_hover_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
   );
-  ensure(
+  harness.require(
     text_at(extents_bogus, "command") === "usage",
     "cu_linux_page_hover_extents_bogus_command:" + JSON.stringify(extents_bogus)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
       || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_hover_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
@@ -252,10 +248,10 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  harness.require(!output_success(reply),
     "cu_linux_page_hover_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
-  ensure(
+  harness.require(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
       || code === "a11y_node_not_found",
     "cu_linux_page_hover_extents_unavailable_code:" + code
@@ -266,12 +262,12 @@ function assert_page_hover_usage_limit(run_directory, executable, env, port) {
   const missing_xy = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-hover", "--port", "" + port, "--target-id", "unused",
   ], env);
-  ensure(!output_success(missing_xy), "cu_linux_page_hover_usage_ok:" + JSON.stringify(missing_xy));
-  ensure(
+  harness.require(!output_success(missing_xy), "cu_linux_page_hover_usage_ok:" + JSON.stringify(missing_xy));
+  harness.require(
     text_at(missing_xy, "error.code") === "usage",
     "cu_linux_page_hover_usage_code:" + JSON.stringify(missing_xy.error)
   );
-  ensure(
+  harness.require(
     text_at(missing_xy, "error.message").indexOf("--x") >= 0,
     "cu_linux_page_hover_usage_message:" + JSON.stringify(missing_xy.error)
   );
@@ -279,12 +275,12 @@ function assert_page_hover_usage_limit(run_directory, executable, env, port) {
   const missing_y = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-hover", "--port", "" + port, "--target-id", "unused", "--x", "10",
   ], env);
-  ensure(!output_success(missing_y), "cu_linux_page_hover_missing_y_ok:" + JSON.stringify(missing_y));
-  ensure(
+  harness.require(!output_success(missing_y), "cu_linux_page_hover_missing_y_ok:" + JSON.stringify(missing_y));
+  harness.require(
     text_at(missing_y, "error.code") === "usage",
     "cu_linux_page_hover_missing_y_code:" + JSON.stringify(missing_y.error)
   );
-  ensure(
+  harness.require(
     text_at(missing_y, "error.message").indexOf("--y") >= 0,
     "cu_linux_page_hover_missing_y_message:" + JSON.stringify(missing_y.error)
   );
@@ -292,12 +288,12 @@ function assert_page_hover_usage_limit(run_directory, executable, env, port) {
   const bad_x = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-hover", "--port", "" + port, "--target-id", "unused", "--x", "-1", "--y", "10",
   ], env);
-  ensure(!output_success(bad_x), "cu_linux_page_hover_bad_x_ok:" + JSON.stringify(bad_x));
-  ensure(
+  harness.require(!output_success(bad_x), "cu_linux_page_hover_bad_x_ok:" + JSON.stringify(bad_x));
+  harness.require(
     text_at(bad_x, "error.code") === "usage",
     "cu_linux_page_hover_bad_x_code:" + JSON.stringify(bad_x.error)
   );
-  ensure(
+  harness.require(
     text_at(bad_x, "error.message").indexOf("viewport CSS coordinate") >= 0,
     "cu_linux_page_hover_bad_x_message:" + JSON.stringify(bad_x.error)
   );
@@ -308,13 +304,13 @@ function assert_no_cdp_listener(run_directory, executable, env, port) {
     "page-hover", "--port", "" + port, "--target-id", "unused",
     "--x", "10", "--y", "10",
   ], env);
-  ensure(reply.ok !== true, "cu_linux_page_hover_false_success:" + JSON.stringify(reply));
-  ensure(
+  harness.require(reply.ok !== true, "cu_linux_page_hover_false_success:" + JSON.stringify(reply));
+  harness.require(
     text_at(reply, "error.code") === "unsupported",
     "cu_linux_page_hover_host_limit_code:" + JSON.stringify(reply)
   );
   const message = text_at(reply, "error.message");
-  ensure(
+  harness.require(
     message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
     "cu_linux_page_hover_host_limit_message:" + JSON.stringify(reply.error)
   );
@@ -325,12 +321,12 @@ function assert_page_hover_miss(run_directory, executable, env, port, target_id)
     "page-hover", "--port", "" + port, "--target-id", target_id,
     "--x", "99999", "--y", "99999",
   ], env);
-  ensure(!output_success(reply), "cu_linux_page_hover_miss_ok:" + JSON.stringify(reply));
-  ensure(
+  harness.require(!output_success(reply), "cu_linux_page_hover_miss_ok:" + JSON.stringify(reply));
+  harness.require(
     text_at(reply, "error.code") === "cdp_point_not_found",
     "cu_linux_page_hover_miss_code:" + JSON.stringify(reply.error)
   );
-  ensure(
+  harness.require(
     text_at(reply, "error.message").indexOf("viewport point") >= 0,
     "cu_linux_page_hover_miss_message:" + JSON.stringify(reply.error)
   );
@@ -384,8 +380,8 @@ harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
-ensure(direct_file(executable), "cu_linux_page_hover_executable_missing:" + executable);
-ensure(direct_file(abi_library), "cu_linux_page_hover_library_missing:" + abi_library);
+harness.require(direct_file(executable), "cu_linux_page_hover_executable_missing:" + executable);
+harness.require(direct_file(abi_library), "cu_linux_page_hover_library_missing:" + abi_library);
 
 const context = harness.new_context(repo, "cu-linux-page-hover");
 const run_directory = context.run_directory;
@@ -416,7 +412,7 @@ try {
     cwd: run_directory,
     timeout_ms: 3000,
   });
-  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+  harness.require(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
     "cu_linux_page_hover_port_in_use:" + port);
 
   print("STEP typed usage limits reject missing or invalid --x/--y before Chrome starts");
@@ -455,13 +451,13 @@ try {
   for (let attempt = 0; attempt < 80 && !cdp_ready(run_directory, port); attempt = attempt + 1) {
     harness.sleep_ms(250);
   }
-  ensure(cdp_ready(run_directory, port), "cu_linux_page_hover_cdp_not_ready:" + port);
+  harness.require(cdp_ready(run_directory, port), "cu_linux_page_hover_cdp_not_ready:" + port);
 
   const targets = run_cu(run_directory, executable, "observe", [
     "page-targets", "--port", "" + port,
   ], env);
   const target = page_target(targets.data.targets);
-  ensure(target !== null && text_at(target, "id") !== "", "cu_linux_page_hover_target_missing");
+  harness.require(target !== null && text_at(target, "id") !== "", "cu_linux_page_hover_target_missing");
   const target_id = text_at(target, "id");
 
   print("STEP page-nav loads the disposable hover fixture");
@@ -469,7 +465,7 @@ try {
     "page-nav", "--port", "" + port, "--target-id", target_id,
     "--url", "file://" + fixture, "--wait-ms", "10000",
   ], env);
-  ensure(
+  harness.require(
     flag_at(nav, "data.verified") && text_at(nav, "data.final_title") === fixture_title,
     "cu_linux_page_hover_nav:" + JSON.stringify(nav.data)
   );
@@ -479,7 +475,7 @@ try {
     "page-find", "--port", "" + port, "--target-id", target_id, "--selector", "#hover-btn",
   ], env);
   const found_nodes = at(found, "data.nodes");
-  ensure(
+  harness.require(
     at(found, "data.returned") === 1
       && found_nodes !== undefined
       && found_nodes.length === 1
@@ -495,7 +491,7 @@ try {
     "--expression", hover_readback_expr,
   ], env);
   const baseline_value = at(baseline, "data.value");
-  ensure(
+  harness.require(
     flag_at(baseline_value, "is_hovered") === false
       && flag_at(baseline_value, "hover_green") === false
       && flag_at(baseline_value, "baseline_gray") === true
@@ -508,7 +504,7 @@ try {
     "page-hover", "--port", "" + port, "--target-id", target_id,
     "--x", "" + button_xy.x, "--y", "" + button_xy.y,
   ], env);
-  ensure(
+  harness.require(
     flag_at(hovered, "data.performed"),
     "cu_linux_page_hover_actuate:" + JSON.stringify(hovered.data)
   );
@@ -519,7 +515,7 @@ try {
     "--expression", hover_readback_expr,
   ], env);
   const readback_value = at(readback, "data.value");
-  ensure(
+  harness.require(
     flag_at(readback_value, "is_hovered") === true
       && flag_at(readback_value, "hover_green") === true
       && flag_at(readback_value, "baseline_gray") === false
@@ -541,7 +537,7 @@ if (chrome_child >= 0) {
   try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
 }
 
-ensure(succeeded === 1, failure || "cu_linux_page_hover_failed");
+harness.require(succeeded === 1, failure || "cu_linux_page_hover_failed");
 harness.remove_run(context);
 if (atspi_available) {
   print("PASS: Linux page-hover usage/host-limit/miss honesty + independent :hover page-js read-back with typed page-hover --name/--coords/--bogus and get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty (AT-SPI --name, no --coords)");

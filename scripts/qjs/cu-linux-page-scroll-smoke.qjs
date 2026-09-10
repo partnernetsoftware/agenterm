@@ -29,10 +29,6 @@ const scroll_readback_expr = "(function(){"
   + "clientHeight:el.clientHeight"
   + "};})()";
 
-function ensure(condition, message) {
-  if (!condition) { throw message; }
-}
-
 function at(value, dotted) {
   let current = value;
   for (const key of dotted.split(".")) {
@@ -105,13 +101,13 @@ function run_cu_reply(run_directory, executable, grant, arguments, env) {
       break;
     }
   }
-  ensure(json_line !== "", "cu_linux_page_scroll_cli:" + output.stdout + output.stderr);
+  harness.require(json_line !== "", "cu_linux_page_scroll_cli:" + output.stdout + output.stderr);
   return JSON.parse(json_line);
 }
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  ensure(output_success(document), "cu_linux_page_scroll_reply:" + JSON.stringify(document));
+  harness.require(output_success(document), "cu_linux_page_scroll_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -137,17 +133,17 @@ function assert_page_scroll_usage_rejects_name(run_directory, executable, env, p
     "page-scroll", "--port", "" + port, "--target-id", "unused",
     "--x", "10", "--y", "10", "--dy", "120", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(flat_with_name),
+  harness.require(!output_success(flat_with_name),
     "cu_linux_page_scroll_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
-  ensure(
+  harness.require(
     text_at(flat_with_name, "error.code") === "usage",
     "cu_linux_page_scroll_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_name, "command") === "usage",
     "cu_linux_page_scroll_usage_flat_name_command:" + JSON.stringify(flat_with_name)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_name, "error.message"), "--name"),
     "cu_linux_page_scroll_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
   );
@@ -156,13 +152,13 @@ function assert_page_scroll_usage_rejects_name(run_directory, executable, env, p
     "page", "scroll", "--port", "" + port, "--target-id", "unused",
     "--x", "10", "--y", "10", "--dy", "120", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(grouped_with_name),
+  harness.require(!output_success(grouped_with_name),
     "cu_linux_page_scroll_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
-  ensure(
+  harness.require(
     text_at(grouped_with_name, "error.code") === "usage",
     "cu_linux_page_scroll_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_name, "error.message"), "--name"),
     "cu_linux_page_scroll_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
   );
@@ -171,17 +167,17 @@ function assert_page_scroll_usage_rejects_name(run_directory, executable, env, p
     "page-scroll", "--port", "" + port, "--target-id", "unused",
     "--x", "10", "--y", "10", "--dy", "120", "--bogus",
   ], env);
-  ensure(!output_success(flat_with_bogus),
+  harness.require(!output_success(flat_with_bogus),
     "cu_linux_page_scroll_usage_flat_bogus_ok:" + JSON.stringify(flat_with_bogus));
-  ensure(
+  harness.require(
     text_at(flat_with_bogus, "error.code") === "usage",
     "cu_linux_page_scroll_usage_flat_bogus_code:" + JSON.stringify(flat_with_bogus.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_bogus, "command") === "usage",
     "cu_linux_page_scroll_usage_flat_bogus_command:" + JSON.stringify(flat_with_bogus)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_bogus, "error.message"), "--bogus"),
     "cu_linux_page_scroll_usage_flat_bogus_message:" + JSON.stringify(flat_with_bogus.error)
   );
@@ -190,13 +186,13 @@ function assert_page_scroll_usage_rejects_name(run_directory, executable, env, p
     "page", "scroll", "--port", "" + port, "--target-id", "unused",
     "--x", "10", "--y", "10", "--dy", "120", "--bogus",
   ], env);
-  ensure(!output_success(grouped_with_bogus),
+  harness.require(!output_success(grouped_with_bogus),
     "cu_linux_page_scroll_usage_grouped_bogus_ok:" + JSON.stringify(grouped_with_bogus));
-  ensure(
+  harness.require(
     text_at(grouped_with_bogus, "error.code") === "usage",
     "cu_linux_page_scroll_usage_grouped_bogus_code:" + JSON.stringify(grouped_with_bogus.error)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_bogus, "error.message"), "--bogus"),
     "cu_linux_page_scroll_usage_grouped_bogus_message:" + JSON.stringify(grouped_with_bogus.error)
   );
@@ -205,17 +201,17 @@ function assert_page_scroll_usage_rejects_name(run_directory, executable, env, p
     "page-scroll", "--port", "" + port, "--target-id", "unused",
     "--x", "10", "--y", "10", "--dy", "120", "--coords", "10,10",
   ], env);
-  ensure(!output_success(flat_with_coords),
+  harness.require(!output_success(flat_with_coords),
     "cu_linux_page_scroll_usage_flat_coords_ok:" + JSON.stringify(flat_with_coords));
-  ensure(
+  harness.require(
     text_at(flat_with_coords, "error.code") === "usage",
     "cu_linux_page_scroll_usage_flat_coords_code:" + JSON.stringify(flat_with_coords.error)
   );
-  ensure(
+  harness.require(
     text_at(flat_with_coords, "command") === "usage",
     "cu_linux_page_scroll_usage_flat_coords_command:" + JSON.stringify(flat_with_coords)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(flat_with_coords, "error.message"), "--coords"),
     "cu_linux_page_scroll_usage_flat_coords_message:" + JSON.stringify(flat_with_coords.error)
   );
@@ -224,13 +220,13 @@ function assert_page_scroll_usage_rejects_name(run_directory, executable, env, p
     "page", "scroll", "--port", "" + port, "--target-id", "unused",
     "--x", "10", "--y", "10", "--dy", "120", "--coords", "10,10",
   ], env);
-  ensure(!output_success(grouped_with_coords),
+  harness.require(!output_success(grouped_with_coords),
     "cu_linux_page_scroll_usage_grouped_coords_ok:" + JSON.stringify(grouped_with_coords));
-  ensure(
+  harness.require(
     text_at(grouped_with_coords, "error.code") === "usage",
     "cu_linux_page_scroll_usage_grouped_coords_code:" + JSON.stringify(grouped_with_coords.error)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(grouped_with_coords, "error.message"), "--coords"),
     "cu_linux_page_scroll_usage_grouped_coords_message:" + JSON.stringify(grouped_with_coords.error)
   );
@@ -240,13 +236,13 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  harness.require(!output_success(zero_handle),
     "cu_linux_page_scroll_extents_usage_ok:" + JSON.stringify(zero_handle));
-  ensure(
+  harness.require(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_page_scroll_extents_usage_code:" + JSON.stringify(zero_handle.error)
   );
-  ensure(
+  harness.require(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_page_scroll_extents_usage_message:" + JSON.stringify(zero_handle.error)
   );
@@ -254,17 +250,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  harness.require(!output_success(missing_name),
     "cu_linux_page_scroll_extents_usage_name_ok:" + JSON.stringify(missing_name));
-  ensure(
+  harness.require(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_page_scroll_extents_usage_name_code:" + JSON.stringify(missing_name.error)
   );
-  ensure(
+  harness.require(
     text_at(missing_name, "command") === "usage",
     "cu_linux_page_scroll_extents_usage_name_command:" + JSON.stringify(missing_name)
   );
-  ensure(
+  harness.require(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_scroll_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
@@ -272,17 +268,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  harness.require(!output_success(extents_coords),
     "cu_linux_page_scroll_extents_coords_ok:" + JSON.stringify(extents_coords));
-  ensure(
+  harness.require(
     text_at(extents_coords, "error.code") === "usage",
     "cu_linux_page_scroll_extents_coords_code:" + JSON.stringify(extents_coords.error)
   );
-  ensure(
+  harness.require(
     text_at(extents_coords, "command") === "usage",
     "cu_linux_page_scroll_extents_coords_command:" + JSON.stringify(extents_coords)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
       || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_scroll_extents_coords_message:" + JSON.stringify(extents_coords.error)
@@ -291,17 +287,17 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  harness.require(!output_success(extents_bogus),
     "cu_linux_page_scroll_extents_bogus_ok:" + JSON.stringify(extents_bogus));
-  ensure(
+  harness.require(
     text_at(extents_bogus, "error.code") === "usage",
     "cu_linux_page_scroll_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
   );
-  ensure(
+  harness.require(
     text_at(extents_bogus, "command") === "usage",
     "cu_linux_page_scroll_extents_bogus_command:" + JSON.stringify(extents_bogus)
   );
-  ensure(
+  harness.require(
     usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
       || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_scroll_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
@@ -316,10 +312,10 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  harness.require(!output_success(reply),
     "cu_linux_page_scroll_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
-  ensure(
+  harness.require(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
       || code === "a11y_node_not_found",
     "cu_linux_page_scroll_extents_unavailable_code:" + code
@@ -334,23 +330,23 @@ function assert_x11_display_usable(run_directory, env) {
   });
   if (output.success === true) { return; }
   const text = output.stdout + output.stderr;
-  ensure(
+  harness.require(
     text.indexOf("Maximum number of clients reached") < 0
       && text.indexOf("unable to open display") < 0,
     "cu_linux_page_scroll_host_limit:x11_display_unavailable:" + text.trim()
   );
-  ensure(false, "cu_linux_page_scroll_host_limit:xdpyinfo:" + text.trim());
+  harness.require(false, "cu_linux_page_scroll_host_limit:xdpyinfo:" + text.trim());
 }
 
 function assert_no_cdp_listener(run_directory, executable, env, port) {
   const reply = run_cu_reply(run_directory, executable, "observe", [
     "page-targets", "--port", "" + port,
   ], env);
-  ensure(reply.ok !== true, "cu_linux_page_scroll_false_success:" + JSON.stringify(reply));
-  ensure(text_at(reply, "error.code") === "unsupported",
+  harness.require(reply.ok !== true, "cu_linux_page_scroll_false_success:" + JSON.stringify(reply));
+  harness.require(text_at(reply, "error.code") === "unsupported",
     "cu_linux_page_scroll_host_limit_code:" + JSON.stringify(reply));
   const message = text_at(reply, "error.message");
-  ensure(
+  harness.require(
     message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
     "cu_linux_page_scroll_host_limit_message:" + JSON.stringify(reply.error)
   );
@@ -361,12 +357,12 @@ function assert_scroll_usage(run_directory, executable, env, port) {
     "page-scroll", "--port", "" + port, "--target-id", "unused",
     "--dy", "120",
   ], env);
-  ensure(!output_success(missing_xy), "cu_linux_page_scroll_usage_ok_xy:" + JSON.stringify(missing_xy));
-  ensure(
+  harness.require(!output_success(missing_xy), "cu_linux_page_scroll_usage_ok_xy:" + JSON.stringify(missing_xy));
+  harness.require(
     text_at(missing_xy, "error.code") === "usage",
     "cu_linux_page_scroll_usage_code_xy:" + JSON.stringify(missing_xy.error)
   );
-  ensure(
+  harness.require(
     text_at(missing_xy, "error.message").indexOf("--x") >= 0
       && text_at(missing_xy, "error.message").indexOf("--y") >= 0,
     "cu_linux_page_scroll_usage_message_xy:" + JSON.stringify(missing_xy.error)
@@ -376,12 +372,12 @@ function assert_scroll_usage(run_directory, executable, env, port) {
     "page-scroll", "--port", "" + port, "--target-id", "unused",
     "--x", "10", "--y", "10", "--dx", "0", "--dy", "0",
   ], env);
-  ensure(!output_success(zero_delta), "cu_linux_page_scroll_usage_ok_delta:" + JSON.stringify(zero_delta));
-  ensure(
+  harness.require(!output_success(zero_delta), "cu_linux_page_scroll_usage_ok_delta:" + JSON.stringify(zero_delta));
+  harness.require(
     text_at(zero_delta, "error.code") === "usage",
     "cu_linux_page_scroll_usage_code_delta:" + JSON.stringify(zero_delta.error)
   );
-  ensure(
+  harness.require(
     text_at(zero_delta, "error.message").indexOf("non-zero") >= 0,
     "cu_linux_page_scroll_usage_message_delta:" + JSON.stringify(zero_delta.error)
   );
@@ -392,12 +388,12 @@ function assert_scroll_miss_bad_target(run_directory, executable, env, port) {
     "page-scroll", "--port", "" + port, "--target-id", "deadbeef",
     "--x", "10", "--y", "10", "--dy", "120",
   ], env);
-  ensure(!output_success(reply), "cu_linux_page_scroll_miss_ok:" + JSON.stringify(reply));
-  ensure(
+  harness.require(!output_success(reply), "cu_linux_page_scroll_miss_ok:" + JSON.stringify(reply));
+  harness.require(
     text_at(reply, "error.code") === "cdp_target_not_found",
     "cu_linux_page_scroll_miss_code:" + JSON.stringify(reply.error)
   );
-  ensure(
+  harness.require(
     text_at(reply, "error.message").indexOf("--target-id") >= 0,
     "cu_linux_page_scroll_miss_message:" + JSON.stringify(reply.error)
   );
@@ -435,8 +431,8 @@ harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
-ensure(direct_file(executable), "cu_linux_page_scroll_executable_missing:" + executable);
-ensure(direct_file(abi_library), "cu_linux_page_scroll_library_missing:" + abi_library);
+harness.require(direct_file(executable), "cu_linux_page_scroll_executable_missing:" + executable);
+harness.require(direct_file(abi_library), "cu_linux_page_scroll_library_missing:" + abi_library);
 
 const context = harness.new_context(repo, "cu-linux-page-scroll");
 const run_directory = context.run_directory;
@@ -471,7 +467,7 @@ try {
     cwd: run_directory,
     timeout_ms: 3000,
   });
-  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+  harness.require(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
     "cu_linux_page_scroll_port_in_use:" + port);
 
   print("STEP page-scroll typed-fails usage when --x/--y or wheel delta are missing");
@@ -510,7 +506,7 @@ try {
   for (let attempt = 0; attempt < 80 && !cdp_ready(run_directory, port); attempt = attempt + 1) {
     harness.sleep_ms(250);
   }
-  ensure(cdp_ready(run_directory, port), "cu_linux_page_scroll_cdp_not_ready:" + port);
+  harness.require(cdp_ready(run_directory, port), "cu_linux_page_scroll_cdp_not_ready:" + port);
 
   print("STEP page-scroll typed-fails cdp_target_not_found for a bogus --target-id");
   assert_scroll_miss_bad_target(run_directory, executable, env, port);
@@ -519,7 +515,7 @@ try {
     "page-targets", "--port", "" + port,
   ], env);
   const target = page_target(targets.data.targets);
-  ensure(target !== null && text_at(target, "id") !== "", "cu_linux_page_scroll_target_missing");
+  harness.require(target !== null && text_at(target, "id") !== "", "cu_linux_page_scroll_target_missing");
   const target_id = text_at(target, "id");
 
   print("STEP page-nav loads the disposable scroll fixture in this owned tab");
@@ -528,14 +524,14 @@ try {
     "page-nav", "--port", "" + port, "--target-id", target_id,
     "--url", nav_url, "--wait-ms", "10000",
   ], env);
-  ensure(
+  harness.require(
     flag_at(nav, "data.verified") && text_at(nav, "data.final_title") === fixture_title,
     "cu_linux_page_scroll_nav:" + JSON.stringify(nav.data)
   );
 
   print("STEP independent page-js records scrollTop and wheel baseline before actuation");
   const before = scroll_readback(run_directory, executable, env, port, target_id);
-  ensure(
+  harness.require(
     flag_at(before, "missing") !== true
       && number_at(before, "scrollTop") === 0
       && number_at(before, "wheelEvents") === 0
@@ -548,7 +544,7 @@ try {
     "page-find", "--port", "" + port, "--target-id", target_id, "--selector", "#scroll",
   ], env);
   const found_nodes = at(found, "data.nodes");
-  ensure(
+  harness.require(
     at(found, "data.returned") === 1
       && found_nodes !== undefined
       && found_nodes.length === 1,
@@ -563,7 +559,7 @@ try {
     "page-scroll", "--port", "" + port, "--target-id", target_id,
     "--x", "" + x, "--y", "" + y, "--dy", "120",
   ], env);
-  ensure(
+  harness.require(
     flag_at(scrolled, "data.performed") && flag_at(scrolled, "data.verified"),
     "cu_linux_page_scroll_actuate:" + JSON.stringify(scrolled.data)
   );
@@ -571,7 +567,7 @@ try {
 
   print("STEP independent page-js read-back proves scrollTop and wheel effect increased");
   const after = scroll_readback(run_directory, executable, env, port, target_id);
-  ensure(
+  harness.require(
     number_at(after, "scrollTop") > number_at(before, "scrollTop")
       && number_at(after, "wheelEvents") > number_at(before, "wheelEvents"),
     "cu_linux_page_scroll_readback:" + JSON.stringify({ before: before, after: after })
@@ -587,7 +583,7 @@ if (chrome_child >= 0) {
   try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
 }
 
-ensure(succeeded === 1, failure || "cu_linux_page_scroll_failed");
+harness.require(succeeded === 1, failure || "cu_linux_page_scroll_failed");
 harness.remove_run(context);
 if (atspi_available) {
   print("PASS: Linux CDP page-scroll usage/miss/host-limit honesty + independent scrollTop/wheel read-back with typed page-scroll --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
