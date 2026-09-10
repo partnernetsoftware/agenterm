@@ -1,0 +1,1597 @@
+// Public macOS court for the frozen profile-name binding v2 experiment.
+// Args are fixed by run-current-host.sh; this file owns no admission lock.
+import * as rh from "scripts/qjs/lib/rh_compat";
+import * as model from "research/browser-profile-name-binding-v2/binding-model";
+
+const EXPERIMENT = "acu.dynamic.075.profile-name-binding-v2";
+const EXTENSION_ID = "knofdkmmpkbnjhdkcjddbakbpmgpmjpe";
+const RECEIPT_MIRROR = "receipt-mirror.json";
+
+function ensure(value, code) {
+  if (!value) { throw code; }
+}
+
+function sorted_keys(value) {
+  const keys = Object.keys(value);
+  for (let i = 0; i < keys.length; i = i + 1) {
+    for (let j = i + 1; j < keys.length; j = j + 1) {
+      if (keys[j] < keys[i]) {
+        const swap = keys[i]; keys[i] = keys[j]; keys[j] = swap;
+      }
+    }
+  }
+  return keys;
+}
+
+function exact_object(value, expected) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const actual = sorted_keys(value);
+  const wanted = copy_strings(expected);
+  for (let i = 0; i < wanted.length; i = i + 1) {
+    for (let j = i + 1; j < wanted.length; j = j + 1) {
+      if (wanted[j] < wanted[i]) {
+        const swap = wanted[i]; wanted[i] = wanted[j]; wanted[j] = swap;
+      }
+    }
+  }
+  if (actual.length !== wanted.length) { return false; }
+  for (let i = 0; i < actual.length; i = i + 1) {
+    if (actual[i] !== wanted[i]) { return false; }
+  }
+  return true;
+}
+
+function copy_strings(values) {
+  const out = [];
+  for (let i = 0; i < values.length; i = i + 1) { out.push(values[i]); }
+  return out;
+}
+
+function exact_string_array(actual, expected) {
+  if (!Array.isArray(actual) || actual.length !== expected.length) {
+    return false;
+  }
+  for (let i = 0; i < expected.length; i = i + 1) {
+    if (actual[i] !== expected[i]) { return false; }
+  }
+  return true;
+}
+
+// This is the broker's restricted canonical JSON subset, not a claim that the
+// court implements general RFC 8785. All court-produced values are ASCII,
+// booleans, nulls, safe integers, arrays, or objects.
+function canonical(value) {
+  if (value === null || typeof value === "boolean"
+      || typeof value === "number" || typeof value === "string") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    let items = "";
+    for (let i = 0; i < value.length; i = i + 1) {
+      if (i > 0) { items = items + ","; }
+      items = items + canonical(value[i]);
+    }
+    return "[" + items + "]";
+  }
+  const keys = sorted_keys(value);
+  let members = "";
+  for (let i = 0; i < keys.length; i = i + 1) {
+    if (i > 0) { members = members + ","; }
+    members = members + JSON.stringify(keys[i]) + ":" + canonical(value[keys[i]]);
+  }
+  return "{" + members + "}";
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const meta = rh.symlink_metadata(path);
+  return meta.is_file === true && meta.is_symlink !== true;
+}
+
+function direct_directory(path) {
+  if (!rh.exists(path)) { return false; }
+  const meta = rh.symlink_metadata(path);
+  return meta.is_dir === true && meta.is_symlink !== true;
+}
+
+function bounded_json_file(path, max_bytes, code) {
+  ensure(direct_file(path), code + "_missing");
+  const meta = rh.metadata(path);
+  ensure(typeof meta.len === "number" && meta.len > 0 && meta.len <= max_bytes,
+    code + "_size");
+  const text = rh.read_text(path);
+  ensure(text.length <= max_bytes, code + "_read_size");
+  try { return JSON.parse(text); }
+  catch (_) { throw code + "_json"; }
+}
+
+function exact_stage_schema(stages, name, required, optional, variants) {
+  const stage = stages[name];
+  const variant = variants !== null;
+  ensure(exact_object(stage, variant
+      ? ["required", "optional", "one_of"] : ["required", "optional"]),
+    "profile_binding_v2_template_stage_shape");
+  ensure(canonical(stage.required) === canonical(required)
+      && canonical(stage.optional) === canonical(optional),
+    "profile_binding_v2_template_stage_contract");
+  if (variant) {
+    ensure(Array.isArray(stage.one_of)
+        && canonical(stage.one_of) === canonical(variants),
+      "profile_binding_v2_template_stage_variants");
+  }
+}
+
+function validate_template_contract(template) {
+  ensure(exact_object(template, ["schema", "experiment", "limits",
+      "identity_domains", "journal_keys", "ledger_keys", "receipt_keys",
+      "criteria_keys", "stages"]), "profile_binding_v2_template_keys");
+  ensure(template.schema === "agenterm.profile-binding-v2-result-template/v1"
+      && template.experiment === EXPERIMENT,
+    "profile_binding_v2_template_identity");
+  ensure(exact_object(template.limits, ["journal_max_rows_exclusive",
+      "journal_max_row_bytes_exclusive", "journal_max_total_bytes_exclusive"])
+      && template.limits.journal_max_rows_exclusive === 64
+      && template.limits.journal_max_row_bytes_exclusive === 32768
+      && template.limits.journal_max_total_bytes_exclusive === 1048576,
+    "profile_binding_v2_template_limits");
+  ensure(exact_string_array(template.identity_domains, [
+    "acu.profile-binding-v2.owner-identity/v1",
+    "acu.profile-binding-v2.browser-identity/v1",
+    "acu.profile-binding-v2.host-identity/v1",
+    "acu.profile-binding-v2.connection-identity/v1",
+    "acu.profile-binding-v2.inventory-row/v1",
+    "acu.profile-binding-v2.candidate-profile/v1",
+    "acu.profile-binding-v2.candidate-installation/v1",
+    "acu.profile-binding-v2.candidate-root/v1",
+    "acu.profile-binding-v2.live-root/v1",
+    "acu.profile-binding-v2.strict-status/v1",
+    "acu.profile-binding-v2.construction-trace/v1",
+    "acu.profile-binding-v2.surface-clause/v1",
+    "acu.profile-binding-v2.ground-truth-pair/v1",
+    "acu.profile-binding-v2.fault-matrix/v1"
+  ]), "profile_binding_v2_template_identity_domains");
+  ensure(exact_string_array(template.journal_keys, ["schema", "experiment",
+      "kind", "ordinal", "run_id", "seq", "prev_sha256", "stage",
+      "producer", "deadline_ms", "elapsed_ms", "code", "facts"]),
+    "profile_binding_v2_template_journal_keys");
+  ensure(exact_string_array(template.ledger_keys, ["schema", "experiment",
+      "kind", "ordinal", "run_id", "source_sha", "input_digest", "status",
+      "receipt_sha256", "terminal_code"]),
+    "profile_binding_v2_template_ledger_keys");
+  ensure(exact_string_array(template.receipt_keys, ["schema", "experiment",
+      "kind", "ordinal", "run_id", "source_sha", "input_digest",
+      "journal_final_seq", "journal_final_sha256", "last_completed_stage",
+      "deadline_ms", "code", "facts", "criteria"]),
+    "profile_binding_v2_template_receipt_keys");
+  ensure(exact_string_array(template.criteria_keys, ["V1", "V2", "V3",
+      "V3a", "V3b", "V4a", "V4b", "G1", "G2a", "G2b", "G3",
+      "G4a", "G4c", "G6", "G7"]),
+    "profile_binding_v2_template_criteria_keys");
+  ensure(exact_object(template.stages, ["preflight", "baseline",
+      "session-ready", "connection-ready", "fixture", "ownership",
+      "candidate", "surface", "a0-control", "prefix-control",
+      "binding-model", "stop", "termination-proof", "final-inventory",
+      "registry-hygiene", "root-removal", "terminal"]),
+    "profile_binding_v2_template_stages");
+
+  exact_stage_schema(template.stages, "preflight", {
+    source_sha:"git_sha", input_digest:"sha256", agenterm_sha256:"sha256",
+    agenterm_cu_sha256:"sha256", browser_sha256:"sha256",
+    browser_family:"string", browser_version:"string",
+    state_chain_valid:"boolean"
+  }, {result_template_sha256:"sha256"}, null);
+  exact_stage_schema(template.stages, "baseline", {
+    row_count:"safe_integer", normalized_row_digest:"sha256", complete:"boolean"
+  }, {baseline_preserved:"boolean", owned_delta:"boolean"}, null);
+  exact_stage_schema(template.stages, "session-ready", {
+    owner_identity_digest:"sha256", browser_identity_digest:"sha256",
+    ready:"boolean"
+  }, {complete:"boolean"}, null);
+  exact_stage_schema(template.stages, "connection-ready", {}, {}, [
+    {required:{host_identity_digest:"sha256", row_count:"safe_integer",
+      ready:"boolean", complete:"boolean"}, optional:{}},
+    {required:{host_identity_digest:"sha256",
+      connection_identity_digest:"sha256", ready:"boolean",
+      complete:"boolean"}, optional:{}}
+  ]);
+  exact_stage_schema(template.stages, "fixture", {
+    extension_id:"string", strict_status_digest:"sha256",
+    extension_identity_match:"boolean", status_identity_match:"boolean",
+    build_identity_match:"boolean", native_host_identity_digest:"sha256",
+    construction_trace_digest:"sha256", construction_trace_complete:"boolean"
+  }, {}, null);
+  exact_stage_schema(template.stages, "ownership", {}, {}, [
+    {required:{owner_identity_digest:"sha256", browser_identity_digest:"sha256",
+      host_identity_digest:"sha256", tree_row_count:"safe_integer",
+      ps_row_count:"safe_integer", browser_pgid_exact:"boolean",
+      host_pgid_exact:"boolean", sid_equal_nonzero:"boolean",
+      parent_chain_exact:"boolean", tree_contains_host:"boolean",
+      owner_identity_match:"boolean", browser_identity_match:"boolean",
+      host_identity_match:"boolean"}, optional:{}},
+    {required:{owner_identity_digest:"sha256", browser_identity_digest:"sha256",
+      host_identity_digest:"sha256", connection_identity_digest:"sha256",
+      tree_row_count:"safe_integer", ps_row_count:"safe_integer",
+      browser_pgid_exact:"boolean", host_pgid_exact:"boolean",
+      sid_equal_nonzero:"boolean", parent_chain_exact:"boolean",
+      tree_contains_host:"boolean", owner_identity_match:"boolean",
+      browser_identity_match:"boolean", host_identity_match:"boolean"}, optional:{}}
+  ]);
+  exact_stage_schema(template.stages, "candidate", {}, {}, [
+    {required:{local_state_digest:"sha256", local_state_row_count:"safe_integer",
+      N_all:"safe_integer"}, optional:{}},
+    {required:{preferences_digest:"sha256", preferences_row_count:"safe_integer",
+      candidate_root_identity_digest:"sha256", live_root_identity_digest:"sha256",
+      candidate_ancestor_symlinks_absent:"boolean",
+      live_ancestor_symlinks_absent:"boolean",
+      live_root_outside_candidate:"boolean", root_file_objects_distinct:"boolean",
+      N:"safe_integer", I:"safe_integer", C:"safe_integer"}, optional:{}}
+  ]);
+  exact_stage_schema(template.stages, "surface", {
+    candidate_schema:"string", connection_schema:"string",
+    shared_issuer:"tristate", authenticated:"tristate",
+    collision_resistant:"tristate", injective:"tristate",
+    profile_unique:"tristate", source_clause_digest:"sha256",
+    observed_values_equal:"boolean", ground_truth_pair_digest:"sha256"
+  }, {}, null);
+  exact_stage_schema(template.stages, "a0-control", {outcome:"string"}, {}, null);
+  exact_stage_schema(template.stages, "prefix-control", {
+    outcome:"string", exact_match:"boolean"
+  }, {}, null);
+  exact_stage_schema(template.stages, "binding-model", {
+    model_digest:"sha256", matrix_digest:"sha256", create:"boolean",
+    resolve:"boolean", restart_revalidate:"boolean", target_stale:"boolean",
+    collision:"boolean", generation_conflict:"boolean", revoke:"boolean",
+    active_pair_unique:"boolean", active_alias_per_instance:"boolean",
+    duplicate_alias_typed:"boolean", identity_build_stale_typed:"boolean",
+    inventory_cardinality_typed:"boolean", authority_matrix_complete:"boolean",
+    generation_cas:"boolean", rename_requires_replace:"boolean",
+    revoke_not_found_typed:"boolean"
+  }, {}, null);
+  exact_stage_schema(template.stages, "stop", {
+    public_stop_succeeded:"boolean"
+  }, {}, null);
+  exact_stage_schema(template.stages, "termination-proof", {
+    owner_absent:"boolean", browser_absent:"boolean", host_absent:"boolean",
+    group_absent:"boolean", ps_row_count:"safe_integer",
+    process_state_observation_count:"safe_integer"
+  }, {}, null);
+  exact_stage_schema(template.stages, "final-inventory", {
+    row_count:"safe_integer", normalized_row_digest:"sha256", complete:"boolean",
+    baseline_preserved:"boolean", owned_delta:"boolean"
+  }, {}, null);
+  exact_stage_schema(template.stages, "registry-hygiene", {
+    row_count:"safe_integer", normalized_row_digest:"sha256", complete:"boolean",
+    baseline_preserved:"boolean", owned_delta:"boolean",
+    visited_count:"safe_integer"
+  }, {}, null);
+  exact_stage_schema(template.stages, "root-removal", {
+    root_removal_succeeded:"boolean", root_absent:"boolean"
+  }, {}, null);
+  exact_stage_schema(template.stages, "terminal", {
+    primary_cause:"nullable_string", cleanup_status:"string",
+    final_inventory_status:"string", terminal_code:"string"
+  }, {}, null);
+}
+
+function sha256_file(path) {
+  ensure(direct_file(path), "profile_binding_v2_digest_input_missing");
+  const out = rh.command("/usr/bin/shasum", ["-a", "256", path], {
+    timeout_ms: 5000
+  });
+  ensure(out.success === true && out.timed_out !== true
+      && out.stdout_truncated !== true && out.stderr_truncated !== true,
+    "profile_binding_v2_digest_failed");
+  const digest = out.stdout.trim().split(" ")[0];
+  ensure(digest.length === 64, "profile_binding_v2_digest_shape");
+  return digest;
+}
+
+function sha256_text(text, cwd) {
+  const out = rh.command("/usr/bin/shasum", ["-a", "256"], {
+    cwd: cwd, stdin: text, timeout_ms: 5000
+  });
+  ensure(out.success === true && out.timed_out !== true
+      && out.stdout_truncated !== true && out.stderr_truncated !== true,
+    "profile_binding_v2_text_digest_failed");
+  const digest = out.stdout.trim().split(" ")[0];
+  ensure(digest.length === 64, "profile_binding_v2_text_digest_shape");
+  return digest;
+}
+
+function parse_json_line(output, code) {
+  ensure(output.success === true && output.timed_out !== true
+      && output.stdout_truncated !== true && output.stderr_truncated !== true,
+    code + "_exit");
+  const text = output.stdout.trim();
+  ensure(text !== "" && text.indexOf("\n") < 0, code + "_stdout_shape");
+  try { return JSON.parse(text); }
+  catch (_) { throw code + "_json"; }
+}
+
+function isolated_env(home, lane) {
+  return {
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: rh.join(home, "config"),
+    LOCALAPPDATA: rh.join(home, "AppData/Local"),
+    XDG_CONFIG_HOME: rh.join(home, "config"),
+    XDG_DATA_HOME: rh.join(home, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(lane, "cu-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(lane, "cu-receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(lane, "cu-runtime.json"),
+    AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(lane, "cu-idempotency.json"),
+    AGENTERM_NO_ACTIVATE: "1"
+  };
+}
+
+function cu(config, grant, argv, deadline_ms) {
+  const args = ["--target", "current", "--grant", grant];
+  for (let i = 0; i < argv.length; i = i + 1) { args.push("" + argv[i]); }
+  const output = rh.command(config.cu_exe, args, {
+    cwd: config.repo, env: config.env, timeout_ms: deadline_ms
+  });
+  const reply = parse_json_line(output, "profile_binding_v2_public_cli");
+  ensure(reply.ok === true, "profile_binding_v2_public_cli_refused");
+  return reply;
+}
+
+function browser_family(version_text) {
+  if (version_text.startsWith("Chrome for Testing ")) { return "chrome-for-testing"; }
+  if (version_text.startsWith("Google Chrome ")) { return "chrome"; }
+  if (version_text.startsWith("Brave Browser Beta ")) { return "brave-browser-beta"; }
+  if (version_text.startsWith("Brave Browser ")) { return "brave-browser"; }
+  if (version_text.startsWith("Microsoft Edge ")) { return "edge"; }
+  if (version_text.startsWith("Chromium ")) { return "chromium"; }
+  throw "profile_binding_v2_browser_family_not_admitted";
+}
+
+function app_for_family(family) {
+  if (family === "brave-browser") { return "Brave Browser"; }
+  if (family === "chrome") { return "Google Chrome"; }
+  throw "profile_binding_v2_browser_profiles_family_unsupported";
+}
+
+function browser_root(home, family) {
+  const support = rh.join(home, "Library/Application Support");
+  return family === "brave-browser"
+    ? rh.join(support, "BraveSoftware/Brave-Browser")
+    : rh.join(support, "Google/Chrome");
+}
+
+function session_profile_root(home, session) {
+  return rh.join(rh.join(rh.join(home, "Library/Application Support"),
+    "agenterm/browser-sessions"), session + "/profile");
+}
+
+function path_witness(config, path, code) {
+  const script = "use strict;use warnings;use Cwd qw(realpath);"
+    + "use File::Spec;use JSON::PP;my($p)=@ARGV;"
+    + "File::Spec->file_name_is_absolute($p) or die qq(relative);"
+    + "my @parts=grep{length($_)}File::Spec->splitdir($p);my $cur=q(/);my $ok=1;"
+    + "for my $part(@parts){$cur=File::Spec->catfile($cur,$part);"
+    + "lstat($cur) or die qq(missing);$ok=0 if -l _;}"
+    + "my $canonical=realpath($p);defined($canonical) or die qq(realpath);"
+    + "my @s=stat($canonical);@s or die qq(stat);"
+    + "print JSON::PP->new->canonical(1)->encode({canonical=>$canonical,"
+    + "ancestor_symlinks_absent=>$ok?JSON::PP::true:JSON::PP::false,"
+    + "filesystem_id=>0+$s[0],object_id=>0+$s[1]})";
+  const out = rh.command("/usr/bin/perl", ["-e", script, path], {
+    cwd: config.repo, timeout_ms: 5000
+  });
+  const value = parse_json_line(out, code);
+  ensure(exact_object(value, ["canonical", "ancestor_symlinks_absent",
+      "filesystem_id", "object_id"])
+      && typeof value.canonical === "string"
+      && value.ancestor_symlinks_absent === true
+      && typeof value.filesystem_id === "number"
+      && typeof value.object_id === "number", code + "_shape");
+  return value;
+}
+
+function browser_version(config) {
+  const out = rh.command(config.browser_exe, ["--version"], {
+    cwd: config.repo, timeout_ms: 5000
+  });
+  ensure(out.success === true && out.timed_out !== true
+      && out.stdout_truncated !== true && out.stderr_truncated !== true,
+    "profile_binding_v2_browser_version_unavailable");
+  const text = out.stdout.trim();
+  ensure(text !== "" && text.length <= 4096 && text.indexOf("\n") < 0,
+    "profile_binding_v2_browser_version_shape");
+  const family = browser_family(text);
+  ensure(config.app === app_for_family(family),
+    "profile_binding_v2_browser_app_family_mismatch");
+  return {family: family, text: text};
+}
+
+function exact_digest(actual, expected, code) {
+  ensure(actual === expected, code);
+}
+
+function frozen_input_digest(config) {
+  const names = [
+    "plan/design-browser-profile-name-binding-owned-lifecycle-experiment.md",
+    "research/browser-profile-name-binding-v2/README.md",
+    "research/browser-profile-name-binding-v2/result-template.json",
+    "research/browser-profile-name-binding-v2/run-current-host.sh",
+    "research/browser-profile-name-binding-v2/court-current-host.qjs",
+    "research/browser-profile-name-binding-v2/binding-model.qjs",
+    "research/browser-profile-name-binding-v2/fixtures/local-state.json",
+    "research/browser-profile-name-binding-v2/fixtures/preferences.json",
+    "crates/agenterm-cu/assets/browser-bridge/manifest.json",
+    "crates/agenterm-cu/assets/browser-bridge/background.js"
+  ];
+  const script = "my ($repo,@names)=@ARGV; my $s=Digest::SHA->new(256);"
+    + "$s->add(qq(agenterm-cu/profile-binding-owned-lifecycle-v2/input/v1\\0));"
+    + "for my $n (@names) { open my $f,q(<:raw),qq($repo/$n) or die;"
+    + "local $/; my $b=<$f>; $s->add(pack(q(Q<),length($n)),$n,"
+    + "pack(q(Q<),length($b)),$b) } print $s->hexdigest";
+  const args = ["-MDigest::SHA", "-e", script, config.repo];
+  for (let i = 0; i < names.length; i = i + 1) { args.push(names[i]); }
+  const out = rh.command("/usr/bin/perl", args, {
+    cwd: config.repo, timeout_ms: 5000
+  });
+  ensure(out.success === true && out.timed_out !== true
+      && out.stdout_truncated !== true && out.stderr_truncated !== true,
+    "profile_binding_v2_input_digest_failed");
+  return out.stdout.trim();
+}
+
+function preflight(config) {
+  ensure(rh.exists("/System/Library/CoreServices"),
+    "profile_binding_v2_requires_macos");
+  ensure(direct_file(config.agenterm_exe) && direct_file(config.cu_exe)
+      && direct_file(config.browser_exe)
+      && direct_file(config.state_exe), "profile_binding_v2_executable_missing");
+  exact_digest(sha256_file(config.agenterm_exe), config.agenterm_sha,
+    "profile_binding_v2_agenterm_digest_mismatch");
+  exact_digest(sha256_file(config.cu_exe), config.cu_sha,
+    "profile_binding_v2_cu_digest_mismatch");
+  exact_digest(sha256_file(config.browser_exe), config.browser_sha,
+    "profile_binding_v2_browser_digest_mismatch");
+  const version = browser_version(config);
+  const source = rh.command("/usr/bin/git", ["-C", config.repo,
+    "rev-parse", "HEAD"], {cwd: config.repo, timeout_ms: 5000});
+  ensure(source.success === true && source.timed_out !== true
+      && source.stdout_truncated !== true && source.stderr_truncated !== true,
+    "profile_binding_v2_source_unavailable");
+  exact_digest(source.stdout.trim(), config.source_sha,
+    "profile_binding_v2_source_mismatch");
+  exact_digest(frozen_input_digest(config), config.input_digest,
+    "profile_binding_v2_input_digest_mismatch");
+  const template = rh.join(config.repo,
+    "research/browser-profile-name-binding-v2/result-template.json");
+  const binding = rh.join(config.repo,
+    "research/browser-profile-name-binding-v2/binding-model.qjs");
+  ensure(direct_file(template) && direct_file(binding),
+    "profile_binding_v2_frozen_input_missing");
+  validate_template_contract(bounded_json_file(template, 262144,
+    "profile_binding_v2_result_template"));
+  return {
+    handshake: {
+      source_sha: config.source_sha,
+      input_digest: config.input_digest,
+      agenterm_sha256: config.agenterm_sha,
+      agenterm_cu_sha256: config.cu_sha,
+      browser_sha256: config.browser_sha,
+      browser_family: version.family,
+      browser_version: version.text,
+      result_template_sha256: sha256_file(template)
+    },
+    facts: {
+      source_sha: config.source_sha,
+      input_digest: config.input_digest,
+      agenterm_sha256: config.agenterm_sha,
+      agenterm_cu_sha256: config.cu_sha,
+      browser_sha256: config.browser_sha,
+      browser_family: version.family,
+      browser_version: version.text,
+      state_chain_valid: true,
+      result_template_sha256: sha256_file(template)
+    }
+  };
+}
+
+function criteria_empty() {
+  return {
+    V1:"not-run",V2:"not-run",V3:"not-run",V3a:"not-run",V3b:"not-run",
+    V4a:"not-run",V4b:"not-run",G1:"not-run",G2a:"not-run",G2b:"not-run",
+    G3:"not-run",G4a:"not-run",G4c:"not-run",G6:"not-run",G7:"not-run"
+  };
+}
+
+function atomic_exact(path, bytes) {
+  rh.atomic_write(path, bytes);
+  ensure(rh.read_text(path) === bytes, "profile_binding_v2_atomic_readback_mismatch");
+}
+
+function broker(config, operation, candidate_path) {
+  const out = rh.command(config.state_exe, [
+    "__state", operation, config.kind, config.ordinal, config.run_id,
+    candidate_path
+  ], {cwd: config.repo, timeout_ms: 5000});
+  const envelope = parse_json_line(out, "profile_binding_v2_state_broker");
+  ensure(envelope.ok === true && envelope.error === null,
+    "profile_binding_v2_state_broker_refused");
+  ensure(envelope.data.accepted === true
+      && typeof envelope.data.receipt_sha256 === "string"
+      && typeof envelope.data.receipt_text === "string",
+    "profile_binding_v2_state_broker_envelope");
+  return envelope.data;
+}
+
+function journal_new(config) {
+  return {
+    config: config,
+    criteria: criteria_empty(),
+    previous_receipt_sha256: null,
+    receipt_sha256: null,
+    started_ms: rh.now_ms(),
+    persistence_failed: false,
+    seq: 0
+  };
+}
+
+function journal_stage(journal, stage, producer, deadline_ms, code, facts) {
+  const config = journal.config;
+  ensure(journal.persistence_failed === false,
+    "profile_binding_v2_evidence_persistence_halted");
+  try {
+    const mirror = rh.join(config.candidate_dir, RECEIPT_MIRROR);
+    if (journal.previous_receipt_sha256 !== null) {
+      ensure(direct_file(mirror),
+        "profile_binding_v2_receipt_mirror_missing");
+      exact_digest(sha256_file(mirror), journal.previous_receipt_sha256,
+        "profile_binding_v2_receipt_mirror_chain_mismatch");
+    }
+    journal.seq = journal.seq + 1;
+    const request = {
+      stage: stage,
+      producer: producer,
+      deadline_ms: deadline_ms,
+      elapsed_ms: rh.now_ms() - journal.started_ms,
+      code: code,
+      facts: facts,
+      criteria: journal.criteria,
+      previous_receipt_sha256: journal.previous_receipt_sha256
+    };
+    const candidate_path = rh.join(config.candidate_dir,
+      "stage-" + journal.seq + ".json");
+    atomic_exact(candidate_path, canonical(request));
+    const receipt = broker(config, "stage", candidate_path);
+    atomic_exact(mirror, receipt.receipt_text);
+    exact_digest(sha256_file(mirror), receipt.receipt_sha256,
+      "profile_binding_v2_receipt_digest_mismatch");
+    journal.previous_receipt_sha256 = receipt.receipt_sha256;
+    journal.receipt_sha256 = receipt.receipt_sha256;
+  } catch (error) {
+    journal.persistence_failed = true;
+    throw error;
+  }
+}
+
+function journal_finish(journal) {
+  const config = journal.config;
+  ensure(journal.receipt_sha256 !== null,
+    "profile_binding_v2_terminal_receipt_missing");
+  const candidate_path = rh.join(config.candidate_dir, "finish.json");
+  atomic_exact(candidate_path, canonical({receipt_sha256: journal.receipt_sha256}));
+  const receipt = broker(config, "finish", candidate_path);
+  const mirror = rh.join(config.candidate_dir, RECEIPT_MIRROR);
+  atomic_exact(mirror, receipt.receipt_text);
+  exact_digest(sha256_file(mirror), receipt.receipt_sha256,
+    "profile_binding_v2_finish_receipt_mismatch");
+}
+
+function identity_digest(domain, value, cwd) {
+  return sha256_text(domain + "\u0000" + canonical(value), cwd);
+}
+
+function exact_connection(row) {
+  return exact_object(row, ["connection_id", "process", "endpoint", "protocol"])
+    && typeof row.connection_id === "string" && row.connection_id !== ""
+    && exact_object(row.process, ["pid", "start_identity"])
+    && typeof row.process.pid === "number" && row.process.pid > 0
+    && typeof row.process.start_identity === "string"
+    && row.process.start_identity !== ""
+    && exact_object(row.endpoint, ["kind", "native_host", "extension_id"])
+    && typeof row.endpoint.kind === "string"
+    && typeof row.endpoint.native_host === "string"
+    && typeof row.endpoint.extension_id === "string"
+    && typeof row.protocol === "number";
+}
+
+function connection_identity(row) {
+  return {
+    connection_id: row.connection_id,
+    process: {pid: row.process.pid, start_identity: row.process.start_identity},
+    endpoint: {kind: row.endpoint.kind, native_host: row.endpoint.native_host,
+      extension_id: row.endpoint.extension_id},
+    protocol: row.protocol
+  };
+}
+
+function host_projection(row, cwd) {
+  return {host_process_identity_digest: identity_digest(
+    "acu.profile-binding-v2.host-identity/v1", row.process, cwd)};
+}
+
+function connection_inventory(config) {
+  const data = cu(config, "observe", ["browser-bridge-connections"], 5000).data;
+  ensure(exact_object(data, ["connections", "visited", "truncated"])
+      && Array.isArray(data.connections),
+    "profile_binding_v2_connection_inventory_shape");
+  ensure(data.truncated === false && data.connections.length <= 4096,
+    "profile_binding_v2_connection_inventory_incomplete");
+  for (let i = 0; i < data.connections.length; i = i + 1) {
+    if (config.mode === "decision") {
+      ensure(exact_connection(data.connections[i]),
+        "profile_binding_v2_connection_row_malformed");
+    } else {
+      ensure(data.connections[i] !== null
+          && typeof data.connections[i] === "object"
+          && exact_process_identity(data.connections[i].process),
+        "profile_binding_v2_connection_process_malformed");
+    }
+    for (let j = 0; j < i; j = j + 1) {
+      if (config.mode === "decision") {
+        ensure(data.connections[i].connection_id !== data.connections[j].connection_id,
+          "profile_binding_v2_connection_id_duplicate");
+      }
+      ensure(data.connections[i].process.pid !== data.connections[j].process.pid
+          || data.connections[i].process.start_identity
+            !== data.connections[j].process.start_identity,
+        "profile_binding_v2_host_identity_duplicate");
+    }
+  }
+  return {
+    rows: data.connections,
+    complete: true,
+    visited: data.visited
+  };
+}
+
+function projection_set(inventory, cwd) {
+  const rows = [];
+  for (let i = 0; i < inventory.rows.length; i = i + 1) {
+    rows.push(host_projection(inventory.rows[i], cwd));
+  }
+  // The sole rehearsal-safe row is the host-process identity digest.
+  for (let i = 0; i < rows.length; i = i + 1) {
+    for (let j = i + 1; j < rows.length; j = j + 1) {
+      if (rows[j].host_process_identity_digest
+          < rows[i].host_process_identity_digest) {
+        const swap = rows[i]; rows[i] = rows[j]; rows[j] = swap;
+      }
+    }
+  }
+  return rows;
+}
+
+function inventory_facts(inventory, baseline, cwd, include_visited) {
+  const projected = projection_set(inventory, cwd);
+  const baseline_projected = baseline === null ? null : projection_set(baseline, cwd);
+  const facts = {
+    row_count: projected.length,
+    normalized_row_digest: identity_digest(
+      "acu.profile-binding-v2.inventory-row/v1", projected, cwd),
+    complete: inventory.complete
+  };
+  if (baseline !== null) {
+    facts.baseline_preserved = canonical(projected) === canonical(baseline_projected);
+    facts.owned_delta = projected.length === baseline_projected.length;
+  }
+  if (include_visited) { facts.visited_count = inventory.visited; }
+  return facts;
+}
+
+function current_inventory_facts(inventory, baseline, owned, cwd) {
+  const projected = projection_set(inventory, cwd);
+  const baseline_projected = projection_set(baseline, cwd);
+  let baseline_preserved = true;
+  for (let i = 0; i < baseline_projected.length; i = i + 1) {
+    let found = false;
+    for (let j = 0; j < projected.length; j = j + 1) {
+      if (canonical(projected[j]) === canonical(baseline_projected[i])) {
+        found = true;
+      }
+    }
+    if (!found) { baseline_preserved = false; }
+  }
+  const added = added_connections(inventory, baseline);
+  return {
+    row_count: projected.length,
+    normalized_row_digest: identity_digest(
+      "acu.profile-binding-v2.inventory-row/v1", projected, cwd),
+    complete: inventory.complete,
+    baseline_preserved: baseline_preserved,
+    owned_delta: added.length === 1
+      && added[0].process.pid === owned.process.pid
+      && added[0].process.start_identity === owned.process.start_identity
+  };
+}
+
+function connection_in(rows, row) {
+  for (let i = 0; i < rows.length; i = i + 1) {
+    if (rows[i].process.pid === row.process.pid
+        && rows[i].process.start_identity === row.process.start_identity) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function added_connections(current, baseline) {
+  const added = [];
+  for (let i = 0; i < current.rows.length; i = i + 1) {
+    if (!connection_in(baseline.rows, current.rows[i])) {
+      added.push(current.rows[i]);
+    }
+  }
+  return added;
+}
+
+function wait_owned_connection(config, baseline, deadline) {
+  while (rh.now_ms() < deadline) {
+    const inventory = connection_inventory(config);
+    ensure(inventory.complete, "profile_binding_v2_connection_inventory_incomplete");
+    const added = added_connections(inventory, baseline);
+    ensure(added.length <= 1, "profile_binding_v2_multiple_owned_connections");
+    if (added.length === 1) { return {row: added[0], inventory: inventory}; }
+    rh.sleep_ms(50);
+  }
+  throw "profile_binding_v2_connection_timeout";
+}
+
+function strict_status(config, connection_id) {
+  return cu(config, "observe", ["browser-bridge-status", connection_id], 5000).data.result;
+}
+
+function profile_candidate(config, family, session, owned_connection_count) {
+  const root = browser_root(config.home, family);
+  const state_path = rh.join(root, "Local State");
+  const preferences_path = rh.join(root, "Profile 1/Preferences");
+  const state = bounded_json_file(state_path, 65536,
+    "profile_binding_v2_local_state");
+  const prefs = bounded_json_file(preferences_path, 65536,
+    "profile_binding_v2_preferences");
+  const profiles = state.profile;
+  ensure(exact_object(state, ["profile"])
+      && exact_object(profiles, ["last_used", "profiles_order", "info_cache"])
+      && profiles.last_used === "Profile 1"
+      && Array.isArray(profiles.profiles_order)
+      && profiles.profiles_order.length === 1
+      && profiles.profiles_order[0] === "Profile 1"
+      && exact_object(profiles.info_cache, ["Profile 1"])
+      && exact_object(profiles.info_cache["Profile 1"], ["name"])
+      && profiles.info_cache["Profile 1"].name.trim().toLowerCase() === "work",
+    "profile_binding_v2_local_state_surface");
+  const names = Object.keys(profiles.info_cache);
+  ensure(exact_object(prefs, ["extensions"])
+      && exact_object(prefs.extensions, ["settings"])
+      && exact_object(prefs.extensions.settings, [EXTENSION_ID])
+      && exact_object(prefs.extensions.settings[EXTENSION_ID],
+        ["disable_reasons", "state"])
+      && Array.isArray(prefs.extensions.settings[EXTENSION_ID].disable_reasons)
+      && prefs.extensions.settings[EXTENSION_ID].disable_reasons.length === 0
+      && prefs.extensions.settings[EXTENSION_ID].state === 1,
+    "profile_binding_v2_preferences_surface");
+  const public_data = cu(config, "observe",
+    ["browser-profiles", "--app", config.app], 5000).data;
+  ensure(exact_object(public_data, ["mechanism", "app", "local_state", "join",
+      "returned", "profiles", "unlisted_windows"])
+      && Array.isArray(public_data.profiles)
+      && Array.isArray(public_data.unlisted_windows)
+      && public_data.app === config.app && public_data.returned === 1
+      && public_data.profiles.length === 1
+      && public_data.unlisted_windows.length === 0
+      && exact_object(public_data.profiles[0],
+        ["name", "directory", "last_used", "windows"])
+      && public_data.profiles[0].directory === "Profile 1"
+      && public_data.profiles[0].name.toLowerCase() === "work"
+      && public_data.profiles[0].last_used === true
+      && Array.isArray(public_data.profiles[0].windows)
+      && public_data.profiles[0].windows.length === 0,
+    "profile_binding_v2_public_candidate_disagrees");
+  const candidate_root = path_witness(config, root,
+    "profile_binding_v2_candidate_root_witness");
+  const live_root = path_witness(config,
+    session_profile_root(config.home, config.session),
+    "profile_binding_v2_live_root_witness");
+  ensure(session.profile_identity.filesystem_id === live_root.filesystem_id
+      && session.profile_identity.object_id === live_root.object_id,
+    "profile_binding_v2_live_root_identity_disagrees");
+  const non_descendant = live_root.canonical !== candidate_root.canonical
+    && !live_root.canonical.startsWith(candidate_root.canonical + "/");
+  const distinct_object = live_root.filesystem_id !== candidate_root.filesystem_id
+    || live_root.object_id !== candidate_root.object_id;
+  ensure(non_descendant && distinct_object,
+    "profile_binding_v2_live_root_inside_candidate_root");
+  const installation_names = Object.keys(prefs.extensions.settings);
+  let installed_count = 0;
+  for (let i = 0; i < installation_names.length; i = i + 1) {
+    const row = prefs.extensions.settings[installation_names[i]];
+    if (row.state === 1 && row.disable_reasons.length === 0) {
+      installed_count = installed_count + 1;
+    }
+  }
+  let g2a_overlap_count = 0;
+  for (let i = 0; i < public_data.profiles.length; i = i + 1) {
+    const row = public_data.profiles[i];
+    const local = profiles.info_cache[row.directory];
+    const order = profiles.profiles_order.indexOf(row.directory);
+    if (local !== undefined && local.name.toLowerCase() === row.name.toLowerCase()
+        && row.last_used === (profiles.last_used === row.directory)
+        && order === i) {
+      g2a_overlap_count = g2a_overlap_count + 1;
+    }
+  }
+  const preferences_intersects_g2a = installation_names.length > 0
+    && g2a_overlap_count === 1;
+  const enabled_intersects_g2a = installed_count > 0
+    && g2a_overlap_count === 1;
+  return {
+    g2a_facts: {
+      local_state_digest: sha256_file(state_path),
+      local_state_row_count: names.length,
+      N_all: g2a_overlap_count
+    },
+    g2b_facts: {
+      preferences_digest: sha256_file(preferences_path),
+      preferences_row_count: installation_names.length,
+      candidate_root_identity_digest: identity_digest(
+        "acu.profile-binding-v2.candidate-root/v1", candidate_root, config.repo),
+      live_root_identity_digest: identity_digest(
+        "acu.profile-binding-v2.live-root/v1", live_root, config.repo),
+      candidate_ancestor_symlinks_absent:candidate_root.ancestor_symlinks_absent,
+      live_ancestor_symlinks_absent:live_root.ancestor_symlinks_absent,
+      live_root_outside_candidate:non_descendant,
+      root_file_objects_distinct:distinct_object,
+      N: preferences_intersects_g2a ? g2a_overlap_count : 0,
+      I: enabled_intersects_g2a ? g2a_overlap_count : 0,
+      C: owned_connection_count
+    },
+    surface: {
+      application: config.app, directory: "Profile 1", display_name: "work",
+      last_used: true, order: 0, extension_id: EXTENSION_ID,
+      profile_object_digest: identity_digest(
+        "acu.profile-binding-v2.candidate-profile/v1",
+        {application:config.app, directory:"Profile 1", display_name:"work",
+         last_used:true, order:0}, config.repo),
+      installation_object_digest: identity_digest(
+        "acu.profile-binding-v2.candidate-installation/v1",
+        {directory:"Profile 1", extension_id:EXTENSION_ID,
+         installed:true, enabled:true}, config.repo)
+    }
+  };
+}
+
+function lowercase_hex_32(value) {
+  if (typeof value !== "string" || value.length !== 32) { return false; }
+  const alphabet = "0123456789abcdef";
+  for (let i = 0; i < value.length; i = i + 1) {
+    if (alphabet.indexOf(value.charAt(i)) < 0) { return false; }
+  }
+  return true;
+}
+
+function prefix_control(config, inventory, connection_id, profile_instance_id) {
+  ensure(lowercase_hex_32(profile_instance_id),
+    "profile_binding_v2_profile_instance_shape");
+  const rows = [];
+  for (let i = 0; i < inventory.rows.length; i = i + 1) {
+    const status = strict_status(config, inventory.rows[i].connection_id);
+    ensure(lowercase_hex_32(status.profile_instance_id),
+      "profile_binding_v2_profile_instance_shape");
+    rows.push({connection_id: inventory.rows[i].connection_id,
+      profile_instance_id: status.profile_instance_id});
+  }
+  const exact = [];
+  const prefix = profile_instance_id.substring(0, 12);
+  for (let i = 0; i < rows.length; i = i + 1) {
+    if (rows[i].profile_instance_id.startsWith(prefix)) { exact.push(rows[i]); }
+  }
+  return exact.length === 1
+    && exact[0].connection_id === connection_id
+    && exact[0].profile_instance_id === profile_instance_id;
+}
+
+function surface_pair(candidate, connection, owned, cwd) {
+  const extension_pair = candidate.name
+      === "preferences/extension-installation/v1"
+    && (connection.name === "browser-bridge-connections/endpoint/v1"
+      || connection.name === "browser-bridge-status/strict/v1");
+  const properties = extension_pair
+    ? {shared_issuer:"yes", authenticated:"yes", collision_resistant:"yes",
+       injective:"no", profile_unique:"no"}
+    : {shared_issuer:"no", authenticated:"unknown",
+       collision_resistant:"unknown", injective:"unknown",
+       profile_unique:"unknown"};
+  const clause = {candidate_schema:candidate.name,
+    connection_schema:connection.name, properties:properties};
+  return {
+    candidate_schema: candidate.name,
+    connection_schema: connection.name,
+    shared_issuer: properties.shared_issuer,
+    authenticated: properties.authenticated,
+    collision_resistant: properties.collision_resistant,
+    injective: properties.injective,
+    profile_unique: properties.profile_unique,
+    source_clause_digest: identity_digest(
+      "acu.profile-binding-v2.surface-clause/v1", clause, cwd),
+    observed_values_equal: extension_pair
+      && candidate.extension_id === connection.extension_id,
+    ground_truth_pair_digest: identity_digest(
+      "acu.profile-binding-v2.ground-truth-pair/v1",
+      {candidate_object: candidate.object_digest,
+       connection_object: owned.connection_identity_digest}, cwd)
+  };
+}
+
+function surface_inventory(candidate, connection, status, owned, cwd) {
+  const candidates = [
+    {name:"browser-profiles/local-state-profile/v1",
+     object_digest:candidate.profile_object_digest, extension_id:""},
+    {name:"preferences/extension-installation/v1",
+     object_digest:candidate.installation_object_digest,
+     extension_id:candidate.extension_id}
+  ];
+  const connections = [
+    {name:"browser-bridge-connections/endpoint/v1",
+     extension_id:connection.endpoint.extension_id},
+    {name:"browser-bridge-status/strict/v1",
+     extension_id:status.extension_id}
+  ];
+  const pairs = [];
+  for (let i = 0; i < candidates.length; i = i + 1) {
+    for (let j = 0; j < connections.length; j = j + 1) {
+      pairs.push(surface_pair(candidates[i], connections[j], owned, cwd));
+    }
+  }
+  ensure(pairs.length === 4, "profile_binding_v2_surface_inventory_incomplete");
+  return pairs;
+}
+
+function surface_aggregate(pairs) {
+  let equal_eligible = false;
+  let eligible = false;
+  let unknown = false;
+  for (let i = 0; i < pairs.length; i = i + 1) {
+    const row = pairs[i];
+    const values = [row.shared_issuer, row.authenticated,
+      row.collision_resistant, row.injective, row.profile_unique];
+    let all_yes = true;
+    let any_no = false;
+    for (let j = 0; j < values.length; j = j + 1) {
+      if (values[j] !== "yes") { all_yes = false; }
+      if (values[j] === "no") { any_no = true; }
+    }
+    if (all_yes) {
+      eligible = true;
+      if (row.observed_values_equal) { equal_eligible = true; }
+    } else if (!any_no) { unknown = true; }
+  }
+  if (equal_eligible) { return "INCONCLUSIVE_GROUND_TRUTH_CONFLICT"; }
+  if (eligible) { return "INCONCLUSIVE_ACCEPTED_SURFACE_CHANGED"; }
+  if (unknown) { return "INCONCLUSIVE_EDGE_ELIGIBILITY_UNKNOWN"; }
+  return "all-ineligible";
+}
+
+function binding_facts(config) {
+  const manifest = model.model_manifest();
+  const matrix = model.fault_matrix_manifest();
+  const proof = model.prove();
+  ensure(proof.passed === true, "profile_binding_v2_model_proof_failed");
+  return {
+    model_digest: sha256_file(rh.join(config.repo,
+      "research/browser-profile-name-binding-v2/binding-model.qjs")),
+    matrix_digest: identity_digest("acu.profile-binding-v2.fault-matrix/v1",
+      matrix, config.repo),
+    create: proof.operations.create,
+    resolve: proof.operations.resolve,
+    restart_revalidate: proof.operations.restart_revalidate,
+    target_stale: proof.operations.target_stale,
+    collision: proof.operations.collision,
+    generation_conflict: proof.operations.generation_conflict,
+    revoke: proof.operations.revoke,
+    active_pair_unique: proof.invariants.active_pair_unique,
+    active_alias_per_instance: proof.invariants.instance_single_alias,
+    duplicate_alias_typed: proof.invariants.duplicate_alias_typed,
+    identity_build_stale_typed: proof.invariants.identity_change_stale,
+    inventory_cardinality_typed: proof.invariants.inventory_cardinality_typed,
+    authority_matrix_complete: proof.invariants.explicit_request
+      && proof.invariants.runtime_session && proof.invariants.session_lease,
+    generation_cas: proof.invariants.generation_cas,
+    rename_requires_replace: proof.invariants.rename_requires_explicit_replace,
+    revoke_not_found_typed: proof.invariants.revoke_resolves_not_found
+  };
+}
+
+function exact_process_identity(value) {
+  return exact_object(value, ["pid", "start_identity"])
+    && typeof value.pid === "number" && value.pid > 0
+    && typeof value.start_identity === "string" && value.start_identity !== "";
+}
+
+function public_process_observation(config, identity, wanted_state, timeout_ms) {
+  ensure(exact_process_identity(identity),
+    "profile_binding_v2_process_identity_malformed");
+  const reply = cu(config, "observe",
+    ["process-state", "--pid", "" + identity.pid], timeout_ms).data;
+  ensure(exact_object(reply,
+      ["pid", "state", "start_identity", "reason", "verified"]),
+    "profile_binding_v2_process_state_shape");
+  if (wanted_state === "live") {
+    return reply.pid === identity.pid && reply.state === "live"
+      && reply.start_identity === identity.start_identity
+      && reply.reason === null && reply.verified === true;
+  }
+  const observed_dead = reply.state === "dead" && reply.start_identity === null
+    && typeof reply.reason === "string" && reply.reason !== "";
+  const pid_reused = reply.state === "live"
+    && typeof reply.start_identity === "string"
+    && reply.start_identity !== identity.start_identity;
+  return reply.pid === identity.pid && reply.verified === true
+    && (observed_dead || pid_reused);
+}
+
+function independent_ps(config, browser, host, frozen_group, timeout_ms) {
+  const out = rh.command("/bin/ps", ["-axo", "pid=,ppid=,pgid=,sess="], {
+    cwd: config.repo, timeout_ms: timeout_ms
+  });
+  ensure(out.success === true && out.timed_out !== true
+      && out.stdout_truncated !== true && out.stderr_truncated !== true,
+    "profile_binding_v2_independent_ps_failed");
+  const text = out.stdout.trim();
+  const lines = text === "" ? [] : text.split("\n");
+  ensure(lines.length <= 4096, "profile_binding_v2_independent_ps_limit");
+  const rows = [];
+  let browser_pgid = -1;
+  let host_pgid = -1;
+  let browser_sid = -1;
+  let host_sid = -1;
+  const digits = "0123456789";
+  for (let i = 0; i < lines.length; i = i + 1) {
+    const words = lines[i].trim().split(" ");
+    const fields = [];
+    for (let word = 0; word < words.length; word = word + 1) {
+      if (words[word] !== "") { fields.push(words[word]); }
+    }
+    ensure(fields.length === 4,
+      "profile_binding_v2_independent_ps_row_shape");
+    for (let field = 0; field < fields.length; field = field + 1) {
+      ensure(fields[field].length > 0,
+        "profile_binding_v2_independent_ps_row_value");
+      for (let character = 0; character < fields[field].length;
+          character = character + 1) {
+        ensure(digits.indexOf(fields[field].charAt(character)) >= 0,
+          "profile_binding_v2_independent_ps_row_value");
+      }
+    }
+    const pid = parseInt(fields[0]);
+    const ppid = parseInt(fields[1]);
+    const pgid = parseInt(fields[2]);
+    const sid = parseInt(fields[3]);
+    ensure(pid > 0 && ppid >= 0 && pgid > 0 && sid > 0
+        && pid <= 9007199254740991 && ppid <= 9007199254740991
+        && pgid <= 9007199254740991 && sid <= 9007199254740991,
+      "profile_binding_v2_independent_ps_row_value");
+    for (let prior = 0; prior < rows.length; prior = prior + 1) {
+      ensure(rows[prior].pid !== pid,
+        "profile_binding_v2_independent_ps_pid_duplicate");
+    }
+    rows.push({pid:pid, ppid:ppid, pgid:pgid, sid:sid});
+    if (pid === browser.pid) {
+      browser_pgid = pgid; browser_sid = sid;
+    }
+    if (pid === host.pid) {
+      host_pgid = pgid; host_sid = sid;
+    }
+  }
+  let cursor = host.pid;
+  let reached_browser = false;
+  for (let depth = 0; depth < rows.length && cursor > 0; depth = depth + 1) {
+    if (cursor === browser.pid) { reached_browser = true; break; }
+    let parent = -1;
+    for (let i = 0; i < rows.length; i = i + 1) {
+      if (rows[i].pid === cursor) { parent = rows[i].ppid; }
+    }
+    if (parent < 0 || parent === cursor) { break; }
+    cursor = parent;
+  }
+  let frozen_group_count = 0;
+  if (frozen_group !== null) {
+    for (let i = 0; i < rows.length; i = i + 1) {
+      if (rows[i].pgid === frozen_group) {
+        frozen_group_count = frozen_group_count + 1;
+      }
+    }
+  }
+  return {
+    row_count: lines.length,
+    browser_pgid_exact: browser_pgid === browser.pid,
+    host_pgid_exact: host_pgid === browser.pid,
+    sid_equal_nonzero: browser_sid > 0 && browser_sid === host_sid,
+    parent_chain_exact: reached_browser,
+    frozen_group_count: frozen_group_count,
+    browser_pgid: browser_pgid
+  };
+}
+
+function tree_count(value) {
+  if (value === null || typeof value !== "object") { return 0; }
+  let count = typeof value.pid === "number" ? 1 : 0;
+  const keys = Object.keys(value);
+  for (let i = 0; i < keys.length; i = i + 1) {
+    count = count + tree_count(value[keys[i]]);
+  }
+  return count;
+}
+
+function tree_has_pid(value, pid) {
+  if (value === null || typeof value !== "object") { return false; }
+  if (value.pid === pid) { return true; }
+  const keys = Object.keys(value);
+  for (let i = 0; i < keys.length; i = i + 1) {
+    if (tree_has_pid(value[keys[i]], pid)) { return true; }
+  }
+  return false;
+}
+
+function ownership_facts(config, session, connection) {
+  const owner = session.owner;
+  const browser = session.browser;
+  const host = connection.process;
+  const owner_before = public_process_observation(config, owner, "live", 500);
+  const browser_before = public_process_observation(config, browser, "live", 500);
+  const host_before = public_process_observation(config, host, "live", 500);
+  const ps = independent_ps(config, browser, host, null, 1000);
+  ensure(process_tree(browser.pid) === 0,
+    "profile_binding_v2_process_tree_failed");
+  const tree_raw = tool_result();
+  let tree = null;
+  try { tree = JSON.parse(tree_raw); }
+  catch (_) { throw "profile_binding_v2_process_tree_invalid"; }
+  const tree_contains_host = tree_has_pid(tree, browser.pid)
+    && tree_has_pid(tree, host.pid);
+  const tree_rows = tree_count(tree);
+  ensure(tree_rows > 0 && tree_rows <= 4096,
+    "profile_binding_v2_process_tree_limit");
+  const owner_after = public_process_observation(config, owner, "live", 500);
+  const browser_after = public_process_observation(config, browser, "live", 500);
+  const host_after = public_process_observation(config, host, "live", 500);
+  const facts = {
+    owner_identity_digest: identity_digest(
+      "acu.profile-binding-v2.owner-identity/v1", owner, config.repo),
+    browser_identity_digest: identity_digest(
+      "acu.profile-binding-v2.browser-identity/v1", browser, config.repo),
+    host_identity_digest: identity_digest(
+      "acu.profile-binding-v2.host-identity/v1", host, config.repo),
+    tree_row_count: tree_rows,
+    ps_row_count: ps.row_count,
+    browser_pgid_exact: ps.browser_pgid_exact,
+    host_pgid_exact: ps.host_pgid_exact,
+    sid_equal_nonzero: ps.sid_equal_nonzero,
+    parent_chain_exact: ps.parent_chain_exact,
+    tree_contains_host: tree_contains_host,
+    owner_identity_match: owner_before && owner_after,
+    browser_identity_match: browser_before && browser_after,
+    host_identity_match: host_before && host_after
+  };
+  if (config.mode === "decision") {
+    facts.connection_identity_digest = identity_digest(
+      "acu.profile-binding-v2.connection-identity/v1",
+      connection_identity(connection), config.repo);
+  }
+  return {facts:facts, frozen_group:ps.browser_pgid};
+}
+
+function make_fixture(config, family) {
+  const root = browser_root(config.home, family);
+  rh.create_dir_all(rh.join(root, "Profile 1"));
+  rh.copy(rh.join(config.repo,
+    "research/browser-profile-name-binding-v2/fixtures/local-state.json"),
+    rh.join(root, "Local State"));
+  rh.copy(rh.join(config.repo,
+    "research/browser-profile-name-binding-v2/fixtures/preferences.json"),
+    rh.join(root, "Profile 1/Preferences"));
+  ensure(direct_directory(root), "profile_binding_v2_fixture_root_not_direct");
+}
+
+function typed_failure(error) {
+  const code = "" + error;
+  const frozen = ["INCONCLUSIVE_SOURCE", "INCONCLUSIVE_OWNERSHIP",
+    "INCONCLUSIVE_CLEANUP", "INCONCLUSIVE_INVENTORY",
+    "INCONCLUSIVE_BASELINE_MUTATION", "INCONCLUSIVE_DEPENDENCY",
+    "INCONCLUSIVE_CANDIDATE_OBSERVER", "INCONCLUSIVE_FIXTURE",
+    "INCONCLUSIVE_GROUND_TRUTH_CONFLICT",
+    "INCONCLUSIVE_ACCEPTED_SURFACE_CHANGED",
+    "INCONCLUSIVE_EDGE_ELIGIBILITY_UNKNOWN",
+    "INCONCLUSIVE_BINDING_DESIGN", "INCONCLUSIVE_EVIDENCE_PERSISTENCE"];
+  for (let i = 0; i < frozen.length; i = i + 1) {
+    if (code === frozen[i]) { return code; }
+  }
+  if (code.indexOf("state_broker") >= 0 || code.indexOf("receipt_") >= 0
+      || code.indexOf("atomic_") >= 0 || code.indexOf("persistence") >= 0) {
+    return "INCONCLUSIVE_EVIDENCE_PERSISTENCE";
+  }
+  if (code.indexOf("baseline_mutation") >= 0) {
+    return "INCONCLUSIVE_BASELINE_MUTATION";
+  }
+  if (code.indexOf("inventory") >= 0) { return "INCONCLUSIVE_INVENTORY"; }
+  if (code.indexOf("ownership") >= 0 || code.indexOf("process_") >= 0
+      || code.indexOf("independent_ps") >= 0) {
+    return "INCONCLUSIVE_OWNERSHIP";
+  }
+  if (code.indexOf("local_state") >= 0
+      || code.indexOf("public_candidate") >= 0) {
+    return "INCONCLUSIVE_CANDIDATE_OBSERVER";
+  }
+  if (code.indexOf("preferences") >= 0 || code.indexOf("candidate_root") >= 0
+      || code.indexOf("live_root") >= 0 || code.indexOf("profile_instance") >= 0
+      || code.indexOf("prefix") >= 0) {
+    return "INCONCLUSIVE_FIXTURE";
+  }
+  if (code.indexOf("model_") >= 0 || code.indexOf("binding_model") >= 0) {
+    return "INCONCLUSIVE_BINDING_DESIGN";
+  }
+  if (code.indexOf("source") >= 0 || code.indexOf("digest") >= 0
+      || code.indexOf("frozen_input") >= 0 || code.indexOf("template") >= 0) {
+    return "INCONCLUSIVE_SOURCE";
+  }
+  return "INCONCLUSIVE_DEPENDENCY";
+}
+
+function cleanup(config, journal, baseline, session, connection, frozen_group,
+    lifecycle_attempted) {
+  if (!lifecycle_attempted) {
+    return {cleanup_status:"not-run", inventory_status:"not-run",
+      v3a:false, v3b:false};
+  }
+  let stop_ok = false;
+  try {
+    const reply = cu(config, "actuate", ["browser-session-stop", config.session,
+      "--expect", "stopped", "--timeout-ms", "20000"], 22000);
+    stop_ok = reply.data.state === "stopped";
+  } catch (_) { stop_ok = false; }
+  if (!journal.persistence_failed) {
+    try {
+      journal_stage(journal, "stop", "public-cli", 20000,
+        stop_ok ? "PUBLIC_STOP_SUCCEEDED" : "PUBLIC_STOP_FAILED",
+        {public_stop_succeeded:stop_ok});
+    } catch (_) {}
+  }
+
+  let owner_absent = false;
+  let browser_absent = false;
+  let host_absent = false;
+  let process_state_observation_count = 0;
+  let post_ps = {row_count:0, frozen_group_count:-1};
+  if (session !== null && connection !== null && frozen_group > 0) {
+    try {
+      owner_absent = public_process_observation(config, session.owner, "dead", 2500);
+      process_state_observation_count = process_state_observation_count + 1;
+      browser_absent = public_process_observation(config, session.browser, "dead", 2500);
+      process_state_observation_count = process_state_observation_count + 1;
+      host_absent = public_process_observation(config, connection.process, "dead", 2500);
+      process_state_observation_count = process_state_observation_count + 1;
+      post_ps = independent_ps(config, session.browser, connection.process,
+        frozen_group, 5000);
+    } catch (_) {}
+  }
+  const group_absent = post_ps.frozen_group_count === 0;
+  const v3a = stop_ok && owner_absent && browser_absent && host_absent
+    && group_absent;
+  if (!journal.persistence_failed) {
+    try {
+      journal_stage(journal, "termination-proof", "independent-ps",
+        15000, v3a ? "TERMINATION_PROVED" : "TERMINATION_UNPROVED", {
+          owner_absent:owner_absent, browser_absent:browser_absent,
+          host_absent:host_absent, group_absent:group_absent,
+          ps_row_count:post_ps.row_count,
+          process_state_observation_count:process_state_observation_count
+        });
+    } catch (_) {}
+  }
+
+  let final_inventory = null;
+  let inventory_status = "fail";
+  if (baseline !== null) {
+    try {
+      final_inventory = connection_inventory(config);
+      const facts = inventory_facts(final_inventory, baseline, config.repo, false);
+      inventory_status = facts.complete && facts.baseline_preserved
+        && facts.owned_delta ? "pass" : "fail";
+      if (!journal.persistence_failed) {
+        journal_stage(journal, "final-inventory", "public-cli", 15000,
+          inventory_status === "pass" ? "FINAL_INVENTORY_PROVED"
+            : "FINAL_INVENTORY_MISMATCH", facts);
+      }
+    } catch (_) { inventory_status = "fail"; }
+  }
+  if (final_inventory !== null && !journal.persistence_failed) {
+    try {
+      journal_stage(journal, "registry-hygiene", "public-cli", 5000,
+        "REGISTRY_HYGIENE_RECORDED",
+        inventory_facts(final_inventory, baseline, config.repo, true));
+    } catch (_) {}
+  }
+
+  let removed = false;
+  try {
+    const reply = cu(config, "actuate", ["browser-session-remove", config.session,
+      "--expect", "stopped"], 20000);
+    removed = reply.data.state === "removed" && reply.data.verified === true;
+  } catch (_) { removed = false; }
+  try { rh.try_remove_dir_all(config.home); } catch (_) {}
+  const root_absent = !rh.exists(config.home);
+  const v3b = removed && root_absent;
+  if (!journal.persistence_failed) {
+    try {
+      journal_stage(journal, "root-removal", "filesystem-witness", 20000,
+        v3b ? "ROOT_REMOVAL_PROVED" : "ROOT_REMOVAL_UNPROVED",
+        {root_removal_succeeded:removed, root_absent:root_absent});
+    } catch (_) {}
+  }
+  return {cleanup_status:v3a && v3b ? "pass" : "fail",
+    inventory_status:inventory_status, v3a:v3a, v3b:v3b};
+}
+
+function binding_passed(facts) {
+  const keys = ["create", "resolve", "restart_revalidate", "target_stale",
+    "collision", "generation_conflict", "revoke", "active_pair_unique",
+    "active_alias_per_instance", "duplicate_alias_typed",
+    "identity_build_stale_typed", "inventory_cardinality_typed",
+    "authority_matrix_complete", "generation_cas", "rename_requires_replace",
+    "revoke_not_found_typed"];
+  for (let i = 0; i < keys.length; i = i + 1) {
+    if (facts[keys[i]] !== true) { return false; }
+  }
+  return true;
+}
+
+function execute(config) {
+  const journal = journal_new(config);
+  let pf = null;
+  let baseline = null;
+  let session = null;
+  let connection = null;
+  let frozen_group = -1;
+  let lifecycle_attempted = false;
+  let primary = null;
+  let computed = null;
+  try {
+    pf = preflight(config);
+    journal.criteria.V1 = "pass";
+    journal_stage(journal, "preflight", "runner", 10000,
+      "PREFLIGHT_PASS", pf.facts);
+    baseline = connection_inventory(config);
+    journal_stage(journal, "baseline", "public-cli", 5000,
+      "BASELINE_CAPTURED", inventory_facts(baseline, null, config.repo, false));
+
+    rh.create_dir_all(config.home);
+    if (config.mode === "decision") { make_fixture(config, pf.facts.browser_family); }
+    lifecycle_attempted = true;
+    session = cu(config, "actuate", ["browser-session-start", config.session,
+      "--browser", config.browser_exe, "--bridge", "--ready-timeout-ms", "30000",
+      "--ttl-ms", "300000"], 32000).data;
+    ensure(session.state === "ready" && session.owned === true
+        && exact_process_identity(session.owner)
+        && exact_process_identity(session.browser),
+      "profile_binding_v2_session_not_ready");
+    journal_stage(journal, "session-ready", "public-cli", 30000,
+      "SESSION_READY", {
+        owner_identity_digest:identity_digest(
+          "acu.profile-binding-v2.owner-identity/v1", session.owner, config.repo),
+        browser_identity_digest:identity_digest(
+          "acu.profile-binding-v2.browser-identity/v1", session.browser, config.repo),
+        ready:true, complete:true
+      });
+
+    const found = wait_owned_connection(config, baseline, rh.now_ms() + 20000);
+    connection = found.row;
+    const connection_ready_facts = {
+        host_identity_digest:identity_digest(
+          "acu.profile-binding-v2.host-identity/v1", connection.process, config.repo),
+        ready:true, complete:found.inventory.complete
+      };
+    if (config.mode === "decision") {
+      connection_ready_facts.connection_identity_digest = identity_digest(
+        "acu.profile-binding-v2.connection-identity/v1",
+        connection_identity(connection), config.repo);
+    } else {
+      connection_ready_facts.row_count = found.inventory.rows.length;
+    }
+    journal_stage(journal, "connection-ready", "public-cli", 20000,
+      "CONNECTION_READY", connection_ready_facts);
+    const current_facts = current_inventory_facts(found.inventory, baseline,
+      connection, config.repo);
+    const current_ok = current_facts.complete && current_facts.baseline_preserved
+      && current_facts.owned_delta;
+    journal.criteria.V4a = current_ok ? "pass" : "fail";
+    journal_stage(journal, "baseline", "public-cli", 5000,
+      current_ok ? "CURRENT_INVENTORY_PROVED" : "CURRENT_INVENTORY_MISMATCH",
+      current_facts);
+    if (!current_ok) { throw "INCONCLUSIVE_BASELINE_MUTATION"; }
+
+    const ownership = ownership_facts(config, session, connection);
+    frozen_group = ownership.frozen_group;
+    const owned = ownership.facts;
+    const ownership_ok = owned.browser_pgid_exact && owned.host_pgid_exact
+      && owned.sid_equal_nonzero && owned.parent_chain_exact
+      && owned.tree_contains_host && owned.owner_identity_match
+      && owned.browser_identity_match && owned.host_identity_match;
+    journal.criteria.V2 = ownership_ok ? "pass" : "fail";
+    journal_stage(journal, "ownership", "independent-ps", 5000,
+      ownership_ok ? "OWNERSHIP_PROVED" : "OWNERSHIP_DISAGREED", owned);
+    if (!ownership_ok) { throw "INCONCLUSIVE_OWNERSHIP"; }
+
+    if (config.mode === "rehearsal") {
+      computed = "REHEARSAL_PASS";
+    } else {
+      const status = strict_status(config, connection.connection_id);
+      const extension_manifest = bounded_json_file(rh.join(config.repo,
+        "crates/agenterm-cu/assets/browser-bridge/manifest.json"), 65536,
+        "profile_binding_v2_extension_manifest");
+      const expected_commands = ["status", "tabs", "windows", "window-open",
+        "window-state", "nav", "debug-read", "debug-invoke", "debug-type",
+        "debug-files", "reload", "extension-reload"];
+      const strict_shape = exact_object(status, ["protocol", "extension_id",
+        "extension_version", "build_id", "profile_instance_id", "commands"])
+        && exact_string_array(status.commands, expected_commands)
+        && typeof extension_manifest.version === "string";
+      const strict_ok = strict_shape
+        && connection.endpoint.extension_id === EXTENSION_ID
+        && status.extension_id === EXTENSION_ID && status.protocol === 6
+        && status.extension_version === extension_manifest.version
+        && status.build_id === config.expected_build_id
+        && lowercase_hex_32(status.profile_instance_id);
+      journal.criteria.G1 = strict_ok ? "pass" : "fail";
+      journal_stage(journal, "fixture", "public-cli", 5000,
+        strict_ok ? "FIXTURE_IDENTITY_PROVED" : "FIXTURE_IDENTITY_MISMATCH", {
+          extension_id:EXTENSION_ID,
+          strict_status_digest:identity_digest(
+            "acu.profile-binding-v2.strict-status/v1", status, config.repo),
+          extension_identity_match:strict_shape
+            && status.extension_id === EXTENSION_ID,
+          status_identity_match:strict_shape && status.protocol === 6,
+          build_identity_match:strict_shape
+            && status.build_id === config.expected_build_id,
+          native_host_identity_digest:identity_digest(
+            "acu.profile-binding-v2.host-identity/v1", connection.process, config.repo),
+          construction_trace_digest:identity_digest(
+            "acu.profile-binding-v2.construction-trace/v1",
+            {baseline_digest:inventory_facts(baseline, null, config.repo, false)
+                .normalized_row_digest,
+             current_digest:current_facts.normalized_row_digest,
+             owner_digest:identity_digest("acu.profile-binding-v2.owner-identity/v1",
+                session.owner, config.repo),
+             browser_digest:identity_digest(
+                "acu.profile-binding-v2.browser-identity/v1",
+                session.browser, config.repo),
+             host_digest:identity_digest("acu.profile-binding-v2.host-identity/v1",
+                connection.process, config.repo)}, config.repo),
+          construction_trace_complete:true
+        });
+      if (!strict_ok) { throw "INCONCLUSIVE_DEPENDENCY"; }
+
+      const candidate = profile_candidate(config, pf.facts.browser_family, session,
+        added_connections(found.inventory, baseline).length);
+      const g2a_ok = candidate.g2a_facts.N_all === 1;
+      journal.criteria.G2a = g2a_ok ? "pass" : "fail";
+      journal_stage(journal, "candidate", "independent-local-state", 5000,
+        g2a_ok ? "PUBLIC_CANDIDATE_PROVED" : "PUBLIC_CANDIDATE_DISAGREED",
+        candidate.g2a_facts);
+      if (!g2a_ok) { throw "INCONCLUSIVE_CANDIDATE_OBSERVER"; }
+      const g2b_ok = candidate.g2b_facts.N === 1
+        && candidate.g2b_facts.I === 1 && candidate.g2b_facts.C === 1;
+      journal.criteria.G2b = g2b_ok ? "pass" : "fail";
+      journal_stage(journal, "candidate", "independent-preferences", 5000,
+        g2b_ok ? "INSTALLED_CANDIDATE_PROVED" : "INSTALLED_CANDIDATE_DISAGREED",
+        candidate.g2b_facts);
+      if (!g2b_ok) { throw "INCONCLUSIVE_FIXTURE"; }
+
+      const prefix = prefix_control(config, connection_inventory(config),
+        connection.connection_id, status.profile_instance_id);
+      journal.criteria.G6 = prefix ? "pass" : "fail";
+      journal_stage(journal, "prefix-control", "court", 5000,
+        prefix ? "PREFIX_CONTROL_PASS" : "PREFIX_CONTROL_FAIL",
+        {outcome:prefix ? "exact-singleton" : "mismatch", exact_match:prefix});
+      if (!prefix) { throw "INCONCLUSIVE_FIXTURE"; }
+
+      const pairs = surface_inventory(candidate.surface, connection, status,
+        owned, config.repo);
+      for (let i = 0; i < pairs.length; i = i + 1) {
+        journal_stage(journal, "surface", "court", 5000,
+          "SURFACE_PAIR_CLASSIFIED", pairs[i]);
+      }
+      const surface_result = surface_aggregate(pairs);
+      journal.criteria.G4a = surface_result === "all-ineligible" ? "pass" : "fail";
+      journal.criteria.G4c = surface_result === "INCONCLUSIVE_GROUND_TRUTH_CONFLICT"
+        ? "fail" : "pass";
+      if (surface_result !== "all-ineligible") { throw surface_result; }
+
+      const a0 = candidate.g2a_facts.N_all === 1
+        && candidate.g2b_facts.N === 1 && candidate.g2b_facts.I === 1
+        && candidate.g2b_facts.C === 1;
+      journal.criteria.G3 = "rejected";
+      journal_stage(journal, "a0-control", "court", 5000,
+        a0 ? "REJECT_ARCHIVED_CARDINALITY_ALIAS" : "REJECT_A0_NOT_REPRODUCED",
+        {outcome:a0 ? "selected-b-and-rejected" : "not-reproduced"});
+
+      const binding = binding_facts(config);
+      const binding_ok = binding_passed(binding);
+      journal.criteria.G7 = binding_ok ? "pass" : "fail";
+      journal_stage(journal, "binding-model", "binding-model", 5000,
+        binding_ok ? "BINDING_MODEL_PASS" : "BINDING_MODEL_FAIL", binding);
+      if (!binding_ok) { throw "INCONCLUSIVE_BINDING_DESIGN"; }
+      computed = "SELECT_EXPLICIT_DURABLE_BINDING";
+    }
+  } catch (error) {
+    if (pf === null) { journal.criteria.V1 = "fail"; }
+    primary = typed_failure(error);
+  }
+
+  const clean = cleanup(config, journal, baseline, session, connection,
+    frozen_group, lifecycle_attempted);
+  if (lifecycle_attempted) {
+    journal.criteria.V3a = clean.v3a ? "pass" : "fail";
+    journal.criteria.V3b = clean.v3b ? "pass" : "fail";
+    journal.criteria.V3 = clean.v3a && clean.v3b ? "pass" : "fail";
+    journal.criteria.V4b = clean.inventory_status === "pass" ? "pass" : "fail";
+  }
+  let terminal = computed;
+  if (primary !== null) { terminal = primary; }
+  else if (clean.cleanup_status !== "pass") { terminal = "INCONCLUSIVE_CLEANUP"; }
+  else if (clean.inventory_status !== "pass") { terminal = "INCONCLUSIVE_INVENTORY"; }
+  ensure(terminal !== null, "profile_binding_v2_terminal_missing");
+  const authoritative = clean.v3a && clean.v3b
+    && clean.inventory_status === "pass";
+  if (!authoritative && terminal === "SELECT_EXPLICIT_DURABLE_BINDING") {
+    terminal = clean.cleanup_status !== "pass" ? "INCONCLUSIVE_CLEANUP"
+      : "INCONCLUSIVE_INVENTORY";
+  }
+  journal_stage(journal, "terminal", "court", 5000, terminal, {
+    primary_cause:primary,
+    cleanup_status:clean.cleanup_status,
+    final_inventory_status:clean.inventory_status,
+    terminal_code:terminal
+  });
+  journal_finish(journal);
+  print(canonical({ok:true, terminal_code:terminal,
+    receipt_sha256:journal.receipt_sha256}));
+}
+
+const argv = rh.args();
+ensure(argv.length === 18,
+  "expected: MODE REPO AGENTERM_EXE CU_EXE BROWSER_EXE APP SESSION STATE_EXE CANDIDATE_DIR SOURCE_SHA INPUT_DIGEST AGENTERM_SHA CU_SHA BROWSER_SHA EXPECTED_BUILD_ID KIND ORDINAL RUN_ID");
+const config = {
+  mode: argv[0], repo: rh.absolute(argv[1]),
+  agenterm_exe: rh.absolute(argv[2]), cu_exe: rh.absolute(argv[3]),
+  browser_exe: rh.absolute(argv[4]), app: argv[5], session: argv[6],
+  state_exe: rh.absolute(argv[7]), candidate_dir: rh.absolute(argv[8]),
+  source_sha: argv[9], input_digest: argv[10], agenterm_sha: argv[11],
+  cu_sha: argv[12], browser_sha: argv[13], expected_build_id: argv[14],
+  kind: argv[15], ordinal: argv[16], run_id: argv[17]
+};
+ensure(config.mode === "preflight" || config.mode === "rehearsal"
+    || config.mode === "decision", "profile_binding_v2_mode_invalid");
+ensure(config.kind === "rehearsal" || config.kind === "decision",
+  "profile_binding_v2_kind_invalid");
+ensure(config.mode === "preflight" || config.mode === config.kind,
+  "profile_binding_v2_mode_kind_mismatch");
+
+if (config.mode === "preflight") {
+  const result = preflight(config);
+  print(canonical(result.handshake));
+} else {
+  ensure(config.ordinal === "R1" || config.ordinal === "R2"
+      || config.ordinal === "D1", "profile_binding_v2_ordinal_invalid");
+  ensure(direct_directory(config.candidate_dir),
+    "profile_binding_v2_candidate_directory_invalid");
+  config.home = rh.join(config.candidate_dir, "owned-home");
+  config.env = isolated_env(config.home, config.candidate_dir);
+  execute(config);
+}

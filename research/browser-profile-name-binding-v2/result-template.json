@@ -1,0 +1,99 @@
+{
+  "schema": "agenterm.profile-binding-v2-result-template/v1",
+  "experiment": "acu.dynamic.075.profile-name-binding-v2",
+  "limits": {
+    "journal_max_rows_exclusive": 64,
+    "journal_max_row_bytes_exclusive": 32768,
+    "journal_max_total_bytes_exclusive": 1048576
+  },
+  "identity_domains": [
+    "acu.profile-binding-v2.owner-identity/v1",
+    "acu.profile-binding-v2.browser-identity/v1",
+    "acu.profile-binding-v2.host-identity/v1",
+    "acu.profile-binding-v2.connection-identity/v1",
+    "acu.profile-binding-v2.inventory-row/v1",
+    "acu.profile-binding-v2.candidate-profile/v1",
+    "acu.profile-binding-v2.candidate-installation/v1",
+    "acu.profile-binding-v2.candidate-root/v1",
+    "acu.profile-binding-v2.live-root/v1",
+    "acu.profile-binding-v2.strict-status/v1",
+    "acu.profile-binding-v2.construction-trace/v1",
+    "acu.profile-binding-v2.surface-clause/v1",
+    "acu.profile-binding-v2.ground-truth-pair/v1",
+    "acu.profile-binding-v2.fault-matrix/v1"
+  ],
+  "journal_keys": ["schema", "experiment", "kind", "ordinal", "run_id", "seq", "prev_sha256", "stage", "producer", "deadline_ms", "elapsed_ms", "code", "facts"],
+  "ledger_keys": ["schema", "experiment", "kind", "ordinal", "run_id", "source_sha", "input_digest", "status", "receipt_sha256", "terminal_code"],
+  "receipt_keys": ["schema", "experiment", "kind", "ordinal", "run_id", "source_sha", "input_digest", "journal_final_seq", "journal_final_sha256", "last_completed_stage", "deadline_ms", "code", "facts", "criteria"],
+  "criteria_keys": ["V1", "V2", "V3", "V3a", "V3b", "V4a", "V4b", "G1", "G2a", "G2b", "G3", "G4a", "G4c", "G6", "G7"],
+  "stages": {
+    "preflight": {
+      "required": {"source_sha": "git_sha", "input_digest": "sha256", "agenterm_sha256": "sha256", "agenterm_cu_sha256": "sha256", "browser_sha256": "sha256", "browser_family": "string", "browser_version": "string", "state_chain_valid": "boolean"},
+      "optional": {"result_template_sha256": "sha256"}
+    },
+    "baseline": {
+      "required": {"row_count": "safe_integer", "normalized_row_digest": "sha256", "complete": "boolean"},
+      "optional": {"baseline_preserved": "boolean", "owned_delta": "boolean"}
+    },
+    "session-ready": {
+      "required": {"owner_identity_digest": "sha256", "browser_identity_digest": "sha256", "ready": "boolean"},
+      "optional": {"complete": "boolean"}
+    },
+    "connection-ready": {
+      "required": {},
+      "optional": {},
+      "one_of": [
+        {"required": {"host_identity_digest": "sha256", "row_count": "safe_integer", "ready": "boolean", "complete": "boolean"}, "optional": {}},
+        {"required": {"host_identity_digest": "sha256", "connection_identity_digest": "sha256", "ready": "boolean", "complete": "boolean"}, "optional": {}}
+      ]
+    },
+    "fixture": {
+      "required": {"extension_id": "string", "strict_status_digest": "sha256", "extension_identity_match": "boolean", "status_identity_match": "boolean", "build_identity_match": "boolean", "native_host_identity_digest": "sha256", "construction_trace_digest": "sha256", "construction_trace_complete": "boolean"},
+      "optional": {}
+    },
+    "ownership": {
+      "required": {},
+      "optional": {},
+      "one_of": [
+        {"required": {"owner_identity_digest": "sha256", "browser_identity_digest": "sha256", "host_identity_digest": "sha256", "tree_row_count": "safe_integer", "ps_row_count": "safe_integer", "browser_pgid_exact": "boolean", "host_pgid_exact": "boolean", "sid_equal_nonzero": "boolean", "parent_chain_exact": "boolean", "tree_contains_host": "boolean", "owner_identity_match": "boolean", "browser_identity_match": "boolean", "host_identity_match": "boolean"}, "optional": {}},
+        {"required": {"owner_identity_digest": "sha256", "browser_identity_digest": "sha256", "host_identity_digest": "sha256", "connection_identity_digest": "sha256", "tree_row_count": "safe_integer", "ps_row_count": "safe_integer", "browser_pgid_exact": "boolean", "host_pgid_exact": "boolean", "sid_equal_nonzero": "boolean", "parent_chain_exact": "boolean", "tree_contains_host": "boolean", "owner_identity_match": "boolean", "browser_identity_match": "boolean", "host_identity_match": "boolean"}, "optional": {}}
+      ]
+    },
+    "candidate": {
+      "required": {},
+      "optional": {},
+      "one_of": [
+        {"required": {"local_state_digest": "sha256", "local_state_row_count": "safe_integer", "N_all": "safe_integer"}, "optional": {}},
+        {"required": {"preferences_digest": "sha256", "preferences_row_count": "safe_integer", "candidate_root_identity_digest": "sha256", "live_root_identity_digest": "sha256", "candidate_ancestor_symlinks_absent": "boolean", "live_ancestor_symlinks_absent": "boolean", "live_root_outside_candidate": "boolean", "root_file_objects_distinct": "boolean", "N": "safe_integer", "I": "safe_integer", "C": "safe_integer"}, "optional": {}}
+      ]
+    },
+    "surface": {
+      "required": {"candidate_schema": "string", "connection_schema": "string", "shared_issuer": "tristate", "authenticated": "tristate", "collision_resistant": "tristate", "injective": "tristate", "profile_unique": "tristate", "source_clause_digest": "sha256", "observed_values_equal": "boolean", "ground_truth_pair_digest": "sha256"},
+      "optional": {}
+    },
+    "a0-control": {"required": {"outcome": "string"}, "optional": {}},
+    "prefix-control": {"required": {"outcome": "string", "exact_match": "boolean"}, "optional": {}},
+    "binding-model": {
+      "required": {"model_digest": "sha256", "matrix_digest": "sha256", "create": "boolean", "resolve": "boolean", "restart_revalidate": "boolean", "target_stale": "boolean", "collision": "boolean", "generation_conflict": "boolean", "revoke": "boolean", "active_pair_unique": "boolean", "active_alias_per_instance": "boolean", "duplicate_alias_typed": "boolean", "identity_build_stale_typed": "boolean", "inventory_cardinality_typed": "boolean", "authority_matrix_complete": "boolean", "generation_cas": "boolean", "rename_requires_replace": "boolean", "revoke_not_found_typed": "boolean"},
+      "optional": {}
+    },
+    "stop": {"required": {"public_stop_succeeded": "boolean"}, "optional": {}},
+    "termination-proof": {
+      "required": {"owner_absent": "boolean", "browser_absent": "boolean", "host_absent": "boolean", "group_absent": "boolean", "ps_row_count": "safe_integer", "process_state_observation_count": "safe_integer"},
+      "optional": {}
+    },
+    "final-inventory": {
+      "required": {"row_count": "safe_integer", "normalized_row_digest": "sha256", "complete": "boolean", "baseline_preserved": "boolean", "owned_delta": "boolean"},
+      "optional": {}
+    },
+    "registry-hygiene": {
+      "required": {"row_count": "safe_integer", "normalized_row_digest": "sha256", "complete": "boolean", "baseline_preserved": "boolean", "owned_delta": "boolean", "visited_count": "safe_integer"},
+      "optional": {}
+    },
+    "root-removal": {"required": {"root_removal_succeeded": "boolean", "root_absent": "boolean"}, "optional": {}},
+    "terminal": {
+      "required": {"primary_cause": "nullable_string", "cleanup_status": "string", "final_inventory_status": "string", "terminal_code": "string"},
+      "optional": {}
+    }
+  }
+}

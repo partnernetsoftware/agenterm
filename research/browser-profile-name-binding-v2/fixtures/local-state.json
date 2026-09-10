@@ -1,0 +1,11 @@
+{
+  "profile": {
+    "last_used": "Profile 1",
+    "profiles_order": ["Profile 1"],
+    "info_cache": {
+      "Profile 1": {
+        "name": "Work"
+      }
+    }
+  }
+}

@@ -1,0 +1,663 @@
+// Pure executable model for the browser profile-name binding experiment v2.
+//
+// There is no tool door, filesystem access, browser access, or fault bypass in
+// this module. Faults are data transformations applied to otherwise valid
+// requests, inventories, and durable states. Every transition clones its input
+// state and every refusal is required to preserve the serialized input bytes.
+
+function demand(condition, code) {
+  if (!condition) { throw code; }
+}
+
+function copy(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function same(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function empty_state() {
+  return {schema: 1, records: []};
+}
+
+function trusted_authority() {
+  return {
+    request_id: "REQUEST_OK",
+    session_id: "SESSION_OK",
+    session_lease: "LEASE_OK"
+  };
+}
+
+function authority_code(authority) {
+  if (authority.request_id !== "REQUEST_OK") {
+    return "request_authority_refused";
+  }
+  if (authority.session_id !== "SESSION_OK") {
+    return "runtime_session_refused";
+  }
+  if (authority.session_lease !== "LEASE_OK") {
+    return "session_lease_refused";
+  }
+  return "authorized";
+}
+
+function transition(code, state) {
+  return {code: code, state: copy(state)};
+}
+
+function active_record_index(state, application_key, alias_key) {
+  for (let i = 0; i < state.records.length; i = i + 1) {
+    const row = state.records[i];
+    if (row.status === "active"
+        && row.application_key === application_key
+        && row.alias_key === alias_key) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function historical_pair_index(state, application_key, alias_key) {
+  for (let i = 0; i < state.records.length; i = i + 1) {
+    const row = state.records[i];
+    if (row.application_key === application_key && row.alias_key === alias_key) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function active_instance_index(state, instance_key, except_index) {
+  for (let i = 0; i < state.records.length; i = i + 1) {
+    const row = state.records[i];
+    if (i !== except_index && row.status === "active"
+        && row.instance_key === instance_key) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function create_binding(state, request, authority) {
+  const authority_result = authority_code(authority);
+  if (authority_result !== "authorized") {
+    return transition(authority_result, state);
+  }
+  if (request.expected_generation !== 0) {
+    return transition("generation_conflict", state);
+  }
+  const pair = historical_pair_index(
+    state, request.application_key, request.alias_key
+  );
+  if (pair >= 0) {
+    if (state.records[pair].directory_key === request.directory_key) {
+      return transition("active_pair_collision", state);
+    }
+    return transition("duplicate_alias", state);
+  }
+  if (active_instance_index(state, request.instance_key, -1) >= 0) {
+    return transition("instance_collision", state);
+  }
+  const next = copy(state);
+  next.records.push({
+    application_key: request.application_key,
+    directory_key: request.directory_key,
+    alias_key: request.alias_key,
+    instance_key: request.instance_key,
+    build_key: request.build_key,
+    generation: 1,
+    status: "active"
+  });
+  return {code: "created", state: next, generation: 1};
+}
+
+function replace_binding(state, request, authority) {
+  const authority_result = authority_code(authority);
+  if (authority_result !== "authorized") {
+    return transition(authority_result, state);
+  }
+  const old_index = active_record_index(
+    state, request.application_key, request.old_alias_key
+  );
+  if (old_index < 0) {
+    return transition("not_found", state);
+  }
+  const old = state.records[old_index];
+  if (old.generation !== request.expected_generation) {
+    return transition("generation_conflict", state);
+  }
+  const pair = historical_pair_index(
+    state, request.application_key, request.new_alias_key
+  );
+  if (pair >= 0 && pair !== old_index) {
+    if (state.records[pair].directory_key === request.directory_key) {
+      return transition("active_pair_collision", state);
+    }
+    return transition("duplicate_alias", state);
+  }
+  if (active_instance_index(state, request.instance_key, old_index) >= 0) {
+    return transition("instance_collision", state);
+  }
+  const next = copy(state);
+  next.records[old_index].status = "revoked";
+  next.records.push({
+    application_key: request.application_key,
+    directory_key: request.directory_key,
+    alias_key: request.new_alias_key,
+    instance_key: request.instance_key,
+    build_key: request.build_key,
+    generation: old.generation + 1,
+    status: "active"
+  });
+  return {
+    code: "replaced",
+    state: next,
+    generation: old.generation + 1
+  };
+}
+
+function revoke_binding(state, request, authority) {
+  const authority_result = authority_code(authority);
+  if (authority_result !== "authorized") {
+    return transition(authority_result, state);
+  }
+  const index = active_record_index(
+    state, request.application_key, request.alias_key
+  );
+  if (index < 0) {
+    return transition("not_found", state);
+  }
+  if (state.records[index].generation !== request.expected_generation) {
+    return transition("generation_conflict", state);
+  }
+  const next = copy(state);
+  next.records[index].status = "revoked";
+  next.records[index].generation = next.records[index].generation + 1;
+  return {
+    code: "revoked",
+    state: next,
+    generation: next.records[index].generation
+  };
+}
+
+function resolve_binding(state, selector, inventory) {
+  if (inventory.complete !== true) {
+    return transition("inventory_incomplete", state);
+  }
+  const index = active_record_index(
+    state, selector.application_key, selector.alias_key
+  );
+  if (index < 0) {
+    return transition("not_found", state);
+  }
+  const binding = state.records[index];
+  let matches = [];
+  for (let i = 0; i < inventory.rows.length; i = i + 1) {
+    const row = inventory.rows[i];
+    if (row.application_key === binding.application_key
+        && row.directory_key === binding.directory_key) {
+      matches.push(row);
+    }
+  }
+  if (matches.length === 0) {
+    return transition("connection_count_zero", state);
+  }
+  if (matches.length > 1) {
+    return transition("connection_count_multiple", state);
+  }
+  if (matches[0].instance_key !== binding.instance_key) {
+    return transition("target_stale", state);
+  }
+  if (matches[0].build_key !== binding.build_key) {
+    return transition("build_stale", state);
+  }
+  return {
+    code: "resolved",
+    state: copy(state),
+    binding: copy(binding)
+  };
+}
+
+function create_request(application_key, directory_key, alias_key,
+    instance_key, build_key) {
+  return {
+    application_key: application_key,
+    directory_key: directory_key,
+    alias_key: alias_key,
+    instance_key: instance_key,
+    build_key: build_key,
+    expected_generation: 0
+  };
+}
+
+function replace_request(old_alias_key, new_alias_key) {
+  return {
+    application_key: "browser-a",
+    directory_key: "profile-1",
+    old_alias_key: old_alias_key,
+    new_alias_key: new_alias_key,
+    instance_key: "instance-1",
+    build_key: "build-1",
+    expected_generation: 1
+  };
+}
+
+function revoke_request(alias_key) {
+  return {
+    application_key: "browser-a",
+    alias_key: alias_key,
+    expected_generation: 1
+  };
+}
+
+function seeded_state() {
+  const made = create_binding(
+    empty_state(),
+    create_request(
+      "browser-a", "profile-1", "work", "instance-1", "build-1"
+    ),
+    trusted_authority()
+  );
+  demand(made.code === "created", "binding_model_seed_failed");
+  return made.state;
+}
+
+function good_inventory() {
+  return {
+    complete: true,
+    rows: [{
+      application_key: "browser-a",
+      directory_key: "profile-1",
+      instance_key: "instance-1",
+      build_key: "build-1"
+    }]
+  };
+}
+
+function selector(alias_key) {
+  return {application_key: "browser-a", alias_key: alias_key};
+}
+
+function fault_rows() {
+  return [
+    {id:"create-request-authority", action:"create", mutation:"request-authority", expected_code:"request_authority_refused", expect_state_changed:false},
+    {id:"create-runtime-session", action:"create", mutation:"runtime-session", expected_code:"runtime_session_refused", expect_state_changed:false},
+    {id:"create-session-lease", action:"create", mutation:"session-lease", expected_code:"session_lease_refused", expect_state_changed:false},
+    {id:"replace-request-authority", action:"replace", mutation:"request-authority", expected_code:"request_authority_refused", expect_state_changed:false},
+    {id:"replace-runtime-session", action:"replace", mutation:"runtime-session", expected_code:"runtime_session_refused", expect_state_changed:false},
+    {id:"replace-session-lease", action:"replace", mutation:"session-lease", expected_code:"session_lease_refused", expect_state_changed:false},
+    {id:"revoke-request-authority", action:"revoke", mutation:"request-authority", expected_code:"request_authority_refused", expect_state_changed:false},
+    {id:"revoke-runtime-session", action:"revoke", mutation:"runtime-session", expected_code:"runtime_session_refused", expect_state_changed:false},
+    {id:"revoke-session-lease", action:"revoke", mutation:"session-lease", expected_code:"session_lease_refused", expect_state_changed:false},
+    {id:"create-generation-conflict", action:"create", mutation:"create-generation", expected_code:"generation_conflict", expect_state_changed:false},
+    {id:"replace-generation-conflict", action:"replace", mutation:"replace-generation", expected_code:"generation_conflict", expect_state_changed:false},
+    {id:"revoke-generation-conflict", action:"revoke", mutation:"revoke-generation", expected_code:"generation_conflict", expect_state_changed:false},
+    {id:"active-pair-collision", action:"create", mutation:"active-pair", expected_code:"active_pair_collision", expect_state_changed:false},
+    {id:"duplicate-alias-collision", action:"create", mutation:"duplicate-alias", expected_code:"duplicate_alias", expect_state_changed:false},
+    {id:"instance-collision", action:"create", mutation:"instance", expected_code:"instance_collision", expect_state_changed:false},
+    {id:"inventory-incomplete", action:"resolve", mutation:"inventory-incomplete", expected_code:"inventory_incomplete", expect_state_changed:false},
+    {id:"inventory-zero", action:"resolve", mutation:"inventory-zero", expected_code:"connection_count_zero", expect_state_changed:false},
+    {id:"inventory-multiple", action:"resolve", mutation:"inventory-multiple", expected_code:"connection_count_multiple", expect_state_changed:false},
+    {id:"identity-stale", action:"resolve", mutation:"identity-stale", expected_code:"target_stale", expect_state_changed:false},
+    {id:"build-stale", action:"resolve", mutation:"build-stale", expected_code:"build_stale", expect_state_changed:false},
+    {id:"restart-record-loss", action:"restart-revalidate", mutation:"restart-record-loss", expected_code:"not_found", expect_state_changed:false},
+    {id:"restart-build-drift", action:"restart-revalidate", mutation:"restart-build-drift", expected_code:"build_stale", expect_state_changed:false},
+    {id:"revoked-resolve", action:"resolve", mutation:"revoked-resolve", expected_code:"not_found", expect_state_changed:false}
+  ];
+}
+
+function authority_with_fault(mutation) {
+  const authority = trusted_authority();
+  if (mutation === "request-authority") {
+    authority.request_id = "REQUEST_WRONG";
+  } else if (mutation === "runtime-session") {
+    authority.session_id = "SESSION_WRONG";
+  } else if (mutation === "session-lease") {
+    authority.session_lease = "LEASE_WRONG";
+  }
+  return authority;
+}
+
+function execute_fault(row) {
+  let state = seeded_state();
+  const before = copy(state);
+  let result = null;
+  const authority = authority_with_fault(row.mutation);
+
+  if (row.action === "create") {
+    let request = create_request(
+      "browser-b", "profile-2", "work", "instance-2", "build-2"
+    );
+    if (row.mutation === "create-generation") {
+      request.expected_generation = 1;
+    } else if (row.mutation === "active-pair") {
+      request = create_request(
+        "browser-a", "profile-1", "work", "instance-2", "build-2"
+      );
+    } else if (row.mutation === "duplicate-alias") {
+      request = create_request(
+        "browser-a", "profile-2", "work", "instance-2", "build-2"
+      );
+    } else if (row.mutation === "instance") {
+      request = create_request(
+        "browser-b", "profile-2", "personal", "instance-1", "build-2"
+      );
+    }
+    result = create_binding(state, request, authority);
+  } else if (row.action === "replace") {
+    const request = replace_request("work", "renamed-work");
+    if (row.mutation === "replace-generation") {
+      request.expected_generation = 0;
+    }
+    result = replace_binding(state, request, authority);
+  } else if (row.action === "revoke") {
+    const request = revoke_request("work");
+    if (row.mutation === "revoke-generation") {
+      request.expected_generation = 0;
+    }
+    result = revoke_binding(state, request, authority);
+  } else {
+    let inventory = good_inventory();
+    if (row.mutation === "inventory-incomplete") {
+      inventory.complete = false;
+    } else if (row.mutation === "inventory-zero") {
+      inventory.rows = [];
+    } else if (row.mutation === "inventory-multiple") {
+      inventory.rows.push(copy(inventory.rows[0]));
+    } else if (row.mutation === "identity-stale") {
+      inventory.rows[0].instance_key = "instance-other";
+    } else if (row.mutation === "build-stale"
+        || row.mutation === "restart-build-drift") {
+      inventory.rows[0].build_key = "build-other";
+    } else if (row.mutation === "restart-record-loss") {
+      state = empty_state();
+    } else if (row.mutation === "revoked-resolve") {
+      state = revoke_binding(
+        state, revoke_request("work"), trusted_authority()
+      ).state;
+    }
+    const restarted = JSON.parse(JSON.stringify(state));
+    result = resolve_binding(restarted, selector("work"), inventory);
+  }
+
+  const unchanged = same(state, result.state);
+  return {
+    id: row.id,
+    expected_code: row.expected_code,
+    actual_code: result.code,
+    state_unchanged: unchanged,
+    passed: result.code === row.expected_code
+      && unchanged === !row.expect_state_changed
+  };
+}
+
+function prove_create() {
+  const result = create_binding(
+    empty_state(),
+    create_request(
+      "browser-a", "profile-1", "work", "instance-1", "build-1"
+    ),
+    trusted_authority()
+  );
+  return result.code === "created"
+    && result.generation === 1
+    && result.state.records.length === 1;
+}
+
+function prove_resolve() {
+  const state = seeded_state();
+  const result = resolve_binding(state, selector("work"), good_inventory());
+  return result.code === "resolved"
+    && result.binding.instance_key === "instance-1"
+    && same(state, result.state);
+}
+
+function prove_restart_revalidate() {
+  const state = seeded_state();
+  const restarted = JSON.parse(JSON.stringify(state));
+  const result = resolve_binding(
+    restarted, selector("work"), good_inventory()
+  );
+  return same(state, restarted)
+    && result.code === "resolved"
+    && result.binding.generation === 1;
+}
+
+function prove_target_stale() {
+  const state = seeded_state();
+  let inventory = good_inventory();
+  inventory.complete = false;
+  const incomplete = resolve_binding(state, selector("work"), inventory);
+  inventory = good_inventory();
+  inventory.rows = [];
+  const zero = resolve_binding(state, selector("work"), inventory);
+  inventory = good_inventory();
+  inventory.rows.push(copy(inventory.rows[0]));
+  const multiple = resolve_binding(state, selector("work"), inventory);
+  inventory = good_inventory();
+  inventory.rows[0].instance_key = "instance-other";
+  const identity = resolve_binding(state, selector("work"), inventory);
+  inventory = good_inventory();
+  inventory.rows[0].build_key = "build-other";
+  const build = resolve_binding(state, selector("work"), inventory);
+  return incomplete.code === "inventory_incomplete"
+    && zero.code === "connection_count_zero"
+    && multiple.code === "connection_count_multiple"
+    && identity.code === "target_stale"
+    && build.code === "build_stale"
+    && same(state, incomplete.state)
+    && same(state, zero.state)
+    && same(state, multiple.state)
+    && same(state, identity.state)
+    && same(state, build.state);
+}
+
+function prove_collision() {
+  const state = seeded_state();
+  const pair = create_binding(
+    state,
+    create_request(
+      "browser-a", "profile-1", "work", "instance-2", "build-2"
+    ),
+    trusted_authority()
+  );
+  const alias = create_binding(
+    state,
+    create_request(
+      "browser-a", "profile-2", "work", "instance-2", "build-2"
+    ),
+    trusted_authority()
+  );
+  const instance = create_binding(
+    state,
+    create_request(
+      "browser-b", "profile-2", "personal", "instance-1", "build-2"
+    ),
+    trusted_authority()
+  );
+  const cross_app_alias = create_binding(
+    state,
+    create_request(
+      "browser-b", "profile-2", "work", "instance-2", "build-2"
+    ),
+    trusted_authority()
+  );
+  return pair.code === "active_pair_collision"
+    && alias.code === "duplicate_alias"
+    && instance.code === "instance_collision"
+    && cross_app_alias.code === "created"
+    && same(state, pair.state)
+    && same(state, alias.state)
+    && same(state, instance.state);
+}
+
+function prove_generation_conflict() {
+  const state = seeded_state();
+  let request = create_request(
+    "browser-b", "profile-2", "personal", "instance-2", "build-2"
+  );
+  request.expected_generation = 1;
+  const create_conflict = create_binding(state, request, trusted_authority());
+  request = replace_request("work", "renamed-work");
+  request.expected_generation = 0;
+  const replace_conflict = replace_binding(state, request, trusted_authority());
+  let revoke = revoke_request("work");
+  revoke.expected_generation = 0;
+  const revoke_conflict = revoke_binding(state, revoke, trusted_authority());
+  const replaced = replace_binding(
+    state, replace_request("work", "renamed-work"), trusted_authority()
+  );
+  const old_result = resolve_binding(
+    replaced.state, selector("work"), good_inventory()
+  );
+  const new_result = resolve_binding(
+    replaced.state, selector("renamed-work"), good_inventory()
+  );
+  return create_conflict.code === "generation_conflict"
+    && replace_conflict.code === "generation_conflict"
+    && revoke_conflict.code === "generation_conflict"
+    && same(state, create_conflict.state)
+    && same(state, replace_conflict.state)
+    && same(state, revoke_conflict.state)
+    && replaced.code === "replaced"
+    && replaced.generation === 2
+    && old_result.code === "not_found"
+    && new_result.code === "resolved";
+}
+
+function prove_revoke() {
+  const state = seeded_state();
+  const revoked = revoke_binding(
+    state, revoke_request("work"), trusted_authority()
+  );
+  const resolved = resolve_binding(
+    revoked.state, selector("work"), good_inventory()
+  );
+  const repeated = revoke_binding(
+    revoked.state, revoke_request("work"), trusted_authority()
+  );
+  return revoked.code === "revoked"
+    && revoked.generation === 2
+    && revoked.state.records[0].status === "revoked"
+    && resolved.code === "not_found"
+    && repeated.code === "not_found"
+    && same(revoked.state, repeated.state);
+}
+
+export function model_manifest() {
+  return {
+    schema: 1,
+    selector_fields: ["application_key", "alias_key"],
+    state_fields: [
+      "application_key", "directory_key", "alias_key", "instance_key",
+      "build_key", "generation", "status"
+    ],
+    operations: [
+      "create", "resolve", "restart-revalidate", "target-stale",
+      "collision", "generation-conflict", "revoke"
+    ],
+    authority_fields: ["request_id", "session_id", "session_lease"],
+    refusal_codes: [
+      "request_authority_refused", "runtime_session_refused",
+      "session_lease_refused", "generation_conflict",
+      "active_pair_collision", "duplicate_alias", "instance_collision",
+      "inventory_incomplete", "connection_count_zero",
+      "connection_count_multiple", "target_stale", "build_stale",
+      "not_found"
+    ],
+    invariants: [
+      "active_pair_unique", "instance_single_alias",
+      "duplicate_alias_typed", "identity_change_stale",
+      "inventory_cardinality_typed", "explicit_request",
+      "runtime_session", "session_lease", "generation_cas",
+      "rename_requires_explicit_replace", "revoke_resolves_not_found",
+      "cross_app_alias_unadjudicated"
+    ]
+  };
+}
+
+export function fault_matrix_manifest() {
+  return {schema: 1, rows: fault_rows()};
+}
+
+export function prove() {
+  const operations = {
+    create: prove_create(),
+    resolve: prove_resolve(),
+    restart_revalidate: prove_restart_revalidate(),
+    target_stale: prove_target_stale(),
+    collision: prove_collision(),
+    generation_conflict: prove_generation_conflict(),
+    revoke: prove_revoke()
+  };
+  const rows = fault_rows();
+  let results = [];
+  let unique = true;
+  let all_faults_pass = rows.length === 23;
+  for (let i = 0; i < rows.length; i = i + 1) {
+    for (let j = 0; j < i; j = j + 1) {
+      if (rows[i].id === rows[j].id) { unique = false; }
+    }
+    const result = execute_fault(rows[i]);
+    results.push(result);
+    if (!result.passed) { all_faults_pass = false; }
+  }
+  all_faults_pass = all_faults_pass && unique;
+  const invariants = {
+    active_pair_unique: operations.collision,
+    instance_single_alias: operations.collision,
+    duplicate_alias_typed: operations.collision,
+    identity_change_stale: operations.target_stale,
+    inventory_cardinality_typed: operations.target_stale,
+    explicit_request: results[0].passed && results[3].passed && results[6].passed,
+    runtime_session: results[1].passed && results[4].passed && results[7].passed,
+    session_lease: results[2].passed && results[5].passed && results[8].passed,
+    generation_cas: results[9].passed && results[10].passed && results[11].passed,
+    rename_requires_explicit_replace: operations.generation_conflict,
+    revoke_resolves_not_found: operations.revoke && results[22].passed,
+    cross_app_alias_unadjudicated: operations.collision
+  };
+  const operations_pass = operations.create && operations.resolve
+    && operations.restart_revalidate && operations.target_stale
+    && operations.collision && operations.generation_conflict
+    && operations.revoke;
+  const invariants_pass = invariants.active_pair_unique
+    && invariants.instance_single_alias && invariants.duplicate_alias_typed
+    && invariants.identity_change_stale
+    && invariants.inventory_cardinality_typed && invariants.explicit_request
+    && invariants.runtime_session && invariants.session_lease
+    && invariants.generation_cas
+    && invariants.rename_requires_explicit_replace
+    && invariants.revoke_resolves_not_found
+    && invariants.cross_app_alias_unadjudicated;
+  return {
+    operations: operations,
+    invariants: invariants,
+    fault_results: results,
+    operation_count: 7,
+    fault_row_count: rows.length,
+    fault_row_ids_unique: unique,
+    passed: operations_pass && invariants_pass && all_faults_pass
+  };
+}
+
+export function self_test() {
+  const model = model_manifest();
+  const matrix = fault_matrix_manifest();
+  const proof = prove();
+  demand(model.operations.length === 7, "binding_model_operation_count");
+  demand(matrix.rows.length === 23, "binding_model_fault_row_count");
+  demand(proof.fault_row_ids_unique, "binding_model_fault_row_duplicate");
+  demand(proof.passed, "binding_model_proof_failed");
+  for (let i = 0; i < proof.fault_results.length; i = i + 1) {
+    demand(proof.fault_results[i].passed,
+      "binding_model_fault_failed:" + proof.fault_results[i].id);
+    demand(proof.fault_results[i].state_unchanged,
+      "binding_model_fault_mutated_state:" + proof.fault_results[i].id);
+  }
+  return true;
+}
+
+const binding_model_self_test_passed = self_test();
+binding_model_self_test_passed;
