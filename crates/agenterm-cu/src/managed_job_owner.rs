@@ -21,6 +21,7 @@ use agenterm_platform::{
         ContainedProcessLimits,
     },
     process::{ProcessExit, start_identity},
+    process_observation::{IdentityVerdict, verify_identity},
 };
 use serde::{Deserialize, Serialize};
 
@@ -123,6 +124,23 @@ pub(crate) enum ManagedJobTerminal {
     Exited(i32),
     Signaled(u16),
     Detached,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AdoptedIdentityState {
+    Live,
+    Absent,
+    Unknown,
+}
+
+fn adopted_identity_state(verdict: IdentityVerdict) -> AdoptedIdentityState {
+    match verdict {
+        IdentityVerdict::Live => AdoptedIdentityState::Live,
+        IdentityVerdict::PidReused | IdentityVerdict::Dead => AdoptedIdentityState::Absent,
+        IdentityVerdict::IdentityUnavailable | IdentityVerdict::Unobservable => {
+            AdoptedIdentityState::Unknown
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -816,12 +834,20 @@ impl ResidentJobOwner {
             return Ok(Some(report));
         }
         if self.adopted {
-            if start_identity(self.process.pid).ok().as_deref()
-                == Some(&self.process.start_identity)
-            {
-                return Ok(None);
+            match adopted_identity_state(verify_identity(
+                self.process.pid,
+                &self.process.start_identity,
+            )) {
+                AdoptedIdentityState::Live => return Ok(None),
+                AdoptedIdentityState::Absent => {
+                    return self.finish_adopted_detached().map(Some);
+                }
+                AdoptedIdentityState::Unknown => {
+                    return Err(ManagedJobOwnerError::new(
+                        "managed_job_process_state_unknown",
+                    ));
+                }
             }
-            return self.finish_adopted_detached().map(Some);
         }
         let exit = match self
             .child
@@ -914,13 +940,22 @@ impl ResidentJobOwner {
                 // caller must not treat that result as safely retryable.
                 .map_err(|_| ManagedJobOwnerError::new("managed_job_outcome_unknown"))?;
             let deadline = Instant::now() + CLEANUP_WAIT;
-            while start_identity(self.process.pid).ok().as_deref()
-                == Some(&self.process.start_identity)
-            {
-                if Instant::now() >= deadline {
-                    return Err(ManagedJobOwnerError::new("managed_job_outcome_unknown"));
+            loop {
+                match adopted_identity_state(verify_identity(
+                    self.process.pid,
+                    &self.process.start_identity,
+                )) {
+                    AdoptedIdentityState::Live => {
+                        if Instant::now() >= deadline {
+                            return Err(ManagedJobOwnerError::new("managed_job_outcome_unknown"));
+                        }
+                        thread::sleep(WAIT_POLL);
+                    }
+                    AdoptedIdentityState::Absent => break,
+                    AdoptedIdentityState::Unknown => {
+                        return Err(ManagedJobOwnerError::new("managed_job_outcome_unknown"));
+                    }
                 }
-                thread::sleep(WAIT_POLL);
             }
             self.store
                 .mark_signaled(&self.handle, &self.owner, &self.process, 9, now_utc_ms()?)
@@ -1721,6 +1756,30 @@ pub(crate) fn now_utc_ms() -> Result<i64, ManagedJobOwnerError> {
 mod tests {
     use super::*;
     use std::{fs, io::Cursor};
+
+    #[test]
+    fn adopted_identity_state_never_turns_missing_evidence_into_absence() {
+        assert_eq!(
+            adopted_identity_state(IdentityVerdict::Live),
+            AdoptedIdentityState::Live
+        );
+        assert_eq!(
+            adopted_identity_state(IdentityVerdict::PidReused),
+            AdoptedIdentityState::Absent
+        );
+        assert_eq!(
+            adopted_identity_state(IdentityVerdict::Dead),
+            AdoptedIdentityState::Absent
+        );
+        assert_eq!(
+            adopted_identity_state(IdentityVerdict::IdentityUnavailable),
+            AdoptedIdentityState::Unknown
+        );
+        assert_eq!(
+            adopted_identity_state(IdentityVerdict::Unobservable),
+            AdoptedIdentityState::Unknown
+        );
+    }
 
     struct PartialWriter {
         remaining: usize,

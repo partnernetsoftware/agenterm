@@ -1217,6 +1217,16 @@ those rows as PID-only events. Oversized inventory still fails typed. Keep the
 baseline in the reply so a zero-event watch states exactly which objects were
 observed.
 
+Never use `start_identity(pid).ok()` as a liveness, absence, ownership or
+cleanup predicate. That conversion collapses `Dead`, `Unknown`, and
+`Live { start_identity: None }` into the same `None`; in a terminal publisher it
+can persist a false `Detached` or `Signaled` fact for a process that was merely
+unobservable. Use `process_observation::verify_identity` and exhaustively match
+all five `IdentityVerdict` variants. Only `Dead` and `PidReused` prove the
+frozen process absent. `IdentityUnavailable` and `Unobservable` must remain a
+typed unknown (or conservatively continue observation) and must never authorize
+a terminal state or destructive cleanup.
+
 This is not semantics-free: `CommandLineToArgvW` differs from modern MSVC rules
 for ambiguous hand-crafted quote sequences, and loading Shell32 can hurt a
 small console process. Require standard-launcher round trips and public CLI
