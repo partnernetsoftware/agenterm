@@ -1,0 +1,157 @@
+{
+  "schema": "agenterm.singleton-safety.foreground-probe-contract/v1",
+  "version": 1,
+  "platform": "macos",
+  "purpose": "Independent bounded observation of the current frontmost application and its ordinary onscreen windows.",
+  "serialization": {
+    "stdout": "exactly one compact RFC 8259 UTF-8 JSON object followed by one LF and no other stdout bytes",
+    "json": "duplicate object keys, unknown keys, non-integer numbers, and values outside their declared domains are invalid",
+    "integer_domain": "unsigned 64-bit integer unless a narrower bound is stated",
+    "sha256": "64 lowercase hexadecimal characters"
+  },
+  "cli": {
+    "syntax": "foreground-probe --max-windows <decimal>",
+    "exact_argument_count": 2,
+    "argument_order": [
+      "--max-windows"
+    ],
+    "rules": [
+      "--max-windows occurs exactly once as the first argument and no other argument is accepted.",
+      "Its value is canonical nonempty ASCII decimal without sign, whitespace, suffix, or separator and parses to an integer in [1,4096].",
+      "A CLI failure still emits the exact failure output shape before exiting nonzero."
+    ]
+  },
+  "exit_status": {
+    "success": 0,
+    "cli_failure": 2,
+    "frontmost_application_failure": 3,
+    "frontmost_bundle_failure": 4,
+    "window_inventory_failure": 5,
+    "window_row_failure": 6,
+    "inventory_truncated": 7,
+    "unexpected_failure": 8,
+    "json_encoding_failure": 9,
+    "court_rule": "The court validates the output object and exact error code as the primary result; the exit status must equal this table and cannot independently manufacture a successful observation."
+  },
+  "limits": {
+    "max_windows_min": 1,
+    "max_windows_max": 4096,
+    "bundle_id_max_utf8_bytes": 256,
+    "handle_max": 4294967295
+  },
+  "cgwindow_inventory": {
+    "options": [
+      "kCGWindowListOptionOnScreenOnly",
+      "kCGWindowListExcludeDesktopElements"
+    ],
+    "ordering": "CGWindowListCopyWindowInfo rows are consumed in their returned front-to-back order and surviving handles preserve that order.",
+    "frontmost_application": "NSWorkspace.shared.frontmostApplication supplies the one positive process id and nonempty bounded bundle identifier used to filter the inventory.",
+    "ordinary_filter": [
+      "kCGWindowOwnerPID equals the frontmost application pid",
+      "kCGWindowLayer equals 0",
+      "kCGWindowIsOnscreen is true",
+      "kCGWindowNumber is a unique integer in [1,4294967295]",
+      "kCGWindowBounds decodes to a rectangle with width greater than 0 and height greater than 0"
+    ],
+    "strictness": "A required field that is absent, unparseable, out of range, or duplicated is an error; it is never skipped to manufacture a complete inventory. The required-field strictness applies to every enumerated row the API returns, not only to rows that survive the ordinary_filter: an enumerated row whose kCGWindowOwnerPID is absent or unparseable produces window_owner_unknown, and one whose kCGWindowLayer is absent or unparseable produces window_layer_unknown, whether or not the row would have been filtered out. Because the requested API option is OnScreenOnly, an enumerated target-owner layer-zero row whose kCGWindowIsOnscreen value is false is an inconsistent row and produces window_onscreen_unknown rather than being skipped."
+  },
+  "domains": {
+    "error_code": [
+      "invalid_arguments",
+      "max_windows_out_of_range",
+      "frontmost_application_unavailable",
+      "frontmost_process_invalid",
+      "frontmost_bundle_identifier_unavailable",
+      "window_inventory_unavailable",
+      "window_owner_unknown",
+      "window_layer_unknown",
+      "window_onscreen_unknown",
+      "window_handle_invalid",
+      "window_bounds_unknown",
+      "window_bounds_invalid",
+      "window_handle_duplicate",
+      "window_inventory_truncated",
+      "json_encode_failed",
+      "unexpected_probe_failure"
+    ]
+  },
+  "output": {
+    "exact_keys": [
+      "schema",
+      "complete",
+      "frontmost_app",
+      "ordinary_onscreen_windows",
+      "frontmost_handle",
+      "error"
+    ],
+    "frontmost_app_exact_keys": [
+      "pid",
+      "bundle_id"
+    ],
+    "ordinary_onscreen_windows_exact_keys": [
+      "count",
+      "handles",
+      "truncated"
+    ],
+    "error_exact_keys": [
+      "code"
+    ],
+    "shape": {
+      "schema": "literal agenterm.singleton-safety.foreground-probe/v1",
+      "complete": "boolean",
+      "frontmost_app": "JSON null on an error without a valid snapshot; otherwise exact object with frontmost_app_exact_keys",
+      "ordinary_onscreen_windows": "exact object with ordinary_onscreen_windows_exact_keys",
+      "frontmost_handle": "integer in [1,4294967295] or JSON null",
+      "error": "JSON null or exact object with error_exact_keys"
+    },
+    "frontmost_app_shape": {
+      "pid": "integer in [1,2147483647]",
+      "bundle_id": "nonempty UTF-8 string of at most 256 bytes"
+    },
+    "ordinary_onscreen_windows_shape": {
+      "count": "integer in [0,9007199254740991] equal to the total number of rows satisfying cgwindow_inventory.ordinary_filter before the max-windows prefix is taken",
+      "handles": "unique array of integers in [1,4294967295], in front-to-back order, whose length is min(count,max-windows)",
+      "truncated": "boolean equal to count > handles.length"
+    },
+    "error_shape": {
+      "code": "exactly one error_code value"
+    },
+    "relational_rules": [
+      "frontmost_handle equals handles[0] when handles is nonempty and is JSON null when handles is empty.",
+      "complete is true if and only if truncated is false and error is JSON null.",
+      "When truncated is true, error.code is window_inventory_truncated and complete is false.",
+      "When complete is true, frontmost_app is non-null and process collection succeeded without a skipped or unknown required field.",
+      "When an error prevents a valid snapshot, frontmost_app is null, count is 0, handles is empty, truncated is false, and frontmost_handle is null."
+    ],
+    "publication_scope": "run-local probe output; raw pid, bundle_id, and handles are forbidden in the external journal and receipt"
+  },
+  "side_effect_boundary": [
+    "The probe reads NSWorkspace and CGWindow state only.",
+    "It never activates, raises, orders, closes, creates, or modifies an application or window.",
+    "It never writes, removes, renames, or creates a file or directory.",
+    "It writes only the single output object and LF to stdout; diagnostics are encoded in output.error and no user title, path, argv, environment, or window contents are emitted."
+  ],
+  "court_publication": {
+    "producer": "court",
+    "rule": "Raw pid, bundle identifier, and handles remain invocation-local. The court validates the exact output and its relational rules, reduces identities with the frozen result-template digest domains, and only then persists whitelisted digests, counts, booleans, and failure facts with producer court.",
+    "authority": "This independent CGWindow inventory is authoritative for external frontmost and ordinary-window facts. A focus fixture self-report is only a consistency signal; disagreement fails the owning stage and is never resolved by preferring the fixture."
+  },
+  "input_digest_ownership": {
+    "l0_boundary_member": "independent-foreground-helper",
+    "direct_inputs": [
+      "exact foreground-probe-contract.json bytes",
+      "exact ForegroundProbe.swift bytes",
+      "exact frozen build-manifest bytes",
+      "exact single final foreground-probe executable bytes"
+    ],
+    "composite_digest_rule": "Compute SHA-256 for contract, Swift source, build manifest, and final executable; encode the ordered array of [logical-part-id,sha256] pairs as RFC 8785 canonical JSON; then compute SHA-256 over the exact UTF-8 domain agenterm.singleton-safety.v1.frozen-input, one 0x00 byte, and those canonical bytes. The independent-foreground-helper L0 member id is not repeated inside this component array.",
+    "logical_part_order": [
+      "contract",
+      "swift-source",
+      "build-manifest",
+      "final-executable"
+    ],
+    "single_artifact_rule": "Exactly one final executable artifact and exactly one independent-foreground-helper L0 member exist. Contract, source, build manifest, object files, libraries, schemas, and executable do not become separate L0 members.",
+    "four_member_partition_rule": "This composite owns only independent-foreground-helper. The process probe contract owns independent-process-helper, and the focus fixture contract owns primary-focus-fixture and secondary-focus-fixture; the four existing L0 members remain one-to-one and no fifth helper or fixture member is introduced."
+  }
+}

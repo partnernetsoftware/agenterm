@@ -1,0 +1,200 @@
+{
+  "schema": "agenterm.singleton-safety.focus-fixture-contract/v1",
+  "version": 1,
+  "platform": "macos",
+  "purpose": "Two invocation-owned foreground fixtures with distinct bundle identities and one byte-identical executable for singleton-safety rehearsal and decision runs.",
+  "serialization": {
+    "json": "RFC 8259 UTF-8; duplicate object keys, unknown keys, non-integer numbers, and values outside their declared domains are invalid",
+    "state_file": "one compact JSON object; the fixture writes a sibling temporary file without overwrite, fsyncs and closes it, atomically renames it over the destination, reopens it, and requires byte-for-byte readback equality; a partial, missing, oversized, or nonconforming object is invalid",
+    "command_file": "exact UTF-8 command token followed by one LF and no other bytes",
+    "integer_domain": "unsigned 64-bit integer unless a narrower bound is stated",
+    "sha256": "64 lowercase hexadecimal characters"
+  },
+  "bundle_identity": {
+    "primary_bundle_id": "com.partnernetsoftware.agenterm.singleton-safety.primary",
+    "secondary_bundle_id": "com.partnernetsoftware.agenterm.singleton-safety.secondary",
+    "executable_name": "FocusFixture",
+    "rules": [
+      "The primary and secondary bundle identifiers are distinct and exact.",
+      "Both bundles contain the same single final FocusFixture executable bytes and therefore the same executable SHA-256.",
+      "The role argument, containing bundle identifier, and corresponding Info.plist must agree before the application creates a window or activates.",
+      "Neither bundle is a selected-browser-bundle process or an independent helper."
+    ]
+  },
+  "cli": {
+    "syntax": "FocusFixture --role <primary|secondary> --state <path> --command <path>",
+    "exact_argument_count": 6,
+    "named_arguments": [
+      "--role",
+      "--state",
+      "--command"
+    ],
+    "rules": [
+      "Every named argument occurs exactly once as a name-value pair; pair order is immaterial and no other argument is accepted.",
+      "role is exactly primary or secondary.",
+      "state and command are nonempty invocation-owned run-local paths of at most 4096 UTF-8 bytes.",
+      "Before launch, the court proves state and command distinct, proves their invocation-owned private parent chains contain no symbolic link, and proves both paths remain within the invocation run-local root.",
+      "The fixture trusts that court-owned path proof and itself validates only argument shape, nonempty values, the 4096-byte bound, role, and bundle identity; it does not reinterpret path containment as a fixture-side check.",
+      "A fixture-detectable CLI or bundle-identity violation exits nonzero before activation, window creation, state publication, or command consumption; a failed court-owned path proof prevents launch."
+    ],
+    "usage_failure_codes": [
+      "invalid_arguments",
+      "argument_out_of_range",
+      "bundle_identity_mismatch"
+    ]
+  },
+  "command_protocol": {
+    "command_values": [
+      "close-window",
+      "quit"
+    ],
+    "maximum_bytes": 64,
+    "writer_rules": [
+      "The court writes the complete command plus LF to a sibling temporary regular file, fsyncs that file, and atomically renames it to the command path.",
+      "The court permits exactly one outstanding command file at a time.",
+      "The court does not replace, remove, or publish another command until a later state sequence acknowledges the outstanding command.",
+      "A pre-existing command destination or sibling temporary file is a protocol failure, never permission to overwrite it."
+    ],
+    "fixture_rules": [
+      "The fixture reads at most maximum_bytes plus one and accepts only one exact command value with surrounding ASCII space, CR, LF, tabs, additional lines, prefixes, and suffixes forbidden.",
+      "A command is complete and valid only when its syntax is exact and its requested transition is legal in the current lifecycle state.",
+      "Only after complete validation does the fixture atomically claim the command by deleting the command file; it performs the requested transition only after that deletion succeeds.",
+      "An invalid, partial, oversized, unreadable, or currently inapplicable command remains at the command path and is never executed.",
+      "One unchanged rejected command value and failure condition publishes at most one command-rejected state despite repeated polling. The de-duplication is consecutive only: it suppresses a repeat of the immediately preceding rejected (value, failure condition) pair recorded by this process, and it requires no unbounded set of past rejections. A rejected pair that differs in either the value or the failure condition from that immediately preceding pair publishes a new command-rejected state. Only the most recent rejected pair is retained.",
+      "close-window is legal exactly once while the sole ordinary window is live; quit is legal while the fixture process is live.",
+      "A window-closed or terminating state with sequence greater than the pre-command sequence is the acknowledgement. A command-rejected state is a negative acknowledgement and does not authorize replacement of the retained invalid command."
+    ]
+  },
+  "exit_status": {
+    "success": "0 after normal application termination",
+    "usage_or_bundle_failure": "2 before application startup",
+    "state_publication_failure": "3 by immediate process exit",
+    "court_rule": "The court requires zero only for an expected normal termination and otherwise uses the validated state protocol plus the exact nonzero class; it never treats a nonzero exit alone as a successful lifecycle acknowledgement.",
+    "publication_failure_classes": [
+      "A state object that cannot be JSON-encoded, written, fsynced, renamed, or read back byte-for-byte is a state publication failure and exits 3 by immediate process exit.",
+      "A live window whose window number is less than or equal to 0, or greater than 4294967295, cannot be represented in the declared window_shape handle domain; it is a state publication failure and exits 3 by immediate process exit. It is never truncated, clamped, or published as null while ordinary_onscreen_count is 1."
+    ]
+  },
+  "domains": {
+    "role": [
+      "primary",
+      "secondary"
+    ],
+    "event": [
+      "ready",
+      "window-closed",
+      "command-rejected",
+      "terminating"
+    ],
+    "state_failure_code": [
+      "command_open_failed",
+      "command_read_failed",
+      "command_invalid",
+      "command_remove_failed",
+      "window_already_closed"
+    ]
+  },
+  "state": {
+    "exact_keys": [
+      "schema",
+      "sequence",
+      "event",
+      "role",
+      "pid",
+      "bundle_id",
+      "window",
+      "failure_code"
+    ],
+    "window_exact_keys": [
+      "handle",
+      "ordinary_onscreen_count"
+    ],
+    "shape": {
+      "schema": "literal agenterm.singleton-safety.focus-fixture-state/v1",
+      "sequence": "integer in [1,18446744073709551615], increasing by exactly one for every published state",
+      "event": "event",
+      "role": "role equal to the CLI role",
+      "pid": "integer in [1,2147483647] equal to the running fixture process",
+      "bundle_id": "the exact bundle_identity value corresponding to role",
+      "window": "exact object with window_exact_keys",
+      "failure_code": "state_failure_code exactly when event is command-rejected; otherwise JSON null"
+    },
+    "window_shape": {
+      "handle": "integer in [1,4294967295] exactly when ordinary_onscreen_count is 1; otherwise JSON null",
+      "ordinary_onscreen_count": "integer 0 or 1"
+    },
+    "event_rules": {
+      "ready": "first state; failure_code is null; exactly one ordinary onscreen window exists and its handle is non-null",
+      "window-closed": "acknowledges the sole successful close-window command; failure_code is null; ordinary_onscreen_count is 0 and handle is null",
+      "command-rejected": "failure_code is non-null; no lifecycle transition or activation occurs and the rejected command file is retained",
+      "terminating": "published at most once; failure_code is null; acknowledges a valid quit command or SIGTERM and begins normal application termination"
+    },
+    "publication_scope": "run-local only; raw pid, bundle_id, and window handle are forbidden in the external journal and receipt"
+  },
+  "lifecycle": {
+    "startup": [
+      "The application has regular activation policy.",
+      "Startup creates exactly one ordinary titled closable window.",
+      "Startup calls application activation exactly once, makes that sole window key and frontmost, and then publishes ready.",
+      "No code path creates a second ordinary window or performs another activation."
+    ],
+    "after_close": [
+      "A successful close-window leaves the application alive with exactly zero ordinary onscreen windows.",
+      "The application does not terminate merely because its last window closed.",
+      "The application never recreates a window and never activates after close."
+    ],
+    "termination": [
+      "A valid quit command and SIGTERM both enter the same idempotent normal application-termination path.",
+      "The terminating state is published before requesting application termination.",
+      "Repeated SIGTERM or quit observations do not publish a second terminating event or execute termination twice.",
+      "Normal quit or SIGTERM exits successfully after applicationWillTerminate completes; an internal publication failure exits nonzero.",
+      "A SIGTERM that produces a terminating state is a legal termination confirmation for a close-window command that was already claimed by deletion of its command file: the fixture and the court accept the terminating state, with sequence greater than the pre-command sequence, as that command's acknowledgement. In this ordering the asynchronous window-closed publication may be suppressed because termination is already in effect, and that suppression is not a missing acknowledgement. The independent foreground probe remains the authority for the external disappearance of the window; the fixture's terminating self-report is only the internal consistency signal described by external_observation.authority_rule."
+    ]
+  },
+  "external_observation": {
+    "ready_boundary": "ready proves only the fixture's internal window state; it is not proof that the window server already exposes the window.",
+    "court_rule": "After ready, the court uses the independent foreground probe as the authority for external frontmost and ordinary-window facts and retries within the owning stage deadline until the required external state is observed or the stage fails.",
+    "authority_rule": "Fixture ordinary_onscreen_count is an internal consistency signal only. The foreground probe inventory is authoritative; disagreement is a typed fixture or foreground-observation failure and is never reconciled by preferring the fixture self-report.",
+    "visibility_rule": "Neither the fixture nor the court hides, minimizes, orders out, or otherwise removes the fixture window from the ordinary onscreen set at any point in a passing stage. The fixture's internal isVisible observation is used only as its own live-window signal for choosing between a state with a non-null handle and a state with ordinary_onscreen_count 0; it is never published as, or substituted for, the external onscreen fact, and a stage that only passes because the window was hidden or minimized does not pass."
+  },
+  "court_publication": {
+    "producer": "court",
+    "rule": "Raw fixture pid, bundle identifier, and handle remain invocation-local. The court validates exact state, reduces those identities with the frozen result-template digest domains, and only then persists whitelisted digests, counts, and booleans with producer court."
+  },
+  "input_digest_ownership": {
+    "l0_boundary_members": [
+      "primary-focus-fixture",
+      "secondary-focus-fixture"
+    ],
+    "shared_direct_inputs": [
+      "exact focus-fixture-contract.json bytes",
+      "exact FocusFixture.swift bytes",
+      "exact frozen build-manifest bytes"
+    ],
+    "primary_direct_inputs": [
+      "exact Primary-Info.plist bytes",
+      "exact single final FocusFixture executable bytes"
+    ],
+    "secondary_direct_inputs": [
+      "exact Secondary-Info.plist bytes",
+      "the same exact single final FocusFixture executable bytes"
+    ],
+    "composite_encoding": "For each member, compute SHA-256 for the contract, Swift source, build manifest, corresponding Info.plist, and final executable; encode the ordered array of [logical-part-id,sha256] pairs as RFC 8785 canonical JSON; then compute SHA-256 over the exact UTF-8 domain agenterm.singleton-safety.v1.frozen-input, one 0x00 byte, and those canonical bytes. The L0 member id is not repeated inside this component array.",
+    "primary_logical_part_order": [
+      "contract",
+      "swift-source",
+      "build-manifest",
+      "primary-info-plist",
+      "final-executable"
+    ],
+    "secondary_logical_part_order": [
+      "contract",
+      "swift-source",
+      "build-manifest",
+      "secondary-info-plist",
+      "final-executable"
+    ],
+    "same_executable_rule": "The final-executable SHA-256 in the primary and secondary composite inputs must be byte-for-byte equal.",
+    "one_to_one_rule": "The two composite digests populate exactly the existing primary-focus-fixture and secondary-focus-fixture L0 members. Contract, source, build manifest, plist, object files, libraries, bundles, and executable do not become additional L0 members."
+  }
+}
