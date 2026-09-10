@@ -1,0 +1,247 @@
+# Browser profile name binding decisive experiment
+
+This is a research precommitment. It does not qualify a provider, change the
+`browser.profile-name-binding` ledger cell, remove `acu.dynamic.075`, or turn a
+human profile label into authority.
+
+| Field | Value |
+|---|---|
+| Date | 2026-09-10 |
+| Purpose | Decide whether a human Chromium Profile label can safely select one live MV3 `profile_instance_id`, and whether that requires an explicit durable binding |
+| Implementation | `research/browser-profile-name-binding/` |
+| Required reading | `prd/PRD_02_28_agenterm_cu.md`, `plan/acu-mcu-capability-ledger.json`, archived `browser/client.ts` selector |
+| Source discipline | Invocation-owned synthetic HOME and browser Profiles only; no real Profile mutation, MCU runtime or fallback |
+
+## 0. Fixed background and competing designs
+
+The following facts are not reopened by this experiment.
+
+1. A lowercase-hex `profile_instance_id` prefix is already exact when it
+   resolves to one entry in a complete live connection inventory.
+2. Archived MCU first tried that exact prefix. Its human-name fallback returned
+   the only connection when there was exactly one matching installed Profile,
+   one installed Profile overall and one live connection. It observed no
+   directory-to-instance relation and called the name a safe alias only under
+   uniqueness.
+3. Current ACU `Local State` observation owns `{application, directory,
+   display_name}`. `Preferences` or `Secure Preferences` can say that the fixed
+   extension is recorded. Strict bridge status owns `{profile_instance_id,
+   extension_id, protocol, version, build_id}`. None currently carries the
+   other's Profile identity.
+4. `profile_instance_id` is generated in `chrome.storage.local`; Chromium does
+   not expose the human Profile directory through the accepted extension API.
+5. Raw active LevelDB reads, browser command-line scans, account permissions,
+   browser activation and window-title guessing are outside the bridge boundary.
+
+Three designs are compared, not conflated:
+
+- **A0 · archived cardinality alias:** reproduce MCU's relation-free 1-1-1
+  fallback exactly. The negative alias trap can only reject or retain A0.
+- **A1 · verified implicit edge:** automatically select only if a Profile-unique
+  identifier from one trusted issuer binds the candidate directory to the live
+  instance, and the current name-to-directory snapshot is unique and frozen.
+  A1 needs both a positive and a negative arm to win.
+- **B · explicit durable binding:** require a caller-authorized,
+  generation-bound `(application,directory,instance)` receipt and revalidate it
+  against the complete live inventory on every use.
+
+The experiment accepts any of these results. Cardinality alone is never an
+identity edge, and a safe refusal is not implementation of the legacy selector.
+
+## 1. Hard constraints
+
+1. All browser, HOME, Local State, Preferences, registry and receipt data is
+   invocation-owned and removed after the court.
+2. The experiment reads only bounded direct regular files under the synthetic
+   browser root. It rejects absolute, `.`/`..`, slash-containing,
+   backslash-containing, symlinked or over-limit Profile directory keys.
+3. It never emits a HOME/browser/extension path, Preferences payload,
+   MAC/protection field, URL, title, email, PID or full instance id. Failure
+   strings, command stdout/stderr, audit rows and retained cleanup bundles obey
+   the same rule. Public high-entropy identifiers are 64 lowercase-hex SHA-256
+   values over `agenterm-cu/profile-binding-experiment/v1\0` plus length-framed
+   field name, fixture label and identifier. Low-entropy human aliases,
+   directories and paths are reported only as fixed fixture labels, never as
+   raw hashes. The exact-prefix control uses 12 lowercase hex characters only
+   inside the private invocation and never prints them.
+4. A complete connection inventory is mandatory. Truncation, malformed rows,
+   stale process identity, zero connections or multiple connections is typed
+   inconclusive, never evidence for a design.
+5. The exact fixed extension id, protocol, version and build id pass the
+   existing strict status validator. Those values are shared by multiple
+   Profiles and explicitly fail the identity-edge test.
+6. No product resolver, compat mapping, ledger state, evidence registration or
+   PRD completion checkbox changes before the decision trace is reviewed.
+7. No repair may add LevelDB parsing, command-line scanning, browser activation,
+   a new browser permission, real Profile mutation or another heuristic. Wanting
+   one is a detected missing edge, not a reason to widen A0 or A1.
+8. One wrong implicit selection kills that design. Aggregate success rates and
+   archived parity cannot outweigh it.
+
+## 2. Minimal experiment
+
+| Dimension | Frozen choice | Reason |
+|---|---|---|
+| Browser | One current-host Chromium-family fixture with the exact embedded extension | Exercises real strict connection/status identity without a user Profile |
+| Candidate A | Synthetic catalog root with `Profile 1`, display name `Work`, and one bounded fixed-extension installation record; A is not launched in the negative arm | Arms archived N/I uniqueness |
+| Live Profile B | Different invocation-owned user-data directory outside every candidate scan root, launched directly by the research harness | Produces one real connection whose owner is not A and cannot enter candidate sets |
+| Positive A1 arm | Launch A from the exact candidate directory after resetting the negative arm | Gives verified-edge A1 a scenario in which it can select correctly |
+| Observation | `N_all`: all normalized name/directory matches; `N`: matching installed candidates as MCU defined it; `I`: catalog-root installed candidates; `C`: strict live connections; `E`: possible identity edges | Separates collision safety, archived filtering and identity relation |
+| Restart | Stop the browser without deleting its user-data directory, then relaunch the same directory | Tests durable instance/edge stability; `browser-session-remove` is not used because it deletes the Profile |
+| Name mutation | Freeze one observation, rename A's display name, then add a second same-normalized-name Profile | Tests stale snapshot and collision behavior separately from directory identity |
+| Control | B's 12-hex instance prefix privately resolves only to B | Proves the connection works while isolating name binding |
+
+The negative-arm ground truth is frozen independently of the fields under test:
+
+1. A exists before the baseline but is never launched.
+2. Baseline C is empty.
+3. Only B starts; exactly one new connection appears after that start.
+4. Stopping B removes that exact connection.
+5. B's directory is outside A's catalog root, the scanner reports it visited
+   neither B nor a parent of B, and B is absent from `N_all`, N and I.
+
+Any failure here is `INCONCLUSIVE_FIXTURE`; the trap is not armed. `I` always
+means the archived-observable installed set below the catalog roots, not every
+Profile that may exist on the host.
+
+The accepted-boundary edge inventory is exhaustive:
+
+| Surface | Candidate side | Connection side | Edge decision |
+|---|---|---|---|
+| Local State | application, directory, display name | none | No edge unless the connection authenticates the same candidate-specific value |
+| Preferences | fixed extension recorded, disabled flag | extension id | Extension id is shared and fails injectivity |
+| Connection record | none | connection id, host process identity, protocol | Host identity is not browser Profile identity |
+| Strict status | none | profile instance, extension id, protocol, version, build id | Pass only if a bounded candidate file independently carries a collision-resistant Profile-unique value from the same trusted issuer |
+| Owned-session receipt | controlled Profile object identity | connection observed after start | Valid only for that owned object; it cannot generalize to an arbitrary default Profile name |
+
+Display name, directory, extension id, protocol, version, build id, connection
+id and host PID are explicitly non-edges unless the opposite side carries an
+authenticated equal Profile-specific value. If an observed E claims A equals B
+while frozen ground truth says A differs from B, the result is
+`INCONCLUSIVE_GROUND_TRUTH_CONFLICT`, never an A1 win.
+
+## 3. Precommitted criteria
+
+| ID | Criterion | Nature | Pass | Fail |
+|---|---|---|---|---|
+| G1 | Fixture identity and inventory | Boolean gate | Exact extension/status, complete C and frozen construction trace | `INCONCLUSIVE_DEPENDENCY` |
+| G2 | Armed archived trap | Boolean gate | `|N|=1`, `|I|=1`, `|C|=1`, A is sole N/I member, and B is outside scan roots and all candidate sets | `INCONCLUSIVE_FIXTURE` |
+| G3 | A0 selector correctness | Safety | A0 refuses A-idle/B-live | One A→B selection permanently rejects A0 |
+| G4 | A1 directory/instance edge | Checklist/Boolean | Candidate and connection share one authenticated, collision-resistant, injective, Profile-unique value from the same issuer; it survives same-directory restart | Missing, duplicate, changed or ground-truth-conflicting value rejects A1 |
+| G5 | A1 name/directory snapshot | Safety | Normalized name uniquely names one directory; frozen receipt goes stale on rename; old name stops; renamed value cannot inherit the frozen receipt; duplicate normalized name is typed ambiguous even if only one Profile records the extension | Any wrong, inherited or fallback selection rejects A1 |
+| G6 | Exact-prefix control | Boolean | B's private 12-hex prefix resolves only to B | `INCONCLUSIVE_FIXTURE` |
+| G7 | Explicit-binding model | Safety | All bounded B operations and authority/conflict invariants close | Otherwise `INCONCLUSIVE_BINDING_DESIGN` |
+
+Order is validity G1/G2/G6, then pure edge inventory G4, then A0 safety G3,
+A1 name safety G5 and finally B feasibility G7. Validity gates never vote for a
+design.
+
+The result records:
+
+- reachable source SHA and one digest covering this specification revision,
+  runner, browser court, binding model, exact embedded extension assets and
+  exact Local State/Preferences fixture bytes;
+- `N_all`/N/I/C cardinalities and fixed labels;
+- every possible E field and its injectivity/issuer decision;
+- baseline/start/stop construction trace, restart, rename, duplicate-name and
+  exact-prefix controls;
+- decision branch and excluded claims.
+
+## 4. Decision tree, kill criterion and timebox
+
+1. If G1, G2 or G6 fails, return its typed inconclusive result. One fixture-only
+   repair and rerun is allowed from a new frozen reachable source. A second
+   validity failure ends the experiment as `INCONCLUSIVE_FIXTURE_EXHAUSTED`.
+2. Inventory G4 before running a selector. If E claims A equals B against frozen
+   construction, return `INCONCLUSIVE_GROUND_TRUTH_CONFLICT` and stop.
+3. Run A0 in the negative trap. If it selects B, return
+   `REJECT_ARCHIVED_CARDINALITY_ALIAS`; A0 can never be revived. If it refuses,
+   retain A0 as safe but record `CARDINALITY_ALIAS_NOT_LEGACY_COMPATIBLE` because
+   the legacy human selector was not implemented.
+4. A1 can return `SELECT_VERIFIED_IMPLICIT_EDGE` only if G4 exists, the positive
+   A-owned arm selects A, the A-idle/B-live trap refuses B, same-directory
+   restart preserves the edge, and every G5 rename/collision assertion passes.
+   G4 absent or any wrong/refused positive selection rejects A1.
+5. If neither implicit design wins, run G7. B returns
+   `SELECT_EXPLICIT_DURABLE_BINDING` only if all operations and invariants below
+   pass; otherwise keep the TODO as `INCONCLUSIVE_BINDING_DESIGN` and require a
+   new precommitment.
+
+G7 operations are create, resolve, restart-revalidate, target-stale, collision,
+generation-conflict and revoke. Its invariants are:
+
+- one `(application,directory)` has at most one active instance;
+- one instance cannot back two active alias records, including across apps;
+- duplicate normalized aliases are typed before selection;
+- deleted/recreated Profile or extension-reinstall identity change is typed
+  stale, never silently rebound;
+- complete inventory with zero/two matching live connections and stale build is
+  typed;
+- create/replace/revoke require explicit request, runtime session and session
+  lease authority plus generation CAS;
+- rename within the same directory does not silently create or transfer an
+  alias; an explicit CAS replace is required;
+- revoke makes every later resolve typed not-found.
+
+**Kill criteria:** one A-label→B-connection selection without a complete G4/G5
+edge permanently rejects that implicit design. One ground-truth conflict stops
+the experiment rather than laundering a bad fixture into either result.
+
+**Timebox:** stop after one valid negative trap, one positive arm, one
+same-directory restart, the rename and duplicate-name cases, the exhaustive
+edge inventory and the seven-operation B model. Do not implement a product
+resolver, Preferences inventory, compat route or persistent store before review
+accepts the result.
+
+Every criterion has an exit: G1/G2/G6 validate, G4 precedes selection, G3
+decides A0, G4+G5 decide A1, and G7 decides whether B is ready. G4 present or
+absent crossed with correct, wrong or refused selections is covered.
+
+## 5. Planned research layout
+
+```text
+research/browser-profile-name-binding/
+├── README.md
+├── court-current-host.qjs
+├── binding-model.qjs
+├── run-current-host.sh
+└── RESULTS.md
+```
+
+The runner requires a clean research directory, reachable `origin/main` source,
+the exact extension build identity, bounded attempt counters and a synthetic
+HOME. Only the primary agent runs the browser court.
+
+## 6. Excluded options
+
+| Option | Reason excluded |
+|---|---|
+| Treat 1-1-1 cardinality as identity | Cardinality supplies no relation between singleton sets |
+| Read active `chrome.storage.local` LevelDB | New parser, locking/corruption and privacy surface; MCU did not require it |
+| Scan browser command lines | Existing bridge contract excludes it and it does not authenticate extension Profile identity |
+| Use email/account identity | New permission and personal identity still do not equal Profile directory |
+| Infer from title, last-used state or active tab | Mutable presentation, not identity |
+| Launch/activate every candidate | Visible effectful search violates background and no-guess boundaries |
+| Persist an absolute Profile path | Redaction, relocation and authority hazard; B stores catalog app plus validated relative directory |
+| Keep the TODO after A0/A1 lose and G7 passes | Hides an implementable typed migration |
+
+## 7. This experiment does not answer
+
+1. Linux or Windows browser-profile qualification.
+2. Whether aliases should be shared across browser applications.
+3. Whether account synchronization preserves `profile_instance_id`.
+4. Whether LevelDB access could be safe under another product/precommitment.
+5. Whether explicit bindings later need a management UI.
+6. How to redesign the separately flaky broad macOS focus fixture.
+
+## 8. Result write-back
+
+After a frozen run, append the decision trace here and write the reproducible
+result to `research/browser-profile-name-binding/RESULTS.md`. Only then may
+product implementation begin.
+
+An A0 result must say **archived cardinality alias**, never verified binding.
+An A1 result must name the exact two-part directory/instance and frozen
+name/directory edges. A B result must say **explicit durable alias binding** and
+identify the migration boundary. The result may not call a human name
+cryptographic identity or generalize an owned-session edge to arbitrary Profiles.
