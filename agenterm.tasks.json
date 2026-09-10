@@ -9273,7 +9273,7 @@
     },
     {
       "id": "cu-browser-session-smoke",
-      "description": "Prove one ACU-owned isolated browser profile, protocol-6 MV3 build identity, exact-tab ownership, background Native Messaging reconnect, and HTTP(S) navigation with debugger commit proof; also cover legacy status/open/page elements, closed-shadow effects, window lifecycle, CDP actuation, download, stop, host EOF and TTL cleanup. Extension-code reload has its own stale-source court.",
+      "description": "Prove one ACU-owned isolated browser profile and record the exact Chromium-family test-browser version in the invocation journal for failure diagnosis; verify protocol-6 MV3 identity, exact-tab ownership, Native Messaging reconnect, HTTP(S) debugger commit proof, legacy projections, closed-shadow effects, window lifecycle, CDP actuation, download, stop, host EOF and TTL cleanup. Extension-code reload has its own court.",
       "entry": "scripts/qjs/cu-browser-session-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

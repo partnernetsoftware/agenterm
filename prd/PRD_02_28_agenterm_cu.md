@@ -3012,7 +3012,9 @@ flowchart LR
     window through one exact fixed-extension connection. Focus is explicit
     (`--focused`) for normal windows and otherwise preserved; minimized and
     focused are mutually exclusive. The minimized state is part of the same
-    create effect, never a later repair. `browser-bridge-windows` inventories
+    create effect, never a later repair. A failed immediate read-back rolls the
+    new window back rather than repairing it through `windows.update`.
+    `browser-bridge-windows` inventories
     stable window and active-tab identities. `browser-bridge-window-state`
     changes only a background exact window through `normal|minimized|maximized`.
     The compatibility adapter maps positional legacy `browser open URL` through
@@ -3029,7 +3031,23 @@ flowchart LR
     the minimized identity by immediate inventory read-back, executes
     minimize→normal→maximize→normal, backgrounds the whole browser behind an
     owned AgenTerm window, repeats the state path, and reaps the browser plus
-    Native Messaging host.
+    Native Messaging host. The court records the exact test-browser `--version`
+    in its invocation command journal. Any future qualifying run must also copy
+    that identity into the long-lived qualification record before its evidence
+    is relied upon. Google Chrome branded builds 137 and newer do not support
+    the unpacked `--load-extension` fixture and are not qualified by a Chrome
+    for Testing or Chromium receipt. Repository history first records the
+    lifecycle qualification on 2026-09-07 (`75f6581c`) and records the later
+    atomic minimized-create scope on 2026-09-10 (`787e9a05`). Neither record
+    retained the qualifying invocation timestamp, browser brand, executable
+    identity or browser version, so the current complete qualification is
+    historical and its original environment cannot be reconstructed. On
+    2026-09-10 the available Google Chrome 152.0.7977.83 could not load that
+    fixture, while Chrome for Testing 153.0.8010.36 established the MV3
+    connection and two normal-window postconditions but left an atomic
+    minimized create `normal` throughout a three-second diagnostic window.
+    No currently tested browser can reproduce the complete court, and its ten
+    evidence IDs were not re-emitted.
   - **Delivery:** Linux and Windows must run this same public court with native
     Chromium-family executables before cross-host qualification; that remaining
     evidence work does not turn the implemented capability back into a gap.

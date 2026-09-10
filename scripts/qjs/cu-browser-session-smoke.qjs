@@ -1,5 +1,6 @@
 // Public macOS black-box contract for one ACU-owned browser profile.
-// Args: REPO AGENTERM_EXE AGENTERM_CU_EXE; AGENTERM_CU_BROWSER_EXE names the browser.
+// Args: REPO AGENTERM_EXE AGENTERM_CU_EXE; AGENTERM_CU_BROWSER_EXE names the
+// exact Chromium-family test browser whose version is recorded for diagnosis.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
@@ -232,6 +233,12 @@ function one_new_bridge_connection(deadline_ms, baseline) {
 let succeeded = 0;
 let failure = "";
 try {
+  const browser_version = rh.command(browser, ["--version"], {
+    cwd: context.run_directory, env: {}, timeout_ms: 5000
+  });
+  ensure(browser_version.success === true && browser_version.stdout.trim() !== "",
+    "cu_browser_session_browser_version_unavailable");
+  harness.append_command_record_safe(context, ["browser-version"], browser_version, false, []);
   print("STEP start one owned foreground fixture for exact cross-application focus restoration");
   const fixture_spec = harness.configured_spec_with_env(
     context, product, ["--address", context.address], {}, ["AGENTERM_NO_ACTIVATE"]
