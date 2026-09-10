@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    browser_bridge::ConnectionId,
+    browser_bridge::{BrowserSetupBrowser, ConnectionId},
     privilege_apply::{MAX_PROVIDER_TIMEOUT_MS, PrivilegePlanV1},
     privilege_plan::{PowerAction, PrivilegeOperation},
     service_control::{ServiceOperation, ServiceScope},
@@ -3878,6 +3878,10 @@ pub enum Command {
     /// user to load the unpacked extension; setup never claims that activation.
     BrowserBridgeSetup {
         target: TargetRef,
+        /// Empty keeps the native all-discovered mode. Compatibility callers
+        /// pass an explicit set so their registration scope cannot widen.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        browsers: Vec<BrowserSetupBrowser>,
     },
     /// List bounded, current-user and exact-process-validated bridge hosts.
     BrowserBridgeConnections {
@@ -5308,6 +5312,14 @@ impl Command {
                 request
                     .validate()
                     .map_err(|_| "browser bridge window-open arguments are invalid")
+            }
+            Self::BrowserBridgeSetup { browsers, .. } => {
+                if browsers.len() > 5
+                    || browsers.iter().copied().collect::<HashSet<_>>().len() != browsers.len()
+                {
+                    return Err("browser bridge setup browser selectors must be unique");
+                }
+                Ok(())
             }
             Self::Windows {
                 space,
@@ -9201,6 +9213,7 @@ mod tests {
         let connection_id = ConnectionId::parse(&"1".repeat(64)).unwrap();
         let setup = Command::BrowserBridgeSetup {
             target: TargetRef::Current,
+            browsers: Vec::new(),
         };
         assert_eq!(setup.required_grant(), Grant::Actuate);
         assert_eq!(setup.verb(), "browser-bridge-setup");

@@ -1054,8 +1054,34 @@ fn browser_bridge(
     }
     match action.as_str() {
         "setup" => {
-            no_browser_bridge_args("browser bridge setup", args)?;
-            Ok(Command::BrowserBridgeSetup { target })
+            let mut browsers = Vec::new();
+            while let Some(index) = args
+                .iter()
+                .position(|value| value == "--browser" || value.starts_with("--browser="))
+            {
+                let spelling = args.remove(index);
+                let value = if spelling == "--browser" {
+                    if index >= args.len() || args[index].starts_with("--") {
+                        return Err("browser bridge setup --browser requires a value".into());
+                    }
+                    args.remove(index)
+                } else {
+                    spelling["--browser=".len()..].to_owned()
+                };
+                let browser = agenterm_cu::browser_bridge::BrowserSetupBrowser::parse(&value)
+                    .map_err(str::to_owned)?;
+                if browsers.contains(&browser) {
+                    return Err("browser bridge setup --browser values must be unique".into());
+                }
+                browsers.push(browser);
+            }
+            if !args.is_empty() {
+                return Err(format!(
+                    "browser bridge setup accepts only repeated --browser chrome|chromium|brave-browser|brave-origin|edge; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Ok(Command::BrowserBridgeSetup { target, browsers })
         }
         "connections" => {
             no_browser_bridge_args("browser bridge connections", args)?;
@@ -1617,6 +1643,25 @@ mod tests {
 
     #[test]
     fn browser_bridge_parses_grouped_and_flat_exact_id_commands() {
+        let mut setup = words(&[
+            "bridge",
+            "setup",
+            "--browser",
+            "brave-browser",
+            "--browser=brave-origin",
+            "--browser",
+            "chrome",
+        ]);
+        assert!(matches!(
+            browser(TargetRef::Current, None, &mut setup),
+            Ok(Command::BrowserBridgeSetup { ref browsers, .. })
+                if browsers == &vec![
+                    agenterm_cu::browser_bridge::BrowserSetupBrowser::BraveBrowser,
+                    agenterm_cu::browser_bridge::BrowserSetupBrowser::BraveOrigin,
+                    agenterm_cu::browser_bridge::BrowserSetupBrowser::Chrome,
+                ]
+        ));
+
         let id = "1".repeat(64);
         let mut grouped = words(&["bridge", "status", &id]);
         assert!(matches!(
@@ -1829,6 +1874,19 @@ mod tests {
 
     #[test]
     fn browser_bridge_rejects_inexact_ids_limits_and_extra_arguments() {
+        for input in [
+            vec!["--browser", "brave-browser", "--browser", "brave-browser"],
+            vec!["--browser", "safari"],
+            vec!["--browser"],
+            vec!["--profile", "Default"],
+        ] {
+            let mut args = words(&input);
+            assert!(
+                browser_bridge(TargetRef::Current, Some("setup"), &mut args).is_err(),
+                "accepted setup {input:?}"
+            );
+        }
+
         let valid = "1".repeat(64);
         let zero = "0".repeat(64);
         for input in [

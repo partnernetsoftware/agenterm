@@ -1,0 +1,253 @@
+// Public filesystem-only court for exact browser bridge setup selection.
+// The court uses an invocation-owned synthetic HOME, never launches a browser,
+// and never touches a real user profile or Windows registry.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.browser-bridge-setup.synthetic-home"];
+const HOST_NAME = "software.partnernet.agenterm_acu.browser_bridge.json";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function host_is_macos() {
+  return !harness.host_is_windows() && rh.exists("/System/Library/CoreServices");
+}
+
+function isolated_env(home, label) {
+  return {
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: rh.join(home, "config"),
+    LOCALAPPDATA: rh.join(home, "AppData/Local"),
+    XDG_CONFIG_HOME: rh.join(home, "config"),
+    XDG_DATA_HOME: rh.join(home, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(home, label + "-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(home, label + "-receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(home, label + "-runtime.json")
+  };
+}
+
+function invoke(executable, home, label, browsers, grant, expected_success) {
+  const command = ["--target", "current", "--grant", grant, "browser-bridge-setup"];
+  for (let i = 0; i < browsers.length; i = i + 1) {
+    command.push("--browser");
+    command.push(browsers[i]);
+  }
+  const output = rh.command(executable, command, {
+    cwd: home,
+    env: isolated_env(home, label),
+    timeout_ms: 30000
+  });
+  ensure(output.success === expected_success,
+    "cu_browser_bridge_setup_exit:" + label + ":" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expected_success
+      && reply.command === "browser-bridge-setup",
+    "cu_browser_bridge_setup_reply:" + label);
+  return reply;
+}
+
+function support(home) {
+  return rh.join(home, "Library/Application Support");
+}
+
+function root_for(home, browser) {
+  if (browser === "chrome") { return rh.join(support(home), "Google/Chrome"); }
+  if (browser === "chromium") { return rh.join(support(home), "Chromium"); }
+  if (browser === "brave") {
+    return rh.join(support(home), "BraveSoftware/Brave-Browser");
+  }
+  if (browser === "brave-origin") {
+    return rh.join(support(home), "BraveSoftware/Brave-Origin");
+  }
+  throw "cu_browser_bridge_setup_unknown_fixture_browser:" + browser;
+}
+
+function registration_path(home, browser) {
+  return rh.join(root_for(home, browser), "NativeMessagingHosts/" + HOST_NAME);
+}
+
+function make_roots(home, browsers) {
+  rh.create_dir_all(home);
+  for (let i = 0; i < browsers.length; i = i + 1) {
+    rh.create_dir_all(root_for(home, browsers[i]));
+  }
+}
+
+function registration(receipt, browser) {
+  for (let i = 0; i < receipt.registrations.length; i = i + 1) {
+    if (receipt.registrations[i].browser === browser) {
+      return receipt.registrations[i];
+    }
+  }
+  throw "cu_browser_bridge_setup_registration_missing:" + browser;
+}
+
+function requested(receipt, expected) {
+  ensure(Array.isArray(receipt.requested_browsers)
+      && receipt.requested_browsers.length === expected.length,
+    "cu_browser_bridge_setup_requested_length");
+  for (let i = 0; i < expected.length; i = i + 1) {
+    ensure(receipt.requested_browsers[i] === expected[i],
+      "cu_browser_bridge_setup_requested_item:" + i);
+  }
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()
+    && direct_file(executable + ".exe")) {
+  executable = executable + ".exe";
+}
+ensure(direct_file(executable), "cu_browser_bridge_setup_executable_missing");
+ensure(host_is_macos(), "cu_browser_bridge_setup_requires_macos");
+
+const context = harness.new_context(repo, "cu-browser-bridge-setup-selector");
+let succeeded = 0;
+let failure = "";
+
+try {
+  const selected_home = rh.join(context.run_directory, "selected-home");
+  make_roots(selected_home, ["brave", "brave-origin", "chrome", "chromium"]);
+  print("STEP an exact three-family request never widens to discovered Chromium");
+  const selected = invoke(executable, selected_home, "selected", [
+    "brave-browser", "brave-origin", "chrome"
+  ], "observe,actuate", true).data;
+  requested(selected, ["brave-browser", "brave-origin", "chrome"]);
+  ensure(selected.effect === "performed" && selected.complete === true
+      && selected.idempotent_rerun === true
+      && selected.extension_loaded === false
+      && selected.manual_activation_required === true,
+    "cu_browser_bridge_setup_selected_contract");
+  ensure(selected.registrations.length === 3,
+    "cu_browser_bridge_setup_selected_registration_count");
+  ensure(direct_file(registration_path(selected_home, "brave"))
+      && direct_file(registration_path(selected_home, "brave-origin"))
+      && direct_file(registration_path(selected_home, "chrome"))
+      && !rh.exists(registration_path(selected_home, "chromium")),
+    "cu_browser_bridge_setup_selected_disk_scope");
+  let chromium_discovered = false;
+  for (let i = 0; i < selected.discovered_roots.length; i = i + 1) {
+    const row = selected.discovered_roots[i];
+    if (row.browser === "chromium") {
+      chromium_discovered = row.present === true && row.requested === false;
+    }
+  }
+  ensure(chromium_discovered, "cu_browser_bridge_setup_unrequested_discovery");
+
+  print("STEP a one-family rerun stays exact and reports replacement");
+  const chrome = invoke(executable, selected_home, "chrome", ["chrome"],
+    "observe,actuate", true).data;
+  requested(chrome, ["chrome"]);
+  ensure(chrome.registrations.length === 1
+      && registration(chrome, "chrome").outcome.outcome === "manifest-written"
+      && registration(chrome, "chrome").outcome.replaced === true,
+    "cu_browser_bridge_setup_chrome_replaced");
+
+  print("STEP a requested missing root is explicit and does not fail other registrations");
+  const missing_home = rh.join(context.run_directory, "missing-home");
+  make_roots(missing_home, ["brave", "chrome"]);
+  const missing = invoke(executable, missing_home, "missing", [
+    "brave-browser", "brave-origin", "chrome"
+  ], "observe,actuate", true).data;
+  ensure(missing.complete === true && missing.registrations.length === 3
+      && registration(missing, "brave-origin").outcome.outcome === "skipped-root-missing",
+    "cu_browser_bridge_setup_missing_root_receipt");
+  ensure(!rh.exists(root_for(missing_home, "brave-origin")),
+    "cu_browser_bridge_setup_missing_root_created");
+
+  print("STEP an all-missing request fails before shared publication");
+  const empty_home = rh.join(context.run_directory, "empty-home");
+  rh.create_dir_all(empty_home);
+  const empty = invoke(executable, empty_home, "empty", ["chrome"],
+    "observe,actuate", false);
+  ensure(empty.error.code === "browser_bridge_no_supported_browser_profile"
+      && empty.error.detail.effect === "not-performed"
+      && empty.error.detail.retry_safe === true
+      && empty.error.detail.receipt.effect === "not-performed"
+      && empty.error.detail.receipt.bundle_materialized === false
+      && empty.error.detail.receipt.native_manifest_file_written === false,
+    "cu_browser_bridge_setup_empty_typed");
+  ensure(!rh.exists(rh.join(support(empty_home), "agenterm/cu/browser-bridge")),
+    "cu_browser_bridge_setup_empty_shared_write");
+
+  print("STEP a linked registration parent yields a truthful partial receipt");
+  const partial_home = rh.join(context.run_directory, "partial-home");
+  make_roots(partial_home, ["brave", "brave-origin", "chrome"]);
+  const external = rh.join(partial_home, "external");
+  rh.create_dir_all(external);
+  const origin_parent = rh.join(root_for(partial_home, "brave-origin"),
+    "NativeMessagingHosts");
+  const linked = rh.command("/bin/ln", ["-s", external, origin_parent], {
+    cwd: partial_home,
+    timeout_ms: 30000
+  });
+  ensure(linked.success === true, "cu_browser_bridge_setup_link_fixture");
+  const partial = invoke(executable, partial_home, "partial", [
+    "brave-browser", "brave-origin", "chrome"
+  ], "observe,actuate", false);
+  ensure(partial.error.code === "browser_bridge_registration_partial"
+      && partial.error.detail.effect === "performed-partial"
+      && partial.error.detail.retry_safe === false
+      && partial.error.detail.idempotent_rerun === true
+      && partial.error.detail.receipt.complete === false
+      && partial.error.detail.receipt.effect === "performed-partial"
+      && registration(partial.error.detail.receipt, "brave-origin").outcome.outcome === "failed"
+      && direct_file(registration_path(partial_home, "brave"))
+      && direct_file(registration_path(partial_home, "chrome")),
+    "cu_browser_bridge_setup_partial_receipt");
+  ensure(!rh.exists(rh.join(external, HOST_NAME)),
+    "cu_browser_bridge_setup_symlink_target_untouched");
+
+  print("STEP selector vocabulary and actuation authority fail before setup effects");
+  const refused_home = rh.join(context.run_directory, "refused-home");
+  make_roots(refused_home, ["chrome"]);
+  const refused = invoke(executable, refused_home, "refused", ["chrome"],
+    "observe", false);
+  ensure(refused.error.code === "refused"
+      && !rh.exists(registration_path(refused_home, "chrome")),
+    "cu_browser_bridge_setup_grant_refused");
+  const invalid = rh.command(executable, [
+    "--target", "current", "--grant", "observe,actuate",
+    "browser-bridge-setup", "--browser", "edge", "--browser", "edge"
+  ], {
+    cwd: refused_home,
+    env: isolated_env(refused_home, "invalid"),
+    timeout_ms: 30000
+  });
+  ensure(invalid.success === false
+      && JSON.parse(invalid.stdout.trim()).error.code === "usage"
+      && !rh.exists(registration_path(refused_home, "chrome")),
+    "cu_browser_bridge_setup_duplicate_selector");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence,
+    "cu.browser-bridge-setup.synthetic-home");
+  harness.remove_run(context);
+  print("PASS: browser bridge setup writes only exact existing synthetic profile roots");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

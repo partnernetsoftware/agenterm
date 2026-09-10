@@ -20,7 +20,8 @@ pub use host::{
 pub use installer::{
     BrowserBridgeInstall, BrowserBridgeInstallError, BrowserBridgeInstallPaths,
     BrowserRegistrationOutcome, BrowserRegistrationPlan, BrowserRegistrationReceipt,
-    BrowserRegistrationTarget, ChromiumFamily, install_for_current_user,
+    BrowserRegistrationTarget, BrowserSetupBrowser, BrowserSetupDiscovery, BrowserSetupEffect,
+    ChromiumFamily, install_for_current_user, install_for_current_user_selected,
 };
 pub use registry::{
     ConnectionEndpoint, ConnectionEntry, ConnectionId, ConnectionRegistry, ProcessIdentity,

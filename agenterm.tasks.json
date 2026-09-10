@@ -3596,6 +3596,23 @@
         "task.cu-browser-profile-inventory-smoke"
       ]
     },
+    "cu-browser-bridge-setup-selector-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-browser-bridge-setup-selector-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-browser-bridge-setup-selector-smoke"
+      ]
+    },
     "cu-terminal-viewport-smoke": {
       "inputs": [
         "built-agenterm",
@@ -8728,6 +8745,25 @@
       ]
     },
     {
+      "id": "cu-browser-bridge-setup-selector-smoke",
+      "description": "Prove exact browser bridge setup selectors write only requested existing Chromium-family roots under an invocation-owned synthetic HOME, report missing roots and partial effects honestly, and never claim extension activation.",
+      "entry": "scripts/qjs/cu-browser-bridge-setup-selector-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
       "id": "acu-retirement-readiness",
       "description": "Measure the fail-closed ACU retirement contract: ledger blockers, every pending platform cell, pinned corpus/source identity, Cargo-derived production scans, scoped six-cell Candidate wiring and Bun/MCU absence. Remaining blockers are successful audit output, never hidden green retirement.",
       "entry": "scripts/qjs/acu-retirement-court.qjs",
@@ -11038,7 +11074,7 @@
     },
     {
       "id": "acu-browser-bridge-compat-smoke",
-      "description": "Prove legacy bridge status selects one exact complete MV3 connection without reading tabs, positional open creates one atomic minimized window without focus drift, no-endpoint navigation selects one exact tab and preserves native commit/effect receipts, explicit CDP navigation never guesses a page target, and unresolved bridge/profile mutations stay typed.",
+      "description": "Prove legacy setup preserves its exact Chrome or Brave three-registration scope, bridge status selects one complete MV3 connection without reading tabs, positional open creates one atomic minimized window without focus drift, no-endpoint navigation selects one exact tab and preserves native commit/effect receipts, explicit CDP navigation never guesses a page target, and unresolved bridge/profile mutations stay typed.",
       "entry": "scripts/qjs/acu-browser-bridge-compat-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

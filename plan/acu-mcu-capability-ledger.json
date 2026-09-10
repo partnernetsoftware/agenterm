@@ -878,6 +878,24 @@
           "next": "run the same public qjswasm lifecycle court with native browser executables on Linux and Windows; add crash-recovery evidence before cross-platform promotion"
         },
         {
+          "id": "browser.bridge-setup-selector",
+          "mcu_shape": "browser bridge setup [--app APP] with the archived Chrome-only or Brave three-registration scope",
+          "acu_shape": "browser-bridge-setup with repeatable --browser chrome|chromium|brave-browser|brave-origin|edge; compatibility emits only the exact archived Chrome or Brave registration set",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-public-qjswasm", "linux": "native-court-pending", "windows": "native-court-pending"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-browser-bridge-setup-selector-smoke", "evidence": ["cu.browser-bridge-setup.synthetic-home"]},
+              "windows": {"result": "pending", "blocker_code": "registry-court-not-run"}
+            }
+          },
+          "evidence": ["cu.browser-bridge-setup.synthetic-home", "acu.compat-browser-bridge"],
+          "note": "The macOS public qjswasm court uses an invocation-owned synthetic HOME and proves that an explicit three-family request writes Brave-Browser, Brave-Origin and Chrome while leaving a discovered Chromium root untouched. Missing requested roots are reported without creating browser directories; all-missing selection fails before shared publication; partial registrations report performed-partial while uncertain durability reports unknown, and neither is automatically retry-safe. The compatibility adapter preserves the archived Chrome substring rule and recognized Brave three-target scope. Unknown application labels and legacy --profile/--timeout are intentionally refused rather than silently rebound or ignored. Setup publishes but never loads the fixed extension.",
+          "next": "run the same exact-selector filesystem court with native Linux paths; qualify Windows only with an isolated current-user registry court and keep Brave-Origin typed not-applicable there"
+        },
+        {
           "id": "browser.mv3-native-bridge",
           "mcu_shape": "browser bridge setup/status/reload plus attached-profile session and target locks",
           "acu_shape": "browser-bridge-setup plus bounded exact-connection inventory/status/tabs/windows/window-state/nav/debug-read over the fixed-identity embedded MV3 asset, persistent profile instance identity, attached-session exact-tab locks, native-connection reload, same-binary Native Messaging host and current-user installer",
@@ -892,7 +910,7 @@
             }
           },
           "evidence": ["cu.browser-bridge-owned-profile.macos", "cu.browser-bridge-reload.macos", "cu.browser-bridge-nav.macos", "acu.compat-browser-bridge"],
-          "note": "The macOS public qjswasm court starts an ACU-owned isolated Profile with the exact protocol-5 fixed extension, proves its persistent profile instance identity, leases one exact tab to an explicit ACU runtime session, replaces the Native Messaging connection in the background, and accepts only one new process-bound host with the same profile identity and tab while desktop focus stays unchanged. On that lock, browser-bridge-nav accepts only HTTP(S) and proves a debugger root-frame commit: cross-document navigation binds Page.navigate frameId/loaderId to Page.frameNavigated, while the closed same-document case retains the root loader. Requested, committed and observed URLs remain distinct; redirects are informational, not failures. The command refuses foreground targets and JavaScript dialogs instead of activating or dismissing them, proves debugger detach, and reports effect as not-performed, performed or unknown with retry_safe true only for not-performed. The compatibility adapter resolves legacy bridge status by validating every entry in the complete live-connection inventory and selecting one exact profile-instance prefix; it withholds legacy installation/manifest fields that native status does not observe. Positional legacy browser open uses the same exact selection before one atomic minimized, unfocused window-open whose browser and desktop focus postconditions are verified. Session end proves exact lock release and browser stop reaps the host. Legacy setup target selection and profile-level extension reload remain typed acu.dynamic.075. The receipt names reload_scope=native-connection: it does not claim Chromium hot-loaded new extension code.",
+          "note": "The macOS public qjswasm court starts an ACU-owned isolated Profile with the exact protocol-5 fixed extension, proves its persistent profile instance identity, leases one exact tab to an explicit ACU runtime session, replaces the Native Messaging connection in the background, and accepts only one new process-bound host with the same profile identity and tab while desktop focus stays unchanged. On that lock, browser-bridge-nav accepts only HTTP(S) and proves a debugger root-frame commit: cross-document navigation binds Page.navigate frameId/loaderId to Page.frameNavigated, while the closed same-document case retains the root loader. Requested, committed and observed URLs remain distinct; redirects are informational, not failures. The command refuses foreground targets and JavaScript dialogs instead of activating or dismissing them, proves debugger detach, and reports effect as not-performed, performed or unknown with retry_safe true only for not-performed. The compatibility adapter resolves legacy bridge status by validating every entry in the complete live-connection inventory and selecting one exact profile-instance prefix; it withholds legacy installation/manifest fields that native status does not observe. Positional legacy browser open uses the same exact selection before one atomic minimized, unfocused window-open whose browser and desktop focus postconditions are verified. Session end proves exact lock release and browser stop reaps the host. Exact legacy setup selection is recorded separately; profile-level extension reload remains typed acu.dynamic.075. The receipt names reload_scope=native-connection: it does not claim Chromium hot-loaded new extension code.",
           "next": "prove the same owned-Profile identity, target-lock, reconnect, focus and cleanup contract with native Chromium-family executables on Linux and Windows; keep extension-code update activation as a separate setup boundary"
         },
         {
@@ -932,7 +950,7 @@
         },
         {
           "id": "browser.legacy-lifecycle-mapping",
-          "mcu_shape": "browser bridge setup/reload and managed profile create/list/start/status/stop/remove",
+          "mcu_shape": "browser bridge reload and managed profile create/list/start/status/stop/remove",
           "acu_shape": null,
           "state": "gap",
           "qualification": {
@@ -944,7 +962,7 @@
             }
           },
           "evidence": [],
-          "note": "Stable TODO acu.dynamic.075 remains for these archived shapes. Native setup registers all discovered Chromium families rather than one legacy selector; native reload owns an exact tab/session lease rather than profile-level extension reload; and browser-session uses a different persistent store and owner model. Positional legacy browser open is no longer in this gap because native window-open can carry minimized state in the single create effect.",
+          "note": "Stable TODO acu.dynamic.075 remains for these archived shapes. Exact setup selection is no longer part of this gap. Native reload owns an exact tab/session lease rather than profile-level extension reload, and browser-session uses a different persistent store and owner model. Positional legacy browser open is no longer in this gap because native window-open can carry minimized state in the single create effect.",
           "next": "decide each shape independently: add exact native selector/state support where semantics can align, otherwise publish a permanent typed retirement with an explicit migration path"
         },
         {

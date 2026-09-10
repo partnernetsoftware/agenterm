@@ -5453,8 +5453,8 @@ Returns the complete bounded MV3 tab inventory for one uniquely resolved live pr
 ### `browser-bridge-setup`
 
 ```text
-browser-bridge-setup
-browser bridge setup
+browser-bridge-setup [--browser chrome|chromium|brave-browser|brave-origin|edge]...
+browser bridge setup [--browser chrome|chromium|brave-browser|brave-origin|edge]...
 ```
 
 ```text
@@ -5462,10 +5462,10 @@ agenterm-cu browser-bridge-setup
   scope: actuate    family: Browser page & tabs
 
 usage:
-  browser-bridge-setup
-  browser bridge setup
+  browser-bridge-setup [--browser chrome|chromium|brave-browser|brave-origin|edge]...
+  browser bridge setup [--browser chrome|chromium|brave-browser|brave-origin|edge]...
 
-Materializes the fixed ACU MV3 extension and registers this exact agenterm-cu executable as its current-user Native Messaging host for supported existing Chromium-family profiles. The receipt always reports extension_loaded=false and manual_activation_required=true: setup does not launch a browser or claim that Chromium loaded the unpacked extension.
+Materializes the fixed ACU MV3 extension and registers this exact agenterm-cu executable as its current-user Native Messaging host. Repeatable --browser selects an exact closed family set; omitting it preserves the direct native all-discovered behavior. Only existing user-data roots are written, requested missing roots are reported as skipped-root-missing, and an all-missing selection fails before shared publication. The receipt reports requested/discovered roots, independent per-target outcomes, effect=not-performed|performed|performed-partial|unknown, idempotent_rerun=true, extension_loaded=false and manual_activation_required=true. A partial or uncertain write is never reported as not-performed and never authorizes automatic retry; a deliberate same-selector rerun is the repair path. Windows Brave Origin is typed not-applicable until a real registration location exists. Setup does not launch a browser or claim that Chromium loaded the unpacked extension.
 ```
 
 ### `browser-bridge-connections`

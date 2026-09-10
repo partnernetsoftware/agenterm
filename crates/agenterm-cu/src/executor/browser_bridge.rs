@@ -8,27 +8,44 @@ use serde_json::{Map, Value, json};
 
 use crate::{
     browser_bridge::{
-        BridgeRequest, BridgeStatus, ConnectionId, DEBUG_FILES_MAX_FILES, DebugFile,
-        DebugFilesRequest, DebugInvokeRequest, DebugReadRequest, DebugTarget, DebugTypeRequest,
-        NavRequest, ProfileInstanceId, ReloadResult, TabsResult, install_for_current_user,
-        list_live_connections, send_to_connection, send_to_connection_with_timeout,
+        BridgeRequest, BridgeStatus, BrowserSetupBrowser, ConnectionId, DEBUG_FILES_MAX_FILES,
+        DebugFile, DebugFilesRequest, DebugInvokeRequest, DebugReadRequest, DebugTarget,
+        DebugTypeRequest, NavRequest, ProfileInstanceId, ReloadResult, TabsResult,
+        install_for_current_user_selected, list_live_connections, send_to_connection,
+        send_to_connection_with_timeout,
     },
     reply::CuError,
 };
 
 use super::{error_payload, map_mechanism_err, windows::resolve_inventory_focus};
 
-pub(super) fn browser_bridge_setup_payload() -> Result<Value, CuError> {
+pub(super) fn browser_bridge_setup_payload(
+    browsers: &[BrowserSetupBrowser],
+) -> Result<Value, CuError> {
     let executable = std::env::current_exe().map_err(|_| {
         CuError::new(
             "browser_bridge_current_executable_unavailable",
             "the running agenterm-cu executable could not be resolved",
         )
     })?;
-    let receipt = install_for_current_user(&executable).map_err(|error| {
+    let receipt = install_for_current_user_selected(&executable, browsers).map_err(|error| {
         let mut typed = CuError::new(error.code, "browser bridge setup failed");
         if let Some(receipt) = error.receipt {
-            typed = typed.with_detail(json!({ "receipt": receipt }));
+            let receipt = *receipt;
+            let retry_safe =
+                receipt.effect == crate::browser_bridge::BrowserSetupEffect::NotPerformed;
+            typed = typed.with_detail(json!({
+                "effect": receipt.effect,
+                "retry_safe": retry_safe,
+                "idempotent_rerun": receipt.idempotent_rerun,
+                "receipt": receipt,
+            }));
+        } else {
+            typed = typed.with_detail(json!({
+                "effect": "not-performed",
+                "retry_safe": true,
+                "idempotent_rerun": false,
+            }));
         }
         typed
     })?;

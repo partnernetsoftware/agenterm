@@ -408,6 +408,7 @@ const evidence_suites = {
   "cu-persisted-grant-smoke": true,
   "cu-browser-session-smoke": true,
   "cu-browser-profile-inventory-smoke": true,
+  "cu-browser-bridge-setup-selector-smoke": true,
   "cu-terminal-viewport-smoke": true,
   "cu-simulator-readonly-smoke": true,
   "cu-simulator-lifecycle-smoke": true,

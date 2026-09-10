@@ -57,6 +57,15 @@ require_ok(bridge_status.ok === false && bridge_status.command === "browser"
   "legacy bridge status must reach exact native connection inventory:"
     + JSON.stringify(bridge_status));
 
+const bridge_setup_refused = invoke(launcher, [
+  "--grant", "observe", "browser", "bridge", "setup", "--app", "chrome"
+], 1);
+require_ok(bridge_setup_refused.ok === false
+    && bridge_setup_refused.command === "browser-bridge-setup"
+    && bridge_setup_refused.error.code === "refused",
+  "legacy bridge setup must reach native authorization before filesystem effects:"
+    + JSON.stringify(bridge_setup_refused));
+
 const storage_rejections = [
   ["storage", "mount", "disk-1"],
   ["storage", "unmount", "disk-1"],

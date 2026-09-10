@@ -682,8 +682,10 @@ ACU-only cutover
 │  │  ├─ [x] acu.dynamic.075.bridge-nav · navigation without an explicit CDP endpoint selects
 │  │  │  one exact MV3 profile/tab under an explicit session and proves an HTTP(S) debugger
 │  │  │  root-frame/loader commit without browser or desktop focus drift
-│  │  ├─ [ ] legacy setup retains acu.dynamic.075 until its single-application selector maps
-│  │  │  without widening installation to every discovered Chromium family
+│  │  ├─ [x] legacy setup maps its Chrome-only or Brave three-registration scope to
+│  │  │  repeated closed `--browser` selectors without widening to discovered Chromium/Edge
+│  │  │  └─ missing roots are reported but never created; unknown app labels and ignored
+│  │  │     profile/timeout flags are intentional typed boundaries
 │  │  ├─ [ ] legacy reload and managed-profile lifecycle retain acu.dynamic.075 until their
 │  │  │  mutation scope, lease authority and persistent ownership models align
 │  │  └─ owned-profile macOS qjswasm court is wired; Linux/Windows native courts remain
@@ -1003,9 +1005,14 @@ flowchart LR
   redirects are informational and load state is bounded observation rather than
   a final-page promise. Foreground targets and JavaScript dialogs are intentionally
   refused without activation or dismissal, and native read-back proves no browser
-  or desktop focus drift. Setup remains under the parent gap because its
-  legacy single-application selector would otherwise widen to all discovered
-  Chromium families. Positional legacy `browser open URL` now resolves one exact
+  or desktop focus drift. Legacy setup now emits an exact repeated `--browser`
+  set: Chrome-like app selectors choose only Chrome, while recognized Brave
+  selectors retain the archived Brave-Browser + Brave-Origin + Chrome set.
+  Discovered Chromium/Edge roots remain visible but untouched. Missing roots are
+  skipped rather than created, and unknown app labels or legacy profile/timeout
+  flags fail typed instead of being guessed or silently ignored. A synthetic-HOME
+  macOS court owns this registration scope and its partial-effect receipt.
+  Positional legacy `browser open URL` now resolves one exact
   live bridge connection and issues one `window-open --state minimized` effect;
   the same create call carries the minimized state, while native and browser
   read-back prove no focus theft. A lower-hex `--profile` prefix narrows that

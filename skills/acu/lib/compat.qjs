@@ -402,6 +402,32 @@ function known_dynamic_boundary(argv) {
       && argv[2].startsWith("--")) {
     return null;
   }
+  if (verb === "browser" && sub === "bridge" && argv[2] === "setup") {
+    const parsed = without_value_flags(argv, ["app", "profile", "timeout"]);
+    if (!parsed.ok) { return { kind: "usage", command: "browser", message: parsed.message }; }
+    if (parsed.argv.length !== 3) {
+      return { kind: "usage", command: "browser",
+        message: "browser bridge setup accepts only --app APP" };
+    }
+    if (parsed.values.profile !== null || parsed.values.timeout !== null) {
+      return { kind: "usage", command: "browser",
+        message: "browser bridge setup does not accept --profile or --timeout" };
+    }
+    const native = ["browser-bridge-setup"];
+    const app = parsed.values.app;
+    if (app === null || app.toLowerCase() === "brave"
+        || app.toLowerCase() === "brave browser"
+        || app.toLowerCase() === "brave origin") {
+      append(native, ["--browser", "brave-browser", "--browser", "brave-origin",
+        "--browser", "chrome"]);
+    } else if (app.toLowerCase().indexOf("chrome") >= 0) {
+      append(native, ["--browser", "chrome"]);
+    } else {
+      return { kind: "usage", command: "browser",
+        message: "browser bridge setup --app must name Brave, Brave Browser, Brave Origin or a Chrome family application" };
+    }
+    return { kind: "exec", argv: native };
+  }
   if (verb === "browser" && (sub === "open" || sub === "bridge"
       || sub === "profile")) {
     return todo("acu.dynamic.075", "browser",

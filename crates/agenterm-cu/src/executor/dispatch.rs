@@ -1736,7 +1736,7 @@ impl Executor {
                 expect_failed,
                 ..
             } => browser_session_remove_payload(name, *expect_stopped, *expect_failed),
-            Command::BrowserBridgeSetup { .. } => browser_bridge_setup_payload(),
+            Command::BrowserBridgeSetup { browsers, .. } => browser_bridge_setup_payload(browsers),
             Command::BrowserBridgeConnections { .. } => browser_bridge_connections_payload(),
             Command::BrowserBridgeStatus { connection_id, .. } => {
                 browser_bridge_request_payload(connection_id, "status", serde_json::Map::new())

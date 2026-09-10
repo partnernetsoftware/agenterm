@@ -1773,6 +1773,17 @@ ownership. A background debugger read must export only bounded AX role/name
 facts, never form/control values or arbitrary DOM attributes, and must prove the
 tab-active and window-focus states did not change. Debugger detach is part of
 the result: detach failure makes the read fail even when data was obtained.
+
+Installation scope is also part of the effect contract. Keep the direct native
+all-discovered mode distinct from a compatibility caller's exact repeated
+browser-family selectors; never erase a legacy selector and widen registration
+to every installed Chromium family. Discover unrequested roots for a truthful
+receipt but do not write them. A requested missing root is a bounded skip, an
+all-missing set fails before shared publication, and any partial publication is
+named `performed-partial` while uncertain publication stays `unknown`; both
+carry a non-retry-safe receipt. A deliberate
+same-selector rerun may be documented as convergent repair, but that is not an
+automatic retry grant.
 Bound tab inventory separately so a browser with many tabs cannot bypass the
 native-message response budget.
 

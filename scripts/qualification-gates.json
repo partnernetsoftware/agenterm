@@ -1017,6 +1017,12 @@
       ]
     },
     {
+      "id": "cu-browser-bridge-setup-selector-smoke",
+      "evidence": [
+        "cu.browser-bridge-setup.synthetic-home"
+      ]
+    },
+    {
       "id": "cu-pointer-scroll-smoke",
       "evidence": [
         "cu.pointer-scroll-content-delivery"

@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     fs,
     io::Write as _,
     path::{Path, PathBuf},
@@ -12,19 +13,64 @@ use agenterm_platform::{
     filesystem_publish::{publish_directory, write_file_atomic},
     native_messaging::{ChromiumRegistryTarget, register_current_user_host},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{
     ACU_NATIVE_HOST_NAME, ExtensionMaterializationPlan, extension_assets, native_host_manifest,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ChromiumFamily {
     Chrome,
     Chromium,
     Brave,
+    BraveOrigin,
     Edge,
+}
+
+/// Closed public selector for Native Messaging registration targets. An empty
+/// selector list keeps the direct native command's all-discovered behavior;
+/// compatibility callers use an explicit set and therefore cannot widen it.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BrowserSetupBrowser {
+    Chrome,
+    Chromium,
+    BraveBrowser,
+    BraveOrigin,
+    Edge,
+}
+
+impl BrowserSetupBrowser {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Chrome => "chrome",
+            Self::Chromium => "chromium",
+            Self::BraveBrowser => "brave-browser",
+            Self::BraveOrigin => "brave-origin",
+            Self::Edge => "edge",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, &'static str> {
+        match value {
+            "chrome" => Ok(Self::Chrome),
+            "chromium" => Ok(Self::Chromium),
+            "brave-browser" => Ok(Self::BraveBrowser),
+            "brave-origin" => Ok(Self::BraveOrigin),
+            "edge" => Ok(Self::Edge),
+            _ => Err("browser must be chrome, chromium, brave-browser, brave-origin or edge"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct BrowserSetupDiscovery {
+    pub browser: BrowserSetupBrowser,
+    pub user_data_root: PathBuf,
+    pub requested: bool,
+    pub present: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -47,11 +93,21 @@ pub struct BrowserBridgeInstallPaths {
     pub extension: PathBuf,
     /// One stable ACU-owned manifest is published before registrations.
     pub native_manifest_file: PathBuf,
+    /// Empty means the direct native all-discovered mode.
+    pub requested_browsers: Vec<BrowserSetupBrowser>,
+    pub discovered_roots: Vec<BrowserSetupDiscovery>,
     pub targets: Vec<BrowserRegistrationTarget>,
+    pub skipped_registrations: Vec<BrowserRegistrationReceipt>,
 }
 
 impl BrowserBridgeInstallPaths {
     pub fn for_current_user() -> Result<Self, BrowserBridgeInstallError> {
+        Self::for_current_user_selected(&[])
+    }
+
+    pub fn for_current_user_selected(
+        requested: &[BrowserSetupBrowser],
+    ) -> Result<Self, BrowserBridgeInstallError> {
         let directories =
             host_directories().map_err(|_| error("browser_bridge_home_unavailable"))?;
         let bridge_root = directories
@@ -60,19 +116,14 @@ impl BrowserBridgeInstallPaths {
             .join("cu")
             .join("browser-bridge");
         let home = user_home_directory().map_err(|_| error("browser_bridge_home_unavailable"))?;
-        let targets = existing_targets(target_candidates(
+        selected_paths(
+            HOST_KIND,
             &home,
             &directories.config,
             &directories.local_data,
-        ));
-        if targets.is_empty() {
-            return Err(error("browser_bridge_no_supported_browser_profile"));
-        }
-        Ok(Self {
-            extension: bridge_root.join("extension"),
-            native_manifest_file: bridge_root.join("native-host.json"),
-            targets,
-        })
+            bridge_root,
+            requested,
+        )
     }
 }
 
@@ -90,6 +141,7 @@ pub enum BrowserRegistrationOutcome {
     Failed {
         code: String,
     },
+    SkippedRootMissing,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -102,6 +154,10 @@ pub struct BrowserRegistrationReceipt {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct BrowserBridgeInstall {
+    pub effect: BrowserSetupEffect,
+    /// Empty means the direct native all-discovered mode.
+    pub requested_browsers: Vec<BrowserSetupBrowser>,
+    pub discovered_roots: Vec<BrowserSetupDiscovery>,
     pub extension: PathBuf,
     pub native_manifest_file: PathBuf,
     pub replaced_extension: bool,
@@ -113,19 +169,37 @@ pub struct BrowserBridgeInstall {
     /// Setup cannot activate an unpacked extension inside Chromium.
     pub extension_loaded: bool,
     pub manual_activation_required: bool,
+    pub complete: bool,
+    /// A caller may deliberately rerun the same selector set after repairing a
+    /// partial registration. This does not authorize an automatic retry.
+    pub idempotent_rerun: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BrowserSetupEffect {
+    NotPerformed,
+    Performed,
+    PerformedPartial,
+    Unknown,
 }
 
 impl BrowserBridgeInstall {
     fn empty(paths: &BrowserBridgeInstallPaths) -> Self {
         Self {
+            effect: BrowserSetupEffect::NotPerformed,
+            requested_browsers: paths.requested_browsers.clone(),
+            discovered_roots: paths.discovered_roots.clone(),
             extension: paths.extension.clone(),
             native_manifest_file: paths.native_manifest_file.clone(),
             replaced_extension: false,
             bundle_materialized: false,
             native_manifest_file_written: false,
-            registrations: Vec::new(),
+            registrations: paths.skipped_registrations.clone(),
             extension_loaded: false,
             manual_activation_required: true,
+            complete: false,
+            idempotent_rerun: true,
         }
     }
 }
@@ -135,6 +209,17 @@ pub fn install_for_current_user(
 ) -> Result<BrowserBridgeInstall, BrowserBridgeInstallError> {
     validate_current_executable(executable)?;
     install_at(executable, BrowserBridgeInstallPaths::for_current_user()?)
+}
+
+pub fn install_for_current_user_selected(
+    executable: &Path,
+    requested: &[BrowserSetupBrowser],
+) -> Result<BrowserBridgeInstall, BrowserBridgeInstallError> {
+    validate_current_executable(executable)?;
+    install_at(
+        executable,
+        BrowserBridgeInstallPaths::for_current_user_selected(requested)?,
+    )
 }
 
 fn validate_current_executable(executable: &Path) -> Result<(), BrowserBridgeInstallError> {
@@ -161,12 +246,12 @@ fn install_at(
     executable: &Path,
     paths: BrowserBridgeInstallPaths,
 ) -> Result<BrowserBridgeInstall, BrowserBridgeInstallError> {
+    let mut receipt = BrowserBridgeInstall::empty(&paths);
     if paths.targets.is_empty() {
-        return Err(error("browser_bridge_no_supported_browser_profile"));
+        return Err(error("browser_bridge_no_supported_browser_profile").with_receipt(receipt));
     }
     let manifest = native_host_manifest(executable)
         .map_err(|_| error("browser_bridge_native_manifest_invalid"))?;
-    let mut receipt = BrowserBridgeInstall::empty(&paths);
     let suffix = secure_random_array::<32>()
         .map_err(|_| error("browser_bridge_entropy_unavailable"))?
         .iter()
@@ -184,17 +269,28 @@ fn install_at(
         let _ = fs::remove_dir_all(&plan.staging);
         return Err(failure.with_receipt(receipt));
     }
-    let outcome = publish_directory(&plan.staging, &plan.destination).map_err(|_| {
+    let outcome = publish_directory(&plan.staging, &plan.destination).map_err(|failure| {
+        if matches!(
+            failure.kind(),
+            agenterm_platform::filesystem_publish::DirectoryPublishErrorKind::Rollback
+        ) {
+            receipt.effect = BrowserSetupEffect::Unknown;
+        }
         error("browser_bridge_extension_publish_failed").with_receipt(receipt.clone())
     })?;
     receipt.replaced_extension = outcome.replaced_existing();
     receipt.bundle_materialized = true;
+    receipt.effect = BrowserSetupEffect::Performed;
 
     let manifest_parent = paths.native_manifest_file.parent().ok_or_else(|| {
-        error("browser_bridge_install_plan_invalid").with_receipt(receipt.clone())
+        let mut failed = receipt.clone();
+        failed.effect = BrowserSetupEffect::PerformedPartial;
+        error("browser_bridge_install_plan_invalid").with_receipt(failed)
     })?;
     fs::create_dir_all(manifest_parent).map_err(|_| {
-        error("browser_bridge_install_prepare_failed").with_receipt(receipt.clone())
+        let mut failed = receipt.clone();
+        failed.effect = BrowserSetupEffect::PerformedPartial;
+        error("browser_bridge_install_prepare_failed").with_receipt(failed)
     })?;
     match write_file_atomic(&paths.native_manifest_file, |file| {
         file.write_all(&manifest)
@@ -202,6 +298,11 @@ fn install_at(
         Ok(()) => receipt.native_manifest_file_written = true,
         Err(failure) => {
             receipt.native_manifest_file_written = failure.published();
+            receipt.effect = if failure.published() {
+                BrowserSetupEffect::Unknown
+            } else {
+                BrowserSetupEffect::PerformedPartial
+            };
             return Err(
                 error("browser_bridge_native_manifest_publish_failed").with_receipt(receipt)
             );
@@ -219,9 +320,23 @@ fn install_at(
             outcome,
         });
     }
+    receipt.registrations.sort_by_key(|row| row.browser);
+    if receipt.registrations.iter().any(|row| {
+        matches!(
+            &row.outcome,
+            BrowserRegistrationOutcome::Failed { code }
+                if code.ends_with("_durability_uncertain")
+        )
+    }) {
+        receipt.effect = BrowserSetupEffect::Unknown;
+    }
     if any_failed {
+        if receipt.effect != BrowserSetupEffect::Unknown {
+            receipt.effect = BrowserSetupEffect::PerformedPartial;
+        }
         Err(error("browser_bridge_registration_partial").with_receipt(receipt))
     } else {
+        receipt.complete = true;
         Ok(receipt)
     }
 }
@@ -323,14 +438,11 @@ fn prepare_extension(staging: &Path) -> Result<(), BrowserBridgeInstallError> {
     Ok(())
 }
 
-#[derive(Clone, Copy)]
-#[cfg_attr(all(test, windows), allow(dead_code))]
+#[derive(Clone, Copy, Eq, PartialEq)]
+#[allow(dead_code)]
 enum HostKind {
-    #[cfg(any(test, target_os = "macos"))]
     Macos,
-    #[cfg(any(test, target_os = "linux"))]
     Linux,
-    #[cfg(any(test, windows))]
     Windows,
 }
 
@@ -341,88 +453,164 @@ const HOST_KIND: HostKind = HostKind::Linux;
 #[cfg(windows)]
 const HOST_KIND: HostKind = HostKind::Windows;
 
-fn target_candidates(
+fn selected_paths(
+    host: HostKind,
     home: &Path,
     config: &Path,
     local_data: &Path,
-) -> Vec<BrowserRegistrationTarget> {
-    candidates_for(HOST_KIND, home, config, local_data)
+    bridge_root: PathBuf,
+    requested: &[BrowserSetupBrowser],
+) -> Result<BrowserBridgeInstallPaths, BrowserBridgeInstallError> {
+    let unique = requested.iter().copied().collect::<BTreeSet<_>>();
+    if unique.len() != requested.len() {
+        return Err(error("browser_bridge_setup_selector_invalid"));
+    }
+    if host == HostKind::Windows && unique.contains(&BrowserSetupBrowser::BraveOrigin) {
+        return Err(error("browser_bridge_setup_selector_not_applicable"));
+    }
+    let explicit = !requested.is_empty();
+    let mut targets = Vec::new();
+    let mut skipped_registrations = Vec::new();
+    let mut discovered_roots = Vec::new();
+    for (browser, candidate) in setup_candidates_for(host, home, config, local_data) {
+        let selected = !explicit || unique.contains(&browser);
+        let present =
+            open_existing_path(&candidate.user_data_root, ExistingEntryType::Directory).is_ok();
+        discovered_roots.push(BrowserSetupDiscovery {
+            browser,
+            user_data_root: candidate.user_data_root.clone(),
+            requested: selected,
+            present,
+        });
+        if selected && present {
+            targets.push(candidate);
+        } else if explicit && selected {
+            skipped_registrations.push(BrowserRegistrationReceipt {
+                browser: candidate.browser,
+                user_data_root: candidate.user_data_root,
+                registration: candidate.registration,
+                outcome: BrowserRegistrationOutcome::SkippedRootMissing,
+            });
+        }
+    }
+    Ok(BrowserBridgeInstallPaths {
+        extension: bridge_root.join("extension"),
+        native_manifest_file: bridge_root.join("native-host.json"),
+        requested_browsers: requested.to_vec(),
+        discovered_roots,
+        targets,
+        skipped_registrations,
+    })
 }
 
+#[cfg(test)]
 fn candidates_for(
     host: HostKind,
     _home: &Path,
     _config: &Path,
     _local_data: &Path,
 ) -> Vec<BrowserRegistrationTarget> {
+    setup_candidates_for(host, _home, _config, _local_data)
+        .into_iter()
+        .map(|(_, target)| target)
+        .collect()
+}
+
+fn setup_candidates_for(
+    host: HostKind,
+    _home: &Path,
+    _config: &Path,
+    _local_data: &Path,
+) -> Vec<(BrowserSetupBrowser, BrowserRegistrationTarget)> {
     let families = match host {
-        #[cfg(any(test, target_os = "macos"))]
         HostKind::Macos => {
             let support = _home.join("Library").join("Application Support");
             vec![
                 (
+                    BrowserSetupBrowser::Chrome,
                     ChromiumFamily::Chrome,
                     support.join("Google/Chrome"),
                     "Software\\Google\\Chrome",
                 ),
                 (
+                    BrowserSetupBrowser::Chromium,
                     ChromiumFamily::Chromium,
                     support.join("Chromium"),
                     "Software\\Chromium",
                 ),
                 (
+                    BrowserSetupBrowser::BraveBrowser,
                     ChromiumFamily::Brave,
                     support.join("BraveSoftware/Brave-Browser"),
                     "Software\\BraveSoftware\\Brave-Browser",
                 ),
                 (
+                    BrowserSetupBrowser::BraveOrigin,
+                    ChromiumFamily::BraveOrigin,
+                    support.join("BraveSoftware/Brave-Origin"),
+                    "Software\\BraveSoftware\\Brave-Origin",
+                ),
+                (
+                    BrowserSetupBrowser::Edge,
                     ChromiumFamily::Edge,
                     support.join("Microsoft Edge"),
                     "Software\\Microsoft\\Edge",
                 ),
             ]
         }
-        #[cfg(any(test, target_os = "linux"))]
         HostKind::Linux => vec![
             (
+                BrowserSetupBrowser::Chrome,
                 ChromiumFamily::Chrome,
                 _config.join("google-chrome"),
                 "Software\\Google\\Chrome",
             ),
             (
+                BrowserSetupBrowser::Chromium,
                 ChromiumFamily::Chromium,
                 _config.join("chromium"),
                 "Software\\Chromium",
             ),
             (
+                BrowserSetupBrowser::BraveBrowser,
                 ChromiumFamily::Brave,
                 _config.join("BraveSoftware/Brave-Browser"),
                 "Software\\BraveSoftware\\Brave-Browser",
             ),
             (
+                BrowserSetupBrowser::BraveOrigin,
+                ChromiumFamily::BraveOrigin,
+                _config.join("BraveSoftware/Brave-Origin"),
+                "Software\\BraveSoftware\\Brave-Origin",
+            ),
+            (
+                BrowserSetupBrowser::Edge,
                 ChromiumFamily::Edge,
                 _config.join("microsoft-edge"),
                 "Software\\Microsoft\\Edge",
             ),
         ],
-        #[cfg(any(test, windows))]
         HostKind::Windows => vec![
             (
+                BrowserSetupBrowser::Chrome,
                 ChromiumFamily::Chrome,
                 _local_data.join("Google/Chrome/User Data"),
                 "Software\\Google\\Chrome",
             ),
             (
+                BrowserSetupBrowser::Chromium,
                 ChromiumFamily::Chromium,
                 _local_data.join("Chromium/User Data"),
                 "Software\\Chromium",
             ),
             (
+                BrowserSetupBrowser::BraveBrowser,
                 ChromiumFamily::Brave,
                 _local_data.join("BraveSoftware/Brave-Browser/User Data"),
                 "Software\\BraveSoftware\\Brave-Browser",
             ),
             (
+                BrowserSetupBrowser::Edge,
                 ChromiumFamily::Edge,
                 _local_data.join("Microsoft/Edge/User Data"),
                 "Software\\Microsoft\\Edge",
@@ -431,35 +619,38 @@ fn candidates_for(
     };
     families
         .into_iter()
-        .map(|(browser, root, product_key)| BrowserRegistrationTarget {
-            browser,
-            user_data_root: root.clone(),
-            registration: if host_uses_registry(host) {
-                BrowserRegistrationPlan::CurrentUserRegistry {
-                    product_key: product_key.into(),
-                }
-            } else {
-                BrowserRegistrationPlan::ManifestFile {
-                    destination: root
-                        .join("NativeMessagingHosts")
-                        .join(format!("{ACU_NATIVE_HOST_NAME}.json")),
-                }
-            },
+        .map(|(selector, browser, root, product_key)| {
+            (
+                selector,
+                BrowserRegistrationTarget {
+                    browser,
+                    user_data_root: root.clone(),
+                    registration: if host_uses_registry(host) {
+                        BrowserRegistrationPlan::CurrentUserRegistry {
+                            product_key: product_key.into(),
+                        }
+                    } else {
+                        BrowserRegistrationPlan::ManifestFile {
+                            destination: root
+                                .join("NativeMessagingHosts")
+                                .join(format!("{ACU_NATIVE_HOST_NAME}.json")),
+                        }
+                    },
+                },
+            )
         })
         .collect()
 }
 
 fn host_uses_registry(host: HostKind) -> bool {
     match host {
-        #[cfg(any(test, windows))]
         HostKind::Windows => true,
-        #[cfg(any(test, target_os = "macos"))]
         HostKind::Macos => false,
-        #[cfg(any(test, target_os = "linux"))]
         HostKind::Linux => false,
     }
 }
 
+#[cfg(test)]
 fn existing_targets(candidates: Vec<BrowserRegistrationTarget>) -> Vec<BrowserRegistrationTarget> {
     candidates
         .into_iter()
@@ -473,12 +664,12 @@ fn existing_targets(candidates: Vec<BrowserRegistrationTarget>) -> Vec<BrowserRe
 pub struct BrowserBridgeInstallError {
     pub code: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub receipt: Option<BrowserBridgeInstall>,
+    pub receipt: Option<Box<BrowserBridgeInstall>>,
 }
 
 impl BrowserBridgeInstallError {
     fn with_receipt(mut self, receipt: BrowserBridgeInstall) -> Self {
-        self.receipt = Some(receipt);
+        self.receipt = Some(Box::new(receipt));
         self
     }
 }
@@ -531,6 +722,76 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[test]
+    fn selected_setup_keeps_exact_scope_and_reports_a_missing_requested_root() {
+        let root = fixture("selected-roots");
+        let support = root.join("Library/Application Support");
+        let chrome = support.join("Google/Chrome");
+        let brave = support.join("BraveSoftware/Brave-Browser");
+        let chromium = support.join("Chromium");
+        fs::create_dir_all(&chrome).unwrap();
+        fs::create_dir_all(&brave).unwrap();
+        fs::create_dir_all(&chromium).unwrap();
+        let requested = [
+            BrowserSetupBrowser::BraveBrowser,
+            BrowserSetupBrowser::BraveOrigin,
+            BrowserSetupBrowser::Chrome,
+        ];
+        let paths = selected_paths(
+            HostKind::Macos,
+            &root,
+            &root.join("config"),
+            &root.join("local"),
+            root.join("bridge"),
+            &requested,
+        )
+        .unwrap();
+        assert_eq!(paths.targets.len(), 2);
+        assert_eq!(paths.skipped_registrations.len(), 1);
+        assert!(matches!(
+            paths.skipped_registrations[0].outcome,
+            BrowserRegistrationOutcome::SkippedRootMissing
+        ));
+        assert!(
+            paths
+                .discovered_roots
+                .iter()
+                .any(|row| row.browser == BrowserSetupBrowser::Chromium
+                    && row.present
+                    && !row.requested)
+        );
+
+        let executable = root.join("agenterm-cu");
+        fs::write(&executable, b"fixture").unwrap();
+        let receipt = install_at(&executable, paths).unwrap();
+        assert_eq!(receipt.effect, BrowserSetupEffect::Performed);
+        assert!(receipt.complete && receipt.idempotent_rerun);
+        assert_eq!(receipt.registrations.len(), 3);
+        assert!(receipt.registrations.iter().any(|row| {
+            row.browser == ChromiumFamily::BraveOrigin
+                && matches!(row.outcome, BrowserRegistrationOutcome::SkippedRootMissing)
+        }));
+        assert!(!chromium.join("NativeMessagingHosts").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn brave_origin_is_not_applicable_to_windows_registration() {
+        let root = fixture("origin-windows");
+        let failure = selected_paths(
+            HostKind::Windows,
+            &root,
+            &root.join("config"),
+            &root.join("local"),
+            root.join("bridge"),
+            &[BrowserSetupBrowser::BraveOrigin],
+        )
+        .unwrap_err();
+        assert_eq!(failure.code, "browser_bridge_setup_selector_not_applicable");
+        assert!(!root.join("bridge").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn discovery_rejects_a_browser_root_beneath_an_intermediate_symlink() {
@@ -578,7 +839,10 @@ mod tests {
         let paths = BrowserBridgeInstallPaths {
             extension: root.join("extension"),
             native_manifest_file: root.join("native-host.json"),
+            requested_browsers: Vec::new(),
+            discovered_roots: Vec::new(),
             targets: Vec::new(),
+            skipped_registrations: Vec::new(),
         };
         assert_eq!(
             install_at(&root.join("unused"), paths).unwrap_err().code,
@@ -600,6 +864,8 @@ mod tests {
         let paths = BrowserBridgeInstallPaths {
             extension: root.join("extension"),
             native_manifest_file: root.join("native-host.json"),
+            requested_browsers: Vec::new(),
+            discovered_roots: Vec::new(),
             targets: vec![
                 BrowserRegistrationTarget {
                     browser: ChromiumFamily::Chrome,
@@ -616,6 +882,7 @@ mod tests {
                     },
                 },
             ],
+            skipped_registrations: Vec::new(),
         };
         let failure = install_at(&executable, paths).unwrap_err();
         assert_eq!(failure.code, "browser_bridge_registration_partial");

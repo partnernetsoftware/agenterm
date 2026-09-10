@@ -180,6 +180,26 @@ let succeeded = 0;
 let failure = "";
 
 try {
+  const setup_default = compat.canonicalize(["browser", "bridge", "setup"]);
+  ensure(setup_default.kind === "exec", "acu_browser_bridge_setup_default_route");
+  same_array(setup_default.argv, [
+    "--target", "current", "--grant", "observe,actuate", "browser-bridge-setup",
+    "--browser", "brave-browser", "--browser", "brave-origin", "--browser", "chrome"
+  ], "acu_browser_bridge_setup_default_argv");
+  const setup_chrome = compat.canonicalize([
+    "browser", "bridge", "setup", "--app", "Google Chrome"
+  ]);
+  same_array(setup_chrome.argv, [
+    "--target", "current", "--grant", "observe,actuate", "browser-bridge-setup",
+    "--browser", "chrome"
+  ], "acu_browser_bridge_setup_chrome_argv");
+  ensure(compat.canonicalize([
+    "browser", "bridge", "setup", "--app", "Chromium"
+  ]).kind === "usage", "acu_browser_bridge_setup_unknown_app");
+  ensure(compat.canonicalize([
+    "browser", "bridge", "setup", "--timeout", "20"
+  ]).kind === "usage", "acu_browser_bridge_setup_ignored_timeout");
+
   const status_default = compat.canonicalize(["browser", "bridge", "status"]);
   ensure(status_default.kind === "bridge-status" && status_default.profile === null,
     "acu_browser_bridge_status_default_route");

@@ -382,6 +382,27 @@ require(compat.canonicalize(["storage", "unmount", "disk-1"]).kind === "usage",
   "legacy storage unmount was never an MCU storage subcommand");
 require(compat.canonicalize(["storage", "eject", "disk-1"]).kind === "usage",
   "legacy storage eject was never an MCU storage subcommand");
+const bridge_setup = compat.canonicalize(["browser", "bridge", "setup"]);
+require(bridge_setup.kind === "exec", "legacy browser bridge setup must execute");
+same_argv(bridge_setup.argv, ["--target", "current", "--grant", "observe,actuate",
+  "browser-bridge-setup", "--browser", "brave-browser", "--browser", "brave-origin",
+  "--browser", "chrome"], "legacy browser bridge setup default scope");
+const bridge_setup_chrome = compat.canonicalize([
+  "browser", "bridge", "setup", "--app", "Google Chrome"
+]);
+same_argv(bridge_setup_chrome.argv, ["--target", "current", "--grant", "observe,actuate",
+  "browser-bridge-setup", "--browser", "chrome"],
+  "legacy browser bridge setup chrome scope");
+require(compat.canonicalize([
+  "browser", "bridge", "setup", "--app", "Brave Origin"
+]).argv.length === bridge_setup.argv.length,
+  "legacy Brave setup spellings must preserve the archived three-target scope");
+require(compat.canonicalize([
+  "browser", "bridge", "setup", "--app", "Chromium"
+]).kind === "usage", "legacy setup unknown application binding must fail closed");
+require(compat.canonicalize([
+  "browser", "bridge", "setup", "--profile", "Default"
+]).kind === "usage", "legacy setup ignored profile flags must fail closed");
 const bridge_status = compat.canonicalize(["browser", "bridge", "status"]);
 require(bridge_status.kind === "bridge-status" && bridge_status.profile === null,
   "legacy browser bridge status must use exact connection selection");
