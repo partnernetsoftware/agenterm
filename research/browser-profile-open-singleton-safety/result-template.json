@@ -1,0 +1,1066 @@
+{
+  "schema": "agenterm.browser-profile-open-singleton-safety-result-template/v1",
+  "experiment": "browser-profile-open-singleton-safety",
+  "specification_sha256": "6b358bd1c74d509593163b9230415b8ef3b833c19dffecc41356a9a52f5fdf8b",
+  "limits": {
+    "journal_max_rows_exclusive": 64,
+    "journal_max_row_bytes_exclusive": 32768,
+    "journal_max_total_bytes_exclusive": 1048576,
+    "scan_row_max": 4096,
+    "group_membership_max": 4096,
+    "scan_cadence_target_ms": 20,
+    "scan_interval_max_ms": 200,
+    "scan_enumeration_max_ms": 200,
+    "direct_request_exit_deadline_ms": 5000,
+    "relay_exit_deadline_ms": 5000,
+    "relay_first_start_window_ms": 2000,
+    "focus_restore_deadline_ms": 5000,
+    "rehearsal_outer_deadline_ms": 165000,
+    "rehearsal_serial_budget_ms": 140000,
+    "decision_outer_deadline_ms": 180000,
+    "decision_serial_budget_ms": 155000,
+    "unsafe_cleanup_signals_per_target_max": 1
+  },
+  "serial_budget_phases": {
+    "rehearsal": [
+      {"name": "admission-and-reservation", "max_ms": 20000, "stages": ["preflight"]},
+      {"name": "two-fixtures-termination-and-restoration", "max_ms": 35000, "stages": ["focus-baseline", "fixture-ready", "rehearsal-foreground", "rehearsal-window-close", "rehearsal-terminate"]},
+      {"name": "public-session-start-and-status", "max_ms": 20000, "stages": ["session-ready"]},
+      {"name": "independent-ownership-witnesses", "max_ms": 15000, "stages": ["ownership"]},
+      {"name": "session-stop-remove-and-absence", "max_ms": 25000, "stages": ["session-stop", "termination-proof", "session-remove", "root-removal"]},
+      {"name": "original-foreground-restoration", "max_ms": 10000, "stages": ["original-restore"]},
+      {"name": "persistence-and-terminal-publication", "max_ms": 15000, "stages": ["final-inventory", "scan-coverage", "terminal"]}
+    ],
+    "decision": [
+      {"name": "admission-and-reservation", "max_ms": 20000, "stages": ["preflight"]},
+      {"name": "focus-fixture", "max_ms": 15000, "stages": ["focus-baseline", "fixture-ready"]},
+      {"name": "public-session-start-status-and-ownership", "max_ms": 20000, "stages": ["session-ready", "ownership"]},
+      {"name": "direct-open-and-relay-classification", "max_ms": 10000, "stages": ["open-request", "relay"]},
+      {"name": "owned-window-space-and-focus-proof", "max_ms": 20000, "stages": ["window-ready"]},
+      {"name": "exact-window-close", "max_ms": 10000, "stages": ["window-close"]},
+      {"name": "session-stop-remove-and-absence", "max_ms": 25000, "stages": ["session-stop", "termination-proof", "session-remove", "root-removal"]},
+      {"name": "both-natural-restorations", "max_ms": 10000, "stages": ["fixture-restore", "original-restore"]},
+      {"name": "persistence-and-terminal-publication", "max_ms": 25000, "stages": ["final-inventory", "scan-coverage", "terminal"]}
+    ]
+  },
+  "stage_deadline_rule": "deadline_ms is the absolute monotonic deadline of the stage's serial_budget_phase; every stage in one phase shares that deadline and cannot reset or borrow outer scheduling slack",
+  "artifact_mapping": {
+    "R1": {
+      "kind": "rehearsal",
+      "journal": "stage-journal/R1.jsonl",
+      "receipt": "rehearsal-1-receipt.json"
+    },
+    "R2": {
+      "kind": "rehearsal",
+      "journal": "stage-journal/R2.jsonl",
+      "receipt": "rehearsal-2-receipt.json"
+    },
+    "D1": {
+      "kind": "decision",
+      "journal": "stage-journal/D1.jsonl",
+      "receipt": "decision-1-receipt.json"
+    }
+  },
+  "input_digest_members": [
+    "direct-open-executable",
+    "qjswasm-host",
+    "agenterm-cu",
+    "independent-process-helper",
+    "independent-foreground-helper",
+    "account-provisioning-manifest",
+    "frozen-specification",
+    "runner",
+    "court",
+    "result-template",
+    "primary-focus-fixture",
+    "secondary-focus-fixture",
+    "selected-browser-bundle",
+    "selected-browser-main-executable",
+    "selected-browser-metadata",
+    "home-census-allowlist",
+    "accepted-family-default-root-set"
+  ],
+  "input_digest_rule": "sha256 using the frozen-input domain over an RFC 8785 array in input_digest_members order; every member is represented by its logical member id and a sha256 digest, never a persisted raw path",
+  "run_id": {
+    "encoding": "lowercase-hex",
+    "bytes": 16,
+    "independent_from_owned_root_token": true
+  },
+  "producer_values": [
+    "runner",
+    "court"
+  ],
+  "browser_acquisition_method_values": [
+    "preinstalled-signed-bundle",
+    "downloaded-vendor-archive",
+    "package-manager-install"
+  ],
+  "bounded_string_rules": {
+    "max_utf8_bytes": 128,
+    "allowed_pattern": "^[A-Za-z0-9][A-Za-z0-9 ._+()-]{0,127}$"
+  },
+  "browser_family_code_rules": {
+    "max_ascii_bytes": 64,
+    "allowed_pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+  },
+  "deviation_code_values": [
+    "controlled-browser-group-breakaway"
+  ],
+  "deviation_semantics": {
+    "controlled-browser-group-breakaway": {"weakens_result": false}
+  },
+  "history_codes": [
+    "attempt_abandoned_after_independent_audit"
+  ],
+  "record_schema_values": {
+    "ledger": "agenterm.browser-profile-open-singleton-safety-attempt-ledger-row/v1",
+    "journal": "agenterm.browser-profile-open-singleton-safety-stage-journal-row/v1",
+    "receipt": "agenterm.browser-profile-open-singleton-safety-receipt/v1"
+  },
+  "record_identity_rules": {
+    "experiment": "must equal experiment",
+    "kind_and_ordinal": "must equal the artifact_mapping entry selected for this attempt",
+    "run_id": "must satisfy run_id and equal the reserved ledger identity",
+    "source_sha256": "receipt and ledger must equal the frozen source commit",
+    "input_digest": "receipt and ledger must equal the frozen input digest",
+    "journal_identity": "every journal row must equal the same experiment, kind, ordinal and run_id"
+  },
+  "kind_values": [
+    "rehearsal",
+    "decision"
+  ],
+  "ledger_status_values": [
+    "reserved",
+    "finished",
+    "abandoned"
+  ],
+  "ledger_keys": [
+    "schema",
+    "experiment",
+    "kind",
+    "ordinal",
+    "run_id",
+    "source_sha256",
+    "input_digest",
+    "status",
+    "receipt_sha256",
+    "terminal_code"
+  ],
+  "journal_keys": [
+    "schema",
+    "experiment",
+    "kind",
+    "ordinal",
+    "run_id",
+    "sequence",
+    "prev_sha256",
+    "row_sha256",
+    "stage",
+    "producer",
+    "deadline_ms",
+    "elapsed_ms",
+    "code",
+    "facts"
+  ],
+  "receipt_keys": [
+    "schema",
+    "experiment",
+    "kind",
+    "ordinal",
+    "run_id",
+    "source_sha256",
+    "input_digest",
+    "browser",
+    "stage_statuses",
+    "criteria",
+    "terminal_code",
+    "scan",
+    "deviations",
+    "journal_final_sequence",
+    "journal_sha256"
+  ],
+  "ledger_row_rules": {
+    "reserved": "receipt_sha256 and terminal_code must both be JSON null",
+    "finished": "terminal_code must be a terminal_codes value; receipt_sha256 must be sha256 except for INCONCLUSIVE_EVIDENCE_PERSISTENCE, where it must be JSON null",
+    "abandoned": "receipt_sha256 must be JSON null and terminal_code must be attempt_abandoned_after_independent_audit"
+  },
+  "journal_row_rules": {
+    "keys": "exactly journal_keys",
+    "sequence": "safe integer beginning at zero and increasing by exactly one",
+    "code": "stage_pass or one terminal_codes value",
+    "facts": "exact subset of common_stage_facts plus the reached stage required and optional whitelist",
+    "publication": "RFC 8785 canonical JSON followed by atomic replacement, readback and byte equality"
+  },
+  "receipt_rules": {
+    "keys": "exactly receipt_keys",
+    "stage_statuses": "exact object with every stage_order key and a stage_status_values value",
+    "criteria": "exact object with every criteria_keys key and a criterion_result_shape value",
+    "terminal_code": "exactly one terminal_codes value",
+    "journal_sha256": "sha256 of the exact authoritative journal file bytes after final atomic readback",
+    "publication": "RFC 8785 canonical JSON followed by atomic replacement, readback and hashing before any lane mirror"
+  },
+  "receipt_sections": {
+    "browser": {
+      "family": "browser_family_code",
+      "version": "bounded_string",
+      "acquisition_method": "browser_acquisition_method",
+      "bundle_identity_digest": "sha256",
+      "executable_sha256": "sha256"
+    },
+    "scan": {
+      "sample_count": "safe_integer",
+      "window_duration_ms": "safe_integer",
+      "max_start_interval_ms": "safe_integer",
+      "max_enumeration_ms": "safe_integer",
+      "resolution_ms": "safe_integer",
+      "maximum_row_count": "safe_integer",
+      "maximum_group_member_count": "safe_integer",
+      "sample_sequence_digest": "sha256",
+      "complete": "boolean"
+    },
+    "deviations": {
+      "count": "safe_integer",
+      "codes": "deviation_code_array",
+      "digest": "sha256"
+    }
+  },
+  "stage_status_values": [
+    "passed",
+    "failed",
+    "not-run"
+  ],
+  "criterion_status_values": [
+    "passed",
+    "failed"
+  ],
+  "criterion_result_keys": [
+    "status",
+    "code"
+  ],
+  "criterion_result_types": {
+    "status": "one criterion_status_values value",
+    "code": "JSON null or exactly one terminal_codes value"
+  },
+  "criterion_result_shape": {
+    "reached": "exact object with criterion_result_keys",
+    "unreached": "literal string not-run"
+  },
+  "criterion_result_rules": {
+    "passed": "code must be JSON null",
+    "failed": "code must be exactly one failure_codes value frozen for that criterion",
+    "not-run": "the entire criterion value must be the literal string not-run, never an object, null, omission or inferred state"
+  },
+  "stage_success_code": "stage_pass",
+  "stage_pass_rules": {
+    "boolean_default": "every boolean-valued required or pass_required fact must be true",
+    "false_boolean_exceptions": ["scan-coverage.early_scanner_stop"],
+    "exact_values": {
+      "focus-baseline.selected_bundle_process_count": 0,
+      "focus-baseline.selected_bundle_window_count": 0,
+      "session-ready.ordinary_onscreen_window_count": 0,
+      "session-ready.selected_bundle_process_count": 1,
+      "ownership.bundle_tree_outside_count": 0,
+      "open-request.descendant_live_count": 0,
+      "relay.classified_relay_count": 1,
+      "relay.topology_candidate_count": 0,
+      "relay.descendant_live_count": 0,
+      "relay.non_exempt_token_outside_count": 0,
+      "relay.non_exempt_bundle_tree_outside_count": 0,
+      "relay.live_g1_exemption_count": 0,
+      "window-ready.owned_window_before_count": 0,
+      "window-ready.owned_window_new_count": 1,
+      "window-close.owned_onscreen_window_count": 0,
+      "termination-proof.contained_closure_live_count": 0,
+      "termination-proof.token_match_count": 0,
+      "termination-proof.residual_identity_digest": null,
+      "final-inventory.selected_bundle_process_count": 0,
+      "final-inventory.selected_bundle_window_count": 0,
+      "final-inventory.token_match_count": 0,
+      "final-inventory.bundle_tree_outside_count": 0,
+      "final-inventory.contained_closure_live_count": 0,
+      "final-inventory.direct_descendant_live_count": 0,
+      "final-inventory.relay_descendant_live_count": 0,
+      "final-inventory.candidate_descendant_live_count": 0
+    },
+    "relational_values": [
+      "rehearsal-terminate.restore_elapsed_ms is at most limits.focus_restore_deadline_ms",
+      "open-request.exit_elapsed_ms is at most limits.direct_request_exit_deadline_ms",
+      "relay.relay_exit_elapsed_ms is at most limits.relay_exit_deadline_ms",
+      "fixture-restore.restore_elapsed_ms is at most limits.focus_restore_deadline_ms",
+      "original-restore.restore_elapsed_ms is at most limits.focus_restore_deadline_ms",
+      "scan-coverage.resolution_ms equals max_start_interval_ms plus max_enumeration_ms",
+      "scan-coverage.minimum_sample_count equals floor(window_duration_ms divided by limits.scan_interval_max_ms)",
+      "scan-coverage.sample_count is at least minimum_sample_count",
+      "scan-coverage.maximum_row_count is at most limits.scan_row_max",
+      "scan-coverage.maximum_group_member_count is at most limits.group_membership_max"
+    ]
+  },
+  "criteria_keys": [
+    "V1",
+    "V2",
+    "V3",
+    "V4",
+    "V5",
+    "G1",
+    "G2",
+    "G3",
+    "G4",
+    "G5"
+  ],
+  "criteria": {
+    "V1": {
+      "role": "validity",
+      "kind_scope": "all",
+      "stages": ["preflight"],
+      "failure_codes": ["INCONCLUSIVE_ADMISSION"]
+    },
+    "V2": {
+      "role": "validity",
+      "kind_scope": "all",
+      "stages": ["focus-baseline", "fixture-ready", "session-ready", "ownership", "final-inventory"],
+      "failure_codes": ["INCONCLUSIVE_FIXTURE"]
+    },
+    "V3": {
+      "role": "validity",
+      "kind_scope": "all",
+      "stages": ["window-close", "session-stop", "termination-proof", "session-remove", "root-removal", "original-restore", "final-inventory"],
+      "failure_codes": ["INCONCLUSIVE_CLEANUP"]
+    },
+    "V4": {
+      "role": "validity",
+      "kind_scope": "rehearsal",
+      "stages": ["rehearsal-foreground", "rehearsal-window-close", "rehearsal-terminate"],
+      "failure_codes": ["INCONCLUSIVE_REHEARSAL_FOCUS"]
+    },
+    "V5": {
+      "role": "validity",
+      "kind_scope": "all",
+      "stages": ["scan-coverage"],
+      "failure_codes": ["INCONCLUSIVE_SCAN_COVERAGE"]
+    },
+    "G1": {
+      "role": "decision",
+      "kind_scope": "decision",
+      "stages": ["open-request", "relay"],
+      "failure_codes": [
+        "INCONCLUSIVE_DIRECT_REQUEST",
+        "INCONCLUSIVE_RELAY",
+        "INCONCLUSIVE_RELAY_TOPOLOGY"
+      ],
+      "positive_failure_codes": [
+        "INCONCLUSIVE_DIRECT_REQUEST",
+        "INCONCLUSIVE_RELAY_TOPOLOGY"
+      ],
+      "absence_failure_codes": [
+        "INCONCLUSIVE_RELAY"
+      ]
+    },
+    "G2": {
+      "role": "safety",
+      "kind_scope": "decision",
+      "stages": ["ownership", "open-request", "relay", "termination-proof", "final-inventory"],
+      "failure_codes": ["UNSAFE_ESCAPED_PROCESS"],
+      "positive_failure_codes": ["UNSAFE_ESCAPED_PROCESS"]
+    },
+    "G3": {
+      "role": "decision",
+      "kind_scope": "decision",
+      "stages": ["window-ready"],
+      "failure_codes": ["INCONCLUSIVE_HANDOFF"]
+    },
+    "G4": {
+      "role": "decision",
+      "kind_scope": "decision",
+      "stages": ["window-ready", "fixture-restore", "original-restore"],
+      "failure_codes": ["INCONCLUSIVE_FOCUS_RESTORE"]
+    },
+    "G5": {
+      "role": "safety",
+      "kind_scope": "decision",
+      "stages": ["focus-baseline", "session-ready", "final-inventory"],
+      "failure_codes": ["INCONCLUSIVE_BASELINE_MUTATION"],
+      "positive_failure_codes": ["INCONCLUSIVE_BASELINE_MUTATION"]
+    }
+  },
+  "terminal_codes": [
+    "REHEARSAL_PASS",
+    "OWNED_HANDOFF_PROVED",
+    "UNSAFE_ESCAPED_PROCESS",
+    "INCONCLUSIVE_ADMISSION",
+    "INCONCLUSIVE_FIXTURE",
+    "INCONCLUSIVE_DIRECT_REQUEST",
+    "INCONCLUSIVE_RELAY",
+    "INCONCLUSIVE_RELAY_TOPOLOGY",
+    "INCONCLUSIVE_SCAN_COVERAGE",
+    "INCONCLUSIVE_HANDOFF",
+    "INCONCLUSIVE_FOCUS_RESTORE",
+    "INCONCLUSIVE_REHEARSAL_FOCUS",
+    "INCONCLUSIVE_CLEANUP",
+    "INCONCLUSIVE_BASELINE_MUTATION",
+    "INCONCLUSIVE_EVIDENCE_PERSISTENCE"
+  ],
+  "success_terminal_by_kind": {
+    "rehearsal": "REHEARSAL_PASS",
+    "decision": "OWNED_HANDOFF_PROVED"
+  },
+  "stage_order": [
+    "preflight",
+    "focus-baseline",
+    "fixture-ready",
+    "rehearsal-foreground",
+    "rehearsal-window-close",
+    "rehearsal-terminate",
+    "session-ready",
+    "ownership",
+    "open-request",
+    "relay",
+    "window-ready",
+    "window-close",
+    "session-stop",
+    "termination-proof",
+    "session-remove",
+    "root-removal",
+    "fixture-restore",
+    "original-restore",
+    "final-inventory",
+    "scan-coverage",
+    "terminal"
+  ],
+  "kind_excluded_stages": {
+    "rehearsal": [
+      "open-request",
+      "relay",
+      "window-ready",
+      "window-close",
+      "fixture-restore"
+    ],
+    "decision": [
+      "rehearsal-foreground",
+      "rehearsal-window-close",
+      "rehearsal-terminate"
+    ]
+  },
+  "kind_not_run_criteria": {
+    "rehearsal": ["G1", "G2", "G3", "G4", "G5"],
+    "decision": ["V4"]
+  },
+  "criterion_dependency_rules": {
+    "rehearsal_pass_requires": ["V1", "V2", "V3", "V4", "V5"],
+    "decision_pass_requires": ["V1", "V2", "V3", "V5", "G1", "G2", "G3", "G4", "G5"],
+    "v5_failure_not_run": ["G1", "G2", "G5"],
+    "v5_failure_exception": "a previously persisted positive G1, G2 or G5 failure remains failed and keeps its typed code",
+    "not_run_encoding": "literal string not-run"
+  },
+  "identity_domains": [
+    "agenterm.singleton-safety.v1.account-identity",
+    "agenterm.singleton-safety.v1.process-identity",
+    "agenterm.singleton-safety.v1.window-identity",
+    "agenterm.singleton-safety.v1.foreground-identity",
+    "agenterm.singleton-safety.v1.executable-identity",
+    "agenterm.singleton-safety.v1.path-identity",
+    "agenterm.singleton-safety.v1.owned-root-token",
+    "agenterm.singleton-safety.v1.process-set",
+    "agenterm.singleton-safety.v1.window-set",
+    "agenterm.singleton-safety.v1.bundle-tree-set",
+    "agenterm.singleton-safety.v1.group-membership-set",
+    "agenterm.singleton-safety.v1.controlled-lineage-set",
+    "agenterm.singleton-safety.v1.contained-browser-closure",
+    "agenterm.singleton-safety.v1.sticky-descendant-closure",
+    "agenterm.singleton-safety.v1.baseline-set",
+    "agenterm.singleton-safety.v1.deviation-set",
+    "agenterm.singleton-safety.v1.frozen-input",
+    "agenterm.singleton-safety.v1.decision-trace"
+  ],
+  "digest_encoding": "sha256(domain-utf8 || 0x00 || rfc8785-json-utf8)",
+  "journal_chain": {
+    "domain": "agenterm.singleton-safety.v1.journal-chain",
+    "zero_predecessor_derivation": "sha256(domain-utf8)",
+    "zero_predecessor_sha256": "1bacf00043eeb400572ade8654a085bf58e498638ab82298608ab3a2b09184fe",
+    "row_hash_encoding": "sha256(domain-utf8 || 0x00 || prev-sha256-bytes || 0x00 || rfc8785-row-without-row_sha256-utf8)"
+  },
+  "fact_type_values": [
+    "boolean",
+    "safe_integer",
+    "sha256",
+    "nullable_sha256",
+    "git_sha",
+    "typed_code",
+    "nullable_typed_code",
+    "bounded_string",
+    "browser_acquisition_method",
+    "browser_family_code",
+    "deviation_code_array"
+  ],
+  "value_type_rules": {
+    "boolean": "JSON boolean",
+    "safe_integer": "JSON integer from 0 through 9007199254740991 inclusive",
+    "sha256": "exactly 64 lowercase hexadecimal characters",
+    "nullable_sha256": "sha256 or JSON null",
+    "git_sha": "exactly 40 lowercase hexadecimal characters",
+    "typed_code": "stage_pass or exactly one terminal_codes value",
+    "nullable_typed_code": "typed_code or JSON null",
+    "bounded_string": "UTF-8 string satisfying bounded_string_rules",
+    "browser_acquisition_method": "exactly one browser_acquisition_method_values value",
+    "browser_family_code": "ASCII string satisfying browser_family_code_rules",
+    "deviation_code_array": "lexicographically sorted unique array containing only deviation_code_values"
+  },
+  "common_stage_facts": {
+    "failure_class_code": "typed_code",
+    "failure_fact_digest": "sha256"
+  },
+  "stages": {
+    "preflight": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "specification_sha256": "sha256",
+        "result_template_sha256": "sha256",
+        "source_sha256": "git_sha",
+        "input_digest": "sha256",
+        "account_identity_digest": "sha256",
+        "account_home_matches": "boolean",
+        "account_name_matches": "boolean",
+        "account_uid_matches": "boolean",
+        "console_user_matches": "boolean",
+        "home_census_complete": "boolean",
+        "home_census_digest": "sha256",
+        "default_browser_roots_absent": "boolean",
+        "selected_bundle_zero_public": "boolean",
+        "selected_bundle_zero_independent": "boolean",
+        "owned_roots_absent": "boolean",
+        "external_state_valid": "boolean",
+        "frozen_inputs_valid": "boolean",
+        "attempt_reserved": "boolean",
+        "reservation_readback_exact": "boolean"
+      },
+      "pass_required": [
+        "specification_sha256",
+        "result_template_sha256",
+        "source_sha256",
+        "input_digest",
+        "account_identity_digest",
+        "account_home_matches",
+        "account_name_matches",
+        "account_uid_matches",
+        "console_user_matches",
+        "home_census_complete",
+        "home_census_digest",
+        "default_browser_roots_absent",
+        "selected_bundle_zero_public",
+        "selected_bundle_zero_independent",
+        "owned_roots_absent",
+        "external_state_valid",
+        "frozen_inputs_valid",
+        "attempt_reserved",
+        "reservation_readback_exact"
+      ]
+    },
+    "focus-baseline": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "original_foreground_identity_digest": "sha256",
+        "process_baseline_digest": "sha256",
+        "process_baseline_count": "safe_integer",
+        "window_baseline_digest": "sha256",
+        "window_baseline_count": "safe_integer",
+        "selected_bundle_process_count": "safe_integer",
+        "selected_bundle_window_count": "safe_integer",
+        "public_inventory_complete": "boolean",
+        "independent_inventory_complete": "boolean"
+      },
+      "pass_required": [
+        "original_foreground_identity_digest",
+        "process_baseline_digest",
+        "process_baseline_count",
+        "window_baseline_digest",
+        "window_baseline_count",
+        "selected_bundle_process_count",
+        "selected_bundle_window_count",
+        "public_inventory_complete",
+        "independent_inventory_complete"
+      ]
+    },
+    "fixture-ready": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "fixture_process_identity_digest": "sha256",
+        "fixture_window_identity_digest": "sha256",
+        "fixture_bundle_identity_digest": "sha256",
+        "public_focused_match": "boolean",
+        "independent_focused_match": "boolean",
+        "unique_frontmost": "boolean",
+        "active_space_match": "boolean"
+      },
+      "pass_required": [
+        "fixture_process_identity_digest",
+        "fixture_window_identity_digest",
+        "fixture_bundle_identity_digest",
+        "public_focused_match",
+        "independent_focused_match",
+        "unique_frontmost",
+        "active_space_match"
+      ]
+    },
+    "rehearsal-foreground": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "secondary_process_identity_digest": "sha256",
+        "secondary_window_identity_digest": "sha256",
+        "secondary_bundle_identity_digest": "sha256",
+        "fixture_bundle_identities_distinct": "boolean",
+        "public_focused_match": "boolean",
+        "independent_focused_match": "boolean",
+        "primary_fixture_displaced": "boolean"
+      },
+      "pass_required": [
+        "secondary_process_identity_digest",
+        "secondary_window_identity_digest",
+        "secondary_bundle_identity_digest",
+        "fixture_bundle_identities_distinct",
+        "public_focused_match",
+        "independent_focused_match",
+        "primary_fixture_displaced"
+      ]
+    },
+    "rehearsal-window-close": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "secondary_window_identity_digest": "sha256",
+        "exact_close_succeeded": "boolean",
+        "window_absent": "boolean",
+        "zero_window_frontmost_public": "boolean",
+        "zero_window_frontmost_independent": "boolean"
+      },
+      "pass_required": [
+        "secondary_window_identity_digest",
+        "exact_close_succeeded",
+        "window_absent",
+        "zero_window_frontmost_public",
+        "zero_window_frontmost_independent"
+      ]
+    },
+    "rehearsal-terminate": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "secondary_process_identity_digest": "sha256",
+        "contained_terminate_succeeded": "boolean",
+        "contained_reap_succeeded": "boolean",
+        "secondary_process_absent": "boolean",
+        "primary_fixture_restored_public": "boolean",
+        "primary_fixture_restored_independent": "boolean",
+        "restore_elapsed_ms": "safe_integer"
+      },
+      "pass_required": [
+        "secondary_process_identity_digest",
+        "contained_terminate_succeeded",
+        "contained_reap_succeeded",
+        "secondary_process_absent",
+        "primary_fixture_restored_public",
+        "primary_fixture_restored_independent",
+        "restore_elapsed_ms"
+      ]
+    },
+    "session-ready": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "owner_identity_digest": "sha256",
+        "browser_identity_digest": "sha256",
+        "owned_root_identity_digest": "sha256",
+        "owned_token_digest": "sha256",
+        "public_status_ready": "boolean",
+        "identity_match": "boolean",
+        "ordinary_onscreen_window_count": "safe_integer",
+        "selected_bundle_set_digest": "sha256",
+        "selected_bundle_process_count": "safe_integer",
+        "public_inventory_complete": "boolean",
+        "independent_inventory_complete": "boolean"
+      },
+      "pass_required": [
+        "owner_identity_digest",
+        "browser_identity_digest",
+        "owned_root_identity_digest",
+        "owned_token_digest",
+        "public_status_ready",
+        "identity_match",
+        "ordinary_onscreen_window_count",
+        "selected_bundle_set_digest",
+        "selected_bundle_process_count",
+        "public_inventory_complete",
+        "independent_inventory_complete"
+      ]
+    },
+    "ownership": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "contained_group_digest": "sha256",
+        "group_retained_count": "safe_integer",
+        "group_live_count": "safe_integer",
+        "controlled_lineage_digest": "sha256",
+        "controlled_lineage_count": "safe_integer",
+        "contained_closure_retained_digest": "sha256",
+        "contained_closure_retained_count": "safe_integer",
+        "contained_closure_live_digest": "sha256",
+        "contained_closure_live_count": "safe_integer",
+        "token_set_digest": "sha256",
+        "token_match_count": "safe_integer",
+        "bundle_tree_set_digest": "sha256",
+        "bundle_tree_outside_count": "safe_integer",
+        "breakaway_deviation_count": "safe_integer",
+        "browser_token_match": "boolean",
+        "same_sample_insertion_check": "boolean"
+      },
+      "pass_required": [
+        "contained_group_digest",
+        "group_retained_count",
+        "group_live_count",
+        "controlled_lineage_digest",
+        "controlled_lineage_count",
+        "contained_closure_retained_digest",
+        "contained_closure_retained_count",
+        "contained_closure_live_digest",
+        "contained_closure_live_count",
+        "token_set_digest",
+        "token_match_count",
+        "bundle_tree_set_digest",
+        "bundle_tree_outside_count",
+        "breakaway_deviation_count",
+        "browser_token_match",
+        "same_sample_insertion_check"
+      ]
+    },
+    "open-request": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "direct_request_identity_digest": "sha256",
+        "spawn_succeeded": "boolean",
+        "exit_observed": "boolean",
+        "exit_elapsed_ms": "safe_integer",
+        "exit_within_deadline": "boolean",
+        "descendant_retained_digest": "sha256",
+        "descendant_retained_count": "safe_integer",
+        "descendant_live_digest": "sha256",
+        "descendant_live_count": "safe_integer",
+        "boundary_sample_complete": "boolean"
+      },
+      "pass_required": [
+        "direct_request_identity_digest",
+        "spawn_succeeded",
+        "exit_observed",
+        "exit_elapsed_ms",
+        "exit_within_deadline",
+        "descendant_retained_digest",
+        "descendant_retained_count",
+        "descendant_live_digest",
+        "descendant_live_count",
+        "boundary_sample_complete"
+      ]
+    },
+    "relay": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "candidate_observed_count": "safe_integer",
+        "classified_relay_count": "safe_integer",
+        "topology_candidate_count": "safe_integer",
+        "relay_identity_digest": "sha256",
+        "primary_predicates_ok": "boolean",
+        "auxiliary_predicates_ok": "boolean",
+        "kernel_start_window_ok": "boolean",
+        "relay_exit_elapsed_ms": "safe_integer",
+        "relay_exit_within_deadline": "boolean",
+        "descendant_retained_digest": "sha256",
+        "descendant_retained_count": "safe_integer",
+        "descendant_live_digest": "sha256",
+        "descendant_live_count": "safe_integer",
+        "non_exempt_token_outside_count": "safe_integer",
+        "non_exempt_bundle_tree_outside_count": "safe_integer",
+        "live_g1_exemption_count": "safe_integer",
+        "boundary_sample_complete": "boolean"
+      },
+      "pass_required": [
+        "candidate_observed_count",
+        "classified_relay_count",
+        "topology_candidate_count",
+        "relay_identity_digest",
+        "primary_predicates_ok",
+        "auxiliary_predicates_ok",
+        "kernel_start_window_ok",
+        "relay_exit_elapsed_ms",
+        "relay_exit_within_deadline",
+        "descendant_retained_digest",
+        "descendant_retained_count",
+        "descendant_live_digest",
+        "descendant_live_count",
+        "non_exempt_token_outside_count",
+        "non_exempt_bundle_tree_outside_count",
+        "live_g1_exemption_count",
+        "boundary_sample_complete"
+      ]
+    },
+    "window-ready": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "owned_window_before_count": "safe_integer",
+        "owned_window_new_count": "safe_integer",
+        "window_identity_digest": "sha256",
+        "window_owner_identity_match": "boolean",
+        "ordinary_onscreen": "boolean",
+        "same_space_as_fixture": "boolean",
+        "public_frontmost_match": "boolean",
+        "independent_frontmost_match": "boolean"
+      },
+      "pass_required": [
+        "owned_window_before_count",
+        "owned_window_new_count",
+        "window_identity_digest",
+        "window_owner_identity_match",
+        "ordinary_onscreen",
+        "same_space_as_fixture",
+        "public_frontmost_match",
+        "independent_frontmost_match"
+      ]
+    },
+    "window-close": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "window_identity_digest": "sha256",
+        "exact_close_succeeded": "boolean",
+        "window_absent": "boolean",
+        "owned_onscreen_window_count": "safe_integer",
+        "no_activate_enabled": "boolean"
+      },
+      "pass_required": [
+        "window_identity_digest",
+        "exact_close_succeeded",
+        "window_absent",
+        "owned_onscreen_window_count",
+        "no_activate_enabled"
+      ]
+    },
+    "session-stop": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "public_stop_succeeded": "boolean",
+        "no_activate_enabled": "boolean"
+      },
+      "pass_required": ["public_stop_succeeded", "no_activate_enabled"]
+    },
+    "termination-proof": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "owner_absent": "boolean",
+        "browser_absent": "boolean",
+        "contained_group_absent": "boolean",
+        "contained_closure_live_count": "safe_integer",
+        "token_set_digest": "sha256",
+        "token_match_count": "safe_integer",
+        "escaped_target_count": "safe_integer",
+        "unsafe_cleanup_signal_count": "safe_integer",
+        "cleanup_veto_respected": "boolean",
+        "residual_identity_digest": "nullable_sha256",
+        "public_inventory_complete": "boolean",
+        "independent_inventory_complete": "boolean"
+      },
+      "pass_required": [
+        "owner_absent",
+        "browser_absent",
+        "contained_group_absent",
+        "contained_closure_live_count",
+        "token_set_digest",
+        "token_match_count",
+        "escaped_target_count",
+        "unsafe_cleanup_signal_count",
+        "cleanup_veto_respected",
+        "residual_identity_digest",
+        "public_inventory_complete",
+        "independent_inventory_complete"
+      ]
+    },
+    "session-remove": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "public_remove_succeeded": "boolean",
+        "session_registry_absent": "boolean"
+      },
+      "pass_required": ["public_remove_succeeded", "session_registry_absent"]
+    },
+    "root-removal": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "root_identity_digest": "sha256",
+        "removal_within_scratch_root": "boolean",
+        "session_root_absent": "boolean",
+        "owned_chromium_root_absent": "boolean"
+      },
+      "pass_required": [
+        "root_identity_digest",
+        "removal_within_scratch_root",
+        "session_root_absent",
+        "owned_chromium_root_absent"
+      ]
+    },
+    "fixture-restore": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "fixture_foreground_identity_digest": "sha256",
+        "public_frontmost_match": "boolean",
+        "independent_frontmost_match": "boolean",
+        "restore_elapsed_ms": "safe_integer",
+        "restore_within_deadline": "boolean"
+      },
+      "pass_required": [
+        "fixture_foreground_identity_digest",
+        "public_frontmost_match",
+        "independent_frontmost_match",
+        "restore_elapsed_ms",
+        "restore_within_deadline"
+      ]
+    },
+    "original-restore": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "fixture_exit_succeeded": "boolean",
+        "fixture_process_absent": "boolean",
+        "original_foreground_identity_digest": "sha256",
+        "public_frontmost_match": "boolean",
+        "independent_frontmost_match": "boolean",
+        "restore_elapsed_ms": "safe_integer",
+        "restore_within_deadline": "boolean"
+      },
+      "pass_required": [
+        "fixture_exit_succeeded",
+        "fixture_process_absent",
+        "original_foreground_identity_digest",
+        "public_frontmost_match",
+        "independent_frontmost_match",
+        "restore_elapsed_ms",
+        "restore_within_deadline"
+      ]
+    },
+    "final-inventory": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "public_inventory_complete": "boolean",
+        "independent_inventory_complete": "boolean",
+        "selected_bundle_process_count": "safe_integer",
+        "selected_bundle_window_count": "safe_integer",
+        "process_baseline_match": "boolean",
+        "window_baseline_match": "boolean",
+        "process_baseline_digest": "sha256",
+        "window_baseline_digest": "sha256",
+        "token_set_digest": "sha256",
+        "token_match_count": "safe_integer",
+        "bundle_tree_outside_count": "safe_integer",
+        "contained_closure_retained_digest": "sha256",
+        "contained_closure_retained_count": "safe_integer",
+        "contained_closure_live_digest": "sha256",
+        "contained_closure_live_count": "safe_integer",
+        "direct_descendant_retained_digest": "sha256",
+        "direct_descendant_live_count": "safe_integer",
+        "relay_descendant_retained_digest": "sha256",
+        "relay_descendant_live_count": "safe_integer",
+        "candidate_descendant_retained_digest": "sha256",
+        "candidate_descendant_live_count": "safe_integer",
+        "cleanup_targets_absent": "boolean",
+        "owned_roots_absent": "boolean"
+      },
+      "pass_required": [
+        "public_inventory_complete",
+        "independent_inventory_complete",
+        "selected_bundle_process_count",
+        "selected_bundle_window_count",
+        "process_baseline_match",
+        "window_baseline_match",
+        "process_baseline_digest",
+        "window_baseline_digest",
+        "token_set_digest",
+        "token_match_count",
+        "bundle_tree_outside_count",
+        "contained_closure_retained_digest",
+        "contained_closure_retained_count",
+        "contained_closure_live_digest",
+        "contained_closure_live_count",
+        "direct_descendant_retained_digest",
+        "direct_descendant_live_count",
+        "relay_descendant_retained_digest",
+        "relay_descendant_live_count",
+        "candidate_descendant_retained_digest",
+        "candidate_descendant_live_count",
+        "cleanup_targets_absent",
+        "owned_roots_absent"
+      ]
+    },
+    "scan-coverage": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "sample_count": "safe_integer",
+        "window_duration_ms": "safe_integer",
+        "minimum_sample_count": "safe_integer",
+        "max_start_interval_ms": "safe_integer",
+        "max_enumeration_ms": "safe_integer",
+        "resolution_ms": "safe_integer",
+        "maximum_row_count": "safe_integer",
+        "maximum_group_member_count": "safe_integer",
+        "first_sample_complete": "boolean",
+        "sentinel_sample_complete": "boolean",
+        "sentinel_after_final_inventory": "boolean",
+        "all_samples_complete": "boolean",
+        "interval_bound_ok": "boolean",
+        "enumeration_bound_ok": "boolean",
+        "row_bound_ok": "boolean",
+        "group_member_bound_ok": "boolean",
+        "count_lower_bound_ok": "boolean",
+        "early_scanner_stop": "boolean",
+        "bundle_tree_resolution_charged": "boolean",
+        "sample_sequence_digest": "sha256"
+      },
+      "pass_required": [
+        "sample_count",
+        "window_duration_ms",
+        "minimum_sample_count",
+        "max_start_interval_ms",
+        "max_enumeration_ms",
+        "resolution_ms",
+        "maximum_row_count",
+        "maximum_group_member_count",
+        "first_sample_complete",
+        "sentinel_sample_complete",
+        "sentinel_after_final_inventory",
+        "all_samples_complete",
+        "interval_bound_ok",
+        "enumeration_bound_ok",
+        "row_bound_ok",
+        "group_member_bound_ok",
+        "count_lower_bound_ok",
+        "early_scanner_stop",
+        "bundle_tree_resolution_charged",
+        "sample_sequence_digest"
+      ]
+    },
+    "terminal": {
+      "required": {"complete": "boolean"},
+      "optional": {
+        "primary_cause_code": "nullable_typed_code",
+        "cleanup_status_code": "typed_code",
+        "final_inventory_status_code": "typed_code",
+        "terminal_code": "typed_code",
+        "decision_trace_digest": "sha256",
+        "criteria_digest": "sha256",
+        "stage_statuses_digest": "sha256",
+        "deviation_count": "safe_integer",
+        "deviation_digest": "sha256",
+        "receipt_ready": "boolean"
+      },
+      "pass_required": [
+        "primary_cause_code",
+        "cleanup_status_code",
+        "final_inventory_status_code",
+        "terminal_code",
+        "decision_trace_digest",
+        "criteria_digest",
+        "stage_statuses_digest",
+        "deviation_count",
+        "deviation_digest",
+        "receipt_ready"
+      ]
+    }
+  }
+}
