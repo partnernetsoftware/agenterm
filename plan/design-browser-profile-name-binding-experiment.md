@@ -35,8 +35,9 @@ The following facts are not reopened by this experiment.
 
 Three designs are compared, not conflated:
 
-- **A0 · archived cardinality alias:** reproduce MCU's relation-free 1-1-1
-  fallback exactly. The negative alias trap can only reject or retain A0.
+- **A0 · archived cardinality alias control:** reproduce MCU's relation-free
+  1-1-1 fallback exactly. The armed negative trap must select B, so A0 has no
+  winning branch; refusal means the archived behavior was not reproduced.
 - **A1 · verified implicit edge:** automatically select only if a Profile-unique
   identifier from one trusted issuer binds the candidate directory to the live
   instance, and the current name-to-directory snapshot is unique and frozen.
@@ -64,9 +65,14 @@ identity edge, and a safe refusal is not implementation of the legacy selector.
    directories and paths are reported only as fixed fixture labels, never as
    raw hashes. The exact-prefix control uses 12 lowercase hex characters only
    inside the private invocation and never prints them.
-4. A complete connection inventory is mandatory. Truncation, malformed rows,
-   stale process identity, zero connections or multiple connections is typed
-   inconclusive, never evidence for a design.
+4. A complete connection inventory is mandatory. Truncation, malformed rows or
+   stale process identity is typed inconclusive. At a selector observation that
+   requires one live connection, zero or multiple connections is also typed
+   inconclusive, but must remain distinguishable as
+   `selector_observation_no_connection` and
+   `selector_observation_multiple_connections`. The negative-arm baseline and
+   post-stop cleanup instead require zero connections as their explicit success
+   condition.
 5. The exact fixed extension id, protocol, version and build id pass the
    existing strict status validator. Those values are shared by multiple
    Profiles and explicitly fail the identity-edge test.
@@ -126,15 +132,17 @@ while frozen ground truth says A differs from B, the result is
 |---|---|---|---|---|
 | G1 | Fixture identity and inventory | Boolean gate | Exact extension/status, complete C and frozen construction trace | `INCONCLUSIVE_DEPENDENCY` |
 | G2 | Armed archived trap | Boolean gate | `|N|=1`, `|I|=1`, `|C|=1`, A is sole N/I member, and B is outside scan roots and all candidate sets | `INCONCLUSIVE_FIXTURE` |
-| G3 | A0 selector correctness | Safety | A0 refuses A-idle/B-live | One A→B selection permanently rejects A0 |
-| G4 | A1 directory/instance edge | Checklist/Boolean | Candidate and connection share one authenticated, collision-resistant, injective, Profile-unique value from the same issuer; it survives same-directory restart | Missing, duplicate, changed or ground-truth-conflicting value rejects A1 |
+| G3 | A0 archived-behavior control | Safety | No winning branch: exact A0 selects B and is rejected | Refusal means A0 was not reproduced; A→B permanently rejects the archived alias |
+| G4a | A1 directory/instance edge eligibility | Checklist/Boolean | Candidate and connection share one authenticated, collision-resistant, injective, Profile-unique value from the same issuer | Missing, duplicate or ground-truth-conflicting value rejects A1 |
+| G4b | A1 edge restart persistence | Boolean | The eligible G4a value survives a same-directory restart unchanged | Missing or changed value rejects A1 |
 | G5 | A1 name/directory snapshot | Safety | Normalized name uniquely names one directory; frozen receipt goes stale on rename; old name stops; renamed value cannot inherit the frozen receipt; duplicate normalized name is typed ambiguous even if only one Profile records the extension | Any wrong, inherited or fallback selection rejects A1 |
 | G6 | Exact-prefix control | Boolean | B's private 12-hex prefix resolves only to B | `INCONCLUSIVE_FIXTURE` |
 | G7 | Explicit-binding model | Safety | All bounded B operations and authority/conflict invariants close | Otherwise `INCONCLUSIVE_BINDING_DESIGN` |
 
-Order is validity G1/G2/G6, then pure edge inventory G4, then A0 safety G3,
-A1 name safety G5 and finally B feasibility G7. Validity gates never vote for a
-design.
+Order is validity G1/G2/G6, then pure edge eligibility inventory G4a, then the
+A0 control G3. Only an eligible G4a edge permits the positive A-owned arm and
+same-directory restart for G4b; G5 name safety follows, and B feasibility G7 is
+last. Validity gates never vote for a design.
 
 The result records:
 
@@ -152,16 +160,20 @@ The result records:
 1. If G1, G2 or G6 fails, return its typed inconclusive result. One fixture-only
    repair and rerun is allowed from a new frozen reachable source. A second
    validity failure ends the experiment as `INCONCLUSIVE_FIXTURE_EXHAUSTED`.
-2. Inventory G4 before running a selector. If E claims A equals B against frozen
+2. Inventory G4a before running a selector. If E claims A equals B against frozen
    construction, return `INCONCLUSIVE_GROUND_TRUTH_CONFLICT` and stop.
 3. Run A0 in the negative trap. If it selects B, return
-   `REJECT_ARCHIVED_CARDINALITY_ALIAS`; A0 can never be revived. If it refuses,
-   retain A0 as safe but record `CARDINALITY_ALIAS_NOT_LEGACY_COMPATIBLE` because
-   the legacy human selector was not implemented.
-4. A1 can return `SELECT_VERIFIED_IMPLICIT_EDGE` only if G4 exists, the positive
-   A-owned arm selects A, the A-idle/B-live trap refuses B, same-directory
-   restart preserves the edge, and every G5 rename/collision assertion passes.
-   G4 absent or any wrong/refused positive selection rejects A1.
+   `REJECT_ARCHIVED_CARDINALITY_ALIAS` as the A0 subdecision; A0 can never be
+   revived. If it refuses, record the A0 subdecision
+   `REJECT_A0_NOT_REPRODUCED`: that result may establish that a stricter
+   implementation refused safely, but it is neither legacy compatibility nor a
+   reason to retain A0. In both cases continue to step 4; an A0 subdecision is
+   not the terminal experiment verdict.
+4. A1 can return `SELECT_VERIFIED_IMPLICIT_EDGE` only if G4a exists, the positive
+   A-owned arm selects A, the A-idle/B-live trap refuses B, G4b proves that the
+   edge survives same-directory restart, and every G5 rename/collision assertion
+   passes. G4a absent, G4b failure or any wrong/refused positive selection rejects
+   A1.
 5. If neither implicit design wins, run G7. B returns
    `SELECT_EXPLICIT_DURABLE_BINDING` only if all operations and invariants below
    pass; otherwise keep the TODO as `INCONCLUSIVE_BINDING_DESIGN` and require a
@@ -183,9 +195,10 @@ generation-conflict and revoke. Its invariants are:
   alias; an explicit CAS replace is required;
 - revoke makes every later resolve typed not-found.
 
-**Kill criteria:** one A-label→B-connection selection without a complete G4/G5
-edge permanently rejects that implicit design. One ground-truth conflict stops
-the experiment rather than laundering a bad fixture into either result.
+**Kill criteria:** one A-label→B-connection selection without complete
+G4a/G4b/G5 proof permanently rejects that implicit design. One ground-truth
+conflict stops the experiment rather than laundering a bad fixture into either
+result.
 
 **Timebox:** stop after one valid negative trap, one positive arm, one
 same-directory restart, the rename and duplicate-name cases, the exhaustive
@@ -193,9 +206,10 @@ edge inventory and the seven-operation B model. Do not implement a product
 resolver, Preferences inventory, compat route or persistent store before review
 accepts the result.
 
-Every criterion has an exit: G1/G2/G6 validate, G4 precedes selection, G3
-decides A0, G4+G5 decide A1, and G7 decides whether B is ready. G4 present or
-absent crossed with correct, wrong or refused selections is covered.
+Every criterion has an exit: G1/G2/G6 validate, G4a precedes selection, G3
+rejects or fails to reproduce A0, G4a+G4b+G5 decide A1, and G7 decides whether B
+is ready. G4a present or absent crossed with correct, wrong or refused selections
+is covered, and G4b is evaluated only after the A-owned arm can restart.
 
 ## 5. Planned research layout
 
@@ -210,7 +224,10 @@ research/browser-profile-name-binding/
 
 The runner requires a clean research directory, reachable `origin/main` source,
 the exact extension build identity, bounded attempt counters and a synthetic
-HOME. Only the primary agent runs the browser court.
+HOME. Every digest input must be tracked by that reachable source commit and its
+working-tree bytes must equal the committed bytes; an untracked, missing or dirty
+input is refused before the court starts. Only the primary agent runs the browser
+court.
 
 ## 6. Excluded options
 
