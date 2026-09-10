@@ -995,7 +995,7 @@
             "platforms": {
               "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
               "macos": {"result": "native-qualified", "gate": "cu-browser-extension-reload-smoke", "evidence": ["cu.browser-extension-reload-upgrade.macos"]},
-              "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
+              "windows": {"result": "pending", "blocker_code": "registry-bootstrap-court-not-run"}
             }
           },
           "evidence": ["cu.browser-extension-reload-upgrade.macos", "acu.compat-browser-bridge"],
