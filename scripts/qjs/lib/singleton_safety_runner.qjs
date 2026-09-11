@@ -1,0 +1,346 @@
+// singleton_safety_runner.qjs -- the pure, injectable layer of the
+// browser-profile-open-singleton-safety live runner.
+//
+// A tool library: it never spawns a browser or GUI process itself. Every external
+// action goes through an injected `execute(argv)` function, so tests drive the
+// runner with a fake executor and no real CLI is touched.
+//
+// It carries only the mechanics: CLI argv construction, strict reply parsing, a
+// stage/event state machine, the run-local path layout, canonical control-record
+// JSONL encoding, and the window-identity digest.
+import * as rh from "lib/rh_compat";
+import * as cj from "lib/canonical_json";
+import * as v from "lib/singleton_safety_verdict";
+
+const CONTROL_SCHEMA = "agenterm.singleton-safety.process-probe-control/v1";
+const CONTROL_ROLES = ["browser-root", "ownership-boundary", "direct-open-root",
+                       "final-inventory-complete", "abort"];
+
+function require(condition, message) { if (!condition) { throw message; } }
+
+// Load the result template through the verdict library so the runner sees the
+// same validated authority (reached-stage rules, bindings, CLI contract).
+export function load_runner_template(path) {
+  const template = v.load_template(path);
+  rh.require(template["runtime_cli_contract"] !== undefined, "runner_cli_contract_missing");
+  rh.require(template["window_identity_preimage"] !== undefined, "runner_window_preimage_missing");
+  return template;
+}
+
+// ---- CLI argv construction ----------------------------------------------
+
+// Every argv is built from the contract's own verb spelling plus the exact
+// arguments the runner passes; nothing is inferred from free-form help text.
+export function browser_session_start_argv(name, browser, ready_timeout_ms, ttl_ms) {
+  require(typeof name === "string" && name.length > 0, "session_name");
+  require(typeof browser === "string" && browser.length > 0, "session_browser");
+  return ["--target", "current", "--grant", "actuate", "browser-session-start", name,
+          "--browser", browser, "--ready-timeout-ms", "" + ready_timeout_ms, "--ttl-ms", "" + ttl_ms];
+}
+export function browser_session_status_argv(name) {
+  return ["--target", "current", "--grant", "observe", "browser-session-status", name];
+}
+export function browser_session_stop_argv(name, timeout_ms) {
+  return ["--target", "current", "--grant", "actuate", "browser-session-stop", name,
+          "--expect", "stopped", "--timeout-ms", "" + timeout_ms];
+}
+export function browser_session_remove_argv(name) {
+  return ["--target", "current", "--grant", "actuate", "browser-session-remove", name,
+          "--expect", "stopped"];
+}
+export function browser_open_argv(profile, url, timeout_ms) {
+  const argv = ["--target", "current", "--grant", "actuate", "browser-open", "--profile", profile];
+  if (url !== undefined && url !== null) { argv.push("--url");argv.push(url); }
+  argv.push("--timeout-ms");argv.push("" + timeout_ms);
+  return argv;
+}
+export function windows_argv(pid) {
+  const argv = ["--target", "current", "--grant", "observe", "windows"];
+  if (pid !== undefined && pid !== null) { argv.push("--pid");argv.push("" + pid); }
+  argv.push("--max");argv.push("4096");
+  return argv;
+}
+export function activate_argv(handle) {
+  return ["--target", "current", "--grant", "actuate", "activate", "--window", "" + handle];
+}
+export function close_argv(handle) {
+  return ["--target", "current", "--grant", "actuate", "close", "--window", "" + handle,
+          "--snapshot", "--expect", "gone"];
+}
+
+// ---- strict reply parsing -----------------------------------------------
+
+// Parse the typed envelope strictly from the contract's own envelope definition:
+// success requires ok=true plus an object-or-array data and no error; failure
+// requires ok=false plus an exact error object and no data. The allowed key set is
+// taken from the contract, never hand-written here.
+export function parse_reply(template, text) {
+  let value;
+  try { value = JSON.parse(text); } catch (e) { throw "reply_not_json"; }
+  require(value !== null && typeof value === "object" && !Array.isArray(value), "reply_not_object");
+  const spec = template["runtime_cli_contract"]["envelope"];
+  const required = Object.keys(spec["required"]);
+  const optional = Object.keys(spec["optional"]);
+  const keys = Object.keys(value);
+  for (let i = 0; i < keys.length; i = i + 1) {
+    require(rh.has_item(required, keys[i]) || rh.has_item(optional, keys[i]),
+            "reply_unknown_key:" + keys[i]);
+  }
+  for (let i = 0; i < required.length; i = i + 1) {
+    require(keys.indexOf(required[i]) !== -1, "reply_missing_key:" + required[i]);
+  }
+  // required types from the contract
+  require(typeof value["ok"] === "boolean", "reply_ok_type");
+  require(typeof value["target"] === "string", "reply_target_type");
+  require(typeof value["command"] === "string", "reply_command_type");
+  if (value["ok"] === true) {
+    require(value["error"] === undefined, "reply_success_has_error");
+    require(value["data"] !== undefined && value["data"] !== null, "reply_success_no_data");
+    require(typeof value["data"] === "object", "reply_data_type");
+    return value;
+  }
+  // failure
+  require(value["data"] === undefined, "reply_failure_has_data");
+  require(value["error"] !== undefined && value["error"] !== null, "reply_error_missing");
+  const es = template["runtime_cli_contract"]["error"];
+  const ereq = Object.keys(es["required"]);
+  const eopt = Object.keys(es["optional"]);
+  const ekeys = Object.keys(value["error"]);
+  for (let i = 0; i < ekeys.length; i = i + 1) {
+    require(rh.has_item(ereq, ekeys[i]) || rh.has_item(eopt, ekeys[i]), "reply_error_unknown_key:" + ekeys[i]);
+  }
+  for (let i = 0; i < ereq.length; i = i + 1) {
+    require(typeof value["error"][ereq[i]] === "string", "reply_error_type:" + ereq[i]);
+  }
+  if (ekeys.indexOf("count") !== -1) {
+    require(is_safe_integer(value["error"]["count"]), "reply_error_count_type");
+  }
+  throw "cli_failure:" + value["error"]["code"];
+}
+
+function is_safe_integer(v) {
+  return typeof v === "number" && v === Math.floor(v) && v >= 0 && v <= 9007199254740991;
+}
+
+function check_typed_value(type_name, value, where, contract) {
+  if (type_name === "boolean") { require(typeof value === "boolean", "typed_boolean:" + where); return; }
+  if (type_name === "safe_integer") { require(is_safe_integer(value), "typed_integer:" + where); return; }
+  if (type_name === "string") { require(typeof value === "string", "typed_string:" + where); return; }
+  if (type_name === "nullable_string") { require(value === null || typeof value === "string", "typed_nullable_string:" + where); return; }
+  if (type_name === "object") { require(value !== null && typeof value === "object" && !Array.isArray(value), "typed_object:" + where); return; }
+  if (type_name === "array") { require(Array.isArray(value), "typed_array:" + where); return; }
+  if (type_name === "object-or-array") { require(value !== null && typeof value === "object", "typed_object_or_array:" + where); return; }
+  if (type_name === "json_value") { return; }
+  if (type_name === "nullable_safe_integer") { require(value === null || is_safe_integer(value), "typed_nullable_integer:" + where); return; }
+  if (type_name === "browser_session_state") {
+    require(rh.has_item(contract["browser_session_state_values"], value), "typed_session_state:" + where); return;
+  }
+  if (type_name === "owner_observation") {
+    require(rh.has_item(contract["owner_observation_values"], value), "typed_owner_observation:" + where); return;
+  }
+  if (type_name === "process_state") {
+    require(rh.has_item(contract["process_state_values"], value), "typed_process_state:" + where); return;
+  }
+  throw "unknown_typed_field:" + type_name;
+}
+
+// Check one data section against the contract's typed field definitions.
+export function parse_data(template, section_name, section) {
+  const contract = template["runtime_cli_contract"];
+  const spec = contract[section_name];
+  require(spec !== undefined, "data_section_unknown:" + section_name);
+  require(section !== null && typeof section === "object" && !Array.isArray(section), "data_not_object:" + section_name);
+  const required = Object.keys(spec["required"]);
+  const optional = Object.keys(spec["optional"]);
+  const keys = Object.keys(section);
+  for (let i = 0; i < keys.length; i = i + 1) {
+    require(rh.has_item(required, keys[i]) || rh.has_item(optional, keys[i]),
+            "data_unknown_key:" + section_name + ":" + keys[i]);
+  }
+  for (let i = 0; i < required.length; i = i + 1) {
+    require(keys.indexOf(required[i]) !== -1, "data_missing_key:" + section_name + ":" + required[i]);
+    check_typed_value(spec["required"][required[i]], section[required[i]], section_name + "." + required[i], contract);
+  }
+  for (let i = 0; i < optional.length; i = i + 1) {
+    if (keys.indexOf(optional[i]) === -1) { continue; }
+    check_typed_value(spec["optional"][optional[i]], section[optional[i]], section_name + "." + optional[i], contract);
+  }
+  return section;
+}
+
+// Parse a windows reply: either the bare array of rows or the filtered object.
+export function parse_windows(template, value) {
+  const contract = template["runtime_cli_contract"];
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i = i + 1) {
+      parse_data(template, "windows_row", value[i]);
+    }
+    return { rows: value, filtered: false };
+  }
+  const obj = parse_data(template, "windows_filtered", value);
+  for (let i = 0; i < obj["windows"].length; i = i + 1) {
+    parse_data(template, "windows_row", obj["windows"][i]);
+  }
+  return { rows: obj["windows"], filtered: true, meta: obj };
+}
+
+
+// ---- stage / event state machine ----------------------------------------
+
+// The stage order is read from the template's stage_order; a stage may only move
+// forward, and once forward adjudication stops only the cleanup/persistence tail
+// may run.
+export function make_stage_machine(template, kind) {
+  const order = template["stage_order"];
+  const excluded = template["kind_excluded_stages"][kind] || [];
+  const tail = template["runtime_reached_stage_rules"]["cleanup_persistence_tail"];
+  const live = [];
+  for (let i = 0; i < order.length; i = i + 1) {
+    if (!rh.has_item(excluded, order[i])) { live.push(order[i]); }
+  }
+  let index = -1;
+  let stopped = false;
+  return {
+    live: live,
+    advance: function (stage) {
+      const at = live.indexOf(stage);
+      require(at >= 0, "stage_unknown:" + stage);
+      if (!stopped) {
+        // Normal progress is strictly the next non-excluded stage; no skipping.
+        require(at === index + 1, "stage_not_next:" + stage);
+        index = at;
+        return stage;
+      }
+      // After stop, only the cleanup/persistence tail may run, and only in the
+      // effective tail order (the machine authority tail with kind exclusions
+      // applied), one step at a time.
+      const effective_tail = [];
+      for (let i = 0; i < tail.length; i = i + 1) {
+        if (!rh.has_item(excluded, tail[i])) { effective_tail.push(tail[i]); }
+      }
+      require(rh.has_item(effective_tail, stage), "stage_after_stop_not_tail:" + stage);
+      let prev_tail = -1;
+      let cur_tail = -1;
+      for (let i = 0; i < effective_tail.length; i = i + 1) {
+        if (effective_tail[i] === stage) { cur_tail = i; }
+        if (index >= 0 && live[index] === effective_tail[i]) { prev_tail = i; }
+      }
+      require(cur_tail === prev_tail + 1, "stage_tail_not_sequential:" + stage);
+      index = at;
+      return stage;
+    },
+    stop: function () { stopped = true; },
+    stopped: function () { return stopped; },
+    reached: function () { return index; }
+  };
+}
+
+// ---- run-local path layout ----------------------------------------------
+
+export function run_layout(run_root) {
+  // Every run-local path is below the caller-given root; no absolute host path is
+  // baked into the library.
+  require(typeof run_root === "string" && run_root.length > 0, "run_root");
+  return {
+    root: run_root,
+    control_log: rh.join(run_root, "control-log.jsonl"),
+    latest_state: rh.join(run_root, "latest-state.json"),
+    final_summary: rh.join(run_root, "final-summary.json"),
+    token_file: rh.join(run_root, "owned-token"),
+    journal: rh.join(run_root, "stage-journal.jsonl"),
+    receipt: rh.join(run_root, "receipt.json")
+  };
+}
+
+// ---- control-record canonical JSONL -------------------------------------
+
+// Encode one control record as the exact canonical object the court appends.
+export function control_record(sequence, role, process_identity) {
+  require(rh.has_item(CONTROL_ROLES, role), "control_role:" + role);
+  require(typeof sequence === "number" && sequence >= 0 && sequence <= 15, "control_sequence");
+  const proc = role === "browser-root" || role === "direct-open-root" ? process_identity : null;
+  if (proc !== null) {
+    require(proc !== undefined, "control_process_missing:" + role);
+    require(typeof proc.pid === "number" && typeof proc.start_sec === "number" &&
+            typeof proc.start_usec === "number", "control_process_shape");
+  }
+  return cj.canonical({ schema: CONTROL_SCHEMA, sequence: sequence, role: role, process: proc });
+}
+
+// The full control sequence for a decision, in order, excluding abort.
+export function decision_control_plan(browser_identity, direct_identity) {
+  return [
+    { sequence: 0, role: "browser-root", process: browser_identity },
+    { sequence: 1, role: "ownership-boundary", process: null },
+    { sequence: 2, role: "direct-open-root", process: direct_identity },
+    { sequence: 3, role: "final-inventory-complete", process: null }
+  ];
+}
+
+// ---- window identity digest ---------------------------------------------
+
+// domain + 0x00 + RFC 8785 {handle, owner_pid, owner_start_sec, owner_start_usec}.
+// No title, geometry or z-order enters the preimage.
+// The window identity digest uses the contract's stable handle + owning-process
+// exact start identity. It never uses a shared fixed scratch file: the caller
+// passes an owned run root and a unique scratch name, which is created there,
+// hashed, and removed; an existing target or symlink is refused.
+export function window_identity_digest(template, scratch, handle, process_id, start_identity) {
+  const rule = template["window_identity_preimage"];
+  require(rule !== undefined, "window_identity_rule_missing");
+  require(is_safe_integer(handle) && handle >= 0, "window_handle");
+  require(is_safe_integer(process_id) && process_id >= 1, "window_process_id");
+  require(typeof start_identity === "string" && start_identity.length > 0, "window_start_identity");
+  const body = cj.canonical({ handle: handle, process_id: process_id, start_identity: start_identity });
+  return sha256_scratch(rule["domain"], scratch, body);
+}
+
+// sha256(domain || 0x00 || body) through a caller-owned scratch path. The path is
+// validated: it must be a non-symlink regular destination that does not already
+// exist, so two runs with distinct roots never collide and no foreign file is
+// touched.
+export function sha256_scratch(domain, scratch, body) {
+  require(typeof scratch === "string" && scratch.length > 0, "scratch_path");
+  const meta = rh.exists(scratch) ? rh.symlink_metadata(scratch) : null;
+  require(meta === null, "scratch_exists:" + scratch);
+  // Create, hash and always remove the scratch: a hashing failure must not leave
+  // it behind. Only this exact caller-owned path is touched.
+  let digest = null;
+  try {
+    rh.atomic_write(scratch, domain + "\u0000" + body);
+    digest = rh.sha256_file(scratch);
+  } finally {
+    try { rh.remove_file(scratch); } catch (e) { /* best effort cleanup */ }
+  }
+  return digest;
+}
+
+// Join a windows row (handle, process_id) to its public process-state start
+// identity. A pid whose identity is unavailable or not live fails closed.
+export function join_window_owner(execute, template, handle, process_id, timeout_ms) {
+  const argv = ["--target", "current", "--grant", "observe", "process-state", "--pid", "" + process_id];
+  const reply = run_verb(execute, template, argv, "process-state", "current", timeout_ms);
+  const data = parse_data(template, "process_state", reply["data"]);
+  require(data["state"] === "live", "process_state_not_live:" + process_id);
+  require(typeof data["start_identity"] === "string" && data["start_identity"].length > 0,
+          "process_state_identity_unavailable:" + process_id);
+  return { handle: handle, process_id: process_id, start_identity: data["start_identity"] };
+}
+
+// ---- injected execution -------------------------------------------------
+
+// Run one verb through the injected executor. The executor receives the argv and
+// a timeout and returns { exit_code, stdout }. Nothing else in this library
+// touches the machine.
+// Run one verb and require the reply's command and target to match the request,
+// so a reply from a different invocation cannot be mistaken for this one.
+export function run_verb(execute, template, argv, expected_command, expected_target, timeout_ms) {
+  const out = execute(argv, timeout_ms);
+  require(out !== null && typeof out === "object", "exec_reply");
+  require(typeof out.exit_code === "number", "exec_exit_code");
+  if (out.exit_code !== 0) { throw "exec_nonzero:" + out.exit_code + ":" + (out.stderr || ""); }
+  const reply = parse_reply(template, out.stdout);
+  require(reply["command"] === expected_command, "reply_command_mismatch:" + reply["command"] + "!=" + expected_command);
+  require(reply["target"] === expected_target, "reply_target_mismatch:" + reply["target"] + "!=" + expected_target);
+  return reply;
+}

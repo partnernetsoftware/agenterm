@@ -1,0 +1,327 @@
+// Synthetic self-test for the singleton-safety runner library.
+//
+// A fake executor stands in for the real CLI, so no browser, GUI or court is
+// touched. It covers argv construction, strict reply parsing (missing/typed/unknown
+// keys, typed CLI failure), the stage state machine (order, stop, deadline),
+// cleanup still running, canonical control records, and the window-identity digest
+// known-answer.
+//
+// Owned root: target/singleton-safety-runner-selftest. Removed on success and
+// failure; the wrapper never masks the original error. No environment input.
+import * as rh from "lib/rh_compat";
+import * as cj from "lib/canonical_json";
+import * as runner from "lib/singleton_safety_runner";
+
+const TEMPLATE_LOGICAL = "research/browser-profile-open-singleton-safety/result-template.json";
+const ROOT_LOGICAL = "target/singleton-safety-runner-selftest";
+const SENTINEL = "runner_selftest_cleanup_sentinel";
+// Independently computed (Python) window-identity known-answer.
+const WINDOW_KNOWN_SHA = "f42e4414901e7c1a5c397d77de7124394605af28a47ca76fb9793d00b93cd83d";
+
+function require(condition, message) { if (!condition) { throw message; } }
+function owned_root() { return rh.join(rh.cwd(), ROOT_LOGICAL); }
+function template_path() { return rh.join(rh.cwd(), TEMPLATE_LOGICAL); }
+function remove_owned_root() {
+  try { rh.try_remove_dir_all(owned_root()); } catch (e) { print("runner_selftest_cleanup: " + e); }
+}
+function with_owned_cleanup(fn) { try { return fn(); } finally { remove_owned_root(); } }
+function expect_throw(fn, label) {
+  let threw = false;
+  try { fn(); } catch (e) { threw = true; }
+  require(threw, "negative_did_not_throw:" + label);
+}
+
+// A recorded fake executor: it records every argv and returns canned replies.
+function fake_executor(replies) {
+  const seen = [];
+  let i = 0;
+  return {
+    seen: seen,
+    run: function (argv, timeout_ms) {
+      seen.push({ argv: argv, timeout_ms: timeout_ms });
+      const r = replies[i < replies.length ? i : replies.length - 1];
+      i = i + 1;
+      return r;
+    }
+  };
+}
+function ok_reply(command, data) {
+  return { exit_code: 0, stdout: cj.canonical({ ok: true, target: "current", command: command, data: data }) };
+}
+// Real Rust payload fixtures (shapes taken verbatim from the serializers).
+const FIX_SESSION = { schema_version: 1, generation: 1, name: "s", session_nonce: "n",
+  state: "ready", owner: { pid: 1, start_identity: "x" }, owner_spawn_mode: "detached",
+  profile_identity: { device: 1, inode: 2 }, owner_observation: "live", owned: true };
+const FIX_WINDOW_ROW = { handle: 42, ref: "App#1", title: "t", process_id: 900, app_name: "a",
+  bounds: { x: 0, y: 0, width: 1, height: 1 }, focused: true, minimized: false, maximized: false,
+  fullscreen: false, above: false, browser_profile: null };
+const FIX_ACTIVATE = { addressing: "window-handle", mechanism: "libagenterm", via: "native-window-activate",
+  window: 42, target: { handle: 42 }, action: "activate", scope: "desktop-foreground",
+  postcondition: "desktop-foreground", performed: true, verified: true, verification: {},
+  before: { focused: false }, after: { present: true, focused: true }, activated_application: true, receipt: {} };
+const FIX_CLOSE = { addressing: "window-handle", mechanism: "libagenterm", backend: "libagenterm",
+  window: 42, target: { handle: 42 }, action: "close", postcondition: "gone", performed: true,
+  verified: true, verification: {}, before: { present: true, nodes: 3 }, after: { present: false },
+  snapshot: { visited: 3, returned: 3, truncated: false, in_receipt: true }, receipt: {} };
+const FIX_BROWSER_OPEN = { addressing: "browser-profile", mechanism: "open", app: "chromium",
+  profile: { name: "Default" }, url: null, argv: ["open"], performed: true, verified: true,
+  verification: {}, before: {}, receipt: {}, handle: 42, browser_profile: "Default", title: "t",
+  created: true, tab_index: null, tab_title: null, tabs: { before: 0, after: 1 }, next_actions: [] };
+
+// ---- argv construction --------------------------------------------------
+
+function test_argv() {
+  const a = runner.browser_session_start_argv("sess", "/b/chromium", 15000, 3600000);
+  require(a[0] === "--target" && a[1] === "current", "argv_start_prefix");
+  require(a.indexOf("browser-session-start") !== -1 && a.indexOf("--browser") !== -1, "argv_start_verb");
+  require(runner.browser_session_status_argv("n").indexOf("observe") !== -1, "argv_status_grant");
+  require(runner.windows_argv(42).indexOf("--pid") !== -1, "argv_windows_pid");
+  require(runner.windows_argv(null).indexOf("--pid") === -1, "argv_windows_no_pid");
+  require(runner.close_argv(7).indexOf("--expect") !== -1, "argv_close_expect");
+  require(runner.activate_argv(7)[runner.activate_argv(7).length - 1] === "7", "argv_activate_handle");
+}
+
+// ---- reply parsing ------------------------------------------------------
+
+function test_reply_parsing(template) {
+  const ok = runner.parse_reply(template, cj.canonical({ ok: true, target: "current", command: "windows", data: [] }));
+  require(ok.ok === true, "reply_ok_parse");
+  expect_throw(function () {
+    runner.parse_reply(template, cj.canonical({ ok: false, target: "current", command: "x",
+      error: { code: "usage", message: "bad" } }));
+  }, "reply_cli_failure");
+  // success with error is refused
+  expect_throw(function () {
+    runner.parse_reply(template, cj.canonical({ ok: true, target: "current", command: "x", data: [], error: { code: "c", message: "m" } }));
+  }, "reply_success_has_error");
+  // success with no data is refused
+  expect_throw(function () {
+    runner.parse_reply(template, cj.canonical({ ok: true, target: "current", command: "x" }));
+  }, "reply_success_no_data");
+  // failure with a data section is refused
+  expect_throw(function () {
+    runner.parse_reply(template, cj.canonical({ ok: false, target: "current", command: "x", data: [], error: { code: "c", message: "m" } }));
+  }, "reply_failure_has_data");
+  // failure with a non-string code is refused
+  expect_throw(function () {
+    runner.parse_reply(template, cj.canonical({ ok: false, target: "current", command: "x", error: { code: 1, message: "m" } }));
+  }, "reply_error_code_type");
+  // unknown top-level key
+  expect_throw(function () {
+    runner.parse_reply(template, cj.canonical({ ok: true, target: "current", command: "x", data: [], extra: 1 }));
+  }, "reply_unknown_key");
+  // wrong ok type
+  expect_throw(function () {
+    runner.parse_reply(template, cj.canonical({ ok: "yes", target: "current", command: "x" }));
+  }, "reply_ok_type");
+  // typed failure carries an optional count
+  const r = runner.parse_reply(template, cj.canonical({ ok: true, target: "current", command: "x", data: { handle: 1, closed: true } }));
+  require(r.data.handle === 1, "reply_data_ok");
+}
+
+function test_data_contract(template) {
+  // missing required + unknown key
+  expect_throw(function () {
+    runner.parse_data(template, "close", { window: 1 });
+  }, "data_missing_key");
+  expect_throw(function () {
+    runner.parse_data(template, "close", { window: 1, verified: true, nope: 1 });
+  }, "data_unknown_key");
+  // wrong type for a typed field
+  expect_throw(function () {
+    runner.parse_data(template, "close", { handle: 1, closed: "yes" });
+  }, "data_wrong_type");
+  const d = runner.parse_data(template, "close", FIX_CLOSE);
+  require(d.window === 42 && d.verified === true, "data_ok");
+  // real browser_session / browser_open / activate fixtures parse
+  runner.parse_data(template, "browser_session", FIX_SESSION);
+  runner.parse_data(template, "browser_open", FIX_BROWSER_OPEN);
+  runner.parse_data(template, "activate", FIX_ACTIVATE);
+
+  // session state enum: a bogus state is refused
+  const bad_session = {};
+  const bsk = Object.keys(FIX_SESSION);
+  for (let i = 0; i < bsk.length; i = i + 1) { bad_session[bsk[i]] = FIX_SESSION[bsk[i]]; }
+  bad_session.state = "bogus";
+  expect_throw(function () { runner.parse_data(template, "browser_session", bad_session); }, "data_bad_session_state");
+  // a real fixed key missing from browser_open is refused
+  const bad_open = {};
+  const bok = Object.keys(FIX_BROWSER_OPEN);
+  for (let i = 0; i < bok.length; i = i + 1) { if (bok[i] !== "next_actions") { bad_open[bok[i]] = FIX_BROWSER_OPEN[bok[i]]; } }
+  expect_throw(function () { runner.parse_data(template, "browser_open", bad_open); }, "data_browser_open_missing_key");
+  // an unknown key on close is refused
+  const bad_close = {};
+  const ck = Object.keys(FIX_CLOSE);
+  for (let i = 0; i < ck.length; i = i + 1) { bad_close[ck[i]] = FIX_CLOSE[ck[i]]; }
+  bad_close.nope = 1;
+  expect_throw(function () { runner.parse_data(template, "close", bad_close); }, "data_close_unknown_key");
+
+  // windows: bare array and filtered object, and no `total`
+  const bare = runner.parse_windows(template, [FIX_WINDOW_ROW]);
+  require(bare.filtered === false && bare.rows.length === 1, "windows_bare");
+  const filt = runner.parse_windows(template, { mechanism: "libagenterm", focus: {}, stacking: {},
+    filter: {}, visited: 1, matched: 1, returned: 1, offset: 0, truncated: false,
+    windows: [FIX_WINDOW_ROW] });
+  require(filt.filtered === true, "windows_filtered");
+  expect_throw(function () {
+    runner.parse_windows(template, { mechanism: "m", total: 1 });
+  }, "windows_total_not_a_key");
+  expect_throw(function () {
+    runner.parse_windows(template, [{ handle: 1, title: "t" }]);
+  }, "windows_row_missing");
+  // CuError.detail may be any JSON value (not only an object)
+  expect_throw(function () {
+    runner.parse_reply(template, cj.canonical({ ok: false, target: "current", command: "x",
+      error: { code: "c", message: "m", detail: "a string" } }));
+  }, "reply_error_detail_string");
+}
+
+// ---- stage machine ------------------------------------------------------
+
+function test_stage_machine(template) {
+  const m = runner.make_stage_machine(template, "decision");
+  m.advance("preflight");
+  m.advance("focus-baseline");
+  expect_throw(function () { m.advance("preflight"); }, "stage_backwards");
+  expect_throw(function () { m.advance("not-a-stage"); }, "stage_unknown");
+  // stop forward, only tail allowed
+  // skip a stage is refused
+  expect_throw(function () { m.advance("session-ready"); }, "stage_skip_refused");
+  m.advance("fixture-ready");
+  m.advance("session-ready");
+  m.advance("ownership");
+  m.advance("open-request");
+  m.advance("relay");
+  m.advance("window-ready");
+  // stop forward, then the tail must be entered at its head and stepped one at a
+  // time; skipping a tail stage is refused.
+  m.stop();
+  expect_throw(function () { m.advance("relay"); }, "stage_after_stop_not_tail");
+  m.advance("window-close");
+  expect_throw(function () { m.advance("session-remove"); }, "stage_tail_skip_refused");
+  m.advance("session-stop");
+  m.advance("termination-proof");
+}
+
+// Rehearsal excludes window-close: after stop the first effective tail stage is
+// session-stop, and window-close is never a legal tail step there.
+function test_rehearsal_tail(template) {
+  const m = runner.make_stage_machine(template, "rehearsal");
+  for (let i = 0; i < m.live.length; i = i + 1) {
+    const stage = m.live[i];
+    if (stage === "session-stop") { break; }
+    m.advance(stage);
+  }
+  m.stop();
+  expect_throw(function () { m.advance("window-close"); }, "rehearsal_window_close_excluded");
+  m.advance("session-stop");
+  m.advance("termination-proof");
+}
+
+// digest: caller-owned scratch; unique roots do not collide; existing/foreign
+// target refused.
+function test_digest(template) {
+  const rule = template["window_identity_preimage"];
+  const scratch_a = rh.join(owned_root(), "scratch-a");
+  const scratch_b = rh.join(owned_root(), "scratch-b");
+  const da = runner.window_identity_digest(template, scratch_a, 42, 900, "macos-start-time:1700000000.500000");
+  require(da === rule["known_answer"]["sha256"], "window_digest_known_answer:" + da);
+  const db = runner.window_identity_digest(template, scratch_b, 42, 900, "macos-start-time:1700000000.500000");
+  require(da === db, "window_digest_concurrent_equal");
+  require(!rh.exists(scratch_a) && !rh.exists(scratch_b), "digest_scratch_removed");
+  // an existing (foreign) scratch target is refused and preserved, never removed
+  const scratch_foreign = rh.join(owned_root(), "scratch-foreign");
+  rh.atomic_write(scratch_foreign, "foreign");
+  expect_throw(function () {
+    runner.sha256_scratch("dom", scratch_foreign, "body");
+  }, "scratch_exists_refused");
+  require(rh.exists(scratch_foreign), "foreign_file_preserved");
+  require(rh.read_text(scratch_foreign) === "foreign", "foreign_file_untouched");
+  rh.remove_file(scratch_foreign);
+  // an existing scratch target is refused
+  rh.atomic_write(rh.join(owned_root(), "scratch-c"), "x");
+  expect_throw(function () {
+    runner.window_identity_digest(template, rh.join(owned_root(), "scratch-c"), 42, 900, "x");
+  }, "digest_scratch_exists");
+  // missing start identity is refused
+  expect_throw(function () {
+    runner.window_identity_digest(template, rh.join(owned_root(), "scratch-d"), 42, 900, "");
+  }, "digest_missing_identity");
+}
+
+
+// ---- control records ----------------------------------------------------
+
+function test_control_records(template) {
+  const rec = runner.control_record(0, "browser-root", { pid: 900, start_sec: 1700000000, start_usec: 500000 });
+  const parsed = JSON.parse(rec);
+  require(parsed.schema === "agenterm.singleton-safety.process-probe-control/v1", "control_schema");
+  require(Array.isArray(parsed.process) === false && parsed.process.pid === 900, "control_process");
+  require(rec === cj.canonical(parsed), "control_canonical");
+  const ob = JSON.parse(runner.control_record(1, "ownership-boundary", null));
+  require(ob.process === null, "control_null_process");
+  expect_throw(function () { runner.control_record(0, "relay-root", null); }, "control_bad_role");
+  const plan = runner.decision_control_plan({ pid: 1, start_sec: 2, start_usec: 3 }, { pid: 4, start_sec: 5, start_usec: 6 });
+  require(plan.length === 4 && plan[0].role === "browser-root" && plan[3].role === "final-inventory-complete",
+          "control_plan_order");
+}
+
+
+// ---- injected execution + cleanup ---------------------------------------
+
+function test_execution(template) {
+  const ex = fake_executor([ok_reply("windows", [FIX_WINDOW_ROW])]);
+  const reply = runner.run_verb(ex.run, template, runner.windows_argv(900), "windows", "current", 8000);
+  require(ex.seen.length === 1 && ex.seen[0].timeout_ms === 8000, "exec_called");
+  require(reply.data[0].handle === 42, "exec_data");
+  const exf = fake_executor([{ exit_code: 0, stdout: cj.canonical({ ok: false, target: "current", command: "x", error: { code: "browser_window_not_found", message: "n" } }) }]);
+  expect_throw(function () { runner.run_verb(exf.run, template, runner.windows_argv(null), "windows", "current", 8000); }, "exec_typed_failure");
+  const exn = fake_executor([{ exit_code: 1, stdout: "", stderr: "boom" }]);
+  expect_throw(function () { runner.run_verb(exn.run, template, runner.windows_argv(null), "windows", "current", 8000); }, "exec_nonzero");
+
+  const layout = runner.run_layout(owned_root());
+  require(layout.control_log.indexOf(owned_root()) === 0, "layout_under_root");
+
+  // a reply whose command does not match the request is refused (no cross-talk)
+  const exm = fake_executor([ok_reply("windows", [FIX_WINDOW_ROW])]);
+  expect_throw(function () { runner.run_verb(exm.run, template, runner.windows_argv(null), "activate", "current", 8000); }, "exec_command_mismatch");
+
+  // owner join: process-state live with a start identity
+  const exj = fake_executor([ok_reply("process-state", { pid: 900, state: "live", start_identity: "macos-start-time:1700000000.500000", reason: null, verified: true })]);
+  const owner = runner.join_window_owner(exj.run, template, 42, 900, 8000);
+  require(owner.start_identity === "macos-start-time:1700000000.500000", "join_ok");
+  // a dead pid fails closed
+  const exd = fake_executor([ok_reply("process-state", { pid: 900, state: "dead", start_identity: null, reason: "gone", verified: true })]);
+  expect_throw(function () { runner.join_window_owner(exd.run, template, 42, 900, 8000); }, "join_dead_refused");
+}
+
+function run_checks() {
+  const template = runner.load_runner_template(template_path());
+  rh.create_dir_all(owned_root());
+  test_argv();
+  test_reply_parsing(template);
+  test_data_contract(template);
+  test_stage_machine(template);
+  test_rehearsal_tail(template);
+  test_control_records(template);
+  test_digest(template);
+  test_execution(template);
+
+  // cleanup through the production wrapper: create the root, throw a sentinel.
+  rh.create_dir_all(owned_root());
+  let seen = "";
+  try { with_owned_cleanup(function () { throw SENTINEL; }); } catch (e) { seen = "" + e; }
+  require(seen === SENTINEL, "cleanup_original_error_masked:" + seen);
+  require(!rh.exists(owned_root()), "cleanup_root_remains");
+
+  print("singleton-safety runner selftest ok");
+  return 0;
+}
+
+function run() {
+  with_owned_cleanup(function () { run_checks(); });
+  require(!rh.exists(owned_root()), "selftest_owned_root_remains");
+  return 0;
+}
+
+return run();

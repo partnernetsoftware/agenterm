@@ -450,6 +450,86 @@
     "kind_exclusion_rule": "kind_excluded_stages[kind] are never reached and never appear in any reached set",
     "hole_rule": "after the first absent forward stage, no later forward stage may be present"
   },
+  "runtime_cli_contract": {
+    "envelope": {
+      "required": {"ok": "boolean", "target": "string", "command": "string"},
+      "optional": {"data": "object-or-array", "error": "object"},
+      "rule": "success requires ok=true plus object-or-array data and no error; failure requires ok=false plus an exact error object and no data"
+    },
+    "error": {
+      "required": {"code": "string", "message": "string"},
+      "optional": {"count": "safe_integer", "detail": "json_value"}
+    },
+    "browser_session_state_values": ["starting", "ready", "stopping", "stopped", "failed", "orphaned_uncertain"],
+    "owner_observation_values": ["live", "pid_reused", "dead", "unknown"],
+    "process_state_values": ["live", "dead", "unknown"],
+    "browser_session": {
+      "required": {"schema_version": "safe_integer", "generation": "safe_integer", "name": "string",
+        "session_nonce": "string", "state": "browser_session_state", "owner": "object",
+        "owner_spawn_mode": "string", "profile_identity": "object", "owner_observation": "owner_observation",
+        "owned": "boolean"},
+      "optional": {"browser": "object", "endpoint": "object", "last_error_code": "string", "recorded_state": "string"}
+    },
+    "windows_row": {
+      "required": {"handle": "safe_integer", "ref": "string", "title": "string", "process_id": "safe_integer",
+        "app_name": "string", "bounds": "object", "focused": "boolean", "minimized": "boolean",
+        "maximized": "boolean", "fullscreen": "boolean", "above": "boolean", "browser_profile": "nullable_string"},
+      "optional": {"z_index": "safe_integer", "occluded_percent": "safe_integer", "spaces": "array",
+        "onscreen": "boolean", "ax_root": "json_value", "workspace_desktop": "safe_integer", "opacity": "safe_integer"}
+    },
+    "windows_bare": {"shape": "array of windows_row"},
+    "windows_filtered": {
+      "required": {"mechanism": "string", "focus": "object", "stacking": "object", "filter": "object",
+        "visited": "safe_integer", "matched": "safe_integer", "returned": "safe_integer",
+        "offset": "safe_integer", "truncated": "boolean", "windows": "array"},
+      "optional": {"ax_scan": "object"},
+      "rule": "the object reply enumerates windows/visited/matched/returned/offset/truncated; there is no total key"
+    },
+    "browser_open": {
+      "required": {"addressing": "string", "mechanism": "string", "app": "string", "profile": "json_value",
+        "url": "nullable_string", "argv": "array", "performed": "boolean", "verified": "boolean",
+        "verification": "json_value", "before": "json_value", "receipt": "json_value", "handle": "safe_integer",
+        "browser_profile": "string", "title": "string", "created": "boolean",
+        "tab_index": "nullable_safe_integer", "tab_title": "nullable_string", "tabs": "json_value",
+        "next_actions": "array"},
+      "optional": {}
+    },
+    "activate": {
+      "required": {"addressing": "string", "mechanism": "string", "via": "string", "window": "safe_integer",
+        "target": "object", "action": "string", "scope": "string", "postcondition": "string",
+        "performed": "boolean", "verified": "boolean", "verification": "json_value",
+        "before": "json_value", "after": "json_value", "activated_application": "boolean", "receipt": "json_value"},
+      "optional": {}
+    },
+    "close": {
+      "required": {"addressing": "string", "mechanism": "string", "backend": "string", "window": "safe_integer",
+        "target": "object", "action": "string", "postcondition": "string", "performed": "boolean",
+        "verified": "boolean", "verification": "json_value", "before": "json_value", "after": "json_value",
+        "snapshot": "json_value", "receipt": "json_value"},
+      "optional": {}
+    },
+    "process_state": {
+      "required": {"pid": "safe_integer", "state": "process_state", "start_identity": "nullable_string",
+        "reason": "nullable_string", "verified": "boolean"},
+      "optional": {}
+    },
+    "grant_scope": {"browser_session_start": "actuate", "browser_session_status": "observe",
+      "browser_session_stop": "actuate", "browser_session_remove": "actuate", "browser_open": "actuate",
+      "windows": "observe", "activate": "actuate", "close": "actuate", "process_state": "observe"}
+  },
+  "window_identity_preimage": {
+    "domain": "agenterm.singleton-safety.v1.window-identity",
+    "encoding": "sha256(domain-utf8 || 0x00 || rfc8785-json-utf8)",
+    "exact_keys": ["handle", "process_id", "start_identity"],
+    "shape": {
+      "handle": "nonnegative integer window handle from the public windows inventory row",
+      "process_id": "integer in [1,2147483647], the row's process_id",
+      "start_identity": "nonempty string exactly as public process-state returns it for that pid"
+    },
+    "rule": "stable handle plus the owning process's public exact start identity; no title, geometry, z-order or other volatile field enters the preimage",
+    "join_rule": "the runner joins windows.process_id to process-state.start_identity for that exact pid; a pid whose start identity is unavailable is not digestable and fails closed",
+    "known_answer": {"input": {"handle": 42, "process_id": 900, "start_identity": "macos-start-time:1700000000.500000"}, "sha256": "f42e4414901e7c1a5c397d77de7124394605af28a47ca76fb9793d00b93cd83d"}
+  },
   "terminal_codes": [
     "REHEARSAL_PASS",
     "OWNED_HANDOFF_PROVED",

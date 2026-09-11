@@ -5608,6 +5608,24 @@
       "evidence": [
         "task.singleton-safety-journal-verify"
       ]
+    },
+    "singleton-safety-runner-selftest": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "runner-selftest-proof"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_host_operations": 999999,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.singleton-safety-runner-selftest"
+      ]
     }
   },
   "tasks": [
@@ -5928,6 +5946,20 @@
       "side_effects": [
         "artifact_write",
         "process_spawn"
+      ]
+    },
+    {
+      "id": "singleton-safety-runner-selftest",
+      "description": "Prove the singleton-safety runner library: argv, strict reply parsing, stage machine, control records and window-identity digest through a fake executor",
+      "entry": "scripts/qjs/singleton-safety-runner-selftest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
       ]
     },
     {
