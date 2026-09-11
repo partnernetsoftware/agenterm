@@ -240,4 +240,39 @@ mod tests {
             ))
         );
     }
+
+    /// `Screen::rows` walks the scrollback-aware row iterator while
+    /// `Screen::cell` indexes one `visible_row` directly. After `visible_row`
+    /// stopped rebuilding that iterator per lookup (it was the hot path in
+    /// every cell painter), the two must still agree at every scrollback
+    /// offset — including offsets larger than the screen, where the visible
+    /// rows come entirely from history.
+    #[test]
+    fn indexed_cells_agree_with_the_row_iteration_at_every_offset() {
+        let (rows, cols) = (4_u16, 12_u16);
+        let mut parser = vt100::Parser::new(rows, cols, 100);
+        for line in 0..30u16 {
+            // Short enough to never soft-wrap, so one logical line is one row.
+            parser.process(format!("r{line:02}\r\n").as_bytes());
+        }
+        for offset in [0_usize, 1, 2, 3, 4, 15, 29, 45, 120] {
+            parser.screen_mut().set_scrollback(offset);
+            let iterated: Vec<String> = parser.screen().rows(0, cols).collect();
+            for row in 0..rows {
+                let indexed: String = (0..cols)
+                    .filter_map(|col| parser.screen().cell(row, col))
+                    .filter(|cell| !cell.is_wide_continuation())
+                    .map(vt100::Cell::contents)
+                    .collect();
+                let expected = iterated
+                    .get(usize::from(row))
+                    .map_or("", std::string::String::as_str);
+                assert_eq!(
+                    indexed.trim_end(),
+                    expected.trim_end(),
+                    "offset {offset} row {row}: indexed cells diverged from rows()"
+                );
+            }
+        }
+    }
 }
