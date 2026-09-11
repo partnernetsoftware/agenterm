@@ -33,10 +33,11 @@ use windows_sys::Win32::System::Console::{
 };
 use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
 use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-    JobObjectBasicAccountingInformation, JobObjectExtendedLimitInformation,
-    QueryInformationJobObject, SetInformationJobObject, TerminateJobObject,
+    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_BREAKAWAY_OK,
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectBasicAccountingInformation,
+    JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
+    TerminateJobObject,
 };
 use windows_sys::Win32::System::Pipes::{
     CreateNamedPipeW, CreatePipe, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE,
@@ -282,8 +283,23 @@ impl ChildCommand {
         let job = JobObjectGuard::new()
             .map_err(|error| pty_error("create job", "pty_job_create_failed", error))?;
 
-        let process =
-            create_suspended_process_with_fallback(&self, &mut session, size, dsr_bootstrap, 0);
+        // A caller that wants the session to outlive this host sets the opt-in:
+        // the child is then created with CREATE_BREAKAWAY_FROM_JOB, and the job
+        // above allows it, so the shell (and whatever the user runs inside it)
+        // is not welded to this process's lifetime. Default is off — a terminal
+        // reclaiming its shell on exit is the expected behaviour.
+        let breakaway = if breakaway_requested() {
+            CREATE_BREAKAWAY_FROM_JOB
+        } else {
+            0
+        };
+        let process = create_suspended_process_with_fallback(
+            &self,
+            &mut session,
+            size,
+            dsr_bootstrap,
+            breakaway,
+        );
         let process = match process {
             Ok(process) => process,
             Err(error) => {
@@ -1687,6 +1703,16 @@ fn force_console_agent() -> bool {
     enabled("AGENTERM_FORCE_CONSOLE_AGENT") || enabled("FORCE_CONSOLE_AGENT")
 }
 
+/// Whether the spawned session should leave this process's kill-on-close job.
+///
+/// A terminal normally reclaims its shell on exit, so this is off unless a
+/// caller asks for it — an agent session the user started inside the terminal
+/// should survive the terminal's own crash instead of dying with it. Honored
+/// only because the job also allows `BREAKAWAY_OK`.
+fn breakaway_requested() -> bool {
+    env::var_os("AGENTERM_PTY_BREAKAWAY").is_some_and(|value| value == "1")
+}
+
 /// Answers "which backend will this machine use" without opening a session.
 ///
 /// Deliberately re-runs the same two questions `spawn` asks, in the same
@@ -1888,7 +1914,14 @@ impl JobObjectGuard {
             OwnedHandle::from_raw_handle(handle as _)
         };
         let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        // KILL_ON_JOB_CLOSE is the cleanup guarantee: when the host goes, the
+        // shell tree goes. BREAKAWAY_OK lets a child created with
+        // CREATE_BREAKAWAY_FROM_JOB leave instead, which is how a session the
+        // user asked to outlive the host escapes this fate group. Both are
+        // needed: without the second, breakaway is refused and the child is
+        // welded to the host's lifetime.
+        limits.BasicLimitInformation.LimitFlags =
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
         let configured = unsafe {
             // SAFETY: handle is live and limits points to the initialized
             // structure for the duration of the call.
@@ -2723,6 +2756,172 @@ mod tests {
             rendered.contains(&expected),
             "missing exact inherited environment and override {expected:?}: {rendered:?}"
         );
+    }
+
+    /// The pty job must allow a breakaway child to leave: it carries both
+    /// `KILL_ON_JOB_CLOSE` (the cleanup guarantee) and `BREAKAWAY_OK` (the
+    /// escape hatch). A job missing the second cannot honor an opt-in
+    /// breakaway at all.
+    #[test]
+    fn the_pty_job_allows_a_breakaway_child() {
+        use std::os::windows::io::AsRawHandle as _;
+        use windows_sys::Win32::System::JobObjects::{
+            JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            QueryInformationJobObject,
+        };
+        let job = super::JobObjectGuard::new().expect("create the pty job");
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+        let ok = unsafe {
+            QueryInformationJobObject(
+                job.handle.as_raw_handle() as windows_sys::Win32::Foundation::HANDLE,
+                JobObjectExtendedLimitInformation,
+                (&raw mut info).cast(),
+                std::mem::size_of_val(&info) as u32,
+                std::ptr::null_mut(),
+            )
+        };
+        assert_ne!(ok, 0, "query the pty job");
+        let flags = info.BasicLimitInformation.LimitFlags;
+        assert_ne!(
+            flags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            0,
+            "the pty job must still reclaim its shell on close"
+        );
+        assert_ne!(
+            flags & JOB_OBJECT_LIMIT_BREAKAWAY_OK,
+            0,
+            "the pty job must allow a breakaway child to leave"
+        );
+    }
+
+    /// Behavior of the flags above: a job that allows breakaway plus a child
+    /// created with `CREATE_BREAKAWAY_FROM_JOB` leaves the job, so terminating
+    /// it spares the child; a child that stays dies with the job.
+    ///
+    /// The breakaway half cannot run under an outer job that forbids it (the
+    /// CI/agent harness owns one), where `CreateProcessW` returns
+    /// `ERROR_ACCESS_DENIED`; that case is skipped and says so, rather than
+    /// passing on a spawn that never happened.
+    #[test]
+    fn breakaway_child_survives_job_close_where_a_welded_one_does_not() {
+        use windows_sys::Win32::System::JobObjects::{
+            JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject, TerminateJobObject,
+        };
+        use windows_sys::Win32::System::Threading::CREATE_BREAKAWAY_FROM_JOB;
+
+        let new_job = |flags: u32| unsafe {
+            let job = super::CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            assert!(!job.is_null(), "create job");
+            let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            limits.BasicLimitInformation.LimitFlags = flags;
+            assert_ne!(
+                SetInformationJobObject(
+                    job,
+                    JobObjectExtendedLimitInformation,
+                    (&raw const limits).cast(),
+                    std::mem::size_of_val(&limits) as u32,
+                ),
+                0,
+                "configure job"
+            );
+            job
+        };
+
+        let exe = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_owned());
+        let mut line: Vec<u16> = format!("\"{exe}\" /C timeout /T 30 /NOBREAK")
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let spawn_in = |job: windows_sys::Win32::Foundation::HANDLE,
+                        breakaway: u32,
+                        line: &mut Vec<u16>| unsafe {
+            use windows_sys::Win32::System::Threading::{
+                CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW,
+            };
+            let mut startup: STARTUPINFOW = std::mem::zeroed();
+            startup.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+            let mut info: PROCESS_INFORMATION = std::mem::zeroed();
+            let created = CreateProcessW(
+                std::ptr::null(),
+                line.as_mut_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                windows_sys::Win32::System::Threading::CREATE_NEW_CONSOLE | breakaway,
+                std::ptr::null(),
+                std::ptr::null(),
+                &startup,
+                &raw mut info,
+            );
+            if created == 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            let _ = windows_sys::Win32::Foundation::CloseHandle(info.hThread);
+            if !job.is_null() {
+                assert_ne!(
+                    super::AssignProcessToJobObject(job, info.hProcess),
+                    0,
+                    "assign child to job"
+                );
+            }
+            Ok(info.hProcess)
+        };
+
+        // Breakaway half.
+        let job = new_job(JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK);
+        match unsafe { spawn_in(job, CREATE_BREAKAWAY_FROM_JOB, &mut line) } {
+            Ok(child) => {
+                unsafe { TerminateJobObject(job, 0) };
+                // Give the job's signal the same grace the control half gets,
+                // so "survived" means it outlived the termination window.
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                let alive =
+                    unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(child, 0) }
+                        == windows_sys::Win32::Foundation::WAIT_TIMEOUT;
+                unsafe {
+                    windows_sys::Win32::System::Threading::TerminateProcess(child, 0);
+                    windows_sys::Win32::Foundation::CloseHandle(child);
+                    windows_sys::Win32::Foundation::CloseHandle(job);
+                }
+                assert!(alive, "a breakaway child must survive the job it left");
+            }
+            Err(error)
+                if error.raw_os_error()
+                    == Some(windows_sys::Win32::Foundation::ERROR_ACCESS_DENIED as i32) =>
+            {
+                unsafe { windows_sys::Win32::Foundation::CloseHandle(job) };
+                eprintln!(
+                    "skipped: this process is in an outer job that forbids CREATE_BREAKAWAY_FROM_JOB"
+                );
+            }
+            Err(error) => panic!("spawn breakaway child: {error}"),
+        }
+
+        // Control half: a child that stays in the job dies with it.
+        let job = new_job(JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK);
+        let child = unsafe { spawn_in(job, 0, &mut line) }.expect("spawn welded child");
+        unsafe { TerminateJobObject(job, 0) };
+        // TerminateJobObject signals; it does not wait for the process handle.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut alive = true;
+        while std::time::Instant::now() < deadline {
+            if unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(child, 0) }
+                != windows_sys::Win32::Foundation::WAIT_TIMEOUT
+            {
+                alive = false;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        unsafe {
+            windows_sys::Win32::System::Threading::TerminateProcess(child, 0);
+            windows_sys::Win32::Foundation::CloseHandle(child);
+            windows_sys::Win32::Foundation::CloseHandle(job);
+        }
+        assert!(!alive, "a child that stayed in the job must die with it");
     }
 }
 
