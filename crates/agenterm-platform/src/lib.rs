@@ -107,6 +107,7 @@ pub enum Capability {
     DirectoryAccess,
     FilesystemOpen,
     FilesystemAppend,
+    FilesystemCreate,
     FilesystemCleanup,
     FilesystemPublish,
     FilesystemUsage,
@@ -197,6 +198,7 @@ pub fn capability_status(capability: Capability) -> CapabilityStatus {
         Capability::DirectoryAccess => (cfg!(feature = "directory-access"), true),
         Capability::FilesystemOpen => (cfg!(feature = "filesystem-open"), true),
         Capability::FilesystemAppend => (cfg!(feature = "filesystem-append"), true),
+        Capability::FilesystemCreate => (cfg!(feature = "filesystem-create"), true),
         Capability::FilesystemCleanup => (cfg!(feature = "filesystem-cleanup"), true),
         Capability::FilesystemPublish => (cfg!(feature = "filesystem-publish"), true),
         Capability::FilesystemUsage => (cfg!(feature = "filesystem-usage"), true),
@@ -349,6 +351,9 @@ pub mod filesystem_open;
 
 #[cfg(feature = "filesystem-append")]
 pub mod filesystem_append;
+
+#[cfg(feature = "filesystem-create")]
+pub mod filesystem_create;
 
 #[cfg(feature = "filesystem-cleanup")]
 pub mod filesystem_cleanup;
@@ -650,6 +655,32 @@ mod tests {
     fn filesystem_open_alone_does_not_enable_append() {
         assert_eq!(
             crate::capability_status(crate::Capability::FilesystemAppend),
+            crate::CapabilityStatus::Unsupported {
+                reason: std::borrow::Cow::Borrowed("feature-disabled")
+            }
+        );
+    }
+
+    #[cfg(feature = "filesystem-create")]
+    #[test]
+    fn filesystem_create_capability_is_available_alongside_open() {
+        // filesystem-create depends on filesystem-open, so both capabilities read
+        // Available; each is only compatibility metadata, never an authority grant.
+        assert_eq!(
+            crate::capability_status(crate::Capability::FilesystemCreate),
+            crate::CapabilityStatus::Available
+        );
+        assert_eq!(
+            crate::capability_status(crate::Capability::FilesystemOpen),
+            crate::CapabilityStatus::Available
+        );
+    }
+
+    #[cfg(all(feature = "filesystem-open", not(feature = "filesystem-create")))]
+    #[test]
+    fn filesystem_open_alone_does_not_enable_create() {
+        assert_eq!(
+            crate::capability_status(crate::Capability::FilesystemCreate),
             crate::CapabilityStatus::Unsupported {
                 reason: std::borrow::Cow::Borrowed("feature-disabled")
             }

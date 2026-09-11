@@ -763,6 +763,91 @@ fn fs_append_existing_durable_propagates_a_link_refusal() {
     );
 }
 
+/// The create door writes exact bytes to a NEW file, refuses an existing regular
+/// file without overwriting it, and reports the refusal by name. The platform
+/// mechanism tests own the symlink/FIFO/ancestor invariants themselves.
+#[test]
+fn fs_create_new_regular_durable_writes_new_and_refuses_existing() {
+    let scratch = Scratch::new("create-durable");
+    let fresh = scratch.path("control-log.jsonl");
+    let existing = scratch.path("existing");
+    std::fs::write(&existing, b"canary").expect("seed existing");
+    let source = format!(
+        r#"
+        if (fs_create_new_regular_durable({0}, "record-1\n") !== 0) {{ return "create: " + tool_result(); }}
+        if (fs_read_to_string({0}) !== 0) {{ return "read: " + tool_result(); }}
+        let created = tool_result();
+        // an existing file is refused by name and left unchanged
+        if (fs_create_new_regular_durable({1}, "record-2\n") === 0) {{ return "existing-accepted"; }}
+        return created + "|" + tool_result();
+        "#,
+        js(&fresh),
+        js(&existing)
+    );
+    let out = run_tool(&source);
+    let text = string_of(&out);
+    assert!(text.starts_with("record-1\n|"), "create result: {text:?}");
+    assert!(
+        text.contains("fs.create_new_regular_durable"),
+        "door must name the refusal: {text:?}"
+    );
+    assert_eq!(std::fs::read(&fresh).unwrap(), b"record-1\n");
+    assert_eq!(
+        std::fs::read(&existing).unwrap(),
+        b"canary",
+        "existing unchanged"
+    );
+}
+
+/// The create door propagates a platform refusal by name for a link-like final
+/// component, and leaves the link target untouched.
+#[cfg(unix)]
+#[test]
+fn fs_create_new_regular_durable_propagates_a_link_refusal() {
+    let scratch = Scratch::new("create-durable-link");
+    let outside = scratch.path("outside");
+    let link = scratch.path("link");
+    std::fs::write(&outside, b"canary").expect("write canary");
+    std::os::unix::fs::symlink(&outside, &link).expect("create symlink");
+    let source = format!(
+        r#"
+        if (fs_create_new_regular_durable({0}, "x") === 0) {{ return "link-accepted"; }}
+        return tool_result();
+        "#,
+        js(&link)
+    );
+    let out = run_tool(&source);
+    let text = string_of(&out);
+    assert!(
+        text.contains("fs.create_new_regular_durable"),
+        "door must name the refusal: {text:?}"
+    );
+    assert_eq!(
+        std::fs::read(&outside).unwrap(),
+        b"canary",
+        "target unchanged"
+    );
+}
+
+/// The legacy `fs.write` still creates/truncates/follows exactly as before; the
+/// new door did not change it.
+#[test]
+fn fs_write_keeps_its_create_and_truncate_behavior() {
+    let scratch = Scratch::new("legacy-write");
+    let target = scratch.path("written");
+    let source = format!(
+        r#"
+        if (fs_write({0}, "first") !== 0) {{ return "write: " + tool_result(); }}
+        if (fs_write({0}, "second") !== 0) {{ return "write2: " + tool_result(); }}
+        if (fs_read_to_string({0}) !== 0) {{ return "read: " + tool_result(); }}
+        return tool_result();
+        "#,
+        js(&target)
+    );
+    let out = run_tool(&source);
+    assert_eq!(string_of(&out), "second", "fs.write truncates and rewrites");
+}
+
 /// `process.command_stdout` parks the child's stdout itself: no envelope to
 /// parse for the common case. A failure still answers the envelope, so the
 /// exit code and stderr are not lost.

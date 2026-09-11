@@ -70,6 +70,25 @@ pub fn open_existing_child_with_access(
     verify_opened_type(file, expected)
 }
 
+/// Exclusively creates one regular-file child relative to an already-open
+/// directory object.
+///
+/// `name` must be exactly one ordinary component. The retained `parent` object,
+/// not a reconstructed path, determines which directory is written, so a
+/// junction/symlink/reparse cannot be silently traversed as an ancestor. The
+/// final entry is created new (never opened, truncated or replaced): an existing
+/// file, link, directory or other object is refused and left unchanged. The
+/// created object is verified as a real regular file through the same handle.
+///
+/// Ancestor no-follow holds only for the component-wise facade; callers that need
+/// it must reach the parent through [`open_existing_path_with_access`].
+#[cfg(feature = "filesystem-create")]
+pub fn create_new_regular_child(parent: &File, name: &OsStr) -> io::Result<File> {
+    validate_child_name(name)?;
+    let file = crate::selected::filesystem_open::create_new_regular_child(parent, name)?;
+    verify_opened_type(file, ExistingEntryType::File)
+}
+
 /// Opens an existing path one component at a time from its host root.
 ///
 /// Every intermediate component is opened as a real directory through the

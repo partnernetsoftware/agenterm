@@ -28,8 +28,10 @@ const FILE_READ_ATTRIBUTES: u32 = 0x0080;
 const SYNCHRONIZE_ACCESS: u32 = 0x0010_0000;
 const OBJ_CASE_INSENSITIVE: u32 = 0x0040;
 const FILE_OPEN: u32 = 1;
+const FILE_CREATE: u32 = 2;
 const FILE_DIRECTORY_FILE: u32 = 0x0001;
 const FILE_NON_DIRECTORY_FILE: u32 = 0x0040;
+const FILE_WRITE_DATA: u32 = 0x0002;
 const FILE_SYNCHRONOUS_IO_NONALERT: u32 = 0x0020;
 const FILE_OPEN_REPARSE_POINT_OPTION: u32 = 0x0020_0000;
 
@@ -94,6 +96,59 @@ pub(crate) fn open_existing_child(
     expected: ExistingEntryType,
     access: ExistingEntryAccess,
 ) -> io::Result<File> {
+    let options = FILE_SYNCHRONOUS_IO_NONALERT
+        | FILE_OPEN_REPARSE_POINT_OPTION
+        | match expected {
+            ExistingEntryType::File => FILE_NON_DIRECTORY_FILE,
+            ExistingEntryType::Directory => FILE_DIRECTORY_FILE,
+        };
+    nt_open_child(
+        parent,
+        name,
+        desired_access(expected, access),
+        FILE_OPEN,
+        options,
+    )
+}
+
+/// Exclusively create one regular-file child below a retained parent directory.
+///
+/// `FILE_CREATE` (a `CREATE_NEW` equivalent) refuses any existing name without
+/// opening, truncating or replacing it; `FILE_OPEN_REPARSE_POINT` refuses a final
+/// reparse point even in the create race, and `FILE_NON_DIRECTORY_FILE` refuses a
+/// directory name. The created object is a regular file opened for write.
+///
+/// A `:` in the name is refused before any `NtCreateFile`: `name:stream` and
+/// `name::$DATA` address an **alternate data stream** of an existing base file, so
+/// a create that reached the kernel could add a stream to an object this door must
+/// never touch. `:` is a legal POSIX filename byte, so this rejection is
+/// Windows-specific and never applied on Unix.
+#[cfg(feature = "filesystem-create")]
+pub(crate) fn create_new_regular_child(parent: &File, name: &OsStr) -> io::Result<File> {
+    if name.encode_wide().any(|unit| unit == u16::from(b':')) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "child name contains ':' and may address an alternate data stream",
+        ));
+    }
+    let options =
+        FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_REPARSE_POINT_OPTION | FILE_NON_DIRECTORY_FILE;
+    nt_open_child(
+        parent,
+        name,
+        FILE_WRITE_DATA | FILE_READ_ATTRIBUTES | SYNCHRONIZE_ACCESS,
+        FILE_CREATE,
+        options,
+    )
+}
+
+fn nt_open_child(
+    parent: &File,
+    name: &OsStr,
+    access: u32,
+    create_disposition: u32,
+    options: u32,
+) -> io::Result<File> {
     let mut name: Vec<u16> = name.encode_wide().collect();
     if name.contains(&0) {
         return Err(io::Error::new(
@@ -124,22 +179,16 @@ pub(crate) fn open_existing_child(
         information: 0,
     };
     let mut opened = std::ptr::null_mut();
-    let options = FILE_SYNCHRONOUS_IO_NONALERT
-        | FILE_OPEN_REPARSE_POINT_OPTION
-        | match expected {
-            ExistingEntryType::File => FILE_NON_DIRECTORY_FILE,
-            ExistingEntryType::Directory => FILE_DIRECTORY_FILE,
-        };
     let status = unsafe {
         NtCreateFile(
             &raw mut opened,
-            desired_access(expected, access),
+            access,
             &raw mut attributes,
             &raw mut io_status,
             std::ptr::null_mut(),
             0,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            FILE_OPEN,
+            create_disposition,
             options,
             std::ptr::null_mut(),
             0,

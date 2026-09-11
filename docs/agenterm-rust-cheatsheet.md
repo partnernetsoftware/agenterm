@@ -4458,6 +4458,25 @@ accessors are unstable. Never substitute a canonical path for object identity.
 When metadata crosses a JSON/JavaScript boundary, encode wide sizes, timestamps
 and native ids as decimal strings so binary64 cannot round them.
 
+Creating a new durable file is a different door from opening an existing one. An
+exclusive create uses `O_CREAT|O_EXCL|O_NOFOLLOW` on Unix and `NtCreateFile` with
+`FILE_CREATE` under a retained parent handle on Windows, resolves the parent
+component-wise without following a link-like ancestor, and never opens, truncates
+or replaces an existing object. Its durability covers only the same opened file
+object's content and metadata: it does NOT fsync the parent directory, so the
+directory entry naming the new file is not proven crash-durable, and the name must
+not be read as claiming that. On Windows a `:` in the name (`name:stream`, `name::$DATA`) must be refused
+before any `NtCreateFile`: reaching the kernel would add an alternate data stream to
+an existing base file. On Unix the new file is mode `0600`; on Windows the door only
+inherits the parent directory's ACL and must not claim a private ACL of its own --
+parent privacy is the caller's precondition, never something the door measures
+after the fact. The final component must be taken lexically from the raw path, not
+through `Path::file_name`/`components`, which fold a trailing separator or `.` and
+would let `new/` or `new/.` silently mean `new`. Once the exclusive create succeeds, a later write/sync/type-verify failure
+is error-after-effect: a partial or empty file the caller itself just created may
+remain, the door never removes it, and the caller must fail closed without blindly
+replaying.
+
 A durable append to an existing file needs its own door rather than a strengthened
 legacy one. `fs.append` keeps its create/follow/non-durable contract; a new
 `append_existing_durable` opens an EXISTING regular file through the component-wise
