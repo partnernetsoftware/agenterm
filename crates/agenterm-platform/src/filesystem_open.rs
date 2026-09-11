@@ -19,6 +19,13 @@ pub enum ExistingEntryType {
 pub enum ExistingEntryAccess {
     ReadOnly,
     SecurityDescriptor,
+    /// Open an existing regular file for append: `O_WRONLY | O_APPEND` on Unix and
+    /// the append data access right on Windows. Never creates and never follows a
+    /// link-like final component; ancestor no-follow holds only for the
+    /// component-wise facade ([`open_existing_path_with_access`]), not for the
+    /// single-component openers.
+    #[cfg(feature = "filesystem-append")]
+    Append,
 }
 
 /// Opens an existing path without following a link-like final component.

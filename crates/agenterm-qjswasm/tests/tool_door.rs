@@ -43,6 +43,10 @@ impl Scratch {
             tag
         ));
         std::fs::create_dir_all(&dir).expect("scratch dir");
+        // Component-wise no-follow openers refuse a symlinked ancestor, and macOS
+        // points TMPDIR under a symlinked /var. Resolve the root so a scratch path
+        // exercises the walk itself rather than the platform's own prefix.
+        let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
         Self(dir)
     }
 
@@ -693,6 +697,70 @@ fn fs_append_adds_to_the_end_and_creates_the_file() {
     let out = run_tool(&source);
     assert_eq!(string_of(&out), "one\ntwo\n", "{out:?}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `fs.append_existing_durable` appends to an EXISTING regular file and refuses a
+/// missing target without creating it. It is distinct from `fs.append`.
+#[test]
+fn fs_append_existing_durable_refuses_a_missing_target_and_appends_to_an_existing_one() {
+    // The door's mechanism is platform::filesystem_append (component-wise
+    // no-follow); this test proves the DOOR propagates refusal by name and does
+    // not create a missing target. The platform mechanism tests own the symlink/
+    // FIFO/normal-invariants themselves.
+    let scratch = Scratch::new("append-durable");
+    let file = scratch.path("control-log.jsonl");
+    let missing = scratch.path("absent");
+    // Seed the existing file first (the door never creates it).
+    std::fs::write(&file, b"").expect("seed file");
+    let source = format!(
+        r#"
+        // missing target is refused and NOT created
+        if (fs_append_existing_durable({1}, "x") === 0) {{ return "missing-accepted"; }}
+        let miss = tool_result();
+        // existing target appends twice, prefix preserved
+        if (fs_append_existing_durable({0}, "seed\n") !== 0) {{ return "seed: " + tool_result(); }}
+        if (fs_append_existing_durable({0}, "one\n") !== 0) {{ return "one: " + tool_result(); }}
+        if (fs_read_to_string({0}) !== 0) {{ return "read: " + tool_result(); }}
+        return tool_result() + "|" + miss;
+        "#,
+        js(&file),
+        js(&missing)
+    );
+    let out = run_tool(&source);
+    let text = string_of(&out);
+    assert!(text.starts_with("seed\none\n|"), "append result: {text:?}");
+    assert!(!missing.exists(), "missing target must not be created");
+}
+
+/// The door propagates a platform refusal by name: a link-like final component is
+/// refused and its target is untouched. Proves the door does not swallow the
+/// platform error into a success.
+#[cfg(unix)]
+#[test]
+fn fs_append_existing_durable_propagates_a_link_refusal() {
+    let scratch = Scratch::new("append-durable-link");
+    let outside = scratch.path("outside");
+    let link = scratch.path("link");
+    std::fs::write(&outside, b"canary").expect("write canary");
+    std::os::unix::fs::symlink(&outside, &link).expect("create symlink");
+    let source = format!(
+        r#"
+        if (fs_append_existing_durable({0}, "x") === 0) {{ return "link-accepted"; }}
+        return tool_result();
+        "#,
+        js(&link)
+    );
+    let out = run_tool(&source);
+    let text = string_of(&out);
+    assert!(
+        text.contains("fs.append_existing_durable"),
+        "door must name the refusal: {text:?}"
+    );
+    assert_eq!(
+        std::fs::read(&outside).unwrap(),
+        b"canary",
+        "target unchanged"
+    );
 }
 
 /// `process.command_stdout` parks the child's stdout itself: no envelope to

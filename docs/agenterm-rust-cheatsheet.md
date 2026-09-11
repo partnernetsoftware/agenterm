@@ -4458,6 +4458,17 @@ accessors are unstable. Never substitute a canonical path for object identity.
 When metadata crosses a JSON/JavaScript boundary, encode wide sizes, timestamps
 and native ids as decimal strings so binary64 cannot round them.
 
+A durable append to an existing file needs its own door rather than a strengthened
+legacy one. `fs.append` keeps its create/follow/non-durable contract; a new
+`append_existing_durable` opens an EXISTING regular file through the component-wise
+no-follow opener, writes and `sync_all`s on the same opened object, never creates a
+missing target, and is `error-after-effect`: `write_all` may append a partial
+prefix and `sync_all` may fail after the bytes landed, so a returned error proves
+neither that the target is unchanged nor that any appended byte is durable. The
+caller must fail closed and must not replay the same record; never silently upgrade
+the legacy create/follow/non-durable append. Ancestor no-follow holds only for the
+component-wise facade, not for the single-component openers.
+
 Strict private-store tests must not assume `std::env::temp_dir()` has safe
 ancestry. On macOS it commonly resolves beneath `/var`, whose public spelling
 contains a system symlink; an `O_NOFOLLOW` component walk correctly rejects

@@ -115,11 +115,12 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 48] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 49] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
     ("fs.append", 4, 1),
+    ("fs.append_existing_durable", 4, 1),
     ("fs.try_lock_exclusive", 2, 1),
     ("fs.unlock", 1, 1),
     ("fs.create_dir_all", 2, 1),
@@ -200,6 +201,11 @@ pub(crate) fn declarations() -> Vec<HostFn> {
         ),
         decl(
             "fs.append",
+            vec![HostParam::StrPtrLen, HostParam::StrPtrLen],
+            HostResult::I32,
+        ),
+        decl(
+            "fs.append_existing_durable",
             vec![HostParam::StrPtrLen, HostParam::StrPtrLen],
             HostResult::I32,
         ),
@@ -716,6 +722,32 @@ pub(crate) fn install(
             Ok(String::new())
         })
     })?;
+
+    // `fs.append_existing_durable(path, text)`: append to an EXISTING, non-link
+    // regular file and flush the same opened object to stable storage. It never
+    // creates the target and never follows a link-like final or ancestor
+    // component. Distinct from `fs.append`, which keeps its create/follow/
+    // non-durable behavior.
+    let state = Rc::clone(&shared);
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "fs.append_existing_durable",
+        move |args, memory| {
+            let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            let text = guest_slice(memory, arg(args, 2)?, arg(args, 3)?)?;
+            answer(&state, "fs.append_existing_durable", || {
+                let path = utf8(path)?;
+                agenterm_platform::filesystem_append::append_existing_durable(
+                    std::path::Path::new(path),
+                    text,
+                )
+                .map_err(|e| format!("fs.append_existing_durable `{path}`: {e}"))?;
+                Ok(String::new())
+            })
+        },
+    )?;
 
     let state = Rc::clone(&shared);
     bind_metered(module, &meter, DOOR, "fs.write", move |args, memory| {

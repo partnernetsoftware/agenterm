@@ -106,6 +106,7 @@ pub enum Capability {
     FilesystemEntry,
     DirectoryAccess,
     FilesystemOpen,
+    FilesystemAppend,
     FilesystemCleanup,
     FilesystemPublish,
     FilesystemUsage,
@@ -195,6 +196,7 @@ pub fn capability_status(capability: Capability) -> CapabilityStatus {
         Capability::FilesystemEntry => (cfg!(feature = "filesystem-entry"), true),
         Capability::DirectoryAccess => (cfg!(feature = "directory-access"), true),
         Capability::FilesystemOpen => (cfg!(feature = "filesystem-open"), true),
+        Capability::FilesystemAppend => (cfg!(feature = "filesystem-append"), true),
         Capability::FilesystemCleanup => (cfg!(feature = "filesystem-cleanup"), true),
         Capability::FilesystemPublish => (cfg!(feature = "filesystem-publish"), true),
         Capability::FilesystemUsage => (cfg!(feature = "filesystem-usage"), true),
@@ -344,6 +346,9 @@ pub mod directory_access;
 
 #[cfg(feature = "filesystem-open")]
 pub mod filesystem_open;
+
+#[cfg(feature = "filesystem-append")]
+pub mod filesystem_append;
 
 #[cfg(feature = "filesystem-cleanup")]
 pub mod filesystem_cleanup;
@@ -611,6 +616,40 @@ mod tests {
         #[cfg(not(feature = "filesystem"))]
         assert_eq!(
             crate::capability_status(crate::Capability::Filesystem),
+            crate::CapabilityStatus::Unsupported {
+                reason: std::borrow::Cow::Borrowed("feature-disabled")
+            }
+        );
+    }
+
+    #[cfg(feature = "filesystem-append")]
+    #[test]
+    fn filesystem_append_capability_is_available_alongside_open() {
+        // filesystem-append depends on filesystem-open, so enabling append also
+        // enables open. Both capabilities read Available; each is only compatibility
+        // metadata, never an authority grant.
+        assert_eq!(
+            crate::capability_status(crate::Capability::FilesystemAppend),
+            crate::CapabilityStatus::Available
+        );
+        assert_eq!(
+            crate::capability_status(crate::Capability::FilesystemOpen),
+            crate::CapabilityStatus::Available
+        );
+        #[cfg(not(feature = "filesystem"))]
+        assert_eq!(
+            crate::capability_status(crate::Capability::Filesystem),
+            crate::CapabilityStatus::Unsupported {
+                reason: std::borrow::Cow::Borrowed("feature-disabled")
+            }
+        );
+    }
+
+    #[cfg(all(feature = "filesystem-open", not(feature = "filesystem-append")))]
+    #[test]
+    fn filesystem_open_alone_does_not_enable_append() {
+        assert_eq!(
+            crate::capability_status(crate::Capability::FilesystemAppend),
             crate::CapabilityStatus::Unsupported {
                 reason: std::borrow::Cow::Borrowed("feature-disabled")
             }

@@ -14,24 +14,31 @@ use crate::filesystem_open::{ExistingEntryAccess, ExistingEntryType};
 pub(crate) fn open_existing(
     path: &Path,
     expected: ExistingEntryType,
-    _access: ExistingEntryAccess,
+    access: ExistingEntryAccess,
 ) -> io::Result<File> {
     let path = c_string(path.as_os_str())?;
-    descriptor(unsafe { libc::open(path.as_ptr(), flags(expected)) })
+    descriptor(unsafe { libc::open(path.as_ptr(), flags(expected, access)) })
 }
 
 pub(crate) fn open_existing_child(
     parent: &File,
     name: &OsStr,
     expected: ExistingEntryType,
-    _access: ExistingEntryAccess,
+    access: ExistingEntryAccess,
 ) -> io::Result<File> {
     let name = c_string(name)?;
-    descriptor(unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags(expected)) })
+    descriptor(unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags(expected, access)) })
 }
 
-fn flags(expected: ExistingEntryType) -> libc::c_int {
-    libc::O_RDONLY
+fn flags(expected: ExistingEntryType, access: ExistingEntryAccess) -> libc::c_int {
+    // Append access opens for write without creating and keeps the no-follow and
+    // non-blocking guards. Every other access stays read-only.
+    let access_flags = match access {
+        #[cfg(feature = "filesystem-append")]
+        ExistingEntryAccess::Append => libc::O_WRONLY | libc::O_APPEND,
+        ExistingEntryAccess::ReadOnly | ExistingEntryAccess::SecurityDescriptor => libc::O_RDONLY,
+    };
+    access_flags
         | libc::O_CLOEXEC
         | libc::O_NOFOLLOW
         | libc::O_NONBLOCK

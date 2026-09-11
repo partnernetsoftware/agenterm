@@ -10,6 +10,8 @@ use std::{
     path::Path,
 };
 
+#[cfg(feature = "filesystem-append")]
+use windows_sys::Win32::Storage::FileSystem::FILE_APPEND_DATA;
 use windows_sys::Win32::{
     Foundation::{ERROR_MR_MID_NOT_FOUND, HANDLE},
     Storage::FileSystem::{
@@ -161,17 +163,22 @@ pub(crate) fn open_existing_child(
 fn desired_access(expected: ExistingEntryType, access: ExistingEntryAccess) -> u32 {
     let security = match access {
         ExistingEntryAccess::ReadOnly => 0,
+        #[cfg(feature = "filesystem-append")]
+        ExistingEntryAccess::Append => 0,
         ExistingEntryAccess::SecurityDescriptor => {
             windows_sys::Win32::Storage::FileSystem::READ_CONTROL
                 | windows_sys::Win32::Storage::FileSystem::WRITE_DAC
         }
     };
-    (match expected {
-        ExistingEntryType::File => FILE_READ_DATA,
-        ExistingEntryType::Directory => FILE_LIST_DIRECTORY,
-    }) | FILE_READ_ATTRIBUTES
-        | SYNCHRONIZE_ACCESS
-        | security
+    // Append access keeps the data right out of the read path and uses the append
+    // right alone, so an existing file can only grow.
+    let data = match (expected, access) {
+        #[cfg(feature = "filesystem-append")]
+        (ExistingEntryType::File, ExistingEntryAccess::Append) => FILE_APPEND_DATA,
+        (ExistingEntryType::File, _) => FILE_READ_DATA,
+        (ExistingEntryType::Directory, _) => FILE_LIST_DIRECTORY,
+    };
+    data | FILE_READ_ATTRIBUTES | SYNCHRONIZE_ACCESS | security
 }
 
 fn reject_nul(value: &OsStr) -> io::Result<()> {
