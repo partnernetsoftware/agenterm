@@ -388,6 +388,68 @@
       "positive_failure_codes": ["INCONCLUSIVE_BASELINE_MUTATION"]
     }
   },
+  "criterion_failure_bindings": {
+    "V1": {"role": "validity", "default_code": "INCONCLUSIVE_ADMISSION", "bindings": [
+      {"code": "INCONCLUSIVE_ADMISSION", "predicate": "stage_failed", "priority": 100, "when_missing": "inconclusive"}
+    ]},
+    "V2": {"role": "validity", "default_code": "INCONCLUSIVE_FIXTURE", "bindings": [
+      {"code": "INCONCLUSIVE_FIXTURE", "predicate": "any_false", "facts": ["final-inventory.public_inventory_complete", "final-inventory.independent_inventory_complete"], "comparison": false, "priority": 10, "when_missing": "inconclusive"},
+      {"code": "INCONCLUSIVE_FIXTURE", "predicate": "stage_failed", "stage": "focus-baseline", "priority": 20, "when_missing": "inconclusive"},
+      {"code": "INCONCLUSIVE_FIXTURE", "predicate": "stage_failed", "stage": "fixture-ready", "priority": 21, "when_missing": "inconclusive"},
+      {"code": "INCONCLUSIVE_FIXTURE", "predicate": "stage_failed", "stage": "session-ready", "priority": 22, "when_missing": "inconclusive"},
+      {"code": "INCONCLUSIVE_FIXTURE", "predicate": "stage_failed", "stage": "ownership", "priority": 23, "when_missing": "inconclusive"}
+    ]},
+    "V3": {"role": "validity", "default_code": "INCONCLUSIVE_CLEANUP", "bindings": [
+      {"code": "INCONCLUSIVE_CLEANUP", "predicate": "any_false", "facts": ["final-inventory.cleanup_targets_absent", "final-inventory.owned_roots_absent", "termination-proof.cleanup_veto_respected", "termination-proof.no_activate_enabled"], "comparison": false, "priority": 10, "when_missing": "inconclusive"},
+      {"code": "INCONCLUSIVE_CLEANUP", "predicate": "stage_failed", "stage": "window-close", "priority": 20, "when_missing": "inconclusive"},
+      {"code": "INCONCLUSIVE_CLEANUP", "predicate": "stage_failed", "stage": "session-stop", "priority": 21, "when_missing": "inconclusive"},
+      {"code": "INCONCLUSIVE_CLEANUP", "predicate": "stage_failed", "stage": "termination-proof", "priority": 22, "when_missing": "inconclusive"},
+      {"code": "INCONCLUSIVE_CLEANUP", "predicate": "stage_failed", "stage": "session-remove", "priority": 23, "when_missing": "inconclusive"},
+      {"code": "INCONCLUSIVE_CLEANUP", "predicate": "stage_failed", "stage": "root-removal", "priority": 24, "when_missing": "inconclusive"},
+      {"code": "INCONCLUSIVE_CLEANUP", "predicate": "stage_failed", "stage": "original-restore", "priority": 25, "when_missing": "inconclusive"}
+    ]},
+    "V4": {"role": "validity", "default_code": "INCONCLUSIVE_REHEARSAL_FOCUS", "bindings": [
+      {"code": "INCONCLUSIVE_REHEARSAL_FOCUS", "predicate": "stage_failed", "priority": 100, "when_missing": "inconclusive"}
+    ]},
+    "V5": {"role": "validity", "default_code": "INCONCLUSIVE_SCAN_COVERAGE", "bindings": [
+      {"code": "INCONCLUSIVE_SCAN_COVERAGE", "predicate": "stage_failed", "priority": 100, "when_missing": "inconclusive"}
+    ]},
+    "G1": {"role": "decision", "default_code": "INCONCLUSIVE_RELAY", "bindings": [
+      {"code": "INCONCLUSIVE_DIRECT_REQUEST", "predicate": "any_false", "facts": ["open-request.spawn_succeeded", "open-request.exit_observed", "open-request.exit_within_deadline"], "comparison": false, "priority": 10, "when_missing": "inconclusive"},
+      {"code": "INCONCLUSIVE_RELAY_TOPOLOGY", "predicate": "any_gt_zero", "facts": ["relay.topology_candidate_count"], "comparison": "gt_zero", "priority": 20, "when_missing": "inconclusive"},
+      {"code": "INCONCLUSIVE_RELAY", "predicate": "absence", "facts": ["relay.classified_relay_count"], "comparison": "eq_zero", "priority": 30, "when_missing": "inconclusive"},
+      {"code": "INCONCLUSIVE_DIRECT_REQUEST", "predicate": "stage_failed", "stage": "open-request", "priority": 90, "when_missing": "inconclusive"},
+      {"code": "INCONCLUSIVE_RELAY", "predicate": "stage_failed", "priority": 100, "when_missing": "inconclusive"}
+    ]},
+    "G2": {"role": "safety", "default_code": null, "bindings": [
+      {"code": "UNSAFE_ESCAPED_PROCESS", "predicate": "any_gt_zero", "facts": ["open-request.descendant_live_count", "relay.descendant_live_count", "relay.non_exempt_token_outside_count", "relay.non_exempt_bundle_tree_outside_count", "ownership.bundle_tree_outside_count", "termination-proof.escaped_target_count", "termination-proof.contained_closure_live_count", "termination-proof.token_match_count", "final-inventory.contained_closure_live_count", "final-inventory.token_match_count", "final-inventory.bundle_tree_outside_count", "final-inventory.direct_descendant_live_count", "final-inventory.relay_descendant_live_count", "final-inventory.candidate_descendant_live_count"], "comparison": "gt_zero", "priority": 10, "when_missing": "no_failure"},
+      {"code": "UNSAFE_ESCAPED_PROCESS", "predicate": "gt_one", "facts": ["relay.classified_relay_count"], "comparison": "gt_one", "priority": 11, "when_missing": "no_failure"},
+      {"code": "UNSAFE_ESCAPED_PROCESS", "predicate": "is_false", "facts": ["relay.relay_exit_within_deadline"], "comparison": false, "priority": 12, "when_missing": "no_failure"}
+    ]},
+    "G3": {"role": "decision", "default_code": "INCONCLUSIVE_HANDOFF", "bindings": [
+      {"code": "INCONCLUSIVE_HANDOFF", "predicate": "stage_failed", "priority": 100, "when_missing": "inconclusive"}
+    ]},
+    "G4": {"role": "decision", "default_code": "INCONCLUSIVE_FOCUS_RESTORE", "bindings": [
+      {"code": "INCONCLUSIVE_FOCUS_RESTORE", "predicate": "stage_failed", "priority": 100, "when_missing": "inconclusive"}
+    ]},
+    "G5": {"role": "safety", "default_code": null, "bindings": [
+      {"code": "INCONCLUSIVE_BASELINE_MUTATION", "predicate": "neq_expected", "facts": ["focus-baseline.selected_bundle_process_count"], "comparison": 0, "priority": 10, "when_missing": "no_failure"},
+      {"code": "INCONCLUSIVE_BASELINE_MUTATION", "predicate": "neq_expected", "facts": ["focus-baseline.selected_bundle_window_count"], "comparison": 0, "priority": 11, "when_missing": "no_failure"},
+      {"code": "INCONCLUSIVE_BASELINE_MUTATION", "predicate": "neq_expected", "facts": ["session-ready.selected_bundle_process_count"], "comparison": 1, "priority": 12, "when_missing": "no_failure"},
+      {"code": "INCONCLUSIVE_BASELINE_MUTATION", "predicate": "neq_expected", "facts": ["session-ready.ordinary_onscreen_window_count"], "comparison": 0, "priority": 13, "when_missing": "no_failure"},
+      {"code": "INCONCLUSIVE_BASELINE_MUTATION", "predicate": "neq_expected", "facts": ["final-inventory.selected_bundle_process_count"], "comparison": 0, "priority": 14, "when_missing": "no_failure"},
+      {"code": "INCONCLUSIVE_BASELINE_MUTATION", "predicate": "neq_expected", "facts": ["final-inventory.selected_bundle_window_count"], "comparison": 0, "priority": 15, "when_missing": "no_failure"},
+      {"code": "INCONCLUSIVE_BASELINE_MUTATION", "predicate": "neq_expected", "facts": ["final-inventory.process_baseline_match"], "comparison": true, "priority": 16, "when_missing": "no_failure"},
+      {"code": "INCONCLUSIVE_BASELINE_MUTATION", "predicate": "neq_expected", "facts": ["final-inventory.window_baseline_match"], "comparison": true, "priority": 17, "when_missing": "no_failure"}
+    ]}
+  },
+  "runtime_reached_stage_rules": {
+    "forward_prefix": "the reached stages are a prefix of stage_order after removing kind_excluded_stages[kind], beginning at the first non-excluded stage",
+    "cleanup_persistence_tail": ["window-close", "session-stop", "termination-proof", "session-remove", "root-removal", "fixture-restore", "original-restore", "final-inventory", "scan-coverage", "terminal"],
+    "tail_rule": "every cleanup/persistence tail stage that is not kind-excluded is always reached; forward adjudication stops at the first forward stage that failed and no later forward stage is reached",
+    "kind_exclusion_rule": "kind_excluded_stages[kind] are never reached and never appear in any reached set",
+    "hole_rule": "after the first absent forward stage, no later forward stage may be present"
+  },
   "terminal_codes": [
     "REHEARSAL_PASS",
     "OWNED_HANDOFF_PROVED",

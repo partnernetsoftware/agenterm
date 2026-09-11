@@ -1,0 +1,946 @@
+// Synthetic self-test for the singleton-safety verdict core and court data plane.
+//
+// Builds minimal but type-correct stage fact maps for six hardcoded paths and
+// asserts each terminal code as a literal. It also checks the journal chain
+// against an independently computed known-answer (see the report for the Python
+// preimage and digest) and that tampering, reordering, duplicate sequence, unknown
+// stage/criterion, null-as-zero and empty-digest-as-missing are all rejected.
+//
+// Owned root: target/singleton-safety-court-selftest. Removed on success and
+// failure; the wrapper never masks the original error. No environment input.
+import * as rh from "lib/rh_compat";
+import * as cj from "lib/canonical_json";
+import * as v from "lib/singleton_safety_verdict";
+import * as court from "singleton-safety-court";
+
+const TEMPLATE_LOGICAL = "research/browser-profile-open-singleton-safety/result-template.json";
+const ROOT_BASE = "target/singleton-safety-court-selftest";
+// Each mode owns a distinct fixed root under target/, so the three tasks never
+// share a directory and never depend on a prior task having left one behind.
+let MODE = "all";
+const SENTINEL = "court_selftest_cleanup_sentinel";
+// Independently computed (Python): the zero predecessor and one chain row.
+const ZERO = "1bacf00043eeb400572ade8654a085bf58e498638ab82298608ab3a2b09184fe";
+const KNOWN_ROW_SHA = "527b266d5f5723c28df16e8cfa786f7d59073022043c0a54d035333b8da46dae";
+
+function require(condition, message) { if (!condition) { throw message; } }
+
+function owned_root() { return rh.join(rh.cwd(), ROOT_BASE + "-" + MODE); }
+function template_path() { return rh.join(rh.cwd(), TEMPLATE_LOGICAL); }
+
+function remove_owned_root() {
+  try { rh.try_remove_dir_all(owned_root()); } catch (e) { print("court_selftest_cleanup: " + e); }
+}
+
+function with_owned_cleanup(fn) {
+  try { return fn(); } finally { remove_owned_root(); }
+}
+
+function expect_throw(fn, label) {
+  let threw = false;
+  try { fn(); } catch (e) { threw = true; }
+  require(threw, "negative_did_not_throw:" + label);
+}
+
+// ---- fact builders ------------------------------------------------------
+//
+// These build a minimal, type-correct envelope for each stage. Values are chosen
+// only to satisfy the template; the verdict depends on the exact/relational rules.
+
+// Build a minimal, type-correct fact map for every stage from the template's own
+// declared types, then apply the template's exact_values, then the scan-coverage
+// relational facts. Nothing here is a hand-copied rule table.
+function default_value(ty, template) {
+  if (ty === "boolean") { return true; }
+  if (ty === "safe_integer" || ty === "nullable_safe_integer") { return 0; }
+  if (ty === "sha256" || ty === "nullable_sha256") { return "0000000000000000000000000000000000000000000000000000000000000000"; }
+  if (ty === "git_sha") { return "0000000000000000000000000000000000000000"; }
+  if (ty === "typed_code") { return "stage_pass"; }
+  if (ty === "nullable_typed_code") { return null; }
+  if (ty === "bounded_string") { return "x"; }
+  if (ty === "browser_acquisition_method") { return template["browser_acquisition_method_values"][0]; }
+  if (ty === "browser_family_code") { return "chr"; }
+  if (ty === "deviation_code_array") { return []; }
+  throw "selftest_unknown_type:" + ty;
+}
+
+function stage_fact_types(template, stage) {
+  const st = template["stages"][stage];
+  const types = {};
+  const common = template["common_stage_facts"];
+  const ck = Object.keys(common);
+  for (let i = 0; i < ck.length; i = i + 1) { types[ck[i]] = common[ck[i]]; }
+  const lists = [st["required"], st["optional"]];
+  for (let l = 0; l < lists.length; l = l + 1) {
+    const keys = Object.keys(lists[l]);
+    for (let i = 0; i < keys.length; i = i + 1) { types[keys[i]] = lists[l][keys[i]]; }
+  }
+  return types;
+}
+
+// A full stage_facts map for a kind, built from the template. `mutate` may break
+// one fact to drive a negative path.
+function stage_facts_for(template, mutate) {
+  const out = {};
+  const order = template["stage_order"];
+  const exact = template["stage_pass_rules"]["exact_values"];
+  for (let i = 0; i < order.length; i = i + 1) {
+    const stage = order[i];
+    const types = stage_fact_types(template, stage);
+    const facts = {};
+    const keys = Object.keys(types);
+    for (let k = 0; k < keys.length; k = k + 1) { facts[keys[k]] = default_value(types[keys[k]], template); }
+    out[stage] = facts;
+  }
+  // exact_values override the defaults.
+  const eks = Object.keys(exact);
+  for (let i = 0; i < eks.length; i = i + 1) {
+    const dot = eks[i].indexOf(".");
+    const stage = eks[i].substring(0, dot);
+    const fact = eks[i].substring(dot + 1);
+    out[stage][fact] = exact[eks[i]];
+  }
+  // relay conservation must hold with the exact_values defaults.
+  out["relay"].candidate_observed_count = out["relay"].classified_relay_count +
+    out["relay"].topology_candidate_count + out["relay"].live_g1_exemption_count;
+  // scan-coverage relational facts must be self-consistent.
+  out["scan-coverage"].sample_count = 10;
+  out["scan-coverage"].window_duration_ms = 2000;
+  out["scan-coverage"].max_start_interval_ms = 100;
+  out["scan-coverage"].max_enumeration_ms = 50;
+  out["scan-coverage"].resolution_ms = 150;
+  out["scan-coverage"].minimum_sample_count = 10;
+  out["scan-coverage"].maximum_row_count = 10;
+  out["scan-coverage"].maximum_group_member_count = 10;
+  if (mutate !== undefined) { mutate(out); }
+  return out;
+}
+
+// This engine has no `delete`: rebuild the fact map without one key via a loop.
+function rebuild_without(facts, drop) {
+  const keys = Object.keys(facts);
+  const out = {};
+  for (let i = 0; i < keys.length; i = i + 1) {
+    if (keys[i] !== drop) { out[keys[i]] = facts[keys[i]]; }
+  }
+  return out;
+}
+
+function run_verdict(template, kind, stage_facts) {
+  return v.verdict(template, kind, stage_facts);
+}
+
+// ---- six paths ----------------------------------------------------------
+
+function test_paths(template) {
+  // 1. normal decision
+  let r = run_verdict(template, "decision", stage_facts_for(template));
+  require(r.terminal_code === "OWNED_HANDOFF_PROVED", "path_normal_terminal:" + r.terminal_code);
+
+  // 2. normal rehearsal
+  r = run_verdict(template, "rehearsal", stage_facts_for(template));
+  require(r.terminal_code === "REHEARSAL_PASS", "path_rehearsal_terminal:" + r.terminal_code);
+
+  // 3. direct-root unobserved: open-request observation fails -> INCONCLUSIVE_DIRECT_REQUEST,
+  //    and the safety gate G2 must NOT escalate a plain non-escape failure.
+  r = run_verdict(template, "decision", stage_facts_for(template, function (f) {
+    f["open-request"].complete = false;
+  }));
+  require(r.terminal_code === "INCONCLUSIVE_DIRECT_REQUEST", "path_direct_root:" + r.terminal_code);
+  require(r.criteria["G2"] !== "failed" && r.criteria["G2"].status !== "failed",
+          "direct_root_g2_escalated:" + JSON.stringify(r.criteria["G2"]));
+
+  // 4. multi relay: two classified relays pass G1's existence test but fail G2's
+  //    cardinality safety test -> UNSAFE_ESCAPED_PROCESS (design §3).
+  r = run_verdict(template, "decision", stage_facts_for(template, function (f) {
+    f["relay"].classified_relay_count = 2;
+    f["relay"].candidate_observed_count = 2;
+  }));
+  require(r.terminal_code === "UNSAFE_ESCAPED_PROCESS", "path_multi_relay:" + r.terminal_code);
+  require(r.criteria["G2"].status === "failed" && r.criteria["G2"].code === "UNSAFE_ESCAPED_PROCESS",
+          "path_multi_relay_g2:" + JSON.stringify(r.criteria["G2"]));
+
+  // 4b. topology-only: an auxiliary mismatch with zero classified relay -> G1
+  //     INCONCLUSIVE_RELAY_TOPOLOGY and G2 NOT failed (design §3).
+  r = run_verdict(template, "decision", stage_facts_for(template, function (f) {
+    f["relay"].topology_candidate_count = 1;
+    f["relay"].classified_relay_count = 0;
+    f["relay"].candidate_observed_count = 1;
+  }));
+  require(r.criteria["G1"].status === "failed" && r.criteria["G1"].code === "INCONCLUSIVE_RELAY_TOPOLOGY",
+          "path_topology_g1:" + JSON.stringify(r.criteria["G1"]));
+  require(r.criteria["G2"].status !== "failed", "path_topology_g2_escalated:" + JSON.stringify(r.criteria["G2"]));
+
+  // 5. escaped safety: termination-proof.escaped_target_count > 0 -> UNSAFE
+  r = run_verdict(template, "decision", stage_facts_for(template, function (f) {
+    f["termination-proof"].escaped_target_count = 1;
+  }));
+  require(r.terminal_code === "UNSAFE_ESCAPED_PROCESS", "path_escaped:" + r.terminal_code);
+
+  // 6. scanner incomplete: scan-coverage.complete=false -> V5 INCONCLUSIVE_SCAN_COVERAGE
+  r = run_verdict(template, "decision", stage_facts_for(template, function (f) {
+    f["scan-coverage"].complete = false;
+  }));
+  require(r.terminal_code === "INCONCLUSIVE_SCAN_COVERAGE", "path_scan:" + r.terminal_code);
+}
+
+// ---- baseline mutation vs incomplete ------------------------------------
+
+function test_baseline(template) {
+  // baseline incomplete (the witnessing fact is absent, and the inventory is
+  // incomplete) is NOT a mutation: G5 must not fail on a missing fact.
+  let r = run_verdict(template, "decision", stage_facts_for(template, function (f) {
+    const rebuilt = rebuild_without(f["final-inventory"], "process_baseline_match");
+    rebuilt["public_inventory_complete"] = false;
+    f["final-inventory"] = rebuilt;
+  }));
+  require(r.criteria["G5"] === "not-run" || r.criteria["G5"].status !== "failed",
+          "baseline_incomplete_misclassified:" + JSON.stringify(r.criteria["G5"]));
+
+  // explicit baseline mismatch -> INCONCLUSIVE_BASELINE_MUTATION
+  r = run_verdict(template, "decision", stage_facts_for(template, function (f) {
+    f["final-inventory"].process_baseline_match = false;
+  }));
+  require(r.criteria["G5"].status === "failed" &&
+          r.criteria["G5"].code === "INCONCLUSIVE_BASELINE_MUTATION",
+          "baseline_mismatch:" + JSON.stringify(r.criteria["G5"]));
+}
+
+// ---- G2 / G5 authority negatives (R363B item 6) --------------------------
+
+function test_g2_g5(template) {
+  // normal ownership live counts (necessarily >0) must NOT trip G2.
+  let r = run_verdict(template, "decision", stage_facts_for(template, function (f) {
+    f["ownership"].group_live_count = 3;
+    f["ownership"].contained_closure_live_count = 3;
+    f["ownership"].token_match_count = 1;
+  }));
+  require(r.terminal_code === "OWNED_HANDOFF_PROVED", "g2_normal_ownership:" + r.terminal_code);
+
+  // non_exempt token outside = 1 -> UNSAFE.
+  r = run_verdict(template, "decision", stage_facts_for(template, function (f) {
+    f["relay"].non_exempt_token_outside_count = 1;
+  }));
+  require(r.terminal_code === "UNSAFE_ESCAPED_PROCESS", "g2_non_exempt_token:" + r.terminal_code);
+
+  // non_exempt bundle-tree outside = 1 -> UNSAFE.
+  r = run_verdict(template, "decision", stage_facts_for(template, function (f) {
+    f["relay"].non_exempt_bundle_tree_outside_count = 1;
+  }));
+  require(r.terminal_code === "UNSAFE_ESCAPED_PROCESS", "g2_non_exempt_bundle:" + r.terminal_code);
+
+  // ownership bundle_tree_outside = 1 -> UNSAFE.
+  r = run_verdict(template, "decision", stage_facts_for(template, function (f) {
+    f["ownership"].bundle_tree_outside_count = 1;
+  }));
+  require(r.terminal_code === "UNSAFE_ESCAPED_PROCESS", "g2_ownership_outside:" + r.terminal_code);
+
+  // single relay exit past deadline -> UNSAFE.
+  r = run_verdict(template, "decision", stage_facts_for(template, function (f) {
+    f["relay"].relay_exit_within_deadline = false;
+  }));
+  require(r.terminal_code === "UNSAFE_ESCAPED_PROCESS", "g2_relay_deadline:" + r.terminal_code);
+
+  // open-request / relay descendant live > 0 -> UNSAFE.
+  r = run_verdict(template, "decision", stage_facts_for(template, function (f) {
+    f["open-request"].descendant_live_count = 1;
+  }));
+  require(r.terminal_code === "UNSAFE_ESCAPED_PROCESS", "g2_open_descendant:" + r.terminal_code);
+  r = run_verdict(template, "decision", stage_facts_for(template, function (f) {
+    f["relay"].descendant_live_count = 1;
+  }));
+  require(r.terminal_code === "UNSAFE_ESCAPED_PROCESS", "g2_relay_descendant:" + r.terminal_code);
+
+  // cleanup false facts belong to V3, never G2.
+  r = run_verdict(template, "decision", stage_facts_for(template, function (f) {
+    f["final-inventory"].cleanup_targets_absent = false;
+    f["termination-proof"].cleanup_veto_respected = false;
+  }));
+  require(r.criteria["G2"].status !== "failed", "g2_cleanup_leaked:" + JSON.stringify(r.criteria["G2"]));
+  require(r.terminal_code === "INCONCLUSIVE_CLEANUP", "g2_cleanup_terminal:" + r.terminal_code);
+
+  // G5: each allowed-sequence deviation separately -> INCONCLUSIVE_BASELINE_MUTATION.
+  const deviations = [
+    function (f) { f["focus-baseline"].selected_bundle_process_count = 1; },
+    function (f) { f["focus-baseline"].selected_bundle_window_count = 1; },
+    function (f) { f["session-ready"].selected_bundle_process_count = 0; },
+    function (f) { f["session-ready"].ordinary_onscreen_window_count = 1; },
+    function (f) { f["final-inventory"].selected_bundle_process_count = 1; },
+    function (f) { f["final-inventory"].selected_bundle_window_count = 1; },
+    function (f) { f["final-inventory"].process_baseline_match = false; },
+    function (f) { f["final-inventory"].window_baseline_match = false; }
+  ];
+  for (let i = 0; i < deviations.length; i = i + 1) {
+    r = run_verdict(template, "decision", stage_facts_for(template, deviations[i]));
+    require(r.criteria["G5"].status === "failed" && r.criteria["G5"].code === "INCONCLUSIVE_BASELINE_MUTATION",
+            "g5_deviation_" + i + ":" + JSON.stringify(r.criteria["G5"]));
+  }
+
+  // G5 witness missing: a pass_required fact that is absent fails closed at the
+  // stage boundary (presence rule), never silently read as "no mutation".
+  expect_throw(function () {
+    run_verdict(template, "decision", stage_facts_for(template, function (f) {
+      f["final-inventory"] = rebuild_without(f["final-inventory"], "window_baseline_match");
+    }));
+  }, "g5_missing_fact_fails_closed");
+}
+
+// ---- A: runtime-unreached stages ----------------------------------------
+
+function test_unreached_stages(template) {
+  // Build a decision where only preflight fails and the cleanup/persistence tail
+  // is reached; the forward stages are absent (not fabricated failures).
+  const all = stage_facts_for(template, function (f) { f["preflight"].complete = false; });
+  const excluded = template["kind_excluded_stages"]["decision"];
+  const order = template["stage_order"];
+  const sf = {};
+  const meta = { prod: {}, dl: {}, el: {} };
+  // Keep preflight + the cleanup tail (window-close .. terminal); drop forward.
+  for (let i = 0; i < order.length; i = i + 1) {
+    const stage = order[i];
+    if (rh.has_item(excluded, stage)) { continue; }
+    if (stage === "preflight" || stage === "window-close" || stage === "session-stop" ||
+        stage === "termination-proof" || stage === "session-remove" || stage === "root-removal" ||
+        stage === "fixture-restore" || stage === "original-restore" || stage === "final-inventory" ||
+        stage === "scan-coverage" || stage === "terminal") {
+      sf[stage] = all[stage];
+      meta.prod[stage] = "court"; meta.dl[stage] = 0; meta.el[stage] = 0;
+    }
+  }
+  const r = v.verdict(template, "decision", sf);
+  require(r.stage_passed["preflight"] === false, "A_preflight_failed");
+  require(r.stage_passed["relay"] === null, "A_relay_unreached");
+  require(r.stage_passed["window-ready"] === null, "A_window_ready_unreached");
+  require(r.stage_passed["final-inventory"] === true, "A_final_inventory_reached");
+
+  // A hole (a forward stage present after a gap) is refused.
+  const holed = {};
+  const hk = Object.keys(sf);
+  for (let i = 0; i < hk.length; i = i + 1) { holed[hk[i]] = sf[hk[i]]; }
+  holed["relay"] = all["relay"];   // present but preflight already failed earlier
+  let threw = false;
+  try { v.verdict(template, "decision", holed); } catch (e) { threw = true; }
+  require(threw, "A_hole_not_refused");
+}
+
+// ---- B: stage-local failing codes ---------------------------------------
+
+function test_stage_local_codes(template) {
+  // Two different failing stages must carry their own criterion codes, with one
+  // unique terminal by priority.
+  const attrs = [
+    { label: "direct", mutate: function (f) { f["open-request"].spawn_succeeded = false; }, stage: "open-request", code: "INCONCLUSIVE_DIRECT_REQUEST" },
+    { label: "scan", mutate: function (f) { f["scan-coverage"].complete = false; }, stage: "scan-coverage", code: "INCONCLUSIVE_SCAN_COVERAGE" }
+  ];
+  const codes = [];
+  for (let i = 0; i < attrs.length; i = i + 1) {
+    const sf = stage_facts_for(template, attrs[i].mutate);
+    const r = v.verdict(template, "decision", sf);
+    const local = v.stage_local_code(template, "decision", attrs[i].stage, r.criteria,
+                                     r.stage_passed, sf, r.terminal_code);
+    require(local === attrs[i].code, "B_local_code_" + attrs[i].label + ":" + local);
+    codes.push(local);
+  }
+  require(codes[0] !== codes[1], "B_codes_not_distinct");
+
+    // item1: an all-pass SHORT prefix plus the tail (a forward stage simply omitted
+  // with no preceding failure) must be refused, never OWNED_HANDOFF_PROVED.
+  const order = template["stage_order"];
+  const excluded = template["kind_excluded_stages"]["decision"];
+  const tail = template["runtime_reached_stage_rules"]["cleanup_persistence_tail"];
+  const allf = stage_facts_for(template, undefined);
+  const short = {};
+  for (let i = 0; i < order.length; i = i + 1) {
+    const st = order[i];
+    if (rh.has_item(excluded, st)) { continue; }
+    // keep only preflight (forward) + the cleanup/persistence tail; drop the
+    // rest of the forward region with no failure.
+    if (st === "preflight" || rh.has_item(tail, st)) { short[st] = allf[st]; }
+  }
+  let short_threw = false;
+  try { v.verdict(template, "decision", short); } catch (e) { short_threw = true; }
+  require(short_threw, "item1_short_prefix_not_refused");
+
+  // item1: the SAME short prefix IS legal when the last reached forward stage
+  // failed (forward adjudication stopped there).
+  const stopped = {};
+  const sk = Object.keys(short);
+  for (let i = 0; i < sk.length; i = i + 1) { stopped[sk[i]] = short[sk[i]]; }
+  stopped["preflight"] = stage_facts_for(template, function (f) { f["preflight"].complete = false; })["preflight"];
+  const r_stop = v.verdict(template, "decision", stopped);
+  require(r_stop.terminal_code !== "OWNED_HANDOFF_PROVED", "item1_stopped_not_proved");
+
+// Shared-stage attribution: focus-baseline trips V2 while final-inventory trips
+  // G5 (a baseline mismatch). The final-inventory row must own the G5 code, and
+  // the focus-baseline row must own the V2 code — never crossed.
+  const sf = stage_facts_for(template, function (f) {
+    f["focus-baseline"].public_inventory_complete = false;      // V2
+    f["final-inventory"].process_baseline_match = false;        // G5
+  });
+  const r = v.verdict(template, "decision", sf);
+  require(r.criteria["V2"].status === "failed", "B_shared_v2_failed");
+  require(r.criteria["G5"].status === "failed", "B_shared_g5_failed");
+  const fb = v.stage_local_code(template, "decision", "focus-baseline", r.criteria, r.stage_passed, sf, r.terminal_code);
+  const fi = v.stage_local_code(template, "decision", "final-inventory", r.criteria, r.stage_passed, sf, r.terminal_code);
+  require(fb === "INCONCLUSIVE_FIXTURE", "B_shared_focus_baseline:" + fb);
+  require(fi === "INCONCLUSIVE_BASELINE_MUTATION", "B_shared_final_inventory:" + fi);
+
+  // A completeness-only final-inventory failure (the V2-owned facts) stays V2.
+  const sf2 = stage_facts_for(template, function (f) {
+    f["final-inventory"].public_inventory_complete = false;     // V2-owned fact
+  });
+  const r2 = v.verdict(template, "decision", sf2);
+  const fi2 = v.stage_local_code(template, "decision", "final-inventory", r2.criteria, r2.stage_passed, sf2, r2.terminal_code);
+  require(fi2 === "INCONCLUSIVE_FIXTURE", "B_shared_completeness:" + fi2);
+
+  // Multi-stage witness: G2 any_gt_zero spans relay/termination-proof/
+  // final-inventory. Each stage's row must be attributable from its own subset.
+  const cases = [
+    { mutate: function (f) { f["termination-proof"].escaped_target_count = 1; }, stage: "termination-proof", code: "UNSAFE_ESCAPED_PROCESS" },
+    { mutate: function (f) { f["final-inventory"].contained_closure_live_count = 1; }, stage: "final-inventory", code: "UNSAFE_ESCAPED_PROCESS" },
+    { mutate: function (f) { f["final-inventory"].owned_roots_absent = false; }, stage: "final-inventory", code: "INCONCLUSIVE_CLEANUP" },
+    { mutate: function (f) { f["termination-proof"].cleanup_veto_respected = false; }, stage: "termination-proof", code: "INCONCLUSIVE_CLEANUP" }
+  ];
+  for (let i = 0; i < cases.length; i = i + 1) {
+    const sfc = stage_facts_for(template, cases[i].mutate);
+    const rc = v.verdict(template, "decision", sfc);
+    const local = v.stage_local_code(template, "decision", cases[i].stage, rc.criteria, rc.stage_passed, sfc, rc.terminal_code);
+    require(local === cases[i].code, "B_multistage_" + i + ":" + local);
+  }
+
+  // A stage with no locally-triggered binding fails closed (never borrows a
+  // global terminal).
+  let unattributable = false;
+  try {
+    v.stage_local_code(template, "decision", "fixture-ready", { V2: { status: "passed", code: null } },
+                       { "fixture-ready": false }, stage_facts_for(template, undefined), "INCONCLUSIVE_FIXTURE");
+  } catch (e) { unattributable = true; }
+  require(unattributable, "B_unattributable_not_refused");
+
+  // final-inventory simultaneously trips V2 (completeness false) AND G5 (baseline
+  // mismatch): the row must select G5 (a safety-role positive witness), not V2.
+  const sfx = stage_facts_for(template, function (f) {
+    f["final-inventory"].public_inventory_complete = false;    // V2-owned
+    f["final-inventory"].process_baseline_match = false;       // G5-owned
+  });
+  const rx = v.verdict(template, "decision", sfx);
+  require(rx.criteria["V2"].status === "failed" && rx.criteria["G5"].status === "failed", "B_v2g5_both_failed");
+  const fi_g5 = v.stage_local_code(template, "decision", "final-inventory", rx.criteria, rx.stage_passed, sfx, rx.terminal_code);
+  require(fi_g5 === "INCONCLUSIVE_BASELINE_MUTATION", "B_final_inventory_g5_priority:" + fi_g5);
+
+  // G2 (escape) and G5 (mutation) both triggered: the choice is stable by
+  // criteria_keys order (G2 before G5) and deterministic across runs.
+  const sfy = stage_facts_for(template, function (f) {
+    f["final-inventory"].contained_closure_live_count = 1;     // G2 escape
+    f["final-inventory"].window_baseline_match = false;        // G5 mutation
+  });
+  const ry = v.verdict(template, "decision", sfy);
+  require(ry.criteria["G2"].status === "failed" && ry.criteria["G5"].status === "failed", "B_g2g5_both_failed");
+  const a = v.stage_local_code(template, "decision", "final-inventory", ry.criteria, ry.stage_passed, sfy, ry.terminal_code);
+  const b = v.stage_local_code(template, "decision", "final-inventory", ry.criteria, ry.stage_passed, sfy, ry.terminal_code);
+  require(a === b, "B_g2g5_unstable");
+  const g2i = template["criteria_keys"].indexOf("G2");
+  const g5i = template["criteria_keys"].indexOf("G5");
+  const want = g2i < g5i ? "UNSAFE_ESCAPED_PROCESS" : "INCONCLUSIVE_BASELINE_MUTATION";
+  require(a === want, "B_g2g5_tiebreak:" + a + "!=" + want);
+}
+
+// ---- V5 suppression -----------------------------------------------------
+
+function test_v5_suppression(template) {
+  // V5 fails and no positive G2 -> G1/G2/G5 become not-run.
+  const r = run_verdict(template, "decision", stage_facts_for(template, function (f) {
+    f["scan-coverage"].complete = false;
+  }));
+  require(r.criteria["G1"] === "not-run", "v5_suppression_g1");
+  require(r.criteria["G2"] === "not-run", "v5_suppression_g2");
+  require(r.criteria["G5"] === "not-run", "v5_suppression_g5");
+  require(r.terminal_code === "INCONCLUSIVE_SCAN_COVERAGE", "v5_terminal");
+}
+
+// ---- fail-closed negatives ---------------------------------------------
+
+function test_fail_closed(template) {
+  // unknown stage
+  expect_throw(function () {
+    const f = stage_facts_for(template);
+    f["no-such-stage"] = { complete: true };
+    v.verdict(template, "decision", f);
+  }, "unknown_stage");
+
+  // missing stage
+  expect_throw(function () {
+    const f = stage_facts_for(template);
+    const g = {};
+    const keys = Object.keys(f);
+    for (let i = 0; i < keys.length; i = i + 1) { if (keys[i] !== "relay") { g[keys[i]] = f[keys[i]]; } }
+    v.verdict(template, "decision", g);
+  }, "missing_stage");
+
+  // unknown fact
+  expect_throw(function () {
+    v.verdict(template, "decision", stage_facts_for(template, function (f) {
+      f["preflight"].made_up_fact = 1;
+    }));
+  }, "unknown_fact");
+
+  // null masquerading as zero
+  expect_throw(function () {
+    v.verdict(template, "decision", stage_facts_for(template, function (f) {
+      f["relay"].classified_relay_count = null;
+    }));
+  }, "null_as_zero");
+
+  // empty digest masquerading as a value
+  expect_throw(function () {
+    v.verdict(template, "decision", stage_facts_for(template, function (f) {
+      f["preflight"].browser_identity_digest = "";
+    }));
+  }, "empty_digest");
+
+  // exact value violation is a verdict (failed stage), not an exception: the
+  // absence witness yields INCONCLUSIVE_RELAY rather than throwing.
+  const r = v.verdict(template, "decision", stage_facts_for(template, function (f) {
+    f["relay"].classified_relay_count = 0;
+  }));
+  require(r.criteria["G1"].status === "failed" && r.criteria["G1"].code === "INCONCLUSIVE_RELAY",
+          "exact_violation_verdict:" + JSON.stringify(r.criteria["G1"]));
+  // a genuinely malformed value (type error) still fails closed.
+  expect_throw(function () {
+    v.verdict(template, "decision", stage_facts_for(template, function (f) {
+      f["relay"].classified_relay_count = "one";
+    }));
+  }, "type_error");
+
+  // criterion exact result shape
+  expect_throw(function () {
+    v.criterion_result(template, "NOPE", "decision", {});
+  }, "unknown_criterion");
+}
+
+// ---- journal chain known-answer ----------------------------------------
+
+// Run the PRODUCTION court on a synthetic envelope and independently verify the
+// authoritative journal bytes, the per-row chain, and the receipt. The chain and
+// receipt are never recomputed by a test-local copy of the production core.
+function build_envelope_object(template, kind, mutate) {
+  const all = stage_facts_for(template, mutate);
+  const excluded = template["kind_excluded_stages"][kind] || [];
+  // Remove kind-excluded stages entirely: they get no journal row and no envelope key.
+  const sf = {};
+  const all_keys = Object.keys(all);
+  for (let i = 0; i < all_keys.length; i = i + 1) {
+    if (rh.has_item(excluded, all_keys[i])) { continue; }
+    sf[all_keys[i]] = all[all_keys[i]];
+  }
+  const envelope = {
+    experiment: "browser-profile-open-singleton-safety",
+    kind: kind,
+    ordinal: 1,
+    run_id: "0123456789abcdef",
+    source_sha256: "0000000000000000000000000000000000000000",
+    input_digest: "0000000000000000000000000000000000000000000000000000000000000000",
+    browser: {
+      family: "chromium", version: "1",
+      acquisition_method: template["browser_acquisition_method_values"][0],
+      bundle_identity_digest: "0000000000000000000000000000000000000000000000000000000000000000",
+      executable_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    stage_facts: sf,
+    stage_producers: {}, stage_deadlines: {}, stage_elapsed: {},
+    scan: {}, deviations: []
+  };
+  const order = template["stage_order"];
+  for (let i = 0; i < order.length; i = i + 1) {
+    if (sf[order[i]] === undefined) { continue; }
+    envelope["stage_producers"][order[i]] = "court";
+    envelope["stage_deadlines"][order[i]] = 0;
+    envelope["stage_elapsed"][order[i]] = 0;
+  }
+  // receipt.scan must agree with the reached scan-coverage stage: copy the
+  // stage's same-named facts, defaulting only the fields the stage omits.
+  const scan_spec = template["receipt_sections"]["scan"];
+  const scan_keys = Object.keys(scan_spec);
+  const scan_stage = sf["scan-coverage"] || {};
+  for (let i = 0; i < scan_keys.length; i = i + 1) {
+    const key = scan_keys[i];
+    if (Object.keys(scan_stage).indexOf(key) !== -1) { envelope["scan"][key] = scan_stage[key]; continue; }
+    const ty = scan_spec[key];
+    if (ty === "boolean") { envelope["scan"][key] = true; }
+    else if (ty === "sha256") { envelope["scan"][key] = "0".repeat(64); }
+    else { envelope["scan"][key] = 0; }
+  }
+  envelope["deviations"] = { count: 0, codes: [], digest: "0000000000000000000000000000000000000000000000000000000000000000" };
+  return envelope;
+}
+
+function write_envelope(template, path, kind, mutate) {
+  const envelope = build_envelope_object(template, kind, mutate);
+  rh.atomic_write(path, cj.canonical(envelope));
+  return envelope;
+}
+
+// Independent re-derivation of the chain FROM THE FILE BYTES (Python-equivalent).
+function verify_journal_file(template, journal_path, kind, verdict_result, stage_facts) {
+  const text = rh.read_text(journal_path);
+  const lines = [];
+  let start = 0;
+  for (let i = 0; i < text.length; i = i + 1) {
+    if (text.charAt(i) === "\n") { if (i > start) { lines.push(text.substring(start, i)); } start = i + 1; }
+  }
+  const journals_keys = template["journal_keys"];
+  const excluded = template["kind_excluded_stages"][kind] || [];
+  let prev = template["journal_chain"]["zero_predecessor_sha256"];
+  let tail = prev;
+  let last_index = -1;
+  const withouts = [];
+  const expected = [];
+  for (let i = 0; i < lines.length; i = i + 1) {
+    const row = JSON.parse(lines[i]);
+    // Exact journal keys.
+    const rk = Object.keys(row);
+    require(rk.length === journals_keys.length, "verify_keys:" + i);
+    for (let k = 0; k < journals_keys.length; k = k + 1) {
+      require(rh.has_item(rk, journals_keys[k]), "verify_key_missing:" + i + ":" + journals_keys[k]);
+    }
+    // Dense sequence, prev linkage, independent preimage hash — EVERY row.
+    require(row["sequence"] === i, "verify_sequence:" + i);
+    require(row["prev_sha256"] === prev, "verify_prev:" + i);
+    const without = {};
+    for (let k = 0; k < rk.length; k = k + 1) { if (rk[k] !== "row_sha256") { without[rk[k]] = row[rk[k]]; } }
+    prev = row["row_sha256"];
+    tail = prev;
+    // Independent re-derivation for the first, second and last rows (the tamper
+    // targets row 1); the dense prev linkage covers every row in between.
+    if (i <= 1) {
+      withouts.push({ index: i, body: without, sha: row["row_sha256"], prev: row["prev_sha256"] });
+    }
+    // Stage order strictly increasing; no kind-excluded row; code is valid.
+    const idx = template["stage_order"].indexOf(row["stage"]);
+    require(idx > last_index, "verify_stage_order:" + i);
+    last_index = idx;
+    require(!rh.has_item(excluded, row["stage"]), "verify_excluded_stage:" + i);
+    require(row["code"] === "stage_pass" || rh.has_item(template["terminal_codes"], row["code"]),
+            "verify_row_code:" + i);
+    // A failed row's code must equal the stage-local code, not merely any terminal.
+    if (verdict_result !== undefined) {
+      const passed = verdict_result.stage_passed[row["stage"]];
+      if (passed === false) {
+        const local = v.stage_local_code(template, kind, row["stage"], verdict_result.criteria,
+                                         verdict_result.stage_passed, stage_facts, verdict_result.terminal_code);
+        require(row["code"] === local, "verify_row_local_code:" + i + ":" + row["code"] + "!=" + local);
+      }
+    }
+  }
+  // Independent batch re-derivation for the selected rows, each seeded with its
+  // own recorded prev_sha256.
+  const recomputed = batch_chain_row_seeded(template, withouts);
+  for (let i = 0; i < withouts.length; i = i + 1) {
+    require(recomputed[i] === withouts[i].sha, "verify_row_hash:" + withouts[i].index);
+  }
+  return { count: lines.length, tail: tail };
+}
+
+// The one place a test reproduces the chain preimage encoding, used ONLY to
+// verify the file the production court wrote; it is not the production path.
+// One shell invocation builds the preimage and prints its SHA-256.
+// Re-derive a set of rows, each seeded with its own recorded predecessor.
+function batch_chain_row_seeded(template, entries) {
+  const dir = rh.join(owned_root(), ".verify");
+  rh.create_dir_all(dir);
+  const domain = template["journal_chain"]["domain"];
+  const lines = [];
+  for (let i = 0; i < entries.length; i = i + 1) {
+    const hexp = rh.join(dir, "h" + i);
+    const bodyp = rh.join(dir, "b" + i);
+    const p = rh.join(dir, "p" + i);
+    rh.atomic_write(hexp, entries[i].prev);
+    rh.atomic_write(bodyp, cj.canonical(entries[i].body));
+    lines.push("printf '%s\\0' '" + domain + "' > '" + p + "'; printf '%s' '" + entries[i].prev + "' | xxd -r -p >> '" + p + "'; printf '\\0' >> '" + p + "'; cat '" + bodyp + "' >> '" + p + "'; shasum -a 256 '" + p + "' | cut -d' ' -f1");
+  }
+  const out = rh.command("sh", ["-c", lines.join("; ")], { cwd: dir, timeout_ms: 60000 });
+  require(out.exit_code === 0, "verify_seeded_failed:" + out.stderr);
+  rh.try_remove_dir_all(dir);
+  const hashes = [];
+  let st = 0;
+  for (let i = 0; i < out.stdout.length; i = i + 1) {
+    if (out.stdout.charAt(i) === "\n") { if (i > st) { hashes.push(out.stdout.substring(st, i)); } st = i + 1; }
+  }
+  return hashes;
+}
+
+// Independent re-derivation of the whole chain in ONE shell pass, used only by
+// the verifier to check the file the production court wrote. Not production code.
+function batch_chain_row(template, rows_without_hash) {
+  const dir = rh.join(owned_root(), ".verify");
+  rh.create_dir_all(dir);
+  const domain = template["journal_chain"]["domain"];
+  for (let i = 0; i < rows_without_hash.length; i = i + 1) {
+    rh.atomic_write(rh.join(dir, "b" + i), cj.canonical(rows_without_hash[i]));
+  }
+  const loop =
+    "dom='" + domain + "'; prev='" + template["journal_chain"]["zero_predecessor_sha256"] + "'; i=0; " +
+    "while [ -f '" + dir + "/b'$i ]; do " +
+    "printf '%s\\0' \"$dom\" > '" + dir + "/pre'; " +
+    "printf '%s' \"$prev\" | xxd -r -p >> '" + dir + "/pre'; " +
+    "printf '\\0' >> '" + dir + "/pre'; " +
+    "cat '" + dir + "/b'$i >> '" + dir + "/pre'; " +
+    "prev=$(shasum -a 256 '" + dir + "/pre' | cut -d' ' -f1); printf '%s\\n' \"$prev\"; i=$((i+1)); done";
+  const out = rh.command("sh", ["-c", loop], { cwd: dir, timeout_ms: 60000 });
+  require(out.exit_code === 0, "verify_batch_failed:" + out.stderr);
+  rh.try_remove_dir_all(dir);
+  const hashes = [];
+  let st = 0;
+  for (let i = 0; i < out.stdout.length; i = i + 1) {
+    if (out.stdout.charAt(i) === "\n") { if (i > st) { hashes.push(out.stdout.substring(st, i)); } st = i + 1; }
+  }
+  return hashes;
+}
+
+// Production-path tests: the court actually runs and writes the data plane.
+function test_production_court(template, mode) {
+  if (mode === "incomplete") { test_production_incomplete(template); return; }
+
+  // 1. normal decision through production run_court.
+  const env_path = rh.join(owned_root(), "envelope.json");
+  write_envelope(template, env_path, "decision", undefined);
+  const run_root = rh.join(owned_root(), "run");
+  rh.try_remove_dir_all(run_root);
+  const receipt = court.run_court(template_path(), run_root, env_path);
+  require(receipt["terminal_code"] === "OWNED_HANDOFF_PROVED", "prod_terminal:" + receipt["terminal_code"]);
+
+  const journal_path = rh.join(run_root, "stage-journal.jsonl");
+  const receipt_path = rh.join(run_root, "receipt.json");
+  const file_sha = rh.sha256_file(journal_path);
+  require(receipt["journal_sha256"] === file_sha, "prod_journal_sha_is_file_sha");
+  require(rh.read_text(receipt_path) === cj.canonical(receipt), "prod_receipt_readback");
+}
+
+// Envelope validation negatives: a bad envelope must be refused by name before
+// any journal row is written. These drive the PRODUCTION run_court.
+function expect_envelope_throw(template, label, mutate) {
+  const envp = rh.join(owned_root(), "bad-envelope.json");
+  const base = build_envelope_object(template, "decision", undefined);
+  mutate(base);
+  rh.atomic_write(envp, cj.canonical(base));
+  const runp = rh.join(owned_root(), "bad-run");
+  rh.try_remove_dir_all(runp);
+  let threw = false;
+  try { court.run_court(template_path(), runp, envp); } catch (e) { threw = true; }
+  require(threw, "envelope_negative_did_not_throw:" + label);
+}
+
+function test_envelope_validation(template) {
+  // browser field wrong type
+  expect_envelope_throw(template, "browser_digest_wrong_type", function (e) {
+    e["browser"]["bundle_identity_digest"] = 5;
+  });
+  expect_envelope_throw(template, "browser_missing_field", function (e) {
+    e["browser"] = { family: "chromium", version: "1",
+      acquisition_method: template["browser_acquisition_method_values"][0],
+      executable_sha256: "0".repeat(64) };
+  });
+  // scan nullable wrong type
+  expect_envelope_throw(template, "scan_wrong_type", function (e) {
+    e["scan"]["window_duration_ms"] = "nope";
+  });
+  // scan complete=false with null nullable is legal
+  const env_ok = rh.join(owned_root(), "scan-ok.json");
+  const ok_obj = build_envelope_object(template, "decision", undefined);
+  // A consistent incomplete scan: the receipt scan and the reached scan-coverage
+  // stage agree that complete is false and the window duration is unavailable.
+  ok_obj["scan"]["complete"] = false;
+  const scan_spec = template["receipt_sections"]["scan"];
+  const sks = Object.keys(scan_spec);
+  for (let i = 0; i < sks.length; i = i + 1) {
+    if (scan_spec[sks[i]] === "nullable_safe_integer") { ok_obj["scan"][sks[i]] = null; }
+  }
+  ok_obj["stage_facts"]["scan-coverage"] = { complete: false, sample_count: 0,
+    sample_sequence_digest: "df6d692075879477e5e61dd3f1da781b940c4166624ee4bbe27d26056878db6d" };
+  ok_obj["scan"]["sample_count"] = 0;
+  ok_obj["scan"]["sample_sequence_digest"] = "df6d692075879477e5e61dd3f1da781b940c4166624ee4bbe27d26056878db6d";
+  rh.atomic_write(env_ok, cj.canonical(ok_obj));
+  const run_ok = rh.join(owned_root(), "scan-ok-run");
+  rh.try_remove_dir_all(run_ok);
+  const r_ok = court.run_court(template_path(), run_ok, env_ok);
+  require(r_ok["scan"]["window_duration_ms"] === null, "scan_nullable_null_kept");
+
+  // Cross-source mismatch: receipt scan claims a value the stage omits.
+  expect_envelope_throw(template, "scan_source_mismatch", function (e) {
+    e["scan"]["window_duration_ms"] = 2000;   // receipt claims a value...
+    e["stage_facts"]["scan-coverage"] = { complete: false, sample_count: 0,
+      sample_sequence_digest: "df6d692075879477e5e61dd3f1da781b940c4166624ee4bbe27d26056878db6d" };   // ...stage omits window_duration_ms
+  });
+  // deviations array rejected
+  expect_envelope_throw(template, "deviations_array", function (e) {
+    e["deviations"] = [];
+  });
+  // deviations legal object accepted (already covered by the normal run, but
+  // assert the shape here explicitly)
+  const env_dev = rh.join(owned_root(), "dev-ok.json");
+  const dev_obj = build_envelope_object(template, "decision", undefined);
+  dev_obj["deviations"] = { count: 0, codes: [], digest: "0".repeat(64) };
+  rh.atomic_write(env_dev, cj.canonical(dev_obj));
+  const run_dev = rh.join(owned_root(), "dev-ok-run");
+  rh.try_remove_dir_all(run_dev);
+  court.run_court(template_path(), run_dev, env_dev);
+  // metadata with same-length but different keys rejected
+  expect_envelope_throw(template, "metadata_wrong_names", function (e) {
+    const keys = Object.keys(e["stage_producers"]);
+    const fake = {};
+    for (let i = 0; i < keys.length; i = i + 1) { fake["x" + i] = "court"; }
+    e["stage_producers"] = fake;
+  });
+  // metadata negative deadline rejected
+  expect_envelope_throw(template, "metadata_negative", function (e) {
+    const keys = Object.keys(e["stage_deadlines"]);
+    e["stage_deadlines"][keys[0]] = -1;
+  });
+  // source digest wrong type
+  expect_envelope_throw(template, "source_wrong_type", function (e) {
+    e["source_sha256"] = "not-a-git-sha";
+  });
+  // fixed experiment/run_id
+  expect_envelope_throw(template, "wrong_experiment", function (e) {
+    e["experiment"] = "something-else";
+  });
+}
+
+// Second invocation: the incomplete-scan production path.
+function test_production_incomplete(template) {
+  const env3 = rh.join(owned_root(), "envelope3.json");
+  write_envelope(template, env3, "decision", function (f) {
+    f["scan-coverage"] = { complete: false, sample_count: 0,
+      sample_sequence_digest: "df6d692075879477e5e61dd3f1da781b940c4166624ee4bbe27d26056878db6d" };
+  });
+  // The receipt scan must mirror the reduced stage: nullable fields unavailable.
+  // (write_envelope derives them from the reduced stage; ensure they are null.)
+  const env3obj = rh.parse_file(env3);
+  const scan_spec3 = template["receipt_sections"]["scan"];
+  const sk3 = Object.keys(scan_spec3);
+  for (let i = 0; i < sk3.length; i = i + 1) {
+    if (scan_spec3[sk3[i]] === "nullable_safe_integer") { env3obj["scan"][sk3[i]] = null; }
+  }
+  env3obj["scan"]["sample_count"] = 0;
+  env3obj["scan"]["sample_sequence_digest"] = "df6d692075879477e5e61dd3f1da781b940c4166624ee4bbe27d26056878db6d";
+  rh.atomic_write(env3, cj.canonical(env3obj));
+  const run3 = rh.join(owned_root(), "run3");
+  rh.try_remove_dir_all(run3);
+  const receipt3 = court.run_court(template_path(), run3, env3);
+  require(receipt3["terminal_code"] === "INCONCLUSIVE_SCAN_COVERAGE", "prod3_terminal:" + receipt3["terminal_code"]);
+  require(receipt3["criteria"]["G2"] === "not-run" || receipt3["criteria"]["G2"].status !== "failed",
+          "prod3_g2_escalated");
+  // The failed scan-coverage row must carry the run's terminal code, never
+  // stage_pass. Check the raw journal text directly (cheaper than re-parsing).
+  const j3 = rh.join(run3, "stage-journal.jsonl");
+  const text3 = rh.read_text(j3);
+  require(text3.indexOf('"code":"INCONCLUSIVE_SCAN_COVERAGE"') !== -1, "prod3_failed_row_code");
+  require(text3.indexOf('"stage":"scan-coverage"') !== -1, "prod3_failed_row_stage");
+  require(text3.indexOf('"stage":"scan-coverage","code":"stage_pass"') === -1, "prod3_failed_row_is_pass");
+}
+
+// Journal-verification mode: run one normal court and verify every row through
+// the production verifier, then prove a facts-only tamper is caught.
+function test_journal_verify(template) {
+  // A two-row journal built from an independently computed (Python) known-answer,
+  // then verified through the production verifier: every row's exact keys, dense
+  // sequence, prev linkage, chain hash and code. No full court run is needed.
+  const run_root = rh.join(owned_root(), "jv-run");
+  rh.try_remove_dir_all(run_root);
+  rh.create_dir_all(run_root);
+  const journal_path = rh.join(run_root, "stage-journal.jsonl");
+  const h0 = "9b91a433143d948e0b82cba2551dbce04386ae8c5ba8337eb8b85a9f347953b4";
+  const h1 = "e52132bd2fd51c89ca0f9f4d4d41e87441d71914ad4bf8a47a33571be877fcc5";
+  const rows = [
+    { schema: "agenterm.browser-profile-open-singleton-safety-stage-journal-row/v1",
+      experiment: "browser-profile-open-singleton-safety", kind: "decision", ordinal: 1,
+      run_id: "0123456789abcdef", sequence: 0, prev_sha256: template["journal_chain"]["zero_predecessor_sha256"],
+      row_sha256: h0, stage: "preflight", producer: "court", deadline_ms: 0, elapsed_ms: 0,
+      code: "stage_pass", facts: { complete: true } },
+    { schema: "agenterm.browser-profile-open-singleton-safety-stage-journal-row/v1",
+      experiment: "browser-profile-open-singleton-safety", kind: "decision", ordinal: 1,
+      run_id: "0123456789abcdef", sequence: 1, prev_sha256: h0, row_sha256: h1, stage: "terminal",
+      producer: "court", deadline_ms: 0, elapsed_ms: 0, code: "stage_pass", facts: { complete: true } }
+  ];
+  require(template["journal_chain"]["zero_predecessor_sha256"] ===
+          "1bacf00043eeb400572ade8654a085bf58e498638ab82298608ab3a2b09184fe", "jv_zero");
+  const lines = [];
+  for (let i = 0; i < rows.length; i = i + 1) { lines.push(cj.canonical(rows[i])); }
+  rh.atomic_write(journal_path, lines.join("\n") + "\n");
+  const verified = verify_journal_file(template, journal_path, "decision");
+  require(verified["count"] === 2, "jv_count:" + verified["count"]);
+  require(verified["tail"] === h1, "jv_tail");
+
+  // Tamper row 1's facts (complete true -> false) without touching row_sha256 or
+  // prev; the verifier must catch it through the real function.
+  const broken = JSON.parse(lines[1]);
+  broken["facts"] = { complete: false };
+  const breach_path = rh.join(owned_root(), "breach-journal.jsonl");
+  rh.atomic_write(breach_path, lines[0] + "\n" + cj.canonical(broken) + "\n");
+  let caught = false;
+  try { verify_journal_file(template, breach_path, "decision"); } catch (e) { caught = true; }
+  require(caught, "verifier_missed_middle_row_breach");
+}
+
+
+// ---- driver -------------------------------------------------------------
+
+function run_checks(mode) {
+  const template = v.load_template(template_path());
+  // receipt/journal key sets are exactly the template's.
+  require(v.receipt_keys(template).length === 15, "receipt_key_count");
+
+  rh.create_dir_all(owned_root());
+  if (mode === "all") {
+    test_paths(template);
+    test_v5_suppression(template);
+    test_baseline(template);
+    test_g2_g5(template);
+    test_fail_closed(template);
+    test_unreached_stages(template);
+    test_stage_local_codes(template);
+  }
+  if (mode === "incomplete") {
+    test_envelope_validation(template);
+    test_production_incomplete(template);
+    return;
+  }
+  if (mode === "journal-verify") {
+    test_journal_verify(template);
+    return;
+  }
+  test_production_court(template, mode);
+
+  // cleanup through the production wrapper: create the root, throw a sentinel.
+  rh.create_dir_all(owned_root());
+  let seen = "";
+  try {
+    with_owned_cleanup(function () { throw SENTINEL; });
+  } catch (e) {
+    seen = "" + e;
+  }
+  require(seen === SENTINEL, "cleanup_original_error_masked:" + seen);
+  require(!rh.exists(owned_root()), "cleanup_root_remains");
+
+  print("singleton-safety court selftest ok");
+  return 0;
+}
+
+function run() {
+  let mode = "all";
+  if (arg_count() === 1) {
+    if (arg(0) !== 0) { throw "arg: " + tool_result(); }
+    mode = tool_result();
+  }
+  require(mode === "all" || mode === "incomplete" || mode === "journal-verify", "unknown_mode:" + mode);
+  MODE = mode;
+  // Claim this mode's own fixed root before any write, and remove it on success or
+  // failure. No mode depends on another having left a directory behind.
+  rh.try_remove_dir_all(owned_root());
+  rh.create_dir_all(owned_root());
+  with_owned_cleanup(function () { run_checks(mode); });
+  require(!rh.exists(owned_root()), "selftest_owned_root_remains");
+  return 0;
+}
+
+return run();

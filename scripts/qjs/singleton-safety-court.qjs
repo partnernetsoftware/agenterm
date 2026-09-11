@@ -1,0 +1,445 @@
+// singleton-safety-court.qjs -- the singleton-safety court data plane.
+//
+// Reads sanitized stage facts, computes the verdict through the pure verdict
+// library, appends the hash-chained stage journal and writes the receipt. It
+// never reads raw process identities and never recomputes a scanner-owned fact;
+// it validates the stage shapes and persists what it is given.
+//
+// Args: TEMPLATE RUN_ROOT FACTS_JSON
+//   TEMPLATE    result-template.json path
+//   RUN_ROOT    an explicit invocation-owned directory the caller provides
+//   FACTS_JSON  run-local file holding the run envelope
+//
+// Runs under `--profile tool`. There is no grant logic here: authorization is the
+// runner's concern.
+import * as rh from "lib/rh_compat";
+import * as cj from "lib/canonical_json";
+import * as v from "lib/singleton_safety_verdict";
+
+const JOURNAL_SCHEMA = "agenterm.browser-profile-open-singleton-safety-stage-journal-row/v1";
+const RECEIPT_SCHEMA = "agenterm.browser-profile-open-singleton-safety-receipt/v1";
+// SHA-256("agenterm.singleton-safety.v1.sample-sequence" || 0x00 || "[]")
+// independently computed (Python hashlib) for the zero-sample case.
+const ZERO_SAMPLE_SEQUENCE_DIGEST = "df6d692075879477e5e61dd3f1da781b940c4166624ee4bbe27d26056878db6d";
+
+function require(condition, message) { if (!condition) { throw message; } }
+
+function abs(repo_value, logical) { return rh.join(rh.absolute(repo_value), logical); }
+
+// ---- run root -----------------------------------------------------------
+
+let run_root = "";
+
+function claim_run_root(value) {
+  // `exists` first: symlink_metadata on a missing path is the door's error, not
+  // a null. A symlink run root is refused even when it resolves to a directory.
+  if (!rh.exists(value)) { rh.create_dir_all(value); return; }
+  const meta = rh.symlink_metadata(value);
+  require(meta.is_symlink !== true, "run_root_is_symlink:" + value);
+  require(rh.read_dir(value).length === 0, "run_root_not_empty:" + value);
+}
+
+function root() { return rh.absolute(run_root); }
+
+// ---- journal chain ------------------------------------------------------
+//
+// row_hash_encoding: sha256(domain-utf8 || 0x00 || prev-sha256-bytes || 0x00 ||
+// rfc8785-row-without-row_sha256-utf8). The predecessor's 32 raw digest bytes are
+// assembled with a run-local scratch: xxd -r -p decodes the hex digest, and cat
+// concatenates domain, NUL, raw bytes, NUL and the canonical row. The preimage
+// file is hashed and removed; nothing binary is a deliverable.
+
+function chain_preimage_dir() { return rh.join(root(), ".chain"); }
+
+// Compute the whole journal chain in ONE shell invocation: write each row's
+// canonical body (without row_sha256) to a numbered file, then run a shell loop
+// that threads the raw predecessor digest through xxd + the door's hash.
+// Returns the array of row_sha256 hex strings in order.
+function chain_hashes(template, rows_without_hash) {
+  const dir = chain_preimage_dir();
+  rh.create_dir_all(dir);
+  const domain = template["journal_chain"]["domain"];
+  for (let i = 0; i < rows_without_hash.length; i = i + 1) {
+    rh.atomic_write(rh.join(dir, "body" + i), cj.canonical(rows_without_hash[i]));
+  }
+  // The body carries the literal placeholder for its predecessor; the loop
+  // substitutes the real predecessor with sed before hashing, in order.
+  const loop =
+    "dom='" + domain + "'; prev='" + template["journal_chain"]["zero_predecessor_sha256"] + "'; i=0; " +
+    "while [ -f '" + dir + "/body'$i ]; do " +
+    "sed \"s/PREVPLACEHOLDER/$prev/\" '" + dir + "/body'$i > '" + dir + "/row'; " +
+    "printf '%s\\0' \"$dom\" > '" + dir + "/pre'; " +
+    "printf '%s' \"$prev\" | xxd -r -p >> '" + dir + "/pre'; " +
+    "printf '\\0' >> '" + dir + "/pre'; " +
+    "cat '" + dir + "/row' >> '" + dir + "/pre'; " +
+    "prev=$(shasum -a 256 '" + dir + "/pre' | cut -d' ' -f1); " +
+    "printf '%s\\n' \"$prev\"; i=$((i+1)); done";
+  const out = rh.command("sh", ["-c", loop], { cwd: dir, timeout_ms: 60000 });
+  require(out.exit_code === 0, "chain_failed:" + out.stderr);
+  rh.try_remove_dir_all(dir);
+  const hashes = [];
+  let start2 = 0;
+  const text = out.stdout;
+  for (let i = 0; i < text.length; i = i + 1) {
+    if (text.charAt(i) === "\n") { if (i > start2) { hashes.push(text.substring(start2, i)); } start2 = i + 1; }
+  }
+  return hashes;
+}
+
+// Single-quote for sh; run-local paths never contain a single quote, and this is
+// refused rather than escaped wrongly.
+function shell_quote(p) {
+  require(p.indexOf("'") === -1, "path_has_quote:" + p);
+  return "'" + p + "'";
+}
+
+function row_without_hash(row) {
+  const out = {};
+  const keys = Object.keys(row);
+  for (let i = 0; i < keys.length; i = i + 1) {
+    if (keys[i] === "row_sha256") { continue; }
+    out[keys[i]] = row[keys[i]];
+  }
+  return out;
+}
+
+
+// ---- receipt ------------------------------------------------------------
+
+function build_receipt(template, envelope, verdict_result, final_sequence, chain_tail, journal_file_sha) {
+  const statuses = {};
+  const order = template["stage_order"];
+  for (let i = 0; i < order.length; i = i + 1) {
+    const stage = order[i];
+    if (verdict_result.stage_passed[stage] === true) { statuses[stage] = "passed"; }
+    else if (verdict_result.stage_passed[stage] === false) { statuses[stage] = "failed"; }
+    else { statuses[stage] = "not-run"; }
+  }
+  return {
+    schema: RECEIPT_SCHEMA,
+    experiment: envelope["experiment"],
+    kind: envelope["kind"],
+    ordinal: envelope["ordinal"],
+    run_id: envelope["run_id"],
+    source_sha256: envelope["source_sha256"],
+    input_digest: envelope["input_digest"],
+    browser: envelope["browser"],
+    stage_statuses: statuses,
+    criteria: verdict_result.criteria,
+    terminal_code: verdict_result.terminal_code,
+    scan: envelope["scan"],
+    deviations: envelope["deviations"],
+    journal_final_sequence: final_sequence,
+    journal_sha256: journal_file_sha
+  };
+}
+
+// Recursively validate the run envelope: exact top-level keys, the experiment /
+// browser / scan / deviations shapes, per-stage metadata, and kind-excluded stage
+// facts. No fact is inferred and no key is silently ignored.
+// Validate the run envelope recursively against the template: exact top-level
+// keys, typed scalars, exact-key sections (browser/scan/deviations) with every
+// field type-checked, per-stage fact shapes, and metadata maps that exactly match
+// the reached stages with typed values.
+const FIXED_EXPERIMENT = "browser-profile-open-singleton-safety";
+
+function check_section(template, section_name, object, where) {
+  rh.require(object !== null && typeof object === "object" && !Array.isArray(object),
+             "section_not_object:" + where);
+  const spec = template["receipt_sections"][section_name];
+  const want = Object.keys(spec);
+  const got = Object.keys(object);
+  rh.require(got.length === want.length, "envelope_section_key_count:" + where);
+  for (let i = 0; i < want.length; i = i + 1) {
+    rh.require(rh.has_item(got, want[i]), "envelope_section_key_missing:" + where + ":" + want[i]);
+    check_value(template, spec[want[i]], object[want[i]], where + "." + want[i]);
+  }
+}
+
+// Type check one value against a value_type_rules name.
+function check_value(template, type_name, value, where) {
+  const terminals = template["terminal_codes"];
+  if (type_name === "boolean") { rh.require(typeof value === "boolean", "type_boolean:" + where); return; }
+  if (type_name === "safe_integer") {
+    rh.require(typeof value === "number" && value === Math.floor(value) && value >= 0 && value <= 9007199254740991,
+               "type_safe_integer:" + where); return;
+  }
+  if (type_name === "nullable_safe_integer") {
+    rh.require(value === null || (typeof value === "number" && value === Math.floor(value) && value >= 0 && value <= 9007199254740991),
+               "type_nullable_safe_integer:" + where); return;
+  }
+  if (type_name === "sha256") { rh.require(is_hex(value, 64), "type_sha256:" + where); return; }
+  if (type_name === "nullable_sha256") { rh.require(value === null || is_hex(value, 64), "type_nullable_sha256:" + where); return; }
+  if (type_name === "git_sha") { rh.require(is_hex(value, 40), "type_git_sha:" + where); return; }
+  if (type_name === "typed_code") { rh.require(value === "stage_pass" || rh.has_item(terminals, value), "type_typed_code:" + where); return; }
+  if (type_name === "nullable_typed_code") {
+    rh.require(value === null || value === "stage_pass" || rh.has_item(terminals, value), "type_nullable_typed_code:" + where); return;
+  }
+  if (type_name === "bounded_string") {
+    rh.require(typeof value === "string" && value.length > 0 && value.length <= 4096, "type_bounded_string:" + where); return;
+  }
+  if (type_name === "browser_acquisition_method") {
+    rh.require(rh.has_item(template["browser_acquisition_method_values"], value), "type_acquisition:" + where); return;
+  }
+  if (type_name === "browser_family_code") {
+    rh.require(typeof value === "string" && value.length > 0 && value.length <= 64, "type_family:" + where); return;
+  }
+  if (type_name === "deviation_code_array") {
+    rh.require(Array.isArray(value), "type_deviation_array:" + where);
+    for (let i = 0; i < value.length; i = i + 1) {
+      rh.require(rh.has_item(template["deviation_code_values"], value[i]), "type_deviation_code:" + where);
+      if (i > 0) { rh.require(value[i - 1] < value[i], "type_deviation_order:" + where); }
+    }
+    return;
+  }
+  throw "unknown_value_type:" + type_name;
+}
+
+function is_hex(value, n) {
+  if (typeof value !== "string" || value.length !== n) { return false; }
+  const digits = ["0","1","2","3","4","5","6","7","8","9","a","b","c","d","e","f"];
+  let rest = value;
+  for (let i = 0; i < digits.length; i = i + 1) { rest = rest.replaceAll(digits[i], ""); }
+  return rest === "";
+}
+
+function validate_envelope(template, envelope) {
+  const TOP = ["experiment", "kind", "ordinal", "run_id", "source_sha256", "input_digest",
+               "browser", "stage_facts", "stage_producers", "stage_deadlines", "stage_elapsed",
+               "scan", "deviations"];
+  const keys = Object.keys(envelope);
+  for (let i = 0; i < keys.length; i = i + 1) {
+    rh.require(rh.has_item(TOP, keys[i]), "envelope_unknown_key:" + keys[i]);
+  }
+  for (let i = 0; i < TOP.length; i = i + 1) {
+    rh.require(envelope[TOP[i]] !== undefined, "envelope_missing_key:" + TOP[i]);
+  }
+  rh.require(envelope["kind"] === "rehearsal" || envelope["kind"] === "decision", "envelope_kind");
+  rh.require(envelope["experiment"] === FIXED_EXPERIMENT, "envelope_experiment");
+  rh.require(typeof envelope["ordinal"] === "number" && envelope["ordinal"] >= 1 &&
+             envelope["ordinal"] === Math.floor(envelope["ordinal"]), "envelope_ordinal");
+  rh.require(is_hex(envelope["run_id"], 16), "envelope_run_id");
+  rh.require(is_hex(envelope["source_sha256"], 40), "envelope_source_sha256");
+  rh.require(is_hex(envelope["input_digest"], 64), "envelope_input_digest");
+
+  check_section(template, "browser", envelope["browser"], "browser");
+  check_section(template, "scan", envelope["scan"], "scan");
+  check_section(template, "deviations", envelope["deviations"], "deviations");
+
+  // Per-stage: only declared stages may appear; kind-excluded stages must not.
+  const excluded = template["kind_excluded_stages"][envelope["kind"]] || [];
+  const provided = Object.keys(envelope["stage_facts"]).sort();
+  for (let i = 0; i < provided.length; i = i + 1) {
+    rh.require(rh.has_item(template["stage_order"], provided[i]), "envelope_unknown_stage:" + provided[i]);
+    rh.require(!rh.has_item(excluded, provided[i]), "envelope_kind_excluded_stage:" + provided[i]);
+  }
+  // Metadata maps must equal the reached stage key set exactly, with typed values.
+  const maps = [
+    { name: "stage_producers", type: "bounded_string" },
+    { name: "stage_deadlines", type: "safe_integer" },
+    { name: "stage_elapsed", type: "safe_integer" }
+  ];
+  for (let m = 0; m < maps.length; m = m + 1) {
+    const mk = Object.keys(envelope[maps[m].name]).sort();
+    rh.require(mk.length === provided.length, "envelope_meta_count:" + maps[m].name);
+    for (let i = 0; i < provided.length; i = i + 1) {
+      rh.require(mk[i] === provided[i], "envelope_meta_keys:" + maps[m].name + ":" + mk[i]);
+      check_value(template, maps[m].type, envelope[maps[m].name][provided[i]], maps[m].name + "." + provided[i]);
+    }
+  }
+}
+
+// Validate a receipt object: exact receipt_keys, section shapes, stage_statuses,
+// criteria, terminal and the journal fields, all cross-checked.
+function validate_receipt(template, receipt, verdict_result, envelope, expected_final_sequence, expected_journal_sha) {
+  const want = template["receipt_keys"];
+  const got = Object.keys(receipt);
+  rh.require(got.length === want.length, "receipt_key_count:" + got.length);
+  for (let i = 0; i < want.length; i = i + 1) {
+    rh.require(rh.has_item(got, want[i]), "receipt_key_missing:" + want[i]);
+  }
+  rh.require(receipt["schema"] === "agenterm.browser-profile-open-singleton-safety-receipt/v1", "receipt_schema");
+  rh.require(receipt["experiment"] === FIXED_EXPERIMENT, "receipt_experiment");
+  rh.require(receipt["kind"] === "rehearsal" || receipt["kind"] === "decision", "receipt_kind");
+  rh.require(typeof receipt["ordinal"] === "number" && receipt["ordinal"] >= 1 &&
+             receipt["ordinal"] === Math.floor(receipt["ordinal"]), "receipt_ordinal");
+  rh.require(is_hex(receipt["run_id"], 16), "receipt_run_id");
+  rh.require(is_hex(receipt["source_sha256"], 40), "receipt_source_sha256");
+  rh.require(is_hex(receipt["input_digest"], 64), "receipt_input_digest");
+  check_section(template, "browser", receipt["browser"], "receipt.browser");
+  check_section(template, "scan", receipt["scan"], "receipt.scan");
+  check_section(template, "deviations", receipt["deviations"], "receipt.deviations");
+
+  // scan cross-source: when scan-coverage is reached, every receipt.scan field
+  // that shares a name with a scan-coverage required/optional fact must agree;
+  // a stage-absent nullable field must be null in the receipt, and `complete`
+  // must match. complete=true still requires every nullable field non-null.
+  const scan_spec = template["receipt_sections"]["scan"];
+  const scan_keys = Object.keys(scan_spec);
+  const reached_scan = envelope["stage_facts"]["scan-coverage"];
+  if (reached_scan !== undefined && reached_scan !== null) {
+    rh.require(receipt["scan"]["complete"] === reached_scan["complete"], "receipt_scan_complete_mismatch");
+    for (let i = 0; i < scan_keys.length; i = i + 1) {
+      const key = scan_keys[i];
+      if (Object.keys(reached_scan).indexOf(key) === -1) {
+        // The stage omitted this fact. A non-nullable same-name field must have
+        // been provided by the stage; only a nullable one may be receipt-null.
+        rh.require(scan_spec[key] === "nullable_safe_integer",
+                   "receipt_scan_nonnullable_absent:" + key);
+        rh.require(receipt["scan"][key] === null, "receipt_scan_unavailable_not_null:" + key);
+        continue;
+      }
+      rh.require(receipt["scan"][key] === reached_scan[key], "receipt_scan_value_mismatch:" + key);
+    }
+  }
+  for (let i = 0; i < scan_keys.length; i = i + 1) {
+    if (scan_spec[scan_keys[i]] !== "nullable_safe_integer") { continue; }
+    if (receipt["scan"]["complete"] === true) {
+      rh.require(receipt["scan"][scan_keys[i]] !== null, "receipt_scan_null_on_complete:" + scan_keys[i]);
+    }
+  }
+  // deviations cross-field: count == codes.length, codes sorted unique (checked by
+  // check_section) and digest a sha256 (checked by check_section).
+  rh.require(receipt["deviations"]["count"] === receipt["deviations"]["codes"].length,
+             "receipt_deviations_count");
+  // sample_count / complete / digest are required receipt fields (already typed).
+  rh.require(receipt["scan"]["sample_count"] !== null, "receipt_scan_sample_count");
+  rh.require(receipt["scan"]["sample_sequence_digest"] !== null, "receipt_scan_digest");
+  // The sample-sequence digest is a fixed domain+NUL+RFC8785 formula. With zero
+  // samples the array is the literal empty array; a zero-filled placeholder is
+  // refused. The expected value is an independently computed known-answer.
+  if (receipt["scan"]["sample_count"] === 0) {
+    rh.require(receipt["scan"]["sample_sequence_digest"] === ZERO_SAMPLE_SEQUENCE_DIGEST,
+               "receipt_zero_sample_digest_wrong");
+  }
+
+  // stage_statuses: every stage_order key, a stage_status_values value, and
+  // exactly the verdict's per-stage status.
+  const order = template["stage_order"];
+  const ss = receipt["stage_statuses"];
+  const ssk = Object.keys(ss);
+  rh.require(ssk.length === order.length, "receipt_stage_statuses_count");
+  for (let i = 0; i < order.length; i = i + 1) {
+    rh.require(rh.has_item(template["stage_status_values"], ss[order[i]]), "receipt_stage_status:" + order[i]);
+    const passed = verdict_result.stage_passed[order[i]];
+    const want = passed === true ? "passed" : passed === false ? "failed" : "not-run";
+    rh.require(ss[order[i]] === want, "receipt_stage_status_mismatch:" + order[i]);
+  }
+
+  // criteria: every criteria_keys key with a criterion_result_shape value.
+  const ck = template["criteria_keys"];
+  const cr = receipt["criteria"];
+  rh.require(Object.keys(cr).length === ck.length, "receipt_criteria_count");
+  for (let i = 0; i < ck.length; i = i + 1) {
+    const result = cr[ck[i]];
+    if (result === "not-run") { continue; }
+    rh.require(typeof result === "object" && result !== null, "receipt_criterion_object:" + ck[i]);
+    const rk = Object.keys(result).sort();
+    rh.require(rk.length === 2 && rk[0] === "code" && rk[1] === "status", "receipt_criterion_keys:" + ck[i]);
+    rh.require(rh.has_item(template["criterion_status_values"], result["status"]), "receipt_criterion_status:" + ck[i]);
+    if (result["status"] === "passed") { rh.require(result["code"] === null, "receipt_criterion_code:" + ck[i]); }
+    else { rh.require(rh.has_item(template["criteria"][ck[i]]["failure_codes"], result["code"]),
+                      "receipt_criterion_failed_code:" + ck[i]); }
+  }
+
+  // terminal + journal fields.
+  rh.require(rh.has_item(template["terminal_codes"], receipt["terminal_code"]), "receipt_terminal");
+  rh.require(typeof receipt["journal_final_sequence"] === "number" &&
+             receipt["journal_final_sequence"] === Math.floor(receipt["journal_final_sequence"]) &&
+             receipt["journal_final_sequence"] >= 0,
+             "receipt_journal_final_sequence");
+  rh.require(is_hex(receipt["journal_sha256"], 64), "receipt_journal_sha256");
+  // Journal context: the receipt must reference the published journal exactly.
+  if (expected_final_sequence !== undefined) {
+    rh.require(receipt["journal_final_sequence"] === expected_final_sequence, "receipt_journal_seq_context");
+  }
+  if (expected_journal_sha !== undefined) {
+    rh.require(receipt["journal_sha256"] === expected_journal_sha, "receipt_journal_sha_context");
+  }
+}
+
+// ---- entry --------------------------------------------------------------
+
+// Atomically publish `text` to `path`, read it back, and require byte equality.
+function publish_readback(path, text) {
+  rh.atomic_write(path, text);
+  const back = rh.read_text(path);
+  require(back === text, "publish_readback_mismatch:" + path);
+  return back;
+}
+
+export function run_court(template_path, run_root_value, facts_path) {
+  run_root = run_root_value;
+  claim_run_root(run_root_value);
+  const template = v.load_template(template_path);
+  const envelope = rh.parse_file(facts_path);
+  validate_envelope(template, envelope);
+
+  const journal_path = rh.join(root(), "stage-journal.jsonl");
+  const receipt_path = rh.join(root(), "receipt.json");
+
+  const verdict_result = v.verdict(template, envelope["kind"], envelope["stage_facts"]);
+
+  // Row code reflects the stage's actual result: passed -> stage_success_code,
+  // failed -> the run's final terminal code, not-run -> no row (the contract's
+  // journal facts are the *reached* stage whitelist). Rows are built in one pass
+  // and the whole journal is published atomically with readback.
+  // Build every row first (row_sha256 left empty), then compute the whole chain
+  // in one shell pass and fill the hashes.
+  const order = template["stage_order"];
+  const without = [];
+  for (let i = 0; i < order.length; i = i + 1) {
+    const stage = order[i];
+    const passed = verdict_result.stage_passed[stage];
+    if (passed === null) { continue; }              // not-run (excluded or unreached): no row
+    const facts = envelope["stage_facts"][stage];
+    if (facts === undefined || facts === null) { continue; }
+    // A failed reached stage carries its OWN typed code from the criterion that
+    // owns it, never the run's global terminal.
+    const code = passed === true
+      ? template["stage_success_code"]
+      : v.stage_local_code(template, envelope["kind"], stage, verdict_result.criteria,
+                           verdict_result.stage_passed, envelope["stage_facts"], verdict_result.terminal_code);
+    without.push({
+      schema: JOURNAL_SCHEMA,
+      experiment: envelope["experiment"],
+      kind: envelope["kind"],
+      ordinal: envelope["ordinal"],
+      run_id: envelope["run_id"],
+      sequence: without.length,
+      prev_sha256: "PREVPLACEHOLDER",
+      stage: stage,
+      producer: envelope["stage_producers"][stage],
+      deadline_ms: envelope["stage_deadlines"][stage],
+      elapsed_ms: envelope["stage_elapsed"][stage],
+      code: code,
+      facts: facts
+    });
+  }
+  const hashes = chain_hashes(template, without);
+  require(hashes.length === without.length, "chain_length:" + hashes.length);
+  const rows = [];
+  for (let i = 0; i < without.length; i = i + 1) {
+    const row = without[i];
+    row["prev_sha256"] = i === 0 ? template["journal_chain"]["zero_predecessor_sha256"] : hashes[i - 1];
+    row["row_sha256"] = hashes[i];
+    rows.push(row);
+  }
+  const lines = [];
+  for (let i = 0; i < rows.length; i = i + 1) { lines.push(cj.canonical(rows[i])); }
+  const journal_bytes = lines.join("\n") + "\n";
+  publish_readback(journal_path, journal_bytes);
+
+  // receipt.journal_sha256 is the SHA-256 of the exact authoritative journal file
+  // bytes after atomic readback, not the chain tail.
+  const journal_file_sha = rh.sha256_file(journal_path);
+  const tail = rows.length > 0 ? rows[rows.length - 1]["row_sha256"] : template["journal_chain"]["zero_predecessor_sha256"];
+  const receipt = build_receipt(template, envelope, verdict_result, rows.length - 1, tail, journal_file_sha);
+  const expected_bytes = cj.canonical(receipt);
+  const published = publish_readback(receipt_path, expected_bytes);
+  require(published === expected_bytes, "receipt_readback_bytes");
+  const reparsed = rh.parse_file(receipt_path);
+  validate_receipt(template, reparsed, verdict_result, envelope, rows.length - 1, journal_file_sha);
+  require(cj.canonical(reparsed) === expected_bytes, "receipt_reparse_bytes");
+  return receipt;
+}

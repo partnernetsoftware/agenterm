@@ -352,6 +352,24 @@
         "task.build-manifest"
       ]
     },
+    "singleton-safety-court-selftest": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "court-selftest-proof"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_host_operations": 999999,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.singleton-safety-court-selftest"
+      ]
+    },
     "build-singleton-safety-fixtures": {
       "inputs": [
         "source-tree"
@@ -5554,6 +5572,42 @@
       "evidence": [
         "task.cu-linux-screenshot-window-smoke"
       ]
+    },
+    "singleton-safety-court-selftest-incomplete": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "court-selftest-incomplete-proof"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_host_operations": 999999,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.singleton-safety-court-selftest-incomplete"
+      ]
+    },
+    "singleton-safety-journal-verify": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "journal-verify-proof"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_host_operations": 999999,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.singleton-safety-journal-verify"
+      ]
     }
   },
   "tasks": [
@@ -5816,6 +5870,57 @@
       "entry": "scripts/qjs/build-manifest.qjs",
       "profile": "tool",
       "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "singleton-safety-court-selftest",
+      "description": "Prove the singleton-safety verdict core and court data plane across six hardcoded paths and a known-answer journal chain",
+      "entry": "scripts/qjs/singleton-safety-court-selftest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "singleton-safety-court-selftest-incomplete",
+      "description": "Prove the incomplete-scan-coverage production path: V5 typed terminal and no fabricated scan fields",
+      "entry": "scripts/qjs/singleton-safety-court-selftest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "incomplete"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "singleton-safety-journal-verify",
+      "description": "Verify the singleton-safety stage journal every row through the production verifier and prove a facts-only tamper is caught",
+      "entry": "scripts/qjs/singleton-safety-court-selftest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "journal-verify"
+      ],
       "dependencies": [],
       "platforms": [
         "macos"

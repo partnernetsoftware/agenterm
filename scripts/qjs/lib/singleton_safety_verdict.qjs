@@ -1,0 +1,699 @@
+// singleton_safety_verdict.qjs -- the pure verdict core for the
+// browser-profile-open-singleton-safety experiment.
+//
+// A tool library: the only host work is reading the authority template. It never
+// touches processes, the GUI, the browser or the court.
+//
+// The authority is result-template.json, read and exact-validated at run time; no
+// hand-written parallel rule table lives here. Everything below derives from the
+// template sections:
+//   stages / stage_order / stage_pass_rules / criteria / criteria_keys /
+//   criterion_result_rules / criterion_dependency_rules / kind_not_run_criteria /
+//   terminal_codes / success_terminal_by_kind / value_type_rules / limits
+//
+// A missing fact, a null where a value is required, a wrong type, an unknown
+// field, or an unreachable criterion all fail closed. Nothing is synthesized as
+// zero, false or an empty digest.
+import * as rh from "lib/rh_compat";
+
+// ---- template loading and validation ------------------------------------
+
+const BINDING_PREDICATES = ["stage_failed", "any_true", "any_false", "any_gt_zero", "gt_one", "absence", "is_false", "neq_expected"];
+const REQUIRED_SECTIONS = [
+  "stage_order", "stages", "stage_pass_rules", "criteria", "criteria_keys",
+  "criterion_result_rules", "criterion_dependency_rules", "kind_not_run_criteria",
+  "terminal_codes", "success_terminal_by_kind", "value_type_rules", "limits",
+  "criterion_failure_bindings",
+  "runtime_reached_stage_rules"
+];
+
+export function load_template(path) {
+  const t = rh.parse_file(path);
+  for (let i = 0; i < REQUIRED_SECTIONS.length; i = i + 1) {
+    const k = REQUIRED_SECTIONS[i];
+    rh.require(t[k] !== undefined && t[k] !== null, "template_section_missing:" + k);
+  }
+  validate_bindings(t);
+  validate_reached_rules(t);
+  return t;
+}
+
+// Every criterion must carry a binding set whose codes align exactly with its
+// failure_codes, whose facts stay inside the criterion's stages, and whose
+// predicates are known. A missing or extra binding is refused here, so no code
+// path can fall back to a guessed default.
+// Validate the reached-stage authority: the rules object has the expected keys,
+// and the tail is a nonempty, strictly stage_order-ordered subset of stage_order.
+// Kind-excluded tail stages are skipped per kind at reach time, not removed here.
+function validate_reached_rules(t) {
+  const rules = t["runtime_reached_stage_rules"];
+  rh.require(rules !== undefined, "reached_rules_missing");
+  const keys = Object.keys(rules).sort();
+  const want = ["cleanup_persistence_tail", "forward_prefix", "hole_rule", "kind_exclusion_rule", "tail_rule"];
+  rh.require(keys.length === want.length, "reached_rules_keys");
+  for (let i = 0; i < want.length; i = i + 1) { rh.require(rh.has_item(keys, want[i]), "reached_rules_key:" + want[i]); }
+  const tail = rules["cleanup_persistence_tail"];
+  rh.require(Array.isArray(tail) && tail.length >= 1, "reached_tail_empty");
+  for (let i = 0; i < tail.length; i = i + 1) {
+    rh.require(rh.has_item(t["stage_order"], tail[i]), "reached_tail_unknown_stage:" + tail[i]);
+    if (i > 0) {
+      rh.require(t["stage_order"].indexOf(tail[i - 1]) < t["stage_order"].indexOf(tail[i]),
+                 "reached_tail_not_in_order:" + tail[i]);
+    }
+  }
+}
+
+function validate_bindings(t) {
+  const criteria_keys = t["criteria_keys"];
+  const bindings = t["criterion_failure_bindings"];
+  // Every criterion is present, and no extra criterion binding exists.
+  const provided = Object.keys(bindings);
+  rh.require(provided.length === criteria_keys.length, "binding_criterion_count:" + provided.length);
+  for (let i = 0; i < provided.length; i = i + 1) {
+    rh.require(rh.has_item(criteria_keys, provided[i]), "binding_unknown_criterion:" + provided[i]);
+  }
+  for (let i = 0; i < criteria_keys.length; i = i + 1) {
+    rh.require(bindings[criteria_keys[i]] !== undefined, "binding_criterion_missing:" + criteria_keys[i]);
+  }
+  for (let i = 0; i < criteria_keys.length; i = i + 1) {
+    const name = criteria_keys[i];
+    const set = bindings[name];
+    rh.require(set !== undefined && set !== null, "binding_missing:" + name);
+    const crit = t["criteria"][name];
+    const declared = crit["failure_codes"];
+    const stages = crit["stages"];
+
+    // Binding-set exact keys.
+    const set_keys = Object.keys(set).sort();
+    rh.require(set_keys.length === 3 && set_keys[0] === "bindings" && set_keys[1] === "default_code" && set_keys[2] === "role",
+               "binding_set_keys:" + name);
+    // role must equal the criterion's role.
+    rh.require(set["role"] === crit["role"], "binding_role_mismatch:" + name);
+    // default_code is null or a declared failure_code.
+    if (set["default_code"] !== null) {
+      rh.require(rh.has_item(declared, set["default_code"]), "binding_default_not_declared:" + name);
+    }
+
+    const list = set["bindings"];
+    rh.require(Array.isArray(list) && list.length >= 1, "binding_list_empty:" + name);
+    const seen = {};
+    const priorities = {};
+    for (let b = 0; b < list.length; b = b + 1) {
+      const entry = list[b];
+      const predicate = entry["predicate"];
+      rh.require(rh.has_item(BINDING_PREDICATES, predicate), "binding_predicate_unknown:" + name + ":" + predicate);
+
+      // Per-predicate exact key set. `stage` is optional only for stage_failed.
+      const ek = Object.keys(entry).sort();
+      const base = ["code", "predicate", "priority", "when_missing"];
+      const extra = predicate === "stage_failed" ? ["stage"] : ["facts", "comparison"];
+      // Required keys: the base plus facts/comparison for witness predicates.
+      for (let k = 0; k < base.length; k = k + 1) {
+        rh.require(rh.has_item(ek, base[k]), "binding_entry_key_missing:" + name + ":" + base[k]);
+      }
+      if (predicate !== "stage_failed") {
+        rh.require(rh.has_item(ek, "facts"), "binding_entry_key_missing:" + name + ":facts");
+        rh.require(rh.has_item(ek, "comparison"), "binding_entry_key_missing:" + name + ":comparison");
+      }
+      // No key outside base+extra is allowed.
+      for (let k = 0; k < ek.length; k = k + 1) {
+        rh.require(rh.has_item(base, ek[k]) || rh.has_item(extra, ek[k]), "binding_entry_key_extra:" + name + ":" + ek[k]);
+      }
+
+      const code = entry["code"];
+      rh.require(rh.has_item(declared, code), "binding_code_not_declared:" + name + ":" + code);
+      seen[code] = true;
+
+      rh.require(priorities[entry["priority"]] === undefined, "binding_priority_duplicate:" + name + ":" + entry["priority"]);
+      priorities[entry["priority"]] = true;
+      rh.require(entry["when_missing"] === "inconclusive" || entry["when_missing"] === "no_failure",
+                 "binding_when_missing:" + name);
+
+      if (predicate === "stage_failed") {
+        if (entry["stage"] !== undefined) {
+          rh.require(rh.has_item(stages, entry["stage"]), "binding_stage_failed_stage:" + name + ":" + entry["stage"]);
+        }
+      } else {
+        const facts = entry["facts"];
+        rh.require(Array.isArray(facts) && facts.length >= 1, "binding_facts_empty:" + name);
+        for (let f = 0; f < facts.length; f = f + 1) {
+          const st = stage_of(facts[f]);
+          rh.require(rh.has_item(stages, st), "binding_fact_outside_stages:" + name + ":" + facts[f]);
+          // The fact name itself must exist in that stage's required/optional
+          // whitelist, not merely share the stage prefix.
+          rh.require(stage_fact_types(t, st)[fact_of(facts[f])] !== undefined,
+                     "binding_fact_unknown:" + name + ":" + facts[f]);
+        }
+        // comparison must match the predicate.
+        const c = entry["comparison"];
+        if (predicate === "any_true" || predicate === "is_false") {
+          rh.require(c === true || c === false, "binding_comparison:" + name);
+        } else if (predicate === "any_false") {
+          rh.require(c === false, "binding_comparison:" + name);
+        } else if (predicate === "any_gt_zero") {
+          rh.require(c === "gt_zero", "binding_comparison:" + name);
+        } else if (predicate === "gt_one") {
+          rh.require(c === "gt_one", "binding_comparison:" + name);
+        } else if (predicate === "absence") {
+          rh.require(c === "eq_zero", "binding_comparison:" + name);
+        } else if (predicate === "neq_expected") {
+          rh.require(c !== undefined && c !== null, "binding_comparison:" + name);
+        }
+      }
+    }
+    for (let d = 0; d < declared.length; d = d + 1) {
+      rh.require(seen[declared[d]] === true, "binding_code_uncovered:" + name + ":" + declared[d]);
+    }
+  }
+}
+
+// ---- value typing -------------------------------------------------------
+
+function is_lower_hex(value, n) {
+  if (typeof value !== "string" || value.length !== n) { return false; }
+  const digits = ["0","1","2","3","4","5","6","7","8","9","a","b","c","d","e","f"];
+  let rest = value;
+  for (let i = 0; i < digits.length; i = i + 1) { rest = rest.replaceAll(digits[i], ""); }
+  return rest === "";
+}
+
+function is_safe_integer(v) {
+  return typeof v === "number" && v === Math.floor(v) && v >= 0 && v <= 9007199254740991;
+}
+
+// Type check one fact against its declared value_type_rules entry. Returns
+// { ok, value } where value is the fact value (never coerced).
+function check_value_type(template, type_name, value, where) {
+  const kinds = template["value_type_rules"];
+  rh.require(kinds[type_name] !== undefined, "unknown_value_type:" + type_name);
+  const terminals = template["terminal_codes"];
+  if (type_name === "boolean") { rh.require(typeof value === "boolean", where + ":not_boolean"); return value; }
+  if (type_name === "safe_integer") { rh.require(is_safe_integer(value), where + ":not_safe_integer"); return value; }
+  if (type_name === "nullable_safe_integer") { rh.require(value === null || is_safe_integer(value), where + ":not_nullable_safe_integer"); return value; }
+  if (type_name === "sha256") { rh.require(is_lower_hex(value, 64), where + ":not_sha256"); return value; }
+  if (type_name === "nullable_sha256") { rh.require(value === null || is_lower_hex(value, 64), where + ":not_nullable_sha256"); return value; }
+  if (type_name === "git_sha") { rh.require(is_lower_hex(value, 40), where + ":not_git_sha"); return value; }
+  if (type_name === "typed_code") { rh.require(value === "stage_pass" || rh.has_item(terminals, value), where + ":not_typed_code"); return value; }
+  if (type_name === "nullable_typed_code") { rh.require(value === null || value === "stage_pass" || rh.has_item(terminals, value), where + ":not_nullable_typed_code"); return value; }
+  if (type_name === "bounded_string") { rh.require(typeof value === "string" && value.length > 0 && value.length <= 4096, where + ":not_bounded_string"); return value; }
+  if (type_name === "browser_acquisition_method") { rh.require(rh.has_item(template["browser_acquisition_method_values"], value), where + ":not_acquisition_method"); return value; }
+  if (type_name === "browser_family_code") { rh.require(typeof value === "string" && value.length > 0 && value.length <= 64, where + ":not_family_code"); return value; }
+  if (type_name === "deviation_code_array") {
+    rh.require(Array.isArray(value), where + ":not_deviation_array");
+    for (let i = 0; i < value.length; i = i + 1) {
+      rh.require(rh.has_item(template["deviation_code_values"], value[i]), where + ":bad_deviation_code");
+      if (i > 0) { rh.require(value[i - 1] < value[i], where + ":deviation_not_sorted_unique"); }
+    }
+    return value;
+  }
+  throw "unhandled_value_type:" + type_name;
+}
+
+// ---- stage fact validation ----------------------------------------------
+
+// The allowed fact keys for one stage: common_stage_facts plus that stage's
+// required and optional whitelist. Unknown keys are refused.
+function stage_fact_types(template, stage) {
+  const st = template["stages"][stage];
+  rh.require(st !== undefined, "unknown_stage:" + stage);
+  const types = {};
+  const common = template["common_stage_facts"];
+  const ck = Object.keys(common);
+  for (let i = 0; i < ck.length; i = i + 1) { types[ck[i]] = common[ck[i]]; }
+  const lists = [st["required"] || {}, st["optional"] || {}];
+  for (let l = 0; l < lists.length; l = l + 1) {
+    const keys = Object.keys(lists[l]);
+    for (let i = 0; i < keys.length; i = i + 1) { types[keys[i]] = lists[l][keys[i]]; }
+  }
+  return types;
+}
+
+// Validate one stage's fact map: no unknown keys, every value typed correctly.
+// Returns nothing; throws on the first violation.
+function validate_stage_facts(template, stage, facts) {
+  rh.require(facts !== null && typeof facts === "object" && !Array.isArray(facts),
+             "stage_facts_not_object:" + stage);
+  const allowed = stage_fact_types(template, stage);
+  const keys = Object.keys(facts);
+  for (let i = 0; i < keys.length; i = i + 1) {
+    rh.require(allowed[keys[i]] !== undefined, "unknown_fact:" + stage + "." + keys[i]);
+    // A provided fact is always type-checked, even on an incomplete stage; a
+    // missing fact is handled by stage_passes (hard only while complete).
+    check_value_type(template, allowed[keys[i]], facts[keys[i]], stage + "." + keys[i]);
+  }
+}
+
+// ---- stage pass rules ---------------------------------------------------
+
+// Evaluate stage_pass_rules for one stage's facts. Returns true when the stage
+// passes. `complete` is always the required boolean; missing/typed facts and the
+// exact/relational/boolean constraints all fail closed.
+export function stage_passes(template, stage, facts) {
+  const st = template["stages"][stage];
+  const rules = template["stage_pass_rules"];
+  validate_stage_facts(template, stage, facts);
+
+  const pass_required = st["pass_required"];
+  const exact = rules["exact_values"];
+  const false_exceptions = rules["false_boolean_exceptions"];
+  const limits = template["limits"];
+
+  // required facts (e.g. `complete`) are always present and typed.
+  const required = st["required"];
+  const req_keys = Object.keys(required);
+  let complete_true = true;
+  for (let i = 0; i < req_keys.length; i = i + 1) {
+    const fact = req_keys[i];
+    const key = stage + "." + fact;
+    rh.require(Object.keys(facts).indexOf(fact) !== -1, "missing_required:" + key);
+    const value = facts[fact];
+    const type_name = required[fact];
+    check_value_type(template, type_name, value, key);
+    if (fact === "complete" && value === false) { complete_true = false; }
+    if (type_name === "boolean" && !rh.has_item(false_exceptions, key) && value !== true) {
+      // An incomplete stage fails here; its pass_required facts need not appear.
+      if (fact === "complete") { return false; }
+      return false;
+    }
+  }
+
+  // presence + type + boolean_default + exact_values. These are enforced only
+  // when the stage completed; a complete=false stage has already failed, and its
+  // unavailable optional/pass_required facts are legitimately absent.
+  const present = Object.keys(facts);
+  const fact_types = stage_fact_types(template, stage);
+  for (let i = 0; i < pass_required.length; i = i + 1) {
+    const fact = pass_required[i];
+    const key = stage + "." + fact;
+    rh.require(present.indexOf(fact) !== -1, "missing_pass_required:" + key);
+    const value = facts[fact];
+    const type_name = fact_types[fact];
+    check_value_type(template, type_name, value, key);
+    if (Object.keys(exact).indexOf(key) !== -1) {
+      if (value !== exact[key]) { return false; }
+    }
+    if (type_name === "boolean" && !rh.has_item(false_exceptions, key) && value !== true) {
+      return false;
+    }
+  }
+
+  // relational_values
+  const relations = rules["relational_values"];
+  for (let i = 0; i < relations.length; i = i + 1) {
+    const key = relational_fact(relations[i]);
+    const owner = stage_of(key);
+    if (owner !== stage) { continue; }
+    if (!eval_relation(template, relations[i], facts, limits)) { return false; }
+  }
+  return true;
+}
+
+function relational_fact(text) {
+  const stop = text.indexOf(" ");
+  return text.substring(0, stop);
+}
+
+function stage_of(dotted) {
+  const dot = dotted.indexOf(".");
+  return dotted.substring(0, dot);
+}
+
+function fact_of(dotted) {
+  const dot = dotted.indexOf(".");
+  return dotted.substring(dot + 1);
+}
+
+// A tiny relational evaluator over the exact relational_values phrasings. Each
+// sentence is matched by its stable prefix; a phrasing this library does not know
+// is a hard error, never a silent pass.
+function eval_relation(template, text, facts, limits) {
+  const f = facts;
+  const parts = text.split(" ");
+  const key = parts[0];
+  const name = fact_of(key);
+
+  if (text === "rehearsal-terminate.restore_elapsed_ms is at most limits.focus_restore_deadline_ms") {
+    return f.restore_elapsed_ms <= limits["focus_restore_deadline_ms"];
+  }
+  if (text === "open-request.exit_elapsed_ms is at most limits.direct_request_exit_deadline_ms") {
+    return f.exit_elapsed_ms <= limits["direct_request_exit_deadline_ms"];
+  }
+  if (text === "relay.relay_exit_elapsed_ms is at most limits.relay_exit_deadline_ms") {
+    return f.relay_exit_elapsed_ms <= limits["relay_exit_deadline_ms"];
+  }
+  if (text === "fixture-restore.restore_elapsed_ms is at most limits.focus_restore_deadline_ms") {
+    return f.restore_elapsed_ms <= limits["focus_restore_deadline_ms"];
+  }
+  if (text === "original-restore.restore_elapsed_ms is at most limits.focus_restore_deadline_ms") {
+    return f.restore_elapsed_ms <= limits["focus_restore_deadline_ms"];
+  }
+  if (text === "scan-coverage.resolution_ms equals max_start_interval_ms plus max_enumeration_ms") {
+    return f.resolution_ms === f.max_start_interval_ms + f.max_enumeration_ms;
+  }
+  if (text === "scan-coverage.minimum_sample_count equals floor(window_duration_ms divided by limits.scan_interval_max_ms)") {
+    return f.minimum_sample_count === Math.floor(f.window_duration_ms / limits["scan_interval_max_ms"]);
+  }
+  if (text === "scan-coverage.sample_count is at least minimum_sample_count") {
+    return f.sample_count >= f.minimum_sample_count;
+  }
+  if (text === "scan-coverage.maximum_row_count is at most limits.scan_row_max") {
+    return f.maximum_row_count <= limits["scan_row_max"];
+  }
+  if (text === "scan-coverage.maximum_group_member_count is at most limits.group_membership_max") {
+    return f.maximum_group_member_count <= limits["group_membership_max"];
+  }
+  if (text === "relay.candidate_observed_count equals classified_relay_count plus topology_candidate_count plus live_g1_exemption_count") {
+    return f.candidate_observed_count === f.classified_relay_count + f.topology_candidate_count + f.live_g1_exemption_count;
+  }
+  throw "unimplemented_relation:" + text;
+}
+
+// ---- criteria -----------------------------------------------------------
+
+// Determine one criterion's result for a run. A criterion is `not-run` when the
+// kind excludes it (kind_not_run_criteria). Otherwise it is passed when every one
+// of its stages passed; if any of its stages failed, the code is the first frozen
+// failure_code declared for that criterion.
+export function criterion_result(template, name, kind, stage_passed, stage_facts) {
+  const c = template["criteria"][name];
+  rh.require(c !== undefined, "unknown_criterion:" + name);
+  const excluded = template["kind_not_run_criteria"][kind];
+  if (excluded !== undefined && rh.has_item(excluded, name)) { return "not-run"; }
+
+  const binding_set = template["criterion_failure_bindings"][name];
+  rh.require(binding_set !== undefined, "criterion_binding_missing:" + name);
+  const bindings = binding_set["bindings"];
+
+  // A witness binding (any predicate other than the ordinary stage_failed) can
+  // fire regardless of the stage pass/fail state. The highest priority firing
+  // witness wins.
+  let witness_code = null;
+  let witness_priority = 1000000;
+  for (let i = 0; i < bindings.length; i = i + 1) {
+    const b = bindings[i];
+    const fires = eval_binding(template, name, b, stage_facts, stage_passed);
+    if (fires && b["priority"] < witness_priority) {
+      witness_code = b["code"];
+      witness_priority = b["priority"];
+    }
+  }
+  // A criterion fails exactly when one of its bindings fires. `stage_failed`
+  // bindings are the ordinary-failure mapping, scoped per stage where the owner
+  // needs to distinguish a shared stage's facts; a criterion with no firing
+  // binding passes. `default_code` is descriptive only and never a fallback.
+  if (witness_code !== null) { return { status: "failed", code: witness_code }; }
+  return { status: "passed", code: null };
+}
+
+// Evaluate one binding predicate against the stage facts. A missing fact, or a
+// fact whose stage is absent, makes the predicate not fire (when_missing controls
+// whether that is "no_failure" or "inconclusive"; inconclusive is handled by the
+// criterion's ordinary-failure path, so here it simply does not fire).
+function eval_binding(template, name, b, stage_facts, stage_passed) {
+  const facts = b["facts"];
+  const predicate = b["predicate"];
+  if (predicate === "stage_failed") {
+    // A stage-scoped ordinary failure, or any listed stage when no stage is named.
+    if (b["stage"] !== undefined) { return stage_passed[b["stage"]] === false; }
+    const stages = template["criteria"][name]["stages"];
+    for (let i = 0; i < stages.length; i = i + 1) {
+      if (stage_passed[stages[i]] === false) { return true; }
+    }
+    return false;
+  }
+  if (predicate === "any_true" || predicate === "any_false") {
+    for (let i = 0; i < facts.length; i = i + 1) {
+      const v = read_fact(stage_facts, facts[i]);
+      if (v === undefined || v === null) { continue; }
+      if (predicate === "any_true" && v === true) { return true; }
+      if (predicate === "any_false" && v === false) { return true; }
+    }
+    return false;
+  }
+  if (predicate === "is_false") {
+    for (let i = 0; i < facts.length; i = i + 1) {
+      if (read_fact(stage_facts, facts[i]) === false) { return true; }
+    }
+    return false;
+  }
+  if (predicate === "neq_expected") {
+    // A present fact whose value differs from the expected literal is a mutation.
+    // A missing fact is incomplete, not a mutation (when_missing no_failure).
+    for (let i = 0; i < facts.length; i = i + 1) {
+      const v = read_fact(stage_facts, facts[i]);
+      if (v === undefined || v === null) { continue; }
+      if (v !== b["comparison"]) { return true; }
+    }
+    return false;
+  }
+  if (predicate === "any_gt_zero" || predicate === "gt_one") {
+    for (let i = 0; i < facts.length; i = i + 1) {
+      const v = read_fact(stage_facts, facts[i]);
+      if (typeof v !== "number") { continue; }
+      if (predicate === "any_gt_zero" && v > 0) { return true; }
+      if (predicate === "gt_one" && v > 1) { return true; }
+    }
+    return false;
+  }
+  if (predicate === "absence") {
+    for (let i = 0; i < facts.length; i = i + 1) {
+      const v = read_fact(stage_facts, facts[i]);
+      if (v === 0) { return true; }
+    }
+    return false;
+  }
+  throw "unknown_binding_predicate:" + predicate;
+}
+
+function read_fact(stage_facts, dotted) {
+  const dot = dotted.indexOf(".");
+  const stage = dotted.substring(0, dot);
+  const fact = dotted.substring(dot + 1);
+  const m = stage_facts[stage];
+  if (m === undefined || m === null) { return undefined; }
+  return m[fact];
+}
+
+// ---- top-level verdict --------------------------------------------------
+
+// verdict(template, kind, stage_facts) ->
+//   { stage_passed, criteria, primary_cause_code, terminal_code }
+//
+// `stage_facts` is a map stage -> fact map. Every stage in stage_order must be
+// present; no fact is inferred.
+export function verdict(template, kind, stage_facts) {
+  rh.require(kind === "rehearsal" || kind === "decision", "unknown_kind:" + kind);
+  const excluded_stages = template["kind_excluded_stages"][kind] || [];
+  const order = template["stage_order"];
+
+  // Unknown top-level stage keys are refused, not ignored.
+  const provided = Object.keys(stage_facts);
+  for (let i = 0; i < provided.length; i = i + 1) {
+    rh.require(rh.has_item(order, provided[i]), "unknown_stage:" + provided[i]);
+  }
+  const stage_passed = {};
+  const stage_codes = {};
+  for (let i = 0; i < order.length; i = i + 1) {
+    const stage = order[i];
+    if (rh.has_item(excluded_stages, stage)) { stage_passed[stage] = null; stage_codes[stage] = "not-run"; continue; }
+    const facts = stage_facts[stage];
+    if (facts === undefined || facts === null) {
+      // A runtime-unreached stage (forward adjudication stopped earlier) is
+      // not-run, never a fabricated failure.
+      stage_passed[stage] = null;
+      stage_codes[stage] = "not-run";
+      continue;
+    }
+    const ok = stage_passes(template, stage, facts);
+    stage_passed[stage] = ok;
+    stage_codes[stage] = ok ? template["stage_success_code"] : "failed";
+  }
+
+  // The reached set is only well-formed when the first omitted forward stage
+  // follows a failed forward stage: forward adjudication stops on failure.
+  validate_reached_set(template, kind, provided, stage_passed);
+
+  const criteria = {};
+  const ck = template["criteria_keys"];
+  for (let i = 0; i < ck.length; i = i + 1) {
+    criteria[ck[i]] = criterion_result(template, ck[i], kind, stage_passed, stage_facts);
+  }
+
+  apply_v5_suppression(template, criteria);
+
+  const primary_cause_code = primary_cause(template, criteria);
+  const terminal_code = decide_terminal(template, kind, criteria, primary_cause_code);
+  return { stage_passed: stage_passed, stage_codes: stage_codes, criteria: criteria,
+           primary_cause_code: primary_cause_code, terminal_code: terminal_code };
+}
+
+// The reached-stage set must be a prefix of stage_order (in order) followed only
+// by the always-run cleanup/persistence tail. Forward adjudication stops at the
+// first failure; the design (§4.2) keeps exact cleanup, final inventory, the
+// sentinel attempt, scan-coverage and terminal persistence running. The tail
+// therefore starts at `window-close` through `terminal` (the last four serial
+// phases). A set that skips a forward stage but resumes before the tail is a
+// hole and is refused.
+export function validate_reached_set(template, kind, provided, stage_passed) {
+  const rules = template["runtime_reached_stage_rules"];
+  rh.require(rules !== undefined, "reached_rules_missing");
+  const order = template["stage_order"];
+  const excluded = template["kind_excluded_stages"][kind] || [];
+  const tail = rules["cleanup_persistence_tail"];
+  const in_set = {};
+  for (let i = 0; i < provided.length; i = i + 1) { in_set[provided[i]] = true; }
+
+  // The forward region: non-excluded, non-tail stages in order. They must be a
+  // prefix, the first forward stage must be reached, and the first omitted
+  // forward stage must directly follow a FAILED forward stage (forward
+  // adjudication stops on failure).
+  const forward = [];
+  for (let i = 0; i < order.length; i = i + 1) {
+    if (rh.has_item(excluded, order[i])) { continue; }
+    if (rh.has_item(tail, order[i])) { continue; }
+    forward.push(order[i]);
+  }
+  rh.require(forward.length >= 1, "reached_forward_empty");
+  rh.require(in_set[forward[0]] === true, "reached_empty_prefix");
+  let saw_gap = false;
+  let gap_prev_failed = false;
+  let prev = null;
+  for (let i = 0; i < forward.length; i = i + 1) {
+    const stage = forward[i];
+    if (in_set[stage] === true) {
+      rh.require(!saw_gap, "reached_set_hole:" + stage);
+      prev = stage;
+    } else {
+      if (!saw_gap) {
+        saw_gap = true;
+        // The stage immediately before the first omission must have failed.
+        gap_prev_failed = prev !== null && stage_passed[prev] === false;
+      }
+    }
+  }
+  rh.require(!saw_gap || gap_prev_failed, "forward_gap_without_failure");
+
+  // Every non-excluded tail stage is always reached.
+  for (let i = 0; i < order.length; i = i + 1) {
+    const stage = order[i];
+    if (rh.has_item(excluded, stage)) { continue; }
+    if (rh.has_item(tail, stage)) { rh.require(in_set[stage] === true, "cleanup_tail_stage_missing:" + stage); }
+  }
+}
+
+// The stage-local typed code for a reached failed stage: the first binding for a
+// criterion that owns this stage and failed here.
+// The typed code a reached failed stage owns. Only bindings actually triggered BY
+// this stage are considered: a stage-scoped `stage_failed` for this stage, or a
+// witness binding whose facts all belong to this stage and that fires. Positive
+// safety codes rank first, then the authority's binding priority. A stage with no
+// uniquely attributable binding fails closed by name rather than borrowing an
+// unrelated global terminal.
+export function stage_local_code(template, kind, stage, criteria, stage_passed, stage_facts, terminal_code) {
+  const ck = template["criteria_keys"];
+  let best_code = null;
+  let best_safety = false;
+  let best_criterion_index = 1000000;
+  let best_priority = 1000000;
+  for (let i = 0; i < ck.length; i = i + 1) {
+    const name = ck[i];
+    const crit = template["criteria"][name];
+    if (!rh.has_item(crit["stages"], stage)) { continue; }
+    const result = criteria[name];
+    if (result === "not-run" || result.status !== "failed") { continue; }
+    const positive = crit["positive_failure_codes"] || [];
+    const bindings = template["criterion_failure_bindings"][name]["bindings"];
+    for (let b = 0; b < bindings.length; b = b + 1) {
+      const binding = bindings[b];
+      if (!binding_is_local(template, name, binding, stage, stage_passed, stage_facts)) { continue; }
+      if (!rh.has_item(crit["failure_codes"], binding["code"])) { continue; }
+      // Safety is a criterion role plus a positive witness, not a code prefix:
+      // G5 has role safety but the code INCONCLUSIVE_BASELINE_MUTATION.
+      const safety = crit["role"] === "safety" && rh.has_item(positive, binding["code"]);
+      let better;
+      if (best_code === null) { better = true; }
+      else if (safety !== best_safety) { better = safety; }
+      else if (i !== best_criterion_index) { better = i < best_criterion_index; }
+      else { better = binding["priority"] < best_priority; }
+      if (better) {
+        best_code = binding["code"];
+        best_safety = safety;
+        best_criterion_index = i;
+        best_priority = binding["priority"];
+      }
+    }
+  }
+  rh.require(best_code !== null, "stage_local_code_unattributable:" + stage);
+  return best_code;
+}
+
+// A binding is local to `stage` when its trigger is this stage: a stage-scoped
+// ordinary failure, or a witness whose facts all belong to this stage.
+function binding_is_local(template, criterion_name, binding, stage, stage_passed, stage_facts) {
+  const predicate = binding["predicate"];
+  if (predicate === "stage_failed") {
+    if (binding["stage"] !== undefined) { return binding["stage"] === stage && stage_passed[stage] === false; }
+    // An unscoped ordinary failure is attributable when the criterion owns this
+    // stage and this stage failed.
+    const stages = template["criteria"][criterion_name]["stages"];
+    return rh.has_item(stages, stage) && stage_passed[stage] === false;
+  }
+  // A witness binding may name facts across several stages; only the subset that
+  // belongs to THIS stage decides whether it is a local candidate here. The
+  // subset must be nonempty and its predicate must fire on the subset.
+  const facts = binding["facts"];
+  if (facts === undefined) { return false; }
+  const subset = [];
+  for (let i = 0; i < facts.length; i = i + 1) {
+    if (stage_of(facts[i]) === stage) { subset.push(facts[i]); }
+  }
+  if (subset.length === 0) { return false; }
+  const narrowed = {};
+  const nk = Object.keys(binding);
+  for (let k = 0; k < nk.length; k = k + 1) { narrowed[nk[k]] = binding[nk[k]]; }
+  narrowed["facts"] = subset;
+  return eval_binding(template, criterion_name, narrowed, stage_facts, stage_passed);
+}
+
+function apply_v5_suppression(template, criteria) {
+  const v5 = criteria["V5"];
+  if (v5 === "not-run" || v5 === null || v5.status !== "failed") { return; }
+  const dependents = template["criterion_dependency_rules"]["v5_failure_not_run"];
+  for (let i = 0; i < dependents.length; i = i + 1) {
+    const name = dependents[i];
+    const cur = criteria[name];
+    if (cur === "not-run") { continue; }
+    // A previously produced positive typed failure is preserved: it keeps its
+    // code when that code is one of the criterion's positive_failure_codes.
+    const positive = template["criteria"][name]["positive_failure_codes"];
+    if (cur.status === "failed" && positive !== undefined && rh.has_item(positive, cur.code)) { continue; }
+    criteria[name] = "not-run";
+  }
+}
+
+// The primary cause is the highest-priority failing criterion. Safety codes
+// (UNSAFE_*) outrank every inconclusive code; among same class the criterion
+// order in criteria_keys decides.
+function primary_cause(template, criteria) {
+  const order = template["criteria_keys"];
+  let safety = null;
+  let inconclusive = null;
+  for (let i = 0; i < order.length; i = i + 1) {
+    const r = criteria[order[i]];
+    if (r === "not-run" || r.status !== "failed") { continue; }
+    if (r.code.indexOf("UNSAFE_") === 0) { if (safety === null) { safety = r.code; } }
+    else if (inconclusive === null) { inconclusive = r.code; }
+  }
+  if (safety !== null) { return safety; }
+  if (inconclusive !== null) { return inconclusive; }
+  return null;
+}
+
+function decide_terminal(template, kind, criteria, primary_cause_code) {
+  if (primary_cause_code !== null) { return primary_cause_code; }
+  return template["success_terminal_by_kind"][kind];
+}
+
+// ---- receipt ------------------------------------------------------------
+
+export function receipt_keys(template) { return template["receipt_keys"]; }
