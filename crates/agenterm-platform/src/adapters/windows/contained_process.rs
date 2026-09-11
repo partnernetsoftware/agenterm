@@ -105,8 +105,18 @@ fn spawn_suspended_into(
     containment: ProcessContainment,
     extra_flags: u32,
 ) -> Result<ContainedChild, AttemptError> {
-    let application = nul_terminated(spec.program.as_os_str())?;
-    let mut command_line = windows_command_line(&spec.program, &spec.args)?;
+    // CreateProcessW only searches PATH when lpApplicationName is null, and
+    // this spawn sets it so a mis-resolved image names itself in diagnostics.
+    // Resolve a bare name (`rustc`, `cargo`, `git`) first; without this every
+    // PATH-only program fails with ERROR_FILE_NOT_FOUND.
+    let program = crate::selected::application_search::resolve_application_path(
+        &spec.program,
+        "contained process executable",
+        spec.current_dir.as_deref(),
+        &spec.env,
+    )?;
+    let application = nul_terminated(program.as_os_str())?;
+    let mut command_line = windows_command_line(&program, &spec.args)?;
     let directory = spec
         .current_dir
         .as_deref()
