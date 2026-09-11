@@ -5662,3 +5662,34 @@ re-plan, and revalidate the current object. Skip the native effect when the
 requested state already holds, but still report a verified no-op. If the
 effect syscall succeeds and post-effect readback fails, return a distinct
 effect-unknown error: neither success nor rollback is proven.
+
+## A bounded native queue that latches an exit is a crash surface
+
+The Windows native pixel host records every failure through one
+`record_failure` that latches `exit_requested`, so a full deferred queue
+closes the window and ends the process. That is a deliberate fail-fast
+policy, but it makes the queue's occupancy a crash surface rather than a
+backpressure signal: any producer that keeps offering non-coalescible
+items while the pump is stalled can reach it. A slow full-frame repaint
+under sustained output is exactly such a stall, so "large scrollback →
+repaint → vanish" was one path, not three.
+
+Classify every deferred item as coalescible or not before trusting the
+bound. A level-triggered signal (`Wake`) and a latest-wins value (pointer
+motion, where the OS already coalesces `WM_MOUSEMOVE`) must collapse into
+one slot, with the newest payload substituted on `pop` and the slot
+re-released on `push_front`/`clear`. Only items that must not be dropped —
+keyboard, buttons, wheel notches — keep their own slots. Prove it with the
+same flood test the existing `Wake` coalescing uses: enqueue far past the
+capacity and assert no overflow and that the newest value is delivered.
+
+Two related traps in this area. A `Mutex`/`RefCell` `expect("not
+poisoned")` amplifies one panic into a cascade: the first failure poisons
+the lock, and every later callback panics again — and a panic unwinding out
+of an `extern "system"` window procedure is a silent abort, because a
+windowed release build has no console. Prefer `try_borrow_mut` with a typed
+fallback, or recover via `PoisonError::into_inner`. And give a windowed
+host a panic hook that writes the thread, location and message to the
+diagnostics log before the default handler runs: without it a vanished
+window leaves no evidence at all, and "it disappeared" is the entire bug
+report an agent has to work from.
