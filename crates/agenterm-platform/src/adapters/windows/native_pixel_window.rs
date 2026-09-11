@@ -209,6 +209,12 @@ struct NativeControl {
     closed: Cell<bool>,
     exit_requested: Cell<bool>,
     last_dpi_rect: Cell<Option<Win32Rect>>,
+    /// The last title accepted for `SetWindowTextW`. A repainting host
+    /// re-asserts its title every frame, and each re-assert was a deferred
+    /// `SetTitle` command; under a pump-stalling flood those alone filled the
+    /// bounded queue and latched a windowed exit. An unchanged title is not a
+    /// new command.
+    last_title: RefCell<Option<String>>,
     failure_latched: Cell<bool>,
     failure: RefCell<Option<PixelWindowError>>,
 }
@@ -225,6 +231,7 @@ impl NativeControl {
             closed: Cell::new(false),
             exit_requested: Cell::new(false),
             last_dpi_rect: Cell::new(None),
+            last_title: RefCell::new(None),
             failure_latched: Cell::new(false),
             failure: RefCell::new(None),
         }
@@ -333,6 +340,20 @@ impl NativeControl {
         }
         self.last_dpi_rect.set(Some(rect));
         self.enqueue(DeferredNative::Command(NativeCommand::ApplyDpiRect(rect)))
+    }
+
+    /// Records an unchanged title as a no-op. A host that repaints every frame
+    /// also re-asserts its title every frame; dropping the duplicate here keeps
+    /// a no-op out of the bounded queue. A title is always deferred rather than
+    /// applied inline, so the dedup and the enqueue decision live in one place.
+    fn enqueue_title(&self, title: &str) -> Result<(), PixelWindowError> {
+        if self.last_title.borrow().as_deref() == Some(title) {
+            return Ok(());
+        }
+        *self.last_title.borrow_mut() = Some(title.to_owned());
+        self.enqueue(DeferredNative::Command(NativeCommand::SetTitle(
+            title.to_owned(),
+        )))
     }
 
     fn pop(&self) -> Option<DeferredNative> {
@@ -669,7 +690,11 @@ impl PixelWindowBackend for Backend {
     }
 
     fn set_title(&self, title: &str) {
-        self.submit_void_command(NativeCommand::SetTitle(title.to_owned()));
+        if let Err(error) = self.control.enqueue_title(title)
+            && !self.control.closed.get()
+        {
+            self.control.record_failure(error);
+        }
     }
 
     fn set_pointer_cursor(&self, cursor: PixelPointerCursor) -> Result<(), PixelWindowError> {
@@ -2598,6 +2623,35 @@ mod tests {
                 modifiers: ModifierState::default(),
             }))
             .expect("a fresh motion queues after the previous one is taken");
+        assert!(control.has_deferred());
+    }
+
+    /// A repainting host re-asserts the same window title every frame. If each
+    /// re-assert becomes a deferred command, a stalled pump fills the bounded
+    /// queue with no-ops and latches a windowed exit; the flood that produced
+    /// the reported crash enqueued nothing but commands for exactly this
+    /// reason. An unchanged title must not take a slot, and a changed one must.
+    #[test]
+    fn unchanged_titles_do_not_fill_the_deferred_queue() {
+        let control = NativeControl::new();
+        for _ in 0..(MAX_NATIVE_DEFERRED * 4) {
+            control
+                .enqueue_title("agenterm — shell")
+                .expect("an unchanged title is a no-op, not an overflow");
+        }
+        assert!(!control.exit_requested.get());
+        assert!(control.take_failure().is_none());
+        assert!(control.has_deferred(), "the first title still takes a slot");
+        assert!(matches!(
+            control.pop(),
+            Some(DeferredNative::Command(NativeCommand::SetTitle(_)))
+        ));
+        assert!(!control.has_deferred(), "every repeat was folded away");
+
+        // A real change is delivered.
+        control
+            .enqueue_title("agenterm — build")
+            .expect("a changed title queues");
         assert!(control.has_deferred());
     }
 
