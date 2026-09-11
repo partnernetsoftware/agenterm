@@ -335,6 +335,57 @@
         "task.build-identity"
       ]
     },
+    "build-manifest": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "build-manifest"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.build-manifest"
+      ]
+    },
+    "build-manifest-selftest": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "build-manifest-selftest-proof"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.build-manifest-selftest"
+      ]
+    },
+    "validate-build-manifest": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "build-manifest-validation"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.validate-build-manifest"
+      ]
+    },
     "harness-cleanup-selftest": {
       "inputs": [
         "script-runtime"
@@ -5738,6 +5789,50 @@
       ],
       "side_effects": [
         "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "build-manifest",
+      "description": "Generate the singleton-safety four-member build manifest as one RFC 8785 canonical object",
+      "entry": "scripts/qjs/build-manifest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "build-manifest-selftest",
+      "description": "Prove the singleton-safety build-manifest generator and validator close every contract rule with synthetic fixtures",
+      "entry": "scripts/qjs/build-manifest-selftest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "validate-build-manifest",
+      "description": "Re-derive and validate the singleton-safety four-member build manifest against exact repository bytes",
+      "entry": "scripts/qjs/validate-build-manifest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
         "process_spawn"
       ]
     },

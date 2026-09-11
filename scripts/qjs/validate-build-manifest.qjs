@@ -1,0 +1,24 @@
+// Validate the singleton-safety build manifest against repository sources.
+//
+// Args: REPO ARCH SIGNING_JSON MANIFEST_LOGICAL_PATH
+//   Re-derives the manifest from the exact source/artifact bytes and requires
+//   the stored manifest's canonical bytes to match, then re-checks every
+//   structural and cross-member rule.
+//
+// Runs under `--profile tool`.
+import * as rh from "lib/rh_compat";
+import * as bm from "lib/build_manifest";
+
+if (arg_count() !== 4) { throw "expected: REPO ARCH SIGNING_JSON MANIFEST_LOGICAL_PATH"; }
+const args = [];
+for (let i = 0; i < arg_count(); i = i + 1) {
+  if (arg(i) !== 0) { throw "arg: " + tool_result(); }
+  args.push(tool_result());
+}
+
+const repo = rh.absolute(args[0]);
+const signing = rh.parse_file(rh.join(repo, args[2]));
+const manifest_path = rh.join(repo, args[3]);
+bm.validate_against_repo(repo, manifest_path, args[1], signing);
+print("validated " + args[3]);
+return 0;

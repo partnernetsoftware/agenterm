@@ -1,0 +1,23 @@
+// Generate the singleton-safety build manifest.
+//
+// Args: REPO ARCH SIGNING_JSON OUTPUT_LOGICAL_PATH
+//   REPO                 repository root (repo-relative or ~/...)
+//   ARCH                 aarch64 | x86_64
+//   SIGNING_JSON         repo path to a JSON map logical_id -> {mode, status}
+//   OUTPUT_LOGICAL_PATH  repo-relative logical path for the manifest
+//
+// Runs under `--profile tool`. The generator produces a manifest only when the
+// four final artifacts exist; otherwise it fails closed by name.
+import * as rh from "lib/rh_compat";
+import * as bm from "lib/build_manifest";
+
+if (arg_count() !== 4) { throw "expected: REPO ARCH SIGNING_JSON OUTPUT_LOGICAL_PATH"; }
+const args = [];
+for (let i = 0; i < arg_count(); i = i + 1) {
+  if (arg(i) !== 0) { throw "arg: " + tool_result(); }
+  args.push(tool_result());
+}
+
+const repo = rh.absolute(args[0]);
+const signing = rh.parse_file(rh.join(repo, args[2]));
+return bm.write(repo, args[1], signing, args[3]);

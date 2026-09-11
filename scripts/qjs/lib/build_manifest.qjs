@@ -1,0 +1,435 @@
+// build_manifest.qjs -- generate and validate the singleton-safety build manifest.
+//
+// Authority: research/browser-profile-open-singleton-safety/fixtures/build-manifest-contract.json
+// (frozen; read-only). This library models that contract exactly: the four
+// member order, per-object exact keys, the value domains, the cross-member
+// rules, and the RFC 8785 single-object serialization with no trailing LF.
+//
+// A tool library: hashes, compiler probes and the written manifest all go
+// through the `tool.*` door, so importers run under `--profile tool`.
+//
+// The generated manifest records the *sources* of the composite parts and the
+// final artifact/plist hashes; it never stores a computed L0 composite digest
+// (composite.output_rule), so nothing depends on itself.
+
+import * as rh from "lib/rh_compat";
+import * as cj from "lib/canonical_json";
+
+const CONTRACT_LOGICAL_ID = "research/browser-profile-open-singleton-safety/fixtures/build-manifest-contract.json";
+const GENERATED_LOGICAL_PATH = "target/browser-profile-open-singleton-safety-fixtures/build-manifest.json";
+const SCHEMA = "agenterm.singleton-safety.build-manifest/v1";
+const CONTRACT_SCHEMA = "agenterm.singleton-safety.build-manifest-contract/v1";
+const FROZEN_INPUT_DOMAIN = "agenterm.singleton-safety.v1.frozen-input";
+const COMPOSITE_FORMULA =
+  "sha256(domain-utf8 || 0x00 || rfc8785-json-utf8(ordered logical-part array))";
+
+// The four members in generated_manifest.member_order. Each mirrors one
+// member_definitions entry. `part_kinds` maps composite order ids to sources.
+const MEMBER_ORDER = [
+  "independent-process-helper",
+  "independent-foreground-helper",
+  "primary-focus-fixture",
+  "secondary-focus-fixture"
+];
+
+function member_definitions() {
+  return {
+    "independent-process-helper": {
+      contract_logical_source_id: "research/browser-profile-open-singleton-safety/fixtures/process-probe/process-probe-contract.json",
+      source_logical_ids: ["research/browser-profile-open-singleton-safety/fixtures/process-probe/ProcessProbe.c"],
+      compiler_family: "apple-clang",
+      artifact_logical_path: "target/browser-profile-open-singleton-safety-fixtures/bin/process-probe",
+      plist: null,
+      bundle_id: null,
+      composite_logical_part_order: ["contract", "c-source", "build-manifest", "final-executable"]
+    },
+    "independent-foreground-helper": {
+      contract_logical_source_id: "research/browser-profile-open-singleton-safety/fixtures/focus-probe/foreground-probe-contract.json",
+      source_logical_ids: ["research/browser-profile-open-singleton-safety/fixtures/focus-probe/ForegroundProbe.swift"],
+      compiler_family: "apple-swift",
+      artifact_logical_path: "target/browser-profile-open-singleton-safety-fixtures/bin/foreground-probe",
+      plist: null,
+      bundle_id: null,
+      composite_logical_part_order: ["contract", "swift-source", "build-manifest", "final-executable"]
+    },
+    "primary-focus-fixture": {
+      contract_logical_source_id: "research/browser-profile-open-singleton-safety/fixtures/apps/focus-fixture-contract.json",
+      source_logical_ids: ["research/browser-profile-open-singleton-safety/fixtures/apps/FocusFixture.swift"],
+      compiler_family: "apple-swift",
+      artifact_logical_path: "target/browser-profile-open-singleton-safety-fixtures/PrimaryFocusFixture.app/Contents/MacOS/FocusFixture",
+      plist: {
+        source_logical_id: "research/browser-profile-open-singleton-safety/fixtures/apps/Primary-Info.plist",
+        artifact_logical_path: "target/browser-profile-open-singleton-safety-fixtures/PrimaryFocusFixture.app/Contents/Info.plist"
+      },
+      bundle_id: "com.partnernetsoftware.agenterm.singleton-safety.primary",
+      composite_logical_part_order: ["contract", "swift-source", "build-manifest", "primary-info-plist", "final-executable"]
+    },
+    "secondary-focus-fixture": {
+      contract_logical_source_id: "research/browser-profile-open-singleton-safety/fixtures/apps/focus-fixture-contract.json",
+      source_logical_ids: ["research/browser-profile-open-singleton-safety/fixtures/apps/FocusFixture.swift"],
+      compiler_family: "apple-swift",
+      artifact_logical_path: "target/browser-profile-open-singleton-safety-fixtures/SecondaryFocusFixture.app/Contents/MacOS/FocusFixture",
+      plist: {
+        source_logical_id: "research/browser-profile-open-singleton-safety/fixtures/apps/Secondary-Info.plist",
+        artifact_logical_path: "target/browser-profile-open-singleton-safety-fixtures/SecondaryFocusFixture.app/Contents/Info.plist"
+      },
+      bundle_id: "com.partnernetsoftware.agenterm.singleton-safety.secondary",
+      composite_logical_part_order: ["contract", "swift-source", "build-manifest", "secondary-info-plist", "final-executable"]
+    }
+  };
+}
+
+// ---- primitives ---------------------------------------------------------
+
+const HEX_DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7",
+                    "8", "9", "a", "b", "c", "d", "e", "f"];
+
+function is_lower_hex(value, expected_length) {
+  if (value.length !== expected_length) { return false; }
+  let rest = value;
+  for (const digit of HEX_DIGITS) { rest = rest.replaceAll(digit, ""); }
+  return rest === "";
+}
+
+function is_printable_ascii(value, max_bytes) {
+  if (value.length === 0 || value.length > max_bytes) { return false; }
+  // No character access in this engine: delete the allowed classes and ask
+  // whether anything survives.
+  let rest = value;
+  const allowed = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+                   "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
+                   "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
+                   "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+                   "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+                   " ", "!", "\"", "#", "$", "%", "&", "'", "(", ")", "*", "+",
+                   ",", "-", ".", "/", ":", ";", "<", "=", ">", "?", "@", "[",
+                   "\\", "]", "^", "_", "`", "{", "|", "}", "~"];
+  for (const ch of allowed) { rest = rest.replaceAll(ch, ""); }
+  return rest === "";
+}
+
+// Logical-path domain: nonempty, slash separators, no empty/dot/dot-dot
+// component, no leading slash, no home shorthand, <= 512 bytes.
+export function is_valid_logical_path(p) {
+  if (typeof p !== "string") { return false; }
+  if (p.length === 0 || p.length > 512) { return false; }
+  if (p.startsWith("/")) { return false; }
+  if (p.startsWith("~")) { return false; }
+  let rest = p;
+  rest = rest.replaceAll("\\", "");
+  if (rest !== p) { return false; }              // backslashes are not separators here
+  const parts = p.split("/");
+  for (let i = 0; i < parts.length; i = i + 1) {
+    const c = parts[i];
+    if (c === "" || c === "." || c === "..") { return false; }
+  }
+  return true;
+}
+
+// compiler_version domain: the normalized first `--version` line carries no
+// path (no "/" and no backslash) and is not an expanded repository path. The
+// generator uses the same predicate, so validate_object and the generator agree
+// on the domain; the entry's re-derivation comparison still carries source
+// authenticity.
+export function is_path_free_version(version) {
+  if (typeof version !== "string") { return false; }
+  if (version.indexOf("/") !== -1) { return false; }
+  if (version.indexOf("\\") !== -1) { return false; }
+  return true;
+}
+
+function sha256_or_fail(repo, logical_path, what) {
+  rh.require(is_valid_logical_path(logical_path), what + "_logical_path_invalid:" + logical_path);
+  const abs = rh.join(repo, logical_path);
+  rh.require(rh.exists(abs), what + "_missing:" + logical_path);
+  const digest = rh.sha256_file(abs);
+  rh.require(is_lower_hex(digest, 64), what + "_sha256_invalid:" + logical_path);
+  return digest;
+}
+
+// ---- compiler -----------------------------------------------------------
+
+// compiler_version: the compiler's normalized first `--version` line, with no
+// path, newline, timestamp or host identity. The line is taken verbatim from
+// the compiler's own stdout; a line carrying an absolute path is refused
+// rather than scrubbed, because scrubbing would invent a version.
+function compiler_of(repo, family, argv_prefix) {
+  const tool = argv_prefix[1];
+  const which = rh.command("xcrun", ["--find", tool], { timeout_ms: 10000 });
+  rh.require(which.exit_code === 0, "compiler_probe_failed:" + tool);
+  const version_run = rh.command("xcrun", [tool, "--version"], { timeout_ms: 10000 });
+  rh.require(version_run.exit_code === 0, "compiler_version_failed:" + tool);
+  let line = version_run.stdout.split("\n")[0];
+  line = line.replaceAll("\r", "");
+  rh.require(line.length > 0, "compiler_version_empty:" + tool);
+  rh.require(line.indexOf(repo) === -1, "compiler_version_leaks_repo_path:" + tool);
+  rh.require(is_path_free_version(line), "compiler_version_leaks_path:" + tool);
+  rh.require(is_printable_ascii(line, 128), "compiler_version_not_printable_ascii:" + tool);
+  return {
+    family: family,
+    version: line,
+    argv: argv_prefix
+  };
+}
+
+// ---- generation ---------------------------------------------------------
+
+// argv for each member is the exact repo-relative source/output arguments with
+// `xcrun` first and the compiler tool second (contract value_domains).
+function compiler_argv(family, source_logical_ids, artifact_logical_path, extra) {
+  const tool = family === "apple-clang" ? "clang" : "swiftc";
+  const argv = ["xcrun", tool];
+  for (let i = 0; i < source_logical_ids.length; i = i + 1) {
+    argv.push(source_logical_ids[i]);
+  }
+  for (let i = 0; i < extra.length; i = i + 1) { argv.push(extra[i]); }
+  argv.push("-o");
+  argv.push(artifact_logical_path);
+  return argv;
+}
+
+function artifact_of(repo, def) {
+  const digest = sha256_or_fail(repo, def.artifact_logical_path, "artifact");
+  return {
+    logical_path: def.artifact_logical_path,
+    kind: "mach-o-executable",
+    sha256: digest
+  };
+}
+
+function plist_of(repo, def) {
+  if (def.plist === null) { return null; }
+  const source_sha = sha256_or_fail(repo, def.plist.source_logical_id, "plist_source");
+  const artifact_sha = sha256_or_fail(repo, def.plist.artifact_logical_path, "plist_artifact");
+  rh.require(source_sha === artifact_sha, "plist_source_and_artifact_hash_differ:" + def.plist.source_logical_id);
+  return {
+    source_logical_id: def.plist.source_logical_id,
+    source_sha256: source_sha,
+    artifact_logical_path: def.plist.artifact_logical_path,
+    artifact_sha256: artifact_sha
+  };
+}
+
+// codesign mode/status/scope. The generator never signs; it records what the
+// caller declares and refuses a status that contradicts the mode.
+export function codesign(mode, status) {
+  const modes = ["none", "linker-ad-hoc", "explicit-ad-hoc"];
+  rh.require(rh.has_item(modes, mode), "codesign_mode_invalid:" + mode);
+  if (mode === "none") {
+    rh.require(status === "unsigned", "codesign_none_requires_unsigned");
+  } else {
+    rh.require(status === "valid", "codesign_adhoc_requires_valid");
+  }
+  return { mode: mode, status: status, scope: "artifact-executable" };
+}
+
+function member_of(repo, defs, logical_id, compiler, signing) {
+  const def = defs[logical_id];
+  const contract_sha = sha256_or_fail(repo, def.contract_logical_source_id, "contract");
+  const sources = [];
+  for (let i = 0; i < def.source_logical_ids.length; i = i + 1) {
+    const id = def.source_logical_ids[i];
+    sources.push({ logical_source_id: id, sha256: sha256_or_fail(repo, id, "source") });
+  }
+  const artifact = artifact_of(repo, def);
+  return {
+    logical_id: logical_id,
+    contract: { logical_source_id: def.contract_logical_source_id, sha256: contract_sha },
+    sources: sources,
+    compiler: compiler,
+    artifact: artifact,
+    plist: plist_of(repo, def),
+    bundle_id: def.bundle_id,
+    codesign: codesign(signing.mode, signing.status),
+    composite: {
+      domain: FROZEN_INPUT_DOMAIN,
+      logical_part_order: def.composite_logical_part_order,
+      formula: COMPOSITE_FORMULA
+    }
+  };
+}
+
+// Build the manifest object. `signing` is a map logical_id -> {mode,status}.
+export function build(repo_value, arch, signing) {
+  const repo = rh.absolute(repo_value);
+  rh.require(arch === "aarch64" || arch === "x86_64", "target_arch_invalid:" + arch);
+
+  const contract_sha = sha256_or_fail(repo, CONTRACT_LOGICAL_ID, "manifest_contract");
+  const defs = member_definitions();
+
+  const process_compiler = compiler_of(
+    repo, "apple-clang",
+    compiler_argv("apple-clang", defs["independent-process-helper"].source_logical_ids,
+                  defs["independent-process-helper"].artifact_logical_path, [])
+  );
+  const swift_argv = compiler_argv(
+    "apple-swift", defs["independent-foreground-helper"].source_logical_ids,
+    defs["independent-foreground-helper"].artifact_logical_path, [])
+  ;
+  const swift_compiler = compiler_of(repo, "apple-swift", swift_argv);
+
+  const members = [];
+  members.push(member_of(repo, defs, "independent-process-helper", process_compiler, signing["independent-process-helper"]));
+  members.push(member_of(repo, defs, "independent-foreground-helper", swift_compiler, signing["independent-foreground-helper"]));
+  members.push(member_of(repo, defs, "primary-focus-fixture", swift_compiler, signing["primary-focus-fixture"]));
+  members.push(member_of(repo, defs, "secondary-focus-fixture", swift_compiler, signing["secondary-focus-fixture"]));
+
+  return {
+    schema: SCHEMA,
+    manifest_contract: { logical_source_id: CONTRACT_LOGICAL_ID, sha256: contract_sha },
+    target: { os: "macos", arch: arch },
+    members: members
+  };
+}
+
+export function canonical_bytes(manifest) {
+  return cj.canonical(manifest);
+}
+
+export function write(repo_value, arch, signing_json, output_logical_path) {
+  const manifest = build(repo_value, arch, signing_json);
+  const bytes = canonical_bytes(manifest);
+  validate_object(manifest);
+  const out = rh.join(rh.absolute(repo_value), output_logical_path);
+  rh.create_dir_all(rh.parent(out));
+  rh.atomic_write(out, bytes);
+  print("wrote " + output_logical_path + " (" + bytes.length + " bytes)");
+  return 0;
+}
+
+// ---- validation ---------------------------------------------------------
+
+// This engine has no `slice`: copy then sort.
+function sorted_copy(values) {
+  const out = [];
+  for (let i = 0; i < values.length; i = i + 1) { out.push(values[i]); }
+  return out.sort();
+}
+
+function exact_keys(object, keys, what) {
+  const got = Object.keys(object).sort();
+  const want = sorted_copy(keys);
+  rh.require(got.length === want.length, what + "_key_count:" + got.length + "!=" + want.length);
+  for (let i = 0; i < want.length; i = i + 1) {
+    rh.require(got[i] === want[i], what + "_key_mismatch:" + got[i] + "!=" + want[i]);
+  }
+}
+
+const MANIFEST_KEYS = ["schema", "manifest_contract", "target", "members"];
+const CONTRACT_REF_KEYS = ["logical_source_id", "sha256"];
+const TARGET_KEYS = ["os", "arch"];
+const MEMBER_KEYS = ["logical_id", "contract", "sources", "compiler", "artifact",
+                     "plist", "bundle_id", "codesign", "composite"];
+const SOURCE_KEYS = ["logical_source_id", "sha256"];
+const COMPILER_KEYS = ["family", "version", "argv"];
+const ARTIFACT_KEYS = ["logical_path", "kind", "sha256"];
+const PLIST_KEYS = ["source_logical_id", "source_sha256", "artifact_logical_path", "artifact_sha256"];
+const CODESIGN_KEYS = ["mode", "status", "scope"];
+const COMPOSITE_KEYS = ["domain", "logical_part_order", "formula"];
+
+// Validate an in-memory manifest against every structural contract rule.
+export function validate_object(m) {
+  exact_keys(m, MANIFEST_KEYS, "manifest");
+  rh.require(m.schema === SCHEMA, "manifest_schema");
+  exact_keys(m.manifest_contract, CONTRACT_REF_KEYS, "manifest_contract");
+  rh.require(m.manifest_contract.logical_source_id === CONTRACT_LOGICAL_ID, "manifest_contract_id");
+  rh.require(is_lower_hex(m.manifest_contract.sha256, 64), "manifest_contract_sha");
+  exact_keys(m.target, TARGET_KEYS, "target");
+  rh.require(m.target.os === "macos", "target_os");
+  rh.require(m.target.arch === "aarch64" || m.target.arch === "x86_64", "target_arch");
+  rh.require(Array.isArray(m.members), "members_array");
+  rh.require(m.members.length === 4, "members_length");
+
+  const defs = member_definitions();
+  for (let i = 0; i < 4; i = i + 1) {
+    const member = m.members[i];
+    const logical_id = MEMBER_ORDER[i];
+    const def = defs[logical_id];
+    rh.require(member.logical_id === logical_id, "member_order:" + member.logical_id);
+    exact_keys(member, MEMBER_KEYS, "member");
+    exact_keys(member.contract, CONTRACT_REF_KEYS, "member_contract");
+    rh.require(member.contract.logical_source_id === def.contract_logical_source_id, "member_contract_id:" + logical_id);
+    rh.require(is_lower_hex(member.contract.sha256, 64), "member_contract_sha:" + logical_id);
+
+    rh.require(Array.isArray(member.sources), "sources_array:" + logical_id);
+    rh.require(member.sources.length === def.source_logical_ids.length, "sources_length:" + logical_id);
+    for (let s = 0; s < member.sources.length; s = s + 1) {
+      exact_keys(member.sources[s], SOURCE_KEYS, "source");
+      rh.require(member.sources[s].logical_source_id === def.source_logical_ids[s], "source_order:" + logical_id);
+      rh.require(is_lower_hex(member.sources[s].sha256, 64), "source_sha:" + logical_id);
+    }
+
+    exact_keys(member.compiler, COMPILER_KEYS, "compiler");
+    rh.require(member.compiler.family === def.compiler_family, "compiler_family:" + logical_id);
+    rh.require(member.compiler.family === "apple-clang" || member.compiler.family === "apple-swift", "compiler_family_domain");
+    rh.require(is_path_free_version(member.compiler.version), "compiler_version_path:" + logical_id);
+    rh.require(is_printable_ascii(member.compiler.version, 128), "compiler_version:" + logical_id);
+    rh.require(Array.isArray(member.compiler.argv), "compiler_argv_array:" + logical_id);
+    rh.require(member.compiler.argv.length >= 1 && member.compiler.argv.length <= 32, "compiler_argv_length:" + logical_id);
+    rh.require(member.compiler.argv[0] === "xcrun", "compiler_argv0:" + logical_id);
+    const tool = member.compiler.family === "apple-clang" ? "clang" : "swiftc";
+    rh.require(member.compiler.argv[1] === tool, "compiler_argv1:" + logical_id);
+    for (let a = 0; a < member.compiler.argv.length; a = a + 1) {
+      rh.require(is_printable_ascii(member.compiler.argv[a], 256), "compiler_argv_item:" + logical_id);
+      rh.require(member.compiler.argv[a].indexOf("/") === -1 || is_valid_logical_path(member.compiler.argv[a]),
+                 "compiler_argv_path:" + logical_id);
+    }
+
+    exact_keys(member.artifact, ARTIFACT_KEYS, "artifact");
+    rh.require(member.artifact.logical_path === def.artifact_logical_path, "artifact_path:" + logical_id);
+    rh.require(member.artifact.kind === "mach-o-executable", "artifact_kind:" + logical_id);
+    rh.require(is_lower_hex(member.artifact.sha256, 64), "artifact_sha:" + logical_id);
+
+    if (def.plist === null) {
+      rh.require(member.plist === null, "helper_plist_null:" + logical_id);
+      rh.require(member.bundle_id === null, "helper_bundle_id_null:" + logical_id);
+    } else {
+      exact_keys(member.plist, PLIST_KEYS, "plist");
+      rh.require(member.plist.source_logical_id === def.plist.source_logical_id, "plist_source:" + logical_id);
+      rh.require(member.plist.artifact_logical_path === def.plist.artifact_logical_path, "plist_artifact:" + logical_id);
+      rh.require(is_lower_hex(member.plist.source_sha256, 64), "plist_source_sha:" + logical_id);
+      rh.require(member.plist.source_sha256 === member.plist.artifact_sha256, "plist_sha_equality:" + logical_id);
+      rh.require(member.bundle_id === def.bundle_id, "bundle_id:" + logical_id);
+    }
+
+    exact_keys(member.codesign, CODESIGN_KEYS, "codesign");
+    rh.require(member.codesign.scope === "artifact-executable", "codesign_scope:" + logical_id);
+    if (member.codesign.mode === "none") {
+      rh.require(member.codesign.status === "unsigned", "codesign_none_status:" + logical_id);
+    } else {
+      rh.require(member.codesign.mode === "linker-ad-hoc" || member.codesign.mode === "explicit-ad-hoc", "codesign_mode:" + logical_id);
+      rh.require(member.codesign.status === "valid", "codesign_adhoc_status:" + logical_id);
+    }
+
+    exact_keys(member.composite, COMPOSITE_KEYS, "composite");
+    rh.require(member.composite.domain === FROZEN_INPUT_DOMAIN, "composite_domain:" + logical_id);
+    rh.require(member.composite.formula === COMPOSITE_FORMULA, "composite_formula:" + logical_id);
+    rh.require(Array.isArray(member.composite.logical_part_order), "composite_order_array:" + logical_id);
+    rh.require(member.composite.logical_part_order.length === def.composite_logical_part_order.length, "composite_order_length:" + logical_id);
+    for (let p = 0; p < member.composite.logical_part_order.length; p = p + 1) {
+      rh.require(member.composite.logical_part_order[p] === def.composite_logical_part_order[p], "composite_order:" + logical_id);
+    }
+  }
+
+  // Cross-member rules.
+  const p = m.members[2];
+  const s = m.members[3];
+  rh.require(p.artifact.sha256 === s.artifact.sha256, "cross_fixture_artifact_sha_equal");
+  rh.require(cj.canonical(p.compiler) === cj.canonical(s.compiler), "cross_fixture_compiler_equal");
+  rh.require(p.contract.sha256 === s.contract.sha256, "cross_fixture_contract_sha_equal");
+  rh.require(p.sources[0].sha256 === s.sources[0].sha256, "cross_fixture_source_sha_equal");
+  rh.require(p.plist.source_sha256 !== s.plist.source_sha256, "cross_fixture_plist_source_differ");
+  rh.require(p.bundle_id !== s.bundle_id, "cross_fixture_bundle_id_differ");
+
+  return true;
+}
+
+// Re-derive the manifest from the repository and compare it byte-for-byte with
+// a manifest parsed from `path`. Any differing field fails with its own name.
+export function validate_against_repo(repo_value, manifest_path_value, arch, signing) {
+  const actual = rh.parse_file(manifest_path_value);
+  const expected = build(repo_value, arch, signing);
+  rh.require(cj.canonical(actual) === cj.canonical(expected), "manifest_recomputed_mismatch");
+  validate_object(actual);
+  return true;
+}

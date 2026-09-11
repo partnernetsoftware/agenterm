@@ -1,0 +1,58 @@
+// canonical_json.qjs -- RFC 8785 (JCS) canonical JSON serializer.
+//
+// A tool library: pure string work, no host door. Import it directly.
+//
+// Why not JSON.stringify: the engine's JSON.stringify preserves insertion
+// order, and RFC 8785 requires object members sorted by their key's UTF-16
+// code units. Every key in the singleton-safety build manifest is ASCII
+// lowercase, so code-unit order equals `Array.prototype.sort()` order; this
+// file sorts keys and recurses, and delegates scalars to JSON.stringify,
+// whose number / string / literal spelling already matches JCS for the value
+// domains the contract allows (integers, booleans, strings, null).
+//
+// Range discipline: JCS is defined over JSON values, so `undefined`, `NaN` and
+// `+/-Infinity` are outside the domain and are refused by name instead of being
+// silently coerced to `null` the way bare JSON.stringify would. The generator's
+// contract domain is strings, booleans, null and finite integers; this file
+// accepts any finite number (JCS spells non-integer doubles too) and rejects
+// every non-finite one. `-0` is finite and serializes as `0`, as JCS requires.
+//
+// The engine has no `isFinite`, no `Math`, no `slice` and no
+// `getOwnPropertyNames`; NaN is detected by `x !== x`, infinities by equality
+// against `1/0` and `-1/0`, and `Object.keys` is the whole reflection surface.
+
+function out_of_domain(value) {
+  return value === undefined ||
+    value !== value ||          // NaN
+    value === 1 / 0 ||          // +Infinity
+    value === -1 / 0;           // -Infinity
+}
+
+export function canonical(value) {
+  if (value === null) { return "null"; }
+  if (value === undefined) { throw "canonical_undefined"; }
+  if (Array.isArray(value)) {
+    let out = "[";
+    for (let i = 0; i < value.length; i = i + 1) {
+      if (i > 0) { out = out + ","; }
+      out = out + canonical(value[i]);
+    }
+    return out + "]";
+  }
+  const t = typeof value;
+  if (t === "number") {
+    if (out_of_domain(value)) { throw "canonical_non_finite_number"; }
+    return JSON.stringify(value);
+  }
+  if (t === "string" || t === "boolean") {
+    return JSON.stringify(value);
+  }
+  // Plain object: members sorted by key.
+  const keys = Object.keys(value).sort();
+  let out = "{";
+  for (let i = 0; i < keys.length; i = i + 1) {
+    if (i > 0) { out = out + ","; }
+    out = out + JSON.stringify(keys[i]) + ":" + canonical(value[keys[i]]);
+  }
+  return out + "}";
+}

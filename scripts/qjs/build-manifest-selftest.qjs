@@ -1,0 +1,304 @@
+// Synthetic self-test for the singleton-safety build manifest generator.
+//
+// Builds a throwaway repository tree under
+// `target/singleton-safety-build-manifest-selftest/`, writes the exact source
+// and artifact/plist bytes the generator hashes, then exercises generate,
+// validate, and every negative the contract names. No GUI, browser or court;
+// no network. The only host work is `xcrun --version` and SHA-256.
+//
+// Runs under `--profile tool`.
+import * as rh from "lib/rh_compat";
+import * as cj from "lib/canonical_json";
+import * as bm from "lib/build_manifest";
+
+function require(condition, message) { if (!condition) { throw message; } }
+
+// ---- fixture tree -------------------------------------------------------
+
+const ROOT_LOGICAL = "target/singleton-safety-build-manifest-selftest";
+const SENTINEL = "selftest_cleanup_sentinel";
+
+function write_bytes(path, text) {
+  rh.atomic_write(path, text);
+}
+
+function seed_tree(repo) {
+  const files = {
+    "research/browser-profile-open-singleton-safety/fixtures/build-manifest-contract.json": "{\"contract\":1}\n",
+    "research/browser-profile-open-singleton-safety/fixtures/process-probe/process-probe-contract.json": "{\"process\":1}\n",
+    "research/browser-profile-open-singleton-safety/fixtures/process-probe/ProcessProbe.c": "int main(void){return 0;}\n",
+    "research/browser-profile-open-singleton-safety/fixtures/focus-probe/foreground-probe-contract.json": "{\"fg\":1}\n",
+    "research/browser-profile-open-singleton-safety/fixtures/focus-probe/ForegroundProbe.swift": "// fg\n",
+    "research/browser-profile-open-singleton-safety/fixtures/apps/focus-fixture-contract.json": "{\"apps\":1}\n",
+    "research/browser-profile-open-singleton-safety/fixtures/apps/FocusFixture.swift": "// fixture\n",
+    "research/browser-profile-open-singleton-safety/fixtures/apps/Primary-Info.plist": "<plist>primary</plist>\n",
+    "research/browser-profile-open-singleton-safety/fixtures/apps/Secondary-Info.plist": "<plist>secondary</plist>\n",
+    // The one shared executable copied into both bundles must be byte-equal.
+    "target/browser-profile-open-singleton-safety-fixtures/bin/process-probe": "PROCESS-HELPER\n",
+    "target/browser-profile-open-singleton-safety-fixtures/bin/foreground-probe": "FOREGROUND-HELPER\n",
+    "target/browser-profile-open-singleton-safety-fixtures/PrimaryFocusFixture.app/Contents/MacOS/FocusFixture": "FIXTURE-EXEC\n",
+    "target/browser-profile-open-singleton-safety-fixtures/SecondaryFocusFixture.app/Contents/MacOS/FocusFixture": "FIXTURE-EXEC\n",
+    // plist artifact copies must equal their sources byte-for-byte.
+    "target/browser-profile-open-singleton-safety-fixtures/PrimaryFocusFixture.app/Contents/Info.plist": "<plist>primary</plist>\n",
+    "target/browser-profile-open-singleton-safety-fixtures/SecondaryFocusFixture.app/Contents/Info.plist": "<plist>secondary</plist>\n"
+  };
+  const keys = Object.keys(files);
+  for (let i = 0; i < keys.length; i = i + 1) {
+    const rel = keys[i];
+    ensure_parent(repo, rel);
+    write_bytes(rh.join(repo, rel), files[rel]);
+  }
+}
+
+// This engine has no `lastIndexOf`: scan for the final separator by hand.
+function last_slash(rel) {
+  let found = -1;
+  for (let i = 0; i < rel.length; i = i + 1) {
+    if (rel.charAt(i) === "/") { found = i; }
+  }
+  return found;
+}
+
+function ensure_parent(repo, rel) {
+  const slash = last_slash(rel);
+  if (slash < 0) { return; }
+  const dir = rh.join(repo, rel.substring(0, slash));
+  rh.create_dir_all(dir);
+}
+
+function signing_map() {
+  return {
+    "independent-process-helper": { mode: "none", status: "unsigned" },
+    "independent-foreground-helper": { mode: "none", status: "unsigned" },
+    "primary-focus-fixture": { mode: "linker-ad-hoc", status: "valid" },
+    "secondary-focus-fixture": { mode: "linker-ad-hoc", status: "valid" }
+  };
+}
+
+// ---- tests --------------------------------------------------------------
+
+function fresh_repo() {
+  const repo = rh.join(rh.cwd(), ROOT_LOGICAL);
+  rh.try_remove_dir_all(repo);
+  rh.create_dir_all(repo);
+  seed_tree(repo);
+  return repo;
+}
+
+// Best-effort removal of the one fixed root this selftest owns. It never throws:
+// a cleanup failure must never replace the original test result. It touches only
+// ROOT_LOGICAL, nothing else under target/.
+function owned_root() {
+  return rh.join(rh.cwd(), ROOT_LOGICAL);
+}
+
+function remove_owned_root() {
+  try { rh.try_remove_dir_all(owned_root()); } catch (e) { print("selftest_cleanup: " + e); }
+}
+
+// The one production cleanup wrapper: run `fn`, always remove the owned root, and
+// let the original error (if any) propagate unchanged. `remove_owned_root` never
+// throws, so a cleanup failure can never replace the original failure.
+function with_owned_cleanup(fn) {
+  try {
+    return fn();
+  } finally {
+    remove_owned_root();
+  }
+}
+
+function expect_throw(fn, label) {
+  let threw = false;
+  try { fn(); } catch (e) { threw = true; }
+  require(threw, "negative_did_not_throw:" + label);
+}
+
+function run_checks() {
+  const repo = fresh_repo();
+  const signing = signing_map();
+
+  // generate
+  const manifest = bm.build(repo, "aarch64", signing);
+  const bytes = bm.canonical_bytes(manifest);
+  bm.write(repo, "aarch64", signing, ROOT_LOGICAL + "/build-manifest.json");
+
+  // canonical by construction: re-serializing is a fixed point
+  require(cj.canonical(JSON.parse(bytes)) === bytes, "canonical_not_fixed_point");
+  // no trailing newline, single object
+  require(bytes.indexOf("\n") === -1, "canonical_has_newline");
+  require(bytes.startsWith("{") && bytes.endsWith("}"), "canonical_not_object");
+
+  // structural rules pass on the in-memory object
+  require(bm.validate_object(manifest) === true, "validate_object_rejected");
+
+  // re-derivation matches the stored file
+  const manifest_abs = rh.join(repo, ROOT_LOGICAL + "/build-manifest.json");
+  require(
+    bm.validate_against_repo(repo, manifest_abs, "aarch64", signing) === true,
+    "validate_against_repo_rejected"
+  );
+
+  // --- negatives ---
+
+  // missing top-level key (no `delete` in this engine: rebuild without it)
+  expect_throw(function () {
+    const full = JSON.parse(bytes);
+    const broken = {
+      schema: full.schema,
+      manifest_contract: full.manifest_contract,
+      target: full.target
+    };
+    bm.validate_object(broken);
+  }, "missing_members");
+
+  // extra key
+  expect_throw(function () {
+    const broken = JSON.parse(bytes);
+    broken.extra = 1;
+    bm.validate_object(broken);
+  }, "extra_key");
+
+  // member order swap
+  expect_throw(function () {
+    const broken = JSON.parse(bytes);
+    const first = broken.members[0];
+    broken.members[0] = broken.members[1];
+    broken.members[1] = first;
+    bm.validate_object(broken);
+  }, "member_order");
+
+  // helper plist must be null
+  expect_throw(function () {
+    const broken = JSON.parse(bytes);
+    broken.members[0].plist = { source_logical_id: "x", source_sha256: "y",
+                                artifact_logical_path: "z", artifact_sha256: "y" };
+    bm.validate_object(broken);
+  }, "helper_plist_not_null");
+
+  // codesign mode/status contradiction
+  expect_throw(function () {
+    const broken = JSON.parse(bytes);
+    broken.members[0].codesign = { mode: "none", status: "valid", scope: "artifact-executable" };
+    bm.validate_object(broken);
+  }, "codesign_none_valid");
+
+  // cross-member: fixture artifact hashes must be equal
+  expect_throw(function () {
+    const broken = JSON.parse(bytes);
+    broken.members[3].artifact.sha256 = "0".repeat(64);
+    bm.validate_object(broken);
+  }, "fixture_artifact_hash_differ");
+
+  // cross-member: fixture plist source hashes must differ
+  expect_throw(function () {
+    const broken = JSON.parse(bytes);
+    broken.members[3].plist.source_sha256 = broken.members[2].plist.source_sha256;
+    broken.members[3].plist.artifact_sha256 = broken.members[2].plist.artifact_sha256;
+    bm.validate_object(broken);
+  }, "fixture_plist_source_equal");
+
+  // source hash mismatch against repo bytes
+  expect_throw(function () {
+    rh.atomic_write(rh.join(repo, "research/browser-profile-open-singleton-safety/fixtures/process-probe/ProcessProbe.c"), "changed\n");
+    bm.validate_against_repo(repo, rh.join(repo, ROOT_LOGICAL + "/build-manifest.json"), "aarch64", signing);
+  }, "source_hash_mismatch");
+
+  // missing artifact fails closed
+  expect_throw(function () {
+    const repo2 = fresh_repo();
+    rh.remove_file(rh.join(repo2, "target/browser-profile-open-singleton-safety-fixtures/bin/process-probe"));
+    bm.build(repo2, "aarch64", signing);
+  }, "missing_artifact");
+
+  // logical path domain
+  require(bm.is_valid_logical_path("a/b/c") === true, "logical_path_ok");
+  require(bm.is_valid_logical_path("/abs") === false, "logical_path_leading_slash");
+  require(bm.is_valid_logical_path("~/home") === false, "logical_path_home");
+  require(bm.is_valid_logical_path("a/../b") === false, "logical_path_dotdot");
+  require(bm.is_valid_logical_path("a//b") === false, "logical_path_empty_component");
+  require(bm.is_valid_logical_path("a\\b") === false, "logical_path_backslash");
+
+  // --- canonical_json domain: JSON/JCS-out-of-domain values must fail loudly ---
+  // (the generator only produces strings, booleans, null and finite integers, so
+  // these inputs are unreachable through build(); the serializer still refuses
+  // to invent `null` for them.)
+  expect_throw(function () { cj.canonical(undefined); }, "canonical_undefined");
+  expect_throw(function () { cj.canonical(0 / 0); }, "canonical_nan");
+  expect_throw(function () { cj.canonical(1 / 0); }, "canonical_plus_infinity");
+  expect_throw(function () { cj.canonical(-1 / 0); }, "canonical_minus_infinity");
+  expect_throw(function () { cj.canonical({ a: undefined }); }, "canonical_object_undefined");
+  expect_throw(function () { cj.canonical([undefined]); }, "canonical_array_undefined");
+  expect_throw(function () { cj.canonical({ a: 1 / 0 }); }, "canonical_object_infinity");
+
+  // --- canonical_json domain: legal values must keep passing, byte-exact ---
+  require(cj.canonical(null) === "null", "canonical_null");
+  require(cj.canonical(true) === "true", "canonical_true");
+  require(cj.canonical(0) === "0", "canonical_zero");
+  require(cj.canonical(-0) === "0", "canonical_negative_zero_is_zero");
+  require(cj.canonical(5) === "5", "canonical_int");
+  require(cj.canonical(-12) === "-12", "canonical_negative_int");
+  require(cj.canonical("a\"b\\c\nd\te") === "\"a\\\"b\\\\c\\nd\\te\"", "canonical_string_escapes");
+  require(cj.canonical("\u00e9\u4e2d") === "\"\u00e9\u4e2d\"", "canonical_unicode_literal");
+  require(cj.canonical({ b: 1, a: [2, { d: 4, c: 3 }] }) === "{\"a\":[2,{\"c\":3,\"d\":4}],\"b\":1}", "canonical_key_order");
+
+  // Hardcoded canonical known-answer: the RFC 8785 example object, pinned as a
+  // literal so the expectation is never produced by the code under test.
+  const jcs_input = {
+    "numbers": [333333333.33333329, 1E30, 4.50, 2e-3, 0.000000000000000000000000001],
+    "string": "\u20ac$\u000f\nA'B\"\\\\\"/",
+    "literals": [null, true, false]
+  };
+  const jcs_expected = "{\"literals\":[null,true,false],\"numbers\":[333333333.3333333,1e+30,4.5,0.002,1e-27],\"string\":\"€$\\u000f\\nA'B\\\"\\\\\\\\\\\"/\"}";
+  require(cj.canonical(jcs_input) === jcs_expected, "canonical_hardcoded_known_answer");
+
+  // --- compiler.version domain: no path, no backslash, no repo path ---
+  expect_throw(function () {
+    const broken = JSON.parse(bytes);
+    broken.members[0].compiler.version = "/usr/bin/clang";
+    bm.validate_object(broken);
+  }, "compiler_version_absolute_path");
+  expect_throw(function () {
+    const broken = JSON.parse(bytes);
+    broken.members[0].compiler.version = "clang/x";
+    bm.validate_object(broken);
+  }, "compiler_version_embedded_slash");
+  expect_throw(function () {
+    const broken = JSON.parse(bytes);
+    broken.members[0].compiler.version = "C:\\\\bin\\\\clang";
+    bm.validate_object(broken);
+  }, "compiler_version_backslash");
+  expect_throw(function () {
+    const broken = JSON.parse(bytes);
+    broken.members[0].compiler.version = repo;
+    bm.validate_object(broken);
+  }, "compiler_version_expanded_repo");
+
+  // --- owned-root cleanup, exercised through the PRODUCTION wrapper ---
+  // Create the owned root, then run a callback that throws a fixed sentinel
+  // inside with_owned_cleanup. The original sentinel must survive and the owned
+  // root must be gone afterwards. There is no second, test-local cleanup.
+  fresh_repo();                                       // creates the owned root
+  require(rh.exists(owned_root()), "cleanup_test_root_not_created");
+  let seen = "";
+  try {
+    with_owned_cleanup(function () { throw SENTINEL; });
+  } catch (e) {
+    seen = "" + e;
+  }
+  require(seen === SENTINEL, "cleanup_test_original_error_masked:" + seen);
+  require(!rh.exists(owned_root()), "cleanup_test_root_remains");
+
+  print("build-manifest selftest ok: " + ROOT_LOGICAL + "/build-manifest.json");
+  return 0;
+}
+
+// Success runs through the same production wrapper as the failure test below.
+function run() {
+  with_owned_cleanup(function () { run_checks(); });
+  // Prove the owned root is gone after a successful run; a leftover would fail
+  // the task instead of silently leaving resources behind.
+  require(!rh.exists(owned_root()), "selftest_owned_root_remains");
+  return 0;
+}
+
+return run();
