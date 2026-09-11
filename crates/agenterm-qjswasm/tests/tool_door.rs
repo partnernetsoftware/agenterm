@@ -420,6 +420,188 @@ fn process_spawn_refuses_before_the_thirty_third_native_child() {
     );
 }
 
+/// `process.release` destroys a finished slot: repeated wait replays the same
+/// answer, and after release every other handle door reports a typed stale
+/// refusal by name.
+#[test]
+fn process_release_destroys_a_finished_slot_and_stales_every_handle_door() {
+    let out = run_tool(
+        r#"
+        const spec = JSON.stringify({ program: "sh", args: ["-c", "printf hi"] });
+        const h = process_spawn(spec);
+        if (h < 0) { throw "spawn:" + tool_result(); }
+        if (process_wait(h, 5000) !== 0) { throw "wait:" + tool_result(); }
+        const first = tool_result();
+        // a repeated wait before release replays the same envelope
+        if (process_wait(h, 5000) !== 0) { throw "wait2:" + tool_result(); }
+        const replay = tool_result();
+        const replayed = (replay === first);
+        if (process_release(h) !== 0) { throw "release:" + tool_result(); }
+        // every door now refuses this handle, and the refusal names it
+        const state = process_state(h);
+        const state_msg = tool_result();
+        const read = process_read(h, 16);
+        const read_msg = tool_result();
+        const wait = process_wait(h, 10);
+        const wait_msg = tool_result();
+        const kill = process_kill(h);
+        const kill_msg = tool_result();
+        const pid = process_pid(h);
+        const pid_msg = tool_result();
+        const release = process_release(h);
+        const release_msg = tool_result();
+        return "" + replayed + "|" + state + "|" + read + "|" + wait + "|" + kill
+            + "|" + pid + "|" + release + "|" + state_msg + "|" + read_msg + "|"
+            + wait_msg + "|" + kill_msg + "|" + pid_msg + "|" + release_msg;
+        "#,
+    );
+    let text = string_of(&out);
+    // state/read/wait/release answer with STATUS_ERR (1); kill/pid are `direct`
+    // doors and answer -1. Every one must refuse by name.
+    assert!(text.starts_with("true|1|1|1|-1|-1|1|"), "{text:?}");
+    for door in [
+        "process.state",
+        "process.read",
+        "process.wait",
+        "process.kill",
+        "process.pid",
+        "process.release",
+    ] {
+        assert!(
+            text.contains(&format!("{door}: no child with handle 0")),
+            "{door} must refuse by name: {text:?}"
+        );
+    }
+}
+
+/// A still-running child is refused by release and stays killable and waitable.
+#[test]
+fn process_release_refuses_a_running_child_which_stays_killable() {
+    let out = run_tool(
+        r#"
+        const spec = JSON.stringify({ program: "sleep", args: ["30"] });
+        const h = process_spawn(spec);
+        if (h < 0) { throw "spawn:" + tool_result(); }
+        if (process_release(h) === 0) { return "running-released"; }
+        const refused = tool_result();
+        if (process_kill(h) !== 0) { return "kill:" + tool_result(); }
+        if (process_wait(h, 5000) !== 0) { return "wait:" + tool_result(); }
+        if (process_release(h) !== 0) { return "release-after-done:" + tool_result(); }
+        return refused;
+        "#,
+    );
+    let text = string_of(&out);
+    assert_eq!(
+        text, "process.release: child 0 is still running",
+        "{text:?}"
+    );
+}
+
+/// A loop of spawn/wait/release never exhausts the 32-slot budget, and the ids
+/// only move forward: the first handle is never valid again.
+#[test]
+fn process_release_lets_a_loop_reuse_the_budget_without_reviving_a_handle() {
+    let out = run_tool(
+        r#"
+        const spec = JSON.stringify({ program: "sh", args: ["-c", "exit 0"] });
+        let first = -1;
+        for (let i = 0; i < 120; i = i + 1) {
+            const h = process_spawn(spec);
+            if (h < 0) { return "spawn:" + i + ":" + tool_result(); }
+            if (i === 0) { first = h; }
+            if (process_wait(h, 5000) !== 0) { return "wait:" + i + ":" + tool_result(); }
+            if (process_release(h) !== 0) { return "release:" + i + ":" + tool_result(); }
+        }
+        // the first handle was released long ago and must never be valid again
+        if (process_state(first) === 0) { return "revived"; }
+        if (process_release(first) === 0) { return "revived-release"; }
+        const last = process_spawn(spec);
+        if (last < 0) { return "last:" + tool_result(); }
+        const ahead = (last > first);
+        if (process_wait(last, 5000) !== 0) { return "lastwait:" + tool_result(); }
+        if (process_release(last) !== 0) { return "lastrelease:" + tool_result(); }
+        return "" + ahead;
+        "#,
+    );
+    assert_eq!(string_of(&out), "true", "{out:?}");
+}
+
+/// A released Done slot frees the budget for another spawn: 32 running fills it,
+/// the 33rd is refused with no side effect, and after release a spawn succeeds.
+#[test]
+fn process_release_frees_the_budget_for_a_new_spawn() {
+    let scratch = Scratch::new("release-frees-budget");
+    let marker = scratch.path("forbidden-after-release");
+    let out = run_tool(&format!(
+        r#"
+        const spec = JSON.stringify({{ program: "sh", args: ["-c", "exit 0"] }});
+        const handles = [];
+        for (let i = 0; i < 32; i = i + 1) {{
+            const h = process_spawn(spec);
+            if (h < 0) {{ return "early:" + i + ":" + tool_result(); }}
+            handles.push(h);
+        }}
+        const refused = process_spawn(JSON.stringify({{ program: "/usr/bin/touch", args: [{marker}] }}));
+        const refusal = tool_result();
+        // finish and release ONE slot, then a new spawn must succeed
+        if (process_wait(handles[0], 5000) !== 0) {{ return "wait:" + tool_result(); }}
+        if (process_release(handles[0]) !== 0) {{ return "release:" + tool_result(); }}
+        const again = process_spawn(spec);
+        if (again < 0) {{ return "again:" + tool_result(); }}
+        // clean up the rest
+        for (let i = 1; i < handles.length; i = i + 1) {{
+            process_wait(handles[i], 5000);
+            process_release(handles[i]);
+        }}
+        process_wait(again, 5000);
+        process_release(again);
+        return "" + refused + "|" + refusal + "|" + fs_exists({marker});
+        "#,
+        marker = js(&marker),
+    ));
+    assert_eq!(
+        string_of(&out),
+        "-1|process.spawn: child handle limit 32 reached|0",
+        "{out:?}"
+    );
+}
+
+/// Stale, negative, huge and repeated-release handles are typed refusals.
+#[test]
+fn process_release_refuses_stale_negative_huge_and_double_release() {
+    let out = run_tool(
+        r#"
+        const spec = JSON.stringify({ program: "sh", args: ["-c", "exit 0"] });
+        const h = process_spawn(spec);
+        if (h < 0) { throw "spawn:" + tool_result(); }
+        if (process_wait(h, 5000) !== 0) { throw "wait:" + tool_result(); }
+        if (process_release(h) !== 0) { throw "release:" + tool_result(); }
+        const twice = process_release(h);
+        const r1 = tool_result();
+        const negative = process_release(-3);
+        const r2 = tool_result();
+        const huge = process_release(2147483647);
+        const r3 = tool_result();
+        return "" + twice + "|" + r1 + "|" + negative + "|" + r2 + "|" + huge + "|" + r3;
+        "#,
+    );
+    let text = string_of(&out);
+    assert_eq!(
+        text,
+        "1|process.release: no child with handle 0|1|process.release: no child with handle -3|1|process.release: no child with handle 2147483647",
+        "{out:?}"
+    );
+    // the release door is metered and receipted like its siblings
+    assert_eq!(
+        out.tool_calls
+            .iter()
+            .filter(|call| call.as_str() == "tool.process.release")
+            .count(),
+        4,
+        "每 release 调用记一行 receipt: {out:?}"
+    );
+}
+
 #[test]
 fn process_list_and_tree_contain_the_tool_host_identity() {
     let out = run_tool(
@@ -1501,6 +1683,62 @@ fn an_unwaited_child_is_killed_with_the_slot() {
     assert!(
         survivors.trim().is_empty(),
         "the unwaited child must be reaped with the slot; still running: {}",
+        survivors.trim()
+    );
+}
+
+/// Releasing a finished slot must not disturb teardown: an un-released running
+/// child is still reaped with the engine, and releasing the first (already
+/// finished) child changes nothing about that.
+#[test]
+fn a_released_done_slot_does_not_spare_an_unwaited_running_child() {
+    let finished = format!("29.{}", std::process::id() % 1000 + 100);
+    let survivor = format!("30.{}", std::process::id() % 1000 + 100);
+    let source = format!(
+        r#"
+        const done_spec = JSON.stringify({{ program: "sleep", args: ["{finished}"] }});
+        const first = process_spawn(done_spec);
+        if (first < 0) {{ return "spawn1:" + tool_result(); }}
+        if (process_kill(first) !== 0) {{ return "kill1:" + tool_result(); }}
+        if (process_wait(first, 5000) !== 0) {{ return "wait1:" + tool_result(); }}
+        if (process_release(first) !== 0) {{ return "release1:" + tool_result(); }}
+        // a second child is started and deliberately never waited or released
+        const live_spec = JSON.stringify({{ program: "sleep", args: ["{survivor}"] }});
+        const second = process_spawn(live_spec);
+        if (second < 0) {{ return "spawn2:" + tool_result(); }}
+        time_sleep_ms(100);
+        if (process_state(second) !== 0) {{ return "state2:" + tool_result(); }}
+        return tool_result();
+    "#
+    );
+    let mut engine = agenterm_qjswasm::Engine::with_tool_door(agenterm_qjswasm::Budget::default());
+    let wasm = agenterm_qjswasm::compile_qjs_tool(&source).expect("compiles");
+    let out = engine
+        .run_once(
+            agenterm_qjswasm::Guest::CompiledQjs(&wasm),
+            None,
+            "main",
+            &[],
+        )
+        .expect("runs");
+    let got = match out.values.first() {
+        Some(agenterm_qjswasm::Value::Js(agenterm_qjswasm::JsValue::Str(s))) => s.clone(),
+        other => panic!("expected a string, got {other:?}"),
+    };
+    assert_eq!(
+        got, "running",
+        "the second child was alive while the script ran"
+    );
+    drop(engine);
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let survivors = std::process::Command::new("pgrep")
+        .args(["-f", &format!("^sleep {survivor}$")])
+        .output()
+        .expect("pgrep");
+    let survivors = String::from_utf8_lossy(&survivors.stdout);
+    assert!(
+        survivors.trim().is_empty(),
+        "the un-released running child must still be reaped; still running: {}",
         survivors.trim()
     );
 }

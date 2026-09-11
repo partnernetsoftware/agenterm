@@ -4727,6 +4727,20 @@ cap the complete per-slot handle ledger independently of per-call operation
 fuel, and reject exhaustion before opening or creating a file. Test both the
 no-create refusal and repeated lock/unlock across exported calls on one slot.
 
+A handle budget that fills up with finished work needs an explicit release, not a
+reused index. Make the handle an integer id the allocator only ever moves forward
+(the Wasm door ABI is a signed `i32`, so keep the counter `Option<i32>` and stop at
+`checked_add` exhaustion, never widen-then-truncate), and keep live slots in a
+bounded map. Release destroys only a finished slot so the bound is not a one-shot
+budget, while the id it consumed is never reissued -- that is what stops a stale
+handle from addressing a later, unrelated child. Refuse both a full bound and an
+exhausted id space before starting any child or side effect, so a refusal leaves no
+process running. A still-running handle is refused and stays killable/waitable, an
+unknown or already-released handle is a typed refusal, and a repeated wait before
+release still replays the cached result. Test the allocator near `i32::MAX`
+directly rather than looping billions of times, and prove the refusal happens
+before the spawn side effect.
+
 ## Establish process containment before user code executes
 
 `Command::spawn` followed by Job assignment is not containment on Windows: the

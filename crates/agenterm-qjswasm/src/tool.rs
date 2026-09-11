@@ -115,7 +115,7 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 50] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 51] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
@@ -146,6 +146,7 @@ pub(crate) const SIGNATURES: [(&str, usize, usize); 50] = [
     ("process.spawn", 2, 1),
     ("process.state", 1, 1),
     ("process.kill", 1, 1),
+    ("process.release", 1, 1),
     ("process.wait", 2, 1),
     ("process.pid", 1, 1),
     ("process.list", 0, 1),
@@ -296,6 +297,7 @@ pub(crate) fn declarations() -> Vec<HostFn> {
         decl("process.spawn", vec![HostParam::StrPtrLen], HostResult::I32),
         decl("process.state", vec![HostParam::I32], HostResult::I32),
         decl("process.kill", vec![HostParam::I32], HostResult::I32),
+        decl("process.release", vec![HostParam::I32], HostResult::I32),
         decl(
             "process.wait",
             vec![HostParam::I32, HostParam::I32],
@@ -421,8 +423,9 @@ pub(crate) struct ToolState {
     /// The invocation's arguments, set by the embedder before the script
     /// runs. Read through `arg_count` / `arg`; never written by the guest.
     args: Vec<String>,
-    /// Children started by `process.spawn`, by handle. `None` once waited.
-    children: Vec<Handle>,
+    /// Children started by `process.spawn`, by handle. A waited child keeps its
+    /// replay answer until `process.release` destroys the slot.
+    children: ChildRegistry,
     /// Advisory locks held by handle index; released on `fs.unlock` or when
     /// the state drops. rh's `fs_try_lock_exclusive` backed the `.cargo-lock`
     /// pre-flight and the hold-every-`.lock`-while-removing protocol of
@@ -456,7 +459,7 @@ const PROCESS_CHILD_HANDLE_LIMIT: usize = 32;
 /// opening or creating the next file so exhaustion has no filesystem effect.
 const FS_LOCK_HANDLE_LIMIT: usize = 32;
 
-/// One spawned child, by handle index. A waited child keeps its pid and
+/// One spawned child, by handle. A waited child keeps its pid and
 /// replays its first answer: rh scripts `wait_with_output` a child they
 /// already reaped, and `complete` re-waits every owned handle -- wave 2 met
 /// "handle N was already waited" in every group that waits its own server.
@@ -466,6 +469,80 @@ enum Handle {
         pid: u32,
         answer: Result<String, String>,
     },
+}
+
+/// A generation-safe, bounded registry of owned child handles.
+///
+/// A handle is a **monotonic id that is never reused**, not a `Vec` index. An
+/// index would let a released handle silently address the next child spawned into
+/// that slot (ABA); an id that only ever moves forward cannot. The id is the
+/// Wasm door ABI directly (`i32`), so nothing is widened and truncated. Live slots
+/// are bounded by [`PROCESS_CHILD_HANDLE_LIMIT`], and `release` removes a finished
+/// slot so the bound is not a one-shot budget -- but the id counter keeps rising,
+/// so a released id never comes back. The map holds at most the live bound, so its
+/// memory does not grow with the number of past releases.
+struct ChildRegistry {
+    live: std::collections::BTreeMap<i32, Handle>,
+    /// `Some(next)` while ids remain; `None` once the last signed id was minted,
+    /// after which every spawn fails closed before any child is started.
+    next_id: Option<i32>,
+}
+
+impl ChildRegistry {
+    fn new() -> Self {
+        Self {
+            live: std::collections::BTreeMap::new(),
+            next_id: Some(0),
+        }
+    }
+
+    fn get(&self, handle: i32) -> Option<&Handle> {
+        self.live.get(&handle)
+    }
+
+    fn get_mut(&mut self, handle: i32) -> Option<&mut Handle> {
+        self.live.get_mut(&handle)
+    }
+
+    /// Reserve a fresh, never-reused id, refusing BEFORE the child is started when
+    /// the live bound or the id space is exhausted.
+    ///
+    /// The last id that can ever be allocated is `i32::MAX`; after that `next_id`
+    /// becomes `None` and stays exhausted. `checked_add` is what decides it, so no
+    /// implicit cast or truncation is involved -- the ABI value itself is the key.
+    fn reserve_id(&mut self) -> Result<i32, String> {
+        if self.live.len() >= PROCESS_CHILD_HANDLE_LIMIT {
+            return Err(format!(
+                "process.spawn: child handle limit {PROCESS_CHILD_HANDLE_LIMIT} reached"
+            ));
+        }
+        let id = self
+            .next_id
+            .ok_or_else(|| "process.spawn: child handle id space exhausted".to_string())?;
+        self.next_id = id.checked_add(1);
+        Ok(id)
+    }
+
+    fn insert_running(&mut self, id: i32, running: Running) {
+        self.live.insert(id, Handle::Running(running));
+    }
+
+    /// Destroy one finished slot, returning whether it was a `Done` slot.
+    /// A `Running` slot is refused and left untouched so it stays killable and
+    /// waitable. An unknown id is refused. The id is never returned to the free
+    /// pool.
+    fn release(&mut self, handle: i32) -> Result<(), String> {
+        match self.live.get(&handle) {
+            None => Err(format!("process.release: no child with handle {handle}")),
+            Some(Handle::Running(_)) => {
+                Err(format!("process.release: child {handle} is still running"))
+            }
+            Some(Handle::Done { .. }) => {
+                self.live.remove(&handle);
+                Ok(())
+            }
+        }
+    }
 }
 
 /// A child that has not been waited: its drains run from the moment it is
@@ -569,7 +646,7 @@ impl Drop for ToolState {
     /// slot. rh's gates assert `orphan_free` in their cleanup manifest, and
     /// the door has to make that true rather than trust every script to.
     fn drop(&mut self) {
-        for handle in &mut self.children {
+        for handle in self.children.live.values_mut() {
             if let Handle::Running(r) = handle {
                 let _ = r.child.terminate_and_wait(Duration::from_secs(5));
             }
@@ -600,7 +677,7 @@ pub(crate) fn install(
         fault: None,
         max_result: budget.max_bridge_result_bytes,
         args,
-        children: Vec::new(),
+        children: ChildRegistry::new(),
         locks: Vec::new(),
         meter: Rc::clone(&meter),
         clock: budget.fixed_clock_ms.map(|origin| (origin, 0)),
@@ -1115,28 +1192,28 @@ pub(crate) fn install(
         move |args, memory| {
             let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
             direct(&state, "process.spawn", || {
-                if state.borrow().children.len() >= PROCESS_CHILD_HANDLE_LIMIT {
-                    return Err(format!(
-                        "process.spawn: child handle limit {PROCESS_CHILD_HANDLE_LIMIT} reached"
-                    ));
-                }
+                // Reserve the handle BEFORE starting the child, so a bound or id
+                // exhaustion refuses with no process side effect.
+                let id = state.borrow_mut().children.reserve_id()?;
                 let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
                     .map_err(|e| format!("process.spawn: the spec is not valid: {e}"))?;
                 let mut child = spawn_command(&spec, true)?;
                 let drains = Drains::start(&mut child, max_capture);
                 let mut s = state.borrow_mut();
-                s.children.push(Handle::Running(Running {
-                    child,
-                    drains,
-                    started: Instant::now(),
-                    deadline: spec.timeout_ms.map(Duration::from_millis),
-                    killed_by_deadline: false,
-                    max_capture,
-                    read_stdout: 0,
-                    read_stderr: 0,
-                }));
-                i32::try_from(s.children.len() - 1)
-                    .map_err(|_| "process.spawn: child handle index overflow".to_string())
+                s.children.insert_running(
+                    id,
+                    Running {
+                        child,
+                        drains,
+                        started: Instant::now(),
+                        deadline: spec.timeout_ms.map(Duration::from_millis),
+                        killed_by_deadline: false,
+                        max_capture,
+                        read_stdout: 0,
+                        read_stderr: 0,
+                    },
+                );
+                Ok(id)
             })
         },
     )?;
@@ -1151,7 +1228,7 @@ pub(crate) fn install(
             let h = arg(args, 0)?;
             answer(&state, "process.state", || {
                 let mut s = state.borrow_mut();
-                let slot = usize::try_from(h).ok().and_then(|i| s.children.get_mut(i));
+                let slot = s.children.get_mut(h);
                 Ok(match slot {
                     Some(Handle::Running(r)) => {
                         r.enforce_deadline();
@@ -1179,7 +1256,7 @@ pub(crate) fn install(
             let h = arg(args, 0)?;
             direct(&state, "process.kill", || {
                 let mut s = state.borrow_mut();
-                match usize::try_from(h).ok().and_then(|i| s.children.get_mut(i)) {
+                match s.children.get_mut(h) {
                     Some(Handle::Running(r)) => r
                         .child
                         .terminate_and_wait(Duration::from_secs(5))
@@ -1188,6 +1265,28 @@ pub(crate) fn install(
                     Some(Handle::Done { .. }) => Ok(0),
                     None => Err(format!("process.kill: no child with handle {h}")),
                 }
+            })
+        },
+    )?;
+
+    // `process.release(handle)`: destroy a FINISHED child slot and return its
+    // retained slot to the live bound, so a script that spawns/waiting/releases in
+    // a loop never exhausts the handle budget. Only a `Done` slot may be released; a
+    // still-running child is refused and stays killable/waitable, and an unknown or
+    // already-released handle is refused. The handle id is never reused, so a
+    // released handle can never address a later child. This is a runtime API, not a
+    // permission: it neither grants nor checks any authority.
+    let state = Rc::clone(&shared);
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "process.release",
+        move |args, _memory| {
+            let h = arg(args, 0)?;
+            answer(&state, "process.release", || {
+                state.borrow_mut().children.release(h)?;
+                Ok(String::new())
             })
         },
     )?;
@@ -1206,13 +1305,13 @@ pub(crate) fn install(
                 let timeout = u64::try_from(timeout_ms)
                     .map(Duration::from_millis)
                     .map_err(|_| "process.wait: timeout_ms is negative".to_string())?;
-                let index = usize::try_from(h).ok();
                 // Take the child out for the wait; the slot holds its pid and,
                 // afterwards, its answer, so a second wait replays the first.
                 let child = {
                     let mut s = state.borrow_mut();
-                    let slot = index
-                        .and_then(|i| s.children.get_mut(i))
+                    let slot = s
+                        .children
+                        .get_mut(h)
                         .ok_or_else(|| format!("process.wait: no child with handle {h}"))?;
                     match slot {
                         Handle::Done { answer, .. } => return answer.clone(),
@@ -1246,9 +1345,7 @@ pub(crate) fn install(
                 let answer = finish_child(child, timeout, &cancel);
                 {
                     let mut s = state.borrow_mut();
-                    if let Some(Handle::Done { answer: kept, .. }) =
-                        index.and_then(|i| s.children.get_mut(i))
-                    {
+                    if let Some(Handle::Done { answer: kept, .. }) = s.children.get_mut(h) {
                         *kept = answer.clone();
                     }
                 }
@@ -1266,7 +1363,7 @@ pub(crate) fn install(
         let h = arg(args, 0)?;
         direct(&state, "process.pid", || {
             let s = state.borrow();
-            match usize::try_from(h).ok().and_then(|i| s.children.get(i)) {
+            match s.children.get(h) {
                 Some(Handle::Running(r)) => Ok(i32::try_from(r.child.id()).unwrap_or(i32::MAX)),
                 Some(Handle::Done { pid, .. }) => Ok(i32::try_from(*pid).unwrap_or(i32::MAX)),
                 None => Err(format!("process.pid: no child with handle {h}")),
@@ -1635,7 +1732,7 @@ pub(crate) fn install(
                 let max_bytes = usize::try_from(max_bytes)
                     .map_err(|_| "process.read: max_bytes is negative".to_string())?;
                 let mut s = state.borrow_mut();
-                match usize::try_from(h).ok().and_then(|i| s.children.get_mut(i)) {
+                match s.children.get_mut(h) {
                     Some(Handle::Running(r)) => {
                         r.enforce_deadline();
                         let (mut out, end_out, stdout_truncated) =
@@ -2122,7 +2219,7 @@ fn inspect_png(reader: impl std::io::Read) -> Result<PngFacts, String> {
 /// The pid behind a handle, running or done: the window ops observe and
 /// drive a child by its process id.
 fn child_pid(s: &ToolState, h: i32, op: &str) -> Result<u32, String> {
-    match usize::try_from(h).ok().and_then(|i| s.children.get(i)) {
+    match s.children.get(h) {
         Some(Handle::Running(r)) => Ok(r.child.id()),
         Some(Handle::Done { pid, .. }) => Ok(*pid),
         None => Err(format!("{op}: no child with handle {h}")),
@@ -2489,6 +2586,53 @@ fn truncate_json_string(text: &mut String, encoded_bytes_to_remove: usize, encod
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The allocator seam: ids are signed i32 and never reused, and exhaustion is
+    /// refused before any child would start. Driving the counter near the top keeps
+    /// the test to a couple of calls, not billions.
+    #[test]
+    fn child_registry_ids_are_never_reused_and_exhaust_checked() {
+        let mut registry = ChildRegistry::new();
+        // ids move strictly forward and are never handed back
+        assert_eq!(registry.reserve_id().unwrap(), 0);
+        assert_eq!(registry.reserve_id().unwrap(), 1);
+        // near the top of the signed i32 space: the last id is i32::MAX, then exhausted
+        registry.next_id = Some(i32::MAX);
+        assert_eq!(registry.reserve_id().unwrap(), i32::MAX);
+        assert_eq!(registry.next_id, None);
+        let error = registry.reserve_id().expect_err("exhausted must refuse");
+        assert!(
+            error.contains("id space exhausted"),
+            "typed exhaustion: {error}"
+        );
+        // a full live bound refuses before any child starts
+        let mut full = ChildRegistry::new();
+        for _ in 0..PROCESS_CHILD_HANDLE_LIMIT {
+            let id = full.reserve_id().expect("reserve up to the bound");
+            full.live.insert(
+                id,
+                Handle::Done {
+                    pid: 1,
+                    answer: Ok(String::new()),
+                },
+            );
+        }
+        assert!(
+            full.reserve_id()
+                .is_err_and(|message| message.contains("child handle limit")),
+            "a full bound must refuse before a child starts"
+        );
+        // releasing a Done slot frees the bound, but the next id is fresh: the
+        // released id is never reissued by this allocator.
+        let released = *full.live.keys().next().unwrap();
+        full.release(released).expect("release a done slot");
+        assert!(full.get(released).is_none());
+        let next = full.reserve_id().unwrap();
+        assert_eq!(next, PROCESS_CHILD_HANDLE_LIMIT as i32);
+        assert_ne!(next, released, "a released id must never be reissued");
+        // an unknown id is refused
+        assert!(full.release(9_999).is_err());
+    }
 
     #[test]
     fn child_result_json_fits_the_bridge_and_names_every_cut_stream() {
