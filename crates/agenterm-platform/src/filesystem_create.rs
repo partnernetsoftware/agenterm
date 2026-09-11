@@ -157,12 +157,31 @@ mod tests {
     use super::*;
     use std::{fs, path::PathBuf};
 
+    /// Drop a Windows verbatim `\\?\` prefix so a fixture base behaves like an
+    /// ordinary caller path. `Path::join` on a verbatim base strips a trailing
+    /// separator from the appended component, which would erase the `new/`
+    /// spelling before the door could refuse it.
+    #[cfg(windows)]
+    fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+        let text = path.to_string_lossy();
+        if let Some(rest) = text.strip_prefix(r"\\?\") {
+            return PathBuf::from(rest);
+        }
+        path
+    }
+
+    #[cfg(not(windows))]
+    fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+        path
+    }
+
     fn fixture(label: &str) -> PathBuf {
         // The component-wise opener refuses symlinked ancestors, and macOS points
         // TMPDIR at /var/... where /var is a symlink to private/var. Resolve the
         // temporary root first so fixtures exercise the walk itself.
         let base = std::env::temp_dir();
         let base = std::fs::canonicalize(&base).unwrap_or(base);
+        let base = strip_verbatim_prefix(base);
         base.join(format!(
             "agenterm-platform-create-{label}-{}",
             std::process::id()

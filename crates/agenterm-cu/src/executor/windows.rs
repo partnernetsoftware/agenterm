@@ -23,6 +23,9 @@ const WINDOWS_AX_SCAN_MAX: usize = 1_000;
 /// inventory row alone (a Chromium window's profile sits in its AX root
 /// name when the title does not carry it), so it is applied here after
 /// the row filter and before paging.
+// One argument per `windows` flag the dispatcher already destructured; a
+// wrapper struct would only move the same fields one layer down.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn windows_payload(
     filter: observe::WindowFilter,
     space: Option<u64>,
@@ -799,6 +802,8 @@ pub(super) fn app_inspect_payload(
     }))
 }
 
+// One argument per `windows-watch` flag the dispatcher already destructured.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn windows_watch_payload(
     filter: observe::WindowFilter,
     space: Option<u64>,

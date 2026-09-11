@@ -335,12 +335,18 @@ fn poll_host(window: HWND) {
 }
 
 fn with_state<T>(operation: impl FnOnce(&mut ShellState) -> T) -> T {
+    // A panic in one host callback poisons this mutex; answering a second
+    // panic here would unwind out of the `extern "system"` window procedure,
+    // which is a silent abort in a windowed process. The state is only
+    // overwritten by the next callback, so recovering the guard (and letting
+    // this call observe whatever the failing callback left) is strictly
+    // better than taking the process down.
     let state = SHELL_STATE
         .get()
         .expect("native text window state initialized before creation");
     let mut state = state
         .lock()
-        .expect("native text window state is not poisoned");
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     operation(&mut state)
 }
 

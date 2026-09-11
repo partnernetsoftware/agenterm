@@ -20,6 +20,7 @@ mod native;
 #[path = "adapters/unsupported_audio.rs"]
 mod native;
 
+#[cfg(target_os = "macos")]
 pub(crate) const COREAUDIO_IDENTITY_DOMAIN: &[u8] = b"coreaudio\0";
 
 #[derive(Clone, Debug)]
@@ -281,41 +282,9 @@ fn public_state(native: &NativeAudioState) -> Result<AudioOutputState, AudioErro
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, collections::VecDeque};
-
     use super::*;
 
-    struct Fake {
-        states: RefCell<VecDeque<NativeAudioState>>,
-        sets: RefCell<Vec<AudioOutputSettings>>,
-        set_fails: bool,
-    }
-
-    impl AudioProvider for Fake {
-        fn query(&self) -> Result<NativeAudioState, AudioError> {
-            self.states
-                .borrow_mut()
-                .pop_front()
-                .ok_or_else(|| AudioError::new(AudioErrorKind::QueryFailed, "fixture exhausted"))
-        }
-
-        fn set(
-            &self,
-            _: &NativeAudioState,
-            settings: AudioOutputSettings,
-        ) -> Result<(), AudioError> {
-            self.sets.borrow_mut().push(settings);
-            if self.set_fails {
-                Err(AudioError::new(
-                    AudioErrorKind::MutationFailed,
-                    "fixture failure",
-                ))
-            } else {
-                Ok(())
-            }
-        }
-    }
-
+    #[cfg(target_os = "macos")]
     fn native(volume: f32, muted: bool) -> NativeAudioState {
         NativeAudioState {
             device_id: 7,
@@ -329,6 +298,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn identity_matches_the_existing_mcu_coreaudio_contract() {
         let state = public_state(&native(0.25, false)).unwrap();

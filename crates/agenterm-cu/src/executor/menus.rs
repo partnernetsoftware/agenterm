@@ -210,10 +210,10 @@ pub(super) fn app_menu_inspect_payload(
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (app, depth, max_nodes, filter, offset, max);
-        return Err(CuError::new(
+        Err(CuError::new(
             "app_menu_platform_unsupported",
             "application-global menu inspection is a macOS capability; use menu-inspect --window on this host",
-        ));
+        ))
     }
     #[cfg(target_os = "macos")]
     {
@@ -344,10 +344,10 @@ pub(super) fn app_menu_invoke_payload(
     #[cfg(not(target_os = "macos"))]
     {
         let _ = receipts;
-        return Err(CuError::new(
+        Err(CuError::new(
             "app_menu_platform_unsupported",
             "application-global menu invocation is a macOS capability; use menu-invoke --window on this host",
-        ));
+        ))
     }
     #[cfg(target_os = "macos")]
     {

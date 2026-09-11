@@ -502,9 +502,12 @@ a11y-publish = [
     "dep:libc",
 ]
 ime = [
+    "dep:serde",
     "windows-sys/Win32_Globalization",
     "windows-sys/Win32_UI_Input_Ime",
+    "windows-sys/Win32_UI_Input_KeyboardAndMouse",
     "windows-sys/Win32_UI_HiDpi",
+    "windows-sys/Win32_UI_WindowsAndMessaging",
 ]
 keyboard-layout = ["dep:serde", "dep:x11rb"]
 activation = ["portable-pixel-window", "window-op", "window-enum"]

@@ -365,27 +365,51 @@ pub fn run_if_agent(arguments: &[String]) -> Option<i32> {
 }
 
 fn parse_and_run(rest: &[String]) -> io::Result<i32> {
-    let invalid = || {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "malformed console agent request",
-        )
-    };
+    // A request carries five fixed fields plus the hex-encoded child command
+    // line. Reject a short request, but name the count: the bare
+    // "malformed console agent request" this used to return made every one of
+    // these failures indistinguishable in the diagnostics log.
     if rest.len() < 6 {
-        return Err(invalid());
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "malformed console agent request: expected 6 arguments, got {}",
+                rest.len()
+            ),
+        ));
     }
-    let handle_at = |index: usize| -> io::Result<HANDLE> {
+    let handle_at = |index: usize, name: &'static str| -> io::Result<HANDLE> {
         rest[index]
             .parse::<usize>()
             .map(|value| value as HANDLE)
-            .map_err(|_| invalid())
+            .map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("malformed console agent request: {name} is not a handle"),
+                )
+            })
     };
-    let input_read = handle_at(0)?;
-    let output_write = handle_at(1)?;
-    let control_read = handle_at(2)?;
-    let cols: u16 = rest[3].parse().map_err(|_| invalid())?;
-    let rows: u16 = rest[4].parse().map_err(|_| invalid())?;
-    let command_line = decode_utf16_hex(&rest[5]).ok_or_else(invalid)?;
+    let input_read = handle_at(0, "input read handle")?;
+    let output_write = handle_at(1, "output write handle")?;
+    let control_read = handle_at(2, "control read handle")?;
+    let cols: u16 = rest[3].parse().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "malformed console agent request: columns is not a number",
+        )
+    })?;
+    let rows: u16 = rest[4].parse().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "malformed console agent request: rows is not a number",
+        )
+    })?;
+    let command_line = decode_utf16_hex(&rest[5]).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "malformed console agent request: child command line is not valid hex",
+        )
+    })?;
     run_agent(
         input_read,
         output_write,

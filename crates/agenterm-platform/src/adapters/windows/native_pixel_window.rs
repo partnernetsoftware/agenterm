@@ -198,10 +198,23 @@ struct NativeControl {
     /// drain twice; keeping at most one means a producer flood cannot consume
     /// the bounded queue that non-coalescible input and commands share.
     deferred_wake: Cell<bool>,
+    /// The newest pointer position awaiting delivery, and whether a slot for it
+    /// is already queued. Pointer motion is latest-wins (the OS itself coalesces
+    /// `WM_MOUSEMOVE`), so a stalled pump must not be able to exhaust the shared
+    /// queue with motion alone — which is what let a slow full-frame repaint turn
+    /// into an overflow and, through `record_failure`, a windowed exit.
+    deferred_pointer: Cell<Option<(LogicalPoint, ModifierState)>>,
+    deferred_pointer_queued: Cell<bool>,
     paint_pending: Cell<bool>,
     closed: Cell<bool>,
     exit_requested: Cell<bool>,
     last_dpi_rect: Cell<Option<Win32Rect>>,
+    /// The last title accepted for `SetWindowTextW`. A repainting host
+    /// re-asserts its title every frame, and each re-assert was a deferred
+    /// `SetTitle` command; under a pump-stalling flood those alone filled the
+    /// bounded queue and latched a windowed exit. An unchanged title is not a
+    /// new command.
+    last_title: RefCell<Option<String>>,
     failure_latched: Cell<bool>,
     failure: RefCell<Option<PixelWindowError>>,
 }
@@ -212,10 +225,13 @@ impl NativeControl {
             phase: Cell::new(DispatchPhase::Idle),
             deferred: BoundedQueue::new(),
             deferred_wake: Cell::new(false),
+            deferred_pointer: Cell::new(None),
+            deferred_pointer_queued: Cell::new(false),
             paint_pending: Cell::new(false),
             closed: Cell::new(false),
             exit_requested: Cell::new(false),
             last_dpi_rect: Cell::new(None),
+            last_title: RefCell::new(None),
             failure_latched: Cell::new(false),
             failure: RefCell::new(None),
         }
@@ -263,6 +279,13 @@ impl NativeControl {
         matches!(item, DeferredNative::Event(PendingNativeEvent::Wake))
     }
 
+    const fn is_pointer_moved(item: &DeferredNative) -> bool {
+        matches!(
+            item,
+            DeferredNative::Event(PendingNativeEvent::PointerMoved { .. })
+        )
+    }
+
     fn enqueue(&self, item: DeferredNative) -> Result<(), PixelWindowError> {
         if self.closed.get() {
             return Err(closed_error());
@@ -274,9 +297,32 @@ impl NativeControl {
             }
             self.deferred_wake.set(true);
         }
+        // Pointer motion coalesces to the newest position. The first move takes
+        // a queue slot; later moves only update the payload, so a flood of
+        // `WM_MOUSEMOVE` while the pump is stalled cannot reach the overflow
+        // boundary that latches a windowed exit.
+        if let DeferredNative::Event(PendingNativeEvent::PointerMoved {
+            position,
+            modifiers,
+        }) = &item
+        {
+            self.deferred_pointer.set(Some((*position, *modifiers)));
+            if self.deferred_pointer_queued.get() {
+                return Ok(());
+            }
+            self.deferred_pointer_queued.set(true);
+        }
+        let queued_pointer = matches!(
+            &item,
+            DeferredNative::Event(PendingNativeEvent::PointerMoved { .. })
+        );
         self.deferred.push(item).map_err(|cause| {
             if wake {
                 self.deferred_wake.set(false);
+            }
+            if queued_pointer {
+                self.deferred_pointer_queued.set(false);
+                self.deferred_pointer.set(None);
             }
             let code = match cause {
                 QueueError::Borrowed => "pixel_window_native_queue_borrow_failed",
@@ -296,11 +342,36 @@ impl NativeControl {
         self.enqueue(DeferredNative::Command(NativeCommand::ApplyDpiRect(rect)))
     }
 
+    /// Records an unchanged title as a no-op. A host that repaints every frame
+    /// also re-asserts its title every frame; dropping the duplicate here keeps
+    /// a no-op out of the bounded queue. A title is always deferred rather than
+    /// applied inline, so the dedup and the enqueue decision live in one place.
+    fn enqueue_title(&self, title: &str) -> Result<(), PixelWindowError> {
+        if self.last_title.borrow().as_deref() == Some(title) {
+            return Ok(());
+        }
+        *self.last_title.borrow_mut() = Some(title.to_owned());
+        self.enqueue(DeferredNative::Command(NativeCommand::SetTitle(
+            title.to_owned(),
+        )))
+    }
+
     fn pop(&self) -> Option<DeferredNative> {
         match self.deferred.pop() {
             Ok(item) => {
                 if item.as_ref().is_some_and(Self::is_wake) {
                     self.deferred_wake.set(false);
+                }
+                if item.as_ref().is_some_and(Self::is_pointer_moved) {
+                    // Release the slot, then answer with the newest position
+                    // collected while this one waited.
+                    self.deferred_pointer_queued.set(false);
+                    if let Some((position, modifiers)) = self.deferred_pointer.take() {
+                        return Some(DeferredNative::Event(PendingNativeEvent::PointerMoved {
+                            position,
+                            modifiers,
+                        }));
+                    }
                 }
                 item
             }
@@ -316,14 +387,32 @@ impl NativeControl {
 
     fn push_front(&self, item: DeferredNative) -> Result<(), PixelWindowError> {
         // A returned item re-enters the queue, so a wake going back must retake
-        // the coalescing slot it released on `pop`.
+        // the coalescing slot it released on `pop`. A returned pointer move
+        // retakes its slot the same way; the payload is re-seeded so the next
+        // coalesced move has something to replace.
         let wake = Self::is_wake(&item);
         if wake {
             self.deferred_wake.set(true);
         }
+        let pointer = matches!(
+            &item,
+            DeferredNative::Event(PendingNativeEvent::PointerMoved { .. })
+        );
+        if let DeferredNative::Event(PendingNativeEvent::PointerMoved {
+            position,
+            modifiers,
+        }) = &item
+        {
+            self.deferred_pointer.set(Some((*position, *modifiers)));
+            self.deferred_pointer_queued.set(true);
+        }
         self.deferred.push_front(item).map_err(|cause| {
             if wake {
                 self.deferred_wake.set(false);
+            }
+            if pointer {
+                self.deferred_pointer_queued.set(false);
+                self.deferred_pointer.set(None);
             }
             native_queue_failure(match cause {
                 QueueError::Borrowed => "pixel_window_native_queue_borrow_failed",
@@ -335,6 +424,8 @@ impl NativeControl {
     fn clear_deferred(&self) {
         let _ = self.deferred.clear();
         self.deferred_wake.set(false);
+        self.deferred_pointer.set(None);
+        self.deferred_pointer_queued.set(false);
     }
 }
 
@@ -599,7 +690,11 @@ impl PixelWindowBackend for Backend {
     }
 
     fn set_title(&self, title: &str) {
-        self.submit_void_command(NativeCommand::SetTitle(title.to_owned()));
+        if let Err(error) = self.control.enqueue_title(title)
+            && !self.control.closed.get()
+        {
+            self.control.record_failure(error);
+        }
     }
 
     fn set_pointer_cursor(&self, cursor: PixelPointerCursor) -> Result<(), PixelWindowError> {
@@ -2485,6 +2580,78 @@ mod tests {
         control
             .enqueue(DeferredNative::Event(PendingNativeEvent::Wake))
             .expect("a fresh wake queues after the previous one is taken");
+        assert!(control.has_deferred());
+    }
+
+    /// The overflow that latched a windowed exit was reachable with pointer
+    /// motion alone: every `WM_MOUSEMOVE` deferred as its own non-coalescible
+    /// item, so a stalled pump (a slow full-frame repaint under a flood) could
+    /// fill the bounded queue without any keyboard input. Motion is
+    /// latest-wins, so it must coalesce like `Wake` and never reach that
+    /// boundary.
+    #[test]
+    fn queued_pointer_moves_coalesce_and_cannot_exhaust_the_deferred_queue() {
+        let control = NativeControl::new();
+        for step in 0..(MAX_NATIVE_DEFERRED * 4) {
+            control
+                .enqueue(DeferredNative::Event(PendingNativeEvent::PointerMoved {
+                    position: LogicalPoint {
+                        x: step as f64,
+                        y: 0.0,
+                    },
+                    modifiers: ModifierState::default(),
+                }))
+                .expect("a coalesced pointer move never overflows");
+        }
+        assert!(!control.exit_requested.get());
+        assert!(control.take_failure().is_none());
+
+        // One slot, carrying the newest position, not the first.
+        let newest = (MAX_NATIVE_DEFERRED * 4 - 1) as f64;
+        match control.pop() {
+            Some(DeferredNative::Event(PendingNativeEvent::PointerMoved { position, .. })) => {
+                assert_eq!(position.x, newest, "the latest motion must win");
+            }
+            _ => panic!("expected one coalesced pointer move"),
+        }
+        assert!(!control.has_deferred(), "one slot represented every move");
+
+        // The slot is free again after delivery.
+        control
+            .enqueue(DeferredNative::Event(PendingNativeEvent::PointerMoved {
+                position: LogicalPoint { x: 1.0, y: 2.0 },
+                modifiers: ModifierState::default(),
+            }))
+            .expect("a fresh motion queues after the previous one is taken");
+        assert!(control.has_deferred());
+    }
+
+    /// A repainting host re-asserts the same window title every frame. If each
+    /// re-assert becomes a deferred command, a stalled pump fills the bounded
+    /// queue with no-ops and latches a windowed exit; the flood that produced
+    /// the reported crash enqueued nothing but commands for exactly this
+    /// reason. An unchanged title must not take a slot, and a changed one must.
+    #[test]
+    fn unchanged_titles_do_not_fill_the_deferred_queue() {
+        let control = NativeControl::new();
+        for _ in 0..(MAX_NATIVE_DEFERRED * 4) {
+            control
+                .enqueue_title("agenterm — shell")
+                .expect("an unchanged title is a no-op, not an overflow");
+        }
+        assert!(!control.exit_requested.get());
+        assert!(control.take_failure().is_none());
+        assert!(control.has_deferred(), "the first title still takes a slot");
+        assert!(matches!(
+            control.pop(),
+            Some(DeferredNative::Command(NativeCommand::SetTitle(_)))
+        ));
+        assert!(!control.has_deferred(), "every repeat was folded away");
+
+        // A real change is delivered.
+        control
+            .enqueue_title("agenterm — build")
+            .expect("a changed title queues");
         assert!(control.has_deferred());
     }
 

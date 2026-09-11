@@ -602,6 +602,10 @@ pub(crate) mod process_spawn;
 #[path = "adapters/unix/contained_process.rs"]
 pub(crate) mod contained_process;
 
+#[cfg(all(any(feature = "pty", feature = "contained-process-spawn"), windows))]
+#[path = "adapters/windows/application_search.rs"]
+pub(crate) mod application_search;
+
 #[cfg(all(feature = "contained-process-spawn", windows))]
 #[path = "adapters/windows/contained_process.rs"]
 pub(crate) mod contained_process;
