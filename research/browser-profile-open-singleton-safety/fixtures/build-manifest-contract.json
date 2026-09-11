@@ -1,0 +1,259 @@
+{
+  "schema": "agenterm.singleton-safety.build-manifest-contract/v1",
+  "version": 1,
+  "purpose": "Exact contract for the build-only manifest of the four singleton-safety helper and focus-fixture L0 members.",
+  "platform": "macos",
+  "generated_manifest": {
+    "schema": "agenterm.singleton-safety.build-manifest/v1",
+    "logical_path": "target/browser-profile-open-singleton-safety-fixtures/build-manifest.json",
+    "exact_keys": [
+      "schema",
+      "manifest_contract",
+      "target",
+      "members"
+    ],
+    "member_order": [
+      "independent-process-helper",
+      "independent-foreground-helper",
+      "primary-focus-fixture",
+      "secondary-focus-fixture"
+    ],
+    "unknown_key_rule": "Every generated-manifest object rejects unknown or missing keys. Arrays whose order is fixed reject reordering, duplication, omission, and addition.",
+    "serialization": "One RFC 8785 canonical JSON object with no leading or trailing bytes and no trailing LF.",
+    "nondeterminism_rule": "The generated manifest contains no timestamp, duration, random identifier, temporary path, expanded repository path, account-home path, environment value, inode, device number, process id, or signature creation time."
+  },
+  "generated_shapes": {
+    "manifest_contract_exact_keys": [
+      "logical_source_id",
+      "sha256"
+    ],
+    "manifest_contract_shape": {
+      "logical_source_id": "literal research/browser-profile-open-singleton-safety/fixtures/build-manifest-contract.json",
+      "sha256": "SHA-256 of the exact build-manifest-contract.json source bytes"
+    },
+    "target_exact_keys": [
+      "os",
+      "arch"
+    ],
+    "target_shape": {
+      "os": "literal macos",
+      "arch": "exactly one target_arch_values value"
+    },
+    "member_exact_keys": [
+      "logical_id",
+      "contract",
+      "sources",
+      "compiler",
+      "artifact",
+      "plist",
+      "bundle_id",
+      "codesign",
+      "composite"
+    ],
+    "contract_exact_keys": [
+      "logical_source_id",
+      "sha256"
+    ],
+    "source_exact_keys": [
+      "logical_source_id",
+      "sha256"
+    ],
+    "compiler_exact_keys": [
+      "family",
+      "version",
+      "argv"
+    ],
+    "artifact_exact_keys": [
+      "logical_path",
+      "kind",
+      "sha256"
+    ],
+    "plist_exact_keys": [
+      "source_logical_id",
+      "source_sha256",
+      "artifact_logical_path",
+      "artifact_sha256"
+    ],
+    "codesign_exact_keys": [
+      "mode",
+      "status",
+      "scope"
+    ],
+    "composite_exact_keys": [
+      "domain",
+      "logical_part_order",
+      "formula"
+    ]
+  },
+  "value_domains": {
+    "sha256": "exactly 64 lowercase hexadecimal characters",
+    "logical_path": "nonempty repo-relative UTF-8 path using slash separators, with no empty, dot, or dot-dot component, no leading slash, no home shorthand, and at most 512 UTF-8 bytes",
+    "target_arch_values": [
+      "aarch64",
+      "x86_64"
+    ],
+    "compiler_family_values": [
+      "apple-clang",
+      "apple-swift"
+    ],
+    "compiler_version": "nonempty printable ASCII string of at most 128 bytes, containing the compiler's normalized first --version line and no path, newline, timestamp, or host identity",
+    "compiler_argv": "array of 1 through 32 nonempty printable ASCII strings, each at most 256 bytes; argv[0] is xcrun, argv[1] is clang or swiftc matching compiler.family; every source or output argument is its exact repo-relative logical path; no expanded path, environment expansion, response file, temporary path, timestamp, or nondeterministic token is allowed",
+    "artifact_kind_values": [
+      "mach-o-executable"
+    ],
+    "bundle_id": "JSON null for helper members; otherwise the exact member_definitions bundle_id",
+    "codesign_mode_values": [
+      "none",
+      "linker-ad-hoc",
+      "explicit-ad-hoc"
+    ],
+    "codesign_status_values": [
+      "unsigned",
+      "valid"
+    ],
+    "codesign_scope_values": [
+      "artifact-executable"
+    ]
+  },
+  "logical_paths": {
+    "manifest_contract_source": "research/browser-profile-open-singleton-safety/fixtures/build-manifest-contract.json",
+    "generated_manifest": "target/browser-profile-open-singleton-safety-fixtures/build-manifest.json",
+    "process_helper_artifact": "target/browser-profile-open-singleton-safety-fixtures/bin/process-probe",
+    "foreground_helper_artifact": "target/browser-profile-open-singleton-safety-fixtures/bin/foreground-probe",
+    "primary_bundle": "target/browser-profile-open-singleton-safety-fixtures/PrimaryFocusFixture.app",
+    "primary_plist_artifact": "target/browser-profile-open-singleton-safety-fixtures/PrimaryFocusFixture.app/Contents/Info.plist",
+    "primary_executable_artifact": "target/browser-profile-open-singleton-safety-fixtures/PrimaryFocusFixture.app/Contents/MacOS/FocusFixture",
+    "secondary_bundle": "target/browser-profile-open-singleton-safety-fixtures/SecondaryFocusFixture.app",
+    "secondary_plist_artifact": "target/browser-profile-open-singleton-safety-fixtures/SecondaryFocusFixture.app/Contents/Info.plist",
+    "secondary_executable_artifact": "target/browser-profile-open-singleton-safety-fixtures/SecondaryFocusFixture.app/Contents/MacOS/FocusFixture"
+  },
+  "member_definitions": [
+    {
+      "logical_id": "independent-process-helper",
+      "contract_logical_source_id": "research/browser-profile-open-singleton-safety/fixtures/process-probe/process-probe-contract.json",
+      "source_logical_ids": [
+        "research/browser-profile-open-singleton-safety/fixtures/process-probe/ProcessProbe.c"
+      ],
+      "compiler_family": "apple-clang",
+      "artifact_logical_path": "target/browser-profile-open-singleton-safety-fixtures/bin/process-probe",
+      "plist": null,
+      "bundle_id": null,
+      "composite_domain": "agenterm.singleton-safety.v1.frozen-input",
+      "composite_logical_part_order": [
+        "contract",
+        "c-source",
+        "build-manifest",
+        "final-executable"
+      ]
+    },
+    {
+      "logical_id": "independent-foreground-helper",
+      "contract_logical_source_id": "research/browser-profile-open-singleton-safety/fixtures/focus-probe/foreground-probe-contract.json",
+      "source_logical_ids": [
+        "research/browser-profile-open-singleton-safety/fixtures/focus-probe/ForegroundProbe.swift"
+      ],
+      "compiler_family": "apple-swift",
+      "artifact_logical_path": "target/browser-profile-open-singleton-safety-fixtures/bin/foreground-probe",
+      "plist": null,
+      "bundle_id": null,
+      "composite_domain": "agenterm.singleton-safety.v1.frozen-input",
+      "composite_logical_part_order": [
+        "contract",
+        "swift-source",
+        "build-manifest",
+        "final-executable"
+      ]
+    },
+    {
+      "logical_id": "primary-focus-fixture",
+      "contract_logical_source_id": "research/browser-profile-open-singleton-safety/fixtures/apps/focus-fixture-contract.json",
+      "source_logical_ids": [
+        "research/browser-profile-open-singleton-safety/fixtures/apps/FocusFixture.swift"
+      ],
+      "compiler_family": "apple-swift",
+      "artifact_logical_path": "target/browser-profile-open-singleton-safety-fixtures/PrimaryFocusFixture.app/Contents/MacOS/FocusFixture",
+      "plist": {
+        "source_logical_id": "research/browser-profile-open-singleton-safety/fixtures/apps/Primary-Info.plist",
+        "artifact_logical_path": "target/browser-profile-open-singleton-safety-fixtures/PrimaryFocusFixture.app/Contents/Info.plist"
+      },
+      "bundle_id": "com.partnernetsoftware.agenterm.singleton-safety.primary",
+      "composite_domain": "agenterm.singleton-safety.v1.frozen-input",
+      "composite_logical_part_order": [
+        "contract",
+        "swift-source",
+        "build-manifest",
+        "primary-info-plist",
+        "final-executable"
+      ]
+    },
+    {
+      "logical_id": "secondary-focus-fixture",
+      "contract_logical_source_id": "research/browser-profile-open-singleton-safety/fixtures/apps/focus-fixture-contract.json",
+      "source_logical_ids": [
+        "research/browser-profile-open-singleton-safety/fixtures/apps/FocusFixture.swift"
+      ],
+      "compiler_family": "apple-swift",
+      "artifact_logical_path": "target/browser-profile-open-singleton-safety-fixtures/SecondaryFocusFixture.app/Contents/MacOS/FocusFixture",
+      "plist": {
+        "source_logical_id": "research/browser-profile-open-singleton-safety/fixtures/apps/Secondary-Info.plist",
+        "artifact_logical_path": "target/browser-profile-open-singleton-safety-fixtures/SecondaryFocusFixture.app/Contents/Info.plist"
+      },
+      "bundle_id": "com.partnernetsoftware.agenterm.singleton-safety.secondary",
+      "composite_domain": "agenterm.singleton-safety.v1.frozen-input",
+      "composite_logical_part_order": [
+        "contract",
+        "swift-source",
+        "build-manifest",
+        "secondary-info-plist",
+        "final-executable"
+      ]
+    }
+  ],
+  "member_rules": [
+    "generated_manifest.members is an array of exactly four member objects in generated_manifest.member_order",
+    "Each member has exactly generated_shapes.member_exact_keys and its logical_id selects exactly one member_definitions entry",
+    "contract has exactly generated_shapes.contract_exact_keys; its logical_source_id equals the selected definition and sha256 is recomputed from those exact repo bytes",
+    "sources is ordered exactly as source_logical_ids, has no duplicate, and every entry has exactly generated_shapes.source_exact_keys with a recomputed exact-byte SHA-256",
+    "compiler has exactly generated_shapes.compiler_exact_keys and matches the selected compiler_family and value_domains bounds",
+    "artifact has exactly generated_shapes.artifact_exact_keys; logical_path equals artifact_logical_path, kind is mach-o-executable, and sha256 is recomputed after all linking and signing",
+    "plist is JSON null for helper members; for fixture members it has exactly generated_shapes.plist_exact_keys, its two logical paths equal the selected definition, both hashes are recomputed, and source_sha256 equals artifact_sha256",
+    "bundle_id is JSON null for helper members and equals the selected definition for fixture members; the copied artifact plist must independently decode to that exact identifier and to executable name FocusFixture",
+    "codesign has exactly generated_shapes.codesign_exact_keys; scope is artifact-executable; mode none requires status unsigned, while linker-ad-hoc or explicit-ad-hoc requires status valid after verification of the final artifact bytes",
+    "composite has exactly generated_shapes.composite_exact_keys and exactly repeats the selected definition's domain, order, and composite_digests.formula; it records no computed composite digest"
+  ],
+  "cross_member_rules": [
+    "The generated manifest's single top-level target object applies to all four members because one generated manifest describes one native build cell",
+    "The primary and secondary artifact SHA-256 values are identical and equal the hash of one final signed FocusFixture executable copied byte-for-byte into both bundles",
+    "The primary and secondary compiler objects are byte-for-byte equal",
+    "The primary and secondary contract hashes and Swift source hashes are identical",
+    "The two fixture plist source hashes differ, their artifact hashes equal their corresponding source hashes, and their bundle identifiers differ",
+    "No object file, library, bundle directory, plist, contract, source, or generated manifest becomes a fifth L0 member"
+  ],
+  "composite_digests": {
+    "domain": "agenterm.singleton-safety.v1.frozen-input",
+    "formula": "sha256(domain-utf8 || 0x00 || rfc8785-json-utf8(ordered logical-part array))",
+    "logical_part_shape": "Each entry is exactly the two-element array [logical-part-id, sha256], where the id is the corresponding value in member_definitions.composite_logical_part_order and the digest is recomputed from that logical part's exact bytes.",
+    "part_resolution": {
+      "contract": "selected member contract exact bytes",
+      "c-source": "exact ProcessProbe.c source bytes",
+      "swift-source": "selected Swift source exact bytes",
+      "build-manifest": "exact generated-manifest bytes after generated_manifest and every member rule validate",
+      "primary-info-plist": "exact Primary-Info.plist source bytes, equal to the final copied plist bytes",
+      "secondary-info-plist": "exact Secondary-Info.plist source bytes, equal to the final copied plist bytes",
+      "final-executable": "selected final artifact bytes after signing"
+    },
+    "output_rule": "The computed digest populates only the selected existing L0 input-digest member. It is not stored in the generated manifest."
+  },
+  "self_verification": [
+    "The build-manifest contract is a source input identified by generated_manifest.manifest_contract and is hashed into that field.",
+    "The generated manifest is a separate generated byte object at logical_paths.generated_manifest; it never contains its own SHA-256.",
+    "All four members whose three existing contracts name build-manifest hash the finalized generated-manifest bytes only after exact-schema and artifact verification.",
+    "No computed L0 composite digest is stored in the generated manifest, so no digest depends recursively on a field containing itself. Including the same generated manifest as a logical part of all four members intentionally couples their composite digests to one exact native build cell; rebuilding any artifact changes the generated manifest and therefore all four composite digests.",
+    "A verifier needs only the repository source objects, the four final executable artifacts, the two final plist copies, this contract, and the generated manifest; compiler execution is not trusted as a hash witness."
+  ],
+  "contract_alignment": {
+    "result_template_rule": "The outer encoding follows result-template.json digest_encoding with the exact listed frozen-input domain and one 0x00 separator.",
+    "foreground_and_fixture_rule": "The independent-foreground-helper and both focus-fixture orders exactly match their current contracts and include the generated build manifest.",
+    "process_contract_rule": "The independent-process-helper order exactly matches its current contract: contract, C source, generated build manifest, and final executable, encoded as ordered [logical-part-id, sha256] pairs under the frozen-input domain with one 0x00 separator."
+  }
+}

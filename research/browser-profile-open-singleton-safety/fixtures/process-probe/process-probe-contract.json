@@ -1,0 +1,924 @@
+{
+  "schema": "agenterm.singleton-safety.process-probe-contract/v1",
+  "version": 1,
+  "platform": "macos",
+  "purpose": "Independent bounded process observation for the browser-profile-open singleton-safety experiment.",
+  "serialization": {
+    "json": "RFC 8259 UTF-8; duplicate object keys, unknown keys, non-integer numbers, and values outside their declared domains are invalid",
+    "control_log": "one compact JSON object followed by LF per record; one append-only writer; an unterminated active tail is pending rather than a record",
+    "atomic_files": "write a sibling temporary regular file, fsync it, rename it over the destination, reopen it, and require byte-for-byte readback equality",
+    "integer_domain": "unsigned 64-bit integer unless a narrower bound is stated",
+    "sha256": "64 lowercase hexadecimal characters"
+  },
+  "digest_domains": {
+    "encoding": "sha256(domain-utf8 || 0x00 || rfc8785-json-utf8)",
+    "process_identity": "agenterm.singleton-safety.v1.process-identity",
+    "process_identity_input": "canonical [pid,start_sec,start_usec] array; digest before an identity enters any sanitized set",
+    "sample_identity_set": "agenterm.singleton-safety.v1.sample-membership-set",
+    "sample_sequence": "agenterm.singleton-safety.v1.sample-sequence",
+    "contained_group": "agenterm.singleton-safety.v1.group-membership-set",
+    "controlled_lineage": "agenterm.singleton-safety.v1.controlled-lineage-set",
+    "contained_closure": "agenterm.singleton-safety.v1.contained-browser-closure",
+    "sticky_descendant_closure": "agenterm.singleton-safety.v1.sticky-descendant-closure",
+    "executable_identity": "agenterm.singleton-safety.v1.executable-identity",
+    "token_set": "agenterm.singleton-safety.v1.process-set",
+    "bundle_tree_set": "agenterm.singleton-safety.v1.bundle-tree-set"
+  },
+  "digest_set_encoding": {
+    "process_identity_digest": "digest_domains.process_identity over RFC 8785 [pid,start_sec,start_usec]",
+    "executable_identity_digest": "digest_domains.executable_identity over RFC 8785 [device,inode,size,mtime_ns,ctime_ns,sha256]",
+    "set_rule": "Every process set is an RFC 8785 array of unique lowercase-hex process_identity_digest strings sorted by ascending digest bytes, then hashed with that set's declared domain. The empty set is the digest of the literal empty array under that domain.",
+    "sample_identity_set": "digest_domains.sample_identity_set and set_rule over exactly the target-uid identities in one complete sample",
+    "contained_group": "digest_domains.contained_group and set_rule over retained exact identities observed in the frozen group",
+    "controlled_lineage": "digest_domains.controlled_lineage and set_rule over the sticky browser-root lineage fixed point",
+    "contained_closure": "digest_domains.contained_closure and set_rule over the stated retained or live contained closure projection",
+    "sticky_descendant_closure": "digest_domains.sticky_descendant_closure and set_rule over descendants only, never the root identity itself, independently for direct-open-root, relay-root, and topology-candidate-root",
+    "token_set": "digest_domains.token_set and set_rule over exact argv token matches",
+    "bundle_tree_set": "digest_domains.bundle_tree_set and set_rule over opened executable objects classified in the frozen canonical bundle tree",
+    "sample_sequence": "digest_domains.sample_sequence over the RFC 8785 ordered array of exact sanitized_sample objects"
+  },
+  "cli": {
+    "syntax": "process-probe --contract-version 1 --target-uid <decimal> --token-file <path> --bundle-root <path> --selected-executable <path> --control-log <path> --latest-state <path> --final-summary <path>",
+    "argument_order": [
+      "--contract-version",
+      "--target-uid",
+      "--token-file",
+      "--bundle-root",
+      "--selected-executable",
+      "--control-log",
+      "--latest-state",
+      "--final-summary"
+    ],
+    "rules": [
+      "Every named argument occurs exactly once and no other argument is accepted.",
+      "The token is the exact 1 through 512 bytes of token-file, contains no NUL, CR, or LF byte, and is forbidden in argv, environment values, file names, and directory names.",
+      "token-file, control-log, latest-state, and final-summary are invocation-owned run-local paths supplied by the runner.",
+      "latest-state and final-summary must be distinct non-symlink regular-file destinations in an invocation-owned directory.",
+      "control-log is an invocation-owned non-symlink regular file opened read-only with no-follow semantics by the probe; the opened file identity is pinned for the run.",
+      "bundle-root and selected-executable are admission-frozen canonical objects; their paths are input only and are never emitted.",
+      "A CLI or path-contract violation is scan-incomplete; if final-summary cannot be safely resolved, the probe exits nonzero without substituting another destination."
+    ]
+  },
+  "control_log_transport": {
+    "writer": "The court is the sole writer. It opens the pinned regular file with append and no-follow semantics, writes each complete compact control_record plus LF with one bounded write call, fsyncs the same descriptor, and never truncates, replaces, or rewrites a byte.",
+    "reader": "The probe retains its read offset and an unterminated suffix. It parses only LF-terminated records and treats a currently unterminated suffix as pending while scanning continues.",
+    "failure": "File-identity change, size decrease, a complete invalid record, a pending suffix longer than control_record_max_bytes, or any nonempty pending suffix when final-inventory-complete or abort is consumed is control-invalid and scan-incomplete.",
+    "ordering": "A control takes effect in a sample exactly when sample.control_sequence_seen is greater than or equal to that control sequence; the court never derives a scanner fact from a sample with a smaller value as though that control had already applied."
+  },
+  "root_control_causality": {
+    "rule": "A non-null root control carries an already-created exact PID/start identity. It never claims that scanner acknowledgement preceded process creation.",
+    "observation": "Every controlled browser-root or direct-open-root must exact-match an identity actually retained by the scanner. A prior retained observation may satisfy the match when it proves that same exact identity; otherwise the first complete sample after the control must observe it live.",
+    "miss": "If the first complete sample after a non-null root control neither matches it nor finds a prior retained exact match, that root is root-unobserved and the run is scan-incomplete. Empty descendant sets from an unobserved root can never pass a related stage.",
+    "browser_ack": "After browser-root, the court may continue dependent stages only after latest_state.root_observations.browser-root is observed. Direct-open-root necessarily follows spawn and must be observed before open-request exit adjudication. Relay and topology-candidate roles are independently derived by the scanner.",
+    "exit_snapshot": "For each observed direct-open, relay, or topology-candidate root, its exit snapshot is the first later complete sample that proves the exact root absent. No exit or empty-live-descendant fact exists before that snapshot.",
+    "final_snapshot": "The final-inventory snapshot is the complete sentinel sample whose control_sequence_seen is greater than or equal to the final-inventory-complete sequence."
+  },
+  "enumeration_scope": {
+    "projection": "Only processes whose PROC_PIDTBSDINFO uid equals target-uid enter sample rows, group_member_count, identity retention, lineage, and every sanitized set.",
+    "non_target": "A successfully read non-target uid is excluded and does not consume process_row_max or group_member_max; there is no exception.",
+    "unknown_uid": "Failure to determine uid for a listed live PID is incomplete enumeration and scan-incomplete; it is never silently treated as non-target.",
+    "group_count": "group_member_count is the count of target-uid sample rows whose observed PGID equals the frozen browser PGID."
+  },
+  "limits": {
+    "sample_max": 10000,
+    "process_row_max": 4096,
+    "group_member_max": 4096,
+    "control_record_max": 16,
+    "control_record_max_bytes": 32768,
+    "retained_identity_max": 16384,
+    "retained_edge_max": 32768,
+    "executable_max": 16384,
+    "relevant_event_max": 4096,
+    "token_max_bytes": 512,
+    "procargs_max_bytes": 4194304,
+    "state_max_bytes": 16777216,
+    "final_max_bytes": 1048576,
+    "cadence_target_ns": 20000000,
+    "start_interval_max_ns": 200000000,
+    "enumeration_max_ns": 200000000,
+    "relay_first_start_window_ms": 2000,
+    "relay_exit_deadline_ms": 5000
+  },
+  "domains": {
+    "control_role": [
+      "browser-root",
+      "ownership-boundary",
+      "direct-open-root",
+      "final-inventory-complete",
+      "abort"
+    ],
+    "root_role": [
+      "browser-root",
+      "direct-open-root",
+      "relay-root",
+      "topology-candidate-root"
+    ],
+    "sample_kind": [
+      "first",
+      "internal",
+      "sentinel"
+    ],
+    "observation_status": [
+      "live",
+      "vanished-during-sample",
+      "unreadable",
+      "identity-changed-during-sample"
+    ],
+    "relevant_event_kind": [
+      "root-observed",
+      "root-exited",
+      "process-first-seen",
+      "process-last-seen",
+      "process-reparented",
+      "token-match-first-seen",
+      "selected-executable-first-seen",
+      "bundle-tree-first-seen",
+      "group-member-first-seen",
+      "group-breakaway",
+      "controlled-lineage-inherited",
+      "direct-lineage-inherited",
+      "relay-lineage-inherited",
+      "topology-candidate-lineage-inherited",
+      "observation-incomplete"
+    ],
+    "witness": [
+      "token",
+      "selected-executable",
+      "bundle-tree",
+      "frozen-group",
+      "controlled-lineage",
+      "direct-lineage",
+      "relay-lineage",
+      "topology-candidate-lineage"
+    ],
+    "terminal_status": [
+      "scan-complete",
+      "scan-incomplete"
+    ],
+    "root_observation_status": [
+      "not-controlled",
+      "pending",
+      "observed",
+      "unobserved"
+    ],
+    "incomplete_reason": [
+      "abort-requested",
+      "argument-invalid",
+      "control-invalid",
+      "control-limit-exceeded",
+      "enumeration-failed",
+      "enumeration-limit-exceeded",
+      "enumeration-time-exceeded",
+      "first-sample-missing",
+      "group-limit-exceeded",
+      "identity-limit-exceeded",
+      "edge-limit-exceeded",
+      "executable-limit-exceeded",
+      "procargs-limit-exceeded",
+      "process-row-limit-exceeded",
+      "relevant-event-limit-exceeded",
+      "sample-limit-exceeded",
+      "sample-incomplete",
+      "sentinel-missing",
+      "start-interval-exceeded",
+      "state-limit-exceeded",
+      "final-limit-exceeded",
+      "publication-failed",
+      "root-unobserved",
+      "unknown-field",
+      "unsupported-observation"
+    ]
+  },
+  "control_record": {
+    "exact_keys": [
+      "schema",
+      "sequence",
+      "role",
+      "process"
+    ],
+    "shape": {
+      "schema": "literal agenterm.singleton-safety.process-probe-control/v1",
+      "sequence": "integer in [0,15], beginning at zero and increasing by exactly one",
+      "role": "control_role",
+      "process": "process_identity or null"
+    },
+    "role_rules": {
+      "browser-root": "process is non-null; occurs exactly once",
+      "ownership-boundary": "process is null; occurs exactly once after browser-root; the first complete sample started after this record is the frozen ownership snapshot",
+      "direct-open-root": "process is non-null; occurs at most once",
+      "final-inventory-complete": "process is null; occurs exactly once on a normal run and causes the next sample to be the sentinel",
+      "abort": "process is null; occurs at most once, is terminal, and causes scan-incomplete"
+    },
+    "ordering": [
+      "browser-root precedes ownership-boundary, direct-open-root, and final-inventory-complete.",
+      "ownership-boundary precedes direct-open-root and final-inventory-complete.",
+      "No record follows final-inventory-complete or abort.",
+      "A repeated, out-of-order, oversized, or unknown-field complete record is control-invalid and makes the run scan-incomplete; active unterminated bytes follow control_log_transport rather than being parsed as a record."
+    ]
+  },
+  "derived_relay_classification": {
+    "authority": "relay-root and topology-candidate-root are scanner-derived roles, never court controls",
+    "candidate_universe": "Every target-uid identity other than the exact direct-open-root, observed outside the frozen group with the owned token or selected/bundle executable match and a kernel start strictly after direct-open-root, enters the bounded candidate universe; no resemblance filter may discard a candidate before frozen predicates are evaluated. The direct-open-root can never be a member of this universe because an identity cannot start strictly after itself.",
+    "primary_predicates": "selected executable file identity and digest match, exact owned token match, and kernel start after direct spawn but no more than limits.relay_first_start_window_ms later",
+    "auxiliary_predicates": "PPID equals 1 and PGID remains outside the frozen contained group",
+    "g1_exemption": "The direct-open-root is exempt from outside token and bundle-tree projections only while that exact identity remains live and its elapsed time since kernel start is at most limits.relay_exit_deadline_ms; it is never a candidate_universe member or classification bucket member. Within the candidate universe, after relay-root precedence, a candidate is live-g1-exemption exactly when all primary predicates hold, at least one auxiliary predicate fails, that exact identity remains live, and its elapsed time since kernel start is at most limits.relay_exit_deadline_ms. No resemblance, token-only, bundle-only, expired, additional, or otherwise unclassified identity is exempt.",
+    "classification": "Every candidate enters exactly one mutually exclusive bucket in this order: all primary and auxiliary predicates yields relay-root; otherwise the exact g1_exemption predicate yields live-g1-exemption; every other candidate yields topology-candidate-root. Token and bundle-tree outside counts are overlapping witness projections of the topology-candidate bucket, not additional buckets.",
+    "conservation": "candidate_observed_count equals classified_relay_count plus topology_candidate_count plus live_g1_exemption_count; every candidate contributes exactly once to that equality even when it contributes to both outside-witness projections.",
+    "multiplicity": "root_role relay-root and topology-candidate-root may each belong to multiple exact identities. All are retained with separate sticky descendant closures; classified_relay_count and topology_candidate_count enumerate the complete sets. Two or more classified relays is an UNSAFE_ESCAPED_PROCESS fact, never truncation or scan incompleteness.",
+    "limits": "The candidate universe and its relevant events are bounded by relevant_event_max; overflow is scan-incomplete and never truncation."
+  },
+  "process_identity": {
+    "exact_keys": [
+      "pid",
+      "start_sec",
+      "start_usec"
+    ],
+    "shape": {
+      "pid": "integer in [1,2147483647]",
+      "start_sec": "integer",
+      "start_usec": "integer in [0,999999]"
+    },
+    "publication": "run-local only; forbidden in final-summary and every external receipt"
+  },
+  "sample_row": {
+    "exact_keys": [
+      "sequence",
+      "kind",
+      "start_mono_ns",
+      "end_mono_ns",
+      "start_interval_ns",
+      "enumeration_ns",
+      "control_sequence_seen",
+      "complete",
+      "process_row_count",
+      "group_member_count",
+      "identity_ids",
+      "identity_set_sha256"
+    ],
+    "shape": {
+      "sequence": "integer in [0,9999], beginning at zero and increasing by exactly one",
+      "kind": "sample_kind",
+      "start_mono_ns": "integer",
+      "end_mono_ns": "integer greater than or equal to start_mono_ns",
+      "start_interval_ns": "null for sequence zero; otherwise start_mono_ns minus the preceding sample start_mono_ns",
+      "enumeration_ns": "end_mono_ns minus start_mono_ns",
+      "control_sequence_seen": "greatest valid control sequence consumed before start_mono_ns, or null",
+      "complete": "boolean",
+      "process_row_count": "integer in [0,4096] equal to identity_ids length",
+      "group_member_count": "integer in [0,4096]",
+      "identity_ids": "array of unique identity_row id values sorted by process identity",
+      "identity_set_sha256": "digest_domains.sample_identity_set digest of the sorted sanitized process-identity digest array; run-local integer ids never enter this digest"
+    },
+    "ordering": [
+      "Sequence zero is the sole first sample.",
+      "Every sample before the final-inventory-complete control record after sequence zero is internal.",
+      "The first sample started after consuming final-inventory-complete is the sole sentinel and no sample follows it.",
+      "A sample with complete false makes the run scan-incomplete; it remains recorded and is never converted to a truncated complete sample."
+    ]
+  },
+  "sanitized_sample": {
+    "publication_scope": "May enter final-summary digests; contains no run-local integer identity id or raw process identity.",
+    "exact_keys": [
+      "sequence",
+      "kind",
+      "start_mono_ns",
+      "end_mono_ns",
+      "start_interval_ns",
+      "enumeration_ns",
+      "control_sequence_seen",
+      "complete",
+      "process_row_count",
+      "group_member_count",
+      "process_identity_digests"
+    ],
+    "shape": {
+      "sequence": "sample sequence",
+      "kind": "sample_kind",
+      "start_mono_ns": "sample_row.start_mono_ns",
+      "end_mono_ns": "sample_row.end_mono_ns",
+      "start_interval_ns": "sample_row.start_interval_ns",
+      "enumeration_ns": "sample_row.enumeration_ns",
+      "control_sequence_seen": "sample_row.control_sequence_seen",
+      "complete": "sample_row.complete",
+      "process_row_count": "sample_row.process_row_count",
+      "group_member_count": "sample_row.group_member_count",
+      "process_identity_digests": "array of the sample's unique digest_set_encoding.process_identity_digest strings, sorted by ascending digest bytes; length equals process_row_count"
+    },
+    "sequence_digest": "sample_sequence_digest hashes the RFC 8785 array of these exact objects in ascending sequence order with digest_domains.sample_sequence."
+  },
+  "identity_row": {
+    "exact_keys": [
+      "id",
+      "pid",
+      "ppid",
+      "pgid",
+      "uid",
+      "start_sec",
+      "start_usec",
+      "parent_identity_id",
+      "executable_id",
+      "token_match",
+      "selected_executable_match",
+      "bundle_tree_match",
+      "in_frozen_group",
+      "identity_recheck_match",
+      "observation_status",
+      "first_seen_sample",
+      "last_seen_sample",
+      "live_at_latest",
+      "root_roles",
+      "lineage_root_roles"
+    ],
+    "shape": {
+      "id": "run-local integer in [0,16383], stable for one exact pid/start identity",
+      "pid": "integer in [1,2147483647]",
+      "ppid": "integer in [0,2147483647]",
+      "pgid": "integer in [0,2147483647]",
+      "uid": "integer equal to target-uid",
+      "start_sec": "integer",
+      "start_usec": "integer in [0,999999]",
+      "parent_identity_id": "identity_row id observed live in the same sample, or null",
+      "executable_id": "executable_row id, or null when observation_status is not live",
+      "token_match": "boolean or null when procargs could not be completely classified",
+      "selected_executable_match": "boolean or null when executable identity could not be completely classified",
+      "bundle_tree_match": "boolean or null when executable identity could not be completely classified",
+      "in_frozen_group": "boolean or null before the frozen group is known or when PGID could not be read",
+      "identity_recheck_match": "boolean",
+      "observation_status": "observation_status",
+      "first_seen_sample": "sample sequence",
+      "last_seen_sample": "sample sequence greater than or equal to first_seen_sample",
+      "live_at_latest": "boolean",
+      "root_roles": "unique root_role values sorted by ascending UTF-8 bytes and directly assigned by valid control records",
+      "lineage_root_roles": "unique root_role values sorted by ascending UTF-8 bytes and inherited under sticky_lineage"
+    },
+    "publication": "run-local latest-state only; pid, ppid, pgid, start fields, and ids are forbidden in final-summary and every external receipt"
+  },
+  "edge_row": {
+    "exact_keys": [
+      "id",
+      "child_identity_id",
+      "parent_identity_id",
+      "first_sample",
+      "last_sample",
+      "observation_count",
+      "lineage_root_roles"
+    ],
+    "shape": {
+      "id": "run-local integer in [0,32767]",
+      "child_identity_id": "identity_row id",
+      "parent_identity_id": "identity_row id for an exact live parent observed in the same sample",
+      "first_sample": "sample sequence",
+      "last_sample": "sample sequence greater than or equal to first_sample",
+      "observation_count": "positive integer",
+      "lineage_root_roles": "unique root_role values sorted by ascending UTF-8 bytes and inherited across this edge"
+    }
+  },
+  "executable_row": {
+    "exact_keys": [
+      "id",
+      "device",
+      "inode",
+      "size",
+      "mtime_ns",
+      "ctime_ns",
+      "sha256",
+      "selected_executable_match",
+      "bundle_tree_match"
+    ],
+    "shape": {
+      "id": "run-local integer in [0,16383]",
+      "device": "integer",
+      "inode": "integer",
+      "size": "integer",
+      "mtime_ns": "integer",
+      "ctime_ns": "integer",
+      "sha256": "sha256 computed from the same opened file object whose stat fields are recorded",
+      "selected_executable_match": "boolean",
+      "bundle_tree_match": "boolean"
+    },
+    "path_rule": "Canonical executable paths are never output; identity plus selected_executable_match and bundle_tree_match replaces path publication."
+  },
+  "relevant_event_row": {
+    "exact_keys": [
+      "sequence",
+      "sample_sequence",
+      "kind",
+      "identity_id",
+      "witnesses"
+    ],
+    "shape": {
+      "sequence": "integer in [0,4095] beginning at zero and increasing by exactly one",
+      "sample_sequence": "sample sequence",
+      "kind": "relevant_event_kind",
+      "identity_id": "identity_row id or null",
+      "witnesses": "unique domains.witness values sorted by ascending UTF-8 bytes"
+    }
+  },
+  "sticky_lineage": {
+    "rules": [
+      "A valid root control record seeds its exact pid/start identity with that root role only after the identity is observed with an exact match.",
+      "For each complete sample, collect every exact child-parent edge observed in that same sample, seed with previously retained lineage plus every exact root observed by that sample, and iterate those same-sample edges to a fixed point before publishing the sample.",
+      "A child inherits a root role only through that per-sample fixed point when the exact parent identity is in the retained lineage subset; an edge from another sample cannot create a same-sample chain.",
+      "When a browser-root or direct-open-root control exact-matches an identity retained before the control arrived, replay retained complete samples in sequence order beginning with that root's first observation, computing a separate same-sample fixed point at each sample; never compute one fixed point over edges pooled from different samples.",
+      "Once inherited, a lineage role is never removed by parent exit, reparenting, later missing PPID edges, or leaving a process group.",
+      "Process-group membership and equal PGID are recorded independently and never create, restore, or imply lineage.",
+      "PID equality without exact start_sec and start_usec equality never identifies a root, parent, child, or retained member.",
+      "A descendant created and reparented wholly between two complete samples cannot support a negative lineage claim; descendant absence is bounded by timing.R_ms, while exact token and bundle-tree outside witnesses remain the fail-closed independent backstop."
+    ]
+  },
+  "root_observation_state": {
+    "exact_keys": [
+      "status",
+      "identity_digest",
+      "first_observed_sample",
+      "first_absent_sample"
+    ],
+    "shape": {
+      "status": "root_observation_status",
+      "identity_digest": "process identity sha256 or null before a control exists",
+      "first_observed_sample": "sample sequence or null until observed",
+      "first_absent_sample": "first later complete sample proving the exact observed root absent, or null"
+    }
+  },
+  "timing": {
+    "clock": "one monotonic clock shared by all samples; wall clock is forbidden for M, E, R, and window duration",
+    "sample_start": "taken immediately before process enumeration begins",
+    "sample_end": "taken only after enumeration, exact identity rechecks, procargs token classification, executable file-identity classification, bundle/selected classification, sorting, and sample digest computation complete; atomic file publication time is excluded",
+    "M_ns": "maximum start_interval_ns over every non-first sample, including the interval ending at sentinel",
+    "E_ns": "maximum enumeration_ns over every sample, including first and sentinel",
+    "R_ns": "M_ns plus E_ns, with checked integer addition",
+    "window_start_ns": "first sample start_mono_ns",
+    "window_end_ns": "sentinel sample start_mono_ns",
+    "window_duration_ns": "window_end_ns minus window_start_ns",
+    "ceil_ms": "for nonnegative n nanoseconds: n / 1000000 plus 1 when n modulo 1000000 is nonzero",
+    "M_ms": "ceil_ms(M_ns)",
+    "E_ms": "ceil_ms(E_ns)",
+    "R_ms": "M_ms plus E_ms; this conservative value, not ceil_ms(R_ns), is the external receipt value",
+    "window_duration_ms": "ceil_ms(window_duration_ns)",
+    "minimum_sample_count": "floor(window_duration_ms / (limits.start_interval_max_ns / 1000000)), exactly matching the L0 relational formula",
+    "coverage": "M_ns and E_ns must each be at most 200000000; sample_count must be at least minimum_sample_count; first and sentinel samples are mandatory. No alternative nanosecond division may be used for the L0 count claim."
+  },
+  "latest_state": {
+    "publication_scope": "run-local only",
+    "publication_timing": "The probe atomically republishes latest-state after every complete sample and after consuming each complete control record, before starting the next sample. A control that changes a root observation is reflected in that publication, so the court can satisfy root_control_causality.browser_ack without waiting for final-summary.",
+    "exact_keys": [
+      "schema",
+      "status",
+      "failure_reasons",
+      "control_record_count",
+      "sample_count",
+      "scan_start_mono_ns",
+      "sentinel_start_mono_ns",
+      "ownership_sample_sequence",
+      "final_inventory_control_sequence",
+      "frozen_group_id",
+      "root_observations",
+      "early_scanner_stop",
+      "max_start_interval_ns",
+      "max_enumeration_ns",
+      "resolution_ns",
+      "maximum_process_row_count",
+      "maximum_group_member_count",
+      "samples",
+      "identities",
+      "edges",
+      "executables",
+      "relevant_events"
+    ],
+    "shape": {
+      "schema": "literal agenterm.singleton-safety.process-probe-state/v1",
+      "status": "terminal_status or literal scanning",
+      "failure_reasons": "unique incomplete_reason values sorted by ascending UTF-8 bytes",
+      "control_record_count": "integer in [0,16]",
+      "sample_count": "integer in [0,10000] equal to samples length",
+      "scan_start_mono_ns": "integer or null before first sample",
+      "sentinel_start_mono_ns": "integer or null before sentinel",
+      "ownership_sample_sequence": "sample sequence of the first complete sample started after ownership-boundary, or null",
+      "final_inventory_control_sequence": "sequence of final-inventory-complete, or null",
+      "frozen_group_id": "run-local integer in [1,2147483647] frozen from the exact browser-root observation, or null",
+      "root_observations": "exact object with keys browser-root and direct-open-root, each an exact root_observation_state object",
+      "early_scanner_stop": "boolean; true when the probe stops before publishing the required sentinel for any reason",
+      "max_start_interval_ns": "integer or null before second sample",
+      "max_enumeration_ns": "integer or null before first completed sample",
+      "resolution_ns": "checked sum of max_start_interval_ns and max_enumeration_ns, or null until both exist",
+      "maximum_process_row_count": "integer in [0,4096]",
+      "maximum_group_member_count": "integer in [0,4096]",
+      "samples": "array of sample_row, length at most 10000",
+      "identities": "array of identity_row, length at most 16384",
+      "edges": "array of edge_row, length at most 32768",
+      "executables": "array of executable_row referenced by identities, length at most 16384",
+      "relevant_events": "array of relevant_event_row, length at most 4096"
+    },
+    "byte_limit": 16777216
+  },
+  "timing_ns_summary": {
+    "exact_keys": [
+      "window_duration_ns",
+      "max_start_interval_ns",
+      "max_enumeration_ns",
+      "resolution_ns"
+    ],
+    "shape": {
+      "window_duration_ns": "integer or null when first or sentinel is missing",
+      "max_start_interval_ns": "integer or null when fewer than two samples exist",
+      "max_enumeration_ns": "integer or null when no sample exists",
+      "resolution_ns": "checked max_start_interval_ns plus max_enumeration_ns, or null unless both maxima exist"
+    }
+  },
+  "scan_summary": {
+    "l0_target": "result-template receipt_sections.scan",
+    "exact_keys": [
+      "sample_count",
+      "window_duration_ms",
+      "max_start_interval_ms",
+      "max_enumeration_ms",
+      "resolution_ms",
+      "maximum_row_count",
+      "maximum_group_member_count",
+      "sample_sequence_digest",
+      "complete"
+    ],
+    "shape": {
+      "sample_count": "integer in [0,10000]",
+      "window_duration_ms": "ceil_ms(window_duration_ns), or null when first or sentinel is missing",
+      "max_start_interval_ms": "ceil_ms(max_start_interval_ns), or null when fewer than two samples exist",
+      "max_enumeration_ms": "ceil_ms(max_enumeration_ns), or null when no sample exists",
+      "resolution_ms": "max_start_interval_ms plus max_enumeration_ms, or null unless both maxima exist",
+      "maximum_row_count": "integer in [0,4096], or null when no sample exists",
+      "maximum_group_member_count": "integer in [0,4096], or null when no sample exists",
+      "sample_sequence_digest": "digest_domains.sample_sequence digest of the ordered sanitized sample array; zero samples uses the literal empty array and does not prove coverage",
+      "complete": "boolean equal to status == scan-complete"
+    },
+    "mapping_rule": "When complete is true every nullable field is non-null and the court copies this exact object to receipt.scan; otherwise the court emits the typed scan-coverage failure and does not represent unavailable values as passing facts."
+  },
+  "scan_coverage_summary": {
+    "l0_target": "result-template stages.scan-coverage required complete plus every pass_required fact",
+    "exact_keys": [
+      "complete",
+      "sample_count",
+      "window_duration_ms",
+      "minimum_sample_count",
+      "max_start_interval_ms",
+      "max_enumeration_ms",
+      "resolution_ms",
+      "maximum_row_count",
+      "maximum_group_member_count",
+      "first_sample_complete",
+      "sentinel_sample_complete",
+      "sentinel_after_final_inventory",
+      "all_samples_complete",
+      "interval_bound_ok",
+      "enumeration_bound_ok",
+      "row_bound_ok",
+      "group_member_bound_ok",
+      "count_lower_bound_ok",
+      "early_scanner_stop",
+      "bundle_tree_resolution_charged",
+      "sample_sequence_digest"
+    ],
+    "shape": {
+      "complete": "boolean equal to status == scan-complete",
+      "sample_count": "integer in [0,10000]",
+      "window_duration_ms": "scan_summary.window_duration_ms",
+      "minimum_sample_count": "floor(window_duration_ms / (limits.start_interval_max_ns / 1000000)), or null when window_duration_ms is null",
+      "max_start_interval_ms": "scan_summary.max_start_interval_ms",
+      "max_enumeration_ms": "scan_summary.max_enumeration_ms",
+      "resolution_ms": "scan_summary.resolution_ms",
+      "maximum_row_count": "scan_summary.maximum_row_count",
+      "maximum_group_member_count": "scan_summary.maximum_group_member_count",
+      "first_sample_complete": "boolean true exactly when sequence zero exists, is kind first, and is complete",
+      "sentinel_sample_complete": "boolean true exactly when one terminal sentinel exists and is complete",
+      "sentinel_after_final_inventory": "boolean true exactly when sentinel.control_sequence_seen equals the final-inventory-complete sequence and sentinel starts after that record was completely consumed",
+      "all_samples_complete": "boolean true exactly when every recorded sample is complete",
+      "interval_bound_ok": "boolean true exactly when every non-first start_interval_ns is at most limits.start_interval_max_ns",
+      "enumeration_bound_ok": "boolean true exactly when every enumeration_ns is at most limits.enumeration_max_ns",
+      "row_bound_ok": "boolean true exactly when every process_row_count is at most limits.process_row_max and no process enumeration was truncated",
+      "group_member_bound_ok": "boolean true exactly when every group_member_count is at most limits.group_member_max and no group enumeration was truncated",
+      "count_lower_bound_ok": "boolean true exactly when minimum_sample_count is non-null and sample_count is at least minimum_sample_count",
+      "early_scanner_stop": "boolean true exactly when scanning stops before the required sentinel is atomically published",
+      "bundle_tree_resolution_charged": "boolean true exactly when every sample end follows all bundle-tree classification work as required by timing.sample_end",
+      "sample_sequence_digest": "scan_summary.sample_sequence_digest"
+    },
+    "pass_rule": "A court scan-coverage stage may pass only when complete and every boolean except early_scanner_stop is true, early_scanner_stop is false, every nullable value is non-null, and all L0 relational limits hold."
+  },
+  "ownership_summary": {
+    "l0_target": "result-template stages.ownership required complete plus every pass_required fact",
+    "snapshot_rule": "All fields are reduced from the frozen ownership snapshot: the first complete sample started after ownership-boundary, plus sticky retained facts established no later than that sample.",
+    "exact_keys": [
+      "complete",
+      "contained_group_digest",
+      "group_retained_count",
+      "group_live_count",
+      "controlled_lineage_digest",
+      "controlled_lineage_count",
+      "contained_closure_retained_digest",
+      "contained_closure_retained_count",
+      "contained_closure_live_digest",
+      "contained_closure_live_count",
+      "token_set_digest",
+      "token_match_count",
+      "bundle_tree_set_digest",
+      "bundle_tree_outside_count",
+      "breakaway_deviation_count",
+      "browser_token_match",
+      "same_sample_insertion_check"
+    ],
+    "shape": {
+      "complete": "boolean true exactly when the ownership snapshot exists, is complete, and every ownership field was fully classified",
+      "contained_group_digest": "sha256 or null; digest_domains.contained_group digest of the exact process-identity set ever observed in the frozen group through the ownership snapshot",
+      "group_retained_count": "integer in [0,16384] or null",
+      "group_live_count": "integer in [0,4096] or null",
+      "controlled_lineage_digest": "sha256 or null; digest_domains.controlled_lineage digest of the sticky exact process-identity set rooted at browser-root through the ownership snapshot",
+      "controlled_lineage_count": "integer in [0,16384] or null",
+      "contained_closure_retained_digest": "sha256 or null; digest_domains.contained_closure digest of the union of retained frozen-group membership and controlled browser lineage through the ownership snapshot",
+      "contained_closure_retained_count": "integer in [0,16384] or null",
+      "contained_closure_live_digest": "sha256 or null; digest_domains.contained_closure digest of the live contained closure in the ownership snapshot",
+      "contained_closure_live_count": "integer in [0,4096] or null",
+      "token_set_digest": "sha256 or null; digest_domains.token_set digest of the exact identity set with exact argv token match in the ownership snapshot",
+      "token_match_count": "integer in [0,4096] or null",
+      "bundle_tree_set_digest": "sha256 or null; digest_domains.bundle_tree_set digest of the exact identity set whose opened executable file object is in the frozen bundle tree in the ownership snapshot",
+      "bundle_tree_outside_count": "integer in [0,4096] or null; bundle-tree matches outside the frozen group without retained controlled-browser lineage or a live G1 exemption",
+      "breakaway_deviation_count": "integer in [0,16384] or null; retained controlled-browser-lineage identities observed leaving the frozen group through the ownership snapshot",
+      "browser_token_match": "boolean or null; exact browser-root identity has an exact argv token match in the ownership snapshot",
+      "same_sample_insertion_check": "boolean or null; every bundle-tree executable enumerated in the frozen group by the ownership snapshot was inserted into the live contained closure in that same sample"
+    },
+    "pass_rule": "A court ownership stage may pass only when complete is true, every nullable field is non-null, browser_token_match and same_sample_insertion_check are true, and bundle_tree_outside_count is zero."
+  },
+  "stage_snapshot_rules": {
+    "baseline": "The complete sequence-zero first sample, taken before any browser-root control exists.",
+    "session_ready": "The first complete sample whose control_sequence_seen is at least the observed browser-root control sequence.",
+    "ownership": "The first complete sample whose control_sequence_seen is at least ownership-boundary.",
+    "open_request_exit": "The first complete sample after direct-open-root was observed that proves that exact root absent.",
+    "relay_exit": "For every scanner-derived relay or topology candidate, the first later complete sample proving that exact identity absent; missing absence never yields an empty-live pass.",
+    "termination": "The first complete sample that proves the previously observed exact browser-root absent; contained group, closure, token and escaped-target facts come from that same sample.",
+    "final_inventory": "The complete sentinel sample whose control_sequence_seen is at least final-inventory-complete."
+  },
+  "baseline_summary": {
+    "l0_target": "scanner-owned subsets of result-template stages.preflight and stages.focus-baseline",
+    "snapshot_rule": "All fields are reduced from stage_snapshot_rules.baseline; no later sample may repair or replace this baseline.",
+    "exact_keys": [
+      "complete",
+      "selected_bundle_zero_independent",
+      "selected_bundle_process_count",
+      "independent_inventory_complete"
+    ],
+    "shape": {
+      "complete": "boolean true exactly when the sequence-zero baseline exists, is complete, and predates every browser-root control",
+      "selected_bundle_zero_independent": "boolean true exactly when selected_bundle_process_count is zero",
+      "selected_bundle_process_count": "integer in [0,4096] or null",
+      "independent_inventory_complete": "boolean equal to complete; proves target-uid enumeration and every required identity, executable, token, group, and lineage classification for the snapshot completed without truncation or unsupported observation"
+    }
+  },
+  "session_ready_summary": {
+    "l0_target": "scanner-owned subset of result-template stages.session-ready",
+    "exact_keys": [
+      "complete",
+      "browser_identity_digest",
+      "selected_bundle_set_digest",
+      "selected_bundle_process_count",
+      "independent_inventory_complete"
+    ],
+    "shape": {
+      "complete": "boolean true exactly when stage_snapshot_rules.session_ready exists and browser-root is observed",
+      "browser_identity_digest": "process identity sha256 or null",
+      "selected_bundle_set_digest": "bundle-tree-set sha256 or null",
+      "selected_bundle_process_count": "integer in [0,4096] or null",
+      "independent_inventory_complete": "boolean equal to complete; proves target-uid enumeration and every required identity, executable, token, group, and lineage classification for the snapshot completed without truncation or unsupported observation"
+    }
+  },
+  "open_request_summary": {
+    "l0_target": "scanner-owned subset of result-template stages.open-request",
+    "exact_keys": [
+      "complete",
+      "direct_request_identity_digest",
+      "exit_observed",
+      "descendant_retained_digest",
+      "descendant_retained_count",
+      "descendant_live_digest",
+      "descendant_live_count",
+      "boundary_sample_complete"
+    ],
+    "shape": {
+      "complete": "boolean true exactly when direct-open-root was observed and stage_snapshot_rules.open_request_exit exists",
+      "direct_request_identity_digest": "process identity sha256 or null",
+      "exit_observed": "boolean",
+      "descendant_retained_digest": "sticky-descendant-closure sha256 or null",
+      "descendant_retained_count": "integer in [0,16384] or null",
+      "descendant_live_digest": "sticky-descendant-closure sha256 or null",
+      "descendant_live_count": "integer in [0,4096] or null",
+      "boundary_sample_complete": "boolean"
+    }
+  },
+  "relay_summary": {
+    "l0_target": "scanner-owned result-template stages.relay facts",
+    "exact_keys": [
+      "complete",
+      "candidate_observed_count",
+      "classified_relay_count",
+      "topology_candidate_count",
+      "relay_identity_digest",
+      "primary_predicates_ok",
+      "auxiliary_predicates_ok",
+      "kernel_start_window_ok",
+      "relay_exit_elapsed_ms",
+      "relay_exit_within_deadline",
+      "descendant_retained_digest",
+      "descendant_retained_count",
+      "descendant_live_digest",
+      "descendant_live_count",
+      "non_exempt_token_outside_count",
+      "non_exempt_bundle_tree_outside_count",
+      "live_g1_exemption_count",
+      "boundary_sample_complete"
+    ],
+    "shape": {
+      "complete": "boolean true exactly when the complete candidate universe is classified and every derived relay/candidate exit snapshot exists",
+      "candidate_observed_count": "integer in [0,4096]",
+      "classified_relay_count": "integer in [0,4096]",
+      "topology_candidate_count": "integer in [0,4096]",
+      "relay_identity_digest": "the process identity sha256 when classified_relay_count is exactly one; null for zero or multiple relays",
+      "primary_predicates_ok": "boolean for exactly one classified relay; null otherwise",
+      "auxiliary_predicates_ok": "boolean for exactly one classified relay; null otherwise",
+      "kernel_start_window_ok": "boolean for exactly one classified relay; null otherwise",
+      "relay_exit_elapsed_ms": "for exactly one relay, ceil of its nonnegative kernel wall-clock start to the realtime timestamp taken at the start of its first complete absence sample; null otherwise. A negative value, realtime regression, or detected realtime-to-monotonic offset discontinuity is scan-incomplete",
+      "relay_exit_within_deadline": "for exactly one classified relay, boolean equal to relay_exit_elapsed_ms less than or equal to limits.relay_exit_deadline_ms; null otherwise",
+      "descendant_retained_digest": "union sticky-descendant-closure sha256 or null",
+      "descendant_retained_count": "integer in [0,16384] or null",
+      "descendant_live_digest": "union sticky-descendant-closure sha256 or null",
+      "descendant_live_count": "integer in [0,4096] or null",
+      "non_exempt_token_outside_count": "integer in [0,4096]",
+      "non_exempt_bundle_tree_outside_count": "integer in [0,4096]",
+      "live_g1_exemption_count": "integer in [0,4096]",
+      "boundary_sample_complete": "boolean"
+    }
+  },
+  "termination_summary": {
+    "l0_target": "scanner-owned subset of result-template stages.termination-proof",
+    "exact_keys": [
+      "complete",
+      "browser_absent",
+      "contained_group_absent",
+      "contained_closure_live_count",
+      "token_set_digest",
+      "token_match_count",
+      "escaped_target_count",
+      "independent_inventory_complete"
+    ],
+    "shape": {
+      "complete": "boolean true exactly when stage_snapshot_rules.termination exists and is complete",
+      "browser_absent": "boolean",
+      "contained_group_absent": "boolean",
+      "contained_closure_live_count": "integer in [0,4096] or null",
+      "token_set_digest": "process-set sha256 or null",
+      "token_match_count": "integer in [0,4096] or null",
+      "escaped_target_count": "integer in [0,4096] or null; count of live exact identities in the union of the sticky direct, relay, and topology-candidate descendant closures that are outside the contained browser closure at the termination snapshot",
+      "independent_inventory_complete": "boolean equal to complete; proves target-uid enumeration and every required identity, executable, token, group, and lineage classification for the snapshot completed without truncation or unsupported observation"
+    }
+  },
+  "final_inventory_summary": {
+    "l0_target": "scanner-owned subset of result-template stages.final-inventory",
+    "exact_keys": [
+      "complete",
+      "independent_inventory_complete",
+      "selected_bundle_process_count",
+      "token_set_digest",
+      "token_match_count",
+      "bundle_tree_outside_count",
+      "contained_closure_retained_digest",
+      "contained_closure_retained_count",
+      "contained_closure_live_digest",
+      "contained_closure_live_count",
+      "direct_descendant_retained_digest",
+      "direct_descendant_live_count",
+      "relay_descendant_retained_digest",
+      "relay_descendant_live_count",
+      "candidate_descendant_retained_digest",
+      "candidate_descendant_live_count",
+      "cleanup_targets_absent"
+    ],
+    "shape": {
+      "complete": "boolean true exactly when stage_snapshot_rules.final_inventory exists and is complete",
+      "independent_inventory_complete": "boolean equal to complete; proves target-uid enumeration and every required identity, executable, token, group, and lineage classification for the snapshot completed without truncation or unsupported observation",
+      "selected_bundle_process_count": "integer in [0,4096] or null",
+      "token_set_digest": "process-set sha256 or null",
+      "token_match_count": "integer in [0,4096] or null",
+      "bundle_tree_outside_count": "integer in [0,4096] or null",
+      "contained_closure_retained_digest": "contained-browser-closure sha256 or null",
+      "contained_closure_retained_count": "integer in [0,16384] or null",
+      "contained_closure_live_digest": "contained-browser-closure sha256 or null",
+      "contained_closure_live_count": "integer in [0,4096] or null",
+      "direct_descendant_retained_digest": "sticky-descendant-closure sha256 or null",
+      "direct_descendant_live_count": "integer in [0,4096] or null",
+      "relay_descendant_retained_digest": "sticky-descendant-closure sha256 or null",
+      "relay_descendant_live_count": "integer in [0,4096] or null",
+      "candidate_descendant_retained_digest": "sticky-descendant-closure sha256 or null",
+      "candidate_descendant_live_count": "integer in [0,4096] or null",
+      "cleanup_targets_absent": "boolean true exactly when no live exact identity in the union of contained-browser, direct, relay, and topology-candidate closures remains eligible for cleanup at the final-inventory snapshot"
+    }
+  },
+  "final_summary": {
+    "publication_scope": "sanitized run-local probe output suitable for court ingestion; contains no PID, PPID, PGID, kernel start identity, path, token, argv, or environment value",
+    "producer_boundary": "The probe publishes latest-state and final-summary only. The court is the sole producer of stage-journal rows, receipt.scan, scan-coverage facts, ownership facts, criteria, and the external receipt.",
+    "exact_keys": [
+      "schema",
+      "status",
+      "failure_reasons",
+      "timing_ns",
+      "scan",
+      "scan_coverage",
+      "baseline",
+      "session_ready",
+      "ownership",
+      "open_request",
+      "relay",
+      "termination",
+      "final_inventory"
+    ],
+    "shape": {
+      "schema": "literal agenterm.singleton-safety.process-probe-summary/v1",
+      "status": "terminal_status",
+      "failure_reasons": "unique incomplete_reason values sorted by ascending UTF-8 bytes; empty exactly when status is scan-complete",
+      "timing_ns": "exact timing_ns_summary object",
+      "scan": "exact scan_summary object",
+      "scan_coverage": "exact scan_coverage_summary object",
+      "baseline": "exact baseline_summary object",
+      "session_ready": "exact session_ready_summary object",
+      "ownership": "exact ownership_summary object",
+      "open_request": "exact open_request_summary object",
+      "relay": "exact relay_summary object",
+      "termination": "exact termination_summary object",
+      "final_inventory": "exact final_inventory_summary object"
+    },
+    "byte_limit": 1048576
+  },
+  "court_mapping": {
+    "authority": "The court is the sole journal and external receipt producer. It consumes only the sanitized final_summary for scanner-owned external facts and must not copy or derive external facts from latest_state raw identities.",
+    "success_scan": "For scan-complete, receipt.scan is a byte-value-preserving copy of final_summary.scan and every field is non-null.",
+    "failure_scan": "For scan-incomplete, receipt.scan still has exactly the final_summary.scan keys and copies its available values; every unavailable scalar is JSON null rather than zero, false, an empty-set digest, omission, or inference.",
+    "stage_facts": "For each sanitized stage section, the court copies complete and only non-null scanner-owned optional fields into that L0 stage facts object. A null optional value is omitted from the stage facts object and can never satisfy pass_required. The court merges its independently owned public/window/cleanup facts under the L0 exact whitelist.",
+    "no_empty_pass": "An absent or unobserved root, missing snapshot, incomplete sample, or null scanner-owned field forces the related stage complete false or a typed failure; an empty set or count zero cannot substitute for missing observation."
+  },
+  "l0_stage_fact_partition": {
+    "rule": "For every named L0 stage, scanner_owned and court_owned are disjoint and their union is exactly that stage's result-template pass_required list.",
+    "preflight": {
+      "scanner_owned": ["selected_bundle_zero_independent"],
+      "court_owned": ["specification_sha256", "result_template_sha256", "source_sha256", "input_digest", "account_identity_digest", "account_home_matches", "account_name_matches", "account_uid_matches", "console_user_matches", "home_census_complete", "home_census_digest", "default_browser_roots_absent", "selected_bundle_zero_public", "owned_roots_absent", "external_state_valid", "frozen_inputs_valid", "attempt_reserved", "reservation_readback_exact"]
+    },
+    "focus-baseline": {
+      "scanner_owned": ["selected_bundle_process_count", "independent_inventory_complete"],
+      "court_owned": ["original_foreground_identity_digest", "process_baseline_digest", "process_baseline_count", "window_baseline_digest", "window_baseline_count", "selected_bundle_window_count", "public_inventory_complete"]
+    },
+    "session-ready": {
+      "scanner_owned": ["browser_identity_digest", "selected_bundle_set_digest", "selected_bundle_process_count", "independent_inventory_complete"],
+      "court_owned": ["owner_identity_digest", "owned_root_identity_digest", "owned_token_digest", "public_status_ready", "identity_match", "ordinary_onscreen_window_count", "public_inventory_complete"]
+    },
+    "ownership": {
+      "scanner_owned": ["contained_group_digest", "group_retained_count", "group_live_count", "controlled_lineage_digest", "controlled_lineage_count", "contained_closure_retained_digest", "contained_closure_retained_count", "contained_closure_live_digest", "contained_closure_live_count", "token_set_digest", "token_match_count", "bundle_tree_set_digest", "bundle_tree_outside_count", "breakaway_deviation_count", "browser_token_match", "same_sample_insertion_check"],
+      "court_owned": []
+    },
+    "open-request": {
+      "scanner_owned": ["direct_request_identity_digest", "exit_observed", "descendant_retained_digest", "descendant_retained_count", "descendant_live_digest", "descendant_live_count", "boundary_sample_complete"],
+      "court_owned": ["spawn_succeeded", "exit_elapsed_ms", "exit_within_deadline"]
+    },
+    "relay": {
+      "scanner_owned": ["candidate_observed_count", "classified_relay_count", "topology_candidate_count", "relay_identity_digest", "primary_predicates_ok", "auxiliary_predicates_ok", "kernel_start_window_ok", "relay_exit_elapsed_ms", "relay_exit_within_deadline", "descendant_retained_digest", "descendant_retained_count", "descendant_live_digest", "descendant_live_count", "non_exempt_token_outside_count", "non_exempt_bundle_tree_outside_count", "live_g1_exemption_count", "boundary_sample_complete"],
+      "court_owned": []
+    },
+    "termination-proof": {
+      "scanner_owned": ["browser_absent", "contained_group_absent", "contained_closure_live_count", "token_set_digest", "token_match_count", "escaped_target_count", "independent_inventory_complete"],
+      "court_owned": ["owner_absent", "unsafe_cleanup_signal_count", "cleanup_veto_respected", "residual_identity_digest", "public_inventory_complete", "no_activate_enabled"]
+    },
+    "final-inventory": {
+      "scanner_owned": ["independent_inventory_complete", "selected_bundle_process_count", "token_set_digest", "token_match_count", "bundle_tree_outside_count", "contained_closure_retained_digest", "contained_closure_retained_count", "contained_closure_live_digest", "contained_closure_live_count", "direct_descendant_retained_digest", "direct_descendant_live_count", "relay_descendant_retained_digest", "relay_descendant_live_count", "candidate_descendant_retained_digest", "candidate_descendant_live_count", "cleanup_targets_absent"],
+      "court_owned": ["public_inventory_complete", "selected_bundle_window_count", "process_baseline_match", "window_baseline_match", "process_baseline_digest", "window_baseline_digest", "owned_roots_absent"]
+    },
+    "scan-coverage": {
+      "scanner_owned": ["sample_count", "window_duration_ms", "minimum_sample_count", "max_start_interval_ms", "max_enumeration_ms", "resolution_ms", "maximum_row_count", "maximum_group_member_count", "first_sample_complete", "sentinel_sample_complete", "sentinel_after_final_inventory", "all_samples_complete", "interval_bound_ok", "enumeration_bound_ok", "row_bound_ok", "group_member_bound_ok", "count_lower_bound_ok", "early_scanner_stop", "bundle_tree_resolution_charged", "sample_sequence_digest"],
+      "court_owned": []
+    }
+  },
+  "input_digest_ownership": {
+    "l0_boundary_members": [
+      "direct-open-executable",
+      "qjswasm-host",
+      "agenterm-cu",
+      "independent-process-helper"
+    ],
+    "boundary_rules": {
+      "direct-open-executable": "digest of the exact direct-open executable; excludes every process-probe file",
+      "qjswasm-host": "digest of the exact qjswasm host executable; excludes every process-probe file",
+      "agenterm-cu": "digest of the exact agenterm-cu executable; excludes every process-probe file",
+      "independent-process-helper": "one logical L0 member jointly commits to the exact process-probe-contract.json bytes, ProcessProbe.c source bytes, build-manifest bytes, and exact single final process-probe executable bytes"
+    },
+    "logical_part_order": ["contract", "c-source", "build-manifest", "final-executable"],
+    "independent_process_helper_digest_rule": "Compute each logical part SHA-256, RFC 8785 encode the ordered array of [logical-part-id, sha256] pairs in exact logical_part_order, then compute sha256(utf8(agenterm.singleton-safety.v1.frozen-input) || 0x00 || canonical-array-utf8). The outer L0 input digest separately represents this composite as [independent-process-helper, composite-sha256].",
+    "single_artifact_rule": "One helper has exactly one executable artifact and exactly one independent-process-helper L0 member. Source files, object files, libraries, schemas, build manifests, and the executable must not appear as separate L0 digest members; the contract, C source, build manifest, and final executable are committed through the one composite member digest."
+  },
+  "hard_failure_policy": [
+    "Every configured limit is inclusive; observing one additional item or byte is scan-incomplete.",
+    "No list, buffer, file, argv, sample, identity, edge, group membership, control record, event, state, or summary may be truncated and then used for a passing result.",
+    "Any incomplete native enumeration, inaccessible required field, identity race, malformed input, unknown JSON field, duplicate key, invalid role transition, timing breach, publication failure, or unsupported observation is scan-incomplete.",
+    "Raw argv and environment bytes remain memory-only for exact token classification and are never written to latest-state, final-summary, diagnostics, stderr, or external evidence.",
+    "After the first hard failure, forward adjudication stops, but bounded observation needed for sentinel/final facts and atomic final-summary publication continues when possible."
+  ]
+}

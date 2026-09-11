@@ -80,7 +80,7 @@
     "home-census-allowlist",
     "accepted-family-default-root-set"
   ],
-  "input_digest_rule": "sha256 using the frozen-input domain over an RFC 8785 array in input_digest_members order; every member is represented by its logical member id and a sha256 digest, never a persisted raw path",
+  "input_digest_rule": "sha256(domain-utf8 || 0x00 || canonical-array-utf8), where domain is agenterm.singleton-safety.v1.frozen-input and canonical-array is the RFC 8785 encoding of an ordered array of [logical-member-id, sha256] pairs in exact input_digest_members order; a persisted raw path never enters a pair",
   "run_id": {
     "encoding": "lowercase-hex",
     "bytes": 16,
@@ -276,6 +276,7 @@
       "window-close.owned_onscreen_window_count": 0,
       "termination-proof.contained_closure_live_count": 0,
       "termination-proof.token_match_count": 0,
+      "termination-proof.escaped_target_count": 0,
       "termination-proof.residual_identity_digest": null,
       "final-inventory.selected_bundle_process_count": 0,
       "final-inventory.selected_bundle_window_count": 0,
@@ -296,7 +297,8 @@
       "scan-coverage.minimum_sample_count equals floor(window_duration_ms divided by limits.scan_interval_max_ms)",
       "scan-coverage.sample_count is at least minimum_sample_count",
       "scan-coverage.maximum_row_count is at most limits.scan_row_max",
-      "scan-coverage.maximum_group_member_count is at most limits.group_membership_max"
+      "scan-coverage.maximum_group_member_count is at most limits.group_membership_max",
+      "relay.candidate_observed_count equals classified_relay_count plus topology_candidate_count plus live_g1_exemption_count"
     ]
   },
   "criteria_keys": [
@@ -464,6 +466,7 @@
     "agenterm.singleton-safety.v1.path-identity",
     "agenterm.singleton-safety.v1.owned-root-token",
     "agenterm.singleton-safety.v1.process-set",
+    "agenterm.singleton-safety.v1.sample-membership-set",
     "agenterm.singleton-safety.v1.window-set",
     "agenterm.singleton-safety.v1.bundle-tree-set",
     "agenterm.singleton-safety.v1.group-membership-set",
