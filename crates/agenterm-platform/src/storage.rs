@@ -113,6 +113,13 @@ pub fn volume_space(path: &std::path::Path) -> Result<VolumeSpace, StorageError>
     crate::selected::storage::volume_space(&canonical)
 }
 
+#[cfg(any(target_os = "linux", windows))]
+pub(crate) fn mounted_volume_space(
+    path: &std::path::Path,
+) -> Result<MountedVolumeSpace, StorageError> {
+    crate::selected::storage::mounted_volume_space(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,11 +184,4 @@ mod tests {
             assert_eq!(error.kind(), StorageErrorKind::InvalidValue);
         }
     }
-}
-
-#[cfg(any(target_os = "linux", windows))]
-pub(crate) fn mounted_volume_space(
-    path: &std::path::Path,
-) -> Result<MountedVolumeSpace, StorageError> {
-    crate::selected::storage::mounted_volume_space(path)
 }

@@ -175,7 +175,14 @@ mod tests {
         let details = inspect_path(&root.join("file")).expect("inspect entry");
         assert!(details.facts.is_real_file());
         assert_eq!(details.length, 5);
-        assert!(details.identity.is_some());
+        // A stable object identity needs an opened handle; the Windows metadata
+        // adapter deliberately reports none and leaves that to the file-identity
+        // facade, so only the Unix metadata path can carry it here.
+        if cfg!(windows) {
+            assert!(details.identity.is_none());
+        } else {
+            assert!(details.identity.is_some());
+        }
         assert!(details.modified_unix_ns.is_some());
         fs::remove_dir_all(root).expect("remove entry fixture");
     }

@@ -369,6 +369,7 @@ mod tests {
                 allow_breakaway: false,
                 limits: crate::process_containment::ProcessContainmentLimits {
                     memory_bytes: Some(128 * 1024 * 1024),
+                    cpu_time_seconds: None,
                     cpu_rate_hundredths: Some(5_000),
                     active_processes: Some(10),
                 },
