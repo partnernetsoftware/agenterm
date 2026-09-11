@@ -1678,7 +1678,13 @@ impl Drop for SuspendedProcess {
 /// environment on every spawn is deliberate: a cached answer could not be
 /// changed between the tests in one process.
 fn force_console_agent() -> bool {
-    env::var_os("FORCE_CONSOLE_AGENT").is_some_and(|value| value == "1")
+    // `AGENTERM_FORCE_CONSOLE_AGENT` is the repository's naming convention and
+    // what the consuming products' tests set; the unprefixed name predates it
+    // and is kept working. Reading only the unprefixed name silently made the
+    // console-agent suites exercise the ConPTY path instead: a test that cannot
+    // select the backend it names proves nothing about that backend.
+    let enabled = |name: &str| env::var_os(name).is_some_and(|value| value == "1");
+    enabled("AGENTERM_FORCE_CONSOLE_AGENT") || enabled("FORCE_CONSOLE_AGENT")
 }
 
 /// Answers "which backend will this machine use" without opening a session.
@@ -1697,7 +1703,10 @@ pub(crate) fn backend_report() -> crate::pty::BackendReport {
     if force_console_agent() {
         return crate::pty::BackendReport {
             kind: "console-agent",
-            detail: format!("forced by FORCE_CONSOLE_AGENT=1 ({})", describe_build()),
+            detail: format!(
+                "forced by AGENTERM_FORCE_CONSOLE_AGENT=1 ({})",
+                describe_build()
+            ),
         };
     }
     if conpty::is_available() {
