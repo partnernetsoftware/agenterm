@@ -39,8 +39,8 @@ use windows_sys::Win32::Security::WinTrust::{
 };
 use windows_sys::Win32::Storage::FileSystem::{
     BY_HANDLE_FILE_INFORMATION, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    GetBinaryTypeW, GetFileInformationByHandle, GetFileVersionInfoSizeW, GetFileVersionInfoW,
-    VS_FIXEDFILEINFO, VerQueryValueW,
+    GetFileInformationByHandle, GetFileVersionInfoSizeW, GetFileVersionInfoW, VS_FIXEDFILEINFO,
+    VerQueryValueW,
 };
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
@@ -273,10 +273,11 @@ fn canonical_executable(path: &Path) -> Result<(PathBuf, FileIdentity), AppFacts
             "application selector did not resolve to a regular .exe file",
         ));
     }
-    let mut binary_type = 0_u32;
-    let wide = wide_nul(canonical.as_os_str());
-    // SAFETY: the canonical path is NUL-terminated and the output pointer is writable.
-    if unsafe { GetBinaryTypeW(wide.as_ptr(), &raw mut binary_type) } == 0 {
+    // `GetBinaryTypeW` is not a PE test: it answers `SCS_DOS_BINARY` for a
+    // text file whose name ends in `.exe`. The facts this adapter publishes
+    // come from PE version and Authenticode resources, so require the DOS `MZ`
+    // and `PE\0\0` signatures before claiming the selector named an image.
+    if !looks_like_pe_image(&canonical) {
         return Err(error(
             AppFactsErrorKind::NotFound,
             "app_facts_not_found",
@@ -285,6 +286,39 @@ fn canonical_executable(path: &Path) -> Result<(PathBuf, FileIdentity), AppFacts
     }
     let identity = FileIdentity::read(&canonical)?;
     Ok((canonical, identity))
+}
+
+/// Whether `path` carries the DOS `MZ` and PE `PE\0\0` signatures.
+///
+/// Bounded by construction: at most 64 bytes for the DOS header and 4 bytes at
+/// `e_lfanew`, which is rejected unless it lands inside the file. Returns false
+/// for anything that is not a PE image, including a text file named `*.exe`.
+fn looks_like_pe_image(path: &Path) -> bool {
+    let mut file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+    let mut dos_header = [0_u8; 64];
+    if std::io::Read::read_exact(&mut file, &mut dos_header).is_err() {
+        return false;
+    }
+    if &dos_header[0..2] != b"MZ" {
+        return false;
+    }
+    let pe_offset = u32::from_le_bytes([
+        dos_header[0x3c],
+        dos_header[0x3d],
+        dos_header[0x3e],
+        dos_header[0x3f],
+    ]) as u64;
+    if pe_offset < dos_header.len() as u64 {
+        return false;
+    }
+    if std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(pe_offset)).is_err() {
+        return false;
+    }
+    let mut signature = [0_u8; 4];
+    std::io::Read::read_exact(&mut file, &mut signature).is_ok() && signature == *b"PE\0\0"
 }
 
 fn path_selector(selector: &str) -> bool {
