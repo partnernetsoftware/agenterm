@@ -5762,3 +5762,23 @@ host a panic hook that writes the thread, location and message to the
 diagnostics log before the default handler runs: without it a vanished
 window leaves no evidence at all, and "it disappeared" is the entire bug
 report an agent has to work from.
+
+## Dedup a native command before it reaches a bounded deferred queue
+
+A repainting host re-asserts idempotent native state on a cadence the user
+never asked for: the window title once per frame, the IME candidate anchor
+once per keystroke, the DPI rectangle whenever the monitor may have
+changed. If each re-assert becomes one item in a bounded deferred queue,
+the queue measures *repaints*, not distinct requests, and a pump stalled by
+a flood fills it with no-ops. When that queue latches an exit on overflow
+(see the section above), the failure looks like "the window vanished while
+the terminal was busy" and the trace is a queue of identical commands.
+
+The fix is per field, not per queue: record the last accepted value and
+make an unchanged one a no-op **before** it takes a slot — `ApplyDpiRect`,
+`SetTitle`, and `SetImeCursor` each carry their own last-value cell for
+exactly this. Classify every command as coalescible (latest-wins, or
+idempotent) or not, and prove it with a test that enqueues far past the
+capacity and asserts no overflow. A command that is genuinely new every
+time — keyboard, button, wheel notch — keeps its own slot and is the only
+thing the bound should ever be spent on.
