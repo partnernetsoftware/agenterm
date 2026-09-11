@@ -104,6 +104,11 @@ fn managed_on_expiry(expiry: JobExpiry) -> ManagedJobOnExpiry {
 
 /// The public `job-adopt` boolean translated into the canonical spelling, which
 /// then goes through [`managed_on_expiry`] like every other surface.
+///
+/// `job-adopt` itself is a Unix contract (`#[cfg(unix)]`), so this translation
+/// only exists there; on other hosts the verb is a typed refusal and there is no
+/// boolean to translate.
+#[cfg(unix)]
 fn expiry_from_stop_on_expiry(stop_on_expiry: bool) -> JobExpiry {
     if stop_on_expiry {
         JobExpiry::Stop
@@ -1811,14 +1816,18 @@ mod expiry_policy_tests {
             managed_on_expiry(JobExpiry::Detach),
             ManagedJobOnExpiry::Detach
         );
-        assert_eq!(
-            managed_on_expiry(expiry_from_stop_on_expiry(true)),
-            ManagedJobOnExpiry::Stop
-        );
-        assert_eq!(
-            managed_on_expiry(expiry_from_stop_on_expiry(false)),
-            ManagedJobOnExpiry::Detach
-        );
+        // The boolean surface exists only where `job-adopt` does.
+        #[cfg(unix)]
+        {
+            assert_eq!(
+                managed_on_expiry(expiry_from_stop_on_expiry(true)),
+                ManagedJobOnExpiry::Stop
+            );
+            assert_eq!(
+                managed_on_expiry(expiry_from_stop_on_expiry(false)),
+                ManagedJobOnExpiry::Detach
+            );
+        }
     }
 
     /// A historical record has none of the three policy/terminal fields. It must

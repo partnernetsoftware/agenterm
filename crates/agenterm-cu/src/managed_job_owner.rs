@@ -1081,6 +1081,18 @@ impl ResidentJobOwner {
         }
         #[cfg(not(unix))]
         {
+            // Adopting an external process group is a Unix-group contract, so this
+            // host publishes NO terminal transition and every trigger has the same
+            // outcome. The match is exhaustive on purpose: a new trigger variant
+            // must revisit this site instead of being silently ignored here, and
+            // nothing is written to the store (no fabricated terminal state).
+            match trigger {
+                ManagedJobTerminalTrigger::LeaseExpiry
+                | ManagedJobTerminalTrigger::ExplicitStop
+                | ManagedJobTerminalTrigger::SessionEnd
+                | ManagedJobTerminalTrigger::RootExit
+                | ManagedJobTerminalTrigger::OwnerLost => {}
+            }
             Err(ManagedJobOwnerError::new("managed_job_adopt_unsupported"))
         }
     }
