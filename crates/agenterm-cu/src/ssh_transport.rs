@@ -670,6 +670,7 @@ mod tests {
             cwd: Some("court".into()),
             limits: None,
             ttl_seconds: 37,
+            expiry: crate::command::JobExpiry::Stop,
         };
         let remote = rewrite_command_target_current(&command).expect("rewrite");
         assert!(matches!(
@@ -681,6 +682,7 @@ mod tests {
                 ref cwd,
                 ttl_seconds: 37,
                 limits: None,
+                expiry: crate::command::JobExpiry::Stop,
             } if command == &["tool", "--child-flag"]
                 && environment[0].name == "MODE"
                 && environment[0].value.as_deref() == Some("court")

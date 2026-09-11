@@ -451,6 +451,41 @@ pub enum JobStateFilter {
     OrphanedUncertain,
 }
 
+/// A managed job's lease-expiry policy.
+///
+/// `stop` is the default and the only behaviour CU performs for a job it
+/// spawned: the resident owner owns that child and must clean it up. `detach`
+/// exists so the retirement is a **typed** refusal instead of an unknown option;
+/// it is accepted structurally here and refused in the executor before any side
+/// effect (see `job_spawn_payload`).
+///
+/// Validation deliberately does NOT reject `detach`: a `validate()` failure is
+/// mapped to a generic `invalid_input`, which would erase the typed
+/// `managed_job_detach_retired` code. An unknown spelling never deserializes into
+/// this enum at all, so it stays a usage/invalid-input rejection.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum JobExpiry {
+    #[default]
+    Stop,
+    Detach,
+}
+
+impl JobExpiry {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Stop => "stop",
+            Self::Detach => "detach",
+        }
+    }
+
+    #[must_use]
+    pub const fn is_stop(&self) -> bool {
+        matches!(self, Self::Stop)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum JobOutputStream {
@@ -1573,6 +1608,11 @@ pub enum Command {
         limits: Option<JobProcessLimits>,
         #[serde(deserialize_with = "deserialize_job_ttl")]
         ttl_seconds: u64,
+        /// The lease-expiry policy; defaults to `stop`, which is unchanged
+        /// behaviour. `detach` is refused (typed) by the executor before any
+        /// side effect, and an unknown spelling fails deserialization.
+        #[serde(default, skip_serializing_if = "JobExpiry::is_stop")]
+        expiry: JobExpiry,
     },
     JobAdopt {
         target: TargetRef,
@@ -6687,6 +6727,37 @@ mod tests {
     fn managed_job_serde_rejects_unbounded_and_stale_inputs() {
         let reject =
             |value| serde_json::from_value::<Command>(value).expect_err("command must be rejected");
+
+        // `job-spawn`'s `--expiry` is a closed spelling: absent means `stop`
+        // (unchanged behaviour), `detach` deserializes so the executor can refuse
+        // it with a typed code, and anything else is invalid input.
+        let defaulted: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-spawn", "target": "current", "command": ["x"], "ttl_seconds": 1
+        }))
+        .expect("a legacy document without expiry must still load");
+        assert!(matches!(
+            defaulted,
+            Command::JobSpawn {
+                expiry: JobExpiry::Stop,
+                ..
+            }
+        ));
+        let retired: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-spawn", "target": "current", "command": ["x"], "ttl_seconds": 1,
+            "expiry": "detach"
+        }))
+        .expect("detach must parse so its refusal can stay typed");
+        assert!(matches!(
+            retired,
+            Command::JobSpawn {
+                expiry: JobExpiry::Detach,
+                ..
+            }
+        ));
+        reject(serde_json::json!({
+            "verb": "job-spawn", "target": "current", "command": ["x"], "ttl_seconds": 1,
+            "expiry": "bogus"
+        }));
 
         reject(serde_json::json!({
             "verb": "job-spawn", "target": "current", "command": [], "ttl_seconds": 1

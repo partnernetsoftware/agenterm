@@ -115,6 +115,35 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   blocker and yields no managed-job product verdict; it is not authority to
   weaken the independent-owner contract.
 
+- [~] Managed-job lease-expiry truth is now explicit and closed. `job-spawn`
+  takes `--expiry stop|detach`; `stop` is the default and matches the previous
+  behaviour, `detach` is refused with the typed `managed_job_detach_retired`
+  before any reserve, store, owner or process side effect (a spawned child is the
+  managed owner's to clean up, so detached expiry stays retired rather than
+  missing), and any other spelling is a usage rejection. `job-adopt` keeps
+  `--expiry detach` as its default and still requires `--force` for
+  `--expiry stop`. A detach now publishes a bounded identity observation as
+  `detach_liveness` = `live` | `absent` | `unknown`, so a `detached` receipt never
+  claims the process survived: only `live` supports the historical survival
+  statement, `absent` means it was already gone, and `unknown` stays unknown.
+  Every running-job lifecycle outcome plus the orphan reconciliation persists
+  `terminal_trigger` = `lease_expiry` | `explicit_stop` | `session_end` |
+  `root_exit` | `owner_lost`, written by whichever path wins the owner's single
+  finished gate (an observed natural exit is never relabelled); `owner_lost` is
+  written only by the store's exact-owner-death reconciliation while an owner
+  crash stays `orphaned_uncertain`. A failed start is not one of those outcomes,
+  so `StartFailed` keeps a null trigger rather than borrowing one. The retired spawn shape is
+  refused by one preflight before request-identity, idempotency, grant, audit or
+  the managed-job store are touched, with the payload check kept as defence in
+  depth. Historical records without the new fields project
+  explicit nulls, never a default policy or a fabricated liveness.
+  **Evidence status:** the macOS public court (`cu-managed-job-smoke`) passed at
+  this change and emitted all five new identities plus the ten existing ones.
+  Linux and Windows runtime reruns remain pending, and the `unknown` liveness
+  branch is covered by an injectable unit test because a black-box court cannot
+  construct an unreadable same-user identity; no cross-host or `unknown`
+  black-box verdict is claimed.
+
 - [x] `agenterm-cu` is the only product executable. CLI and desktop-host modes
   share that binary; an executable named `cu` is not a compatibility surface.
 - [~] Production compatibility is now the embedded Bun-free `skills/acu/acu.qjs`

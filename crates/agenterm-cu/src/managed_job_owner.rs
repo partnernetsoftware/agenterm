@@ -27,10 +27,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::command::{JobPolicyEnforcement, JobResourcePolicy};
 use crate::managed_job_store::{
-    ExactProcessIdentity, ManagedJobHandle, ManagedJobStore, ResidentOwnerIdentity,
+    ExactProcessIdentity, ManagedJobDetachLiveness, ManagedJobHandle, ManagedJobOnExpiry,
+    ManagedJobStore, ManagedJobTerminalTrigger, ResidentOwnerIdentity,
 };
 
-pub(crate) const LAUNCH_SCHEMA_VERSION: u32 = 3;
+pub(crate) const LAUNCH_SCHEMA_VERSION: u32 = 4;
 const LAUNCH_MAX_BYTES: usize = 64 * 1024;
 const COMMAND_PARTS_MAX: usize = 256;
 const ENVIRONMENT_ENTRIES_MAX: usize = 256;
@@ -64,6 +65,10 @@ pub(crate) struct ManagedJobLaunch {
     pub environment: Vec<ManagedJobEnvironment>,
     pub limits: Option<ManagedJobProcessLimits>,
     pub adoption: Option<ManagedJobAdoption>,
+    /// The lease-expiry policy. This is the SINGLE authority for the decision:
+    /// the public `job-adopt` boolean is translated into it once, at the
+    /// executor boundary, and is never stored beside it.
+    pub on_expiry: ManagedJobOnExpiry,
     /// Aggregate retained bytes across stdout and stderr.
     pub output_capacity_bytes: usize,
     /// Resident control lease. It is held only in memory and is never persisted.
@@ -75,7 +80,6 @@ pub(crate) struct ManagedJobLaunch {
 pub(crate) struct ManagedJobAdoption {
     pub process_id: u32,
     pub start_identity: String,
-    pub stop_on_expiry: bool,
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
@@ -131,6 +135,34 @@ enum AdoptedIdentityState {
     Live,
     Absent,
     Unknown,
+}
+
+/// Bounded identity observation for the detach handoff.
+///
+/// `Detached` only says CU stopped observing, so the receipt must carry whether
+/// the process was actually still there. One sample can be transiently
+/// unavailable, so this polls inside an explicit deadline: `live` and `absent`
+/// are accepted as soon as they are observed, and an unreadable identity is
+/// reported as `unknown` when the deadline expires -- never rounded up to
+/// `live`. Pure and injectable so the rule is testable without a real process.
+fn observe_detach_liveness(
+    deadline: Instant,
+    mut observe: impl FnMut() -> AdoptedIdentityState,
+    mut now: impl FnMut() -> Instant,
+    mut pause: impl FnMut(),
+) -> ManagedJobDetachLiveness {
+    loop {
+        match observe() {
+            AdoptedIdentityState::Live => return ManagedJobDetachLiveness::Live,
+            AdoptedIdentityState::Absent => return ManagedJobDetachLiveness::Absent,
+            AdoptedIdentityState::Unknown => {
+                if now() >= deadline {
+                    return ManagedJobDetachLiveness::Unknown;
+                }
+                pause();
+            }
+        }
+    }
 }
 
 fn adopted_identity_state(verdict: IdentityVerdict) -> AdoptedIdentityState {
@@ -438,7 +470,8 @@ pub(crate) struct ResidentJobOwner {
     #[cfg(unix)]
     adopted_group: Option<agenterm_platform::process::ProcessTreeGuard>,
     adopted: bool,
-    stop_on_expiry: bool,
+    /// The lease-expiry policy, from the launch. Single truth for the decision.
+    on_expiry: ManagedJobOnExpiry,
     stdin: Option<ContainedChildInput>,
     stdout: SharedRing,
     stderr: SharedRing,
@@ -771,7 +804,20 @@ impl ResidentJobOwner {
         }
     }
 
+    /// An explicit `job-stop` (IPC `Stop`).
     pub(crate) fn stop(&mut self) -> Result<ManagedJobRunReport, ManagedJobOwnerError> {
+        self.stop_with(ManagedJobTerminalTrigger::ExplicitStop)
+    }
+
+    /// Terminate the job, recording `trigger` as the cause.
+    ///
+    /// The single `finished` gate decides the winner: if the root already exited
+    /// and `try_finish` observes it, that path publishes `root_exit` and this
+    /// call's `trigger` is NOT written over it.
+    pub(crate) fn stop_with(
+        &mut self,
+        trigger: ManagedJobTerminalTrigger,
+    ) -> Result<ManagedJobRunReport, ManagedJobOwnerError> {
         if let Some(report) = self.terminal_report.clone() {
             return Ok(report);
         }
@@ -779,7 +825,7 @@ impl ResidentJobOwner {
             return Ok(report);
         }
         if self.adopted {
-            return self.stop_adopted();
+            return self.stop_adopted(trigger);
         }
         self.stdin.take();
         let _cleanup_result = self
@@ -799,7 +845,7 @@ impl ResidentJobOwner {
         // `finish_after_exit` retry containment cleanup after the root has
         // become unambiguously dead. We reach this point only after retaining
         // the native terminal result; a still-live root failed above.
-        self.finish_after_exit(exit)
+        self.finish_after_exit(exit, trigger)
     }
 
     /// Terminal cleanup for the owning runtime session. Ordinary `stop`
@@ -807,10 +853,19 @@ impl ResidentJobOwner {
     /// can still drain output. Session teardown instead revokes that lease and
     /// requires the native IPC owner itself to disappear after replying.
     pub(crate) fn stop_and_release(&mut self) -> Result<ManagedJobRunReport, ManagedJobOwnerError> {
-        let report = if self.adopted && !self.stop_on_expiry {
-            self.finish_adopted_detached()?
+        let trigger = ManagedJobTerminalTrigger::SessionEnd;
+        let report = if self.on_expiry == ManagedJobOnExpiry::Detach {
+            // The `finished` gate still decides: an already-observed natural exit
+            // wins and is not relabelled.
+            if let Some(report) = self.terminal_report.clone() {
+                report
+            } else if let Some(report) = self.try_finish()? {
+                report
+            } else {
+                self.finish_adopted_detached(trigger)?
+            }
         } else {
-            self.stop()?
+            self.stop_with(trigger)?
         };
         self.lease_deadline = Instant::now();
         Ok(report)
@@ -840,7 +895,11 @@ impl ResidentJobOwner {
             )) {
                 AdoptedIdentityState::Live => return Ok(None),
                 AdoptedIdentityState::Absent => {
-                    return self.finish_adopted_detached().map(Some);
+                    // The process disappeared on its own: that is a root exit,
+                    // observed before any expiry/stop path could claim it.
+                    return self
+                        .finish_adopted_detached(ManagedJobTerminalTrigger::RootExit)
+                        .map(Some);
                 }
                 AdoptedIdentityState::Unknown => {
                     return Err(ManagedJobOwnerError::new(
@@ -864,12 +923,18 @@ impl ResidentJobOwner {
             }
         };
 
-        self.finish_after_exit(exit).map(Some)
+        self.finish_after_exit(exit, ManagedJobTerminalTrigger::RootExit)
+            .map(Some)
     }
 
+    /// Publish the terminal state for a root that is already dead. `trigger` is
+    /// the cause decided by whichever path won the single `finished` gate, and
+    /// it is written as-is: an already-observed `root_exit` is never relabelled
+    /// to satisfy a later expectation.
     fn finish_after_exit(
         &mut self,
         exit: ProcessExit,
+        trigger: ManagedJobTerminalTrigger,
     ) -> Result<ManagedJobRunReport, ManagedJobOwnerError> {
         self.stdin.take();
         // Root exit does not prove descendants closed inherited pipe handles.
@@ -885,14 +950,22 @@ impl ResidentJobOwner {
         let terminal = terminal_from_exit(exit)?;
         let now = now_utc_ms()?;
         match terminal {
-            ManagedJobTerminal::Exited(exit_code) => {
-                self.store
-                    .mark_exited(&self.handle, &self.owner, &self.process, exit_code, now)
-            }
-            ManagedJobTerminal::Signaled(signal) => {
-                self.store
-                    .mark_signaled(&self.handle, &self.owner, &self.process, signal, now)
-            }
+            ManagedJobTerminal::Exited(exit_code) => self.store.mark_exited(
+                &self.handle,
+                &self.owner,
+                &self.process,
+                exit_code,
+                trigger,
+                now,
+            ),
+            ManagedJobTerminal::Signaled(signal) => self.store.mark_signaled(
+                &self.handle,
+                &self.owner,
+                &self.process,
+                signal,
+                trigger,
+                now,
+            ),
             ManagedJobTerminal::Detached => {
                 return Err(ManagedJobOwnerError::new(
                     "managed_job_process_state_unknown",
@@ -912,9 +985,35 @@ impl ResidentJobOwner {
         Ok(report)
     }
 
-    fn finish_adopted_detached(&mut self) -> Result<ManagedJobRunReport, ManagedJobOwnerError> {
+    /// Stop observing an adopted process.
+    ///
+    /// `Detached` only means CU relinquished observation; it does NOT claim the
+    /// process survived. That claim is carried by an explicit bounded identity
+    /// observation taken right here: `live` is the only value that supports
+    /// MCU's "the process survives a detach" statement, `absent` means it was
+    /// already gone, and `unknown` stays unknown rather than being rounded up.
+    fn finish_adopted_detached(
+        &mut self,
+        trigger: ManagedJobTerminalTrigger,
+    ) -> Result<ManagedJobRunReport, ManagedJobOwnerError> {
+        let pid = self.process.pid;
+        let start_identity = self.process.start_identity.clone();
+        let deadline = Instant::now() + CLEANUP_WAIT;
+        let liveness = observe_detach_liveness(
+            deadline,
+            || adopted_identity_state(verify_identity(pid, &start_identity)),
+            Instant::now,
+            || thread::sleep(WAIT_POLL),
+        );
         self.store
-            .mark_detached(&self.handle, &self.owner, &self.process, now_utc_ms()?)
+            .mark_detached(
+                &self.handle,
+                &self.owner,
+                &self.process,
+                liveness,
+                trigger,
+                now_utc_ms()?,
+            )
             .map_err(|_| ManagedJobOwnerError::new("managed_job_terminal_publish_failed"))?;
         self.finished = true;
         #[cfg(unix)]
@@ -928,7 +1027,10 @@ impl ResidentJobOwner {
         Ok(report)
     }
 
-    fn stop_adopted(&mut self) -> Result<ManagedJobRunReport, ManagedJobOwnerError> {
+    fn stop_adopted(
+        &mut self,
+        trigger: ManagedJobTerminalTrigger,
+    ) -> Result<ManagedJobRunReport, ManagedJobOwnerError> {
         #[cfg(unix)]
         {
             self.adopted_group
@@ -958,7 +1060,14 @@ impl ResidentJobOwner {
                 }
             }
             self.store
-                .mark_signaled(&self.handle, &self.owner, &self.process, 9, now_utc_ms()?)
+                .mark_signaled(
+                    &self.handle,
+                    &self.owner,
+                    &self.process,
+                    9,
+                    trigger,
+                    now_utc_ms()?,
+                )
                 .map_err(|_| ManagedJobOwnerError::new("managed_job_outcome_unknown"))?;
             self.finished = true;
             self.adopted_group.take();
@@ -1000,10 +1109,11 @@ impl ResidentJobOwner {
             return Ok(());
         }
         if Instant::now() >= self.lease_deadline {
-            if self.adopted && !self.stop_on_expiry {
-                self.finish_adopted_detached().map(|_| ())
+            let trigger = ManagedJobTerminalTrigger::LeaseExpiry;
+            if self.on_expiry == ManagedJobOnExpiry::Detach {
+                self.finish_adopted_detached(trigger).map(|_| ())
             } else {
-                self.stop().map(|_| ())
+                self.stop_with(trigger).map(|_| ())
             }
         } else {
             self.try_finish().map(|_| ())
@@ -1342,7 +1452,14 @@ pub(crate) fn start_owner_from_launch(
         .map_err(|_| ManagedJobOwnerError::new("managed_job_intent_claim_failed"))?;
 
     if let Some(adoption) = launch.adoption.clone() {
-        return start_adopted_owner(store, launch.handle, owner, adoption, launch.lease_ttl_ms);
+        return start_adopted_owner(
+            store,
+            launch.handle,
+            owner,
+            adoption,
+            launch.on_expiry,
+            launch.lease_ttl_ms,
+        );
     }
 
     let command = build_contained_command(&launch);
@@ -1472,7 +1589,7 @@ pub(crate) fn start_owner_from_launch(
         #[cfg(unix)]
         adopted_group: None,
         adopted: false,
-        stop_on_expiry: true,
+        on_expiry: launch.on_expiry,
         stdin: Some(stdin_stream),
         stdout,
         stderr,
@@ -1495,11 +1612,12 @@ fn start_adopted_owner(
     handle: ManagedJobHandle,
     owner: ResidentOwnerIdentity,
     adoption: ManagedJobAdoption,
+    on_expiry: ManagedJobOnExpiry,
     lease_ttl_ms: u64,
 ) -> Result<ResidentJobOwner, ManagedJobOwnerError> {
     #[cfg(not(unix))]
     {
-        let _ = (store, handle, owner, adoption, lease_ttl_ms);
+        let _ = (store, handle, owner, adoption, on_expiry, lease_ttl_ms);
         Err(ManagedJobOwnerError::new("managed_job_adopt_unsupported"))
     }
     #[cfg(unix)]
@@ -1548,7 +1666,7 @@ fn start_adopted_owner(
             child: None,
             adopted_group: Some(group),
             adopted: true,
-            stop_on_expiry: adoption.stop_on_expiry,
+            on_expiry,
             stdin: None,
             stdout: Arc::new(Mutex::new(stdout)),
             stderr: Arc::new(Mutex::new(stderr)),
@@ -1592,6 +1710,12 @@ pub(crate) fn read_launch(mut reader: impl Read) -> Result<ManagedJobLaunch, Man
 
 fn validate_launch(launch: &ManagedJobLaunch) -> Result<(), ManagedJobOwnerError> {
     let spawned = launch.adoption.is_none();
+    // The single expiry truth cannot disagree with the origin: a spawned job is
+    // owned by its managed owner, so a detached policy is a launch that must
+    // never have been written.
+    if spawned && launch.on_expiry == ManagedJobOnExpiry::Detach {
+        return Err(ManagedJobOwnerError::new("managed_job_launch_invalid"));
+    }
     if launch.schema_version != LAUNCH_SCHEMA_VERSION
         || !launch.state_path.is_absolute()
         || (spawned && !launch.program.is_absolute())
@@ -1837,9 +1961,30 @@ mod tests {
             environment: Vec::new(),
             limits: None,
             adoption: None,
+            on_expiry: ManagedJobOnExpiry::Stop,
             output_capacity_bytes: 16 * 1024,
             lease_ttl_ms: 60_000,
         }
+    }
+
+    /// The launch's one expiry truth cannot disagree with its origin: a spawned
+    /// job is the managed owner's to clean up, so a detached policy is a launch
+    /// that must never have been written.
+    #[test]
+    fn a_spawned_launch_with_a_detached_policy_is_refused() {
+        let directory = test_directory("spawned-detached-launch");
+        let store = ManagedJobStore::open_at(directory.join("jobs.json")).expect("store");
+        let handle = store.reserve_start(None, 1).expect("reserve").handle();
+        let mut launch = launch_fixture(directory.join("jobs.json"), handle);
+        assert!(
+            validate_launch(&launch).is_ok(),
+            "the stop default is valid"
+        );
+        launch.on_expiry = ManagedJobOnExpiry::Detach;
+        assert!(
+            validate_launch(&launch).is_err(),
+            "a spawned launch must not carry the retired detached policy"
+        );
     }
 
     #[test]
@@ -2077,5 +2222,104 @@ mod tests {
         owner.stop().expect("stop fixture");
         drop(owner);
         fs::remove_dir_all(directory).expect("remove test directory");
+    }
+}
+
+#[cfg(test)]
+mod detach_liveness_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    /// A deterministic clock so the bound is provable without sleeping.
+    struct Clock {
+        base: Instant,
+        ticks: Cell<u64>,
+    }
+
+    impl Clock {
+        fn new() -> Self {
+            Self {
+                base: Instant::now(),
+                ticks: Cell::new(0),
+            }
+        }
+
+        fn now(&self) -> Instant {
+            let tick = self.ticks.get();
+            self.ticks.set(tick + 1);
+            self.base + Duration::from_millis(tick)
+        }
+    }
+
+    fn observe(
+        first: AdoptedIdentityState,
+        later: AdoptedIdentityState,
+        budget: Duration,
+    ) -> (ManagedJobDetachLiveness, u32) {
+        let clock = Clock::new();
+        let deadline = clock.base + budget;
+        let calls = Cell::new(0u32);
+        let liveness = observe_detach_liveness(
+            deadline,
+            || {
+                let call = calls.get();
+                calls.set(call + 1);
+                if call == 0 { first } else { later }
+            },
+            || clock.now(),
+            || {},
+        );
+        (liveness, calls.get())
+    }
+
+    #[test]
+    fn a_live_process_is_reported_live_immediately() {
+        let (liveness, calls) = observe(
+            AdoptedIdentityState::Live,
+            AdoptedIdentityState::Live,
+            Duration::from_millis(50),
+        );
+        assert_eq!(liveness, ManagedJobDetachLiveness::Live);
+        assert_eq!(calls, 1, "a live verdict needs one sample");
+    }
+
+    #[test]
+    fn an_absent_process_is_reported_absent_immediately() {
+        let (liveness, calls) = observe(
+            AdoptedIdentityState::Absent,
+            AdoptedIdentityState::Absent,
+            Duration::from_millis(50),
+        );
+        assert_eq!(liveness, ManagedJobDetachLiveness::Absent);
+        assert_eq!(calls, 1);
+    }
+
+    /// An unreadable identity is never rounded up to `live`: the observation is
+    /// bounded, and the deadline turns it into `unknown`.
+    #[test]
+    fn an_unreadable_identity_stays_unknown_and_is_bounded() {
+        let (liveness, calls) = observe(
+            AdoptedIdentityState::Unknown,
+            AdoptedIdentityState::Unknown,
+            Duration::from_millis(10),
+        );
+        assert_eq!(liveness, ManagedJobDetachLiveness::Unknown);
+        assert!(
+            calls <= 13,
+            "the observation must stay inside its bound: {calls}"
+        );
+    }
+
+    /// A transiently unreadable identity that becomes readable still resolves
+    /// inside the bound.
+    #[test]
+    fn an_unknown_sample_may_resolve_to_live_inside_the_bound() {
+        let (liveness, calls) = observe(
+            AdoptedIdentityState::Unknown,
+            AdoptedIdentityState::Live,
+            Duration::from_millis(50),
+        );
+        assert_eq!(liveness, ManagedJobDetachLiveness::Live);
+        assert!(calls >= 2, "{calls}");
     }
 }

@@ -304,11 +304,34 @@ impl Executor {
     /// The first product slice is deliberately limited to the observe-only
     /// `process-watch` wait. Mutations keep their existing authoritative reply
     /// semantics until they gain phase-aware cancellation of their own.
+    /// Commands whose shape the parser accepts but policy retires.
+    ///
+    /// This is the ONE preflight, and it runs before request-identity,
+    /// persisted-idempotency, grant and audit handling, so a retired spelling can
+    /// never reserve a request record, write an audit row, open the managed-job
+    /// store or start an owner. The `job_spawn_payload` check stays as defence in
+    /// depth for any caller that reaches it another way.
+    fn retired_shape_preflight(command: &Command) -> Option<CuError> {
+        match command {
+            Command::JobSpawn {
+                expiry: crate::command::JobExpiry::Detach,
+                ..
+            } => Some(CuError::new(
+                "managed_job_detach_retired",
+                "job-spawn accepts only --expiry stop; detached expiry is retired because the managed owner must clean up its own child",
+            )),
+            _ => None,
+        }
+    }
+
     pub fn execute_controlled(
         &self,
         command: &Command,
         control: crate::execution_control::ExecutionControl<'_>,
     ) -> CuReply {
+        if let Some(error) = Self::retired_shape_preflight(command) {
+            return CuReply::err(command, error);
+        }
         if matches!(command, Command::Setup { .. })
             && let Err(message) = command.validate()
         {
@@ -1145,6 +1168,52 @@ mod tests {
     use super::*;
 
     use std::collections::BTreeSet;
+
+    /// The retired spawn shape is refused by the ONE preflight, before the
+    /// request-identity path can reserve a request record or the audit row can be
+    /// written. Both facts are asserted on the filesystem, not on the reply.
+    #[test]
+    fn the_retired_spawn_shape_is_refused_before_request_identity_and_audit() {
+        let audit_path = audit_scratch("retired-preflight");
+        let root = audit_path.parent().expect("scratch root");
+        let runtime_path = root.join("runtime.json");
+        let request_path = root.join("requests.json");
+        let executor = Executor::new(Authorization::new(BTreeSet::new()))
+            .with_audit_path(audit_path.clone())
+            .with_request_state_paths(request_path.clone(), runtime_path.clone())
+            .with_request_identity(RequestIdentity {
+                request_id: "fixture.retired-1".into(),
+                session_id: "fixture-session".into(),
+                session_lease: "fixture-lease".into(),
+            });
+
+        let reply = executor.execute(&Command::JobSpawn {
+            target: TargetRef::Current,
+            command: vec!["/bin/true".into()],
+            environment: Vec::new(),
+            cwd: None,
+            limits: None,
+            ttl_seconds: 60,
+            expiry: crate::command::JobExpiry::Detach,
+        });
+        assert!(!reply.ok);
+        assert_eq!(
+            reply.error.as_ref().expect("typed").code,
+            "managed_job_detach_retired"
+        );
+        assert!(
+            !request_path.exists(),
+            "the preflight must run before request idempotency"
+        );
+        assert!(
+            !runtime_path.exists(),
+            "the preflight must run before the runtime session record"
+        );
+        assert!(
+            !audit_path.exists(),
+            "the preflight must run before the audit row"
+        );
+    }
 
     #[test]
     fn caller_request_identity_replays_terminal_receipt_without_repeating_effect() {

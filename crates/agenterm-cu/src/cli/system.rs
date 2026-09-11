@@ -6,9 +6,9 @@ use agenterm_cu::{
         DEVICE_INVENTORY_MAX, DEVICE_IO_BYTES_MAX, DEVICE_WATCH_DURATION_MS_MAX,
         DEVICE_WATCH_EVENTS_MAX, DEVICE_WATCH_INTERVAL_MS_MAX, DEVICE_WATCH_INTERVAL_MS_MIN,
         DeviceDataEncoding, DeviceSerialConfiguration, DeviceSerialFlow, DeviceSerialParity,
-        HostNotifyAction, JobEnvironment, JobOutputCursor, JobOutputStream, JobPolicyAction,
-        JobPolicyEnforcement, JobProcessLimits, JobResourcePolicy, JobStateFilter, ProcessRunState,
-        ProcessSignalKind, STORAGE_DEVICES_MAX,
+        HostNotifyAction, JobEnvironment, JobExpiry, JobOutputCursor, JobOutputStream,
+        JobPolicyAction, JobPolicyEnforcement, JobProcessLimits, JobResourcePolicy, JobStateFilter,
+        ProcessRunState, ProcessSignalKind, STORAGE_DEVICES_MAX,
     },
     service_control::{ServiceOperation, ServiceScope},
 };
@@ -1114,6 +1114,9 @@ fn parse_job_spawn(target: TargetRef, args: &mut Vec<String>) -> Result<Command,
     }
     let cwd = flag_text(args, "--cwd")?;
     let ttl_seconds = ttl_flag(args, DEFAULT_JOB_TTL_SECONDS)?;
+    // The policy is parsed here so a wrong spelling is a usage error; the
+    // retirement of `detach` is a typed executor refusal, not a usage error.
+    let expiry = job_expiry_flag(args, "job-spawn")?;
     let cpu_seconds = flag_parsed(args, "--cpu-seconds")?;
     let memory_bytes = flag_parsed(args, "--memory-bytes")?;
     let file_size_bytes = flag_parsed(args, "--file-size-bytes")?;
@@ -1148,6 +1151,7 @@ fn parse_job_spawn(target: TargetRef, args: &mut Vec<String>) -> Result<Command,
         cwd,
         limits,
         ttl_seconds,
+        expiry,
     };
     command.validate().map_err(str::to_owned)?;
     Ok(command)
@@ -1242,6 +1246,19 @@ fn parse_runtime(name: &str, target: TargetRef, args: &mut Vec<String>) -> Resul
         return Err(format!("{name} received unexpected argument {:?}", args[0]));
     }
     Ok(command)
+}
+
+/// `--expiry stop|detach`, defaulting to `stop`. The spelling is closed here so
+/// an unknown value is a usage error; whether `detach` is *allowed* is the
+/// executor's typed decision.
+fn job_expiry_flag(args: &mut Vec<String>, verb: &str) -> Result<JobExpiry, String> {
+    match flag_text(args, "--expiry")?.as_deref() {
+        None | Some("stop") => Ok(JobExpiry::Stop),
+        Some("detach") => Ok(JobExpiry::Detach),
+        Some(other) => Err(format!(
+            "{verb} --expiry must be stop or detach; got {other:?}"
+        )),
+    }
 }
 
 fn ttl_flag(args: &mut Vec<String>, default: u64) -> Result<u64, String> {
@@ -1908,6 +1925,40 @@ mod tests {
             })
         );
         assert!(parse("job-spawn", &["program"]).is_err());
+    }
+
+    /// `--expiry` is a closed spelling that defaults to `stop`. `detach` must
+    /// PARSE so its refusal can be typed by the executor instead of being
+    /// flattened into a usage error.
+    #[test]
+    fn job_spawn_expiry_spelling_is_closed_and_defaults_to_stop() {
+        let Command::JobSpawn { expiry, .. } = parse("job-spawn", &["--", "program"]).unwrap()
+        else {
+            panic!("job-spawn")
+        };
+        assert_eq!(expiry, JobExpiry::Stop, "the default must be unchanged");
+
+        let Command::JobSpawn { expiry, .. } =
+            parse("job-spawn", &["--expiry", "stop", "--", "program"]).unwrap()
+        else {
+            panic!("job-spawn")
+        };
+        assert_eq!(expiry, JobExpiry::Stop);
+
+        let Command::JobSpawn { expiry, .. } =
+            parse("job-spawn", &["--expiry", "detach", "--", "program"]).unwrap()
+        else {
+            panic!("job-spawn")
+        };
+        assert_eq!(
+            expiry,
+            JobExpiry::Detach,
+            "detach parses so its refusal stays typed"
+        );
+
+        let error = parse("job-spawn", &["--expiry", "bogus", "--", "program"])
+            .expect_err("a bogus spelling is a usage error");
+        assert!(error.contains("--expiry must be stop or detach"), "{error}");
     }
 
     #[test]

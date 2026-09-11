@@ -44,9 +44,7 @@ fn execute_argv_with_authority_flags_controlled(
     if let Err(reply) = validate_argv(&args) {
         return *reply;
     }
-    if let Some(spec) = args
-        .first()
-        .and_then(|first| verbs::resolve(first, args.get(1).map(String::as_str)))
+    if let Some((spec, _)) = verbs::resolve_spelling(&args)
         && wants_verb_help(&args)
     {
         return cli::help::verb_help_silent(spec);
@@ -72,7 +70,7 @@ fn execute_argv_with_authority_flags_controlled(
         Some("help") => return cli::help::run_help_silent(&args[1..]),
         _ => {}
     }
-    if let Some(spec) = spec
+    if let Some((spec, _)) = verbs::resolve_spelling(&args)
         && wants_verb_help(&args)
     {
         return cli::help::verb_help_silent(spec);
@@ -220,16 +218,18 @@ fn is_help_token(token: &str) -> bool {
     matches!(token, "--help" | "-h") || verbs::lookup(token).is_some_and(|spec| spec.name == "help")
 }
 
+/// Whether `args` is exactly one verb spelling followed by ONE help token.
+///
+/// The spelling comes from the same longest-prefix resolver dispatch uses, so a
+/// three-token spelling (`processor topology status`) reaches its help instead of
+/// falling through to the global target requirement. Nothing else is tolerated:
+/// an extra token or a misplaced help token is a normal command, which keeps the
+/// `--target` requirement exactly as strict as it was.
 fn wants_verb_help(args: &[String]) -> bool {
-    let tail = &args[1..];
-    let sub_form = tail.first().is_some_and(|second| {
-        verbs::resolve(&args[0], Some(second)).is_some_and(|spec| {
-            spec.aliases
-                .contains(&format!("{} {second}", args[0]).as_str())
-        })
-    });
-    let tail = if sub_form { &tail[1..] } else { tail };
-    tail.len() == 1 && matches!(tail[0].as_str(), "--help" | "-h")
+    let Some((_, tokens)) = verbs::resolve_spelling(args) else {
+        return false;
+    };
+    args.len() == tokens + 1 && matches!(args[tokens].as_str(), "--help" | "-h")
 }
 
 #[cfg(test)]
@@ -346,5 +346,107 @@ mod tests {
             (false, false),
         );
         assert_eq!(count.error.expect("count refusal").code, "argv_too_large");
+    }
+
+    fn run(raw: &[&str]) -> CuReply {
+        execute_argv_with_authority_flags(words(raw), (false, false))
+    }
+
+    fn help_verb(reply: &CuReply) -> Option<String> {
+        reply
+            .data
+            .as_ref()?
+            .get("verb")?
+            .as_str()
+            .map(str::to_owned)
+    }
+
+    /// Every spelling in the catalog -- one, two and three tokens -- reaches its
+    /// own verb help through BOTH help tokens, with no `--target` supplied.
+    #[test]
+    fn every_spelling_reaches_its_own_help_without_a_target() {
+        for spec in verbs::VERBS {
+            for spelling in spec.spellings() {
+                for help in ["--help", "-h"] {
+                    let mut raw: Vec<&str> = spelling.split(' ').collect();
+                    raw.push(help);
+                    let reply = run(&raw);
+                    assert!(reply.ok, "{spelling} {help}: {:?}", reply.error);
+                    assert_eq!(reply.command, "help", "{spelling} {help}");
+                    assert_eq!(
+                        help_verb(&reply).as_deref(),
+                        Some(spec.name),
+                        "{spelling} {help}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The four three-token spellings that used to be unreachable.
+    #[test]
+    fn three_token_spellings_reach_their_help() {
+        for (spelling, name) in [
+            ("processor topology status", "processor-topology-status"),
+            ("cache hierarchy status", "cache-hierarchy-status"),
+            ("processor affinity status", "processor-affinity-status"),
+            ("screen reader status", "screen-reader"),
+        ] {
+            for help in ["--help", "-h"] {
+                let mut raw: Vec<&str> = spelling.split(' ').collect();
+                raw.push(help);
+                let reply = run(&raw);
+                assert!(reply.ok, "{spelling} {help}: {:?}", reply.error);
+                assert_eq!(reply.command, "help", "{spelling} {help}");
+                assert_eq!(
+                    help_verb(&reply).as_deref(),
+                    Some(name),
+                    "{spelling} {help}"
+                );
+            }
+        }
+    }
+
+    /// Without a help token the same three-token spelling is an ordinary command
+    /// and keeps the unchanged `--target` requirement.
+    #[test]
+    fn a_three_token_spelling_without_help_still_requires_a_target() {
+        let reply = run(&["processor", "topology", "status"]);
+        assert!(!reply.ok);
+        let error = reply.error.as_ref().expect("typed");
+        assert_eq!(error.code, "usage");
+        assert!(error.message.contains("--target"), "{}", error.message);
+    }
+
+    /// The longest spelling wins, so a two-token verb is not stolen by the
+    /// one-token verb that shares its first word.
+    #[test]
+    fn the_longest_spelling_wins_over_a_shorter_prefix() {
+        let reply = run(&["page", "read", "--help"]);
+        assert!(reply.ok, "{:?}", reply.error);
+        assert_eq!(help_verb(&reply).as_deref(), Some("page-js"));
+        // The one-token form still resolves to its own verb.
+        let shorter = run(&["page", "--help"]);
+        assert_eq!(help_verb(&shorter).as_deref(), Some("page"));
+    }
+
+    /// Help is never inferred from a shape that is not exactly
+    /// `<spelling> <one help token>`: an extra token, a partial spelling, or a
+    /// help token in the middle stays an ordinary (target-requiring) command.
+    #[test]
+    fn help_is_not_inferred_from_extra_or_misplaced_tokens() {
+        for raw in [
+            vec!["processor", "topology", "status", "extra", "--help"],
+            vec!["processor", "topology", "--help"],
+            vec!["processor", "--help", "status"],
+        ] {
+            let reply = run(&raw);
+            assert_ne!(reply.command, "help", "{raw:?}");
+            assert_eq!(
+                reply.error.as_ref().expect("typed").code,
+                "usage",
+                "{raw:?}"
+            );
+        }
     }
 }

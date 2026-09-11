@@ -288,6 +288,7 @@ impl Executor {
                 cwd,
                 limits,
                 ttl_seconds,
+                expiry,
                 ..
             } => {
                 let request = job_request.ok_or_else(|| {
@@ -302,6 +303,7 @@ impl Executor {
                     cwd.as_deref(),
                     *limits,
                     *ttl_seconds,
+                    *expiry,
                     request,
                 )
             }

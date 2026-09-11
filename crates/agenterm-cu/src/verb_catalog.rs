@@ -39,6 +39,37 @@ impl VerbSpec {
     }
 }
 
+/// Resolve the verb whose spelling is the LONGEST token prefix of `args`.
+///
+/// Returns the spec together with the number of tokens its spelling consumed, so
+/// a caller can inspect what follows the spelling. Comparison is token-wise
+/// against the whole spelling -- never a substring match and never a single-token
+/// fallback -- which is what stops a short alias from stealing a longer spelling:
+/// `processor topology status` is matched as three tokens even though some other
+/// verb may also match the first one.
+pub fn resolve_spelling(args: &[String]) -> Option<(&'static VerbSpec, usize)> {
+    let mut best: Option<(&'static VerbSpec, usize)> = None;
+    for spec in VERBS {
+        for spelling in spec.spellings() {
+            let tokens: Vec<&str> = spelling.split(' ').collect();
+            if tokens.len() > args.len() {
+                continue;
+            }
+            if !tokens
+                .iter()
+                .zip(args)
+                .all(|(token, argument)| *token == argument.as_str())
+            {
+                continue;
+            }
+            if best.is_none_or(|(_, best_tokens)| tokens.len() > best_tokens) {
+                best = Some((spec, tokens.len()));
+            }
+        }
+    }
+    best
+}
+
 include!(concat!(env!("OUT_DIR"), "/agenterm_cu_verbs_hot.rs"));
 
 static COLD: OnceLock<Value> = OnceLock::new();

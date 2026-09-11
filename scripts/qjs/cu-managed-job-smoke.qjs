@@ -19,7 +19,12 @@ const declared_evidence = [
   "cu.managed-job-policy",
   "cu.managed-job-prune",
   "cu.audit-retention",
-  "cu.target-lock-lifecycle"
+  "cu.target-lock-lifecycle",
+  "cu.managed-job-spawn-expiry",
+  "cu.managed-job-adopt-detach-liveness",
+  "cu.managed-job-terminal-trigger",
+  "cu.managed-job-expiry-idempotency",
+  "cu.managed-job-detach-fixture-cleanup"
 ];
 
 function ensure(condition, message) {
@@ -88,6 +93,63 @@ function invoke_cu_failure(run_directory, executable, arguments, expected_comman
   ensure(reply.command === expected_command, "cu_managed_job_wrong_failure_reply:" + expected_command);
   ensure(text_of(reply.error.code) === expected_code, "cu_managed_job_wrong_failure_code:" + expected_command);
   return reply.error;
+}
+
+/// A closed-spelling usage rejection: the CLI answers with command/code
+/// `usage`, so the typed-code helper does not apply. Returns the message.
+function invoke_cu_usage_failure(run_directory, executable, arguments) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+      AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-requests.json"),
+      AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json"),
+      HOME: run_directory,
+      XDG_DATA_HOME: rh.join(run_directory, "data"),
+      XDG_CONFIG_HOME: rh.join(run_directory, "config")
+    },
+    timeout_ms: 30000
+  });
+  let reply = null;
+  try { reply = JSON.parse(output.stdout.trim()); }
+  catch (error) { throw "cu_managed_job_invalid_usage_reply"; }
+  ensure(output.success !== true && reply.ok === false, "cu_managed_job_expected_usage_failure");
+  ensure(reply.command === "usage", "cu_managed_job_usage_command:" + text_of(reply.command));
+  ensure(text_of(reply.error.code) === "usage", "cu_managed_job_usage_code");
+  return text_of(reply.error.message);
+}
+
+/// End a session that is EXPECTED to refuse a clean sweep, and return the typed
+/// code of the first job it could not prove terminal.
+function invoke_cu_uncertain_session_end(run_directory, executable, session_id, session_lease) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "actuate",
+    "session-end", session_id, "--lease", session_lease, "--confirm"
+  ], {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+      AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-requests.json"),
+      AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json"),
+      HOME: run_directory,
+      XDG_DATA_HOME: rh.join(run_directory, "data"),
+      XDG_CONFIG_HOME: rh.join(run_directory, "config")
+    },
+    timeout_ms: 30000
+  });
+  let reply = null;
+  try { reply = JSON.parse(output.stdout.trim()); }
+  catch (error) { throw "cu_managed_job_invalid_uncertain_end"; }
+  ensure(output.success !== true && reply.ok === false, "cu_managed_job_uncertain_end_expected");
+  ensure(
+    text_of(reply.error.code) === "runtime_session_cleanup_uncertain",
+    "cu_managed_job_uncertain_end_code:" + text_of(reply.error.code)
+  );
+  const failed = reply.error.detail.jobs.failed;
+  ensure(failed.length >= 1, "cu_managed_job_uncertain_end_failed_rows");
+  return text_of(failed[0].code);
 }
 
 function mutation_prefix(request_id, session_id, session_lease) {
@@ -167,6 +229,102 @@ function wait_owner_absent(run_directory, executable, job) {
   return false;
 }
 
+/// The closed set a detach handoff may report, so "non-empty" can never stand in
+/// for a truthful liveness.
+function is_detach_liveness(value) {
+  const text = text_of(value);
+  return text === "live" || text === "absent" || text === "unknown";
+}
+
+function job_status_of(run_directory, executable, job_id) {
+  return invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "job-status", job_id
+  ], "job-status");
+}
+
+/// Identity-bound fixture teardown through the PUBLIC verbs only.
+///
+/// `process-state` re-reads the exact start identity (a reused pid is refused,
+/// never signalled), then the tree-capable identity-bound signal terminates the
+/// root and its descendants, and absence is proved by re-reading the state.
+/// Returns "killed" | "already_absent" | "pid_reused" | "unobservable".
+function kill_bound_fixture(run_directory, executable, pid, start_identity) {
+  let present = fixture_presence(run_directory, executable, pid, start_identity);
+  if (present === "absent") { return "already_absent"; }
+  if (present === "reused") { return "pid_reused"; }
+  if (present !== "live") { return "unobservable"; }
+  try {
+    invoke_cu(run_directory, executable, [
+      "--target", "current", "--grant", "actuate",
+      "process-signal", "" + pid, "KILL",
+      "--start-identity", start_identity,
+      "--tree", "--max", "64", "--force", "--timeout-ms", "5000"
+    ], "process-signal");
+  } catch (error) {
+    return "signal_failed:" + ("" + error);
+  }
+  // Bounded absence proof: the root and every descendant must be gone.
+  for (let poll = 0; poll < 50; poll = poll + 1) {
+    const after = fixture_presence(run_directory, executable, pid, start_identity);
+    if (after === "absent") { return "killed"; }
+    if (after === "reused") { return "pid_reused"; }
+    harness.sleep_ms(100);
+  }
+  return "unobservable";
+}
+
+/// "live" | "absent" | "reused" | "unobservable" for one exact identity.
+///
+/// A different start identity at the same pid is a REFUSAL, never a target: the
+/// court must not signal a process it did not observe.
+function fixture_presence(run_directory, executable, pid, start_identity) {
+  try {
+    const state = invoke_cu(run_directory, executable, [
+      "--target", "current", "--grant", "observe", "process-state", "--pid", "" + pid
+    ], "process-state");
+    if (state.state !== "live") { return "absent"; }
+    return text_of(state.start_identity) === start_identity ? "live" : "reused";
+  } catch (error) {
+    const message = "" + error;
+    // A typed not-found is absence; anything else is unknown, not absence.
+    return message.indexOf("process_not_found") >= 0 ? "absent" : "unobservable";
+  }
+}
+
+/// The four state artifacts a refused spawn must not touch, frozen as exact
+/// bytes, plus the run directory listing (lock files included). Compared before
+/// and after, this proves the preflight ran BEFORE request idempotency, the
+/// runtime session record, the audit row and the managed-job store.
+function state_census(run_directory) {
+  const artifacts = [
+    "cu-runtime.json",
+    "cu-requests.json",
+    "cu-audit.jsonl",
+    "cu-managed-jobs.json"
+  ];
+  const parts = [];
+  for (const name of artifacts) {
+    const path = rh.join(run_directory, name);
+    parts.push(name + "=" + (rh.exists(path) ? text_of(rh.read_text(path)) : "<absent>"));
+  }
+  const names = [];
+  for (const entry of rh.read_dir(run_directory)) { names.push(entry.name); }
+  names.sort();
+  return parts.join("\u0000") + "\u0000|" + names.join(",");
+}
+
+/// The live managed-job owner census: every recorded owner pid, plus the count
+/// of records the store still holds. Independent of the reply under test.
+function owner_census(run_directory, executable) {
+  const inventory = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "job-list"
+  ], "job-list");
+  const owners = [];
+  for (const row of inventory.jobs) { owners.push(text_of(row.owner_pid)); }
+  owners.sort();
+  return owners.join(",") + "|" + inventory.matched;
+}
+
 function stop_owned_job(run_directory, executable, session_id, session_lease, request_id, job) {
   const args = mutation_prefix(request_id, session_id, session_lease);
   append_all(args, [
@@ -198,6 +356,19 @@ const request_root = "managed-job-" + context.run_id;
 let session_id = "";
 let session_lease = "";
 let first_job = null;
+let detach_live_child = null;
+let detach_live_identity = "";
+let detach_live_job = null;
+let detach_absent_child = null;
+let detach_absent_identity = "";
+let detach_absent_job = null;
+let lost_session_id = "";
+let lost_session_lease = "";
+let lost_end_attempted = false;
+let lost_session_cleanly_ended = false;
+let lost_fixture = null;
+let lost_fixture_identity = "";
+let lost_fixture_clean = false;
 let second_job = null;
 let session_bound_job = null;
 let adopted_job = null;
@@ -804,6 +975,289 @@ try {
     );
   }
 
+  print("STEP spawn expiry: default and explicit stop are accepted; detach is a typed pre-effect refusal");
+  const short_command = windows
+    ? ["cmd.exe", "/c", "exit", "0"]
+    : ["/bin/sh", "-c", "exit 0"];
+  // (1) No --expiry: the default must be `stop` (unchanged behaviour).
+  const default_args = mutation_prefix(request_root + "-expiry-default", session_id, session_lease);
+  append_all(default_args, ["job-spawn", "--ttl-seconds", "60", "--"]);
+  append_all(default_args, long_command);
+  const default_spawned = invoke_cu(run_directory, executable, default_args, "job-spawn");
+  const default_job = { job_id: text_of(default_spawned.job_id), generation: default_spawned.generation };
+  const default_status = job_status_of(run_directory, executable, default_job.job_id);
+  ensure(default_status.on_expiry === "stop", "cu_managed_job_spawn_default_expiry");
+  const default_replay = invoke_cu(run_directory, executable, default_args, "job-spawn");
+  ensure(
+    text_of(default_replay.job_id) === default_job.job_id
+      && default_replay.generation === default_job.generation,
+    "cu_managed_job_spawn_replay_identity"
+  );
+  // (2) Explicit --expiry stop.
+  const stop_args = mutation_prefix(request_root + "-expiry-stop", session_id, session_lease);
+  append_all(stop_args, ["job-spawn", "--ttl-seconds", "60", "--expiry", "stop", "--"]);
+  append_all(stop_args, long_command);
+  const stop_spawned = invoke_cu(run_directory, executable, stop_args, "job-spawn");
+  const stop_job = { job_id: text_of(stop_spawned.job_id), generation: stop_spawned.generation };
+  ensure(
+    job_status_of(run_directory, executable, stop_job.job_id).on_expiry === "stop",
+    "cu_managed_job_spawn_explicit_stop_expiry"
+  );
+  // (3) --expiry detach: stable typed code with NO side effect. Three
+  //     independent censuses (store bytes+directory, job-list owners, the
+  //     reply-independent inventory) must be unchanged.
+  const store_before = state_census(run_directory);
+  const owners_before = owner_census(run_directory, executable);
+  const detached_retired_args = mutation_prefix(
+    request_root + "-expiry-detach", session_id, session_lease
+  );
+  append_all(detached_retired_args, ["job-spawn", "--ttl-seconds", "60", "--expiry", "detach", "--"]);
+  append_all(detached_retired_args, long_command);
+  invoke_cu_failure(
+    run_directory, executable, detached_retired_args, "job-spawn", "managed_job_detach_retired"
+  );
+  ensure(state_census(run_directory) === store_before, "cu_managed_job_detach_state_unchanged");
+  ensure(
+    owner_census(run_directory, executable) === owners_before,
+    "cu_managed_job_detach_owner_census_unchanged"
+  );
+  // A bogus spelling stays a usage error, not the typed retirement.
+  const bogus_args = mutation_prefix(request_root + "-expiry-bogus", session_id, session_lease);
+  append_all(bogus_args, ["job-spawn", "--ttl-seconds", "60", "--expiry", "bogus", "--"]);
+  append_all(bogus_args, long_command);
+  const bogus_message = invoke_cu_usage_failure(run_directory, executable, bogus_args);
+  ensure(
+    bogus_message.indexOf("--expiry must be stop or detach") >= 0,
+    "cu_managed_job_expiry_spelling:" + bogus_message
+  );
+
+  print("STEP terminal triggers: explicit stop, lease expiry and root exit are recorded verbatim");
+  stop_owned_job(
+    run_directory, executable, session_id, session_lease,
+    request_root + "-trigger-stop", stop_job
+  );
+  const stopped_trigger = job_status_of(run_directory, executable, stop_job.job_id).terminal_trigger;
+  ensure(stopped_trigger === "explicit_stop", "cu_managed_job_trigger_explicit_stop:" + stopped_trigger);
+  // A repeated stop is a replay: the same trigger, never a second transition.
+  const stopped_again = stop_owned_job(
+    run_directory, executable, session_id, session_lease,
+    request_root + "-trigger-stop-replay", stop_job
+  );
+  ensure(stopped_again.stopped === true, "cu_managed_job_trigger_stop_replay");
+  ensure(
+    job_status_of(run_directory, executable, stop_job.job_id).terminal_trigger === "explicit_stop",
+    "cu_managed_job_trigger_stop_exactly_once"
+  );
+  // Lease expiry: a one-second lease expires while the job is still running.
+  const expiring_args = mutation_prefix(request_root + "-trigger-expiry", session_id, session_lease);
+  append_all(expiring_args, ["job-spawn", "--ttl-seconds", "1", "--"]);
+  append_all(expiring_args, long_command);
+  const expiring_spawned = invoke_cu(run_directory, executable, expiring_args, "job-spawn");
+  const expiring_job = { job_id: text_of(expiring_spawned.job_id), generation: expiring_spawned.generation };
+  let expiry_trigger = "";
+  for (let poll = 0; poll < 100; poll = poll + 1) {
+    const status = job_status_of(run_directory, executable, expiring_job.job_id);
+    if (status.state !== "running" && status.state !== "starting" && status.state !== "start_intent") {
+      expiry_trigger = text_of(status.terminal_trigger);
+      break;
+    }
+    harness.sleep_ms(100);
+  }
+  ensure(expiry_trigger === "lease_expiry", "cu_managed_job_trigger_lease_expiry:" + expiry_trigger);
+  // Root exit: a job that exits on its own is a root_exit, not a stop.
+  const exit_args = mutation_prefix(request_root + "-trigger-rootexit", session_id, session_lease);
+  append_all(exit_args, ["job-spawn", "--ttl-seconds", "60", "--"]);
+  append_all(exit_args, short_command);
+  const exit_spawned = invoke_cu(run_directory, executable, exit_args, "job-spawn");
+  const exit_job = { job_id: text_of(exit_spawned.job_id), generation: exit_spawned.generation };
+  let exit_trigger = "";
+  for (let poll = 0; poll < 100; poll = poll + 1) {
+    const status = job_status_of(run_directory, executable, exit_job.job_id);
+    if (status.state === "exited" || status.state === "signaled") {
+      exit_trigger = text_of(status.terminal_trigger);
+      ensure(status.terminal_trigger === "root_exit", "cu_managed_job_trigger_root_exit_published");
+      break;
+    }
+    harness.sleep_ms(100);
+  }
+  ensure(exit_trigger === "root_exit", "cu_managed_job_trigger_root_exit:" + exit_trigger);
+  // Owner lost: only the store's exact-owner-death reconciliation writes it. It
+  // lives in its OWN session, because an uncertain record must make that
+  // session's teardown refuse rather than report a clean sweep.
+  const lost_session = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "actuate",
+    "session-start", "--label", "managed-job-owner-lost", "--ttl-seconds", "120"
+  ], "session-start");
+  lost_session_id = text_of(lost_session.session_id);
+  lost_session_lease = text_of(lost_session.lease);
+  ensure(lost_session_id !== "" && lost_session_lease !== "", "cu_managed_job_lost_session");
+  // The job adopts a COURT-OWNED fixture (registered in `owned_children`, exact
+  // identity held here), so every teardown below is an identity-bound public
+  // verb rather than a bare signal or an unregistered child.
+  lost_fixture = harness.start_child(context, {
+    program: "/bin/sh",
+    args: ["-c", "while :; do sleep 1; done"],
+    env: {},
+    timeout_ms: 300000
+  }, "managed-job-owner-lost-fixture");
+  owned_children.push(lost_fixture);
+  const lost_process = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "process-state", "--pid", "" + lost_fixture.pid
+  ], "process-state");
+  lost_fixture_identity = text_of(lost_process.start_identity);
+  ensure(lost_fixture_identity !== "", "cu_managed_job_lost_fixture_identity");
+  const lost_args = mutation_prefix(
+    request_root + "-trigger-ownerlost", lost_session_id, lost_session_lease
+  );
+  append_all(lost_args, [
+    "job-adopt", "" + lost_fixture.pid,
+    "--start-identity", lost_fixture_identity,
+    "--ttl-seconds", "600", "--expiry", "stop", "--force"
+  ]);
+  const lost_adopted = invoke_cu(run_directory, executable, lost_args, "job-adopt");
+  const lost_job = { job_id: text_of(lost_adopted.job_id), generation: lost_adopted.generation };
+  const lost_status = job_status_of(run_directory, executable, lost_job.job_id);
+  ensure(text_of(lost_status.owner_pid) !== "", "cu_managed_job_owner_pid_present");
+  // Kill the OWNER through the same public, identity-bound, tree-capable verb.
+  const owner_process = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "process-state", "--pid", text_of(lost_status.owner_pid)
+  ], "process-state");
+  const owner_identity = text_of(owner_process.start_identity);
+  ensure(owner_identity !== "", "cu_managed_job_owner_identity");
+  const owner_kill = kill_bound_fixture(
+    run_directory, executable, lost_status.owner_pid, owner_identity
+  );
+  ensure(owner_kill === "killed", "cu_managed_job_owner_kill:" + owner_kill);
+  let lost_trigger = "";
+  for (let poll = 0; poll < 100; poll = poll + 1) {
+    const status = job_status_of(run_directory, executable, lost_job.job_id);
+    if (status.state === "orphaned_uncertain") {
+      lost_trigger = text_of(status.terminal_trigger);
+      ensure(status.detach_liveness === null, "cu_managed_job_owner_lost_is_not_detached");
+      break;
+    }
+    harness.sleep_ms(100);
+  }
+  ensure(lost_trigger === "owner_lost", "cu_managed_job_trigger_owner_lost:" + lost_trigger);
+  // The owning session must refuse to claim a clean sweep for an uncertain job,
+  // and the refusal must name that job's typed code.
+  const lost_end = invoke_cu_uncertain_session_end(
+    run_directory, executable, lost_session_id, lost_session_lease
+  );
+  lost_end_attempted = true;
+  ensure(
+    text_of(lost_end) === "managed_job_orphaned_uncertain",
+    "cu_managed_job_owner_lost_session_refusal:" + text_of(lost_end)
+  );
+  // The refusal MUST NOT be recorded as a clean teardown.
+  lost_session_cleanly_ended = false;
+  // The adopted fixture is still alive (CU never owned its lifetime); the court
+  // removes it by exact identity and proves root+descendants absent BEFORE the
+  // cleanup-closure identity is emitted.
+  const lost_fixture_kill = kill_bound_fixture(
+    run_directory, executable, lost_fixture.pid, lost_fixture_identity
+  );
+  ensure(lost_fixture_kill === "killed", "cu_managed_job_lost_fixture_kill:" + lost_fixture_kill);
+  ensure(
+    fixture_presence(run_directory, executable, lost_fixture.pid, lost_fixture_identity) === "absent",
+    "cu_managed_job_lost_fixture_absent"
+  );
+  lost_fixture_clean = true;
+  lost_fixture = null;
+
+  print("STEP adopt detach liveness: live and absent are distinguished, never rounded to live");
+  if (!windows) {
+    // (a) live: the adopted process is still there when the lease expires.
+    detach_live_child = harness.start_child(context, {
+      program: "/bin/sh",
+      args: ["-c", "while :; do sleep 1; done"],
+      env: {},
+      timeout_ms: 300000
+    }, "managed-job-detach-live-fixture");
+    owned_children.push(detach_live_child);
+    const live_process = invoke_cu(run_directory, executable, [
+      "--target", "current", "--grant", "observe",
+      "process-state", "--pid", "" + detach_live_child.pid
+    ], "process-state");
+    detach_live_identity = text_of(live_process.start_identity);
+    ensure(detach_live_identity !== "", "cu_managed_job_detach_live_identity");
+    const live_args = mutation_prefix(request_root + "-detach-live", session_id, session_lease);
+    append_all(live_args, [
+      "job-adopt", "" + detach_live_child.pid,
+      "--start-identity", detach_live_identity,
+      "--ttl-seconds", "1", "--expiry", "detach"
+    ]);
+    const adopted_live = invoke_cu(run_directory, executable, live_args, "job-adopt");
+    detach_live_job = { job_id: text_of(adopted_live.job_id), generation: adopted_live.generation };
+    ensure(
+      job_status_of(run_directory, executable, detach_live_job.job_id).on_expiry === "detach",
+      "cu_managed_job_adopt_detach_policy"
+    );
+    let live_state = null;
+    for (let poll = 0; poll < 100; poll = poll + 1) {
+      const status = job_status_of(run_directory, executable, detach_live_job.job_id);
+      if (status.state === "detached") { live_state = status; break; }
+      harness.sleep_ms(100);
+    }
+    ensure(live_state !== null, "cu_managed_job_adopt_detach_reached");
+    ensure(
+      live_state.detach_liveness === "live",
+      "cu_managed_job_adopt_detach_liveness_live:" + text_of(live_state.detach_liveness)
+    );
+    ensure(
+      text_of(live_state.terminal_trigger) === "lease_expiry",
+      "cu_managed_job_adopt_detach_trigger"
+    );
+    // The detached process is still running; the court must remove it by exact
+    // identity (never a bare pid).
+    const live_kill = kill_bound_fixture(
+      run_directory, executable, detach_live_child.pid, detach_live_identity
+    );
+    ensure(live_kill === "killed", "cu_managed_job_detach_fixture_cleanup:" + live_kill);
+    detach_live_child = null;
+
+    // (b) absent: the process exits before the lease expires, so an absent
+    //     liveness is reported instead of a survival claim.
+    // Alive when adopted, gone before the lease expires: exactly the shape that
+    // must report `absent` rather than a survival claim.
+    detach_absent_child = harness.start_child(context, {
+      program: "/bin/sh",
+      args: ["-c", "sleep 1"],
+      env: {},
+      timeout_ms: 300000
+    }, "managed-job-detach-absent-fixture");
+    owned_children.push(detach_absent_child);
+    const absent_process = invoke_cu(run_directory, executable, [
+      "--target", "current", "--grant", "observe",
+      "process-state", "--pid", "" + detach_absent_child.pid
+    ], "process-state");
+    detach_absent_identity = text_of(absent_process.start_identity);
+    ensure(detach_absent_identity !== "", "cu_managed_job_detach_absent_identity");
+    const absent_args = mutation_prefix(request_root + "-detach-absent", session_id, session_lease);
+    append_all(absent_args, [
+      "job-adopt", "" + detach_absent_child.pid,
+      "--start-identity", detach_absent_identity,
+      "--ttl-seconds", "2", "--expiry", "detach"
+    ]);
+    const adopted_absent = invoke_cu(run_directory, executable, absent_args, "job-adopt");
+    detach_absent_job = { job_id: text_of(adopted_absent.job_id), generation: adopted_absent.generation };
+    harness.child_wait(detach_absent_child, 5000);
+    detach_absent_child = null;
+    let absent_state = null;
+    for (let poll = 0; poll < 100; poll = poll + 1) {
+      const status = job_status_of(run_directory, executable, detach_absent_job.job_id);
+      if (status.state === "detached") { absent_state = status; break; }
+      harness.sleep_ms(100);
+    }
+    ensure(absent_state !== null, "cu_managed_job_adopt_absent_detach_reached");
+    ensure(
+      absent_state.detach_liveness === "absent",
+      "cu_managed_job_adopt_detach_liveness_absent:" + text_of(absent_state.detach_liveness)
+    );
+  }
+
   print("STEP bind one running job and target lock to the session before terminal cleanup");
   const bound_spawn_args = mutation_prefix(request_root + "-spawn-session-bound", session_id, session_lease);
   append_all(bound_spawn_args, ["job-spawn", "--ttl-seconds", "30", "--"]);
@@ -845,6 +1299,11 @@ try {
     bound_status.terminal !== null && bound_status.state !== "running",
     "cu_managed_job_session_end_terminal_readback"
   );
+  // The bound SPAWNED job must record session_end as its trigger.
+  ensure(
+    text_of(bound_status.terminal_trigger) === "session_end",
+    "cu_managed_job_session_end_trigger:" + text_of(bound_status.terminal_trigger)
+  );
   if (adopted_job !== null) {
     ensure(ended.jobs.detached >= 1, "cu_managed_job_session_end_adopt_detached_count");
     ensure(wait_owner_absent(run_directory, executable, adopted_job), "cu_managed_job_adopt_owner_cleanup");
@@ -854,6 +1313,16 @@ try {
     ensure(
       adopted_after.state === "detached" && harness.child_state(adopted_child) === "running",
       "cu_managed_job_adopt_default_detach_preserves_external_group"
+    );
+    // An ADOPTED detach reached through session-end records the same trigger,
+    // and its liveness is the bounded observation, not a survival claim.
+    ensure(
+      text_of(adopted_after.terminal_trigger) === "session_end",
+      "cu_managed_job_session_end_adopt_trigger:" + text_of(adopted_after.terminal_trigger)
+    );
+    ensure(
+      is_detach_liveness(adopted_after.detach_liveness),
+      "cu_managed_job_session_end_adopt_liveness:" + text_of(adopted_after.detach_liveness)
     );
   }
 
@@ -991,6 +1460,35 @@ if (second_job !== null && !second_owner_absent) {
 if (session_bound_job !== null && !session_bound_owner_absent) {
   failure = failure === "" ? "cu_managed_job_session_bound_owner_cleanup" : failure;
 }
+for (const bound of [
+  [detach_live_child, detach_live_identity],
+  [detach_absent_child, detach_absent_identity]
+]) {
+  if (bound[0] === null) { continue; }
+  let verdict = "unobservable";
+  try { verdict = kill_bound_fixture(run_directory, executable, bound[0].pid, bound[1]); }
+  catch (error) { verdict = "unobservable"; }
+  if (verdict === "killed" || verdict === "already_absent") { continue; }
+  failure = failure === "" ? "cu_managed_job_detach_fixture_cleanup:" + verdict : failure;
+}
+// The uncertain session end is EXPECTED to refuse, so `cleanly ended` stays
+// false; what matters is that the attempt happened and every fixture is closed.
+if (lost_session_id !== "" && !lost_end_attempted) {
+  failure = failure === "" ? "cu_managed_job_lost_session_end_not_attempted" : failure;
+}
+if (lost_session_cleanly_ended) {
+  failure = failure === "" ? "cu_managed_job_uncertain_session_reported_clean" : failure;
+}
+if (lost_fixture !== null) {
+  let verdict = "unobservable";
+  try { verdict = kill_bound_fixture(run_directory, executable, lost_fixture.pid, lost_fixture_identity); }
+  catch (error) { verdict = "unobservable"; }
+  if (verdict === "killed" || verdict === "already_absent") { lost_fixture_clean = true; }
+  else { failure = failure === "" ? "cu_managed_job_lost_fixture_cleanup:" + verdict : failure; }
+}
+if (!lost_fixture_clean && lost_session_id !== "") {
+  failure = failure === "" ? "cu_managed_job_lost_fixture_residue" : failure;
+}
 if (session_id !== "" && !session_ended) {
   failure = failure === "" ? "cu_managed_job_session_cleanup" : failure;
 }
@@ -1010,6 +1508,11 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-prune");
   harness.emit_evidence(context, declared_evidence, "cu.audit-retention");
   harness.emit_evidence(context, declared_evidence, "cu.target-lock-lifecycle");
+  harness.emit_evidence(context, declared_evidence, "cu.managed-job-spawn-expiry");
+  harness.emit_evidence(context, declared_evidence, "cu.managed-job-adopt-detach-liveness");
+  harness.emit_evidence(context, declared_evidence, "cu.managed-job-terminal-trigger");
+  harness.emit_evidence(context, declared_evidence, "cu.managed-job-expiry-idempotency");
+  harness.emit_evidence(context, declared_evidence, "cu.managed-job-detach-fixture-cleanup");
   harness.remove_run(context);
   print("PASS: agenterm-cu managed-job lifecycle, containment resources and bounded audit retention");
 }

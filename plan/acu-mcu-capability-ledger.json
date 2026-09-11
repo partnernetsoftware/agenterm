@@ -1350,19 +1350,19 @@
         {
           "id": "job.lease-wait-stop",
           "mcu_shape": "job renew|wait|stop plus on-lease-expiry detach|stop",
-          "acu_shape": "job-renew|job-wait|job-stop under the owning ACU runtime session",
+          "acu_shape": "job-spawn --expiry stop|detach (detach retired, typed) | job-adopt --expiry detach|stop under the owning ACU runtime session",
           "state": "platform-limited",
           "qualification": {
             "schema": 2,
             "platforms": {
               "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
-              "macos": {"result": "native-qualified", "gate": "cu-managed-job-smoke", "evidence": ["cu.managed-job-lifecycle"]},
+              "macos": {"result": "native-qualified", "gate": "cu-managed-job-smoke", "evidence": ["cu.managed-job-lifecycle", "cu.managed-job-spawn-expiry", "cu.managed-job-adopt-detach-liveness", "cu.managed-job-terminal-trigger", "cu.managed-job-expiry-idempotency", "cu.managed-job-detach-fixture-cleanup"]},
               "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
             }
           },
-          "evidence": ["cu.managed-job-lifecycle"],
-          "next": "add explicit expiry detach policy and cross-host evidence; retain MCU fallback for shapes that cannot be represented losslessly",
-          "note": "Renew, bounded wait and identity-bound stop are public and session-gated. The resident owner owns TTL cleanup, but MCU's selectable detach-on-expiry contract is not yet present."
+          "evidence": ["cu.managed-job-lifecycle", "cu.managed-job-spawn-expiry", "cu.managed-job-adopt-detach-liveness", "cu.managed-job-terminal-trigger", "cu.managed-job-expiry-idempotency", "cu.managed-job-detach-fixture-cleanup"],
+          "next": "keep the spawn-only-stop and adopt-detach|stop split (spawned detach is retired, not missing); the expiry spelling, the adopted detach liveness truth, the terminal trigger and this ledger now agree",
+          "note": "Renew, bounded wait and identity-bound stop are public and session-gated. `job-spawn` accepts only `--expiry stop` (the default, unchanged behaviour); `--expiry detach` is refused with the typed `managed_job_detach_retired` before any reserve/store/owner/process side effect, because the managed owner must clean up the child it spawned. `job-adopt` keeps `--expiry detach` as its default and still requires `--force` for `--expiry stop`. A detach publishes a bounded identity observation as `detach_liveness` = live|absent|unknown, so `detached` alone never claims the process survived: only `live` supports MCU's survival statement, `absent` means it was already gone, and `unknown` stays unknown. Every running-job lifecycle outcome plus the orphan reconciliation persists `terminal_trigger` = lease_expiry|explicit_stop|session_end|root_exit|owner_lost, written by whichever path wins the owner's single finished gate; a failed start is not one of those outcomes, so `StartFailed` keeps a null trigger rather than borrowing one. `owner_lost` is written only by the store's exact-owner-death reconciliation, and an owner crash stays `orphaned_uncertain` and is never relabelled `detached`. Historical records without the new fields project explicit nulls rather than a default policy or a fabricated liveness."
         },
         {
           "id": "shell.exec.bounded",

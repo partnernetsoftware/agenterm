@@ -107,6 +107,76 @@ impl ManagedJobState {
     }
 }
 
+/// The persisted lease-expiry policy. One truth: the public `job-adopt`
+/// boolean is translated into this exactly once, at the executor boundary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ManagedJobOnExpiry {
+    Stop,
+    Detach,
+}
+
+impl ManagedJobOnExpiry {
+    #[must_use]
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Stop => "stop",
+            Self::Detach => "detach",
+        }
+    }
+}
+
+/// Why a job reached its terminal state. Written by whichever path won the
+/// owner's single `finished` gate, so a race can never be relabelled after the
+/// fact; `owner_lost` is reserved for the store's exact-owner-death
+/// reconciliation and is never borrowed by an ordinary request.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ManagedJobTerminalTrigger {
+    LeaseExpiry,
+    ExplicitStop,
+    SessionEnd,
+    RootExit,
+    OwnerLost,
+}
+
+impl ManagedJobTerminalTrigger {
+    #[must_use]
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::LeaseExpiry => "lease_expiry",
+            Self::ExplicitStop => "explicit_stop",
+            Self::SessionEnd => "session_end",
+            Self::RootExit => "root_exit",
+            Self::OwnerLost => "owner_lost",
+        }
+    }
+}
+
+/// Whether the process was still there when CU stopped observing it.
+///
+/// `live` is the only value that supports MCU's "the process survives a detach"
+/// claim. `absent` means it was already gone, and `unknown` is an honest
+/// terminal attribute, NOT evidence that the process survived.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ManagedJobDetachLiveness {
+    Live,
+    Absent,
+    Unknown,
+}
+
+impl ManagedJobDetachLiveness {
+    #[must_use]
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Live => "live",
+            Self::Absent => "absent",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ManagedJobRecord {
@@ -122,6 +192,15 @@ pub(crate) struct ManagedJobRecord {
     pub created_at_utc_ms: i64,
     pub updated_at_utc_ms: i64,
     pub terminal_at_utc_ms: Option<i64>,
+    /// Absent on historical records: readers must project `null`, never a
+    /// default policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_expiry: Option<ManagedJobOnExpiry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_trigger: Option<ManagedJobTerminalTrigger>,
+    /// Only meaningful for `Detached`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detach_liveness: Option<ManagedJobDetachLiveness>,
 }
 
 impl ManagedJobRecord {
@@ -170,6 +249,14 @@ impl Default for Document {
             jobs: BTreeMap::new(),
         }
     }
+}
+
+/// The terminal facts of one running-to-terminal transition, grouped so the one
+/// shared transition path takes a value instead of a growing argument list.
+struct TerminalFacts {
+    state: ManagedJobState,
+    trigger: ManagedJobTerminalTrigger,
+    detach_liveness: Option<ManagedJobDetachLiveness>,
 }
 
 impl ManagedJobStore {
@@ -238,13 +325,19 @@ impl ManagedJobStore {
         session_id: Option<&str>,
         now_utc_ms: i64,
     ) -> Result<ManagedJobRecord, CuError> {
-        self.reserve_start_with_origin(session_id, ManagedJobOrigin::Spawned, now_utc_ms)
+        self.reserve_start_with_origin(
+            session_id,
+            ManagedJobOrigin::Spawned,
+            ManagedJobOnExpiry::Stop,
+            now_utc_ms,
+        )
     }
 
     pub(crate) fn reserve_start_with_origin(
         &self,
         session_id: Option<&str>,
         origin: ManagedJobOrigin,
+        on_expiry: ManagedJobOnExpiry,
         now_utc_ms: i64,
     ) -> Result<ManagedJobRecord, CuError> {
         validate_time(now_utc_ms)?;
@@ -269,6 +362,9 @@ impl ManagedJobStore {
                 state: ManagedJobState::StartIntent,
                 created_at_utc_ms: now_utc_ms,
                 updated_at_utc_ms: now_utc_ms,
+                on_expiry: Some(on_expiry),
+                terminal_trigger: None,
+                detach_liveness: None,
                 terminal_at_utc_ms: None,
             };
             document.jobs.insert(job_id, record.clone());
@@ -372,13 +468,18 @@ impl ManagedJobStore {
         owner: &ResidentOwnerIdentity,
         process: &ExactProcessIdentity,
         exit_code: i32,
+        trigger: ManagedJobTerminalTrigger,
         now_utc_ms: i64,
     ) -> Result<ManagedJobRecord, CuError> {
         self.mark_running_terminal(
             handle,
             owner,
             process,
-            ManagedJobState::Exited { exit_code },
+            TerminalFacts {
+                state: ManagedJobState::Exited { exit_code },
+                trigger,
+                detach_liveness: None,
+            },
             now_utc_ms,
         )
     }
@@ -389,6 +490,7 @@ impl ManagedJobStore {
         owner: &ResidentOwnerIdentity,
         process: &ExactProcessIdentity,
         signal: u16,
+        trigger: ManagedJobTerminalTrigger,
         now_utc_ms: i64,
     ) -> Result<ManagedJobRecord, CuError> {
         if signal == 0 {
@@ -401,7 +503,11 @@ impl ManagedJobStore {
             handle,
             owner,
             process,
-            ManagedJobState::Signaled { signal },
+            TerminalFacts {
+                state: ManagedJobState::Signaled { signal },
+                trigger,
+                detach_liveness: None,
+            },
             now_utc_ms,
         )
     }
@@ -411,13 +517,19 @@ impl ManagedJobStore {
         handle: &ManagedJobHandle,
         owner: &ResidentOwnerIdentity,
         process: &ExactProcessIdentity,
+        liveness: ManagedJobDetachLiveness,
+        trigger: ManagedJobTerminalTrigger,
         now_utc_ms: i64,
     ) -> Result<ManagedJobRecord, CuError> {
         self.mark_running_terminal(
             handle,
             owner,
             process,
-            ManagedJobState::Detached,
+            TerminalFacts {
+                state: ManagedJobState::Detached,
+                trigger,
+                detach_liveness: Some(liveness),
+            },
             now_utc_ms,
         )
     }
@@ -450,6 +562,9 @@ impl ManagedJobStore {
                 }
                 OwnerLiveness::Live(_) | OwnerLiveness::Dead => {
                     record.state = ManagedJobState::OrphanedUncertain;
+                    // The ONLY writer of this trigger: an exact owner identity
+                    // was observed dead. An ordinary request never borrows it.
+                    record.terminal_trigger = Some(ManagedJobTerminalTrigger::OwnerLost);
                     record.updated_at_utc_ms = now_utc_ms;
                     Ok(OwnerReconciliation::MarkedOrphanedUncertain)
                 }
@@ -541,9 +656,14 @@ impl ManagedJobStore {
         handle: &ManagedJobHandle,
         owner: &ResidentOwnerIdentity,
         process: &ExactProcessIdentity,
-        state: ManagedJobState,
+        facts: TerminalFacts,
         now_utc_ms: i64,
     ) -> Result<ManagedJobRecord, CuError> {
+        let TerminalFacts {
+            state,
+            trigger,
+            detach_liveness,
+        } = facts;
         validate_owner(owner)?;
         validate_process(process)?;
         debug_assert!(state.is_terminal());
@@ -559,6 +679,8 @@ impl ManagedJobStore {
             }
             record.state = state;
             record.terminal_at_utc_ms = Some(now_utc_ms);
+            record.terminal_trigger = Some(trigger);
+            record.detach_liveness = detach_liveness;
             Ok(())
         })
     }
@@ -866,6 +988,68 @@ fn validate_record(key: &str, record: &ManagedJobRecord) -> Result<(), CuError> 
     if !shape_valid {
         return Err(corrupt("managed-job state transition shape is invalid"));
     }
+    // Policy and terminal-correlation fields. Historical records predate all
+    // three, so an all-absent record stays readable; as soon as ANY of them is
+    // present the cross-field contract is enforced, and a corrupt private state
+    // fails closed.
+    let policy_present = record.on_expiry.is_some()
+        || record.terminal_trigger.is_some()
+        || record.detach_liveness.is_some();
+    if !policy_present {
+        return Ok(());
+    }
+    // Once any policy/terminal field is present the record must state its expiry
+    // policy: that field is the single truth for the expiry decision, so a record
+    // carrying terminal correlation without it is corrupt.
+    let Some(on_expiry) = record.on_expiry else {
+        return Err(corrupt(
+            "a managed-job record with policy fields must record its expiry policy",
+        ));
+    };
+    if record.origin == ManagedJobOrigin::Spawned && on_expiry != ManagedJobOnExpiry::Stop {
+        return Err(corrupt(
+            "a spawned managed job must record the stop expiry policy",
+        ));
+    }
+    if record.detach_liveness.is_some() != matches!(record.state, ManagedJobState::Detached) {
+        return Err(corrupt(
+            "managed-job handoff liveness exists only for a detached state",
+        ));
+    }
+    let trigger_valid = match &record.state {
+        ManagedJobState::StartIntent | ManagedJobState::Starting | ManagedJobState::Running => {
+            record.terminal_trigger.is_none()
+        }
+        // A failed start is not one of the lifecycle terminal outcomes.
+        ManagedJobState::StartFailed { .. } => record.terminal_trigger.is_none(),
+        // Written only by the exact-owner-death reconciliation.
+        ManagedJobState::OrphanedUncertain => {
+            record.terminal_trigger == Some(ManagedJobTerminalTrigger::OwnerLost)
+        }
+        ManagedJobState::Exited { .. } | ManagedJobState::Signaled { .. } => matches!(
+            record.terminal_trigger,
+            Some(
+                ManagedJobTerminalTrigger::LeaseExpiry
+                    | ManagedJobTerminalTrigger::ExplicitStop
+                    | ManagedJobTerminalTrigger::SessionEnd
+                    | ManagedJobTerminalTrigger::RootExit
+            )
+        ),
+        ManagedJobState::Detached => matches!(
+            record.terminal_trigger,
+            Some(
+                ManagedJobTerminalTrigger::LeaseExpiry
+                    | ManagedJobTerminalTrigger::ExplicitStop
+                    | ManagedJobTerminalTrigger::SessionEnd
+                    | ManagedJobTerminalTrigger::RootExit
+            )
+        ),
+    };
+    if !trigger_valid {
+        return Err(corrupt(
+            "managed-job terminal trigger does not match its state",
+        ));
+    }
     Ok(())
 }
 
@@ -1064,6 +1248,134 @@ mod tests {
         }
     }
 
+    /// The cross-field contract on the new policy/terminal fields. A historical
+    /// record (all three absent) stays readable; once any field is present every
+    /// combination is checked and a corrupt private state fails closed.
+    #[test]
+    fn policy_and_trigger_cross_fields_are_enforced() {
+        let scratch = Scratch::new("policy-cross-fields");
+        let store = scratch.store();
+        let base = store.reserve_start(None, 1).unwrap();
+        let key = base.job_id.clone();
+        let ok = |record: &ManagedJobRecord| validate_record(&key, record).is_ok();
+
+        // A historical record (all three fields absent) stays readable.
+        let mut historical = base.clone();
+        historical.on_expiry = None;
+        historical.terminal_trigger = None;
+        historical.detach_liveness = None;
+        assert!(ok(&historical), "a legacy record must still load");
+        // A legacy terminal record satisfies the old shape matrix too, and still
+        // needs no policy field.
+        let mut legacy_detached = base.clone();
+        legacy_detached.owner = Some(owner(905));
+        legacy_detached.process = Some(process(906));
+        legacy_detached.state = ManagedJobState::Detached;
+        legacy_detached.terminal_at_utc_ms = Some(legacy_detached.updated_at_utc_ms);
+        legacy_detached.on_expiry = None;
+        legacy_detached.terminal_trigger = None;
+        legacy_detached.detach_liveness = None;
+        assert!(
+            ok(&legacy_detached),
+            "a legacy detached record must still load"
+        );
+
+        // A spawned job can never carry the retired detached policy.
+        let mut spawned_detach = base.clone();
+        spawned_detach.on_expiry = Some(ManagedJobOnExpiry::Detach);
+        assert!(!ok(&spawned_detach));
+
+        // A non-terminal state cannot carry a liveness or a trigger.
+        let mut running_liveness = base.clone();
+        running_liveness.detach_liveness = Some(ManagedJobDetachLiveness::Live);
+        assert!(!ok(&running_liveness));
+        let mut running_trigger = base.clone();
+        running_trigger.terminal_trigger = Some(ManagedJobTerminalTrigger::RootExit);
+        assert!(!ok(&running_trigger));
+
+        // A failed start is not a lifecycle terminal outcome.
+        let mut start_failed = base.clone();
+        start_failed.state = ManagedJobState::StartFailed {
+            code: "spawn_failed".to_owned(),
+        };
+        start_failed.terminal_at_utc_ms = Some(start_failed.updated_at_utc_ms);
+        assert!(ok(&start_failed), "StartFailed keeps a null trigger");
+        start_failed.terminal_trigger = Some(ManagedJobTerminalTrigger::ExplicitStop);
+        assert!(!ok(&start_failed), "StartFailed must not claim a trigger");
+
+        // Detached requires liveness; every other terminal forbids it.
+        let mut detached = base.clone();
+        // A detached policy is only legal on an adopted job.
+        detached.origin = ManagedJobOrigin::Adopted;
+        detached.owner = Some(owner(900));
+        detached.process = Some(process(901));
+        detached.state = ManagedJobState::Detached;
+        detached.terminal_at_utc_ms = Some(detached.updated_at_utc_ms);
+        detached.on_expiry = Some(ManagedJobOnExpiry::Detach);
+        detached.terminal_trigger = Some(ManagedJobTerminalTrigger::LeaseExpiry);
+        assert!(!ok(&detached), "a new detached record must carry liveness");
+        detached.detach_liveness = Some(ManagedJobDetachLiveness::Live);
+        assert!(ok(&detached));
+
+        let mut exited_liveness = base.clone();
+        exited_liveness.owner = Some(owner(902));
+        exited_liveness.process = Some(process(903));
+        exited_liveness.state = ManagedJobState::Exited { exit_code: 0 };
+        exited_liveness.terminal_at_utc_ms = Some(exited_liveness.updated_at_utc_ms);
+        exited_liveness.terminal_trigger = Some(ManagedJobTerminalTrigger::RootExit);
+        exited_liveness.detach_liveness = Some(ManagedJobDetachLiveness::Live);
+        assert!(!ok(&exited_liveness), "only Detached may carry liveness");
+
+        // owner_lost belongs to the orphan reconciliation alone.
+        let mut orphan = base.clone();
+        orphan.owner = Some(owner(904));
+        orphan.state = ManagedJobState::OrphanedUncertain;
+        orphan.terminal_trigger = Some(ManagedJobTerminalTrigger::OwnerLost);
+        assert!(ok(&orphan));
+        orphan.terminal_trigger = Some(ManagedJobTerminalTrigger::LeaseExpiry);
+        assert!(!ok(&orphan));
+        let mut exited_owner_lost = exited_liveness.clone();
+        exited_owner_lost.detach_liveness = None;
+        exited_owner_lost.terminal_trigger = Some(ManagedJobTerminalTrigger::OwnerLost);
+        assert!(!ok(&exited_owner_lost));
+
+        // A record that carries ANY policy field must state its expiry policy.
+        // An adopted record that reached a terminal state without one is corrupt
+        // even though its origin would allow either policy.
+        for state in [
+            ManagedJobState::Exited { exit_code: 0 },
+            ManagedJobState::Signaled { signal: 9 },
+        ] {
+            let mut missing_policy = base.clone();
+            missing_policy.origin = ManagedJobOrigin::Adopted;
+            missing_policy.owner = Some(owner(907));
+            missing_policy.process = Some(process(908));
+            missing_policy.state = state;
+            missing_policy.terminal_at_utc_ms = Some(missing_policy.updated_at_utc_ms);
+            missing_policy.terminal_trigger = Some(ManagedJobTerminalTrigger::SessionEnd);
+            missing_policy.on_expiry = None;
+            assert!(
+                !ok(&missing_policy),
+                "an adopted terminal record must state its expiry policy"
+            );
+            // With the policy present the same shape is valid.
+            missing_policy.on_expiry = Some(ManagedJobOnExpiry::Detach);
+            assert!(ok(&missing_policy));
+        }
+        let mut adopted_orphan = base.clone();
+        adopted_orphan.origin = ManagedJobOrigin::Adopted;
+        adopted_orphan.owner = Some(owner(909));
+        adopted_orphan.state = ManagedJobState::OrphanedUncertain;
+        adopted_orphan.terminal_trigger = Some(ManagedJobTerminalTrigger::OwnerLost);
+        adopted_orphan.on_expiry = None;
+        assert!(
+            !ok(&adopted_orphan),
+            "an adopted orphaned record must state its expiry policy"
+        );
+        adopted_orphan.on_expiry = Some(ManagedJobOnExpiry::Detach);
+        assert!(ok(&adopted_orphan));
+    }
+
     fn owner(pid: u32) -> ResidentOwnerIdentity {
         ResidentOwnerIdentity {
             pid,
@@ -1097,7 +1409,14 @@ mod tests {
         assert_eq!(running.owner.as_ref(), Some(&resident));
         assert_eq!(running.process.as_ref(), Some(&child));
         let exited = reopened
-            .mark_exited(&handle, &resident, &child, 7, 13)
+            .mark_exited(
+                &handle,
+                &resident,
+                &child,
+                7,
+                ManagedJobTerminalTrigger::RootExit,
+                13,
+            )
             .unwrap();
         assert_eq!(exited.state, ManagedJobState::Exited { exit_code: 7 });
 
@@ -1211,7 +1530,16 @@ mod tests {
             .mark_running(&handle, &resident, child.clone(), 3)
             .unwrap();
         assert_eq!(store.refresh_blockers().unwrap().running, 1);
-        store.mark_exited(&handle, &resident, &child, 0, 4).unwrap();
+        store
+            .mark_exited(
+                &handle,
+                &resident,
+                &child,
+                0,
+                ManagedJobTerminalTrigger::RootExit,
+                4,
+            )
+            .unwrap();
         assert_eq!(
             store.refresh_blockers().unwrap(),
             ManagedJobRefreshBlockers::default()
@@ -1238,7 +1566,14 @@ mod tests {
                 .unwrap();
             now += 1;
             store
-                .mark_exited(&intent.handle(), &resident, &child, 0, now)
+                .mark_exited(
+                    &intent.handle(),
+                    &resident,
+                    &child,
+                    0,
+                    ManagedJobTerminalTrigger::RootExit,
+                    now,
+                )
                 .unwrap();
             terminal_ids.push(intent.job_id);
             now += 1;
@@ -1263,7 +1598,14 @@ mod tests {
             .unwrap();
         now += 1;
         store
-            .mark_detached(&detached.handle(), &detached_owner, &detached_child, now)
+            .mark_detached(
+                &detached.handle(),
+                &detached_owner,
+                &detached_child,
+                ManagedJobDetachLiveness::Live,
+                ManagedJobTerminalTrigger::LeaseExpiry,
+                now,
+            )
             .unwrap();
 
         let before_plan = fs::read(&scratch.path).unwrap();
@@ -1365,7 +1707,14 @@ mod tests {
             .unwrap();
         assert_eq!(
             store
-                .mark_exited(&handle, &resident, &process(12), 0, 13)
+                .mark_exited(
+                    &handle,
+                    &resident,
+                    &process(12),
+                    0,
+                    ManagedJobTerminalTrigger::ExplicitStop,
+                    13,
+                )
                 .unwrap_err()
                 .code,
             "managed_job_transition_invalid"
@@ -1405,7 +1754,14 @@ mod tests {
             .unwrap();
         assert_eq!(
             store
-                .mark_signaled(&signaled_handle, &signaled_owner, &signaled_child, 9, 7,)
+                .mark_signaled(
+                    &signaled_handle,
+                    &signaled_owner,
+                    &signaled_child,
+                    9,
+                    ManagedJobTerminalTrigger::ExplicitStop,
+                    7,
+                )
                 .unwrap()
                 .state,
             ManagedJobState::Signaled { signal: 9 }
@@ -1426,12 +1782,67 @@ mod tests {
                 10,
             )
             .unwrap();
+        let detached_record = store
+            .mark_detached(
+                &detached_handle,
+                &detached_owner,
+                &detached_child,
+                ManagedJobDetachLiveness::Absent,
+                ManagedJobTerminalTrigger::RootExit,
+                11,
+            )
+            .unwrap();
+        assert_eq!(detached_record.state, ManagedJobState::Detached);
+        // `detached` never stands alone: the record must say whether the process
+        // was still there, and which path won the terminal gate.
+        assert_eq!(
+            detached_record.detach_liveness,
+            Some(ManagedJobDetachLiveness::Absent)
+        );
+        assert_eq!(
+            detached_record.terminal_trigger,
+            Some(ManagedJobTerminalTrigger::RootExit)
+        );
+        assert_eq!(
+            detached_record.on_expiry,
+            Some(ManagedJobOnExpiry::Stop),
+            "a spawned intent defaults to stop"
+        );
+    }
+
+    /// `owner_lost` is written only by the exact-owner-death reconciliation, and
+    /// a detached record is never confused with an orphaned one.
+    #[test]
+    fn owner_death_writes_the_owner_lost_trigger_and_never_detached() {
+        let scratch = Scratch::new("owner-lost-trigger");
+        let store = scratch.store();
+        let intent = store.reserve_start(None, 1).unwrap();
+        let handle = intent.handle();
+        let resident = owner(801);
+        store.claim_starting(&handle, resident.clone(), 2).unwrap();
+        store
+            .mark_running(&handle, &resident, process(801), 3)
+            .unwrap();
         assert_eq!(
             store
-                .mark_detached(&detached_handle, &detached_owner, &detached_child, 11,)
-                .unwrap()
-                .state,
-            ManagedJobState::Detached
+                .reconcile_owner(&handle, OwnerLiveness::Dead, 4)
+                .unwrap(),
+            OwnerReconciliation::MarkedOrphanedUncertain
+        );
+        let record = store
+            .list()
+            .unwrap()
+            .into_iter()
+            .find(|record| record.job_id == handle.job_id)
+            .expect("the reconciled record is retained");
+        assert_eq!(record.state, ManagedJobState::OrphanedUncertain);
+        assert_eq!(
+            record.terminal_trigger,
+            Some(ManagedJobTerminalTrigger::OwnerLost)
+        );
+        assert_eq!(
+            record.detach_liveness, None,
+            "orphaned is not detached: CU did not choose to stop observing"
         );
     }
 

@@ -954,7 +954,12 @@
         "cu.managed-job-policy",
         "cu.managed-job-prune",
         "cu.audit-retention",
-        "cu.target-lock-lifecycle"
+        "cu.target-lock-lifecycle",
+        "cu.managed-job-spawn-expiry",
+        "cu.managed-job-adopt-detach-liveness",
+        "cu.managed-job-terminal-trigger",
+        "cu.managed-job-expiry-idempotency",
+        "cu.managed-job-detach-fixture-cleanup"
       ]
     },
     {

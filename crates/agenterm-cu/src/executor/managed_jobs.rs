@@ -14,8 +14,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     command::{
-        JobEnvironment, JobOutputCursor, JobOutputStream, JobPolicyAction, JobProcessLimits,
-        JobResourcePolicy, JobStateFilter,
+        JobEnvironment, JobExpiry, JobOutputCursor, JobOutputStream, JobPolicyAction,
+        JobProcessLimits, JobResourcePolicy, JobStateFilter,
     },
     idempotency_store::FinalReplay,
     managed_job_ipc::{
@@ -26,7 +26,8 @@ use crate::{
         LAUNCH_SCHEMA_VERSION, ManagedJobEnvironment, ManagedJobLaunch, ManagedJobProcessLimits,
     },
     managed_job_store::{
-        ManagedJobOrigin, ManagedJobRecord, ManagedJobState, ManagedJobStore, OwnerLiveness,
+        ManagedJobDetachLiveness, ManagedJobOnExpiry, ManagedJobOrigin, ManagedJobRecord,
+        ManagedJobState, ManagedJobStore, ManagedJobTerminalTrigger, OwnerLiveness,
         ResidentOwnerIdentity,
     },
     runtime_coordinator::RuntimeCoordinator,
@@ -89,14 +90,47 @@ pub(super) fn replay_from_spawn_reply(value: &Value) -> Result<FinalReplay, CuEr
     })
 }
 
+/// The ONLY translation from a public expiry spelling to the internal policy.
+///
+/// Both surfaces funnel through here: `job-spawn`'s enum and `job-adopt`'s
+/// boolean. One-way and centralized, so the internal model has exactly one
+/// expiry truth and no second boolean is ever stored beside it.
+fn managed_on_expiry(expiry: JobExpiry) -> ManagedJobOnExpiry {
+    match expiry {
+        JobExpiry::Stop => ManagedJobOnExpiry::Stop,
+        JobExpiry::Detach => ManagedJobOnExpiry::Detach,
+    }
+}
+
+/// The public `job-adopt` boolean translated into the canonical spelling, which
+/// then goes through [`managed_on_expiry`] like every other surface.
+fn expiry_from_stop_on_expiry(stop_on_expiry: bool) -> JobExpiry {
+    if stop_on_expiry {
+        JobExpiry::Stop
+    } else {
+        JobExpiry::Detach
+    }
+}
+
 pub(super) fn job_spawn_payload(
     command: &[String],
     environment: &[JobEnvironment],
     cwd: Option<&str>,
     limits: Option<JobProcessLimits>,
     ttl_seconds: u64,
+    expiry: JobExpiry,
     request: &JobRequestContext<'_>,
 ) -> Result<Value, CuError> {
+    // FIRST statement, before the refresh fence, the session gate, the store
+    // open, the intent reservation or any owner/process spawn: a spawned job's
+    // `detach` is retired because the managed owner must clean up its own child.
+    // Refusing here (not in `validate()`) is what keeps the code typed.
+    if !expiry.is_stop() {
+        return Err(CuError::new(
+            "managed_job_detach_retired",
+            "job-spawn accepts only --expiry stop; detached expiry is retired because the managed owner must clean up its own child",
+        ));
+    }
     let _refresh_fence = request.runtime.acquire_refresh_fence()?;
     let _session_gate = request.runtime.acquire_session_gate(request.session_id)?;
     let admission_now = now_utc_ms().ok_or_else(clock_error)?;
@@ -111,11 +145,14 @@ pub(super) fn job_spawn_payload(
     let launch = match build_launch(
         &store,
         &record,
-        command,
-        environment,
-        cwd,
-        limits,
-        ttl_seconds,
+        SpawnRequest {
+            command,
+            environment,
+            cwd,
+            limits,
+            ttl_seconds,
+            on_expiry: expiry,
+        },
     ) {
         Ok(launch) => launch,
         Err(error) => {
@@ -173,9 +210,13 @@ pub(super) fn job_adopt_payload(
         drop(group);
 
         let store = ManagedJobStore::open()?;
+        // The one-way, centralized translation lives in the helper; this is the
+        // only place the public boolean becomes the internal policy.
+        let on_expiry = managed_on_expiry(expiry_from_stop_on_expiry(stop_on_expiry));
         let record = store.reserve_start_with_origin(
             Some(request.session_id),
             ManagedJobOrigin::Adopted,
+            on_expiry,
             now,
         )?;
         let lease_ttl_ms = ttl_seconds.checked_mul(1_000).ok_or_else(|| {
@@ -196,8 +237,8 @@ pub(super) fn job_adopt_payload(
             adoption: Some(ManagedJobAdoption {
                 process_id: pid,
                 start_identity: start_identity.to_owned(),
-                stop_on_expiry,
             }),
+            on_expiry,
             output_capacity_bytes: OUTPUT_CAPACITY_BYTES,
             lease_ttl_ms,
         };
@@ -1386,6 +1427,14 @@ fn record_payload(
         ManagedJobOrigin::Spawned => "spawned",
         ManagedJobOrigin::Adopted => "adopted",
     };
+    // Historical records have none of the three policy/terminal fields. They
+    // must project explicit null -- never a default `stop`, never `live` -- and
+    // their absence must not make an older record unreadable.
+    let on_expiry = record.on_expiry.map(ManagedJobOnExpiry::as_str);
+    let terminal_trigger = record
+        .terminal_trigger
+        .map(ManagedJobTerminalTrigger::as_str);
+    let detach_liveness = record.detach_liveness.map(ManagedJobDetachLiveness::as_str);
     json!({
         "job_id": record.job_id,
         "generation": record.generation,
@@ -1396,6 +1445,9 @@ fn record_payload(
         "created_at_utc_ms": record.created_at_utc_ms,
         "updated_at_utc_ms": record.updated_at_utc_ms,
         "terminal_at_utc_ms": record.terminal_at_utc_ms,
+        "on_expiry": on_expiry,
+        "terminal_trigger": terminal_trigger,
+        "detach_liveness": detach_liveness,
         "owner_pid": record.owner.as_ref().map(|owner| owner.pid),
         "process_pid": record.process.as_ref().map(|process| process.pid),
         "io_available": live.is_some_and(|status| !status.adopted),
@@ -1422,15 +1474,30 @@ fn response_kind_error() -> CuError {
     )
 }
 
+/// One `job-spawn`'s launch inputs, grouped so the builder takes a single value
+/// instead of growing a long positional argument list as policies are added.
+struct SpawnRequest<'a> {
+    command: &'a [String],
+    environment: &'a [JobEnvironment],
+    cwd: Option<&'a str>,
+    limits: Option<JobProcessLimits>,
+    ttl_seconds: u64,
+    on_expiry: JobExpiry,
+}
+
 fn build_launch(
     store: &ManagedJobStore,
     record: &ManagedJobRecord,
-    command: &[String],
-    environment: &[JobEnvironment],
-    cwd: Option<&str>,
-    limits: Option<JobProcessLimits>,
-    ttl_seconds: u64,
+    request: SpawnRequest<'_>,
 ) -> Result<ManagedJobLaunch, CuError> {
+    let SpawnRequest {
+        command,
+        environment,
+        cwd,
+        limits,
+        ttl_seconds,
+        on_expiry,
+    } = request;
     let current_directory = resolve_directory(cwd)?;
     let program = resolve_program(&command[0], current_directory.as_deref(), environment)?;
     let lease_ttl_ms = ttl_seconds.checked_mul(1_000).ok_or_else(|| {
@@ -1461,6 +1528,7 @@ fn build_launch(
             processes: limits.processes,
         }),
         adoption: None,
+        on_expiry: managed_on_expiry(on_expiry),
         output_capacity_bytes: OUTPUT_CAPACITY_BYTES,
         lease_ttl_ms,
     })
@@ -1665,6 +1733,9 @@ mod tests {
             created_at_utc_ms: 1,
             updated_at_utc_ms: 1,
             terminal_at_utc_ms: None,
+            on_expiry: Some(ManagedJobOnExpiry::Stop),
+            terminal_trigger: None,
+            detach_liveness: None,
         }
     }
 
@@ -1705,5 +1776,80 @@ mod tests {
             JOB_RESOURCE_MAX_MEMBERS
         ));
         assert!(member_rows_would_overflow(JOB_RESOURCE_MAX_MEMBER_ROWS, 1));
+    }
+}
+
+#[cfg(test)]
+mod expiry_policy_tests {
+    use super::*;
+
+    fn fixture() -> ManagedJobRecord {
+        ManagedJobRecord {
+            job_id: "00000000-0000-4000-8000-000000000002".into(),
+            generation: 1,
+            nonce: "00000000000000000000000000000001".into(),
+            session_id: None,
+            origin: ManagedJobOrigin::Spawned,
+            owner: None,
+            process: None,
+            state: ManagedJobState::StartIntent,
+            created_at_utc_ms: 1,
+            updated_at_utc_ms: 1,
+            terminal_at_utc_ms: None,
+            on_expiry: Some(ManagedJobOnExpiry::Stop),
+            terminal_trigger: None,
+            detach_liveness: None,
+        }
+    }
+
+    #[test]
+    fn the_public_expiry_spellings_have_one_internal_translation() {
+        // Both public surfaces funnel through one mapping, and `job-adopt`'s
+        // boolean is translated once, one-way.
+        assert_eq!(managed_on_expiry(JobExpiry::Stop), ManagedJobOnExpiry::Stop);
+        assert_eq!(
+            managed_on_expiry(JobExpiry::Detach),
+            ManagedJobOnExpiry::Detach
+        );
+        assert_eq!(
+            managed_on_expiry(expiry_from_stop_on_expiry(true)),
+            ManagedJobOnExpiry::Stop
+        );
+        assert_eq!(
+            managed_on_expiry(expiry_from_stop_on_expiry(false)),
+            ManagedJobOnExpiry::Detach
+        );
+    }
+
+    /// A historical record has none of the three policy/terminal fields. It must
+    /// project explicit nulls -- never a default `stop` and never `live` -- and
+    /// its absence must not make an older record unreadable.
+    #[test]
+    fn a_historical_record_projects_explicit_nulls() {
+        let mut historical = fixture();
+        historical.on_expiry = None;
+        historical.terminal_trigger = None;
+        historical.detach_liveness = None;
+        let payload = record_payload(&historical, None);
+        assert!(payload["on_expiry"].is_null(), "{payload}");
+        assert!(payload["terminal_trigger"].is_null(), "{payload}");
+        assert!(payload["detach_liveness"].is_null(), "{payload}");
+        assert_eq!(payload["state"], "start_intent");
+    }
+
+    /// A detached record carries its liveness and trigger verbatim, so a
+    /// `detached` state can never be read as "the process survived".
+    #[test]
+    fn a_detached_record_projects_its_liveness_and_trigger() {
+        let mut detached = fixture();
+        detached.state = ManagedJobState::Detached;
+        detached.detach_liveness = Some(ManagedJobDetachLiveness::Absent);
+        detached.terminal_trigger = Some(ManagedJobTerminalTrigger::LeaseExpiry);
+        detached.on_expiry = Some(ManagedJobOnExpiry::Detach);
+        let payload = record_payload(&detached, None);
+        assert_eq!(payload["state"], "detached");
+        assert_eq!(payload["detach_liveness"], "absent");
+        assert_eq!(payload["terminal_trigger"], "lease_expiry");
+        assert_eq!(payload["on_expiry"], "detach");
     }
 }

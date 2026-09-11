@@ -718,6 +718,7 @@ mod tests {
             environment: Vec::<ManagedJobEnvironment>::new(),
             limits: None,
             adoption: None,
+            on_expiry: crate::managed_job_store::ManagedJobOnExpiry::Stop,
             output_capacity_bytes: 32 * 1024,
             lease_ttl_ms: 60_000,
         };
