@@ -25,7 +25,9 @@ use windows_sys::Win32::{
 };
 
 use crate::{
-    contained_process::{ContainedHeadlessCommand, ContainedInput, ContainedOutput},
+    contained_process::{
+        ContainedHeadlessCommand, ContainedInput, ContainedOutput, FrozenProcessIdentity,
+    },
     contract::process_spawn::ProcessExit,
     process_containment::{
         ProcessContainment, ProcessContainmentLimits, ProcessContainmentOptions,
@@ -63,6 +65,28 @@ impl Read for ContainedChildOutput {
 }
 
 pub(crate) fn spawn(spec: &ContainedHeadlessCommand) -> io::Result<ContainedChild> {
+    spawn_contained(spec, false).map(|(child, _identity)| child)
+}
+
+/// The Windows frozen launch reuses the existing suspended window: the process
+/// is created with `CREATE_SUSPENDED`, assigned to its kill-on-close Job, and its
+/// exact start identity is read with `GetProcessTimes` **before** `ResumeThread`.
+/// The child therefore cannot run its first instruction before the identity is
+/// fixed.
+pub(crate) fn spawn_suspended_frozen(
+    spec: &ContainedHeadlessCommand,
+) -> io::Result<(ContainedChild, FrozenProcessIdentity)> {
+    let (child, identity) = spawn_contained(spec, true)?;
+    let identity = identity.ok_or_else(|| {
+        io::Error::other("frozen spawn completed without a frozen process identity")
+    })?;
+    Ok((child, identity))
+}
+
+fn spawn_contained(
+    spec: &ContainedHeadlessCommand,
+    freeze: bool,
+) -> io::Result<(ContainedChild, Option<FrozenProcessIdentity>)> {
     let limits = ProcessContainmentLimits {
         memory_bytes: spec.limits.memory_bytes,
         cpu_time_seconds: spec.limits.cpu_seconds,
@@ -78,7 +102,7 @@ pub(crate) fn spawn(spec: &ContainedHeadlessCommand) -> io::Result<ContainedChil
         },
     )
     .map_err(io::Error::other)?;
-    match spawn_suspended_into(spec, containment, 0) {
+    match spawn_suspended_into(spec, containment, 0, freeze) {
         Ok(child) => Ok(child),
         Err(AttemptError {
             assignment_denied: true,
@@ -93,7 +117,7 @@ pub(crate) fn spawn(spec: &ContainedHeadlessCommand) -> io::Result<ContainedChil
                 },
             )
             .map_err(io::Error::other)?;
-            spawn_suspended_into(spec, containment, CREATE_BREAKAWAY_FROM_JOB)
+            spawn_suspended_into(spec, containment, CREATE_BREAKAWAY_FROM_JOB, freeze)
                 .map_err(|failure| failure.error)
         }
         Err(failure) => Err(failure.error),
@@ -104,7 +128,8 @@ fn spawn_suspended_into(
     spec: &ContainedHeadlessCommand,
     containment: ProcessContainment,
     extra_flags: u32,
-) -> Result<ContainedChild, AttemptError> {
+    freeze: bool,
+) -> Result<(ContainedChild, Option<FrozenProcessIdentity>), AttemptError> {
     let application = nul_terminated(spec.program.as_os_str())?;
     let mut command_line = windows_command_line(&spec.program, &spec.args)?;
     let directory = spec
@@ -159,8 +184,8 @@ fn spawn_suspended_into(
     let (ok, native_error) = match created {
         Ok(result) => result,
         Err(error) => {
-            cleanup_information(information);
-            return Err(AttemptError::io(error));
+            let cleanup = cleanup_information(information);
+            return Err(AttemptError::io(combine_failure(error, cleanup)));
         }
     };
     if ok == 0 {
@@ -174,23 +199,52 @@ fn spawn_suspended_into(
     let process = match ProcessReference::duplicate_from(handles.process()) {
         Ok(process) => process,
         Err(error) => {
-            abort_raw_suspended(&handles);
-            return Err(AttemptError::io(error));
+            let cleanup = abort_raw_suspended(&handles);
+            return Err(AttemptError::io(combine_failure(error, cleanup)));
         }
     };
     if let Err(error) = containment.assign(&process) {
         let assignment_denied = error.native_code() == Some(5);
-        abort_suspended(&process);
+        let cleanup = abort_failed_launch(&process, &containment);
         return Err(AttemptError {
-            error: io::Error::other(error),
+            error: combine_failure(io::Error::other(error), cleanup),
             assignment_denied,
         });
     }
+    // Freeze the exact identity inside the existing suspended window, before the
+    // primary thread can run. A failure here aborts the still-suspended root the
+    // same way a failed Job assignment does.
+    let identity = if freeze {
+        let pid = process.id();
+        match crate::process_observation::start_identity(pid) {
+            Ok(start_identity) if !start_identity.is_empty() => Some(FrozenProcessIdentity {
+                pid,
+                start_identity,
+            }),
+            Ok(_) => {
+                let cleanup = abort_failed_launch(&process, &containment);
+                return Err(AttemptError::io(combine_failure(
+                    io::Error::other("frozen child start identity is empty"),
+                    cleanup,
+                )));
+            }
+            Err(reason) => {
+                let cleanup = abort_failed_launch(&process, &containment);
+                return Err(AttemptError::io(combine_failure(
+                    io::Error::other(format!(
+                        "frozen child start identity is unavailable: {reason}"
+                    )),
+                    cleanup,
+                )));
+            }
+        }
+    } else {
+        None
+    };
     if unsafe { ResumeThread(handles.thread().as_raw_handle()) } == u32::MAX {
         let error = io::Error::from_raw_os_error(unsafe { GetLastError() } as i32);
-        let _ = containment.terminate(1);
-        let _ = process.wait_for_exit(None);
-        return Err(AttemptError::io(error));
+        let cleanup = abort_failed_launch(&process, &containment);
+        return Err(AttemptError::io(combine_failure(error, cleanup)));
     }
     let stdin = match &spec.stdin {
         ContainedInput::Text(text) => {
@@ -205,14 +259,17 @@ fn spawn_suspended_into(
         ContainedInput::Pipe => stdin.map(ContainedChildInput),
         ContainedInput::Null => None,
     };
-    Ok(ContainedChild {
-        process,
-        containment,
-        stdin,
-        stdout,
-        stderr,
-        exit: None,
-    })
+    Ok((
+        ContainedChild {
+            process,
+            containment,
+            stdin,
+            stdout,
+            stderr,
+            exit: None,
+        },
+        identity,
+    ))
 }
 
 struct AttemptError {
@@ -290,26 +347,92 @@ impl ContainedChild {
     }
 }
 
-fn abort_suspended(process: &ProcessReference) {
-    let _ = process.terminate(crate::process_control::TerminationMode::Forceful);
-    let _ = process.wait_for_exit(None);
+/// Deadline for waiting on a failed launch's termination. It is deliberately
+/// bounded: an unbounded wait turns a cleanup bug into a hang.
+const FAILED_LAUNCH_WAIT_MS: u32 = 5_000;
+const FAILED_LAUNCH_WAIT: Duration = Duration::from_millis(FAILED_LAUNCH_WAIT_MS as u64);
+
+/// Abort a launch that failed after its process object existed (Job assignment,
+/// identity freeze, or `ResumeThread`).
+///
+/// The Job termination is the first effect; when it fails or cannot be proven,
+/// the exact process object this launch created is force-terminated, so a failed
+/// frozen launch can never leave a running process behind. Every failure is
+/// returned as a detail for the caller to keep beside the original reason
+/// instead of dropping either one.
+fn abort_failed_launch(
+    process: &ProcessReference,
+    containment: &ProcessContainment,
+) -> Option<String> {
+    let mut failures = Vec::new();
+    if let Err(error) = containment.terminate(1) {
+        failures.push(format!("job_terminate:{error}"));
+    }
+    if let Err(error) = process.terminate(crate::process_control::TerminationMode::Forceful) {
+        failures.push(format!("force_terminate:{error}"));
+    }
+    match process.wait_for_exit(Some(FAILED_LAUNCH_WAIT)) {
+        Ok(ProcessWait::Exited) => {}
+        Ok(_) => failures.push("wait_timed_out".to_owned()),
+        Err(error) => failures.push(format!("wait:{error}")),
+    }
+    (!failures.is_empty()).then(|| failures.join(","))
 }
 
-fn abort_raw_suspended(handles: &CreatedHandles) {
-    use windows_sys::Win32::System::Threading::{TerminateProcess, WaitForSingleObject};
-
-    unsafe {
-        TerminateProcess(handles.process().as_raw_handle(), 1);
-        WaitForSingleObject(handles.process().as_raw_handle(), u32::MAX);
+/// Keep the original error's kind and text and append the cleanup detail, so a
+/// cleanup failure is never the only thing a caller sees (or silently lost).
+fn combine_failure(primary: io::Error, cleanup: Option<String>) -> io::Error {
+    match cleanup {
+        None => primary,
+        Some(cleanup) => io::Error::new(
+            primary.kind(),
+            format!("{primary}; failed-launch cleanup did not complete: {cleanup}"),
+        ),
     }
 }
 
-fn cleanup_information(information: PROCESS_INFORMATION) {
+/// Abort the raw handles of a process that was created but never handed to a
+/// `ProcessReference` (or whose handle duplication failed).
+///
+/// Returns a cleanup detail instead of swallowing it, and the wait is bounded --
+/// `WaitForSingleObject` with an explicit 5 s budget, never `u32::MAX` -- so a
+/// stuck handle cannot hang the caller. Every native failure is checked:
+/// `TerminateProcess`, and `WAIT_OBJECT_0` / `WAIT_TIMEOUT` / `WAIT_FAILED`.
+fn abort_raw_suspended(handles: &CreatedHandles) -> Option<String> {
+    use windows_sys::Win32::{
+        Foundation::{WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT},
+        System::Threading::{TerminateProcess, WaitForSingleObject},
+    };
+
+    let mut failures = Vec::new();
+    // SAFETY: `handles.process()` is a live borrowed process handle owned by
+    // `handles`; the exit code is this module's own abort marker.
+    if unsafe { TerminateProcess(handles.process().as_raw_handle(), 1) } == 0 {
+        // SAFETY: read immediately after the failing call, before any other FFI.
+        failures.push(format!("terminate_process:{}", unsafe { GetLastError() }));
+    }
+    // SAFETY: as above.
+    match unsafe { WaitForSingleObject(handles.process().as_raw_handle(), FAILED_LAUNCH_WAIT_MS) } {
+        WAIT_OBJECT_0 => {}
+        WAIT_TIMEOUT => failures.push("wait_timeout".to_owned()),
+        WAIT_FAILED => {
+            // SAFETY: read immediately after the failing call, before any other FFI.
+            failures.push(format!("wait_failed:{}", unsafe { GetLastError() }));
+        }
+        other => failures.push(format!("wait_unexpected:{other}")),
+    }
+    (!failures.is_empty()).then(|| failures.join(","))
+}
+
+/// Abort the raw handles of a `CreateProcessW` result that never became a
+/// `ProcessReference`. Returns its cleanup detail so the caller can keep it
+/// beside the original error instead of dropping either one.
+fn cleanup_information(information: PROCESS_INFORMATION) -> Option<String> {
     if information.hProcess.is_null() {
-        return;
+        return None;
     }
     let handles = CreatedHandles(information);
-    abort_raw_suspended(&handles);
+    abort_raw_suspended(&handles)
 }
 
 struct PreparedStdio {
@@ -763,7 +886,8 @@ mod tests {
             "selected::contained_process::tests::first_child_instruction_observes_the_exact_containment_job",
             "--nocapture",
         ]);
-        let mut child = spawn_suspended_into(&spec, containment, 0)
+        let mut child = spawn_suspended_into(&spec, containment, 0, false)
+            .map(|(child, _identity)| child)
             .map_err(|failure| failure.error)
             .expect("spawn exact contained probe");
         let deadline = Instant::now() + Duration::from_secs(10);
@@ -775,5 +899,190 @@ mod tests {
                 None => panic!("contained probe timed out"),
             }
         }
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod frozen_windows_tests {
+    use super::*;
+    use crate::process_containment::ProcessContainmentErrorKind;
+    use std::{thread, time::Instant};
+
+    const FROZEN_FIRST_INSTRUCTION_JOB: &str = r"Local\agenterm-frozen-first-instruction-test";
+
+    /// Wait for a frozen probe to exit, whichever `ContainedChild` type the
+    /// caller owns (the facade wrapper or the selected adapter).
+    fn wait_until_exit<T>(mut poll: impl FnMut() -> std::io::Result<Option<T>>) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            match poll().expect("wait for frozen probe") {
+                Some(_) => return,
+                None if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+                None => panic!("frozen probe timed out"),
+            }
+        }
+    }
+
+    /// The frozen window must yield a readable identity even when the target
+    /// exits at once: `GetProcessTimes` is read before `ResumeThread`.
+    #[test]
+    fn frozen_spawn_freezes_an_identity_for_an_immediate_exit() {
+        for _ in 0..20 {
+            let mut command = ContainedHeadlessCommand::new("cmd.exe");
+            command.args(["/c", "exit", "0"]);
+            let (mut child, identity) = command
+                .spawn_suspended_frozen()
+                .expect("frozen spawn of an immediate exit");
+            assert_eq!(identity.pid, child.id());
+            assert!(
+                identity.start_identity.starts_with("windows-filetime:"),
+                "unexpected identity: {}",
+                identity.start_identity
+            );
+            wait_until_exit(|| child.try_wait());
+        }
+    }
+
+    /// The frozen root must already belong to its Job at its first instruction,
+    /// and the frozen identity must be returned for that same process.
+    #[test]
+    fn frozen_launch_freezes_identity_before_resume_inside_the_job() {
+        match ProcessContainment::open(FROZEN_FIRST_INSTRUCTION_JOB) {
+            Ok(containment) => {
+                let process =
+                    ProcessReference::open(std::process::id()).expect("retain child identity");
+                assert!(
+                    containment
+                        .contains(&process)
+                        .expect("query exact child membership"),
+                    "the frozen child ran before it belonged to the expected Job"
+                );
+                return;
+            }
+            Err(error) if error.kind() == ProcessContainmentErrorKind::NotFound => {}
+            Err(error) => panic!("probe containment open failed: {error}"),
+        }
+
+        let containment = ProcessContainment::create(
+            Some(FROZEN_FIRST_INSTRUCTION_JOB),
+            ProcessContainmentOptions {
+                terminate_on_last_close: true,
+                ..ProcessContainmentOptions::default()
+            },
+        )
+        .expect("create probe containment");
+        let mut spec = ContainedHeadlessCommand::new(
+            std::env::current_exe().expect("resolve test executable"),
+        );
+        spec.args([
+            "--exact",
+            "selected::contained_process::frozen_windows_tests::frozen_launch_freezes_identity_before_resume_inside_the_job",
+            "--nocapture",
+        ]);
+        let (mut child, identity) = spawn_suspended_into(&spec, containment, 0, true)
+            .map_err(|failure| failure.error)
+            .expect("frozen spawn exact contained probe");
+        let identity = identity.expect("a frozen launch must return the frozen identity");
+        assert_eq!(identity.pid, child.id());
+        assert!(!identity.start_identity.is_empty());
+        wait_until_exit(|| child.try_wait());
+    }
+
+    /// Create one real suspended process the way the pre-`ProcessReference` path
+    /// does. Returns its `PROCESS_INFORMATION` and a duplicate capable of
+    /// observing the exit after the raw handles are gone.
+    fn raw_suspended_probe() -> (PROCESS_INFORMATION, ProcessReference) {
+        use windows_sys::Win32::System::Threading::STARTUPINFOW;
+
+        let mut command_line: Vec<u16> = "cmd.exe /c ping -n 30 127.0.0.1"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let mut startup: STARTUPINFOW = unsafe { std::mem::zeroed() };
+        startup.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+        let mut information: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
+        let ok = unsafe {
+            CreateProcessW(
+                std::ptr::null(),
+                command_line.as_mut_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                CREATE_NO_WINDOW | CREATE_SUSPENDED,
+                std::ptr::null(),
+                std::ptr::null(),
+                &startup,
+                &raw mut information,
+            )
+        };
+        assert_ne!(ok, 0, "CreateProcessW failed: {}", unsafe {
+            GetLastError()
+        });
+        let handles = CreatedHandles(information);
+        let process = ProcessReference::duplicate_from(handles.process())
+            .expect("retain an observing duplicate");
+        drop(handles);
+        (information, process)
+    }
+
+    /// The pre-`ProcessReference` abort must actually terminate the process and
+    /// bound its wait, and it must report cleanup failures rather than swallowing
+    /// them. This covers the raw path, not only the healthy
+    /// `abort_failed_launch` branch.
+    #[test]
+    fn raw_abort_is_bounded_and_reports_cleanup() {
+        let (information, process) = raw_suspended_probe();
+        drop(process);
+        // `cleanup_information` owns the raw handles of this fresh process.
+        assert_eq!(
+            cleanup_information(information),
+            None,
+            "a healthy raw abort reports no cleanup failure"
+        );
+        let pid = information.dwProcessId;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match ProcessReference::open(pid) {
+                Ok(reference) => {
+                    assert!(
+                        Instant::now() < deadline,
+                        "the raw abort did not terminate the process"
+                    );
+                    drop(reference);
+                    thread::sleep(Duration::from_millis(10));
+                }
+                // The abort terminated it: the exact pid is no longer openable.
+                Err(_) => break,
+            }
+        }
+    }
+
+    /// A failed frozen launch must terminate and reap the exact process object it
+    /// created, on a bounded deadline, and report no cleanup failure when the
+    /// abort is healthy.
+    #[test]
+    fn failed_launch_abort_terminates_and_reaps_the_exact_process() {
+        let containment = ProcessContainment::create(
+            None,
+            ProcessContainmentOptions {
+                terminate_on_last_close: true,
+                ..ProcessContainmentOptions::default()
+            },
+        )
+        .expect("create containment");
+        let mut spec = ContainedHeadlessCommand::new("cmd.exe");
+        spec.args(["/c", "ping", "-n", "30", "127.0.0.1"]);
+        let (child, _identity) = spawn_suspended_into(&spec, containment, 0, false)
+            .map_err(|failure| failure.error)
+            .expect("spawn suspended probe");
+        let cleanup = abort_failed_launch(&child.process, &child.containment);
+        assert_eq!(cleanup, None, "a healthy abort reports no cleanup failure");
+        assert_eq!(
+            child
+                .process
+                .wait_for_exit(Some(Duration::from_secs(5)))
+                .expect("wait for the aborted process"),
+            ProcessWait::Exited
+        );
     }
 }

@@ -849,10 +849,39 @@ pub(crate) fn configure_owned_command(command: &mut Command) -> Result<(), Strin
 
 impl ProcessTreeGuard {
     pub fn attach(child: &Child) -> Result<Self, String> {
-        let process_group = libc::pid_t::try_from(child.id())
+        Self::attach_pid(child.id())
+    }
+
+    /// Retain an already-created, current-user root by numeric id.
+    ///
+    /// This is the one construction path for a root the caller did not obtain as
+    /// a `std::process::Child`: a `posix_spawn`ed contained child only exists as
+    /// a `pid_t`, but exact ownership still requires this guard's process-group,
+    /// session and root-start-identity invariants. It performs exactly the same
+    /// reads and initialisation as [`Self::attach`] and never mutates the group.
+    ///
+    /// Every precondition is checked BEFORE any state is retained: an id that
+    /// could name the caller's own group or init (<= 1) and a process that is not
+    /// its own process-group leader are both refused, because a later `killpg`
+    /// would otherwise signal an unrelated group.
+    pub fn attach_pid(process_id: u32) -> Result<Self, String> {
+        if process_id <= 1 {
+            return Err("owned process ID must be greater than 1".to_owned());
+        }
+        let process_group = libc::pid_t::try_from(process_id)
             .map_err(|_| "child process ID exceeds pid_t".to_owned())?;
+        let native_group = unsafe { libc::getpgid(process_group) };
+        if native_group < 0 {
+            return Err(format!(
+                "owned process-group read failed: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        if native_group != process_group {
+            return Err("owned process must be its process-group leader".to_owned());
+        }
         let owned_session = process_session(process_group)?;
-        let root_start_identity = match observe(child.id()) {
+        let root_start_identity = match observe(process_id) {
             ProcessObservation::Live {
                 start_identity: Some(identity),
             } => Some(identity),
@@ -866,6 +895,15 @@ impl ProcessTreeGuard {
             adopted_termination: None,
             active: true,
         })
+    }
+
+    /// The root start identity this guard retained at construction, if the
+    /// platform could read one. A caller that already froze an identity before
+    /// attaching (`spawn_suspended_frozen`) compares it byte-for-byte so two
+    /// independent observations can never disagree silently.
+    #[must_use]
+    pub fn root_start_identity(&self) -> Option<&str> {
+        self.root_start_identity.as_deref()
     }
 
     /// Retain an already-running, current-user process group for bounded
@@ -1313,5 +1351,69 @@ mod procargs2_tests {
         let mut bytes = fixture(1, &[b"/bin/demo", b"", b"demo"]);
         bytes.extend_from_slice(b"A=unterminated");
         assert!(procargs2_sections(&bytes).is_err());
+    }
+}
+
+#[cfg(test)]
+mod attach_pid_tests {
+    use super::ProcessTreeGuard;
+    use std::process::{Child, Command};
+
+    fn reap(child: &mut Child) {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn attach_pid_refuses_ids_that_cannot_name_an_owned_root() {
+        for process_id in [0_u32, 1] {
+            let error = ProcessTreeGuard::attach_pid(process_id)
+                .err()
+                .expect("<= 1 is never an owned root");
+            assert!(
+                error.contains("greater than 1"),
+                "unexpected error for {process_id}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn attach_pid_refuses_a_child_that_is_not_a_process_group_leader() {
+        // A plain child inherits the caller's process group, so its group id is
+        // NOT its pid. Retaining it as an owned root would let a later `killpg`
+        // signal the caller's own group.
+        let mut child = Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn non-leader child");
+        let pid = child.id();
+        let group = unsafe { libc::getpgid(pid as libc::pid_t) };
+        assert!(group >= 0, "read group of {pid}");
+        assert_ne!(group, pid as libc::pid_t, "fixture must not be a leader");
+        let error = ProcessTreeGuard::attach_pid(pid)
+            .err()
+            .expect("a non-leader must not construct a guard");
+        assert!(
+            error.contains("process-group leader"),
+            "unexpected error: {error}"
+        );
+        reap(&mut child);
+    }
+
+    #[test]
+    fn attach_pid_accepts_an_exact_process_group_leader() {
+        let mut command = Command::new("/bin/sleep");
+        command.arg("30");
+        crate::process::configure_owned_command(&mut command).expect("configure owned group");
+        let mut child = command.spawn().expect("spawn group leader");
+        let pid = child.id();
+        let guard = ProcessTreeGuard::attach_pid(pid).expect("retain exact leader");
+        assert_eq!(
+            guard.process_ids(8).expect("group inventory"),
+            vec![pid],
+            "the retained group is exactly the owned leader"
+        );
+        drop(guard);
+        reap(&mut child);
     }
 }

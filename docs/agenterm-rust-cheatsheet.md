@@ -4866,6 +4866,75 @@ receipts retain only input/content/pattern lengths and digests. On X11, encode
 non-Latin Unicode keysyms with the conventional `0x01000000 | scalar` form;
 never truncate a scalar to `u8` and type an unrelated character.
 
+## A frozen identity needs an OS-level suspended launch
+
+A pid read *after* a normal `spawn` is not an identity: a short-lived owned
+child can exit first, and macOS `proc_pidinfo(PROC_PIDTBSDINFO)` is unreliable
+for an exited-but-unreaped child (a measured 1000-round probe failed 2/1000 with
+`ESRCH` once the read was delayed 2 ms; the immediate read passed 1000/1000).
+Freeze the identity while the root is **suspended, before its resume gates the
+target's first user instruction**, then establish containment, then resume.
+
+State that boundary precisely: when `posix_spawn` returns, the image is loaded
+and the file actions/exec preparation are already done. The suspended gate holds
+back the target executable's **first user instruction**, not `exec` itself -- so
+write "frozen before its first user instruction" or "frozen before resume", and
+never "exec has not started yet".
+
+`std::process::Command` cannot express that. A `pre_exec` that stops the child
+before the image is entered deadlocks the parent on the CLOEXEC exec-error pipe,
+and a `Child` has no public constructor from a pid, so a raw-pid root cannot
+reuse `Child`-based ownership. Use an explicit suspended primitive. On macOS that
+is `posix_spawn` + `POSIX_SPAWN_START_SUSPENDED`; add `POSIX_SPAWN_SETPGROUP`
+with pgroup `0` for a fresh owned group and `POSIX_SPAWN_CLOEXEC_DEFAULT` for
+descriptor hygiene. When you hand-resolve the program, use **`posix_spawn`, not
+`posix_spawnp`**: `posix_spawnp` searches the CALLER's `PATH`, while
+`std::process::Command` swaps `environ` to the CHILD's environment before
+`execvp`, so it searches the **child's** `PATH` (and `confstr(_CS_PATH)` when the
+child has none). Resolve it yourself and the two agree. Resolve the rest too, or the agreement
+is only partial -- and take the rule from the OS, not from a plausible model. Do
+not pre-select a single candidate with `access`/`metadata`: that is a TOCTOU hole
+and it is not what `execvp` does. Spell each candidate exactly as `execvp` would
+(a relative or empty `PATH` element stays relative, because the CHILD resolves it
+after its `chdir`) and attempt the real exec on each in order: `ENOENT`/`ENOTDIR`
+continue, `EACCES` is remembered and the search continues, `ENOEXEC` retries THAT
+candidate through `/bin/sh` with the candidate as the script operand, any other
+error is terminal. When nothing executes, report the remembered `EACCES`, else
+`ENOENT`. Apple's rule has an edge a tidy model gets wrong and only measurement
+reveals: a PATH-searched candidate whose **ancestor** denies search contributes
+`ENOENT`, not `EACCES` -- only a reachable-but-not-executable component (a
+non-executable file, or a directory) is remembered; an explicit path is not a
+search, so it keeps the kernel's own `EACCES`. Pin every shape with a differential
+test that runs it through both paths and compares exit code, stdout and typed
+error kind, using fixtures that are real (a "permission denied" candidate must be
+a file or directory named exactly like the program, not a directory that merely
+lacks it) -- a one-sided claim of equivalence is not evidence. `posix_spawn` cannot
+install rlimits, so non-default limits must be a **typed refusal before any side
+effect**, never a silent drop. Windows already creates the root
+`CREATE_SUSPENDED`; read `GetProcessTimes` there, before `ResumeThread`. A
+platform with no suspended launch (Linux) returns typed `Unsupported`.
+
+Every failure after the child exists must kill and reap it, and every failure
+before it exists must close both ends of every prepared pipe. One helper owns
+that: check the `kill` result (only `ESRCH` is benign, because the child may have
+exited first), loop the `waitpid` on `EINTR`, accept exactly two outcomes (this
+pid, or `ECHILD`), and bound the wait. A `Drop` that samples `WNOHANG` once is not
+a reap. Close-on-exec flags on a hand-built pipe must be checked too: an ignored
+`fcntl` failure leaks an inheritable descriptor into an unrelated later child.
+
+The two root types must stay **behaviourally identical**, not merely share a
+trait:
+
+- A raw-pid root must cache the reaped exit status the way
+  `std::process::Child::try_wait` does. Without that cache a `process.kill`
+  (which reaps) followed by a `process.wait` becomes `ECHILD` only on the frozen
+  root -- an invisible divergence.
+- Freeze the identity with one observation and have the containment guard read
+  it again; compare the two **byte-for-byte** and fail closed on any mismatch,
+  so two independent reads cannot disagree silently.
+- Construct the guard from a pid through one shared initialisation path; do not
+  fork its process-group/session/start-identity invariants for the new root.
+
 ## Cap parked diagnostics on every host return shape
 
 A host operation returning `i32` can still park an arbitrarily long diagnostic

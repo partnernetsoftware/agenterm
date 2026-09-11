@@ -91,7 +91,9 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use agenterm_platform::contained_process::{ContainedChild, ContainedHeadlessCommand, ProcessExit};
+use agenterm_platform::contained_process::{
+    ContainedChild, ContainedHeadlessCommand, FrozenProcessIdentity, ProcessExit,
+};
 use tinyvm::{Val, WasmError};
 use tinyvm_qjs::{HostFn, HostParam, HostResult};
 
@@ -115,7 +117,7 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 51] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 53] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
@@ -144,6 +146,8 @@ pub(crate) const SIGNATURES: [(&str, usize, usize); 51] = [
     ("time.now_ms", 0, 1),
     ("time.sleep_ms", 1, 1),
     ("process.spawn", 2, 1),
+    ("process.spawn_frozen", 2, 1),
+    ("process.identity", 1, 1),
     ("process.state", 1, 1),
     ("process.kill", 1, 1),
     ("process.release", 1, 1),
@@ -295,6 +299,12 @@ pub(crate) fn declarations() -> Vec<HostFn> {
         // what you mean to own.
         decl("time.sleep_ms", vec![HostParam::I32], HostResult::I32),
         decl("process.spawn", vec![HostParam::StrPtrLen], HostResult::I32),
+        decl(
+            "process.spawn_frozen",
+            vec![HostParam::StrPtrLen],
+            HostResult::I32,
+        ),
+        decl("process.identity", vec![HostParam::I32], HostResult::I32),
         decl("process.state", vec![HostParam::I32], HostResult::I32),
         decl("process.kill", vec![HostParam::I32], HostResult::I32),
         decl("process.release", vec![HostParam::I32], HostResult::I32),
@@ -468,6 +478,10 @@ enum Handle {
     Done {
         pid: u32,
         answer: Result<String, String>,
+        /// The identity frozen before the first instruction, when this handle came
+        /// from `process.spawn_frozen`. A handle from the ordinary `process.spawn`
+        /// has `None` and must never pretend to have one.
+        frozen: Option<FrozenProcessIdentity>,
     },
 }
 
@@ -510,15 +524,15 @@ impl ChildRegistry {
     /// The last id that can ever be allocated is `i32::MAX`; after that `next_id`
     /// becomes `None` and stays exhausted. `checked_add` is what decides it, so no
     /// implicit cast or truncation is involved -- the ABI value itself is the key.
-    fn reserve_id(&mut self) -> Result<i32, String> {
+    fn reserve_id(&mut self, door: &str) -> Result<i32, String> {
         if self.live.len() >= PROCESS_CHILD_HANDLE_LIMIT {
             return Err(format!(
-                "process.spawn: child handle limit {PROCESS_CHILD_HANDLE_LIMIT} reached"
+                "{door}: child handle limit {PROCESS_CHILD_HANDLE_LIMIT} reached"
             ));
         }
         let id = self
             .next_id
-            .ok_or_else(|| "process.spawn: child handle id space exhausted".to_string())?;
+            .ok_or_else(|| format!("{door}: child handle id space exhausted"))?;
         self.next_id = id.checked_add(1);
         Ok(id)
     }
@@ -560,6 +574,8 @@ struct Running {
     max_capture: usize,
     read_stdout: usize,
     read_stderr: usize,
+    /// See [`Handle::Done::frozen`].
+    frozen: Option<FrozenProcessIdentity>,
 }
 
 impl Running {
@@ -1194,7 +1210,7 @@ pub(crate) fn install(
             direct(&state, "process.spawn", || {
                 // Reserve the handle BEFORE starting the child, so a bound or id
                 // exhaustion refuses with no process side effect.
-                let id = state.borrow_mut().children.reserve_id()?;
+                let id = state.borrow_mut().children.reserve_id("process.spawn")?;
                 let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
                     .map_err(|e| format!("process.spawn: the spec is not valid: {e}"))?;
                 let mut child = spawn_command(&spec, true)?;
@@ -1211,9 +1227,87 @@ pub(crate) fn install(
                         max_capture,
                         read_stdout: 0,
                         read_stderr: 0,
+                        frozen: None,
                     },
                 );
                 Ok(id)
+            })
+        },
+    )?;
+
+    // `process.spawn_frozen(spec)`: `process.spawn`, but the child is launched
+    // suspended so its exact native identity is frozen before its first
+    // instruction. `process.identity` can then report that identity for a child
+    // that would otherwise exit before it could be observed. The id is reserved
+    // before the spawn, so a bound or id exhaustion refuses with no process
+    // side effect.
+    let state = Rc::clone(&shared);
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "process.spawn_frozen",
+        move |args, memory| {
+            let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            direct(&state, "process.spawn_frozen", || {
+                let id = state
+                    .borrow_mut()
+                    .children
+                    .reserve_id("process.spawn_frozen")?;
+                let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
+                    .map_err(|e| format!("process.spawn_frozen: the spec is not valid: {e}"))?;
+                let (mut child, frozen) = spawn_command_frozen(&spec, true)?;
+                let drains = Drains::start(&mut child, max_capture);
+                let mut s = state.borrow_mut();
+                s.children.insert_running(
+                    id,
+                    Running {
+                        child,
+                        drains,
+                        started: Instant::now(),
+                        deadline: spec.timeout_ms.map(Duration::from_millis),
+                        killed_by_deadline: false,
+                        max_capture,
+                        read_stdout: 0,
+                        read_stderr: 0,
+                        frozen: Some(frozen),
+                    },
+                );
+                Ok(id)
+            })
+        },
+    )?;
+
+    // `process.identity(handle)`: the frozen `{pid, start_identity}` of a handle
+    // created by `process.spawn_frozen`, readable while Running and after the
+    // wait. A handle from the ordinary `process.spawn` has NO frozen identity and
+    // is a typed refusal -- the two launch forms are never conflated. A released
+    // or unknown handle is a typed refusal too.
+    let state = Rc::clone(&shared);
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "process.identity",
+        move |args, _memory| {
+            let h = arg(args, 0)?;
+            answer(&state, "process.identity", || {
+                let s = state.borrow();
+                let frozen = match s.children.get(h) {
+                    Some(Handle::Running(r)) => r.frozen.as_ref(),
+                    Some(Handle::Done { frozen, .. }) => frozen.as_ref(),
+                    None => return Err(format!("process.identity: no child with handle {h}")),
+                };
+                let Some(identity) = frozen else {
+                    return Err(format!(
+                        "process.identity: child {h} was not spawned frozen"
+                    ));
+                };
+                Ok(serde_json::json!({
+                    "pid": identity.pid,
+                    "start_identity": identity.start_identity,
+                })
+                .to_string())
             })
         },
     )?;
@@ -1317,6 +1411,7 @@ pub(crate) fn install(
                         Handle::Done { answer, .. } => return answer.clone(),
                         Handle::Running(r) => {
                             let pid = r.child.id();
+                            let frozen = r.frozen.clone();
                             let taken = std::mem::replace(
                                 slot,
                                 Handle::Done {
@@ -1324,6 +1419,7 @@ pub(crate) fn install(
                                     answer: Err(format!(
                                         "process.wait: handle {h} is being waited"
                                     )),
+                                    frozen,
                                 },
                             );
                             match taken {
@@ -2379,6 +2475,24 @@ fn modified_ms(meta: &std::fs::Metadata) -> Option<u64> {
 }
 
 fn spawn_command(spec: &CommandSpec, capture: bool) -> Result<ContainedChild, String> {
+    build_command(spec, capture)?
+        .spawn()
+        .map_err(|e| format!("process.command: spawning `{}`: {e}", spec.program))
+}
+
+/// The race-free form: the child is created suspended, its exact identity is
+/// frozen before its first instruction, containment is established, and only
+/// then is it resumed.
+fn spawn_command_frozen(
+    spec: &CommandSpec,
+    capture: bool,
+) -> Result<(ContainedChild, FrozenProcessIdentity), String> {
+    build_command(spec, capture)?
+        .spawn_suspended_frozen()
+        .map_err(|e| format!("process.spawn_frozen: spawning `{}`: {e}", spec.program))
+}
+
+fn build_command(spec: &CommandSpec, capture: bool) -> Result<ContainedHeadlessCommand, String> {
     let mut command = ContainedHeadlessCommand::new(&spec.program);
     command.args(&spec.args);
     if let Some(dir) = &spec.current_dir {
@@ -2407,9 +2521,7 @@ fn spawn_command(spec: &CommandSpec, capture: bool) -> Result<ContainedChild, St
         command.stderr_file(file);
     }
 
-    command
-        .spawn()
-        .map_err(|e| format!("process.command: spawning `{}`: {e}", spec.program))
+    Ok(command)
 }
 
 /// Drain both streams on their own threads, wait bounded, answer as JSON:
@@ -2437,6 +2549,7 @@ fn wait_child(
             max_capture,
             read_stdout: 0,
             read_stderr: 0,
+            frozen: None,
         },
         timeout,
         cancel,
@@ -2594,13 +2707,15 @@ mod tests {
     fn child_registry_ids_are_never_reused_and_exhaust_checked() {
         let mut registry = ChildRegistry::new();
         // ids move strictly forward and are never handed back
-        assert_eq!(registry.reserve_id().unwrap(), 0);
-        assert_eq!(registry.reserve_id().unwrap(), 1);
+        assert_eq!(registry.reserve_id("process.spawn").unwrap(), 0);
+        assert_eq!(registry.reserve_id("process.spawn").unwrap(), 1);
         // near the top of the signed i32 space: the last id is i32::MAX, then exhausted
         registry.next_id = Some(i32::MAX);
-        assert_eq!(registry.reserve_id().unwrap(), i32::MAX);
+        assert_eq!(registry.reserve_id("process.spawn").unwrap(), i32::MAX);
         assert_eq!(registry.next_id, None);
-        let error = registry.reserve_id().expect_err("exhausted must refuse");
+        let error = registry
+            .reserve_id("process.spawn")
+            .expect_err("exhausted must refuse");
         assert!(
             error.contains("id space exhausted"),
             "typed exhaustion: {error}"
@@ -2608,17 +2723,20 @@ mod tests {
         // a full live bound refuses before any child starts
         let mut full = ChildRegistry::new();
         for _ in 0..PROCESS_CHILD_HANDLE_LIMIT {
-            let id = full.reserve_id().expect("reserve up to the bound");
+            let id = full
+                .reserve_id("process.spawn")
+                .expect("reserve up to the bound");
             full.live.insert(
                 id,
                 Handle::Done {
                     pid: 1,
                     answer: Ok(String::new()),
+                    frozen: None,
                 },
             );
         }
         assert!(
-            full.reserve_id()
+            full.reserve_id("process.spawn")
                 .is_err_and(|message| message.contains("child handle limit")),
             "a full bound must refuse before a child starts"
         );
@@ -2627,7 +2745,7 @@ mod tests {
         let released = *full.live.keys().next().unwrap();
         full.release(released).expect("release a done slot");
         assert!(full.get(released).is_none());
-        let next = full.reserve_id().unwrap();
+        let next = full.reserve_id("process.spawn").unwrap();
         assert_eq!(next, PROCESS_CHILD_HANDLE_LIMIT as i32);
         assert_ne!(next, released, "a released id must never be reissued");
         // an unknown id is refused

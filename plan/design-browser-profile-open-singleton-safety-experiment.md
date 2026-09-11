@@ -293,6 +293,23 @@ user instance exists.
    selection plus the exact root argument and does not validate the current
    name-based command. The controlled navigation has no network and no URL
    nonce.
+
+   The freeze is a **suspended pre-resume launch**, never a post-spawn read: a
+   short-lived direct `open` can exit before any later observation, and
+   `proc_pidinfo(PROC_PIDTBSDINFO)` is unreliable for an exited-but-unreaped
+   child. The suspended gate holds back the target executable's **first user
+   instruction**; when `posix_spawn` returns, the image is loaded and the file
+   actions/exec preparation are already done, so this is not "exec has not begun".
+   Two probes fix this mechanism (2026-09-11). The "read the identity
+   after an ordinary spawn" option is **falsified**: in 1000 rounds the
+   immediate read passed 1000/1000, but delaying it by 2 ms failed 2/1000 with
+   `ESRCH`. A suspended `posix_spawn` + `POSIX_SPAWN_START_SUSPENDED` launch
+   **passes** the primitive criterion: identity readable before resume
+   1000/1000, resume + wait 1000/1000, with controls proving the child had not
+   executed before the resume and does after it (`SIGCONT` resumes it, so no
+   task port is needed). The platform therefore exposes
+   `ContainedHeadlessCommand::spawn_suspended_frozen()`, and the Script door
+   exposes `process.spawn_frozen` / `process.identity`.
 3. A frozen native scanner targets a 20 ms cadence and samples at most 4,096
    process rows. Its observation window begins at the first sample start. In a
    rehearsal that sample starts immediately before the second fixture

@@ -602,6 +602,159 @@ fn process_release_refuses_stale_negative_huge_and_double_release() {
     );
 }
 
+/// `process.spawn_frozen` freezes the EXACT `{pid, start_identity}` of a child
+/// that exits immediately -- a launch the ordinary `process.spawn` could not be
+/// observed through. The payload has exactly two keys, it is readable while
+/// Running and after the wait, and every call is receipted.
+#[cfg(target_os = "macos")]
+#[test]
+fn process_spawn_frozen_freezes_an_exact_identity_for_an_immediate_exit() {
+    let out = run_tool(
+        r#"
+        const spec = JSON.stringify({ program: "sh", args: ["-c", "exit 0"] });
+        let rounds = 0;
+        for (let i = 0; i < 20; i = i + 1) {
+            const h = process_spawn_frozen(spec);
+            if (h < 0) { throw "spawn_frozen:" + tool_result(); }
+            if (process_identity(h) !== 0) { throw "identity:" + tool_result(); }
+            const raw = tool_result();
+            const identity = JSON.parse(raw);
+            const expected = '{"pid":' + identity.pid + ',"start_identity":' + JSON.stringify(identity.start_identity) + '}';
+            if (raw !== expected) { return "exact payload: " + raw; }
+            if (identity.pid !== process_pid(h)) { return "pid disagrees with process.pid"; }
+            if (identity.start_identity.indexOf("macos-start-time:") !== 0) { return "format: " + raw; }
+            if (process_wait(h, 5000) !== 0) { throw "wait:" + tool_result(); }
+            // The completion envelope is the exact 7-key child result, and an
+            // immediate successful exit must say so (not merely "not timed out").
+            const completion = JSON.parse(tool_result());
+            if (Object.keys(completion).length !== 7) { return "completion keys: " + tool_result(); }
+            if (completion.exit_code !== 0 || completion.success !== true || completion.timed_out !== false) {
+                return "completion: " + tool_result();
+            }
+            if (completion.stdout !== "" || completion.stderr !== ""
+                || completion.stdout_truncated !== false || completion.stderr_truncated !== false) {
+                return "completion streams: " + tool_result();
+            }
+            // Done stays readable and identical
+            if (process_identity(h) !== 0) { throw "identity after wait:" + tool_result(); }
+            const after = tool_result();
+            if (after !== raw) { return "identity changed after wait: " + after; }
+            if (process_release(h) !== 0) { throw "release:" + tool_result(); }
+            rounds = rounds + 1;
+        }
+        return "" + rounds;
+        "#,
+    );
+    assert_eq!(string_of(&out), "20");
+    assert!(
+        out.tool_calls
+            .iter()
+            .any(|call| call.as_str() == "tool.process.spawn_frozen"),
+        "spawn_frozen is receipted: {out:?}"
+    );
+    assert!(
+        out.tool_calls
+            .iter()
+            .any(|call| call.as_str() == "tool.process.identity"),
+        "identity is receipted: {out:?}"
+    );
+}
+
+/// A handle from the ordinary `process.spawn` has NO frozen identity; asking is
+/// a typed refusal, before and after the wait, and a released handle refuses as
+/// unknown. The two launch forms are never conflated.
+#[cfg(target_os = "macos")]
+#[test]
+fn process_identity_refuses_a_handle_from_the_ordinary_spawn() {
+    let out = run_tool(
+        r#"
+        const spec = JSON.stringify({ program: "sh", args: ["-c", "exit 0"] });
+        const h = process_spawn(spec);
+        if (h < 0) { throw "spawn:" + tool_result(); }
+        const running = process_identity(h);
+        const running_msg = tool_result();
+        if (process_wait(h, 5000) !== 0) { throw "wait:" + tool_result(); }
+        const done = process_identity(h);
+        const done_msg = tool_result();
+        if (process_release(h) !== 0) { throw "release:" + tool_result(); }
+        const released = process_identity(h);
+        const released_msg = tool_result();
+        return "" + running + "|" + running_msg + "|" + done + "|" + done_msg
+            + "|" + released + "|" + released_msg;
+        "#,
+    );
+    assert_eq!(
+        string_of(&out),
+        "1|process.identity: child 0 was not spawned frozen|1|process.identity: child 0 was not spawned frozen|1|process.identity: no child with handle 0",
+        "{out:?}"
+    );
+}
+
+/// The frozen door reserves its handle before spawning and never revives a
+/// released id: a full bound refuses with no process started, and the released
+/// handle no longer answers `process.identity`.
+#[cfg(target_os = "macos")]
+#[test]
+fn process_spawn_frozen_reserves_before_spawning_and_stales_released_handles() {
+    let out = run_tool(
+        r#"
+        const spec = JSON.stringify({ program: "sleep", args: ["30"] });
+        const handles = [];
+        for (let i = 0; i < 32; i = i + 1) {
+            const h = process_spawn_frozen(spec);
+            if (h < 0) { return "spawn " + i + ": " + tool_result(); }
+            handles.push(h);
+        }
+        const refused = process_spawn_frozen(spec);
+        const refused_msg = tool_result();
+        if (process_release(handles[0]) === 0) { return "running-released"; }
+        if (process_kill(handles[0]) !== 0) { return "kill:" + tool_result(); }
+        if (process_wait(handles[0], 5000) !== 0) { return "wait:" + tool_result(); }
+        if (process_release(handles[0]) !== 0) { return "release:" + tool_result(); }
+        const again = process_spawn_frozen(spec);
+        if (again < 0) { return "respawn:" + tool_result(); }
+        if (again === handles[0]) { return "revived-released-id"; }
+        if (process_identity(handles[0]) === 0) { return "stale handle answered"; }
+        const stale = tool_result();
+        return "" + refused + "|" + refused_msg + "|" + again + "|" + stale;
+        "#,
+    );
+    let text = string_of(&out);
+    let parts = text.split('|').collect::<Vec<_>>();
+    assert_eq!(parts.len(), 4, "{text:?}");
+    // `process.spawn_frozen` is a `direct` door, so a reservation refusal answers
+    // -1 and parks its message, exactly like `process.spawn`.
+    assert_eq!(parts[0], "-1", "{text:?}");
+    assert_eq!(
+        parts[1], "process.spawn_frozen: child handle limit 32 reached",
+        "{text:?}"
+    );
+    // Handles 0..31 were consumed by the successful spawns, so the fresh id is 32
+    // -- the released id 0 is never reissued.
+    assert_eq!(parts[2], "32", "{text:?}");
+    assert_eq!(
+        parts[3], "process.identity: no child with handle 0",
+        "{text:?}"
+    );
+}
+
+/// Off macOS the frozen primitive is a typed refusal, never a fabricated
+/// identity.
+#[cfg(target_os = "linux")]
+#[test]
+fn process_spawn_frozen_is_a_typed_refusal_off_macos() {
+    let out = run_tool(
+        r#"
+        const spec = JSON.stringify({ program: "true" });
+        const h = process_spawn_frozen(spec);
+        return "" + h + "|" + tool_result();
+        "#,
+    );
+    let text = string_of(&out);
+    assert!(text.starts_with("-1|process.spawn_frozen:"), "{text:?}");
+    assert!(text.contains("suspended"), "{text:?}");
+}
+
 #[test]
 fn process_list_and_tree_contain_the_tool_host_identity() {
     let out = run_tool(
