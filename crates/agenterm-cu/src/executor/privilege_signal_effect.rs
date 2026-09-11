@@ -461,9 +461,15 @@ fn effect_error(error: std::io::Error) -> CuError {
 
 #[cfg(test)]
 mod tests {
+    // Every test and helper below is a Unix-contract case (`any(linux, macos)`),
+    // so these imports are gated at the same boundary instead of dangling on a
+    // host that compiles the module but runs none of its cases.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     use super::*;
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     use crate::privilege_apply::{
         PRIVILEGE_APPLY_PROTOCOL_VERSION, PRIVILEGE_PROVIDER_CONTRACT_VERSION,
         PrivilegeApplyRequestV1, PrivilegeAuthorizationV1, PrivilegeClientV1, PrivilegeOriginV1,

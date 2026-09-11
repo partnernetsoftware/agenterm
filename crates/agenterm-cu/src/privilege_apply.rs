@@ -1102,6 +1102,10 @@ fn provider_key(
 
 #[cfg(test)]
 mod tests {
+    // The cases that use the atomic counters and the peer fixture are all
+    // Unix-contract cases, so the imports and the helper are gated at that same
+    // boundary rather than dangling on a host that runs none of them.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::*;
@@ -1136,6 +1140,7 @@ mod tests {
         }
     }
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     fn peer() -> AuthenticatedPrivilegePeer {
         AuthenticatedPrivilegePeer {
             principal_digest: sha256_hex(b"fixture-principal"),
