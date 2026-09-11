@@ -51,19 +51,26 @@ pub fn resolve_spelling(args: &[String]) -> Option<(&'static VerbSpec, usize)> {
     let mut best: Option<(&'static VerbSpec, usize)> = None;
     for spec in VERBS {
         for spelling in spec.spellings() {
-            let tokens: Vec<&str> = spelling.split(' ').collect();
-            if tokens.len() > args.len() {
+            // Allocation-free token match: walk the spelling's own split iterator
+            // against `args`, counting as we go. No Vec, and no pass over the
+            // spelling beyond the tokens actually compared.
+            let mut tokens = 0usize;
+            let mut matches = true;
+            for token in spelling.split(' ') {
+                if args
+                    .get(tokens)
+                    .is_none_or(|argument| argument.as_str() != token)
+                {
+                    matches = false;
+                    break;
+                }
+                tokens += 1;
+            }
+            if !matches || tokens == 0 {
                 continue;
             }
-            if !tokens
-                .iter()
-                .zip(args)
-                .all(|(token, argument)| *token == argument.as_str())
-            {
-                continue;
-            }
-            if best.is_none_or(|(_, best_tokens)| tokens.len() > best_tokens) {
-                best = Some((spec, tokens.len()));
+            if best.is_none_or(|(_, best_tokens)| tokens > best_tokens) {
+                best = Some((spec, tokens));
             }
         }
     }

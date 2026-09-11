@@ -44,9 +44,7 @@ fn execute_argv_with_authority_flags_controlled(
     if let Err(reply) = validate_argv(&args) {
         return *reply;
     }
-    if let Some((spec, _)) = verbs::resolve_spelling(&args)
-        && wants_verb_help(&args)
-    {
+    if let Some(spec) = verb_help_request(&args) {
         return cli::help::verb_help_silent(spec);
     }
     if let Some(reply) = crate::grant_management::dispatch(&args, ambient_authority_present) {
@@ -63,17 +61,20 @@ fn execute_argv_with_authority_flags_controlled(
     let spec = args
         .first()
         .and_then(|first| verbs::resolve(first, args.get(1).map(String::as_str)));
+    // A help-shaped verb request is decided BEFORE the verb dispatch below, so a
+    // global-prefixed `<verb> --help` answers exactly like the without-globals
+    // form: that includes `exec --help` (previously parsed as worker JSON) and
+    // `help --help` (previously the top-level help). `help <verb>` -- no trailing
+    // help token -- still goes through the documented recursive resolution.
+    if let Some(spec) = verb_help_request(&args) {
+        return cli::help::verb_help_silent(spec);
+    }
     match spec.map(|spec| spec.name) {
         Some("exec") => {
             return cli::exec::dispatch_json(&globals.exec_args(args.into_iter().skip(1)));
         }
         Some("help") => return cli::help::run_help_silent(&args[1..]),
         _ => {}
-    }
-    if let Some((spec, _)) = verbs::resolve_spelling(&args)
-        && wants_verb_help(&args)
-    {
-        return cli::help::verb_help_silent(spec);
     }
 
     let target = match globals.resolve_target() {
@@ -218,18 +219,30 @@ fn is_help_token(token: &str) -> bool {
     matches!(token, "--help" | "-h") || verbs::lookup(token).is_some_and(|spec| spec.name == "help")
 }
 
-/// Whether `args` is exactly one verb spelling followed by ONE help token.
+/// An allocation-free rejection for ordinary commands.
 ///
-/// The spelling comes from the same longest-prefix resolver dispatch uses, so a
-/// three-token spelling (`processor topology status`) reaches its help instead of
-/// falling through to the global target requirement. Nothing else is tolerated:
-/// an extra token or a misplaced help token is a normal command, which keeps the
-/// `--target` requirement exactly as strict as it was.
-fn wants_verb_help(args: &[String]) -> bool {
-    let Some((_, tokens)) = verbs::resolve_spelling(args) else {
-        return false;
-    };
-    args.len() == tokens + 1 && matches!(args[tokens].as_str(), "--help" | "-h")
+/// Only a request whose LAST token is a help token can be a verb-help request, so
+/// every other command skips the catalog scan entirely. This is a pure predicate
+/// on purpose: it is the seam that keeps the resolver off the hot path, and it is
+/// testable without a call counter.
+fn could_be_verb_help(args: &[String]) -> bool {
+    args.last()
+        .is_some_and(|last| matches!(last.as_str(), "--help" | "-h"))
+}
+
+/// Resolve a verb-help request in ONE catalog pass.
+///
+/// Returns the spec only when `args` is exactly one verb spelling -- the LONGEST
+/// match, from the same resolver dispatch uses, so a three-token spelling
+/// (`processor topology status`) reaches its help -- followed by exactly one help
+/// token. Anything else is a normal command, which keeps the `--target`
+/// requirement exactly as strict as it was.
+fn verb_help_request(args: &[String]) -> Option<&'static verbs::VerbSpec> {
+    if !could_be_verb_help(args) {
+        return None;
+    }
+    let (spec, tokens) = verbs::resolve_spelling(args)?;
+    (args.len() == tokens + 1).then_some(spec)
 }
 
 #[cfg(test)]
@@ -416,6 +429,78 @@ mod tests {
         let error = reply.error.as_ref().expect("typed");
         assert_eq!(error.code, "usage");
         assert!(error.message.contains("--target"), "{}", error.message);
+    }
+
+    /// The same catalog sweep with LEADING GLOBALS: `--target current <spelling>
+    /// --help` cannot be resolved by the first fast path (the argv starts with a
+    /// global flag), so this proves the SECOND fast path really executes.
+    #[test]
+    fn every_spelling_reaches_its_help_behind_leading_globals() {
+        for spec in verbs::VERBS {
+            for spelling in spec.spellings() {
+                for help in ["--help", "-h"] {
+                    let mut raw: Vec<&str> = vec!["--target", "current"];
+                    raw.extend(spelling.split(' '));
+                    raw.push(help);
+                    let reply = run(&raw);
+                    assert!(reply.ok, "{raw:?}: {:?}", reply.error);
+                    assert_eq!(reply.command, "help", "{raw:?}");
+                    assert_eq!(help_verb(&reply).as_deref(), Some(spec.name), "{raw:?}");
+                }
+            }
+        }
+    }
+
+    /// Global-prefixed negatives: an extra token, a partial spelling and a
+    /// misplaced help token stay ordinary commands (never help), and keep the
+    /// unchanged target/usage contract.
+    #[test]
+    fn global_prefixed_non_help_shapes_are_never_help() {
+        for raw in [
+            vec![
+                "--target",
+                "current",
+                "processor",
+                "topology",
+                "status",
+                "extra",
+                "--help",
+            ],
+            vec!["--target", "current", "processor", "topology", "--help"],
+            vec!["--target", "current", "processor", "--help", "status"],
+        ] {
+            let reply = run(&raw);
+            assert_ne!(reply.command, "help", "{raw:?}");
+            assert_eq!(
+                reply.error.as_ref().expect("typed").code,
+                "usage",
+                "{raw:?}"
+            );
+        }
+    }
+
+    /// The zero-allocation guard is the seam that keeps ordinary commands off the
+    /// catalog: if the LAST token is not a help token the resolver is never
+    /// called. A help-shaped tail passes the guard and is then decided by the
+    /// exact spelling-plus-one-token check.
+    #[test]
+    fn the_help_guard_keeps_ordinary_commands_off_the_catalog() {
+        for raw in [
+            vec!["page"],
+            vec!["page", "read"],
+            vec!["processor", "topology", "status"],
+            vec!["processor", "--help", "status"],
+            vec!["--target", "current", "capabilities"],
+        ] {
+            assert!(!could_be_verb_help(&words(&raw)), "{raw:?}");
+        }
+        for raw in [
+            vec!["page", "--help"],
+            vec!["page", "-h"],
+            vec!["page", "extra", "--help"],
+        ] {
+            assert!(could_be_verb_help(&words(&raw)), "{raw:?}");
+        }
     }
 
     /// The longest spelling wins, so a two-token verb is not stolen by the
