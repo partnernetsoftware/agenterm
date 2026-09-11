@@ -215,6 +215,12 @@ struct NativeControl {
     /// bounded queue and latched a windowed exit. An unchanged title is not a
     /// new command.
     last_title: RefCell<Option<String>>,
+    /// The last IME cursor anchor accepted, keyed by the device-pixel point.
+    /// Editing re-anchors the candidate window on every keystroke, and the
+    /// native command is not free: an unchanged point must not queue another
+    /// one. `LogicalRect`'s size never reaches the command, so the point is the
+    /// whole identity.
+    last_ime_cursor: Cell<Option<(i32, i32)>>,
     failure_latched: Cell<bool>,
     failure: RefCell<Option<PixelWindowError>>,
 }
@@ -232,6 +238,7 @@ impl NativeControl {
             exit_requested: Cell::new(false),
             last_dpi_rect: Cell::new(None),
             last_title: RefCell::new(None),
+            last_ime_cursor: Cell::new(None),
             failure_latched: Cell::new(false),
             failure: RefCell::new(None),
         }
@@ -340,6 +347,17 @@ impl NativeControl {
         }
         self.last_dpi_rect.set(Some(rect));
         self.enqueue(DeferredNative::Command(NativeCommand::ApplyDpiRect(rect)))
+    }
+
+    /// Records an unchanged IME cursor anchor as a no-op. Editing re-anchors
+    /// the candidate window on every keystroke; dropping a repeat keeps a
+    /// no-op out of the bounded queue. Returns whether the point changed.
+    fn note_ime_cursor(&self, x: i32, y: i32) -> bool {
+        if self.last_ime_cursor.get() == Some((x, y)) {
+            return false;
+        }
+        self.last_ime_cursor.set(Some((x, y)));
+        true
     }
 
     /// Records an unchanged title as a no-op. A host that repaints every frame
@@ -781,10 +799,14 @@ impl PixelWindowBackend for Backend {
 
     fn set_ime_cursor_area(&self, area: LogicalRect) -> Result<(), PixelWindowError> {
         let scale = self.metrics.borrow().scale_factor;
-        self.submit_command(NativeCommand::SetImeCursor {
-            x: crate::numeric::round_f64(area.origin.x * scale) as i32,
-            y: crate::numeric::round_f64(area.origin.y * scale) as i32,
-        })
+        let x = crate::numeric::round_f64(area.origin.x * scale) as i32;
+        let y = crate::numeric::round_f64(area.origin.y * scale) as i32;
+        // Anchor changes arrive once per keystroke; drop a repeat before it
+        // becomes a deferred command, like the title and DPI rect above.
+        if !self.control.note_ime_cursor(x, y) {
+            return Ok(());
+        }
+        self.submit_command(NativeCommand::SetImeCursor { x, y })
     }
 }
 
@@ -2653,6 +2675,23 @@ mod tests {
             .enqueue_title("agenterm — build")
             .expect("a changed title queues");
         assert!(control.has_deferred());
+    }
+
+    /// Composer editing re-anchors the IME candidate window on every keystroke.
+    /// Two keystrokes that leave the caret on the same cell must not queue two
+    /// `SetImeCursor` commands; a caret that moves must.
+    #[test]
+    fn unchanged_ime_anchors_are_not_new_commands() {
+        let control = NativeControl::new();
+        assert!(control.note_ime_cursor(10, 20), "the first anchor changes");
+        for _ in 0..64 {
+            assert!(
+                !control.note_ime_cursor(10, 20),
+                "a repeat of the same anchor is not a change"
+            );
+        }
+        assert!(control.note_ime_cursor(11, 20), "a moved anchor changes");
+        assert!(control.note_ime_cursor(10, 20), "returning changes again");
     }
 
     /// Returning an unapplied item must also return its coalescing slot,
