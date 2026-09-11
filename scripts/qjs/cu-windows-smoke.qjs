@@ -178,6 +178,34 @@ function run_cu_json_no_activate(run_directory, executable, arguments) {
   return document;
 }
 
+// The explicit visible-send court deliberately activates a window, so it must
+// NOT inherit the runner's AGENTERM_NO_ACTIVATE=1 — otherwise the transaction is
+// refused before actuation and the court can never observe its own effect.
+// This is the Windows twin of macOS's run_cu_visible_json.
+function run_cu_visible_json(run_directory, executable, arguments) {
+  const output = rh.command(
+    executable, arguments,
+    {
+      cwd: run_directory,
+      env: cu_env(run_directory),
+      env_remove: ["AGENTERM_NO_ACTIVATE"],
+      timeout_ms: 30000
+    }
+  );
+  ensure(
+    output.success === true,
+    "cu_windows_visible_cli_process:" + output.stdout + output.stderr
+  );
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_windows_visible_cli_empty");
+  const document = JSON.parse(trimmed);
+  ensure(
+    flag_at(document, "ok"),
+    "cu_windows_visible_cli_reply:" + JSON.stringify(document)
+  );
+  return document;
+}
+
 // Do not outsource a product cleanup assertion to `tasklist`: stripped and
 // ARM Windows images need not ship that utility. The public identity-aware
 // process facade is the capability this journey is qualifying.
@@ -524,6 +552,21 @@ try {
         === text_at(external_read, "data.window_identity.start_identity"),
     "cu_windows_smoke_external_wait:" + JSON.stringify(external_wait.data)
   );
+  // The control reports its initial `Text` through UIA before RichTextBox has
+  // finished normalizing newlines and appending its final carriage return. The
+  // first read above only proves the markers are present. Take one settled read
+  // after the wait so the no-side-effect comparison below has a baseline that
+  // is not racing the control's own first paint.
+  const external_settled = run_cu_json_no_activate(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "term-read", handle_text,
+    "--raw", "--max-bytes", "65536"
+  ]);
+  ensure(
+    text_at(external_settled, "data.node") === external_node
+      && text_at(external_settled, "data.text").indexOf(external_marker) >= 0
+      && text_at(external_settled, "data.text").indexOf(external_steady) >= 0,
+    "cu_windows_smoke_external_settled:" + JSON.stringify(external_settled.data)
+  );
 
   print("STEP external terminal invalid patterns and both input modes fail typed before action, redact caller text, preserve focus and leave the exact buffer unchanged");
   const invalid_pattern = "external-terminal-private-[";
@@ -569,7 +612,7 @@ try {
   );
   ensure(
     text_at(external_after, "data.node") === external_node
-      && text_at(external_after, "data.text") === text_at(external_read, "data.text")
+      && text_at(external_after, "data.text") === text_at(external_settled, "data.text")
       && int_at(external_after, "data.window_identity.handle") === fixture_handle
       && int_at(external_after, "data.window_identity.pid") === fixture_pid
       && text_at(external_after, "data.window_identity.start_identity")
@@ -1113,7 +1156,7 @@ try {
   if (visible_external_terminal_send) {
     print("STEP explicit visible external-terminal send focuses the exact owned UIA document, verifies a new token and restores foreground focus");
     const visible_token = "VISIBLE_WINDOWS_TERM_" + context.run_id;
-    const visible_send = run_cu_json(run_directory, executable, [
+    const visible_send = run_cu_visible_json(run_directory, executable, [
       "--target", "current", "--grant", "observe,actuate", "term-send", handle_text,
       "--foreground", "--enter", "false", "--expect", visible_token, "--", visible_token
     ]);

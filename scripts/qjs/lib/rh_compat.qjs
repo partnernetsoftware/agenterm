@@ -344,9 +344,19 @@ export function env_without(env, names) {
 // Null-safe property read: reading a property of `null` or `undefined`
 // traps uncatchably in this engine, and server JSON carries nulls
 // (`cleanup_receipt` without `--prune`, `modal_kind` without a modal).
+// Direct field access. A dotted `name` walks nested objects (`data.sessions`,
+// `running.value`) because the rh-era callers read a reply field without
+// unpacking each level; a name with no dot is one property access, exactly as
+// before. A missing intermediate level answers `undefined`, like the leaf.
 export function field(value, name) {
   if (value === null || value === undefined) { return undefined; }
-  return value[name];
+  if (name.indexOf(".") < 0) { return value[name]; }
+  let current = value;
+  for (const key of name.split(".")) {
+    if (current === null || current === undefined) { return undefined; }
+    current = current[key];
+  }
+  return current;
 }
 
 // rh's `.contains(x)` where the receiver may be a string or an array.
