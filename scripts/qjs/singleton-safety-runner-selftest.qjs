@@ -295,17 +295,179 @@ function test_execution(template) {
   expect_throw(function () { runner.join_window_owner(exd.run, template, 42, 900, 8000); }, "join_dead_refused");
 }
 
-function run_checks() {
+// ---- native witness lifecycle (fake adapter, no real process) -----------
+
+function spawn_target(argv) {
+  for (let i = 0; i < argv.length; i = i + 1) { if (argv[i] === "--control-log") { return argv[i + 1]; } }
+  return argv[0];
+}
+// A fake adapter over an in-memory (real temp dir for files) run root. It records
+// spawns and kills; no real process is started.
+function fake_adapter(opts) {
+  const files = {};
+  const spawns = [];
+  const killed = [];
+  const appends = [];
+  const o = opts || {};
+  return {
+    files: files, spawns: spawns, killed: killed, appends: appends,
+    random_hex: function (n) { return "0123456789abcdef0123456789abcdef"; },
+    validate_manifest: function () { if (o.fail_manifest) { throw "manifest_validation_failed"; } return true; },
+    file_exists: function (p) { return files[p] !== undefined || (o.hashes && o.hashes[p] !== undefined); },
+    is_symlink: function () { return false; },
+    read_dir: function () { return []; },
+    create_dir_all: function () {},
+    write_file: function (p, text) { files[p] = text; },
+    append_file: function (p, text) { files[p] = (files[p] || "") + text; appends.push({ path: p, text: text }); },
+    read_text: function (p) { return files[p]; },
+    remove_dir_all: function () { const ks = Object.keys(files); for (let i = 0; i < ks.length; i = i + 1) { files[ks[i]] = undefined; } },
+    sha256_file: function (p) { return o.hashes && o.hashes[p] ? o.hashes[p] : "0".repeat(64); },
+    parse_json: function () { return o.manifest; },
+    spawn: function (argv) { spawns.push(argv); files[spawn_target(argv)] = ""; return { pid: spawns.length }; },
+    kill: function (h) { if (o.fail_kill) { throw "kill_failed"; } killed.push(h); },
+    wait: function (h) { if (o.fail_wait) { throw "wait_failed"; } return 0; },
+    run_capture: function (argv, timeout) { spawns.push(argv); return o.foreground === undefined ? "" : o.foreground; },
+    sleep_ms: function () { if (o.on_sleep) { o.on_sleep(files); } }
+  };
+}
+
+function fixture_contract_fixture() {
+  return { state: { exact_keys: ["schema", "sequence", "event", "role", "pid", "bundle_id", "window", "failure_code"] },
+           domains: { event: ["ready", "window-closed", "command-rejected", "terminating"] } };
+}
+function fixture_state_text(seq, event, role) {
+  return cj.canonical({ schema: "agenterm.singleton-safety.focus-fixture-state/v1", sequence: seq,
+    event: event, role: role, pid: 1, bundle_id: "b", window: { handle: null, ordinary_onscreen_count: 0 }, failure_code: null });
+}
+
+function native_options(run_root) {
+  return { fixture_contract: fixture_contract_fixture(), run_root: run_root, uid: 501, manifest_path: "manifest.json",
+    process_probe: "process-probe", bundle_root: "b", selected_executable: "s",
+    primary_executable: "primary", secondary_executable: "secondary",
+    foreground_probe: "foreground-probe", max_windows: 16, ready_timeout_ms: 200 };
+}
+
+function test_native_ready() {
+  // The manifest validator is injected (the fake adapter's stub), so this test
+  // needs no real build artifact and works on a clean checkout. The production
+  // wiring calls the SHARED build_manifest validator instead.
+  const repo = "repo";
+  const fg_contract = { output: { exact_keys: ["schema", "complete", "frontmost_app", "ordinary_onscreen_windows", "frontmost_handle", "error"] } };
+  const fg_ok = cj.canonical({ schema: "agenterm.singleton-safety.foreground-probe/v1", complete: true,
+    frontmost_app: { pid: 1, bundle_id: "b" }, ordinary_onscreen_windows: { count: 0, handles: [], truncated: false },
+    frontmost_handle: null, error: null });
+  const fg_bad = cj.canonical({ schema: "agenterm.singleton-safety.foreground-probe/v1", complete: false,
+    frontmost_app: null, ordinary_onscreen_windows: { count: 0, handles: [], truncated: false }, frontmost_handle: null, error: { code: "x" } });
+
+  function options(run_root, foreground) {
+    return { run_root: run_root, uid: 501, repo: repo, manifest_path: "manifest.json", arch: "aarch64", signing: {},
+      process_probe: "process-probe", bundle_root: "b", selected_executable: "s",
+      primary_executable: "primary", secondary_executable: "secondary",
+      foreground_probe: "foreground-probe", max_windows: 16, ready_timeout_ms: 200,
+      fixture_contract: fixture_contract_fixture(), foreground_contract: fg_contract, foreground: foreground };
+  }
+
+  // normal: fixtures publish ready on the first poll.
+  const root = rh.join(owned_root(), "run-ok");
+  const opts = options(root, fg_ok);
+  const ad = fake_adapter({ foreground: fg_ok, on_sleep: function (files) {
+    files[rh.join(root, "primary-state.json")] = fixture_state_text(1, "ready", "primary");
+    files[rh.join(root, "secondary-state.json")] = fixture_state_text(1, "ready", "secondary"); } });
+  const cp = runner.native_ready(ad, {}, {}, opts);
+  require(cp.checkpoint === "native-ready-in-process" && cp.next === "browser-session", "native_checkpoint");
+  require(ad.spawns.length === 4, "native_spawn_count:" + ad.spawns.length);
+  require(cp.cleanup_failures.length === 0, "native_no_cleanup_failures");
+
+  // manifest validation failure propagates and cleanup runs
+  const rootm = rh.join(owned_root(), "run-manifest");
+  const adm = fake_adapter({ fail_manifest: true });
+  let seenm = "";
+  try { runner.native_ready(adm, {}, {}, options(rootm, fg_ok)); } catch (e) { seenm = "" + e; }
+  require(seenm === "manifest_validation_failed", "native_manifest_failure:" + seenm);
+
+  // uid out of range is refused
+  expect_throw(function () {
+    const o = options(rh.join(owned_root(), "run-uid"), fg_ok); o.uid = 0;
+    runner.native_ready(fake_adapter({}), {}, {}, o);
+  }, "native_uid_zero");
+  expect_throw(function () {
+    const o = options(rh.join(owned_root(), "run-mw"), fg_ok); o.max_windows = 99999;
+    runner.native_ready(fake_adapter({}), {}, {}, o);
+  }, "native_max_windows_range");
+
+  // fixture state wrong role / non-increasing sequence
+  expect_throw(function () {
+    runner.parse_fixture_state(fixture_contract_fixture(), fixture_state_text(1, "ready", "secondary"), "primary", undefined);
+  }, "native_state_wrong_role");
+  expect_throw(function () {
+    runner.parse_fixture_state(fixture_contract_fixture(), fixture_state_text(1, "ready", "primary"), "primary", 1);
+  }, "native_state_sequence");
+
+  // fixture never ready -> timeout, abort written, exact children killed + reaped
+  const root2 = rh.join(owned_root(), "run-timeout");
+  const ad2 = fake_adapter({});
+  const opts2 = options(root2, fg_ok); opts2.ready_timeout_ms = 40;
+  expect_throw(function () { runner.native_ready(ad2, {}, {}, opts2); }, "native_ready_timeout");
+  require(ad2.killed.length === 3, "native_timeout_kills:" + ad2.killed.length);
+  let abort_seen = false;
+  for (let i = 0; i < ad2.appends.length; i = i + 1) { if (ad2.appends[i].text.indexOf('"role":"abort"') !== -1) { abort_seen = true; } }
+  require(abort_seen, "native_abort_written");
+
+  // foreground incomplete -> cleanup runs, original typed failure
+  const root3 = rh.join(owned_root(), "run-fg");
+  const ad3 = fake_adapter({ foreground: fg_bad, on_sleep: function (files) {
+    files[rh.join(root3, "primary-state.json")] = fixture_state_text(1, "ready", "primary");
+    files[rh.join(root3, "secondary-state.json")] = fixture_state_text(1, "ready", "secondary"); } });
+  expect_throw(function () { runner.native_ready(ad3, {}, {}, options(root3, fg_bad)); }, "native_foreground_incomplete");
+  require(ad3.killed.length === 3, "native_fg_kills");
+
+  // kill failure is collected, not silently dropped, and the original error wins
+  const root4 = rh.join(owned_root(), "run-killfail");
+  const ad4 = fake_adapter({ fail_kill: true, on_sleep: function (files) {
+    files[rh.join(root4, "primary-state.json")] = fixture_state_text(1, "ready", "primary");
+    files[rh.join(root4, "secondary-state.json")] = fixture_state_text(1, "ready", "secondary"); } });
+  let seen4 = null;
+  try { runner.native_ready(ad4, {}, {}, options(root4, fg_bad)); } catch (e) { seen4 = e; }
+  require(seen4 !== null && seen4.cleanup_failures !== undefined && seen4.cleanup_failures.length >= 3,
+          "native_cleanup_failures_collected");
+
+  // probe early exit -> original error preserved, no abort, no kill
+  const root5 = rh.join(owned_root(), "run-probe");
+  const ad5 = fake_adapter({});
+  ad5.spawn = function () { throw "probe_early_exit"; };
+  let seen5 = "";
+  try { runner.native_ready(ad5, {}, {}, options(root5, fg_ok)); } catch (e) { seen5 = "" + e; }
+  require(seen5 === "probe_early_exit", "native_probe_error_preserved:" + seen5);
+  require(ad5.appends.length === 0, "native_probe_abort_not_written");
+
+  // two concurrent runs with distinct roots never collide
+  const rA = rh.join(owned_root(), "runA");
+  const rB = rh.join(owned_root(), "runB");
+  const adA = fake_adapter({ foreground: fg_ok, on_sleep: function (files) {
+    files[rh.join(rA, "primary-state.json")] = fixture_state_text(1, "ready", "primary");
+    files[rh.join(rA, "secondary-state.json")] = fixture_state_text(1, "ready", "secondary"); } });
+  const adB = fake_adapter({ foreground: fg_ok, on_sleep: function (files) {
+    files[rh.join(rB, "primary-state.json")] = fixture_state_text(1, "ready", "primary");
+    files[rh.join(rB, "secondary-state.json")] = fixture_state_text(1, "ready", "secondary"); } });
+  const cA = runner.native_ready(adA, {}, {}, options(rA, fg_ok));
+  const cB = runner.native_ready(adB, {}, {}, options(rB, fg_ok));
+  require(cA.run_root === rA && cB.run_root === rB, "native_concurrent_roots");
+}
+
+function run_checks(mode) {
   const template = runner.load_runner_template(template_path());
   rh.create_dir_all(owned_root());
-  test_argv();
-  test_reply_parsing(template);
-  test_data_contract(template);
-  test_stage_machine(template);
-  test_rehearsal_tail(template);
-  test_control_records(template);
-  test_digest(template);
-  test_execution(template);
+  if (mode !== "native") {
+    test_argv();
+    test_reply_parsing(template);
+    test_data_contract(template);
+    test_stage_machine(template);
+    test_rehearsal_tail(template);
+    test_control_records(template);
+    test_digest(template);
+    test_execution(template);
+  }
+  test_native_ready();
 
   // cleanup through the production wrapper: create the root, throw a sentinel.
   rh.create_dir_all(owned_root());
@@ -319,7 +481,13 @@ function run_checks() {
 }
 
 function run() {
-  with_owned_cleanup(function () { run_checks(); });
+  let mode = "all";
+  if (arg_count() === 1) {
+    if (arg(0) !== 0) { throw "arg: " + tool_result(); }
+    mode = tool_result();
+  }
+  require(mode === "all" || mode === "native", "unknown_mode:" + mode);
+  with_owned_cleanup(function () { run_checks(mode); });
   require(!rh.exists(owned_root()), "selftest_owned_root_remains");
   return 0;
 }

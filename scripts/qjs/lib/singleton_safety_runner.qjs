@@ -11,6 +11,7 @@
 import * as rh from "lib/rh_compat";
 import * as cj from "lib/canonical_json";
 import * as v from "lib/singleton_safety_verdict";
+import * as build_manifest from "lib/build_manifest";
 
 const CONTROL_SCHEMA = "agenterm.singleton-safety.process-probe-control/v1";
 const CONTROL_ROLES = ["browser-root", "ownership-boundary", "direct-open-root",
@@ -279,12 +280,11 @@ export function decision_control_plan(browser_identity, direct_identity) {
 
 // ---- window identity digest ---------------------------------------------
 
-// domain + 0x00 + RFC 8785 {handle, owner_pid, owner_start_sec, owner_start_usec}.
-// No title, geometry or z-order enters the preimage.
 // The window identity digest uses the contract's stable handle + owning-process
-// exact start identity. It never uses a shared fixed scratch file: the caller
-// passes an owned run root and a unique scratch name, which is created there,
-// hashed, and removed; an existing target or symlink is refused.
+// exact start identity (see window_identity_preimage). It never uses a shared
+// fixed scratch file: the caller passes an owned run root and a unique scratch
+// name, which is created there, hashed, and removed; an existing target or
+// symlink is refused.
 export function window_identity_digest(template, scratch, handle, process_id, start_identity) {
   const rule = template["window_identity_preimage"];
   require(rule !== undefined, "window_identity_rule_missing");
@@ -325,6 +325,243 @@ export function join_window_owner(execute, template, handle, process_id, timeout
   require(typeof data["start_identity"] === "string" && data["start_identity"].length > 0,
           "process_state_identity_unavailable:" + process_id);
   return { handle: handle, process_id: process_id, start_identity: data["start_identity"] };
+}
+
+// ---- native witness lifecycle (first runnable leaf) ---------------------
+//
+// A native adapter is the ONLY way this library touches the machine: it spawns,
+// waits, kills, reads, writes and hashes. Production code injects an adapter over
+// the real door; the selftest injects a fake. Nothing here runs a browser or GUI.
+
+// The run-local IPC path set, distinct from the court's journal/receipt layout.
+export function ipc_layout(run_root) {
+  require(typeof run_root === "string" && run_root.length > 0, "run_root");
+  return {
+    root: run_root,
+    control_log: rh.join(run_root, "control-log.jsonl"),
+    latest_state: rh.join(run_root, "latest-state.json"),
+    final_summary: rh.join(run_root, "final-summary.json"),
+    token_file: rh.join(run_root, "owned-token"),
+    primary_state: rh.join(run_root, "primary-state.json"),
+    primary_command: rh.join(run_root, "primary-command"),
+    secondary_state: rh.join(run_root, "secondary-state.json"),
+    secondary_command: rh.join(run_root, "secondary-command")
+  };
+}
+
+// Generate an unpredictable owned token: 32 lowercase hex chars derived from the
+// adapter's TEXT hex (e.g. `od -An -N16 -tx1 /dev/urandom`), never raw bytes
+// decoded as a JS string. The token never enters argv; it is written to token_file.
+export function new_owned_token(adapter) {
+  const text = adapter.random_hex(16);
+  require(typeof text === "string", "token_text");
+  let compact = "";
+  for (let i = 0; i < text.length; i = i + 1) {
+    const c = text.charAt(i);
+    if (c !== " " && c !== "\n" && c !== "\t" && c !== "\r") { compact = compact + c; }
+  }
+  require(is_lower_hex(compact, 32), "token_not_32_hex:" + compact.length);
+  return compact;
+}
+
+function is_lower_hex(value, n) {
+  if (typeof value !== "string" || value.length !== n) { return false; }
+  const digits = ["0","1","2","3","4","5","6","7","8","9","a","b","c","d","e","f"];
+  let rest = value;
+  for (let i = 0; i < digits.length; i = i + 1) { rest = rest.replaceAll(digits[i], ""); }
+  return rest === "";
+}
+
+// Validate the manifest through the SHARED build_manifest validator: it re-derives
+// contract/source/artifact/plist hashes from the exact repository bytes against an
+// explicit repo root, so a manifest cannot pass by matching only four artifact
+// SHAs. The caller supplies the exact signing map the build used.
+export function validate_build_manifest(repo, manifest_path, arch, signing) {
+  build_manifest.validate_against_repo(repo, manifest_path, arch, signing);
+  return true;
+}
+
+// FocusFixture argv. The fixture is a native app; the runner only ever builds the
+// argv here and lets the adapter spawn it.
+export function focus_fixture_argv(executable, role, state_path, command_path) {
+  require(role === "primary" || role === "secondary", "fixture_role:" + role);
+  return [executable, "--role", role, "--state", state_path, "--command", command_path];
+}
+
+// ProcessProbe argv from the process contract's own order.
+export function process_probe_argv(executable, uid, token_file, bundle_root, selected, control_log, latest_state, final_summary) {
+  return [executable, "--contract-version", "1", "--target-uid", "" + uid,
+          "--token-file", token_file, "--bundle-root", bundle_root,
+          "--selected-executable", selected, "--control-log", control_log,
+          "--latest-state", latest_state, "--final-summary", final_summary];
+}
+
+// ForegroundProbe argv from its own contract.
+export function foreground_probe_argv(executable, max_windows) {
+  return [executable, "--max-windows", "" + max_windows];
+}
+
+// Strictly validate one FocusFixture state file against the fixture contract:
+// exact keys, increasing sequence, role match, and a known event. Returns the
+// parsed state.
+export function parse_fixture_state(contract, text, expected_role, last_sequence) {
+  let value;
+  try { value = JSON.parse(text); } catch (e) { throw "fixture_state_not_json"; }
+  const keys = contract["state"]["exact_keys"];
+  const got = Object.keys(value);
+  require(got.length === keys.length, "fixture_state_key_count");
+  for (let i = 0; i < keys.length; i = i + 1) {
+    require(rh.has_item(got, keys[i]), "fixture_state_key_missing:" + keys[i]);
+  }
+  require(value["schema"] === "agenterm.singleton-safety.focus-fixture-state/v1", "fixture_state_schema");
+  require(value["role"] === expected_role, "fixture_state_role:" + value["role"] + "!=" + expected_role);
+  require(is_safe_integer(value["sequence"]) && value["sequence"] >= 1, "fixture_state_sequence");
+  if (last_sequence !== undefined) {
+    require(value["sequence"] > last_sequence, "fixture_state_sequence_not_increasing");
+  }
+  require(rh.has_item(contract["domains"]["event"], value["event"]), "fixture_state_event:" + value["event"]);
+  return value;
+}
+
+// The state event that marks readiness, per the fixture contract's event_rules.
+export function fixture_ready(state) { return state["event"] === "ready"; }
+
+// Strictly validate a ForegroundProbe output against its contract.
+export function parse_foreground_probe(contract, text) {
+  let value;
+  try { value = JSON.parse(text); } catch (e) { throw "foreground_probe_not_json"; }
+  const keys = contract["output"]["exact_keys"];
+  const got = Object.keys(value);
+  require(got.length === keys.length, "foreground_probe_key_count");
+  for (let i = 0; i < keys.length; i = i + 1) {
+    require(rh.has_item(got, keys[i]), "foreground_probe_key_missing:" + keys[i]);
+  }
+  require(value["schema"] === "agenterm.singleton-safety.foreground-probe/v1", "foreground_probe_schema");
+  require(typeof value["complete"] === "boolean", "foreground_probe_complete");
+  require(value["error"] === null || (value["error"] !== null && value["error"]["code"] !== undefined),
+          "foreground_probe_error_shape");
+  require(value["complete"] === true, "foreground_probe_incomplete");
+  require(value["error"] === null, "foreground_probe_error");
+  return value;
+}
+
+// Encode one control record exactly as canonical JSONL (compact canonical object
+// plus one LF). The process contract requires the court to be the sole writer and
+// to append only.
+export function control_record_line(sequence, role, process_identity) {
+  return control_record(sequence, role, process_identity) + "\n";
+}
+
+// The exact fixture command protocol: one command token followed by one LF.
+export function fixture_command_bytes(value) {
+  require(value === "close-window" || value === "quit", "fixture_command:" + value);
+  return value + "\n";
+}
+
+// ---- native-ready orchestration -----------------------------------------
+
+// Claim an owned run root: it must be empty (or absent) and not a symlink. The
+// caller passes an explicit repo-relative or caller-owned root.
+export function claim_run_root(adapter, run_root) {
+  if (adapter.file_exists(run_root)) {
+    require(!adapter.is_symlink(run_root), "run_root_is_symlink");
+    require(adapter.read_dir(run_root).length === 0, "run_root_not_empty");
+    return;
+  }
+  adapter.create_dir_all(run_root);
+}
+
+// Run the first runnable leaf IN PROCESS for a full runner to continue from. It
+// never stands alone as a terminal command: the caller is a live runner that
+// keeps the probe and fixtures and proceeds to the browser-session stage. All
+// native work goes through the injected adapter (an async process door plus file
+// IO), so no real process starts here in tests. On any failure it appends an
+// abort control (if the probe actually started), kills every started exact
+// handle, waits/reaps each, removes only the owned root, and rethrows the
+// original error. Cleanup failures are collected, never silently dropped.
+export function native_ready(adapter, contract, template, options) {
+  const run_root = options.run_root;
+  require(typeof run_root === "string" && run_root.length > 0, "run_root");
+  require(is_safe_integer(options.uid) && options.uid >= 1 && options.uid <= 4294967295, "uid_range:" + options.uid);
+  require(is_safe_integer(options.max_windows) && options.max_windows >= 1 && options.max_windows <= 4096, "max_windows_range");
+  require(is_safe_integer(options.ready_timeout_ms) && options.ready_timeout_ms >= 1 && options.ready_timeout_ms <= 60000, "ready_timeout_range");
+  claim_run_root(adapter, run_root);
+  const ipc = ipc_layout(run_root);
+  const started = [];
+  let probe_started = false;
+  try {
+    // The manifest MUST be validated through the exported SHARED validator
+    // `validate_build_manifest`; a future production adapter must wire that
+    // function here. The selftest injects an equivalent deterministic stub so no
+    // real build artifact is an undeclared input.
+    require(typeof adapter.validate_manifest === "function", "adapter_validate_manifest_missing");
+    adapter.validate_manifest(options.repo, options.manifest_path, options.arch, options.signing);
+    const token = new_owned_token(adapter);
+    adapter.write_file(ipc.token_file, token);
+    const probe_argv = process_probe_argv(options.process_probe, options.uid, ipc.token_file,
+      options.bundle_root, options.selected_executable, ipc.control_log, ipc.latest_state, ipc.final_summary);
+    const probe = adapter.spawn(probe_argv);
+    started.push(probe);
+    probe_started = true;
+    started.push(adapter.spawn(focus_fixture_argv(options.primary_executable, "primary", ipc.primary_state, ipc.primary_command)));
+    started.push(adapter.spawn(focus_fixture_argv(options.secondary_executable, "secondary", ipc.secondary_state, ipc.secondary_command)));
+    const fixture_contract = options.fixture_contract;
+    require(fixture_contract !== undefined, "fixture_contract_missing");
+    const primary_state = wait_fixture_ready(adapter, fixture_contract, ipc.primary_state, "primary", options.ready_timeout_ms);
+    const secondary_state = wait_fixture_ready(adapter, fixture_contract, ipc.secondary_state, "secondary", options.ready_timeout_ms);
+    const foreground = adapter.run_capture(foreground_probe_argv(options.foreground_probe, options.max_windows), options.ready_timeout_ms);
+    parse_foreground_probe(options.foreground_contract, foreground);
+    return {
+      checkpoint: "native-ready-in-process",
+      next: "browser-session",
+      run_root: run_root,
+      token_written: true,
+      primary_ready_sequence: primary_state["sequence"],
+      secondary_ready_sequence: secondary_state["sequence"],
+      probe_started: probe_started,
+      cleanup_failures: []
+    };
+  } catch (error) {
+    // Ordered, bounded cleanup; the ORIGINAL error is always rethrown. Each step
+    // is best effort and any failure is collected into `cleanup_failures` for the
+    // caller rather than replacing the primary failure.
+    const cleanup_failures = [];
+    if (probe_started) {
+      try { adapter.append_file(ipc.control_log, control_record_line(0, "abort", null)); }
+      catch (e) { cleanup_failures.push("abort_append"); }
+    }
+    for (let i = 0; i < started.length; i = i + 1) {
+      try { adapter.kill(started[i]); } catch (e) { cleanup_failures.push("kill"); }
+    }
+    for (let i = 0; i < started.length; i = i + 1) {
+      try { adapter.wait(started[i], 5000); } catch (e) { cleanup_failures.push("wait"); }
+    }
+    try { adapter.remove_dir_all(run_root); } catch (e) { cleanup_failures.push("remove_root"); }
+    if (cleanup_failures.length === 0) { throw error; }
+    // Attach the collected cleanup failures without replacing the primary failure:
+    // a structured wrapper carries both the original reason and the cleanup result.
+    throw { primary: "" + error, cleanup_failures: cleanup_failures };
+  }
+}
+
+
+// Poll a fixture state file until it publishes the ready event, bounded by the
+// deadline. A state on the wrong role, a non-increasing sequence or a non-JSON
+// body fails closed.
+function wait_fixture_ready(adapter, contract, state_path, role, timeout_ms) {
+  const deadline = timeout_ms === undefined ? 15000 : timeout_ms;
+  let elapsed = 0;
+  let last = undefined;
+  while (elapsed <= deadline) {
+    if (adapter.file_exists(state_path)) {
+      const state = parse_fixture_state(contract, adapter.read_text(state_path), role, last);
+      last = state["sequence"];
+      if (fixture_ready(state)) { return state; }
+    }
+    adapter.sleep_ms(20);
+    elapsed = elapsed + 20;
+  }
+  throw "fixture_ready_timeout:" + role;
 }
 
 // ---- injected execution -------------------------------------------------

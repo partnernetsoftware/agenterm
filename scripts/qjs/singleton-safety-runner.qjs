@@ -1,0 +1,17 @@
+// singleton-safety-runner.qjs -- the singleton-safety live runner ENTRY.
+//
+// This entry is a deliberate, non-executable placeholder. It parses NO arguments
+// and exposes NO subcommands; it prints a single notice and exits zero. It is
+// registered as nothing: the formal live task is NOT registered, and no browser or
+// fixture is ever started here.
+//
+// The native witness lifecycle lives ONLY in the library
+// `lib/singleton_safety_runner.qjs`, driven in process by a future full runner that
+// continues to the browser-session stage, and exercised by the registered synthetic
+// selftests (`singleton-safety-runner-selftest`, `singleton-safety-runner-native-selftest`).
+// Nothing in this file touches the machine.
+
+// not-yet-live: the durable/no-follow fs.append door required by the live control
+// log is a separate Rust dependency that has not landed; see the runner reports.
+print("singleton-safety runner is not-yet-live; the native lifecycle is library-only and exercised by the registered selftests");
+return 0;

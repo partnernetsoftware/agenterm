@@ -5626,6 +5626,24 @@
       "evidence": [
         "task.singleton-safety-runner-selftest"
       ]
+    },
+    "singleton-safety-runner-native-selftest": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "runner-native-selftest-proof"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_host_operations": 999999,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.singleton-safety-runner-native-selftest"
+      ]
     }
   },
   "tasks": [
@@ -5954,6 +5972,23 @@
       "entry": "scripts/qjs/singleton-safety-runner-selftest.qjs",
       "profile": "tool",
       "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "singleton-safety-runner-native-selftest",
+      "description": "Prove the singleton-safety native witness lifecycle: input hashes, run-root claim, owned token, fixture ready, foreground probe, abort write and cleanup through a fake adapter",
+      "entry": "scripts/qjs/singleton-safety-runner-selftest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "native"
+      ],
       "dependencies": [],
       "platforms": [
         "macos"
