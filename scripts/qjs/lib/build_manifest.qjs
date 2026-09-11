@@ -32,7 +32,7 @@ const MEMBER_ORDER = [
   "secondary-focus-fixture"
 ];
 
-function member_definitions() {
+export function member_definitions() {
   return {
     "independent-process-helper": {
       contract_logical_source_id: "research/browser-profile-open-singleton-safety/fixtures/process-probe/process-probe-contract.json",
@@ -176,16 +176,33 @@ function compiler_of(repo, family, argv_prefix) {
 
 // argv for each member is the exact repo-relative source/output arguments with
 // `xcrun` first and the compiler tool second (contract value_domains).
-function compiler_argv(family, source_logical_ids, artifact_logical_path, extra) {
+// The single compiler-argv authority. Both the builder's execution and the
+// manifest's recorded compiler object take their argv from here, so the two can
+// never drift: the builder runs exactly argv[0] as the program with argv[1..]
+// passed through unchanged. There are no optimization flags because the contract
+// does not require any, which keeps the executed command identical to the record.
+export function compiler_argv(family, source_logical_ids, artifact_logical_path) {
   const tool = family === "apple-clang" ? "clang" : "swiftc";
   const argv = ["xcrun", tool];
   for (let i = 0; i < source_logical_ids.length; i = i + 1) {
     argv.push(source_logical_ids[i]);
   }
-  for (let i = 0; i < extra.length; i = i + 1) { argv.push(extra[i]); }
   argv.push("-o");
   argv.push(artifact_logical_path);
   return argv;
+}
+
+// The exact argv for one member, from the contract model. FocusFixture compiles
+// once into the PRIMARY bundle executable; both fixture members record that same
+// command (cross_member_rules: the two compiler objects are byte-for-byte equal).
+export function compiler_command(logical_id) {
+  const defs = member_definitions();
+  const def = defs[logical_id];
+  rh.require(def !== undefined, "unknown_member:" + logical_id);
+  const output = def.bundle_id !== null
+    ? defs["primary-focus-fixture"].artifact_logical_path
+    : def.artifact_logical_path;
+  return compiler_argv(def.compiler_family, def.source_logical_ids, output);
 }
 
 function artifact_of(repo, def) {
@@ -257,22 +274,19 @@ export function build(repo_value, arch, signing) {
   const contract_sha = sha256_or_fail(repo, CONTRACT_LOGICAL_ID, "manifest_contract");
   const defs = member_definitions();
 
-  const process_compiler = compiler_of(
-    repo, "apple-clang",
-    compiler_argv("apple-clang", defs["independent-process-helper"].source_logical_ids,
-                  defs["independent-process-helper"].artifact_logical_path, [])
-  );
-  const swift_argv = compiler_argv(
-    "apple-swift", defs["independent-foreground-helper"].source_logical_ids,
-    defs["independent-foreground-helper"].artifact_logical_path, [])
-  ;
-  const swift_compiler = compiler_of(repo, "apple-swift", swift_argv);
+  const process_compiler = compiler_of(repo, "apple-clang", compiler_command("independent-process-helper"));
+  const foreground_compiler = compiler_of(repo, "apple-swift", compiler_command("independent-foreground-helper"));
+  // FocusFixture is compiled ONCE; its command emits the primary bundle
+  // executable, which is then signed and copied byte-for-byte into the secondary
+  // bundle. Both fixture members share this exact compiler object
+  // (cross_member_rules: the two compiler objects are byte-for-byte equal).
+  const focus_compiler = compiler_of(repo, "apple-swift", compiler_command("primary-focus-fixture"));
 
   const members = [];
   members.push(member_of(repo, defs, "independent-process-helper", process_compiler, signing["independent-process-helper"]));
-  members.push(member_of(repo, defs, "independent-foreground-helper", swift_compiler, signing["independent-foreground-helper"]));
-  members.push(member_of(repo, defs, "primary-focus-fixture", swift_compiler, signing["primary-focus-fixture"]));
-  members.push(member_of(repo, defs, "secondary-focus-fixture", swift_compiler, signing["secondary-focus-fixture"]));
+  members.push(member_of(repo, defs, "independent-foreground-helper", foreground_compiler, signing["independent-foreground-helper"]));
+  members.push(member_of(repo, defs, "primary-focus-fixture", focus_compiler, signing["primary-focus-fixture"]));
+  members.push(member_of(repo, defs, "secondary-focus-fixture", focus_compiler, signing["secondary-focus-fixture"]));
 
   return {
     schema: SCHEMA,
@@ -373,6 +387,21 @@ export function validate_object(m) {
       rh.require(is_printable_ascii(member.compiler.argv[a], 256), "compiler_argv_item:" + logical_id);
       rh.require(member.compiler.argv[a].indexOf("/") === -1 || is_valid_logical_path(member.compiler.argv[a]),
                  "compiler_argv_path:" + logical_id);
+    }
+    // The compiler command must bind exactly this member's source(s) and output,
+    // not just the tool name: xcrun <tool> <sources...> -o <artifact>. A swapped
+    // source or output is rejected here even though the artifact hash would also
+    // differ under re-derivation.
+    // The focus executable is compiled once into the PRIMARY bundle and then
+    // copied byte-for-byte to the secondary; both fixture members therefore
+    // record a command whose output is the primary bundle executable. Every
+    // other member binds its own artifact path.
+    const expected_argv = compiler_command(logical_id);
+    rh.require(member.compiler.argv.length === expected_argv.length,
+               "compiler_argv_binding_length:" + logical_id);
+    for (let a = 0; a < expected_argv.length; a = a + 1) {
+      rh.require(member.compiler.argv[a] === expected_argv[a],
+                 "compiler_argv_binding:" + logical_id + ":" + a);
     }
 
     exact_keys(member.artifact, ARTIFACT_KEYS, "artifact");

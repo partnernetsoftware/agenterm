@@ -273,6 +273,69 @@ function run_checks() {
     bm.validate_object(broken);
   }, "compiler_version_expanded_repo");
 
+  // --- compiler authority: the executed command equals the recorded argv ---
+  // The builder executes bm.compiler_command(logical_id); the manifest records the
+  // same function's output. Assert them element-by-element here, so a parallel
+  // hand-written argv could not go unnoticed.
+  const authority_pairs = [
+    ["independent-process-helper", manifest.members[0].compiler.argv],
+    ["independent-foreground-helper", manifest.members[1].compiler.argv],
+    ["primary-focus-fixture", manifest.members[2].compiler.argv]
+  ];
+  for (let a = 0; a < authority_pairs.length; a = a + 1) {
+    const executed = bm.compiler_command(authority_pairs[a][0]);
+    const recorded = authority_pairs[a][1];
+    require(executed.length === recorded.length, "authority_length:" + authority_pairs[a][0]);
+    for (let i = 0; i < recorded.length; i = i + 1) {
+      require(executed[i] === recorded[i], "authority_item:" + authority_pairs[a][0] + ":" + i);
+    }
+  }
+  // The two fixture members record one identical command (shared focus compile).
+  const focus_cmd = bm.compiler_command("primary-focus-fixture");
+  const secondary_record = manifest.members[3].compiler.argv;
+  require(focus_cmd.length === secondary_record.length, "fixture_authority_length");
+  for (let i = 0; i < secondary_record.length; i = i + 1) {
+    require(focus_cmd[i] === secondary_record[i], "fixture_authority_item:" + i);
+  }
+  // No optimization flag leaked into the authority (contract requires none).
+  require(focus_cmd.indexOf("-O") === -1 && focus_cmd.indexOf("-O2") === -1, "authority_has_optimization_flag");
+
+  // --- compiler provenance: exact source/output binding (req 6) ---
+  // primary fixture compiler must NOT carry the ForegroundProbe source.
+  expect_throw(function () {
+    const broken = JSON.parse(bytes);
+    broken.members[2].compiler.argv[2] =
+      "research/browser-profile-open-singleton-safety/fixtures/focus-probe/ForegroundProbe.swift";
+    bm.validate_object(broken);
+  }, "fixture_compiler_wrong_source");
+  // process helper source swapped to the Swift probe
+  expect_throw(function () {
+    const broken = JSON.parse(bytes);
+    broken.members[0].compiler.argv[2] =
+      "research/browser-profile-open-singleton-safety/fixtures/focus-probe/ForegroundProbe.swift";
+    bm.validate_object(broken);
+  }, "process_compiler_wrong_source");
+  // foreground helper output swapped to the primary bundle
+  expect_throw(function () {
+    const broken = JSON.parse(bytes);
+    broken.members[1].compiler.argv[3] =
+      "target/browser-profile-open-singleton-safety-fixtures/PrimaryFocusFixture.app/Contents/MacOS/FocusFixture";
+    bm.validate_object(broken);
+  }, "foreground_compiler_wrong_output");
+  // focus compiler output must be the PRIMARY bundle executable
+  expect_throw(function () {
+    const broken = JSON.parse(bytes);
+    broken.members[2].compiler.argv[3] =
+      "target/browser-profile-open-singleton-safety-fixtures/SecondaryFocusFixture.app/Contents/MacOS/FocusFixture";
+    bm.validate_object(broken);
+  }, "focus_compiler_wrong_output");
+  // the two fixture compiler objects must be byte-for-byte equal
+  expect_throw(function () {
+    const broken = JSON.parse(bytes);
+    broken.members[3].compiler.version = "Apple Swift version 0.0.0";
+    bm.validate_object(broken);
+  }, "fixture_compiler_unequal");
+
   // --- owned-root cleanup, exercised through the PRODUCTION wrapper ---
   // Create the owned root, then run a callback that throws a fixed sentinel
   // inside with_owned_cleanup. The original sentinel must survive and the owned

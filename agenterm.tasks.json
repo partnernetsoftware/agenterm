@@ -352,6 +352,24 @@
         "task.build-manifest"
       ]
     },
+    "build-singleton-safety-fixtures": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "build-manifest",
+        "singleton-safety-fixtures"
+      ],
+      "budget": {
+        "timeout_ms": 900000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.build-singleton-safety-fixtures"
+      ]
+    },
     "build-manifest-selftest": {
       "inputs": [
         "source-tree"
@@ -5796,6 +5814,21 @@
       "id": "build-manifest",
       "description": "Generate the singleton-safety four-member build manifest as one RFC 8785 canonical object",
       "entry": "scripts/qjs/build-manifest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "build-singleton-safety-fixtures",
+      "description": "Compile the four singleton-safety L2 fixtures, sign and copy the focus executable, and write and re-derive the build manifest",
+      "entry": "scripts/qjs/build-singleton-safety-fixtures.qjs",
       "profile": "tool",
       "cwd": ".",
       "dependencies": [],

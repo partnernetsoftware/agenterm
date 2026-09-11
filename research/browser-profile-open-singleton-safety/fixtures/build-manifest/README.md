@@ -40,9 +40,35 @@ runner expect them:
 |----------|------|
 | canonical JSON lib (RFC 8785) | `scripts/qjs/lib/canonical_json.qjs` |
 | contract model + generate + validate | `scripts/qjs/lib/build_manifest.qjs` |
-| generate entry | `scripts/qjs/build-manifest.qjs` |
+| **real build of the four fixtures + manifest** | `scripts/qjs/build-singleton-safety-fixtures.qjs` |
+| generate entry (manifest only, artifacts prebuilt) | `scripts/qjs/build-manifest.qjs` |
 | validate entry | `scripts/qjs/validate-build-manifest.qjs` |
 | synthetic self-test | `scripts/qjs/build-manifest-selftest.qjs` |
+
+## Compiler provenance
+
+The three compiler objects are distinct and bind their own command:
+
+- `independent-process-helper` — `xcrun clang <ProcessProbe.c> -o <bin/process-probe>`
+- `independent-foreground-helper` — `xcrun swiftc <ForegroundProbe.swift> -o <bin/foreground-probe>`
+- `primary-focus-fixture` / `secondary-focus-fixture` — **one**
+  `xcrun swiftc <FocusFixture.swift> -o <primary bundle executable>` object shared
+  by both members, because FocusFixture is compiled once and copied
+  byte-for-byte into the secondary bundle (cross-member rule: the two fixture
+  compiler objects are byte-for-byte equal).
+
+The validator locks each member's exact source and output arguments, not only
+`xcrun`/tool, so a swapped source or output is rejected by name.
+
+## Signing sequence
+
+`build-singleton-safety-fixtures` compiles FocusFixture into a plist-free staging
+path, explicitly ad-hoc signs it **there** (so the signature binds no
+`Info.plist`), copies the signed bytes into both bundles, and verifies each final
+executable **in isolation** (`codesign --verify --strict` on a plist-free copy).
+That keeps the two fixture artifact SHA-256 values identical while every final
+executable independently verifies, matching the contract's
+`scope: artifact-executable` wording.
 
 ## Contract coverage (one line per rule family)
 
@@ -66,8 +92,14 @@ runner expect them:
 
 ## Usage
 
-Generate (needs the four final artifacts under
-`target/browser-profile-open-singleton-safety-fixtures/`):
+Build everything from source (recommended; compiles all three and writes the
+manifest under the contract target root):
+
+```
+./dist/agenterm cli script task run build-singleton-safety-fixtures --manifest agenterm.tasks.json -- <repo> aarch64
+```
+
+Generate the manifest alone (needs the four final artifacts already present):
 
 ```
 ./dist/agenterm cli script task run build-manifest --manifest agenterm.tasks.json -- <repo> aarch64 <signing.json> target/browser-profile-open-singleton-safety-fixtures/build-manifest.json
@@ -76,12 +108,15 @@ Generate (needs the four final artifacts under
 Validate (re-derives and compares):
 
 ```
-./dist/agenterm cli script task run validate-build-manifest --manifest agenterm.tasks.json -- <repo> aarch64 <signing.json> target/browser-profile-open-singleton-safety-fixtures/build-manifest.json
+./dist/agenterm cli script task run validate-build-manifest --manifest agenterm.tasks.json -- <repo> aarch64 target/browser-profile-open-singleton-safety-fixtures/build-signing.json target/browser-profile-open-singleton-safety-fixtures/build-manifest.json
 ```
 
 `<signing.json>` is a map `logical_id -> {mode, status}` with `mode` in
 `none | linker-ad-hoc | explicit-ad-hoc` and `status` `unsigned | valid`
-(`none` requires `unsigned`; ad-hoc modes require `valid`).
+(`none` requires `unsigned`; ad-hoc modes require `valid`). The real build task
+persists the map it used at
+`target/browser-profile-open-singleton-safety-fixtures/build-signing.json` so the
+standalone validator can re-read it.
 
 ## Self-test
 

@@ -1,0 +1,198 @@
+// Build the four singleton-safety L2 fixtures and their build manifest.
+//
+// Args: REPO ARCH
+//   REPO  repository root (repo-relative or ~/...)
+//   ARCH  aarch64 | x86_64
+//
+// Runs under `--profile tool` and only on macOS (`xcrun`/`codesign`/`plutil`).
+//
+// Single command authority: every compile command is taken from
+// `bm.compiler_command(logical_id)` — the same function the manifest records — and
+// executed as `program = argv[0]` with `argv[1..]` passed through unchanged. The
+// builder never writes a parallel argv array, so the executed command and the
+// recorded compiler.argv are identical by construction. No optimization flags are
+// added because the contract does not require them.
+//
+// Every command runs with `current_dir = repo`, so a REPO argument other than the
+// caller's cwd is honored.
+//
+// Signing sequence: FocusFixture compiles straight into the primary bundle
+// executable (its bundle directory exists but no Info.plist is copied yet), is
+// explicitly ad-hoc signed there while no plist can bind to it, is copied
+// byte-for-byte into the secondary bundle, and only then are both plists copied.
+// This keeps the two fixture artifact SHA-256 values identical while each final
+// executable independently passes `codesign --verify --strict`, matching the
+// contract's scope "artifact-executable".
+//
+// It cleans only its own target root first; on any failure it leaves no plausible
+// manifest behind.
+import * as rh from "lib/rh_compat";
+import * as bm from "lib/build_manifest";
+
+const TARGET_ROOT_LOGICAL = "target/browser-profile-open-singleton-safety-fixtures";
+const MANIFEST_LOGICAL = TARGET_ROOT_LOGICAL + "/build-manifest.json";
+// The signing map is a build record the validator re-reads; it is not a member.
+const SIGNING_LOGICAL = TARGET_ROOT_LOGICAL + "/build-signing.json";
+
+const SOURCES = {
+  primaryPlist: "research/browser-profile-open-singleton-safety/fixtures/apps/Primary-Info.plist",
+  secondaryPlist: "research/browser-profile-open-singleton-safety/fixtures/apps/Secondary-Info.plist"
+};
+
+const ARTIFACTS = {
+  process: TARGET_ROOT_LOGICAL + "/bin/process-probe",
+  foreground: TARGET_ROOT_LOGICAL + "/bin/foreground-probe",
+  primaryExecutable: TARGET_ROOT_LOGICAL + "/PrimaryFocusFixture.app/Contents/MacOS/FocusFixture",
+  primaryPlist: TARGET_ROOT_LOGICAL + "/PrimaryFocusFixture.app/Contents/Info.plist",
+  secondaryExecutable: TARGET_ROOT_LOGICAL + "/SecondaryFocusFixture.app/Contents/MacOS/FocusFixture",
+  secondaryPlist: TARGET_ROOT_LOGICAL + "/SecondaryFocusFixture.app/Contents/Info.plist"
+};
+
+function require(condition, message) { if (!condition) { throw message; } }
+
+function abs(repo, logical) { return rh.join(repo, logical); }
+
+function clean_owned_root(repo) {
+  try { rh.try_remove_dir_all(abs(repo, TARGET_ROOT_LOGICAL)); } catch (e) { /* best effort */ }
+}
+
+// Split the authority argv into a program and its arguments: argv[0] (xcrun) is
+// the program, the rest pass through unchanged.
+function split_program(argv) {
+  const args = [];
+  for (let i = 1; i < argv.length; i = i + 1) { args.push(argv[i]); }
+  return { program: argv[0], args: args };
+}
+
+// Execute one authority argv with `current_dir = repo`. The program and args come
+// straight from the shared authority, so the executed command is the recorded one.
+function run_authority(repo, argv, label) {
+  const split = split_program(argv);
+  const out = rh.command(split.program, split.args, { cwd: repo, timeout_ms: 600000 });
+  require(out.exit_code === 0, label + ":" + out.stderr);
+  return out;
+}
+
+function run_tool(repo, program, args, label) {
+  const out = rh.command(program, args, { cwd: repo, timeout_ms: 120000 });
+  require(out.exit_code === 0, label + ":" + out.stderr);
+  return out;
+}
+
+// Verify one final artifact's bytes in isolation: copy it to a plist-free scratch
+// path and run `codesign --verify --strict`. Returns its honest mode/status.
+function signing_state(repo, logical) {
+  const scratch = abs(repo, TARGET_ROOT_LOGICAL + "/staging/verify");
+  rh.create_dir_all(scratch);
+  let slash = -1;
+  for (let i = 0; i < logical.length; i = i + 1) { if (logical.charAt(i) === "/") { slash = i; } }
+  const isolated = rh.join(scratch, logical.substring(slash + 1));
+  rh.copy(abs(repo, logical), isolated);
+
+  const verify = rh.command("codesign", ["--verify", "--strict", isolated], { cwd: repo, timeout_ms: 120000 });
+  const describe = rh.command("codesign", ["-dv", isolated], { cwd: repo, timeout_ms: 120000 });
+  const text = describe.stderr + describe.stdout;
+  const adhoc = text.indexOf("adhoc") !== -1;
+  const linker = text.indexOf("linker-signed") !== -1;
+  rh.remove_file(isolated);
+
+  if (!adhoc) {
+    require(verify.exit_code !== 0, "signing_state_unexpected:" + logical);
+    return { mode: "none", status: "unsigned" };
+  }
+  require(verify.exit_code === 0, "signing_state_adhoc_not_valid:" + logical + ":" + verify.stderr);
+  if (linker) { return { mode: "linker-ad-hoc", status: "valid" }; }
+  return { mode: "explicit-ad-hoc", status: "valid" };
+}
+
+function prepare_bundles(repo) {
+  rh.create_dir_all(abs(repo, TARGET_ROOT_LOGICAL + "/bin"));
+  rh.create_dir_all(abs(repo, TARGET_ROOT_LOGICAL + "/staging"));
+  rh.create_dir_all(abs(repo, TARGET_ROOT_LOGICAL + "/PrimaryFocusFixture.app/Contents/MacOS"));
+  rh.create_dir_all(abs(repo, TARGET_ROOT_LOGICAL + "/SecondaryFocusFixture.app/Contents/MacOS"));
+}
+
+function assert_plist(repo, plist_logical, bundle_id) {
+  const id = run_tool(repo, "plutil", ["-extract", "CFBundleIdentifier", "raw", abs(repo, plist_logical)],
+                      "plutil_identifier").stdout.trim();
+  require(id === bundle_id, "plist_bundle_id:" + plist_logical + ":" + id);
+  const exe = run_tool(repo, "plutil", ["-extract", "CFBundleExecutable", "raw", abs(repo, plist_logical)],
+                       "plutil_executable").stdout.trim();
+  require(exe === "FocusFixture", "plist_executable:" + plist_logical + ":" + exe);
+}
+
+function assert_macho(repo, logical) {
+  const out = run_tool(repo, "file", ["-b", abs(repo, logical)], "file_probe").stdout;
+  require(out.indexOf("Mach-O") !== -1, "artifact_not_macho:" + logical + ":" + out.trim());
+}
+
+function run(repo_value, arch) {
+  const repo = rh.absolute(repo_value);
+  rh.require(arch === "aarch64" || arch === "x86_64", "arch_invalid:" + arch);
+  rh.require(rh.exists(abs(repo, "research/browser-profile-open-singleton-safety/fixtures/build-manifest-contract.json")),
+             "contract_missing");
+  try {
+    clean_owned_root(repo);
+    prepare_bundles(repo);
+
+    // 1. three compiles, each executed from the shared authority argv.
+    run_authority(repo, bm.compiler_command("independent-process-helper"), "compile_process");
+    run_authority(repo, bm.compiler_command("independent-foreground-helper"), "compile_foreground");
+    run_authority(repo, bm.compiler_command("primary-focus-fixture"), "compile_focus");
+
+    // 2. sign the primary focus executable while no Info.plist exists beside it,
+    //    then copy the signed bytes into the secondary bundle.
+    const sign = rh.command("codesign", ["--force", "--sign", "-", abs(repo, ARTIFACTS.primaryExecutable)],
+                            { cwd: repo, timeout_ms: 120000 });
+    require(sign.exit_code === 0, "focus_sign_failed:" + sign.stderr);
+    rh.copy(abs(repo, ARTIFACTS.primaryExecutable), abs(repo, ARTIFACTS.secondaryExecutable));
+
+    // 3. only now copy the plists and decode them independently.
+    rh.copy(abs(repo, SOURCES.primaryPlist), abs(repo, ARTIFACTS.primaryPlist));
+    rh.copy(abs(repo, SOURCES.secondaryPlist), abs(repo, ARTIFACTS.secondaryPlist));
+    assert_plist(repo, ARTIFACTS.primaryPlist, "com.partnernetsoftware.agenterm.singleton-safety.primary");
+    assert_plist(repo, ARTIFACTS.secondaryPlist, "com.partnernetsoftware.agenterm.singleton-safety.secondary");
+
+    // 4. Mach-O for all four executables.
+    assert_macho(repo, ARTIFACTS.process);
+    assert_macho(repo, ARTIFACTS.foreground);
+    assert_macho(repo, ARTIFACTS.primaryExecutable);
+    assert_macho(repo, ARTIFACTS.secondaryExecutable);
+
+    // 5. the two fixture executables must be byte-identical (one signed copy).
+    require(rh.sha256_file(abs(repo, ARTIFACTS.primaryExecutable)) ===
+            rh.sha256_file(abs(repo, ARTIFACTS.secondaryExecutable)),
+            "fixture_executables_differ");
+
+    // 6. honest signing state per final artifact (verified in isolation).
+    const signing = {
+      "independent-process-helper": signing_state(repo, ARTIFACTS.process),
+      "independent-foreground-helper": signing_state(repo, ARTIFACTS.foreground),
+      "primary-focus-fixture": signing_state(repo, ARTIFACTS.primaryExecutable),
+      "secondary-focus-fixture": signing_state(repo, ARTIFACTS.secondaryExecutable)
+    };
+
+    // 7. persist the signing map used, then write and re-derive the manifest.
+    rh.atomic_write(abs(repo, SIGNING_LOGICAL), JSON.stringify(signing, null, 2) + "\n");
+    bm.write(repo, arch, signing, MANIFEST_LOGICAL);
+    bm.validate_against_repo(repo, abs(repo, MANIFEST_LOGICAL), arch, signing);
+
+    // The staging scratch is not a deliverable.
+    rh.try_remove_dir_all(abs(repo, TARGET_ROOT_LOGICAL + "/staging"));
+
+    print("built singleton-safety fixtures and validated " + MANIFEST_LOGICAL);
+    return 0;
+  } catch (error) {
+    // No plausible manifest may survive a failed build.
+    clean_owned_root(repo);
+    throw error;
+  }
+}
+
+if (arg_count() !== 2) { throw "expected: REPO ARCH"; }
+const args = [];
+for (let i = 0; i < arg_count(); i = i + 1) {
+  if (arg(i) !== 0) { throw "arg: " + tool_result(); }
+  args.push(tool_result());
+}
+return run(args[0], args[1]);
