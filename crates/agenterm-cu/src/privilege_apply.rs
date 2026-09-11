@@ -336,7 +336,12 @@ pub struct AuthenticatedPrivilegePeer {
     provider_identity_digest: String,
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos", test))]
+// `AuthenticatedPrivilegePeer` and `NativeAuthorizationProof` are the native-consent
+// artefacts of the Unix launchers (`privilege_provider_linux` /
+// `privilege_provider_macos`, reached through `privilege_broker`). Those are their
+// only consumers, so these impls are compiled exactly on the hosts that have one;
+// the structs themselves stay available to the host-neutral apply path.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 impl AuthenticatedPrivilegePeer {
     pub(crate) fn from_native_provider(
         principal_digest: String,
@@ -364,7 +369,7 @@ pub struct NativeAuthorizationProof {
     authorization: PrivilegeAuthorizationV1,
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos", test))]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 impl NativeAuthorizationProof {
     pub(crate) fn from_native_provider(authorization: PrivilegeAuthorizationV1) -> Self {
         Self { authorization }

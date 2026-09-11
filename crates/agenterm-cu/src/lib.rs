@@ -136,14 +136,26 @@ pub mod observe;
 pub mod page_text;
 pub mod place;
 pub mod privilege_apply;
-#[cfg(any(target_os = "linux", target_os = "macos", test))]
+// The privileged broker / provider modules are Unix host implementations: their only
+// consumers are `privilege_system_broker_linux`, `privilege_system_broker_macos`,
+// `privilege_provider_linux` and `privilege_provider_macos`, which are themselves
+// host-gated. Their `cfg` therefore names exactly those hosts and must not carry a
+// `test` arm: `test` would only drag them into `--all-targets` runs on a host where
+// no consumer exists (e.g. Windows), producing dead-code noise for a capability that
+// host does not implement. Other hosts keep the typed unsupported/refusal surface.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) mod privilege_broker;
-#[cfg(any(target_os = "linux", test))]
+// The broker metrics store belongs to `privilege_system_broker_linux` (its only
+// consumer), so it is compiled on Linux plus macOS test runs, where its unit tests
+// add cross-host coverage over the Unix broker. It is deliberately not compiled on
+// Windows: neither the implementation nor a consumer exists there, and a `test` arm
+// would drag it in only for `--all-targets` noise.
+#[cfg(any(target_os = "linux", all(target_os = "macos", test)))]
 pub(crate) mod privilege_broker_metrics;
-#[cfg(any(target_os = "linux", target_os = "macos", test))]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) mod privilege_broker_wire;
 pub mod privilege_plan;
-#[cfg(any(target_os = "linux", target_os = "macos", test))]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) mod privilege_provider;
 #[cfg(target_os = "linux")]
 pub(crate) mod privilege_provider_linux;

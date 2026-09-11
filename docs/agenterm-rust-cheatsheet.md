@@ -680,6 +680,30 @@ cannot prove code hidden behind another target's `cfg`.
   aarch64 hosts are little-endian, but scalar code should avoid accidental
   native-byte-order coupling when simple shifts express the contract.
 
+- **Never put `test` in a host-family `cfg` for a host-implemented module.**
+  Declaring a module as `any(target_os = "linux", target_os = "macos", test)`
+  compiles it into `--all-targets` runs of every *other* host as well, where its
+  only consumers are themselves host-gated: the module and its `test`-only helpers
+  then read as dead code (38 diagnostics on Windows for
+  `crates/agenterm-cu/src/privilege_broker.rs` together with
+  `crates/agenterm-cu/src/privilege_provider.rs`) although nothing on that host
+  could ever call them. Name exactly the hosts that own a consumer —
+  `any(target_os = "linux", target_os = "macos")` for the broker, wire and provider
+  modules, and `any(target_os = "linux", all(target_os = "macos", test))` for
+  `privilege_broker_metrics`, whose only consumer is
+  `crates/agenterm-cu/src/privilege_system_broker_linux.rs`; that keeps both Unix
+  hosts' tests while never opening Windows. Hold every item of such a module to the
+  same boundary: the native-consent constructors in
+  `crates/agenterm-cu/src/privilege_apply.rs` are
+  `any(target_os = "linux", target_os = "macos")` because only the Unix launchers
+  consume them, while the structs stay host-neutral. A host `cargo clippy` cannot
+  see any of this, so the gate must include
+  `cargo xwin clippy -p agenterm-cu --all-targets --no-deps -- -D warnings` with
+  per-package `--message-format json` attribution. Fix the boundary, never the lint:
+  `allow` masks it, and inventing a consumer on a host without the implementation
+  fabricates behaviour that host does not have — it keeps its typed
+  unsupported/refusal surface instead.
+
 See `AGENTS.md` for current commands and CI cells; do not duplicate that living
 matrix here.
 
