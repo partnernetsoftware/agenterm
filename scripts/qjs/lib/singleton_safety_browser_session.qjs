@@ -1,0 +1,620 @@
+// singleton_safety_browser_session.qjs -- the pure, injectable orchestration of
+// the "browser session -> ownership boundary" slice of the singleton-safety run.
+//
+// It continues from the native-ready lifecycle context built by
+// `lib/singleton_safety_runner.native_ready`. It never spawns a browser or GUI
+// itself: every CLI verb goes through an injected `execute(argv, timeout_ms)`, and
+// every file/clock touch goes through the injected adapter. So the whole slice is
+// driven with a fake executor in the selftest and with the real CLI in a future
+// live leaf -- the same code.
+//
+// Causality it enforces (from the committed process-probe contract):
+//   session-start -> status(ready) -> browser-root identity -> append control
+//   sequence 0 -> poll latest-state until root_observations["browser-root"].status
+//   is "observed" -> re-read status and byte-compare the owner identity -> windows
+//   --pid owner --max 4096 -> process-state join (live/verified/identical) ->
+//   append control sequence 1 (ownership-boundary) -> poll latest-state until the
+//   FIRST ownership sample after that append exists.
+//
+// It never appends ownership-boundary before the browser-root acknowledgement, and
+// it never borrows an ownership sample that predates the append: the old
+// `ownership_sample_sequence` value is recorded before the append and a value equal
+// to it (or the absence of a strictly-new one) is refused.
+import * as rh from "lib/rh_compat";
+import * as runner from "lib/singleton_safety_runner";
+
+function require(condition, message) { if (!condition) { throw message; } }
+
+// The exact `latest-state` object keys, from the committed process-probe contract.
+const LATEST_STATE_KEYS = [
+  "schema", "status", "failure_reasons", "control_record_count", "sample_count",
+  "scan_start_mono_ns", "sentinel_start_mono_ns", "ownership_sample_sequence",
+  "final_inventory_control_sequence", "frozen_group_id", "root_observations",
+  "early_scanner_stop", "max_start_interval_ns", "max_enumeration_ns",
+  "resolution_ns", "maximum_process_row_count", "maximum_group_member_count",
+  "samples", "identities", "edges", "executables", "relevant_events"];
+const ROOT_OBSERVATION_KEYS = ["status", "identity_digest", "first_observed_sample", "first_absent_sample"];
+const ROOT_OBSERVATION_VALUES = ["not-controlled", "pending", "observed", "unobserved"];
+
+// Parse one `latest-state` publication, exactly. Every key must be present and no
+// other key is accepted, so a partial or drifted document fails closed rather than
+// being read loosely.
+export function parse_latest_state(text) {
+  let value;
+  try { value = JSON.parse(text); } catch (e) { throw "latest_state_not_json"; }
+  require(value !== null && typeof value === "object" && !Array.isArray(value), "latest_state_not_object");
+  require(value["schema"] === "agenterm.singleton-safety.process-probe-state/v1", "latest_state_schema");
+  const got = Object.keys(value);
+  require(got.length === LATEST_STATE_KEYS.length, "latest_state_key_count:" + got.length);
+  for (let i = 0; i < LATEST_STATE_KEYS.length; i = i + 1) {
+    require(got.indexOf(LATEST_STATE_KEYS[i]) !== -1, "latest_state_missing:" + LATEST_STATE_KEYS[i]);
+  }
+  const roots = value["root_observations"];
+  require(roots !== null && typeof roots === "object" && !Array.isArray(roots), "latest_state_roots");
+  // Exactly the two root keys, and each row an exact `root_observation_state`.
+  const root_keys = Object.keys(roots);
+  require(root_keys.length === 2, "latest_state_root_key_count:" + root_keys.length);
+  require(root_keys.indexOf("browser-root") !== -1 && root_keys.indexOf("direct-open-root") !== -1,
+          "latest_state_root_keys");
+  validate_root_row(roots["browser-root"], "browser_root");
+  validate_root_row(roots["direct-open-root"], "direct_open_root");
+  const browser_root = roots["browser-root"];
+  // The two observation fields the ack/ownership logic reads are typed here: a
+  // non-negative sample number and a lowercase 64-hex digest (or null).
+  const first_observed = browser_root["first_observed_sample"];
+  require(first_observed === null || runner.is_safe_integer_exported(first_observed),
+          "browser_root_first_observed_type");
+  const digest = browser_root["identity_digest"];
+  require(digest === null || is_lower_hex64(digest), "browser_root_digest_type");
+  // Consumption scope: only the fields this slice reads are strictly typed; the raw
+  // scanner arrays are merely required to be arrays (the runner never recomputes
+  // scanner-owned facts from them).
+  const status = value["status"];
+  require(status === "scanning" || status === "scan-complete" || status === "scan-incomplete",
+          "latest_state_status:" + status);
+  require(Array.isArray(value["failure_reasons"]), "latest_state_failure_reasons_type");
+  const control_count = value["control_record_count"];
+  require(runner.is_safe_integer_exported(control_count) && control_count <= 16,
+          "control_record_count_type:" + control_count);
+  const sample_count = value["sample_count"];
+  require(runner.is_safe_integer_exported(sample_count) && sample_count <= 10000,
+          "sample_count_type:" + sample_count);
+  // Raw scanner arrays are only required to BE arrays; this slice never reads their
+  // contents, so no `samples.length == sample_count` invariant is asserted here (the
+  // contract states sample_count equals samples length but the runner does not
+  // consume that pair, and a spurious equality check would fail closed on a shape it
+  // does not own).
+  require(Array.isArray(value["samples"]), "latest_state_samples_type");
+  require(Array.isArray(value["identities"]), "latest_state_identities_type");
+  require(Array.isArray(value["edges"]), "latest_state_edges_type");
+  require(Array.isArray(value["executables"]), "latest_state_executables_type");
+  require(Array.isArray(value["relevant_events"]), "latest_state_relevant_events_type");
+  const ownership_sequence = value["ownership_sample_sequence"];
+  require(ownership_sequence === null || runner.is_safe_integer_exported(ownership_sequence),
+          "ownership_sample_sequence_type:" + ownership_sequence);
+  return value;
+}
+
+// One exact `root_observation_state`: exact keys, a known status, a nullable
+// lowercase-64 digest and a nullable non-negative sample number.
+function validate_root_row(row, what) {
+  require(row !== null && typeof row === "object" && !Array.isArray(row), what + "_not_object");
+  const keys = Object.keys(row);
+  require(keys.length === ROOT_OBSERVATION_KEYS.length, what + "_key_count:" + keys.length);
+  for (let i = 0; i < ROOT_OBSERVATION_KEYS.length; i = i + 1) {
+    require(keys.indexOf(ROOT_OBSERVATION_KEYS[i]) !== -1, what + "_missing:" + ROOT_OBSERVATION_KEYS[i]);
+  }
+  require(rh.has_item(ROOT_OBSERVATION_VALUES, row["status"]), what + "_status:" + row["status"]);
+  require(row["identity_digest"] === null || is_lower_hex64(row["identity_digest"]),
+          what + "_digest_type");
+  require(row["first_observed_sample"] === null || runner.is_safe_integer_exported(row["first_observed_sample"]),
+          what + "_first_observed_type");
+  require(row["first_absent_sample"] === null || runner.is_safe_integer_exported(row["first_absent_sample"]),
+          what + "_first_absent_type");
+}
+
+// One exact ProcessIdentity object: exactly the keys `pid` and `start_identity`, a
+// positive pid and a non-empty string identity. Extra or missing keys are refused.
+function validate_process_identity(value, what) {
+  require(value !== null && typeof value === "object" && !Array.isArray(value), what + "_not_object");
+  const keys = Object.keys(value);
+  require(keys.length === 2, what + "_key_count:" + keys.length);
+  require(keys.indexOf("pid") !== -1 && keys.indexOf("start_identity") !== -1, what + "_keys");
+  require(runner.is_safe_integer_exported(value["pid"]) && value["pid"] >= 1 && value["pid"] <= 2147483647,
+          what + "_pid");
+  require(typeof value["start_identity"] === "string" && value["start_identity"].length > 0,
+          what + "_identity");
+  return value;
+}
+
+// A lowercase 64-character hex string (a sha256).
+function is_lower_hex64(value) {
+  if (typeof value !== "string" || value.length !== 64) { return false; }
+  const digits = ["0","1","2","3","4","5","6","7","8","9","a","b","c","d","e","f"];
+  let rest = value;
+  for (let i = 0; i < digits.length; i = i + 1) { rest = rest.replaceAll(digits[i], ""); }
+  return rest === "";
+}
+
+// Poll the run-local latest-state file until `predicate(state)` holds, bounded by
+// the ABSOLUTE monotonic deadline (which the caller derives from the phase's own
+// start; it is never reset per poll). A poll that cannot run within the deadline
+// fails closed by name.
+export function poll_latest_state(adapter, latest_state_path, deadline, predicate, what) {
+  let elapsed_polls = 0;
+  while (adapter.now_ms() <= deadline) {
+    if (adapter.file_exists(latest_state_path)) {
+      const state = parse_latest_state(adapter.read_text(latest_state_path));
+      if (predicate(state)) { return state; }
+    }
+    elapsed_polls = elapsed_polls + 1;
+    adapter.sleep_ms(20);
+  }
+  throw what + "_timeout";
+}
+
+// The remaining budget to the absolute deadline, or a typed failure when less than
+// the CLI's 1000 ms minimum is left -- an invalid CLI call must never be sent.
+export function remaining_timeout(adapter, deadline, what, cap) {
+  const left = deadline - adapter.now_ms();
+  require(left >= 1000, what + "_deadline_exhausted:" + left);
+  // Cap at the CLI's own maximum so a large phase leftover never sends an
+  // out-of-range timeout.
+  if (cap !== undefined && left > cap) { return cap; }
+  return left;
+}
+
+// Run the full session -> ownership slice on top of an existing native lifecycle
+// context. On any failure it runs the cleanup seat (below) and rethrows the
+// original reason with the structured cleanup failures merged in. On success it
+// returns the SAME context extended with the session/ownership checkpoint; the
+// opaque handles are carried by reference, never copied or serialized.
+export function session_to_ownership(execute, adapter, template, context, options) {
+  require(context !== null && typeof context === "object" && context.handles !== undefined,
+          "session_context_missing");
+  require(typeof context.abort === "function", "session_context_abort_missing");
+  // Everything after the context is obtained runs inside ONE try/catch, so any
+  // argument, platform or deadline failure still reaches `context.abort` exactly
+  // once. Nothing outside the try touches the machine or the context.
+  let name = null;
+  let phase_deadline = null;
+  let session_maybe_created = false;
+  let session_ready = false;
+  // This run's frozen session nonce. Set from the START reply; only a session whose
+  // later status matches it byte-for-byte may be touched during cleanup.
+  let session_nonce = null;
+  let session_owned_known = false;
+  // Captured once and consumed by BOTH the main path and the catch (cleanup), so
+  // they must be declared outside the try.
+  let stop_timeout_ms = 15000;
+  let cleanup_ms = 20000;
+  try {
+    const platform = options.platform;
+    require(platform === "macos", "platform_not_macos:" + platform);
+    name = runner.require_session_name(options.session_name);
+    const browser = options.browser;
+    require(typeof browser === "string" && browser.length > 0, "browser_executable");
+    const ready_timeout_ms = runner.require_timeout_range(options.ready_timeout_ms, "ready_timeout");
+    stop_timeout_ms = runner.require_timeout_range(options.stop_timeout_ms, "stop_timeout");
+    // The cleanup budget is captured here (and consumed by the terminal wrapper),
+    // never validated then dropped.
+    cleanup_ms = require_safe_range(
+      options.cleanup_budget_ms === undefined ? 20000 : options.cleanup_budget_ms,
+      3000, 3600000, "cleanup_budget");
+    // ttl is a separate range from the ready/stop timeouts (up to one day).
+    const ttl_ms = require_safe_range(options.ttl_ms, 1000, 86400000, "ttl");
+    const phase_budget_ms = require_safe_range(options.phase_budget_ms, 1, 3600000, "phase_budget");
+    runner.require_url(options.url);
+    const run_root = context.run_root;
+    const ipc = runner.ipc_layout(run_root);
+    const latest_state = ipc.latest_state;
+    const control_log = ipc.control_log;
+    // The per-phase absolute monotonic deadline: set once from the phase start and
+    // never reset, so every poll and every CLI call shares one budget.
+    const phase_start = adapter.now_ms();
+    require(runner.is_safe_integer_exported(phase_start), "phase_start_not_safe_integer");
+    phase_deadline = phase_start + phase_budget_ms;
+    require(runner.is_safe_integer_exported(phase_deadline), "phase_deadline_not_safe_integer");
+
+    // 1. session-start. Mark possibly-created BEFORE the call: the command may
+    //    create the session even when its reply is lost (error-after-effect).
+    session_maybe_created = true;
+    const start_reply = runner.run_verb(execute, template,
+      runner.browser_session_start_argv(name, browser, ready_timeout_ms, ttl_ms),
+      "browser-session-start", "current",
+      remaining_timeout(adapter, phase_deadline, "start", ready_timeout_ms));
+    const started = runner.parse_data(template, "browser_session", start_reply["data"]);
+    require(started["name"] === name, "session_name_mismatch");
+    require(started["state"] === "ready", "session_not_ready_at_start:" + started["state"]);
+    // Freeze this run's session nonce from the START reply. Every later status/
+    // stop/remove must byte-match it; without it we cannot prove the session is
+    // ours, so cleanup must not touch it.
+    session_nonce = started["session_nonce"];
+    require(typeof session_nonce === "string" && session_nonce.length > 0, "session_nonce_missing");
+    session_owned_known = true;
+    session_ready = true;
+
+    // 2. status(ready). The session OWNER is an ownership witness; the real
+    //    browser root is `browser`, which must be present, live and distinct.
+    const status_reply = runner.run_verb(execute, template,
+      runner.browser_session_status_argv(name), "browser-session-status", "current",
+      remaining_timeout(adapter, phase_deadline, "status", ready_timeout_ms));
+    const status = runner.parse_data(template, "browser_session", status_reply["data"]);
+    require(status["state"] === "ready", "session_status_not_ready:" + status["state"]);
+    require(status["session_nonce"] === session_nonce, "session_nonce_changed_at_status");
+    require(status["owner_observation"] === "live", "session_owner_not_live:" + status["owner_observation"]);
+    require(status["owner"] !== null && status["owner"] !== undefined, "session_owner_missing");
+    const owner = validate_process_identity(status["owner"], "session_owner");
+    const owner_pid = require_safe_range(owner["pid"], 1, 2147483647, "owner_pid");
+    const owner_identity_text = owner["start_identity"];
+    require(typeof owner_identity_text === "string" && owner_identity_text.length > 0, "owner_identity_missing");
+    // The browser identity is the TRUE root. It is present on a ready session and
+    // must be a distinct, live, exact {pid, start_identity}.
+    require(status["browser"] !== null && status["browser"] !== undefined, "session_browser_missing");
+    const browser_identity = validate_process_identity(status["browser"], "session_browser");
+    const browser_pid = require_safe_range(browser_identity["pid"], 1, 2147483647, "browser_pid");
+    const browser_identity_text = browser_identity["start_identity"];
+    require(typeof browser_identity_text === "string" && browser_identity_text.length > 0, "browser_identity_missing");
+    // NOTE: the contract does NOT require browser.pid to differ from owner.pid (the
+    // registry validator only pairs `browser`/`endpoint` presence), so no distinctness
+    // is asserted here.
+    // The macOS identity parser is the ONLY platform binding; a non-canonical
+    // identity fails closed rather than being guessed.
+    const root_identity = runner.macos_start_identity_to_identity(platform, browser_pid, browser_identity_text);
+
+    // 3. append browser-root (sequence 0) with the BROWSER identity, then wait for
+    //    an acknowledgement that binds this exact control: the observed row's
+    //    digest must byte-match the identity we just wrote, and the scanner must
+    //    have consumed at least this record.
+    const expected_digest = process_identity_digest(template, run_root, root_identity);
+    const root_line = runner.control_record_line(0, "browser-root", root_identity);
+    adapter.append_durable(control_log, root_line);
+    const acked = poll_latest_state(adapter, latest_state, phase_deadline, function (state) {
+      // A control_record_count below the browser-root control is a NORMAL stale
+      // snapshot: keep polling. The parser already typed its shape, so only a
+      // shape/type breach (already thrown by parse_latest_state) fails closed.
+      if (state["control_record_count"] < 1) { return false; }
+      const row = state["root_observations"]["browser-root"];
+      if (row["status"] !== "observed") { return false; }
+      require(row["identity_digest"] === expected_digest,
+              "browser_root_digest_mismatch:" + row["identity_digest"]);
+      require(runner.is_safe_integer_exported(row["first_observed_sample"]),
+              "browser_root_first_observed_missing");
+      return true;
+    }, "browser_root_ack");
+
+    // 4. re-read status and require the BROWSER identity and this run's nonce
+    //    unchanged byte-for-byte.
+    const status2_reply = runner.run_verb(execute, template,
+      runner.browser_session_status_argv(name), "browser-session-status", "current",
+      remaining_timeout(adapter, phase_deadline, "status2", ready_timeout_ms));
+    const status2 = runner.parse_data(template, "browser_session", status2_reply["data"]);
+    require(status2["state"] === "ready", "session_status2_not_ready:" + status2["state"]);
+    require(status2["session_nonce"] === session_nonce, "session_nonce_changed_at_status2");
+    // Both identities are re-validated exactly and byte-matched against status1.
+    require(status2["owner"] !== null && status2["owner"] !== undefined, "session_owner2_missing");
+    const owner2 = validate_process_identity(status2["owner"], "session_owner2");
+    require(owner2["pid"] === owner_pid, "session_owner_pid_changed");
+    require(owner2["start_identity"] === owner_identity_text, "session_owner_identity_changed");
+    require(status2["browser"] !== null && status2["browser"] !== undefined, "session_browser2_missing");
+    const browser2 = validate_process_identity(status2["browser"], "session_browser2");
+    require(browser2["pid"] === browser_pid, "session_browser_pid_changed");
+    require(browser2["start_identity"] === browser_identity_text, "session_browser_identity_changed");
+
+    // 5. windows --pid browser --max 4096, then join process-state; a truncated
+    //    inventory or a PID-reused browser fails closed.
+    const windows_reply = runner.run_verb(execute, template, runner.windows_argv(browser_pid),
+      "windows", "current", remaining_timeout(adapter, phase_deadline, "windows", ready_timeout_ms));
+    const windows = runner.parse_windows(template, windows_reply["data"]);
+    require(windows.filtered === true, "windows_not_filtered");
+    require(windows.meta["truncated"] === false, "windows_truncated");
+    let browser_rows = 0;
+    for (let i = 0; i < windows.rows.length; i = i + 1) {
+      if (windows.rows[i]["process_id"] === browser_pid) { browser_rows = browser_rows + 1; }
+    }
+    require(browser_rows === 1, "windows_browser_join_not_unique:" + browser_rows);
+    const process_reply = runner.run_verb(execute, template,
+      ["--target", "current", "--grant", "observe", "process-state", "--pid", "" + browser_pid],
+      "process-state", "current", remaining_timeout(adapter, phase_deadline, "process_state", ready_timeout_ms));
+    const process_state = runner.parse_data(template, "process_state", process_reply["data"]);
+    require(process_state["pid"] === browser_pid, "process_state_pid_mismatch");
+    require(process_state["state"] === "live", "process_state_not_live:" + process_state["state"]);
+    require(process_state["verified"] === true, "process_state_not_verified");
+    require(typeof process_state["start_identity"] === "string" && process_state["start_identity"].length > 0,
+            "process_state_identity_null");
+    require(process_state["start_identity"] === browser_identity_text, "process_state_identity_mismatch:pid_reuse");
+
+    // 6. Before the ownership-boundary append, the old ownership sample sequence
+    //    must be null (the role occurs exactly once and only now). Append sequence
+    //    1, then require a strictly NEW, non-negative safe-integer sample with the
+    //    scanner having consumed at least two records; a fallback or the old value
+    //    is refused.
+    require(acked["ownership_sample_sequence"] === null,
+            "ownership_sequence_not_null_before_boundary:" + acked["ownership_sample_sequence"]);
+    const boundary_line = runner.control_record_line(1, "ownership-boundary", null);
+    adapter.append_durable(control_log, boundary_line);
+    const ownership = poll_latest_state(adapter, latest_state, phase_deadline, function (state) {
+      const seq = state["ownership_sample_sequence"];
+      if (state["control_record_count"] < 2) { return false; }
+      return seq !== null;
+    }, "ownership_snapshot");
+    const ownership_sequence = ownership["ownership_sample_sequence"];
+    require(runner.is_safe_integer_exported(ownership_sequence),
+            "ownership_snapshot_not_safe_integer:" + ownership_sequence);
+
+    // Success: the SAME context, extended (handles carried by reference). The
+    // public terminal operations are wrapped so a later leaf's finish/abort always
+    // stops/removes THIS run's session before the native cleanup, exactly once.
+    install_terminal_ownership(context, execute, adapter, template, name, session_nonce,
+                               stop_timeout_ms, cleanup_ms);
+    context.session = { name: name, owner_pid: owner_pid, owner_identity: owner_identity_text,
+                        browser_pid: browser_pid, browser_identity: browser_identity_text,
+                        session_nonce: session_nonce };
+    context.ownership = { sample_sequence: ownership_sequence, browser_root_acked: true };
+    context.control_sequence = 1;
+    context.browser_session_ready = true;
+    return context;
+  } catch (error) {
+    // Cleanup seat, on its OWN bounded absolute deadline (never the exhausted main
+    // phase). A session is stopped/removed only when this run PROVED ownership by
+    // its frozen nonce; otherwise `session_publication_uncertain` is recorded and
+    // nothing foreign is touched. The deadline construction and the cleanup are
+    // both guarded so NOTHING can skip the single native abort below.
+    const failures = [];
+    // The original error's own cleanup failures belong upstream too.
+    if (error !== null && typeof error === "object" && error.cleanup_failures !== undefined) {
+      for (let i = 0; i < error.cleanup_failures.length; i = i + 1) { failures.push(error.cleanup_failures[i]); }
+    } else if (error !== null && typeof error === "object" && error.released !== true && error.handle !== undefined) {
+      failures.push("unreleased_handle:" + error.handle);
+    }
+    let cleanup_deadline = null;
+    try {
+      cleanup_deadline = cleanup_deadline_of(adapter, cleanup_ms);
+    } catch (deadline_error) {
+      failures.push("session_cleanup_prepare:" + ("" + deadline_error));
+    }
+    if (session_maybe_created && cleanup_deadline !== null) {
+      if (!session_owned_known) {
+        failures.push("session_publication_uncertain");
+      } else {
+        try {
+          cleanup_session(execute, adapter, template, name, session_nonce, session_ready,
+                          stop_timeout_ms, cleanup_deadline, failures);
+        } catch (cleanup_error) {
+          failures.push("session_cleanup_unknown:" + ("" + cleanup_error));
+        }
+      }
+    }
+    // abort_context returns the native abort's AUTHORITATIVE merged failures.
+    const abort_failures = abort_context(context, error, failures);
+    throw { primary: "" + primary_of(error), cleanup_failures: abort_failures };
+  }
+}
+
+// Whether the named session is THIS run's, proven by the frozen nonce. A session
+// whose status carries a different nonce (a same-named foreign session) is not
+// ours; a typed lookup failure means there is nothing of ours to remove. Neither
+// case authorizes a stop/remove.
+// A typed tri-state ownership query for the named session. Returns exactly one of:
+//   "ours"    -- a success reply whose nonce byte-matches this run's;
+//   "foreign" -- a success reply whose nonce differs (a same-named other session);
+//   "absent"  -- the exact typed `browser_session_not_found` cli failure.
+// Anything else (a transport error, a deadline refusal, invalid JSON, or any other
+// typed cli error) THROWS -- it is UNKNOWN and must never be read as absent.
+function session_query(execute, adapter, template, name, nonce, deadline) {
+  let status_reply;
+  try {
+    status_reply = runner.run_verb(execute, template,
+      runner.browser_session_status_argv(name), "browser-session-status", "current",
+      remaining_timeout(adapter, deadline, "cleanup_status", 15000));
+  } catch (e) {
+    const text = "" + e;
+    require(text === "cli_failure:browser_session_not_found", "session_status_unknown:" + text);
+    return "absent";
+  }
+  const status = runner.parse_data(template, "browser_session", status_reply["data"]);
+  require(status["name"] === name, "session_status_name_mismatch");
+  return status["session_nonce"] === nonce ? "ours" : "foreign";
+}
+
+// A separate bounded absolute cleanup deadline, derived from the caller's own
+// cleanup budget (never the exhausted main phase).
+function cleanup_deadline_of(adapter, budget_ms) {
+  const budget = require_safe_range(budget_ms, 3000, 3600000, "cleanup_budget");
+  return adapter.now_ms() + budget;
+}
+
+// Install the run's session ownership into the context's public terminal
+// operations exactly once. A later finish/abort first stops/removes THIS run's
+// session (proven by the frozen nonce), then terminates the native lifecycle.
+// If that session cleanup fails, the native terminal is driven with the failures
+// as upstream, so the native conclude RETAINS the root rather than deleting it; a
+// successful plain `finish` is never claimed on top of a failed cleanup.
+function install_terminal_ownership(context, execute, adapter, template, name, nonce, stop_timeout_ms, cleanup_ms) {
+  require(context.terminal_owned !== true, "terminal_ownership_already_installed");
+  context.terminal_owned = true;
+  const native_finish = context.finish;
+  const native_abort = context.abort;
+  // A wrapper-local once gate: the first finish/abort runs the session cleanup and
+  // native terminal; a second one performs NO further stop/remove and does not call
+  // the native terminal again.
+  let spent = false;
+  // One guarded preparation: deadline construction (which can throw) and the
+  // session cleanup both funnel their failures here, so the single native terminal
+  // is ALWAYS reached.
+  function prepare_cleanup() {
+    const failures = [];
+    let deadline = null;
+    try {
+      deadline = cleanup_deadline_of(adapter, cleanup_ms);
+    } catch (e) {
+      failures.push("session_cleanup_prepare:" + ("" + e));
+      return failures;
+    }
+    try {
+      cleanup_session(execute, adapter, template, name, nonce, true, stop_timeout_ms, deadline, failures);
+    } catch (e) {
+      failures.push("session_cleanup_unknown:" + ("" + e));
+    }
+    return failures;
+  }
+  // The native terminal is the SOLE authority for the merged failure set: it merges
+  // the upstream list into its own and reports the result, so the wrapper replaces
+  // (never appends) and never double-counts.
+  function drive_native_abort(reason, upstream) {
+    try { native_abort(reason, upstream); }
+    catch (abort_error) { return native_cleanup_failures(abort_error); }
+    return [];
+  }
+  context.finish = function () {
+    require(!spent, "terminal_already_finished");
+    spent = true;
+    const failures = prepare_cleanup();
+    if (failures.length > 0) {
+      // A failed session cleanup must not become a successful finish: drive the
+      // native ABORT; its returned failures are authoritative.
+      throw { primary: "session_finish_cleanup_failed",
+              cleanup_failures: drive_native_abort("session_finish_cleanup_failed", failures) };
+    }
+    return native_finish();
+  };
+  context.abort = function (reason) {
+    require(!spent, "terminal_already_finished");
+    spent = true;
+    const failures = prepare_cleanup();
+    // The caller's own reason may carry cleanup failures; merge them into the
+    // upstream list BEFORE the native abort so its root decision sees them all.
+    if (reason !== null && typeof reason === "object" && reason.cleanup_failures !== undefined) {
+      for (let i = 0; i < reason.cleanup_failures.length; i = i + 1) { failures.push(reason.cleanup_failures[i]); }
+    }
+    // The abort is terminal: even a fully clean session cleanup must re-throw with
+    // the native abort's authoritative merged failures. The native terminal receives
+    // the PRIMARY string (a structured reason's own cleanup_failures were already
+    // merged into the upstream above), so no engine object coercion is required.
+    throw { primary: "" + primary_of(reason),
+            cleanup_failures: drive_native_abort(primary_of(reason), failures) };
+  };
+}
+
+// The cleanup failures carried by a possibly-structured native abort error.
+function native_cleanup_failures(error) {
+  if (error !== null && typeof error === "object" && error.cleanup_failures !== undefined) {
+    const out = [];
+    for (let i = 0; i < error.cleanup_failures.length; i = i + 1) { out.push(error.cleanup_failures[i]); }
+    return out;
+  }
+  return ["abort:" + ("" + error)];
+}
+
+// A safe integer within an inclusive range.
+function require_safe_range(value, low, high, what) {
+  require(runner.is_safe_integer_exported(value) && value >= low && value <= high,
+          what + "_range:" + value);
+  return value;
+}
+
+// The window-identity preimage digest for one ProcessProbe identity (pid,sec,usec).
+// Reused as the browser-root control's expected `identity_digest`.
+function process_identity_digest(template, run_root, identity) {
+  // The scanner's process-identity digest domain, distinct from the window one.
+  const domain = "agenterm.singleton-safety.v1.process-identity";
+  const scratch = rh.join(run_root, "identity-digest-scratch");
+  return runner.digest_process_identity(domain, scratch, identity);
+}
+
+// Attempt session-stop (only when it reached ready) then session-remove, each on
+// the shared bounded cleanup deadline and each after re-proving this run's nonce.
+// A remainder under 1000 ms is recorded, never sent as an invalid CLI.
+function cleanup_session(execute, adapter, template, name, nonce, session_ready, stop_timeout_ms, deadline, failures) {
+  // The tri-state governs every action. `ours` may be stopped/removed; `absent` is
+  // already clean; `foreign` is never touched; `unknown` (any other typed error,
+  // transport loss, deadline refusal or invalid JSON) is a cleanup failure. A query
+  // that THROWS is converted to a `unknown` failure here -- it must NEVER escape and
+  // skip the native abort.
+  if (session_ready) {
+    const stop_left = deadline - adapter.now_ms();
+    if (stop_left < 1000) {
+      failures.push("session_stop_deadline_exhausted");
+    } else {
+      const state = safe_session_query(execute, adapter, template, name, nonce, deadline, "stop", failures);
+      if (state === "ours") {
+        try {
+          // The stop timeout is the smaller of the remaining deadline and the
+          // caller's configured stop_timeout (never a hard-coded ceiling).
+          const stop_arg = stop_left < stop_timeout_ms ? stop_left : stop_timeout_ms;
+          runner.run_verb(execute, template, runner.browser_session_stop_argv(name, stop_arg),
+            "browser-session-stop", "current", stop_left);
+        } catch (e) { failures.push("session_stop:" + ("" + e)); }
+      } else if (state === "foreign") {
+        failures.push("session_stop_foreign");
+      }
+      // `absent` = nothing to stop; `unknown` was already recorded.
+    }
+  }
+  const remove_left = deadline - adapter.now_ms();
+  if (remove_left < 1000) {
+    failures.push("session_remove_deadline_exhausted");
+    return;
+  }
+  const state = safe_session_query(execute, adapter, template, name, nonce, deadline, "remove", failures);
+  if (state === "foreign") {
+    failures.push("session_remove_foreign");
+    return;
+  }
+  if (state === "absent") {
+    return;
+  }
+  if (state === "unknown") {
+    return;
+  }
+  try {
+    runner.run_verb(execute, template, runner.browser_session_remove_argv(name),
+      "browser-session-remove", "current", remove_left);
+  } catch (e) {
+    failures.push("session_remove:" + ("" + e));
+    return;
+  }
+  // Removal is proven ONLY by the exact typed `browser_session_not_found` now; a
+  // query that throws after remove is an `unknown` failure, never a silent pass.
+  const after = safe_session_query(execute, adapter, template, name, nonce, deadline, "remove_after", failures);
+  if (after !== "absent") {
+    failures.push("session_remove_not_effective:" + after);
+  }
+}
+
+// `session_query` with every throw converted to a recorded `unknown` failure. The
+// returned state is always one of ours/foreign/absent/unknown, so the caller never
+// throws out of cleanup and always reaches the native abort.
+function safe_session_query(execute, adapter, template, name, nonce, deadline, phase, failures) {
+  try {
+    return session_query(execute, adapter, template, name, nonce, deadline);
+  } catch (e) {
+    failures.push("session_" + phase + "_unknown:" + ("" + e));
+    return "unknown";
+  }
+}
+
+// Abort the native lifecycle context, passing on the collected upstream cleanup
+// failures so the native conclude retains the root, and returning the native
+// abort's OWN cleanup failures (merged, never dropped).
+function abort_context(context, error, upstream_failures) {
+  const passed = [];
+  for (let i = 0; i < upstream_failures.length; i = i + 1) { passed.push(upstream_failures[i]); }
+  try {
+    context.abort(error === undefined ? "session_failed" : "" + primary_of(error), passed);
+    return [];
+  } catch (abort_error) {
+    if (abort_error !== null && typeof abort_error === "object" && abort_error.cleanup_failures !== undefined) {
+      const inner = [];
+      for (let i = 0; i < abort_error.cleanup_failures.length; i = i + 1) { inner.push(abort_error.cleanup_failures[i]); }
+      return inner;
+    }
+    return ["abort:" + ("" + abort_error)];
+  }
+}
+
+// The primary reason of a possibly-structured error, without stringifying an object.
+function primary_of(error) {
+  if (error !== null && typeof error === "object" && error.primary !== undefined) { return error.primary; }
+  return error;
+}

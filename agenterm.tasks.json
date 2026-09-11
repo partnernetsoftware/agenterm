@@ -5644,6 +5644,60 @@
       "evidence": [
         "task.singleton-safety-runner-native-selftest"
       ]
+    },
+    "singleton-safety-runner-adapter-selftest": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "runner-adapter-selftest-proof"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_host_operations": 999999,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.singleton-safety-runner-adapter-selftest"
+      ]
+    },
+    "singleton-safety-runner-production-selftest": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "runner-production-selftest-proof"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_host_operations": 999999,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.singleton-safety-runner-production-selftest"
+      ]
+    },
+    "singleton-safety-runner-session-selftest": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "runner-session-selftest-proof"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_host_operations": 999999,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.singleton-safety-runner-session-selftest"
+      ]
     }
   },
   "tasks": [
@@ -5995,6 +6049,56 @@
       ],
       "side_effects": [
         "artifact_write"
+      ]
+    },
+    {
+      "id": "singleton-safety-runner-session-selftest",
+      "description": "Prove the browser-session -> ownership orchestration over a fake executor and adapter: macOS identity parser, CLI guards, canonical argv, browser-root ack, ownership-boundary causality and cleanup",
+      "entry": "scripts/qjs/singleton-safety-session-selftest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "singleton-safety-runner-adapter-selftest",
+      "description": "Prove the production native adapter MAPPING over a door seat: durable append routes to the existing-file door, control log is owner-created, spawn/wait/kill/state use exact handles, and manifest validation calls the shared validator",
+      "entry": "scripts/qjs/singleton-safety-runner-selftest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "adapter"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "singleton-safety-runner-production-selftest",
+      "description": "Prove the production native adapter over REAL qjswasm doors: a real short-lived owned child with state/wait/kill, durable append to an existing control log, missing/directory refusal, and exact run_capture stdout",
+      "entry": "scripts/qjs/singleton-safety-runner-selftest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "production"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
       ]
     },
     {

@@ -123,6 +123,10 @@ function is_safe_integer(v) {
   return typeof v === "number" && v === Math.floor(v) && v >= 0 && v <= 9007199254740991;
 }
 
+// Exported for the browser-session orchestration, which validates the ownership
+// sample sequence with the same rule the CLI parser uses.
+export function is_safe_integer_exported(v) { return is_safe_integer(v); }
+
 function check_typed_value(type_name, value, where, contract) {
   if (type_name === "boolean") { require(typeof value === "boolean", "typed_boolean:" + where); return; }
   if (type_name === "safe_integer") { require(is_safe_integer(value), "typed_integer:" + where); return; }
@@ -315,6 +319,20 @@ export function sha256_scratch(domain, scratch, body) {
   return digest;
 }
 
+// The scanner's process-identity digest: sha256(domain || 0x00 || rfc8785
+// [pid,start_sec,start_usec]). Used to bind a browser-root/direct-open-root control
+// to the exact identity its acknowledgement row must carry.
+export function digest_process_identity(domain, scratch, identity) {
+  require(identity !== null && typeof identity === "object", "identity_digest_input");
+  require(is_safe_integer(identity["pid"]) && identity["pid"] >= 1 && identity["pid"] <= 2147483647,
+          "identity_digest_pid");
+  require(is_safe_integer(identity["start_sec"]) && identity["start_sec"] >= 0, "identity_digest_sec");
+  require(is_safe_integer(identity["start_usec"]) && identity["start_usec"] >= 0 && identity["start_usec"] <= 999999,
+          "identity_digest_usec");
+  const body = cj.canonical([identity["pid"], identity["start_sec"], identity["start_usec"]]);
+  return sha256_scratch(domain, scratch, body);
+}
+
 // Join a windows row (handle, process_id) to its public process-state start
 // identity. A pid whose identity is unavailable or not live fails closed.
 export function join_window_owner(execute, template, handle, process_id, timeout_ms) {
@@ -325,6 +343,91 @@ export function join_window_owner(execute, template, handle, process_id, timeout
   require(typeof data["start_identity"] === "string" && data["start_identity"].length > 0,
           "process_state_identity_unavailable:" + process_id);
   return { handle: handle, process_id: process_id, start_identity: data["start_identity"] };
+}
+
+// ---- macOS start-identity parser (the ONLY platform binding) -----------
+//
+// The public `process-state` reply carries an opaque `start_identity` string.
+// ProcessProbe needs an exact integer `{pid, start_sec, start_usec}` and only
+// macOS publishes one that closes: `macos-start-time:<sec>.<usec>`. Linux
+// (`proc-start-ticks:<n>`) and Windows (`windows-filetime:<n>`) publish a single
+// integer with no `(sec, usec)` decomposition, so they are refused, never guessed.
+const MACOS_START_PREFIX = "macos-start-time:";
+
+// Whether a conservative non-macOS platform gate passes. The caller states the
+// platform explicitly (never inferred from a fuzzy `platform_facts` probe).
+function require_macos(platform) {
+  require(platform === "macos", "platform_not_macos:" + platform);
+}
+
+// Parse one public macOS start identity into the exact ProcessProbe identity.
+//
+// Accepts ONLY the canonical `macos-start-time:<sec>.<usec>`:
+// `<sec>` is a non-negative safe-integer decimal with no sign, no leading zero
+// (unless it is exactly `0`) and no whitespace; `<usec>` is a safe-integer decimal
+// in `[0, 999999]` with the same canonical rules, and it round-trips byte for byte.
+// Anything else (a missing/extra dot, an empty half, a leading zero, a sign, a
+// non-digit, an out-of-range usec, a different prefix) fails closed.
+export function macos_start_identity_to_identity(platform, pid, start_identity) {
+  require_macos(platform);
+  require(is_safe_integer(pid) && pid >= 1 && pid <= 2147483647, "identity_pid:" + pid);
+  require(typeof start_identity === "string" && start_identity.length > 0, "identity_empty");
+  require(start_identity.startsWith(MACOS_START_PREFIX), "identity_prefix:" + start_identity);
+  const rest = start_identity.substring(MACOS_START_PREFIX.length);
+  const parts = rest.split(".");
+  require(parts.length === 2, "identity_not_two_parts:" + start_identity);
+  const sec = canonical_decimal(parts[0], "identity_sec");
+  const usec = canonical_decimal(parts[1], "identity_usec");
+  require(usec >= 0 && usec <= 999999, "identity_usec_range:" + parts[1]);
+  // Byte-for-byte round-trip: reject any non-canonical spelling (leading zeros,
+  // a `+`, embedded whitespace) that would otherwise re-parse to the same numbers.
+  require(MACOS_START_PREFIX + sec + "." + usec === start_identity, "identity_not_canonical:" + start_identity);
+  return { pid: pid, start_sec: sec, start_usec: usec };
+}
+
+// Parse a canonical non-negative decimal: digits only, no sign, no whitespace, no
+// leading zero unless the value is exactly zero. Returns the Number.
+function canonical_decimal(text, where) {
+  require(typeof text === "string" && text.length > 0, where + "_empty");
+  const digits = ["0","1","2","3","4","5","6","7","8","9"];
+  let rest = text;
+  for (let i = 0; i < digits.length; i = i + 1) { rest = rest.replaceAll(digits[i], ""); }
+  require(rest === "", where + "_not_decimal:" + text);
+  if (text.length > 1 && text.charAt(0) === "0") { throw "identity_leading_zero:" + text; }
+  const value = Number(text);
+  require(is_safe_integer(value), where + "_not_safe_integer:" + text);
+  return value;
+}
+
+// ---- CLI argument guards (authoritative, stricter than the template) -----
+
+// ready/stop timeouts are `[1000, 60000]` per the CLI parser.
+export function require_timeout_range(value, what) {
+  require(is_safe_integer(value) && value >= 1000 && value <= 60000,
+          what + "_range:" + value);
+  return value;
+}
+
+// The public session name is `^[a-z][a-z0-9-]{0,31}$`.
+export function require_session_name(name) {
+  require(typeof name === "string" && name.length >= 1 && name.length <= 32, "session_name_length");
+  const first = name.charAt(0);
+  require(first >= "a" && first <= "z", "session_name_first:" + name);
+  for (let i = 1; i < name.length; i = i + 1) {
+    const c = name.charAt(i);
+    const ok = (c >= "a" && c <= "z") || (c >= "0" && c <= "9") || c === "-";
+    require(ok, "session_name_char:" + name);
+  }
+  return name;
+}
+
+// The URL is only required to be non-empty, not to start with `-`, and one line.
+export function require_url(url) {
+  if (url === undefined || url === null) { return null; }
+  require(typeof url === "string" && url.trim().length > 0, "url_empty");
+  require(url.charAt(0) !== "-", "url_looks_like_switch");
+  require(url.indexOf("\n") === -1 && url.indexOf("\u0000") === -1, "url_multiline");
+  return url;
 }
 
 // ---- native witness lifecycle (first runnable leaf) ---------------------
@@ -379,6 +482,17 @@ function is_lower_hex(value, n) {
 export function validate_build_manifest(repo, manifest_path, arch, signing) {
   build_manifest.validate_against_repo(repo, manifest_path, arch, signing);
   return true;
+}
+
+// The control log MUST exist as an owner-created regular file before the FIRST
+// record is written: the durable append door never creates a missing target. The
+// first publication goes through the exclusive create-new door (never an
+// exists-check-then-write, which races and can replace a link-like object); a
+// pre-existing path (or a link) is refused and left untouched.
+export function create_owned_control_log(adapter, run_root) {
+  const path = rh.join(run_root, "control-log.jsonl");
+  adapter.create_new_regular(path, "");
+  return path;
 }
 
 // FocusFixture argv. The fixture is a native app; the runner only ever builds the
@@ -471,14 +585,20 @@ export function claim_run_root(adapter, run_root) {
   adapter.create_dir_all(run_root);
 }
 
-// Run the first runnable leaf IN PROCESS for a full runner to continue from. It
-// never stands alone as a terminal command: the caller is a live runner that
-// keeps the probe and fixtures and proceeds to the browser-session stage. All
-// native work goes through the injected adapter (an async process door plus file
-// IO), so no real process starts here in tests. On any failure it appends an
-// abort control (if the probe actually started), kills every started exact
-// handle, waits/reaps each, removes only the owned root, and rethrows the
-// original error. Cleanup failures are collected, never silently dropped.
+// Run the first runnable leaf IN PROCESS and hand back a lifecycle context the
+// caller continues from. It never stands alone as a terminal command: a live runner
+// keeps the exact probe/primary/secondary handles and proceeds to the
+// browser-session stage. All native work goes through the injected adapter (an
+// async process door plus file IO), so no real process starts here in tests.
+//
+// The context owns every child by its EXACT opaque handle and exposes exactly two
+// terminal operations: `finish` (the run succeeded past this checkpoint) and
+// `abort` (the caller's later stage failed). Both kill every running handle,
+// bounded-wait/reap, release every finished handle, and remove the owned root ONLY
+// when every child is proven gone and the abort persistence succeeded; on any
+// unproven step the root is kept and the primary error plus structured cleanup
+// failures are returned. Calling either twice is refused ("already finished") --
+// nothing is fabricated or serialized.
 export function native_ready(adapter, contract, template, options) {
   const run_root = options.run_root;
   require(typeof run_root === "string" && run_root.length > 0, "run_root");
@@ -487,62 +607,203 @@ export function native_ready(adapter, contract, template, options) {
   require(is_safe_integer(options.ready_timeout_ms) && options.ready_timeout_ms >= 1 && options.ready_timeout_ms <= 60000, "ready_timeout_range");
   claim_run_root(adapter, run_root);
   const ipc = ipc_layout(run_root);
-  const started = [];
+  let cleanup_failures = [];
+  // The live registry: exact handle -> "running" | "done". A handle is never
+  // dropped without being proven reaped and released.
+  const registry = {};
   let probe_started = false;
+  let terminal = false;
+  // The exclusive create can fail AFTER the file appeared (a write/sync error on a
+  // file the door just made). That is error-after-effect: the run root holds
+  // uncertain persistence evidence, so a failure here must keep the root and say so
+  // rather than delete the uncertainty. Marked true before the attempt, cleared when
+  // no create was attempted yet; the catch consults it.
+  let publication_uncertain = false;
   try {
-    // The manifest MUST be validated through the exported SHARED validator
-    // `validate_build_manifest`; a future production adapter must wire that
-    // function here. The selftest injects an equivalent deterministic stub so no
-    // real build artifact is an undeclared input.
+    // The manifest MUST be validated through the SHARED build_manifest validator.
+    // Production wires `validate_build_manifest` (the shared implementation); the
+    // selftest injects a spy so the positive path is exercised, not only failures.
     require(typeof adapter.validate_manifest === "function", "adapter_validate_manifest_missing");
     adapter.validate_manifest(options.repo, options.manifest_path, options.arch, options.signing);
+    // The control log is created exactly once by the exclusive create-new door;
+    // every later record goes only through the durable append door.
+    publication_uncertain = true;
+    create_owned_control_log(adapter, run_root);
+    publication_uncertain = false;
     const token = new_owned_token(adapter);
     adapter.write_file(ipc.token_file, token);
     const probe_argv = process_probe_argv(options.process_probe, options.uid, ipc.token_file,
       options.bundle_root, options.selected_executable, ipc.control_log, ipc.latest_state, ipc.final_summary);
     const probe = adapter.spawn(probe_argv);
-    started.push(probe);
+    registry[probe] = "running";
     probe_started = true;
-    started.push(adapter.spawn(focus_fixture_argv(options.primary_executable, "primary", ipc.primary_state, ipc.primary_command)));
-    started.push(adapter.spawn(focus_fixture_argv(options.secondary_executable, "secondary", ipc.secondary_state, ipc.secondary_command)));
+    const primary = adapter.spawn(focus_fixture_argv(options.primary_executable, "primary", ipc.primary_state, ipc.primary_command));
+    registry[primary] = "running";
+    const secondary = adapter.spawn(focus_fixture_argv(options.secondary_executable, "secondary", ipc.secondary_state, ipc.secondary_command));
+    registry[secondary] = "running";
     const fixture_contract = options.fixture_contract;
     require(fixture_contract !== undefined, "fixture_contract_missing");
     const primary_state = wait_fixture_ready(adapter, fixture_contract, ipc.primary_state, "primary", options.ready_timeout_ms);
     const secondary_state = wait_fixture_ready(adapter, fixture_contract, ipc.secondary_state, "secondary", options.ready_timeout_ms);
+    // Foreground capture consumes the authoritative completion envelope, which
+    // also releases the capture's own handle internally.
     const foreground = adapter.run_capture(foreground_probe_argv(options.foreground_probe, options.max_windows), options.ready_timeout_ms);
     parse_foreground_probe(options.foreground_contract, foreground);
-    return {
+    const context = {
       checkpoint: "native-ready-in-process",
       next: "browser-session",
       run_root: run_root,
       token_written: true,
+      probe_started: probe_started,
+      control_sequence: 0,
+      handles: { probe: probe, primary: primary, secondary: secondary },
       primary_ready_sequence: primary_state["sequence"],
       secondary_ready_sequence: secondary_state["sequence"],
-      probe_started: probe_started,
-      cleanup_failures: []
+      // The caller must end the run with exactly one of these. An optional
+      // `upstream_cleanup_failures` list (a session/ownership cleanup that did not
+      // prove clean) is merged BEFORE the root decision, so a caller that could not
+      // prove its own cleanup keeps the root and its failures.
+      finish: function (upstream_cleanup_failures) {
+        return conclude(false, undefined, upstream_cleanup_failures);
+      },
+      abort: function (reason, upstream_cleanup_failures) {
+        return conclude(true, reason, upstream_cleanup_failures);
+      }
     };
+    return context;
+
+    // The single terminal path shared by `finish` and `abort`.
+    function conclude(aborting, reason, upstream_cleanup_failures) {
+      require(!terminal, "native_ready: lifecycle already finished");
+      terminal = true;
+      const failures = [];
+      // Merge the caller's own unproven cleanup first: a nonempty upstream list is a
+      // cleanup failure that already blocks root removal.
+      if (upstream_cleanup_failures !== undefined && upstream_cleanup_failures !== null) {
+        for (let i = 0; i < upstream_cleanup_failures.length; i = i + 1) {
+          failures.push(upstream_cleanup_failures[i]);
+        }
+      }
+      if (aborting && probe_started) {
+        // Durable abort control, once, never replayed (error-after-effect).
+        try { adapter.append_durable(ipc.control_log, control_record_line(context.control_sequence + 1, "abort", null)); }
+        catch (e) { failures.push("abort_append"); }
+      }
+      // Kill exactly the running handles, bounded-wait/reap, then release done.
+      const ids = Object.keys(registry);
+      for (let i = 0; i < ids.length; i = i + 1) {
+        const h = int_key(ids[i]);
+        if (registry[ids[i]] === "running") {
+          try { adapter.kill(h); } catch (e) { failures.push("kill:" + h); }
+        }
+      }
+      for (let i = 0; i < ids.length; i = i + 1) {
+        const h = int_key(ids[i]);
+        if (registry[ids[i]] === "running") {
+          try { adapter.wait(h, 5000); registry[ids[i]] = "done"; }
+          catch (e) { failures.push("wait:" + h); }
+        }
+      }
+      // Release every handle proven done; only a handle PROVEN released advances
+      // to "released" and permits root removal. A running handle that could not be
+      // killed/waited, or a done handle whose release failed, stays unproven.
+      for (let i = 0; i < ids.length; i = i + 1) {
+        const h = int_key(ids[i]);
+        if (registry[ids[i]] === "done") {
+          try { adapter.release(h); registry[ids[i]] = "released"; }
+          catch (e) { failures.push("release:" + h); }
+        }
+      }
+      let unreaped = false;
+      for (let i = 0; i < ids.length; i = i + 1) {
+        if (registry[ids[i]] !== "released") { unreaped = true; }
+      }
+      // Remove the owned root ONLY when every child is proven done and no cleanup
+      // step failed; otherwise keep root/evidence and report both.
+      if (!unreaped && failures.length === 0) {
+        try { adapter.remove_dir_all(run_root); }
+        catch (e) { failures.push("remove_root"); }
+      } else if (unreaped) {
+        failures.push("child_not_reaped");
+      }
+      if (aborting) {
+        const primary = reason === undefined ? "aborted" : "" + reason;
+        throw { primary: primary, cleanup_failures: failures };
+      }
+      // A finish with any cleanup failure did NOT clean up: it must not claim a
+      // finished checkpoint, and the root is already retained above.
+      if (failures.length > 0) {
+        throw { primary: "native_finish_cleanup_failed", cleanup_failures: failures };
+      }
+      return { checkpoint: "native-finished", run_root: run_root, cleanup_failures: [] };
+    }
   } catch (error) {
-    // Ordered, bounded cleanup; the ORIGINAL error is always rethrown. Each step
-    // is best effort and any failure is collected into `cleanup_failures` for the
-    // caller rather than replacing the primary failure.
-    const cleanup_failures = [];
+    // A failure BEFORE the context exists runs the same ordered cleanup inline.
+    const failures = [];
     if (probe_started) {
-      try { adapter.append_file(ipc.control_log, control_record_line(0, "abort", null)); }
-      catch (e) { cleanup_failures.push("abort_append"); }
+      try { adapter.append_durable(ipc.control_log, control_record_line(1, "abort", null)); }
+      catch (e) { failures.push("abort_append"); }
     }
-    for (let i = 0; i < started.length; i = i + 1) {
-      try { adapter.kill(started[i]); } catch (e) { cleanup_failures.push("kill"); }
+    const ids = Object.keys(registry);
+    for (let i = 0; i < ids.length; i = i + 1) {
+      const h = int_key(ids[i]);
+      if (registry[ids[i]] === "running") {
+        try { adapter.kill(h); } catch (e) { failures.push("kill:" + h); }
+      }
     }
-    for (let i = 0; i < started.length; i = i + 1) {
-      try { adapter.wait(started[i], 5000); } catch (e) { cleanup_failures.push("wait"); }
+    for (let i = 0; i < ids.length; i = i + 1) {
+      const h = int_key(ids[i]);
+      if (registry[ids[i]] === "running") {
+        try { adapter.wait(h, 5000); registry[ids[i]] = "done"; }
+        catch (e) { failures.push("wait:" + h); }
+      }
     }
-    try { adapter.remove_dir_all(run_root); } catch (e) { cleanup_failures.push("remove_root"); }
-    if (cleanup_failures.length === 0) { throw error; }
-    // Attach the collected cleanup failures without replacing the primary failure:
-    // a structured wrapper carries both the original reason and the cleanup result.
-    throw { primary: "" + error, cleanup_failures: cleanup_failures };
+    for (let i = 0; i < ids.length; i = i + 1) {
+      const h = int_key(ids[i]);
+      if (registry[ids[i]] === "done") {
+        try { adapter.release(h); registry[ids[i]] = "released"; }
+        catch (e) { failures.push("release:" + h); }
+      }
+    }
+    let unreaped = false;
+    for (let i = 0; i < ids.length; i = i + 1) {
+      if (registry[ids[i]] !== "released") { unreaped = true; }
+    }
+    // A create that may have produced a file before erroring leaves uncertain
+    // persistence evidence: never let the root be removed in that case, and say so.
+    if (publication_uncertain) {
+      failures.push("publication_uncertain");
+    }
+    if (!unreaped && failures.length === 0) {
+      try { adapter.remove_dir_all(run_root); } catch (e) { failures.push("remove_root"); }
+    } else if (unreaped) {
+      failures.push("child_not_reaped");
+    }
+    // A structured error from a nested owned lifecycle (e.g. run_capture) carries
+    // its own primary and cleanup_failures; preserve both instead of flattening the
+    // object to `[object Object]`.
+    let primary;
+    if (error !== null && typeof error === "object" && error.primary !== undefined) {
+      primary = "" + error.primary;
+      if (error.cleanup_failures !== undefined && error.cleanup_failures !== null) {
+        for (let i = 0; i < error.cleanup_failures.length; i = i + 1) {
+          failures.push(error.cleanup_failures[i]);
+        }
+      }
+      if (error.handle !== undefined) {
+        // Only a handle that was NOT proven released needs the caller's attention.
+        if (error.released !== true) { failures.push("unreleased_handle:" + error.handle); }
+      }
+    } else {
+      primary = "" + error;
+    }
+    if (failures.length === 0) { throw primary; }
+    throw { primary: primary, cleanup_failures: failures };
   }
 }
+
+// Object keys are strings; convert one back to the integer handle it spelled.
+function int_key(key) { return parseInt(key, 10); }
 
 
 // Poll a fixture state file until it publishes the ready event, bounded by the
@@ -574,10 +835,320 @@ function wait_fixture_ready(adapter, contract, state_path, role, timeout_ms) {
 export function run_verb(execute, template, argv, expected_command, expected_target, timeout_ms) {
   const out = execute(argv, timeout_ms);
   require(out !== null && typeof out === "object", "exec_reply");
-  require(typeof out.exit_code === "number", "exec_exit_code");
-  if (out.exit_code !== 0) { throw "exec_nonzero:" + out.exit_code + ":" + (out.stderr || ""); }
+  require(typeof out.exit_code === "number" && out.exit_code === Math.floor(out.exit_code)
+          && out.exit_code >= -2147483648 && out.exit_code <= 2147483647, "exec_exit_code");
+  require(typeof out.stdout === "string", "exec_stdout_type");
+  // A COMPLETED nonzero command is NOT a transport failure: its reply body carries
+  // a typed `error.code` that must be preserved. Read the raw `ok` first so the
+  // exit/ok binding is checked BEFORE the strict parser throws on a failure reply.
+  let raw;
+  try { raw = JSON.parse(out.stdout); } catch (e) { throw "reply_not_json"; }
+  require(raw !== null && typeof raw === "object" && !Array.isArray(raw), "reply_not_object");
+  require(typeof raw["ok"] === "boolean", "reply_ok_type");
+  require((out.exit_code === 0) === (raw["ok"] === true), "reply_exit_ok_disagreement:" + out.exit_code);
+  require(raw["command"] === expected_command, "reply_command_mismatch:" + raw["command"] + "!=" + expected_command);
+  require(raw["target"] === expected_target, "reply_target_mismatch:" + raw["target"] + "!=" + expected_target);
+  // The strict parser validates the whole envelope; on a failure reply it throws
+  // `cli_failure:<code>`, preserving the typed code. On success it returns it.
   const reply = parse_reply(template, out.stdout);
-  require(reply["command"] === expected_command, "reply_command_mismatch:" + reply["command"] + "!=" + expected_command);
-  require(reply["target"] === expected_target, "reply_target_mismatch:" + reply["target"] + "!=" + expected_target);
   return reply;
+}
+
+// ---- production native adapter over the real qjswasm doors --------------
+//
+// This is the ONLY place the runner library names the host doors directly. It is
+// injected into `native_ready` exactly like the selftest's fake, so the same
+// lifecycle code drives both. Every door is metered and answer-checked: a door
+// that returns non-zero raises with its own tool_result, so no silent failure can
+// become a passing checkpoint.
+//
+// `doors` is an injected seat (defaulting to the ambient host globals) so the
+// selftest can drive a fake door set without a real process, while production
+// passes nothing and gets the real doors.
+export function make_production_adapter(doors) {
+  const d = doors || production_doors();
+  return {
+    random_hex: function (n) { return d.random_hex(n); },
+    validate_manifest: function (repo, manifest_path, arch, signing) {
+      // The SHARED validator, not a stub: it re-derives every hash from the repo
+      // bytes. A missing/failing manifest throws and fails the run closed.
+      return validate_build_manifest(repo, manifest_path, arch, signing);
+    },
+    file_exists: function (p) { return d.file_exists(p); },
+    is_symlink: function (p) { return d.is_symlink(p); },
+    read_dir: function (p) { return d.read_dir(p); },
+    create_dir_all: function (p) { d.create_dir_all(p); },
+    write_file: function (p, text) { d.write_file(p, text); },
+    // Exclusive, no-follow, durable create of a NEW regular file. The first
+    // control-log publication must use this (never `write_file`, whose
+    // exists-check-then-write races and can replace a link-like object).
+    create_new_regular: function (p, text) { d.create_new_regular(p, text); },
+    // Durable append to an EXISTING regular file: the no-follow door, never the
+    // legacy create/follow append.
+    append_durable: function (p, text) { d.append_durable(p, text); },
+    read_text: function (p) { return d.read_text(p); },
+    remove_dir_all: function (p) { d.remove_dir_all(p); },
+    spawn: function (argv) { return d.spawn(argv); },
+    kill: function (h) { d.kill(h); },
+    wait: function (h, timeout_ms) { return d.wait(h, timeout_ms); },
+    state: function (h) { return d.state(h); },
+    // Destroy one FINISHED handle exactly once, returning its live slot. A
+    // failure is collected by the caller, never replayed.
+    release: function (h) { d.release(h); },
+    // Foreground capture MUST consume the authoritative complete completion
+    // result (success/exit_code/timed_out/truncation), never a read prefix.
+    run_capture: function (argv, timeout_ms) { return d.run_capture(argv, timeout_ms); },
+    sleep_ms: function (ms) { d.sleep_ms(ms); }
+  };
+}
+
+// Build the door set over the ambient host functions. Every call checks the door
+// status; a failure raises with the door's own message.
+function production_doors() {
+  return {
+    random_hex: function (n) {
+      // 32 lowercase hex chars from the platform's own entropy source, delivered
+      // as TEXT (never raw bytes decoded as a JS string). `od` is the portable
+      // reader of /dev/urandom used elsewhere in this repository.
+      const spec = command_spec(["od", "-An", "-N" + (n >= 1 ? n : 1), "-tx1", "/dev/urandom"], 5000);
+      if (process_command_stdout(JSON.stringify(spec)) !== 0) { throw "random_hex_failed:" + tool_result(); }
+      return tool_result();
+    },
+    file_exists: function (p) { return fs_exists(p) === 1; },
+    is_symlink: function (p) {
+      if (fs_symlink_metadata(p) !== 0) { throw "symlink_metadata:" + tool_result(); }
+      return JSON.parse(tool_result())["is_symlink"] === true;
+    },
+    read_dir: function (p) {
+      if (fs_read_dir(p) !== 0) { throw "read_dir:" + tool_result(); }
+      return JSON.parse(tool_result());
+    },
+    create_dir_all: function (p) {
+      if (fs_create_dir_all(p) !== 0) { throw "create_dir_all:" + tool_result(); }
+    },
+    write_file: function (p, text) {
+      if (fs_write(p, text) !== 0) { throw "write_file:" + tool_result(); }
+    },
+    // The exclusive create-new door: `O_EXCL`/`FILE_CREATE`, no-follow, durable.
+    // Used only for the FIRST control-log publication.
+    create_new_regular: function (p, text) {
+      if (fs_create_new_regular_durable(p, text) !== 0) { throw "create_new_regular:" + tool_result(); }
+    },
+    // The durable no-follow existing-append door. Never the legacy `fs.append`.
+    append_durable: function (p, text) {
+      if (fs_append_existing_durable(p, text) !== 0) { throw "append_durable:" + tool_result(); }
+    },
+    read_text: function (p) {
+      if (fs_read_to_string(p) !== 0) { throw "read_text:" + tool_result(); }
+      return tool_result();
+    },
+    remove_dir_all: function (p) {
+      if (fs_remove_dir_all(p) !== 0) { throw "remove_dir_all:" + tool_result(); }
+    },
+    spawn: function (argv) {
+      const h = process_spawn(JSON.stringify(command_spec(argv, null)));
+      if (h < 0) { throw "spawn_failed:" + tool_result(); }
+      return h;
+    },
+    kill: function (h) {
+      if (process_kill(h) !== 0) { throw "kill_failed:" + tool_result(); }
+    },
+    wait: function (h, timeout_ms) {
+      if (process_wait(h, timeout_ms) !== 0) { throw "wait_failed:" + tool_result(); }
+      return JSON.parse(tool_result());
+    },
+    state: function (h) {
+      if (process_state(h) !== 0) { throw "state_failed:" + tool_result(); }
+      return tool_result();
+    },
+    // Destroy one FINISHED handle. `process.release` refuses a still-running
+    // child and an unknown/already-released id with a typed status.
+    release: function (h) {
+      if (process_release(h) !== 0) { throw "release_failed:" + tool_result(); }
+    },
+    // Owned handle + bounded wait over the AUTHORITATIVE completion envelope. This
+    // is the production seat for the shared `owned_capture` lifecycle below.
+    run_capture: function (argv, timeout_ms) {
+      return owned_capture({
+        spawn: function (spec) { return process_spawn(JSON.stringify(spec)); },
+        wait: function (h, ms) { return { status: process_wait(h, ms), result: tool_result() }; },
+        kill: function (h) { return { status: process_kill(h), result: tool_result() }; },
+        release: function (h) { return { status: process_release(h), result: tool_result() }; }
+      }, argv, timeout_ms);
+    },
+    sleep_ms: function (ms) { time_sleep_ms(ms); }
+  };
+}
+
+// The single owned-capture lifecycle, over an injected seat whose `spawn/wait/
+// kill/release` return the raw door status (they do NOT throw). Every path -- a
+// spawn refusal, a wait status failure, a rejected envelope, a release status
+// failure -- ends with the exact handle either PROVEN released or surfaced
+// structurally (`{primary, cleanup_failures, handle}`). No path silently drops the
+// handle; no `try`/`catch` is used to pretend a door throws.
+export function owned_capture(seat, argv, timeout_ms) {
+  const deadline = timeout_ms === null || timeout_ms === undefined ? 15000 : timeout_ms;
+  const spec = command_spec(argv, timeout_ms);
+  const h = seat.spawn(spec);
+  if (h < 0) {
+    // No handle exists: nothing to reap.
+    throw { primary: "capture_spawn_failed", cleanup_failures: [], released: false };
+  }
+  const failures = [];
+  let envelope = null;
+  let waited = false;
+  // 1. bounded wait: a zero status parks the envelope; any other status is a
+  //    failure that still leaves the handle to be closed below.
+  const waited_result = seat.wait(h, deadline);
+  if (waited_result.status === 0) {
+    waited = true;
+    // The parked bytes may not be JSON; a parse failure is RECORDED (never
+    // thrown here) so the handle is still closed below.
+    try {
+      envelope = JSON.parse(waited_result.result);
+    } catch (error) {
+      failures.push("envelope_json:" + ("" + error));
+    }
+  } else {
+    failures.push("wait:" + waited_result.result);
+  }
+  // 2. an envelope that parsed is validated; a rejection is recorded, not thrown,
+  //    so the release below always runs.
+  if (envelope !== null) {
+    try {
+      parse_completion_envelope(envelope, "foreground");
+    } catch (error) {
+      failures.push("envelope:" + ("" + error));
+    }
+  }
+  // 3. close the exact handle: kill (if still running), bounded wait/reap, then
+  //    release. Each step inspects its status; a non-zero status is a failure.
+  const close_result = close_owned_handle(seat, h, waited);
+  for (let i = 0; i < close_result.failures.length; i = i + 1) { failures.push(close_result.failures[i]); }
+  if (failures.length > 0) {
+    // The exact handle is in the structured result, so the caller can still reap
+    // it when it was not proven released. `released` states the truth so a caller
+    // never reports an unreleased handle that in fact released.
+    throw { primary: failures[0], cleanup_failures: failures, handle: h, released: close_result.released };
+  }
+  return envelope["stdout"];
+}
+
+// Close one owned capture handle, proving it released. Returns `{failures,
+// released}`; `released` is true only when the release door reported success, so a
+// caller never mislabels a released handle. `waited` says whether a successful wait
+// already put the slot into Done. Every door status is checked explicitly; a door
+// that returns non-zero is a failure, never a swallowed throw.
+function close_owned_handle(seat, h, waited) {
+  const failures = [];
+  // A wait that did not succeed may leave the child Running; kill it first. A
+  // kill refusal (already exited == 0, missing == 1) never blocks the reap below.
+  if (!waited) {
+    const killed = seat.kill(h);
+    if (killed.status !== 0) { failures.push("kill:" + killed.result); }
+  }
+  // Reap with a second bounded wait. A Done slot replays its envelope; a Running
+  // slot that the kill terminated now becomes Done. Any non-zero status is a
+  // failure but does not stop the release attempt.
+  const reaped = seat.wait(h, 5000);
+  if (reaped.status !== 0) { failures.push("reap:" + reaped.result); }
+  // Destroy the finished slot. A release refusal (still running, or unknown) is a
+  // failure and is surfaced; the handle is never silently dropped.
+  const released = seat.release(h);
+  if (released.status !== 0) { failures.push("release:" + released.result); }
+  return { failures: failures, released: released.status === 0 };
+}
+
+// Validate the AUTHORITATIVE `process.wait` completion envelope: exactly the seven
+// keys the Rust door parks, with success=true, exit_code=0, timed_out=false and no
+// stream truncation. Any other shape or outcome fails closed. Exported so the
+// selftest can drive every refusal without a real child.
+export function parse_completion_envelope(envelope, what) {
+  const keys = ["exit_code", "success", "stdout", "stderr", "stdout_truncated",
+                "stderr_truncated", "timed_out"];
+  require(envelope !== null && typeof envelope === "object" && !Array.isArray(envelope),
+          what + "_envelope_object");
+  const got = Object.keys(envelope);
+  require(got.length === keys.length, what + "_envelope_key_count:" + got.length);
+  for (let i = 0; i < keys.length; i = i + 1) {
+    require(got.indexOf(keys[i]) !== -1, what + "_envelope_missing:" + keys[i]);
+  }
+  require(typeof envelope["success"] === "boolean", what + "_success_type");
+  require(typeof envelope["timed_out"] === "boolean", what + "_timed_out_type");
+  require(typeof envelope["stdout_truncated"] === "boolean", what + "_stdout_truncated_type");
+  require(typeof envelope["stderr_truncated"] === "boolean", what + "_stderr_truncated_type");
+  require(typeof envelope["stdout"] === "string" && typeof envelope["stderr"] === "string",
+          what + "_streams_type");
+  // `exit_code` is a safe integer (the door emits an i32 or null, and a null is
+  // never a completed success).
+  require(is_safe_integer(envelope["exit_code"]), what + "_exit_code_type");
+  require(envelope["timed_out"] === false, what + "_timed_out");
+  require(envelope["success"] === true, what + "_not_success");
+  require(envelope["success"] === (envelope["exit_code"] === 0), what + "_incoherent");
+  require(envelope["exit_code"] === 0, what + "_exit_code:" + envelope["exit_code"]);
+  require(envelope["stdout_truncated"] === false, what + "_stdout_truncated");
+  require(envelope["stderr_truncated"] === false, what + "_stderr_truncated");
+  return envelope;
+}
+
+// A CommandSpec from an argv whose head is the program and whose tail is args.
+function command_spec(argv, timeout_ms) {
+  require(Array.isArray(argv) && argv.length >= 1, "spawn_argv");
+  const rest = [];
+  // This engine has no Array.prototype.slice; copy the tail by hand.
+  for (let i = 1; i < argv.length; i = i + 1) { rest.push(argv[i]); }
+  return { program: "" + argv[0], args: rest, env: {}, timeout_ms: timeout_ms };
+}
+
+// The production executor for the CLI verbs, over `process.command`. The head of
+// the argv is the program; the rest is argv. It returns the shape `run_verb`
+// expects (`exit_code`/`stdout`/`stderr`) and never spawns a browser or GUI.
+export function make_production_executor(doors) {
+  const d = doors || {};
+  const run = d.command || function (spec) {
+    if (process_command(JSON.stringify(spec)) !== 0) { throw "command_failed:" + tool_result(); }
+    return JSON.parse(tool_result());
+  };
+  return function (argv, timeout_ms) {
+    require(Array.isArray(argv) && argv.length >= 1, "exec_argv");
+    const envelope = run(command_spec(argv, timeout_ms));
+    // TRANSPORT validation only: reject a timeout, a truncation, an extra/missing
+    // key, an array, a non-integer exit_code or a wrong type. A completed NONZERO
+    // command is passed through with its stdout (a CuReply carrying the typed
+    // error) so `run_verb` can preserve the typed failure code.
+    validate_transport_envelope(envelope, "exec");
+    return {
+      exit_code: envelope["exit_code"],
+      stdout: envelope["stdout"],
+      stderr: envelope["stderr"]
+    };
+  };
+}
+
+// Transport-only completion-envelope validation (shared by the executor). It
+// refuses a timeout, a truncated stream, an extra/missing key, an array, a
+// non-integer exit_code or a wrong-typed field, but it does NOT require success or
+// exit 0 -- a completed failure is a legitimate reply whose typed code must survive.
+export function validate_transport_envelope(envelope, what) {
+  const keys = ["exit_code", "success", "stdout", "stderr", "stdout_truncated",
+                "stderr_truncated", "timed_out"];
+  require(envelope !== null && typeof envelope === "object" && !Array.isArray(envelope),
+          what + "_envelope_object");
+  const got = Object.keys(envelope);
+  require(got.length === keys.length, what + "_envelope_key_count:" + got.length);
+  for (let i = 0; i < keys.length; i = i + 1) {
+    require(got.indexOf(keys[i]) !== -1, what + "_envelope_missing:" + keys[i]);
+  }
+  require(typeof envelope["success"] === "boolean", what + "_success_type");
+  require(typeof envelope["timed_out"] === "boolean", what + "_timed_out_type");
+  require(typeof envelope["stdout_truncated"] === "boolean", what + "_stdout_truncated_type");
+  require(typeof envelope["stderr_truncated"] === "boolean", what + "_stderr_truncated_type");
+  require(typeof envelope["stdout"] === "string" && typeof envelope["stderr"] === "string",
+          what + "_streams_type");
+  require(typeof envelope["exit_code"] === "number" && envelope["exit_code"] === Math.floor(envelope["exit_code"]),
+          what + "_exit_code_type");
+  require(envelope["timed_out"] === false, what + "_timed_out");
+  require(envelope["stdout_truncated"] === false, what + "_stdout_truncated");
+  require(envelope["stderr_truncated"] === false, what + "_stderr_truncated");
+  return envelope;
 }

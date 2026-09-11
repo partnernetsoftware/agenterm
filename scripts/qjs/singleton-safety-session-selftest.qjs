@@ -1,0 +1,756 @@
+// Synthetic self-test for the browser-session -> ownership orchestration.
+//
+// A fake executor and a fake adapter stand in for the real CLI and filesystem, so
+// no browser, GUI or court is touched. It covers the macOS identity parser, the CLI
+// guards, the canonical argv, the browser-root acknowledgement, ownership-boundary
+// causality and the cleanup seat.
+//
+// Owned root: target/singleton-safety-session-selftest (independent from the
+// runner selftest's target/singleton-safety-runner-selftest root, so the two
+// suites can run concurrently without sharing an owned tree). Removed on
+// success and failure.
+import * as rh from "lib/rh_compat";
+import * as cj from "lib/canonical_json";
+import * as runner from "lib/singleton_safety_runner";
+import * as session from "lib/singleton_safety_browser_session";
+
+const TEMPLATE_LOGICAL = "research/browser-profile-open-singleton-safety/result-template.json";
+const ROOT_LOGICAL = "target/singleton-safety-session-selftest";
+const SENTINEL = "session_selftest_cleanup_sentinel";
+
+function require(condition, message) { if (!condition) { throw message; } }
+function owned_root() { return rh.join(rh.cwd(), ROOT_LOGICAL); }
+function template_path() { return rh.join(rh.cwd(), TEMPLATE_LOGICAL); }
+function remove_owned_root() {
+  try { rh.try_remove_dir_all(owned_root()); } catch (e) { print("session_selftest_cleanup: " + e); }
+}
+function with_owned_cleanup(fn) { try { return fn(); } finally { remove_owned_root(); } }
+function expect_throw(fn, label) {
+  let threw = false;
+  try { fn(); } catch (e) { threw = true; }
+  require(threw, "negative_did_not_throw:" + label);
+}
+// The exact number of times `item` occurs in `arr` (for no-double-count claims).
+function count_item(arr, item) {
+  let n = 0;
+  for (let i = 0; i < arr.length; i = i + 1) { if (arr[i] === item) { n = n + 1; } }
+  return n;
+}
+
+// ---- browser-session -> ownership synthetic orchestration --------------
+
+// The macOS identity parser: one known answer plus the whole bad-shape set.
+function test_macos_identity() {
+  const ok = runner.macos_start_identity_to_identity("macos", 900, "macos-start-time:1700000000.500000");
+  require(ok.pid === 900 && ok.start_sec === 1700000000 && ok.start_usec === 500000,
+          "identity_known_answer:" + JSON.stringify(ok));
+  require(Object.keys(ok).length === 3, "identity_exact_keys");
+  // a zero second and a zero usec are canonical
+  const z = runner.macos_start_identity_to_identity("macos", 1, "macos-start-time:0.0");
+  require(z.start_sec === 0 && z.start_usec === 0, "identity_zero_ok");
+  const bad = [
+    "proc-start-ticks:12345", "windows-filetime:99", "macos-start-time:1",
+    "macos-start-time:1.", "macos-start-time:.5", "macos-start-time:1.2.3",
+    "macos-start-time:01.5", "macos-start-time:1.0500000", "macos-start-time:+1.5",
+    "macos-start-time:1.-5", "macos-start-time:1.1000000", "macos-start-time:1. 5",
+    "macos-start-time:1.5 ", "", "1.5"];
+  for (let i = 0; i < bad.length; i = i + 1) {
+    expect_throw(function () {
+      runner.macos_start_identity_to_identity("macos", 900, bad[i]);
+    }, "identity_bad:" + i);
+  }
+  // a non-macOS platform is refused before any parsing
+  expect_throw(function () {
+    runner.macos_start_identity_to_identity("linux", 900, "macos-start-time:1.5");
+  }, "identity_linux_refused");
+  expect_throw(function () {
+    runner.macos_start_identity_to_identity("windows", 900, "macos-start-time:1.5");
+  }, "identity_windows_refused");
+}
+
+// The CLI argument guards.
+function test_cli_guards() {
+  runner.require_timeout_range(1000, "t");
+  runner.require_timeout_range(60000, "t");
+  expect_throw(function () { runner.require_timeout_range(999, "t"); }, "guard_timeout_999");
+  expect_throw(function () { runner.require_timeout_range(60001, "t"); }, "guard_timeout_60001");
+  runner.require_session_name("a");
+  runner.require_session_name("browser-a1");
+  expect_throw(function () { runner.require_session_name("A"); }, "guard_name_upper");
+  expect_throw(function () { runner.require_session_name("1a"); }, "guard_name_digit_first");
+  expect_throw(function () { runner.require_session_name("a_b"); }, "guard_name_underscore");
+  expect_throw(function () { runner.require_session_name("a".repeat(33)); }, "guard_name_long");
+  require(runner.require_url(null) === null, "guard_url_null");
+  require(runner.require_url("https://x") === "https://x", "guard_url_ok");
+  expect_throw(function () { runner.require_url(""); }, "guard_url_empty");
+  expect_throw(function () { runner.require_url("-x"); }, "guard_url_switch");
+  expect_throw(function () { runner.require_url("a\nb"); }, "guard_url_multiline");
+}
+
+// A recording fake executor for the session slice: returns canned typed replies
+// keyed by the command verb. It also lets a verb be made to fail.
+function session_executor(replies, fail_verb) {
+  const seen = [];
+  let removed = false;
+  return {
+    seen: seen,
+    run: function (argv, timeout_ms) {
+      seen.push({ argv: argv, timeout_ms: timeout_ms });
+      let verb = "";
+      for (let i = 0; i < argv.length; i = i + 1) {
+        if (argv[i] === "browser-session-start") { verb = "start"; }
+        else if (argv[i] === "browser-session-status") { verb = "status"; }
+        else if (argv[i] === "browser-session-stop") { verb = "stop"; }
+        else if (argv[i] === "browser-session-remove") { verb = "remove"; }
+        else if (argv[i] === "windows") { verb = "windows"; }
+        else if (argv[i] === "process-state") { verb = "process-state"; }
+      }
+      if (verb === fail_verb) { return { exit_code: 1, stdout: "", stderr: "boom" }; }
+      // After a successful remove, the registry is gone: a later status lookup must
+      // fail typed, so a post-remove status proves the removal.
+      if (verb === "status" && removed) {
+        return { exit_code: 1, stdout: cj.canonical({ ok: false, target: "current",
+          command: "browser-session-status", error: { code: "browser_session_not_found", message: "gone" } }) };
+      }
+      const out = replies[verb];
+      if (verb === "remove") { removed = true; }
+      return out;
+    }
+  };
+}
+
+function session_options(root, over) {
+  const o = over || {};
+  return {
+    platform: o.platform === undefined ? "macos" : o.platform,
+    session_name: o.session_name === undefined ? "browser-a" : o.session_name,
+    browser: o.browser === undefined ? "/b/chromium" : o.browser,
+    ready_timeout_ms: o.ready_timeout_ms === undefined ? 15000 : o.ready_timeout_ms,
+    stop_timeout_ms: o.stop_timeout_ms === undefined ? 15000 : o.stop_timeout_ms,
+    ttl_ms: o.ttl_ms === undefined ? 3600000 : o.ttl_ms,
+    url: o.url === undefined ? null : o.url,
+    phase_budget_ms: o.phase_budget_ms === undefined ? 5000 : o.phase_budget_ms
+  };
+}
+
+// A fake adapter for the session slice: files, a boundary-aware latest-state,
+// a clock and append recording. No real process or file is touched. The
+// latest-state publication reflects whether the browser-root and ownership-boundary
+// controls were appended, so the ack/ownership polls advance exactly as the real
+// probe would.
+function session_adapter(opts) {
+  const o = opts || {};
+  const files = {};
+  const appends = [];
+  let clock = 0;
+  let boundary_appended = false;
+  let latest_reads = 0;
+  // When armed (an integer), the NEXT that many `now_ms` calls return normally and
+  // the one after them throws -- so a test can make the clock fail exactly at the
+  // cleanup-deadline construction (rel 0) or at the first cleanup poll (rel 1).
+  let arm_relative = null;
+  return {
+    files: files, appends: appends,
+    arm_now_throw: function (rel) { arm_relative = rel; },
+    now_ms: function () {
+      clock = clock + (o.step_ms === undefined ? 1 : o.step_ms);
+      if (arm_relative !== null) {
+        if (arm_relative === 0) { throw "clock_failed"; }
+        arm_relative = arm_relative - 1;
+      }
+      return clock;
+    },
+    file_exists: function (p) {
+      if (p.indexOf("latest-state") !== -1) { return appends.length > 0 || o.publish_always === true; }
+      return files[p] !== undefined;
+    },
+    read_text: function (p) {
+      if (p.indexOf("latest-state") !== -1) {
+        const root_status = o.root_status === undefined ? "observed" : o.root_status;
+        let seq = o.ownership_sequence === undefined ? null : o.ownership_sequence;
+        if (boundary_appended && o.new_ownership_sequence !== undefined) { seq = o.new_ownership_sequence; }
+        let count = o.force_control_count === undefined ? appends.length : o.force_control_count;
+        // The FIRST frame can report count 0 even while the row is observed (a
+        // normal stale snapshot); later frames report the true count.
+        latest_reads = latest_reads + 1;
+        if (o.count_first_zero === true && latest_reads === 1) { count = 0; }
+        return latest_state_text(root_status, seq, count, o.expected_root_digest,
+          o.browser_pid, root_status === "observed", o.roots_extra === true);
+      }
+      return files[p];
+    },
+    sleep_ms: function () {},
+    append_durable: function (p, text) {
+      appends.push({ path: p, text: text });
+      files[p] = (files[p] === undefined ? "" : files[p]) + text;
+      if (text.indexOf('"role":"ownership-boundary"') !== -1) { boundary_appended = true; }
+      if (o.append_throws) { throw "append_durable_failed"; }
+    }
+  };
+}
+
+function latest_state_text(browser_root_status, ownership_sequence, control_record_count, observed_digest, observed_pid, observed, roots_extra) {
+  // The browser-root row's identity_digest reports the digest the scanner observed;
+  // the default mirrors the expected one so the happy path binds. The pid is only
+  // informational here -- the digest is the binding.
+  const roots = {
+      "browser-root": { status: browser_root_status,
+        identity_digest: observed ? (observed_digest === undefined ? null : observed_digest) : null,
+        first_observed_sample: observed ? 0 : null, first_absent_sample: null },
+      "direct-open-root": { status: "not-controlled", identity_digest: null, first_observed_sample: null, first_absent_sample: null }
+  };
+  if (roots_extra === true) { roots.extra = { status: "not-controlled", identity_digest: null, first_observed_sample: null, first_absent_sample: null }; }
+  return cj.canonical({
+    schema: "agenterm.singleton-safety.process-probe-state/v1", status: "scanning",
+    failure_reasons: [], control_record_count: control_record_count, sample_count: 0,
+    scan_start_mono_ns: 1, sentinel_start_mono_ns: null,
+    ownership_sample_sequence: ownership_sequence,
+    final_inventory_control_sequence: null, frozen_group_id: null,
+    root_observations: roots,
+    early_scanner_stop: false, max_start_interval_ns: null, max_enumeration_ns: null,
+    resolution_ns: null, maximum_process_row_count: 0, maximum_group_member_count: 0,
+    samples: [], identities: [], edges: [], executables: [], relevant_events: []
+  });
+}
+
+// The full session -> ownership orchestration, plus its refusal matrix.
+function test_session_to_ownership(template) {
+  const subject = "browser-a";
+  const owner_pid = 900;
+  const owner_identity = "macos-start-time:1700000000.500000";
+  const browser_pid = 901;
+  const browser_identity = "macos-start-time:1700000001.250000";
+  function session_data(state, owner_obs, browser) {
+    const d = { schema_version: 1, generation: 1, name: subject, session_nonce: "0123456789abcdef",
+      state: state, owner: { pid: owner_pid, start_identity: owner_identity }, owner_spawn_mode: "detached",
+      profile_identity: { device: 1, inode: 2 }, owner_observation: owner_obs, owned: true };
+    if (browser !== null) { d.browser = browser; }
+    return d;
+  }
+  function reply(command, data) {
+    return { exit_code: 0, stdout: cj.canonical({ ok: true, target: "current", command: command, data: data }) };
+  }
+  const browser_obj = { pid: browser_pid, start_identity: browser_identity };
+  const session_reply = reply("browser-session-start", session_data("ready", "live", browser_obj));
+  const status_reply = reply("browser-session-status", session_data("ready", "live", browser_obj));
+  const window_row = { handle: 42, ref: "App#1", title: "t", process_id: browser_pid, app_name: "a",
+    bounds: { x: 0, y: 0, width: 1, height: 1 }, focused: true, minimized: false, maximized: false,
+    fullscreen: false, above: false, browser_profile: null };
+  const windows_reply = reply("windows", { mechanism: "libagenterm", focus: {}, stacking: {}, filter: {},
+    visited: 1, matched: 1, returned: 1, offset: 0, truncated: false, windows: [window_row] });
+  const process_reply = reply("process-state", { pid: browser_pid, state: "live", start_identity: browser_identity, reason: null, verified: true });
+  const stop_reply = reply("browser-session-stop", session_data("stopped", "dead", null));
+  const remove_reply = reply("browser-session-remove", session_data("stopped", "dead", null));
+  function replies(over) {
+    const o = over || {};
+    return { start: o.start === undefined ? session_reply : o.start,
+             status: o.status === undefined ? status_reply : o.status,
+             windows: o.windows === undefined ? windows_reply : o.windows,
+             "process-state": o.process === undefined ? process_reply : o.process,
+             stop: o.stop === undefined ? stop_reply : o.stop,
+             remove: o.remove === undefined ? remove_reply : o.remove };
+  }
+  function context(root, opts) {
+    // The run root exists in production (native_ready claims it); create it here
+    // so the digest scratch has a directory to live in.
+    rh.create_dir_all(root);
+    const o = opts || {};
+    const state = { aborted: false, abort_reason: null, finished: 0, root_removed: false };
+    // Emulate the real native conclude: an upstream cleanup failure blocks root
+    // removal and a `finish` with any failure becomes a throw; an `abort` always
+    // throws structured, merging the upstream failures and any native ones.
+    const ctx = { checkpoint: "native-ready-in-process", run_root: root, handles: { probe: 0, primary: 1, secondary: 2 },
+             control_sequence: 0, state: state,
+             finish: function (upstream) {
+               const failures = upstream === undefined ? [] : upstream;
+               if (failures.length > 0) {
+                 throw { primary: "native_finish_cleanup_failed", cleanup_failures: failures };
+               }
+               state.finished = state.finished + 1; state.root_removed = true;
+               return { checkpoint: "native-finished" };
+             },
+             abort: function (reason, upstream) {
+               state.aborted = true; state.abort_reason = "" + reason;
+               const failures = upstream === undefined ? [] : upstream;
+               for (let i = 0; i < o.native_abort_failures_count; i = i + 1) { failures.push("native_abort:" + i); }
+               throw { primary: "" + reason, cleanup_failures: failures };
+             } };
+    return ctx;
+  }
+  // The expected browser-root control digest, computed independently (under the
+  // owned root, which the selftest has already created).
+  const browser_digest = runner.digest_process_identity("agenterm.singleton-safety.v1.process-identity",
+    rh.join(owned_root(), "scratch-session"), { pid: browser_pid, start_sec: 1700000001, start_usec: 250000 });
+
+  // happy path: browser-root(seq0) uses the BROWSER identity, ownership-boundary(seq1).
+  const happy_root = rh.join(owned_root(), "run-session");
+  const ex = session_executor(replies(), null);
+  const ad = session_adapter({ ownership_sequence: null, new_ownership_sequence: 3,
+    expected_root_digest: browser_digest, browser_pid: browser_pid });
+  const hc = context(happy_root);
+  const ctx = session_to_ownership_ok(ex, ad, template, hc);
+  require(ctx.browser_session_ready === true && ctx.control_sequence === 1, "session_context_extended");
+  require(ctx.ownership.sample_sequence === 3, "session_ownership_sequence");
+  require(ctx.session.browser_pid === browser_pid && ctx.session.owner_pid === owner_pid, "session_browser_not_owner");
+  const boundary_roles = [];
+  for (let i = 0; i < ad.appends.length; i = i + 1) {
+    if (ad.appends[i].text.indexOf('"role":"browser-root"') !== -1) { boundary_roles.push("browser-root"); }
+    if (ad.appends[i].text.indexOf('"role":"ownership-boundary"') !== -1) { boundary_roles.push("ownership-boundary"); }
+  }
+  require(boundary_roles.length === 2 && boundary_roles[0] === "browser-root" && boundary_roles[1] === "ownership-boundary",
+          "session_control_order:" + JSON.stringify(boundary_roles));
+  // the browser-root record carries the BROWSER pid, not the owner pid
+  require(ad.appends[0].text.indexOf('"pid":' + browser_pid) !== -1, "browser_root_identity_is_browser");
+
+  // P0-1: a session whose `browser` is missing is refused (no browser root).
+  let seen_nobrowser = null;
+  try {
+    const no_browser = reply("browser-session-status", session_data("ready", "live", null));
+    session.session_to_ownership(session_executor(replies({ status: no_browser }), null).run,
+      session_adapter({ expected_root_digest: browser_digest, browser_pid: browser_pid }), template,
+      context(rh.join(owned_root(), "run-nobrowser")), session_options(rh.join(owned_root(), "run-nobrowser")));
+  } catch (e) { seen_nobrowser = e; }
+  require(seen_nobrowser !== null && ("" + session_primary(seen_nobrowser)).indexOf("session_browser_missing") !== -1,
+          "session_browser_missing_refused:" + JSON.stringify(seen_nobrowser));
+
+  // The contract does NOT forbid browser.pid == owner.pid (no distinctness rule),
+  // so that shape is ACCEPTED (the browser identity is still required and used).
+  const same_status = reply("browser-session-status", session_data("ready", "live", { pid: owner_pid, start_identity: owner_identity }));
+  const same_start = reply("browser-session-start", session_data("ready", "live", { pid: owner_pid, start_identity: owner_identity }));
+  const same_row = { handle: 42, ref: "App#1", title: "t", process_id: owner_pid, app_name: "a",
+    bounds: { x: 0, y: 0, width: 1, height: 1 }, focused: true, minimized: false, maximized: false,
+    fullscreen: false, above: false, browser_profile: null };
+  const same_windows = reply("windows", { mechanism: "libagenterm", focus: {}, stacking: {}, filter: {},
+    visited: 1, matched: 1, returned: 1, offset: 0, truncated: false, windows: [same_row] });
+  const same_process = reply("process-state", { pid: owner_pid, state: "live", start_identity: owner_identity, reason: null, verified: true });
+  const same_digest = runner.digest_process_identity("agenterm.singleton-safety.v1.process-identity",
+    rh.join(owned_root(), "scratch-same"), { pid: owner_pid, start_sec: 1700000000, start_usec: 500000 });
+  const same_ctx = context(rh.join(owned_root(), "run-same"));
+  session.session_to_ownership(session_executor(replies({ start: same_start, status: same_status, windows: same_windows, process: same_process }), null).run,
+    session_adapter({ ownership_sequence: null, new_ownership_sequence: 3, expected_root_digest: same_digest, browser_pid: owner_pid }),
+    template, same_ctx, session_options(rh.join(owned_root(), "run-same")));
+  require(same_ctx.browser_session_ready === true, "session_browser_equals_owner_allowed");
+
+  // P0-5: an ack whose observed digest does not match the control we wrote is refused.
+  let seen_baddigest = null;
+  try {
+    session.session_to_ownership(session_executor(replies(), null).run,
+      session_adapter({ ownership_sequence: null, new_ownership_sequence: 3,
+        expected_root_digest: "0".repeat(64), browser_pid: browser_pid }),
+      template, context(rh.join(owned_root(), "run-baddigest")), session_options(rh.join(owned_root(), "run-baddigest")));
+  } catch (e) { seen_baddigest = e; }
+  require(seen_baddigest !== null, "session_bad_digest_refused");
+
+  // P0-1 (E1e): a row that is `observed` while control_record_count is still 0 is a
+  // NORMAL stale snapshot -- keep polling. The FIRST frame reports 0 here, a later
+  // frame reports the true count, and the ack must SUCCEED (never throw on frame 1).
+  const firstzero_ad = session_adapter({ ownership_sequence: null, new_ownership_sequence: 3,
+    count_first_zero: true, expected_root_digest: browser_digest, browser_pid: browser_pid });
+  const firstzero_ctx = context(rh.join(owned_root(), "run-firstzero"));
+  const firstzero_ok = session_to_ownership_ok(session_executor(replies(), null), firstzero_ad, template, firstzero_ctx);
+  require(firstzero_ok.browser_session_ready === true, "session_first_count_zero_acked");
+
+  // P0-1 (E1e): a count that NEVER reaches the control is not a hard failure any
+  // more; it simply never satisfies the predicate and times out on the phase.
+  let seen_count0 = null;
+  try {
+    session.session_to_ownership(session_executor(replies(), null).run,
+      session_adapter({ ownership_sequence: null, new_ownership_sequence: 3, force_control_count: 0, step_ms: 2000,
+        expected_root_digest: browser_digest, browser_pid: browser_pid }),
+      template, context(rh.join(owned_root(), "run-count0")), session_options(rh.join(owned_root(), "run-count0"), { phase_budget_ms: 6000 }));
+  } catch (e) { seen_count0 = e; }
+  require(seen_count0 !== null && ("" + session_primary(seen_count0)).indexOf("browser_root_ack_timeout") !== -1,
+          "session_control_count_poll_timeout:" + JSON.stringify(seen_count0));
+
+  // P0-5: a pre-boundary non-null ownership sequence is refused.
+  let seen_oldnonnull = null;
+  try {
+    session.session_to_ownership(session_executor(replies(), null).run,
+      session_adapter({ ownership_sequence: 2, new_ownership_sequence: 3,
+        expected_root_digest: browser_digest, browser_pid: browser_pid }),
+      template, context(rh.join(owned_root(), "run-oldnonnull")), session_options(rh.join(owned_root(), "run-oldnonnull")));
+  } catch (e) { seen_oldnonnull = e; }
+  require(seen_oldnonnull !== null && ("" + session_primary(seen_oldnonnull)).indexOf("ownership_sequence_not_null_before_boundary") !== -1,
+          "session_old_nonnull_refused:" + JSON.stringify(seen_oldnonnull));
+
+  // non-macOS platform is refused (still aborts the context).
+  let seen_platform = null;
+  const plat_ctx = context(rh.join(owned_root(), "run-plat"));
+  try {
+    session.session_to_ownership(session_executor(replies(), null).run, session_adapter({}), template,
+      plat_ctx, session_options(rh.join(owned_root(), "run-plat"), { platform: "linux" }));
+  } catch (e) { seen_platform = e; }
+  require(seen_platform !== null && ("" + session_primary(seen_platform)).indexOf("platform_not_macos") !== -1,
+          "session_platform_refused");
+  require(plat_ctx.state.aborted === true, "session_platform_still_aborts");
+
+  // P0-3: a bad argument AFTER the context is obtained still aborts the context.
+  let seen_badarg = null;
+  const badarg_ctx = context(rh.join(owned_root(), "run-badarg"));
+  try {
+    session.session_to_ownership(session_executor(replies(), null).run, session_adapter({}), template,
+      badarg_ctx, session_options(rh.join(owned_root(), "run-badarg"), { ready_timeout_ms: 999 }));
+  } catch (e) { seen_badarg = e; }
+  require(seen_badarg !== null && badarg_ctx.state.aborted === true, "session_badarg_aborts");
+
+  // PID reuse (process-state identity differs) is refused.
+  const pid_reuse = reply("process-state", { pid: browser_pid, state: "live", start_identity: "macos-start-time:1.1", reason: null, verified: true });
+  let seen_reuse = null;
+  try {
+    session.session_to_ownership(session_executor(replies({ process: pid_reuse }), null).run,
+      session_adapter({ expected_root_digest: browser_digest, browser_pid: browser_pid }), template,
+      context(rh.join(owned_root(), "run-reuse")), session_options(rh.join(owned_root(), "run-reuse")));
+  } catch (e) { seen_reuse = e; }
+  require(seen_reuse !== null && ("" + session_primary(seen_reuse)).indexOf("pid_reuse") !== -1,
+          "session_pid_reuse_refused:" + JSON.stringify(seen_reuse));
+
+  // browser-root ack timeout.
+  let seen_ack = null;
+  try {
+    session.session_to_ownership(session_executor(replies(), null).run,
+      session_adapter({ root_status: "pending", step_ms: 2000, expected_root_digest: browser_digest, browser_pid: browser_pid }),
+      template, context(rh.join(owned_root(), "run-ack")), session_options(rh.join(owned_root(), "run-ack"), { phase_budget_ms: 6000 }));
+  } catch (e) { seen_ack = e; }
+  require(seen_ack !== null && ("" + session_primary(seen_ack)).indexOf("browser_root_ack_timeout") !== -1,
+          "session_ack_timeout:" + JSON.stringify(seen_ack));
+
+  // P0-4: cleanup uses its OWN bounded deadline even when the main phase is
+  // exhausted, so a stop/remove is still attempted.
+  const cleanup_ad = session_adapter({ root_status: "pending", step_ms: 2000,
+    expected_root_digest: browser_digest, browser_pid: browser_pid });
+  let seen_cleanup = null;
+  try {
+    session.session_to_ownership(session_executor(replies(), null).run, cleanup_ad, template,
+      context(rh.join(owned_root(), "run-cleanup")), session_options(rh.join(owned_root(), "run-cleanup"), { phase_budget_ms: 6000 }));
+  } catch (e) { seen_cleanup = e; }
+  require(seen_cleanup !== null, "session_cleanup_ran");
+  // The cleanup ran on its own deadline: the stop/remove succeeded, so there is no
+  // `session_stop_deadline_exhausted` failure (the primary is the ack timeout).
+  require(("" + session_primary(seen_cleanup)).indexOf("browser_root_ack_timeout") !== -1,
+          "session_cleanup_own_deadline_primary:" + JSON.stringify(seen_cleanup));
+  if (typeof seen_cleanup === "object" && seen_cleanup !== null) {
+    for (let i = 0; i < seen_cleanup.cleanup_failures.length; i = i + 1) {
+      require(seen_cleanup.cleanup_failures[i].indexOf("session_stop_deadline_exhausted") !== 0,
+              "session_cleanup_own_deadline_leaked:" + JSON.stringify(seen_cleanup));
+    }
+  }
+
+  // E1b: a same-named session whose START returns no nonce leaves ownership
+  // unproven -> `session_publication_uncertain`, nothing foreign is stopped/removed.
+  const no_nonce_start = { exit_code: 0, stdout: cj.canonical({ ok: true, target: "current", command: "browser-session-start", data: {
+    schema_version: 1, generation: 1, name: subject, state: "ready",
+    owner: { pid: owner_pid, start_identity: owner_identity }, owner_spawn_mode: "detached",
+    profile_identity: { device: 1, inode: 2 }, owner_observation: "live", owned: true } }) };
+  let seen_uncertain = null;
+  try {
+    session.session_to_ownership(session_executor(replies({ start: no_nonce_start }), null).run,
+      session_adapter({ expected_root_digest: browser_digest, browser_pid: browser_pid }), template,
+      context(rh.join(owned_root(), "run-uncertain")), session_options(rh.join(owned_root(), "run-uncertain")));
+  } catch (e) { seen_uncertain = e; }
+  require(seen_uncertain !== null && rh.has_item(seen_uncertain.cleanup_failures, "session_publication_uncertain"),
+          "session_uncertain_flagged:" + JSON.stringify(seen_uncertain));
+
+  // E1b: a same-named FOREIGN session (status nonce differs) is NOT deleted: no
+  // stop/remove is issued.
+  let stop_calls = 0;
+  const foreign_status = reply("browser-session-status", session_data("ready", "live", browser_obj));
+  foreign_status.stdout = cj.canonical({ ok: true, target: "current", command: "browser-session-status", data: {
+    schema_version: 1, generation: 1, name: subject, session_nonce: "ffffffffffffffff", state: "ready",
+    owner: { pid: owner_pid, start_identity: owner_identity }, owner_spawn_mode: "detached",
+    profile_identity: { device: 1, inode: 2 }, owner_observation: "live", owned: true, browser: browser_obj } });
+  const foreign_ex = session_executor(replies({ status: foreign_status }), null);
+  const wrapped_foreign = { seen: [], run: function (argv, ms) {
+    for (let i = 0; i < argv.length; i = i + 1) { if (argv[i] === "browser-session-stop" || argv[i] === "browser-session-remove") { stop_calls = stop_calls + 1; } }
+    return foreign_ex.run(argv, ms); } };
+  let seen_foreign = null;
+  try {
+    session.session_to_ownership(wrapped_foreign.run, session_adapter({ ownership_sequence: null, new_ownership_sequence: 3, expected_root_digest: browser_digest, browser_pid: browser_pid }),
+      template, context(rh.join(owned_root(), "run-foreign")), session_options(rh.join(owned_root(), "run-foreign")));
+  } catch (e) { seen_foreign = e; }
+  require(seen_foreign !== null, "session_foreign_refused");
+  require(stop_calls === 0, "session_foreign_not_deleted:" + stop_calls);
+
+  // P1-1: the public finish wraps session cleanup exactly once, then native finish.
+  const wrap_root = rh.join(owned_root(), "run-wrap");
+  const wrap_ad = session_adapter({ ownership_sequence: null, new_ownership_sequence: 3,
+    expected_root_digest: browser_digest, browser_pid: browser_pid });
+  const wrap_ctx = context(wrap_root);
+  const ok_ctx = session_to_ownership_ok(session_executor(replies(), null), wrap_ad, template, wrap_ctx);
+  const finished = ok_ctx.finish();
+  require(finished.checkpoint === "native-finished" && wrap_ctx.state.finished === 1, "session_finish_wraps_once");
+  require(wrap_ctx.terminal_owned === true, "session_terminal_owned");
+
+  // E1b: a finish whose session cleanup FAILS must not claim a finished run; it
+  // drives the native abort (root retained) and surfaces both failures.
+  const failroot = rh.join(owned_root(), "run-finishfail");
+  const fail_ctx = context(failroot);
+  const fail_ad = session_adapter({ ownership_sequence: null, new_ownership_sequence: 3,
+    expected_root_digest: browser_digest, browser_pid: browser_pid });
+  // start/status succeed, but stop/remove fail as transport errors.
+  const fail_exec = session_executor(replies({ stop: { exit_code: 1, stdout: "", stderr: "x" },
+    remove: { exit_code: 1, stdout: "", stderr: "x" } }), null);
+  const ok_ctx2 = session.session_to_ownership(fail_exec.run, fail_ad, template, fail_ctx, session_options(failroot));
+  let seen_finfail = null;
+  try { ok_ctx2.finish(); } catch (e) { seen_finfail = e; }
+  require(seen_finfail !== null && seen_finfail.primary === "session_finish_cleanup_failed",
+          "session_finish_cleanup_not_success:" + JSON.stringify(seen_finfail));
+  require(fail_ctx.state.finished === 0 && fail_ctx.state.root_removed === false && fail_ctx.state.aborted === true,
+          "session_finish_failure_retains_root");
+
+  // E1b: a native abort's OWN cleanup failures are merged, not dropped.
+  const abortroot = rh.join(owned_root(), "run-abortmerge");
+  const abort_ctx = context(abortroot, { native_abort_failures_count: 2 });
+  const abort_ad = session_adapter({ ownership_sequence: null, new_ownership_sequence: 3,
+    expected_root_digest: browser_digest, browser_pid: browser_pid });
+  const ok_ctx3 = session.session_to_ownership(session_executor(replies(), null).run, abort_ad, template, abort_ctx, session_options(abortroot));
+  let seen_abortmerge = null;
+  try { ok_ctx3.abort("later"); } catch (e) { seen_abortmerge = e; }
+  require(seen_abortmerge !== null && rh.has_item(seen_abortmerge.cleanup_failures, "native_abort:0")
+          && rh.has_item(seen_abortmerge.cleanup_failures, "native_abort:1"),
+          "session_abort_native_failures_merged:" + JSON.stringify(seen_abortmerge));
+
+  // E1c P0-1: removal is proven ONLY by the exact typed not_found. A transport
+  // failure AFTER remove is not absent -> remove_not_effective (red, not false-green).
+  const transport_after = session_executor(replies(), null);
+  let after_remove = 0;
+  const ta = { seen: [], run: function (argv, ms) {
+    let verb = "";
+    for (let i = 0; i < argv.length; i = i + 1) {
+      if (argv[i] === "browser-session-remove") { verb = "remove"; }
+      else if (argv[i] === "browser-session-status") { verb = "status"; }
+    }
+    if (verb === "remove") { after_remove = 1; return transport_after.run(argv, ms); }
+    if (verb === "status" && after_remove === 1) { return { exit_code: 1, stdout: "", stderr: "transport" }; }
+    return transport_after.run(argv, ms); } };
+  let seen_transport = null;
+  const tc = context(rh.join(owned_root(), "run-transport"));
+  try {
+    const tctx = session.session_to_ownership(ta.run, session_adapter({ ownership_sequence: null, new_ownership_sequence: 3, expected_root_digest: browser_digest, browser_pid: browser_pid }), template, tc, session_options(rh.join(owned_root(), "run-transport")));
+    tctx.finish();
+  } catch (e) { seen_transport = e; }
+  // E1d P0: an unknown after remove must NOT skip the native abort: the terminal
+  // records the query failure, the native abort runs (aborted=true), the run is not
+  // finished and the root is retained, and the ORIGINAL primary survives.
+  require(seen_transport !== null && tc.state.aborted === true && tc.state.finished === 0
+          && tc.state.root_removed === false, "session_transport_after_remove_native_abort:" + JSON.stringify(seen_transport));
+  require(seen_transport.primary === "session_finish_cleanup_failed", "session_transport_primary:" + JSON.stringify(seen_transport));
+  let saw_remove_unknown = false;
+  for (let i = 0; i < seen_transport.cleanup_failures.length; i = i + 1) {
+    if (seen_transport.cleanup_failures[i].indexOf("session_remove_after_unknown:") === 0) { saw_remove_unknown = true; }
+  }
+  require(saw_remove_unknown, "session_transport_query_failure_recorded:" + JSON.stringify(seen_transport));
+
+  // E1d P0: an unknown BEFORE remove (status query transport loss before the first
+  // remove) is likewise a failure, not a silent pass, and reaches the native abort.
+  let status_calls = 0;
+  const before_unknown = { seen: [], run: function (argv, ms) {
+    let status = false;
+    for (let i = 0; i < argv.length; i = i + 1) { if (argv[i] === "browser-session-status") { status = true; } }
+    if (status) { status_calls = status_calls + 1; if (status_calls >= 3) { return { exit_code: 1, stdout: "", stderr: "transport" }; } }
+    return session_executor(replies(), null).run(argv, ms); } };
+  const bu_ctx = context(rh.join(owned_root(), "run-beforeunknown"));
+  let seen_before = null;
+  try {
+    const bctx = session.session_to_ownership(before_unknown.run, session_adapter({ ownership_sequence: null, new_ownership_sequence: 3, expected_root_digest: browser_digest, browser_pid: browser_pid }), template, bu_ctx, session_options(rh.join(owned_root(), "run-beforeunknown")));
+    bctx.finish();
+  } catch (e) { seen_before = e; }
+  require(seen_before !== null && bu_ctx.state.aborted === true && bu_ctx.state.root_removed === false,
+          "session_before_unknown_native_abort:" + JSON.stringify(seen_before));
+
+  // E1d P1: a latest-state with an EXTRA root key is refused.
+  const bad_roots_ad = session_adapter({ ownership_sequence: null, new_ownership_sequence: 3, expected_root_digest: browser_digest, browser_pid: browser_pid, roots_extra: true });
+  let seen_roots = null;
+  try {
+    session.session_to_ownership(session_executor(replies(), null).run, bad_roots_ad, template,
+      context(rh.join(owned_root(), "run-rootsextra")), session_options(rh.join(owned_root(), "run-rootsextra")));
+  } catch (e) { seen_roots = e; }
+  require(seen_roots !== null && ("" + session_primary(seen_roots)).indexOf("latest_state_root_key_count") !== -1,
+          "session_roots_extra_refused:" + JSON.stringify(seen_roots));
+  // E1c P0-2: a second terminal call performs no extra stop/remove.
+  const once_root = rh.join(owned_root(), "run-once");
+  const once_ad = session_adapter({ ownership_sequence: null, new_ownership_sequence: 3, expected_root_digest: browser_digest, browser_pid: browser_pid });
+  const once_exec = session_executor(replies(), null);
+  const once_ctx = session.session_to_ownership(once_exec.run, once_ad, template, context(once_root), session_options(once_root));
+  once_ctx.finish();
+  const stop_len_before = once_exec.seen.length;
+  expect_throw(function () { once_ctx.finish(); }, "terminal_second_finish");
+  require(once_exec.seen.length === stop_len_before, "terminal_second_finish_no_calls");
+
+  // E1c P0-2: a clean abort still throws and retains the primary.
+  const clean_abort_root = rh.join(owned_root(), "run-cleanabort");
+  const ca_ad = session_adapter({ ownership_sequence: null, new_ownership_sequence: 3, expected_root_digest: browser_digest, browser_pid: browser_pid });
+  const ca_ctx = session.session_to_ownership(session_executor(replies(), null).run, ca_ad, template, context(clean_abort_root), session_options(clean_abort_root));
+  let seen_cleanabort = null;
+  try { ca_ctx.abort("clean-abort"); } catch (e) { seen_cleanabort = e; }
+  require(seen_cleanabort !== null && seen_cleanabort.primary === "clean-abort", "session_clean_abort_throws");
+
+  // E1c P0-3: the stop argv reflects the configured stop_timeout (never a hard cap).
+  const st_root = rh.join(owned_root(), "run-stoptimeout");
+  const st_exec = session_executor(replies(), null);
+  const st_ad = session_adapter({ ownership_sequence: null, new_ownership_sequence: 3, expected_root_digest: browser_digest, browser_pid: browser_pid });
+  const st_ctx = session.session_to_ownership(st_exec.run, st_ad, template, context(st_root), session_options(st_root, { stop_timeout_ms: 7000, cleanup_budget_ms: 40000 }));
+  st_ctx.finish();
+  let saw_stop_7000 = false;
+  for (let i = 0; i < st_exec.seen.length; i = i + 1) {
+    const a = st_exec.seen[i].argv;
+    for (let j = 0; j < a.length - 1; j = j + 1) { if (a[j] === "--timeout-ms" && a[j + 1] === "7000") { saw_stop_7000 = true; } }
+  }
+  require(saw_stop_7000, "session_stop_timeout_argv");
+
+  // E1c P1: an owner/browser identity with an EXTRA key is refused.
+  let seen_extra = null;
+  const extra_status = reply("browser-session-status", session_data("ready", "live", browser_obj));
+  extra_status.stdout = cj.canonical({ ok: true, target: "current", command: "browser-session-status", data: {
+    schema_version: 1, generation: 1, name: subject, session_nonce: "0123456789abcdef", state: "ready",
+    owner: { pid: owner_pid, start_identity: owner_identity }, owner_spawn_mode: "detached",
+    profile_identity: { device: 1, inode: 2 }, owner_observation: "live", owned: true,
+    browser: { pid: browser_pid, start_identity: browser_identity, extra: 1 } } });
+  try {
+    session.session_to_ownership(session_executor(replies({ status: extra_status }), null).run,
+      session_adapter({ expected_root_digest: browser_digest, browser_pid: browser_pid }), template,
+      context(rh.join(owned_root(), "run-extra")), session_options(rh.join(owned_root(), "run-extra")));
+  } catch (e) { seen_extra = e; }
+  require(seen_extra !== null && ("" + session_primary(seen_extra)).indexOf("session_browser_key_count") !== -1,
+          "session_nested_extra_refused:" + JSON.stringify(seen_extra));
+
+  // E1e P0-2: the cleanup DEADLINE construction can throw (clock failure); the
+  // wrapper records it and STILL reaches the native abort with the root retained.
+  const dlroot = rh.join(owned_root(), "run-deadlinefail");
+  const dl_ad = session_adapter({ ownership_sequence: null, new_ownership_sequence: 3,
+    expected_root_digest: browser_digest, browser_pid: browser_pid });
+  const dl_ctx = session_to_ownership_ok(session_executor(replies(), null), dl_ad, template, context(dlroot));
+  dl_ad.arm_now_throw(0);
+  let seen_dl = null;
+  try { dl_ctx.finish(); } catch (e) { seen_dl = e; }
+  require(seen_dl !== null && dl_ctx.state.aborted === true && dl_ctx.state.finished === 0
+          && dl_ctx.state.root_removed === false, "session_deadline_failure_native_abort:" + JSON.stringify(seen_dl));
+  require(count_item(seen_dl.cleanup_failures, "session_cleanup_prepare:clock_failed") === 1,
+          "session_deadline_failure_recorded_once:" + JSON.stringify(seen_dl));
+
+  // E1e P0-2: cleanup_session ITSELF can throw (clock failure AFTER construction);
+  // it is recorded as a cleanup failure and the native abort still runs.
+  const csroot = rh.join(owned_root(), "run-cleanupthrow");
+  const cs_ad = session_adapter({ ownership_sequence: null, new_ownership_sequence: 3,
+    expected_root_digest: browser_digest, browser_pid: browser_pid });
+  const cs_ctx = session_to_ownership_ok(session_executor(replies(), null), cs_ad, template, context(csroot));
+  cs_ad.arm_now_throw(1);
+  let seen_cs = null;
+  try { cs_ctx.finish(); } catch (e) { seen_cs = e; }
+  require(seen_cs !== null && cs_ctx.state.aborted === true && cs_ctx.state.root_removed === false,
+          "session_cleanup_throw_native_abort:" + JSON.stringify(seen_cs));
+  require(count_item(seen_cs.cleanup_failures, "session_cleanup_unknown:clock_failed") === 1,
+          "session_cleanup_throw_recorded_once:" + JSON.stringify(seen_cs));
+
+  // E1e P0-3/P0-4: a structured primary carrying cleanup_failures is merged into the
+  // upstream BEFORE the native abort, so the root is retained and each failure is
+  // counted EXACTLY once (no append-double-count).
+  const sproot = rh.join(owned_root(), "run-structured");
+  const sp_ctx = context(sproot);
+  const sp_ad = session_adapter({ ownership_sequence: null, new_ownership_sequence: 3,
+    expected_root_digest: browser_digest, browser_pid: browser_pid });
+  const sp_exec = { seen: [], run: function (argv, ms) {
+    const e = { primary: "structured_boom", cleanup_failures: [] };
+    e.cleanup_failures.push("step_a"); e.cleanup_failures.push("step_b");
+    throw e; } };
+  let seen_sp = null;
+  try {
+    session.session_to_ownership(sp_exec.run, sp_ad, template, sp_ctx, session_options(sproot));
+  } catch (e) { seen_sp = e; }
+  require(seen_sp !== null && sp_ctx.state.aborted === true && sp_ctx.state.root_removed === false,
+          "session_structured_primary_retains_root:" + JSON.stringify(seen_sp));
+  require(count_item(seen_sp.cleanup_failures, "step_a") === 1 && count_item(seen_sp.cleanup_failures, "step_b") === 1,
+          "session_structured_failures_exactly_once:" + JSON.stringify(seen_sp));
+  require("" + session_primary(seen_sp) === "structured_boom",
+          "session_structured_primary_preserved:" + JSON.stringify(seen_sp));
+
+  // E1e P0-3: a wrapper abort whose reason carries cleanup_failures merges them into
+  // the upstream before the native abort (each exactly once).
+  const wrroot = rh.join(owned_root(), "run-wrapperreason");
+  const wr_ad = session_adapter({ ownership_sequence: null, new_ownership_sequence: 3,
+    expected_root_digest: browser_digest, browser_pid: browser_pid });
+  const wr_ctx = session_to_ownership_ok(session_executor(replies(), null), wr_ad, template, context(wrroot));
+  let seen_wr = null;
+  try { wr_ctx.abort({ primary: "wrapper_reason", cleanup_failures: ["rr1", "rr2"] }); } catch (e) { seen_wr = e; }
+  require(seen_wr !== null && wr_ctx.state.aborted === true && wr_ctx.state.root_removed === false,
+          "session_wrapper_reason_retains_root:" + JSON.stringify(seen_wr));
+  require(count_item(seen_wr.cleanup_failures, "rr1") === 1 && count_item(seen_wr.cleanup_failures, "rr2") === 1,
+          "session_wrapper_reason_failures_once:" + JSON.stringify(seen_wr));
+  require("" + session_primary(seen_wr) === "wrapper_reason",
+          "session_wrapper_reason_primary:" + JSON.stringify(seen_wr));
+
+  // E1e P1-1: status2's OWNER is exact-validated and byte-matched against status1.
+  // A second-status override executor returns a mutated reply on the 2nd status call.
+  function status2_owner(owner) {
+    const d = session_data("ready", "live", browser_obj);
+    d.owner = owner;
+    return d;
+  }
+  function status2_browser(browser) {
+    const d = session_data("ready", "live", browser_obj);
+    d.browser = browser;
+    return d;
+  }
+  function second_status(second) {
+    let n = 0;
+    return { seen: [], run: function (argv, ms) {
+      let is_status = false;
+      for (let i = 0; i < argv.length; i = i + 1) { if (argv[i] === "browser-session-status") { is_status = true; } }
+      if (is_status) { n = n + 1; if (n === 2) { return second; } }
+      return session_executor(replies(), null).run(argv, ms); } };
+  }
+  const owner_extra2 = reply("browser-session-status", status2_owner({ pid: owner_pid, start_identity: owner_identity, extra: 1 }));
+  let seen_owner2 = null;
+  try {
+    session.session_to_ownership(second_status(owner_extra2).run,
+      session_adapter({ expected_root_digest: browser_digest, browser_pid: browser_pid }), template,
+      context(rh.join(owned_root(), "run-owner2extra")), session_options(rh.join(owned_root(), "run-owner2extra")));
+  } catch (e) { seen_owner2 = e; }
+  require(seen_owner2 !== null && ("" + session_primary(seen_owner2)).indexOf("session_owner2_key_count") !== -1,
+          "session_owner2_extra_refused:" + JSON.stringify(seen_owner2));
+
+  const owner_changed2 = reply("browser-session-status", status2_owner({ pid: owner_pid, start_identity: "macos-start-time:1.1" }));
+  let seen_ownerchg = null;
+  try {
+    session.session_to_ownership(second_status(owner_changed2).run,
+      session_adapter({ expected_root_digest: browser_digest, browser_pid: browser_pid }), template,
+      context(rh.join(owned_root(), "run-owner2chg")), session_options(rh.join(owned_root(), "run-owner2chg")));
+  } catch (e) { seen_ownerchg = e; }
+  require(seen_ownerchg !== null && ("" + session_primary(seen_ownerchg)).indexOf("session_owner_identity_changed") !== -1,
+          "session_owner2_identity_changed:" + JSON.stringify(seen_ownerchg));
+
+  const browser_changed2 = reply("browser-session-status", status2_browser({ pid: browser_pid, start_identity: "macos-start-time:1.1" }));
+  let seen_browserchg = null;
+  try {
+    session.session_to_ownership(second_status(browser_changed2).run,
+      session_adapter({ expected_root_digest: browser_digest, browser_pid: browser_pid }), template,
+      context(rh.join(owned_root(), "run-browser2chg")), session_options(rh.join(owned_root(), "run-browser2chg")));
+  } catch (e) { seen_browserchg = e; }
+  require(seen_browserchg !== null && ("" + session_primary(seen_browserchg)).indexOf("session_browser_identity_changed") !== -1,
+          "session_browser2_identity_changed:" + JSON.stringify(seen_browserchg));
+}
+
+// Run the happy path and return the context, asserting success.
+function session_to_ownership_ok(execute, adapter, template, ctx) {
+  return session.session_to_ownership(execute.run, adapter, template, ctx, session_options(ctx.run_root));
+}
+
+// The primary reason of a possibly-structured error.
+function session_primary(error) {
+  if (error !== null && typeof error === "object" && error.primary !== undefined) { return error.primary; }
+  return error;
+}
+
+function run() {
+  const template = runner.load_runner_template(template_path());
+  rh.create_dir_all(owned_root());
+  with_owned_cleanup(function () {
+    test_macos_identity();
+    test_cli_guards();
+    test_session_to_ownership(template);
+  });
+  require(!rh.exists(owned_root()), "session_selftest_owned_root_remains");
+  print("singleton-safety session selftest ok");
+  return 0;
+}
+
+return run();
