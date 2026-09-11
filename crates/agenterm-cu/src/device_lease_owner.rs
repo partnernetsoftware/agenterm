@@ -519,6 +519,42 @@ fn serial_observation_record(
     }
 }
 
+fn validate_ttl(ttl_ms: u64) -> Result<(), DeviceOwnerError> {
+    if !(TTL_MIN_MS..=TTL_MAX_MS).contains(&ttl_ms) {
+        Err(DeviceOwnerError::new("device_ttl_invalid"))
+    } else {
+        Ok(())
+    }
+}
+
+fn map_device_error(error: device_io::DeviceIoError) -> DeviceOwnerError {
+    DeviceOwnerError {
+        code: error.code().replace('-', "_"),
+        known_written_lower_bound: error.known_written_lower_bound(),
+        delivery_uncertain: error.delivery_uncertain(),
+        retry_safe: error.retry_safe(),
+    }
+}
+
+pub(crate) fn now_utc_ms() -> Result<i64, DeviceOwnerError> {
+    let value = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| DeviceOwnerError::new("device_lease_clock_invalid"))?
+        .as_millis();
+    i64::try_from(value).map_err(|_| DeviceOwnerError::new("device_lease_clock_invalid"))
+}
+
+fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut difference = 0_u8;
+    for (left, right) in left.iter().zip(right) {
+        difference |= left ^ right;
+    }
+    difference == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -582,40 +618,4 @@ mod tests {
         let failure = read_launch(serde_json::to_vec(&untagged).unwrap().as_slice()).unwrap_err();
         assert_eq!(failure.code, "device_owner_launch_invalid");
     }
-}
-
-fn validate_ttl(ttl_ms: u64) -> Result<(), DeviceOwnerError> {
-    if !(TTL_MIN_MS..=TTL_MAX_MS).contains(&ttl_ms) {
-        Err(DeviceOwnerError::new("device_ttl_invalid"))
-    } else {
-        Ok(())
-    }
-}
-
-fn map_device_error(error: device_io::DeviceIoError) -> DeviceOwnerError {
-    DeviceOwnerError {
-        code: error.code().replace('-', "_"),
-        known_written_lower_bound: error.known_written_lower_bound(),
-        delivery_uncertain: error.delivery_uncertain(),
-        retry_safe: error.retry_safe(),
-    }
-}
-
-pub(crate) fn now_utc_ms() -> Result<i64, DeviceOwnerError> {
-    let value = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| DeviceOwnerError::new("device_lease_clock_invalid"))?
-        .as_millis();
-    i64::try_from(value).map_err(|_| DeviceOwnerError::new("device_lease_clock_invalid"))
-}
-
-fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
-    if left.len() != right.len() {
-        return false;
-    }
-    let mut difference = 0_u8;
-    for (left, right) in left.iter().zip(right) {
-        difference |= left ^ right;
-    }
-    difference == 0
 }
