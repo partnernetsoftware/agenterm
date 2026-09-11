@@ -8,18 +8,20 @@ use windows_sys::Win32::{
         HiDpi::GetDpiForWindow,
         Input::{
             Ime::{
-                CANDIDATEFORM, CFS_POINT, COMPOSITIONFORM, GCS_COMPSTR, GCS_CURSORPOS,
-                IME_CMODE_FULLSHAPE, IME_CMODE_NATIVE, ImmGetCompositionStringW, ImmGetContext,
-                ImmGetConversionStatus, ImmGetDescriptionW, ImmGetOpenStatus, ImmReleaseContext,
-                ImmSetCandidateWindow, ImmSetCompositionWindow,
+                CANDIDATEFORM, CFS_POINT, COMPOSITIONFORM, IME_CMODE_FULLSHAPE, IME_CMODE_NATIVE,
+                ImmGetContext, ImmGetConversionStatus, ImmGetDescriptionW, ImmGetOpenStatus,
+                ImmReleaseContext, ImmSetCandidateWindow, ImmSetCompositionWindow,
             },
             KeyboardAndMouse::{GetFocus, GetKeyboardLayout},
         },
-        WindowsAndMessaging::{
-            GetClientRect, GetForegroundWindow, GetWindowRect, WM_IME_COMPOSITION,
-            WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION,
-        },
+        WindowsAndMessaging::{GetClientRect, GetForegroundWindow, GetWindowRect},
     },
+};
+
+#[cfg(feature = "input")]
+use windows_sys::Win32::UI::{
+    Input::Ime::{GCS_COMPSTR, GCS_CURSORPOS, ImmGetCompositionStringW},
+    WindowsAndMessaging::{WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION},
 };
 
 use crate::{
@@ -93,6 +95,7 @@ pub(crate) fn set_anchor_position(x: i32, y: i32) {
 /// processed. The composition text is only readable while the input context
 /// is live on this window, so the adapter caches it here and lets callers
 /// poll it later from the paint path.
+#[cfg(feature = "input")]
 pub(crate) fn refresh_from_message(hwnd: HWND, message: u32) {
     let next = match message {
         WM_IME_STARTCOMPOSITION | WM_IME_COMPOSITION => read_composition(hwnd),
@@ -109,6 +112,7 @@ pub(crate) fn composition() -> Option<ImeComposition> {
     COMPOSITION.lock().ok().and_then(|slot| slot.clone())
 }
 
+#[cfg(feature = "input")]
 fn read_composition(hwnd: HWND) -> Option<ImeComposition> {
     let context = unsafe { ImmGetContext(hwnd) };
     if context.is_null() {
@@ -130,6 +134,7 @@ fn read_composition(hwnd: HWND) -> Option<ImeComposition> {
     })
 }
 
+#[cfg(any(feature = "input", test))]
 fn utf16_cursor_to_char_index(text: &str, units: usize) -> usize {
     let mut consumed = 0usize;
     text.chars()
@@ -145,6 +150,7 @@ fn utf16_cursor_to_char_index(text: &str, units: usize) -> usize {
         .count()
 }
 
+#[cfg(feature = "input")]
 fn composition_text(context: *mut core::ffi::c_void) -> Option<String> {
     let needed = unsafe { ImmGetCompositionStringW(context, GCS_COMPSTR, std::ptr::null_mut(), 0) };
     if needed <= 0 {
@@ -167,6 +173,7 @@ fn composition_text(context: *mut core::ffi::c_void) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
+#[cfg(feature = "input")]
 fn composition_cursor(context: *mut core::ffi::c_void) -> Option<usize> {
     let units =
         unsafe { ImmGetCompositionStringW(context, GCS_CURSORPOS, std::ptr::null_mut(), 0) };
