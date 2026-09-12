@@ -467,8 +467,10 @@ court has claim-preserving `.wat` or typed-owner evidence.
   direct oracle，删除第十个 Lisp court。统一入口又新增真实的
   `isize(u32)` 单态 trampoline，以 signed `isize` direct oracle 接管
   `_dyld_get_image_vmaddr_slide(0)`，不再沿用旧 Lisp court 将返回值伪装成
-  pointer 的做法；`macos_probes.rs` 还剩四个 caller-buffer/结构体或异构标量
-  court。
+  pointer 的做法。真实的 `usize(i32,ptr,usize)` trampoline 又接管 `confstr`
+  的完整 `size_t` 返回值、NUL 终止输出与 direct native bytes oracle，不再经
+  Lisp 的 `u64`/language-integer 表示；`macos_probes.rs` 还剩三个复杂
+  caller-buffer/结构体 court。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded

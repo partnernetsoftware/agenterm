@@ -205,6 +205,7 @@ enum Family {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DirectScalarPrototype {
     IsizeU32,
+    UsizeI32PointerUsize,
 }
 
 /// Pointer-returning monomorphic shapes implemented directly by the unified
@@ -357,6 +358,13 @@ fn classify(signature: AbiSignature<'_>, arguments: &[AbiValue]) -> Result<Famil
     }
     if signature.result == AbiType::Isize && signature.params == [AbiType::U32] {
         return Ok(Family::DirectScalar(DirectScalarPrototype::IsizeU32));
+    }
+    if signature.result == AbiType::Usize
+        && signature.params == [AbiType::I32, AbiType::Pointer, AbiType::Usize]
+    {
+        return Ok(Family::DirectScalar(
+            DirectScalarPrototype::UsizeI32PointerUsize,
+        ));
     }
     Err(AbiError::SignatureUnsupported {
         result: signature.result,
@@ -637,6 +645,33 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
             .map_err(|error| pointer_result_symbol_error(call, error))?;
             // SAFETY: the caller owns the symbol contract and library lifetime.
             Ok(AbiValue::Isize(unsafe { function(*argument) }))
+        }
+        Family::DirectScalar(DirectScalarPrototype::UsizeI32PointerUsize) => {
+            let [
+                AbiValue::I32(name),
+                AbiValue::Pointer(buffer),
+                AbiValue::Usize(length),
+            ] = call.arguments
+            else {
+                unreachable!("classification checked usize(i32,ptr,usize) arguments")
+            };
+            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
+                library: display_library(call.library),
+                message: error.to_string(),
+            })?;
+            // SAFETY: classification admitted `usize(i32,ptr,usize)`; the caller
+            // asserts that the resolved symbol really has this C ABI.
+            let function = unsafe {
+                library.get::<unsafe extern "C" fn(i32, *mut c_void, usize) -> usize>(
+                    call.symbol.as_bytes(),
+                )
+            }
+            .map_err(|error| pointer_result_symbol_error(call, error))?;
+            // SAFETY: the caller owns the symbol contract, pointer validity and
+            // library lifetime.
+            Ok(AbiValue::Usize(unsafe {
+                function(*name, *buffer, *length)
+            }))
         }
     }
 }

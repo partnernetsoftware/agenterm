@@ -2,8 +2,6 @@
 
 #![cfg(target_os = "macos")]
 
-use std::ffi::CStr;
-
 use agenterm_dyn::{Dyn, SystemProbeStatus, Value, live_cell};
 
 const LIB: &str = "libSystem.B.dylib";
@@ -122,35 +120,4 @@ fn dlcall_proc_pid_rusage_writes_caller_owned_v4() {
     assert_eq!(direct_status, 0, "direct proc_pid_rusage must succeed");
     assert_eq!(ri.ri_uuid, direct.ri_uuid);
     assert_eq!(ri.ri_proc_start_abstime, direct.ri_proc_start_abstime);
-}
-
-#[test]
-fn dlcall_confstr_writes_cs_path() {
-    let symbol = live_symbol("confstr");
-    let name = libc::_CS_PATH;
-    let mut buffer = [0_u8; 4096];
-    let len = buffer.len();
-    let mut env = Dyn::new();
-    env.bind("buf", buffer.as_mut_ptr().cast())
-        .expect("bind confstr buffer");
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "u64" "i32" {name} "ptr" buf "u64" {len})"#),
-    )
-    .expect("confstr dlcall")
-    .as_int()
-    .expect("confstr size");
-    assert!(got > 1, "confstr(_CS_PATH) must write a non-empty path");
-
-    let mut direct = [0_u8; 4096];
-    let direct_len = unsafe { libc::confstr(name, direct.as_mut_ptr().cast(), direct.len()) };
-    assert_eq!(got, direct_len as i64);
-    assert_eq!(
-        CStr::from_bytes_until_nul(&buffer)
-            .expect("confstr must NUL-terminate successful output")
-            .to_bytes(),
-        CStr::from_bytes_until_nul(&direct)
-            .expect("direct confstr must NUL-terminate successful output")
-            .to_bytes()
-    );
 }

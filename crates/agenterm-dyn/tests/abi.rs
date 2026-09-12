@@ -225,6 +225,43 @@ fn dyld_image_slide_matches_the_direct_signed_result() {
     );
 }
 
+/// The unified mechanism carries `size_t` without narrowing and leaves the
+/// caller-owned string contract to this direct-oracle court.
+#[cfg(target_os = "macos")]
+#[test]
+fn confstr_matches_the_direct_length_and_native_bytes() {
+    let mut bridged = [0_u8; 4096];
+    let value = oracle(
+        LIB,
+        "confstr",
+        AbiType::Usize,
+        &[AbiType::I32, AbiType::Pointer, AbiType::Usize],
+        &[
+            AbiValue::I32(libc::_CS_PATH),
+            AbiValue::Pointer(bridged.as_mut_ptr().cast()),
+            AbiValue::Usize(bridged.len()),
+        ],
+    )
+    .expect("confstr through the raw ABI");
+    let AbiValue::Usize(written) = value else {
+        panic!("confstr must return the declared usize position, got {value:?}")
+    };
+    assert!(written > 1, "confstr(_CS_PATH) must write a non-empty path");
+
+    let mut direct = [0_u8; 4096];
+    let direct_len =
+        unsafe { libc::confstr(libc::_CS_PATH, direct.as_mut_ptr().cast(), direct.len()) };
+    assert_eq!(written, direct_len);
+    assert_eq!(
+        CStr::from_bytes_until_nul(&bridged)
+            .expect("confstr must NUL-terminate successful output")
+            .to_bytes(),
+        CStr::from_bytes_until_nul(&direct)
+            .expect("direct confstr must NUL-terminate successful output")
+            .to_bytes()
+    );
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn two_pointer_result_buffer_matches_direct_dladdr_fields() {
