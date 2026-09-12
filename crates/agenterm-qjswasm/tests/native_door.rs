@@ -574,20 +574,17 @@ fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
     let source = include_str!("fixtures/native/getrlimit_nofile.wat").to_owned();
     #[cfg(target_os = "macos")]
     let source = source.replace("(i64.const 7)", "(i64.const 8)");
-    let output = std::process::Command::new("sh")
-        .args(["-c", "ulimit -n"])
-        .output()
-        .expect("the shell resource-limit oracle runs");
-    assert!(output.status.success(), "ulimit -n must succeed");
-    let expected_limit = String::from_utf8(output.stdout)
-        .expect("ulimit emits UTF-8 digits")
-        .trim()
-        .parse::<u64>()
-        .expect("ulimit emits a numeric descriptor limit");
-    assert_eq!(
-        run_wat(&source, Budget::default()).expect("getrlimit runs through i32(i32,ptr)") as u64,
-        expected_limit
-    );
+    let mut direct_limit = std::mem::MaybeUninit::<libc::rlimit>::uninit();
+    let direct_status = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, direct_limit.as_mut_ptr()) };
+    assert_eq!(direct_status, 0, "direct getrlimit must succeed");
+    let direct_limit = unsafe { direct_limit.assume_init() };
+    let soft = run_wat(&source, Budget::default())
+        .expect("getrlimit soft limit runs through i32(i32,ptr)") as u64;
+    let hard_source = source.replace("(i64.load (i32.const 256))", "(i64.load (i32.const 264))");
+    let hard = run_wat(&hard_source, Budget::default())
+        .expect("getrlimit hard limit runs through i32(i32,ptr)") as u64;
+    assert_eq!(soft, direct_limit.rlim_cur);
+    assert_eq!(hard, direct_limit.rlim_max);
 
     assert!(
         std::path::Path::new("/")

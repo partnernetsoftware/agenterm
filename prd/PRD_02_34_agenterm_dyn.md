@@ -511,6 +511,9 @@ court has claim-preserving `.wat` or typed-owner evidence.
   `lseek(0,0,SEEK_CUR)` 复用已有 `i64(i32,i64,i32)` fixed trampoline，WAT
   guest 与 direct libc 精确比较（包括合法的 `-1` 非 seekable 结果）；两份 Lisp
   courts 已删除。
+  `getrlimit(RLIMIT_NOFILE)` 的既有 WAT court 现分别读取 `rlim_cur` 与
+  `rlim_max`，并与一次 direct libc 结构体结果逐字段精确比较；补齐原先仅覆盖
+  soft limit 的缺口后，Linux/macOS 两份 Lisp caller-buffer courts 已删除。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded

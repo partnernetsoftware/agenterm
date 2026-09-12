@@ -245,40 +245,6 @@ mod linux {
         );
     }
 
-    #[test]
-    fn dlcall_getrlimit_nofile_writes_caller_owned_rlimit_and_matches_libc_baseline() {
-        let probe = live_system_probe("getrlimit_nofile");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut dlcall_limit: libc::rlimit = unsafe { std::mem::zeroed() };
-        let mut env = Dyn::new();
-        env.bind("limit", (&mut dlcall_limit as *mut libc::rlimit).cast())
-            .expect("bind caller-owned rlimit");
-
-        let got = eval_native(
-            &mut env,
-            &format!(
-                r#"(dlcall "{lib}" "{symbol}" "i32" "i32" {} "ptr" limit)"#,
-                libc::RLIMIT_NOFILE
-            ),
-        )
-        .expect("getrlimit dlcall");
-        assert_eq!(got, Value::Int(0));
-
-        let mut libc_limit: libc::rlimit = unsafe { std::mem::zeroed() };
-        let baseline = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut libc_limit) };
-        assert_eq!(baseline, 0, "direct libc getrlimit baseline");
-        assert_eq!(
-            dlcall_limit.rlim_cur, libc_limit.rlim_cur,
-            "getrlimit dlcall soft limit must match the direct libc baseline"
-        );
-        assert_eq!(
-            dlcall_limit.rlim_max, libc_limit.rlim_max,
-            "getrlimit dlcall hard limit must match the direct libc baseline"
-        );
-    }
-
     fn timeval_at_most(left: libc::timeval, right: libc::timeval) -> bool {
         (left.tv_sec, left.tv_usec) <= (right.tv_sec, right.tv_usec)
     }
@@ -782,39 +748,6 @@ mod macos {
             timeval_at_most(dlcall_usage.ru_utime, libc_usage.ru_utime)
                 && timeval_at_most(dlcall_usage.ru_stime, libc_usage.ru_stime),
             "later direct libc baseline must not precede dlcall CPU usage"
-        );
-    }
-
-    #[test]
-    fn dlcall_getrlimit_nofile_writes_caller_owned_rlimit_and_matches_libc_baseline() {
-        let probe = live_system_probe("getrlimit_nofile");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!()
-        };
-        let mut dlcall_limit: libc::rlimit = unsafe { std::mem::zeroed() };
-        let mut env = Dyn::new();
-        env.bind("limit", (&mut dlcall_limit as *mut libc::rlimit).cast())
-            .expect("bind caller-owned rlimit");
-        let got = eval_native(
-            &mut env,
-            &format!(
-                r#"(dlcall "{lib}" "{symbol}" "i32" "i32" {} "ptr" limit)"#,
-                libc::RLIMIT_NOFILE
-            ),
-        )
-        .expect("getrlimit dlcall");
-        assert_eq!(got, Value::Int(0));
-
-        let mut libc_limit: libc::rlimit = unsafe { std::mem::zeroed() };
-        let baseline = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut libc_limit) };
-        assert_eq!(baseline, 0, "direct libc getrlimit baseline");
-        assert_eq!(
-            dlcall_limit.rlim_cur, libc_limit.rlim_cur,
-            "getrlimit dlcall soft limit must match the direct libc baseline"
-        );
-        assert_eq!(
-            dlcall_limit.rlim_max, libc_limit.rlim_max,
-            "getrlimit dlcall hard limit must match the direct libc baseline"
         );
     }
 
