@@ -52,6 +52,12 @@ assert!(matches!(pid, AbiValue::I32(value) if value > 0));
 without loading or calling the symbol. An unsupported shape returns
 `AbiError::SignatureUnsupported`; dyn never approximates one ABI as another.
 
+Focused examples:
+
+- [`examples/raw-abi.md`](examples/raw-abi.md) — scalar call and signature duty;
+- [`examples/pointer-buffer.md`](examples/pointer-buffer.md) — caller-owned pointer storage;
+- [`examples/unix-ioctl.md`](examples/unix-ioctl.md) — the dedicated variadic Unix ABI.
+
 ## Relationship to qjswasm
 
 `agenterm-qjswasm` owns the native-call grammar and catalog, `ptr` versus
