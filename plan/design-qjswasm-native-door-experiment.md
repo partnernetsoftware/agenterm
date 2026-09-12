@@ -114,7 +114,83 @@ B 获资格后立即开迁移叶：
    断言，再迁到新门真实路径，防止清单假绿。
 6. 同批更新 `prd/PRD_02_34_agenterm_dyn.md` 与 `plan/ARCHITECTURE.md`，不得留下两个 living native doors。
 
-## 8. 明确非目标
+## 8. 结论回填（2026-09-12，中间审计；实验仍 active）
+
+### 8.1 当前判决
+
+**尚不能沿 §4 宣判 B 获资格，也没有触发 B 判负。** 当前树已经实现 S1、S2，并有 S3/S4
+的真实代码和测试；所以“native door 首片不存在”是错误描述。但主判据 2 要求把“前三个能力完成”与
+“只加入第四能力”分成两个可比较 source state，而 `35098c28 qjswasm: open a contained native call door`
+在同一提交中加入 door 生产实现、前三个能力和第四个 `additions/getpagesize.wat`，没有留下可复算的前态。
+因此现有目录守卫证明第四能力**现在只是一份额外 WAT**，却不能替代事前要求的 Rust 生产代码
+before/after diff。按 §4，主判据未出数时必须停在“进行中”，不能用 S1/S2 落地或 public `.wasm`
+监督链代替胜诉。
+
+判决树 trace：判据 1 尚缺四能力逐 target 独立 oracle 全证据 → 不判；判据 2 缺可比前态 →
+主判据未测定；判据 3 的一次 `7 → 8` 已由表与测试锁住、未见第四扇门 → 通过当前树审计；
+判据 4 有固定表和独立计数，但没有生成器产物账 → 部分通过；判据 5–7 的完整 target、runtime
+与 release 账本缺失 → 不得进入 §7 迁移。
+
+### 8.2 S1–S5 与事前判据对账
+
+| 切片 | 当前状态 | 当前树的直接证据 | 未完成的事前要求 |
+|------|----------|------------------|------------------|
+| S1 schema + validator | **已实现** | `b7ff748e` 新增 `src/native.rs` 与 `tests/native_door_schema.rs`；上限、checked span、exact block、typed error code、GP/F64 分类和独立 381-pattern 重算均有测试 | 无实现缺口；最终结果账本仍须记录该 SHA/测试 |
+| S2 单一 door + bounded caller | **已实现** | `35098c28` 将唯一 `agenterm.native_call(i32,i32,i32,i32)->i32` 接入 opt-in Engine；`native_door.rs` 覆盖默认关闭、显式开启、声明发现和 budget/cancel | 尚缺全部目标格编译/运行归属 |
+| S3 三能力 + 负面矩阵 | **部分完成** | Unix `getpid/getppid/getuid` 真调用；另有 `abs(i32)` 与 `cos(f64)` 精确 ABI family；schema 测试覆盖 spec/block/argument span 和尺寸，door 测试区分 library/symbol/signature/OOB | `getppid` 只断言 `>0`、`getuid` 只断言非负，不是事前要求的独立 oracle；证据只在实际运行测试的 host 成立 |
+| S4 第四能力 | **夹具已实现，主判据未测定** | `tests/fixtures/native/additions/getpagesize.wat` 与 `a_fourth_capability_is_only_an_additional_wat_guest` 存在；door 表仍只有一个 native import | `35098c28` 同时加入生产门和四个能力，无“前三个完成”基线 SHA，不能复算第四能力 Rust 生产 diff = 0；需重新建立可比两点 |
+| S5 qualification | **未完成** | `3afbdc1d` 另行证明 public plain/compiled-qjs artifact 协议，以及 Unix worker crash/timeout 监督测试；它不等于本实验六格资格 | 缺两 MSVC + Linux + 本机的精确 SHA compile ledger；缺可运行 cell 的逐格 native runtime；缺同口径 release qjswasm/根产品增量；缺独立 `RESULTS.md` |
+
+### 8.3 判据账（数字均为当前树结构审计，不冒充目标运行）
+
+| 判据 | 结果 | 数值/条件与执行状态 |
+|------|------|---------------------|
+| 1 正确性 | **未完成** | 3 个首组 Unix fixture + 1 个 addition 在本机 macOS 运行通过；只有 `getpid` 与进程 oracle 精确相等，`getppid/getuid` oracle 不充分。[实测·本机真机执行；其它 target 未运行] |
+| 2 能力斜率（主） | **未测定** | 缺前三能力基线 SHA，不能计算第四能力生产 Rust LOC；不得把同提交中的目录布局写成 `0 行` 实测。[结构审计] |
+| 3 门面冻结 | **当前通过** | `SIGNATURES` 为 8 项，默认门为 7 项，native opt-in 只追加 1 项；第四 fixture 没有新增 import。[结构审计；本机专属测试通过] |
+| 4 有限桩表 | **部分通过** | 参数类 2、返回类 3、arity `0..=6`，独立枚举为 `3 × Σ(2^0..2^6) = 381`；可执行 exact homogeneous 表为 `7 × 7 = 49`。实现以宏列出 0–6 arity，尚无规格所说的生成器结果文件。[结构审计；本机独立计数测试通过] |
+| 5 no-JIT / cross | **部分通过** | 代码使用固定 Rust `extern C` stubs + `libloading`，未见 executable allocation、机器码生成、汇编或 C build；目标 compile/runtime ledger 未交。[结构审计] |
+| 6 资源边界 | **当前通过 schema 审计** | spec 1024 B、library 512 B、symbol 255 B、arity 6、block exact-size；span/addition/narrowing 有 typed checked paths 和测试。[结构审计；本机专属测试通过] |
+| 7 体积账 | **未完成** | L1/L2/L3 均未测定；没有同 boundary/tool/build/target-execution 四元口径的 release before/after bytes。 |
+
+### 8.4 与规格不符及不能外推之处
+
+1. 时间盒写成“两个工作日”，而技能要求钉在具体判据；真正停止点仍是“第四能力斜率出数”。本审计不
+   事后修改判据，只把缺失的可比两点列为 blocker。
+2. S1 与 S2 分成了 `b7ff748e` / `35098c28`，但 S3 与 S4 没有再分提交，破坏了主斜率的测量设计。
+3. 规格要求生成器穷举固定 arity；当前是固定宏桩 + 两个独立 cardinality 函数/测试，没有生成器产物。
+4. `3afbdc1d script: supervise native wasm artifacts` 增加 public `.wasm` 的 explicit convention、bounded
+   protocol 与 `WorkerSupervisor` crash/timeout 隔离。它是 Script Runtime 的投递/监督证据，不是 S1/S3
+   的替代品，也不补齐 native door 的 target runtime、斜率或 release-size 判据。
+5. 本实验尚无 `research/.../RESULTS.md`；按判决性实验纪律不得标“已判决”。
+
+诚实条款：本次没有为了让 B 看起来胜出而改判据或把结构推断改写成真机实测。当前结果有且只有一种
+合规读法：**实现已前进，资格实验仍 active；没有证据支持删除/弱化 dyn。**
+
+### 8.5 可复跑证据与剩余 qualification
+
+当前专属测试（从仓库根运行）：
+
+```text
+cargo test -p agenterm-qjswasm --test native_door_schema
+cargo test -p agenterm-qjswasm --test native_door
+cargo test --test script_native_artifact_supervisor
+```
+
+要结束实验，须在结果账本中补齐：
+
+1. 建立前三能力基线和只加 `additions/getpagesize.wat` 的第四点；用统一“非空、非注释生产 Rust 行”命令
+   报前后 diff，并证明 fixture 之外无生产 Rust 变化。若无法恢复可信前态，应另加一个 grammar 已覆盖的第五
+   只读 fixture 作为新的边际点，并在结果中明确这是规格偏差；非零立即触发 kill。
+2. 对 `x86_64-pc-windows-msvc`、`aarch64-pc-windows-msvc`、一个 Linux target 与本机 target 记录精确
+   source SHA 和 compile 命令；每个有 runner 的 cell 跑 native fixture，未运行的产物只标“仅编译”。Windows
+   至少用 `windows_get_current_process_id.wat`，Unix 用 owning fixtures；不得用 public artifact 协议测试代跑。
+3. 补 release before/after 账：分别报告 L1 机制、L2 机制+OS 接缝、L3 整个投递足迹；每个数字附
+   boundary/tool/build/target-execution 四元口径。缺可比 baseline 时写“未测定”，不得跨 profile 相减。
+4. 写入独立 `research/.../RESULTS.md`，包含 exact SHA、工具链、门面计数、49/381 独立复算、runtime
+   attribution、release bytes、偏差和复跑命令；完成前 §7 迁移门保持关闭。
+
+## 9. 明确非目标
 
 - 不删除 `invoke_unix_ioctl`；不把定参调用冒充 variadic。
 - 不恢复 `job-spawn --expiry detach`。
