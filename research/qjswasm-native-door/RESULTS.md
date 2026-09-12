@@ -175,3 +175,61 @@ CARGO_TARGET_DIR=target/s5-followup cargo test -p agenterm-qjswasm --test native
 - **未声称** raw inventory(8) 的字段集合可从公开 API 取得（仍只有 `host.rs` 的结构只读证据）；
 - **未声称** release 三层任何结论；
 - **未声称** 49 与新 helper 之外还有别的准入路径（`invoke_native_call` 是唯一调用点）。
+
+---
+
+# 追加：follow-up 2 — 跨目标三格在当前 HEAD 的复验
+
+本节**只**记录新的 source state；§1–§8 与 §F1–§F6 原样保留，**不覆盖**。
+
+## F7. source identity、工具链与命令（本轮实测）
+
+| 项 | 值 |
+|---|---|
+| **HEAD（本节 source identity）** | `2158fffb152fb9e490c3c87bc64c83f5a0e4e8f3` |
+| 工作树 | `git status --porcelain` 为空（clean） |
+| `rustc -V` | `rustc 1.97.0 (2d8144b78 2026-07-07)` |
+| `cargo -V` | `cargo 1.97.0 (c980f4866 2026-06-30)` |
+| `cargo xwin --version` | `cargo-xwin-xwin 0.23.1` |
+| `zig version` | `0.16.0` |
+| lane | `CARGO_TARGET_DIR=target/s5-cross`（**用 `cargo clean --target-dir target/s5-cross` 清理，不用 `rm -rf`**） |
+
+三格**串行**执行（不并发争 Cargo 锁）：
+
+```sh
+export CARGO_TARGET_DIR=target/s5-cross
+cargo xwin clippy --target x86_64-pc-windows-msvc  -p agenterm-qjswasm --all-targets -- -D warnings
+cargo xwin clippy --target aarch64-pc-windows-msvc -p agenterm-qjswasm --all-targets -- -D warnings
+cargo zigbuild   --target x86_64-unknown-linux-gnu -p agenterm-qjswasm --all-targets
+```
+
+## F8. 结果（仅编译；**未运行任何非宿主目标**）
+
+| 格 | rc | 输出要点 | 诊断数 | 状态 |
+|---|---|---|---|---|
+| Windows **x86_64** MSVC clippy | **0** | `Finished dev profile … in 9.02s` | **0 warnings** | **仅编译** |
+| Windows **aarch64** MSVC clippy | **0** | `Finished dev profile … in 5.58s` | **0 warnings** | **仅编译** |
+| Linux **x86_64** zigbuild（`--all-targets`） | **0** | `Finished dev profile … in 10.76s`，另有 `warning: agenterm-platform (lib) generated 4 warnings`（以及重复汇总） | **`agenterm-qjswasm` 自有诊断 0**；warning 均来自**依赖 `agenterm-platform` (lib)** | **仅编译** |
+
+**边界（必须与结果一起读）**：
+- 三格都是 **`dev` profile 的编译/静态检查**，**没有**在 Windows 或 Linux 上**运行**任何 native-door 测试 ⇒ **不声称任何非宿主 runtime**；
+- Linux 一格**未**加 `-D warnings`（按本节给出的命令形态）⇒ 它证明"可编译"，**不**证明"零警告"；其 warning **不属于 `agenterm-qjswasm`**；
+- 两格 Windows clippy **带了** `-- -D warnings` 且 rc=0 ⇒ qjswasm 在该目标零诊断。
+
+## F9. 更正：§3 的 Linux **BLOCKED** 已解开（记录在此，不改写 §3）
+
+§3 当时用 `cargo zigbuild check --target …` 得到 `rc=2` 并标 **BLOCKED**。**根因是命令形态**：`cargo-zigbuild` 的构建命令本身即 `cargo zigbuild`，**不接受 `check` 子命令**。
+改用正确形态后（本节 F7 第三行命令）**rc=0**。
+⇒ §3 的 BLOCKED 是**我方调用错误**，不是工具缺失或仓库缺陷；该格现为**已测定（仅编译）**。
+§3 原文保留不删，以保留测量历史。
+
+## F10. Release
+
+**L1 / L2 / L3 仍未测定**；本节全部为 **debug（dev profile）**。
+
+## F11. 本节未声称项
+
+- 未声称任何 Windows/Linux **runtime**；
+- 未声称 Linux 一格"零警告"（未加 `-D warnings`，且 warning 来自依赖）；
+- 未声称 §3 的旧命令/旧 SHA 证据可沿用到本节（本节 SHA 为 `2158fffb…`）；
+- 未声称 release 三层任何结论。
