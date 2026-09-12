@@ -330,6 +330,28 @@ fn four_real_read_only_native_capabilities_cross_the_eighth_door() {
 
 #[cfg(unix)]
 #[test]
+fn session_and_process_group_ids_cross_the_native_door() {
+    for (name, source, direct) in [
+        (
+            "getsid",
+            include_str!("fixtures/native/getsid_zero.wat"),
+            unsafe { libc::getsid(0) },
+        ),
+        (
+            "getpgid",
+            include_str!("fixtures/native/getpgid_zero.wat"),
+            unsafe { libc::getpgid(0) },
+        ),
+    ] {
+        assert!(direct > 0, "{name} direct oracle must be positive");
+        let guest = run_wat(source, Budget::default())
+            .unwrap_or_else(|error| panic!("{name} guest failed: {error}"));
+        assert_eq!(guest, i64::from(direct), "{name} must match libc");
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn a_fourth_capability_is_only_an_additional_wat_guest() {
     let directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/native/additions");

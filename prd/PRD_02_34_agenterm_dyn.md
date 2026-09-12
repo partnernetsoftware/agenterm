@@ -485,6 +485,8 @@ court has claim-preserving `.wat` or typed-owner evidence.
   Unix `getpgrp` 的 Linux/macOS 重复 Lisp court 也已由一个 WAT guest 接管：
   qjswasm 仍拥有 `i32()` 的 catalog 决策，dyn 的统一 ABI 入口只执行，门测试
   与独立 `libc::getpgrp()` 精确比较；该迁移没有增加 loader、door 或允许规则。
+  同形的 `getsid(0)` 与 `getpgid(0)` 随后迁入两个 WAT guest；正值断言及
+  `libc` 精确 oracle 均保留，Linux/macOS 的三份重复 Lisp court 已删除。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded
