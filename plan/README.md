@@ -31,6 +31,12 @@ open. Their presence in this directory does not assign them to a version.
 - `research-decentralized-network.md` — research only.
 - `design-dynacore-*`, `goal-agenterm-dyn-macos.md` — isolated internal
   mechanism research; not a release theme.
+- [`design-qjswasm-native-door-experiment.md`](design-qjswasm-native-door-experiment.md) —
+  active strategic slope experiment for a fixed guest-to-native door; successful
+  evidence immediately opens migration from the duplicated dyn language layer.
+- [`design-guest-runtime-placement-experiment.md`](design-guest-runtime-placement-experiment.md) —
+  follow-on A/B court for CU static linkage versus a versioned provider ABI; both
+  minimal connections are measured before the reachable `guest-run` surface lands.
 
 ## Archive rule
 

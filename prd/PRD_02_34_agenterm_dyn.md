@@ -165,6 +165,37 @@ The prose adds no cu or platform wiring.
 These are open product decisions, not scheduled branches and not evidence of
 implemented functionality. Do not begin them without explicit 政委 direction.
 
+### Active re-layering track (2026-09-12)
+
+Dyn is an important bottom-layer module, and this track is authorized to explore and
+implement the strongest sustainable layering rather than merely preserve the current
+shape. The current S-expression surface remains shipped product truth while migration
+evidence is built. A handoff reported
+that a lost prototype moved native argument memory into qjswasm guest linear memory
+and held the Rust production-code increment at zero when a fourth native capability
+was added. The prototype is no longer present, so that report is an input to a new
+decisive experiment, not product evidence.
+
+- [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
+  owns the active fixed-door slope court. Its bounded prototype is authorized now. It forbids JIT, C/libffi, deleting the Unix
+  variadic `ioctl` exception, adding a CU verb, or deleting this shipped language
+  before current-tree evidence exists.
+- Migrating and then deleting `eval.rs` / `parse.rs` / `sym.rs` / `value.rs` follows a successful slope result
+  plus a complete public-consumer migration. Read-only inventory found no other crate,
+  binary or task consumer, but the old surface still owns `Dyn`/`Value`/`Symbol`,
+  `native.rs`, roughly 212 tests and 84 executable examples; this is a deliberate
+  evidence migration, not a four-file deletion. `hosts.rs` remains the six-cell fact
+  owner and `exec.rs` remains available for the separately bounded future JIT tool.
+- [`plan/design-guest-runtime-placement-experiment.md`](../plan/design-guest-runtime-placement-experiment.md)
+  freezes the unresolved product choice between optional static CU linkage and a
+  versioned provider ABI. No `guest-run` verb may land before one placement is both
+  release-size qualified and reachable through a public black box, then approved by
+  the human owner.
+
+This track changes no shipped capability count until its public migration lands, but it
+does authorize the bounded native-door prototype, measurements, and follow-on migration
+work described by the linked plans.
+
 ## Non-goals until 政委 orders otherwise
 
 - No JIT / sljit / DynASM / copy-and-patch.
