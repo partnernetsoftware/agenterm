@@ -1,5 +1,10 @@
 # agenterm-dyn 跨平台加固评审（CC review）
 
+> **Archived / superseded (2026-09-13).** This review predates the removal of
+> dyn's S-expression language and host-fact catalog. Its open recommendations
+> are historical evidence, not current instructions; use PRD 02.34 and
+> `plan/ARCHITECTURE.md` for the policy-free `invoke_abi` design.
+
 Date: 2026-08-15. Reviewer: Claude Code 会话。
 Scope: `crates/agenterm-dyn` 全部源码 + 测试 + `hosts.rs` 六格表 + PRD 02.34 + CI 配置。
 Status: 评审意见，未实施。第 2/4 步与 PRD 02.34 现行方向冲突，需政委拍板。

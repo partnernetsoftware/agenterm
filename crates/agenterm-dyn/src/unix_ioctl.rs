@@ -1,4 +1,4 @@
-//! Narrow typed ownership of Unix's variadic `ioctl` ABI.
+//! Unix's variadic `ioctl` ABI mechanism.
 
 use std::ffi::c_void;
 use std::fmt;
