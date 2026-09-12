@@ -9,9 +9,9 @@
 //!
 //! The long-term direction is that the three families (`invoke_exact`,
 //! `invoke_fixed`, `invoke_fixed_pointer`) become thin wrappers over one
-//! mechanism entry. Exact and fixed callers now follow that direction;
-//! fixed-pointer calls still delegate to their existing entry point. The
-//! layering is therefore **in migration** and must not be described as finished.
+//! mechanism entry. All three compatibility families now follow that direction:
+//! each public legacy entry delegates to [`invoke_abi`], which selects a
+//! crate-private family mechanism without re-entering the wrapper.
 //!
 //! # Nullability and pointee contracts live in the upper layer
 //!
@@ -47,7 +47,7 @@ use crate::fixed_native::{
 };
 use crate::fixed_pointer::{
     FixedPointerCall, FixedPointerError, FixedPointerPrototype, FixedPointerType,
-    FixedPointerValue, invoke_fixed_pointer,
+    FixedPointerValue, invoke_fixed_pointer_mechanism,
 };
 
 /// One ABI position the mechanism can express.
@@ -543,7 +543,7 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
                 arguments: &arguments,
             };
             // SAFETY: as above.
-            match unsafe { invoke_fixed_pointer(&pointer) } {
+            match unsafe { invoke_fixed_pointer_mechanism(&pointer) } {
                 Ok(status) => Ok(AbiValue::I32(status)),
                 Err(error) => Err(pointer_error(error, signature, call)),
             }

@@ -162,7 +162,8 @@ pub fn validate_fixed_pointer_signature(
     }
 }
 
-/// Resolve and invoke one enumerated synchronous caller-buffer prototype.
+/// Resolve and invoke one enumerated synchronous caller-buffer prototype
+/// through the unified ABI mechanism entry.
 ///
 /// # Safety
 /// The caller asserts that `symbol` really has `prototype`'s fixed,
@@ -172,6 +173,80 @@ pub fn validate_fixed_pointer_signature(
 /// retain a pointer after returning. Native initializers, finalizers, and the
 /// function itself may have arbitrary process effects.
 pub unsafe fn invoke_fixed_pointer(call: &FixedPointerCall<'_>) -> Result<i32, FixedPointerError> {
+    use crate::abi::{AbiError, AbiSignature, AbiType, AbiValue, NativeCall, invoke_abi};
+
+    const fn abi_type(ty: FixedPointerType) -> AbiType {
+        match ty {
+            FixedPointerType::I32 => AbiType::I32,
+            FixedPointerType::U32 => AbiType::U32,
+            FixedPointerType::U64 => AbiType::U64,
+            FixedPointerType::Pointer | FixedPointerType::NullablePointer => AbiType::Pointer,
+        }
+    }
+    const fn abi_value(value: FixedPointerValue) -> AbiValue {
+        match value {
+            FixedPointerValue::I32(bits) => AbiValue::I32(bits),
+            FixedPointerValue::U32(bits) => AbiValue::U32(bits),
+            FixedPointerValue::U64(bits) => AbiValue::U64(bits),
+            FixedPointerValue::Pointer(address) | FixedPointerValue::NullablePointer(address) => {
+                AbiValue::Pointer(address)
+            }
+        }
+    }
+
+    let parameters = call
+        .prototype
+        .parameters()
+        .iter()
+        .copied()
+        .map(abi_type)
+        .collect::<Vec<_>>();
+    let arguments = call
+        .arguments
+        .iter()
+        .copied()
+        .map(abi_value)
+        .collect::<Vec<_>>();
+    let native = NativeCall {
+        library: call.library,
+        symbol: call.symbol,
+        signature: AbiSignature {
+            result: AbiType::I32,
+            params: &parameters,
+        },
+        arguments: &arguments,
+    };
+    // SAFETY: the legacy caller upholds the same symbol and pointer contracts.
+    match unsafe { invoke_abi(&native) } {
+        Ok(AbiValue::I32(status)) => Ok(status),
+        Ok(_)
+        | Err(AbiError::SignatureUnsupported { .. })
+        | Err(AbiError::ArgumentCount { .. })
+        | Err(AbiError::ArgumentShape { .. }) => Err(FixedPointerError::SignatureUnsupported {
+            prototype: call.prototype,
+            parameters: call
+                .arguments
+                .iter()
+                .map(|argument| argument.ty())
+                .collect(),
+        }),
+        Err(AbiError::LibraryLoad { library, message }) => {
+            Err(FixedPointerError::LibraryLoad { library, message })
+        }
+        Err(AbiError::SymbolLookup {
+            symbol, message, ..
+        }) => Err(FixedPointerError::SymbolLoad { symbol, message }),
+    }
+}
+
+/// Executes an admitted pointer-family shape without re-entering the public
+/// compatibility wrapper.
+///
+/// # Safety
+/// The caller must uphold [`invoke_fixed_pointer`]'s complete ABI contract.
+pub(crate) unsafe fn invoke_fixed_pointer_mechanism(
+    call: &FixedPointerCall<'_>,
+) -> Result<i32, FixedPointerError> {
     validate_fixed_pointer_signature(call.prototype, call.arguments)?;
     let library = open_library(call.library).map_err(|error| FixedPointerError::LibraryLoad {
         library: if call.library.is_empty() {
