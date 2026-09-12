@@ -23,6 +23,14 @@
 //! assembler or a general relocation/patch table — those are later cuts. macOS
 //! hardened-runtime JIT (`MAP_JIT` + `pthread_jit_write_protect_np`) and any
 //! Windows execution path are deliberately out of scope here.
+//!
+//! **Reserved for future JIT tooling.** The acu execution core is no-JIT by
+//! decision: dynamic logic there comes from interpreting guest bytecode
+//! (`agenterm-qjswasm` on tinyvm), and dynamic native reach from a
+//! caller-declared signature plus `dlsym` — neither emits machine code. That
+//! decision scopes the core; it does not retire this file. This is the
+//! execution base a later JIT-shaped tool is expected to build on, so it keeps
+//! its W^X discipline and simply is not on the core's path.
 
 use std::collections::HashMap;
 
