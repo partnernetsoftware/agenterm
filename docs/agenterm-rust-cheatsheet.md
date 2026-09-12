@@ -704,6 +704,126 @@ cannot prove code hidden behind another target's `cfg`.
   fabricates behaviour that host does not have — it keeps its typed
   unsupported/refusal surface instead.
 
+- **A resident owner's program is not `current_exe()`.** `agenterm-cu` is a formally
+  distributed sibling of the product executable: the release zip ships it beside
+  `agenterm`, `install.sh` requires both executables colocated and verifies the
+  `agenterm-cu` / `libagenterm` ABI pair, and the macOS bundle validator requires
+  `Contents/MacOS/agenterm-cu`. An in-process embedder (`agenterm:acu` inside the
+  product binary) therefore cannot start a resident owner through its own image:
+  the product binary has no owner mode to dispatch to. Resolve the fixed sibling
+  beside `current_exe()` in one place — fixed basename plus the platform
+  executable suffix, final component not a symlink and regular, Unix execute bit
+  (Windows has no execute bit to check) — and let every owner launcher
+  (managed job, browser session, device lease) start *that* program with its one
+  internal argument. Keep the refusals typed and distinct: absence, a
+  non-regular shape, and an inspection failure are three facts, so never collapse
+  a permission or I/O failure into "missing". Do not call the refusal a
+  zero-effect failure either — the durable start intent or claim already exists
+  and is closed by the owning failure path, which may honestly report
+  cleanup-uncertain. Path inspection followed by a spawn is still a TOCTOU window
+  and is not an atomic identity-bound exec; do not claim the reverse.
+- **A test whose subject borrows a record cannot prove the record is unchanged.**
+  When the unit under test takes `&Record`, an assertion that the record's state
+  and terminal trigger are unchanged is tautological: the signature already
+  forbids mutation, so it passes even when the code that could relabel the record
+  lives somewhere else. Put that claim where the mutation is possible (the
+  owner-side single `finished` gate) or prove it at the integration boundary.
+  The same asymmetry ruins a cleanup sweep: a terminal record that still holds a
+  live resident owner needs an explicit release over the owner's own endpoint,
+  and counting it as "already terminal" is a silent leak, because an unreachable
+  owner is not evidence that a release happened. Conversely, mapping every
+  owner-unavailable result to "already terminal" is honest for a record that is
+  genuinely terminal and misleading for one that still claims to be running;
+  prefer a typed failure there rather than a bucket that reads as success.
+- **A gate env variable is declared, not exported.** A task's `env` list and a
+  contract's `env_allow` are a declaration and a pass-through allowlist; neither
+  exports anything. The script must fail closed when a required name is absent
+  (name it, plus any repo-location or distinctness checks the court needs), and
+  the caller exports it. That is the existing `ACU_MCU_REPOSITORY` shape, and a
+  court that fails closed is stronger than one that reads an ambient default.
+  Record the exact export block where the gate can be reproduced, and do not
+  invent an exporter to paper over it. For the embedded job-wait cancellation
+  court the reproducible block is one repo-local root with a private runtime
+  directory (mode `0700`) and the nine names it declares:
+
+  ```sh
+  R=$PWD/target/<gate-lane>; mkdir -p "$R"/{runtime,config,data,cache,state}; chmod 700 "$R/runtime"
+  ( HOME="$R" XDG_RUNTIME_DIR="$R/runtime" XDG_CONFIG_HOME="$R/config" XDG_DATA_HOME="$R/data" \
+    XDG_CACHE_HOME="$R/cache" AGENTERM_CU_MANAGED_JOB_PATH="$R/state/managed.json" \
+    AGENTERM_CU_RUNTIME_PATH="$R/state/runtime.json" AGENTERM_CU_IDEMPOTENCY_PATH="$R/state/requests.json" \
+    AGENTERM_CU_AUDIT_PATH="$R/state/audit.jsonl" \
+    bin/agenterm cli script task run acu-provider-job-wait-cancel-smoke )
+  ```
+
+  A court that instead needs the real layout (for example
+  `cu-managed-job-smoke`) runs with the caller's own environment; see the next
+  rule for why the two must never share one shell.
+- **Two courts with opposite `HOME` requirements need two environments.** A gate
+  that wants the real layout and a gate that requires its state under a
+  repo-local `target/` lane are mutually exclusive by design. Run each with a
+  single-command env prefix in a subshell (`( VAR=... VAR=... cmd )`) and never
+  export those names into a shell that also runs the other court; a shared
+  `export` silently breaks whichever court runs second.
+- **Find the guard before you build a court around the hazard.** Session-end
+  releases a resident owner over `StopAndRelease`, which the owner serves with
+  `stop_and_release` — and that method branches on `on_expiry` *before* it would
+  reach `stop_with`: a detach-policy record is finished through
+  `finish_adopted_detached` (publish `detached` plus a bounded `detach_liveness`
+  observation) and never through the adopted-group `terminate()` inside
+  `stop_adopted`. So "session-end might kill an adopted, still-live process" is
+  excluded by a structural branch, not by one line. That distinction decides
+  whether an end-to-end court is worth its cost. Keep two mutations apart when
+  reading such a result. Deleting the branch itself (`stop_and_release` taking
+  the `stop_with` path for a detach policy) is the one that exposes the hazard:
+  the adopted process comes back `Signaled(9)`, killed by `stop_adopted`.
+  Suppressing the detach `terminal_report` publication instead reddens a court
+  for an unrelated reason — the owner never returns from `run_to_completion`,
+  so cleanup reports uncertain — and says nothing about whether the adopted
+  process would have been killed. A court that only watches the child survive a
+  real session-end is also weak on its own, because the owner exits as soon as a
+  terminal report exists and the sweep then takes the
+  `managed_job_owner_unavailable` path without exercising this code at all.
+  When the guard is a branch rather than a line, a Rust test at that branch is
+  the honest owner of the claim:
+  `managed_job_owner::tests::session_end_releases_a_detach_policy_owner_without_killing_the_adopted_process`
+  adopts a real group-leader fixture under a detach policy, calls
+  `stop_and_release`, and asserts detached truth plus the fixture still live
+  under its exact start identity. An e2e court buys cost, not evidence.
+- **Count the guards before you read a mutation result.** The neighbouring claim
+  — session end must not relabel a detach that lease expiry already published —
+  is held in three places: the `terminal_report` early return in
+  `stop_and_release`, the identical one at the top of `try_finish`, and the
+  store's refusal to take a second terminal transition. Suppressing any single
+  one leaves the test green, which is evidence about the depth of the guard and
+  not about the test. Remove both owner-side returns and the test does redden,
+  and even then the durable record is never rewritten: the failure arrives as
+  `managed_job_terminal_publish_failed` from the store. So state a mutation
+  result as "reddens when N of these M sites fall", and treat a single-site
+  mutation that stays green as a finding to explain rather than a test to
+  delete.
+- **Mutate in place and prove the revert; never restore from a copy.** A
+  mutation check has to put the tree back exactly, and a file under active work
+  usually carries uncommitted changes, so the two obvious restores are both
+  wrong: `git checkout -- <file>` discards that work, and a `cp` snapshot
+  restored later silently overwrites anything written to the file in between.
+  Do the mutation as an exact, reversible in-place substitution, then reverse
+  the same substitution and prove it byte for byte — record the file's hash
+  before and after and require equality (`git diff --stat` showing insertions
+  and **zero deletions** is the second reading). That makes the check safe
+  without needing to establish exclusivity first, which matters because the
+  "concurrent writer" a status line reveals is often another agent legitimately
+  working the same lane. A test written to be mutated also has to survive its
+  own red path: the failing run is the common run, so anything it spawned must
+  be removed by `Drop` rather than by cleanup statements after the assertions,
+  which a panic skips. Prove that by checking for strays after a deliberate red
+  run, not by reading the code.
+  Two facts that constrain any such court: `job-spawn --expiry detach` is
+  refused with the typed `managed_job_detach_retired` before every side effect
+  (a spawned child is its managed owner's to clean up), so only `job-adopt`
+  carries a detach policy — it is the default there; and `cu-managed-job-smoke`
+  already builds the adopt/detach/live fixture, then kills it by exact identity
+  before session-end, which is why no existing court observes this shape.
+
 See `AGENTS.md` for current commands and CI cells; do not duplicate that living
 matrix here.
 

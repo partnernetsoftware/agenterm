@@ -2734,6 +2734,13 @@ device.claim + byte I/O
 ├─ [x] durable crash states contain no locator, payload or plaintext lease
 ├─ [x] setup refresh defers around active/uncertain owners without disrupting them
 ├─ [x] session-end closes jobs and device owners or returns cleanup-uncertain
+│    evidence: a real `session-end` now releases a **terminal** record that still holds a live
+│    resident owner (`release_session_owner` in `crates/agenterm-cu/src/executor/managed_jobs.rs`),
+│    classified as `already_terminal` only for a genuinely terminal record and as a typed `failed`
+│    code otherwise; `acu-provider-job-wait-cancel-smoke` emits `cu.job-wait-cancel.terminal-truth`
+│    (owner and child absent after the real session-end) and `managed_jobs::tests::session_cleanup_*`
+│    (4) pin the classification. Before that fix this box was a false green: only the device sweep
+│    released owners, while a terminal managed-job owner was never released and outlived its session.
 ├─ [x] macOS public qjswasm fixture: replay/refusal/I/O/renew/release/TTL/session cleanup
 ├─ [x] durable state + audit exclude locator/secret/payload/fixture token
 ├─ [x] partial-write lower bound / delivery uncertainty / retry safety are independent
