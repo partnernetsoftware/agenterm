@@ -454,11 +454,22 @@ fn exact_nonzero_arity_gp_and_f64_signatures_use_their_own_abi_families() {
 
 #[cfg(unix)]
 #[test]
-fn a_mixed_sysconf_signature_reaches_the_dyn_fixed_core() {
-    let source = wat_for_scalar_args("|sysconf|isize(i32)", &[HOST_SC_PAGESIZE as i64 as u64]);
-    let page_size = run_wat(&source, Budget::default())
-        .expect("sysconf(_SC_PAGESIZE) runs through the fixed mixed prototype");
-    assert_eq!(page_size, host_page_size());
+fn mixed_sysconf_queries_reach_the_dyn_fixed_core() {
+    for (name, key, expected) in [
+        ("page size", HOST_SC_PAGESIZE, host_page_size()),
+        ("clock ticks", libc::_SC_CLK_TCK, unsafe {
+            libc::sysconf(libc::_SC_CLK_TCK)
+        }),
+        ("online processors", libc::_SC_NPROCESSORS_ONLN, unsafe {
+            libc::sysconf(libc::_SC_NPROCESSORS_ONLN)
+        }),
+    ] {
+        assert!(expected > 0, "{name} direct oracle must be positive");
+        let source = wat_for_scalar_args("|sysconf|isize(i32)", &[key as i64 as u64]);
+        let actual = run_wat(&source, Budget::default())
+            .unwrap_or_else(|error| panic!("sysconf {name} guest failed: {error}"));
+        assert_eq!(actual, expected, "sysconf {name} must match its oracle");
+    }
 }
 
 #[cfg(unix)]

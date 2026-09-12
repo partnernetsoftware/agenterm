@@ -489,6 +489,9 @@ court has claim-preserving `.wat` or typed-owner evidence.
   `libc` 精确 oracle 均保留，Linux/macOS 的三份重复 Lisp court 已删除。
   `getgid()` 与 `geteuid()` 的 `u32()` guest 也沿用同一分层，并以 direct libc
   值作 oracle；对应 Linux/macOS Lisp 断言已从退役表面移除。
+  `sysconf(_SC_CLK_TCK)` 与 `sysconf(_SC_NPROCESSORS_ONLN)` 复用既有
+  `isize(i32)` 机制；WAT court 保留正值和 direct libc 精确断言，并与已有
+  page-size oracle 合并，三份 Linux/macOS Lisp 测试随之退役。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded
