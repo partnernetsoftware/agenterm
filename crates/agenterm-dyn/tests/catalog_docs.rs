@@ -45,7 +45,6 @@ const DARWIN_ONLY_LIVE_EXAMPLES: &[(&str, &str)] = &[
     ),
     ("sysctlnametomib", "sysctlnametomib.md"),
     ("pthread_equal", "pthread-equal.md"),
-    ("gethostname", "gethostname.md"),
     ("confstr", "confstr.md"),
     ("clock_getres", "clock-getres.md"),
     ("pthread_is_threaded_np", "pthread-is-threaded-np.md"),
@@ -229,6 +228,39 @@ fn unix_statvfs_keeps_dlcall_and_typed_snapshot_documentation() {
 
     let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
     assert!(readme.contains("](examples/statvfs.md)"));
+}
+
+#[test]
+fn unix_gethostname_keeps_dlcall_and_typed_snapshot_documentation() {
+    for (cell, lib) in [
+        (LINUX_X86_64, "libc.so.6"),
+        (LINUX_AARCH64, "libc.so.6"),
+        (MACOS_X86_64, "libSystem.B.dylib"),
+        (MACOS_AARCH64, "libSystem.B.dylib"),
+    ] {
+        let probe = cell
+            .system_probes
+            .iter()
+            .find(|probe| probe.name == "gethostname")
+            .expect("Unix catalog contains gethostname");
+        assert_eq!(
+            probe.status,
+            SystemProbeStatus::LiveDlcallOwned {
+                lib,
+                symbol: "gethostname",
+                api: "HostnameSnapshot::acquire",
+            }
+        );
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let example = fs::read_to_string(root.join("examples/gethostname.md"))
+        .expect("gethostname documentation is readable");
+    assert!(example.contains("HostnameSnapshot::acquire"));
+    assert!(example.contains("dlcall"));
+
+    let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
+    assert!(readme.contains("](examples/gethostname.md)"));
 }
 
 #[test]

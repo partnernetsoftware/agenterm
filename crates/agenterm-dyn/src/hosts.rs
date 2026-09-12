@@ -387,7 +387,14 @@ const LINUX_SYSTEM_PROBES: [SystemProbe; 86] = [
     placeholder("pthread_jit_write_protect_supported_np"),
     placeholder("sysctlnametomib"),
     placeholder("pthread_equal"),
-    placeholder("gethostname"),
+    SystemProbe {
+        name: "gethostname",
+        status: SystemProbeStatus::LiveDlcallOwned {
+            lib: "libc.so.6",
+            symbol: "gethostname",
+            api: "HostnameSnapshot::acquire",
+        },
+    },
     placeholder("confstr"),
     placeholder("clock_getres"),
     placeholder("pthread_is_threaded_np"),
@@ -515,7 +522,14 @@ const MACOS_SYSTEM_PROBES: [SystemProbe; 86] = [
     ),
     macos_live("sysctlnametomib", "sysctlnametomib"),
     macos_live("pthread_equal", "pthread_equal"),
-    macos_live("gethostname", "gethostname"),
+    SystemProbe {
+        name: "gethostname",
+        status: SystemProbeStatus::LiveDlcallOwned {
+            lib: "libSystem.B.dylib",
+            symbol: "gethostname",
+            api: "HostnameSnapshot::acquire",
+        },
+    },
     macos_live("confstr", "confstr"),
     macos_live("clock_getres", "clock_getres"),
     macos_live("pthread_is_threaded_np", "pthread_is_threaded_np"),

@@ -284,7 +284,12 @@ fn additional_system_probes_use_explicit_live_and_placeholder_statuses() {
         assert!(
             c.system_probes[sysctlbyname..]
                 .iter()
-                .filter(|probe| !matches!(probe.name, "statvfs" | "getgroups" | "getifaddrs"))
+                .filter(|probe| {
+                    !matches!(
+                        probe.name,
+                        "gethostname" | "statvfs" | "getgroups" | "getifaddrs"
+                    )
+                })
                 .all(|probe| matches!(probe.status, SystemProbeStatus::Placeholder))
         );
         assert_eq!(
@@ -439,7 +444,6 @@ fn darwin_system_probe_symbols_preserve_exact_c_spellings() {
             ),
             ("sysctlnametomib", "sysctlnametomib"),
             ("pthread_equal", "pthread_equal"),
-            ("gethostname", "gethostname"),
             ("confstr", "confstr"),
             ("clock_getres", "clock_getres"),
             ("pthread_is_threaded_np", "pthread_is_threaded_np"),
@@ -672,6 +676,33 @@ fn per_cell_status_separates_darwin_only_and_unix_apis() {
                     api: "StatVfsSnapshot::acquire",
                 },
                 "statvfs keeps dlcall and typed snapshot evidence on Unix: {}/{}",
+                cell.os,
+                cell.arch
+            );
+        }
+        let hostname = status_of(cell, "gethostname");
+        if cell.os == "windows" {
+            assert_eq!(
+                hostname,
+                SystemProbeStatus::Placeholder,
+                "gethostname is unavailable on Windows: {}/{}",
+                cell.os,
+                cell.arch
+            );
+        } else {
+            let expected_lib = if cell.os == "macos" {
+                "libSystem.B.dylib"
+            } else {
+                "libc.so.6"
+            };
+            assert_eq!(
+                hostname,
+                SystemProbeStatus::LiveDlcallOwned {
+                    lib: expected_lib,
+                    symbol: "gethostname",
+                    api: "HostnameSnapshot::acquire",
+                },
+                "gethostname keeps dlcall and typed snapshot evidence on Unix: {}/{}",
                 cell.os,
                 cell.arch
             );

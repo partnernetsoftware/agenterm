@@ -29,8 +29,8 @@ fn cu_adjacent_catalog_has_six_cells() {
 mod linux {
     use super::*;
     use agenterm_dyn::{
-        HostCell, LINUX_ATSPI_EXISTENCE_LIBS, SizeProbe, StatVfsSnapshot, SystemProbe,
-        SystemProbeStatus,
+        HostCell, HostnameSnapshot, LINUX_ATSPI_EXISTENCE_LIBS, SizeProbe, StatVfsSnapshot,
+        SystemProbe, SystemProbeStatus,
     };
 
     #[repr(C)]
@@ -381,7 +381,10 @@ mod linux {
             .into_iter()
             .find(|probe| probe.name == name)
             .unwrap_or_else(|| panic!("missing {name} system probe"));
-        assert!(matches!(probe.status, SystemProbeStatus::LiveDlcall { .. }));
+        assert!(matches!(
+            probe.status,
+            SystemProbeStatus::LiveDlcall { .. } | SystemProbeStatus::LiveDlcallOwned { .. }
+        ));
         probe
     }
 
@@ -814,6 +817,38 @@ mod linux {
     }
 
     #[test]
+    fn dlcall_gethostname_matches_the_typed_snapshot() {
+        let probe = cell()
+            .system_probes
+            .into_iter()
+            .find(|probe| probe.name == "gethostname")
+            .expect("gethostname is catalogued");
+        let SystemProbeStatus::LiveDlcallOwned { lib, symbol, api } = probe.status else {
+            panic!("Linux gethostname must retain dlcall and typed snapshot evidence")
+        };
+        assert_eq!(lib, "libc.so.6");
+        assert_eq!(symbol, "gethostname");
+        assert_eq!(api, "HostnameSnapshot::acquire");
+
+        let mut name = [0_u8; 256];
+        let mut env = Dyn::new();
+        env.bind("name", name.as_mut_ptr().cast())
+            .expect("bind hostname buffer");
+        let got = eval_native(
+            &mut env,
+            &format!(r#"(dlcall "{lib}" "{symbol}" "i32" "ptr" name "u64" 256)"#),
+        )
+        .expect("gethostname dlcall");
+        assert_eq!(got, Value::Int(0));
+        let end = name
+            .iter()
+            .position(|byte| *byte == 0)
+            .expect("gethostname result should be NUL terminated");
+        let snapshot = HostnameSnapshot::acquire().expect("typed hostname snapshot");
+        assert_eq!(&name[..end], snapshot.as_bytes());
+    }
+
+    #[test]
     fn dlcall_ioctl_winsize() {
         let c = cell();
         let SizeProbe::IoctlTiocgwinsz {
@@ -958,7 +993,7 @@ mod linux {
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
-    use agenterm_dyn::{HostCell, SizeProbe, SystemProbe, SystemProbeStatus};
+    use agenterm_dyn::{HostCell, HostnameSnapshot, SizeProbe, SystemProbe, SystemProbeStatus};
 
     #[repr(C)]
     struct Winsize {
@@ -1012,7 +1047,10 @@ mod macos {
             .into_iter()
             .find(|probe| probe.name == name)
             .unwrap_or_else(|| panic!("missing {name} system probe"));
-        assert!(matches!(probe.status, SystemProbeStatus::LiveDlcall { .. }));
+        assert!(matches!(
+            probe.status,
+            SystemProbeStatus::LiveDlcall { .. } | SystemProbeStatus::LiveDlcallOwned { .. }
+        ));
         probe
     }
 
@@ -1627,9 +1665,10 @@ mod macos {
     #[test]
     fn dlcall_gethostname_smoke() {
         let probe = live_system_probe("gethostname");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
+        let SystemProbeStatus::LiveDlcallOwned { lib, symbol, api } = probe.status else {
             unreachable!("live_system_probe validates status")
         };
+        assert_eq!(api, "HostnameSnapshot::acquire");
         let mut name = [0_u8; 256];
         let mut env = Dyn::new();
         env.bind("name", name.as_mut_ptr().cast())
@@ -1654,6 +1693,8 @@ mod macos {
             .position(|byte| *byte == 0)
             .expect("libc gethostname result should be NUL terminated");
         assert_eq!(&name[..end], &baseline[..baseline_end]);
+        let snapshot = HostnameSnapshot::acquire().expect("typed hostname snapshot");
+        assert_eq!(&name[..end], snapshot.as_bytes());
     }
 
     #[test]

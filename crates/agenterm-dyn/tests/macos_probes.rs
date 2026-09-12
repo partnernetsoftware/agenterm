@@ -4,7 +4,9 @@
 
 use std::ffi::{CStr, CString, c_void};
 
-use agenterm_dyn::{DlAddressSnapshot, Dyn, StatVfsSnapshot, SystemProbeStatus, Value, live_cell};
+use agenterm_dyn::{
+    DlAddressSnapshot, Dyn, HostnameSnapshot, StatVfsSnapshot, SystemProbeStatus, Value, live_cell,
+};
 
 const LIB: &str = "libSystem.B.dylib";
 
@@ -729,6 +731,8 @@ fn dlcall_gethostname_writes_caller_buffer() {
         .expect("direct gethostname must NUL-terminate on success")
         .to_bytes();
     assert_eq!(name, direct_name);
+    let snapshot = HostnameSnapshot::acquire().expect("typed hostname snapshot");
+    assert_eq!(name, snapshot.as_bytes());
 }
 
 #[test]

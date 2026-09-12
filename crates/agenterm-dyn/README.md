@@ -220,7 +220,7 @@ without wiring dyn into cu, platform, or the ABI:
 - [libproc version via `proc_libversion`](examples/proc-libversion.md) (macOS)
 - [JIT write-protect availability via `pthread_jit_write_protect_supported_np`](examples/pthread-jit-write-protect-supported-np.md) (macOS)
 - [current-thread equality via `pthread_equal`](examples/pthread-equal.md) (macOS)
-- [hostname via `gethostname`](examples/gethostname.md) (macOS)
+- [hostname via `gethostname`](examples/gethostname.md) (Linux and macOS; native-call and typed snapshot evidence)
 - [configuration string via `confstr`](examples/confstr.md) (macOS)
 - [clock resolution via `clock_getres`](examples/clock-getres.md) (macOS)
 - [process multithreaded predicate via `pthread_is_threaded_np`](examples/pthread-is-threaded-np.md) (macOS)
@@ -313,13 +313,13 @@ direct-libc baselines. Darwin-specific smokes cover `sysctlbyname`,
 `pthread_get_stackaddr_np`, `pthread_get_stacksize_np`, `pthread_self`,
 `pthread_cpu_number_np`, `malloc_good_size`, `_NSGetProgname`, `proc_libversion`,
 `pthread_jit_write_protect_supported_np`, `sysctlnametomib`, `pthread_equal`,
-`gethostname`, `confstr`, `clock_getres`, `pthread_is_threaded_np`,
+`confstr`, `clock_getres`, `pthread_is_threaded_np`,
 `_NSGetMachExecuteHeader`, `_dyld_get_image_name`,
 `_dyld_get_image_vmaddr_slide`, `gethostuuid`,
 `_dyld_get_image_header`, `arc4random_uniform`, `getdomainname`,
 `gettimeofday` and `realpath`; `dladdr` additionally has a bounded,
-pointer-free current-image snapshot on macOS, while `statvfs` and `getgroups`
-have bounded typed snapshots on both Linux and macOS;
+pointer-free current-image snapshot on macOS, while `gethostname`, `statvfs`,
+and `getgroups` have bounded typed snapshots on both Linux and macOS;
 the caller-owned timebase, login, thread-id, thread-name, `proc_bsdinfo`, and
 `rusage_info_v4` buffers are compared with direct C baselines. Wave 8
 loader/uuid facts (`dladdr`, `gethostuuid`, `_dyld_get_image_header`) retain
