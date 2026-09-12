@@ -210,6 +210,29 @@ fn wat_for_scalar_args(spec: &str, arguments: &[u64]) -> String {
     )
 }
 
+fn wat_for_one_pointer_record(spec: &str, kind: u32, payload: u64) -> String {
+    let quoted = spec.replace('\\', "\\\\").replace('"', "\\\"");
+    format!(
+        r#"(module
+          (import "agenterm" "native_call"
+            (func $native_call (param i32 i32 i32 i32) (result i32)))
+          (memory 1)
+          (data (i32.const 0) "{quoted}")
+          (func (export "main") (result i64)
+            (i32.store (i32.const 128) (i32.const 1))
+            (i32.store (i32.const 132) (i32.const 1))
+            (i64.store (i32.const 136) (i64.const 0))
+            (i32.store (i32.const 144) (i32.const {kind}))
+            (i32.store (i32.const 148) (i32.const 0))
+            (i64.store (i32.const 152) (i64.const {payload}))
+            (drop (call $native_call
+              (i32.const 0) (i32.const {spec_len})
+              (i32.const 128) (i32.const 32)))
+            (i64.load (i32.const 136))))"#,
+        spec_len = spec.len(),
+    )
+}
+
 #[cfg(unix)]
 fn host_page_size() -> i64 {
     let output = std::process::Command::new("getconf")
@@ -381,6 +404,117 @@ fn a_mixed_sysconf_signature_reaches_the_dyn_fixed_core() {
     let page_size = run_wat(&source, Budget::default())
         .expect("sysconf(_SC_PAGESIZE) runs through the fixed mixed prototype");
     assert_eq!(page_size, host_page_size());
+}
+
+#[cfg(unix)]
+#[test]
+fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
+    let output = std::process::Command::new("uname")
+        .arg("-s")
+        .output()
+        .expect("the POSIX uname oracle runs");
+    assert!(output.status.success(), "uname -s must succeed");
+    let mut expected_name_bytes = [0_u8; 8];
+    let name = output.stdout.strip_suffix(b"\n").unwrap_or(&output.stdout);
+    expected_name_bytes[..name.len().min(8)].copy_from_slice(&name[..name.len().min(8)]);
+    let expected_name_prefix = u64::from_le_bytes(expected_name_bytes);
+    assert_eq!(
+        run_wat(include_str!("fixtures/native/uname.wat"), Budget::default(),)
+            .expect("uname runs through i32(ptr)") as u64,
+        expected_name_prefix
+    );
+
+    let source = include_str!("fixtures/native/getrlimit_nofile.wat").to_owned();
+    #[cfg(target_os = "macos")]
+    let source = source.replace("(i64.const 7)", "(i64.const 8)");
+    let output = std::process::Command::new("sh")
+        .args(["-c", "ulimit -n"])
+        .output()
+        .expect("the shell resource-limit oracle runs");
+    assert!(output.status.success(), "ulimit -n must succeed");
+    let expected_limit = String::from_utf8(output.stdout)
+        .expect("ulimit emits UTF-8 digits")
+        .trim()
+        .parse::<u64>()
+        .expect("ulimit emits a numeric descriptor limit");
+    assert_eq!(
+        run_wat(&source, Budget::default()).expect("getrlimit runs through i32(i32,ptr)") as u64,
+        expected_limit
+    );
+
+    assert!(
+        std::path::Path::new("/")
+            .try_exists()
+            .expect("the filesystem oracle reads root")
+    );
+    assert_eq!(
+        run_wat(
+            include_str!("fixtures/native/access_root.wat"),
+            Budget::default(),
+        )
+        .expect("access runs through i32(ptr,i32)"),
+        0
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_guest_span_may_alias_the_return_slot_for_a_synchronous_call() {
+    let source = r#"(module
+      (import "agenterm" "native_call"
+        (func $native_call (param i32 i32 i32 i32) (result i32)))
+      (memory 1)
+      (data (i32.const 0) "|access|i32(ptr,i32)")
+      (func (export "main") (result i64)
+        (i32.store (i32.const 128) (i32.const 1))
+        (i32.store (i32.const 132) (i32.const 2))
+        (i64.store (i32.const 136) (i64.const 47))
+        (i32.store (i32.const 144) (i32.const 1))
+        (i32.store (i32.const 148) (i32.const 0))
+        (i64.store (i32.const 152) (i64.const 8589934728))
+        (i32.store (i32.const 160) (i32.const 0))
+        (i32.store (i32.const 164) (i32.const 0))
+        (i64.store (i32.const 168) (i64.const 0))
+        (drop (call $native_call
+          (i32.const 0) (i32.const 20)
+          (i32.const 128) (i32.const 48)))
+        (i64.load (i32.const 136))))"#;
+    assert_eq!(
+        run_wat(source, Budget::default()).expect("the aliased span remains admitted"),
+        0
+    );
+}
+
+#[test]
+fn hostile_pointer_records_are_rejected_before_loading() {
+    let spec = "agenterm-native-library-that-does-not-exist|unused|i32(ptr)";
+    let cases = [
+        (
+            wat_for_one_pointer_record(spec, 1, (2_u64 << 32) | 65_535),
+            "native_span_out_of_bounds",
+        ),
+        (
+            wat_for_one_pointer_record(spec, 0, 0),
+            "native_argument_kind_mismatch",
+        ),
+        (
+            wat_for_one_pointer_record(spec, 2, 0),
+            "native_null_not_permitted",
+        ),
+        (
+            wat_for_one_pointer_record(spec, 3, 0),
+            "native_host_address_not_permitted",
+        ),
+    ];
+    for (source, expected_code) in cases {
+        let error = run_wat(&source, Budget::default()).expect_err(expected_code);
+        assert!(
+            matches!(&error, QjswasmError::Door(message)
+                if message.contains(expected_code)
+                    && !message.contains("native_library_load_failed")),
+            "expected pre-load Door({expected_code}), got {error:?}"
+        );
+    }
 }
 
 #[test]

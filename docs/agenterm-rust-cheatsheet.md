@@ -125,6 +125,14 @@ failure into typed fail-closed state without unwinding across C. A Swift wrapper
 should own stable pointer storage rather than rely on `Data.withUnsafeBytes`
 beyond its closure.
 
+When one synchronous native call accepts multiple spans into guest linear
+memory, treat aliasing between those spans and the result slot as valid unless
+the public wire contract explicitly forbids it. Validate every range first,
+take the allocation base pointer once, and derive raw call-scoped pointers from
+that base; do not construct overlapping `&mut` slices merely to pass their
+addresses to FFI. Keep the backing allocation fixed for the whole call and
+publish the result only after the foreign function returns.
+
 When an FFI entry point holds `&mut Runtime` while invoking a synchronous host
 callback, a documentation-only ban on reentry does not satisfy Rust's aliasing
 rules. Reject every callback-time API that takes a runtime handle before turning

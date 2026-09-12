@@ -9,7 +9,8 @@ use std::fmt;
 
 use agenterm_dyn::{
     ExactNativeCall, ExactNativeError, ExactNativeType, ExactNativeValue, FixedNativeCall,
-    FixedNativeError, FixedNativePrototype, FixedNativeValue, invoke_exact, invoke_fixed,
+    FixedNativeError, FixedNativePrototype, FixedNativeValue, FixedPointerCall, FixedPointerError,
+    FixedPointerPrototype, FixedPointerValue, invoke_exact, invoke_fixed, invoke_fixed_pointer,
     validate_exact_native_signature,
 };
 
@@ -716,15 +717,20 @@ fn le_u64(bytes: &[u8]) -> u64 {
 /// Invoke one decoded call and publish its result into the guest block.
 ///
 /// The executable slice supports the exact homogeneous families plus a small
-/// enumerated set of heterogeneous scalar prototypes. A register class is not
+/// enumerated set of heterogeneous scalar and synchronous caller-buffer
+/// prototypes. A register class is not
 /// a Rust function-pointer type: accepting every GP width or mixed GP/F64
-/// pattern would turn a declaration typo into undefined behaviour. Pointers,
-/// narrow integers, unlisted mixed signatures, `void`, `f32`, variadics and
-/// structure values remain typed refusals.
+/// pattern would turn a declaration typo into undefined behaviour. Pointer
+/// returns, retained pointers, narrow integers, unlisted mixed signatures,
+/// `void`, `f32`, variadics and structure values remain typed refusals.
 pub(crate) fn invoke_native_call(
     memory: &mut [u8],
     call: &DecodedNativeCall,
 ) -> Result<(), NativeDoorError> {
+    // Take the guest memory base once. Pointer prototypes receive raw addresses
+    // derived from this allocation, never overlapping `&mut` slices: guest
+    // spans are allowed to alias intentionally.
+    let memory_base = memory.as_mut_ptr();
     let bits = match native_dispatch(&call.spec)? {
         NativeDispatch::Exact { result } => {
             let arguments = call
@@ -762,6 +768,26 @@ pub(crate) fn invoke_native_call(
                 .map(fixed_result_bits)
                 .map_err(|error| map_fixed_error(call, error))?
         }
+        NativeDispatch::FixedPointer(prototype) => {
+            let arguments = call
+                .arguments
+                .iter()
+                .enumerate()
+                .map(|(index, argument)| fixed_pointer_argument(memory_base, index, argument, call))
+                .collect::<Result<Vec<_>, _>>()?;
+            let native_call = FixedPointerCall {
+                library: &call.spec.library,
+                symbol: &call.spec.symbol,
+                prototype,
+                arguments: &arguments,
+            };
+            // SAFETY: native_dispatch admitted one enumerated fixed prototype;
+            // decode_native_call bounded every span within this one live memory
+            // allocation, and the foreign call is synchronous.
+            unsafe { invoke_fixed_pointer(&native_call) }
+                .map(|value| value as i64 as u64)
+                .map_err(|error| map_fixed_pointer_error(call, error))?
+        }
     };
     let memory_len = memory.len();
     let slot = memory
@@ -786,6 +812,12 @@ pub(crate) fn invoke_native_json(
 ) -> Result<String, NativeDoorError> {
     let spec = parse_native_spec(spec)?;
     let dispatch = native_dispatch(&spec)?;
+    if matches!(dispatch, NativeDispatch::FixedPointer(_)) {
+        return Err(NativeDoorError::InvocationSignatureUnsupported {
+            result: spec.result,
+            parameters: spec.parameters.clone(),
+        });
+    }
     let text =
         std::str::from_utf8(arguments_json).map_err(|_| NativeDoorError::ArgumentsNotUtf8)?;
     let values = serde_json::from_str::<serde_json::Value>(text)
@@ -840,6 +872,7 @@ pub(crate) fn invoke_native_json(
                 .map(fixed_json_result)
                 .map_err(|error| map_fixed_error_for_spec(&spec, error))?
         }
+        NativeDispatch::FixedPointer(_) => unreachable!("pointer JSON calls reject above"),
     };
     Ok(value.to_string())
 }
@@ -848,6 +881,7 @@ pub(crate) fn invoke_native_json(
 enum NativeDispatch {
     Exact { result: ExactNativeType },
     Fixed(FixedNativePrototype),
+    FixedPointer(FixedPointerPrototype),
 }
 
 fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError> {
@@ -871,12 +905,25 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
         }
         _ => None,
     };
-    fixed.map(NativeDispatch::Fixed).ok_or_else(|| {
-        NativeDoorError::InvocationSignatureUnsupported {
+    if let Some(fixed) = fixed {
+        return Ok(NativeDispatch::Fixed(fixed));
+    }
+    let fixed_pointer = match (spec.result, spec.parameters.as_slice()) {
+        (NativeType::I32, [NativeType::Pointer]) => Some(FixedPointerPrototype::I32Pointer),
+        (NativeType::I32, [NativeType::I32, NativeType::Pointer]) => {
+            Some(FixedPointerPrototype::I32I32Pointer)
+        }
+        (NativeType::I32, [NativeType::Pointer, NativeType::I32]) => {
+            Some(FixedPointerPrototype::I32PointerI32)
+        }
+        _ => None,
+    };
+    fixed_pointer
+        .map(NativeDispatch::FixedPointer)
+        .ok_or_else(|| NativeDoorError::InvocationSignatureUnsupported {
             result: spec.result,
             parameters: spec.parameters.clone(),
-        }
-    })
+        })
 }
 
 fn exact_json_argument(
@@ -1109,6 +1156,41 @@ fn fixed_argument(
     }
 }
 
+fn fixed_pointer_argument(
+    memory_base: *mut u8,
+    index: usize,
+    argument: &NativeArgument,
+    call: &DecodedNativeCall,
+) -> Result<FixedPointerValue, NativeDoorError> {
+    match argument {
+        NativeArgument::Scalar {
+            ty: NativeType::I32,
+            bits,
+        } => {
+            let value = *bits as i32;
+            if value as i64 as u64 == *bits {
+                Ok(FixedPointerValue::I32(value))
+            } else {
+                Err(NativeDoorError::ScalarNotCanonical {
+                    index,
+                    ty: NativeType::I32,
+                    bits: *bits,
+                })
+            }
+        }
+        NativeArgument::GuestSpan { ty, span } if ty.is_pointer() => {
+            // SAFETY: decode_native_call proved offset + len is within the one
+            // guest allocation. `add` therefore yields an in-bounds or one-past
+            // raw address without constructing an aliased Rust reference.
+            let pointer = unsafe { memory_base.add(span.offset) }.cast();
+            Ok(FixedPointerValue::Pointer(pointer))
+        }
+        NativeArgument::Null { .. }
+        | NativeArgument::GuestSpan { .. }
+        | NativeArgument::Scalar { .. } => Err(unsupported_signature(call)()),
+    }
+}
+
 fn exact_result_bits(value: ExactNativeValue) -> u64 {
     match value {
         ExactNativeValue::I32(value) => value as i64 as u64,
@@ -1148,6 +1230,18 @@ fn map_fixed_error(call: &DecodedNativeCall, error: FixedNativeError) -> NativeD
             NativeDoorError::LibraryLoad { library, message }
         }
         FixedNativeError::SymbolLoad { symbol, message } => {
+            NativeDoorError::SymbolLoad { symbol, message }
+        }
+    }
+}
+
+fn map_fixed_pointer_error(call: &DecodedNativeCall, error: FixedPointerError) -> NativeDoorError {
+    match error {
+        FixedPointerError::SignatureUnsupported { .. } => unsupported_signature(call)(),
+        FixedPointerError::LibraryLoad { library, message } => {
+            NativeDoorError::LibraryLoad { library, message }
+        }
+        FixedPointerError::SymbolLoad { symbol, message } => {
             NativeDoorError::SymbolLoad { symbol, message }
         }
     }
@@ -1198,10 +1292,39 @@ mod json_adapter_tests {
             native_dispatch(&parse("|lseek|i64(i32,i64,i32)")),
             Ok(NativeDispatch::Fixed(FixedNativePrototype::I64I32I64I32,))
         );
+        assert_eq!(
+            native_dispatch(&parse("|uname|i32(ptr)")),
+            Ok(NativeDispatch::FixedPointer(
+                FixedPointerPrototype::I32Pointer,
+            ))
+        );
+        assert_eq!(
+            native_dispatch(&parse("|getrlimit|i32(i32,ptr)")),
+            Ok(NativeDispatch::FixedPointer(
+                FixedPointerPrototype::I32I32Pointer,
+            ))
+        );
+        assert_eq!(
+            native_dispatch(&parse("|access|i32(ptr,i32)")),
+            Ok(NativeDispatch::FixedPointer(
+                FixedPointerPrototype::I32PointerI32,
+            ))
+        );
         assert!(matches!(
             native_dispatch(&parse("missing|unused|isize(i64)")),
             Err(NativeDoorError::InvocationSignatureUnsupported { .. })
         ));
+    }
+
+    #[test]
+    fn json_adapter_refuses_pointer_prototypes_without_inventing_host_addresses() {
+        assert_eq!(
+            invoke_native_json(b"|uname|i32(ptr)", br#"[0]"#),
+            Err(NativeDoorError::InvocationSignatureUnsupported {
+                result: NativeType::I32,
+                parameters: vec![NativeType::Pointer],
+            })
+        );
     }
 
     #[cfg(unix)]

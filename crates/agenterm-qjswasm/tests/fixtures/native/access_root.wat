@@ -1,0 +1,20 @@
+(module
+  (import "agenterm" "native_call"
+    (func $native_call (param i32 i32 i32 i32) (result i32)))
+  (memory 1)
+  (data (i32.const 0) "|access|i32(ptr,i32)")
+  (data (i32.const 256) "/\00")
+  (func (export "main") (result i64)
+    (i32.store (i32.const 128) (i32.const 1))
+    (i32.store (i32.const 132) (i32.const 2))
+    (i64.store (i32.const 136) (i64.const 0))
+    (i32.store (i32.const 144) (i32.const 1))
+    (i32.store (i32.const 148) (i32.const 0))
+    (i64.store (i32.const 152) (i64.const 8589934848))
+    (i32.store (i32.const 160) (i32.const 0))
+    (i32.store (i32.const 164) (i32.const 0))
+    (i64.store (i32.const 168) (i64.const 0))
+    (drop (call $native_call
+      (i32.const 0) (i32.const 20)
+      (i32.const 128) (i32.const 48)))
+    (i64.load (i32.const 136))))
