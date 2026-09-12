@@ -70,17 +70,11 @@ agenterm-dyn
 │   │   └── Pointer 只表达 ABI 地址位；所有权、可空与 pointee 契约在上层
 │   ├── exact_native
 │   │   ├── 执行：按调用方 ABI 描述调用            [保留]
-│   │   ├── 7 个同质标量族 × arity 0..=6 = 49 组合  [**策略 → 上层 qjswasm**]
-│   │   ├── validate_exact_native_signature        [**策略 → 上层 qjswasm**]
-│   │   └── invoke_exact                            [crate-private 迁移残件]
+│   │   └── 7 个同质标量族 × arity 0..=6 = 49 单态 trampoline [机制矩阵]
 │   ├── fixed_native
-│   │   ├── 枚举式异构标量 prototype               [**策略 → 上层 qjswasm**]
-│   │   ├── validate_fixed_native_signature        [**策略 → 上层 qjswasm**]
-│   │   └── invoke_fixed                            [crate-private 迁移残件]
+│   │   └── 异构标量单态 trampoline                [由 abi 选择]
 │   ├── fixed_pointer
-│   │   ├── 枚举式 caller-buffer / pointer prototype [**策略 → 上层 qjswasm**]
-│   │   ├── validate_fixed_pointer_signature        [**策略 → 上层 qjswasm**]
-│   │   └── invoke_fixed_pointer                    [crate-private 迁移残件]
+│   │   └── caller-buffer / pointer 单态 trampoline [由 abi 选择；无 nullable 策略标签]
 │   └── unix_ioctl
 │       ├── variadic 调用机制 (i32, i32|u64, ptr) -> i32  [保留]
 │       └── UnixIoctlRequest 的“允许签名”          [**策略 → 上层**]
@@ -205,13 +199,14 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
 | `parse.rs` / `eval.rs` / `sym.rs` / `value.rs` | **removed** | language layer retired after equivalent evidence landed |
 | `lib.rs` 公开面 | **rewritten** | owner/facts/language exports removed; mechanism exports remain |
 
-**兼容顺序（两步走，任一步可独立回退）**
+**已完成的兼容迁移顺序**
 
-1. **先加机制入口**：在 `exact_native`/`fixed_native`/`fixed_pointer` 上新增“**调用方传入
-   ABI 描述**”的入口，现有 `invoke_*` 变为其薄封装——外部签名不变，qjswasm 无需同时改；
-2. **再搬策略**：把 prototype 表与 validator 迁到 qjswasm 侧（成为上层 policy），随后从
-   dyn 删除枚举；owner/facts 另开叶按“逐项裁决”迁往上层 adapter 或 `agenterm-platform`；
-3. **最后退役语言层**：仅在每个 court 的用户主张都有等价 `.wat`/typed 证据后删除。
+1. **先加机制入口**：引入调用方传入 `AbiSignature` 的 `invoke_abi`；
+2. **再搬策略**：qjswasm 本地持有 prototype/catalog/schema，并统一委托 `invoke_abi`；
+3. **删除旧入口**：删除不再有调用方的 `invoke_exact`、`invoke_fixed`、
+   `invoke_fixed_pointer`；dyn 内部只保留统一入口选择的单态机制；
+4. **最后退役语言层与事实层**：在等价证据落地后删除旧 Lisp court、typed owner 与
+   six-cell facts。
 
 **不变量（验收必须同时证明）**
 
@@ -477,17 +472,16 @@ guest door、内存解码**与全部策略**（prototype/catalog/validator、bud
 dyn **只拥有机制**——它执行**调用方传入的 ABI 描述**，不再拥有“允许的
 exact/fixed/fixed-pointer 集合”。qjswasm 仍有真实的 Cargo 依赖；其 native dispatcher
 保留 prototype/catalog 判定与 guest schema，五个 scalar/pointer 执行臂已经统一调用
-dyn 的 `invoke_abi`。旧 `invoke_exact` / `invoke_fixed` / `invoke_fixed_pointer` 不再是
-qjswasm 的执行入口；三者现均为统一入口的兼容薄封装，`invoke_abi` 直接选择
-crate-private family mechanism，避免重入公开 wrapper。
+dyn 的 `invoke_abi`。旧 `invoke_exact` / `invoke_fixed` / `invoke_fixed_pointer` 已删除；
+`invoke_abi` 直接选择 crate-private family mechanism。
 The former S-expression surface has now been removed: every non-language court
 that remained authoritative first gained claim-preserving raw-ABI or qjswasm
 WAT evidence, and no production consumer outside this crate used the language API.
 
-- 统一 `abi` 迁移桥已落地：运行时构造的 `AbiSignature` / `NativeCall`
-  会按**当前真实 trampoline 矩阵**分类；三个旧入口现均遵循
-  `invoke_* → invoke_abi → crate-private family mechanism`。它没有新增 loader、
-  door 或 ABI 形状，且已完成三族公开入口的依赖反转。qjswasm 已把 exact/fixed/
+- 统一 `abi` 入口已落地：运行时构造的 `AbiSignature` / `NativeCall`
+  会按**当前真实 trampoline 矩阵**分类并直接进入 crate-private family mechanism。
+  三个旧入口及仅为其服务的 nullable 策略标签已删除。该收口没有新增 loader、
+  door 或 ABI 形状。qjswasm 已把 exact/fixed/
   fixed-pointer prototype 枚举、同质族判据和 canonical argument conversion
   本地化，不再导入 dyn 的旧策略枚举或 validator。raw `Pointer` 只有一个
   ABI 位，是否可空及

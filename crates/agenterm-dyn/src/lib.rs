@@ -1,15 +1,11 @@
 pub mod abi;
-// Internal monomorphic trampoline families. Their legacy compatibility types
-// remain implementation details until the tables are folded into `abi`.
-#[allow(dead_code)]
+// Internal monomorphic trampoline families selected by `abi`.
 mod exact_native;
 #[cfg(unix)]
 mod exec;
 #[cfg(unix)]
 mod exec_error;
-#[allow(dead_code)]
 mod fixed_native;
-#[allow(dead_code)]
 mod fixed_pointer;
 mod unix_ioctl;
 

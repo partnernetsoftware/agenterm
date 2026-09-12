@@ -7,11 +7,8 @@
 //! mechanism. It owns **no product policy**: it does not decide which symbols or
 //! prototypes a product exposes, and it does not maintain an allow-list.
 //!
-//! The long-term direction is that the three families (`invoke_exact`,
-//! `invoke_fixed`, `invoke_fixed_pointer`) become thin wrappers over one
-//! mechanism entry. All three compatibility families now follow that direction:
-//! each public legacy entry delegates to [`invoke_abi`], which selects a
-//! crate-private family mechanism without re-entering the wrapper.
+//! The former public family entry points have been removed. [`invoke_abi`]
+//! selects their crate-private monomorphic mechanisms directly.
 //!
 //! # Nullability and pointee contracts live in the upper layer
 //!
@@ -257,13 +254,9 @@ const FIXED_PROTOTYPES: [FixedNativePrototype; 4] = [
 
 /// The pointer-family prototypes this bridge maps onto.
 ///
-/// Only the prototypes whose positions are all *required* pointers are listed.
-/// The two nullable-tagged prototypes (`I32PointerNullablePointer`,
-/// `I32NullablePointerPointer`) are deliberately **not** used: their tags exist to
-/// carry an upper-layer schema distinction, and the family validator only
-/// compares those tags, so routing a raw call through them would smuggle a policy
-/// decision into a policy-free entry. Every address position is `Pointer` here,
-/// and the family validator accepts a null `Pointer` like any other.
+/// Every address position is the single ABI-level `Pointer` type. Nullability is
+/// an upper-layer contract, and the family validator accepts a null pointer like
+/// any other pointer value.
 const POINTER_PROTOTYPES: [FixedPointerPrototype; 8] = [
     FixedPointerPrototype::I32Pointer,
     FixedPointerPrototype::I32PointerI32,
@@ -289,9 +282,7 @@ const fn abi_pointer_type(ty: FixedPointerType) -> AbiType {
         FixedPointerType::I32 => AbiType::I32,
         FixedPointerType::U32 => AbiType::U32,
         FixedPointerType::U64 => AbiType::U64,
-        // Both pointer positions are one ABI position. `NullablePointer` is only
-        // reachable from an upper-layer schema tag, never from here.
-        FixedPointerType::Pointer | FixedPointerType::NullablePointer => AbiType::Pointer,
+        FixedPointerType::Pointer => AbiType::Pointer,
     }
 }
 

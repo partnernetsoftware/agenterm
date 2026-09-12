@@ -14,7 +14,6 @@ pub enum FixedPointerType {
     U32,
     U64,
     Pointer,
-    NullablePointer,
 }
 
 /// One canonical argument for a fixed pointer prototype.
@@ -24,7 +23,6 @@ pub enum FixedPointerValue {
     U32(u32),
     U64(u64),
     Pointer(*mut c_void),
-    NullablePointer(*mut c_void),
 }
 
 impl FixedPointerValue {
@@ -34,7 +32,6 @@ impl FixedPointerValue {
             Self::U32(_) => FixedPointerType::U32,
             Self::U64(_) => FixedPointerType::U64,
             Self::Pointer(_) => FixedPointerType::Pointer,
-            Self::NullablePointer(_) => FixedPointerType::NullablePointer,
         }
     }
 }
@@ -54,10 +51,6 @@ pub enum FixedPointerPrototype {
     I32PointerPointer,
     /// C `int function(void *, void *, void *)`, with all pointers required.
     I32PointerPointerPointer,
-    /// C `int function(void *, void *)`, with only the second pointer nullable.
-    I32PointerNullablePointer,
-    /// C `int function(void *, void *)`, with only the first pointer nullable.
-    I32NullablePointerPointer,
     /// C `int function(int, void *, unsigned int)`, used by `proc_pidpath`.
     I32I32PointerU32,
     /// C `int function(uint64_t, void *, uint64_t)`, used by `pthread_getname_np`.
@@ -77,12 +70,6 @@ impl FixedPointerPrototype {
                 FixedPointerType::Pointer,
                 FixedPointerType::Pointer,
             ],
-            Self::I32PointerNullablePointer => {
-                &[FixedPointerType::Pointer, FixedPointerType::NullablePointer]
-            }
-            Self::I32NullablePointerPointer => {
-                &[FixedPointerType::NullablePointer, FixedPointerType::Pointer]
-            }
             Self::I32I32PointerU32 => &[
                 FixedPointerType::I32,
                 FixedPointerType::Pointer,
@@ -162,88 +149,11 @@ pub fn validate_fixed_pointer_signature(
     }
 }
 
-/// Resolve and invoke one enumerated synchronous caller-buffer prototype
-/// through the unified ABI mechanism entry.
-///
-/// # Safety
-/// The caller asserts that `symbol` really has `prototype`'s fixed,
-/// non-variadic C ABI. Every pointer must be valid for the callee's complete
-/// synchronous access, correctly aligned, and obey its initialization,
-/// mutability, aliasing, and pointee-size requirements. The callee must not
-/// retain a pointer after returning. Native initializers, finalizers, and the
-/// function itself may have arbitrary process effects.
-pub unsafe fn invoke_fixed_pointer(call: &FixedPointerCall<'_>) -> Result<i32, FixedPointerError> {
-    use crate::abi::{AbiError, AbiSignature, AbiType, AbiValue, NativeCall, invoke_abi};
-
-    const fn abi_type(ty: FixedPointerType) -> AbiType {
-        match ty {
-            FixedPointerType::I32 => AbiType::I32,
-            FixedPointerType::U32 => AbiType::U32,
-            FixedPointerType::U64 => AbiType::U64,
-            FixedPointerType::Pointer | FixedPointerType::NullablePointer => AbiType::Pointer,
-        }
-    }
-    const fn abi_value(value: FixedPointerValue) -> AbiValue {
-        match value {
-            FixedPointerValue::I32(bits) => AbiValue::I32(bits),
-            FixedPointerValue::U32(bits) => AbiValue::U32(bits),
-            FixedPointerValue::U64(bits) => AbiValue::U64(bits),
-            FixedPointerValue::Pointer(address) | FixedPointerValue::NullablePointer(address) => {
-                AbiValue::Pointer(address)
-            }
-        }
-    }
-
-    let parameters = call
-        .prototype
-        .parameters()
-        .iter()
-        .copied()
-        .map(abi_type)
-        .collect::<Vec<_>>();
-    let arguments = call
-        .arguments
-        .iter()
-        .copied()
-        .map(abi_value)
-        .collect::<Vec<_>>();
-    let native = NativeCall {
-        library: call.library,
-        symbol: call.symbol,
-        signature: AbiSignature {
-            result: AbiType::I32,
-            params: &parameters,
-        },
-        arguments: &arguments,
-    };
-    // SAFETY: the legacy caller upholds the same symbol and pointer contracts.
-    match unsafe { invoke_abi(&native) } {
-        Ok(AbiValue::I32(status)) => Ok(status),
-        Ok(_)
-        | Err(AbiError::SignatureUnsupported { .. })
-        | Err(AbiError::ArgumentCount { .. })
-        | Err(AbiError::ArgumentShape { .. }) => Err(FixedPointerError::SignatureUnsupported {
-            prototype: call.prototype,
-            parameters: call
-                .arguments
-                .iter()
-                .map(|argument| argument.ty())
-                .collect(),
-        }),
-        Err(AbiError::LibraryLoad { library, message }) => {
-            Err(FixedPointerError::LibraryLoad { library, message })
-        }
-        Err(AbiError::SymbolLookup {
-            symbol, message, ..
-        }) => Err(FixedPointerError::SymbolLoad { symbol, message }),
-    }
-}
-
 /// Executes an admitted pointer-family shape without re-entering the public
 /// compatibility wrapper.
 ///
 /// # Safety
-/// The caller must uphold [`invoke_fixed_pointer`]'s complete ABI contract.
+/// The caller must uphold [`crate::invoke_abi`]'s complete ABI contract.
 pub(crate) unsafe fn invoke_fixed_pointer_mechanism(
     call: &FixedPointerCall<'_>,
 ) -> Result<i32, FixedPointerError> {
@@ -284,20 +194,6 @@ pub(crate) unsafe fn invoke_fixed_pointer_mechanism(
                 FixedPointerValue::Pointer(c),
             ],
         ) => invoke_i32_pointer_pointer_pointer(&library, call.symbol, *a, *b, *c),
-        (
-            FixedPointerPrototype::I32PointerNullablePointer,
-            [
-                FixedPointerValue::Pointer(a),
-                FixedPointerValue::NullablePointer(b),
-            ],
-        ) => invoke_i32_pointer_pointer(&library, call.symbol, *a, *b),
-        (
-            FixedPointerPrototype::I32NullablePointerPointer,
-            [
-                FixedPointerValue::NullablePointer(a),
-                FixedPointerValue::Pointer(b),
-            ],
-        ) => invoke_i32_pointer_pointer(&library, call.symbol, *a, *b),
         (
             FixedPointerPrototype::I32I32PointerU32,
             [
@@ -377,7 +273,7 @@ fn invoke_i32_pointer(
     symbol: &str,
     a: *mut c_void,
 ) -> Result<i32, FixedPointerError> {
-    // SAFETY: invoke_fixed_pointer admitted this exact prototype; the remaining
+    // SAFETY: invoke_abi admitted this exact prototype; the remaining
     // symbol and pointee assertions belong to its unsafe caller.
     let function =
         unsafe { library.get::<unsafe extern "C" fn(*mut c_void) -> i32>(symbol.as_bytes()) }

@@ -137,88 +137,11 @@ pub fn validate_fixed_native_signature(
     }
 }
 
-/// Resolve and invoke one enumerated heterogeneous scalar prototype through the
-/// unified ABI mechanism entry.
-///
-/// # Safety
-/// The caller asserts that `symbol` really has `prototype`'s fixed,
-/// non-variadic C ABI. Native initializers, finalizers, and the function may
-/// have arbitrary process effects.
-pub unsafe fn invoke_fixed(
-    call: &FixedNativeCall<'_>,
-) -> Result<FixedNativeValue, FixedNativeError> {
-    use crate::abi::{AbiError, AbiSignature, AbiType, AbiValue, NativeCall, invoke_abi};
-
-    const fn abi_type(ty: FixedNativeType) -> AbiType {
-        match ty {
-            FixedNativeType::I32 => AbiType::I32,
-            FixedNativeType::I64 => AbiType::I64,
-            FixedNativeType::U64 => AbiType::U64,
-            FixedNativeType::Isize => AbiType::Isize,
-        }
-    }
-    const fn abi_value(value: FixedNativeValue) -> AbiValue {
-        match value {
-            FixedNativeValue::I32(bits) => AbiValue::I32(bits),
-            FixedNativeValue::I64(bits) => AbiValue::I64(bits),
-            FixedNativeValue::U64(bits) => AbiValue::U64(bits),
-            FixedNativeValue::Isize(bits) => AbiValue::Isize(bits),
-        }
-    }
-
-    let parameters = call
-        .prototype
-        .parameters()
-        .iter()
-        .copied()
-        .map(abi_type)
-        .collect::<Vec<_>>();
-    let arguments = call
-        .arguments
-        .iter()
-        .copied()
-        .map(abi_value)
-        .collect::<Vec<_>>();
-    let native = NativeCall {
-        library: call.library,
-        symbol: call.symbol,
-        signature: AbiSignature {
-            result: abi_type(call.prototype.result()),
-            params: &parameters,
-        },
-        arguments: &arguments,
-    };
-    // SAFETY: the legacy caller upholds the same symbol and process contract.
-    match unsafe { invoke_abi(&native) } {
-        Ok(AbiValue::I32(bits)) => Ok(FixedNativeValue::I32(bits)),
-        Ok(AbiValue::I64(bits)) => Ok(FixedNativeValue::I64(bits)),
-        Ok(AbiValue::U64(bits)) => Ok(FixedNativeValue::U64(bits)),
-        Ok(AbiValue::Isize(bits)) => Ok(FixedNativeValue::Isize(bits)),
-        Ok(_)
-        | Err(AbiError::SignatureUnsupported { .. })
-        | Err(AbiError::ArgumentCount { .. })
-        | Err(AbiError::ArgumentShape { .. }) => Err(FixedNativeError::SignatureUnsupported {
-            prototype: call.prototype,
-            parameters: call
-                .arguments
-                .iter()
-                .map(|argument| argument.ty())
-                .collect(),
-        }),
-        Err(AbiError::LibraryLoad { library, message }) => {
-            Err(FixedNativeError::LibraryLoad { library, message })
-        }
-        Err(AbiError::SymbolLookup {
-            symbol, message, ..
-        }) => Err(FixedNativeError::SymbolLoad { symbol, message }),
-    }
-}
-
 /// Executes an admitted fixed-family shape without re-entering the public
 /// compatibility wrapper.
 ///
 /// # Safety
-/// The caller must uphold [`invoke_fixed`]'s complete ABI contract.
+/// The caller must uphold [`crate::invoke_abi`]'s complete ABI contract.
 pub(crate) unsafe fn invoke_fixed_mechanism(
     call: &FixedNativeCall<'_>,
 ) -> Result<FixedNativeValue, FixedNativeError> {
@@ -259,7 +182,7 @@ fn invoke_i32_u64_u64(
     a: u64,
     b: u64,
 ) -> Result<i32, FixedNativeError> {
-    // SAFETY: invoke_fixed admitted this exact prototype; the remaining symbol
+    // SAFETY: invoke_abi admitted this exact prototype; the remaining symbol
     // signature assertion belongs to its unsafe caller.
     let function =
         unsafe { library.get::<unsafe extern "C" fn(u64, u64) -> i32>(symbol.as_bytes()) }
@@ -269,7 +192,7 @@ fn invoke_i32_u64_u64(
 }
 
 fn invoke_u64_i32(library: &Library, symbol: &str, a: i32) -> Result<u64, FixedNativeError> {
-    // SAFETY: invoke_fixed admitted this exact prototype; the remaining symbol
+    // SAFETY: invoke_abi admitted this exact prototype; the remaining symbol
     // signature assertion belongs to its unsafe caller.
     let function = unsafe { library.get::<unsafe extern "C" fn(i32) -> u64>(symbol.as_bytes()) }
         .map_err(|error| symbol_error(symbol, error))?;
@@ -285,7 +208,7 @@ fn symbol_error(symbol: &str, error: libloading::Error) -> FixedNativeError {
 }
 
 fn invoke_isize_i32(library: &Library, symbol: &str, a: i32) -> Result<isize, FixedNativeError> {
-    // SAFETY: invoke_fixed admitted this exact prototype; the remaining symbol
+    // SAFETY: invoke_abi admitted this exact prototype; the remaining symbol
     // signature assertion belongs to its unsafe caller.
     let function = unsafe { library.get::<unsafe extern "C" fn(i32) -> isize>(symbol.as_bytes()) }
         .map_err(|error| symbol_error(symbol, error))?;
@@ -300,7 +223,7 @@ fn invoke_i64_i32_i64_i32(
     b: i64,
     c: i32,
 ) -> Result<i64, FixedNativeError> {
-    // SAFETY: invoke_fixed admitted this exact prototype; the remaining symbol
+    // SAFETY: invoke_abi admitted this exact prototype; the remaining symbol
     // signature assertion belongs to its unsafe caller.
     let function =
         unsafe { library.get::<unsafe extern "C" fn(i32, i64, i32) -> i64>(symbol.as_bytes()) }
