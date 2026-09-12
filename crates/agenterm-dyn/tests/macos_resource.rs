@@ -9,6 +9,11 @@ use agenterm_dyn::{
     CpuCountError, DlAddressError, DomainNameError, DomainNameSnapshot, LoginNameError,
     LoginNameSnapshot, MachHostPortError, MachTimebaseError,
 };
+#[cfg(target_os = "macos")]
+use agenterm_dyn::{
+    DomainNameSnapshot, LoginNameError, LoginNameSnapshot, MAX_DOMAIN_NAME_BYTES,
+    MAX_LOGIN_NAME_BYTES,
+};
 
 #[test]
 fn only_darwin_catalogues_mach_host_self_as_owned_live() {
@@ -138,6 +143,57 @@ fn cpu_count_snapshot_is_a_live_positive_host_fact() {
                 .expect("available parallelism")
                 .get()
     );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn domain_name_snapshot_matches_a_direct_native_buffer() {
+    unsafe extern "C" {
+        fn getdomainname(name: *mut libc::c_char, name_len: libc::c_int) -> libc::c_int;
+    }
+
+    let snapshot = DomainNameSnapshot::acquire().expect("typed Darwin domain snapshot");
+    let mut direct = [0xff_u8; MAX_DOMAIN_NAME_BYTES + 1];
+    // SAFETY: direct is writable for the reported capacity and remains alive
+    // through this synchronous call.
+    let status = unsafe {
+        getdomainname(
+            direct.as_mut_ptr().cast(),
+            libc::c_int::try_from(direct.len()).expect("domain capacity fits c_int"),
+        )
+    };
+    assert_eq!(status, 0, "direct getdomainname succeeds");
+    let direct_length = direct
+        .iter()
+        .position(|byte| *byte == 0)
+        .expect("direct getdomainname output has a real NUL");
+    assert_eq!(snapshot.as_bytes(), &direct[..direct_length]);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn login_name_snapshot_matches_direct_status_and_native_bytes() {
+    unsafe extern "C" {
+        fn getlogin_r(name: *mut libc::c_char, name_len: usize) -> libc::c_int;
+    }
+
+    let mut direct = [0xff_u8; MAX_LOGIN_NAME_BYTES];
+    // SAFETY: direct is writable for the reported capacity and remains alive
+    // through this synchronous call. getlogin_r returns its error code itself.
+    let direct_status = unsafe { getlogin_r(direct.as_mut_ptr().cast(), direct.len()) };
+    let typed = LoginNameSnapshot::acquire();
+    if direct_status == 0 {
+        let direct_length = direct
+            .iter()
+            .position(|byte| *byte == 0)
+            .expect("direct getlogin_r output has a real NUL");
+        assert_eq!(
+            typed.expect("typed login snapshot succeeds").as_bytes(),
+            &direct[..direct_length]
+        );
+    } else {
+        assert_eq!(typed, Err(LoginNameError::Os(direct_status)));
+    }
 }
 
 #[cfg(target_os = "macos")]
