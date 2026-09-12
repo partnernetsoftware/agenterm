@@ -399,6 +399,11 @@ fn additional_system_probes_use_explicit_live_and_placeholder_statuses() {
                     ) || matches!(
                         (probe.name, probe.status),
                         (
+                            "sysctlbyname",
+                            SystemProbeStatus::LiveOwned {
+                                api: "CpuCountSnapshot::acquire"
+                            }
+                        ) | (
                             "gethostname",
                             SystemProbeStatus::LiveOwned {
                                 api: "HostnameSnapshot::acquire"

@@ -3451,6 +3451,13 @@ test that supplies those arguments. Putting a parameterized fixture in
 
 `agenterm-dyn` stores headless probe rows as one fixed-length
 `[SystemProbe; N]` on every `{linux,macos,windows} × {x86_64,aarch64}` cell.
+A row named after an OS function does not authorize that function's general
+surface. When migration deliberately narrows a raw call to one typed fact—for
+example `sysctlbyname` to the fixed `CpuCountSnapshot::acquire()` `hw.ncpu`
+query—change the row status and its docs together so discovery names the exact
+fact, bounded output, and unsupported cells. Keeping the raw API wording after
+its court is gone falsely advertises a capability that no current evidence
+owns.
 A Darwin-only live name still needs a same-length Placeholder on Linux and
 Windows or the crate will not compile. Keep `mach_host_self` last. It is live
 on the two Darwin rows only through the typed `MachHostPort::acquire` owner;

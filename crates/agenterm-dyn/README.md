@@ -188,7 +188,7 @@ without wiring dyn into cu, platform, or the ABI:
 - [descriptor resource limits via `getrlimit(RLIMIT_NOFILE, …)`](examples/getrlimit.md)
 - [host page size via `sysconf`](examples/sysconf-pagesize.md)
 - [host page size via `getpagesize`](examples/getpagesize.md)
-- [hardware CPU count via `sysctlbyname`](examples/sysctlbyname.md) (macOS)
+- [typed `hw.ncpu` snapshot via `sysctlbyname`](examples/sysctlbyname.md) (macOS)
 - [monotonic kernel ticks via `mach_absolute_time`](examples/mach-absolute-time.md) (macOS)
 - [program name pointer via `getprogname`](examples/getprogname.md) (macOS)
 - [set-id execution state via `issetugid`](examples/issetugid.md) (macOS)
@@ -303,8 +303,9 @@ direct-libc baseline. `getdtablesize` returns the host descriptor-table limit as
 source defines the same integer/void/ptr libc rows as Linux against
 `libSystem.B.dylib`, including caller-owned-pointer `times`,
 `getrusage(RUSAGE_SELF, …)`, and `getrlimit(RLIMIT_NOFILE, …)` checks against
-direct-libc baselines. Darwin-specific smokes cover `sysctlbyname`,
-`mach_absolute_time`, `getprogname`, `issetugid`, `_NSGetExecutablePath`,
+direct-libc baselines. `CpuCountSnapshot` owns the bounded `hw.ncpu`
+`sysctlbyname` query; it does not expose arbitrary names or caller buffers.
+Darwin-specific smokes cover `mach_absolute_time`, `getprogname`, `issetugid`, `_NSGetExecutablePath`,
 `proc_pidpath`, `arc4random`, `clock_gettime_nsec_np`, `sysctl`,
 `mach_timebase_info`, `pthread_main_np`, `pthread_threadid_np`,
 `pthread_getname_np`,

@@ -214,7 +214,7 @@ fixnum `+` `-` + bounded `repeat` + one hand (`dlcall`).
   A rejected nested body reports `DynError::RepeatBudgetExceeded` without its
   body-side effects.
 - Win six-cell extra probes stay placeholders. **macOS** has the shared
-  fixed-ABI live libc rows plus `sysctlbyname`, `mach_absolute_time`, `getprogname`,
+  fixed-ABI live libc rows plus `mach_absolute_time`, `getprogname`,
   `issetugid`, `_NSGetExecutablePath`, `proc_pidpath`, `arc4random`,
   `clock_gettime_nsec_np`, `sysctl`, `mach_timebase_info`, `pthread_main_np`,
   `getlogin_r`, `pthread_threadid_np`, `pthread_getname_np`, `proc_pidinfo`, `_NSGetArgc`,
@@ -227,6 +227,8 @@ fixnum `+` `-` + bounded `repeat` + one hand (`dlcall`).
   `_dyld_get_image_vmaddr_slide`, `dladdr`, `gethostuuid`,
   `_dyld_get_image_header`, `arc4random_uniform`, `getdomainname`,
   `statvfs`, `gettimeofday`, `getgroups`, and `realpath`.
+  `CpuCountSnapshot::acquire` owns only the bounded, pointer-free `hw.ncpu`
+  fact rather than exposing general `sysctlbyname` caller buffers.
   `gethostname`, `getdomainname`, `getlogin_r`, `statvfs`, and `getgroups`
   are typed-only snapshot/owner rows; the remaining native-call rows resolve
   through `libSystem.B.dylib`.
@@ -289,7 +291,7 @@ deliberately small; this does not authorize a broader type system.
 ### probes
 
 Integer/void/ptr libc rows are live on Linux (`libc.so.6`) and macOS
-(`libSystem.B.dylib`); macOS additionally covers `sysctlbyname`,
+(`libSystem.B.dylib`); macOS additionally covers
 `mach_absolute_time`, `getprogname`, `issetugid`, `_NSGetExecutablePath`,
 `proc_pidpath`, `arc4random`, `clock_gettime_nsec_np`, `sysctl`,
 `mach_timebase_info`, `pthread_main_np`, `getlogin_r`, `pthread_threadid_np`,
@@ -303,7 +305,9 @@ Integer/void/ptr libc rows are live on Linux (`libc.so.6`) and macOS
 `_NSGetMachExecuteHeader`, `_dyld_get_image_name`,
 `_dyld_get_image_vmaddr_slide`, `dladdr`, `gethostuuid`,
 `_dyld_get_image_header`, `arc4random_uniform`, `getdomainname`,
-`statvfs`, `gettimeofday`, `getgroups`, and `realpath`. The current
+`statvfs`, `gettimeofday`, `getgroups`, and `realpath`.
+`CpuCountSnapshot::acquire` is the typed-only owner of the fixed `hw.ncpu`
+query, not a general `sysctlbyname` interface. The current
 `gethostname`, `getdomainname`, `getlogin_r`, `statvfs`, and `getgroups` rows
 are typed-only snapshot/owner facts rather than legacy Lisp calls.
 `mach_host_self` is owned on Darwin through `MachHostPort` (`acquire()` plus a

@@ -10,7 +10,6 @@ use std::path::Path;
 use agenterm_dyn::{LINUX_AARCH64, LINUX_X86_64, MACOS_AARCH64, MACOS_X86_64, SystemProbeStatus};
 
 const DARWIN_ONLY_LIVE_EXAMPLES: &[(&str, &str)] = &[
-    ("sysctlbyname", "sysctlbyname.md"),
     ("mach_absolute_time", "mach-absolute-time.md"),
     ("getprogname", "getprogname.md"),
     ("issetugid", "issetugid.md"),
@@ -133,6 +132,42 @@ fn mach_host_self_is_owned_live_with_callable_documentation() {
 
     let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
     assert!(readme.contains("](examples/mach-host-self.md)"));
+}
+
+#[test]
+fn darwin_cpu_count_is_a_typed_hw_ncpu_snapshot() {
+    for cell in [MACOS_X86_64, MACOS_AARCH64] {
+        let probe = cell
+            .system_probes
+            .iter()
+            .find(|probe| probe.name == "sysctlbyname")
+            .expect("Darwin catalog contains sysctlbyname");
+        assert_eq!(
+            probe.status,
+            SystemProbeStatus::LiveOwned {
+                api: "CpuCountSnapshot::acquire"
+            }
+        );
+    }
+
+    for cell in [LINUX_X86_64, LINUX_AARCH64] {
+        let probe = cell
+            .system_probes
+            .iter()
+            .find(|probe| probe.name == "sysctlbyname")
+            .expect("Linux catalog contains the unavailable Darwin API");
+        assert_eq!(probe.status, SystemProbeStatus::Placeholder);
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let example = fs::read_to_string(root.join("examples/sysctlbyname.md"))
+        .expect("sysctlbyname typed snapshot documentation is readable");
+    assert!(example.contains("CpuCountSnapshot::acquire"));
+    assert!(example.contains("hw.ncpu"));
+    assert!(!example.contains("(dlcall"));
+
+    let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
+    assert!(readme.contains("](examples/sysctlbyname.md)"));
 }
 
 #[test]

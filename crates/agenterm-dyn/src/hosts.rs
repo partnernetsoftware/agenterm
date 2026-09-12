@@ -481,7 +481,12 @@ const MACOS_SYSTEM_PROBES: [SystemProbe; 86] = [
     macos_live("getdtablesize", "getdtablesize"),
     macos_live("gethostid", "gethostid"),
     macos_live("getpagesize", "getpagesize"),
-    macos_live("sysctlbyname", "sysctlbyname"),
+    SystemProbe {
+        name: "sysctlbyname",
+        status: SystemProbeStatus::LiveOwned {
+            api: "CpuCountSnapshot::acquire",
+        },
+    },
     macos_live("mach_absolute_time", "mach_absolute_time"),
     macos_live("getprogname", "getprogname"),
     macos_live("issetugid", "issetugid"),

@@ -1,12 +1,14 @@
-# Read `hw.ncpu` with `sysctlbyname`
+# Read the typed `hw.ncpu` snapshot
 
-macOS example. The embedding Rust host binds a writable integer buffer as
-`value` and a writable byte-count slot as `len` before evaluation.
+On macOS, `CpuCountSnapshot` owns the bounded two-stage `sysctlbyname` query,
+copies the result into a pointer-free `u32`, and returns typed failures instead
+of exposing caller buffers. This API deliberately represents only `hw.ncpu`;
+it is not a general `sysctlbyname` interface.
 
-```lisp
-(dlcall "libSystem.B.dylib" "sysctlbyname" "i32"
-  "ptr" name "ptr" value "ptr" len "ptr" 0 "u64" 0)
+```rust
+use agenterm_dyn::CpuCountSnapshot;
+
+let cpu_count = CpuCountSnapshot::acquire()?;
+assert!(cpu_count.logical_cpus() > 0);
+# Ok::<(), agenterm_dyn::CpuCountError>(())
 ```
-
-`name` must point to the NUL-terminated `hw.ncpu` C string. A zero result
-means the kernel wrote the caller-owned buffer; the host validates its value.

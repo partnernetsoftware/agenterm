@@ -30,53 +30,6 @@ fn live_symbol(name: &str) -> &'static str {
 }
 
 #[test]
-fn dlcall_sysctlbyname_writes_ncpu_into_caller_buffer() {
-    let symbol = live_symbol("sysctlbyname");
-    let name = CString::new("hw.ncpu").expect("literal has no NUL");
-    let mut ncpu: libc::c_uint = 0;
-    let mut len = std::mem::size_of_val(&ncpu);
-    let mut env = Dyn::new();
-    env.bind("name", name.as_ptr().cast_mut().cast::<c_void>())
-        .expect("bind sysctl name");
-    env.bind("value", (&mut ncpu as *mut libc::c_uint).cast())
-        .expect("bind CPU output");
-    env.bind("len", (&mut len as *mut usize).cast())
-        .expect("bind CPU output length");
-    let got = eval_native(
-        &mut env,
-        &format!(
-            r#"(dlcall "{LIB}" "{symbol}" "i32" "ptr" name "ptr" value "ptr" len "ptr" 0 "u64" 0)"#
-        ),
-    )
-    .expect("sysctlbyname dlcall");
-    assert_eq!(got, Value::Int(0));
-    assert_eq!(len, std::mem::size_of_val(&ncpu));
-    assert!(ncpu >= 1, "hw.ncpu must be positive");
-
-    let mut direct: libc::c_uint = 0;
-    let mut direct_len = std::mem::size_of_val(&direct);
-    let direct_status = unsafe {
-        libc::sysctlbyname(
-            name.as_ptr(),
-            (&mut direct as *mut libc::c_uint).cast(),
-            &mut direct_len,
-            std::ptr::null_mut(),
-            0,
-        )
-    };
-    assert_eq!(direct_status, 0, "direct sysctlbyname must succeed");
-    assert_eq!(direct_len, std::mem::size_of_val(&direct));
-    assert_eq!(ncpu, direct);
-    let available = std::thread::available_parallelism()
-        .expect("host exposes available parallelism")
-        .get();
-    assert!(
-        ncpu as usize >= available,
-        "kernel CPU count must cover process availability"
-    );
-}
-
-#[test]
 fn dlcall_getprogname_matches_libc_c_string() {
     let symbol = live_symbol("getprogname");
     let mut env = Dyn::new();
