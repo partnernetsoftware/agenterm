@@ -308,21 +308,50 @@ mod tests {
         assert_eq!(payload["cleanup"], "verified");
     }
 
+    /// The timeout fixture must not be able to complete on its own, so the only
+    /// thing that can end it is the payload's own contained cleanup. A one-hour
+    /// sleep per iteration cannot finish inside a 100 ms deadline on either host,
+    /// and it costs no CPU while the loop polls.
     #[test]
-    fn timeout_and_output_limit_are_distinct_typed_failures() {
+    fn an_indefinite_shell_is_stopped_by_its_deadline() {
         #[cfg(unix)]
-        let slow = "sleep 2";
+        let indefinite = "while :; do sleep 3600; done";
         #[cfg(windows)]
-        let slow = "Start-Sleep -Seconds 2";
-        let timeout = shell_exec_payload(slow, 100, 4_096).expect_err("timeout");
+        let indefinite = "while ($true) { Start-Sleep -Seconds 3600 }";
+        let timeout = shell_exec_payload(indefinite, 100, 1_048_576).expect_err("timeout");
         assert_eq!(timeout.code, "shell_exec_timeout");
         assert_eq!(timeout.detail.unwrap()["cleanup"], "verified");
+    }
 
+    /// Completed-first is frozen: an immediate completion under a wide deadline
+    /// is a success, never a deadline expiry, however slowly the host schedules
+    /// the polling loop.
+    #[test]
+    fn an_immediate_completion_wins_under_a_wide_deadline() {
         #[cfg(unix)]
-        let noisy = "yes x | head -c 4096";
+        let quick = "printf done";
         #[cfg(windows)]
-        let noisy = "[Console]::Out.Write(('x' * 4096))";
-        let limited = shell_exec_payload(noisy, 5_000, 64).expect_err("output limit");
+        let quick = "Write-Output done";
+        let payload = shell_exec_payload(quick, 60_000, 4_096).expect("completed shell");
+        assert_eq!(payload["exit"]["code"], 0);
+        assert_eq!(payload["success"], true);
+        assert_eq!(payload["cleanup"], "verified");
+        assert_eq!(payload["output_complete"], true);
+    }
+
+    /// The aggregate ceiling is reached long before a wide deadline, so this
+    /// asserts the limit rather than a race between the two. The fixture writes
+    /// only one byte past the ceiling and exits immediately, so the verdict comes
+    /// from the drained capture (the post-join check) on the natural-exit path:
+    /// a long-running writer would instead be terminated, whose cleanup may
+    /// legitimately be uncertain under load.
+    #[test]
+    fn a_noisy_shell_hits_its_aggregate_limit() {
+        #[cfg(unix)]
+        let noisy = "printf '%065d' 0";
+        #[cfg(windows)]
+        let noisy = "[Console]::Out.Write(('x' * 65))";
+        let limited = shell_exec_payload(noisy, 60_000, 64).expect_err("output limit");
         assert_eq!(limited.code, "shell_exec_output_limit");
         assert_eq!(limited.detail.unwrap()["cleanup"], "verified");
     }
