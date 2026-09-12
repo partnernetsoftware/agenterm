@@ -5,7 +5,7 @@ Family contract: [PRD 10](PRD_02_10_rhai_scripting.md)
 
 Status: **`[~]` active product engine**.
 
-**`b4883be`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
+**`9ac2598`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
 `crates/agenterm-qjswasm/Cargo.toml`, and tests must reject PRD/pin drift.
 This revision adds a generic, call-scoped cooperative-interruption seam: one
 invocation or start-section instantiation borrows one `AtomicBool`; pure guest

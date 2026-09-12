@@ -102,6 +102,30 @@ fn wat_for(spec: &str, spec_ptr: i32, spec_len: i32, block_ptr: i32, block_len: 
     )
 }
 
+/// The parent pid as the host reports it: `std`'s own process fact, not the
+/// guest's answer and not the `native_call` path under test.
+#[cfg(unix)]
+fn host_parent_pid() -> i64 {
+    i64::from(std::os::unix::process::parent_id())
+}
+
+/// Ask the host's standard identity utility for the real uid. This does not
+/// share the guest's `native_call` path and, unlike file ownership, does not
+/// silently substitute the effective uid.
+#[cfg(unix)]
+fn host_real_uid() -> u32 {
+    let output = std::process::Command::new("id")
+        .arg("-ru")
+        .output()
+        .expect("the Unix identity oracle runs");
+    assert!(output.status.success(), "id -ru must succeed");
+    String::from_utf8(output.stdout)
+        .expect("id -ru emits UTF-8 digits")
+        .trim()
+        .parse()
+        .expect("id -ru emits a u32")
+}
+
 #[cfg(unix)]
 #[test]
 fn three_real_read_only_native_capabilities_cross_the_eighth_door() {
@@ -117,14 +141,22 @@ fn three_real_read_only_native_capabilities_cross_the_eighth_door() {
         Budget::default(),
     )
     .expect("getppid runs");
-    assert!(parent > 0);
+    assert_eq!(
+        parent,
+        host_parent_pid(),
+        "getppid must report this process's parent"
+    );
 
     let uid = run_wat(
         include_str!("fixtures/native/getuid.wat"),
         Budget::default(),
     )
     .expect("getuid runs");
-    assert!(uid >= 0, "uid is returned as canonical u32 bits");
+    assert_eq!(
+        uid as u32,
+        host_real_uid(),
+        "getuid must match the host real-uid oracle"
+    );
 }
 
 #[cfg(unix)]
