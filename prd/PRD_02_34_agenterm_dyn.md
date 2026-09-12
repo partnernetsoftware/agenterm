@@ -420,6 +420,9 @@ are retired.
 Windows process and thread identity now run through qjswasm fixtures for
 `GetCurrentProcessId` and `GetCurrentThreadId`, with direct Win32 oracles on the
 matching host; the duplicate Windows Lisp courts are retired.
+The Unix `times` claim now uses one `i64(ptr)` WAT fixture with a field selector;
+the matching-host court compares elapsed ticks and all four `tms` fields with
+later direct libc baselines. The duplicate Linux/macOS Lisp courts are retired.
 Unix `ioctl` (Linux and macOS) is owned by dyn's `invoke_unix_ioctl` only for the
 validated `(i32, u64|i32, ptr) -> i32` signature. The legacy Lisp entrance and
 the qjswasm native door both delegate there; the fixed trampoline remains for

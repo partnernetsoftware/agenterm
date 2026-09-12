@@ -57,8 +57,8 @@ tempfile = "3.25"
 # lives upstream in `tinyvm-qjs`.
 wat = "1"
 
-[target.'cfg(target_os = "macos")'.dev-dependencies]
-# Direct Darwin oracle constants and declarations for native-door courts only.
+[target.'cfg(unix)'.dev-dependencies]
+# Direct Unix oracle constants and declarations for native-door courts only.
 libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dev-dependencies]

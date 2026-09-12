@@ -989,6 +989,7 @@ enum FixedPrototype {
 enum PointerPrototype {
     VoidNullablePointer,
     I64NullablePointer,
+    I64Pointer,
     I32Pointer,
     I32I32Pointer,
     I32PointerI32,
@@ -1050,6 +1051,7 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
         (NativeType::I64, [NativeType::NullablePointer]) => {
             Some(PointerPrototype::I64NullablePointer)
         }
+        (NativeType::I64, [NativeType::Pointer]) => Some(PointerPrototype::I64Pointer),
         (NativeType::I32, [NativeType::Pointer]) => Some(PointerPrototype::I32Pointer),
         (NativeType::I32, [NativeType::I32, NativeType::Pointer]) => {
             Some(PointerPrototype::I32I32Pointer)
@@ -1610,6 +1612,10 @@ mod json_adapter_tests {
             Ok(NativeDispatch::FixedPointer(
                 PointerPrototype::I64NullablePointer,
             ))
+        );
+        assert_eq!(
+            native_dispatch(&parse("|times|i64(ptr)")),
+            Ok(NativeDispatch::FixedPointer(PointerPrototype::I64Pointer))
         );
         assert_eq!(
             native_dispatch(&parse("|pthread_threadid_np|i32(ptr?,ptr)")),

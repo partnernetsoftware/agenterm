@@ -656,6 +656,45 @@ fn umask_is_read_and_restored_in_an_isolated_process() {
 
 #[cfg(unix)]
 #[test]
+fn times_elapsed_and_each_tms_field_precede_direct_libc_baselines() {
+    fn guest_field(field: i64) -> i64 {
+        run_wat_with_args(
+            include_str!("fixtures/native/times_field.wat"),
+            Budget::default(),
+            &[Value::I64(field)],
+        )
+        .expect("times guest runs")
+    }
+
+    let elapsed = guest_field(0);
+    let mut direct_tms = unsafe { std::mem::zeroed::<libc::tms>() };
+    let direct_elapsed = unsafe { libc::times(&mut direct_tms) };
+    assert!(elapsed >= 0, "times returns non-negative elapsed ticks");
+    assert!(direct_elapsed as i64 >= elapsed);
+
+    for (field, direct) in [
+        (1, direct_tms.tms_utime),
+        (2, direct_tms.tms_stime),
+        (3, direct_tms.tms_cutime),
+        (4, direct_tms.tms_cstime),
+    ] {
+        let guest = guest_field(field);
+        let mut later = unsafe { std::mem::zeroed::<libc::tms>() };
+        let _later_elapsed = unsafe { libc::times(&mut later) };
+        let later_field = match field {
+            1 => later.tms_utime,
+            2 => later.tms_stime,
+            3 => later.tms_cutime,
+            4 => later.tms_cstime,
+            _ => unreachable!(),
+        };
+        assert!(later_field as i64 >= guest);
+        assert!(direct as i64 <= later_field as i64);
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
     let output = std::process::Command::new("uname")
         .arg("-s")
