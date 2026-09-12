@@ -517,6 +517,27 @@ fn five_retired_scalar_probes_match_direct_darwin_oracles() {
 
 #[cfg(target_os = "macos")]
 #[test]
+fn mach_absolute_time_keeps_the_retired_monotonic_oracle() {
+    unsafe extern "C" {
+        fn mach_absolute_time() -> u64;
+    }
+
+    let source = include_str!("fixtures/native/mach_absolute_time.wat");
+    let first = run_wat(source, Budget::default())
+        .expect("first mach_absolute_time call runs through u64()") as u64;
+    let second = run_wat(source, Budget::default())
+        .expect("second mach_absolute_time call runs through u64()") as u64;
+    // SAFETY: the Darwin system library exports this zero-argument u64 ABI.
+    let direct = unsafe { mach_absolute_time() };
+    assert!(second >= first, "later guest tick must not precede first");
+    assert!(
+        direct >= second,
+        "later direct tick must not precede guest call"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn five_more_retired_scalar_probes_keep_current_thread_identity() {
     unsafe extern "C" {
         fn pthread_is_threaded_np() -> i32;

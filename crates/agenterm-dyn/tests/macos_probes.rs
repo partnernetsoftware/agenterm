@@ -80,32 +80,6 @@ fn dlcall_sysctlbyname_writes_ncpu_into_caller_buffer() {
 }
 
 #[test]
-fn dlcall_mach_absolute_time_is_monotonic_against_direct_symbol() {
-    let symbol = live_symbol("mach_absolute_time");
-    let mut env = Dyn::new();
-    let script = format!(r#"(dlcall "{LIB}" "{symbol}" "i64")"#);
-    let first = eval_native(&mut env, &script).expect("first mach_absolute_time dlcall");
-    let second = eval_native(&mut env, &script).expect("second mach_absolute_time dlcall");
-    let first = first.as_int().expect("integer tick result") as u64;
-    let second = second.as_int().expect("integer tick result") as u64;
-    // The same symbol, declared here instead of reached through libc's
-    // deprecated wrapper: the wrapper is what carries the deprecation, the
-    // exported function is not, and the test's point is a second call path to
-    // exactly this symbol.
-    unsafe extern "C" {
-        fn mach_absolute_time() -> u64;
-    }
-    // SAFETY: `mach_absolute_time` takes no arguments, returns `u64`, and is
-    // supplied by the Darwin system library on every target compiling this test.
-    let direct = unsafe { mach_absolute_time() };
-    assert!(second >= first, "later dlcall tick must not precede first");
-    assert!(
-        direct >= second,
-        "later direct tick must not precede dlcall"
-    );
-}
-
-#[test]
 fn dlcall_getprogname_matches_libc_c_string() {
     let symbol = live_symbol("getprogname");
     let mut env = Dyn::new();
