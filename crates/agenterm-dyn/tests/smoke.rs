@@ -372,28 +372,6 @@ mod linux {
     }
 
     #[test]
-    fn dlcall_access_missing_path_fails_after_real_call() {
-        let probe = live_system_probe("access_missing");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let path = CString::new("/proc/self/agenterm-dyn-missing-access-probe")
-            .expect("missing probe path");
-        let mut env = Dyn::new();
-        env.bind("missing", path.as_ptr().cast_mut().cast())
-            .expect("bind missing path");
-        let got = eval_native(
-            &mut env,
-            &format!(
-                r#"(dlcall "{lib}" "{symbol}" "i32" "ptr" missing "i32" {})"#,
-                libc::F_OK
-            ),
-        )
-        .expect("access(missing, F_OK) dlcall");
-        assert_eq!(got, Value::Int(-1));
-    }
-
-    #[test]
     fn dlcall_dup_stdin_then_close() {
         let probe = live_system_probe("dup_stdin");
         let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
@@ -939,27 +917,6 @@ mod macos {
             .expect("getcwd result should be NUL terminated");
         let expected = std::env::current_dir().expect("read current directory");
         assert_eq!(&buffer[..end], expected.as_os_str().as_bytes());
-    }
-
-    #[test]
-    fn dlcall_access_missing_path_fails_after_real_call() {
-        let missing_probe = live_system_probe("access_missing");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = missing_probe.status else {
-            unreachable!()
-        };
-        let missing = CString::new("/tmp/agenterm-dyn-missing-access-probe").expect("missing path");
-        let mut env = Dyn::new();
-        env.bind("missing", missing.as_ptr().cast_mut().cast())
-            .expect("bind missing");
-        let miss = eval_native(
-            &mut env,
-            &format!(
-                r#"(dlcall "{lib}" "{symbol}" "i32" "ptr" missing "i32" {})"#,
-                libc::F_OK
-            ),
-        )
-        .expect("access missing");
-        assert_eq!(miss, Value::Int(-1));
     }
 
     #[test]

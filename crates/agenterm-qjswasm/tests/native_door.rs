@@ -510,6 +510,20 @@ fn isatty_standard_streams_match_direct_libc() {
 
 #[cfg(unix)]
 #[test]
+fn access_missing_path_preserves_the_native_failure_result() {
+    let path = c"/agenterm-qjswasm-missing-access-probe-98f6134c";
+    let direct = unsafe { libc::access(path.as_ptr(), libc::F_OK) };
+    assert_eq!(direct, -1, "the synthetic path must remain absent");
+    let actual = run_wat(
+        include_str!("fixtures/native/access_missing.wat"),
+        Budget::default(),
+    )
+    .expect("access missing-path guest runs");
+    assert_eq!(actual, i64::from(direct));
+}
+
+#[cfg(unix)]
+#[test]
 fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
     let output = std::process::Command::new("uname")
         .arg("-s")
