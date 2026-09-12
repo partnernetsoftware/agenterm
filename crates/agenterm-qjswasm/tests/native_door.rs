@@ -286,7 +286,7 @@ fn host_real_uid() -> u32 {
 
 #[cfg(unix)]
 #[test]
-fn four_real_read_only_native_capabilities_cross_the_eighth_door() {
+fn six_real_read_only_native_capabilities_cross_the_eighth_door() {
     let pid = run_wat(
         include_str!("fixtures/native/getpid.wat"),
         Budget::default(),
@@ -315,6 +315,20 @@ fn four_real_read_only_native_capabilities_cross_the_eighth_door() {
         host_real_uid(),
         "getuid must match the host real-uid oracle"
     );
+
+    let gid = run_wat(
+        include_str!("fixtures/native/getgid.wat"),
+        Budget::default(),
+    )
+    .expect("getgid runs");
+    assert_eq!(gid as u32, unsafe { libc::getgid() });
+
+    let effective_uid = run_wat(
+        include_str!("fixtures/native/geteuid.wat"),
+        Budget::default(),
+    )
+    .expect("geteuid runs");
+    assert_eq!(effective_uid as u32, unsafe { libc::geteuid() });
 
     let process_group = run_wat(
         include_str!("fixtures/native/getpgrp.wat"),

@@ -310,32 +310,6 @@ mod linux {
     }
 
     #[test]
-    fn dlcall_getgid_matches_libc() {
-        let probe = live_system_probe("getgid");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let got = eval_native(&mut env, &format!(r#"(dlcall "{lib}" "{symbol}" "u32")"#))
-            .expect("getgid dlcall");
-        let real = unsafe { libc::getgid() };
-        assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
-    fn dlcall_geteuid_matches_libc() {
-        let probe = live_system_probe("geteuid");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let got = eval_native(&mut env, &format!(r#"(dlcall "{lib}" "{symbol}" "u32")"#))
-            .expect("geteuid dlcall");
-        let real = unsafe { libc::geteuid() };
-        assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
     fn dlcall_getegid_matches_libc() {
         let probe = live_system_probe("getegid");
         let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
@@ -1083,13 +1057,7 @@ mod macos {
 
     #[test]
     fn dlcall_ids_match_libc() {
-        for (name, ret) in [
-            ("getuid", "u32"),
-            ("getgid", "u32"),
-            ("getppid", "i32"),
-            ("geteuid", "u32"),
-            ("getegid", "u32"),
-        ] {
+        for (name, ret) in [("getuid", "u32"), ("getppid", "i32"), ("getegid", "u32")] {
             let probe = live_system_probe(name);
             let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
                 unreachable!()
@@ -1099,9 +1067,7 @@ mod macos {
                 .unwrap_or_else(|e| panic!("{name}: {e}"));
             let real = match name {
                 "getuid" => i64::from(unsafe { libc::getuid() }),
-                "getgid" => i64::from(unsafe { libc::getgid() }),
                 "getppid" => i64::from(unsafe { libc::getppid() }),
-                "geteuid" => i64::from(unsafe { libc::geteuid() }),
                 "getegid" => i64::from(unsafe { libc::getegid() }),
                 _ => unreachable!(),
             };
