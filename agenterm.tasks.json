@@ -3688,6 +3688,28 @@
         "task.cu-persisted-grant-smoke"
       ]
     },
+    "cu-browser-session-fixture-smoke": {
+      "inputs": [
+        "source-tree",
+        "built-agenterm",
+        "built-agenterm-cu",
+        "rustc"
+      ],
+      "outputs": [
+        "cu-browser-session-fixture-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_host_operations": 100000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "cu.browser-session-fixture.lifecycle.synthetic",
+        "cu.browser-session-fixture.typed-failures.synthetic"
+      ]
+    },
     "cu-browser-session-smoke": {
       "inputs": [
         "built-agenterm",
@@ -9750,6 +9772,28 @@
         "target/debug/agenterm-cu"
       ],
       "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-browser-session-fixture-smoke",
+      "description": "Build a std-only synthetic browser peer in one invocation-owned run, then prove the production browser-session owner lifecycle and typed readiness failures through the public agenterm-cu CLI; browser_peer=synthetic, with no Chrome, MV3, CDP, native-messaging, or GUI claim.",
+      "entry": "scripts/qjs/build-cu-browser-session-fixture.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [
+        "build"
+      ],
       "platforms": [
         "macos"
       ],

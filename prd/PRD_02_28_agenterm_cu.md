@@ -1157,6 +1157,62 @@ flowchart LR
   TTL then reap the browser and Native Messaging host. This replaces old
   shell-script citations with emitted evidence ids for macOS, but does not
   claim Linux or Windows qualification.
+- [~] The resident `browser-session` lifecycle has a hermetic synthetic-peer
+  court that is deliberately narrower than the Chromium court.
+  - **User problem:** contributors and qualification runners need to prove the
+    production owner, registry, identity and cleanup path even when no suitable
+    Chromium-family executable is installed; a missing browser must not turn
+    that product boundary into an invisible or fabricated pass.
+  - **Behavior:** the public `cu-browser-session-fixture-smoke` task compiles one
+    std-only browser peer with `rustc -D warnings` into an invocation-owned
+    repository run, then drives `browser-session-start`, status, same-name
+    collision, stop and remove through the real `agenterm-cu` CLI. The peer
+    strictly consumes the production argv contract, publishes the bounded
+    two-line `DevToolsActivePort`, and offers malformed, oversize and early-exit
+    modes. The task and court reclaim their owned binaries and run roots on
+    success; failure retains at most the bounded harness diagnostic bundle
+    after proving owned browser and owner processes absent.
+  - **Invariant:** generation, session nonce and both `(pid,start_identity)`
+    pairs remain exact across status and collision. Success requires stop to
+    prove both processes absent and remove to prove the owned session root
+    absent. The synthetic peer is always labelled `browser_peer=synthetic`.
+  - **Safe failure:** malformed readiness stays `browser_ready_timeout`, an
+    oversize endpoint stays `browser_debug_endpoint_invalid`, and exit before
+    readiness stays `browser_exited_before_ready`; every failed session reaches
+    terminal `failed`, exact process absence and verified removal rather than a
+    guessed success.
+  - **Public black box and evidence:**
+    `agenterm cli script task run cu-browser-session-fixture-smoke` emits only
+    `cu.browser-session-fixture.lifecycle.synthetic` and
+    `cu.browser-session-fixture.typed-failures.synthetic`. The macOS public task
+    passed four clean invocations on 2026-09-12. A separate reversible
+    missing-fixture run failed as required and restored the source hash. Linux
+    runtime remains pending. Windows x86_64 and ARM64 retain compile/static
+    production-owner evidence only; this court claims no Windows runtime.
+  - **Non-goal:** this evidence proves no Chrome/Chromium behavior, MV3 loading,
+    CDP semantics, Native Messaging exchange, rendering, focus or GUI state;
+    the existing real-browser court and its ten evidence IDs remain separate.
+
+```text
+browser-session synthetic lifecycle
+├─ behavior: production owner + registry + public CLI lifecycle
+├─ evidence: macOS synthetic peer · exact identities · typed negative modes
+├─ delivery: Linux runtime pending · Windows x86_64/ARM64 static only
+└─ non-goal: Chrome · MV3 · CDP · native messaging · GUI
+```
+
+```mermaid
+flowchart LR
+  T["public task"] --> B["rustc -D warnings<br/>invocation-owned peer"]
+  B --> O["production browser-session owner"]
+  O --> R["ready · exact generation/nonce/identities"]
+  R --> C["stop + remove<br/>owner/browser/root absent"]
+  B --> F{"malformed · oversize · early exit"}
+  F --> E["existing typed failure<br/>exact cleanup"]
+  C --> M["macOS evidence"]
+  M --> P["Linux runtime pending<br/>Windows static only"]
+```
+
 - [~] “No pre-opened CDP port” is now split into two honest product routes.
   Chromium cannot acquire a DevTools TCP/pipe endpoint after its process has
   started, so ACU will not publish a fictitious attach verb or restart a user's

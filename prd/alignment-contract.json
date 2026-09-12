@@ -464,6 +464,8 @@
         "cu.privileged-signal-plan",
         "cu.persisted-grant-operation-binding.macos",
         "cu.browser-managed-profile.macos",
+        "cu.browser-session-fixture.lifecycle.synthetic",
+        "cu.browser-session-fixture.typed-failures.synthetic",
         "cu.browser-profile-inventory.synthetic-home",
         "cu.browser-bridge-setup.synthetic-home",
         "cu.browser-extension-reload-upgrade.macos",

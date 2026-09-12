@@ -1,20 +1,104 @@
-// Build the std-only synthetic browser used by the direct browser-session
-// lifecycle court. This script builds; the court itself never invokes Cargo
-// or rustc.
+// Build the std-only synthetic browser into one invocation-owned repository
+// run directory, execute the public browser-session court, and reclaim the
+// fixture on every outcome. The court itself never invokes Cargo or rustc.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
-const args = rh.args();
-harness.require(args.length === 2, "expected: REPO OUTPUT");
-const repo = rh.absolute(args[0]);
-const output = rh.absolute(args[1]);
-const source = rh.join(repo, "crates/agenterm-cu/tests/fixtures/browser_session_test_browser.rs");
-harness.require(rh.is_direct_file(source), "browser_session_fixture_source_missing");
-rh.create_dir_all(rh.parent(output));
+const declared_evidence = [
+  "cu.browser-session-fixture.lifecycle.synthetic",
+  "cu.browser-session-fixture.typed-failures.synthetic"
+];
 
-const result = rh.command("rustc", [
-  "--edition", "2021", "-D", "warnings", "-C", "debuginfo=0", "-o", output, source
-], { cwd: repo, timeout_ms: 60000 });
-harness.require(result.success === true, "browser_session_fixture_build_failed:" + result.stderr);
-harness.require(rh.is_direct_file(output), "browser_session_fixture_output_missing");
-print("PASS: browser-session synthetic executable built with rustc -D warnings");
+function require(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function evidence_from(stdout) {
+  const seen = [];
+  for (const line of stdout.split("\n")) {
+    if (line.startsWith("EVIDENCE ")) { seen.push(line.substring(9)); }
+  }
+  return seen;
+}
+
+function evidence_is_exact(seen) {
+  if (seen.length !== declared_evidence.length) { return false; }
+  for (let i = 0; i < declared_evidence.length; i = i + 1) {
+    if (seen[i] !== declared_evidence[i]) { return false; }
+  }
+  return true;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 3, "expected: REPO AGENTERM_EXE AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let agenterm = rh.absolute(args[1]);
+let cu = rh.absolute(args[2]);
+if (!direct_file(agenterm) && harness.host_is_windows()) { agenterm = agenterm + ".exe"; }
+if (!direct_file(cu) && harness.host_is_windows()) { cu = cu + ".exe"; }
+require(direct_file(agenterm), "browser_session_fixture_agenterm_missing");
+require(direct_file(cu), "browser_session_fixture_cu_missing");
+
+const source = rh.join(repo,
+  "crates/agenterm-cu/tests/fixtures/browser_session_test_browser.rs");
+const court = rh.join(repo, "scripts/qjs/cu-browser-session-fixture-smoke.qjs");
+require(direct_file(source), "browser_session_fixture_source_missing");
+require(direct_file(court), "browser_session_fixture_court_missing");
+
+const context = harness.new_context(repo, "cu-browser-session-fixture-build");
+const fixture_name = harness.host_is_windows()
+  ? "browser-session-test-browser.exe" : "browser-session-test-browser";
+const fixture = rh.join(context.run_directory, fixture_name);
+let succeeded = false;
+let failure = "";
+let emitted = [];
+
+try {
+  const build = rh.command("rustc", [
+    "--edition", "2021", "-D", "warnings", "-C", "debuginfo=0",
+    "-o", fixture, source
+  ], { cwd: repo, timeout_ms: 60000 });
+  require(build.success === true,
+    "browser_session_fixture_build_failed:" + build.stderr);
+  require(direct_file(fixture), "browser_session_fixture_output_missing");
+
+  const court_result = rh.command(agenterm, [
+    "cli", "script", "run", court,
+    "--profile", "tool", "--cwd", repo, "--project-root", repo,
+    "--timeout-ms", "120000", "--max-operations", "1000000000",
+    "--max-host-operations", "100000", "--max-output-bytes", "262144",
+    "--", repo, cu, fixture
+  ], { cwd: repo, timeout_ms: 130000 });
+  require(court_result.success === true,
+    "browser_session_fixture_court_failed:" + court_result.stdout + court_result.stderr);
+  emitted = evidence_from(court_result.stdout);
+  require(evidence_is_exact(emitted),
+    "browser_session_fixture_evidence_mismatch:" + JSON.stringify(emitted));
+  require(court_result.stdout.indexOf("browser_peer=synthetic") >= 0,
+    "browser_session_fixture_scope_missing");
+  succeeded = true;
+} catch (error) {
+  failure = "" + error;
+}
+
+try {
+  harness.remove_run(context);
+} catch (cleanup_error) {
+  const cleanup_failure = "browser_session_fixture_build_root_cleanup_failed:" + cleanup_error;
+  failure = failure === "" ? cleanup_failure : failure + ":" + cleanup_failure;
+  succeeded = false;
+}
+
+if (!succeeded) { throw failure; }
+for (const id of emitted) { print("EVIDENCE " + id); }
+print("PASS: synthetic browser lifecycle court passed; browser_peer=synthetic; Chrome/MV3/CDP/native-messaging/GUI not claimed");

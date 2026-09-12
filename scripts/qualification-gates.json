@@ -269,6 +269,13 @@
         "cu.job-wait-cancel.owner-survives",
         "cu.job-wait-cancel.terminal-truth"
       ]
+    },
+    {
+      "id": "cu-browser-session-fixture-smoke",
+      "evidence": [
+        "cu.browser-session-fixture.lifecycle.synthetic",
+        "cu.browser-session-fixture.typed-failures.synthetic"
+      ]
     }
   ],
   "registered_gates": [
@@ -278,6 +285,13 @@
         "cu.job-wait-cancel.embedded-supervisor-cancel",
         "cu.job-wait-cancel.owner-survives",
         "cu.job-wait-cancel.terminal-truth"
+      ]
+    },
+    {
+      "id": "cu-browser-session-fixture-smoke",
+      "evidence": [
+        "cu.browser-session-fixture.lifecycle.synthetic",
+        "cu.browser-session-fixture.typed-failures.synthetic"
       ]
     },
     {
