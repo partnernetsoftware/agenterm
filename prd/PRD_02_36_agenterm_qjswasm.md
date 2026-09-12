@@ -287,6 +287,16 @@ integration.
 ## Current acceptance
 
 - [x] active qjswasm runtime executes `.qjs` check/run and expression eval.
+- [x] Public `script run FILE.wasm` carries an explicit artifact convention:
+  `compiled-qjs` preserves the packed JS-V1 ABI and `plain` runs a
+  hand-authored module without guessing from its exports. Artifact input is
+  read only through the smaller of the invocation budget and the 1 MiB
+  transport ceiling, then crosses the ordinary framed `WorkerSupervisor`.
+  A native-door signature mismatch or blocking call therefore becomes the
+  typed worker-crash or hard-timeout result and the worker is reaped instead
+  of sharing the CLI process's fate. The public black-box court is
+  `tests/script_native_artifact_supervisor.rs`; this is qjswasm/Script Runtime
+  evidence and does not retire or replace `agenterm-dyn`.
 - [x] `script api [MODULE] [--status shipped|planned|all] [--tree|--json]` renders one deterministic hierarchical object tree with reviewed Node.js/Bun analogues and returns the same filtered versioned catalog with explicit view and comparison metadata.
 - [x] qjswasm computation budget fails closed with the public limit exit class.
 - [x] syntax/compiler refusals and unsupported source methods use the same
