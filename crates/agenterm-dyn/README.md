@@ -234,7 +234,7 @@ without wiring dyn into cu, platform, or the ABI:
 - [domain name via `getdomainname`](examples/getdomainname.md) (macOS)
 - [filesystem facts via `statvfs`](examples/statvfs.md) (macOS)
 - [wall-clock time via `gettimeofday`](examples/gettimeofday.md) (macOS)
-- [supplementary groups via `getgroups`](examples/getgroups.md) (macOS)
+- [supplementary groups via `getgroups`](examples/getgroups.md) (Linux and macOS; native-call and typed snapshot evidence)
 - [resolved path via `realpath`](examples/realpath.md) (macOS)
 - [owned `mach_host_self` send-right reference](examples/mach-host-self.md) (macOS)
 - [owned interface-address snapshot via `getifaddrs`](examples/getifaddrs.md) (Linux and macOS)
@@ -317,7 +317,8 @@ direct-libc baselines. Darwin-specific smokes cover `sysctlbyname`,
 `_NSGetMachExecuteHeader`, `_dyld_get_image_name`,
 `_dyld_get_image_vmaddr_slide`, `dladdr`, `gethostuuid`,
 `_dyld_get_image_header`, `arc4random_uniform`, `getdomainname`,
-`statvfs`, `gettimeofday`, `getgroups`, and `realpath`;
+`statvfs`, `gettimeofday`, and `realpath`; `getgroups` additionally has a
+bounded typed snapshot on both Linux and macOS;
 the caller-owned timebase, login, thread-id, thread-name, `proc_bsdinfo`, and
 `rusage_info_v4` buffers are compared with direct C baselines. Wave 8
 loader/uuid facts (`dladdr`, `gethostuuid`, `_dyld_get_image_header`) are live

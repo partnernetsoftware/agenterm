@@ -21,7 +21,10 @@ fn live_symbol(name: &str) -> &'static str {
         .find(|probe| probe.name == name)
         .expect("Darwin probe is catalogued");
     match probe.status {
-        SystemProbeStatus::LiveDlcall { lib: LIB, symbol } => symbol,
+        SystemProbeStatus::LiveDlcall { lib: LIB, symbol }
+        | SystemProbeStatus::LiveDlcallOwned {
+            lib: LIB, symbol, ..
+        } => symbol,
         other => panic!("{name} must be a live libSystem probe, got {other:?}"),
     }
 }

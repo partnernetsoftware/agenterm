@@ -73,6 +73,13 @@ pub enum SystemProbeStatus {
         lib: &'static str,
         symbol: &'static str,
     },
+    /// A matching-host smoke performs the real `dlcall`, and a typed API also
+    /// exposes the same native fact without leaking the caller-owned buffer.
+    LiveDlcallOwned {
+        lib: &'static str,
+        symbol: &'static str,
+        api: &'static str,
+    },
     /// A matching-host typed API owns and releases the native resource.
     LiveOwned { api: &'static str },
     /// Matrix placeholder only; no behavior or successful result is claimed.
@@ -394,7 +401,14 @@ const LINUX_SYSTEM_PROBES: [SystemProbe; 86] = [
     placeholder("getdomainname"),
     placeholder("statvfs"),
     placeholder("gettimeofday"),
-    placeholder("getgroups"),
+    SystemProbe {
+        name: "getgroups",
+        status: SystemProbeStatus::LiveDlcallOwned {
+            lib: "libc.so.6",
+            symbol: "getgroups",
+            api: "SupplementaryGroups::acquire",
+        },
+    },
     placeholder("realpath"),
     placeholder("mach_host_self"),
     SystemProbe {
@@ -511,7 +525,14 @@ const MACOS_SYSTEM_PROBES: [SystemProbe; 86] = [
     macos_live("getdomainname", "getdomainname"),
     macos_live("statvfs", "statvfs"),
     macos_live("gettimeofday", "gettimeofday"),
-    macos_live("getgroups", "getgroups"),
+    SystemProbe {
+        name: "getgroups",
+        status: SystemProbeStatus::LiveDlcallOwned {
+            lib: "libSystem.B.dylib",
+            symbol: "getgroups",
+            api: "SupplementaryGroups::acquire",
+        },
+    },
     macos_live("realpath", "realpath"),
     SystemProbe {
         name: "mach_host_self",

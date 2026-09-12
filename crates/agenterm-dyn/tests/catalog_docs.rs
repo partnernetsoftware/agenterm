@@ -62,7 +62,6 @@ const DARWIN_ONLY_LIVE_EXAMPLES: &[(&str, &str)] = &[
     ("getdomainname", "getdomainname.md"),
     ("statvfs", "statvfs.md"),
     ("gettimeofday", "gettimeofday.md"),
-    ("getgroups", "getgroups.md"),
     ("realpath", "realpath.md"),
 ];
 
@@ -166,4 +165,37 @@ fn unix_getifaddrs_owner_has_callable_documentation() {
 
     let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
     assert!(readme.contains("](examples/getifaddrs.md)"));
+}
+
+#[test]
+fn unix_getgroups_keeps_dlcall_and_typed_owner_documentation() {
+    for (cell, lib) in [
+        (LINUX_X86_64, "libc.so.6"),
+        (LINUX_AARCH64, "libc.so.6"),
+        (MACOS_X86_64, "libSystem.B.dylib"),
+        (MACOS_AARCH64, "libSystem.B.dylib"),
+    ] {
+        let probe = cell
+            .system_probes
+            .iter()
+            .find(|probe| probe.name == "getgroups")
+            .expect("Unix catalog contains getgroups");
+        assert_eq!(
+            probe.status,
+            SystemProbeStatus::LiveDlcallOwned {
+                lib,
+                symbol: "getgroups",
+                api: "SupplementaryGroups::acquire",
+            }
+        );
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let example = fs::read_to_string(root.join("examples/getgroups.md"))
+        .expect("getgroups documentation is readable");
+    assert!(example.contains("SupplementaryGroups::acquire"));
+    assert!(example.contains("dlcall"));
+
+    let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
+    assert!(readme.contains("](examples/getgroups.md)"));
 }

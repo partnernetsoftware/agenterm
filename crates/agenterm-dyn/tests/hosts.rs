@@ -228,7 +228,9 @@ fn additional_system_probes_use_explicit_live_and_placeholder_statuses() {
                 })
                 .map(|probe| match probe.status {
                     SystemProbeStatus::LiveDlcall { lib, symbol } => (probe.name, lib, symbol),
-                    SystemProbeStatus::Placeholder | SystemProbeStatus::LiveOwned { .. } => {
+                    SystemProbeStatus::Placeholder
+                    | SystemProbeStatus::LiveOwned { .. }
+                    | SystemProbeStatus::LiveDlcallOwned { .. } => {
                         panic!("Linux probe must be dlcall-live")
                     }
                 })
@@ -282,7 +284,7 @@ fn additional_system_probes_use_explicit_live_and_placeholder_statuses() {
         assert!(
             c.system_probes[sysctlbyname..]
                 .iter()
-                .filter(|probe| probe.name != "getifaddrs")
+                .filter(|probe| !matches!(probe.name, "getgroups" | "getifaddrs"))
                 .all(|probe| matches!(probe.status, SystemProbeStatus::Placeholder))
         );
         assert_eq!(
@@ -379,13 +381,18 @@ fn additional_system_probes_use_explicit_live_and_placeholder_statuses() {
         assert!(
             c.system_probes[sysctlbyname..mach_host_self]
                 .iter()
-                .all(|probe| matches!(
-                    probe.status,
-                    SystemProbeStatus::LiveDlcall {
-                        lib: "libSystem.B.dylib",
-                        ..
-                    }
-                ))
+                .all(|probe| {
+                    matches!(
+                        probe.status,
+                        SystemProbeStatus::LiveDlcall {
+                            lib: "libSystem.B.dylib",
+                            ..
+                        } | SystemProbeStatus::LiveDlcallOwned {
+                            lib: "libSystem.B.dylib",
+                            ..
+                        }
+                    )
+                })
         );
         assert_eq!(
             c.system_probes[mach_host_self].status,
@@ -449,7 +456,6 @@ fn darwin_system_probe_symbols_preserve_exact_c_spellings() {
             ("getdomainname", "getdomainname"),
             ("statvfs", "statvfs"),
             ("gettimeofday", "gettimeofday"),
-            ("getgroups", "getgroups"),
             ("realpath", "realpath"),
         ] {
             let probe = c
@@ -602,6 +608,33 @@ fn per_cell_status_separates_darwin_only_and_unix_apis() {
                     api: "InterfaceAddresses::acquire"
                 },
                 "getifaddrs is owned on Unix: {}/{}",
+                cell.os,
+                cell.arch
+            );
+        }
+        let groups = status_of(cell, "getgroups");
+        if cell.os == "windows" {
+            assert_eq!(
+                groups,
+                SystemProbeStatus::Placeholder,
+                "getgroups is unavailable on Windows: {}/{}",
+                cell.os,
+                cell.arch
+            );
+        } else {
+            let expected_lib = if cell.os == "macos" {
+                "libSystem.B.dylib"
+            } else {
+                "libc.so.6"
+            };
+            assert_eq!(
+                groups,
+                SystemProbeStatus::LiveDlcallOwned {
+                    lib: expected_lib,
+                    symbol: "getgroups",
+                    api: "SupplementaryGroups::acquire",
+                },
+                "getgroups keeps dlcall and typed-owner evidence on Unix: {}/{}",
                 cell.os,
                 cell.arch
             );
