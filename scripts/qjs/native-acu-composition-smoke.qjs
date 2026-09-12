@@ -27,5 +27,5 @@ if (magnitude === null || typeof magnitude !== "object"
   throw "native_acu_abs_result";
 }
 
-print("PASS: one supervised QJS guest composed target-free ACU help with dyn-backed getpid and abs");
+print("PASS: one supervised QJS guest composed target-free ACU help with dyn-backed raw ABI getpid and abs");
 return;
