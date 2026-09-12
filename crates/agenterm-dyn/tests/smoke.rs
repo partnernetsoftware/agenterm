@@ -330,14 +330,6 @@ mod linux {
         (left.tv_sec, left.tv_usec) <= (right.tv_sec, right.tv_usec)
     }
 
-    #[test]
-    fn dlcall_void_return_maps_to_nil() {
-        let mut env = Dyn::new();
-        let got = eval_native(&mut env, r#"(dlcall "libc.so.6" "free" "void" "ptr" 0)"#)
-            .expect("free(NULL) dlcall");
-        assert_eq!(got, Value::Nil);
-    }
-
     fn live_system_probe(name: &str) -> SystemProbe {
         let probe = cell()
             .system_probes

@@ -29,9 +29,9 @@
 //!
 //! # What is not listed
 //!
-//! No type is listed that the mechanism cannot execute today. There is no `Void`
-//! (no mechanism prototype returns nothing) and no `F32` (no trampoline takes
-//! or returns one). A shape outside the matrix is refused with
+//! No type is listed that the mechanism cannot execute today. `Void` is a result
+//! position only; the current concrete shape is `void(ptr)`. There is no `F32`
+//! (no trampoline takes or returns one). A shape outside the matrix is refused with
 //! [`AbiError::SignatureUnsupported`] rather than approximated.
 
 use std::ffi::c_void;
@@ -56,6 +56,8 @@ use crate::fixed_pointer::{
 /// mention; it is a *mechanism support matrix*, not a product allow-list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AbiType {
+    /// No return register. This is valid only as a result position.
+    Void,
     I32,
     U32,
     I64,
@@ -71,6 +73,8 @@ pub enum AbiType {
 /// One argument value, tagged with its ABI position.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AbiValue {
+    /// A native function returned through no register.
+    Void,
     I32(i32),
     U32(u32),
     I64(i64),
@@ -86,6 +90,7 @@ impl AbiValue {
     /// The ABI position this value occupies.
     pub const fn ty(self) -> AbiType {
         match self {
+            Self::Void => AbiType::Void,
             Self::I32(_) => AbiType::I32,
             Self::U32(_) => AbiType::U32,
             Self::I64(_) => AbiType::I64,
@@ -204,6 +209,7 @@ enum Family {
 /// a legacy compatibility family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DirectScalarPrototype {
+    VoidPointer,
     IsizeU32,
     I32I32I32Pointer,
     I32I32I32U64PointerI32,
@@ -224,6 +230,7 @@ enum PointerResultPrototype {
 /// family has no such position.
 const fn exact_type(ty: AbiType) -> Option<ExactNativeType> {
     match ty {
+        AbiType::Void => None,
         AbiType::I32 => Some(ExactNativeType::I32),
         AbiType::U32 => Some(ExactNativeType::U32),
         AbiType::I64 => Some(ExactNativeType::I64),
@@ -359,6 +366,9 @@ fn classify(signature: AbiSignature<'_>, arguments: &[AbiValue]) -> Result<Famil
             _ => {}
         }
     }
+    if signature.result == AbiType::Void && signature.params == [AbiType::Pointer] {
+        return Ok(Family::DirectScalar(DirectScalarPrototype::VoidPointer));
+    }
     if signature.result == AbiType::Isize && signature.params == [AbiType::U32] {
         return Ok(Family::DirectScalar(DirectScalarPrototype::IsizeU32));
     }
@@ -419,6 +429,7 @@ pub fn validate_abi(call: &NativeCall<'_>) -> Result<(), AbiError> {
 
 fn exact_argument(value: AbiValue) -> Option<ExactNativeValue> {
     Some(match value {
+        AbiValue::Void => return None,
         AbiValue::I32(bits) => ExactNativeValue::I32(bits),
         AbiValue::U32(bits) => ExactNativeValue::U32(bits),
         AbiValue::I64(bits) => ExactNativeValue::I64(bits),
@@ -432,6 +443,7 @@ fn exact_argument(value: AbiValue) -> Option<ExactNativeValue> {
 
 fn fixed_argument(value: AbiValue) -> Option<FixedNativeValue> {
     Some(match value {
+        AbiValue::Void => return None,
         AbiValue::I32(bits) => FixedNativeValue::I32(bits),
         AbiValue::I64(bits) => FixedNativeValue::I64(bits),
         AbiValue::U64(bits) => FixedNativeValue::U64(bits),
@@ -442,6 +454,7 @@ fn fixed_argument(value: AbiValue) -> Option<FixedNativeValue> {
 
 fn pointer_argument(value: AbiValue) -> Option<FixedPointerValue> {
     Some(match value {
+        AbiValue::Void => return None,
         AbiValue::I32(bits) => FixedPointerValue::I32(bits),
         AbiValue::U32(bits) => FixedPointerValue::U32(bits),
         AbiValue::U64(bits) => FixedPointerValue::U64(bits),
@@ -684,6 +697,24 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
             .map_err(|error| pointer_result_symbol_error(call, error))?;
             // SAFETY: the caller owns the symbol contract and library lifetime.
             Ok(AbiValue::Isize(unsafe { function(*argument) }))
+        }
+        Family::DirectScalar(DirectScalarPrototype::VoidPointer) => {
+            let [AbiValue::Pointer(argument)] = call.arguments else {
+                unreachable!("classification checked void(ptr) arguments")
+            };
+            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
+                library: display_library(call.library),
+                message: error.to_string(),
+            })?;
+            // SAFETY: classification admitted `void(ptr)`; the caller asserts
+            // that the resolved symbol really has this C ABI.
+            let function =
+                unsafe { library.get::<unsafe extern "C" fn(*mut c_void)>(call.symbol.as_bytes()) }
+                    .map_err(|error| pointer_result_symbol_error(call, error))?;
+            // SAFETY: the caller owns the symbol contract, pointer validity and
+            // library lifetime.
+            unsafe { function(*argument) };
+            Ok(AbiValue::Void)
         }
         Family::DirectScalar(DirectScalarPrototype::I32I32I32Pointer) => {
             let [

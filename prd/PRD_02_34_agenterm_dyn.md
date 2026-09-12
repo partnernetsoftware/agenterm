@@ -477,6 +477,9 @@ court has claim-preserving `.wat` or typed-owner evidence.
   接管，保留状态、长度、正 CPU count 与 direct native oracle。由此
   `macos_probes.rs` 已删除，Darwin 专属的非语言 native claims 全部归入
   policy-free ABI court。
+  统一机制也新增 result-only `Void` 与真实 `void(ptr)` trampoline；
+  `free(NULL)` 的 C-defined no-op oracle 现直接返回 `AbiValue::Void`，不再依赖
+  Lisp 的 `Nil` 表示。`Void` 不是参数类型，未列形状仍明确拒绝。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded

@@ -92,6 +92,26 @@ fn matrix_pointer_representative_matches_the_direct_call() {
     );
 }
 
+/// A void result occupies no return register. `free(NULL)` is the C-defined
+/// no-op oracle and therefore exercises the call without acquiring ownership.
+#[cfg(unix)]
+#[test]
+fn void_pointer_shape_calls_free_null() {
+    let value = unsafe {
+        invoke_abi(&NativeCall {
+            library: "",
+            symbol: "free",
+            signature: AbiSignature {
+                result: AbiType::Void,
+                params: &[AbiType::Pointer],
+            },
+            arguments: &[AbiValue::Pointer(std::ptr::null_mut())],
+        })
+    }
+    .expect("free(NULL) through the raw ABI");
+    assert_eq!(value, AbiValue::Void);
+}
+
 /// Pointer results are raw machine addresses. The mechanism preserves their
 /// bits; ownership and dereference rules remain with the caller.
 #[cfg(target_os = "macos")]

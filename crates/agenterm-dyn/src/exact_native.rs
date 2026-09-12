@@ -204,7 +204,7 @@ pub unsafe fn invoke_exact(
         Ok(AbiValue::Isize(bits)) => Ok(ExactNativeValue::Isize(bits)),
         Ok(AbiValue::Usize(bits)) => Ok(ExactNativeValue::Usize(bits)),
         Ok(AbiValue::F64(bits)) => Ok(ExactNativeValue::F64(bits)),
-        Ok(AbiValue::Pointer(_))
+        Ok(AbiValue::Void | AbiValue::Pointer(_))
         | Err(AbiError::SignatureUnsupported { .. })
         | Err(AbiError::ArgumentCount { .. })
         | Err(AbiError::ArgumentShape { .. }) => Err(ExactNativeError::SignatureUnsupported {
