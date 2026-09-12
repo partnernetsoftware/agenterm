@@ -51,11 +51,6 @@ function int_at(value, dotted) {
   return rh.parse_int("" + value_at);
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function honest_non_usage_code(code) {
   return code === "a11y_backend_failed"
@@ -621,10 +616,10 @@ const repo = rh.absolute(args[0]);
 let executable = rh.absolute(args[1]);
 if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
 harness.require(rh.exists(executable), "agenterm-cu executable missing");
-ensure(direct_file(executable), "cu_linux_windows_watch_executable_missing");
+ensure(rh.is_direct_file(executable), "cu_linux_windows_watch_executable_missing");
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
-ensure(direct_file(fixture_source), "cu_linux_windows_watch_fixture_missing:" + fixture_source);
+ensure(rh.is_direct_file(fixture_source), "cu_linux_windows_watch_fixture_missing:" + fixture_source);
 
 const context = harness.new_context(repo, "cu-linux-windows-watch");
 const env = cu_env(executable);

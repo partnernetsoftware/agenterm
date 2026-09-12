@@ -9,11 +9,6 @@ function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function isolated_env(run_directory) {
   return {
@@ -61,8 +56,8 @@ const repo = rh.absolute(args[0]);
 let executable = rh.absolute(args[1]);
 const output_receipt = args.length === 4 ? rh.absolute(args[2]) : "";
 const platform_id = args.length === 4 ? args[3] : "";
-if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
-ensure(direct_file(executable), "cu_setup_executable_missing");
+if (!rh.is_direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(rh.is_direct_file(executable), "cu_setup_executable_missing");
 
 const context = harness.new_context(repo, "cu-setup-cli-entrypoint");
 const run_directory = context.run_directory;
@@ -110,7 +105,7 @@ try {
            && installed.runtime_refresh.owned_resources.device_leases.blocking === 0
            && installed.runtime_refresh.owned_resources.device_leases.states.active === 0,
          "cu_setup_device_provider_truth");
-  ensure(direct_file(launcher), "cu_setup_launcher_missing");
+  ensure(rh.is_direct_file(launcher), "cu_setup_launcher_missing");
   const digest = rh.sha256_file(launcher);
   const unchanged = invoke(run_directory, executable, "actuate", [
     "setup", "--bin-dir", bin_directory

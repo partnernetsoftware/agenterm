@@ -648,11 +648,6 @@ function ensure_xprop_agrees_with_focused(run_directory, executable, label) {
   return focused;
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
@@ -695,7 +690,7 @@ assert_headless_host_limit(run_directory, executable, "activate");
 assert_headless_host_limit(run_directory, executable, "raise");
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
-ensure(direct_file(fixture_source), "cu_linux_raise_activate_fixture_missing:" + fixture_source);
+ensure(rh.is_direct_file(fixture_source), "cu_linux_raise_activate_fixture_missing:" + fixture_source);
 
 const witness_source = rh.join(run_directory, "agenterm_witness_window.py");
 rh.write_text(witness_source, [

@@ -75,11 +75,6 @@ function float_at(value, dotted) {
   return Number("" + value_at);
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function cu_env(executable) {
   const env = {
@@ -573,7 +568,7 @@ rh.create_dir_all(run_directory);
 const env = cu_env(executable);
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
-ensure(direct_file(fixture_source), "cu_linux_window_opacity_fixture_missing:" + fixture_source);
+ensure(rh.is_direct_file(fixture_source), "cu_linux_window_opacity_fixture_missing:" + fixture_source);
 
 print("STEP window-opacity typed-fails usage when --window handle is zero or --expect mismatches --opacity");
 assert_opacity_usage_limit(run_directory, executable);

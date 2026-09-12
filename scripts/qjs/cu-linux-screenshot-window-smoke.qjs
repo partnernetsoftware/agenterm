@@ -55,11 +55,6 @@ function int_at(value, dotted) {
   return rh.parse_int("" + value_at);
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function cu_env(executable) {
   const env = {
@@ -261,7 +256,7 @@ function assert_window_png_honesty(run_directory, executable, handle, inventory_
   ensure(flag_at(shot, "ok"), "cu_linux_screenshot_window_ok_" + label + ":" + JSON.stringify(shot));
   ensure(text_at(shot, "data.via") === "window-capture", "cu_linux_screenshot_window_via_" + label);
   ensure(text_at(shot, "data.path") === shot_path, "cu_linux_screenshot_window_path_" + label);
-  ensure(direct_file(shot_path), "cu_linux_screenshot_window_missing_" + label);
+  ensure(rh.is_direct_file(shot_path), "cu_linux_screenshot_window_missing_" + label);
 
   const inventory_width = int_at(inventory_row, "bounds.width");
   const inventory_height = int_at(inventory_row, "bounds.height");
@@ -567,7 +562,7 @@ const run_directory = rh.join(repo, "target/cu-linux-screenshot-window-smoke-run
 rh.create_dir_all(run_directory);
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
-ensure(direct_file(fixture_source), "cu_linux_screenshot_window_fixture_missing:" + fixture_source);
+ensure(rh.is_direct_file(fixture_source), "cu_linux_screenshot_window_fixture_missing:" + fixture_source);
 
 let fixture = -1;
 let fixture_pid = 0;
@@ -657,7 +652,7 @@ try {
     ]);
     ensure(flag_at(display, "ok"), "cu_linux_screenshot_window_display_ok:" + JSON.stringify(display));
     ensure(text_at(display, "data.via") === "display-capture", "cu_linux_screenshot_window_display_via");
-    ensure(direct_file(display_png), "cu_linux_screenshot_window_display_missing");
+    ensure(rh.is_direct_file(display_png), "cu_linux_screenshot_window_display_missing");
     const display_probe = independent_png_readback(run_directory, display_png);
     ensure(
       display_probe.size >= MIN_DISPLAY_PNG_BYTES,

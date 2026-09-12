@@ -12,11 +12,6 @@ function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function invoke(run_directory, executable, arguments) {
   const argv = ["--target", "current", "--grant", "observe"];
@@ -45,7 +40,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
-ensure(direct_file(executable), "cu_runtime_process_executable_missing");
+ensure(rh.is_direct_file(executable), "cu_runtime_process_executable_missing");
 
 const context = harness.new_context(repo, "cu-runtime-capability-process");
 const children = [];
@@ -127,7 +122,7 @@ try {
   children.push(listener);
   let ready = null;
   for (let poll = 0; poll < 400; poll = poll + 1) {
-    if (direct_file(stdout_path)) {
+    if (rh.is_direct_file(stdout_path)) {
       const text = rh.read_text(stdout_path).trim();
       if (text.startsWith("{") && text.endsWith("}")) {
         const candidate = JSON.parse(text);

@@ -43,11 +43,6 @@ function flag_at(value, dotted) {
   return at(value, dotted) === true;
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function cu_env(run_directory, label) {
   return {
@@ -86,13 +81,13 @@ function invoke_ok(run_directory, executable, label, arguments) {
 
 function compile_fixture(run_directory, repo) {
   const source = rh.join(repo, "examples/objc/agenterm_ax_fixture.m");
-  ensure(direct_file(source), "cu_macos_windows_watch_fixture_source_missing");
+  ensure(rh.is_direct_file(source), "cu_macos_windows_watch_fixture_source_missing");
   const fixture = rh.join(run_directory, "agenterm_ax_fixture");
   const compiled = rh.command("clang", [
     "-fobjc-arc", "-framework", "Cocoa", "-Wall", "-Wextra", "-Werror",
     source, "-o", fixture
   ], { cwd: repo, timeout_ms: 60000 });
-  ensure(compiled.success === true && direct_file(fixture),
+  ensure(compiled.success === true && rh.is_direct_file(fixture),
     "cu_macos_windows_watch_fixture_compile:" + compiled.stdout + compiled.stderr);
   return fixture;
 }
@@ -227,7 +222,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
-ensure(direct_file(executable), "cu_macos_windows_watch_executable_missing:" + executable);
+ensure(rh.is_direct_file(executable), "cu_macos_windows_watch_executable_missing:" + executable);
 
 const context = harness.new_context(repo, "cu-macos-windows-watch-filters");
 const run_directory = context.run_directory;

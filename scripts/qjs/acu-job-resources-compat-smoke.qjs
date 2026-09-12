@@ -18,11 +18,6 @@ function text(value) {
   return value === undefined || value === null ? "" : "" + value;
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function append_all(target, values) {
   for (const value of values) { target.push(value); }
@@ -103,11 +98,11 @@ const repo = rh.absolute(args[0]);
 let launcher = rh.absolute(args[1]);
 let executable = rh.absolute(args[2]);
 if (harness.host_is_windows()) {
-  if (!direct_file(launcher)) { launcher = launcher + ".exe"; }
-  if (!direct_file(executable)) { executable = executable + ".exe"; }
+  if (!rh.is_direct_file(launcher)) { launcher = launcher + ".exe"; }
+  if (!rh.is_direct_file(executable)) { executable = executable + ".exe"; }
 }
-ensure(direct_file(launcher), "acu_job_resources_launcher_missing");
-ensure(direct_file(executable), "acu_job_resources_cu_missing");
+ensure(rh.is_direct_file(launcher), "acu_job_resources_launcher_missing");
+ensure(rh.is_direct_file(executable), "acu_job_resources_cu_missing");
 
 const context = harness.new_context(repo, "acu-job-resources-compat");
 const run_directory = context.run_directory;

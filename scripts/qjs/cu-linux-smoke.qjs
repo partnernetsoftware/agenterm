@@ -102,11 +102,6 @@ function ensure_wide_counter(value, dotted) {
   );
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function remove_directory_bounded(path) {
   if (!rh.exists(path)) { return true; }
@@ -386,9 +381,9 @@ const visible_external_terminal_send = args.length === 3;
 if (visible_external_terminal_send) {
   declared_evidence.push("cu.linux-external-terminal-send");
 }
-ensure(direct_file(executable), "cu_linux_smoke_executable_missing:" + executable);
+ensure(rh.is_direct_file(executable), "cu_linux_smoke_executable_missing:" + executable);
 ensure(
-  direct_file(rh.join(rh.parent(executable), "libagenterm.so")),
+  rh.is_direct_file(rh.join(rh.parent(executable), "libagenterm.so")),
   "cu_linux_smoke_library_missing:" + rh.parent(executable)
 );
 
@@ -508,7 +503,7 @@ try {
   }, "network-probe-listener");
   let network_ready = null;
   for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
-    if (direct_file(network_stdout_path)) {
+    if (rh.is_direct_file(network_stdout_path)) {
       const ready_text = rh.read_text(network_stdout_path).trim();
       if (ready_text.startsWith("{") && ready_text.endsWith("}")) {
         const marker = JSON.parse(ready_text);
@@ -590,7 +585,7 @@ try {
 
   print("STEP terminal-list/read/send/wait preserve stable authority and tab identity through literal input, finalized remain-on-exit, typed late-send refusal, and explicit cleanup");
   const agenterm = rh.join(rh.parent(executable), "agenterm");
-  ensure(direct_file(agenterm), "cu_linux_smoke_agenterm_missing:" + agenterm);
+  ensure(rh.is_direct_file(agenterm), "cu_linux_smoke_agenterm_missing:" + agenterm);
   terminal_server = harness.start({
     program: agenterm,
     args: ["server", "--address", terminal_address],
@@ -923,7 +918,7 @@ try {
 
   print("STEP start the owned GTK fixture and resolve its two windows by pid and exact title");
   const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
-  ensure(direct_file(fixture_source), "cu_linux_smoke_fixture_source_missing:" + fixture_source);
+  ensure(rh.is_direct_file(fixture_source), "cu_linux_smoke_fixture_source_missing:" + fixture_source);
   fixture = harness.start({
     program: "python3",
     args: [fixture_source],
@@ -1624,7 +1619,7 @@ try {
       && int_at(shot, "data.output_height") === int_at(shot_row, "bounds.height"),
     "cu_linux_smoke_shot_size:" + JSON.stringify(shot.data) + JSON.stringify(shot_row.bounds)
   );
-  ensure(direct_file(shot_path), "cu_linux_smoke_shot_missing");
+  ensure(rh.is_direct_file(shot_path), "cu_linux_smoke_shot_missing");
   // A capture of a real window compresses to far more than a blank one; an
   // empty or flat image is what a broken X11 GetImage produces.
   ensure(

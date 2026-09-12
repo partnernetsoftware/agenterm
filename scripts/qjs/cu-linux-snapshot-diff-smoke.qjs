@@ -51,11 +51,6 @@ function int_at(value, dotted) {
   return rh.parse_int("" + value_at);
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function cu_env(executable, run_directory) {
   const env = {
@@ -887,7 +882,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
-ensure(direct_file(executable), "cu_linux_snapshot_diff_executable_missing");
+ensure(rh.is_direct_file(executable), "cu_linux_snapshot_diff_executable_missing");
 
 const uname = rh.command("/usr/bin/uname", ["-s"], { timeout_ms: 10000 });
 ensure(uname.success === true && uname.stdout.trim() === "Linux",
@@ -898,7 +893,7 @@ const run_directory = rh.join(repo, "target/cu-linux-snapshot-diff-smoke-run");
 rh.create_dir_all(run_directory);
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
-ensure(direct_file(fixture_source), "cu_linux_snapshot_diff_fixture_missing");
+ensure(rh.is_direct_file(fixture_source), "cu_linux_snapshot_diff_fixture_missing");
 
 let fixture = -1;
 let fixture_pid = 0;
@@ -973,12 +968,12 @@ try {
         && text_at(baseline, "data.backend") === "at-spi2",
       "cu_linux_snapshot_diff_snapshot:" + JSON.stringify(baseline.data)
     );
-    ensure(direct_file(baseline_stored_path), "cu_linux_snapshot_diff_baseline_file");
+    ensure(rh.is_direct_file(baseline_stored_path), "cu_linux_snapshot_diff_baseline_file");
 
     const independent_before_path = rh.join(run_directory, "independent-before.json");
     print("STEP independent AT-SPI tree captured immediately after snapshot baseline");
     capture_independent_tree(run_directory, fixture_pid, independent_before_path);
-    ensure(direct_file(independent_before_path), "cu_linux_snapshot_diff_independent_before");
+    ensure(rh.is_direct_file(independent_before_path), "cu_linux_snapshot_diff_independent_before");
 
     print("STEP send-text mutates the named entry on a disposable target");
     run_cu(run_directory, executable, "observe,actuate", [

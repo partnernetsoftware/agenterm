@@ -300,11 +300,6 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
   );
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function verify_readback(run_directory, executable, pid, expected_port, env) {
   const script = [
@@ -704,7 +699,7 @@ try {
     children.push(listener);
     let ready = null;
     for (let poll = 0; poll < 400; poll = poll + 1) {
-      if (direct_file(stdout_path)) {
+      if (rh.is_direct_file(stdout_path)) {
         const text = rh.read_text(stdout_path).trim();
         if (text.startsWith("{") && text.endsWith("}")) {
           const candidate = JSON.parse(text);

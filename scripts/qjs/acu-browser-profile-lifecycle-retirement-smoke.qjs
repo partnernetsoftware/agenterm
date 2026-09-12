@@ -12,11 +12,6 @@ function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function isolated_env(context, home) {
   return {
@@ -56,11 +51,11 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_LAUNCHER");
 const repo = rh.absolute(args[0]);
 let launcher = rh.absolute(args[1]);
-if (!direct_file(launcher) && harness.host_is_windows()
-    && direct_file(launcher + ".exe")) {
+if (!rh.is_direct_file(launcher) && harness.host_is_windows()
+    && rh.is_direct_file(launcher + ".exe")) {
   launcher = launcher + ".exe";
 }
-ensure(direct_file(launcher), "acu_browser_profile_retirement_launcher_missing");
+ensure(rh.is_direct_file(launcher), "acu_browser_profile_retirement_launcher_missing");
 
 const context = harness.new_context(repo, "acu-browser-profile-lifecycle-retirement");
 let succeeded = 0;

@@ -39,11 +39,6 @@ function text_at(value, dotted) { return text_of(at(value, dotted)); }
 function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function remove_directory_bounded(path) {
   if (!rh.exists(path)) { return true; }
@@ -81,7 +76,7 @@ function run_cu_ok(run_directory, executable, arguments) {
 
 function compile_fixture(run_directory, repo) {
   const source = rh.join(repo, "examples/objc/agenterm_save_panel_fixture.m");
-  ensure(direct_file(source), "cu_macos_save_panel_fixture_source_missing");
+  ensure(rh.is_direct_file(source), "cu_macos_save_panel_fixture_source_missing");
   const output = rh.join(run_directory, "agenterm_save_panel_fixture");
   const compiled = rh.command(
     "clang",
@@ -92,7 +87,7 @@ function compile_fixture(run_directory, repo) {
     { cwd: repo, timeout_ms: 60000 }
   );
   ensure(
-    compiled.success === true && direct_file(output),
+    compiled.success === true && rh.is_direct_file(output),
     "cu_macos_save_panel_fixture_compile:" + compiled.stdout + compiled.stderr
   );
   return output;
@@ -295,7 +290,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
-ensure(direct_file(executable), "cu_macos_save_panel_executable_missing");
+ensure(rh.is_direct_file(executable), "cu_macos_save_panel_executable_missing");
 
 const context = harness.new_context(repo, "cu-macos-save-panel");
 const run_directory = rh.join(repo, "target/cu-macos-save-panel-smoke-run");
@@ -341,10 +336,10 @@ try {
   inspect_panel(run_directory, executable, save_handle, save_name, "save-output");
   invoke_panel(run_directory, executable, save_handle, "OKButton");
   wait_handle_gone(run_directory, executable, save_child.pid, save_handle);
-  for (let attempt = 0; attempt < 200 && !direct_file(save_path); attempt = attempt + 1) {
+  for (let attempt = 0; attempt < 200 && !rh.is_direct_file(save_path); attempt = attempt + 1) {
     harness.sleep_ms(25);
   }
-  ensure(direct_file(save_path), "cu_macos_save_panel_save_missing_file");
+  ensure(rh.is_direct_file(save_path), "cu_macos_save_panel_save_missing_file");
   const metadata = rh.symlink_metadata(save_path);
   ensure(
     rh.int_of(metadata.len) > 0 && rh.int_of(metadata.len) <= 4096,

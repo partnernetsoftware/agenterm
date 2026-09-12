@@ -16,11 +16,6 @@ function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function host_is_macos() {
   return !harness.host_is_windows() && rh.exists("/System/Library/CoreServices");
@@ -73,11 +68,11 @@ harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 let executable = rh.absolute(args[1]);
 if (harness.host_is_windows()
-    && !direct_file(executable)
-    && direct_file(executable + ".exe")) {
+    && !rh.is_direct_file(executable)
+    && rh.is_direct_file(executable + ".exe")) {
   executable = executable + ".exe";
 }
-ensure(direct_file(executable),
+ensure(rh.is_direct_file(executable),
   "cu_browser_profile_inventory_executable_missing:" + executable);
 
 const context = harness.new_context(repo, "cu-browser-profile-inventory");

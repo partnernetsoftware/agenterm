@@ -7,11 +7,6 @@ function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function invoke(run_directory, executable, grant, arguments) {
   const argv = ["--target", "current", "--grant", grant];
@@ -48,8 +43,8 @@ export function run(args, evidence_id, expected_platform) {
     expected_platform === "windows" || expected_platform === "linux" || expected_platform === "macos",
     "cu_runtime_capability_expected_platform"
   );
-  if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
-  ensure(direct_file(executable), "cu_runtime_capability_executable_missing");
+  if (!rh.is_direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+  ensure(rh.is_direct_file(executable), "cu_runtime_capability_executable_missing");
 
   const context = harness.new_context(repo, "cu-runtime-capability-core-" + expected_platform);
   let succeeded = 0;

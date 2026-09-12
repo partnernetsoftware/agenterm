@@ -12,11 +12,6 @@ function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function invoke(run_directory, executable, arguments) {
   const argv = ["--target", "current", "--grant", "observe"];
@@ -42,13 +37,13 @@ function invoke(run_directory, executable, arguments) {
 
 function compile_fixture(run_directory, repo) {
   const source = rh.join(repo, "examples/objc/agenterm_ax_fixture.m");
-  ensure(direct_file(source), "cu_runtime_desktop_fixture_source_missing");
+  ensure(rh.is_direct_file(source), "cu_runtime_desktop_fixture_source_missing");
   const output = rh.join(run_directory, "agenterm_ax_fixture");
   const compiled = rh.command("clang", [
     "-fobjc-arc", "-framework", "Cocoa", "-Wall", "-Wextra", "-Werror",
     source, "-o", output
   ], { cwd: repo, timeout_ms: 60000 });
-  ensure(compiled.success === true && direct_file(output), "cu_runtime_desktop_fixture_compile:" + compiled.stderr);
+  ensure(compiled.success === true && rh.is_direct_file(output), "cu_runtime_desktop_fixture_compile:" + compiled.stderr);
   return output;
 }
 
@@ -66,7 +61,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
-ensure(direct_file(executable), "cu_runtime_desktop_executable_missing");
+ensure(rh.is_direct_file(executable), "cu_runtime_desktop_executable_missing");
 
 const context = harness.new_context(repo, "cu-runtime-capability-desktop-macos");
 let fixture = -1;
@@ -133,7 +128,7 @@ try {
   const screenshot = invoke(context.run_directory, executable, [
     "screenshot", "--window", handle, "--out", output_path
   ]);
-  ensure(screenshot.command === "screenshot" && direct_file(output_path), "cu_runtime_desktop_screenshot_missing");
+  ensure(screenshot.command === "screenshot" && rh.is_direct_file(output_path), "cu_runtime_desktop_screenshot_missing");
   ensure(rh.metadata(output_path).len > 5000, "cu_runtime_desktop_screenshot_empty");
   ensure(screenshot.data.output_width > 0 && screenshot.data.output_height > 0, "cu_runtime_desktop_screenshot_geometry");
   ensure(focused_handle(context.run_directory, executable) === foreground_before, "cu_runtime_desktop_observation_activated");

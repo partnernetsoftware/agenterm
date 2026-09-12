@@ -33,11 +33,6 @@ function text_at(value, dotted) { return text_of(at(value, dotted)); }
 function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function cu_env(run_directory) {
   return {
@@ -69,7 +64,7 @@ function framework_csc() {
     rh.join(windows, "Microsoft.NET/Framework/v4.0.30319/csc.exe")
   ];
   for (const candidate of candidates) {
-    if (direct_file(candidate)) { return candidate; }
+    if (rh.is_direct_file(candidate)) { return candidate; }
   }
   throw "cu_tree_selector_framework_csc_missing";
 }
@@ -80,13 +75,13 @@ function fixture_spec(repo, run_directory) {
   if (harness.host_is_windows()) {
     const source = rh.join(repo, "examples/csharp/agenterm_uia_fixture.cs");
     const executable = rh.join(run_directory, "agenterm-uia-fixture.exe");
-    ensure(direct_file(source), "cu_tree_selector_uia_source_missing");
+    ensure(rh.is_direct_file(source), "cu_tree_selector_uia_source_missing");
     const compiled = rh.command(framework_csc(), [
       "/nologo", "/target:winexe", "/out:" + csc_path(executable),
       "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll",
       csc_path(source)
     ], { cwd: run_directory, timeout_ms: 60000 });
-    ensure(compiled.success === true && direct_file(executable),
+    ensure(compiled.success === true && rh.is_direct_file(executable),
       "cu_tree_selector_uia_compile:" + compiled.stdout + compiled.stderr);
     return { program: executable, args: [], env: {}, title_prefix: "agenterm-win-fixture-" };
   }
@@ -96,19 +91,19 @@ function fixture_spec(repo, run_directory) {
   if (uname.stdout.trim() === "Darwin") {
     const source = rh.join(repo, "examples/objc/agenterm_ax_fixture.m");
     const executable = rh.join(run_directory, "agenterm-ax-fixture");
-    ensure(direct_file(source), "cu_tree_selector_ax_source_missing");
+    ensure(rh.is_direct_file(source), "cu_tree_selector_ax_source_missing");
     const compiled = rh.command("clang", [
       "-fobjc-arc", "-framework", "Cocoa", "-Wall", "-Wextra", "-Werror",
       source, "-o", executable
     ], { cwd: repo, timeout_ms: 60000 });
-    ensure(compiled.success === true && direct_file(executable),
+    ensure(compiled.success === true && rh.is_direct_file(executable),
       "cu_tree_selector_ax_compile:" + compiled.stdout + compiled.stderr);
     return { program: executable, args: [], env: {}, title_prefix: "agenterm-ax-fixture-" };
   }
 
   ensure(uname.stdout.trim() === "Linux", "cu_tree_selector_host_unsupported");
   const source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
-  ensure(direct_file(source), "cu_tree_selector_atspi_source_missing");
+  ensure(rh.is_direct_file(source), "cu_tree_selector_atspi_source_missing");
   return {
     program: "python3",
     args: [source],
@@ -295,8 +290,8 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 let executable = rh.absolute(args[1]);
-if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
-ensure(direct_file(executable), "cu_tree_selector_executable_missing");
+if (!rh.is_direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(rh.is_direct_file(executable), "cu_tree_selector_executable_missing");
 
 const context = harness.new_context(repo, "cu-tree-selector");
 const children = [];

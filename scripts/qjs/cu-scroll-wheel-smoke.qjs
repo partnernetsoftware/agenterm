@@ -38,11 +38,6 @@ function int_at(value, dotted) {
   return rh.parse_int("" + value_at);
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function cu_env(executable) {
   const env = {
@@ -109,8 +104,8 @@ harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
-ensure(direct_file(executable), "cu_scroll_wheel_executable_missing:" + executable);
-ensure(direct_file(abi_library), "cu_scroll_wheel_library_missing:" + abi_library);
+ensure(rh.is_direct_file(executable), "cu_scroll_wheel_executable_missing:" + executable);
+ensure(rh.is_direct_file(abi_library), "cu_scroll_wheel_library_missing:" + abi_library);
 
 const context = harness.new_context(repo, "cu-scroll-wheel");
 const run_directory = rh.join(repo, "target/cu-scroll-wheel-smoke-run");

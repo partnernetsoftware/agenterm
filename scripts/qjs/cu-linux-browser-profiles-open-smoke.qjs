@@ -47,11 +47,6 @@ function int_at(value, dotted) {
   return rh.parse_int("" + value_at);
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function cu_env(executable) {
   const env = {
@@ -461,7 +456,7 @@ function attach_atspi_bus_from_runtime(env) {
 
 function pin_box_chrome_atspi_bus(repo, env) {
   const wrapper = rh.join(repo, "scripts/box-chrome-a11y.sh");
-  if (!direct_file(wrapper)) { return false; }
+  if (!rh.is_direct_file(wrapper)) { return false; }
   attach_atspi_bus_from_runtime(env);
   let address = "";
   if (env.AT_SPI_BUS_ADDRESS !== undefined) { address = "" + env.AT_SPI_BUS_ADDRESS; }
@@ -533,7 +528,7 @@ function window_row_for_title(run_directory, executable, env, title_needle, pid)
 
 function assert_get_extents_name_court(run_directory, executable, env, repo) {
   const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
-  ensure(direct_file(fixture_source), "cu_linux_browser_court_fixture_missing:" + fixture_source);
+  ensure(rh.is_direct_file(fixture_source), "cu_linux_browser_court_fixture_missing:" + fixture_source);
   const fixture_env = {};
   for (const key of [
     "DISPLAY",
@@ -664,8 +659,8 @@ harness.require(!harness.host_is_windows(),
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
-ensure(direct_file(executable), "cu_linux_browser_executable_missing:" + executable);
-ensure(direct_file(abi_library), "cu_linux_browser_library_missing:" + abi_library);
+ensure(rh.is_direct_file(executable), "cu_linux_browser_executable_missing:" + executable);
+ensure(rh.is_direct_file(abi_library), "cu_linux_browser_library_missing:" + abi_library);
 
 const context = harness.new_context(repo, "cu-linux-browser-profiles-open");
 const run_directory = context.run_directory;

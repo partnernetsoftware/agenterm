@@ -12,11 +12,6 @@ function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function host_is_macos() {
   return !harness.host_is_windows() && rh.exists("/System/Library/CoreServices");
@@ -110,11 +105,11 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 let executable = rh.absolute(args[1]);
-if (!direct_file(executable) && harness.host_is_windows()
-    && direct_file(executable + ".exe")) {
+if (!rh.is_direct_file(executable) && harness.host_is_windows()
+    && rh.is_direct_file(executable + ".exe")) {
   executable = executable + ".exe";
 }
-ensure(direct_file(executable), "cu_browser_bridge_setup_executable_missing");
+ensure(rh.is_direct_file(executable), "cu_browser_bridge_setup_executable_missing");
 ensure(host_is_macos(), "cu_browser_bridge_setup_requires_macos");
 
 const context = harness.new_context(repo, "cu-browser-bridge-setup-selector");
@@ -136,9 +131,9 @@ try {
     "cu_browser_bridge_setup_selected_contract");
   ensure(selected.registrations.length === 3,
     "cu_browser_bridge_setup_selected_registration_count");
-  ensure(direct_file(registration_path(selected_home, "brave"))
-      && direct_file(registration_path(selected_home, "brave-origin"))
-      && direct_file(registration_path(selected_home, "chrome"))
+  ensure(rh.is_direct_file(registration_path(selected_home, "brave"))
+      && rh.is_direct_file(registration_path(selected_home, "brave-origin"))
+      && rh.is_direct_file(registration_path(selected_home, "chrome"))
       && !rh.exists(registration_path(selected_home, "chromium")),
     "cu_browser_bridge_setup_selected_disk_scope");
   let chromium_discovered = false;
@@ -208,8 +203,8 @@ try {
       && partial.error.detail.receipt.complete === false
       && partial.error.detail.receipt.effect === "performed-partial"
       && registration(partial.error.detail.receipt, "brave-origin").outcome.outcome === "failed"
-      && direct_file(registration_path(partial_home, "brave"))
-      && direct_file(registration_path(partial_home, "chrome")),
+      && rh.is_direct_file(registration_path(partial_home, "brave"))
+      && rh.is_direct_file(registration_path(partial_home, "chrome")),
     "cu_browser_bridge_setup_partial_receipt");
   ensure(!rh.exists(rh.join(external, HOST_NAME)),
     "cu_browser_bridge_setup_symlink_target_untouched");

@@ -40,11 +40,6 @@ function usage_rejects_unexpected(message, token) {
     || message.indexOf("unexpected") >= 0;
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function cu_env(executable) {
   const env = {
@@ -588,7 +583,7 @@ const run_directory = context.run_directory;
 const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
-ensure(direct_file(fixture_source),
+ensure(rh.is_direct_file(fixture_source),
   "cu_linux_windows_inventory_fixture_missing:" + fixture_source);
 
 print("STEP windows typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");

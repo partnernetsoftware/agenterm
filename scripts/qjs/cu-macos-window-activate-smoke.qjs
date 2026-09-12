@@ -12,11 +12,6 @@ function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function run_reply(context, executable, grant, arguments) {
   const argv = ["--target", "current", "--grant", grant];
@@ -51,15 +46,15 @@ function invoke(context, executable, grant, arguments) {
 function compile_helpers(context, repo) {
   const fixture_source = rh.join(repo, "examples/objc/agenterm_ax_fixture.m");
   const probe_source = rh.join(repo, "examples/objc/agenterm_frontmost_window_probe.m");
-  ensure(direct_file(fixture_source), "cu_macos_window_activate_fixture_source_missing");
-  ensure(direct_file(probe_source), "cu_macos_window_activate_probe_source_missing");
+  ensure(rh.is_direct_file(fixture_source), "cu_macos_window_activate_fixture_source_missing");
+  ensure(rh.is_direct_file(probe_source), "cu_macos_window_activate_probe_source_missing");
   const fixture = rh.join(context.run_directory, "agenterm_ax_fixture");
   const fixture_compiled = rh.command("clang", [
     "-fobjc-arc", "-framework", "Cocoa", "-Wall", "-Wextra", "-Werror",
     fixture_source, "-o", fixture
   ], { cwd: repo, timeout_ms: 60000 });
   ensure(
-    fixture_compiled.success === true && direct_file(fixture),
+    fixture_compiled.success === true && rh.is_direct_file(fixture),
     "cu_macos_window_activate_fixture_compile:" + fixture_compiled.stderr
   );
   const probe = rh.join(context.run_directory, "agenterm_frontmost_window_probe");
@@ -68,7 +63,7 @@ function compile_helpers(context, repo) {
     "-Wall", "-Wextra", "-Werror", probe_source, "-o", probe
   ], { cwd: repo, timeout_ms: 60000 });
   ensure(
-    probe_compiled.success === true && direct_file(probe),
+    probe_compiled.success === true && rh.is_direct_file(probe),
     "cu_macos_window_activate_probe_compile:" + probe_compiled.stderr
   );
   return { fixture: fixture, probe: probe };
@@ -179,7 +174,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
-ensure(direct_file(executable), "cu_macos_window_activate_executable_missing");
+ensure(rh.is_direct_file(executable), "cu_macos_window_activate_executable_missing");
 
 const context = harness.new_context(repo, "cu-macos-window-activate");
 const children = [];

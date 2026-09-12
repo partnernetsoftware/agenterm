@@ -19,11 +19,6 @@ function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function invoke_cu(run_directory, product, executable, arguments) {
   const output = rh.command(executable, arguments, {
@@ -102,11 +97,11 @@ if (env_has("AGENTERM_CU_PTY_SMOKE_DRIVER") === 1) {
   executable = rh.absolute(rh.env_or("AGENTERM_CU_PTY_SMOKE_DRIVER", ""));
 }
 if (harness.host_is_windows()) {
-  if (!direct_file(product)) { product = product + ".exe"; }
-  if (!direct_file(executable)) { executable = executable + ".exe"; }
+  if (!rh.is_direct_file(product)) { product = product + ".exe"; }
+  if (!rh.is_direct_file(executable)) { executable = executable + ".exe"; }
 }
-ensure(direct_file(product), "cu_pty_product_missing:" + product);
-ensure(direct_file(executable), "cu_pty_executable_missing:" + executable);
+ensure(rh.is_direct_file(product), "cu_pty_product_missing:" + product);
+ensure(rh.is_direct_file(executable), "cu_pty_executable_missing:" + executable);
 
 const context = harness.new_context(repo, "cu-pty");
 const run_directory = context.run_directory;

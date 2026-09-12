@@ -70,11 +70,6 @@ function within(got, want) {
   return got >= want - 5 && got <= want;
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function parse_xwininfo_size(stdout) {
   let width = 0;
@@ -600,7 +595,7 @@ const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
-ensure(direct_file(fixture_source), "cu_linux_resize_expect_fixture_missing:" + fixture_source);
+ensure(rh.is_direct_file(fixture_source), "cu_linux_resize_expect_fixture_missing:" + fixture_source);
 
 print("STEP resize typed-fails usage when --window handle is zero or geometry args are incomplete");
 assert_resize_usage_limit(run_directory, executable);

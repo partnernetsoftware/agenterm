@@ -110,11 +110,6 @@ function int_at(value, dotted) {
   return rh.parse_int("" + value_at);
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function cu_env(executable, context, shallow) {
   const env = {
@@ -856,8 +851,8 @@ harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
-ensure(direct_file(executable), "missing_agenterm_cu:" + executable);
-ensure(direct_file(abi_library), "missing_agenterm_abi:" + abi_library);
+ensure(rh.is_direct_file(executable), "missing_agenterm_cu:" + executable);
+ensure(rh.is_direct_file(abi_library), "missing_agenterm_abi:" + abi_library);
 ensure(xfce4_terminal_available(), "cu_linux_terminal_shallow_tree_missing_xfce4_terminal");
 
 const context = harness.new_context(repo, "cu-linux-terminal-shallow-tree");

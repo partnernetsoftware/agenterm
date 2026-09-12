@@ -128,11 +128,6 @@ function flag_at(value, dotted) {
   return at(value, dotted) === true;
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function remove_directory_bounded(path) {
   if (!rh.exists(path)) { return true; }
@@ -274,7 +269,7 @@ function bundle_fixture(run_directory, fixture_executable) {
 
 function compile_fixture(run_directory, repo) {
   const source = rh.join(repo, "examples/objc/agenterm_ax_fixture.m");
-  ensure(direct_file(source), "cu_macos_smoke_fixture_source_missing");
+  ensure(rh.is_direct_file(source), "cu_macos_smoke_fixture_source_missing");
   const fixture_executable = rh.join(run_directory, "agenterm_ax_fixture");
   const compiled = rh.command(
     "clang",
@@ -285,7 +280,7 @@ function compile_fixture(run_directory, repo) {
     { cwd: repo, timeout_ms: 60000 }
   );
   ensure(
-    compiled.success === true && direct_file(fixture_executable),
+    compiled.success === true && rh.is_direct_file(fixture_executable),
     "cu_macos_smoke_fixture_compile:" + compiled.stdout + compiled.stderr
   );
   return fixture_executable;
@@ -527,9 +522,9 @@ const visible_external_terminal_send = args.length === 3;
 if (visible_external_terminal_send) {
   declared_evidence.push("cu.macos-external-terminal-send");
 }
-ensure(direct_file(executable), "cu_macos_smoke_executable_missing:" + executable);
+ensure(rh.is_direct_file(executable), "cu_macos_smoke_executable_missing:" + executable);
 ensure(
-  direct_file(rh.join(rh.parent(executable), "libagenterm.dylib")),
+  rh.is_direct_file(rh.join(rh.parent(executable), "libagenterm.dylib")),
   "cu_macos_smoke_library_missing:" + rh.parent(executable)
 );
 
@@ -547,7 +542,7 @@ terminal_environment = {
   AGENTERM_NO_ACTIVATE: "1"
 };
 const product_executable = rh.join(rh.parent(executable), "agenterm");
-ensure(direct_file(product_executable), "cu_macos_smoke_product_executable_missing");
+ensure(rh.is_direct_file(product_executable), "cu_macos_smoke_product_executable_missing");
 
 let succeeded = 0;
 let failure = "";
@@ -666,7 +661,7 @@ try {
   }, "network-probe-listener");
   let network_ready = null;
   for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
-    if (direct_file(network_stdout_path)) {
+    if (rh.is_direct_file(network_stdout_path)) {
       const ready_text = rh.read_text(network_stdout_path).trim();
       if (ready_text.startsWith("{") && ready_text.endsWith("}")) {
         const marker = JSON.parse(ready_text);
@@ -1970,7 +1965,7 @@ try {
     scale_w === scale_h && scale_w >= 1 && scale_w === Math.round(scale_w),
     "cu_macos_smoke_shot_scale:" + JSON.stringify(shot.data) + JSON.stringify(shot_row.bounds)
   );
-  ensure(direct_file(shot_path), "cu_macos_smoke_shot_missing");
+  ensure(rh.is_direct_file(shot_path), "cu_macos_smoke_shot_missing");
   // A capture of a real window compresses to far more than a flat image,
   // which is what an obsoleted stub returning blank pixels would give.
   ensure(
@@ -2693,7 +2688,7 @@ try {
     text_at(zoom, "data.via") === "window-capture-clip"
       && int_at(zoom, "data.output_width") > 0
       && int_at(zoom, "data.output_height") > 0
-      && direct_file(zoom_path) && rh.metadata(zoom_path).len > 100,
+      && rh.is_direct_file(zoom_path) && rh.metadata(zoom_path).len > 100,
     "cu_macos_smoke_zoom:" + JSON.stringify(zoom.data)
   );
   const exact_zoom_path = rh.join(run_directory, "fixture-text-exact-zoom.png");
@@ -2711,7 +2706,7 @@ try {
       && JSON.stringify(zoom.data.padded_region) !== JSON.stringify(zoom.data.region)
       && int_at(zoom, "data.output_width") >= int_at(exact_zoom, "data.output_width")
       && int_at(zoom, "data.output_height") >= int_at(exact_zoom, "data.output_height")
-      && direct_file(exact_zoom_path) && rh.metadata(exact_zoom_path).len > 100,
+      && rh.is_direct_file(exact_zoom_path) && rh.metadata(exact_zoom_path).len > 100,
     "cu_macos_smoke_zoom_padding:" + JSON.stringify(zoom.data)
   );
   // Re-address the exact clipped region reported by the screen-space call.
@@ -2741,7 +2736,7 @@ try {
       && JSON.stringify(local_zoom.data.clip_pixels) === JSON.stringify(exact_zoom.data.clip_pixels)
       && int_at(local_zoom, "data.output_width") === int_at(exact_zoom, "data.output_width")
       && int_at(local_zoom, "data.output_height") === int_at(exact_zoom, "data.output_height")
-      && direct_file(local_zoom_path) && rh.metadata(local_zoom_path).len > 100,
+      && rh.is_direct_file(local_zoom_path) && rh.metadata(local_zoom_path).len > 100,
     "cu_macos_smoke_local_zoom:" + JSON.stringify(local_zoom.data)
   );
 

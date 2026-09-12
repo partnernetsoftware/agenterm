@@ -17,11 +17,6 @@ function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function lines(path) {
   const result = [];
@@ -102,11 +97,11 @@ const repo = rh.absolute(args[0]);
 let executable = rh.absolute(args[1]);
 let fixture_executable = rh.absolute(args[2]);
 if (harness.host_is_windows()) {
-  if (!direct_file(executable)) { executable = executable + ".exe"; }
-  if (!direct_file(fixture_executable)) { fixture_executable = fixture_executable + ".exe"; }
+  if (!rh.is_direct_file(executable)) { executable = executable + ".exe"; }
+  if (!rh.is_direct_file(fixture_executable)) { fixture_executable = fixture_executable + ".exe"; }
 }
-ensure(direct_file(executable), "cu_pointer_scroll_executable_missing");
-ensure(direct_file(fixture_executable), "cu_pointer_scroll_fixture_missing");
+ensure(rh.is_direct_file(executable), "cu_pointer_scroll_executable_missing");
+ensure(rh.is_direct_file(fixture_executable), "cu_pointer_scroll_fixture_missing");
 
 const context = harness.new_context(repo, "cu-pointer-scroll");
 const state_path = rh.join(context.run_directory, "fixture-state.json");

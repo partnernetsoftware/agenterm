@@ -45,11 +45,6 @@ function usage_rejects_unexpected(message, token) {
     || message.indexOf("unexpected") >= 0;
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function cu_env(executable) {
   const env = {
@@ -550,7 +545,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
-ensure(direct_file(executable), "missing_agenterm_cu:" + executable);
+ensure(rh.is_direct_file(executable), "missing_agenterm_cu:" + executable);
 
 const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable, env);

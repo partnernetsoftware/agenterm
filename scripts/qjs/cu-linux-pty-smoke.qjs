@@ -122,11 +122,6 @@ function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function at(value, dotted) {
   let current = value;
@@ -695,8 +690,8 @@ harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const product = rh.join(rh.parent(executable), "agenterm");
-ensure(direct_file(executable), "cu_linux_pty_executable_missing:" + executable);
-ensure(direct_file(product), "cu_linux_pty_product_missing:" + product);
+ensure(rh.is_direct_file(executable), "cu_linux_pty_executable_missing:" + executable);
+ensure(rh.is_direct_file(product), "cu_linux_pty_product_missing:" + product);
 
 const context = harness.new_context(repo, "cu-linux-pty");
 const data_dir = rh.join(context.run_directory, "data");

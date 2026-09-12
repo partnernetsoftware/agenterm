@@ -45,11 +45,6 @@ function text_at(value, dotted) { return text_of(at(value, dotted)); }
 function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function cu_env(executable) {
   const env = {
@@ -467,7 +462,7 @@ print("STEP close typed-fails window_not_found when handle is absent from invent
 assert_close_missing_window(run_directory, executable);
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
-ensure(direct_file(fixture_source), "cu_linux_window_close_fixture_missing:" + fixture_source);
+ensure(rh.is_direct_file(fixture_source), "cu_linux_window_close_fixture_missing:" + fixture_source);
 
 let fixture = -1;
 let fixture_pid = 0;

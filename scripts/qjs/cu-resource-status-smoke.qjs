@@ -14,11 +14,6 @@ function nonnegative_number(value) {
   return typeof value === "number" && value === value && value >= 0;
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function invoke(run_directory, executable, arguments, expect_success) {
   const receipt_path = rh.join(run_directory, "cu-receipts.jsonl");
@@ -74,8 +69,8 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 let executable = rh.absolute(args[1]);
-if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
-ensure(direct_file(executable), "cu_resource_status_executable_missing:" + executable);
+if (!rh.is_direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(rh.is_direct_file(executable), "cu_resource_status_executable_missing:" + executable);
 
 const context = harness.new_context(repo, "cu-resource-status");
 let succeeded = 0;

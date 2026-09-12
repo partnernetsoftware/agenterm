@@ -21,11 +21,6 @@ function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
@@ -39,11 +34,11 @@ let executable = rh.absolute(args[2]);
 const browser_input = rh.env_or("AGENTERM_CU_BROWSER_EXE", "");
 ensure(browser_input !== "", "cu_browser_session_browser_env_missing");
 const browser = rh.absolute(browser_input);
-if (!direct_file(product) && harness.host_is_windows()) { product = product + ".exe"; }
-if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
-ensure(direct_file(product), "cu_browser_session_product_missing");
-ensure(direct_file(executable), "cu_browser_session_executable_missing");
-ensure(direct_file(browser), "cu_browser_session_browser_missing");
+if (!rh.is_direct_file(product) && harness.host_is_windows()) { product = product + ".exe"; }
+if (!rh.is_direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(rh.is_direct_file(product), "cu_browser_session_product_missing");
+ensure(rh.is_direct_file(executable), "cu_browser_session_executable_missing");
+ensure(rh.is_direct_file(browser), "cu_browser_session_browser_missing");
 
 const context = harness.new_context(repo, "cu-browser-session");
 const audit_path = rh.join(context.run_directory, "cu-audit.jsonl");
@@ -876,7 +871,7 @@ try {
   const screenshot = require_ok(invoke("observe", [
     "page-screenshot", "--port", port, "--target-id", target_id, "--out", screenshot_path
   ]), "cu_browser_session_screenshot_failed");
-  ensure(screenshot.data.focus_changed === false && direct_file(screenshot_path), "cu_browser_session_screenshot_missing");
+  ensure(screenshot.data.focus_changed === false && rh.is_direct_file(screenshot_path), "cu_browser_session_screenshot_missing");
   ensure(rh.metadata(screenshot_path).len > 100, "cu_browser_session_screenshot_empty");
   const download_directory = rh.join(context.run_directory, "downloads");
   rh.create_dir_all(download_directory);
@@ -888,7 +883,7 @@ try {
     "cu_browser_session_download_state");
   ensure(downloaded.data.content_read === false && downloaded.data.focus_changed === false,
     "cu_browser_session_download_authority");
-  ensure(direct_file(downloaded.data.final_path) && rh.metadata(downloaded.data.final_path).len > 0,
+  ensure(rh.is_direct_file(downloaded.data.final_path) && rh.metadata(downloaded.data.final_path).len > 0,
     "cu_browser_session_download_missing");
   ensure(downloaded.data.final_path.startsWith(download_directory + "/"), "cu_browser_session_download_escape");
 

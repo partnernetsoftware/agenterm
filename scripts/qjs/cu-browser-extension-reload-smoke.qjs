@@ -16,11 +16,6 @@ const OLD_MANIFEST_SHA = "2c5f1032268872e6a02da5fd4c88804d9f3af00aab5b919eb2a82d
 
 function ensure(condition, message) { if (!condition) { throw message; } }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function host_is_macos() {
   return !harness.host_is_windows() && rh.exists("/System/Library/CoreServices");
@@ -149,7 +144,7 @@ function ensure_no_persisted_unsupported_developer_reason(profile) {
   const names = ["Preferences", "Secure Preferences"];
   for (const name of names) {
     const path = rh.join(profile, "Default/" + name);
-    if (!direct_file(path)) { continue; }
+    if (!rh.is_direct_file(path)) { continue; }
     const preferences = JSON.parse(rh.read_text(path));
     const extensions = preferences.extensions;
     if (extensions === undefined || extensions.settings === undefined) { continue; }
@@ -169,7 +164,7 @@ function replace_extension_source(old_path, current_path, run) {
   const background_stage = rh.join(old_path, "background.js.current");
   rh.copy(rh.join(current_path, "manifest.json"), manifest_stage);
   rh.copy(rh.join(current_path, "background.js"), background_stage);
-  ensure(direct_file(manifest_stage) && direct_file(background_stage),
+  ensure(rh.is_direct_file(manifest_stage) && rh.is_direct_file(background_stage),
     "cu_browser_extension_reload_source_stage");
   rh.rename(manifest_stage, rh.join(old_path, "manifest.json"));
   rh.rename(background_stage, rh.join(old_path, "background.js"));
@@ -203,8 +198,8 @@ let executable = rh.absolute(args[1]);
 const browser_input = rh.env_or("AGENTERM_CU_BROWSER_EXE", "");
 ensure(browser_input !== "", "cu_browser_extension_reload_browser_env_missing");
 const browser = rh.absolute(browser_input);
-ensure(direct_file(executable), "cu_browser_extension_reload_executable_missing");
-ensure(direct_file(browser), "cu_browser_extension_reload_browser_missing");
+ensure(rh.is_direct_file(executable), "cu_browser_extension_reload_executable_missing");
+ensure(rh.is_direct_file(browser), "cu_browser_extension_reload_browser_missing");
 ensure(host_is_macos(), "cu_browser_extension_reload_requires_macos");
 
 const context = harness.new_context(repo, "cu-browser-extension-reload");
@@ -260,8 +255,8 @@ try {
   const setup = invoke(executable, env, run, "observe,actuate",
     ["browser-bridge-setup", "--browser", family], true).data;
   ensure(setup.complete === true && setup.bundle_materialized === true
-      && direct_file(rh.join(setup.extension, "background.js"))
-      && direct_file(rh.join(setup.extension, "manifest.json")),
+      && rh.is_direct_file(rh.join(setup.extension, "background.js"))
+      && rh.is_direct_file(rh.join(setup.extension, "manifest.json")),
     "cu_browser_extension_reload_setup");
   const current_manifest = JSON.parse(rh.read_text(rh.join(setup.extension, "manifest.json")));
   ensure(current_manifest.version === "1.7.0",

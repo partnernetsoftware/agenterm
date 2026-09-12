@@ -45,11 +45,6 @@ function usage_rejects_unexpected(message, token) {
     || message.indexOf("unexpected") >= 0;
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function cu_env(executable) {
   const env = {
@@ -521,7 +516,7 @@ function start_fixture(context, run_directory, executable, attempts, label) {
   }, label);
   let ready = null;
   for (let poll = 0; poll < 400; poll = poll + 1) {
-    if (direct_file(stdout_path)) {
+    if (rh.is_direct_file(stdout_path)) {
       const text = rh.read_text(stdout_path).trim();
       if (text.startsWith("{") && text.endsWith("}")) {
         const candidate = JSON.parse(text);

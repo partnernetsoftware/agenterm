@@ -75,11 +75,6 @@ function flag_at(value, dotted) {
   return at(value, dotted) === true;
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 function remove_directory_bounded(path) {
   if (!rh.exists(path)) { return true; }
@@ -150,7 +145,7 @@ function run_cu_reply(run_directory, executable, arguments) {
 
 function compile_web_fixture(run_directory, repo) {
   const source = rh.join(repo, "examples/objc/agenterm_web_fixture.m");
-  ensure(direct_file(source), "cu_macos_web_fixture_source_missing");
+  ensure(rh.is_direct_file(source), "cu_macos_web_fixture_source_missing");
   const fixture_executable = rh.join(run_directory, "agenterm_web_fixture");
   const compiled = rh.command(
     "clang",
@@ -161,7 +156,7 @@ function compile_web_fixture(run_directory, repo) {
     { cwd: repo, timeout_ms: 90000 }
   );
   ensure(
-    compiled.success === true && direct_file(fixture_executable),
+    compiled.success === true && rh.is_direct_file(fixture_executable),
     "cu_macos_web_fixture_compile:" + compiled.stdout + compiled.stderr
   );
   return fixture_executable;
@@ -197,9 +192,9 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
-ensure(direct_file(executable), "cu_macos_web_executable_missing:" + executable);
+ensure(rh.is_direct_file(executable), "cu_macos_web_executable_missing:" + executable);
 ensure(
-  direct_file(rh.join(rh.parent(executable), "libagenterm.dylib")),
+  rh.is_direct_file(rh.join(rh.parent(executable), "libagenterm.dylib")),
   "cu_macos_web_library_missing:" + rh.parent(executable)
 );
 
