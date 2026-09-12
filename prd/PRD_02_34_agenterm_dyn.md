@@ -373,8 +373,11 @@ court has claim-preserving `.wat` or typed-owner evidence.
   JIT tool.
 - Current court migration has moved the scalar, clock-pointer, Darwin output-pointer,
   Mach-clock, and duplicate Darwin `ioctl` claims to qjswasm `.wat` or typed-owner
-  evidence. This is incremental retirement evidence, not permission to delete the
-  remaining Lisp courts or language files as a batch.
+  evidence. The two-required-pointer `i32(ptr,ptr)` family now carries the
+  `gethostuuid` UUID bytes and both `proc_libversion` integer outputs through the
+  same dyn prototype, each compared with an independent direct native oracle.
+  This is incremental retirement evidence, not permission to delete the remaining
+  Lisp courts or language files as a batch.
 - [`plan/design-guest-runtime-placement-experiment.md`](../plan/design-guest-runtime-placement-experiment.md)
   freezes the unresolved product choice between optional static CU linkage and a
   versioned provider ABI. No `guest-run` verb may land before one placement is both

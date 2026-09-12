@@ -312,32 +312,6 @@ fn dlcall_nsget_progname_matches_libc_outer_pointer_and_c_string() {
 }
 
 #[test]
-fn dlcall_proc_libversion_writes_caller_owned_version() {
-    let symbol = live_symbol("proc_libversion");
-    let mut major = 0_i32;
-    let mut minor = 0_i32;
-    let mut env = Dyn::new();
-    env.bind("major", (&mut major as *mut i32).cast())
-        .expect("bind proc_libversion major output");
-    env.bind("minor", (&mut minor as *mut i32).cast())
-        .expect("bind proc_libversion minor output");
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "i32" "ptr" major "ptr" minor)"#),
-    )
-    .expect("proc_libversion dlcall");
-    assert_eq!(got, Value::Int(0));
-    assert!(major >= 1, "libproc major version must be positive");
-
-    let mut direct_major = 0_i32;
-    let mut direct_minor = 0_i32;
-    let direct_status = unsafe { libc::proc_libversion(&mut direct_major, &mut direct_minor) };
-    assert_eq!(direct_status, 0, "direct proc_libversion must succeed");
-    assert_eq!(major, direct_major);
-    assert_eq!(minor, direct_minor);
-}
-
-#[test]
 fn dlcall_confstr_writes_cs_path() {
     let symbol = live_symbol("confstr");
     let name = libc::_CS_PATH;

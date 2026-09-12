@@ -613,6 +613,26 @@ fn gethostuuid_reaches_dyn_with_two_required_guest_spans() {
 
 #[cfg(target_os = "macos")]
 #[test]
+fn proc_libversion_reuses_the_two_required_pointer_prototype_without_losing_outputs() {
+    let mut major = 0_i32;
+    let mut minor = 0_i32;
+    let status = unsafe { libc::proc_libversion(&mut major, &mut minor) };
+    assert_eq!(status, 0, "direct proc_libversion succeeds");
+    assert!(major >= 1, "libproc major version is positive");
+    let expected = (u64::from(major as u32) << 32) | u64::from(minor as u32);
+
+    assert_eq!(
+        run_wat(
+            include_str!("fixtures/native/proc_libversion.wat"),
+            Budget::default(),
+        )
+        .expect("proc_libversion runs through i32(ptr,ptr)") as u64,
+        expected,
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn pthread_threadid_np_reaches_dyn_with_nullable_input_and_required_output() {
     let source = include_str!("fixtures/native/pthread_threadid_np.wat");
     let got = run_wat(source, Budget::default())
