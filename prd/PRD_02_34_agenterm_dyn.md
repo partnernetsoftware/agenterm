@@ -252,9 +252,8 @@ fixnum `+` `-` + bounded `repeat` + one hand (`dlcall`).
   are live `dlcall`s compared with later native calls.
   Wave 9 adds `arc4random_uniform`, `getdomainname`, and `statvfs` plus a
   portable catalog/documentation gate. On both Darwin architectures,
-  `dlcall_arc4random_uniform_respects_each_upper_bound`,
-  `dlcall_getdomainname_matches_independent_caller_buffer`, and
-  `dlcall_statvfs_matches_stable_root_filesystem_fields` each reported `ok`.
+  the bounded-random, independent domain-name-buffer, and then-current legacy
+  `statvfs` field-comparison courts each reported `ok`.
   Wave 9 is therefore host-evidenced and shipped; no Windows result is used as
   a substitute for that evidence.
   Wave 10 adds `gettimeofday`, `getgroups`, and `realpath` to the Darwin live
@@ -263,6 +262,13 @@ fixnum `+` `-` + bounded `repeat` + one hand (`dlcall`).
   + 1 macos_ioctl + 48 macos_probes + 4 macos_resource + 27 cfg-gated macOS
   smoke; 0 doctests). Native CI remains the evidence gate for current source.
   Host-specific counts, not a cross-platform estimate.
+
+- Current Unix ownership supersedes the legacy Lisp entrance for
+  `gethostname`, `statvfs`, and `getgroups`: all four Unix cells expose only
+  the bounded typed snapshot/owner APIs, while Windows remains a typed
+  `Unsupported` placeholder. Their current courts retain independent direct
+  native oracles and typed failure coverage; they no longer claim the removed
+  caller-buffer `dlcall` path as product evidence.
 
 ## Completed branch accounting
 

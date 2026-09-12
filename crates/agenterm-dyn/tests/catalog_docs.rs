@@ -162,13 +162,8 @@ fn unix_getifaddrs_owner_has_callable_documentation() {
 }
 
 #[test]
-fn unix_getgroups_keeps_dlcall_and_typed_owner_documentation() {
-    for (cell, lib) in [
-        (LINUX_X86_64, "libc.so.6"),
-        (LINUX_AARCH64, "libc.so.6"),
-        (MACOS_X86_64, "libSystem.B.dylib"),
-        (MACOS_AARCH64, "libSystem.B.dylib"),
-    ] {
+fn unix_getgroups_has_typed_owner_documentation() {
+    for cell in [LINUX_X86_64, LINUX_AARCH64, MACOS_X86_64, MACOS_AARCH64] {
         let probe = cell
             .system_probes
             .iter()
@@ -176,9 +171,7 @@ fn unix_getgroups_keeps_dlcall_and_typed_owner_documentation() {
             .expect("Unix catalog contains getgroups");
         assert_eq!(
             probe.status,
-            SystemProbeStatus::LiveDlcallOwned {
-                lib,
-                symbol: "getgroups",
+            SystemProbeStatus::LiveOwned {
                 api: "SupplementaryGroups::acquire",
             }
         );
@@ -188,20 +181,15 @@ fn unix_getgroups_keeps_dlcall_and_typed_owner_documentation() {
     let example = fs::read_to_string(root.join("examples/getgroups.md"))
         .expect("getgroups documentation is readable");
     assert!(example.contains("SupplementaryGroups::acquire"));
-    assert!(example.contains("dlcall"));
+    assert!(!example.contains("(dlcall"));
 
     let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
     assert!(readme.contains("](examples/getgroups.md)"));
 }
 
 #[test]
-fn unix_statvfs_keeps_dlcall_and_typed_snapshot_documentation() {
-    for (cell, lib) in [
-        (LINUX_X86_64, "libc.so.6"),
-        (LINUX_AARCH64, "libc.so.6"),
-        (MACOS_X86_64, "libSystem.B.dylib"),
-        (MACOS_AARCH64, "libSystem.B.dylib"),
-    ] {
+fn unix_statvfs_has_typed_snapshot_documentation() {
+    for cell in [LINUX_X86_64, LINUX_AARCH64, MACOS_X86_64, MACOS_AARCH64] {
         let probe = cell
             .system_probes
             .iter()
@@ -209,9 +197,7 @@ fn unix_statvfs_keeps_dlcall_and_typed_snapshot_documentation() {
             .expect("Unix catalog contains statvfs");
         assert_eq!(
             probe.status,
-            SystemProbeStatus::LiveDlcallOwned {
-                lib,
-                symbol: "statvfs",
+            SystemProbeStatus::LiveOwned {
                 api: "StatVfsSnapshot::acquire",
             }
         );
@@ -221,20 +207,15 @@ fn unix_statvfs_keeps_dlcall_and_typed_snapshot_documentation() {
     let example = fs::read_to_string(root.join("examples/statvfs.md"))
         .expect("statvfs documentation is readable");
     assert!(example.contains("StatVfsSnapshot::acquire"));
-    assert!(example.contains("dlcall"));
+    assert!(!example.contains("(dlcall"));
 
     let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
     assert!(readme.contains("](examples/statvfs.md)"));
 }
 
 #[test]
-fn unix_gethostname_keeps_dlcall_and_typed_snapshot_documentation() {
-    for (cell, lib) in [
-        (LINUX_X86_64, "libc.so.6"),
-        (LINUX_AARCH64, "libc.so.6"),
-        (MACOS_X86_64, "libSystem.B.dylib"),
-        (MACOS_AARCH64, "libSystem.B.dylib"),
-    ] {
+fn unix_gethostname_has_typed_snapshot_documentation() {
+    for cell in [LINUX_X86_64, LINUX_AARCH64, MACOS_X86_64, MACOS_AARCH64] {
         let probe = cell
             .system_probes
             .iter()
@@ -242,9 +223,7 @@ fn unix_gethostname_keeps_dlcall_and_typed_snapshot_documentation() {
             .expect("Unix catalog contains gethostname");
         assert_eq!(
             probe.status,
-            SystemProbeStatus::LiveDlcallOwned {
-                lib,
-                symbol: "gethostname",
+            SystemProbeStatus::LiveOwned {
                 api: "HostnameSnapshot::acquire",
             }
         );
@@ -254,7 +233,7 @@ fn unix_gethostname_keeps_dlcall_and_typed_snapshot_documentation() {
     let example = fs::read_to_string(root.join("examples/gethostname.md"))
         .expect("gethostname documentation is readable");
     assert!(example.contains("HostnameSnapshot::acquire"));
-    assert!(example.contains("dlcall"));
+    assert!(!example.contains("(dlcall"));
 
     let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
     assert!(readme.contains("](examples/gethostname.md)"));

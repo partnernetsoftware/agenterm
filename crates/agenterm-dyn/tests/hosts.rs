@@ -396,6 +396,24 @@ fn additional_system_probes_use_explicit_live_and_placeholder_statuses() {
                             lib: "libSystem.B.dylib",
                             ..
                         }
+                    ) || matches!(
+                        (probe.name, probe.status),
+                        (
+                            "gethostname",
+                            SystemProbeStatus::LiveOwned {
+                                api: "HostnameSnapshot::acquire"
+                            }
+                        ) | (
+                            "statvfs",
+                            SystemProbeStatus::LiveOwned {
+                                api: "StatVfsSnapshot::acquire"
+                            }
+                        ) | (
+                            "getgroups",
+                            SystemProbeStatus::LiveOwned {
+                                api: "SupplementaryGroups::acquire"
+                            }
+                        )
                     )
                 })
         );
@@ -635,19 +653,12 @@ fn per_cell_status_separates_darwin_only_and_unix_apis() {
                 cell.arch
             );
         } else {
-            let expected_lib = if cell.os == "macos" {
-                "libSystem.B.dylib"
-            } else {
-                "libc.so.6"
-            };
             assert_eq!(
                 groups,
-                SystemProbeStatus::LiveDlcallOwned {
-                    lib: expected_lib,
-                    symbol: "getgroups",
+                SystemProbeStatus::LiveOwned {
                     api: "SupplementaryGroups::acquire",
                 },
-                "getgroups keeps dlcall and typed-owner evidence on Unix: {}/{}",
+                "getgroups keeps typed-owner evidence on Unix: {}/{}",
                 cell.os,
                 cell.arch
             );
@@ -662,19 +673,12 @@ fn per_cell_status_separates_darwin_only_and_unix_apis() {
                 cell.arch
             );
         } else {
-            let expected_lib = if cell.os == "macos" {
-                "libSystem.B.dylib"
-            } else {
-                "libc.so.6"
-            };
             assert_eq!(
                 statvfs,
-                SystemProbeStatus::LiveDlcallOwned {
-                    lib: expected_lib,
-                    symbol: "statvfs",
+                SystemProbeStatus::LiveOwned {
                     api: "StatVfsSnapshot::acquire",
                 },
-                "statvfs keeps dlcall and typed snapshot evidence on Unix: {}/{}",
+                "statvfs keeps typed snapshot evidence on Unix: {}/{}",
                 cell.os,
                 cell.arch
             );
@@ -689,19 +693,12 @@ fn per_cell_status_separates_darwin_only_and_unix_apis() {
                 cell.arch
             );
         } else {
-            let expected_lib = if cell.os == "macos" {
-                "libSystem.B.dylib"
-            } else {
-                "libc.so.6"
-            };
             assert_eq!(
                 hostname,
-                SystemProbeStatus::LiveDlcallOwned {
-                    lib: expected_lib,
-                    symbol: "gethostname",
+                SystemProbeStatus::LiveOwned {
                     api: "HostnameSnapshot::acquire",
                 },
-                "gethostname keeps dlcall and typed snapshot evidence on Unix: {}/{}",
+                "gethostname keeps typed snapshot evidence on Unix: {}/{}",
                 cell.os,
                 cell.arch
             );

@@ -220,7 +220,7 @@ without wiring dyn into cu, platform, or the ABI:
 - [libproc version via `proc_libversion`](examples/proc-libversion.md) (macOS)
 - [JIT write-protect availability via `pthread_jit_write_protect_supported_np`](examples/pthread-jit-write-protect-supported-np.md) (macOS)
 - [current-thread equality via `pthread_equal`](examples/pthread-equal.md) (macOS)
-- [hostname via `gethostname`](examples/gethostname.md) (Linux and macOS; native-call and typed snapshot evidence)
+- [hostname via `gethostname`](examples/gethostname.md) (Linux and macOS; typed snapshot evidence)
 - [configuration string via `confstr`](examples/confstr.md) (macOS)
 - [clock resolution via `clock_getres`](examples/clock-getres.md) (macOS)
 - [process multithreaded predicate via `pthread_is_threaded_np`](examples/pthread-is-threaded-np.md) (macOS)
@@ -232,9 +232,9 @@ without wiring dyn into cu, platform, or the ABI:
 - [loaded-image header via `_dyld_get_image_header`](examples/dyld-get-image-header.md) (macOS)
 - [bounded random word via `arc4random_uniform`](examples/arc4random-uniform.md) (macOS)
 - [domain name via `getdomainname`](examples/getdomainname.md) (macOS; native-call and typed snapshot evidence)
-- [filesystem facts via `statvfs`](examples/statvfs.md) (Linux and macOS; native-call and typed snapshot evidence)
+- [filesystem facts via `statvfs`](examples/statvfs.md) (Linux and macOS; typed snapshot evidence)
 - [wall-clock time via `gettimeofday`](examples/gettimeofday.md) (macOS)
-- [supplementary groups via `getgroups`](examples/getgroups.md) (Linux and macOS; native-call and typed snapshot evidence)
+- [supplementary groups via `getgroups`](examples/getgroups.md) (Linux and macOS; typed owner evidence)
 - [resolved path via `realpath`](examples/realpath.md) (macOS)
 - [owned `mach_host_self` send-right reference](examples/mach-host-self.md) (macOS)
 - [owned interface-address snapshot via `getifaddrs`](examples/getifaddrs.md) (Linux and macOS)
@@ -327,8 +327,9 @@ the caller-owned timebase, login, thread-id, thread-name, `proc_bsdinfo`, and
 loader/uuid facts (`dladdr`, `gethostuuid`, `_dyld_get_image_header`) retain
 live `dlcall`s compared with later native calls; `dladdr` also compares its
 typed owned image-path bytes with a direct current-image query. Wave 9 bounds random results,
-compares independent domain-name buffers, and compares only stable `statvfs`
-fields because live capacity counters can change between calls. The
+compares independent domain-name buffers, while the typed `StatVfsSnapshot`
+court compares only stable fields with an independent direct native query
+because live capacity counters can change between calls. The
 dynamic-loader image count is an instantaneous positive fact checked against a
 later native call. `getentropy` fills independent caller-owned 16-byte
 buffers; the smoke checks only successful status and never observes entropy

@@ -1,17 +1,10 @@
 # Read the host name with `gethostname`
 
-Linux and macOS retain two distinct facts for `gethostname`. The legacy
-native-call court binds a writable byte buffer as `name` and its capacity as
-`namelen` before evaluation (use `libc.so.6` on Linux):
+On Linux and macOS, `HostnameSnapshot::acquire()` returns a bounded,
+pointer-free copy of the native host-name bytes without requiring UTF-8. It
+rejects a successful native call that did not NUL-terminate its buffer and
+returns typed unsupported or OS failures instead of exposing partial bytes.
 
-```lisp
-(dlcall "libSystem.B.dylib" "gethostname" "i32" "ptr" name "u64" namelen)
-```
-
-A zero result means `name` holds a NUL-terminated host name. That low-level
-call returns the status and leaves buffer ownership with its caller.
-
-New Rust consumers should use `HostnameSnapshot::acquire()`. It owns a bounded,
-pointer-free copy of the native bytes without assuming UTF-8, rejects a
-successful call that did not NUL-terminate its buffer, and returns typed
-unsupported or OS failures.
+The public contract test compares the snapshot with an independent direct
+`gethostname` call on the running Unix host. Windows reports typed
+`Unsupported`; no Windows host-name capability is claimed here.

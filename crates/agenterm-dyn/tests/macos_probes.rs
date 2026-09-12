@@ -5,8 +5,8 @@
 use std::ffi::{CStr, CString, c_void};
 
 use agenterm_dyn::{
-    DlAddressSnapshot, DomainNameSnapshot, Dyn, HostnameSnapshot, LoginNameError,
-    LoginNameSnapshot, StatVfsSnapshot, SystemProbeStatus, Value, live_cell,
+    DlAddressSnapshot, DomainNameSnapshot, Dyn, LoginNameError, LoginNameSnapshot,
+    SystemProbeStatus, Value, live_cell,
 };
 
 const LIB: &str = "libSystem.B.dylib";
@@ -602,36 +602,6 @@ fn dlcall_proc_libversion_writes_caller_owned_version() {
 }
 
 #[test]
-fn dlcall_gethostname_writes_caller_buffer() {
-    let symbol = live_symbol("gethostname");
-    let mut buffer = [0_u8; 256];
-    let len = buffer.len();
-    let mut env = Dyn::new();
-    env.bind("buf", buffer.as_mut_ptr().cast())
-        .expect("bind hostname buffer");
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "i32" "ptr" buf "u64" {len})"#),
-    )
-    .expect("gethostname dlcall");
-    assert_eq!(got, Value::Int(0));
-    let name = CStr::from_bytes_until_nul(&buffer)
-        .expect("gethostname must NUL-terminate on success")
-        .to_bytes();
-    assert!(!name.is_empty(), "hostname must be non-empty");
-
-    let mut direct = [0_u8; 256];
-    let direct_status = unsafe { libc::gethostname(direct.as_mut_ptr().cast(), direct.len()) };
-    assert_eq!(direct_status, 0, "direct gethostname must succeed");
-    let direct_name = CStr::from_bytes_until_nul(&direct)
-        .expect("direct gethostname must NUL-terminate on success")
-        .to_bytes();
-    assert_eq!(name, direct_name);
-    let snapshot = HostnameSnapshot::acquire().expect("typed hostname snapshot");
-    assert_eq!(name, snapshot.as_bytes());
-}
-
-#[test]
 fn dlcall_confstr_writes_cs_path() {
     let symbol = live_symbol("confstr");
     let name = libc::_CS_PATH;
@@ -859,84 +829,6 @@ fn dlcall_getdomainname_matches_independent_caller_buffer() {
     assert_eq!(domain.to_bytes(), direct.to_bytes());
     let snapshot = DomainNameSnapshot::acquire().expect("typed domain-name snapshot");
     assert_eq!(domain.to_bytes(), snapshot.as_bytes());
-}
-
-#[test]
-fn dlcall_statvfs_matches_stable_root_filesystem_fields() {
-    let symbol = live_symbol("statvfs");
-    let root = CString::new("/").expect("root path literal has no NUL");
-    let mut info = std::mem::MaybeUninit::<libc::statvfs>::uninit();
-    let mut env = Dyn::new();
-    env.bind("root", root.as_ptr().cast_mut().cast())
-        .expect("bind root path");
-    env.bind("info", info.as_mut_ptr().cast())
-        .expect("bind statvfs output");
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "i32" "ptr" root "ptr" info)"#),
-    )
-    .expect("statvfs dlcall");
-    assert_eq!(got, Value::Int(0));
-    let info = unsafe { info.assume_init() };
-    assert!(info.f_bsize > 0, "filesystem block size must be positive");
-    assert!(
-        info.f_frsize > 0,
-        "filesystem fragment size must be positive"
-    );
-    assert!(info.f_namemax > 0, "filesystem name limit must be positive");
-
-    let mut direct = std::mem::MaybeUninit::<libc::statvfs>::uninit();
-    let direct_status = unsafe { libc::statvfs(root.as_ptr(), direct.as_mut_ptr()) };
-    assert_eq!(direct_status, 0, "direct statvfs must succeed");
-    let direct = unsafe { direct.assume_init() };
-    assert_eq!(info.f_bsize, direct.f_bsize);
-    assert_eq!(info.f_frsize, direct.f_frsize);
-    assert_eq!(info.f_namemax, direct.f_namemax);
-
-    let snapshot =
-        StatVfsSnapshot::acquire(std::path::Path::new("/")).expect("typed statvfs snapshot");
-    assert_eq!(snapshot.block_size, info.f_bsize);
-    assert_eq!(snapshot.fragment_size, info.f_frsize);
-    assert_eq!(snapshot.maximum_name_bytes, info.f_namemax);
-}
-
-#[test]
-fn dlcall_getgroups_matches_later_native_set() {
-    let symbol = live_symbol("getgroups");
-    // libc 0.2 does not bind Darwin `NGROUPS_MAX` (syslimits.h: 16).
-    let ngroups_max = {
-        let n = unsafe { libc::sysconf(libc::_SC_NGROUPS_MAX) };
-        assert!(n > 0, "NGROUPS_MAX must be positive");
-        libc::c_int::try_from(n).expect("NGROUPS_MAX fits c_int")
-    };
-    let mut gids = vec![0 as libc::gid_t; ngroups_max as usize];
-    let mut env = Dyn::new();
-    env.bind("gids", gids.as_mut_ptr().cast())
-        .expect("bind getgroups output");
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "i32" "i32" {ngroups_max} "ptr" gids)"#),
-    )
-    .expect("getgroups dlcall")
-    .as_int()
-    .expect("getgroups integer count");
-    assert!(got >= 0, "getgroups must return a non-negative count");
-    let count = usize::try_from(got).expect("getgroups count fits usize");
-    assert!(count <= gids.len(), "getgroups count must fit the buffer");
-
-    let mut later = vec![0 as libc::gid_t; ngroups_max as usize];
-    let later_count = unsafe { libc::getgroups(ngroups_max, later.as_mut_ptr()) };
-    assert!(later_count >= 0, "direct getgroups must succeed");
-    assert_eq!(
-        i64::from(later_count),
-        got,
-        "dlcall and later getgroups counts must agree"
-    );
-    let mut got_set = gids[..count].to_vec();
-    let mut later_set = later[..count].to_vec();
-    got_set.sort_unstable();
-    later_set.sort_unstable();
-    assert_eq!(got_set, later_set);
 }
 
 #[test]

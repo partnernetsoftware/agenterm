@@ -389,9 +389,7 @@ const LINUX_SYSTEM_PROBES: [SystemProbe; 86] = [
     placeholder("pthread_equal"),
     SystemProbe {
         name: "gethostname",
-        status: SystemProbeStatus::LiveDlcallOwned {
-            lib: "libc.so.6",
-            symbol: "gethostname",
+        status: SystemProbeStatus::LiveOwned {
             api: "HostnameSnapshot::acquire",
         },
     },
@@ -408,18 +406,14 @@ const LINUX_SYSTEM_PROBES: [SystemProbe; 86] = [
     placeholder("getdomainname"),
     SystemProbe {
         name: "statvfs",
-        status: SystemProbeStatus::LiveDlcallOwned {
-            lib: "libc.so.6",
-            symbol: "statvfs",
+        status: SystemProbeStatus::LiveOwned {
             api: "StatVfsSnapshot::acquire",
         },
     },
     placeholder("gettimeofday"),
     SystemProbe {
         name: "getgroups",
-        status: SystemProbeStatus::LiveDlcallOwned {
-            lib: "libc.so.6",
-            symbol: "getgroups",
+        status: SystemProbeStatus::LiveOwned {
             api: "SupplementaryGroups::acquire",
         },
     },
@@ -538,9 +532,7 @@ const MACOS_SYSTEM_PROBES: [SystemProbe; 86] = [
     macos_live("pthread_equal", "pthread_equal"),
     SystemProbe {
         name: "gethostname",
-        status: SystemProbeStatus::LiveDlcallOwned {
-            lib: "libSystem.B.dylib",
-            symbol: "gethostname",
+        status: SystemProbeStatus::LiveOwned {
             api: "HostnameSnapshot::acquire",
         },
     },
@@ -574,18 +566,14 @@ const MACOS_SYSTEM_PROBES: [SystemProbe; 86] = [
     },
     SystemProbe {
         name: "statvfs",
-        status: SystemProbeStatus::LiveDlcallOwned {
-            lib: "libSystem.B.dylib",
-            symbol: "statvfs",
+        status: SystemProbeStatus::LiveOwned {
             api: "StatVfsSnapshot::acquire",
         },
     },
     macos_live("gettimeofday", "gettimeofday"),
     SystemProbe {
         name: "getgroups",
-        status: SystemProbeStatus::LiveDlcallOwned {
-            lib: "libSystem.B.dylib",
-            symbol: "getgroups",
+        status: SystemProbeStatus::LiveOwned {
             api: "SupplementaryGroups::acquire",
         },
     },

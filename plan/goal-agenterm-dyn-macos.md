@@ -87,7 +87,7 @@ The portable catalog/documentation gate runs on every host. In success run
 Darwin architectures reported
 `dlcall_arc4random_uniform_respects_each_upper_bound`,
 `dlcall_getdomainname_matches_independent_caller_buffer`, and
-`dlcall_statvfs_matches_stable_root_filesystem_fields` as `ok`. Windows
+the then-current legacy `statvfs` stable-field court as `ok`. Windows
 compilation is not live evidence. Keep `mach_host_self` last and Placeholder.
 
 Do not live-call Mach send rights. Do not pick `os_proc_available_memory` —
