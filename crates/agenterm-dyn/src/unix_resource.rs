@@ -3,6 +3,92 @@
 use std::fmt;
 use std::path::Path;
 
+/// One clock whose native identifier is selected inside dyn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClockId {
+    /// Wall-clock time since the Unix epoch.
+    Realtime,
+    /// Monotonic elapsed time, with an unspecified origin.
+    Monotonic,
+}
+
+/// Failure to acquire a pointer-free clock snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClockSnapshotError {
+    /// Native clocks are available only on Unix hosts.
+    Unsupported,
+    /// `clock_gettime` failed with the captured OS error code.
+    Os(i32),
+    /// The native result violated the required `[0, 1_000_000_000)` range.
+    InvalidNanoseconds(i64),
+}
+
+impl fmt::Display for ClockSnapshotError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unsupported => formatter.write_str("clock_gettime is unsupported on this host"),
+            Self::Os(code) => write!(formatter, "clock_gettime failed with OS error {code}"),
+            Self::InvalidNanoseconds(value) => {
+                write!(
+                    formatter,
+                    "clock_gettime returned invalid nanoseconds {value}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for ClockSnapshotError {}
+
+/// An owned, pointer-free native clock reading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ClockSnapshot {
+    pub seconds: i64,
+    pub nanoseconds: u32,
+}
+
+impl ClockSnapshot {
+    /// Read one controlled native clock and immediately copy its output.
+    #[cfg(unix)]
+    pub fn acquire(clock: ClockId) -> Result<Self, ClockSnapshotError> {
+        let native_id = match clock {
+            ClockId::Realtime => libc::CLOCK_REALTIME,
+            ClockId::Monotonic => libc::CLOCK_MONOTONIC,
+        };
+        let mut native = std::mem::MaybeUninit::<libc::timespec>::uninit();
+        // SAFETY: `native` is writable storage for one timespec. The controlled
+        // identifier comes from libc, and the value is read only after success.
+        let status = unsafe { libc::clock_gettime(native_id, native.as_mut_ptr()) };
+        if status != 0 {
+            return Err(ClockSnapshotError::Os(
+                std::io::Error::last_os_error()
+                    .raw_os_error()
+                    .unwrap_or(status),
+            ));
+        }
+        // SAFETY: a zero status means clock_gettime initialized the complete value.
+        snapshot_timespec(unsafe { native.assume_init() })
+    }
+
+    /// Return an honest typed failure on non-Unix hosts.
+    #[cfg(not(unix))]
+    pub fn acquire(_clock: ClockId) -> Result<Self, ClockSnapshotError> {
+        Err(ClockSnapshotError::Unsupported)
+    }
+}
+
+#[cfg(unix)]
+fn snapshot_timespec(native: libc::timespec) -> Result<ClockSnapshot, ClockSnapshotError> {
+    let nanoseconds = u32::try_from(native.tv_nsec)
+        .ok()
+        .filter(|value| *value < 1_000_000_000)
+        .ok_or(ClockSnapshotError::InvalidNanoseconds(native.tv_nsec))?;
+    Ok(ClockSnapshot {
+        seconds: native.tv_sec,
+        nanoseconds,
+    })
+}
+
 /// Failure to acquire a Unix filesystem-statistics snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatVfsError {
@@ -251,6 +337,8 @@ mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
+    #[cfg(unix)]
+    use super::{ClockSnapshot, ClockSnapshotError};
     use super::{FreeList, OwnedList};
 
     struct CountingFreer(Rc<Cell<u32>>);
@@ -271,5 +359,34 @@ mod tests {
         assert_eq!(calls.get(), 0);
         drop(owner);
         assert_eq!(calls.get(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn timespec_fields_are_copied_by_role_and_nanoseconds_are_validated() {
+        assert_eq!(
+            super::snapshot_timespec(libc::timespec {
+                tv_sec: 123,
+                tv_nsec: 456,
+            }),
+            Ok(ClockSnapshot {
+                seconds: 123,
+                nanoseconds: 456,
+            })
+        );
+        assert_eq!(
+            super::snapshot_timespec(libc::timespec {
+                tv_sec: 123,
+                tv_nsec: -1,
+            }),
+            Err(ClockSnapshotError::InvalidNanoseconds(-1))
+        );
+        assert_eq!(
+            super::snapshot_timespec(libc::timespec {
+                tv_sec: 123,
+                tv_nsec: 1_000_000_000,
+            }),
+            Err(ClockSnapshotError::InvalidNanoseconds(1_000_000_000))
+        );
     }
 }

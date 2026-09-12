@@ -1,10 +1,11 @@
 //! Public contract tests for pointer-free Unix resource snapshots.
 
-#[cfg(windows)]
-use agenterm_dyn::InterfaceAddressesError;
 use agenterm_dyn::{
-    ALL_CELLS, InterfaceAddresses, StatVfsError, StatVfsSnapshot, SystemProbeStatus,
+    ALL_CELLS, ClockId, ClockSnapshot, InterfaceAddresses, StatVfsError, StatVfsSnapshot,
+    SystemProbeStatus,
 };
+#[cfg(windows)]
+use agenterm_dyn::{ClockSnapshotError, InterfaceAddressesError};
 use std::path::Path;
 
 #[test]
@@ -36,6 +37,38 @@ fn live_snapshot_is_nonempty_and_contains_structurally_valid_names() {
     assert!(!snapshot.is_empty());
     assert!(snapshot.iter().all(|entry| !entry.name.is_empty()));
     assert!(snapshot.iter().all(|entry| !entry.name.contains(&0)));
+}
+
+#[cfg(unix)]
+fn direct_clock(clock: libc::clockid_t) -> ClockSnapshot {
+    let mut native = std::mem::MaybeUninit::<libc::timespec>::uninit();
+    // SAFETY: native is writable storage and the caller supplies a libc clock id.
+    assert_eq!(
+        unsafe { libc::clock_gettime(clock, native.as_mut_ptr()) },
+        0
+    );
+    // SAFETY: a successful call initialized the complete timespec.
+    let native = unsafe { native.assume_init() };
+    ClockSnapshot {
+        seconds: native.tv_sec,
+        nanoseconds: u32::try_from(native.tv_nsec).expect("native nanoseconds are nonnegative"),
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn controlled_clocks_return_bounded_pointer_free_snapshots() {
+    for (clock, native_id) in [
+        (ClockId::Realtime, libc::CLOCK_REALTIME),
+        (ClockId::Monotonic, libc::CLOCK_MONOTONIC),
+    ] {
+        let before = direct_clock(native_id);
+        let snapshot = ClockSnapshot::acquire(clock).expect("controlled native clock succeeds");
+        let after = direct_clock(native_id);
+        assert!(snapshot.nanoseconds < 1_000_000_000);
+        assert!(before <= snapshot, "snapshot precedes the first oracle");
+        assert!(snapshot <= after, "snapshot follows the second oracle");
+    }
 }
 
 #[cfg(unix)]
@@ -95,4 +128,8 @@ fn acquisition_is_honestly_unsupported_on_windows() {
         StatVfsSnapshot::acquire(Path::new(".")),
         Err(StatVfsError::Unsupported)
     ));
+    assert_eq!(
+        ClockSnapshot::acquire(ClockId::Realtime),
+        Err(ClockSnapshotError::Unsupported)
+    );
 }

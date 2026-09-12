@@ -1,8 +1,8 @@
 //! Typed ownership tests for Darwin's `mach_host_self` send right.
 
+use agenterm_dyn::{ALL_CELLS, DlAddressSnapshot, MachHostPort, SystemProbeStatus};
 #[cfg(not(target_os = "macos"))]
-use agenterm_dyn::MachHostPortError;
-use agenterm_dyn::{ALL_CELLS, MachHostPort, SystemProbeStatus};
+use agenterm_dyn::{DlAddressError, MachHostPortError};
 
 #[test]
 fn only_darwin_catalogues_mach_host_self_as_owned_live() {
@@ -34,6 +34,15 @@ fn acquisition_is_honestly_unsupported_off_darwin() {
     ));
 }
 
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn current_image_snapshot_is_honestly_unsupported_off_darwin() {
+    assert_eq!(
+        DlAddressSnapshot::current_image(),
+        Err(DlAddressError::Unsupported)
+    );
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn acquisition_adds_one_send_ref_and_drop_releases_exactly_that_ref() {
@@ -51,4 +60,14 @@ fn acquisition_adds_one_send_ref_and_drop_releases_exactly_that_ref() {
         survivor.send_right_refs().expect("refs after second drop"),
         before
     );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn current_image_snapshot_owns_native_path_bytes() {
+    let snapshot = DlAddressSnapshot::current_image().expect("current image snapshot");
+    assert!(!snapshot.image_path().is_empty());
+    if let Some(symbol) = snapshot.symbol_name() {
+        assert!(!symbol.is_empty());
+    }
 }
