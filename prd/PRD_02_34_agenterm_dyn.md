@@ -279,7 +279,7 @@ fixnum `+` `-` + bounded `repeat` + one hand (`dlcall`).
 - Signature hardening on main: void, arity, empty/blank/overlong names,
   unknown types (`f32` / `struct` / `f64` / `u128` / `usize` / `isize` / `bool`).
 - Linux live libc probes + paired S-expr examples (pid/uid/gid/pgid/sid/pgrp,
-  `sched_yield` i32 status/alarm, umask, descriptors, tty, access, sysconf pagesize, gethostid,
+  `sched_yield` i32 status/alarm, descriptors, tty, access, sysconf pagesize, gethostid,
   getdtablesize, getpagesize, `times`, `getrusage`, `getrlimit`, …).
 - 255-byte library/symbol names reach native processing; 256-byte names reject
   before loading or argument evaluation.
@@ -412,7 +412,11 @@ query, not a general `sysctlbyname` interface. The current
 stay placeholder / typed `Unsupported`, and the real-machine evidence is the host
 ISA only. Windows extra probes stay placeholders. No
 C shim.
-Restore process-global side effects before the test ends (`umask` pattern).
+Restore process-global side effects before the test ends. The `umask` claim has
+moved to `qjswasm`'s `umask_restore.wat`: an isolated child compares the inherited
+mask with direct libc calls before and after the guest, while the guest reads and
+restores the mask itself. The duplicate Linux/macOS Lisp wrappers and child courts
+are retired.
 Unix `ioctl` (Linux and macOS) is owned by dyn's `invoke_unix_ioctl` only for the
 validated `(i32, u64|i32, ptr) -> i32` signature. The legacy Lisp entrance and
 the qjswasm native door both delegate there; the fixed trampoline remains for

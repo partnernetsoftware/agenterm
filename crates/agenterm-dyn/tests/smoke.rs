@@ -67,15 +67,6 @@ mod linux {
         live_cell().expect("linux cell")
     }
 
-    fn run_isolated_test(child: &str) {
-        let status = std::process::Command::new(std::env::current_exe().expect("test executable"))
-            .args(["--exact", child, "--nocapture"])
-            .env("AGENTERM_DYN_ISOLATED_CHILD", child)
-            .status()
-            .expect("spawn isolated smoke child");
-        assert!(status.success(), "isolated child {child} failed: {status}");
-    }
-
     #[test]
     fn variadic_system_probes_are_catalogued_but_not_invoked() {
         for name in ["open_dev_null", "fcntl_stdin_getfd", "fcntl_stdin_getfl"] {
@@ -341,48 +332,6 @@ mod linux {
     }
 
     #[test]
-    fn dlcall_umask_reads_and_immediately_restores_current_mask() {
-        run_isolated_test("linux::dlcall_umask_child");
-    }
-
-    #[test]
-    fn dlcall_umask_child() {
-        if std::env::var("AGENTERM_DYN_ISOLATED_CHILD").ok().as_deref()
-            != Some("linux::dlcall_umask_child")
-        {
-            return;
-        }
-        let probe = live_system_probe("umask");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let previous = eval_native(
-            &mut env,
-            &format!(r#"(dlcall "{lib}" "{symbol}" "u32" "u32" 0)"#),
-        )
-        .expect("umask(0) dlcall")
-        .as_int()
-        .expect("umask return value");
-        let restored = eval_native(
-            &mut env,
-            &format!(r#"(dlcall "{lib}" "{symbol}" "u32" "u32" {previous})"#),
-        )
-        .expect("umask(previous) restore dlcall");
-
-        assert_eq!(
-            restored,
-            Value::Int(0),
-            "restore should replace temporary zero mask"
-        );
-        assert_eq!(
-            previous & !0o777,
-            0,
-            "Linux umask should contain permission bits only"
-        );
-    }
-
-    #[test]
     fn dlcall_ioctl_winsize() {
         let c = cell();
         let SizeProbe::IoctlTiocgwinsz {
@@ -566,15 +515,6 @@ mod macos {
         live_cell().expect("macos cell")
     }
 
-    fn run_isolated_test(child: &str) {
-        let status = std::process::Command::new(std::env::current_exe().expect("test executable"))
-            .args(["--exact", child, "--nocapture"])
-            .env("AGENTERM_DYN_ISOLATED_CHILD", child)
-            .status()
-            .expect("spawn isolated smoke child");
-        assert!(status.success(), "isolated child {child} failed: {status}");
-    }
-
     fn live_system_probe(name: &str) -> SystemProbe {
         let probe = cell()
             .system_probes
@@ -738,7 +678,7 @@ mod macos {
     }
 
     #[test]
-    fn dlcall_priority_and_umask() {
+    fn dlcall_priority_matches_libc() {
         let mut env = Dyn::new();
         let prio = live_system_probe("getpriority_process");
         let SystemProbeStatus::LiveDlcall { lib, symbol } = prio.status else {
@@ -758,40 +698,6 @@ mod macos {
                 libc::getpriority(libc::PRIO_PROCESS, 0)
             }))
         );
-
-        run_isolated_test("macos::dlcall_umask_child");
-    }
-
-    #[test]
-    fn dlcall_umask_child() {
-        if std::env::var("AGENTERM_DYN_ISOLATED_CHILD").ok().as_deref()
-            != Some("macos::dlcall_umask_child")
-        {
-            return;
-        }
-        let umask = live_system_probe("umask");
-        let SystemProbeStatus::LiveDlcall {
-            lib,
-            symbol: umask_sym,
-        } = umask.status
-        else {
-            unreachable!()
-        };
-        let mut env = Dyn::new();
-        let previous = eval_native(
-            &mut env,
-            &format!(r#"(dlcall "{lib}" "{umask_sym}" "u32" "u32" 0)"#),
-        )
-        .expect("umask(0)")
-        .as_int()
-        .expect("umask int");
-        let restored = eval_native(
-            &mut env,
-            &format!(r#"(dlcall "{lib}" "{umask_sym}" "u32" "u32" {previous})"#),
-        )
-        .expect("umask restore");
-        assert_eq!(restored, Value::Int(0));
-        assert_eq!(previous & !0o777, 0);
     }
 
     #[test]

@@ -603,6 +603,39 @@ fn alarm_zero_is_contained_in_an_isolated_process() {
 
 #[cfg(unix)]
 #[test]
+fn umask_is_read_and_restored_in_an_isolated_process() {
+    const CHILD_FLAG: &str = "AGENTERM_QJSWASM_UMASK_CHILD";
+    if std::env::var_os(CHILD_FLAG).is_none() {
+        let status = std::process::Command::new(std::env::current_exe().expect("test executable"))
+            .args([
+                "--exact",
+                "umask_is_read_and_restored_in_an_isolated_process",
+                "--nocapture",
+            ])
+            .env(CHILD_FLAG, "1")
+            .status()
+            .expect("spawn isolated umask child");
+        assert!(status.success(), "isolated umask child failed: {status}");
+        return;
+    }
+
+    let before = unsafe { libc::umask(0) };
+    unsafe { libc::umask(before) };
+    let guest = run_wat(
+        include_str!("fixtures/native/umask_restore.wat"),
+        Budget::default(),
+    )
+    .expect("umask guest reads and restores the mask");
+    let after = unsafe { libc::umask(0) };
+    unsafe { libc::umask(after) };
+
+    assert_eq!(guest as libc::mode_t, before);
+    assert_eq!(after, before, "guest must restore the inherited umask");
+    assert_eq!(before & !0o777, 0, "umask contains permission bits only");
+}
+
+#[cfg(unix)]
+#[test]
 fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
     let output = std::process::Command::new("uname")
         .arg("-s")
