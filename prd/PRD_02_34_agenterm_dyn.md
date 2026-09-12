@@ -450,6 +450,10 @@ missing-symbol/cache assertions. The language integration court still owns the
 unsafe native entry and native-error boundary, while `native.rs` unit tests own
 the retiring Lisp environment's bounded cache behavior until that layer is
 deleted.
+The duplicate platform Lisp `ioctl(TIOCGWINSZ)` smokes are also retired. The
+direct dyn `invoke_unix_ioctl` court owns the variadic ABI and an owned PTY,
+while the qjswasm WAT court owns the same request crossing the existing native
+door; neither claim depends on the S-expression entrance.
 Unix `ioctl` (Linux and macOS) is owned by dyn's `invoke_unix_ioctl` only for the
 validated `(i32, u64|i32, ptr) -> i32` signature. The legacy Lisp entrance and
 the qjswasm native door both delegate there; the fixed trampoline remains for

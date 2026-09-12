@@ -3,9 +3,11 @@
 //! Each supported OS module uses [`agenterm_dyn::live_cell`] script data and
 //! cross-checks results with a second `dlcall` where possible.
 
-use agenterm_dyn::DynError;
-use agenterm_dyn::{CU_ADJACENT_PROBE_CATALOG, Dyn, HostArch, HostOs, Value, live_cell};
+use agenterm_dyn::{CU_ADJACENT_PROBE_CATALOG, HostArch, HostOs, live_cell};
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use agenterm_dyn::{Dyn, DynError, Value};
 
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn eval_native(env: &mut Dyn, source: &str) -> Result<Value, DynError> {
     // SAFETY: each smoke owns any bound storage and asserts the documented ABI.
     unsafe { env.eval_native(source) }
@@ -24,40 +26,7 @@ fn cu_adjacent_catalog_has_six_cells() {
 #[cfg(target_os = "linux")]
 mod linux {
     use super::*;
-    use agenterm_dyn::{HostCell, LINUX_ATSPI_EXISTENCE_LIBS, SizeProbe, SystemProbeStatus};
-
-    #[repr(C)]
-    struct Winsize {
-        ws_row: u16,
-        ws_col: u16,
-        ws_xpixel: u16,
-        ws_ypixel: u16,
-    }
-
-    /// Test-only owner for file descriptors obtained from `openpty`.
-    ///
-    /// The ioctl assertions intentionally have several early-panic paths, so
-    /// the pty master must be tied to Rust scope rather than a trailing close.
-    struct ProbeFd(libc::c_int);
-
-    impl ProbeFd {
-        fn as_i64(&self) -> i64 {
-            i64::from(self.0)
-        }
-    }
-
-    impl Drop for ProbeFd {
-        fn drop(&mut self) {
-            if self.0 >= 0 {
-                // SAFETY: this owner is created only from an fd returned by
-                // openpty (including an unusual partial-failure result) and
-                // is the sole closer for that descriptor.
-                unsafe {
-                    libc::close(self.0);
-                }
-            }
-        }
-    }
+    use agenterm_dyn::{HostCell, LINUX_ATSPI_EXISTENCE_LIBS, SystemProbeStatus};
 
     fn cell() -> &'static HostCell {
         live_cell().expect("linux cell")
@@ -73,76 +42,6 @@ mod linux {
                 .unwrap_or_else(|| panic!("missing system probe {name}"));
             assert!(matches!(probe.status, SystemProbeStatus::Placeholder));
         }
-    }
-
-    #[test]
-    fn dlcall_ioctl_winsize() {
-        let c = cell();
-        let SizeProbe::IoctlTiocgwinsz {
-            lib,
-            symbol,
-            request,
-        } = c.size_probe
-        else {
-            panic!("linux size probe should be ioctl");
-        };
-
-        let mut ws = Winsize {
-            ws_row: 0,
-            ws_col: 0,
-            ws_xpixel: 0,
-            ws_ypixel: 0,
-        };
-        let mut env = Dyn::new();
-        env.bind("ws", (&mut ws as *mut Winsize).cast())
-            .expect("bind ws");
-
-        let (fd, expect_pty_dims) = open_probe_fd();
-        let raw_fd = fd.as_ref().map_or(0, ProbeFd::as_i64);
-        let script =
-            format!(r#"(dlcall "{lib}" "{symbol}" "i32" "i32" {raw_fd} "u64" {request} "ptr" ws)"#);
-        let ret = eval_native(&mut env, &script).expect("ioctl dlcall");
-        let code = ret.as_int().expect("ioctl return code");
-        if expect_pty_dims {
-            assert_eq!(code, 0, "ioctl on pty master should succeed");
-            assert_eq!(ws.ws_row, 24, "pty rows");
-            assert_eq!(ws.ws_col, 80, "pty cols");
-        } else {
-            assert!(
-                code == -1 || code == -25,
-                "unexpected ioctl result {code} (expected -1 or -ENOTTY)"
-            );
-        }
-    }
-
-    fn open_probe_fd() -> (Option<ProbeFd>, bool) {
-        unsafe {
-            let mut master: libc::c_int = -1;
-            let mut slave: libc::c_int = -1;
-            let status = libc::openpty(
-                &mut master,
-                &mut slave,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &libc::winsize {
-                    ws_row: 24,
-                    ws_col: 80,
-                    ws_xpixel: 0,
-                    ws_ypixel: 0,
-                },
-            );
-            if status == 0 {
-                let master = ProbeFd(master);
-                let _slave = ProbeFd(slave);
-                return (Some(master), true);
-            }
-
-            // Defensive ownership for any libc implementation that leaves a
-            // descriptor initialized on a failed openpty call.
-            drop(ProbeFd(master));
-            drop(ProbeFd(slave));
-        }
-        (None, false)
     }
 
     #[test]
@@ -185,130 +84,6 @@ mod linux {
             let _ = unsafe { libloading::Library::new(name) };
         }
         assert!(attempted, "should try at least one AT-SPI library name");
-    }
-}
-
-#[cfg(target_os = "macos")]
-mod macos {
-    use super::*;
-    use agenterm_dyn::{HostCell, SizeProbe};
-
-    #[repr(C)]
-    struct Winsize {
-        ws_row: u16,
-        ws_col: u16,
-        ws_xpixel: u16,
-        ws_ypixel: u16,
-    }
-
-    /// Test-only owner for file descriptors opened by this smoke test.
-    ///
-    /// `openpty` can initialize either descriptor before reporting a failure,
-    /// while the ioctl assertions can panic after a successful call.  Scope
-    /// ownership covers both cases without ever closing borrowed stdin.
-    struct ProbeFd(libc::c_int);
-
-    impl ProbeFd {
-        fn as_i64(&self) -> i64 {
-            i64::from(self.0)
-        }
-    }
-
-    impl Drop for ProbeFd {
-        fn drop(&mut self) {
-            if self.0 >= 0 {
-                // SAFETY: the owner is constructed only from descriptors
-                // obtained by openpty or open in this test and closes once.
-                unsafe {
-                    libc::close(self.0);
-                }
-            }
-        }
-    }
-
-    fn cell() -> &'static HostCell {
-        live_cell().expect("macos cell")
-    }
-
-    #[test]
-    fn dlcall_ioctl_winsize() {
-        let c = cell();
-        let SizeProbe::IoctlTiocgwinsz {
-            lib,
-            symbol,
-            request,
-        } = c.size_probe
-        else {
-            panic!("macos size probe should be ioctl");
-        };
-
-        let mut ws = Winsize {
-            ws_row: 0,
-            ws_col: 0,
-            ws_xpixel: 0,
-            ws_ypixel: 0,
-        };
-        let mut env = Dyn::new();
-        env.bind("ws", (&mut ws as *mut Winsize).cast())
-            .expect("bind ws");
-        let (fd, expect_pty_dims) = open_probe_fd();
-        let raw_fd = fd.as_ref().map_or(0, ProbeFd::as_i64);
-        let script =
-            format!(r#"(dlcall "{lib}" "{symbol}" "i32" "i32" {raw_fd} "u64" {request} "ptr" ws)"#);
-        let ret = eval_native(&mut env, &script).expect("ioctl dlcall");
-        let code = ret.as_int().expect("ioctl return code");
-        // The signature-gated Unix path calls the loaded `ioctl` symbol
-        // through its variadic ABI. An owned pty is live evidence, so it
-        // must round-trip both the successful status and its seeded geometry.
-        if expect_pty_dims {
-            assert_eq!(code, 0, "ioctl on owned pty slave should succeed");
-            assert_eq!(ws.ws_row, 24, "pty rows");
-            assert_eq!(ws.ws_col, 80, "pty cols");
-        } else {
-            // If openpty is unavailable, the fallback is an ambient tty (or
-            // stdin) whose geometry is not owned by this test. It may work or
-            // report the native non-terminal failure, but proves no 24x80 row.
-            assert!(
-                code == 0 || code == -1,
-                "fallback ioctl should return success or native failure; got {code}"
-            );
-        }
-    }
-
-    fn open_probe_fd() -> (Option<ProbeFd>, bool) {
-        unsafe {
-            let mut master: libc::c_int = -1;
-            let mut slave: libc::c_int = -1;
-            let mut win = libc::winsize {
-                ws_row: 24,
-                ws_col: 80,
-                ws_xpixel: 0,
-                ws_ypixel: 0,
-            };
-            let status = libc::openpty(
-                &mut master,
-                &mut slave,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &mut win,
-            );
-            let master = ProbeFd(master);
-            let slave = ProbeFd(slave);
-            if status == 0 {
-                // Darwin TIOCGWINSZ is on the slave; master often returns -1.
-                drop(master);
-                return (Some(slave), true);
-            }
-            // Both owners fall out of scope on a partial openpty failure.
-        }
-        // SAFETY: the C string is NUL-terminated and remains alive for the call;
-        // the returned descriptor is immediately wrapped by `ProbeFd` on success.
-        let fd = unsafe { libc::open(c"/dev/tty".as_ptr().cast(), libc::O_RDONLY) };
-        if fd >= 0 {
-            (Some(ProbeFd(fd)), false)
-        } else {
-            (None, false)
-        }
     }
 }
 
