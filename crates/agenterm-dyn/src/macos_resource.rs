@@ -2,6 +2,109 @@
 
 use std::fmt;
 
+#[cfg(any(target_os = "macos", test))]
+const MAX_SYSCTL_VALUE_BYTES: usize = 64;
+#[cfg(any(target_os = "macos", test))]
+const MAX_SYSCTL_FETCH_ATTEMPTS: usize = 3;
+
+/// Failure to acquire Darwin's bounded `hw.ncpu` fact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CpuCountError {
+    Unsupported,
+    Os(i32),
+    TooLarge { size: usize, limit: usize },
+    Unstable,
+    InvalidSize(usize),
+}
+
+impl fmt::Display for CpuCountError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unsupported => formatter.write_str("hw.ncpu is unsupported on this host"),
+            Self::Os(code) => write!(formatter, "sysctlbyname failed with OS error {code}"),
+            Self::TooLarge { size, limit } => {
+                write!(
+                    formatter,
+                    "hw.ncpu returned {size} bytes above limit {limit}"
+                )
+            }
+            Self::Unstable => formatter.write_str("hw.ncpu size did not stabilize"),
+            Self::InvalidSize(size) => write!(formatter, "hw.ncpu returned invalid size {size}"),
+        }
+    }
+}
+
+impl std::error::Error for CpuCountError {}
+
+/// Pointer-free Darwin logical CPU count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CpuCountSnapshot {
+    logical_cpus: u32,
+}
+
+impl CpuCountSnapshot {
+    #[cfg(target_os = "macos")]
+    pub fn acquire() -> Result<Self, CpuCountError> {
+        acquire_cpu_count_with(|output, size| {
+            // SAFETY: the caller supplies either a null output for the size
+            // query or writable storage of the size recorded in `size`.
+            let status =
+                unsafe { sysctlbyname(c"hw.ncpu".as_ptr(), output, size, std::ptr::null_mut(), 0) };
+            if status == 0 {
+                Ok(())
+            } else {
+                Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(-1))
+            }
+        })
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn acquire() -> Result<Self, CpuCountError> {
+        Err(CpuCountError::Unsupported)
+    }
+
+    pub fn logical_cpus(self) -> u32 {
+        self.logical_cpus
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn acquire_cpu_count_with(
+    mut query: impl FnMut(*mut std::ffi::c_void, &mut usize) -> Result<(), i32>,
+) -> Result<CpuCountSnapshot, CpuCountError> {
+    for _ in 0..MAX_SYSCTL_FETCH_ATTEMPTS {
+        let mut needed = 0;
+        query(std::ptr::null_mut(), &mut needed).map_err(CpuCountError::Os)?;
+        if needed > MAX_SYSCTL_VALUE_BYTES {
+            return Err(CpuCountError::TooLarge {
+                size: needed,
+                limit: MAX_SYSCTL_VALUE_BYTES,
+            });
+        }
+        if needed == 0 {
+            return Err(CpuCountError::InvalidSize(0));
+        }
+        let mut bytes = vec![0_u8; needed];
+        let mut written = bytes.len();
+        match query(bytes.as_mut_ptr().cast(), &mut written) {
+            Ok(()) => {
+                if written != std::mem::size_of::<u32>() {
+                    return Err(CpuCountError::InvalidSize(written));
+                }
+                let logical_cpus = u32::from_ne_bytes(
+                    bytes[..4]
+                        .try_into()
+                        .expect("validated four-byte sysctl value"),
+                );
+                return Ok(CpuCountSnapshot { logical_cpus });
+            }
+            Err(_) if written > bytes.len() => continue,
+            Err(code) => return Err(CpuCountError::Os(code)),
+        }
+    }
+    Err(CpuCountError::Unstable)
+}
+
 /// Maximum bytes copied from either native string returned by `dladdr`.
 #[cfg(any(target_os = "macos", test))]
 pub const MAX_DLADDR_STRING_BYTES: usize = 64 * 1024;
@@ -257,6 +360,13 @@ unsafe extern "C" {
     fn mach_host_self() -> u32;
     fn mach_port_deallocate(task: u32, name: u32) -> i32;
     fn mach_port_get_refs(task: u32, name: u32, right: u32, refs: *mut u32) -> i32;
+    fn sysctlbyname(
+        name: *const std::ffi::c_char,
+        old_value: *mut std::ffi::c_void,
+        old_size: *mut usize,
+        new_value: *mut std::ffi::c_void,
+        new_size: usize,
+    ) -> std::ffi::c_int;
 }
 
 #[cfg(test)]
@@ -265,7 +375,10 @@ mod tests {
     use std::ffi::c_char;
     use std::rc::Rc;
 
-    use super::{DlAddressError, DlInfo, OwnedPort, ReleasePort, snapshot_dl_info};
+    use super::{
+        CpuCountError, DlAddressError, DlInfo, MAX_SYSCTL_FETCH_ATTEMPTS, MAX_SYSCTL_VALUE_BYTES,
+        OwnedPort, ReleasePort, acquire_cpu_count_with, snapshot_dl_info,
+    };
 
     struct CountingReleaser(Rc<Cell<u32>>);
 
@@ -340,5 +453,75 @@ mod tests {
             super::DlAddressSnapshot::current_image(),
             Err(DlAddressError::Unsupported)
         );
+    }
+
+    #[test]
+    fn cpu_count_retries_growth_and_copies_the_final_value() {
+        let mut fetches = 0;
+        let snapshot = acquire_cpu_count_with(|output, size| {
+            if output.is_null() {
+                *size = 4;
+                return Ok(());
+            }
+            fetches += 1;
+            if fetches == 1 {
+                *size = 8;
+                return Err(12);
+            }
+            let value = 12_u32.to_ne_bytes();
+            // SAFETY: the acquisition allocated the four bytes reported above.
+            unsafe { std::ptr::copy_nonoverlapping(value.as_ptr(), output.cast(), value.len()) };
+            *size = value.len();
+            Ok(())
+        })
+        .expect("growing sysctl stabilizes");
+        assert_eq!(snapshot.logical_cpus(), 12);
+        assert_eq!(fetches, 2);
+    }
+
+    #[test]
+    fn cpu_count_rejects_oversize_before_allocation_and_unstable_growth() {
+        assert_eq!(
+            acquire_cpu_count_with(|_, size| {
+                *size = 0;
+                Ok(())
+            }),
+            Err(CpuCountError::InvalidSize(0))
+        );
+        assert_eq!(
+            acquire_cpu_count_with(|_, size| {
+                *size = MAX_SYSCTL_VALUE_BYTES + 1;
+                Ok(())
+            }),
+            Err(CpuCountError::TooLarge {
+                size: MAX_SYSCTL_VALUE_BYTES + 1,
+                limit: MAX_SYSCTL_VALUE_BYTES,
+            })
+        );
+
+        let mut fetches = 0;
+        let unstable = acquire_cpu_count_with(|output, size| {
+            if output.is_null() {
+                *size = 4;
+                Ok(())
+            } else {
+                fetches += 1;
+                *size = 8;
+                Err(12)
+            }
+        });
+        assert_eq!(unstable, Err(CpuCountError::Unstable));
+        assert_eq!(fetches, MAX_SYSCTL_FETCH_ATTEMPTS);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn cpu_count_matches_the_standard_library_parallelism_fact() {
+        let snapshot = super::CpuCountSnapshot::acquire().expect("Darwin hw.ncpu snapshot");
+        let available = std::thread::available_parallelism()
+            .expect("available parallelism")
+            .get();
+        assert!(snapshot.logical_cpus() >= available as u32);
+        assert!(snapshot.logical_cpus() > 0);
     }
 }

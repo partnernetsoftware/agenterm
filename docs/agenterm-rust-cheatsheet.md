@@ -133,6 +133,12 @@ that base; do not construct overlapping `&mut` slices merely to pass their
 addresses to FFI. Keep the backing allocation fixed for the whole call and
 publish the result only after the foreign function returns.
 
+For native APIs that write a bounded C string, prefill the output with a
+non-NUL sentinel and require an actual NUL after a successful call. Zero-filled
+buffers can fabricate termination when the native function truncates or writes
+nothing. The sentinel is evidence of untouched storage, never the terminator:
+search only for byte zero so valid non-UTF-8 native bytes remain intact.
+
 When an FFI entry point holds `&mut Runtime` while invoking a synchronous host
 callback, a documentation-only ban on reentry does not satisfy Rust's aliasing
 rules. Reject every callback-time API that takes a runtime handle before turning

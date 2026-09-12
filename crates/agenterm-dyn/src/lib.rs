@@ -48,14 +48,17 @@ pub use hosts::{
     MACOS_X86_64, PLATFORM_CANDIDATES, ProbeFact, SecondaryProbe, SizeProbe, SystemProbe,
     SystemProbeStatus, WINDOWS_AARCH64, WINDOWS_X86_64, cell, cu_adjacent_probe, live_cell,
 };
-pub use macos_resource::{DlAddressError, DlAddressSnapshot, MachHostPort, MachHostPortError};
+pub use macos_resource::{
+    CpuCountError, CpuCountSnapshot, DlAddressError, DlAddressSnapshot, MachHostPort,
+    MachHostPortError,
+};
 pub use sym::Symbol;
 pub use unix_groups::{MAX_SUPPLEMENTARY_GROUPS, SupplementaryGroups, SupplementaryGroupsError};
 pub use unix_ioctl::{UnixIoctlError, UnixIoctlRequest, invoke_unix_ioctl};
 pub use unix_path::{MAX_REALPATH_BYTES, RealPathError, ResolvedPath};
 pub use unix_resource::{
-    ClockId, ClockSnapshot, ClockSnapshotError, InterfaceAddress, InterfaceAddresses,
-    InterfaceAddressesError, StatVfsError, StatVfsSnapshot,
+    ClockId, ClockSnapshot, ClockSnapshotError, HostnameError, HostnameSnapshot, InterfaceAddress,
+    InterfaceAddresses, InterfaceAddressesError, MAX_HOSTNAME_BYTES, StatVfsError, StatVfsSnapshot,
 };
 pub use value::Value;
 

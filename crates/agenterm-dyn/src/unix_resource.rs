@@ -3,6 +3,107 @@
 use std::fmt;
 use std::path::Path;
 
+/// Maximum native-byte length accepted for one hostname snapshot.
+pub const MAX_HOSTNAME_BYTES: usize = 255;
+
+/// Failure to acquire a bounded, pointer-free hostname snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostnameError {
+    /// `gethostname` is available only on Unix hosts.
+    Unsupported,
+    /// `gethostname` failed with the captured OS error code.
+    Os(i32),
+    /// The successful native call did not NUL-terminate the bounded buffer.
+    NotTerminated { capacity: usize },
+}
+
+impl fmt::Display for HostnameError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unsupported => formatter.write_str("gethostname is unsupported on this host"),
+            Self::Os(code) => write!(formatter, "gethostname failed with OS error {code}"),
+            Self::NotTerminated { capacity } => write!(
+                formatter,
+                "gethostname did not terminate its {capacity}-byte output buffer"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for HostnameError {}
+
+/// One owned hostname copied as native bytes, excluding the trailing NUL.
+///
+/// Hostnames are not required to be UTF-8. The native caller-owned buffer is
+/// private and exists only during acquisition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostnameSnapshot {
+    bytes: Vec<u8>,
+}
+
+impl HostnameSnapshot {
+    /// Acquire the current Unix hostname through one bounded native buffer.
+    #[cfg(unix)]
+    pub fn acquire() -> Result<Self, HostnameError> {
+        snapshot_hostname_with(&SystemHostnameSource)
+    }
+
+    /// Return an honest typed failure on non-Unix hosts.
+    #[cfg(not(unix))]
+    pub fn acquire() -> Result<Self, HostnameError> {
+        Err(HostnameError::Unsupported)
+    }
+
+    /// Borrow the hostname's copied native bytes.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Consume the snapshot and return its pointer-free bytes.
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
+}
+
+#[cfg(any(unix, test))]
+trait HostnameSource {
+    fn fill(&self, output: &mut [u8]) -> Result<(), i32>;
+}
+
+#[cfg(any(unix, test))]
+fn snapshot_hostname_with(source: &impl HostnameSource) -> Result<HostnameSnapshot, HostnameError> {
+    let mut output = [0xff; MAX_HOSTNAME_BYTES + 1];
+    source.fill(&mut output).map_err(HostnameError::Os)?;
+    let length = output
+        .iter()
+        .position(|byte| *byte == 0)
+        .ok_or(HostnameError::NotTerminated {
+            capacity: output.len(),
+        })?;
+    Ok(HostnameSnapshot {
+        bytes: output[..length].to_vec(),
+    })
+}
+
+#[cfg(unix)]
+struct SystemHostnameSource;
+
+#[cfg(unix)]
+impl HostnameSource for SystemHostnameSource {
+    fn fill(&self, output: &mut [u8]) -> Result<(), i32> {
+        // SAFETY: output owns writable storage for its reported length and is
+        // retained until the synchronous call returns.
+        let status = unsafe { libc::gethostname(output.as_mut_ptr().cast(), output.len()) };
+        if status == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error()
+                .raw_os_error()
+                .unwrap_or(status))
+        }
+    }
+}
+
 /// One clock whose native identifier is selected inside dyn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClockId {
@@ -334,12 +435,64 @@ mod raw {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
     #[cfg(unix)]
     use super::{ClockSnapshot, ClockSnapshotError};
-    use super::{FreeList, OwnedList};
+    use super::{
+        FreeList, HostnameError, HostnameSource, MAX_HOSTNAME_BYTES, OwnedList,
+        snapshot_hostname_with,
+    };
+
+    struct ScriptedHostnameSource {
+        result: Result<(), i32>,
+        bytes: RefCell<Vec<u8>>,
+    }
+
+    impl HostnameSource for ScriptedHostnameSource {
+        fn fill(&self, output: &mut [u8]) -> Result<(), i32> {
+            let bytes = self.bytes.borrow();
+            output[..bytes.len()].copy_from_slice(&bytes);
+            self.result
+        }
+    }
+
+    #[test]
+    fn hostname_snapshot_preserves_native_bytes_without_utf8_conversion() {
+        let snapshot = snapshot_hostname_with(&ScriptedHostnameSource {
+            result: Ok(()),
+            bytes: RefCell::new(vec![b'n', 0xff, 0]),
+        })
+        .expect("scripted hostname succeeds");
+        assert_eq!(snapshot.as_bytes(), &[b'n', 0xff]);
+    }
+
+    #[test]
+    fn unterminated_hostname_fails_instead_of_publishing_a_truncated_value() {
+        let error = snapshot_hostname_with(&ScriptedHostnameSource {
+            result: Ok(()),
+            bytes: RefCell::new(vec![b'x'; MAX_HOSTNAME_BYTES + 1]),
+        })
+        .expect_err("unterminated output must fail");
+        assert_eq!(
+            error,
+            HostnameError::NotTerminated {
+                capacity: MAX_HOSTNAME_BYTES + 1
+            }
+        );
+    }
+
+    #[test]
+    fn hostname_os_error_is_preserved_without_publishing_buffer_bytes() {
+        assert_eq!(
+            snapshot_hostname_with(&ScriptedHostnameSource {
+                result: Err(5),
+                bytes: RefCell::new(vec![b'n', 0]),
+            }),
+            Err(HostnameError::Os(5))
+        );
+    }
 
     struct CountingFreer(Rc<Cell<u32>>);
 

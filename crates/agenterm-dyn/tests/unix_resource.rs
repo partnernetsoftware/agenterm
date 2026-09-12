@@ -1,11 +1,11 @@
 //! Public contract tests for pointer-free Unix resource snapshots.
 
 use agenterm_dyn::{
-    ALL_CELLS, ClockId, ClockSnapshot, InterfaceAddresses, StatVfsError, StatVfsSnapshot,
-    SystemProbeStatus,
+    ALL_CELLS, ClockId, ClockSnapshot, HostnameSnapshot, InterfaceAddresses, StatVfsError,
+    StatVfsSnapshot, SystemProbeStatus,
 };
 #[cfg(windows)]
-use agenterm_dyn::{ClockSnapshotError, InterfaceAddressesError};
+use agenterm_dyn::{ClockSnapshotError, HostnameError, InterfaceAddressesError};
 use std::path::Path;
 
 #[test]
@@ -73,6 +73,22 @@ fn controlled_clocks_return_bounded_pointer_free_snapshots() {
 
 #[cfg(unix)]
 #[test]
+fn hostname_snapshot_matches_an_independent_direct_native_call() {
+    let snapshot = HostnameSnapshot::acquire().expect("typed hostname snapshot succeeds");
+    let mut direct = [0xff_u8; agenterm_dyn::MAX_HOSTNAME_BYTES + 1];
+    // SAFETY: direct owns writable storage for its reported length.
+    let status = unsafe { libc::gethostname(direct.as_mut_ptr().cast(), direct.len()) };
+    assert_eq!(status, 0, "direct gethostname succeeds");
+    let length = direct
+        .iter()
+        .position(|byte| *byte == 0)
+        .expect("direct gethostname NUL-terminates the bounded buffer");
+    assert_eq!(snapshot.as_bytes(), &direct[..length]);
+    assert!(!snapshot.as_bytes().contains(&0));
+}
+
+#[cfg(unix)]
+#[test]
 fn statvfs_snapshot_copies_stable_root_filesystem_facts() {
     let snapshot =
         StatVfsSnapshot::acquire(Path::new("/")).expect("statvfs snapshots the root filesystem");
@@ -132,4 +148,5 @@ fn acquisition_is_honestly_unsupported_on_windows() {
         ClockSnapshot::acquire(ClockId::Realtime),
         Err(ClockSnapshotError::Unsupported)
     );
+    assert_eq!(HostnameSnapshot::acquire(), Err(HostnameError::Unsupported));
 }

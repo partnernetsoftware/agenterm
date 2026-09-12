@@ -1,8 +1,10 @@
 //! Typed ownership tests for Darwin's `mach_host_self` send right.
 
-use agenterm_dyn::{ALL_CELLS, DlAddressSnapshot, MachHostPort, SystemProbeStatus};
+use agenterm_dyn::{
+    ALL_CELLS, CpuCountSnapshot, DlAddressSnapshot, MachHostPort, SystemProbeStatus,
+};
 #[cfg(not(target_os = "macos"))]
-use agenterm_dyn::{DlAddressError, MachHostPortError};
+use agenterm_dyn::{CpuCountError, DlAddressError, MachHostPortError};
 
 #[test]
 fn only_darwin_catalogues_mach_host_self_as_owned_live() {
@@ -43,6 +45,12 @@ fn current_image_snapshot_is_honestly_unsupported_off_darwin() {
     );
 }
 
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn cpu_count_snapshot_is_honestly_unsupported_off_darwin() {
+    assert_eq!(CpuCountSnapshot::acquire(), Err(CpuCountError::Unsupported));
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn acquisition_adds_one_send_ref_and_drop_releases_exactly_that_ref() {
@@ -70,4 +78,17 @@ fn current_image_snapshot_owns_native_path_bytes() {
     if let Some(symbol) = snapshot.symbol_name() {
         assert!(!symbol.is_empty());
     }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn cpu_count_snapshot_is_a_live_positive_host_fact() {
+    let snapshot = CpuCountSnapshot::acquire().expect("Darwin hw.ncpu snapshot");
+    assert!(snapshot.logical_cpus() > 0);
+    assert!(
+        snapshot.logical_cpus() as usize
+            >= std::thread::available_parallelism()
+                .expect("available parallelism")
+                .get()
+    );
 }
