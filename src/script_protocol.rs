@@ -14,6 +14,13 @@ pub const RH_EVAL_VALUE_MARKER: &str = "__AGENTERM_RH_EVAL_VALUE_V1__";
 pub const SCRIPT_INVOCATION_MAX_BYTES: u64 = 2 * 1024 * 1024;
 pub const SCRIPT_FRAME_VERSION: u32 = 1;
 pub const SCRIPT_FRAME_MAX_BYTES: u32 = 2 * 1024 * 1024;
+/// Decoded artifact ceiling inside the JSON worker envelope. Base64 expands
+/// this to at most 1,398,104 bytes, leaving deterministic headroom below the
+/// 2 MiB frame limit for invocation metadata. This is a transport robustness
+/// ceiling; `ScriptBudgets::source_bytes` may impose a smaller invocation
+/// ceiling.
+pub const SCRIPT_ARTIFACT_MAX_BYTES: usize = 1024 * 1024;
+pub const SCRIPT_ARTIFACT_MAX_BASE64_BYTES: usize = SCRIPT_ARTIFACT_MAX_BYTES.div_ceil(3) * 4;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -51,6 +58,158 @@ pub enum ScriptOperation {
     Check,
     Eval,
     Run,
+}
+
+/// The calling convention attached to artifact bytes at the caller boundary.
+/// WebAssembly bytes cannot encode whether an exported pair is plain numerics
+/// or qjswasm's JS-V1 value, so the worker must never guess from signatures.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ScriptArtifactConvention {
+    PlainWasm,
+    CompiledQjs,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ScriptArtifactEncoding {
+    Base64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ScriptArtifact {
+    pub convention: ScriptArtifactConvention,
+    pub encoding: ScriptArtifactEncoding,
+    pub data: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScriptArtifactError {
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl ScriptArtifact {
+    pub fn from_bytes(
+        convention: ScriptArtifactConvention,
+        bytes: &[u8],
+    ) -> Result<Self, ScriptArtifactError> {
+        if bytes.len() > SCRIPT_ARTIFACT_MAX_BYTES {
+            return Err(ScriptArtifactError {
+                code: "limit_artifact_bytes",
+                message: format!(
+                    "script artifact exceeds the {SCRIPT_ARTIFACT_MAX_BYTES} byte transport limit"
+                ),
+            });
+        }
+        Ok(Self {
+            convention,
+            encoding: ScriptArtifactEncoding::Base64,
+            data: encode_base64(bytes),
+        })
+    }
+
+    pub fn decode(&self, budget: usize) -> Result<Vec<u8>, ScriptArtifactError> {
+        if self.data.len() > SCRIPT_ARTIFACT_MAX_BASE64_BYTES {
+            return Err(ScriptArtifactError {
+                code: "limit_artifact_encoding_bytes",
+                message: format!(
+                    "encoded script artifact exceeds the {SCRIPT_ARTIFACT_MAX_BASE64_BYTES} byte transport limit"
+                ),
+            });
+        }
+        let bytes = match self.encoding {
+            ScriptArtifactEncoding::Base64 => decode_base64(&self.data)?,
+        };
+        if bytes.len() > SCRIPT_ARTIFACT_MAX_BYTES || bytes.len() > budget {
+            return Err(ScriptArtifactError {
+                code: "limit_artifact_bytes",
+                message: format!(
+                    "script artifact exceeds its {} byte budget",
+                    budget.min(SCRIPT_ARTIFACT_MAX_BYTES)
+                ),
+            });
+        }
+        Ok(bytes)
+    }
+}
+
+fn encode_base64(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let first = chunk[0];
+        let second = chunk.get(1).copied().unwrap_or(0);
+        let third = chunk.get(2).copied().unwrap_or(0);
+        encoded.push(TABLE[(first >> 2) as usize] as char);
+        encoded.push(TABLE[(((first & 0x03) << 4) | (second >> 4)) as usize] as char);
+        encoded.push(if chunk.len() > 1 {
+            TABLE[(((second & 0x0f) << 2) | (third >> 6)) as usize] as char
+        } else {
+            '='
+        });
+        encoded.push(if chunk.len() > 2 {
+            TABLE[(third & 0x3f) as usize] as char
+        } else {
+            '='
+        });
+    }
+    encoded
+}
+
+fn decode_base64(encoded: &str) -> Result<Vec<u8>, ScriptArtifactError> {
+    fn value(byte: u8) -> Option<u8> {
+        match byte {
+            b'A'..=b'Z' => Some(byte - b'A'),
+            b'a'..=b'z' => Some(byte - b'a' + 26),
+            b'0'..=b'9' => Some(byte - b'0' + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+    let invalid = || ScriptArtifactError {
+        code: "protocol_artifact_base64_invalid",
+        message: "script artifact is not canonical base64".to_owned(),
+    };
+    if !encoded.len().is_multiple_of(4) {
+        return Err(invalid());
+    }
+    let input = encoded.as_bytes();
+    let mut decoded = Vec::with_capacity(input.len() / 4 * 3);
+    for (index, chunk) in input.chunks_exact(4).enumerate() {
+        let final_chunk = index + 1 == input.len() / 4;
+        let padding = usize::from(chunk[3] == b'=') + usize::from(chunk[2] == b'=');
+        if padding > 0 && !final_chunk
+            || padding == 1 && chunk[2] == b'='
+            || padding == 2 && chunk[3] != b'='
+        {
+            return Err(invalid());
+        }
+        let a = value(chunk[0]).ok_or_else(&invalid)?;
+        let b = value(chunk[1]).ok_or_else(&invalid)?;
+        let c = if chunk[2] == b'=' {
+            0
+        } else {
+            value(chunk[2]).ok_or_else(&invalid)?
+        };
+        let d = if chunk[3] == b'=' {
+            0
+        } else {
+            value(chunk[3]).ok_or_else(&invalid)?
+        };
+        if padding == 2 && b & 0x0f != 0 || padding == 1 && c & 0x03 != 0 {
+            return Err(invalid());
+        }
+        decoded.push((a << 2) | (b >> 4));
+        if padding < 2 {
+            decoded.push((b << 4) | (c >> 2));
+        }
+        if padding == 0 {
+            decoded.push((c << 6) | d);
+        }
+    }
+    Ok(decoded)
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -251,6 +410,11 @@ pub struct ScriptInvocation {
     pub profile: ScriptProfile,
     pub source_label: String,
     pub source: String,
+    /// A byte artifact uses the same invocation and worker protocol as source,
+    /// but is an explicit variant rather than binary data hidden in `source`.
+    /// A non-empty `source` and an artifact are mutually exclusive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<ScriptArtifact>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_root: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1217,6 +1381,76 @@ mod tests {
     use std::io::Cursor;
 
     use super::*;
+
+    fn artifact_invocation(artifact: ScriptArtifact) -> ScriptInvocation {
+        ScriptInvocation {
+            envelope_version: SCRIPT_ENVELOPE_VERSION,
+            invocation_id: "artifact-invocation".to_owned(),
+            api_version: SCRIPT_API_VERSION,
+            operation: ScriptOperation::Run,
+            profile: ScriptProfile::Local,
+            source_label: "guest.wasm".to_owned(),
+            source: String::new(),
+            artifact: Some(artifact),
+            project_root: None,
+            invocation_temp_root: None,
+            arguments: Vec::new(),
+            budgets: ScriptBudgets {
+                source_bytes: SCRIPT_ARTIFACT_MAX_BYTES,
+                ..ScriptBudgets::default()
+            },
+            observation: None,
+            fixed_clock_ms: None,
+            env_allow: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn artifact_encoding_is_canonical_bounded_and_binary_safe() {
+        for bytes in [
+            Vec::new(),
+            vec![0],
+            vec![0, 255],
+            vec![0, 255, 16],
+            (0_u8..=255).collect(),
+        ] {
+            let artifact = ScriptArtifact::from_bytes(ScriptArtifactConvention::PlainWasm, &bytes)
+                .expect("bounded artifact encodes");
+            assert_eq!(artifact.decode(SCRIPT_ARTIFACT_MAX_BYTES).unwrap(), bytes);
+        }
+
+        let too_large = vec![0; SCRIPT_ARTIFACT_MAX_BYTES + 1];
+        assert_eq!(
+            ScriptArtifact::from_bytes(ScriptArtifactConvention::PlainWasm, &too_large)
+                .unwrap_err()
+                .code,
+            "limit_artifact_bytes"
+        );
+        let mut invalid =
+            ScriptArtifact::from_bytes(ScriptArtifactConvention::PlainWasm, b"one").unwrap();
+        invalid.data = "not base64".to_owned();
+        assert_eq!(
+            invalid.decode(SCRIPT_ARTIFACT_MAX_BYTES).unwrap_err().code,
+            "protocol_artifact_base64_invalid"
+        );
+    }
+
+    #[test]
+    fn the_maximum_artifact_still_fits_the_checked_worker_frame() {
+        let artifact = ScriptArtifact::from_bytes(
+            ScriptArtifactConvention::PlainWasm,
+            &vec![0; SCRIPT_ARTIFACT_MAX_BYTES],
+        )
+        .unwrap();
+        assert_eq!(artifact.data.len(), SCRIPT_ARTIFACT_MAX_BASE64_BYTES);
+        let frame = ScriptFrame {
+            frame_version: SCRIPT_FRAME_VERSION,
+            frame_id: "invoke-artifact".to_owned(),
+            payload: ScriptFramePayload::Invoke(artifact_invocation(artifact)),
+        };
+        let encoded = encode_script_frame(&frame).expect("one MiB artifact fits framed JSON");
+        assert!(encoded.len() < SCRIPT_FRAME_MAX_BYTES as usize);
+    }
 
     fn cost(heap_bytes: Option<usize>) -> ScriptCost {
         ScriptCost {

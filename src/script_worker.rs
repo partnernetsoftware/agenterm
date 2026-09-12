@@ -14,9 +14,9 @@ use crate::script_protocol::ScriptCost;
 use crate::script_protocol::ScriptProfile;
 use crate::script_protocol::{
     SCRIPT_API_VERSION, SCRIPT_ENVELOPE_VERSION, SCRIPT_FRAME_MAX_BYTES, SCRIPT_FRAME_VERSION,
-    SCRIPT_INVOCATION_MAX_BYTES, ScriptBrokerRequest, ScriptBrokerResponse, ScriptBudgets,
-    ScriptCancelDisposition, ScriptExitClass, ScriptFailure, ScriptFailureCategory, ScriptFrame,
-    ScriptFrameEncodeError, ScriptFramePayload, ScriptFrameRead, ScriptFrameRejection,
+    SCRIPT_INVOCATION_MAX_BYTES, ScriptArtifactError, ScriptBrokerRequest, ScriptBrokerResponse,
+    ScriptBudgets, ScriptCancelDisposition, ScriptExitClass, ScriptFailure, ScriptFailureCategory,
+    ScriptFrame, ScriptFrameEncodeError, ScriptFramePayload, ScriptFrameRead, ScriptFrameRejection,
     ScriptFrameTracker, ScriptInvocation, ScriptOperation, ScriptResult, encode_script_frame,
     read_script_frame, write_encoded_script_frame,
 };
@@ -654,12 +654,30 @@ fn execute_inner(
         ));
     }
     validate_budgets(&invocation.budgets)?;
-    if invocation.source.len() > invocation.budgets.source_bytes {
+    if invocation.artifact.is_some() && !invocation.source.is_empty() {
+        return Err(protocol_error(
+            "protocol_invocation_input_conflict",
+            "script invocation cannot contain both source and an artifact",
+        ));
+    }
+    if invocation.artifact.is_some() && invocation.operation != ScriptOperation::Run {
+        return Err(protocol_error(
+            "protocol_artifact_operation_invalid",
+            "script artifacts are valid only for the run operation",
+        ));
+    }
+    if invocation.artifact.is_none() && invocation.source.len() > invocation.budgets.source_bytes {
         return Err(limit_error(
             "limit_source_bytes",
             "script source exceeds its byte budget",
         ));
     }
+    let artifact = invocation
+        .artifact
+        .as_ref()
+        .map(|artifact| artifact.decode(invocation.budgets.source_bytes))
+        .transpose()
+        .map_err(artifact_error)?;
     if invocation.operation == ScriptOperation::Api {
         return Ok((String::new(), Some(crate::script_catalog::catalog()), None));
     }
@@ -740,6 +758,24 @@ fn execute_inner(
             }
         };
 
+    #[cfg(feature = "script-qjswasm")]
+    if artifact.is_some() && selected != crate::script_backend::ScriptBackend::Qjswasm {
+        return Err(configuration_error(
+            "script_artifact_backend_unavailable",
+            format!(
+                "{} does not execute WebAssembly artifacts",
+                selected.as_str()
+            ),
+        ));
+    }
+    #[cfg(not(feature = "script-qjswasm"))]
+    if artifact.is_some() {
+        return Err(configuration_error(
+            "script_artifact_backend_unavailable",
+            "this build does not carry the qjswasm artifact engine",
+        ));
+    }
+
     // Lua backend: `AGENTERM_SCRIPT_BACKEND=lua` or a `.lua` entry.
     #[cfg(all(not(test), feature = "script-lua"))]
     if selected == crate::script_backend::ScriptBackend::Lua {
@@ -794,6 +830,35 @@ fn execute_inner(
     // tests (below) run in-process, the role rh had until it left.
     #[cfg(feature = "script-qjswasm")]
     if selected == crate::script_backend::ScriptBackend::Qjswasm {
+        if let (Some(artifact), Some(metadata)) =
+            (artifact.as_deref(), invocation.artifact.as_ref())
+        {
+            use crate::script_engine::ScriptEngineBackend as _;
+            let execution = match metadata.convention {
+                crate::script_protocol::ScriptArtifactConvention::PlainWasm => {
+                    crate::script_engine::QjswasmEngineBackend.execute_plain_wasm_artifact(
+                        artifact,
+                        &options,
+                        fleet_bridge,
+                    )
+                }
+                crate::script_protocol::ScriptArtifactConvention::CompiledQjs => {
+                    crate::script_engine::QjswasmEngineBackend.execute_artifact(
+                        artifact,
+                        &options,
+                        fleet_bridge,
+                    )
+                }
+            };
+            return match execution {
+                Some(Ok(result)) => Ok((result.stdout, result.value, result.cost)),
+                Some(Err(error)) => Err(engine_execution_error("qjswasm_backend", error)),
+                None => Err(configuration_error(
+                    "qjswasm_backend",
+                    "qjswasm does not expose the requested artifact convention",
+                )),
+            };
+        }
         return dispatch_via_engine(
             &crate::script_engine::QjswasmEngineBackend,
             invocation.operation,
@@ -811,6 +876,14 @@ fn execute_inner(
             crate::script_backend::ScriptBackend::servable_names().join(", ")
         ),
     ))
+}
+
+fn artifact_error(error: ScriptArtifactError) -> ScriptFailure {
+    if error.code.starts_with("limit_") {
+        limit_error(error.code, error.message)
+    } else {
+        protocol_error(error.code, error.message)
+    }
 }
 
 /// Routes a single invocation through the `ScriptEngineBackend` trait layer
@@ -994,6 +1067,7 @@ mod tests {
             profile: ScriptProfile::Pure,
             source_label: "unit.qjs".to_owned(),
             source: source.to_owned(),
+            artifact: None,
             project_root: None,
             invocation_temp_root: None,
             arguments: Vec::new(),
@@ -1010,6 +1084,37 @@ mod tests {
             .as_ref()
             .map(|failure| failure.code.as_str())
             .expect("expected failure")
+    }
+
+    #[test]
+    fn artifact_input_is_explicit_and_bounded_before_engine_dispatch() {
+        let artifact = crate::script_protocol::ScriptArtifact::from_bytes(
+            crate::script_protocol::ScriptArtifactConvention::PlainWasm,
+            b"\0asm",
+        )
+        .unwrap();
+
+        let mut conflicting = invocation(ScriptOperation::Run, "not empty");
+        conflicting.source_label = "unit.wasm".to_owned();
+        conflicting.artifact = Some(artifact.clone());
+        assert_eq!(
+            failure_code(&execute(conflicting)),
+            "protocol_invocation_input_conflict"
+        );
+
+        let mut wrong_operation = invocation(ScriptOperation::Check, "");
+        wrong_operation.source_label = "unit.wasm".to_owned();
+        wrong_operation.artifact = Some(artifact.clone());
+        assert_eq!(
+            failure_code(&execute(wrong_operation)),
+            "protocol_artifact_operation_invalid"
+        );
+
+        let mut over_budget = invocation(ScriptOperation::Run, "");
+        over_budget.source_label = "unit.wasm".to_owned();
+        over_budget.budgets.source_bytes = 3;
+        over_budget.artifact = Some(artifact);
+        assert_eq!(failure_code(&execute(over_budget)), "limit_artifact_bytes");
     }
 
     #[cfg_attr(

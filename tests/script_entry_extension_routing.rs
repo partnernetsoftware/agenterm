@@ -432,12 +432,17 @@ fn a_tool_script_reaches_the_machine_only_under_the_tool_profile() {
         String::from_utf8_lossy(&out.stderr)
     );
     // Which `fs_*` name the sandbox trips on first is resolution order, not
-    // contract; that it names *a* tool function and lists only the three
-    // sandbox imports is.
+    // contract; that it names *a* tool function and the declaration list has
+    // the contained native door but no tool filesystem function is.
+    let declarations = combined
+        .split_once("this embedder declares ")
+        .map(|(_, declarations)| declarations)
+        .unwrap_or("");
     assert!(
         !out.status.success()
             && combined.contains("no host function named `fs_")
-            && combined.contains("`print`, `fleet_call` and `fleet_result`"),
+            && declarations.contains("`native_call`")
+            && !declarations.contains("`fs_"),
         "without the profile the sandbox must refuse by name; got {combined}"
     );
 

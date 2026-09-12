@@ -27,6 +27,7 @@ fn invocation(id: &str, label: &str, source: &str) -> ScriptInvocation {
         profile: ScriptProfile::Local,
         source_label: label.into(),
         source: source.into(),
+        artifact: None,
         project_root: Some(env!("CARGO_MANIFEST_DIR").into()),
         invocation_temp_root: None,
         arguments: Vec::new(),

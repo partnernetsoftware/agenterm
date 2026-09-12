@@ -1261,6 +1261,7 @@ mod tests {
             // 2026-08-29.
             source_label: "persistent-worker-test.qjs".to_owned(),
             source: source.to_owned(),
+            artifact: None,
             project_root: None,
             invocation_temp_root: None,
             arguments: Vec::new(),

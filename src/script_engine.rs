@@ -201,6 +201,19 @@ pub trait ScriptEngineBackend {
         fleet_bridge: Option<ScriptFleetBridgeFn>,
     ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>>;
 
+    /// Run a hand-authored plain-WebAssembly artifact. Distinct from
+    /// [`Self::execute_artifact`], whose bytes are the qjs compiler's JS-V1
+    /// convention: wasm bytes cannot prove which convention their exports
+    /// speak, so the invocation names it explicitly.
+    fn execute_plain_wasm_artifact(
+        &self,
+        _artifact: &[u8],
+        _options: &ScriptInvocationOptions,
+        _fleet_bridge: Option<ScriptFleetBridgeFn>,
+    ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>> {
+        None
+    }
+
     /// Whether this engine reads `source` as a **filesystem path** instead of
     /// as the program's text.
     ///
@@ -985,6 +998,51 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         )
     }
 
+    fn execute_plain_wasm_artifact(
+        &self,
+        artifact: &[u8],
+        options: &ScriptInvocationOptions,
+        fleet_bridge: Option<ScriptFleetBridgeFn>,
+    ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>> {
+        let bridges = qjs_host_bridges(fleet_bridge);
+        let mut engine = qjs_execution_engine(options);
+        engine.set_tool_args(qjs_arguments(options.arguments.as_ref()));
+        Some(
+            engine
+                .run_once_with_bridges(
+                    agenterm_qjswasm::Guest::Wasm(artifact),
+                    bridges,
+                    "main",
+                    &[],
+                )
+                .map(|outcome| ScriptInvocationResult {
+                    stdout: outcome.stdout,
+                    value: outcome.values.first().and_then(qjswasm_value_as_json),
+                    cost: Some(ScriptCost {
+                        steps: outcome.steps,
+                        peak_call_depth: outcome.peak_call_depth,
+                        peak_activation_slots: outcome.peak_activation_slots,
+                        host_ops: outcome.host_ops,
+                        host_bytes: outcome.host_bytes,
+                        waited_ms: outcome.waited_ms,
+                        heap_pages: outcome.heap_pages,
+                        heap_bytes: outcome.heap_bytes,
+                        heap_start_bytes: outcome.heap_start_bytes,
+                        json_parse_bytes: outcome.json_parse_bytes,
+                        json_stringify_bytes: outcome.json_stringify_bytes,
+                        immediate_stringify_host_argument_bytes: outcome
+                            .immediate_stringify_host_argument_bytes,
+                    }),
+                })
+                .map_err(|error| {
+                    let mut error = qjs_engine_error(error);
+                    error.stdout = engine.take_failed_stdout();
+                    error.cost = engine.take_failed_cost().map(script_cost);
+                    error
+                }),
+        )
+    }
+
     /// False, and it was not always: this backend's `execute` documents having
     /// read `source` as a path once, which meant it could never run anything
     /// (`File name too long (os error 63)`, with the whole program in the
@@ -1454,6 +1512,34 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Sql(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
+        }
+    }
+
+    fn execute_plain_wasm_artifact(
+        &self,
+        artifact: &[u8],
+        options: &ScriptInvocationOptions,
+        fleet_bridge: Option<ScriptFleetBridgeFn>,
+    ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>> {
+        match self {
+            #[cfg(not(any(
+                feature = "script-lua",
+                feature = "script-sql",
+                feature = "script-qjswasm"
+            )))]
+            _ => match *self {},
+            #[cfg(feature = "script-lua")]
+            Self::Lua(backend) => {
+                backend.execute_plain_wasm_artifact(artifact, options, fleet_bridge)
+            }
+            #[cfg(feature = "script-sql")]
+            Self::Sql(backend) => {
+                backend.execute_plain_wasm_artifact(artifact, options, fleet_bridge)
+            }
+            #[cfg(feature = "script-qjswasm")]
+            Self::Qjswasm(backend) => {
+                backend.execute_plain_wasm_artifact(artifact, options, fleet_bridge)
+            }
         }
     }
 

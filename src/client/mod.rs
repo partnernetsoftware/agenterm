@@ -17,9 +17,10 @@ macro_rules! cli_eprintln {
 }
 
 use crate::script_protocol::{
-    SCRIPT_API_VERSION, SCRIPT_ENVELOPE_VERSION, ScriptBrokerError, ScriptBrokerRequest,
-    ScriptBrokerResponse, ScriptBudgets, ScriptExitClass, ScriptFailure, ScriptFailureCategory,
-    ScriptInvocation, ScriptOperation, ScriptProfile,
+    SCRIPT_API_VERSION, SCRIPT_ARTIFACT_MAX_BYTES, SCRIPT_ENVELOPE_VERSION, ScriptArtifact,
+    ScriptArtifactConvention, ScriptBrokerError, ScriptBrokerRequest, ScriptBrokerResponse,
+    ScriptBudgets, ScriptExitClass, ScriptFailure, ScriptFailureCategory, ScriptInvocation,
+    ScriptOperation, ScriptProfile,
 };
 use crate::{
     build_identity::BuildIdentity,
@@ -319,7 +320,7 @@ fn script_help_text() -> &'static str {
            agenterm cli script api [MODULE] [--status STATE] [--tree|--json]\n\
            agenterm cli script check [OPTIONS] FILE.qjs|-\n\
            agenterm cli script eval [OPTIONS] EXPRESSION|-- FILE.qjs [--] [ARGS...]\n\
-           agenterm cli script run [OPTIONS] [--exit-code-from-value] FILE.qjs|- [--] [ARGS...]\n\
+           agenterm cli script run [OPTIONS] [--exit-code-from-value] FILE.qjs|FILE.wasm|- [--] [ARGS...]\n\
            agenterm cli script task list [--manifest PATH] [--json]\n\
            agenterm cli script task show TASK [--manifest PATH] [--json]\n\
            agenterm cli script task check [TASK] [--manifest PATH] [--json]\n\
@@ -328,7 +329,8 @@ fn script_help_text() -> &'static str {
          AGENTERM_SCRIPT_BACKEND overrides it. There is no default engine.\n\
          Options: --timeout-ms N --max-operations N --max-collection-items N \
          --max-string-bytes N --max-output-bytes N --max-source-bytes N \
-         --max-host-operations N --fixed-clock-ms N --env-allow NAME --project-root DIR --manifest FILE --json"
+         --max-host-operations N --fixed-clock-ms N --env-allow NAME \
+         --wasm-convention compiled-qjs|plain --project-root DIR --manifest FILE --json"
 }
 
 fn write_script_stdout(text: &str) -> std::result::Result<(), i32> {
@@ -1836,50 +1838,6 @@ fn resolved_backend_or_refuse(label: &str) -> Result<crate::script_backend::Scri
     })
 }
 
-/// `script run x.wasm`: the artifact runs on the engine its extension names,
-/// through the tool door when the profile is `tool`, printing what a `run`
-/// prints. The same shape as `pack load`, which stays for scripts that
-/// spell it.
-fn run_wasm_artifact(path: &std::path::Path, tool_door: bool) -> i32 {
-    use crate::script_engine::ScriptEngineBackend as _;
-    let label = path.display().to_string();
-    let backend = match resolved_backend_or_refuse(&label) {
-        Ok(backend) => backend,
-        Err(code) => return code,
-    };
-    let engine = crate::script_engine::engine_for(backend);
-    let bytes = match std::fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            cli_eprintln!("failed to read artifact {label}: {error}");
-            return 1;
-        }
-    };
-    let options = crate::script_engine::ScriptInvocationOptions {
-        tool_door,
-        ..crate::script_engine::ScriptInvocationOptions::default()
-    };
-    match engine.execute_artifact(&bytes, &options, None) {
-        Some(Ok(result)) => {
-            if !result.stdout.is_empty() {
-                print!("{}", result.stdout);
-            }
-            if let Some(value) = result.value {
-                cli_println!("{}", render_script_value(&value));
-            }
-            0
-        }
-        Some(Err(message)) => {
-            cli_eprintln!("{message}");
-            1
-        }
-        None => {
-            cli_eprintln!("{}", no_artifact_face(backend.as_str(), "run an artifact"));
-            2
-        }
-    }
-}
-
 fn run_script_command_direct(arguments: &[String]) -> i32 {
     if arguments.get(1).is_some_and(|value| value == "version") {
         return run_script_version();
@@ -2155,9 +2113,27 @@ fn run_script_command_with_context(
         }
     }
 
+    let artifact_convention = if has_option(arguments, "--wasm-convention") {
+        match option_value(arguments, "--wasm-convention") {
+            Some("compiled-qjs") => Some(ScriptArtifactConvention::CompiledQjs),
+            Some("plain") => Some(ScriptArtifactConvention::PlainWasm),
+            Some(other) => {
+                cli_eprintln!(
+                    "script --wasm-convention must be compiled-qjs or plain; got {other}"
+                );
+                return 2;
+            }
+            None => {
+                cli_eprintln!("script --wasm-convention requires a value");
+                return 2;
+            }
+        }
+    } else {
+        None
+    };
     let operand = script_operand(arguments);
-    let (source_label, source) = match operation {
-        ScriptOperation::Api => ("api".to_owned(), String::new()),
+    let (source_label, source, artifact) = match operation {
+        ScriptOperation::Api => ("api".to_owned(), String::new(), None),
         ScriptOperation::Eval => {
             let Some(expression) = operand else {
                 cli_eprintln!("script eval requires an expression");
@@ -2182,7 +2158,7 @@ fn run_script_command_with_context(
                 );
                 return 2;
             };
-            ("eval".to_owned(), source)
+            ("eval".to_owned(), source, None)
         }
         ScriptOperation::Check | ScriptOperation::Run => {
             let Some(path) = embedded.map(|source| source.label).or(operand) else {
@@ -2190,10 +2166,10 @@ fn run_script_command_with_context(
                 return 2;
             };
             if let Some(embedded) = embedded {
-                (embedded.label.to_owned(), embedded.source.to_owned())
+                (embedded.label.to_owned(), embedded.source.to_owned(), None)
             } else if path == "-" {
                 match read_script_source(std::io::stdin().lock(), budgets.source_bytes) {
-                    Ok(source) => ("stdin".to_owned(), source),
+                    Ok(source) => ("stdin".to_owned(), source, None),
                     Err((code, error)) => {
                         cli_eprintln!("failed to read script from stdin: {error}");
                         return code;
@@ -2207,28 +2183,92 @@ fn run_script_command_with_context(
                         return 1;
                     }
                 };
-                // A compiled artifact is bytes, not a program to read as
-                // text: `script run x.wasm` is `pack load x.wasm` under the
-                // invocation's profile. Routed by the extension, so no
-                // environment variable is needed (A5, 2026-08-30).
+                // An artifact is bytes, not a program to read as text. The
+                // default convention preserves `pack load`; an explicit
+                // `plain` convention runs hand-authored WebAssembly. Both go
+                // through the supervised worker selected by the extension.
                 if operation == ScriptOperation::Run
                     && canonical.extension().is_some_and(|e| e == "wasm")
                 {
-                    return run_wasm_artifact(
-                        &canonical,
-                        profile == crate::script_protocol::ScriptProfile::Tool,
-                    );
+                    let file = match std::fs::File::open(&canonical) {
+                        Ok(file) => file,
+                        Err(error) => {
+                            cli_eprintln!("failed to read script artifact: {error}");
+                            return 1;
+                        }
+                    };
+                    let bytes = match read_script_artifact(file, budgets.source_bytes) {
+                        Ok(bytes) => bytes,
+                        Err((code, error)) => {
+                            cli_eprintln!("{error}");
+                            return code;
+                        }
+                    };
+                    let convention =
+                        artifact_convention.unwrap_or(ScriptArtifactConvention::CompiledQjs);
+                    let artifact = match ScriptArtifact::from_bytes(convention, &bytes) {
+                        Ok(artifact) => artifact,
+                        Err(error) => {
+                            cli_eprintln!("{}: {}", error.code, error.message);
+                            return 3;
+                        }
+                    };
+                    (
+                        canonical.display().to_string(),
+                        String::new(),
+                        Some(artifact),
+                    )
+                } else {
+                    if artifact_convention.is_some() {
+                        cli_eprintln!(
+                            "script --wasm-convention is available only for script run FILE.wasm"
+                        );
+                        return 2;
+                    }
+                    if std::fs::metadata(&canonical)
+                        .is_ok_and(|metadata| metadata.len() > budgets.source_bytes as u64)
+                    {
+                        cli_eprintln!(
+                            "script source exceeds the {} byte limit",
+                            budgets.source_bytes
+                        );
+                        return 3;
+                    }
+                    let source_is_a_path = {
+                        use crate::script_engine::ScriptEngineBackend as _;
+                        crate::script_backend::ScriptBackend::from_env()
+                            .ok()
+                            .is_some_and(|backend| {
+                                crate::script_engine::engine_for(backend).source_is_a_path()
+                            })
+                    };
+                    if source_is_a_path {
+                        (
+                            canonical.display().to_string(),
+                            canonical.display().to_string(),
+                            None,
+                        )
+                    } else {
+                        let file = match std::fs::File::open(&canonical) {
+                            Ok(file) => file,
+                            Err(error) => {
+                                cli_eprintln!("failed to read script {path}: {error}");
+                                return 1;
+                            }
+                        };
+                        match read_script_source(file, budgets.source_bytes) {
+                            Ok(source) => (canonical.display().to_string(), source, None),
+                            Err((code, error)) => {
+                                cli_eprintln!(
+                                    "failed to read script {path}: {error}{}",
+                                    non_text_script_hint(&error)
+                                );
+                                return code;
+                            }
+                        }
+                    }
                 }
-                if std::fs::metadata(&canonical)
-                    .is_ok_and(|metadata| metadata.len() > budgets.source_bytes as u64)
-                {
-                    cli_eprintln!(
-                        "script source exceeds the {} byte limit",
-                        budgets.source_bytes
-                    );
-                    return 3;
-                }
-                // Path-carrying backends get the canonical path itself as
+                // For non-artifact input, path-carrying backends get the canonical path itself as
                 // `source` rather than decoded file content, because
                 // `WasmcoreEngineBackend::check`/`execute`
                 // (`src/script_engine.rs`) treat `source` as a filesystem path
@@ -2258,45 +2298,16 @@ fn run_script_command_with_context(
                 // `QjswasmEngineBackend::execute` documents having fixed in
                 // itself, reintroduced one layer up.
                 //
-                // Keyed on the backend that will actually run it, a `.wasm`
-                // under any other engine now falls to the content branch and
-                // gets `not UTF-8` plus `non_text_script_hint`, which says
-                // this door carries text. That is the true answer.
-                let source_is_a_path = {
-                    use crate::script_engine::ScriptEngineBackend as _;
-                    crate::script_backend::ScriptBackend::from_env()
-                        .ok()
-                        .is_some_and(|backend| {
-                            crate::script_engine::engine_for(backend).source_is_a_path()
-                        })
-                };
-                if source_is_a_path {
-                    (
-                        canonical.display().to_string(),
-                        canonical.display().to_string(),
-                    )
-                } else {
-                    let file = match std::fs::File::open(&canonical) {
-                        Ok(file) => file,
-                        Err(error) => {
-                            cli_eprintln!("failed to read script {path}: {error}");
-                            return 1;
-                        }
-                    };
-                    match read_script_source(file, budgets.source_bytes) {
-                        Ok(source) => (canonical.display().to_string(), source),
-                        Err((code, error)) => {
-                            cli_eprintln!(
-                                "failed to read script {path}: {error}{}",
-                                non_text_script_hint(&error)
-                            );
-                            return code;
-                        }
-                    }
-                }
+                // This remains relevant to `script check FILE.wasm`, whose
+                // contract is text-only. `script run FILE.wasm` is handled by
+                // the bounded artifact branch above.
             }
         }
     };
+    if artifact_convention.is_some() && artifact.is_none() {
+        cli_eprintln!("script --wasm-convention is available only for script run FILE.wasm");
+        return 2;
+    }
     if source.len() > budgets.source_bytes {
         cli_eprintln!(
             "script source exceeds the {} byte limit",
@@ -2343,7 +2354,9 @@ fn run_script_command_with_context(
     let capabilities = vec!["unrestricted_local".to_owned()];
     let mut audit_invocation = AuditInvocation {
         invocation_id: invocation_id.clone(),
-        source_fingerprint: source_fingerprint(&source),
+        source_fingerprint: artifact
+            .as_ref()
+            .map_or_else(|| source_fingerprint(&source), artifact_audit_fingerprint),
         source_kind: audit_source_kind,
         api_version: SCRIPT_API_VERSION,
         operation: operation_name.to_owned(),
@@ -2387,6 +2400,7 @@ fn run_script_command_with_context(
         profile,
         source_label,
         source,
+        artifact,
         project_root: Some(context.project_root.display().to_string()),
         invocation_temp_root: invocation_temp.as_ref().map(OwnedScriptTemp::display),
         arguments: script_arguments,
@@ -4029,11 +4043,12 @@ fn report_audit_error(message: String) -> i32 {
 
 /// The sentence that turns "not UTF-8" into an answer.
 ///
-/// This whole surface reads a script with `read_script_source`, which returns
-/// a `String`; every engine's `check` and `execute` take `&str`. So a `.wasm`
-/// module cannot reach an engine through here at all, and what a caller who
-/// tries actually sees is `script source is not UTF-8` -- true, and it reads
-/// as "your file is corrupt" when the answer is "this door carries text".
+/// The `check` surface reads a script with `read_script_source`, which returns
+/// a `String`; every engine's `check` takes `&str`. So a `.wasm` module cannot
+/// reach an engine through that operation, and what a caller who tries actually
+/// sees is `script source is not UTF-8` -- true, and it reads as "your file is
+/// corrupt" when the answer is "this door carries text". `script run` has a
+/// separate, bounded artifact input and does not use this helper.
 ///
 /// Measured 2026-08-26: `AGENTERM_SCRIPT_BACKEND=wasmcore agenterm cli script
 /// check FILE.wasm` on a real 9 785-byte module fails here, before the
@@ -4049,10 +4064,10 @@ fn non_text_script_hint(error: &str) -> String {
         return String::new();
     }
     format!(
-        "\n  `agenterm cli script` carries script *text*: it reads the file as UTF-8 and \
-         hands engines a `&str`. A compiled `.wasm` module has no route through this verb \
-         on any engine ({}). Build it from source with `script run FILE.qjs`, or \
-         use the engine's own library API for a module.",
+        "\n  `agenterm cli script check` carries script *text*: it reads the file as UTF-8 \
+         and hands engines a `&str`. Use `script run FILE.wasm` for a compiled QJS \
+         artifact, or add `--wasm-convention plain` for a hand-authored plain module \
+         (available engines: {}).",
         crate::script_backend::ScriptBackend::servable_names().join(", ")
     )
 }
@@ -4072,6 +4087,53 @@ fn read_script_source(
     let source = String::from_utf8(bytes)
         .map_err(|error| (1, format!("script source is not UTF-8: {error}")))?;
     Ok(normalize_script_source(source))
+}
+
+/// Read at most one byte beyond the effective invocation/transport ceiling.
+/// The extra byte distinguishes an exact-boundary artifact from a larger file
+/// without ever allocating proportional to an attacker-controlled file size.
+fn read_script_artifact(
+    reader: impl Read,
+    invocation_limit: usize,
+) -> std::result::Result<Vec<u8>, (i32, String)> {
+    let effective_limit = invocation_limit.min(SCRIPT_ARTIFACT_MAX_BYTES);
+    let mut bytes = Vec::with_capacity(effective_limit.min(64 * 1024).saturating_add(1));
+    reader
+        .take(effective_limit.saturating_add(1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|error| (1, format!("failed to read script artifact: {error}")))?;
+    if bytes.len() <= effective_limit {
+        return Ok(bytes);
+    }
+    if invocation_limit <= SCRIPT_ARTIFACT_MAX_BYTES {
+        Err((
+            3,
+            format!("script artifact exceeds the {invocation_limit} byte invocation budget"),
+        ))
+    } else {
+        Err((
+            3,
+            format!(
+                "limit_artifact_bytes: script artifact exceeds the {SCRIPT_ARTIFACT_MAX_BYTES} byte transport limit"
+            ),
+        ))
+    }
+}
+
+/// Audit identity covers both the exact artifact bytes (in their canonical
+/// base64 transport form) and the caller-selected ABI convention. The domain
+/// separator prevents an artifact fingerprint from colliding with source text;
+/// changing only `plain_wasm` versus `compiled_qjs` deliberately changes the
+/// fingerprint because it changes execution semantics.
+fn artifact_audit_fingerprint(artifact: &ScriptArtifact) -> String {
+    let convention = match artifact.convention {
+        ScriptArtifactConvention::PlainWasm => "plain_wasm",
+        ScriptArtifactConvention::CompiledQjs => "compiled_qjs",
+    };
+    source_fingerprint(&format!(
+        "agenterm-script-artifact-v1\0{convention}\0{}",
+        artifact.data
+    ))
 }
 
 /// Accept the conventional Unix shebang on the first line while retaining
@@ -4109,6 +4171,7 @@ fn script_operand(arguments: &[String]) -> Option<&str> {
             | "--max-output-bytes"
             | "--max-host-operations"
             | "--max-source-bytes"
+            | "--wasm-convention"
             | "--cwd"
             | "--project-root"
             | "--manifest" => position += 2,
@@ -4937,10 +5000,14 @@ fn print_mux_compatibility(json: bool) {
 #[cfg(test)]
 mod tests {
     use super::{
-        HostedSubcommand, append_script_run_value, exit_code_from_script_value, hosted_subcommand,
-        non_text_script_hint, normalize_script_source, parse_loopback_ipc_address,
-        parse_terminal_grid, render_script_value, run_wait_ui, script_worker_executable,
+        HostedSubcommand, append_script_run_value, artifact_audit_fingerprint,
+        exit_code_from_script_value, hosted_subcommand, non_text_script_hint,
+        normalize_script_source, parse_loopback_ipc_address, parse_terminal_grid,
+        read_script_artifact, render_script_value, run_wait_ui, script_worker_executable,
         validate_fleet_parameters,
+    };
+    use crate::script_protocol::{
+        SCRIPT_ARTIFACT_MAX_BYTES, ScriptArtifact, ScriptArtifactConvention,
     };
 
     #[cfg(feature = "script-qjswasm")]
@@ -5302,6 +5369,54 @@ mod tests {
         // A genuine read failure must not collect the sentence about modules.
         assert!(non_text_script_hint("No such file or directory").is_empty());
         assert!(non_text_script_hint("script source exceeds the 100 byte limit").is_empty());
+    }
+
+    #[test]
+    fn an_oversized_artifact_reader_stops_at_one_byte_past_its_effective_limit() {
+        struct EndlessBytes {
+            bytes_read: usize,
+        }
+
+        impl std::io::Read for EndlessBytes {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                buffer.fill(0x5a);
+                self.bytes_read += buffer.len();
+                Ok(buffer.len())
+            }
+        }
+
+        let mut reader = EndlessBytes { bytes_read: 0 };
+        let (exit_code, error) = read_script_artifact(&mut reader, 32).unwrap_err();
+        assert_eq!(exit_code, 3);
+        assert_eq!(
+            error,
+            "script artifact exceeds the 32 byte invocation budget"
+        );
+        assert_eq!(reader.bytes_read, 33);
+
+        let mut reader = EndlessBytes { bytes_read: 0 };
+        let (exit_code, error) =
+            read_script_artifact(&mut reader, SCRIPT_ARTIFACT_MAX_BYTES + 4_096).unwrap_err();
+        assert_eq!(exit_code, 3);
+        assert!(error.contains("limit_artifact_bytes"), "{error}");
+        assert_eq!(reader.bytes_read, SCRIPT_ARTIFACT_MAX_BYTES + 1);
+    }
+
+    #[test]
+    fn artifact_audit_identity_includes_its_explicit_convention() {
+        let plain = ScriptArtifact::from_bytes(ScriptArtifactConvention::PlainWasm, b"same bytes")
+            .expect("bounded artifact");
+        let compiled =
+            ScriptArtifact::from_bytes(ScriptArtifactConvention::CompiledQjs, b"same bytes")
+                .expect("bounded artifact");
+        assert_ne!(
+            artifact_audit_fingerprint(&plain),
+            artifact_audit_fingerprint(&compiled)
+        );
+        assert_eq!(
+            artifact_audit_fingerprint(&plain),
+            artifact_audit_fingerprint(&plain)
+        );
     }
 
     /// The compiler-backed engine hashes what it would **build**, and that is
