@@ -473,7 +473,10 @@ court has claim-preserving `.wat` or typed-owner evidence.
   随后接管 `proc_pid_rusage`；结构体解释仍只存在于 direct-oracle court，dyn
   仅搬运其 opaque pointer。`i32(i32,i32,u64,ptr,i32)` 同样无损接管
   `proc_pidinfo` 的 byte count、PID/PPID 与 direct native fields oracle；
-  `macos_probes.rs` 只剩 `sysctl` 一个 legacy Lisp court。
+  最后的 `sysctl` court 由真实 `i32(ptr,u32,ptr,ptr,ptr,usize)` trampoline
+  接管，保留状态、长度、正 CPU count 与 direct native oracle。由此
+  `macos_probes.rs` 已删除，Darwin 专属的非语言 native claims 全部归入
+  policy-free ABI court。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded

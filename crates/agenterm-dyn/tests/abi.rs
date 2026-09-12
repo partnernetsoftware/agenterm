@@ -336,6 +336,57 @@ fn proc_pidinfo_matches_direct_bsdinfo_fields() {
     assert_eq!(bridged.pbi_ppid, direct.pbi_ppid);
 }
 
+/// The mechanism transports the raw `sysctl` positions. This court owns the
+/// MIB and CPU-count meaning, including its independent native comparison.
+#[cfg(target_os = "macos")]
+#[test]
+fn sysctl_writes_the_direct_cpu_count() {
+    let mut mib = [libc::CTL_HW, libc::HW_NCPU];
+    let mut bridged = 0_i32;
+    let mut bridged_len = std::mem::size_of_val(&bridged);
+    let value = oracle(
+        LIB,
+        "sysctl",
+        AbiType::I32,
+        &[
+            AbiType::Pointer,
+            AbiType::U32,
+            AbiType::Pointer,
+            AbiType::Pointer,
+            AbiType::Pointer,
+            AbiType::Usize,
+        ],
+        &[
+            AbiValue::Pointer(mib.as_mut_ptr().cast()),
+            AbiValue::U32(2),
+            AbiValue::Pointer((&raw mut bridged).cast()),
+            AbiValue::Pointer((&raw mut bridged_len).cast()),
+            AbiValue::Pointer(std::ptr::null_mut()),
+            AbiValue::Usize(0),
+        ],
+    )
+    .expect("sysctl through the raw ABI");
+    assert_eq!(value, AbiValue::I32(0));
+    assert!(bridged >= 1, "hw.ncpu must be at least 1");
+
+    let mut direct_mib = [libc::CTL_HW, libc::HW_NCPU];
+    let mut direct = 0_i32;
+    let mut direct_len = std::mem::size_of_val(&direct);
+    let direct_status = unsafe {
+        libc::sysctl(
+            direct_mib.as_mut_ptr(),
+            2,
+            (&raw mut direct).cast(),
+            &mut direct_len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    assert_eq!(direct_status, 0, "direct sysctl must succeed");
+    assert_eq!(bridged_len, direct_len);
+    assert_eq!(bridged, direct);
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn two_pointer_result_buffer_matches_direct_dladdr_fields() {

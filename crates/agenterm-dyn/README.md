@@ -270,7 +270,7 @@ Independent integration tests live under `crates/agenterm-dyn/tests/`:
 | `hosts.rs` | Six-cell matrix completeness, `live_cell()` selection, row well-formedness |
 | `catalog_docs.rs` | Portable Darwin row parity plus live-probe example/README coverage |
 | `macos_ioctl.rs` | macOS coverage of Unix variadic `ioctl(TIOCGWINSZ)` through the loaded libSystem symbol |
-| `macos_probes.rs` | Darwin-only live `dlcall` facts compared with later native calls |
+| `abi.rs` | Policy-free ABI shapes, including Darwin direct native oracles |
 | `macos_resource.rs` | typed `mach_host_self` acquisition, send-ref accounting, and exactly-once Drop release |
 | `smoke.rs` | Real `dlcall` into host libraries per OS (`#[cfg]`-gated) |
 
