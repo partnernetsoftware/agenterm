@@ -479,7 +479,9 @@ court has claim-preserving `.wat` or typed-owner evidence.
   policy-free ABI court。
   统一机制也新增 result-only `Void` 与真实 `void(ptr)` trampoline；
   `free(NULL)` 的 C-defined no-op oracle 现直接返回 `AbiValue::Void`，不再依赖
-  Lisp 的 `Nil` 表示。`Void` 不是参数类型，未列形状仍明确拒绝。
+  Lisp 的 `Nil` 表示。qjswasm 在自己的上层 catalog 中选择暴露
+  `void(ptr?)`，并由 tinyvm WAT court 穿过既有 `native_call` 门验证整条链；
+  `Void` 不是参数类型，未列形状仍明确拒绝。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded

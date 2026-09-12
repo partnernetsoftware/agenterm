@@ -465,6 +465,19 @@ fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn void_pointer_call_reaches_dyn_without_a_return_register() {
+    assert_eq!(
+        run_wat(
+            include_str!("fixtures/native/free_null.wat"),
+            Budget::default(),
+        )
+        .expect("free(NULL) runs through void(ptr?)"),
+        0
+    );
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn proc_pidpath_reaches_dyn_and_matches_current_executable_bytes() {

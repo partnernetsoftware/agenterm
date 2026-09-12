@@ -724,7 +724,8 @@ fn le_u64(bytes: &[u8]) -> u64 {
 /// a Rust function-pointer type: accepting every GP width or mixed GP/F64
 /// pattern would turn a declaration typo into undefined behaviour. Pointer
 /// returns, retained pointers, narrow integers, unlisted mixed signatures,
-/// `void`, `f32`, variadics and structure values remain typed refusals.
+/// `f32`, variadics and structure values remain typed refusals. The one
+/// catalogued void shape is `void(ptr?)`, used for `free(NULL)`.
 pub(crate) fn invoke_native_call(
     memory: &mut [u8],
     call: &DecodedNativeCall,
@@ -986,6 +987,7 @@ enum FixedPrototype {
 /// guest position accepts `KIND_NULL`; dyn receives an ordinary ABI pointer.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PointerPrototype {
+    VoidNullablePointer,
     I32Pointer,
     I32I32Pointer,
     I32PointerI32,
@@ -1041,6 +1043,9 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
         return Ok(NativeDispatch::Fixed(fixed));
     }
     let fixed_pointer = match (spec.result, spec.parameters.as_slice()) {
+        (NativeType::Void, [NativeType::NullablePointer]) => {
+            Some(PointerPrototype::VoidNullablePointer)
+        }
         (NativeType::I32, [NativeType::Pointer]) => Some(PointerPrototype::I32Pointer),
         (NativeType::I32, [NativeType::I32, NativeType::Pointer]) => {
             Some(PointerPrototype::I32I32Pointer)
@@ -1379,6 +1384,7 @@ fn fixed_pointer_argument(
 /// schema distinction, and qjswasm keeps it in its own null check.
 fn abi_type(ty: NativeType) -> Option<agenterm_dyn::AbiType> {
     match ty {
+        NativeType::Void => Some(agenterm_dyn::AbiType::Void),
         NativeType::I32 => Some(agenterm_dyn::AbiType::I32),
         NativeType::U32 => Some(agenterm_dyn::AbiType::U32),
         NativeType::I64 => Some(agenterm_dyn::AbiType::I64),
@@ -1387,12 +1393,10 @@ fn abi_type(ty: NativeType) -> Option<agenterm_dyn::AbiType> {
         NativeType::Usize => Some(agenterm_dyn::AbiType::Usize),
         NativeType::F64 => Some(agenterm_dyn::AbiType::F64),
         NativeType::Pointer | NativeType::NullablePointer => Some(agenterm_dyn::AbiType::Pointer),
-        // Narrow integers and `void` are refused by the upper catalog before an
+        // Narrow integers are refused by the upper catalog before an
         // execution arm runs; if one ever arrives, the mechanism has no position
         // for it and the call is refused rather than approximated.
-        NativeType::Void | NativeType::I8 | NativeType::U8 | NativeType::I16 | NativeType::U16 => {
-            None
-        }
+        NativeType::I8 | NativeType::U8 | NativeType::I16 | NativeType::U16 => None,
     }
 }
 
@@ -1410,6 +1414,7 @@ fn abi_parameters(call: &DecodedNativeCall) -> Result<Vec<agenterm_dyn::AbiType>
 /// typed refusal, never a silent zero.
 fn abi_result_bits(value: agenterm_dyn::AbiValue, expected: NativeType) -> Option<u64> {
     match (expected, value) {
+        (NativeType::Void, agenterm_dyn::AbiValue::Void) => Some(0),
         (NativeType::I32, agenterm_dyn::AbiValue::I32(bits)) => Some(bits as i64 as u64),
         (NativeType::U32, agenterm_dyn::AbiValue::U32(bits)) => Some(u64::from(bits)),
         (NativeType::I64, agenterm_dyn::AbiValue::I64(bits)) => Some(bits as u64),
@@ -1428,6 +1433,9 @@ fn abi_json_result(
     expected: NativeType,
 ) -> Option<serde_json::Value> {
     match (expected, value) {
+        (NativeType::Void, agenterm_dyn::AbiValue::Void) => {
+            Some(serde_json::json!({"type":"void"}))
+        }
         (NativeType::I32, agenterm_dyn::AbiValue::I32(bits)) => {
             Some(serde_json::json!({"type":"i32","value":bits}))
         }
