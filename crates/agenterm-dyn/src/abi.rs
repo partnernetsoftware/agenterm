@@ -210,6 +210,7 @@ enum Family {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DirectScalarPrototype {
     VoidPointer,
+    I64Pointer,
     IsizeU32,
     I32I32I32Pointer,
     I32I32I32U64PointerI32,
@@ -368,6 +369,9 @@ fn classify(signature: AbiSignature<'_>, arguments: &[AbiValue]) -> Result<Famil
     }
     if signature.result == AbiType::Void && signature.params == [AbiType::Pointer] {
         return Ok(Family::DirectScalar(DirectScalarPrototype::VoidPointer));
+    }
+    if signature.result == AbiType::I64 && signature.params == [AbiType::Pointer] {
+        return Ok(Family::DirectScalar(DirectScalarPrototype::I64Pointer));
     }
     if signature.result == AbiType::Isize && signature.params == [AbiType::U32] {
         return Ok(Family::DirectScalar(DirectScalarPrototype::IsizeU32));
@@ -715,6 +719,24 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
             // library lifetime.
             unsafe { function(*argument) };
             Ok(AbiValue::Void)
+        }
+        Family::DirectScalar(DirectScalarPrototype::I64Pointer) => {
+            let [AbiValue::Pointer(argument)] = call.arguments else {
+                unreachable!("classification checked i64(ptr) arguments")
+            };
+            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
+                library: display_library(call.library),
+                message: error.to_string(),
+            })?;
+            // SAFETY: classification admitted `i64(ptr)`; the caller asserts
+            // that the resolved symbol really has this C ABI.
+            let function = unsafe {
+                library.get::<unsafe extern "C" fn(*mut c_void) -> i64>(call.symbol.as_bytes())
+            }
+            .map_err(|error| pointer_result_symbol_error(call, error))?;
+            // SAFETY: the caller owns the symbol contract, pointer validity and
+            // library lifetime.
+            Ok(AbiValue::I64(unsafe { function(*argument) }))
         }
         Family::DirectScalar(DirectScalarPrototype::I32I32I32Pointer) => {
             let [

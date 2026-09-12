@@ -6,9 +6,7 @@
 use std::ffi::{CString, c_void};
 
 use agenterm_dyn::DynError;
-use agenterm_dyn::{
-    CU_ADJACENT_PROBE_CATALOG, Dyn, HostArch, HostOs, SecondaryProbe, Value, live_cell,
-};
+use agenterm_dyn::{CU_ADJACENT_PROBE_CATALOG, Dyn, HostArch, HostOs, Value, live_cell};
 
 fn eval_native(env: &mut Dyn, source: &str) -> Result<Value, DynError> {
     // SAFETY: each smoke owns any bound storage and asserts the documented ABI.
@@ -152,20 +150,6 @@ mod linux {
         let got = eval_native(&mut env, &script).expect("getppid dlcall");
         let real = unsafe { libc::getppid() };
         assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
-    fn dlcall_time_matches_libc() {
-        let mut env = Dyn::new();
-        let got = eval_native(&mut env, r#"(dlcall "libc.so.6" "time" "i64" "ptr" 0)"#)
-            .expect("time dlcall")
-            .as_int()
-            .expect("time return value");
-        let real = unsafe { libc::time(std::ptr::null_mut()) };
-        assert!(
-            (got - real).abs() <= 1,
-            "dlcall and libc time should be adjacent"
-        );
     }
 
     #[test]
@@ -668,23 +652,6 @@ mod macos {
         let got = eval_native(&mut env, &getpid_script()).expect("getpid after missing symbol");
         let real = unsafe { libc::getpid() };
         assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
-    fn dlcall_time_secondary_probe() {
-        let c = cell();
-        let SecondaryProbe::Time { lib, symbol } = c.secondary_probe else {
-            panic!("macos secondary should be time()");
-        };
-        let mut env = Dyn::new();
-        let script = format!(r#"(dlcall "{lib}" "{symbol}" "i64" "ptr" 0)"#);
-        let got = eval_native(&mut env, &script).expect("time dlcall");
-        let t = got.as_int().expect("time return");
-        let real = unsafe { libc::time(std::ptr::null_mut()) };
-        assert!(
-            (t - real).abs() <= 1,
-            "dlcall and libc time should be adjacent"
-        );
     }
 
     #[test]

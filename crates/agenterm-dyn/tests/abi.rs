@@ -92,6 +92,24 @@ fn matrix_pointer_representative_matches_the_direct_call() {
     );
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn time_accepts_a_raw_nullable_pointer_position() {
+    let value = oracle(
+        LIB,
+        "time",
+        AbiType::I64,
+        &[AbiType::Pointer],
+        &[AbiValue::Pointer(std::ptr::null_mut())],
+    )
+    .expect("time(NULL) through the raw ABI");
+    let AbiValue::I64(bridged) = value else {
+        panic!("time must return i64, got {value:?}")
+    };
+    let direct = unsafe { libc::time(std::ptr::null_mut()) };
+    assert!((bridged - direct).abs() <= 1);
+}
+
 /// A void result occupies no return register. `free(NULL)` is the C-defined
 /// no-op oracle and therefore exercises the call without acquiring ownership.
 #[cfg(unix)]

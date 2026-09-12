@@ -988,6 +988,7 @@ enum FixedPrototype {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PointerPrototype {
     VoidNullablePointer,
+    I64NullablePointer,
     I32Pointer,
     I32I32Pointer,
     I32PointerI32,
@@ -1045,6 +1046,9 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
     let fixed_pointer = match (spec.result, spec.parameters.as_slice()) {
         (NativeType::Void, [NativeType::NullablePointer]) => {
             Some(PointerPrototype::VoidNullablePointer)
+        }
+        (NativeType::I64, [NativeType::NullablePointer]) => {
+            Some(PointerPrototype::I64NullablePointer)
         }
         (NativeType::I32, [NativeType::Pointer]) => Some(PointerPrototype::I32Pointer),
         (NativeType::I32, [NativeType::I32, NativeType::Pointer]) => {
@@ -1599,6 +1603,12 @@ mod json_adapter_tests {
             native_dispatch(&parse("|gettimeofday|i32(ptr,ptr?)")),
             Ok(NativeDispatch::FixedPointer(
                 PointerPrototype::I32PointerNullablePointer,
+            ))
+        );
+        assert_eq!(
+            native_dispatch(&parse("|time|i64(ptr?)")),
+            Ok(NativeDispatch::FixedPointer(
+                PointerPrototype::I64NullablePointer,
             ))
         );
         assert_eq!(

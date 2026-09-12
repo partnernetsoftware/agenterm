@@ -555,6 +555,18 @@ fn lseek_stdin_position_matches_direct_libc() {
 
 #[cfg(unix)]
 #[test]
+fn time_null_pointer_matches_an_adjacent_direct_call() {
+    let guest = run_wat(
+        include_str!("fixtures/native/time_null.wat"),
+        Budget::default(),
+    )
+    .expect("time(NULL) guest runs");
+    let direct = unsafe { libc::time(std::ptr::null_mut()) };
+    assert!((guest - direct).abs() <= 1);
+}
+
+#[cfg(unix)]
+#[test]
 fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
     let output = std::process::Command::new("uname")
         .arg("-s")
