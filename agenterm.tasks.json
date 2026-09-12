@@ -3058,6 +3058,27 @@
         "task.acu-provider-smoke"
       ]
     },
+    "acu-provider-job-wait-cancel-smoke": {
+      "inputs": [
+        "built-agenterm-with-acu-provider",
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "acu-provider-job-wait-cancel-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 30000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144,
+        "max_host_operations": 10000
+      },
+      "network": [],
+      "evidence": [
+        "cu.job-wait-cancel.embedded-supervisor-cancel",
+        "cu.job-wait-cancel.owner-survives",
+        "cu.job-wait-cancel.terminal-truth"
+      ]
+    },
     "acu-mcp-provider-smoke": {
       "inputs": [
         "built-agenterm-with-acu-provider"
@@ -8939,6 +8960,28 @@
         "macos"
       ],
       "side_effects": []
+    },
+    {
+      "id": "acu-provider-job-wait-cancel-smoke",
+      "description": "Prove a real embedded agenterm:acu 60-second managed-job wait cooperatively returns through the supervisor cancellation path before hard timeout, leaves the exact resident owner and lease unchanged for a prompt follow-up status, then reaches one exact terminal state with the owner and child absent.",
+      "entry": "scripts/qjs/acu-provider-job-wait-cancel-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm",
+        "scripts/qjs/acu-provider-job-wait-cancel-child.qjs"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
     },
     {
       "id": "acu-mcp-provider-smoke",

@@ -261,9 +261,25 @@
         "cu.windows-uia-destructive-close",
         "cu.windows-uia-cleanup"
       ]
+    },
+    {
+      "id": "acu-provider-job-wait-cancel-smoke",
+      "evidence": [
+        "cu.job-wait-cancel.embedded-supervisor-cancel",
+        "cu.job-wait-cancel.owner-survives",
+        "cu.job-wait-cancel.terminal-truth"
+      ]
     }
   ],
   "registered_gates": [
+    {
+      "id": "acu-provider-job-wait-cancel-smoke",
+      "evidence": [
+        "cu.job-wait-cancel.embedded-supervisor-cancel",
+        "cu.job-wait-cancel.owner-survives",
+        "cu.job-wait-cancel.terminal-truth"
+      ]
+    },
     {
       "id": "cu-runtime-capability-core-windows-smoke",
       "evidence": [

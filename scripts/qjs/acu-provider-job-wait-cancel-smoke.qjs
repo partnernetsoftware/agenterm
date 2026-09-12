@@ -1,0 +1,407 @@
+// Public supervisor proof for cooperative cancellation of embedded
+// agenterm:acu job-wait. This court intentionally does not claim provider ACK
+// visibility or the pre-cancel no-state-root property; their frozen owners are
+// Rust tests at the runner and provider layers.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.job-wait-cancel.embedded-supervisor-cancel",
+  "cu.job-wait-cancel.owner-survives",
+  "cu.job-wait-cancel.terminal-truth"
+];
+const required_env = [
+  "AGENTERM_CU_MANAGED_JOB_PATH",
+  "AGENTERM_CU_RUNTIME_PATH",
+  "AGENTERM_CU_IDEMPOTENCY_PATH",
+  "AGENTERM_CU_AUDIT_PATH",
+  "HOME",
+  "XDG_RUNTIME_DIR",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_CACHE_HOME"
+];
+const invocation_deadline_ms = 3000;
+
+function require(condition, message) {
+  harness.require(condition, message);
+}
+
+function exact_keys(value, expected) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) { return false; }
+  const keys = Object.keys(value);
+  if (keys.length !== expected.length) { return false; }
+  for (const key of expected) { if (!keys.includes(key)) { return false; } }
+  return true;
+}
+
+function comparable_path(value) {
+  return ("" + value).replaceAll("\\", "/");
+}
+
+function prepare_private_runtime(path) {
+  rh.create_dir_all(path);
+  if (harness.host_is_windows()) { return; }
+  const chmod = rh.command("chmod", ["0700", path], { timeout_ms: 2000 });
+  require(chmod.success, "runtime_chmod_failed:" + chmod.stderr);
+}
+
+function data_of(reply, command) {
+  require(reply !== null && typeof reply === "object", "acu_reply_shape:" + command);
+  if (reply.ok !== true) {
+    const code = reply.error !== null && typeof reply.error === "object"
+      ? "" + reply.error.code : "unknown";
+    throw "acu_reply_failed:" + command + ":" + code;
+  }
+  require(reply.command === command, "acu_reply_command:" + command);
+  require(reply.data !== null && typeof reply.data === "object", "acu_reply_data:" + command);
+  return reply.data;
+}
+
+function raw_call(args, command) {
+  const cli_args = ["cli", "acu"];
+  append_all(cli_args, args);
+  const output = rh.command(agenterm, cli_args, {
+    cwd: context.run_directory,
+    env: environment,
+    timeout_ms: 10000
+  });
+  require(output.stdout.trim() !== "", "acu_cli_reply_missing:" + command + ":" + output.stderr);
+  return JSON.parse(output.stdout);
+}
+
+function call(args, command) {
+  return data_of(raw_call(args, command), command);
+}
+
+function mutation_prefix(request_id, snapshot) {
+  return [
+    "--target", "current", "--grant", "actuate",
+    "--request-id", request_id,
+    "--session", snapshot.session_id,
+    "--session-lease", snapshot.session_lease
+  ];
+}
+
+function append_all(target, values) {
+  for (const value of values) { target.push(value); }
+}
+
+function now_ms() {
+  require(time_now_ms() === 0, "time_now_ms_failed");
+  return Number(tool_result());
+}
+
+function read_json_lines(path) {
+  const values = [];
+  const text = rh.read_text(path);
+  for (const line of text.split("\n")) {
+    if (line.trim() !== "") { values.push(JSON.parse(line)); }
+  }
+  return values;
+}
+
+function snapshot_from_stdout(stdout) {
+  for (const line of stdout.split("\n")) {
+    if (!line.startsWith("{")) { continue; }
+    const value = JSON.parse(line);
+    if (value.schema_version === 1 && value.kind === "job"
+        && typeof value.job_id === "string") { return value; }
+  }
+  return null;
+}
+
+function session_from_stdout(stdout) {
+  for (const line of stdout.split("\n")) {
+    if (!line.startsWith("{")) { continue; }
+    const value = JSON.parse(line);
+    if (value.schema_version === 1 && value.kind === "session"
+        && typeof value.session_id === "string") { return value; }
+  }
+  return null;
+}
+
+function exact_process_absent(pid, start_identity) {
+  const reply = raw_call([
+    "--target", "current", "--grant", "observe",
+    "process-state", "--pid", "" + pid
+  ], "process-state");
+  if (reply.ok !== true) {
+    return reply.error !== null && reply.error.code === "process_not_found";
+  }
+  const state = reply.data;
+  return state.state !== "live" || state.start_identity !== start_identity;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+require(args.length === 3, "expected: REPO AGENTERM_EXE CHILD_QJS");
+
+const repo = rh.absolute(args[0]);
+const agenterm = rh.absolute(args[1]);
+const child_qjs = rh.absolute(args[2]);
+require(rh.exists(agenterm), "agenterm_executable_missing");
+require(rh.exists(child_qjs), "cancel_child_missing");
+
+const context = harness.new_context(repo, "acu-provider-job-wait-cancel");
+const target_root = rh.parent(rh.parent(rh.parent(context.run_directory)));
+const isolated_root = rh.join(target_root, "acu-w5-" + process_id());
+const environment = {
+  AGENTERM_CU_MANAGED_JOB_PATH: rh.join(isolated_root, "cu-managed-jobs.json"),
+  AGENTERM_CU_RUNTIME_PATH: rh.join(isolated_root, "cu-runtime.json"),
+  AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(isolated_root, "cu-idempotency.json"),
+  AGENTERM_CU_AUDIT_PATH: rh.join(isolated_root, "cu-audit.jsonl"),
+  HOME: isolated_root,
+  XDG_RUNTIME_DIR: rh.join(isolated_root, "runtime"),
+  XDG_CONFIG_HOME: rh.join(isolated_root, "config"),
+  XDG_DATA_HOME: rh.join(isolated_root, "data"),
+  XDG_CACHE_HOME: rh.join(isolated_root, "cache")
+};
+rh.create_dir_all(isolated_root);
+prepare_private_runtime(environment.XDG_RUNTIME_DIR);
+for (const name of ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"]) {
+  rh.create_dir_all(environment[name]);
+}
+const env_paths = [
+  environment.AGENTERM_CU_MANAGED_JOB_PATH,
+  environment.AGENTERM_CU_RUNTIME_PATH,
+  environment.AGENTERM_CU_IDEMPOTENCY_PATH,
+  environment.AGENTERM_CU_AUDIT_PATH
+];
+const comparable_repo = comparable_path(repo);
+for (let i = 0; i < env_paths.length; i = i + 1) {
+  require(comparable_path(env_paths[i]).startsWith(comparable_repo + "/target/"),
+    "cu_path_not_repo_target:" + i);
+  for (let j = i + 1; j < env_paths.length; j = j + 1) {
+    require(comparable_path(env_paths[i]) !== comparable_path(env_paths[j]),
+      "cu_paths_not_distinct:" + i + ":" + j);
+  }
+}
+for (const name of ["HOME", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"]) {
+  require(comparable_path(environment[name]).startsWith(comparable_repo + "/target/"),
+    "home_xdg_not_repo_target:" + name);
+}
+const comparable_root = comparable_path(isolated_root);
+for (const path of env_paths) {
+  require(comparable_path(path).startsWith(comparable_root + "/"),
+    "cu_path_outside_isolated_home");
+  require(!rh.exists(path), "cu_path_not_fresh");
+}
+for (const name of ["XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"]) {
+  require(comparable_path(environment[name]).startsWith(comparable_root + "/"),
+    "xdg_outside_isolated_home:" + name);
+}
+
+const request_root = "job-wait-cancel-" + context.run_id;
+const script_audit = rh.join(context.run_directory, "script-audit.jsonl");
+environment.AGENTERM_SCRIPT_AUDIT_PATH = script_audit;
+environment.AGENTERM_NO_ACTIVATE = "1";
+
+let snapshot = null;
+let session_handoff = null;
+let succeeded = false;
+let failure = "";
+let terminal = null;
+
+try {
+  print("STEP run the real embedded 60-second wait until the host supervisor requests Cancel");
+  const child_args = [
+    "cli", "script", "run", child_qjs,
+    "--profile", "tool",
+    "--timeout-ms", "" + invocation_deadline_ms,
+    "--max-operations", "100000000",
+    "--max-output-bytes", "262144"
+  ];
+  for (const name of required_env) {
+    child_args.push("--env-allow");
+    child_args.push(name);
+  }
+  child_args.push("--");
+  child_args.push(agenterm);
+  child_args.push(request_root);
+  child_args.push(child_qjs);
+  const started_at = now_ms();
+  const cancelled = rh.command(agenterm, child_args, {
+    env: environment,
+    timeout_ms: invocation_deadline_ms + 5000
+  });
+  const external_wall_ms = now_ms() - started_at;
+  session_handoff = session_from_stdout(cancelled.stdout);
+  snapshot = snapshot_from_stdout(cancelled.stdout);
+  require(snapshot !== null, "cancelled_wait_setup_snapshot_missing");
+  require(cancelled.success !== true, "cancelled_wait_unexpected_success");
+  require(cancelled.stderr.indexOf("host_hard_timeout") < 0, "cancelled_wait_hard_timeout");
+  require(cancelled.stderr.indexOf("\"code\":\"qjswasm_backend\"") >= 0
+      && cancelled.stderr.indexOf("\"exit_class\":\"cancelled\"") >= 0,
+    "cancelled_wait_terminal_code");
+  require(external_wall_ms < invocation_deadline_ms + 150,
+    "cancelled_wait_external_wall:" + external_wall_ms);
+
+  const audits = read_json_lines(script_audit);
+  require(audits.length === 1, "cancelled_wait_audit_count:" + audits.length);
+  const audit = audits[0];
+  require(audit.cancelled === true && audit.crashed === false,
+    "cancelled_wait_audit_cancelled");
+  require(audit.failure_code === "qjswasm_backend" && audit.result_class === "cancelled",
+    "cancelled_wait_audit_terminal");
+  require(audit.duration_ms < invocation_deadline_ms + 150,
+    "cancelled_wait_audit_wall:" + audit.duration_ms);
+
+  print("STEP prove the same provider state domain still answers quickly with unchanged identity and lease");
+  const status_started = now_ms();
+  const after = call([
+    "--target", "current", "--grant", "observe", "job-status", snapshot.job_id
+  ], "job-status");
+  const status_wall_ms = now_ms() - status_started;
+  require(status_wall_ms < 1000, "post_cancel_status_not_quick:" + status_wall_ms);
+  require(after.job_id === snapshot.job_id && after.generation === snapshot.generation,
+    "post_cancel_job_identity_changed");
+  require(after.session_id === snapshot.session_id && after.state === "running",
+    "post_cancel_session_or_state_changed");
+  require(after.owner_pid === snapshot.owner_pid && after.process_pid === snapshot.child_pid,
+    "post_cancel_process_identity_changed");
+  require(after.live !== null && after.live.state.kind === "running",
+    "post_cancel_owner_not_live");
+  require(after.live.lease_remaining_ms > 0
+      && after.live.lease_remaining_ms <= snapshot.lease_remaining_ms,
+    "post_cancel_lease_changed");
+  const owner_after = call([
+    "--target", "current", "--grant", "observe",
+    "process-state", "--pid", "" + snapshot.owner_pid
+  ], "process-state");
+  const child_after = call([
+    "--target", "current", "--grant", "observe",
+    "process-state", "--pid", "" + snapshot.child_pid
+  ], "process-state");
+  require(owner_after.state === "live"
+      && owner_after.start_identity === snapshot.owner_start_identity,
+    "post_cancel_owner_identity_changed");
+  require(child_after.state === "live"
+      && child_after.start_identity === snapshot.child_start_identity,
+    "post_cancel_child_identity_changed");
+
+  print("STEP explicitly stop and prove exact terminal truth plus owner and child absence");
+  const stop_args = mutation_prefix(request_root + "-stop", snapshot);
+  append_all(stop_args, [
+    "job-stop", snapshot.job_id, "" + snapshot.generation,
+    "--grace-ms", "100", "--expect-stopped"
+  ]);
+  const stopped = call(stop_args, "job-stop");
+  require(stopped.stopped === true && stopped.job_id === snapshot.job_id
+      && stopped.generation === snapshot.generation
+      && stopped.status.state.kind !== "running", "job_stop_not_terminal");
+
+  for (let poll = 0; poll < 100; poll = poll + 1) {
+    terminal = call([
+      "--target", "current", "--grant", "observe", "job-status", snapshot.job_id
+    ], "job-status");
+    if (terminal.state !== "running"
+        && exact_process_absent(snapshot.child_pid, snapshot.child_start_identity)) {
+      break;
+    }
+    time_sleep_ms(20);
+  }
+  require(terminal !== null && terminal.job_id === snapshot.job_id
+      && terminal.generation === snapshot.generation
+      && terminal.state !== "running"
+      && terminal.terminal !== null
+      && terminal.terminal_trigger === "explicit_stop",
+    "terminal_truth_not_exact");
+  require(terminal.owner_pid === snapshot.owner_pid,
+    "terminal_owner_history_not_retained");
+  require(exact_process_absent(snapshot.child_pid, snapshot.child_start_identity),
+    "terminal_child_still_present");
+  const terminal_owner = call([
+    "--target", "current", "--grant", "observe",
+    "process-state", "--pid", "" + snapshot.owner_pid
+  ], "process-state");
+  require(terminal_owner.state === "live"
+      && terminal_owner.start_identity === snapshot.owner_start_identity,
+    "terminal_owner_not_retained_until_session_end");
+
+  const end = call([
+    "--target", "current", "--grant", "actuate",
+    "session-end", snapshot.session_id, "--lease", snapshot.session_lease, "--confirm"
+  ], "session-end");
+  require(end.session !== null && end.session.session_id === snapshot.session_id
+      && end.session.state === "ended", "session_cleanup_identity");
+  // Session release owns the resident owner lifetime. Its cleanup is bounded
+  // by five seconds; retain two seconds of observation margin.
+  for (let poll = 0; poll < 350; poll = poll + 1) {
+    if (exact_process_absent(snapshot.owner_pid, snapshot.owner_start_identity)) { break; }
+    time_sleep_ms(20);
+  }
+  require(exact_process_absent(snapshot.owner_pid, snapshot.owner_start_identity),
+    "session_owner_still_present");
+  succeeded = true;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (!succeeded && snapshot !== null) {
+  try {
+    const cleanup_args = mutation_prefix(request_root + "-cleanup-stop", snapshot);
+    append_all(cleanup_args, [
+      "job-stop", snapshot.job_id, "" + snapshot.generation,
+      "--grace-ms", "100", "--expect-stopped"
+    ]);
+    call(cleanup_args, "job-stop");
+  } catch (error) {
+    failure = failure + ";cleanup_stop:" + error;
+  }
+  try {
+    call([
+      "--target", "current", "--grant", "actuate",
+      "session-end", snapshot.session_id, "--lease", snapshot.session_lease, "--confirm"
+    ], "session-end");
+  } catch (error) {
+    failure = failure + ";cleanup_session:" + error;
+  }
+}
+if (!succeeded && snapshot === null && session_handoff !== null) {
+  try {
+    call([
+      "--target", "current", "--grant", "actuate",
+      "session-end", session_handoff.session_id,
+      "--lease", session_handoff.session_lease, "--confirm"
+    ], "session-end");
+  } catch (error) {
+    failure = failure + ";cleanup_partial_session:" + error;
+  }
+}
+
+if (snapshot !== null) {
+  for (let poll = 0; poll < 350; poll = poll + 1) {
+    if (exact_process_absent(snapshot.owner_pid, snapshot.owner_start_identity)
+        && exact_process_absent(snapshot.child_pid, snapshot.child_start_identity)) { break; }
+    time_sleep_ms(20);
+  }
+  if (!exact_process_absent(snapshot.owner_pid, snapshot.owner_start_identity)
+      || !exact_process_absent(snapshot.child_pid, snapshot.child_start_identity)) {
+    failure = failure + ";cleanup_process_still_present";
+    succeeded = false;
+  }
+}
+
+try {
+  if (rh.exists(isolated_root)) { rh.remove_dir_all(isolated_root); }
+} catch (error) {
+  failure = failure + ";cleanup_isolated_root:" + error;
+  succeeded = false;
+}
+if (succeeded) {
+  for (const id of declared_evidence) { harness.emit_evidence(context, declared_evidence, id); }
+}
+let completion_failure = "";
+try { harness.complete(context, [], succeeded, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded && completion_failure === "") {
+  harness.remove_run(context);
+  print("PASS: embedded job-wait cooperatively cancelled; owner survived; exact terminal cleanup verified");
+  return;
+}
+if (completion_failure !== "") { throw completion_failure; }
+throw failure;

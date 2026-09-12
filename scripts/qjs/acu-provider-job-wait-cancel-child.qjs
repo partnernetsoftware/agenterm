@@ -1,0 +1,121 @@
+// One deliberately cancelled embedded agenterm:acu invocation.
+//
+// The parent court owns cleanup. This child publishes only the minimum private
+// handoff needed for that cleanup, then blocks in the real 60-second job-wait.
+// The script worker preserves stdout when its supervisor cancels the call.
+import * as acu from "agenterm:acu";
+
+function require(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function data_of(reply, command) {
+  require(reply !== null && typeof reply === "object", "acu_reply_shape:" + command);
+  if (reply.ok !== true) {
+    const code = reply.error !== null && typeof reply.error === "object"
+      ? "" + reply.error.code : "unknown";
+    const message = reply.error !== null && typeof reply.error === "object"
+      ? "" + reply.error.message : "unknown";
+    throw "acu_reply_failed:" + command + ":" + code + ":" + message;
+  }
+  require(reply.command === command, "acu_reply_command:" + command);
+  require(reply.data !== null && typeof reply.data === "object", "acu_reply_data:" + command);
+  return reply.data;
+}
+
+function call(args, command) {
+  return data_of(acu.argv(args), command);
+}
+
+function mutation_prefix(request_id, session_id, lease) {
+  return [
+    "--target", "current", "--grant", "actuate",
+    "--request-id", request_id,
+    "--session", session_id,
+    "--session-lease", lease
+  ];
+}
+
+function append_all(target, values) {
+  for (const value of values) { target.push(value); }
+}
+
+if (arg_count() === 1) {
+  require(arg(0) === 0, "mode_argument_read_failed");
+  require(tool_result() === "--sleeper", "unknown_child_mode");
+  time_sleep_ms(60000);
+  return;
+}
+
+require(arg_count() === 3, "expected: AGENTERM_EXE REQUEST_ROOT CHILD_QJS");
+require(arg(0) === 0, "agenterm_argument_read_failed");
+const agenterm = tool_result();
+require(arg(1) === 0, "request_argument_read_failed");
+const request_root = tool_result();
+require(arg(2) === 0, "child_script_argument_read_failed");
+const child_qjs = tool_result();
+
+const session = call([
+  "--target", "current", "--grant", "actuate",
+  "session-start", "--label", "job-wait-cancel-smoke", "--ttl-seconds", "60"
+], "session-start");
+require(typeof session.session_id === "string" && session.session_id !== "", "session_id_missing");
+require(typeof session.lease === "string" && session.lease !== "", "session_lease_missing");
+print(JSON.stringify({
+  schema_version: 1,
+  kind: "session",
+  session_id: session.session_id,
+  session_lease: session.lease
+}));
+
+const spawn_args = mutation_prefix(request_root + "-spawn", session.session_id, session.lease);
+append_all(spawn_args, [
+  "job-spawn", "--ttl-seconds", "60", "--",
+  agenterm, "cli", "script", "run", child_qjs,
+  "--profile", "tool", "--timeout-ms", "60000", "--", "--sleeper"
+]);
+const spawned = call(spawn_args, "job-spawn");
+require(typeof spawned.job_id === "string" && spawned.job_id !== "", "job_id_missing");
+require(typeof spawned.generation === "number" && spawned.generation > 0, "job_generation_missing");
+
+const status = call([
+  "--target", "current", "--grant", "observe", "job-status", spawned.job_id
+], "job-status");
+require(status.state === "running", "job_not_running");
+require(typeof status.owner_pid === "number" && status.owner_pid > 0, "owner_pid_missing");
+require(typeof status.process_pid === "number" && status.process_pid > 0, "process_pid_missing");
+require(status.live !== null && status.live.state.kind === "running", "job_live_missing");
+
+const owner = call([
+  "--target", "current", "--grant", "observe",
+  "process-state", "--pid", "" + status.owner_pid
+], "process-state");
+const child = call([
+  "--target", "current", "--grant", "observe",
+  "process-state", "--pid", "" + status.process_pid
+], "process-state");
+require(owner.state === "live" && typeof owner.start_identity === "string", "owner_identity_missing");
+require(child.state === "live" && typeof child.start_identity === "string", "child_identity_missing");
+
+print(JSON.stringify({
+  schema_version: 1,
+  kind: "job",
+  session_id: session.session_id,
+  session_lease: session.lease,
+  job_id: spawned.job_id,
+  generation: spawned.generation,
+  owner_pid: status.owner_pid,
+  owner_start_identity: owner.start_identity,
+  child_pid: status.process_pid,
+  child_start_identity: child.start_identity,
+  lease_remaining_ms: status.live.lease_remaining_ms
+}));
+
+// This is the frozen wait under test. Returning from it is a failure: the
+// parent invocation deadline must interrupt it first.
+call([
+  "--target", "current", "--grant", "observe",
+  "job-wait", spawned.job_id, "" + spawned.generation,
+  "--timeout-ms", "60000"
+], "job-wait");
+throw "job_wait_returned_before_supervisor_cancel";
