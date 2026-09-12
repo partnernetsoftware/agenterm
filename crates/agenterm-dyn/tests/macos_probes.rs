@@ -63,36 +63,3 @@ fn dlcall_sysctl_writes_ncpu_into_caller_buffer() {
     assert_eq!(direct_status, 0, "direct sysctl must succeed");
     assert_eq!(ncpu, direct);
 }
-
-#[test]
-fn dlcall_proc_pidinfo_writes_caller_owned_bsdinfo() {
-    let symbol = live_symbol("proc_pidinfo");
-    let pid = unsafe { libc::getpid() };
-    let ppid = unsafe { libc::getppid() };
-    let flavor = libc::PROC_PIDTBSDINFO;
-    let mut info = unsafe { std::mem::zeroed::<libc::proc_bsdinfo>() };
-    let bufsize =
-        i32::try_from(std::mem::size_of::<libc::proc_bsdinfo>()).expect("struct fits i32");
-    let mut env = Dyn::new();
-    env.bind("info", (&raw mut info).cast())
-        .expect("bind proc_bsdinfo");
-    let got = eval_native(&mut env, &format!(
-            r#"(dlcall "{LIB}" "{symbol}" "i32" "i32" {pid} "i32" {flavor} "u64" 0 "ptr" info "i32" {bufsize})"#
-        ))
-        .expect("proc_pidinfo dlcall")
-        .as_int()
-        .expect("proc_pidinfo byte count");
-    assert_eq!(got, i64::from(bufsize));
-    assert_eq!(info.pbi_pid, pid as u32);
-    assert_eq!(info.pbi_ppid, ppid as u32);
-
-    let mut direct = unsafe { std::mem::zeroed::<libc::proc_bsdinfo>() };
-    let direct_bytes =
-        unsafe { libc::proc_pidinfo(pid, flavor, 0, (&raw mut direct).cast(), bufsize) };
-    assert_eq!(
-        direct_bytes, bufsize,
-        "direct proc_pidinfo must fill struct"
-    );
-    assert_eq!(info.pbi_pid, direct.pbi_pid);
-    assert_eq!(info.pbi_ppid, direct.pbi_ppid);
-}

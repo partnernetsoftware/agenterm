@@ -471,8 +471,9 @@ court has claim-preserving `.wat` or typed-owner evidence.
   的完整 `size_t` 返回值、NUL 终止输出与 direct native bytes oracle，不再经
   Lisp 的 `u64`/language-integer 表示。`i32(i32,i32,ptr)` raw trampoline
   随后接管 `proc_pid_rusage`；结构体解释仍只存在于 direct-oracle court，dyn
-  仅搬运其 opaque pointer。`macos_probes.rs` 还剩两个复杂 caller-buffer/
-  结构体 court。
+  仅搬运其 opaque pointer。`i32(i32,i32,u64,ptr,i32)` 同样无损接管
+  `proc_pidinfo` 的 byte count、PID/PPID 与 direct native fields oracle；
+  `macos_probes.rs` 只剩 `sysctl` 一个 legacy Lisp court。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded

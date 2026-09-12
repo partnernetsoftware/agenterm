@@ -293,6 +293,49 @@ fn proc_pid_rusage_matches_direct_v4_fields() {
     assert_eq!(bridged.ri_proc_start_abstime, direct.ri_proc_start_abstime);
 }
 
+/// The mechanism transports the five ABI positions; this court alone assigns
+/// Darwin `proc_bsdinfo` meaning to the output bytes.
+#[cfg(target_os = "macos")]
+#[test]
+fn proc_pidinfo_matches_direct_bsdinfo_fields() {
+    let pid = unsafe { libc::getpid() };
+    let ppid = unsafe { libc::getppid() };
+    let flavor = libc::PROC_PIDTBSDINFO;
+    let size = i32::try_from(std::mem::size_of::<libc::proc_bsdinfo>())
+        .expect("proc_bsdinfo size fits i32");
+    let mut bridged = unsafe { std::mem::zeroed::<libc::proc_bsdinfo>() };
+    let value = oracle(
+        LIB,
+        "proc_pidinfo",
+        AbiType::I32,
+        &[
+            AbiType::I32,
+            AbiType::I32,
+            AbiType::U64,
+            AbiType::Pointer,
+            AbiType::I32,
+        ],
+        &[
+            AbiValue::I32(pid),
+            AbiValue::I32(flavor),
+            AbiValue::U64(0),
+            AbiValue::Pointer((&raw mut bridged).cast()),
+            AbiValue::I32(size),
+        ],
+    )
+    .expect("proc_pidinfo through the raw ABI");
+    assert_eq!(value, AbiValue::I32(size));
+    assert_eq!(bridged.pbi_pid, pid as u32);
+    assert_eq!(bridged.pbi_ppid, ppid as u32);
+
+    let mut direct = unsafe { std::mem::zeroed::<libc::proc_bsdinfo>() };
+    let direct_bytes =
+        unsafe { libc::proc_pidinfo(pid, flavor, 0, (&raw mut direct).cast(), size) };
+    assert_eq!(direct_bytes, size, "direct proc_pidinfo must fill struct");
+    assert_eq!(bridged.pbi_pid, direct.pbi_pid);
+    assert_eq!(bridged.pbi_ppid, direct.pbi_ppid);
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn two_pointer_result_buffer_matches_direct_dladdr_fields() {
