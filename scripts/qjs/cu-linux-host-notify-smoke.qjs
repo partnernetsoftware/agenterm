@@ -38,7 +38,6 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
-function output_success(document) { return flag_at(document, "ok"); }
 
 function usage_rejects_unexpected(message, token) {
   return message.indexOf(token) >= 0
@@ -141,11 +140,11 @@ function run_cu_reply(run_directory, executable, grant, command_argv, env_remove
 function run_cu(run_directory, executable, grant, command_argv, expect_error, env_remove) {
   const reply = run_cu_reply(run_directory, executable, grant, command_argv, env_remove);
   if (expect_error !== undefined) {
-    ensure(!output_success(reply) && text_at(reply, "error.code") === expect_error,
+    ensure(!rh.output_success(reply) && text_at(reply, "error.code") === expect_error,
       "cu_linux_host_notify_wrong_failure:" + JSON.stringify(reply));
     return reply.error;
   }
-  ensure(output_success(reply), "cu_linux_host_notify_failed:" + JSON.stringify(reply));
+  ensure(rh.output_success(reply), "cu_linux_host_notify_failed:" + JSON.stringify(reply));
   return reply.data;
 }
 
@@ -153,7 +152,7 @@ function assert_host_notify_atspi_usage_limit(run_directory, executable, env) {
   const flat_with_name = invoke_actuate_reply(run_directory, executable, [
     "host-notify", "AgenTerm", "body", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(flat_with_name),
+  ensure(!rh.output_success(flat_with_name),
     "cu_linux_host_notify_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
   ensure(
     text_at(flat_with_name, "error.code") === "usage",
@@ -171,7 +170,7 @@ function assert_host_notify_atspi_usage_limit(run_directory, executable, env) {
   const alias_with_name = invoke_actuate_reply(run_directory, executable, [
     "notify", "AgenTerm", "body", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(alias_with_name),
+  ensure(!rh.output_success(alias_with_name),
     "cu_linux_host_notify_usage_alias_name_ok:" + JSON.stringify(alias_with_name));
   ensure(
     text_at(alias_with_name, "error.code") === "usage",
@@ -189,7 +188,7 @@ function assert_host_notify_atspi_usage_limit(run_directory, executable, env) {
   const with_bogus = invoke_actuate_reply(run_directory, executable, [
     "host-notify", "AgenTerm", "body", "--bogus",
   ], env);
-  ensure(!output_success(with_bogus),
+  ensure(!rh.output_success(with_bogus),
     "cu_linux_host_notify_usage_bogus_ok:" + JSON.stringify(with_bogus));
   ensure(
     text_at(with_bogus, "error.code") === "usage",
@@ -207,7 +206,7 @@ function assert_host_notify_atspi_usage_limit(run_directory, executable, env) {
   const alias_with_bogus = invoke_actuate_reply(run_directory, executable, [
     "notify", "AgenTerm", "body", "--bogus",
   ], env);
-  ensure(!output_success(alias_with_bogus),
+  ensure(!rh.output_success(alias_with_bogus),
     "cu_linux_host_notify_usage_alias_bogus_ok:" + JSON.stringify(alias_with_bogus));
   ensure(
     text_at(alias_with_bogus, "error.code") === "usage",
@@ -225,7 +224,7 @@ function assert_host_notify_atspi_usage_limit(run_directory, executable, env) {
   const with_coords = invoke_actuate_reply(run_directory, executable, [
     "host-notify", "AgenTerm", "body", "--coords", "10,10",
   ], env);
-  ensure(!output_success(with_coords),
+  ensure(!rh.output_success(with_coords),
     "cu_linux_host_notify_usage_coords_ok:" + JSON.stringify(with_coords));
   ensure(
     text_at(with_coords, "error.code") === "usage",
@@ -243,7 +242,7 @@ function assert_host_notify_atspi_usage_limit(run_directory, executable, env) {
   const alias_with_coords = invoke_actuate_reply(run_directory, executable, [
     "notify", "AgenTerm", "body", "--coords", "10,10",
   ], env);
-  ensure(!output_success(alias_with_coords),
+  ensure(!rh.output_success(alias_with_coords),
     "cu_linux_host_notify_usage_alias_coords_ok:" + JSON.stringify(alias_with_coords));
   ensure(
     text_at(alias_with_coords, "error.code") === "usage",
@@ -263,7 +262,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  ensure(!rh.output_success(zero_handle),
     "cu_linux_host_notify_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -277,7 +276,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  ensure(!rh.output_success(missing_name),
     "cu_linux_host_notify_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
@@ -295,7 +294,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_host_notify_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -314,7 +313,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_host_notify_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -335,7 +334,7 @@ function assert_get_extents_name_miss(run_directory, executable, env) {
   const reply = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_host_notify_extents_miss_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
@@ -352,7 +351,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_host_notify_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
@@ -364,7 +363,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
 
 function assert_host_notify_usage_limit(run_directory, executable) {
   const missing_title = run_cu_reply(run_directory, executable, "actuate", ["host-notify"]);
-  ensure(!output_success(missing_title), "cu_linux_host_notify_usage_title_ok:" + JSON.stringify(missing_title));
+  ensure(!rh.output_success(missing_title), "cu_linux_host_notify_usage_title_ok:" + JSON.stringify(missing_title));
   ensure(
     text_at(missing_title, "error.code") === "usage",
     "cu_linux_host_notify_usage_title_code:" + JSON.stringify(missing_title.error)
@@ -377,7 +376,7 @@ function assert_host_notify_usage_limit(run_directory, executable) {
   const action_missing_label = run_cu_reply(run_directory, executable, "actuate", [
     "host-notify", "AgenTerm", "--action", "ack",
   ]);
-  ensure(!output_success(action_missing_label),
+  ensure(!rh.output_success(action_missing_label),
     "cu_linux_host_notify_usage_action_ok:" + JSON.stringify(action_missing_label));
   ensure(
     text_at(action_missing_label, "error.code") === "usage",
@@ -391,7 +390,7 @@ function assert_host_notify_usage_limit(run_directory, executable) {
   const unexpected_arg = run_cu_reply(run_directory, executable, "actuate", [
     "host-notify", "AgenTerm", "body", "unexpected",
   ]);
-  ensure(!output_success(unexpected_arg),
+  ensure(!rh.output_success(unexpected_arg),
     "cu_linux_host_notify_usage_extra_ok:" + JSON.stringify(unexpected_arg));
   ensure(
     text_at(unexpected_arg, "error.code") === "usage",

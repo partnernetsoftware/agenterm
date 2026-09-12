@@ -87,7 +87,6 @@ function cu_env(executable) {
   return env;
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
 
 function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
@@ -104,7 +103,7 @@ function run_cu_reply(run_directory, executable, grant, cu_args, env) {
 
 function run_cu(run_directory, executable, grant, arguments) {
   const document = run_cu_reply(run_directory, executable, grant, arguments);
-  ensure(output_success(document), "cu_linux_hover_click_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_hover_click_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -142,7 +141,7 @@ function assert_hover_click_usage_limit(run_directory, executable) {
   const hover_missing_name = run_cu_reply(run_directory, executable, "observe,actuate", [
     "hover", "--window", "1",
   ]);
-  ensure(!output_success(hover_missing_name), "cu_linux_hover_click_hover_usage_ok:" + JSON.stringify(hover_missing_name));
+  ensure(!rh.output_success(hover_missing_name), "cu_linux_hover_click_hover_usage_ok:" + JSON.stringify(hover_missing_name));
   ensure(
     text_at(hover_missing_name, "error.code") === "usage",
     "cu_linux_hover_click_hover_usage_code:" + JSON.stringify(hover_missing_name.error)
@@ -159,7 +158,7 @@ function assert_hover_click_usage_limit(run_directory, executable) {
   const click_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
     "click", "--window", "1",
   ]);
-  ensure(!output_success(click_missing), "cu_linux_hover_click_click_usage_ok:" + JSON.stringify(click_missing));
+  ensure(!rh.output_success(click_missing), "cu_linux_hover_click_click_usage_ok:" + JSON.stringify(click_missing));
   ensure(
     text_at(click_missing, "error.code") === "invalid_input",
     "cu_linux_hover_click_click_usage_code:" + JSON.stringify(click_missing.error)
@@ -173,7 +172,7 @@ function assert_hover_click_usage_limit(run_directory, executable) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
     "click", "--window", "0", "--name", BUTTON_NAME,
   ]);
-  ensure(!output_success(zero_handle), "cu_linux_hover_click_zero_handle_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_hover_click_zero_handle_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_hover_click_zero_handle_code:" + JSON.stringify(zero_handle.error)
@@ -186,7 +185,7 @@ function assert_hover_click_usage_limit(run_directory, executable) {
   const hover_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     "hover", "--window", "1", "--coords", "10,10",
   ]);
-  ensure(!output_success(hover_coords), "cu_linux_hover_click_hover_coords_ok:" + JSON.stringify(hover_coords));
+  ensure(!rh.output_success(hover_coords), "cu_linux_hover_click_hover_coords_ok:" + JSON.stringify(hover_coords));
   ensure(
     text_at(hover_coords, "error.code") === "usage",
     "cu_linux_hover_click_hover_coords_code:" + JSON.stringify(hover_coords.error)
@@ -204,7 +203,7 @@ function assert_hover_click_usage_limit(run_directory, executable) {
   const hover_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
     "hover", "--window", "1", "--bogus",
   ]);
-  ensure(!output_success(hover_bogus), "cu_linux_hover_click_hover_bogus_ok:" + JSON.stringify(hover_bogus));
+  ensure(!rh.output_success(hover_bogus), "cu_linux_hover_click_hover_bogus_ok:" + JSON.stringify(hover_bogus));
   ensure(
     text_at(hover_bogus, "error.code") === "usage",
     "cu_linux_hover_click_hover_bogus_code:" + JSON.stringify(hover_bogus.error)
@@ -222,7 +221,7 @@ function assert_hover_click_usage_limit(run_directory, executable) {
   const click_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     "click", "--window", "1", "--coords", "10,10",
   ]);
-  ensure(!output_success(click_coords), "cu_linux_hover_click_click_coords_ok:" + JSON.stringify(click_coords));
+  ensure(!rh.output_success(click_coords), "cu_linux_hover_click_click_coords_ok:" + JSON.stringify(click_coords));
   ensure(
     text_at(click_coords, "error.code") === "invalid_input",
     "cu_linux_hover_click_click_coords_code:" + JSON.stringify(click_coords.error)
@@ -241,7 +240,7 @@ function assert_hover_click_usage_limit(run_directory, executable) {
     "click", "--window", "1", "--name", BUTTON_NAME, "--coords", "10,10",
   ]);
   ensure(
-    !output_success(click_name_coords),
+    !rh.output_success(click_name_coords),
     "cu_linux_hover_click_click_name_coords_ok:" + JSON.stringify(click_name_coords)
   );
   ensure(
@@ -261,7 +260,7 @@ function assert_hover_click_usage_limit(run_directory, executable) {
   const click_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
     "click", "--window", "1", "--bogus",
   ]);
-  ensure(!output_success(click_bogus), "cu_linux_hover_click_click_bogus_ok:" + JSON.stringify(click_bogus));
+  ensure(!rh.output_success(click_bogus), "cu_linux_hover_click_click_bogus_ok:" + JSON.stringify(click_bogus));
   const click_bogus_code = text_at(click_bogus, "error.code");
   ensure(
     click_bogus_code === "invalid_input" || click_bogus_code === "usage",
@@ -291,7 +290,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", BUTTON_NAME,
   ], env);
-  ensure(!output_success(zero_handle), "cu_linux_hover_click_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_hover_click_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_hover_click_extents_usage_code:" + JSON.stringify(zero_handle.error)
@@ -304,7 +303,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name), "cu_linux_hover_click_extents_missing_name_ok:" + JSON.stringify(missing_name));
+  ensure(!rh.output_success(missing_name), "cu_linux_hover_click_extents_missing_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_hover_click_extents_missing_name_code:" + JSON.stringify(missing_name.error)
@@ -321,7 +320,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords), "cu_linux_hover_click_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(!rh.output_success(extents_coords), "cu_linux_hover_click_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
     "cu_linux_hover_click_extents_coords_code:" + JSON.stringify(extents_coords.error)
@@ -339,7 +338,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus), "cu_linux_hover_click_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(!rh.output_success(extents_bogus), "cu_linux_hover_click_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
     "cu_linux_hover_click_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
@@ -363,7 +362,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply), "cu_linux_hover_click_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_hover_click_extents_unavailable_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "command") !== "usage",
     "cu_linux_hover_click_extents_unavailable_fake_usage:" + JSON.stringify(reply)
@@ -423,7 +422,7 @@ function assert_fixture_desktop_state(
 }
 
 function assert_named_stay_or_misuse(reply, label, token) {
-  if (!output_success(reply)) {
+  if (!rh.output_success(reply)) {
     ensure(
       text_at(reply, "error.code") === "usage",
       "cu_linux_hover_click_" + label + "_code:" + JSON.stringify(reply.error)
@@ -461,7 +460,7 @@ function assert_hover_click_reject_coords_or_stay_named(run_directory, executabl
   const click_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     "click", "--window", handle, "--name", BUTTON_NAME, "--coords", "10,10",
   ]);
-  ensure(!output_success(click_coords), "cu_linux_hover_click_live_click_coords_ok:" + JSON.stringify(click_coords));
+  ensure(!rh.output_success(click_coords), "cu_linux_hover_click_live_click_coords_ok:" + JSON.stringify(click_coords));
   ensure(
     text_at(click_coords, "error.code") === "invalid_input",
     "cu_linux_hover_click_live_click_coords_code:" + JSON.stringify(click_coords.error)
@@ -479,7 +478,7 @@ function assert_hover_click_reject_coords_or_stay_named(run_directory, executabl
   const click_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
     "click", "--window", handle, "--bogus",
   ]);
-  ensure(!output_success(click_bogus), "cu_linux_hover_click_live_click_bogus_ok:" + JSON.stringify(click_bogus));
+  ensure(!rh.output_success(click_bogus), "cu_linux_hover_click_live_click_bogus_ok:" + JSON.stringify(click_bogus));
   const click_bogus_code = text_at(click_bogus, "error.code");
   ensure(
     click_bogus_code === "invalid_input" || click_bogus_code === "usage",
@@ -515,7 +514,7 @@ function assert_hover_click_missing_node(run_directory, executable, handle, labe
   const hover_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
     "hover", "--window", handle, "--name", MISSING_NODE,
   ]);
-  ensure(!output_success(hover_missing), "cu_linux_hover_click_hover_missing_ok_" + label);
+  ensure(!rh.output_success(hover_missing), "cu_linux_hover_click_hover_missing_ok_" + label);
   ensure(
     text_at(hover_missing, "error.code") === "a11y_node_not_found",
     "cu_linux_hover_click_hover_missing_code_" + label + ":" + JSON.stringify(hover_missing.error)
@@ -524,7 +523,7 @@ function assert_hover_click_missing_node(run_directory, executable, handle, labe
   const click_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
     "click", "--window", handle, "--name", MISSING_NODE,
   ]);
-  ensure(!output_success(click_missing), "cu_linux_hover_click_click_missing_ok_" + label);
+  ensure(!rh.output_success(click_missing), "cu_linux_hover_click_click_missing_ok_" + label);
   ensure(
     text_at(click_missing, "error.code") === "a11y_node_not_found",
     "cu_linux_hover_click_click_missing_code_" + label + ":" + JSON.stringify(click_missing.error)
@@ -540,7 +539,7 @@ function assert_hover_click_host_limit_when_atspi_absent(run_directory, executab
   const hover_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "hover", "--window", "1", "--name", BUTTON_NAME,
   ], env);
-  ensure(!output_success(hover_reply), "cu_linux_hover_click_hover_unavailable_ok:" + JSON.stringify(hover_reply));
+  ensure(!rh.output_success(hover_reply), "cu_linux_hover_click_hover_unavailable_ok:" + JSON.stringify(hover_reply));
   ensure(
     text_at(hover_reply, "command") !== "usage",
     "cu_linux_hover_click_hover_unavailable_fake_usage:" + JSON.stringify(hover_reply)
@@ -554,7 +553,7 @@ function assert_hover_click_host_limit_when_atspi_absent(run_directory, executab
   const click_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "click", "--window", "1", "--name", BUTTON_NAME,
   ], env);
-  ensure(!output_success(click_reply), "cu_linux_hover_click_click_unavailable_ok:" + JSON.stringify(click_reply));
+  ensure(!rh.output_success(click_reply), "cu_linux_hover_click_click_unavailable_ok:" + JSON.stringify(click_reply));
   ensure(
     text_at(click_reply, "command") !== "usage",
     "cu_linux_hover_click_click_unavailable_fake_usage:" + JSON.stringify(click_reply)

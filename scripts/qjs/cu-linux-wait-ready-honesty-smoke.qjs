@@ -99,11 +99,10 @@ function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   return JSON.parse(output.stdout.trim());
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
 
 function run_cu(run_directory, executable, grant, arguments) {
   const document = run_cu_reply(run_directory, executable, grant, arguments);
-  ensure(output_success(document), "cu_linux_wait_ready_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_wait_ready_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -141,7 +140,7 @@ function assert_wait_usage_limit(run_directory, executable) {
   const reply = run_cu_reply(run_directory, executable, "observe", [
     "wait", "--timeout-ms", "1000",
   ]);
-  ensure(!output_success(reply), "cu_linux_wait_ready_usage_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_wait_ready_usage_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "usage",
     "cu_linux_wait_ready_usage_code:" + JSON.stringify(reply.error)
@@ -158,7 +157,7 @@ function assert_wait_atspi_name_usage_limit(run_directory, executable) {
     "--window", "1",
     "--name", AT_SPI_PROBE_NAME,
   ]);
-  ensure(!output_success(bare_name), "cu_linux_wait_ready_usage_name_ok:" + JSON.stringify(bare_name));
+  ensure(!rh.output_success(bare_name), "cu_linux_wait_ready_usage_name_ok:" + JSON.stringify(bare_name));
   ensure(
     text_at(bare_name, "error.code") === "usage",
     "cu_linux_wait_ready_usage_name_code:" + JSON.stringify(bare_name.error)
@@ -179,7 +178,7 @@ function assert_wait_atspi_name_usage_limit(run_directory, executable) {
     "--name", AT_SPI_PROBE_NAME,
   ]);
   ensure(
-    !output_success(ready_path_with_name),
+    !rh.output_success(ready_path_with_name),
     "cu_linux_wait_ready_usage_ready_name_ok:" + JSON.stringify(ready_path_with_name)
   );
   ensure(
@@ -194,7 +193,7 @@ function assert_wait_atspi_name_usage_limit(run_directory, executable) {
   const with_bogus = run_cu_reply(run_directory, executable, "observe", [
     "wait", "--timeout-ms", "1000", "--bogus",
   ]);
-  ensure(!output_success(with_bogus), "cu_linux_wait_ready_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(!rh.output_success(with_bogus), "cu_linux_wait_ready_usage_bogus_ok:" + JSON.stringify(with_bogus));
   ensure(
     text_at(with_bogus, "error.code") === "usage",
     "cu_linux_wait_ready_usage_bogus_code:" + JSON.stringify(with_bogus.error)
@@ -212,7 +211,7 @@ function assert_wait_atspi_name_usage_limit(run_directory, executable) {
   const with_coords = run_cu_reply(run_directory, executable, "observe", [
     "wait", "--timeout-ms", "1000", "--coords", "10,10",
   ]);
-  ensure(!output_success(with_coords), "cu_linux_wait_ready_usage_coords_ok:" + JSON.stringify(with_coords));
+  ensure(!rh.output_success(with_coords), "cu_linux_wait_ready_usage_coords_ok:" + JSON.stringify(with_coords));
   ensure(
     text_at(with_coords, "error.code") === "usage",
     "cu_linux_wait_ready_usage_coords_code:" + JSON.stringify(with_coords.error)
@@ -233,7 +232,7 @@ function assert_wait_atspi_name_usage_limit(run_directory, executable) {
     "--coords", "10,10",
   ]);
   ensure(
-    !output_success(ready_path_with_coords),
+    !rh.output_success(ready_path_with_coords),
     "cu_linux_wait_ready_usage_ready_coords_ok:" + JSON.stringify(ready_path_with_coords)
   );
   ensure(
@@ -254,7 +253,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle), "cu_linux_wait_ready_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_wait_ready_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_wait_ready_extents_usage_code:" + JSON.stringify(zero_handle.error)
@@ -267,7 +266,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name), "cu_linux_wait_ready_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(!rh.output_success(missing_name), "cu_linux_wait_ready_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_wait_ready_extents_usage_name_code:" + JSON.stringify(missing_name.error)
@@ -284,7 +283,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords), "cu_linux_wait_ready_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(!rh.output_success(extents_coords), "cu_linux_wait_ready_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
     "cu_linux_wait_ready_extents_coords_code:" + JSON.stringify(extents_coords.error)
@@ -302,7 +301,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus), "cu_linux_wait_ready_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(!rh.output_success(extents_bogus), "cu_linux_wait_ready_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
     "cu_linux_wait_ready_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
@@ -326,7 +325,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply), "cu_linux_wait_ready_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_wait_ready_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
@@ -345,7 +344,7 @@ function assert_wait_node_host_limit_when_atspi_absent(run_directory, executable
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply), "cu_linux_wait_ready_node_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_wait_ready_node_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_backend_failed" || code === "timeout" || code === "unsupported"
@@ -378,7 +377,7 @@ function assert_wait_ready_path_timeout_honesty(run_directory, executable, ready
   );
   const reply = JSON.parse(output.stdout.trim());
   ensure(
-    !output_success(reply) && text_at(reply, "error.code") === "timeout",
+    !rh.output_success(reply) && text_at(reply, "error.code") === "timeout",
     "cu_linux_wait_ready_path_timeout:" + JSON.stringify(reply)
   );
   ensure(
@@ -402,7 +401,7 @@ function assert_wait_node_timeout_honesty(run_directory, executable, handle_text
   );
   const reply = JSON.parse(output.stdout.trim());
   ensure(
-    !output_success(reply) && text_at(reply, "error.code") === "timeout",
+    !rh.output_success(reply) && text_at(reply, "error.code") === "timeout",
     "cu_linux_wait_ready_node_timeout:" + JSON.stringify(reply)
   );
   ensure(

@@ -82,7 +82,6 @@ function cu_env(executable) {
   return env;
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
 
 function run_cu_reply(run_directory, executable, grant, arguments, env) {
   const argv = ["--target", "current", "--grant", grant];
@@ -99,7 +98,7 @@ function run_cu_reply(run_directory, executable, grant, arguments, env) {
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  harness.require(output_success(document), "cu_linux_page_drag_reply:" + JSON.stringify(document));
+  harness.require(rh.output_success(document), "cu_linux_page_drag_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -129,7 +128,7 @@ function assert_page_drag_usage_limit(run_directory, executable, env, port) {
   const missing_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     "page-drag", "--port", "" + port, "--target-id", "unused",
   ], env);
-  harness.require(!output_success(missing_coords), "cu_linux_page_drag_usage_ok:" + JSON.stringify(missing_coords));
+  harness.require(!rh.output_success(missing_coords), "cu_linux_page_drag_usage_ok:" + JSON.stringify(missing_coords));
   harness.require(
     text_at(missing_coords, "error.code") === "usage",
     "cu_linux_page_drag_usage_code:" + JSON.stringify(missing_coords.error)
@@ -143,7 +142,7 @@ function assert_page_drag_usage_limit(run_directory, executable, env, port) {
     "page-drag", "--port", "" + port, "--target-id", "unused",
     "--x1", "10", "--y1", "10", "--x2", "20",
   ], env);
-  harness.require(!output_success(missing_y2), "cu_linux_page_drag_missing_y2_ok:" + JSON.stringify(missing_y2));
+  harness.require(!rh.output_success(missing_y2), "cu_linux_page_drag_missing_y2_ok:" + JSON.stringify(missing_y2));
   harness.require(
     text_at(missing_y2, "error.code") === "usage",
     "cu_linux_page_drag_missing_y2_code:" + JSON.stringify(missing_y2.error)
@@ -157,7 +156,7 @@ function assert_page_drag_usage_limit(run_directory, executable, env, port) {
     "page-drag", "--port", "" + port, "--target-id", "unused",
     "--x1", "-1", "--y1", "10", "--x2", "20", "--y2", "10",
   ], env);
-  harness.require(!output_success(bad_x1), "cu_linux_page_drag_bad_x1_ok:" + JSON.stringify(bad_x1));
+  harness.require(!rh.output_success(bad_x1), "cu_linux_page_drag_bad_x1_ok:" + JSON.stringify(bad_x1));
   harness.require(
     text_at(bad_x1, "error.code") === "usage",
     "cu_linux_page_drag_bad_x1_code:" + JSON.stringify(bad_x1.error)
@@ -171,7 +170,7 @@ function assert_page_drag_usage_limit(run_directory, executable, env, port) {
     "page-drag", "--port", "" + port, "--target-id", "unused",
     "--x1", "10", "--y1", "10", "--x2", "10", "--y2", "10",
   ], env);
-  harness.require(!output_success(zero_distance), "cu_linux_page_drag_zero_distance_ok:" + JSON.stringify(zero_distance));
+  harness.require(!rh.output_success(zero_distance), "cu_linux_page_drag_zero_distance_ok:" + JSON.stringify(zero_distance));
   harness.require(
     text_at(zero_distance, "error.code") === "usage",
     "cu_linux_page_drag_zero_distance_code:" + JSON.stringify(zero_distance.error)
@@ -188,7 +187,7 @@ function assert_page_drag_usage_rejects_name(run_directory, executable, env, por
     "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20",
     "--name", AT_SPI_PROBE_NAME,
   ], env);
-  harness.require(!output_success(flat_with_name),
+  harness.require(!rh.output_success(flat_with_name),
     "cu_linux_page_drag_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
   harness.require(
     text_at(flat_with_name, "error.code") === "usage",
@@ -208,7 +207,7 @@ function assert_page_drag_usage_rejects_name(run_directory, executable, env, por
     "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20",
     "--name", AT_SPI_PROBE_NAME,
   ], env);
-  harness.require(!output_success(grouped_with_name),
+  harness.require(!rh.output_success(grouped_with_name),
     "cu_linux_page_drag_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
   harness.require(
     text_at(grouped_with_name, "error.code") === "usage",
@@ -223,7 +222,7 @@ function assert_page_drag_usage_rejects_name(run_directory, executable, env, por
     "page-drag", "--port", "" + port, "--target-id", "unused",
     "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20", "--bogus",
   ], env);
-  harness.require(!output_success(flat_with_bogus),
+  harness.require(!rh.output_success(flat_with_bogus),
     "cu_linux_page_drag_usage_flat_bogus_ok:" + JSON.stringify(flat_with_bogus));
   harness.require(
     text_at(flat_with_bogus, "error.code") === "usage",
@@ -242,7 +241,7 @@ function assert_page_drag_usage_rejects_name(run_directory, executable, env, por
     "page", "drag", "--port", "" + port, "--target-id", "unused",
     "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20", "--bogus",
   ], env);
-  harness.require(!output_success(grouped_with_bogus),
+  harness.require(!rh.output_success(grouped_with_bogus),
     "cu_linux_page_drag_usage_grouped_bogus_ok:" + JSON.stringify(grouped_with_bogus));
   harness.require(
     text_at(grouped_with_bogus, "error.code") === "usage",
@@ -257,7 +256,7 @@ function assert_page_drag_usage_rejects_name(run_directory, executable, env, por
     "page-drag", "--port", "" + port, "--target-id", "unused",
     "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20", "--coords", "10,10",
   ], env);
-  harness.require(!output_success(flat_with_coords),
+  harness.require(!rh.output_success(flat_with_coords),
     "cu_linux_page_drag_usage_flat_coords_ok:" + JSON.stringify(flat_with_coords));
   harness.require(
     text_at(flat_with_coords, "error.code") === "usage",
@@ -276,7 +275,7 @@ function assert_page_drag_usage_rejects_name(run_directory, executable, env, por
     "page", "drag", "--port", "" + port, "--target-id", "unused",
     "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20", "--coords", "10,10",
   ], env);
-  harness.require(!output_success(grouped_with_coords),
+  harness.require(!rh.output_success(grouped_with_coords),
     "cu_linux_page_drag_usage_grouped_coords_ok:" + JSON.stringify(grouped_with_coords));
   harness.require(
     text_at(grouped_with_coords, "error.code") === "usage",
@@ -292,7 +291,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  harness.require(!output_success(zero_handle),
+  harness.require(!rh.output_success(zero_handle),
     "cu_linux_page_drag_extents_usage_ok:" + JSON.stringify(zero_handle));
   harness.require(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -306,7 +305,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1",
   ], env);
-  harness.require(!output_success(missing_name),
+  harness.require(!rh.output_success(missing_name),
     "cu_linux_page_drag_extents_usage_name_ok:" + JSON.stringify(missing_name));
   harness.require(
     text_at(missing_name, "error.code") === "usage",
@@ -324,7 +323,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  harness.require(!output_success(extents_coords),
+  harness.require(!rh.output_success(extents_coords),
     "cu_linux_page_drag_extents_coords_ok:" + JSON.stringify(extents_coords));
   harness.require(
     text_at(extents_coords, "error.code") === "usage",
@@ -343,7 +342,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  harness.require(!output_success(extents_bogus),
+  harness.require(!rh.output_success(extents_bogus),
     "cu_linux_page_drag_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   harness.require(
     text_at(extents_bogus, "error.code") === "usage",
@@ -368,7 +367,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  harness.require(!output_success(reply),
+  harness.require(!rh.output_success(reply),
     "cu_linux_page_drag_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   harness.require(
@@ -400,7 +399,7 @@ function assert_page_drag_miss_target(run_directory, executable, env, port) {
     "page-drag", "--port", "" + port, "--target-id", "deadbeef",
     "--x1", "10", "--y1", "10", "--x2", "20", "--y2", "20",
   ], env);
-  harness.require(!output_success(reply), "cu_linux_page_drag_miss_target_ok:" + JSON.stringify(reply));
+  harness.require(!rh.output_success(reply), "cu_linux_page_drag_miss_target_ok:" + JSON.stringify(reply));
   harness.require(
     text_at(reply, "error.code") === "cdp_target_not_found",
     "cu_linux_page_drag_miss_target_code:" + JSON.stringify(reply.error)
@@ -416,7 +415,7 @@ function assert_page_drag_miss_point(run_directory, executable, env, port, targe
     "page-drag", "--port", "" + port, "--target-id", target_id,
     "--x1", "99999", "--y1", "99999", "--x2", "99998", "--y2", "99998",
   ], env);
-  harness.require(!output_success(reply), "cu_linux_page_drag_miss_point_ok:" + JSON.stringify(reply));
+  harness.require(!rh.output_success(reply), "cu_linux_page_drag_miss_point_ok:" + JSON.stringify(reply));
   harness.require(
     text_at(reply, "error.code") === "cdp_point_not_found",
     "cu_linux_page_drag_miss_point_code:" + JSON.stringify(reply.error)

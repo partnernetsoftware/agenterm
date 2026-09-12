@@ -53,7 +53,6 @@ function int_at(value, dotted) {
   return rh.parse_int("" + value_at);
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -100,7 +99,7 @@ function run_cu_reply(run_directory, executable, grant, cu_args, env, env_remove
 
 function run_cu(run_directory, executable, grant, arguments, env, env_remove) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env, env_remove);
-  ensure(output_success(document), "cu_linux_workspace_desktop_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_workspace_desktop_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -125,7 +124,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "0", "--name", BUTTON_NAME,
   ], env);
-  ensure(!output_success(zero_handle), "cu_linux_workspace_desktop_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_workspace_desktop_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_workspace_desktop_extents_usage_code:" + JSON.stringify(zero_handle.error)
@@ -138,7 +137,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name), "cu_linux_workspace_desktop_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(!rh.output_success(missing_name), "cu_linux_workspace_desktop_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_workspace_desktop_extents_usage_name_code:" + JSON.stringify(missing_name.error)
@@ -155,7 +154,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords), "cu_linux_workspace_desktop_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(!rh.output_success(extents_coords), "cu_linux_workspace_desktop_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
     "cu_linux_workspace_desktop_extents_coords_code:" + JSON.stringify(extents_coords.error)
@@ -173,7 +172,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus), "cu_linux_workspace_desktop_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(!rh.output_success(extents_bogus), "cu_linux_workspace_desktop_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
     "cu_linux_workspace_desktop_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
@@ -193,7 +192,7 @@ function assert_windows_usage_limit(run_directory, executable, env) {
   const with_name = run_cu_reply(run_directory, executable, "observe", [
     "windows", "--name", BUTTON_NAME,
   ], env);
-  ensure(!output_success(with_name), "cu_linux_workspace_desktop_windows_name_ok:" + JSON.stringify(with_name));
+  ensure(!rh.output_success(with_name), "cu_linux_workspace_desktop_windows_name_ok:" + JSON.stringify(with_name));
   ensure(
     text_at(with_name, "error.code") === "usage",
     "cu_linux_workspace_desktop_windows_name_code:" + JSON.stringify(with_name.error)
@@ -210,7 +209,7 @@ function assert_windows_usage_limit(run_directory, executable, env) {
   const with_coords = run_cu_reply(run_directory, executable, "observe", [
     "windows", "--coords", "10,10",
   ], env);
-  ensure(!output_success(with_coords), "cu_linux_workspace_desktop_windows_coords_ok:" + JSON.stringify(with_coords));
+  ensure(!rh.output_success(with_coords), "cu_linux_workspace_desktop_windows_coords_ok:" + JSON.stringify(with_coords));
   ensure(
     text_at(with_coords, "error.code") === "usage",
     "cu_linux_workspace_desktop_windows_coords_code:" + JSON.stringify(with_coords.error)
@@ -227,7 +226,7 @@ function assert_windows_usage_limit(run_directory, executable, env) {
   const with_bogus = run_cu_reply(run_directory, executable, "observe", [
     "windows", "--bogus",
   ], env);
-  ensure(!output_success(with_bogus), "cu_linux_workspace_desktop_windows_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(!rh.output_success(with_bogus), "cu_linux_workspace_desktop_windows_bogus_ok:" + JSON.stringify(with_bogus));
   ensure(
     text_at(with_bogus, "error.code") === "usage",
     "cu_linux_workspace_desktop_windows_bogus_code:" + JSON.stringify(with_bogus.error)
@@ -246,7 +245,7 @@ function assert_spaces_usage_reject(run_directory, executable, env, extra_args, 
   const argv = ["spaces"];
   for (const argument of extra_args) { argv.push("" + argument); }
   const reply = run_cu_reply(run_directory, executable, "observe", argv, env);
-  ensure(!output_success(reply), "cu_linux_workspace_desktop_spaces_usage_" + label + "_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_workspace_desktop_spaces_usage_" + label + "_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "usage",
     "cu_linux_workspace_desktop_spaces_usage_" + label + "_code:" + JSON.stringify(reply.error)
@@ -276,7 +275,7 @@ function assert_spaces_usage_limit(run_directory, executable, env) {
 
 function assert_spaces_host_limit(run_directory, executable, env) {
   const reply = run_cu_reply(run_directory, executable, "observe", ["spaces"], env);
-  ensure(!output_success(reply), "cu_linux_workspace_desktop_spaces_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_workspace_desktop_spaces_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "unsupported",
     "cu_linux_workspace_desktop_spaces_code:" + JSON.stringify(reply.error)
@@ -318,7 +317,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply), "cu_linux_workspace_desktop_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_workspace_desktop_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
@@ -339,7 +338,7 @@ function assert_windows_headless_host_limit(run_directory, executable) {
     },
     ["DISPLAY"]
   );
-  ensure(!output_success(reply), "cu_linux_workspace_desktop_headless_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_workspace_desktop_headless_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "unsupported",
     "cu_linux_workspace_desktop_headless_code:" + JSON.stringify(reply.error)
@@ -356,7 +355,7 @@ function assert_get_extents_missing_node(run_directory, executable, handle, labe
   const reply = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", handle, "--name", MISSING_NODE,
   ]);
-  ensure(!output_success(reply), "cu_linux_workspace_desktop_extents_missing_ok_" + label);
+  ensure(!rh.output_success(reply), "cu_linux_workspace_desktop_extents_missing_ok_" + label);
   ensure(
     text_at(reply, "error.code") === "a11y_node_not_found",
     "cu_linux_workspace_desktop_extents_missing_code_" + label + ":" + JSON.stringify(reply.error)
@@ -430,7 +429,7 @@ function assert_get_extents_reject_coords_or_stay_named(
   const extents_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "" + handle, "--name", node_name, "--coords", "10,10",
   ]);
-  if (!output_success(extents_coords)) {
+  if (!rh.output_success(extents_coords)) {
     ensure(
       text_at(extents_coords, "error.code") === "usage",
       "cu_linux_workspace_desktop_extents_coords_code_" + label + ":" + JSON.stringify(extents_coords.error)
@@ -455,7 +454,7 @@ function assert_get_extents_reject_coords_or_stay_named(
   const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "" + handle, "--name", node_name, "--bogus",
   ]);
-  if (!output_success(extents_bogus)) {
+  if (!rh.output_success(extents_bogus)) {
     ensure(
       text_at(extents_bogus, "error.code") === "usage",
       "cu_linux_workspace_desktop_extents_bogus_code_" + label + ":" + JSON.stringify(extents_bogus.error)

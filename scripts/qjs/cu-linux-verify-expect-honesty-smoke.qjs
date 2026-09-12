@@ -116,7 +116,6 @@ function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   return JSON.parse(trimmed);
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
 
 function verify_reply(run_directory, executable, handle_text, expect) {
   return run_cu_reply(run_directory, executable, "observe", [
@@ -197,7 +196,7 @@ function assert_verify_usage_limit(run_directory, executable) {
   const reply = run_cu_reply(run_directory, executable, "observe", [
     "verify", "--window", "0", "--expect", JSON.stringify([{ name: ENTRY_NAME, value: "seed" }]),
   ]);
-  ensure(!output_success(reply), "cu_linux_verify_expect_usage_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_verify_expect_usage_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "usage",
     "cu_linux_verify_expect_usage_code:" + JSON.stringify(reply.error)
@@ -213,7 +212,7 @@ function assert_verify_unexpected_usage(run_directory, executable, env) {
   const with_name = invoke_verify_reply(run_directory, executable, [
     "verify", "--window", "1", "--name", AT_SPI_PROBE_NAME, "--expect", expect_json,
   ], env);
-  ensure(!output_success(with_name),
+  ensure(!rh.output_success(with_name),
     "cu_linux_verify_expect_usage_name_ok:" + JSON.stringify(with_name));
   ensure(
     text_at(with_name, "error.code") === "usage",
@@ -231,7 +230,7 @@ function assert_verify_unexpected_usage(run_directory, executable, env) {
   const with_bogus = invoke_verify_reply(run_directory, executable, [
     "verify", "--window", "1", "--bogus", "--expect", expect_json,
   ], env);
-  ensure(!output_success(with_bogus),
+  ensure(!rh.output_success(with_bogus),
     "cu_linux_verify_expect_usage_bogus_ok:" + JSON.stringify(with_bogus));
   ensure(
     text_at(with_bogus, "error.code") === "usage",
@@ -249,7 +248,7 @@ function assert_verify_unexpected_usage(run_directory, executable, env) {
   const with_coords = invoke_verify_reply(run_directory, executable, [
     "verify", "--window", "1", "--coords", "10,10", "--expect", expect_json,
   ], env);
-  ensure(!output_success(with_coords),
+  ensure(!rh.output_success(with_coords),
     "cu_linux_verify_expect_usage_coords_ok:" + JSON.stringify(with_coords));
   ensure(
     text_at(with_coords, "error.code") === "usage",
@@ -269,7 +268,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  ensure(!rh.output_success(zero_handle),
     "cu_linux_verify_expect_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -283,7 +282,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  ensure(!rh.output_success(missing_name),
     "cu_linux_verify_expect_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
@@ -301,7 +300,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_verify_expect_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -320,7 +319,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_verify_expect_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -345,7 +344,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_verify_expect_extents_unavailable_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "command") !== "usage",
@@ -367,7 +366,7 @@ function assert_verify_host_limit_when_atspi_absent(run_directory, executable) {
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply), "cu_linux_verify_expect_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_verify_expect_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
@@ -655,7 +654,7 @@ function assert_readback_rejects(run_directory, executable, fixture_pid, cu_veri
 
 function assert_verify_mismatch(run_directory, executable, handle_text, fixture_pid, expect, label) {
   const reply = verify_reply(run_directory, executable, handle_text, expect);
-  ensure(!output_success(reply), "cu_linux_verify_expect_mismatch_ok_" + label + ":" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_verify_expect_mismatch_ok_" + label + ":" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "unverified",
     "cu_linux_verify_expect_mismatch_code_" + label + ":" + JSON.stringify(reply.error)
@@ -758,7 +757,7 @@ function assert_verify_missing_node(run_directory, executable, handle_text, fixt
   const reply = verify_reply(run_directory, executable, handle_text, [
     { name: ABSENT_NODE_NAME, value: "x" },
   ]);
-  ensure(!output_success(reply), "cu_linux_verify_expect_missing_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_verify_expect_missing_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "unverified",
     "cu_linux_verify_expect_missing_code:" + JSON.stringify(reply.error)

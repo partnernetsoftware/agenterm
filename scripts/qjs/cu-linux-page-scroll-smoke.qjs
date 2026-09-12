@@ -62,7 +62,6 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
 
 function cu_env(executable) {
   const env = {
@@ -107,7 +106,7 @@ function run_cu_reply(run_directory, executable, grant, arguments, env) {
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  harness.require(output_success(document), "cu_linux_page_scroll_reply:" + JSON.stringify(document));
+  harness.require(rh.output_success(document), "cu_linux_page_scroll_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -133,7 +132,7 @@ function assert_page_scroll_usage_rejects_name(run_directory, executable, env, p
     "page-scroll", "--port", "" + port, "--target-id", "unused",
     "--x", "10", "--y", "10", "--dy", "120", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  harness.require(!output_success(flat_with_name),
+  harness.require(!rh.output_success(flat_with_name),
     "cu_linux_page_scroll_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
   harness.require(
     text_at(flat_with_name, "error.code") === "usage",
@@ -152,7 +151,7 @@ function assert_page_scroll_usage_rejects_name(run_directory, executable, env, p
     "page", "scroll", "--port", "" + port, "--target-id", "unused",
     "--x", "10", "--y", "10", "--dy", "120", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  harness.require(!output_success(grouped_with_name),
+  harness.require(!rh.output_success(grouped_with_name),
     "cu_linux_page_scroll_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
   harness.require(
     text_at(grouped_with_name, "error.code") === "usage",
@@ -167,7 +166,7 @@ function assert_page_scroll_usage_rejects_name(run_directory, executable, env, p
     "page-scroll", "--port", "" + port, "--target-id", "unused",
     "--x", "10", "--y", "10", "--dy", "120", "--bogus",
   ], env);
-  harness.require(!output_success(flat_with_bogus),
+  harness.require(!rh.output_success(flat_with_bogus),
     "cu_linux_page_scroll_usage_flat_bogus_ok:" + JSON.stringify(flat_with_bogus));
   harness.require(
     text_at(flat_with_bogus, "error.code") === "usage",
@@ -186,7 +185,7 @@ function assert_page_scroll_usage_rejects_name(run_directory, executable, env, p
     "page", "scroll", "--port", "" + port, "--target-id", "unused",
     "--x", "10", "--y", "10", "--dy", "120", "--bogus",
   ], env);
-  harness.require(!output_success(grouped_with_bogus),
+  harness.require(!rh.output_success(grouped_with_bogus),
     "cu_linux_page_scroll_usage_grouped_bogus_ok:" + JSON.stringify(grouped_with_bogus));
   harness.require(
     text_at(grouped_with_bogus, "error.code") === "usage",
@@ -201,7 +200,7 @@ function assert_page_scroll_usage_rejects_name(run_directory, executable, env, p
     "page-scroll", "--port", "" + port, "--target-id", "unused",
     "--x", "10", "--y", "10", "--dy", "120", "--coords", "10,10",
   ], env);
-  harness.require(!output_success(flat_with_coords),
+  harness.require(!rh.output_success(flat_with_coords),
     "cu_linux_page_scroll_usage_flat_coords_ok:" + JSON.stringify(flat_with_coords));
   harness.require(
     text_at(flat_with_coords, "error.code") === "usage",
@@ -220,7 +219,7 @@ function assert_page_scroll_usage_rejects_name(run_directory, executable, env, p
     "page", "scroll", "--port", "" + port, "--target-id", "unused",
     "--x", "10", "--y", "10", "--dy", "120", "--coords", "10,10",
   ], env);
-  harness.require(!output_success(grouped_with_coords),
+  harness.require(!rh.output_success(grouped_with_coords),
     "cu_linux_page_scroll_usage_grouped_coords_ok:" + JSON.stringify(grouped_with_coords));
   harness.require(
     text_at(grouped_with_coords, "error.code") === "usage",
@@ -236,7 +235,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  harness.require(!output_success(zero_handle),
+  harness.require(!rh.output_success(zero_handle),
     "cu_linux_page_scroll_extents_usage_ok:" + JSON.stringify(zero_handle));
   harness.require(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -250,7 +249,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1",
   ], env);
-  harness.require(!output_success(missing_name),
+  harness.require(!rh.output_success(missing_name),
     "cu_linux_page_scroll_extents_usage_name_ok:" + JSON.stringify(missing_name));
   harness.require(
     text_at(missing_name, "error.code") === "usage",
@@ -268,7 +267,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  harness.require(!output_success(extents_coords),
+  harness.require(!rh.output_success(extents_coords),
     "cu_linux_page_scroll_extents_coords_ok:" + JSON.stringify(extents_coords));
   harness.require(
     text_at(extents_coords, "error.code") === "usage",
@@ -287,7 +286,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  harness.require(!output_success(extents_bogus),
+  harness.require(!rh.output_success(extents_bogus),
     "cu_linux_page_scroll_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   harness.require(
     text_at(extents_bogus, "error.code") === "usage",
@@ -312,7 +311,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  harness.require(!output_success(reply),
+  harness.require(!rh.output_success(reply),
     "cu_linux_page_scroll_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   harness.require(
@@ -357,7 +356,7 @@ function assert_scroll_usage(run_directory, executable, env, port) {
     "page-scroll", "--port", "" + port, "--target-id", "unused",
     "--dy", "120",
   ], env);
-  harness.require(!output_success(missing_xy), "cu_linux_page_scroll_usage_ok_xy:" + JSON.stringify(missing_xy));
+  harness.require(!rh.output_success(missing_xy), "cu_linux_page_scroll_usage_ok_xy:" + JSON.stringify(missing_xy));
   harness.require(
     text_at(missing_xy, "error.code") === "usage",
     "cu_linux_page_scroll_usage_code_xy:" + JSON.stringify(missing_xy.error)
@@ -372,7 +371,7 @@ function assert_scroll_usage(run_directory, executable, env, port) {
     "page-scroll", "--port", "" + port, "--target-id", "unused",
     "--x", "10", "--y", "10", "--dx", "0", "--dy", "0",
   ], env);
-  harness.require(!output_success(zero_delta), "cu_linux_page_scroll_usage_ok_delta:" + JSON.stringify(zero_delta));
+  harness.require(!rh.output_success(zero_delta), "cu_linux_page_scroll_usage_ok_delta:" + JSON.stringify(zero_delta));
   harness.require(
     text_at(zero_delta, "error.code") === "usage",
     "cu_linux_page_scroll_usage_code_delta:" + JSON.stringify(zero_delta.error)
@@ -388,7 +387,7 @@ function assert_scroll_miss_bad_target(run_directory, executable, env, port) {
     "page-scroll", "--port", "" + port, "--target-id", "deadbeef",
     "--x", "10", "--y", "10", "--dy", "120",
   ], env);
-  harness.require(!output_success(reply), "cu_linux_page_scroll_miss_ok:" + JSON.stringify(reply));
+  harness.require(!rh.output_success(reply), "cu_linux_page_scroll_miss_ok:" + JSON.stringify(reply));
   harness.require(
     text_at(reply, "error.code") === "cdp_target_not_found",
     "cu_linux_page_scroll_miss_code:" + JSON.stringify(reply.error)

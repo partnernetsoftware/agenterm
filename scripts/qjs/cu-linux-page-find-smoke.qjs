@@ -63,7 +63,6 @@ function cu_env(executable) {
   return env;
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
 
 function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
@@ -82,7 +81,7 @@ function run_cu_reply(run_directory, executable, grant, cu_args, env) {
 
 function run_cu(run_directory, executable, grant, cu_args, env) {
   const document = run_cu_reply(run_directory, executable, grant, cu_args, env);
-  harness.require(output_success(document), "cu_linux_page_find_reply:" + JSON.stringify(document));
+  harness.require(rh.output_success(document), "cu_linux_page_find_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -121,7 +120,7 @@ function assert_page_find_unexpected_usage(run_directory, executable, env, port)
     "page-find", "--port", "" + port, "--target-id", "unused",
     "--selector", "#hero", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  harness.require(!output_success(selector_with_name),
+  harness.require(!rh.output_success(selector_with_name),
     "cu_linux_page_find_usage_selector_name_ok:" + JSON.stringify(selector_with_name));
   harness.require(
     text_at(selector_with_name, "error.code") === "usage",
@@ -140,7 +139,7 @@ function assert_page_find_unexpected_usage(run_directory, executable, env, port)
     "page-find", "--port", "" + port, "--target-id", "unused",
     "--text", "CEO", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  harness.require(!output_success(text_with_name),
+  harness.require(!rh.output_success(text_with_name),
     "cu_linux_page_find_usage_text_name_ok:" + JSON.stringify(text_with_name));
   harness.require(
     text_at(text_with_name, "error.code") === "usage",
@@ -159,7 +158,7 @@ function assert_page_find_unexpected_usage(run_directory, executable, env, port)
     "page", "find", "--port", "" + port, "--target-id", "unused",
     "--selector", "#hero", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  harness.require(!output_success(grouped_with_name),
+  harness.require(!rh.output_success(grouped_with_name),
     "cu_linux_page_find_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
   harness.require(
     text_at(grouped_with_name, "error.code") === "usage",
@@ -178,7 +177,7 @@ function assert_page_find_unexpected_usage(run_directory, executable, env, port)
     "page-find", "--port", "" + port, "--target-id", "unused",
     "--selector", "#hero", "--bogus",
   ], env);
-  harness.require(!output_success(with_bogus),
+  harness.require(!rh.output_success(with_bogus),
     "cu_linux_page_find_usage_bogus_ok:" + JSON.stringify(with_bogus));
   harness.require(
     text_at(with_bogus, "error.code") === "usage",
@@ -197,7 +196,7 @@ function assert_page_find_unexpected_usage(run_directory, executable, env, port)
     "page-find", "--port", "" + port, "--target-id", "unused",
     "--selector", "#hero", "--coords", "10,10",
   ], env);
-  harness.require(!output_success(with_coords),
+  harness.require(!rh.output_success(with_coords),
     "cu_linux_page_find_usage_coords_ok:" + JSON.stringify(with_coords));
   harness.require(
     text_at(with_coords, "error.code") === "usage",
@@ -216,7 +215,7 @@ function assert_page_find_unexpected_usage(run_directory, executable, env, port)
     "page", "find", "--port", "" + port, "--target-id", "unused",
     "--selector", "#hero", "--coords", "10,10",
   ], env);
-  harness.require(!output_success(grouped_with_coords),
+  harness.require(!rh.output_success(grouped_with_coords),
     "cu_linux_page_find_usage_grouped_coords_ok:" + JSON.stringify(grouped_with_coords));
   harness.require(
     text_at(grouped_with_coords, "error.code") === "usage",
@@ -236,7 +235,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  harness.require(!output_success(zero_handle),
+  harness.require(!rh.output_success(zero_handle),
     "cu_linux_page_find_extents_usage_ok:" + JSON.stringify(zero_handle));
   harness.require(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -250,7 +249,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1",
   ], env);
-  harness.require(!output_success(missing_name),
+  harness.require(!rh.output_success(missing_name),
     "cu_linux_page_find_extents_usage_name_ok:" + JSON.stringify(missing_name));
   harness.require(
     text_at(missing_name, "error.code") === "usage",
@@ -268,7 +267,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  harness.require(!output_success(extents_coords),
+  harness.require(!rh.output_success(extents_coords),
     "cu_linux_page_find_extents_coords_ok:" + JSON.stringify(extents_coords));
   harness.require(
     text_at(extents_coords, "error.code") === "usage",
@@ -287,7 +286,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  harness.require(!output_success(extents_bogus),
+  harness.require(!rh.output_success(extents_bogus),
     "cu_linux_page_find_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   harness.require(
     text_at(extents_bogus, "error.code") === "usage",
@@ -312,7 +311,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  harness.require(!output_success(reply),
+  harness.require(!rh.output_success(reply),
     "cu_linux_page_find_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   harness.require(
@@ -326,7 +325,7 @@ function assert_page_find_usage(run_directory, executable, env, port) {
   const missing_query = run_cu_reply(run_directory, executable, "observe", [
     "page-find", "--port", "" + port, "--target-id", "unused",
   ], env);
-  harness.require(!output_success(missing_query), "cu_linux_page_find_usage_ok:" + JSON.stringify(missing_query));
+  harness.require(!rh.output_success(missing_query), "cu_linux_page_find_usage_ok:" + JSON.stringify(missing_query));
   harness.require(
     text_at(missing_query, "error.code") === "usage",
     "cu_linux_page_find_usage_code:" + JSON.stringify(missing_query.error)
@@ -340,7 +339,7 @@ function assert_page_find_usage(run_directory, executable, env, port) {
     "page-find", "--port", "" + port, "--target-id", "unused",
     "--selector", "#q", "--text", "x",
   ], env);
-  harness.require(!output_success(dual_query), "cu_linux_page_find_dual_ok:" + JSON.stringify(dual_query));
+  harness.require(!rh.output_success(dual_query), "cu_linux_page_find_dual_ok:" + JSON.stringify(dual_query));
   harness.require(
     text_at(dual_query, "error.code") === "usage",
     "cu_linux_page_find_dual_code:" + JSON.stringify(dual_query.error)
@@ -353,7 +352,7 @@ function assert_page_find_usage(run_directory, executable, env, port) {
   const name_alone = run_cu_reply(run_directory, executable, "observe", [
     "page-find", "--port", "" + port, "--target-id", "unused", "--name", "foo",
   ], env);
-  harness.require(!output_success(name_alone), "cu_linux_page_find_name_ok:" + JSON.stringify(name_alone));
+  harness.require(!rh.output_success(name_alone), "cu_linux_page_find_name_ok:" + JSON.stringify(name_alone));
   harness.require(
     text_at(name_alone, "error.code") === "usage",
     "cu_linux_page_find_name_code:" + JSON.stringify(name_alone.error)
@@ -380,7 +379,7 @@ function assert_page_find_miss(run_directory, executable, env, port, target_id) 
   const bad_target = run_cu_reply(run_directory, executable, "observe", [
     "page-find", "--port", "" + port, "--target-id", "deadbeef", "--selector", "#hero",
   ], env);
-  harness.require(!output_success(bad_target), "cu_linux_page_find_bad_target_ok:" + JSON.stringify(bad_target));
+  harness.require(!rh.output_success(bad_target), "cu_linux_page_find_bad_target_ok:" + JSON.stringify(bad_target));
   harness.require(
     text_at(bad_target, "error.code") === "cdp_target_not_found",
     "cu_linux_page_find_bad_target_code:" + JSON.stringify(bad_target.error)
@@ -389,7 +388,7 @@ function assert_page_find_miss(run_directory, executable, env, port, target_id) 
   const selector_miss = run_cu_reply(run_directory, executable, "observe", [
     "page-find", "--port", "" + port, "--target-id", target_id, "--selector", "#missing",
   ], env);
-  harness.require(!output_success(selector_miss), "cu_linux_page_find_selector_miss_ok:" + JSON.stringify(selector_miss));
+  harness.require(!rh.output_success(selector_miss), "cu_linux_page_find_selector_miss_ok:" + JSON.stringify(selector_miss));
   harness.require(
     text_at(selector_miss, "error.code") === "cdp_node_not_found",
     "cu_linux_page_find_selector_miss_code:" + JSON.stringify(selector_miss.error)
@@ -399,7 +398,7 @@ function assert_page_find_miss(run_directory, executable, env, port, target_id) 
     "page-find", "--port", "" + port, "--target-id", target_id,
     "--text", "ZZZNOTFOUND-" + target_id,
   ], env);
-  harness.require(!output_success(text_miss), "cu_linux_page_find_text_miss_ok:" + JSON.stringify(text_miss));
+  harness.require(!rh.output_success(text_miss), "cu_linux_page_find_text_miss_ok:" + JSON.stringify(text_miss));
   harness.require(
     text_at(text_miss, "error.code") === "cdp_node_not_found",
     "cu_linux_page_find_text_miss_code:" + JSON.stringify(text_miss.error)

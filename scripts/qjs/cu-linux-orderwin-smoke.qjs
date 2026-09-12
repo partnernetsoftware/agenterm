@@ -116,11 +116,10 @@ function run_cu_reply(run_directory, executable, grant, arguments, env, env_remo
   return last_json_line(output.stdout);
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
 
 function run_cu(run_directory, executable, grant, arguments) {
   const document = run_cu_reply(run_directory, executable, grant, arguments);
-  ensure(output_success(document), "cu_linux_orderwin_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_orderwin_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -175,7 +174,7 @@ function assert_orderwin_usage_limit(run_directory, executable) {
   const missing_window = run_cu_reply(run_directory, executable, "actuate", [
     "orderwin", "--relation", "above", "--relative", "1",
   ]);
-  ensure(!output_success(missing_window), "cu_linux_orderwin_usage_window_ok:" + JSON.stringify(missing_window));
+  ensure(!rh.output_success(missing_window), "cu_linux_orderwin_usage_window_ok:" + JSON.stringify(missing_window));
   ensure(
     text_at(missing_window, "error.code") === "usage",
     "cu_linux_orderwin_usage_window_code:" + JSON.stringify(missing_window.error)
@@ -188,7 +187,7 @@ function assert_orderwin_usage_limit(run_directory, executable) {
   const missing_relative = run_cu_reply(run_directory, executable, "actuate", [
     "orderwin", "--window", "1", "--relation", "above",
   ]);
-  ensure(!output_success(missing_relative), "cu_linux_orderwin_usage_relative_ok:" + JSON.stringify(missing_relative));
+  ensure(!rh.output_success(missing_relative), "cu_linux_orderwin_usage_relative_ok:" + JSON.stringify(missing_relative));
   ensure(
     text_at(missing_relative, "error.code") === "usage",
     "cu_linux_orderwin_usage_relative_code:" + JSON.stringify(missing_relative.error)
@@ -201,7 +200,7 @@ function assert_orderwin_usage_limit(run_directory, executable) {
   const missing_relation = run_cu_reply(run_directory, executable, "actuate", [
     "orderwin", "--window", "1", "--relative", "2",
   ]);
-  ensure(!output_success(missing_relation), "cu_linux_orderwin_usage_relation_ok:" + JSON.stringify(missing_relation));
+  ensure(!rh.output_success(missing_relation), "cu_linux_orderwin_usage_relation_ok:" + JSON.stringify(missing_relation));
   ensure(
     text_at(missing_relation, "error.code") === "usage",
     "cu_linux_orderwin_usage_relation_code:" + JSON.stringify(missing_relation.error)
@@ -214,7 +213,7 @@ function assert_orderwin_usage_limit(run_directory, executable) {
   const bad_relation = run_cu_reply(run_directory, executable, "actuate", [
     "orderwin", "--window", "1", "--relation", "sideways", "--relative", "2",
   ]);
-  ensure(!output_success(bad_relation), "cu_linux_orderwin_usage_bad_relation_ok:" + JSON.stringify(bad_relation));
+  ensure(!rh.output_success(bad_relation), "cu_linux_orderwin_usage_bad_relation_ok:" + JSON.stringify(bad_relation));
   ensure(
     text_at(bad_relation, "error.code") === "usage",
     "cu_linux_orderwin_usage_bad_relation_code:" + JSON.stringify(bad_relation.error)
@@ -227,7 +226,7 @@ function assert_orderwin_usage_limit(run_directory, executable) {
   const zero_window = run_cu_reply(run_directory, executable, "actuate", [
     "orderwin", "--window", "0", "--relation", "above", "--relative", "1",
   ]);
-  ensure(!output_success(zero_window), "cu_linux_orderwin_zero_window_ok:" + JSON.stringify(zero_window));
+  ensure(!rh.output_success(zero_window), "cu_linux_orderwin_zero_window_ok:" + JSON.stringify(zero_window));
   ensure(
     text_at(zero_window, "error.code") === "usage",
     "cu_linux_orderwin_zero_window_code:" + JSON.stringify(zero_window.error)
@@ -240,7 +239,7 @@ function assert_orderwin_usage_limit(run_directory, executable) {
   const zero_relative = run_cu_reply(run_directory, executable, "actuate", [
     "orderwin", "--window", "1", "--relation", "above", "--relative", "0",
   ]);
-  ensure(!output_success(zero_relative), "cu_linux_orderwin_zero_relative_ok:" + JSON.stringify(zero_relative));
+  ensure(!rh.output_success(zero_relative), "cu_linux_orderwin_zero_relative_ok:" + JSON.stringify(zero_relative));
   ensure(
     text_at(zero_relative, "error.code") === "usage",
     "cu_linux_orderwin_zero_relative_code:" + JSON.stringify(zero_relative.error)
@@ -254,7 +253,7 @@ function assert_orderwin_usage_limit(run_directory, executable) {
 function assert_actuate_usage_reject(run_directory, executable, env, arguments, token, label) {
   const reply = invoke_orderwin_reply(run_directory, executable, arguments, env);
   ensure(
-    !output_success(reply),
+    !rh.output_success(reply),
     "cu_linux_orderwin_usage_" + label + "_ok:" + JSON.stringify(reply)
   );
   const code = text_at(reply, "error.code");
@@ -308,7 +307,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle), "cu_linux_orderwin_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_orderwin_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_orderwin_extents_usage_code:" + JSON.stringify(zero_handle.error)
@@ -321,7 +320,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name), "cu_linux_orderwin_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(!rh.output_success(missing_name), "cu_linux_orderwin_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_orderwin_extents_usage_name_code:" + JSON.stringify(missing_name.error)
@@ -338,7 +337,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords), "cu_linux_orderwin_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(!rh.output_success(extents_coords), "cu_linux_orderwin_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
     "cu_linux_orderwin_extents_coords_code:" + JSON.stringify(extents_coords.error)
@@ -356,7 +355,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus), "cu_linux_orderwin_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(!rh.output_success(extents_bogus), "cu_linux_orderwin_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
     "cu_linux_orderwin_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
@@ -380,7 +379,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply), "cu_linux_orderwin_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_orderwin_extents_unavailable_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "command") !== "usage",
     "cu_linux_orderwin_extents_unavailable_fake_usage:" + JSON.stringify(reply)
@@ -443,7 +442,7 @@ function assert_orderwin_missing_window(run_directory, executable) {
   const missing_window = run_cu_reply(run_directory, executable, "actuate", [
     "orderwin", "--window", MISSING_HANDLE, "--relation", "above", "--relative", "1",
   ]);
-  ensure(!output_success(missing_window), "cu_linux_orderwin_missing_window_ok:" + JSON.stringify(missing_window));
+  ensure(!rh.output_success(missing_window), "cu_linux_orderwin_missing_window_ok:" + JSON.stringify(missing_window));
   ensure(
     text_at(missing_window, "error.code") === "a11y_window_gone",
     "cu_linux_orderwin_missing_window_code:" + JSON.stringify(missing_window.error)
@@ -466,7 +465,7 @@ function assert_headless_host_limit(run_directory, executable) {
     },
     ["DISPLAY"]
   );
-  ensure(!output_success(reply), "cu_linux_orderwin_headless_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_orderwin_headless_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "unsupported",
     "cu_linux_orderwin_headless_code:" + JSON.stringify(reply.error)
@@ -654,7 +653,7 @@ try {
   const missing_relative = run_cu_reply(run_directory, executable, "actuate", [
     "orderwin", "--window", main_handle_text, "--relation", "above", "--relative", MISSING_HANDLE,
   ]);
-  ensure(!output_success(missing_relative), "cu_linux_orderwin_missing_relative_ok:" + JSON.stringify(missing_relative));
+  ensure(!rh.output_success(missing_relative), "cu_linux_orderwin_missing_relative_ok:" + JSON.stringify(missing_relative));
   ensure(
     text_at(missing_relative, "error.code") === "a11y_window_gone",
     "cu_linux_orderwin_missing_relative_code:" + JSON.stringify(missing_relative.error)
@@ -715,7 +714,7 @@ try {
     "orderwin", "--window", main_handle_text, "--relation", "above", "--relative", main_handle_text,
   ]);
   ensure(
-    !output_success(same_handle) && text_at(same_handle, "error.code") === "invalid_input",
+    !rh.output_success(same_handle) && text_at(same_handle, "error.code") === "invalid_input",
     "cu_linux_orderwin_same:" + JSON.stringify(same_handle)
   );
   const after_refusal = window_rows(run_directory, executable, fixture_pid);

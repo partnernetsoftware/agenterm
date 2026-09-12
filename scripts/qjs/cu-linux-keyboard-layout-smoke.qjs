@@ -37,7 +37,6 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
-function output_success(document) { return flag_at(document, "ok"); }
 
 function usage_rejects_unexpected(message, token) {
   return message.indexOf(token) >= 0
@@ -86,7 +85,7 @@ function run_cu_reply(run_directory, executable, arguments, env, env_remove) {
 
 function run_cu(run_directory, executable, arguments, env, env_remove) {
   const document = run_cu_reply(run_directory, executable, arguments, env, env_remove);
-  ensure(output_success(document), "cu_linux_keyboard_layout_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_keyboard_layout_reply:" + JSON.stringify(document));
   ensure(text_at(document, "command") === "keyboard-layout", "cu_linux_keyboard_layout_command:" + JSON.stringify(document));
   return document;
 }
@@ -124,7 +123,7 @@ function assert_keyboard_layout_usage_limit(run_directory, executable, env) {
   const with_name = run_cu_reply(run_directory, executable, [
     "keyboard-layout", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(with_name), "cu_linux_keyboard_layout_usage_name_ok:" + JSON.stringify(with_name));
+  ensure(!rh.output_success(with_name), "cu_linux_keyboard_layout_usage_name_ok:" + JSON.stringify(with_name));
   ensure(
     text_at(with_name, "error.code") === "usage",
     "cu_linux_keyboard_layout_usage_name_code:" + JSON.stringify(with_name.error)
@@ -140,7 +139,7 @@ function assert_keyboard_layout_usage_limit(run_directory, executable, env) {
   );
 
   const with_bogus = run_cu_reply(run_directory, executable, ["keyboard-layout", "--bogus"], env);
-  ensure(!output_success(with_bogus), "cu_linux_keyboard_layout_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(!rh.output_success(with_bogus), "cu_linux_keyboard_layout_usage_bogus_ok:" + JSON.stringify(with_bogus));
   ensure(
     text_at(with_bogus, "error.code") === "usage",
     "cu_linux_keyboard_layout_usage_bogus_code:" + JSON.stringify(with_bogus.error)
@@ -158,7 +157,7 @@ function assert_keyboard_layout_usage_limit(run_directory, executable, env) {
   const with_coords = run_cu_reply(run_directory, executable, [
     "keyboard-layout", "--coords", "10,10",
   ], env);
-  ensure(!output_success(with_coords), "cu_linux_keyboard_layout_usage_coords_ok:" + JSON.stringify(with_coords));
+  ensure(!rh.output_success(with_coords), "cu_linux_keyboard_layout_usage_coords_ok:" + JSON.stringify(with_coords));
   ensure(
     text_at(with_coords, "error.code") === "usage",
     "cu_linux_keyboard_layout_usage_coords_code:" + JSON.stringify(with_coords.error)
@@ -178,7 +177,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  ensure(!rh.output_success(zero_handle),
     "cu_linux_keyboard_layout_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -192,7 +191,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  ensure(!rh.output_success(missing_name),
     "cu_linux_keyboard_layout_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
@@ -210,7 +209,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_keyboard_layout_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -229,7 +228,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_keyboard_layout_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -254,7 +253,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply), "cu_linux_keyboard_layout_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_keyboard_layout_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"

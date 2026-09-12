@@ -57,7 +57,6 @@ function usage_rejects_unexpected(message, token) {
     || message.indexOf("unexpected") >= 0;
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -244,7 +243,7 @@ function assert_scroll_usage_limit(run_directory, executable, env) {
   const missing_name = run_cu_reply(run_directory, executable, "observe,actuate", [
     "scroll", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name), "cu_linux_scroll_usage_missing_name_ok:" + JSON.stringify(missing_name));
+  ensure(!rh.output_success(missing_name), "cu_linux_scroll_usage_missing_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_scroll_usage_missing_name_code:" + JSON.stringify(missing_name.error)
@@ -261,7 +260,7 @@ function assert_scroll_usage_limit(run_directory, executable, env) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
     "scroll", "--window", "0", "--name", SCROLL_TARGET,
   ], env);
-  ensure(!output_success(zero_handle), "cu_linux_scroll_usage_zero_handle_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_scroll_usage_zero_handle_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_scroll_usage_zero_handle_code:" + JSON.stringify(zero_handle.error)
@@ -274,7 +273,7 @@ function assert_scroll_usage_limit(run_directory, executable, env) {
   const scroll_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     "scroll", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(scroll_coords), "cu_linux_scroll_usage_coords_ok:" + JSON.stringify(scroll_coords));
+  ensure(!rh.output_success(scroll_coords), "cu_linux_scroll_usage_coords_ok:" + JSON.stringify(scroll_coords));
   ensure(
     text_at(scroll_coords, "error.code") === "usage",
     "cu_linux_scroll_usage_coords_code:" + JSON.stringify(scroll_coords.error)
@@ -292,7 +291,7 @@ function assert_scroll_usage_limit(run_directory, executable, env) {
   const scroll_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
     "scroll", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(scroll_bogus), "cu_linux_scroll_usage_bogus_ok:" + JSON.stringify(scroll_bogus));
+  ensure(!rh.output_success(scroll_bogus), "cu_linux_scroll_usage_bogus_ok:" + JSON.stringify(scroll_bogus));
   ensure(
     text_at(scroll_bogus, "error.code") === "usage",
     "cu_linux_scroll_usage_bogus_code:" + JSON.stringify(scroll_bogus.error)
@@ -312,7 +311,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", SCROLL_TARGET,
   ], env);
-  ensure(!output_success(zero_handle), "cu_linux_scroll_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_scroll_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_scroll_extents_usage_code:" + JSON.stringify(zero_handle.error)
@@ -325,7 +324,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name), "cu_linux_scroll_extents_missing_name_ok:" + JSON.stringify(missing_name));
+  ensure(!rh.output_success(missing_name), "cu_linux_scroll_extents_missing_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_scroll_extents_missing_name_code:" + JSON.stringify(missing_name.error)
@@ -342,7 +341,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords), "cu_linux_scroll_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(!rh.output_success(extents_coords), "cu_linux_scroll_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
     "cu_linux_scroll_extents_coords_code:" + JSON.stringify(extents_coords.error)
@@ -360,7 +359,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus), "cu_linux_scroll_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(!rh.output_success(extents_bogus), "cu_linux_scroll_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
     "cu_linux_scroll_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
@@ -382,7 +381,7 @@ function assert_scroll_reject_coords_or_stay_named(
   const scroll_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     "scroll", "--window", "" + handle, "--name", node_name, "--coords", "10,10",
   ]);
-  if (!output_success(scroll_coords)) {
+  if (!rh.output_success(scroll_coords)) {
     const coords_code = text_at(scroll_coords, "error.code");
     if (coords_code === "usage") {
       ensure(
@@ -411,7 +410,7 @@ function assert_scroll_reject_coords_or_stay_named(
   const scroll_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
     "scroll", "--window", "" + handle, "--name", node_name, "--bogus",
   ]);
-  if (!output_success(scroll_bogus)) {
+  if (!rh.output_success(scroll_bogus)) {
     const bogus_code = text_at(scroll_bogus, "error.code");
     if (bogus_code === "usage") {
       ensure(
@@ -444,7 +443,7 @@ function assert_get_extents_reject_coords_or_stay_named(
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "" + handle, "--name", node_name, "--coords", "10,10",
   ]);
-  if (!output_success(extents_coords)) {
+  if (!rh.output_success(extents_coords)) {
     ensure(
       text_at(extents_coords, "error.code") === "usage",
       "cu_linux_scroll_extents_coords_code_" + label + ":" + JSON.stringify(extents_coords.error)
@@ -469,7 +468,7 @@ function assert_get_extents_reject_coords_or_stay_named(
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "" + handle, "--name", node_name, "--bogus",
   ]);
-  if (!output_success(extents_bogus)) {
+  if (!rh.output_success(extents_bogus)) {
     ensure(
       text_at(extents_bogus, "error.code") === "usage",
       "cu_linux_scroll_extents_bogus_code_" + label + ":" + JSON.stringify(extents_bogus.error)
@@ -500,7 +499,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply), "cu_linux_scroll_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_scroll_extents_unavailable_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "command") !== "usage",
     "cu_linux_scroll_extents_unavailable_fake_usage:" + JSON.stringify(reply)

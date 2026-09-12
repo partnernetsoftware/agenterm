@@ -104,11 +104,10 @@ function run_cu_reply(run_directory, executable, grant, arguments, env, env_remo
   return JSON.parse(trimmed);
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
 
 function run_cu(run_directory, executable, grant, arguments) {
   const document = run_cu_reply(run_directory, executable, grant, arguments);
-  ensure(output_success(document), "cu_linux_raise_activate_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_raise_activate_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -165,7 +164,7 @@ function assert_actuate_usage_reject(
   run_directory, executable, env, arguments, token, label
 ) {
   const reply = invoke_actuate_reply(run_directory, executable, arguments, env);
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_raise_activate_usage_" + label + "_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   const command = text_at(reply, "command");
@@ -215,7 +214,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  ensure(!rh.output_success(zero_handle),
     "cu_linux_raise_activate_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -229,7 +228,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  ensure(!rh.output_success(missing_name),
     "cu_linux_raise_activate_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
@@ -247,7 +246,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_raise_activate_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -266,7 +265,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_raise_activate_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -287,7 +286,7 @@ function assert_get_extents_missing_window(run_directory, executable, env) {
   const missing = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", MISSING_HANDLE, "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(missing),
+  ensure(!rh.output_success(missing),
     "cu_linux_raise_activate_extents_miss_ok:" + JSON.stringify(missing));
   ensure(
     text_at(missing, "command") !== "usage",
@@ -361,7 +360,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_raise_activate_extents_unavailable_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "command") !== "usage",
@@ -377,7 +376,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
 
 function assert_activate_raise_usage_limit(run_directory, executable) {
   const missing_activate = run_cu_reply(run_directory, executable, "actuate", ["activate"]);
-  ensure(!output_success(missing_activate), "cu_linux_raise_activate_usage_activate_ok:" + JSON.stringify(missing_activate));
+  ensure(!rh.output_success(missing_activate), "cu_linux_raise_activate_usage_activate_ok:" + JSON.stringify(missing_activate));
   ensure(
     text_at(missing_activate, "error.code") === "usage",
     "cu_linux_raise_activate_usage_activate_code:" + JSON.stringify(missing_activate.error)
@@ -388,7 +387,7 @@ function assert_activate_raise_usage_limit(run_directory, executable) {
   );
 
   const missing_raise = run_cu_reply(run_directory, executable, "actuate", ["raise"]);
-  ensure(!output_success(missing_raise), "cu_linux_raise_activate_usage_raise_ok:" + JSON.stringify(missing_raise));
+  ensure(!rh.output_success(missing_raise), "cu_linux_raise_activate_usage_raise_ok:" + JSON.stringify(missing_raise));
   ensure(
     text_at(missing_raise, "error.code") === "usage",
     "cu_linux_raise_activate_usage_raise_code:" + JSON.stringify(missing_raise.error)
@@ -401,7 +400,7 @@ function assert_activate_raise_usage_limit(run_directory, executable) {
   const zero_activate = run_cu_reply(run_directory, executable, "actuate", [
     "activate", "--window", "0",
   ]);
-  ensure(!output_success(zero_activate), "cu_linux_raise_activate_zero_activate_ok:" + JSON.stringify(zero_activate));
+  ensure(!rh.output_success(zero_activate), "cu_linux_raise_activate_zero_activate_ok:" + JSON.stringify(zero_activate));
   ensure(
     text_at(zero_activate, "error.code") === "usage",
     "cu_linux_raise_activate_zero_activate_code:" + JSON.stringify(zero_activate.error)
@@ -414,7 +413,7 @@ function assert_activate_raise_usage_limit(run_directory, executable) {
   const zero_raise = run_cu_reply(run_directory, executable, "actuate", [
     "raise", "--window", "0",
   ]);
-  ensure(!output_success(zero_raise), "cu_linux_raise_activate_zero_raise_ok:" + JSON.stringify(zero_raise));
+  ensure(!rh.output_success(zero_raise), "cu_linux_raise_activate_zero_raise_ok:" + JSON.stringify(zero_raise));
   ensure(
     text_at(zero_raise, "error.code") === "usage",
     "cu_linux_raise_activate_zero_raise_code:" + JSON.stringify(zero_raise.error)
@@ -427,7 +426,7 @@ function assert_activate_raise_usage_limit(run_directory, executable) {
   const stray_flag = run_cu_reply(run_directory, executable, "actuate", [
     "raise", "--window", "1", "--force",
   ]);
-  ensure(!output_success(stray_flag), "cu_linux_raise_activate_stray_flag_ok:" + JSON.stringify(stray_flag));
+  ensure(!rh.output_success(stray_flag), "cu_linux_raise_activate_stray_flag_ok:" + JSON.stringify(stray_flag));
   ensure(
     text_at(stray_flag, "error.code") === "usage",
     "cu_linux_raise_activate_stray_flag_code:" + JSON.stringify(stray_flag.error)
@@ -442,7 +441,7 @@ function assert_activate_raise_missing_window(run_directory, executable) {
   const missing_activate = run_cu_reply(run_directory, executable, "actuate", [
     "activate", "--window", MISSING_HANDLE,
   ]);
-  ensure(!output_success(missing_activate), "cu_linux_raise_activate_missing_activate_ok:" + JSON.stringify(missing_activate));
+  ensure(!rh.output_success(missing_activate), "cu_linux_raise_activate_missing_activate_ok:" + JSON.stringify(missing_activate));
   ensure(
     text_at(missing_activate, "error.code") === "window_not_found",
     "cu_linux_raise_activate_missing_activate_code:" + JSON.stringify(missing_activate.error)
@@ -455,7 +454,7 @@ function assert_activate_raise_missing_window(run_directory, executable) {
   const missing_raise = run_cu_reply(run_directory, executable, "actuate", [
     "raise", "--window", MISSING_HANDLE,
   ]);
-  ensure(!output_success(missing_raise), "cu_linux_raise_activate_missing_raise_ok:" + JSON.stringify(missing_raise));
+  ensure(!rh.output_success(missing_raise), "cu_linux_raise_activate_missing_raise_ok:" + JSON.stringify(missing_raise));
   ensure(
     text_at(missing_raise, "error.code") === "window_not_found",
     "cu_linux_raise_activate_missing_raise_code:" + JSON.stringify(missing_raise.error)
@@ -478,7 +477,7 @@ function assert_headless_host_limit(run_directory, executable, verb) {
     },
     ["DISPLAY"]
   );
-  ensure(!output_success(reply), "cu_linux_raise_activate_headless_" + verb + "_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_raise_activate_headless_" + verb + "_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "unsupported",
     "cu_linux_raise_activate_headless_" + verb + "_code:" + JSON.stringify(reply.error)

@@ -44,7 +44,6 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
-function output_success(document) { return flag_at(document, "ok"); }
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -94,7 +93,7 @@ function run_cu_reply(run_directory, executable, grant, cu_args, env) {
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  ensure(output_success(document), "cu_linux_snapshot_diff_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_snapshot_diff_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -143,7 +142,7 @@ function assert_snapshot_diff_usage_limit(run_directory, executable) {
     "--depth", "" + TREE_DEPTH,
     "--max-nodes", "" + MAX_NODES,
   ]);
-  ensure(!output_success(snapshot_zero),
+  ensure(!rh.output_success(snapshot_zero),
     "cu_linux_snapshot_diff_snapshot_zero_ok:" + JSON.stringify(snapshot_zero));
   ensure(
     text_at(snapshot_zero, "error.code") === "usage"
@@ -162,7 +161,7 @@ function assert_snapshot_diff_usage_limit(run_directory, executable) {
     "--max-nodes", "" + MAX_NODES,
     "--name", ENTRY_NAME,
   ]);
-  ensure(!output_success(snapshot_with_name),
+  ensure(!rh.output_success(snapshot_with_name),
     "cu_linux_snapshot_diff_snapshot_name_ok:" + JSON.stringify(snapshot_with_name));
   ensure(
     text_at(snapshot_with_name, "error.code") === "usage",
@@ -180,7 +179,7 @@ function assert_snapshot_diff_usage_limit(run_directory, executable) {
   const diff_zero = run_cu_reply(run_directory, executable, "observe", [
     "diff", "--window", "0",
   ]);
-  ensure(!output_success(diff_zero),
+  ensure(!rh.output_success(diff_zero),
     "cu_linux_snapshot_diff_diff_zero_ok:" + JSON.stringify(diff_zero));
   ensure(
     text_at(diff_zero, "error.code") === "usage"
@@ -196,7 +195,7 @@ function assert_snapshot_diff_usage_limit(run_directory, executable) {
   const diff_with_name = run_cu_reply(run_directory, executable, "observe", [
     "diff", "--window", "1", "--name", ENTRY_NAME,
   ]);
-  ensure(!output_success(diff_with_name),
+  ensure(!rh.output_success(diff_with_name),
     "cu_linux_snapshot_diff_diff_name_ok:" + JSON.stringify(diff_with_name));
   ensure(
     text_at(diff_with_name, "error.code") === "usage",
@@ -210,7 +209,7 @@ function assert_snapshot_diff_usage_limit(run_directory, executable) {
   const send_missing_window = run_cu_reply(run_directory, executable, "observe,actuate", [
     "send-text", "--name", ENTRY_NAME, "--", "probe",
   ]);
-  ensure(!output_success(send_missing_window),
+  ensure(!rh.output_success(send_missing_window),
     "cu_linux_snapshot_diff_send_usage_ok:" + JSON.stringify(send_missing_window));
   ensure(
     text_at(send_missing_window, "error.code") === "invalid_input",
@@ -224,7 +223,7 @@ function assert_snapshot_diff_usage_limit(run_directory, executable) {
   const send_role_without_name = run_cu_reply(run_directory, executable, "observe,actuate", [
     "send-text", "--window", "1", "--role", "entry", "--", "probe",
   ]);
-  ensure(!output_success(send_role_without_name),
+  ensure(!rh.output_success(send_role_without_name),
     "cu_linux_snapshot_diff_send_role_ok:" + JSON.stringify(send_role_without_name));
   ensure(
     text_at(send_role_without_name, "error.code") === "invalid_input",
@@ -238,7 +237,7 @@ function assert_snapshot_diff_usage_limit(run_directory, executable) {
   const send_zero_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
     "send-text", "--window", "0", "--name", ENTRY_NAME, "--", "probe",
   ]);
-  ensure(!output_success(send_zero_handle),
+  ensure(!rh.output_success(send_zero_handle),
     "cu_linux_snapshot_diff_send_zero_ok:" + JSON.stringify(send_zero_handle));
   ensure(
     text_at(send_zero_handle, "error.code") === "invalid_input"
@@ -259,7 +258,7 @@ function assert_snapshot_diff_coords_bogus_usage(run_directory, executable, env)
     "--max-nodes", "" + MAX_NODES,
     "--bogus",
   ], env);
-  ensure(!output_success(snapshot_bogus),
+  ensure(!rh.output_success(snapshot_bogus),
     "cu_linux_snapshot_diff_snapshot_bogus_ok:" + JSON.stringify(snapshot_bogus));
   ensure(
     text_at(snapshot_bogus, "error.code") === "usage",
@@ -280,7 +279,7 @@ function assert_snapshot_diff_coords_bogus_usage(run_directory, executable, env)
     "--max-nodes", "" + MAX_NODES,
     "--coords", "10,10",
   ], env);
-  ensure(!output_success(snapshot_coords),
+  ensure(!rh.output_success(snapshot_coords),
     "cu_linux_snapshot_diff_snapshot_coords_ok:" + JSON.stringify(snapshot_coords));
   ensure(
     text_at(snapshot_coords, "error.code") === "usage",
@@ -298,7 +297,7 @@ function assert_snapshot_diff_coords_bogus_usage(run_directory, executable, env)
   const diff_bogus = run_cu_reply(run_directory, executable, "observe", [
     "diff", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(diff_bogus),
+  ensure(!rh.output_success(diff_bogus),
     "cu_linux_snapshot_diff_diff_bogus_ok:" + JSON.stringify(diff_bogus));
   ensure(
     text_at(diff_bogus, "error.code") === "usage",
@@ -316,7 +315,7 @@ function assert_snapshot_diff_coords_bogus_usage(run_directory, executable, env)
   const diff_coords = run_cu_reply(run_directory, executable, "observe", [
     "diff", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(diff_coords),
+  ensure(!rh.output_success(diff_coords),
     "cu_linux_snapshot_diff_diff_coords_ok:" + JSON.stringify(diff_coords));
   ensure(
     text_at(diff_coords, "error.code") === "usage",
@@ -334,13 +333,13 @@ function assert_snapshot_diff_coords_bogus_usage(run_directory, executable, env)
   const send_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
     "send-text", "--window", "1", "--bogus", "--", "probe",
   ], env);
-  ensure(!output_success(send_bogus),
+  ensure(!rh.output_success(send_bogus),
     "cu_linux_snapshot_diff_send_bogus_ok:" + JSON.stringify(send_bogus));
 
   const send_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     "send-text", "--window", "1", "--coords", "10,10", "--", "probe",
   ], env);
-  ensure(!output_success(send_coords),
+  ensure(!rh.output_success(send_coords),
     "cu_linux_snapshot_diff_send_coords_ok:" + JSON.stringify(send_coords));
 }
 
@@ -348,7 +347,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", ENTRY_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  ensure(!rh.output_success(zero_handle),
     "cu_linux_snapshot_diff_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -362,7 +361,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  ensure(!rh.output_success(missing_name),
     "cu_linux_snapshot_diff_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
@@ -380,7 +379,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_snapshot_diff_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -399,7 +398,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_snapshot_diff_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -424,7 +423,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_snapshot_diff_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
@@ -445,7 +444,7 @@ function assert_snapshot_diff_host_limit_when_atspi_absent(run_directory, execut
     "--depth", "" + TREE_DEPTH,
     "--max-nodes", "" + MAX_NODES,
   ], env);
-  ensure(!output_success(snapshot_reply),
+  ensure(!rh.output_success(snapshot_reply),
     "cu_linux_snapshot_diff_snapshot_unavailable_ok:" + JSON.stringify(snapshot_reply));
   const snapshot_code = text_at(snapshot_reply, "error.code");
   ensure(
@@ -457,7 +456,7 @@ function assert_snapshot_diff_host_limit_when_atspi_absent(run_directory, execut
   const diff_reply = run_cu_reply(run_directory, executable, "observe", [
     "diff", "--window", "1",
   ], env);
-  ensure(!output_success(diff_reply),
+  ensure(!rh.output_success(diff_reply),
     "cu_linux_snapshot_diff_diff_unavailable_ok:" + JSON.stringify(diff_reply));
   const diff_code = text_at(diff_reply, "error.code");
   ensure(
@@ -469,7 +468,7 @@ function assert_snapshot_diff_host_limit_when_atspi_absent(run_directory, execut
   const send_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "send-text", "--window", "1", "--name", ENTRY_NAME, "--", "probe",
   ], env);
-  ensure(!output_success(send_reply),
+  ensure(!rh.output_success(send_reply),
     "cu_linux_snapshot_diff_send_unavailable_ok:" + JSON.stringify(send_reply));
   const send_code = text_at(send_reply, "error.code");
   ensure(

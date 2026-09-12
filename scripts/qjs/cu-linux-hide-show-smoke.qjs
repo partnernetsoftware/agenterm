@@ -109,11 +109,10 @@ function run_cu_reply(run_directory, executable, grant, arguments, env, env_remo
   return last_json_line(output.stdout);
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
 
 function run_cu(run_directory, executable, grant, arguments) {
   const document = run_cu_reply(run_directory, executable, grant, arguments);
-  ensure(output_success(document), "cu_linux_hide_show_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_hide_show_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -151,7 +150,7 @@ function assert_hide_show_unexpected_flag(
   run_directory, executable, arguments, label, token, env
 ) {
   const reply = run_cu_reply(run_directory, executable, "actuate", arguments, env);
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_hide_show_usage_" + label + "_ok:" + JSON.stringify(reply));
   const command = text_at(reply, "command");
   const code = text_at(reply, "error.code");
@@ -217,7 +216,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  ensure(!rh.output_success(zero_handle),
     "cu_linux_hide_show_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -231,7 +230,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  ensure(!rh.output_success(missing_name),
     "cu_linux_hide_show_extents_missing_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
@@ -249,7 +248,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_hide_show_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -268,7 +267,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_hide_show_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -339,7 +338,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_hide_show_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
@@ -353,7 +352,7 @@ function assert_hide_show_usage_limits(run_directory, executable) {
   const missing_target = run_cu_reply(run_directory, executable, "actuate", [
     "app", "hide",
   ]);
-  ensure(!output_success(missing_target), "cu_linux_hide_show_usage_hide_ok:" + JSON.stringify(missing_target));
+  ensure(!rh.output_success(missing_target), "cu_linux_hide_show_usage_hide_ok:" + JSON.stringify(missing_target));
   ensure(
     text_at(missing_target, "error.code") === "usage",
     "cu_linux_hide_show_usage_hide_code:" + JSON.stringify(missing_target.error)
@@ -367,7 +366,7 @@ function assert_hide_show_usage_limits(run_directory, executable) {
   const hide_zero = run_cu_reply(run_directory, executable, "actuate", [
     "app", "hide", "--window", "0",
   ]);
-  ensure(!output_success(hide_zero), "cu_linux_hide_show_usage_hide_zero_ok:" + JSON.stringify(hide_zero));
+  ensure(!rh.output_success(hide_zero), "cu_linux_hide_show_usage_hide_zero_ok:" + JSON.stringify(hide_zero));
   ensure(
     text_at(hide_zero, "error.code") === "usage",
     "cu_linux_hide_show_usage_hide_zero_code:" + JSON.stringify(hide_zero.error)
@@ -380,7 +379,7 @@ function assert_hide_show_usage_limits(run_directory, executable) {
   const show_missing = run_cu_reply(run_directory, executable, "actuate", [
     "app", "show",
   ]);
-  ensure(!output_success(show_missing), "cu_linux_hide_show_usage_show_ok:" + JSON.stringify(show_missing));
+  ensure(!rh.output_success(show_missing), "cu_linux_hide_show_usage_show_ok:" + JSON.stringify(show_missing));
   ensure(
     text_at(show_missing, "error.code") === "usage",
     "cu_linux_hide_show_usage_show_code:" + JSON.stringify(show_missing.error)
@@ -391,7 +390,7 @@ function assert_hide_show_invalid_input(run_directory, executable) {
   const show_window_only = run_cu_reply(run_directory, executable, "actuate", [
     "app", "show", "--window", "1",
   ]);
-  ensure(!output_success(show_window_only), "cu_linux_hide_show_show_window_ok:" + JSON.stringify(show_window_only));
+  ensure(!rh.output_success(show_window_only), "cu_linux_hide_show_show_window_ok:" + JSON.stringify(show_window_only));
   ensure(
     text_at(show_window_only, "error.code") === "invalid_input",
     "cu_linux_hide_show_show_window_code:" + JSON.stringify(show_window_only.error)
@@ -404,7 +403,7 @@ function assert_hide_show_invalid_input(run_directory, executable) {
   const hide_snapshot = run_cu_reply(run_directory, executable, "actuate", [
     "app", "hide", "--window", "1", "--snapshot",
   ]);
-  ensure(!output_success(hide_snapshot), "cu_linux_hide_show_hide_snapshot_ok:" + JSON.stringify(hide_snapshot));
+  ensure(!rh.output_success(hide_snapshot), "cu_linux_hide_show_hide_snapshot_ok:" + JSON.stringify(hide_snapshot));
   ensure(
     text_at(hide_snapshot, "error.code") === "invalid_input",
     "cu_linux_hide_show_hide_snapshot_code:" + JSON.stringify(hide_snapshot.error)
@@ -419,7 +418,7 @@ function assert_hide_show_missing_window(run_directory, executable) {
   const hide_missing = run_cu_reply(run_directory, executable, "actuate", [
     "app", "hide", "--window", MISSING_HANDLE,
   ]);
-  ensure(!output_success(hide_missing), "cu_linux_hide_show_missing_hide_ok:" + JSON.stringify(hide_missing));
+  ensure(!rh.output_success(hide_missing), "cu_linux_hide_show_missing_hide_ok:" + JSON.stringify(hide_missing));
   ensure(
     text_at(hide_missing, "error.code") === "window_not_found",
     "cu_linux_hide_show_missing_hide_code:" + JSON.stringify(hide_missing.error)
@@ -428,7 +427,7 @@ function assert_hide_show_missing_window(run_directory, executable) {
   const show_missing = run_cu_reply(run_directory, executable, "actuate", [
     "app", "show", "--pid", MISSING_PID,
   ]);
-  ensure(!output_success(show_missing), "cu_linux_hide_show_missing_show_ok:" + JSON.stringify(show_missing));
+  ensure(!rh.output_success(show_missing), "cu_linux_hide_show_missing_show_ok:" + JSON.stringify(show_missing));
   ensure(
     text_at(show_missing, "error.code") === "a11y_app_not_found",
     "cu_linux_hide_show_missing_show_code:" + JSON.stringify(show_missing.error)
@@ -454,7 +453,7 @@ function assert_headless_host_limit(run_directory, executable, action, label) {
     },
     ["DISPLAY"]
   );
-  ensure(!output_success(reply), "cu_linux_hide_show_headless_ok_" + label + ":" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_hide_show_headless_ok_" + label + ":" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "unsupported",
     "cu_linux_hide_show_headless_code_" + label + ":" + JSON.stringify(reply.error)

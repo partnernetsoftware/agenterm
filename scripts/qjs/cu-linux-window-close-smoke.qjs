@@ -113,7 +113,6 @@ function invoke_get_extents_reply(run_directory, executable, cu_args, env) {
   return JSON.parse(trimmed);
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
 
 function usage_rejects_unexpected(message, token) {
   return message.indexOf(token) >= 0
@@ -150,7 +149,7 @@ function assert_close_usage_limit(run_directory, executable) {
   const reply = run_cu_reply(run_directory, executable, "actuate", [
     "close", "--window", "0", "--snapshot", "--expect", "gone",
   ]);
-  ensure(!output_success(reply), "cu_linux_window_close_usage_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_window_close_usage_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "usage",
     "cu_linux_window_close_usage_code:" + JSON.stringify(reply.error)
@@ -166,7 +165,7 @@ function assert_close_unexpected_flag(
 ) {
   const reply = run_cu_reply(run_directory, executable, "actuate", arguments, env);
   ensure(
-    !output_success(reply),
+    !rh.output_success(reply),
     "cu_linux_window_close_usage_" + label + "_ok:" + JSON.stringify(reply)
   );
   const command = text_at(reply, "command");
@@ -209,7 +208,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle), "cu_linux_window_close_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(!rh.output_success(zero_handle), "cu_linux_window_close_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_window_close_extents_usage_code:" + JSON.stringify(zero_handle.error)
@@ -222,7 +221,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name), "cu_linux_window_close_extents_missing_name_ok:" + JSON.stringify(missing_name));
+  ensure(!rh.output_success(missing_name), "cu_linux_window_close_extents_missing_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
     "cu_linux_window_close_extents_missing_name_code:" + JSON.stringify(missing_name.error)
@@ -239,7 +238,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords), "cu_linux_window_close_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(!rh.output_success(extents_coords), "cu_linux_window_close_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
     "cu_linux_window_close_extents_coords_code:" + JSON.stringify(extents_coords.error)
@@ -257,7 +256,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus), "cu_linux_window_close_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(!rh.output_success(extents_bogus), "cu_linux_window_close_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
     "cu_linux_window_close_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
@@ -281,7 +280,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply), "cu_linux_window_close_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_window_close_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
@@ -294,7 +293,7 @@ function assert_close_missing_window(run_directory, executable) {
   const reply = run_cu_reply(run_directory, executable, "actuate", [
     "close", "--window", "99999999", "--snapshot", "--expect", "gone",
   ]);
-  ensure(!output_success(reply), "cu_linux_window_close_missing_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_window_close_missing_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "window_not_found",
     "cu_linux_window_close_missing_code:" + JSON.stringify(reply.error)
@@ -320,7 +319,7 @@ function assert_close_host_limit_when_atspi_absent(
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply), "cu_linux_window_close_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_window_close_unavailable_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "a11y_backend_failed",
     "cu_linux_window_close_unavailable_code:" + JSON.stringify(reply.error)

@@ -112,18 +112,17 @@ function run_cu_reply(run_directory, executable, grant, arguments, env, env_remo
   return JSON.parse(trimmed);
 }
 
-function output_success(document) { return flag_at(document, "ok"); }
 
 function run_cu(run_directory, executable, grant, arguments) {
   const document = run_cu_reply(run_directory, executable, grant, arguments);
-  ensure(output_success(document), "cu_linux_window_move_reply:" + JSON.stringify(document));
+  ensure(rh.output_success(document), "cu_linux_window_move_reply:" + JSON.stringify(document));
   return document;
 }
 
 function move_refused(run_directory, executable, arguments, code) {
   const reply = run_cu_reply(run_directory, executable, "actuate", ["movewin"].concat(arguments));
   ensure(
-    !output_success(reply) && text_at(reply, "error.code") === code,
+    !rh.output_success(reply) && text_at(reply, "error.code") === code,
     "cu_linux_window_move_refused:" + code + ":" + JSON.stringify(reply)
   );
   return reply;
@@ -144,7 +143,7 @@ function invoke_get_extents_reply(run_directory, executable, cu_args, env) {
 
 function probe_cu_windows_enum_available(run_directory, executable, env) {
   const reply = run_cu_reply(run_directory, executable, "observe", ["windows"], env);
-  if (output_success(reply)) { return { available: true }; }
+  if (rh.output_success(reply)) { return { available: true }; }
   const message = text_at(reply, "error.message");
   if (message.indexOf("Maximum number of clients reached") >= 0
       || message.indexOf("window_enum_failed") >= 0) {
@@ -159,7 +158,7 @@ function assert_movewin_unexpected_usage(run_directory, executable, env) {
     "--x", "100", "--y", "100", "--expect", "100x100",
     "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(with_name),
+  ensure(!rh.output_success(with_name),
     "cu_linux_window_move_usage_name_ok:" + JSON.stringify(with_name));
   ensure(
     text_at(with_name, "error.code") === "usage",
@@ -179,7 +178,7 @@ function assert_movewin_unexpected_usage(run_directory, executable, env) {
     "--x", "100", "--y", "100", "--expect", "100x100",
     "--bogus",
   ], env);
-  ensure(!output_success(with_bogus),
+  ensure(!rh.output_success(with_bogus),
     "cu_linux_window_move_usage_bogus_ok:" + JSON.stringify(with_bogus));
   ensure(
     text_at(with_bogus, "error.code") === "usage",
@@ -199,7 +198,7 @@ function assert_movewin_unexpected_usage(run_directory, executable, env) {
     "--x", "100", "--y", "100", "--expect", "100x100",
     "--coords", "10,10",
   ], env);
-  ensure(!output_success(with_coords),
+  ensure(!rh.output_success(with_coords),
     "cu_linux_window_move_usage_coords_ok:" + JSON.stringify(with_coords));
   ensure(
     text_at(with_coords, "error.code") === "usage",
@@ -219,7 +218,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(zero_handle),
+  ensure(!rh.output_success(zero_handle),
     "cu_linux_window_move_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -233,7 +232,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const missing_name = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1",
   ], env);
-  ensure(!output_success(missing_name),
+  ensure(!rh.output_success(missing_name),
     "cu_linux_window_move_extents_usage_name_ok:" + JSON.stringify(missing_name));
   ensure(
     text_at(missing_name, "error.code") === "usage",
@@ -251,7 +250,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--coords", "10,10",
   ], env);
-  ensure(!output_success(extents_coords),
+  ensure(!rh.output_success(extents_coords),
     "cu_linux_window_move_extents_coords_ok:" + JSON.stringify(extents_coords));
   ensure(
     text_at(extents_coords, "error.code") === "usage",
@@ -270,7 +269,7 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--bogus",
   ], env);
-  ensure(!output_success(extents_bogus),
+  ensure(!rh.output_success(extents_bogus),
     "cu_linux_window_move_extents_bogus_ok:" + JSON.stringify(extents_bogus));
   ensure(
     text_at(extents_bogus, "error.code") === "usage",
@@ -295,7 +294,7 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!output_success(reply),
+  ensure(!rh.output_success(reply),
     "cu_linux_window_move_extents_unavailable_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "command") !== "usage",
@@ -360,7 +359,7 @@ function assert_movewin_usage_limit(run_directory, executable) {
     "movewin", "--window", "0",
     "--x", "100", "--y", "100", "--expect", "100x100",
   ]);
-  ensure(!output_success(zero_window), "cu_linux_window_move_usage_ok:" + JSON.stringify(zero_window));
+  ensure(!rh.output_success(zero_window), "cu_linux_window_move_usage_ok:" + JSON.stringify(zero_window));
   ensure(
     text_at(zero_window, "error.code") === "usage",
     "cu_linux_window_move_usage_code:" + JSON.stringify(zero_window.error)
@@ -373,7 +372,7 @@ function assert_movewin_usage_limit(run_directory, executable) {
   const missing_y = run_cu_reply(run_directory, executable, "actuate", [
     "movewin", "--window", "1", "--x", "100", "--expect", "100x100",
   ]);
-  ensure(!output_success(missing_y), "cu_linux_window_move_missing_y_ok:" + JSON.stringify(missing_y));
+  ensure(!rh.output_success(missing_y), "cu_linux_window_move_missing_y_ok:" + JSON.stringify(missing_y));
   ensure(
     text_at(missing_y, "error.code") === "usage",
     "cu_linux_window_move_missing_y_code:" + JSON.stringify(missing_y.error)
@@ -388,7 +387,7 @@ function assert_movewin_usage_limit(run_directory, executable) {
     "movewin", "--window", "1",
     "--x", "100", "--y", "100", "--expect", "200x100",
   ]);
-  ensure(!output_success(mismatched_expect), "cu_linux_window_move_mismatch_ok:" + JSON.stringify(mismatched_expect));
+  ensure(!rh.output_success(mismatched_expect), "cu_linux_window_move_mismatch_ok:" + JSON.stringify(mismatched_expect));
   ensure(
     text_at(mismatched_expect, "error.code") === "invalid_input",
     "cu_linux_window_move_mismatch_code:" + JSON.stringify(mismatched_expect.error)
@@ -417,7 +416,7 @@ function assert_movewin_missing_window(run_directory, executable) {
     "movewin", "--window", MISSING_HANDLE,
     "--x", "100", "--y", "100", "--expect", "100x100",
   ]);
-  ensure(!output_success(reply), "cu_linux_window_move_missing_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_window_move_missing_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "failed",
     "cu_linux_window_move_missing_code:" + JSON.stringify(reply.error)
@@ -440,7 +439,7 @@ function assert_headless_host_limit(run_directory, executable) {
     },
     ["DISPLAY"]
   );
-  ensure(!output_success(reply), "cu_linux_window_move_headless_ok:" + JSON.stringify(reply));
+  ensure(!rh.output_success(reply), "cu_linux_window_move_headless_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "unsupported",
     "cu_linux_window_move_headless_code:" + JSON.stringify(reply.error)
