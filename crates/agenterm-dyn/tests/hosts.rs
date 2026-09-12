@@ -284,7 +284,7 @@ fn additional_system_probes_use_explicit_live_and_placeholder_statuses() {
         assert!(
             c.system_probes[sysctlbyname..]
                 .iter()
-                .filter(|probe| !matches!(probe.name, "getgroups" | "getifaddrs"))
+                .filter(|probe| !matches!(probe.name, "statvfs" | "getgroups" | "getifaddrs"))
                 .all(|probe| matches!(probe.status, SystemProbeStatus::Placeholder))
         );
         assert_eq!(
@@ -454,7 +454,6 @@ fn darwin_system_probe_symbols_preserve_exact_c_spellings() {
             ("dyld_get_image_header", "_dyld_get_image_header"),
             ("arc4random_uniform", "arc4random_uniform"),
             ("getdomainname", "getdomainname"),
-            ("statvfs", "statvfs"),
             ("gettimeofday", "gettimeofday"),
             ("realpath", "realpath"),
         ] {
@@ -635,6 +634,33 @@ fn per_cell_status_separates_darwin_only_and_unix_apis() {
                     api: "SupplementaryGroups::acquire",
                 },
                 "getgroups keeps dlcall and typed-owner evidence on Unix: {}/{}",
+                cell.os,
+                cell.arch
+            );
+        }
+        let statvfs = status_of(cell, "statvfs");
+        if cell.os == "windows" {
+            assert_eq!(
+                statvfs,
+                SystemProbeStatus::Placeholder,
+                "statvfs is unavailable on Windows: {}/{}",
+                cell.os,
+                cell.arch
+            );
+        } else {
+            let expected_lib = if cell.os == "macos" {
+                "libSystem.B.dylib"
+            } else {
+                "libc.so.6"
+            };
+            assert_eq!(
+                statvfs,
+                SystemProbeStatus::LiveDlcallOwned {
+                    lib: expected_lib,
+                    symbol: "statvfs",
+                    api: "StatVfsSnapshot::acquire",
+                },
+                "statvfs keeps dlcall and typed snapshot evidence on Unix: {}/{}",
                 cell.os,
                 cell.arch
             );

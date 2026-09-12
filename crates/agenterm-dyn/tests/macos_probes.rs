@@ -4,7 +4,7 @@
 
 use std::ffi::{CStr, CString, c_void};
 
-use agenterm_dyn::{Dyn, SystemProbeStatus, Value, live_cell};
+use agenterm_dyn::{Dyn, StatVfsSnapshot, SystemProbeStatus, Value, live_cell};
 
 const LIB: &str = "libSystem.B.dylib";
 
@@ -1177,6 +1177,12 @@ fn dlcall_statvfs_matches_stable_root_filesystem_fields() {
     assert_eq!(info.f_bsize, direct.f_bsize);
     assert_eq!(info.f_frsize, direct.f_frsize);
     assert_eq!(info.f_namemax, direct.f_namemax);
+
+    let snapshot =
+        StatVfsSnapshot::acquire(std::path::Path::new("/")).expect("typed statvfs snapshot");
+    assert_eq!(snapshot.block_size, info.f_bsize);
+    assert_eq!(snapshot.fragment_size, info.f_frsize);
+    assert_eq!(snapshot.maximum_name_bytes, info.f_namemax);
 }
 
 #[test]

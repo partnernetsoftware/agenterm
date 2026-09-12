@@ -399,7 +399,14 @@ const LINUX_SYSTEM_PROBES: [SystemProbe; 86] = [
     placeholder("dyld_get_image_header"),
     placeholder("arc4random_uniform"),
     placeholder("getdomainname"),
-    placeholder("statvfs"),
+    SystemProbe {
+        name: "statvfs",
+        status: SystemProbeStatus::LiveDlcallOwned {
+            lib: "libc.so.6",
+            symbol: "statvfs",
+            api: "StatVfsSnapshot::acquire",
+        },
+    },
     placeholder("gettimeofday"),
     SystemProbe {
         name: "getgroups",
@@ -523,7 +530,14 @@ const MACOS_SYSTEM_PROBES: [SystemProbe; 86] = [
     macos_live("dyld_get_image_header", "_dyld_get_image_header"),
     macos_live("arc4random_uniform", "arc4random_uniform"),
     macos_live("getdomainname", "getdomainname"),
-    macos_live("statvfs", "statvfs"),
+    SystemProbe {
+        name: "statvfs",
+        status: SystemProbeStatus::LiveDlcallOwned {
+            lib: "libSystem.B.dylib",
+            symbol: "statvfs",
+            api: "StatVfsSnapshot::acquire",
+        },
+    },
     macos_live("gettimeofday", "gettimeofday"),
     SystemProbe {
         name: "getgroups",

@@ -29,7 +29,8 @@ fn cu_adjacent_catalog_has_six_cells() {
 mod linux {
     use super::*;
     use agenterm_dyn::{
-        HostCell, LINUX_ATSPI_EXISTENCE_LIBS, SizeProbe, SystemProbe, SystemProbeStatus,
+        HostCell, LINUX_ATSPI_EXISTENCE_LIBS, SizeProbe, StatVfsSnapshot, SystemProbe,
+        SystemProbeStatus,
     };
 
     #[repr(C)]
@@ -369,6 +370,42 @@ mod linux {
         let uts = unsafe { uts.assume_init() };
         let sysname = unsafe { std::ffi::CStr::from_ptr(uts.sysname.as_ptr()) };
         assert_eq!(sysname.to_bytes(), b"Linux");
+    }
+
+    #[test]
+    fn dlcall_statvfs_matches_the_typed_snapshot() {
+        let probe = cell()
+            .system_probes
+            .into_iter()
+            .find(|probe| probe.name == "statvfs")
+            .expect("statvfs is catalogued");
+        let SystemProbeStatus::LiveDlcallOwned { lib, symbol, api } = probe.status else {
+            panic!("Linux statvfs must retain dlcall and typed snapshot evidence")
+        };
+        assert_eq!(lib, "libc.so.6");
+        assert_eq!(symbol, "statvfs");
+        assert_eq!(api, "StatVfsSnapshot::acquire");
+
+        let root = CString::new("/").expect("root path has no NUL");
+        let mut native = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+        let mut env = Dyn::new();
+        env.bind("root", root.as_ptr().cast_mut().cast())
+            .expect("bind root path");
+        env.bind("native", native.as_mut_ptr().cast())
+            .expect("bind statvfs output");
+        let got = eval_native(
+            &mut env,
+            &format!(r#"(dlcall "{lib}" "{symbol}" "i32" "ptr" root "ptr" native)"#),
+        )
+        .expect("statvfs dlcall");
+        assert_eq!(got, Value::Int(0));
+        // SAFETY: the successful statvfs call initialized the complete value.
+        let native = unsafe { native.assume_init() };
+        let snapshot =
+            StatVfsSnapshot::acquire(std::path::Path::new("/")).expect("typed statvfs snapshot");
+        assert_eq!(snapshot.block_size, native.f_bsize);
+        assert_eq!(snapshot.fragment_size, native.f_frsize);
+        assert_eq!(snapshot.maximum_name_bytes, native.f_namemax);
     }
 
     fn live_system_probe(name: &str) -> SystemProbe {

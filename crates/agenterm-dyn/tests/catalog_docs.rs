@@ -60,7 +60,6 @@ const DARWIN_ONLY_LIVE_EXAMPLES: &[(&str, &str)] = &[
     ("dyld_get_image_header", "dyld-get-image-header.md"),
     ("arc4random_uniform", "arc4random-uniform.md"),
     ("getdomainname", "getdomainname.md"),
-    ("statvfs", "statvfs.md"),
     ("gettimeofday", "gettimeofday.md"),
     ("realpath", "realpath.md"),
 ];
@@ -198,4 +197,37 @@ fn unix_getgroups_keeps_dlcall_and_typed_owner_documentation() {
 
     let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
     assert!(readme.contains("](examples/getgroups.md)"));
+}
+
+#[test]
+fn unix_statvfs_keeps_dlcall_and_typed_snapshot_documentation() {
+    for (cell, lib) in [
+        (LINUX_X86_64, "libc.so.6"),
+        (LINUX_AARCH64, "libc.so.6"),
+        (MACOS_X86_64, "libSystem.B.dylib"),
+        (MACOS_AARCH64, "libSystem.B.dylib"),
+    ] {
+        let probe = cell
+            .system_probes
+            .iter()
+            .find(|probe| probe.name == "statvfs")
+            .expect("Unix catalog contains statvfs");
+        assert_eq!(
+            probe.status,
+            SystemProbeStatus::LiveDlcallOwned {
+                lib,
+                symbol: "statvfs",
+                api: "StatVfsSnapshot::acquire",
+            }
+        );
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let example = fs::read_to_string(root.join("examples/statvfs.md"))
+        .expect("statvfs documentation is readable");
+    assert!(example.contains("StatVfsSnapshot::acquire"));
+    assert!(example.contains("dlcall"));
+
+    let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
+    assert!(readme.contains("](examples/statvfs.md)"));
 }
