@@ -118,7 +118,7 @@ B 获资格后立即开迁移叶：
 
 ### 8.1 当前判决
 
-**尚不能沿 §4 宣判 B 获资格，也没有触发 B 判负。** 当前树已经实现 S1、S2，并有 S3/S4
+**尚不能沿 §4 宣判 B 获资格，也没有触发 B 判负。** 当前树已经实现 S1–S3，并有 S4
 的真实代码和测试；所以“native door 首片不存在”是错误描述。但主判据 2 要求把“前三个能力完成”与
 “只加入第四能力”分成两个可比较 source state，而 `35098c28 qjswasm: open a contained native call door`
 在同一提交中加入 door 生产实现、前三个能力和第四个 `additions/getpagesize.wat`，没有留下可复算的前态。
@@ -126,7 +126,7 @@ B 获资格后立即开迁移叶：
 before/after diff。按 §4，主判据未出数时必须停在“进行中”，不能用 S1/S2 落地或 public `.wasm`
 监督链代替胜诉。
 
-判决树 trace：判据 1 尚缺四能力逐 target 独立 oracle 全证据 → 不判；判据 2 缺可比前态 →
+判决树 trace：判据 1 尚缺四能力逐 target 全证据 → 不判；判据 2 缺可比前态 →
 主判据未测定；判据 3 的一次 `7 → 8` 已由表与测试锁住、未见第四扇门 → 通过当前树审计；
 判据 4 有固定表和独立计数，但没有生成器产物账 → 部分通过；判据 5–7 的完整 target、runtime
 与 release 账本缺失 → 不得进入 §7 迁移。
@@ -137,7 +137,7 @@ before/after diff。按 §4，主判据未出数时必须停在“进行中”�
 |------|----------|------------------|------------------|
 | S1 schema + validator | **已实现** | `b7ff748e` 新增 `src/native.rs` 与 `tests/native_door_schema.rs`；上限、checked span、exact block、typed error code、GP/F64 分类和独立 381-pattern 重算均有测试 | 无实现缺口；最终结果账本仍须记录该 SHA/测试 |
 | S2 单一 door + bounded caller | **已实现** | `35098c28` 将唯一 `agenterm.native_call(i32,i32,i32,i32)->i32` 接入 opt-in Engine；`native_door.rs` 覆盖默认关闭、显式开启、声明发现和 budget/cancel | 尚缺全部目标格编译/运行归属 |
-| S3 三能力 + 负面矩阵 | **部分完成** | Unix `getpid/getppid/getuid` 真调用；另有 `abs(i32)` 与 `cos(f64)` 精确 ABI family；schema 测试覆盖 spec/block/argument span 和尺寸，door 测试区分 library/symbol/signature/OOB | `getppid` 只断言 `>0`、`getuid` 只断言非负，不是事前要求的独立 oracle；证据只在实际运行测试的 host 成立 |
+| S3 三能力 + 负面矩阵 | **本机实现完成** | Unix `getpid/getppid/getuid` 真调用并分别与进程 ID、父进程 ID、real UID 的独立 host oracle 精确比较；另有 `abs(i32)` 与 `cos(f64)` 精确 ABI family；schema 测试覆盖 spec/block/argument span 和尺寸，door 测试区分 library/symbol/signature/OOB | 证据只归属于实际运行测试的 Unix host；逐 target runtime 资格仍由 S5 补齐 |
 | S4 第四能力 | **夹具已实现，主判据未测定** | `tests/fixtures/native/additions/getpagesize.wat` 与 `a_fourth_capability_is_only_an_additional_wat_guest` 存在；door 表仍只有一个 native import | `35098c28` 同时加入生产门和四个能力，无“前三个完成”基线 SHA，不能复算第四能力 Rust 生产 diff = 0；需重新建立可比两点 |
 | S5 qualification | **未完成** | `3afbdc1d` 另行证明 public plain/compiled-qjs artifact 协议，以及 Unix worker crash/timeout 监督测试；它不等于本实验六格资格 | 缺两 MSVC + Linux + 本机的精确 SHA compile ledger；缺可运行 cell 的逐格 native runtime；缺同口径 release qjswasm/根产品增量；缺独立 `RESULTS.md` |
 
@@ -145,7 +145,7 @@ before/after diff。按 §4，主判据未出数时必须停在“进行中”�
 
 | 判据 | 结果 | 数值/条件与执行状态 |
 |------|------|---------------------|
-| 1 正确性 | **未完成** | 3 个首组 Unix fixture + 1 个 addition 在本机 macOS 运行通过；只有 `getpid` 与进程 oracle 精确相等，`getppid/getuid` oracle 不充分。[实测·本机真机执行；其它 target 未运行] |
+| 1 正确性 | **目标资格未完成** | 3 个首组 Unix fixture + 1 个 addition 在本机 macOS 运行通过；`getpid/getppid/getuid` 均与独立 host oracle 精确相等。[实测·本机真机执行；其它 target 未运行] |
 | 2 能力斜率（主） | **未测定** | 缺前三能力基线 SHA，不能计算第四能力生产 Rust LOC；不得把同提交中的目录布局写成 `0 行` 实测。[结构审计] |
 | 3 门面冻结 | **当前通过** | `SIGNATURES` 为 8 项，默认门为 7 项，native opt-in 只追加 1 项；第四 fixture 没有新增 import。[结构审计；本机专属测试通过] |
 | 4 有限桩表 | **部分通过** | 参数类 2、返回类 3、arity `0..=6`，独立枚举为 `3 × Σ(2^0..2^6) = 381`；可执行 exact homogeneous 表为 `7 × 7 = 49`。实现以宏列出 0–6 arity，尚无规格所说的生成器结果文件。[结构审计；本机独立计数测试通过] |
