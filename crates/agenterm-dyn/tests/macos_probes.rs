@@ -30,22 +30,6 @@ fn live_symbol(name: &str) -> &'static str {
 }
 
 #[test]
-fn dlcall_getprogname_matches_libc_c_string() {
-    let symbol = live_symbol("getprogname");
-    let mut env = Dyn::new();
-    let got = eval_native(&mut env, &format!(r#"(dlcall "{LIB}" "{symbol}" "ptr")"#))
-        .expect("getprogname dlcall")
-        .as_ptr()
-        .expect("program name pointer") as *const libc::c_char;
-    let direct = unsafe { libc::getprogname() };
-    assert!(!got.is_null(), "dlcall must return a program-name pointer");
-    assert!(!direct.is_null(), "libc must return a program-name pointer");
-    let got = unsafe { CStr::from_ptr(got) };
-    let direct = unsafe { CStr::from_ptr(direct) };
-    assert_eq!(got.to_bytes(), direct.to_bytes());
-}
-
-#[test]
 fn dlcall_sysctl_writes_ncpu_into_caller_buffer() {
     let symbol = live_symbol("sysctl");
     let mut mib = [libc::CTL_HW, libc::HW_NCPU];
@@ -116,67 +100,6 @@ fn dlcall_proc_pidinfo_writes_caller_owned_bsdinfo() {
 }
 
 #[test]
-fn dlcall_nsget_argc_matches_libc_pointer_and_count() {
-    let symbol = live_symbol("nsget_argc");
-    let mut env = Dyn::new();
-    let got = eval_native(&mut env, &format!(r#"(dlcall "{LIB}" "{symbol}" "ptr")"#))
-        .expect("_NSGetArgc dlcall")
-        .as_ptr()
-        .expect("_NSGetArgc pointer") as *mut i32;
-    assert!(
-        !got.is_null(),
-        "_NSGetArgc must return a non-null int pointer"
-    );
-    let argc = unsafe { *got };
-    assert!(argc >= 1, "process argc must be at least 1");
-    let direct = unsafe { libc::_NSGetArgc() };
-    assert_eq!(got, direct);
-    assert_eq!(argc, unsafe { *direct });
-}
-
-#[test]
-fn dlcall_nsget_argv_matches_libc_borrowed_pointer() {
-    let symbol = live_symbol("nsget_argv");
-    let mut env = Dyn::new();
-    let got = eval_native(&mut env, &format!(r#"(dlcall "{LIB}" "{symbol}" "ptr")"#))
-        .expect("_NSGetArgv dlcall")
-        .as_ptr()
-        .expect("_NSGetArgv pointer") as *mut *mut *mut libc::c_char;
-    assert!(
-        !got.is_null(),
-        "_NSGetArgv must return a non-null outer pointer"
-    );
-    let direct = unsafe { libc::_NSGetArgv() };
-    assert_eq!(got, direct);
-    let argv = unsafe { *got };
-    assert!(!argv.is_null(), "_NSGetArgv must expose argv storage");
-    assert_eq!(argv, unsafe { *direct });
-    assert!(!unsafe { *argv }.is_null(), "argv[0] must name the process");
-}
-
-#[test]
-fn dlcall_nsget_environ_matches_libc_borrowed_pointer() {
-    let symbol = live_symbol("nsget_environ");
-    let mut env = Dyn::new();
-    let got = eval_native(&mut env, &format!(r#"(dlcall "{LIB}" "{symbol}" "ptr")"#))
-        .expect("_NSGetEnviron dlcall")
-        .as_ptr()
-        .expect("_NSGetEnviron pointer") as *mut *mut *mut libc::c_char;
-    assert!(
-        !got.is_null(),
-        "_NSGetEnviron must return a non-null outer pointer"
-    );
-    let direct = unsafe { libc::_NSGetEnviron() };
-    assert_eq!(got, direct);
-    let environ = unsafe { *got };
-    assert!(
-        !environ.is_null(),
-        "_NSGetEnviron must expose environ storage"
-    );
-    assert_eq!(environ, unsafe { *direct });
-}
-
-#[test]
 fn dlcall_proc_pid_rusage_writes_caller_owned_v4() {
     let symbol = live_symbol("proc_pid_rusage");
     let pid = unsafe { libc::getpid() };
@@ -199,57 +122,6 @@ fn dlcall_proc_pid_rusage_writes_caller_owned_v4() {
     assert_eq!(direct_status, 0, "direct proc_pid_rusage must succeed");
     assert_eq!(ri.ri_uuid, direct.ri_uuid);
     assert_eq!(ri.ri_proc_start_abstime, direct.ri_proc_start_abstime);
-}
-
-#[test]
-fn dlcall_pthread_get_stackaddr_np_matches_libc_current_thread() {
-    let symbol = live_symbol("pthread_get_stackaddr_np");
-    let thread = unsafe { libc::pthread_self() } as u64;
-    let mut env = Dyn::new();
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "ptr" "u64" {thread})"#),
-    )
-    .expect("pthread_get_stackaddr_np dlcall")
-    .as_ptr()
-    .expect("pthread_get_stackaddr_np pointer") as *mut c_void;
-    let direct = unsafe { libc::pthread_get_stackaddr_np(libc::pthread_self()) };
-    assert!(
-        !got.is_null(),
-        "current thread stack address must be non-null"
-    );
-    assert!(
-        !direct.is_null(),
-        "direct thread stack address must be non-null"
-    );
-    assert_eq!(got, direct);
-}
-
-#[test]
-fn dlcall_nsget_progname_matches_libc_outer_pointer_and_c_string() {
-    let symbol = live_symbol("nsget_progname");
-    let mut env = Dyn::new();
-    let got = eval_native(&mut env, &format!(r#"(dlcall "{LIB}" "{symbol}" "ptr")"#))
-        .expect("_NSGetProgname dlcall")
-        .as_ptr()
-        .expect("_NSGetProgname outer pointer") as *mut *mut libc::c_char;
-    let direct = unsafe { libc::_NSGetProgname() };
-    assert!(
-        !got.is_null(),
-        "_NSGetProgname must return an outer pointer"
-    );
-    assert_eq!(got, direct);
-    let name = unsafe { *got };
-    let direct_name = unsafe { libc::getprogname() };
-    assert!(!name.is_null(), "_NSGetProgname must expose a program name");
-    assert!(
-        !direct_name.is_null(),
-        "getprogname must return a program name"
-    );
-    assert_eq!(
-        unsafe { CStr::from_ptr(name) }.to_bytes(),
-        unsafe { CStr::from_ptr(direct_name) }.to_bytes()
-    );
 }
 
 #[test]
@@ -280,53 +152,6 @@ fn dlcall_confstr_writes_cs_path() {
         CStr::from_bytes_until_nul(&direct)
             .expect("direct confstr must NUL-terminate successful output")
             .to_bytes()
-    );
-}
-
-#[test]
-fn dlcall_nsget_mach_execute_header_matches_direct_c() {
-    unsafe extern "C" {
-        fn _NSGetMachExecuteHeader() -> *mut c_void;
-    }
-
-    let symbol = live_symbol("nsget_mach_execute_header");
-    let mut env = Dyn::new();
-    let got = eval_native(&mut env, &format!(r#"(dlcall "{LIB}" "{symbol}" "ptr")"#))
-        .expect("_NSGetMachExecuteHeader dlcall")
-        .as_ptr()
-        .expect("_NSGetMachExecuteHeader pointer") as *mut c_void;
-    assert!(
-        !got.is_null(),
-        "_NSGetMachExecuteHeader must return a non-null header"
-    );
-    let direct = unsafe { _NSGetMachExecuteHeader() };
-    assert_eq!(got, direct);
-}
-
-#[test]
-fn dlcall_dyld_get_image_name_matches_image_zero() {
-    unsafe extern "C" {
-        fn _dyld_get_image_name(image_index: u32) -> *const libc::c_char;
-    }
-
-    let symbol = live_symbol("dyld_get_image_name");
-    let mut env = Dyn::new();
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "ptr" "u32" 0)"#),
-    )
-    .expect("_dyld_get_image_name dlcall")
-    .as_ptr()
-    .expect("_dyld_get_image_name pointer") as *const libc::c_char;
-    assert!(
-        !got.is_null(),
-        "_dyld_get_image_name(0) must return a C string"
-    );
-    let direct = unsafe { _dyld_get_image_name(0) };
-    assert!(!direct.is_null(), "direct image-zero name must be non-null");
-    assert_eq!(
-        unsafe { CStr::from_ptr(got) }.to_bytes(),
-        unsafe { CStr::from_ptr(direct) }.to_bytes()
     );
 }
 
@@ -394,31 +219,4 @@ fn dlcall_dladdr_writes_caller_owned_info() {
         unsafe { CStr::from_ptr(local.dli_fname) }.to_bytes(),
         "typed snapshot copies the same current-image native path"
     );
-}
-
-#[test]
-fn dlcall_dyld_get_image_header_matches_image_zero() {
-    unsafe extern "C" {
-        fn _dyld_get_image_header(image_index: u32) -> *const c_void;
-    }
-
-    let symbol = live_symbol("dyld_get_image_header");
-    let mut env = Dyn::new();
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "ptr" "u32" 0)"#),
-    )
-    .expect("_dyld_get_image_header dlcall")
-    .as_ptr()
-    .expect("_dyld_get_image_header pointer") as *const c_void;
-    assert!(
-        !got.is_null(),
-        "_dyld_get_image_header(0) must return a header"
-    );
-    let direct = unsafe { _dyld_get_image_header(0) };
-    assert!(
-        !direct.is_null(),
-        "direct image-zero header must be non-null"
-    );
-    assert_eq!(got, direct);
 }

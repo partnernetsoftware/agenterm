@@ -4,7 +4,7 @@
 //! produces the same result as the direct native call, and that the raw ABI
 //! carries no nullability policy.
 
-use std::ffi::c_void;
+use std::ffi::{CStr, c_void};
 
 use agenterm_dyn::{
     AbiError, AbiSignature, AbiType, AbiValue, NativeCall, invoke_abi, validate_abi,
@@ -98,6 +98,8 @@ fn matrix_pointer_representative_matches_the_direct_call() {
 #[test]
 fn pointer_result_shapes_match_direct_darwin_calls() {
     unsafe extern "C" {
+        fn _NSGetMachExecuteHeader() -> *mut c_void;
+        fn _dyld_get_image_name(image_index: u32) -> *mut c_void;
         fn _dyld_get_image_header(image_index: u32) -> *mut c_void;
     }
 
@@ -106,6 +108,48 @@ fn pointer_result_shapes_match_direct_darwin_calls() {
     assert_eq!(
         no_arguments,
         AbiValue::Pointer(unsafe { libc::getprogname() }.cast_mut().cast())
+    );
+    let AbiValue::Pointer(program_name) = no_arguments else {
+        unreachable!("the declared result is a pointer")
+    };
+    assert!(!program_name.is_null());
+    assert_eq!(
+        unsafe { CStr::from_ptr(program_name.cast()) }.to_bytes(),
+        unsafe { CStr::from_ptr(libc::getprogname()) }.to_bytes()
+    );
+
+    for (symbol, direct) in [
+        ("_NSGetArgc", unsafe { libc::_NSGetArgc() }.cast()),
+        ("_NSGetArgv", unsafe { libc::_NSGetArgv() }.cast()),
+        ("_NSGetEnviron", unsafe { libc::_NSGetEnviron() }.cast()),
+        ("_NSGetProgname", unsafe { libc::_NSGetProgname() }.cast()),
+        ("_NSGetMachExecuteHeader", unsafe {
+            _NSGetMachExecuteHeader()
+        }),
+    ] {
+        let actual = oracle(LIB, symbol, AbiType::Pointer, &[], &[])
+            .unwrap_or_else(|error| panic!("{symbol} through the raw ABI: {error}"));
+        assert_eq!(actual, AbiValue::Pointer(direct), "{symbol}");
+        assert!(!direct.is_null(), "{symbol} must expose a borrowed address");
+    }
+    let argc = unsafe { libc::_NSGetArgc() };
+    assert!(unsafe { *argc } >= 1, "process argc must be positive");
+    let argv = unsafe { libc::_NSGetArgv() };
+    assert!(!unsafe { *argv }.is_null(), "argv storage must exist");
+    assert!(
+        !unsafe { **argv }.is_null(),
+        "argv[0] must name the process"
+    );
+    let environ = unsafe { libc::_NSGetEnviron() };
+    assert!(
+        !unsafe { *environ }.is_null(),
+        "environment storage must exist"
+    );
+    let outer_program_name = unsafe { libc::_NSGetProgname() };
+    assert!(!unsafe { *outer_program_name }.is_null());
+    assert_eq!(
+        unsafe { CStr::from_ptr(*outer_program_name) }.to_bytes(),
+        unsafe { CStr::from_ptr(libc::getprogname()) }.to_bytes()
     );
 
     let u32_argument = oracle(
@@ -119,6 +163,27 @@ fn pointer_result_shapes_match_direct_darwin_calls() {
     assert_eq!(
         u32_argument,
         AbiValue::Pointer(unsafe { _dyld_get_image_header(0) })
+    );
+    assert_ne!(u32_argument, AbiValue::Pointer(std::ptr::null_mut()));
+    let image_name = oracle(
+        LIB,
+        "_dyld_get_image_name",
+        AbiType::Pointer,
+        &[AbiType::U32],
+        &[AbiValue::U32(0)],
+    )
+    .expect("dyld image name through the raw ABI");
+    assert_eq!(
+        image_name,
+        AbiValue::Pointer(unsafe { _dyld_get_image_name(0) })
+    );
+    let AbiValue::Pointer(image_name) = image_name else {
+        unreachable!("the declared result is a pointer")
+    };
+    assert!(!image_name.is_null());
+    assert_eq!(
+        unsafe { CStr::from_ptr(image_name.cast()) }.to_bytes(),
+        unsafe { CStr::from_ptr(_dyld_get_image_name(0).cast()) }.to_bytes()
     );
 
     let thread = unsafe { libc::pthread_self() } as u64;
@@ -134,6 +199,7 @@ fn pointer_result_shapes_match_direct_darwin_calls() {
         u64_argument,
         AbiValue::Pointer(unsafe { libc::pthread_get_stackaddr_np(libc::pthread_self()) })
     );
+    assert_ne!(u64_argument, AbiValue::Pointer(std::ptr::null_mut()));
 }
 
 #[cfg(target_os = "macos")]

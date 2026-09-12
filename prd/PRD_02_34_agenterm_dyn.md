@@ -459,6 +459,11 @@ court has claim-preserving `.wat` or typed-owner evidence.
   pointee 宽度、对齐、NUL 契约仍属调用方与 qjswasm 上层 schema。
   统一入口随后新增 `ptr()` / `ptr(u32)` / `ptr(u64)` 三个真实单态
   pointer-return trampoline；返回值只保留机器地址位，不声明所有权或可解引用性。
+  这三个形状的 Darwin direct-oracle court 已接管 `getprogname`、`_NSGetArgc`、
+  `_NSGetArgv`、`_NSGetEnviron`、`_NSGetProgname`、`_NSGetMachExecuteHeader`、
+  `_dyld_get_image_name(0)`、`_dyld_get_image_header(0)` 与
+  `pthread_get_stackaddr_np(pthread_self())`，对应九个 Lisp court 已删除；
+  `macos_probes.rs` 还剩六个复杂 caller-buffer/结构体或异构标量 court。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded
