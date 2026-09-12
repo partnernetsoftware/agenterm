@@ -217,6 +217,39 @@ precommitted parity, slope, target, and consumer gates.
 - No cu or `agenterm-platform` import.
 - No libffi, no C dependency, no fourth engine, no thickening libagenterm.
 
+## Wave 11 (2026-09-12): Unix interface address lists as a typed owner (`8ae3b00a`)
+
+**用户问题**：调用方需要"本地接口地址表"，但不能把 native 链表的裸指针带出 dyn——裸 `getifaddrs`
+链表的所有权、上界与释放时机必须由一个类型负责，否则调用方要么泄漏，要么在别人 free 之后继续读。
+
+**公开 owner**：`InterfaceAddresses::acquire() -> Result<Self, InterfaceAddressesError>`。
+取得成功后由该值独占 native 链表；调用方只能读**已拷贝**的事实，拿不到指针。
+
+**不变量**（实现见 `crates/agenterm-dyn/src/unix_resource.rs`）：
+1. **私有 raw 链表**：链表头只存在于私有 `OwnedList<T, F: FreeList<T>> { head, freer }` 内，字段不对外公开；
+2. **有界、pointer-free 快照**：对外只暴露 `InterfaceAddress { name: Vec<u8>（native 字节、去尾 NUL）, flags: u32, address_family: Option<u16> }`；进入快照后不再持有任何 native 指针；
+3. **Drop 恰好 free 一次**：`OwnedList::drop` 只调用一次 `freer.free(head)`，`SystemFreer` 对应取得时的那**一次** `freeifaddrs`；注入式 `FreeList` seam 让"恰好一次"可在测试里判定（`#[cfg(any(unix, test))]`）。
+
+**typed 失败**：`InterfaceAddressesError::{Os(..), TooManyEntries { limit }, Unsupported}`——不 panic、不返回部分真值。
+
+**六格状态**（逐格陈述，不跨格外推）：
+| 格 | 状态 |
+|---|---|
+| macOS aarch64 | **本机 runtime 通过**（`tests/unix_resource.rs`） |
+| macOS x86_64 | **未测定**；不得沿用 aarch64 runtime |
+| Linux x86_64 | **仅 `cargo zigbuild` 编译**；runtime 未取得 |
+| Linux aarch64 | **未测定** |
+| Windows x86_64 | **placeholder + typed `Unsupported`**；MSVC 仅编译，不声称 runtime 支持 |
+| Windows aarch64 | **placeholder + typed `Unsupported`**；MSVC 仅编译，不声称 runtime 支持 |
+
+**证据**：`8ae3b00a dyn: own Unix interface address lists`（`src/unix_resource.rs` +178、`tests/unix_resource.rs` +45、
+`tests/catalog_docs.rs` +28、`tests/hosts.rs` +17、`examples/getifaddrs.md`、`README.md`）。
+
+**明确非目标**：不解析地址 bytes（只搬运 native 事实）；不接 CU / qjswasm；不宣称任何网络能力或权限。
+
+**不得外推**：catalog 该行的 `LiveOwned` 只表示"存在 owner 类型与释放路径"，**不等于 Linux runtime 已证**；
+Linux/Windows 的运行资格仍按本 PRD 的六格纪律逐格取得。
+
 ## If a new authorized increment is opened
 
 Use managed local agent sessions from the repository root, with `harden`,
