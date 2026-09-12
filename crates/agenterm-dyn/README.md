@@ -200,7 +200,7 @@ without wiring dyn into cu, platform, or the ABI:
 - [MIB lookup via `sysctlnametomib`](examples/sysctlnametomib.md) (macOS)
 - [Mach tick-to-nanosecond ratio via `mach_timebase_info`](examples/mach-timebase-info.md) (macOS; native-call and typed snapshot evidence)
 - [main-thread predicate via `pthread_main_np`](examples/pthread-main-np.md) (macOS)
-- [login name via `getlogin_r`](examples/getlogin-r.md) (macOS; native-call and typed snapshot evidence)
+- [login name via `getlogin_r`](examples/getlogin-r.md) (macOS; typed snapshot evidence)
 - [current thread id via `pthread_threadid_np`](examples/pthread-threadid-np.md) (macOS)
 - [current thread name via `pthread_getname_np`](examples/pthread-getname-np.md) (macOS)
 - [BSD process facts via `proc_pidinfo`](examples/proc-pidinfo.md) (macOS)
@@ -231,7 +231,7 @@ without wiring dyn into cu, platform, or the ABI:
 - [host UUID via `gethostuuid`](examples/gethostuuid.md) (macOS)
 - [loaded-image header via `_dyld_get_image_header`](examples/dyld-get-image-header.md) (macOS)
 - [bounded random word via `arc4random_uniform`](examples/arc4random-uniform.md) (macOS)
-- [domain name via `getdomainname`](examples/getdomainname.md) (macOS; native-call and typed snapshot evidence)
+- [domain name via `getdomainname`](examples/getdomainname.md) (macOS; typed snapshot evidence)
 - [filesystem facts via `statvfs`](examples/statvfs.md) (Linux and macOS; typed snapshot evidence)
 - [wall-clock time via `gettimeofday`](examples/gettimeofday.md) (macOS)
 - [supplementary groups via `getgroups`](examples/getgroups.md) (Linux and macOS; typed owner evidence)
@@ -306,8 +306,7 @@ source defines the same integer/void/ptr libc rows as Linux against
 direct-libc baselines. Darwin-specific smokes cover `sysctlbyname`,
 `mach_absolute_time`, `getprogname`, `issetugid`, `_NSGetExecutablePath`,
 `proc_pidpath`, `arc4random`, `clock_gettime_nsec_np`, `sysctl`,
-`mach_timebase_info`, `pthread_main_np`, `getlogin_r` (native-call and typed
-snapshot evidence), `pthread_threadid_np`,
+`mach_timebase_info`, `pthread_main_np`, `pthread_threadid_np`,
 `pthread_getname_np`,
 `proc_pidinfo`, `_NSGetArgc`, `_NSGetArgv`, `_NSGetEnviron`,
 `proc_pid_rusage`, `_dyld_image_count`, `getentropy`, `proc_name`,
@@ -319,15 +318,17 @@ snapshot evidence), `pthread_threadid_np`,
 `_dyld_get_image_vmaddr_slide`, `gethostuuid`,
 `_dyld_get_image_header`, `arc4random_uniform`,
 `gettimeofday` and `realpath`; `dladdr` additionally has a bounded,
-pointer-free current-image and domain-name snapshots on macOS, while
+pointer-free current-image snapshot on macOS; `getdomainname` and `getlogin_r`
+are now represented only by their bounded typed snapshots, while
 `gethostname`, `statvfs`, and `getgroups` have bounded typed snapshots on both
 Linux and macOS;
 the caller-owned timebase, login, thread-id, thread-name, `proc_bsdinfo`, and
 `rusage_info_v4` buffers are compared with direct C baselines. Wave 8
 loader/uuid facts (`dladdr`, `gethostuuid`, `_dyld_get_image_header`) retain
 live `dlcall`s compared with later native calls; `dladdr` also compares its
-typed owned image-path bytes with a direct current-image query. Wave 9 bounds random results,
-compares independent domain-name buffers, while the typed `StatVfsSnapshot`
+typed owned image-path bytes with a direct current-image query. Wave 9 bounds random results;
+the typed domain-name court compares its owned bytes with an independent
+direct native buffer, while the typed `StatVfsSnapshot`
 court compares only stable fields with an independent direct native query
 because live capacity counters can change between calls. The
 dynamic-loader image count is an instantaneous positive fact checked against a

@@ -268,7 +268,7 @@ fn darwin_dladdr_keeps_dlcall_and_typed_snapshot_documentation() {
 }
 
 #[test]
-fn darwin_domain_name_keeps_dlcall_and_typed_snapshot_documentation() {
+fn darwin_domain_name_has_typed_snapshot_documentation() {
     for cell in [MACOS_X86_64, MACOS_AARCH64] {
         let probe = cell
             .system_probes
@@ -277,9 +277,7 @@ fn darwin_domain_name_keeps_dlcall_and_typed_snapshot_documentation() {
             .expect("Darwin catalog contains getdomainname");
         assert_eq!(
             probe.status,
-            SystemProbeStatus::LiveDlcallOwned {
-                lib: "libSystem.B.dylib",
-                symbol: "getdomainname",
+            SystemProbeStatus::LiveOwned {
                 api: "DomainNameSnapshot::acquire",
             }
         );
@@ -289,14 +287,14 @@ fn darwin_domain_name_keeps_dlcall_and_typed_snapshot_documentation() {
     let example = fs::read_to_string(root.join("examples/getdomainname.md"))
         .expect("getdomainname documentation is readable");
     assert!(example.contains("DomainNameSnapshot::acquire"));
-    assert!(example.contains("dlcall"));
+    assert!(!example.contains("(dlcall"));
 
     let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
     assert!(readme.contains("](examples/getdomainname.md)"));
 }
 
 #[test]
-fn darwin_login_name_keeps_dlcall_and_typed_snapshot_documentation() {
+fn darwin_login_name_has_typed_snapshot_documentation() {
     for cell in [MACOS_X86_64, MACOS_AARCH64] {
         let probe = cell
             .system_probes
@@ -305,9 +303,7 @@ fn darwin_login_name_keeps_dlcall_and_typed_snapshot_documentation() {
             .expect("Darwin catalog contains getlogin_r");
         assert_eq!(
             probe.status,
-            SystemProbeStatus::LiveDlcallOwned {
-                lib: "libSystem.B.dylib",
-                symbol: "getlogin_r",
+            SystemProbeStatus::LiveOwned {
                 api: "LoginNameSnapshot::acquire",
             }
         );
@@ -317,7 +313,7 @@ fn darwin_login_name_keeps_dlcall_and_typed_snapshot_documentation() {
     let example = fs::read_to_string(root.join("examples/getlogin-r.md"))
         .expect("getlogin_r documentation is readable");
     assert!(example.contains("LoginNameSnapshot::acquire"));
-    assert!(example.contains("dlcall"));
+    assert!(!example.contains("(dlcall"));
 
     let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
     assert!(readme.contains("](examples/getlogin-r.md)"));

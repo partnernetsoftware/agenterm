@@ -413,6 +413,16 @@ fn additional_system_probes_use_explicit_live_and_placeholder_statuses() {
                             SystemProbeStatus::LiveOwned {
                                 api: "SupplementaryGroups::acquire"
                             }
+                        ) | (
+                            "getdomainname",
+                            SystemProbeStatus::LiveOwned {
+                                api: "DomainNameSnapshot::acquire"
+                            }
+                        ) | (
+                            "getlogin_r",
+                            SystemProbeStatus::LiveOwned {
+                                api: "LoginNameSnapshot::acquire"
+                            }
                         )
                     )
                 })
@@ -740,7 +750,7 @@ fn dladdr_combines_raw_and_typed_evidence_only_on_darwin() {
 }
 
 #[test]
-fn domain_name_combines_raw_and_typed_evidence_only_on_darwin() {
+fn domain_name_uses_only_the_typed_snapshot_on_darwin() {
     for cell in ALL_CELLS {
         let status = cell
             .system_probes
@@ -751,12 +761,10 @@ fn domain_name_combines_raw_and_typed_evidence_only_on_darwin() {
         if cell.os == "macos" {
             assert_eq!(
                 status,
-                SystemProbeStatus::LiveDlcallOwned {
-                    lib: "libSystem.B.dylib",
-                    symbol: "getdomainname",
+                SystemProbeStatus::LiveOwned {
                     api: "DomainNameSnapshot::acquire",
                 },
-                "getdomainname evidence is complete on {}/{}",
+                "getdomainname typed evidence is complete on {}/{}",
                 cell.os,
                 cell.arch
             );
@@ -773,7 +781,7 @@ fn domain_name_combines_raw_and_typed_evidence_only_on_darwin() {
 }
 
 #[test]
-fn login_name_combines_raw_and_typed_evidence_only_on_darwin() {
+fn login_name_uses_only_the_typed_snapshot_on_darwin() {
     for cell in ALL_CELLS {
         let status = cell
             .system_probes
@@ -784,12 +792,10 @@ fn login_name_combines_raw_and_typed_evidence_only_on_darwin() {
         if cell.os == "macos" {
             assert_eq!(
                 status,
-                SystemProbeStatus::LiveDlcallOwned {
-                    lib: "libSystem.B.dylib",
-                    symbol: "getlogin_r",
+                SystemProbeStatus::LiveOwned {
                     api: "LoginNameSnapshot::acquire",
                 },
-                "getlogin_r evidence is complete on {}/{}",
+                "getlogin_r typed evidence is complete on {}/{}",
                 cell.os,
                 cell.arch
             );

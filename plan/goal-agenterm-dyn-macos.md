@@ -85,9 +85,8 @@ stable filesystem fields because capacity counters can change between calls.
 The portable catalog/documentation gate runs on every host. In success run
 [31873334933](https://github.com/mgttt/agenterm/actions/runs/31873334933), both
 Darwin architectures reported
-`dlcall_arc4random_uniform_respects_each_upper_bound`,
-`dlcall_getdomainname_matches_independent_caller_buffer`, and
-the then-current legacy `statvfs` stable-field court as `ok`. Windows
+the bounded-random, then-current legacy domain-name-buffer, and then-current
+legacy `statvfs` stable-field courts as `ok`. Windows
 compilation is not live evidence. Keep `mach_host_self` last and Placeholder.
 
 Do not live-call Mach send rights. Do not pick `os_proc_available_memory` —

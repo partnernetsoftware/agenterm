@@ -501,9 +501,7 @@ const MACOS_SYSTEM_PROBES: [SystemProbe; 86] = [
     macos_live("pthread_main_np", "pthread_main_np"),
     SystemProbe {
         name: "getlogin_r",
-        status: SystemProbeStatus::LiveDlcallOwned {
-            lib: "libSystem.B.dylib",
-            symbol: "getlogin_r",
+        status: SystemProbeStatus::LiveOwned {
             api: "LoginNameSnapshot::acquire",
         },
     },
@@ -558,9 +556,7 @@ const MACOS_SYSTEM_PROBES: [SystemProbe; 86] = [
     macos_live("arc4random_uniform", "arc4random_uniform"),
     SystemProbe {
         name: "getdomainname",
-        status: SystemProbeStatus::LiveDlcallOwned {
-            lib: "libSystem.B.dylib",
-            symbol: "getdomainname",
+        status: SystemProbeStatus::LiveOwned {
             api: "DomainNameSnapshot::acquire",
         },
     },

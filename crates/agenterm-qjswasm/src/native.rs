@@ -975,6 +975,9 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
         (NativeType::I32, [NativeType::Pointer, NativeType::NullablePointer]) => {
             Some(FixedPointerPrototype::I32PointerNullablePointer)
         }
+        (NativeType::I32, [NativeType::I32, NativeType::Pointer, NativeType::U32]) => {
+            Some(FixedPointerPrototype::I32I32PointerU32)
+        }
         _ => None,
     };
     fixed_pointer
@@ -1309,6 +1312,16 @@ fn fixed_pointer_argument(
                 })
             }
         }
+        NativeArgument::Scalar {
+            ty: NativeType::U32,
+            bits,
+        } => u32::try_from(*bits)
+            .map(FixedPointerValue::U32)
+            .map_err(|_| NativeDoorError::ScalarNotCanonical {
+                index,
+                ty: NativeType::U32,
+                bits: *bits,
+            }),
         NativeArgument::GuestSpan { ty, span } if ty.is_pointer() => {
             // SAFETY: decode_native_call proved offset + len is within the one
             // guest allocation. `add` therefore yields an in-bounds or one-past
@@ -1453,6 +1466,12 @@ mod json_adapter_tests {
             native_dispatch(&parse("|gettimeofday|i32(ptr,ptr?)")),
             Ok(NativeDispatch::FixedPointer(
                 FixedPointerPrototype::I32PointerNullablePointer,
+            ))
+        );
+        assert_eq!(
+            native_dispatch(&parse("|proc_pidpath|i32(i32,ptr,u32)")),
+            Ok(NativeDispatch::FixedPointer(
+                FixedPointerPrototype::I32I32PointerU32,
             ))
         );
         assert_eq!(

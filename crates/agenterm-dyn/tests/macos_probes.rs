@@ -4,10 +4,7 @@
 
 use std::ffi::{CStr, CString, c_void};
 
-use agenterm_dyn::{
-    DlAddressSnapshot, DomainNameSnapshot, Dyn, LoginNameError, LoginNameSnapshot,
-    SystemProbeStatus, Value, live_cell,
-};
+use agenterm_dyn::{DlAddressSnapshot, Dyn, SystemProbeStatus, Value, live_cell};
 
 const LIB: &str = "libSystem.B.dylib";
 
@@ -124,32 +121,6 @@ fn dlcall_nsget_executable_path_writes_a_caller_buffer() {
 }
 
 #[test]
-fn dlcall_proc_pidpath_writes_a_caller_buffer() {
-    let symbol = live_symbol("proc_pidpath");
-    let mut buffer = vec![0_u8; 4096];
-    let len = u32::try_from(buffer.len()).expect("test buffer fits u32");
-    let pid = unsafe { libc::getpid() };
-    let mut env = Dyn::new();
-    env.bind("path", buffer.as_mut_ptr().cast())
-        .expect("bind proc_pidpath buffer");
-    let got = eval_native(
-        &mut env,
-        &format!(
-            r#"(dlcall "{LIB}" "{symbol}" "i32" "i32" {} "ptr" path "u32" {len})"#,
-            pid
-        ),
-    )
-    .expect("proc_pidpath dlcall")
-    .as_int()
-    .expect("proc_pidpath integer result");
-    assert!(got > 0, "proc_pidpath must write at least one byte");
-    let path = CStr::from_bytes_until_nul(&buffer)
-        .expect("proc_pidpath must NUL-terminate its successful output")
-        .to_bytes();
-    assert!(!path.is_empty(), "proc_pidpath path must be non-empty");
-}
-
-#[test]
 fn dlcall_sysctl_writes_ncpu_into_caller_buffer() {
     let symbol = live_symbol("sysctl");
     let mut mib = [libc::CTL_HW, libc::HW_NCPU];
@@ -222,57 +193,6 @@ fn dlcall_sysctlnametomib_writes_caller_owned_mib() {
     assert_eq!(direct_status, 0, "direct sysctlnametomib must succeed");
     assert_eq!(len, direct_len);
     assert_eq!(&mib[..len], &direct[..direct_len]);
-}
-
-#[test]
-fn dlcall_getlogin_r_matches_direct_c_buffer() {
-    unsafe extern "C" {
-        fn getlogin_r(name: *mut libc::c_char, name_len: usize) -> libc::c_int;
-    }
-
-    let symbol = live_symbol("getlogin_r");
-    let mut len = 256_usize;
-    let (got_status, got_buffer) = loop {
-        let mut buffer = vec![0_u8; len];
-        let mut env = Dyn::new();
-        env.bind("name", buffer.as_mut_ptr().cast())
-            .expect("bind login output");
-        let status = eval_native(
-            &mut env,
-            &format!(r#"(dlcall "{LIB}" "{symbol}" "i32" "ptr" name "u64" {len})"#),
-        )
-        .expect("getlogin_r dlcall")
-        .as_int()
-        .expect("getlogin_r integer status");
-        if status == i64::from(libc::ERANGE) {
-            assert_eq!(len, 256, "only the initial buffer may be too small");
-            len = 1024;
-            continue;
-        }
-        break (status, buffer);
-    };
-    let mut direct_buffer = vec![0_u8; len];
-    let direct_status = unsafe { getlogin_r(direct_buffer.as_mut_ptr().cast(), len) };
-    assert_eq!(
-        got_status,
-        i64::from(direct_status),
-        "dlcall and direct getlogin_r must return the same status for length {len}"
-    );
-    let typed = LoginNameSnapshot::acquire();
-    if got_status == 0 {
-        let got = CStr::from_bytes_until_nul(&got_buffer)
-            .expect("getlogin_r must NUL-terminate successful output");
-        let direct = CStr::from_bytes_until_nul(&direct_buffer)
-            .expect("direct getlogin_r must NUL-terminate successful output");
-        assert!(!got.to_bytes().is_empty(), "login name must be non-empty");
-        assert_eq!(got.to_bytes(), direct.to_bytes());
-        assert_eq!(
-            typed.expect("typed getlogin_r snapshot").as_bytes(),
-            got.to_bytes()
-        );
-    } else {
-        assert_eq!(typed, Err(LoginNameError::Os(direct_status)));
-    }
 }
 
 #[test]
@@ -781,35 +701,6 @@ fn dlcall_dyld_get_image_header_matches_image_zero() {
         "direct image-zero header must be non-null"
     );
     assert_eq!(got, direct);
-}
-
-#[test]
-fn dlcall_getdomainname_matches_independent_caller_buffer() {
-    const BUFFER_BYTES: usize = 256;
-    let symbol = live_symbol("getdomainname");
-    let length = libc::c_int::try_from(BUFFER_BYTES).expect("domain buffer fits c_int");
-    let mut domain = [0_u8; BUFFER_BYTES];
-    let mut env = Dyn::new();
-    env.bind("domain", domain.as_mut_ptr().cast())
-        .expect("bind domain-name output");
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "i32" "ptr" domain "i32" {length})"#),
-    )
-    .expect("getdomainname dlcall");
-    assert_eq!(got, Value::Int(0));
-    let domain = CStr::from_bytes_until_nul(&domain)
-        .expect("successful getdomainname must NUL-terminate its bounded output");
-
-    let mut direct = [0_u8; BUFFER_BYTES];
-    let direct_status =
-        unsafe { libc::getdomainname(direct.as_mut_ptr().cast::<libc::c_char>(), length) };
-    assert_eq!(direct_status, 0, "direct getdomainname must succeed");
-    let direct = CStr::from_bytes_until_nul(&direct)
-        .expect("direct getdomainname must NUL-terminate its bounded output");
-    assert_eq!(domain.to_bytes(), direct.to_bytes());
-    let snapshot = DomainNameSnapshot::acquire().expect("typed domain-name snapshot");
-    assert_eq!(domain.to_bytes(), snapshot.as_bytes());
 }
 
 #[test]

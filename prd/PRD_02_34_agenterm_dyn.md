@@ -226,8 +226,10 @@ fixnum `+` `-` + bounded `repeat` + one hand (`dlcall`).
   `_NSGetMachExecuteHeader`, `_dyld_get_image_name`,
   `_dyld_get_image_vmaddr_slide`, `dladdr`, `gethostuuid`,
   `_dyld_get_image_header`, `arc4random_uniform`, `getdomainname`,
-  `statvfs`, `gettimeofday`, `getgroups`, and `realpath`
-  against `libSystem.B.dylib`.
+  `statvfs`, `gettimeofday`, `getgroups`, and `realpath`.
+  `gethostname`, `getdomainname`, `getlogin_r`, `statvfs`, and `getgroups`
+  are typed-only snapshot/owner rows; the remaining native-call rows resolve
+  through `libSystem.B.dylib`.
   `mach_host_self` is **no longer a placeholder on Darwin**: `MachHostPort::acquire()`
   takes one owned send-right reference and its `Drop` calls `mach_port_deallocate`
   exactly once, with typed `MachHostPortError` and an observable
@@ -301,7 +303,9 @@ Integer/void/ptr libc rows are live on Linux (`libc.so.6`) and macOS
 `_NSGetMachExecuteHeader`, `_dyld_get_image_name`,
 `_dyld_get_image_vmaddr_slide`, `dladdr`, `gethostuuid`,
 `_dyld_get_image_header`, `arc4random_uniform`, `getdomainname`,
-`statvfs`, `gettimeofday`, `getgroups`, and `realpath`.
+`statvfs`, `gettimeofday`, `getgroups`, and `realpath`. The current
+`gethostname`, `getdomainname`, `getlogin_r`, `statvfs`, and `getgroups` rows
+are typed-only snapshot/owner facts rather than legacy Lisp calls.
 `mach_host_self` is owned on Darwin through `MachHostPort` (`acquire()` plus a
 `Drop` that deallocates exactly once, typed `MachHostPortError`); the other cells
 stay placeholder / typed `Unsupported`, and the real-machine evidence is the host
@@ -380,15 +384,14 @@ exception, six-cell `hosts.rs` facts, typed owners, and the future-JIT boundary 
 language API and retire only with the remaining language component after evidence
 migration.
 
-`LoginNameSnapshot::acquire()` is the typed Darwin boundary for `getlogin_r`.
-It owns a fixed 1,024-byte sentinel-initialized buffer, accepts only a real NUL
-as termination, and publishes the preceding native bytes without requiring
-UTF-8 or leaking the caller buffer. A nonzero `getlogin_r` return is itself the
-OS error code and maps to `LoginNameError::Os(code)` without consulting `errno`;
-successful unterminated output is `NotTerminated`, and non-Darwin cells return
-typed `Unsupported`. The macOS catalog keeps both the legacy native-call fact and
-this snapshot as `LiveDlcallOwned`; Linux and Windows remain placeholders, so the
-Darwin runtime result is not evidence for another cell.
+`DomainNameSnapshot::acquire()` and `LoginNameSnapshot::acquire()` are the
+typed Darwin boundaries for `getdomainname` and `getlogin_r`. Both publish
+bounded, owned native bytes without requiring UTF-8 or leaking caller buffers,
+require a real NUL terminator after success, preserve typed native failures,
+and return `Unsupported` elsewhere. Their catalog rows are now `LiveOwned`:
+the independent direct native oracles and synthetic failure courts supersede
+the removed legacy Lisp calls, without turning Darwin runtime evidence into
+evidence for Linux or Windows.
 
 ## Non-goals until 政委 orders otherwise
 

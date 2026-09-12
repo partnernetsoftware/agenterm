@@ -467,6 +467,41 @@ fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
     );
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn proc_pidpath_reaches_dyn_and_matches_current_executable_bytes() {
+    let expected = std::fs::canonicalize(std::env::current_exe().expect("current executable path"))
+        .expect("current executable has a canonical path");
+    let expected_bytes = std::os::unix::ffi::OsStrExt::as_bytes(expected.as_os_str());
+    let expected_hash = expected_bytes.iter().fold(0_u64, |hash, byte| {
+        hash.wrapping_mul(257) ^ u64::from(*byte)
+    });
+    let source = include_str!("fixtures/native/proc_pidpath.wat");
+    assert_eq!(
+        run_wat_with_args(
+            source,
+            Budget::default(),
+            &[Value::I64(i64::from(std::process::id()))],
+        )
+        .expect("proc_pidpath runs through i32(i32,ptr,u32)") as u64,
+        expected_hash
+    );
+
+    let noncanonical_capacity = source.replacen("(i64.const 4096)", "(i64.const 4294967296)", 1);
+    let error = run_wat_with_args(
+        &noncanonical_capacity,
+        Budget::default(),
+        &[Value::I64(i64::from(std::process::id()))],
+    )
+    .expect_err("a noncanonical u32 capacity is rejected before native execution");
+    assert!(
+        matches!(&error, QjswasmError::Door(message)
+            if message.contains("native_scalar_not_canonical")
+                && message.contains("argument 2")),
+        "unexpected typed capacity error: {error:?}"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn unix_ioctl_variadic_requests_share_the_one_native_door() {
