@@ -417,6 +417,9 @@ moved to `qjswasm`'s `umask_restore.wat`: an isolated child compares the inherit
 mask with direct libc calls before and after the guest, while the guest reads and
 restores the mask itself. The duplicate Linux/macOS Lisp wrappers and child courts
 are retired.
+Windows process and thread identity now run through qjswasm fixtures for
+`GetCurrentProcessId` and `GetCurrentThreadId`, with direct Win32 oracles on the
+matching host; the duplicate Windows Lisp courts are retired.
 Unix `ioctl` (Linux and macOS) is owned by dyn's `invoke_unix_ioctl` only for the
 validated `(i32, u64|i32, ptr) -> i32` signature. The legacy Lisp entrance and
 the qjswasm native door both delegate there; the fixed trampoline remains for

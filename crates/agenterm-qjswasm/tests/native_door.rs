@@ -28,6 +28,26 @@ fn run_wat_with_args(
     }
 }
 
+#[cfg(target_os = "windows")]
+#[test]
+fn windows_process_and_thread_ids_match_direct_win32_oracles() {
+    use windows_sys::Win32::System::Threading::{GetCurrentProcessId, GetCurrentThreadId};
+
+    let process = run_wat(
+        include_str!("fixtures/native/windows_get_current_process_id.wat"),
+        Budget::default(),
+    )
+    .expect("GetCurrentProcessId guest runs");
+    let thread = run_wat(
+        include_str!("fixtures/native/windows_get_current_thread_id.wat"),
+        Budget::default(),
+    )
+    .expect("GetCurrentThreadId guest runs");
+
+    assert_eq!(process, i64::from(unsafe { GetCurrentProcessId() }));
+    assert_eq!(thread, i64::from(unsafe { GetCurrentThreadId() }));
+}
+
 #[cfg(unix)]
 #[test]
 fn the_same_native_guest_is_refused_by_default_and_runs_only_when_opted_in() {

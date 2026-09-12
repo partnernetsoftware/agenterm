@@ -846,45 +846,6 @@ mod macos {
 #[cfg(target_os = "windows")]
 mod windows {
     use super::*;
-    use agenterm_dyn::HostCell;
-    use windows_sys::Win32::System::Threading::{GetCurrentProcessId, GetCurrentThreadId};
-
-    fn cell() -> &'static HostCell {
-        live_cell().expect("windows cell")
-    }
-
-    #[test]
-    fn dlcall_get_current_process_id() {
-        let c = cell();
-        let mut env = Dyn::new();
-        let script = format!(
-            r#"(dlcall "{}" "{}" "{}")"#,
-            c.pid_lib, c.pid_symbol, c.pid_ret_type
-        );
-        let got = eval_native(&mut env, &script).expect("GetCurrentProcessId dlcall");
-        let again = eval_native(&mut env, &script).expect("second dlcall");
-        assert_eq!(got, again);
-        let real = unsafe { GetCurrentProcessId() };
-        assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
-    fn dlcall_get_current_thread_id_secondary() {
-        let c = cell();
-        let SecondaryProbe::Native {
-            lib,
-            symbol,
-            ret_type,
-        } = c.secondary_probe
-        else {
-            panic!("windows secondary should be GetCurrentThreadId");
-        };
-        let mut env = Dyn::new();
-        let script = format!(r#"(dlcall "{lib}" "{symbol}" "{ret_type}")"#);
-        let got = eval_native(&mut env, &script).expect("GetCurrentThreadId dlcall");
-        let real = unsafe { GetCurrentThreadId() };
-        assert_eq!(got, Value::Int(i64::from(real)));
-    }
 
     #[test]
     fn dlcall_getenv_display_probe() {

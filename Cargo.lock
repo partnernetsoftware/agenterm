@@ -193,6 +193,7 @@ dependencies = [
  "tinyvm",
  "tinyvm-qjs",
  "wat",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
