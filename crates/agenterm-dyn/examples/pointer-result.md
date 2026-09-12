@@ -28,4 +28,3 @@ let path = CStr::from_bytes_until_nul(&output)?;
 assert!(!path.to_bytes().is_empty());
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
-

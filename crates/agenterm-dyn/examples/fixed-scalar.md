@@ -24,4 +24,3 @@ let value = unsafe { invoke_abi(&call)? };
 assert!(matches!(value, AbiValue::Isize(bytes) if bytes > 0));
 # Ok::<(), agenterm_dyn::AbiError>(())
 ```
-

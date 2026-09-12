@@ -46,4 +46,3 @@ let written = unsafe {
 assert_eq!(written, AbiValue::Usize(required));
 # Ok::<(), agenterm_dyn::AbiError>(())
 ```
-
