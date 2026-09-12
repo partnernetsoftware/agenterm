@@ -9,11 +9,9 @@
 //!
 //! The long-term direction is that the three families (`invoke_exact`,
 //! `invoke_fixed`, `invoke_fixed_pointer`) become thin wrappers over one
-//! mechanism entry. This module is the **first step in the other direction**: it
-//! maps a caller-provided [`AbiSignature`] onto the family that can execute it
-//! and **delegates to the existing `invoke_*` entry points**. Nothing in the
-//! family files changed, so the layering is **not** finished here and must not be
-//! described as finished.
+//! mechanism entry. Exact-family callers now follow that direction; fixed and
+//! fixed-pointer calls still delegate to their existing entry points. The
+//! layering is therefore **in migration** and must not be described as finished.
 //!
 //! # Nullability and pointee contracts live in the upper layer
 //!
@@ -41,7 +39,7 @@ use std::fmt;
 
 use crate::exact_native::{
     ExactNativeCall, ExactNativeError, ExactNativeType, ExactNativeValue, MAX_EXACT_NATIVE_ARITY,
-    invoke_exact,
+    invoke_exact_mechanism,
 };
 use crate::fixed_native::{
     FixedNativeCall, FixedNativeError, FixedNativePrototype, FixedNativeType, FixedNativeValue,
@@ -501,7 +499,7 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
             };
             // SAFETY: the caller upholds `invoke_abi`'s contract; the shape was
             // admitted by the family's own validator.
-            match unsafe { invoke_exact(&exact) } {
+            match unsafe { invoke_exact_mechanism(&exact) } {
                 Ok(value) => Ok(exact_abi_value(value)),
                 Err(error) => Err(exact_error(error, signature, call)),
             }

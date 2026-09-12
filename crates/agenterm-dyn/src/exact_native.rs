@@ -144,13 +144,92 @@ macro_rules! invoke_homogeneous {
     }};
 }
 
-/// Resolve and invoke one exact homogeneous native call.
+/// Resolve and invoke one exact homogeneous native call through the unified ABI
+/// mechanism entry.
 ///
 /// # Safety
 /// The caller asserts that `symbol` really has the declared fixed, non-variadic
 /// C ABI signature. Native initializers, finalizers, and the function itself may
 /// have arbitrary process effects.
 pub unsafe fn invoke_exact(
+    call: &ExactNativeCall<'_>,
+) -> Result<ExactNativeValue, ExactNativeError> {
+    use crate::abi::{AbiError, AbiSignature, AbiType, AbiValue, NativeCall, invoke_abi};
+
+    const fn abi_type(ty: ExactNativeType) -> AbiType {
+        match ty {
+            ExactNativeType::I32 => AbiType::I32,
+            ExactNativeType::U32 => AbiType::U32,
+            ExactNativeType::I64 => AbiType::I64,
+            ExactNativeType::U64 => AbiType::U64,
+            ExactNativeType::Isize => AbiType::Isize,
+            ExactNativeType::Usize => AbiType::Usize,
+            ExactNativeType::F64 => AbiType::F64,
+        }
+    }
+    const fn abi_value(value: ExactNativeValue) -> AbiValue {
+        match value {
+            ExactNativeValue::I32(bits) => AbiValue::I32(bits),
+            ExactNativeValue::U32(bits) => AbiValue::U32(bits),
+            ExactNativeValue::I64(bits) => AbiValue::I64(bits),
+            ExactNativeValue::U64(bits) => AbiValue::U64(bits),
+            ExactNativeValue::Isize(bits) => AbiValue::Isize(bits),
+            ExactNativeValue::Usize(bits) => AbiValue::Usize(bits),
+            ExactNativeValue::F64(bits) => AbiValue::F64(bits),
+        }
+    }
+
+    let parameters = vec![abi_type(call.result); call.arguments.len()];
+    let arguments = call
+        .arguments
+        .iter()
+        .copied()
+        .map(abi_value)
+        .collect::<Vec<_>>();
+    let native = NativeCall {
+        library: call.library,
+        symbol: call.symbol,
+        signature: AbiSignature {
+            result: abi_type(call.result),
+            params: &parameters,
+        },
+        arguments: &arguments,
+    };
+    // SAFETY: the legacy caller upholds the same symbol and process contract.
+    match unsafe { invoke_abi(&native) } {
+        Ok(AbiValue::I32(bits)) => Ok(ExactNativeValue::I32(bits)),
+        Ok(AbiValue::U32(bits)) => Ok(ExactNativeValue::U32(bits)),
+        Ok(AbiValue::I64(bits)) => Ok(ExactNativeValue::I64(bits)),
+        Ok(AbiValue::U64(bits)) => Ok(ExactNativeValue::U64(bits)),
+        Ok(AbiValue::Isize(bits)) => Ok(ExactNativeValue::Isize(bits)),
+        Ok(AbiValue::Usize(bits)) => Ok(ExactNativeValue::Usize(bits)),
+        Ok(AbiValue::F64(bits)) => Ok(ExactNativeValue::F64(bits)),
+        Ok(AbiValue::Pointer(_))
+        | Err(AbiError::SignatureUnsupported { .. })
+        | Err(AbiError::ArgumentCount { .. })
+        | Err(AbiError::ArgumentShape { .. }) => Err(ExactNativeError::SignatureUnsupported {
+            result: call.result,
+            parameters: call
+                .arguments
+                .iter()
+                .map(|argument| argument.ty())
+                .collect(),
+        }),
+        Err(AbiError::LibraryLoad { library, message }) => {
+            Err(ExactNativeError::LibraryLoad { library, message })
+        }
+        Err(AbiError::SymbolLookup {
+            symbol, message, ..
+        }) => Err(ExactNativeError::SymbolLoad { symbol, message }),
+    }
+}
+
+/// Executes an admitted exact-family shape without re-entering the public
+/// compatibility wrapper.
+///
+/// # Safety
+/// The caller must uphold [`invoke_exact`]'s complete ABI contract.
+pub(crate) unsafe fn invoke_exact_mechanism(
     call: &ExactNativeCall<'_>,
 ) -> Result<ExactNativeValue, ExactNativeError> {
     let parameters = call
