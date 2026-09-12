@@ -227,6 +227,7 @@ enum PointerResultPrototype {
     NoArguments,
     U32,
     U64,
+    Pointer,
     PointerUsize,
 }
 
@@ -367,6 +368,9 @@ fn classify(signature: AbiSignature<'_>, arguments: &[AbiValue]) -> Result<Famil
             [] => return Ok(Family::PointerResult(PointerResultPrototype::NoArguments)),
             [AbiType::U32] => return Ok(Family::PointerResult(PointerResultPrototype::U32)),
             [AbiType::U64] => return Ok(Family::PointerResult(PointerResultPrototype::U64)),
+            [AbiType::Pointer] => {
+                return Ok(Family::PointerResult(PointerResultPrototype::Pointer));
+            }
             [AbiType::Pointer, AbiType::Usize] => {
                 return Ok(Family::PointerResult(PointerResultPrototype::PointerUsize));
             }
@@ -691,6 +695,17 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
                     }
                     .map_err(|error| pointer_result_symbol_error(call, error))?;
                     // SAFETY: the caller owns the symbol contract and library lifetime.
+                    unsafe { function(*argument) }
+                }
+                (PointerResultPrototype::Pointer, [AbiValue::Pointer(argument)]) => {
+                    // SAFETY: as above, for the admitted `ptr(ptr)` shape.
+                    let function = unsafe {
+                        library.get::<unsafe extern "C" fn(*mut c_void) -> *mut c_void>(
+                            call.symbol.as_bytes(),
+                        )
+                    }
+                    .map_err(|error| pointer_result_symbol_error(call, error))?;
+                    // SAFETY: the caller owns the input and returned-pointer contracts.
                     unsafe { function(*argument) }
                 }
                 (

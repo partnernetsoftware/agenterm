@@ -159,6 +159,37 @@ fn pointer_result_with_pointer_and_usize_matches_getcwd() {
     assert_eq!(bridged.to_bytes(), direct.to_bytes());
 }
 
+/// A borrowed host pointer remains usable by a raw Rust caller. It is not
+/// automatically publishable through qjswasm, whose guest-memory policy is a
+/// separate upper-layer decision.
+#[cfg(unix)]
+#[test]
+fn pointer_result_with_pointer_matches_getenv() {
+    let key = c"PATH";
+    let value = unsafe {
+        invoke_abi(&NativeCall {
+            library: "",
+            symbol: "getenv",
+            signature: AbiSignature {
+                result: AbiType::Pointer,
+                params: &[AbiType::Pointer],
+            },
+            arguments: &[AbiValue::Pointer(key.as_ptr().cast_mut().cast())],
+        })
+    }
+    .expect("getenv through the raw ABI");
+    let AbiValue::Pointer(bridged) = value else {
+        panic!("getenv must return the declared pointer position")
+    };
+    let direct = unsafe { libc::getenv(key.as_ptr()) };
+    assert_eq!(bridged.cast::<libc::c_char>(), direct);
+    assert!(!bridged.is_null(), "the test process must have PATH");
+    assert_eq!(
+        unsafe { CStr::from_ptr(bridged.cast()) }.to_bytes(),
+        unsafe { CStr::from_ptr(direct) }.to_bytes()
+    );
+}
+
 /// Pointer results are raw machine addresses. The mechanism preserves their
 /// bits; ownership and dereference rules remain with the caller.
 #[cfg(target_os = "macos")]

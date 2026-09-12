@@ -3,8 +3,6 @@
 //! Each supported OS module uses [`agenterm_dyn::live_cell`] script data and
 //! cross-checks results with a second `dlcall` where possible.
 
-use std::ffi::{CString, c_void};
-
 use agenterm_dyn::DynError;
 use agenterm_dyn::{CU_ADJACENT_PROBE_CATALOG, Dyn, HostArch, HostOs, Value, live_cell};
 
@@ -209,18 +207,6 @@ mod linux {
         let v = eval_native(&mut env, script.trim()).expect("do/dlcall");
         let real = unsafe { libc::getpid() };
         assert_eq!(v, Value::Int(i64::from(real)));
-    }
-
-    #[test]
-    fn dlcall_getenv_display_probe() {
-        let c = cell();
-        let mut env = Dyn::new();
-        let key = CString::new("DISPLAY").expect("DISPLAY key");
-        env.bind("env_key", key.as_ptr().cast::<c_void>() as *mut c_void)
-            .expect("bind env_key");
-
-        let script = format!(r#"(dlcall "{}" "getenv" "ptr" "ptr" env_key)"#, c.pid_lib);
-        eval_native(&mut env, &script).expect("getenv dlcall should resolve and run");
     }
 
     #[test]
@@ -438,22 +424,12 @@ mod macos {
         let real = unsafe { libc::getpid() };
         assert_eq!(v, Value::Int(i64::from(real)));
     }
-
-    #[test]
-    fn dlcall_getenv_display_probe() {
-        let c = cell();
-        let mut env = Dyn::new();
-        let key = CString::new("DISPLAY").expect("DISPLAY key");
-        env.bind("env_key", key.as_ptr().cast::<c_void>() as *mut c_void)
-            .expect("bind env_key");
-        let script = format!(r#"(dlcall "{}" "getenv" "ptr" "ptr" env_key)"#, c.pid_lib);
-        eval_native(&mut env, &script).expect("getenv dlcall should resolve and run");
-    }
 }
 
 #[cfg(target_os = "windows")]
 mod windows {
     use super::*;
+    use std::ffi::{CString, c_void};
 
     #[test]
     fn dlcall_getenv_display_probe() {

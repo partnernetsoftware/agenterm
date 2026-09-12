@@ -440,6 +440,11 @@ current-directory bytes, replacing the Linux/macOS Lisp courts.
 `i32(u32,u32)` on Linux and `i32(i32,u32)` on Darwin. Two monomorphic dyn
 trampolines and one parameterized WAT court with a direct libc oracle replace
 the two legacy Lisp courts instead of preserving their Darwin type lie.
+The raw `ptr(ptr)` mechanism now has a direct `getenv("PATH")` oracle and keeps
+the borrowed host address entirely with its unsafe Rust caller. qjswasm does not
+publish that address into guest memory; its existing `env_get` tool surface owns
+copying environment text. The Linux/macOS Lisp pointer courts are retired while
+the Windows CRT loader-fallback court remains separate.
 Unix `ioctl` (Linux and macOS) is owned by dyn's `invoke_unix_ioctl` only for the
 validated `(i32, u64|i32, ptr) -> i32` signature. The legacy Lisp entrance and
 the qjswasm native door both delegate there; the fixed trampoline remains for
