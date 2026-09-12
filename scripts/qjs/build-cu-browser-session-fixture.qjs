@@ -13,11 +13,7 @@ function require(condition, message) {
   if (!condition) { throw message; }
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
+
 
 function evidence_from(stdout) {
   const seen = [];
@@ -44,16 +40,16 @@ harness.require(args.length === 3, "expected: REPO AGENTERM_EXE AGENTERM_CU_EXE"
 const repo = rh.absolute(args[0]);
 let agenterm = rh.absolute(args[1]);
 let cu = rh.absolute(args[2]);
-if (!direct_file(agenterm) && harness.host_is_windows()) { agenterm = agenterm + ".exe"; }
-if (!direct_file(cu) && harness.host_is_windows()) { cu = cu + ".exe"; }
-require(direct_file(agenterm), "browser_session_fixture_agenterm_missing");
-require(direct_file(cu), "browser_session_fixture_cu_missing");
+if (!rh.is_direct_file(agenterm) && harness.host_is_windows()) { agenterm = agenterm + ".exe"; }
+if (!rh.is_direct_file(cu) && harness.host_is_windows()) { cu = cu + ".exe"; }
+require(rh.is_direct_file(agenterm), "browser_session_fixture_agenterm_missing");
+require(rh.is_direct_file(cu), "browser_session_fixture_cu_missing");
 
 const source = rh.join(repo,
   "crates/agenterm-cu/tests/fixtures/browser_session_test_browser.rs");
 const court = rh.join(repo, "scripts/qjs/cu-browser-session-fixture-smoke.qjs");
-require(direct_file(source), "browser_session_fixture_source_missing");
-require(direct_file(court), "browser_session_fixture_court_missing");
+require(rh.is_direct_file(source), "browser_session_fixture_source_missing");
+require(rh.is_direct_file(court), "browser_session_fixture_court_missing");
 
 const context = harness.new_context(repo, "cu-browser-session-fixture-build");
 const fixture_name = harness.host_is_windows()
@@ -70,7 +66,7 @@ try {
   ], { cwd: repo, timeout_ms: 60000 });
   require(build.success === true,
     "browser_session_fixture_build_failed:" + build.stderr);
-  require(direct_file(fixture), "browser_session_fixture_output_missing");
+  require(rh.is_direct_file(fixture), "browser_session_fixture_output_missing");
 
   const court_result = rh.command(agenterm, [
     "cli", "script", "run", court,
