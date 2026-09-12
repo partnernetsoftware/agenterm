@@ -4,6 +4,8 @@
 //! produces the same result as the direct native call, and that the raw ABI
 //! carries no nullability policy.
 
+#[cfg(target_os = "windows")]
+use std::ffi::CString;
 use std::ffi::{CStr, c_void};
 
 use agenterm_dyn::{
@@ -188,6 +190,37 @@ fn pointer_result_with_pointer_matches_getenv() {
         unsafe { CStr::from_ptr(bridged.cast()) }.to_bytes(),
         unsafe { CStr::from_ptr(direct) }.to_bytes()
     );
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn pointer_result_with_pointer_loads_the_available_windows_crt() {
+    let key = CString::new("PATH").expect("literal has no NUL");
+    let arguments = [AbiValue::Pointer(key.as_ptr().cast_mut().cast())];
+    let signature = AbiSignature {
+        result: AbiType::Pointer,
+        params: &[AbiType::Pointer],
+    };
+    let invoke = |library| unsafe {
+        invoke_abi(&NativeCall {
+            library,
+            symbol: "getenv",
+            signature,
+            arguments: &arguments,
+        })
+    };
+    let value = match invoke("ucrtbase.dll") {
+        Ok(value) => value,
+        Err(AbiError::LibraryLoad { .. }) => {
+            invoke("msvcrt.dll").expect("one supported Windows CRT exports getenv")
+        }
+        Err(error) => panic!("unexpected ucrtbase getenv error: {error}"),
+    };
+    let AbiValue::Pointer(path) = value else {
+        panic!("getenv must return the declared pointer position")
+    };
+    assert!(!path.is_null(), "the test process must have PATH");
+    assert!(!unsafe { CStr::from_ptr(path.cast()) }.to_bytes().is_empty());
 }
 
 /// Pointer results are raw machine addresses. The mechanism preserves their

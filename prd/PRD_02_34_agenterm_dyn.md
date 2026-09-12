@@ -454,6 +454,10 @@ The duplicate platform Lisp `ioctl(TIOCGWINSZ)` smokes are also retired. The
 direct dyn `invoke_unix_ioctl` court owns the variadic ABI and an owned PTY,
 while the qjswasm WAT court owns the same request crossing the existing native
 door; neither claim depends on the S-expression entrance.
+The final legacy platform smoke file is removed. Its Windows CRT fallback now
+tests raw `ptr(ptr)` directly; six-cell catalog invariants remain in the catalog
+tests, while X11 and AT-SPI availability belong to the real Linux adapters in
+`agenterm-platform`, not to dyn's ABI mechanism suite.
 Unix `ioctl` (Linux and macOS) is owned by dyn's `invoke_unix_ioctl` only for the
 validated `(i32, u64|i32, ptr) -> i32` signature. The legacy Lisp entrance and
 the qjswasm native door both delegate there; the fixed trampoline remains for
