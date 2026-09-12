@@ -3417,15 +3417,21 @@ tail ~/.local/share/agenterm/cu-hotkeys.log
 
 ## Unix `ioctl` needs a narrow variadic ABI path
 
-`agenterm-dyn` `dlcall` normally uses a bounded Rust `extern "C"` fixed-arity
-trampoline. Unix `ioctl(int, unsigned long, ...)` is variadic; on arm64 an
-unnamed third argument is not in the same slot as a fixed third parameter.
-The native door therefore recognizes only `ioctl` with
-`(i32, u64|i32, ptr) -> i32`, transmutes the already-resolved `dlcall` symbol
-to Rust's variadic declaration, and invokes that loaded address. Linux and macOS
-smoke tests open a 24×80 pty slave and require `TIOCGWINSZ` to return the same
-dimensions. All other names and signatures retain the fixed trampoline: this
-is not general variadic FFI and adds no C or libffi shim.
+Unix `ioctl(int, unsigned long, ...)` is variadic; on arm64 an unnamed third
+argument is not in the same slot as a fixed third parameter. Keep one typed
+variadic implementation in `agenterm-dyn::invoke_unix_ioctl`, declared as
+`unsafe extern "C" fn(i32, c_ulong, ...) -> i32`. The qjswasm native door may
+recognize only the canonical empty-library `ioctl` specs
+`i32(i32, i32, ptr)` and `i32(i32, u64, ptr)`, validate the guest span, and
+delegate to that dyn function. It must not resolve or transmute a second symbol,
+add an `ioctl_call` host import, or reinterpret the native `-1`/errno result.
+Linux and macOS courts open a 24×80 pty slave and require `TIOCGWINSZ` to
+return the same dimensions. All other names and signatures retain the ordinary
+fixed dispatch: this is not general variadic FFI and adds no C or libffi shim.
+
+The retiring S-expression `dlcall` compatibility path may still reach the same
+typed dyn implementation while its courts migrate, but it is not the future
+owner of the variadic ABI.
 
 When two crates share one native-call ABI family, keep exactly one executable
 selector and one library/symbol resolver. The consumer may retain its hostile

@@ -10,8 +10,8 @@ use std::fmt;
 use agenterm_dyn::{
     ExactNativeCall, ExactNativeError, ExactNativeType, ExactNativeValue, FixedNativeCall,
     FixedNativeError, FixedNativePrototype, FixedNativeValue, FixedPointerCall, FixedPointerError,
-    FixedPointerPrototype, FixedPointerValue, invoke_exact, invoke_fixed, invoke_fixed_pointer,
-    validate_exact_native_signature,
+    FixedPointerPrototype, FixedPointerValue, UnixIoctlError, UnixIoctlRequest, invoke_exact,
+    invoke_fixed, invoke_fixed_pointer, invoke_unix_ioctl, validate_exact_native_signature,
 };
 
 /// Schema version stored in every argument-block header.
@@ -219,6 +219,9 @@ pub enum NativeDoorError {
         result: NativeType,
         parameters: Vec<NativeType>,
     },
+    InvocationTargetUnsupported {
+        operation: &'static str,
+    },
     ScalarNotCanonical {
         index: usize,
         ty: NativeType,
@@ -276,6 +279,7 @@ impl NativeDoorError {
             Self::InvocationSignatureUnsupported { .. } => {
                 "native_invocation_signature_unsupported"
             }
+            Self::InvocationTargetUnsupported { .. } => "native_invocation_target_unsupported",
             Self::ScalarNotCanonical { .. } => "native_scalar_not_canonical",
             Self::ArgumentsNotUtf8 => "native_arguments_not_utf8",
             Self::ArgumentsMalformed => "native_arguments_malformed",
@@ -362,6 +366,9 @@ impl fmt::Display for NativeDoorError {
                     f,
                     "invocation does not have one exact homogeneous scalar type: {result:?}({parameters:?})"
                 )
+            }
+            Self::InvocationTargetUnsupported { operation } => {
+                write!(f, "{operation} is unsupported on this target")
             }
             Self::ScalarNotCanonical { index, ty, bits } => {
                 write!(
@@ -788,6 +795,25 @@ pub(crate) fn invoke_native_call(
                 .map(|value| value as i64 as u64)
                 .map_err(|error| map_fixed_pointer_error(call, error))?
         }
+        NativeDispatch::UnixIoctl(prototype) => {
+            let fd = ioctl_i32_argument(0, &call.arguments[0], call)?;
+            let request = match prototype {
+                UnixIoctlPrototype::I32Request => {
+                    UnixIoctlRequest::I32Bits(ioctl_i32_argument(1, &call.arguments[1], call)?)
+                }
+                UnixIoctlPrototype::U64Request => {
+                    UnixIoctlRequest::U64(ioctl_u64_argument(1, &call.arguments[1], call)?)
+                }
+            };
+            let argument = ioctl_pointer_argument(memory_base, 2, &call.arguments[2], call)?;
+            // SAFETY: this is the one enumerated Unix variadic prototype. The
+            // decoder bounded the caller-owned guest span and the call is
+            // synchronous; the request-specific pointee contract remains the
+            // native-door caller's explicit ABI assertion.
+            unsafe { invoke_unix_ioctl(fd, request, argument) }
+                .map(|value| value as i64 as u64)
+                .map_err(map_unix_ioctl_error)?
+        }
     };
     let memory_len = memory.len();
     let slot = memory
@@ -812,7 +838,10 @@ pub(crate) fn invoke_native_json(
 ) -> Result<String, NativeDoorError> {
     let spec = parse_native_spec(spec)?;
     let dispatch = native_dispatch(&spec)?;
-    if matches!(dispatch, NativeDispatch::FixedPointer(_)) {
+    if matches!(
+        dispatch,
+        NativeDispatch::FixedPointer(_) | NativeDispatch::UnixIoctl(_)
+    ) {
         return Err(NativeDoorError::InvocationSignatureUnsupported {
             result: spec.result,
             parameters: spec.parameters.clone(),
@@ -872,7 +901,9 @@ pub(crate) fn invoke_native_json(
                 .map(fixed_json_result)
                 .map_err(|error| map_fixed_error_for_spec(&spec, error))?
         }
-        NativeDispatch::FixedPointer(_) => unreachable!("pointer JSON calls reject above"),
+        NativeDispatch::FixedPointer(_) | NativeDispatch::UnixIoctl(_) => {
+            unreachable!("pointer JSON calls reject above")
+        }
     };
     Ok(value.to_string())
 }
@@ -882,9 +913,30 @@ enum NativeDispatch {
     Exact { result: ExactNativeType },
     Fixed(FixedNativePrototype),
     FixedPointer(FixedPointerPrototype),
+    UnixIoctl(UnixIoctlPrototype),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum UnixIoctlPrototype {
+    I32Request,
+    U64Request,
 }
 
 fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError> {
+    if spec.library.is_empty() && spec.symbol == "ioctl" {
+        return match (spec.result, spec.parameters.as_slice()) {
+            (NativeType::I32, [NativeType::I32, NativeType::I32, NativeType::Pointer]) => {
+                Ok(NativeDispatch::UnixIoctl(UnixIoctlPrototype::I32Request))
+            }
+            (NativeType::I32, [NativeType::I32, NativeType::U64, NativeType::Pointer]) => {
+                Ok(NativeDispatch::UnixIoctl(UnixIoctlPrototype::U64Request))
+            }
+            _ => Err(NativeDoorError::InvocationSignatureUnsupported {
+                result: spec.result,
+                parameters: spec.parameters.clone(),
+            }),
+        };
+    }
     if let Some(result) = exact_type(spec.result) {
         let parameter_types = spec
             .parameters
@@ -927,6 +979,69 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
             result: spec.result,
             parameters: spec.parameters.clone(),
         })
+}
+
+fn ioctl_i32_argument(
+    index: usize,
+    argument: &NativeArgument,
+    call: &DecodedNativeCall,
+) -> Result<i32, NativeDoorError> {
+    let NativeArgument::Scalar {
+        ty: NativeType::I32,
+        bits,
+    } = argument
+    else {
+        return Err(unsupported_signature(call)());
+    };
+    let value = *bits as i32;
+    (value as i64 as u64 == *bits)
+        .then_some(value)
+        .ok_or(NativeDoorError::ScalarNotCanonical {
+            index,
+            ty: NativeType::I32,
+            bits: *bits,
+        })
+}
+
+fn ioctl_u64_argument(
+    _index: usize,
+    argument: &NativeArgument,
+    call: &DecodedNativeCall,
+) -> Result<u64, NativeDoorError> {
+    match argument {
+        NativeArgument::Scalar {
+            ty: NativeType::U64,
+            bits,
+        } => Ok(*bits),
+        _ => Err(unsupported_signature(call)()),
+    }
+}
+
+fn ioctl_pointer_argument(
+    memory_base: *mut u8,
+    _index: usize,
+    argument: &NativeArgument,
+    call: &DecodedNativeCall,
+) -> Result<*mut std::ffi::c_void, NativeDoorError> {
+    match argument {
+        NativeArgument::GuestSpan {
+            ty: NativeType::Pointer,
+            span,
+        } => {
+            // SAFETY: decode_native_call proved this offset is within the live
+            // guest allocation; no aliased Rust reference is constructed.
+            Ok(unsafe { memory_base.add(span.offset) }.cast())
+        }
+        _ => Err(unsupported_signature(call)()),
+    }
+}
+
+fn map_unix_ioctl_error(error: UnixIoctlError) -> NativeDoorError {
+    match error {
+        UnixIoctlError::Unsupported => NativeDoorError::InvocationTargetUnsupported {
+            operation: "Unix ioctl",
+        },
+    }
 }
 
 fn exact_json_argument(
@@ -1326,6 +1441,18 @@ mod json_adapter_tests {
                 FixedPointerPrototype::I32PointerNullablePointer,
             ))
         );
+        assert_eq!(
+            native_dispatch(&parse("|ioctl|i32(i32,i32,ptr)")),
+            Ok(NativeDispatch::UnixIoctl(UnixIoctlPrototype::I32Request))
+        );
+        assert_eq!(
+            native_dispatch(&parse("|ioctl|i32(i32,u64,ptr)")),
+            Ok(NativeDispatch::UnixIoctl(UnixIoctlPrototype::U64Request))
+        );
+        assert!(matches!(
+            native_dispatch(&parse("libSystem.B.dylib|ioctl|i32(i32,u64,ptr)")),
+            Err(NativeDoorError::InvocationSignatureUnsupported { .. })
+        ));
         assert!(matches!(
             native_dispatch(&parse("missing|unused|isize(i64)")),
             Err(NativeDoorError::InvocationSignatureUnsupported { .. })

@@ -459,6 +459,101 @@ fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn unix_ioctl_variadic_requests_share_the_one_native_door() {
+    use std::ffi::c_void;
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    #[repr(C)]
+    struct Winsize {
+        rows: u16,
+        columns: u16,
+        pixels_x: u16,
+        pixels_y: u16,
+    }
+
+    unsafe extern "C" {
+        fn openpty(
+            master: *mut i32,
+            slave: *mut i32,
+            name: *mut i8,
+            termios: *const c_void,
+            winsize: *const Winsize,
+        ) -> i32;
+    }
+
+    let requested = Winsize {
+        rows: 24,
+        columns: 80,
+        pixels_x: 0,
+        pixels_y: 0,
+    };
+    let mut master = -1;
+    let mut slave = -1;
+    // SAFETY: both descriptor outputs are live and the optional name and
+    // termios pointers are null; requested remains live for this call.
+    let status = unsafe {
+        openpty(
+            &mut master,
+            &mut slave,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            &requested,
+        )
+    };
+    assert_eq!(status, 0, "openpty creates the owned variadic fixture");
+    // SAFETY: successful openpty returned two newly owned descriptors.
+    let master = unsafe { std::fs::File::from_raw_fd(master) };
+    // SAFETY: same ownership boundary as the master descriptor.
+    let slave = unsafe { std::fs::File::from_raw_fd(slave) };
+    let slave_fd = slave.as_raw_fd();
+
+    #[cfg(target_os = "macos")]
+    let request = 0x4008_7468_u64;
+    #[cfg(target_os = "linux")]
+    let request = 0x5413_u64;
+    let expected = (u64::from(requested.rows) << 32) | u64::from(requested.columns);
+    for source in [
+        include_str!("fixtures/native/ioctl_i32_request.wat"),
+        include_str!("fixtures/native/ioctl_u64_request.wat"),
+    ] {
+        let source = source
+            .replace("2147483000", &slave_fd.to_string())
+            .replace("2147483001", &request.to_string());
+        assert_eq!(
+            run_wat(&source, Budget::default()).expect("Unix ioctl reaches dyn's variadic core")
+                as u64,
+            expected,
+            "the caller-owned winsize crosses the variadic ABI"
+        );
+    }
+    let invalid = include_str!("fixtures/native/ioctl_u64_request.wat")
+        .replace("2147483000", "-1")
+        .replace("2147483001", &request.to_string());
+    assert_eq!(
+        run_wat(&invalid, Budget::default()).expect("the syscall result remains observable"),
+        -1,
+        "the adapter must not consume or reinterpret Unix errno"
+    );
+    drop((master, slave));
+}
+
+#[cfg(not(unix))]
+#[test]
+fn unix_ioctl_signature_has_a_typed_target_failure_without_touching_guest_memory() {
+    let error = run_wat(
+        include_str!("fixtures/native/ioctl_u64_request.wat"),
+        Budget::default(),
+    )
+    .expect_err("non-Unix targets reject the enumerated Unix ABI");
+    assert!(matches!(
+        error,
+        QjswasmError::Door(message)
+            if message.contains("native_invocation_target_unsupported")
+    ));
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn five_retired_scalar_probes_match_direct_darwin_oracles() {
