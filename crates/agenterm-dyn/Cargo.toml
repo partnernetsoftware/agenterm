@@ -3,7 +3,7 @@ name = "agenterm-dyn"
 version = "0.3.1"
 edition = "2024"
 rust-version = "1.97"
-description = "In-process live native door: interned symbols, S-expr eval, bounded native dlcall"
+description = "Policy-free in-process dynamic ABI mechanism"
 license = "MIT OR Apache-2.0"
 publish = false
 

@@ -4,9 +4,9 @@
 //! default library paths, PID symbols, `TIOCGWINSZ` request codes,
 //! `GetConsoleScreenBufferInfo`, and secondary probe names. When
 //! `agenterm-platform` grows an equivalent host-facts table, move these rows
-//! there and keep `agenterm-dyn` as the eval + bounded native `dlcall` door only.
-//! `Dyn::eval` must still accept OS-specific strings as opaque script data at
-//! the boundary — only this catalog of known rows is a platform concern.
+//! there and leave `agenterm-dyn` as the policy-free dynamic ABI mechanism.
+//! Library and symbol strings remain opaque caller data at the ABI boundary;
+//! only this catalog of known product rows is a platform concern.
 //! Search for `PLATFORM-CANDIDATE` in this crate for the full list.
 //!
 //! Every cell is written explicitly so the full matrix compiles on any host;

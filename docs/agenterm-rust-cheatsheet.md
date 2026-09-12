@@ -3442,9 +3442,10 @@ Linux and macOS courts open a 24×80 pty slave and require `TIOCGWINSZ` to
 return the same dimensions. All other names and signatures retain the ordinary
 fixed dispatch: this is not general variadic FFI and adds no C or libffi shim.
 
-The retiring S-expression `dlcall` compatibility path may still reach the same
-typed dyn implementation while its courts migrate, but it is not the future
-owner of the variadic ABI.
+The former S-expression `dlcall` compatibility path was deleted only after its
+executable courts migrated to raw-ABI or qjswasm WAT evidence. Do not restore a
+language wrapper around this variadic mechanism; `invoke_unix_ioctl` is the
+bottom-layer ABI entry and qjswasm owns the public schema.
 
 When two crates share one native-call ABI family, keep exactly one executable
 selector and one library/symbol resolver. The consumer may retain its hostile

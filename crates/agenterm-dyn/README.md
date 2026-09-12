@@ -1,355 +1,106 @@
 # agenterm-dyn
 
-Tiny in-process **live native door**: interned symbols, evaluation of a small
-S-expression list language (`do` / `set` / `if` / comparisons / `not` / `and` /
-`or` / fixnum `+` `-` / bounded `repeat` / `dlcall`), and one native primitive.
-`dlcall` resolves symbols with `libloading` and uses bounded Rust `extern "C"`
-dispatch for integer and pointer signatures.
+`agenterm-dyn` is AgenTerm's policy-free, in-process dynamic ABI mechanism.
+It opens a caller-selected library, resolves a caller-selected symbol, and
+executes a C ABI shape that the current mechanism can represent. It is roughly
+`libdl`-like loading plus a deliberately incomplete `libffi`-like call surface,
+implemented with monomorphic Rust `extern "C"` trampolines.
 
-The crate also owns the typed exact-homogeneous native core consumed by
-`agenterm-qjswasm`: library and symbol resolution plus the seven exact scalar
-families at arities zero through six. Qjswasm retains its guest wire schema,
-memory validation, budgets, cancellation, result writeback, and public error
-mapping; there is only one executable exact-stub selector.
+## Boundary
 
-## What this is
+dyn owns only mechanism:
 
-- A geek/hack module for calling arbitrary native symbols from a minimal
-  embedded list language.
-- **ISA×2 / OS×3** from day one: the same Rust API on Linux, macOS, and
-  Windows for x86_64 and aarch64. OS-specific library paths and symbol names
-  (`libc.so.6`, `libSystem.B.dylib`, `GetCurrentProcessId`, …) are **script
-  data** passed into `dlcall`, not hard-coded crate API.
+- the single shared-library loader and symbol lookup path;
+- `AbiSignature`, `AbiValue`, validation against the real trampoline matrix,
+  and `unsafe invoke_abi`;
+- raw scalar and pointer transport;
+- the Unix variadic `ioctl` ABI exception;
+- the separate W^X executable-buffer mechanism and its errors.
 
-## What this is not
+The caller owns the asserted native signature, pointer validity, alignment,
+aliasing, lifetimes, library/thread requirements, cleanup, and side effects.
+An ABI pointer has no pointee or nullability policy inside dyn.
 
-- **Not** a fourth script engine — `rh`, `qjs`, and `lua` stay as they are.
-- **Not** libagenterm (`agenterm-abi`). `agenterm-dyn` walks **in parallel**
-  with the C ABI shell; it does not export `agt_*` symbols and is not wired
-  into the root `agenterm` binary yet.
-- **Not** integrated with `agenterm-cu` / `agenterm-con`; the first consumer is
-  `agenterm-qjswasm` and only of the typed exact-native core.
-- **Not** integrated with `agenterm-platform` — that wiring is explicitly
-  deferred to a later milestone.
+dyn does not own product exposure policy, allowlists, guest-memory decoding,
+Wasm span checks, budgets, cancellation, or supervision. Those remain in
+`agenterm-qjswasm` and the Script Runtime. The typed OS snapshots and six-cell
+host catalog still present in this crate are migration debt; they are not a
+direction for new dyn APIs.
 
-## Drift toward cu / platform surfaces (script data only)
-
-`agenterm-dyn` is gradually naming the same libs, symbols, and bus facts that
-`agenterm-cu` and `agenterm-platform` hands use — as **PLATFORM-CANDIDATE**
-script data in `hosts.rs` (`CU_ADJACENT_PROBE_CATALOG`, six `{linux,macos,windows}
-× {x86_64,aarch64}` rows). Dyn still does intern/bind/eval/dlcall only; **cu
-remains the live hand** and there is no import of `agenterm-platform` or
-`agenterm-cu`.
-
-## Integration (deferred)
-
-Cross-arch logic aggregation, libagenterm wiring, and `agenterm-platform`
-facades are **out of scope** until `agenterm-dyn` matures on its own.
-
-Items tagged **`PLATFORM-CANDIDATE`** in `src/hosts.rs` (and listed in
-`hosts::PLATFORM_CANDIDATES`) are OS/host-facts tables — library paths, PID
-symbols, ioctl request codes, console probes, and CU-adjacent probe rows — that
-may move to `agenterm-platform` when that crate grows an equivalent contract.
-They are **not** imported from platform today. What stays in dyn: `intern` /
-`bind` / safe `eval` / unsafe `eval_native`, bounded native `dlcall`, value/error/parse, and the rule that
-OS names remain opaque script data at the eval boundary.
-
-`dlcall` is an ABI-limited native door, not a general FFI. It targets only
-`x86_64` and `aarch64`, and accepts fixed, non-variadic C signatures with at
-most six integer or pointer arguments. The trampoline passes every input in a
-`u64` slot; its supported types are `void` (return only), `i8`, `u8`, `i16`,
-`u16`, `i32`, `u32`, `i64`, `u64`, and `ptr`. Narrow signed inputs are
-sign-extended and narrow unsigned inputs are zero-extended before that call.
-
-Floating-point values and aggregates have no supported ABI class. Variadic
-symbols are outside the contract because the fixed trampoline cannot reliably
-detect them, so callers must not use `printf` or another arbitrary variadic
-symbol. The only exception is Unix `ioctl` (Linux and macOS) with the validated
-`(i32, u64|i32, ptr) -> i32` signature: it transmutes the loaded
-`libloading` pointer to `unsafe extern "C" fn(i32, u64, ...) -> i32`.
-This remains an ABI-compatibility boundary, not an authorization
-or safety policy; library names and symbols remain caller-supplied script data.
-
-`Dyn::eval` is the safe pure-language entry point. It recursively preflights
-the complete AST and returns `DynError::NativeRequiresUnsafe` for any `dlcall`,
-including a dead branch, before any expression runs. Native source must use
-`unsafe { Dyn::eval_native(..) }`. Its caller owns exact fixed C ABI selection,
-pointer validity/alignment/lifetime/aliasing, library availability,
-thread-affinity, and every resource or process side effect. Within `eval_native`,
-deterministic `dlcall` validation, library loading, and symbol resolution complete
-before any script argument expression is evaluated; a missing library or symbol
-cannot commit an argument-side `set`. Unix `ioctl` is
-the documented variadic compatibility exception, not a relaxation of those obligations.
-
-The language stores integer results as signed `i64`. A `u64` result therefore
-returns an error when it exceeds `i64::MAX`; use `ptr` for address- or
-handle-valued native returns instead of declaring them as `u64`.
-
-## Environment resource bounds
-
-Each environment accepts names of at most 255 UTF-8 bytes and rejects interior
-NUL. It retains at most
-4,096 bindings and 4,096 distinct interned symbols. Existing bindings and
-symbols remain reusable at capacity. `Dyn::intern` returns `Result` so a new
-name can report `DynError::NameContainsNul`, `DynError::NameTooLong`, or
-`DynError::StateLimit`; `bind` returns the same name errors. Script source
-with NUL fails parsing, while `set` rejects an overlong target before evaluating
-its right-hand side.
-
-## Parser resource bound
-
-The list-language parser accepts at most 64 KiB of UTF-8 source, 4,096 AST
-nodes (each list and scalar expression counts), and 256 nested lists. Source
-that exceeds any bound returns a `DynError::Parse` before evaluation, rather
-than consuming unbounded parser input, allocation, or stack. This is a
-robustness limit only: it does not grant, deny, or otherwise change any
-native-door or caller authority semantics.
-
-## Repeat resource bound
-
-Each top-level `Dyn::eval` or `Dyn::eval_native` call has a shared budget of
-1,000,000 repeat-body iterations (`MAX_TOTAL_REPEAT_ITERATIONS`). A single
-`repeat` remains capped at 1,000,000 (`REPEAT_MAX`), but nested repeats draw
-from the same top-level budget. A repeat whose full count cannot be reserved
-returns `DynError::RepeatBudgetExceeded` before its body executes; this avoids
-multiplicative nested-loop work and body-side effects on the rejected form.
-
-## Public surface
-
-| API | Role |
-|-----|------|
-| `Dyn::intern` | Fallibly intern a bounded string into a stable `Symbol` |
-| `Dyn::bind` | Safely hand an existing pointer/handle into the environment; native pointer obligations begin only at `eval_native` |
-| `Dyn::eval` | Safely evaluate pure S-expr source; rejects any AST containing `dlcall` before execution |
-| `Dyn::eval_native` | Unsafe native-capable evaluation; caller upholds ABI, pointer, aliasing, lifetime, library, thread, and side-effect contracts |
-| `dlcall` | Only native primitive — invoked from lists, not a verb table |
-| `invoke_exact` | Unsafe typed core for exact homogeneous scalar signatures; owns loading, symbol resolution, and fixed invocation |
-| `REPEAT_MAX` / `MAX_TOTAL_REPEAT_ITERATIONS` | Per-form and per-top-level repeat-work bounds |
-| `hosts::*` | Six-cell host table + CU-adjacent catalog (`PLATFORM-CANDIDATE`) |
-| `InterfaceAddresses::acquire` | Own a Unix `getifaddrs` list and copy pointer-free interface snapshots; typed unsupported on Windows |
-
-## Six-cell host table
-
-`src/hosts.rs` records explicit rows for every `{linux, macos, windows} ×
-{x86_64, aarch64}` cell:
-
-| Cell | PID library | PID symbol | Size probe | Secondary probe | Additional headless probes |
-|------|-------------|------------|------------|-----------------|----------------------------|
-| linux × x86_64/aarch64 | `libc.so.6` | `getpid` | `ioctl(TIOCGWINSZ)` | `getppid` | fixed-ABI live rows include `time`, caller-owned-pointer `times`, `getrusage(RUSAGE_SELF, …)`, `getrlimit(RLIMIT_NOFILE, …)`, `clock_gettime`, `uname`, uid/gid/pid group, `sysconf`, `getcwd`, `isatty`, `access`/`dup`/`lseek`, `getpriority`/`nice`, `sched_yield`, `alarm`, `umask`, `getdtablesize`, `gethostid`, `getpagesize`; `getifaddrs` is live through the typed owner; variadic `open`/`fcntl` and Darwin-only rows are placeholders |
-| macos × x86_64/aarch64 | `libSystem.B.dylib` | `getpid` | signature-gated loaded-symbol `ioctl(TIOCGWINSZ)` through Unix's variadic ABI | `time` | shared fixed-ABI live rows plus the documented Darwin probes; variadic `open`/`fcntl` remain placeholders, while `mach_host_self` and `getifaddrs` are live only through typed owners |
-| windows × x86_64/aarch64 | `kernel32.dll` | `GetCurrentProcessId` | `GetConsoleScreenBufferInfo` | `GetCurrentThreadId` | placeholders only |
-
-All six rows compile as data on every host. `live_cell()` selects the row
-matching `cfg(target_os)` × `cfg(target_arch)`; the other five are
-placeholders for matrix completeness and future native smokes.
-
-## Example
-
-```lisp
-(do
-  (set pid (dlcall "libc.so.6" "getpid" "i32"))
-  pid)
-```
-
-Bind a buffer from Rust, then pass it to `ioctl`:
+## Primary API
 
 ```rust
-dyn_env.bind("ws", ws_ptr)?;
-unsafe {
-    dyn_env.eval_native(r#"(dlcall "libc.so.6" "ioctl" "i32" "i32" 0 "u64" 21523 "ptr" ws)"#)?;
-}
+use agenterm_dyn::{AbiSignature, AbiType, AbiValue, NativeCall, invoke_abi};
+
+let call = NativeCall {
+    library: "",
+    symbol: "getpid",
+    signature: AbiSignature {
+        result: AbiType::I32,
+        params: &[],
+    },
+    arguments: &[],
+};
+
+// SAFETY: the caller asserts that `getpid` really has C ABI `i32()`.
+let pid = unsafe { invoke_abi(&call)? };
+assert!(matches!(pid, AbiValue::I32(value) if value > 0));
+# Ok::<(), agenterm_dyn::AbiError>(())
 ```
 
-## CU-adjacent script examples
+`validate_abi` checks argument count/types and whether a real trampoline exists
+without loading or calling the symbol. An unsupported shape returns
+`AbiError::SignatureUnsupported`; dyn never approximates one ABI as another.
 
-These commented examples stay at the script-data boundary: they exercise the
-same native facts that cu's windows, focus, and get-text hands may consume,
-without wiring dyn into cu, platform, or the ABI:
+## Relationship to qjswasm
 
-- [current PID](examples/getpid.md)
-- [parent process ID via `getppid`](examples/getppid.md)
-- [current process group via `getpgrp`](examples/getpgrp.md)
-- [current session via `getsid(0)`](examples/getsid-current.md)
-- [current process group via `getpgid(0)`](examples/getpgid-current.md)
-- [current user ID via `getuid`](examples/getuid.md)
-- [effective user ID via `geteuid`](examples/geteuid.md)
-- [current group ID via `getgid`](examples/getgid.md)
-- [effective group ID via `getegid`](examples/getegid.md)
-- [current priority via `getpriority(0, 0)`](examples/getpriority-current.md)
-- [current nice value via `nice(0)`](examples/nice-zero.md)
-- [yield the current thread via `sched_yield`](examples/sched-yield.md)
-- [cancel and observe the process alarm via `alarm(0)`](examples/alarm-zero.md)
-- [read and immediately restore the process `umask`](examples/umask-read-restore.md)
-- [descriptor-table limit via `getdtablesize`](examples/getdtablesize.md)
-- [current host ID via `gethostid`](examples/gethostid.md)
-- [current working directory via `getcwd`](examples/getcwd.md)
-- [process CPU ticks via `times`](examples/times.md)
-- [this process's resource usage via `getrusage(RUSAGE_SELF, …)`](examples/getrusage.md)
-- [descriptor resource limits via `getrlimit(RLIMIT_NOFILE, …)`](examples/getrlimit.md)
-- [host page size via `sysconf`](examples/sysconf-pagesize.md)
-- [host page size via `getpagesize`](examples/getpagesize.md)
-- [typed `hw.ncpu` snapshot via `sysctlbyname`](examples/sysctlbyname.md) (macOS)
-- [monotonic kernel ticks via `mach_absolute_time`](examples/mach-absolute-time.md) (macOS)
-- [program name pointer via `getprogname`](examples/getprogname.md) (macOS)
-- [set-id execution state via `issetugid`](examples/issetugid.md) (macOS)
-- [executable path via `_NSGetExecutablePath`](examples/nsget-executable-path.md) (macOS)
-- [process path via `proc_pidpath`](examples/proc-pidpath.md) (macOS)
-- [random word via `arc4random`](examples/arc4random.md) (macOS)
-- [uptime nanoseconds via `clock_gettime_nsec_np`](examples/clock-gettime-nsec-np.md) (macOS)
-- [hardware CPU count via `sysctl`](examples/sysctl.md) (macOS)
-- [MIB lookup via `sysctlnametomib`](examples/sysctlnametomib.md) (macOS)
-- [Mach tick-to-nanosecond ratio via `mach_timebase_info`](examples/mach-timebase-info.md) (macOS; native-call and typed snapshot evidence)
-- [main-thread predicate via `pthread_main_np`](examples/pthread-main-np.md) (macOS)
-- [login name via `getlogin_r`](examples/getlogin-r.md) (macOS; typed snapshot evidence)
-- [current thread id via `pthread_threadid_np`](examples/pthread-threadid-np.md) (macOS)
-- [current thread name via `pthread_getname_np`](examples/pthread-getname-np.md) (macOS)
-- [BSD process facts via `proc_pidinfo`](examples/proc-pidinfo.md) (macOS)
-- [process argc pointer via `_NSGetArgc`](examples/nsget-argc.md) (macOS)
-- [process argv pointer via `_NSGetArgv`](examples/nsget-argv.md) (macOS)
-- [process environment pointer via `_NSGetEnviron`](examples/nsget-environ.md) (macOS)
-- [process rusage via `proc_pid_rusage`](examples/proc-pid-rusage.md) (macOS)
-- [loaded-image count via `_dyld_image_count`](examples/dyld-image-count.md) (macOS)
-- [caller-owned entropy buffer via `getentropy`](examples/getentropy.md) (macOS)
-- [current process name via `proc_name`](examples/proc-name.md) (macOS)
-- [current stack address via `pthread_get_stackaddr_np`](examples/pthread-get-stackaddr-np.md) (macOS)
-- [current stack size via `pthread_get_stacksize_np`](examples/pthread-get-stacksize-np.md) (macOS)
-- [current pthread handle via `pthread_self`](examples/pthread-self.md) (macOS)
-- [current CPU via `pthread_cpu_number_np`](examples/pthread-cpu-number-np.md) (macOS)
-- [allocator size class via `malloc_good_size`](examples/malloc-good-size.md) (macOS)
-- [process program-name pointer via `_NSGetProgname`](examples/nsget-progname.md) (macOS)
-- [libproc version via `proc_libversion`](examples/proc-libversion.md) (macOS)
-- [JIT write-protect availability via `pthread_jit_write_protect_supported_np`](examples/pthread-jit-write-protect-supported-np.md) (macOS)
-- [current-thread equality via `pthread_equal`](examples/pthread-equal.md) (macOS)
-- [hostname via `gethostname`](examples/gethostname.md) (Linux and macOS; typed snapshot evidence)
-- [configuration string via `confstr`](examples/confstr.md) (macOS)
-- [clock resolution via `clock_getres`](examples/clock-getres.md) (macOS)
-- [process multithreaded predicate via `pthread_is_threaded_np`](examples/pthread-is-threaded-np.md) (macOS)
-- [Mach-O execute header via `_NSGetMachExecuteHeader`](examples/nsget-mach-execute-header.md) (macOS)
-- [loaded-image name via `_dyld_get_image_name`](examples/dyld-get-image-name.md) (macOS)
-- [loaded-image vmaddr slide via `_dyld_get_image_vmaddr_slide`](examples/dyld-get-image-vmaddr-slide.md) (macOS)
-- [loaded-image facts via `dladdr`](examples/dladdr.md) (macOS; native-call and typed snapshot evidence)
-- [host UUID via `gethostuuid`](examples/gethostuuid.md) (macOS)
-- [loaded-image header via `_dyld_get_image_header`](examples/dyld-get-image-header.md) (macOS)
-- [bounded random word via `arc4random_uniform`](examples/arc4random-uniform.md) (macOS)
-- [domain name via `getdomainname`](examples/getdomainname.md) (macOS; typed snapshot evidence)
-- [filesystem facts via `statvfs`](examples/statvfs.md) (Linux and macOS; typed snapshot evidence)
-- [wall-clock time via `gettimeofday`](examples/gettimeofday.md) (macOS)
-- [supplementary groups via `getgroups`](examples/getgroups.md) (Linux and macOS; typed owner evidence)
-- [owned resolved path via `ResolvedPath`](examples/realpath.md) (Linux and macOS)
-- [owned `mach_host_self` send-right reference](examples/mach-host-self.md) (macOS)
-- [owned interface-address snapshot via `getifaddrs`](examples/getifaddrs.md) (Linux and macOS)
-- [clock ticks per second via `sysconf`](examples/sysconf-clk-tck.md)
-- [online processor count via `sysconf`](examples/sysconf-nprocessors-onln.md)
-- [whether standard input is a terminal](examples/isatty-stdin.md)
-- [whether standard output is a terminal](examples/isatty-stdout.md)
-- [whether standard error is a terminal](examples/isatty-stderr.md)
-- [`lseek(0, 0, SEEK_CUR)` current offset](examples/lseek-stdin-current.md)
-- [`dup(0)` then `close`](examples/dup-stdin-close.md)
-- [`access("/", F_OK)` success](examples/access-root-f-ok.md)
-- [`access` missing-path failure](examples/access-missing-path.md)
-- [terminal window size via `ioctl`](examples/ioctl-window-size.md)
-- [`DISPLAY` via `getenv`](examples/getenv-display.md)
-- [explicit missing-symbol failure](examples/failure-missing-symbol.md)
-- [empty library-name failure](examples/failure-empty-library.md)
-- [interior-NUL library-name failure](examples/failure-library-interior-nul.md)
+`agenterm-qjswasm` owns the native-call grammar and catalog, `ptr` versus
+`ptr?`, scalar canonicalization, guest-span bounds, result-pointer rebasing,
+and public typed errors. Once that upper layer admits and decodes a call, its
+five scalar/pointer execution paths delegate to `invoke_abi`. Unix `ioctl`
+uses the same native door but its dedicated variadic mechanism.
 
-These examples rely only on the currently shipped list-language parser. Where
-C requires a pointer or writable structure, the example names the value that
-the embedding Rust host must bind before calling `Dyn::eval_native`. The interior-NUL
-example uses visible `␀` notation for an actual NUL source byte because the
-language deliberately has no string escapes.
+There is no second loader and no second native door.
 
-## Test suite
+## Historical material
 
-Independent integration tests live under `crates/agenterm-dyn/tests/`:
+The former S-expression evaluator (`Dyn`, `Value`, `Symbol`, and textual
+`dlcall`) was removed after its executable claims moved to `invoke_abi` tests
+or qjswasm WAT courts. Files under `examples/` that still show `(dlcall ...)`
+are historical migration records, not current API examples; they will leave
+with the remaining facts/catalog documentation migration.
 
-| File | Coverage |
-|------|----------|
-| `language.rs` | comparisons, `not`, `and`/`or`, `+`/`-`, `repeat`, nested logic |
-| `errors.rs` | Bad S-exprs, unknown vars/forms, arity, overflow, repeat bounds |
-| `hosts.rs` | Six-cell matrix completeness, `live_cell()` selection, row well-formedness |
-| `catalog_docs.rs` | Portable Darwin row parity plus live-probe example/README coverage |
-| `macos_ioctl.rs` | macOS coverage of Unix variadic `ioctl(TIOCGWINSZ)` through the loaded libSystem symbol |
-| `abi.rs` | Policy-free ABI shapes, including Darwin direct native oracles |
-| `macos_resource.rs` | typed `mach_host_self` acquisition, send-ref accounting, and exactly-once Drop release |
-| `smoke.rs` | Real `dlcall` into host libraries per OS (`#[cfg]`-gated) |
+The temporary migration index is: [mach_absolute_time](examples/mach-absolute-time.md),
+[getprogname](examples/getprogname.md), [issetugid](examples/issetugid.md),
+[_NSGetExecutablePath](examples/nsget-executable-path.md), [proc_pidpath](examples/proc-pidpath.md),
+[arc4random](examples/arc4random.md), [clock_gettime_nsec_np](examples/clock-gettime-nsec-np.md),
+[sysctl](examples/sysctl.md), [pthread_main_np](examples/pthread-main-np.md),
+[pthread_threadid_np](examples/pthread-threadid-np.md),
+[pthread_getname_np](examples/pthread-getname-np.md), [proc_pidinfo](examples/proc-pidinfo.md),
+[_NSGetArgc](examples/nsget-argc.md), [_NSGetArgv](examples/nsget-argv.md),
+[_NSGetEnviron](examples/nsget-environ.md), [proc_pid_rusage](examples/proc-pid-rusage.md),
+[_dyld_image_count](examples/dyld-image-count.md), [getentropy](examples/getentropy.md),
+[proc_name](examples/proc-name.md), [pthread_get_stackaddr_np](examples/pthread-get-stackaddr-np.md),
+[pthread_get_stacksize_np](examples/pthread-get-stacksize-np.md), [pthread_self](examples/pthread-self.md),
+[pthread_cpu_number_np](examples/pthread-cpu-number-np.md),
+[malloc_good_size](examples/malloc-good-size.md), [_NSGetProgname](examples/nsget-progname.md),
+[proc_libversion](examples/proc-libversion.md),
+[pthread_jit_write_protect_supported_np](examples/pthread-jit-write-protect-supported-np.md),
+[sysctlnametomib](examples/sysctlnametomib.md), [pthread_equal](examples/pthread-equal.md),
+[confstr](examples/confstr.md), [clock_getres](examples/clock-getres.md),
+[pthread_is_threaded_np](examples/pthread-is-threaded-np.md),
+[_NSGetMachExecuteHeader](examples/nsget-mach-execute-header.md),
+[_dyld_get_image_name](examples/dyld-get-image-name.md),
+[_dyld_get_image_vmaddr_slide](examples/dyld-get-image-vmaddr-slide.md),
+[gethostuuid](examples/gethostuuid.md), [_dyld_get_image_header](examples/dyld-get-image-header.md),
+[arc4random_uniform](examples/arc4random-uniform.md), [gettimeofday](examples/gettimeofday.md),
+[mach_host_self](examples/mach-host-self.md), [sysctlbyname](examples/sysctlbyname.md),
+[getifaddrs](examples/getifaddrs.md), [getgroups](examples/getgroups.md),
+[statvfs](examples/statvfs.md), [realpath](examples/realpath.md),
+[gethostname](examples/gethostname.md), [dladdr](examples/dladdr.md),
+[getdomainname](examples/getdomainname.md), [getlogin_r](examples/getlogin-r.md), and
+[mach_timebase_info](examples/mach-timebase-info.md).
 
-```bash
-cargo test -p agenterm-dyn
-```
-
-**Linux** (matching-host CI smoke): `getpid` + `getppid` + `getpgrp` + `getsid(0)` + `getpgid(0)` +
-`getuid` + `getgid` + `geteuid` + `getegid` cross-checked with libc; real headless
-`time(NULL)`, `clock_gettime(CLOCK_MONOTONIC)`, `uname`, `sysconf(_SC_PAGESIZE)`,
-`sysconf(_SC_CLK_TCK)`, `sysconf(_SC_NPROCESSORS_ONLN)`, and `getcwd` dlcalls;
-real `isatty(0)`; `ioctl(TIOCGWINSZ)`
-on a 24×80 pty when `openpty` succeeds; real `access("/", F_OK)` success and
-missing-path failure; real `dup(0)` / `close`;
-real `getpriority(PRIO_PROCESS, 0)` and `nice(0)`; `getenv("DISPLAY")`; honest `libX11`
-`XOpenDisplay`; real `lseek(0, 0, SEEK_CUR)`; and AT-SPI
-library existence probes (no session a11y bus). `isatty(0/1/2)` records the real
-stdin/stdout/stderr state rather than requiring an interactive terminal. `sched_yield`
-returns an `i32` status (`0` on success); `alarm(0)` returns an integer and leaves no alarm pending.
-The `umask` probe reads with `umask(0)` and immediately restores the returned mask.
-`times` writes a caller-owned `tms` and is compared with a later direct-libc
-baseline. `getrusage(RUSAGE_SELF, …)` writes a caller-owned `rusage` and its
-CPU times are compared with a later direct-libc baseline. `getrlimit(RLIMIT_NOFILE,
-…)` writes a caller-owned `rlimit` whose soft and hard limits must equal the
-direct-libc baseline. `getdtablesize` returns the host descriptor-table limit as a positive integer.
-`gethostid` returns the host identifier as the native signed-long integer.
-`getpagesize` returns the positive page size and agrees with `sysconf(_SC_PAGESIZE)`.
-
-**macOS** (matching-host native-test smoke): the `#[cfg(target_os = "macos")]`
-source defines the same integer/void/ptr libc rows as Linux against
-`libSystem.B.dylib`, including caller-owned-pointer `times`,
-`getrusage(RUSAGE_SELF, …)`, and `getrlimit(RLIMIT_NOFILE, …)` checks against
-direct-libc baselines. `CpuCountSnapshot` owns the bounded `hw.ncpu`
-`sysctlbyname` query; it does not expose arbitrary names or caller buffers.
-Darwin-specific smokes cover `mach_absolute_time`, `getprogname`, `issetugid`, `_NSGetExecutablePath`,
-`proc_pidpath`, `arc4random`, `clock_gettime_nsec_np`, `sysctl`,
-`mach_timebase_info`, `pthread_main_np`, `pthread_threadid_np`,
-`pthread_getname_np`,
-`proc_pidinfo`, `_NSGetArgc`, `_NSGetArgv`, `_NSGetEnviron`,
-`proc_pid_rusage`, `_dyld_image_count`, `getentropy`, `proc_name`,
-`pthread_get_stackaddr_np`, `pthread_get_stacksize_np`, `pthread_self`,
-`pthread_cpu_number_np`, `malloc_good_size`, `_NSGetProgname`, `proc_libversion`,
-`pthread_jit_write_protect_supported_np`, `sysctlnametomib`, `pthread_equal`,
-`confstr`, `clock_getres`, `pthread_is_threaded_np`,
-`_NSGetMachExecuteHeader`, `_dyld_get_image_name`,
-`_dyld_get_image_vmaddr_slide`, `gethostuuid`,
-`_dyld_get_image_header`, `arc4random_uniform`,
-`gettimeofday`; `realpath` is owned by `ResolvedPath` on both Unix hosts;
-`dladdr` additionally has a bounded,
-pointer-free current-image snapshot on macOS; `getdomainname` and `getlogin_r`
-are now represented only by their bounded typed snapshots, while
-`gethostname`, `statvfs`, and `getgroups` have bounded typed snapshots on both
-Linux and macOS;
-the caller-owned timebase, login, thread-id, thread-name, `proc_bsdinfo`, and
-`rusage_info_v4` buffers are compared with direct C baselines. Wave 8
-loader/uuid facts (`dladdr`, `gethostuuid`, `_dyld_get_image_header`) retain
-live `dlcall`s compared with later native calls; `dladdr` also compares its
-typed owned image-path bytes with a direct current-image query. Wave 9 bounds random results;
-the typed domain-name court compares its owned bytes with an independent
-direct native buffer, while the typed `StatVfsSnapshot`
-court compares only stable fields with an independent direct native query
-because live capacity counters can change between calls. The
-dynamic-loader image count is an instantaneous positive fact checked against a
-later native call. `getentropy` fills independent caller-owned 16-byte
-buffers; the smoke checks only successful status and never observes entropy
-contents. `mach_host_self` is acquired only through `MachHostPort`, whose Drop
-releases exactly the acquired send-right reference without destroying the host;
-it never crosses the generic `dlcall` door. `ioctl(TIOCGWINSZ)` uses the resolved
-`libSystem.B.dylib` symbol through Unix's signature-gated variadic ABI and an
-owned pty must return the seeded 24×80 size. This records the CI-native smoke
-contract; it does not claim a local macOS-machine result. `access` missing-path uses
-`/tmp/…`, not `/proc`.
-
-**Windows** (local / CI when available): `GetCurrentProcessId`,
-`GetCurrentThreadId`, optional CRT `getenv("DISPLAY")`.
-
-Non-live cells are never faked on the wrong OS — only data rows and
-compile-only gates.
-
-## Layer 3 (deferred)
-
-Survey notes: [SLJIT vs DynASM](docs/layer3-sljit-dynasm.md). Not linked. `dlcall` is Rust dispatch, not libffi.
+The owning product contract, including the required Markdown tree-DAG and
+Mermaid memory-palace view, is
+[`prd/PRD_02_34_agenterm_dyn.md`](../../prd/PRD_02_34_agenterm_dyn.md).

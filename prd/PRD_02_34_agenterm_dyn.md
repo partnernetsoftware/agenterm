@@ -2,7 +2,7 @@
 
 Status: active product node — dyn is the **无策略底层机制层**（动态库/符号解析、按调用方 ABI
 描述执行调用、raw value/pointer 搬运、variadic `ioctl` ABI、W^X trampoline、机制错误）
-consumed by qjswasm; the small S-expression surface is being retired court by court into
+consumed by qjswasm; the former small S-expression surface was retired court by court into
 `.wat`. **Typed owners and the six-cell catalog are 待迁移现状债**（2026-09-12 裁决：它们属上层
 adapter/`agenterm-platform` 与产品/测试层，留在 dyn 只是**尚未搬走**，不是继续扩展目标）。
 Owner: 政委定方向；主会话按独占文件域推进。
@@ -259,11 +259,12 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
 表、不删 S 式解释器与现有测试、不产 ELF/APE、不管 Windows 执行、不接 cu/chassis**。
 `dlcall` 跳板原样保留；新路径是「名字表条目 + 发射的 call」，非删门。
 
-## Current authorized scope
+## Historical S-expression scope (retired)
 
-This section records the still-shipped legacy S-expression surface while its
-native claims migrate. It is not the target architecture; the current target
-and keep/retire boundary are the tree-DAG above.
+This section preserves the former shipped contract as migration history. The
+surface and its implementation have now been removed; the current target and
+keep/retire boundary are the tree-DAG above. Statements below describe that
+historical surface, not callable current API.
 
 First cut is the body: S-expr + intern + `if` / `set` / `do` + comparisons +
 fixnum `+` `-` + bounded `repeat` + one hand (`dlcall`).
@@ -490,9 +491,9 @@ exact/fixed/fixed-pointer 集合”。qjswasm 仍有真实的 Cargo 依赖；其
 dyn 的 `invoke_abi`。旧 `invoke_exact` / `invoke_fixed` / `invoke_fixed_pointer` 不再是
 qjswasm 的执行入口；三者现均为统一入口的兼容薄封装，`invoke_abi` 直接选择
 crate-private family mechanism，避免重入公开 wrapper。
-The current
-S-expression surface remains shipped product truth only until each non-language
-court has claim-preserving `.wat` or typed-owner evidence.
+The former S-expression surface has now been removed: every non-language court
+that remained authoritative first gained claim-preserving raw-ABI or qjswasm
+WAT evidence, and no production consumer outside this crate used the language API.
 
 - 统一 `abi` 迁移桥已落地：运行时构造的 `AbiSignature` / `NativeCall`
   会按**当前真实 trampoline 矩阵**分类；三个旧入口现均遵循
@@ -570,10 +571,10 @@ court has claim-preserving `.wat` or typed-owner evidence.
   prototype is now implemented. It still forbids JIT, C/libffi, losing the Unix
   variadic `ioctl` exception, or deleting a shipped language court before equivalent
   current-tree evidence exists.
-- Migrating and then deleting `eval.rs` / `parse.rs` / `sym.rs` / `value.rs` requires
-  complete court and public-consumer migration. The legacy `Dyn`/`Value`/`Symbol`
-  surface has no non-test Rust consumer outside this crate, but its native courts and
-  examples still carry claims that must move rather than disappear. `hosts.rs` 目前仍是
+- `eval.rs` / `parse.rs` / `sym.rs` / `value.rs` and the legacy
+  `Dyn` / `Value` / `Symbol` API were deleted after complete executable-court and
+  public-consumer migration. Remaining `(dlcall ...)` examples are historical
+  catalog migration records, not a callable API. `hosts.rs` 目前仍是
   six-cell fact owner、`exec.rs` 仍是单独设界的 future JIT tool——**这两者是历史现状 /
   迁移债**（按 2026-09-12 裁决，facts 与 typed owner 将迁出 dyn；`exec.rs` 作为机制保留）。
 - Current court migration has moved the scalar, clock-pointer, Darwin output-pointer,
@@ -588,8 +589,8 @@ court has claim-preserving `.wat` or typed-owner evidence.
   selector-driven WAT fixture returns the output length and every MIB element
   separately so the direct-C array oracle remains exact rather than becoming a
   hash approximation.
-  This is incremental retirement evidence, not permission to delete the remaining
-  Lisp courts or language files as a batch.
+  This completed the executable evidence migration that allowed the Lisp courts
+  and language files to be removed without deleting their native claims.
 - [`plan/design-guest-runtime-placement-experiment.md`](../plan/design-guest-runtime-placement-experiment.md)
   freezes the unresolved product choice between optional static CU linkage and a
   versioned provider ABI. No `guest-run` verb may land before one placement is both
@@ -609,8 +610,7 @@ the exposed prototype catalog in qjswasm, then delegates all five exact/fixed/fi
 execution arms through dyn's policy-free `invoke_abi`. Unix `ioctl` continues through its
 separate dyn mechanism entry. The public `native-acu-composition-smoke` proves one supervised guest can
 compose `agenterm:native` with `agenterm:acu`. This establishes dyn as a real lower
-layer; it does not establish that the legacy Lisp can be deleted before its remaining
-courts move.
+layer. The legacy Lisp was deleted only after its remaining courts moved.
 
 Qjswasm's native-door court no longer imports dyn's typed snapshots as test
 oracles: Mach timebase, CPU count and monotonic clock assertions now compare
@@ -621,8 +621,8 @@ not a cross-crate compatibility contract.
 In particular, the heterogeneous integer/pointer ABI mechanism, Unix variadic
 `ioctl` exception and future-JIT boundary in `exec.rs` remain independently owned by
 dyn. The six-cell `hosts.rs` facts and typed owners are migration debt, not dyn's
-target ownership. `Dyn`/`Value`/`Symbol` are legacy language API and retire only with
-the remaining language component after evidence migration.
+target ownership. `Dyn` / `Value` / `Symbol` and their language component were
+retired after that evidence migration completed.
 
 `DomainNameSnapshot::acquire()` and `LoginNameSnapshot::acquire()` are the
 typed Darwin boundaries for `getdomainname` and `getlogin_r`. Both publish
