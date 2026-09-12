@@ -47,6 +47,21 @@ fn page_size() -> usize {
     if raw <= 0 { 4096 } else { raw as usize }
 }
 
+fn mapped_len(capacity: usize, page_size: usize) -> Result<usize, DynError> {
+    let capacity = capacity.max(1);
+    let rounded = capacity
+        .checked_add(page_size - 1)
+        .ok_or_else(|| DynError::Exec("code buffer capacity cannot be page-aligned".into()))?
+        / page_size
+        * page_size;
+    if rounded > isize::MAX as usize {
+        return Err(DynError::Exec(format!(
+            "code buffer mapping of {rounded} bytes exceeds the pointer offset limit"
+        )));
+    }
+    Ok(rounded)
+}
+
 /// Current protection state of a [`CodeBuffer`]. There is intentionally no
 /// third `ReadWriteExec` state: W^X means the two are mutually exclusive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,9 +86,8 @@ impl CodeBuffer {
     /// The buffer starts [`BufferState::Writable`] so bytes can be staged; it
     /// is never mapped writable-and-executable at once.
     pub fn new(capacity: usize) -> Result<Self, DynError> {
-        let cap = capacity.max(1);
         let ps = page_size();
-        let mapped = cap.div_ceil(ps) * ps;
+        let mapped = mapped_len(capacity, ps)?;
         // SAFETY: anonymous private mapping, fixed args; the returned pointer is
         // checked against MAP_FAILED before any use.
         let ptr = unsafe {
@@ -375,6 +389,34 @@ mod tests {
     }
 
     #[test]
+    fn allocation_rejects_capacity_that_cannot_be_page_aligned() {
+        let error = match CodeBuffer::new(usize::MAX) {
+            Ok(_) => panic!("capacity must fail closed"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error,
+            DynError::Exec("code buffer capacity cannot be page-aligned".into())
+        );
+    }
+
+    #[test]
+    fn allocation_rejects_mapping_beyond_pointer_offset_limit() {
+        let page_size = 4096;
+        let largest_aligned = (isize::MAX as usize / page_size) * page_size;
+        let capacity = largest_aligned + 1;
+        let error = mapped_len(capacity, page_size)
+            .expect_err("rounded mapping beyond isize::MAX must fail closed");
+        assert_eq!(
+            error,
+            DynError::Exec(format!(
+                "code buffer mapping of {} bytes exceeds the pointer offset limit",
+                largest_aligned + page_size
+            ))
+        );
+    }
+
+    #[test]
     fn aarch64_golden_mov_x0_42_ret() {
         // MOVZ x0,#42 = 0xD2800540 ; RET = 0xD65F03C0, little-endian.
         assert_eq!(
@@ -404,6 +446,17 @@ mod tests {
     fn enter_returns_movabs_immediate() {
         let mut buf = CodeBuffer::new(64).expect("map");
         let off = buf.append(&x86_64_mov_rax_ret(42)).expect("append");
+        buf.make_executable().expect("to exec");
+        // SAFETY: the bytes at `off` are a valid `extern "C" fn() -> i64`.
+        let got = unsafe { buf.enter_i64(off) }.expect("enter");
+        assert_eq!(got, 42);
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn enter_returns_movz_immediate() {
+        let mut buf = CodeBuffer::new(64).expect("map");
+        let off = buf.append(&aarch64_mov_x0_ret(42)).expect("append");
         buf.make_executable().expect("to exec");
         // SAFETY: the bytes at `off` are a valid `extern "C" fn() -> i64`.
         let got = unsafe { buf.enter_i64(off) }.expect("enter");
