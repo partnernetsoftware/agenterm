@@ -372,23 +372,6 @@ mod linux {
     }
 
     #[test]
-    fn dlcall_isatty_stdin_reports_real_host_state() {
-        let probe = live_system_probe("isatty_stdin");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let got = eval_native(
-            &mut env,
-            &format!(r#"(dlcall "{lib}" "{symbol}" "i32" "i32" 0)"#),
-        )
-        .expect("isatty(0) dlcall");
-        let real = unsafe { libc::isatty(0) };
-        assert!(matches!(real, 0 | 1));
-        assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
     fn dlcall_access_missing_path_fails_after_real_call() {
         let probe = live_system_probe("access_missing");
         let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
@@ -476,40 +459,6 @@ mod linux {
         .expect("lseek(0, 0, SEEK_CUR) dlcall");
         let real = unsafe { libc::lseek(0, 0, libc::SEEK_CUR) };
         assert_eq!(got, Value::Int(real));
-    }
-
-    #[test]
-    fn dlcall_isatty_stdout_matches_libc() {
-        let probe = live_system_probe("isatty_stdout");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let got = eval_native(
-            &mut env,
-            &format!(r#"(dlcall "{lib}" "{symbol}" "i32" "i32" 1)"#),
-        )
-        .expect("isatty(1) dlcall");
-        let real = unsafe { libc::isatty(1) };
-        assert!(matches!(real, 0 | 1));
-        assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
-    fn dlcall_isatty_stderr_matches_libc() {
-        let probe = live_system_probe("isatty_stderr");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let got = eval_native(
-            &mut env,
-            &format!(r#"(dlcall "{lib}" "{symbol}" "i32" "i32" 2)"#),
-        )
-        .expect("isatty(2) dlcall");
-        let real = unsafe { libc::isatty(2) };
-        assert!(matches!(real, 0 | 1));
-        assert_eq!(got, Value::Int(i64::from(real)));
     }
 
     #[test]
@@ -990,29 +939,6 @@ mod macos {
             .expect("getcwd result should be NUL terminated");
         let expected = std::env::current_dir().expect("read current directory");
         assert_eq!(&buffer[..end], expected.as_os_str().as_bytes());
-    }
-
-    #[test]
-    fn dlcall_isatty_std_streams_match_libc() {
-        for (name, fd) in [
-            ("isatty_stdin", 0),
-            ("isatty_stdout", 1),
-            ("isatty_stderr", 2),
-        ] {
-            let probe = live_system_probe(name);
-            let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-                unreachable!()
-            };
-            let mut env = Dyn::new();
-            let got = eval_native(
-                &mut env,
-                &format!(r#"(dlcall "{lib}" "{symbol}" "i32" "i32" {fd})"#),
-            )
-            .unwrap_or_else(|e| panic!("{name}: {e}"));
-            let real = unsafe { libc::isatty(fd) };
-            assert!(matches!(real, 0 | 1));
-            assert_eq!(got, Value::Int(i64::from(real)), "{name}");
-        }
     }
 
     #[test]

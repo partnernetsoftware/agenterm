@@ -497,6 +497,19 @@ fn host_scalar_limits_and_identity_match_direct_libc() {
 
 #[cfg(unix)]
 #[test]
+fn isatty_standard_streams_match_direct_libc() {
+    for descriptor in 0_i32..=2 {
+        let source = wat_for_scalar_args("|isatty|i32(i32)", &[descriptor as u64]);
+        let actual = run_wat(&source, Budget::default())
+            .unwrap_or_else(|error| panic!("isatty({descriptor}) guest failed: {error}"));
+        let direct = unsafe { libc::isatty(descriptor) };
+        assert!(matches!(direct, 0 | 1));
+        assert_eq!(actual, i64::from(direct), "isatty({descriptor})");
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
     let output = std::process::Command::new("uname")
         .arg("-s")

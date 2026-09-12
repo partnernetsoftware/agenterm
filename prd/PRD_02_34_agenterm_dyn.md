@@ -501,6 +501,8 @@ court has claim-preserving `.wat` or typed-owner evidence.
   `getdtablesize()` 与 `gethostid()` 也改由 exact 无参数 WAT guests 覆盖；前者
   保留正值及 direct equality，后者保留完整 `i64` host-id equality，三份重复
   Lisp courts 已删除。
+  `isatty(0..=2)` 也由一个参数化 WAT court 逐描述符调用，并保留 `{0,1}`
+  状态约束与 direct libc equality；Linux/macOS 四份 Lisp courts 已删除。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded
