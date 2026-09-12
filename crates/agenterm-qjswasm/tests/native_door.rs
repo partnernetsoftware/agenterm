@@ -154,6 +154,44 @@ fn wat_for(spec: &str, spec_ptr: i32, spec_len: i32, block_ptr: i32, block_len: 
     )
 }
 
+fn wat_for_scalar_args(spec: &str, arguments: &[u64]) -> String {
+    let quoted = spec.replace('\\', "\\\\").replace('"', "\\\"");
+    let stores = arguments
+        .iter()
+        .enumerate()
+        .map(|(index, bits)| {
+            let record = 144 + index * 16;
+            format!(
+                "(i32.store (i32.const {record}) (i32.const 0))\n\
+                 (i32.store (i32.const {}) (i32.const 0))\n\
+                 (i64.store (i32.const {}) (i64.const {bits}))",
+                record + 4,
+                record + 8,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let block_len = 16 + arguments.len() * 16;
+    format!(
+        r#"(module
+          (import "agenterm" "native_call"
+            (func $native_call (param i32 i32 i32 i32) (result i32)))
+          (memory 1)
+          (data (i32.const 0) "{quoted}")
+          (func (export "main") (result i64)
+            (i32.store (i32.const 128) (i32.const 1))
+            (i32.store (i32.const 132) (i32.const {arity}))
+            (i64.store (i32.const 136) (i64.const 0))
+            {stores}
+            (drop (call $native_call
+              (i32.const 0) (i32.const {spec_len})
+              (i32.const 128) (i32.const {block_len})))
+            (i64.load (i32.const 136))))"#,
+        arity = arguments.len(),
+        spec_len = spec.len(),
+    )
+}
+
 /// The parent pid as the host reports it: `std`'s own process fact, not the
 /// guest's answer and not the `native_call` path under test.
 #[cfg(unix)]
@@ -344,6 +382,54 @@ fn missing_library_symbol_unsupported_signature_and_oob_are_distinct() {
         assert!(
             matches!(&error, QjswasmError::Door(message) if message.contains(code)),
             "expected Door({code}), got {error:?}"
+        );
+    }
+}
+
+/// This is the WAT-side replacement for the old dyn Lisp court that required
+/// complete ABI validation before argument evaluation or dynamic loading. WAT
+/// has no Lisp argument expressions to mutate, so the observable invariant is
+/// narrower and stronger: an invalid scalar or unsupported complete signature
+/// wins over the deliberately missing library named by the same request.
+#[test]
+fn wat_native_calls_validate_arguments_and_the_complete_signature_before_loading() {
+    let missing_library = "agenterm-native-library-that-does-not-exist";
+    let cases = [
+        (
+            wat_for_scalar_args(&format!("{missing_library}|unused|u128()"), &[]),
+            "native_type_unknown",
+        ),
+        (
+            wat_for_scalar_args(&format!("{missing_library}|unused|f32()"), &[]),
+            "native_type_unsupported",
+        ),
+        (
+            wat_for_scalar_args(&format!("{missing_library}|unused|i32(u32)"), &[0]),
+            "native_invocation_signature_unsupported",
+        ),
+        (
+            wat_for_scalar_args(
+                &format!("{missing_library}|unused|i8(i8)"),
+                &[i8::MAX as u64],
+            ),
+            "native_invocation_signature_unsupported",
+        ),
+        (
+            wat_for_scalar_args(
+                &format!("{missing_library}|unused|i32(i32)"),
+                &[u64::from(u32::MAX) + 1],
+            ),
+            "native_scalar_not_canonical",
+        ),
+    ];
+
+    for (source, expected_code) in cases {
+        let error = run_wat(&source, Budget::default()).expect_err(expected_code);
+        assert!(
+            matches!(&error, QjswasmError::Door(message)
+                if message.contains(expected_code)
+                    && !message.contains("native_library_load_failed")),
+            "expected pre-load Door({expected_code}), got {error:?}"
         );
     }
 }
