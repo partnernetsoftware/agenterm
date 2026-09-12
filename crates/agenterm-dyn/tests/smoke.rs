@@ -155,19 +155,6 @@ mod linux {
     }
 
     #[test]
-    fn dlcall_getpgrp_matches_libc() {
-        let probe = live_system_probe("getpgrp");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let got = eval_native(&mut env, &format!(r#"(dlcall "{lib}" "{symbol}" "i32")"#))
-            .expect("getpgrp dlcall");
-        let real = unsafe { libc::getpgrp() };
-        assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
     fn dlcall_getsid_zero_matches_libc() {
         let probe = live_system_probe("getsid");
         let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
@@ -1134,7 +1121,6 @@ mod macos {
             ("getuid", "u32"),
             ("getgid", "u32"),
             ("getppid", "i32"),
-            ("getpgrp", "i32"),
             ("geteuid", "u32"),
             ("getegid", "u32"),
         ] {
@@ -1149,7 +1135,6 @@ mod macos {
                 "getuid" => i64::from(unsafe { libc::getuid() }),
                 "getgid" => i64::from(unsafe { libc::getgid() }),
                 "getppid" => i64::from(unsafe { libc::getppid() }),
-                "getpgrp" => i64::from(unsafe { libc::getpgrp() }),
                 "geteuid" => i64::from(unsafe { libc::geteuid() }),
                 "getegid" => i64::from(unsafe { libc::getegid() }),
                 _ => unreachable!(),

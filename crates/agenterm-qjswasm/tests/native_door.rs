@@ -286,7 +286,7 @@ fn host_real_uid() -> u32 {
 
 #[cfg(unix)]
 #[test]
-fn three_real_read_only_native_capabilities_cross_the_eighth_door() {
+fn four_real_read_only_native_capabilities_cross_the_eighth_door() {
     let pid = run_wat(
         include_str!("fixtures/native/getpid.wat"),
         Budget::default(),
@@ -314,6 +314,17 @@ fn three_real_read_only_native_capabilities_cross_the_eighth_door() {
         uid as u32,
         host_real_uid(),
         "getuid must match the host real-uid oracle"
+    );
+
+    let process_group = run_wat(
+        include_str!("fixtures/native/getpgrp.wat"),
+        Budget::default(),
+    )
+    .expect("getpgrp runs");
+    assert_eq!(
+        process_group,
+        i64::from(unsafe { libc::getpgrp() }),
+        "getpgrp must match the direct libc oracle"
     );
 }
 

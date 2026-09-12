@@ -482,6 +482,9 @@ court has claim-preserving `.wat` or typed-owner evidence.
   Lisp 的 `Nil` 表示。qjswasm 在自己的上层 catalog 中选择暴露
   `void(ptr?)`，并由 tinyvm WAT court 穿过既有 `native_call` 门验证整条链；
   `Void` 不是参数类型，未列形状仍明确拒绝。
+  Unix `getpgrp` 的 Linux/macOS 重复 Lisp court 也已由一个 WAT guest 接管：
+  qjswasm 仍拥有 `i32()` 的 catalog 决策，dyn 的统一 ABI 入口只执行，门测试
+  与独立 `libc::getpgrp()` 精确比较；该迁移没有增加 loader、door 或允许规则。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded
