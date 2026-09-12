@@ -132,6 +132,45 @@ fn target_inventory_keeps_default_host_ops_and_matches_its_outer_timeout() {
 }
 
 #[test]
+fn build_isolation_is_declared_and_fails_closed_before_mutation() {
+    let task = TASKS["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|task| task["id"] == "build")
+        .expect("build task");
+    let expected = serde_json::json!(["AGENTERM_BUILD_DIST_DIR", "CARGO_TARGET_DIR"]);
+    assert_eq!(task["env"], expected);
+    assert_eq!(TASKS["contracts"]["build"]["env_allow"], expected);
+
+    assert!(
+        BUILD_QJS
+            .contains("dist = isolated_build_lane(repo, \"AGENTERM_BUILD_DIST_DIR\", \"dist\")")
+    );
+    assert!(
+        BUILD_QJS
+            .contains("cargo_output = isolated_build_lane(repo, \"CARGO_TARGET_DIR\", \"target\")")
+    );
+    assert!(BUILD_QJS.contains("comparable_lane.startsWith(unix_prefix)"));
+    assert!(BUILD_QJS.contains("!leaf.includes(\"/\")"));
+    assert!(BUILD_QJS.contains("!lane_metadata.is_symlink"));
+    assert!(BUILD_QJS.contains("build_isolation_path_not_repo_local_"));
+
+    let validation = BUILD_QJS.find("isolated_build_lane(repo").unwrap();
+    for mutation in [
+        "rh.create_dir_all(incremental_root)",
+        "task_arguments(\"stage-build\"",
+        "[\"clean\", \"--target-dir\", cargo_output]",
+    ] {
+        assert!(validation < BUILD_QJS.find(mutation).unwrap(), "{mutation}");
+    }
+    assert!(BUILD_QJS.contains(
+        "task_arguments(\"stage-build\", task_manifest, [repo, profile_directory, dist, profile])"
+    ));
+    assert!(BUILD_QJS.contains("if (profile === \"release\" && external_target === 0)"));
+}
+
+#[test]
 fn full_check_prices_owned_process_sampling_without_raising_script_defaults() {
     let budget = &TASKS["contracts"]["check"]["budget"];
     assert_eq!(budget["timeout_ms"], 3_600_000);

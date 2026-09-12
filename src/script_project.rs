@@ -1090,6 +1090,16 @@ mod tests {
     }
 
     #[test]
+    fn repository_build_task_forwards_only_its_declared_isolation_environment() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join(SCRIPT_TASK_MANIFEST);
+        let catalog = load_task_catalog(&manifest).unwrap();
+        let build = resolve_task(&catalog, "build").unwrap();
+        let expected = ["AGENTERM_BUILD_DIST_DIR", "CARGO_TARGET_DIR"];
+        assert_eq!(build.env, expected);
+        assert_eq!(build.env_allow, expected);
+    }
+
+    #[test]
     fn schema_three_requires_contracts_while_schema_two_remains_readable() {
         let (root, manifest) = fixture();
         let mut value: serde_json::Value =

@@ -203,6 +203,35 @@ function repo_dir(repo_arg) {
   return rh.absolute(repo_arg);
 }
 
+// An isolated build may only claim one direct, named child of the
+// repository-owned target/ or dist/ family. The direct-child rule keeps an
+// existing nested symlink from redirecting Cargo or staging outside the repo.
+function isolated_build_lane(repo, environment_name, family) {
+  const raw = rh.env_or(environment_name, "");
+  require(raw !== "", "build_isolation_path_empty:" + environment_name);
+  const lane = rh.absolute(raw);
+  const family_root = rh.absolute(rh.join(repo, family));
+  const unix_prefix = family_root.replaceAll("\\", "/") + "/";
+  const comparable_lane = lane.replaceAll("\\", "/");
+  const leaf = comparable_lane.slice(unix_prefix.length);
+  require(
+    comparable_lane.startsWith(unix_prefix) &&
+      leaf !== "" && leaf !== "." && leaf !== ".." && !leaf.includes("/"),
+    "build_isolation_path_not_repo_local_" + family + ":" + environment_name
+  );
+  if (rh.exists(family_root)) {
+    const root_metadata = rh.symlink_metadata(family_root);
+    require(root_metadata.is_dir && !root_metadata.is_symlink,
+      "build_isolation_family_not_direct_directory:" + family);
+  }
+  if (rh.exists(lane)) {
+    const lane_metadata = rh.symlink_metadata(lane);
+    require(lane_metadata.is_dir && !lane_metadata.is_symlink,
+      "build_isolation_lane_not_direct_directory:" + environment_name);
+  }
+  return lane;
+}
+
 // Nested task invocation through the worker: rh's `rh task run ...`.
 function task_arguments(task, task_manifest, task_args) {
   const all = ["cli", "script", "task", "run", task, "--manifest", task_manifest, "--"];
@@ -302,7 +331,10 @@ if (arch === "" && rh.has_env("AGENTERM_HOST_ARCH")) {
 require(rh.has_env("AGENTERM_BOOTSTRAP_WORKER"), "build_bootstrap_worker_missing");
 let worker = rh.absolute(rh.env_or("AGENTERM_BOOTSTRAP_WORKER", ""));
 let task_manifest = rh.join(repo, "agenterm.tasks.json");
-const dist = rh.join(repo, "dist");
+let dist = rh.join(repo, "dist");
+if (rh.has_env("AGENTERM_BUILD_DIST_DIR")) {
+  dist = isolated_build_lane(repo, "AGENTERM_BUILD_DIST_DIR", "dist");
+}
 let cross_client = 0;
 if (clients_only !== 0 || target !== "") { cross_client = 1; }
 let unix_bootstrap = 0;
@@ -315,7 +347,7 @@ let external_target = 0;
 if (rh.has_env("CARGO_TARGET_DIR")) { external_target = 1; }
 let cargo_output = rh.join(repo, "target");
 if (external_target !== 0) {
-  cargo_output = rh.absolute(rh.env_or("CARGO_TARGET_DIR", ""));
+  cargo_output = isolated_build_lane(repo, "CARGO_TARGET_DIR", "target");
 } else if (profile === "release" && cross_client === 0 && unix_bootstrap === 0) {
   cargo_output = rh.join(repo, "target-release");
 }

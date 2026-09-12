@@ -76,6 +76,10 @@
       "network": [
         "dependency_fetch"
       ],
+      "env_allow": [
+        "AGENTERM_BUILD_DIST_DIR",
+        "CARGO_TARGET_DIR"
+      ],
       "evidence": [
         "task.build"
       ]
@@ -5752,6 +5756,10 @@
       "cwd": ".",
       "args": [
         "."
+      ],
+      "env": [
+        "AGENTERM_BUILD_DIST_DIR",
+        "CARGO_TARGET_DIR"
       ],
       "dependencies": [
         "build-identity",
