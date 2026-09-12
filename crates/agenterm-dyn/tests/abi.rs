@@ -203,6 +203,39 @@ fn pointer_result_shapes_match_direct_darwin_calls() {
 }
 
 #[cfg(target_os = "macos")]
+#[test]
+fn two_pointer_result_buffer_matches_direct_dladdr_fields() {
+    let address = libc::getpid as *mut c_void;
+    let mut bridged = unsafe { std::mem::zeroed::<libc::Dl_info>() };
+    let value = oracle(
+        LIB,
+        "dladdr",
+        AbiType::I32,
+        &[AbiType::Pointer, AbiType::Pointer],
+        &[
+            AbiValue::Pointer(address),
+            AbiValue::Pointer((&raw mut bridged).cast()),
+        ],
+    )
+    .expect("dladdr through the raw ABI");
+    let AbiValue::I32(status) = value else {
+        panic!("dladdr must return i32, got {value:?}")
+    };
+    assert_ne!(status, 0);
+
+    let mut direct = unsafe { std::mem::zeroed::<libc::Dl_info>() };
+    assert_ne!(unsafe { libc::dladdr(address, &mut direct) }, 0);
+    assert_eq!(bridged.dli_saddr, direct.dli_saddr);
+    assert_eq!(bridged.dli_fname.is_null(), direct.dli_fname.is_null());
+    if !bridged.dli_fname.is_null() {
+        assert_eq!(
+            unsafe { CStr::from_ptr(bridged.dli_fname) }.to_bytes(),
+            unsafe { CStr::from_ptr(direct.dli_fname) }.to_bytes()
+        );
+    }
+}
+
+#[cfg(target_os = "macos")]
 unsafe fn assume_name(slot: &mut std::mem::MaybeUninit<libc::utsname>) -> libc::utsname {
     unsafe { slot.assume_init() }
 }

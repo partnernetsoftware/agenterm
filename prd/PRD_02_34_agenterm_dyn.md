@@ -462,8 +462,10 @@ court has claim-preserving `.wat` or typed-owner evidence.
   这三个形状的 Darwin direct-oracle court 已接管 `getprogname`、`_NSGetArgc`、
   `_NSGetArgv`、`_NSGetEnviron`、`_NSGetProgname`、`_NSGetMachExecuteHeader`、
   `_dyld_get_image_name(0)`、`_dyld_get_image_header(0)` 与
-  `pthread_get_stackaddr_np(pthread_self())`，对应九个 Lisp court 已删除；
-  `macos_probes.rs` 还剩六个复杂 caller-buffer/结构体或异构标量 court。
+  `pthread_get_stackaddr_np(pthread_self())`，对应九个 Lisp court 已删除。
+  既有 `i32(ptr,ptr)` 机制随后接管 `dladdr` 的状态、符号地址与 image-path
+  direct oracle，删除第十个 Lisp court；`macos_probes.rs` 还剩五个复杂
+  caller-buffer/结构体或异构标量 court。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded

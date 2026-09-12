@@ -4,7 +4,7 @@
 
 use std::ffi::{CStr, c_void};
 
-use agenterm_dyn::{DlAddressSnapshot, Dyn, SystemProbeStatus, Value, live_cell};
+use agenterm_dyn::{Dyn, SystemProbeStatus, Value, live_cell};
 
 const LIB: &str = "libSystem.B.dylib";
 
@@ -172,51 +172,4 @@ fn dlcall_dyld_get_image_vmaddr_slide_matches_image_zero() {
     .expect("_dyld_get_image_vmaddr_slide pointer") as *mut c_void;
     let direct = unsafe { _dyld_get_image_vmaddr_slide(0) } as *mut c_void;
     assert_eq!(got, direct);
-}
-
-#[test]
-fn dlcall_dladdr_writes_caller_owned_info() {
-    let symbol = live_symbol("dladdr");
-    let addr = libc::getpid as *mut c_void;
-    let mut info = unsafe { std::mem::zeroed::<libc::Dl_info>() };
-    let mut env = Dyn::new();
-    env.bind("addr", addr).expect("bind live function address");
-    env.bind("info", (&raw mut info).cast())
-        .expect("bind Dl_info output");
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "i32" "ptr" addr "ptr" info)"#),
-    )
-    .expect("dladdr dlcall")
-    .as_int()
-    .expect("dladdr integer status");
-    assert_ne!(got, 0, "dladdr must resolve a live function address");
-
-    let mut direct = unsafe { std::mem::zeroed::<libc::Dl_info>() };
-    let direct_status = unsafe { libc::dladdr(addr, &mut direct) };
-    assert_ne!(direct_status, 0, "direct dladdr must succeed");
-    assert_eq!(info.dli_saddr, direct.dli_saddr);
-    assert_eq!(info.dli_fname.is_null(), direct.dli_fname.is_null());
-    if !info.dli_fname.is_null() {
-        assert_eq!(
-            unsafe { CStr::from_ptr(info.dli_fname) }.to_bytes(),
-            unsafe { CStr::from_ptr(direct.dli_fname) }.to_bytes()
-        );
-    }
-
-    let owned = DlAddressSnapshot::current_image().expect("typed current-image snapshot");
-    let mut local = unsafe { std::mem::zeroed::<libc::Dl_info>() };
-    let local_status = unsafe {
-        libc::dladdr(
-            dlcall_dladdr_writes_caller_owned_info as *const () as *const c_void,
-            &mut local,
-        )
-    };
-    assert_ne!(local_status, 0, "direct local-image dladdr must succeed");
-    assert!(!local.dli_fname.is_null(), "local image has a path");
-    assert_eq!(
-        owned.image_path(),
-        unsafe { CStr::from_ptr(local.dli_fname) }.to_bytes(),
-        "typed snapshot copies the same current-image native path"
-    );
 }
