@@ -231,7 +231,7 @@ without wiring dyn into cu, platform, or the ABI:
 - [host UUID via `gethostuuid`](examples/gethostuuid.md) (macOS)
 - [loaded-image header via `_dyld_get_image_header`](examples/dyld-get-image-header.md) (macOS)
 - [bounded random word via `arc4random_uniform`](examples/arc4random-uniform.md) (macOS)
-- [domain name via `getdomainname`](examples/getdomainname.md) (macOS)
+- [domain name via `getdomainname`](examples/getdomainname.md) (macOS; native-call and typed snapshot evidence)
 - [filesystem facts via `statvfs`](examples/statvfs.md) (Linux and macOS; native-call and typed snapshot evidence)
 - [wall-clock time via `gettimeofday`](examples/gettimeofday.md) (macOS)
 - [supplementary groups via `getgroups`](examples/getgroups.md) (Linux and macOS; native-call and typed snapshot evidence)
@@ -316,10 +316,11 @@ direct-libc baselines. Darwin-specific smokes cover `sysctlbyname`,
 `confstr`, `clock_getres`, `pthread_is_threaded_np`,
 `_NSGetMachExecuteHeader`, `_dyld_get_image_name`,
 `_dyld_get_image_vmaddr_slide`, `gethostuuid`,
-`_dyld_get_image_header`, `arc4random_uniform`, `getdomainname`,
+`_dyld_get_image_header`, `arc4random_uniform`,
 `gettimeofday` and `realpath`; `dladdr` additionally has a bounded,
-pointer-free current-image snapshot on macOS, while `gethostname`, `statvfs`,
-and `getgroups` have bounded typed snapshots on both Linux and macOS;
+pointer-free current-image and domain-name snapshots on macOS, while
+`gethostname`, `statvfs`, and `getgroups` have bounded typed snapshots on both
+Linux and macOS;
 the caller-owned timebase, login, thread-id, thread-name, `proc_bsdinfo`, and
 `rusage_info_v4` buffers are compared with direct C baselines. Wave 8
 loader/uuid facts (`dladdr`, `gethostuuid`, `_dyld_get_image_header`) retain

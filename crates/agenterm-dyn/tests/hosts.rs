@@ -456,7 +456,6 @@ fn darwin_system_probe_symbols_preserve_exact_c_spellings() {
             ("gethostuuid", "gethostuuid"),
             ("dyld_get_image_header", "_dyld_get_image_header"),
             ("arc4random_uniform", "arc4random_uniform"),
-            ("getdomainname", "getdomainname"),
             ("gettimeofday", "gettimeofday"),
             ("realpath", "realpath"),
         ] {
@@ -736,6 +735,39 @@ fn dladdr_combines_raw_and_typed_evidence_only_on_darwin() {
                 status,
                 SystemProbeStatus::Placeholder,
                 "dladdr is unavailable on {}/{}",
+                cell.os,
+                cell.arch
+            );
+        }
+    }
+}
+
+#[test]
+fn domain_name_combines_raw_and_typed_evidence_only_on_darwin() {
+    for cell in ALL_CELLS {
+        let status = cell
+            .system_probes
+            .iter()
+            .find(|probe| probe.name == "getdomainname")
+            .expect("cell contains getdomainname")
+            .status;
+        if cell.os == "macos" {
+            assert_eq!(
+                status,
+                SystemProbeStatus::LiveDlcallOwned {
+                    lib: "libSystem.B.dylib",
+                    symbol: "getdomainname",
+                    api: "DomainNameSnapshot::acquire",
+                },
+                "getdomainname evidence is complete on {}/{}",
+                cell.os,
+                cell.arch
+            );
+        } else {
+            assert_eq!(
+                status,
+                SystemProbeStatus::Placeholder,
+                "getdomainname is unavailable on {}/{}",
                 cell.os,
                 cell.arch
             );

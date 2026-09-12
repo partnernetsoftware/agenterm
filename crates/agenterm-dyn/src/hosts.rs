@@ -557,7 +557,14 @@ const MACOS_SYSTEM_PROBES: [SystemProbe; 86] = [
     macos_live("gethostuuid", "gethostuuid"),
     macos_live("dyld_get_image_header", "_dyld_get_image_header"),
     macos_live("arc4random_uniform", "arc4random_uniform"),
-    macos_live("getdomainname", "getdomainname"),
+    SystemProbe {
+        name: "getdomainname",
+        status: SystemProbeStatus::LiveDlcallOwned {
+            lib: "libSystem.B.dylib",
+            symbol: "getdomainname",
+            api: "DomainNameSnapshot::acquire",
+        },
+    },
     SystemProbe {
         name: "statvfs",
         status: SystemProbeStatus::LiveDlcallOwned {

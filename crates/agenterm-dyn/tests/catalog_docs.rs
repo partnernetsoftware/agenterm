@@ -56,7 +56,6 @@ const DARWIN_ONLY_LIVE_EXAMPLES: &[(&str, &str)] = &[
     ("gethostuuid", "gethostuuid.md"),
     ("dyld_get_image_header", "dyld-get-image-header.md"),
     ("arc4random_uniform", "arc4random-uniform.md"),
-    ("getdomainname", "getdomainname.md"),
     ("gettimeofday", "gettimeofday.md"),
     ("realpath", "realpath.md"),
 ];
@@ -288,6 +287,34 @@ fn darwin_dladdr_keeps_dlcall_and_typed_snapshot_documentation() {
 
     let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
     assert!(readme.contains("](examples/dladdr.md)"));
+}
+
+#[test]
+fn darwin_domain_name_keeps_dlcall_and_typed_snapshot_documentation() {
+    for cell in [MACOS_X86_64, MACOS_AARCH64] {
+        let probe = cell
+            .system_probes
+            .iter()
+            .find(|probe| probe.name == "getdomainname")
+            .expect("Darwin catalog contains getdomainname");
+        assert_eq!(
+            probe.status,
+            SystemProbeStatus::LiveDlcallOwned {
+                lib: "libSystem.B.dylib",
+                symbol: "getdomainname",
+                api: "DomainNameSnapshot::acquire",
+            }
+        );
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let example = fs::read_to_string(root.join("examples/getdomainname.md"))
+        .expect("getdomainname documentation is readable");
+    assert!(example.contains("DomainNameSnapshot::acquire"));
+    assert!(example.contains("dlcall"));
+
+    let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
+    assert!(readme.contains("](examples/getdomainname.md)"));
 }
 
 #[test]
