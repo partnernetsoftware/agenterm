@@ -1,6 +1,103 @@
-//! Typed ownership for the linked list returned by Unix `getifaddrs`.
+//! Typed, pointer-free snapshots of Unix native resources.
 
 use std::fmt;
+use std::path::Path;
+
+/// Failure to acquire a Unix filesystem-statistics snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatVfsError {
+    /// `statvfs` is available only on Unix hosts.
+    Unsupported,
+    /// The input path contains an interior NUL and cannot be passed to C.
+    InputContainsNul,
+    /// `statvfs` failed with the captured OS error code.
+    Os(i32),
+}
+
+impl fmt::Display for StatVfsError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unsupported => formatter.write_str("statvfs is unsupported on this host"),
+            Self::InputContainsNul => formatter.write_str("statvfs input contains a NUL byte"),
+            Self::Os(code) => write!(formatter, "statvfs failed with OS error {code}"),
+        }
+    }
+}
+
+impl std::error::Error for StatVfsError {}
+
+/// One owned, pointer-free snapshot returned by Unix `statvfs`.
+///
+/// Values retain the native units: block counts use [`Self::fragment_size`],
+/// while file counts and the maximum filename length are scalar facts. The
+/// private, fixed-size native output structure exists only for the duration of
+/// acquisition, so this API performs no size-query allocation or traversal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StatVfsSnapshot {
+    pub block_size: u64,
+    pub fragment_size: u64,
+    pub blocks: u64,
+    pub blocks_free: u64,
+    pub blocks_available: u64,
+    pub files: u64,
+    pub files_free: u64,
+    pub files_available: u64,
+    pub filesystem_id: u64,
+    pub mount_flags: u64,
+    pub maximum_name_bytes: u64,
+}
+
+impl StatVfsSnapshot {
+    /// Snapshot filesystem statistics for one native Unix path.
+    #[cfg(unix)]
+    pub fn acquire(path: &Path) -> Result<Self, StatVfsError> {
+        use std::os::unix::ffi::OsStrExt;
+
+        let path = std::ffi::CString::new(path.as_os_str().as_bytes())
+            .map_err(|_| StatVfsError::InputContainsNul)?;
+        let mut native = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+        // SAFETY: `path` is NUL-terminated and `native` points to writable
+        // storage for one statvfs value. The value is read only after success.
+        let status = unsafe { libc::statvfs(path.as_ptr(), native.as_mut_ptr()) };
+        if status != 0 {
+            return Err(StatVfsError::Os(
+                std::io::Error::last_os_error()
+                    .raw_os_error()
+                    .unwrap_or(status),
+            ));
+        }
+        // SAFETY: a zero status means statvfs initialized the complete value.
+        Ok(snapshot_statvfs(unsafe { native.assume_init() }))
+    }
+
+    /// Return an honest typed failure on non-Unix hosts.
+    #[cfg(not(unix))]
+    pub fn acquire(_path: &Path) -> Result<Self, StatVfsError> {
+        Err(StatVfsError::Unsupported)
+    }
+}
+
+#[cfg(unix)]
+fn snapshot_statvfs(native: libc::statvfs) -> StatVfsSnapshot {
+    StatVfsSnapshot {
+        block_size: widen_native_unsigned(native.f_bsize),
+        fragment_size: widen_native_unsigned(native.f_frsize),
+        blocks: widen_native_unsigned(native.f_blocks),
+        blocks_free: widen_native_unsigned(native.f_bfree),
+        blocks_available: widen_native_unsigned(native.f_bavail),
+        files: widen_native_unsigned(native.f_files),
+        files_free: widen_native_unsigned(native.f_ffree),
+        files_available: widen_native_unsigned(native.f_favail),
+        filesystem_id: widen_native_unsigned(native.f_fsid),
+        mount_flags: widen_native_unsigned(native.f_flag),
+        maximum_name_bytes: widen_native_unsigned(native.f_namemax),
+    }
+}
+
+#[cfg(unix)]
+fn widen_native_unsigned<T: Into<u64>>(value: T) -> u64 {
+    value.into()
+}
 
 /// Failure to acquire or safely snapshot the local interface list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

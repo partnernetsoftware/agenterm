@@ -1,8 +1,11 @@
-//! Public contract tests for the owned Unix `getifaddrs` list.
+//! Public contract tests for pointer-free Unix resource snapshots.
 
 #[cfg(windows)]
 use agenterm_dyn::InterfaceAddressesError;
-use agenterm_dyn::{ALL_CELLS, InterfaceAddresses, SystemProbeStatus};
+use agenterm_dyn::{
+    ALL_CELLS, InterfaceAddresses, StatVfsError, StatVfsSnapshot, SystemProbeStatus,
+};
+use std::path::Path;
 
 #[test]
 fn unix_cells_catalogue_getifaddrs_as_owned_and_windows_stays_placeholder() {
@@ -35,11 +38,61 @@ fn live_snapshot_is_nonempty_and_contains_structurally_valid_names() {
     assert!(snapshot.iter().all(|entry| !entry.name.contains(&0)));
 }
 
+#[cfg(unix)]
+#[test]
+fn statvfs_snapshot_copies_stable_root_filesystem_facts() {
+    let snapshot =
+        StatVfsSnapshot::acquire(Path::new("/")).expect("statvfs snapshots the root filesystem");
+    assert!(snapshot.block_size > 0);
+    assert!(snapshot.fragment_size > 0);
+    assert!(snapshot.maximum_name_bytes > 0);
+
+    let mut direct = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+    // SAFETY: the path is a static NUL-terminated byte string and `direct`
+    // provides writable storage for one complete statvfs result.
+    let status = unsafe { libc::statvfs(c"/".as_ptr(), direct.as_mut_ptr()) };
+    assert_eq!(status, 0);
+    // SAFETY: the successful call initialized the complete result.
+    let direct = unsafe { direct.assume_init() };
+    assert_eq!(snapshot.block_size, direct.f_bsize);
+    assert_eq!(snapshot.fragment_size, direct.f_frsize);
+    assert_eq!(snapshot.blocks, u64::from(direct.f_blocks));
+    assert_eq!(snapshot.blocks_free, u64::from(direct.f_bfree));
+    assert_eq!(snapshot.files, u64::from(direct.f_files));
+    assert_eq!(snapshot.maximum_name_bytes, direct.f_namemax);
+}
+
+#[cfg(unix)]
+#[test]
+fn statvfs_rejects_an_interior_nul_before_calling_the_os() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let path = Path::new(std::ffi::OsStr::from_bytes(b"bad\0path"));
+    assert_eq!(
+        StatVfsSnapshot::acquire(path),
+        Err(StatVfsError::InputContainsNul)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn statvfs_preserves_the_os_error_for_a_missing_path() {
+    let error = StatVfsSnapshot::acquire(Path::new(
+        "target/agenterm-dyn-statvfs-definitely-missing/path",
+    ))
+    .expect_err("missing path must fail");
+    assert!(matches!(error, StatVfsError::Os(code) if code > 0));
+}
+
 #[cfg(windows)]
 #[test]
 fn acquisition_is_honestly_unsupported_on_windows() {
     assert!(matches!(
         InterfaceAddresses::acquire(),
         Err(InterfaceAddressesError::Unsupported)
+    ));
+    assert!(matches!(
+        StatVfsSnapshot::acquire(Path::new(".")),
+        Err(StatVfsError::Unsupported)
     ));
 }

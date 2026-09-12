@@ -53,7 +53,9 @@ pub use sym::Symbol;
 pub use unix_groups::{MAX_SUPPLEMENTARY_GROUPS, SupplementaryGroups, SupplementaryGroupsError};
 pub use unix_ioctl::{UnixIoctlError, UnixIoctlRequest, invoke_unix_ioctl};
 pub use unix_path::{MAX_REALPATH_BYTES, RealPathError, ResolvedPath};
-pub use unix_resource::{InterfaceAddress, InterfaceAddresses, InterfaceAddressesError};
+pub use unix_resource::{
+    InterfaceAddress, InterfaceAddresses, InterfaceAddressesError, StatVfsError, StatVfsSnapshot,
+};
 pub use value::Value;
 
 /// Maximum number of distinct bindings retained by one [`Dyn`] environment.
