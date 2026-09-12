@@ -504,6 +504,50 @@ fn proc_pidpath_reaches_dyn_and_matches_current_executable_bytes() {
 
 #[cfg(target_os = "macos")]
 #[test]
+fn proc_name_reaches_dyn_and_matches_direct_libc_bytes() {
+    let pid = unsafe { libc::getpid() };
+    let mut direct = [0_u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    // SAFETY: direct is writable for its declared capacity and proc_name is
+    // synchronous, so no pointer escapes this call.
+    let written = unsafe {
+        libc::proc_name(
+            pid,
+            direct.as_mut_ptr().cast(),
+            direct.len().try_into().expect("capacity fits u32"),
+        )
+    };
+    assert!(written > 0, "direct proc_name writes the current name");
+    let written = usize::try_from(written).expect("positive byte count fits usize");
+    assert!(written < direct.len());
+    assert_eq!(direct[written], 0, "proc_name terminates the written bytes");
+    let expected_hash = direct[..written].iter().fold(0_u64, |hash, byte| {
+        hash.wrapping_mul(257) ^ u64::from(*byte)
+    });
+
+    let source = include_str!("fixtures/native/proc_name.wat");
+    assert_eq!(
+        run_wat_with_args(source, Budget::default(), &[Value::I64(i64::from(pid))],)
+            .expect("proc_name runs through i32(i32,ptr,u32)") as u64,
+        expected_hash
+    );
+
+    let noncanonical_capacity = source.replacen("(i64.const 4096)", "(i64.const 4294967296)", 1);
+    let error = run_wat_with_args(
+        &noncanonical_capacity,
+        Budget::default(),
+        &[Value::I64(i64::from(pid))],
+    )
+    .expect_err("a noncanonical u32 capacity is rejected before native execution");
+    assert!(
+        matches!(&error, QjswasmError::Door(message)
+            if message.contains("native_scalar_not_canonical")
+                && message.contains("argument 2")),
+        "unexpected typed capacity error: {error:?}"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn pthread_threadid_np_reaches_dyn_with_nullable_input_and_required_output() {
     let source = include_str!("fixtures/native/pthread_threadid_np.wat");
     let got = run_wat(source, Budget::default())
