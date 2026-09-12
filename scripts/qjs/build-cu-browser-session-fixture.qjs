@@ -1,0 +1,20 @@
+// Build the std-only synthetic browser used by the direct browser-session
+// lifecycle court. This script builds; the court itself never invokes Cargo
+// or rustc.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const args = rh.args();
+harness.require(args.length === 2, "expected: REPO OUTPUT");
+const repo = rh.absolute(args[0]);
+const output = rh.absolute(args[1]);
+const source = rh.join(repo, "crates/agenterm-cu/tests/fixtures/browser_session_test_browser.rs");
+harness.require(rh.is_direct_file(source), "browser_session_fixture_source_missing");
+rh.create_dir_all(rh.parent(output));
+
+const result = rh.command("rustc", [
+  "--edition", "2021", "-D", "warnings", "-C", "debuginfo=0", "-o", output, source
+], { cwd: repo, timeout_ms: 60000 });
+harness.require(result.success === true, "browser_session_fixture_build_failed:" + result.stderr);
+harness.require(rh.is_direct_file(output), "browser_session_fixture_output_missing");
+print("PASS: browser-session synthetic executable built with rustc -D warnings");

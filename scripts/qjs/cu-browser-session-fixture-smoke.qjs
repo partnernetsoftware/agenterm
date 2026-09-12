@@ -1,0 +1,362 @@
+// Direct public-CLI court for the browser-session owner lifecycle. The browser
+// peer is a synthetic executable: this proves argv, DevToolsActivePort,
+// registry, identity, containment and cleanup, not Chrome/CDP/GUI behavior.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.browser-session-fixture.lifecycle.synthetic",
+  "cu.browser-session-fixture.typed-failures.synthetic"
+];
+
+function require(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function normalized(path) {
+  return ("" + path).replaceAll("\\", "/");
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 3, "expected: REPO AGENTERM_CU_EXE FIXTURE_EXE");
+const repo = rh.absolute(args[0]);
+let cu = rh.absolute(args[1]);
+let fixture = rh.absolute(args[2]);
+if (!direct_file(cu) && harness.host_is_windows()) { cu = cu + ".exe"; }
+if (!direct_file(fixture) && harness.host_is_windows()) { fixture = fixture + ".exe"; }
+require(direct_file(cu), "browser_session_fixture_cu_missing");
+require(direct_file(fixture), "browser_session_fixture_executable_missing");
+require(!harness.host_is_windows(), "browser_session_fixture_runtime_not_applicable_on_windows");
+
+const context = harness.new_context(repo, "cu-browser-session-fixture");
+const home = rh.join(context.run_directory, "home");
+const runtime = rh.join(context.run_directory, "xdg-runtime");
+const config = rh.join(context.run_directory, "xdg-config");
+const data = rh.join(context.run_directory, "xdg-data");
+const cache = rh.join(context.run_directory, "xdg-cache");
+const audit = rh.join(context.run_directory, "cu-audit.jsonl");
+const runtime_state = rh.join(context.run_directory, "cu-runtime.json");
+const idempotency = rh.join(context.run_directory, "cu-idempotency.json");
+const sessions_root = rh.join(data, "agenterm/browser-sessions");
+const touched_names = [];
+const observed_identities = [];
+
+function remember_identity(identity, mode, paths, label) {
+  observed_identities.push({
+    identity: { pid: identity.pid, start_identity: identity.start_identity },
+    mode: mode,
+    paths: paths,
+    label: label
+  });
+}
+
+function environment(mode, pid_path, identity_path, launch_path) {
+  return {
+    HOME: home,
+    XDG_RUNTIME_DIR: runtime,
+    XDG_CONFIG_HOME: config,
+    XDG_DATA_HOME: data,
+    XDG_CACHE_HOME: cache,
+    AGENTERM_CU_AUDIT_PATH: audit,
+    AGENTERM_CU_RUNTIME_PATH: runtime_state,
+    AGENTERM_CU_IDEMPOTENCY_PATH: idempotency,
+    AGENTERM_CU_BROWSER_FIXTURE_MODE: mode,
+    AGENTERM_CU_BROWSER_FIXTURE_PID_PATH: pid_path,
+    AGENTERM_CU_BROWSER_FIXTURE_IDENTITY_PATH: identity_path,
+    AGENTERM_CU_BROWSER_FIXTURE_LAUNCH_PATH: launch_path,
+    AGENTERM_CU_BROWSER_FIXTURE_CU_EXE: cu,
+    AGENTERM_NO_ACTIVATE: "1"
+  };
+}
+
+function invoke(mode, pid_path, identity_path, launch_path, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(cu, argv, {
+    cwd: context.run_directory,
+    env: environment(mode, pid_path, identity_path, launch_path),
+    timeout_ms: 30000
+  });
+  const text = output.stdout.trim();
+  require(text !== "", "browser_session_fixture_empty_reply");
+  return { output: output, reply: JSON.parse(text) };
+}
+
+function require_ok(result, label) {
+  const code = result.reply && result.reply.error && result.reply.error.code
+    ? result.reply.error.code : "unknown";
+  require(result.output.success === true && result.reply.ok === true, label + ":" + code);
+  return result.reply;
+}
+
+function require_error(result, code, label) {
+  const actual = result.reply && result.reply.error ? result.reply.error.code : "unknown";
+  require(result.output.success === false && result.reply.ok === false && actual === code,
+    label + ":" + actual);
+  return result.reply;
+}
+
+function process_state(pid, mode, paths) {
+  return invoke(mode, paths.pid, paths.identity, paths.launch, "observe", [
+    "process-state", "--pid", "" + pid
+  ]).reply;
+}
+
+function exact_absent(identity, mode, paths) {
+  const observed = process_state(identity.pid, mode, paths);
+  if (observed.ok !== true) {
+    return observed.error !== null && observed.error.code === "process_not_found";
+  }
+  return observed.data.state !== "live"
+    || observed.data.start_identity !== identity.start_identity;
+}
+
+function wait_exact_absent(identity, mode, paths, label) {
+  for (let attempt = 0; attempt < 300; attempt = attempt + 1) {
+    if (exact_absent(identity, mode, paths)) { return; }
+    rh.sleep_ms(20);
+  }
+  throw label;
+}
+
+function fixture_paths(label) {
+  return {
+    pid: rh.join(context.run_directory, label + "-pid.txt"),
+    identity: rh.join(context.run_directory, label + "-identity.json"),
+    launch: rh.join(context.run_directory, label + "-launches.txt")
+  };
+}
+
+function fixture_identity(paths, label) {
+  require(rh.exists(paths.identity), label + "_identity_not_published");
+  const reply = JSON.parse(rh.read_text(paths.identity));
+  require(reply.ok === true && reply.data.state === "live"
+    && reply.data.pid > 0 && typeof reply.data.start_identity === "string",
+    label + "_identity_invalid");
+  return { pid: reply.data.pid, start_identity: reply.data.start_identity };
+}
+
+function launch_count(path) {
+  if (!rh.exists(path)) { return 0; }
+  let count = 0;
+  for (const line of rh.read_text(path).split("\n")) {
+    if (line.trim() !== "") { count = count + 1; }
+  }
+  return count;
+}
+
+function session_directory(name) {
+  return normalized(rh.join(sessions_root, name));
+}
+
+function status_until_terminal(name, mode, paths) {
+  for (let attempt = 0; attempt < 300; attempt = attempt + 1) {
+    const result = invoke(mode, paths.pid, paths.identity, paths.launch, "observe", [
+      "browser-session-status", name
+    ]);
+    if (result.reply.ok === true
+        && (result.reply.data.state === "failed" || result.reply.data.state === "stopped")
+        && result.reply.data.owner_observation !== "live") {
+      return result.reply;
+    }
+    rh.sleep_ms(20);
+  }
+  throw "browser_session_fixture_terminal_timeout:" + name;
+}
+
+function cleanup_name(name, mode, paths) {
+  const status = invoke(mode, paths.pid, paths.identity, paths.launch, "observe", [
+    "browser-session-status", name
+  ]);
+  if (status.reply.ok !== true) { return; }
+  remember_identity(status.reply.data.owner, mode, paths, name + "-owner-cleanup");
+  if (status.reply.data.browser !== null) {
+    remember_identity(status.reply.data.browser, mode, paths, name + "-browser-cleanup");
+  }
+  if (status.reply.data.state === "ready") {
+    invoke(mode, paths.pid, paths.identity, paths.launch, "actuate", [
+      "browser-session-stop", name, "--expect", "stopped", "--timeout-ms", "15000"
+    ]);
+  }
+  const after = invoke(mode, paths.pid, paths.identity, paths.launch, "observe", [
+    "browser-session-status", name
+  ]);
+  if (after.reply.ok !== true) { return; }
+  if (after.reply.data.state === "stopped") {
+    invoke(mode, paths.pid, paths.identity, paths.launch, "actuate", [
+      "browser-session-remove", name, "--expect", "stopped"
+    ]);
+  } else if (after.reply.data.state === "failed") {
+    invoke(mode, paths.pid, paths.identity, paths.launch, "actuate", [
+      "browser-session-remove", name, "--expect", "failed"
+    ]);
+  }
+}
+
+function run_negative(mode, expected_code) {
+  const name = "synthetic-" + mode;
+  const paths = fixture_paths(mode);
+  touched_names.push({ name: name, mode: mode, paths: paths });
+  const started = invoke(mode, paths.pid, paths.identity, paths.launch, "actuate", [
+    "browser-session-start", name, "--browser", fixture,
+    "--ready-timeout-ms", "1000", "--ttl-ms", "30000"
+  ]);
+  require_error(started, expected_code, "browser_session_fixture_wrong_negative_code_" + mode);
+  const browser = fixture_identity(paths, "browser_session_fixture_" + mode);
+  const failed = status_until_terminal(name, mode, paths);
+  require(failed.data.state === "failed" && failed.data.last_error_code === expected_code,
+    "browser_session_fixture_failed_truth_" + mode);
+  const owner = failed.data.owner;
+  require(owner.pid > 0 && typeof owner.start_identity === "string",
+    "browser_session_fixture_failed_owner_identity_" + mode);
+  remember_identity(owner, mode, paths, name + "-owner");
+  remember_identity(browser, mode, paths, name + "-browser");
+  wait_exact_absent(owner, mode, paths, "browser_session_fixture_failed_owner_live_" + mode);
+  wait_exact_absent(browser, mode, paths, "browser_session_fixture_failed_browser_live_" + mode);
+  const removed = require_ok(invoke(mode, paths.pid, paths.identity, paths.launch, "actuate", [
+    "browser-session-remove", name, "--expect", "failed"
+  ]), "browser_session_fixture_failed_remove_" + mode);
+  require(removed.data.state === "removed" && removed.data.verified === true,
+    "browser_session_fixture_failed_remove_unverified_" + mode);
+  require(!rh.exists(session_directory(name)), "browser_session_fixture_failed_root_retained_" + mode);
+}
+
+let succeeded = false;
+let failure = "";
+try {
+  for (const directory of [home, runtime, config, data, cache]) {
+    rh.create_dir_all(directory);
+  }
+  const chmod = rh.command("/bin/chmod", ["0700", runtime], {
+    cwd: context.run_directory, timeout_ms: 5000
+  });
+  require(chmod.success === true, "browser_session_fixture_runtime_chmod_failed");
+
+  const version = rh.command(fixture, ["--version"], {
+    cwd: context.run_directory, env: {}, timeout_ms: 5000
+  });
+  require(version.success === true && version.stdout.trim() === "AgenTerm synthetic browser fixture 1",
+    "browser_session_fixture_version_invalid");
+
+  print("FACT browser_peer=synthetic scope=argv+active-port+registry+identity+lifecycle");
+  print("STEP ready session freezes generation, nonce, owner and browser identities");
+  const ready_name = "synthetic-ready";
+  const ready_paths = fixture_paths("ready");
+  touched_names.push({ name: ready_name, mode: "ready", paths: ready_paths });
+  const started = require_ok(invoke("ready", ready_paths.pid, ready_paths.identity,
+    ready_paths.launch, "actuate", [
+      "browser-session-start", ready_name, "--browser", fixture,
+      "--ready-timeout-ms", "5000", "--ttl-ms", "60000"
+    ]), "browser_session_fixture_start_failed");
+  require(started.data.state === "ready" && started.data.owner_observation === "live",
+    "browser_session_fixture_start_not_ready");
+  require(started.data.generation > 0 && typeof started.data.session_nonce === "string"
+    && started.data.session_nonce.length >= 16, "browser_session_fixture_generation_or_nonce");
+  require(started.data.owner.pid > 0 && started.data.browser.pid > 0
+    && started.data.owner.pid !== started.data.browser.pid,
+    "browser_session_fixture_ready_identities");
+  const owner = started.data.owner;
+  const browser = started.data.browser;
+  remember_identity(owner, "ready", ready_paths, ready_name + "-owner");
+  remember_identity(browser, "ready", ready_paths, ready_name + "-browser");
+  const fixture_observed = fixture_identity(ready_paths, "browser_session_fixture_ready");
+  require(fixture_observed.pid === browser.pid
+    && fixture_observed.start_identity === browser.start_identity,
+    "browser_session_fixture_browser_identity_disagrees");
+  require(process_state(owner.pid, "ready", ready_paths).data.start_identity === owner.start_identity,
+    "browser_session_fixture_owner_not_exact_live");
+  require(process_state(browser.pid, "ready", ready_paths).data.start_identity === browser.start_identity,
+    "browser_session_fixture_browser_not_exact_live");
+  require(launch_count(ready_paths.launch) === 1, "browser_session_fixture_launch_count_before_collision");
+
+  print("STEP same-name collision leaves the exact generation and owner unchanged");
+  const collision = invoke("ready", ready_paths.pid, ready_paths.identity,
+    ready_paths.launch, "actuate", [
+      "browser-session-start", ready_name, "--browser", fixture,
+      "--ready-timeout-ms", "5000", "--ttl-ms", "60000"
+    ]);
+  require_error(collision, "browser_session_exists", "browser_session_fixture_collision_code");
+  const unchanged = require_ok(invoke("ready", ready_paths.pid, ready_paths.identity,
+    ready_paths.launch, "observe", ["browser-session-status", ready_name]),
+    "browser_session_fixture_collision_status");
+  require(unchanged.data.generation === started.data.generation
+    && unchanged.data.session_nonce === started.data.session_nonce
+    && unchanged.data.owner.pid === owner.pid
+    && unchanged.data.owner.start_identity === owner.start_identity
+    && unchanged.data.browser.pid === browser.pid
+    && unchanged.data.browser.start_identity === browser.start_identity,
+    "browser_session_fixture_collision_changed_identity");
+  require(launch_count(ready_paths.launch) === 1,
+    "browser_session_fixture_collision_launched_second_browser");
+
+  print("STEP public stop and remove prove exact owner/browser absence and root cleanup");
+  const stopped = require_ok(invoke("ready", ready_paths.pid, ready_paths.identity,
+    ready_paths.launch, "actuate", [
+      "browser-session-stop", ready_name, "--expect", "stopped", "--timeout-ms", "15000"
+    ]), "browser_session_fixture_stop_failed");
+  require(stopped.data.state === "stopped" && stopped.data.owner_observation === "dead"
+    && stopped.data.generation === started.data.generation
+    && stopped.data.session_nonce === started.data.session_nonce,
+    "browser_session_fixture_stop_truth");
+  wait_exact_absent(owner, "ready", ready_paths, "browser_session_fixture_owner_still_live");
+  wait_exact_absent(browser, "ready", ready_paths, "browser_session_fixture_browser_still_live");
+  const removed = require_ok(invoke("ready", ready_paths.pid, ready_paths.identity,
+    ready_paths.launch, "actuate", [
+      "browser-session-remove", ready_name, "--expect", "stopped"
+    ]), "browser_session_fixture_remove_failed");
+  require(removed.data.state === "removed" && removed.data.verified === true,
+    "browser_session_fixture_remove_unverified");
+  require(!rh.exists(session_directory(ready_name)), "browser_session_fixture_root_retained");
+
+  print("STEP malformed, oversize and early-exit peers retain production typed failures");
+  run_negative("malformed", "browser_ready_timeout");
+  run_negative("oversize", "browser_debug_endpoint_invalid");
+  run_negative("early-exit", "browser_exited_before_ready");
+
+  harness.emit_evidence(context, declared_evidence,
+    "cu.browser-session-fixture.lifecycle.synthetic");
+  harness.emit_evidence(context, declared_evidence,
+    "cu.browser-session-fixture.typed-failures.synthetic");
+  succeeded = true;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (!succeeded) {
+  for (const entry of touched_names) {
+    try { cleanup_name(entry.name, entry.mode, entry.paths); } catch (_) {}
+  }
+}
+for (const entry of touched_names) {
+  if (rh.exists(entry.paths.identity)) {
+    const identity = JSON.parse(rh.read_text(entry.paths.identity));
+    if (identity.ok === true) {
+      require(exact_absent(identity.data, entry.mode, entry.paths),
+        "browser_session_fixture_residual_browser:" + entry.name);
+    }
+  }
+  require(!rh.exists(session_directory(entry.name)),
+    "browser_session_fixture_residual_session_root:" + entry.name);
+}
+for (const observed of observed_identities) {
+  require(exact_absent(observed.identity, observed.mode, observed.paths),
+    "browser_session_fixture_residual_process:" + observed.label);
+}
+
+harness.complete(context, [], succeeded, failure);
+if (succeeded) {
+  harness.remove_run(context);
+  print("PASS: synthetic browser owner lifecycle and typed cleanup verified; browser_peer=synthetic");
+} else {
+  throw failure;
+}
