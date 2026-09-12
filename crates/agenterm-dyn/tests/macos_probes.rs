@@ -619,37 +619,6 @@ fn dlcall_pthread_get_stackaddr_np_matches_libc_current_thread() {
 }
 
 #[test]
-fn dlcall_pthread_get_stacksize_np_matches_libc_current_thread() {
-    let symbol = live_symbol("pthread_get_stacksize_np");
-    let thread = unsafe { libc::pthread_self() } as u64;
-    let mut env = Dyn::new();
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "u64" "u64" {thread})"#),
-    )
-    .expect("pthread_get_stacksize_np dlcall")
-    .as_int()
-    .expect("pthread_get_stacksize_np size") as u64;
-    let direct = unsafe { libc::pthread_get_stacksize_np(libc::pthread_self()) } as u64;
-    assert!(got > 0, "current thread stack size must be positive");
-    assert!(direct > 0, "direct thread stack size must be positive");
-    assert_eq!(got, direct);
-}
-
-#[test]
-fn dlcall_pthread_self_matches_libc_current_thread() {
-    let symbol = live_symbol("pthread_self");
-    let mut env = Dyn::new();
-    let got = eval_native(&mut env, &format!(r#"(dlcall "{LIB}" "{symbol}" "u64")"#))
-        .expect("pthread_self dlcall")
-        .as_int()
-        .expect("pthread_self thread handle") as u64;
-    let direct = unsafe { libc::pthread_self() } as u64;
-    assert_ne!(got, 0, "current pthread handle must be non-zero");
-    assert_eq!(got, direct);
-}
-
-#[test]
 fn dlcall_pthread_cpu_number_np_writes_current_cpu() {
     unsafe extern "C" {
         fn pthread_cpu_number_np(cpu: *mut u32) -> libc::c_int;
@@ -732,22 +701,6 @@ fn dlcall_proc_libversion_writes_caller_owned_version() {
     assert_eq!(direct_status, 0, "direct proc_libversion must succeed");
     assert_eq!(major, direct_major);
     assert_eq!(minor, direct_minor);
-}
-
-#[test]
-fn dlcall_pthread_jit_write_protect_supported_np_matches_libc_boolean() {
-    let symbol = live_symbol("pthread_jit_write_protect_supported_np");
-    let mut env = Dyn::new();
-    let got = eval_native(&mut env, &format!(r#"(dlcall "{LIB}" "{symbol}" "i32")"#))
-        .expect("pthread_jit_write_protect_supported_np dlcall")
-        .as_int()
-        .expect("pthread_jit_write_protect_supported_np integer");
-    let direct = unsafe { libc::pthread_jit_write_protect_supported_np() };
-    assert!(
-        matches!(got, 0 | 1),
-        "JIT-write-protect support must be boolean"
-    );
-    assert_eq!(got, i64::from(direct));
 }
 
 #[test]
@@ -839,26 +792,6 @@ fn dlcall_clock_getres_writes_monotonic_timespec() {
     assert_eq!(direct_status, 0, "direct clock_getres must succeed");
     assert_eq!(ts.tv_sec, direct.tv_sec);
     assert_eq!(ts.tv_nsec, direct.tv_nsec);
-}
-
-#[test]
-fn dlcall_pthread_is_threaded_np_matches_direct_c() {
-    unsafe extern "C" {
-        fn pthread_is_threaded_np() -> libc::c_int;
-    }
-
-    let symbol = live_symbol("pthread_is_threaded_np");
-    let mut env = Dyn::new();
-    let got = eval_native(&mut env, &format!(r#"(dlcall "{LIB}" "{symbol}" "i32")"#))
-        .expect("pthread_is_threaded_np dlcall")
-        .as_int()
-        .expect("pthread_is_threaded_np integer");
-    assert!(
-        matches!(got, 0 | 1),
-        "pthread_is_threaded_np must be 0 or 1"
-    );
-    let direct = unsafe { pthread_is_threaded_np() };
-    assert_eq!(got, i64::from(direct));
 }
 
 #[test]
@@ -1029,31 +962,6 @@ fn dlcall_dyld_get_image_header_matches_image_zero() {
         "direct image-zero header must be non-null"
     );
     assert_eq!(got, direct);
-}
-
-#[test]
-fn dlcall_arc4random_uniform_respects_each_upper_bound() {
-    let symbol = live_symbol("arc4random_uniform");
-    let mut env = Dyn::new();
-    for bound in [1_u32, 2, 17, u32::MAX] {
-        let got = eval_native(
-            &mut env,
-            &format!(r#"(dlcall "{LIB}" "{symbol}" "u32" "u32" {bound})"#),
-        )
-        .expect("arc4random_uniform dlcall")
-        .as_int()
-        .expect("arc4random_uniform integer result");
-        assert!(
-            (0..i64::from(bound)).contains(&got),
-            "arc4random_uniform({bound}) returned {got}"
-        );
-
-        let direct = unsafe { libc::arc4random_uniform(bound) };
-        assert!(
-            direct < bound,
-            "direct arc4random_uniform({bound}) returned {direct}"
-        );
-    }
 }
 
 #[test]

@@ -515,6 +515,60 @@ fn five_retired_scalar_probes_match_direct_darwin_oracles() {
     );
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn five_more_retired_scalar_probes_keep_current_thread_identity() {
+    unsafe extern "C" {
+        fn pthread_is_threaded_np() -> i32;
+        fn pthread_jit_write_protect_supported_np() -> i32;
+        fn pthread_self() -> u64;
+        fn pthread_get_stacksize_np(thread: u64) -> u64;
+        fn arc4random_uniform(upper_bound: u32) -> u32;
+    }
+
+    assert_eq!(
+        run_wat(
+            include_str!("fixtures/native/pthread_is_threaded_np.wat"),
+            Budget::default(),
+        )
+        .expect("pthread_is_threaded_np runs through i32()"),
+        i64::from(unsafe { pthread_is_threaded_np() })
+    );
+    assert_eq!(
+        run_wat(
+            include_str!("fixtures/native/pthread_jit_write_protect_supported_np.wat"),
+            Budget::default(),
+        )
+        .expect("pthread_jit_write_protect_supported_np runs through i32()"),
+        i64::from(unsafe { pthread_jit_write_protect_supported_np() })
+    );
+    let random = run_wat(
+        include_str!("fixtures/native/arc4random_uniform_17.wat"),
+        Budget::default(),
+    )
+    .expect("arc4random_uniform runs through u32(u32)") as u32;
+    assert!(random < 17);
+    assert!(unsafe { arc4random_uniform(17) } < 17);
+
+    let direct_thread = unsafe { pthread_self() };
+    assert_eq!(
+        run_wat(
+            include_str!("fixtures/native/pthread_self.wat"),
+            Budget::default(),
+        )
+        .expect("pthread_self runs through u64()") as u64,
+        direct_thread
+    );
+    assert_eq!(
+        run_wat(
+            include_str!("fixtures/native/pthread_current_stack_size.wat"),
+            Budget::default(),
+        )
+        .expect("the WAT chains pthread_self into pthread_get_stacksize_np") as u64,
+        unsafe { pthread_get_stacksize_np(direct_thread) }
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn retired_clock_callers_run_through_wat_with_nullable_second_pointer_boundaries() {
