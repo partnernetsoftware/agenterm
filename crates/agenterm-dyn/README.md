@@ -55,7 +55,12 @@ without loading or calling the symbol. An unsupported shape returns
 Focused examples:
 
 - [`examples/raw-abi.md`](examples/raw-abi.md) — scalar call and signature duty;
+- [`examples/fixed-scalar.md`](examples/fixed-scalar.md) — heterogeneous scalar ABI;
 - [`examples/pointer-buffer.md`](examples/pointer-buffer.md) — caller-owned pointer storage;
+- [`examples/pointer-result.md`](examples/pointer-result.md) — borrowed pointer results;
+- [`examples/two-pass-buffer.md`](examples/two-pass-buffer.md) — caller-owned length protocol;
+- [`examples/resource-pair.md`](examples/resource-pair.md) — explicit acquisition and cleanup;
+- [`examples/mechanism-errors.md`](examples/mechanism-errors.md) — typed mechanism failures;
 - [`examples/unix-ioctl.md`](examples/unix-ioctl.md) — the dedicated variadic Unix ABI.
 
 ## Relationship to qjswasm

@@ -556,10 +556,11 @@ WAT evidence, and no production consumer outside this crate used the language AP
   current-tree evidence exists.
 - `eval.rs` / `parse.rs` / `sym.rs` / `value.rs` and the legacy
   `Dyn` / `Value` / `Symbol` API were deleted after complete executable-court and
-  public-consumer migration. Remaining `(dlcall ...)` examples are historical
-  catalog migration records, not a callable API. `hosts.rs` and the typed-owner
-  modules were subsequently removed; `exec.rs` remains the separately bounded
-  future-JIT mechanism.
+  public-consumer migration. The 86-page per-probe S-expression/owner example
+  catalog was replaced by eight curated examples of the current raw ABI,
+  pointer, cleanup, error, and Unix `ioctl` mechanisms. `hosts.rs` and the
+  typed-owner modules were subsequently removed; `exec.rs` remains the
+  separately bounded future-JIT mechanism.
 - Current court migration has moved the scalar, clock-pointer, Darwin output-pointer,
   Mach-clock, and duplicate Darwin `ioctl` claims to qjswasm `.wat` or typed-owner
   evidence. The two-required-pointer `i32(ptr,ptr)` family now carries the

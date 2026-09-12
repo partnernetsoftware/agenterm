@@ -1,5 +1,10 @@
 # agenterm-dyn Grok review (Windows follow-up)
 
+> **Archived / superseded (2026-09-13).** This review describes the removed
+> S-expression, host-catalog, and per-probe-example era. Do not execute its open
+> suggestions against the current policy-free `invoke_abi` mechanism. Use
+> `prd/PRD_02_34_agenterm_dyn.md` and `plan/ARCHITECTURE.md` as current SSOTs.
+
 Date: 2026-08-15. Reviewer: Grok session on Linux (no Windows host in this
 session). Status: review + handoff only; **not implemented**.
 

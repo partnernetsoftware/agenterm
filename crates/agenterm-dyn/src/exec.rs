@@ -201,7 +201,7 @@ impl CodeBuffer {
     /// SysV/AAPCS C ABI of `extern "C" fn() -> i64` on the host, ending in a
     /// return (or a tail jump whose target returns). The buffer must be
     /// [`BufferState::Executable`]; the caller owns every register/stack/ABI
-    /// obligation of the emitted code, exactly as with `dlcall`.
+    /// obligation of the emitted code, exactly as with [`crate::invoke_abi`].
     pub unsafe fn enter_i64(&self, offset: usize) -> Result<i64, ExecError> {
         if self.state != BufferState::Executable {
             return Err(ExecError::Exec(

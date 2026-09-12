@@ -1,4 +1,9 @@
-# Active handoff — Darwin probe waves
+# Archived handoff — Darwin probe waves
+
+> Superseded on 2026-09-13. The S-expression language, per-probe catalog,
+> typed owners, and six-cell facts described below have been removed from dyn.
+> Current work is governed by `prd/PRD_02_34_agenterm_dyn.md`; the remainder of
+> this file is historical evidence, not an implementation instruction.
 
 Updated 2026-08-15. The first-cut and hardening baselines are complete; the
 authorized Darwin probe goal remains active. Wave 10 is catalogued; still no
