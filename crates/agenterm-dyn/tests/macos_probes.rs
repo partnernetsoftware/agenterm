@@ -5,8 +5,8 @@
 use std::ffi::{CStr, CString, c_void};
 
 use agenterm_dyn::{
-    DlAddressSnapshot, DomainNameSnapshot, Dyn, HostnameSnapshot, StatVfsSnapshot,
-    SystemProbeStatus, Value, live_cell,
+    DlAddressSnapshot, DomainNameSnapshot, Dyn, HostnameSnapshot, LoginNameError,
+    LoginNameSnapshot, StatVfsSnapshot, SystemProbeStatus, Value, live_cell,
 };
 
 const LIB: &str = "libSystem.B.dylib";
@@ -299,6 +299,7 @@ fn dlcall_getlogin_r_matches_direct_c_buffer() {
         i64::from(direct_status),
         "dlcall and direct getlogin_r must return the same status for length {len}"
     );
+    let typed = LoginNameSnapshot::acquire();
     if got_status == 0 {
         let got = CStr::from_bytes_until_nul(&got_buffer)
             .expect("getlogin_r must NUL-terminate successful output");
@@ -306,6 +307,12 @@ fn dlcall_getlogin_r_matches_direct_c_buffer() {
             .expect("direct getlogin_r must NUL-terminate successful output");
         assert!(!got.to_bytes().is_empty(), "login name must be non-empty");
         assert_eq!(got.to_bytes(), direct.to_bytes());
+        assert_eq!(
+            typed.expect("typed getlogin_r snapshot").as_bytes(),
+            got.to_bytes()
+        );
+    } else {
+        assert_eq!(typed, Err(LoginNameError::Os(direct_status)));
     }
 }
 

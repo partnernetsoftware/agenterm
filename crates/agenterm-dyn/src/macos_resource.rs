@@ -98,6 +98,95 @@ impl DomainNameSource for SystemDomainNameSource {
     }
 }
 
+/// Capacity of the bounded native buffer used for one Darwin login name.
+pub const MAX_LOGIN_NAME_BYTES: usize = 1_024;
+
+/// Failure to acquire a bounded, pointer-free Darwin login name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoginNameError {
+    Unsupported,
+    Os(i32),
+    NotTerminated { capacity: usize },
+}
+
+impl fmt::Display for LoginNameError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unsupported => formatter.write_str("getlogin_r is unsupported on this host"),
+            Self::Os(code) => write!(formatter, "getlogin_r failed with OS error {code}"),
+            Self::NotTerminated { capacity } => write!(
+                formatter,
+                "getlogin_r did not terminate its {capacity}-byte output buffer"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for LoginNameError {}
+
+/// One owned Darwin login name copied as native bytes without its trailing NUL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoginNameSnapshot {
+    bytes: Vec<u8>,
+}
+
+impl LoginNameSnapshot {
+    #[cfg(target_os = "macos")]
+    pub fn acquire() -> Result<Self, LoginNameError> {
+        snapshot_login_name_with(&SystemLoginNameSource)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn acquire() -> Result<Self, LoginNameError> {
+        Err(LoginNameError::Unsupported)
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+trait LoginNameSource {
+    fn fill(&self, output: &mut [u8]) -> Result<(), i32>;
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn snapshot_login_name_with(
+    source: &impl LoginNameSource,
+) -> Result<LoginNameSnapshot, LoginNameError> {
+    let mut output = [0xff; MAX_LOGIN_NAME_BYTES];
+    source.fill(&mut output).map_err(LoginNameError::Os)?;
+    let length =
+        output
+            .iter()
+            .position(|byte| *byte == 0)
+            .ok_or(LoginNameError::NotTerminated {
+                capacity: output.len(),
+            })?;
+    Ok(LoginNameSnapshot {
+        bytes: output[..length].to_vec(),
+    })
+}
+
+#[cfg(target_os = "macos")]
+struct SystemLoginNameSource;
+
+#[cfg(target_os = "macos")]
+impl LoginNameSource for SystemLoginNameSource {
+    fn fill(&self, output: &mut [u8]) -> Result<(), i32> {
+        // SAFETY: output owns writable storage for its reported capacity and
+        // remains alive until the synchronous call returns. getlogin_r returns
+        // its error number directly instead of reporting it through errno.
+        let status = unsafe { getlogin_r(output.as_mut_ptr().cast(), output.len()) };
+        if status == 0 { Ok(()) } else { Err(status) }
+    }
+}
+
 /// Failure to acquire Darwin's Mach absolute-time conversion ratio.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachTimebaseError {
@@ -532,6 +621,7 @@ const MACH_PORT_RIGHT_SEND: u32 = 0;
 unsafe extern "C" {
     static mach_task_self_: u32;
     fn dladdr(address: *const std::ffi::c_void, info: *mut DlInfo) -> std::ffi::c_int;
+    fn getlogin_r(name: *mut std::ffi::c_char, name_len: usize) -> std::ffi::c_int;
     fn mach_host_self() -> u32;
     fn mach_port_deallocate(task: u32, name: u32) -> i32;
     fn mach_port_get_refs(task: u32, name: u32, right: u32, refs: *mut u32) -> i32;
@@ -552,10 +642,11 @@ mod tests {
     use std::rc::Rc;
 
     use super::{
-        CpuCountError, DlAddressError, DlInfo, DomainNameError, DomainNameSource,
-        MAX_DOMAIN_NAME_BYTES, MAX_SYSCTL_FETCH_ATTEMPTS, MAX_SYSCTL_VALUE_BYTES,
-        MachTimebaseError, MachTimebaseInfo, OwnedPort, ReleasePort, acquire_cpu_count_with,
-        snapshot_dl_info, snapshot_domain_name_with, snapshot_timebase,
+        CpuCountError, DlAddressError, DlInfo, DomainNameError, DomainNameSource, LoginNameError,
+        LoginNameSource, MAX_DOMAIN_NAME_BYTES, MAX_LOGIN_NAME_BYTES, MAX_SYSCTL_FETCH_ATTEMPTS,
+        MAX_SYSCTL_VALUE_BYTES, MachTimebaseError, MachTimebaseInfo, OwnedPort, ReleasePort,
+        acquire_cpu_count_with, snapshot_dl_info, snapshot_domain_name_with,
+        snapshot_login_name_with, snapshot_timebase,
     };
 
     struct ScriptedDomainNameSource {
@@ -605,6 +696,49 @@ mod tests {
                 bytes: RefCell::new(vec![b'x', 0]),
             }),
             Err(DomainNameError::Os(5))
+        );
+    }
+
+    struct ScriptedLoginNameSource {
+        result: Result<(), i32>,
+        bytes: RefCell<Vec<u8>>,
+    }
+
+    impl LoginNameSource for ScriptedLoginNameSource {
+        fn fill(&self, output: &mut [u8]) -> Result<(), i32> {
+            let bytes = self.bytes.borrow();
+            output[..bytes.len()].copy_from_slice(&bytes);
+            self.result
+        }
+    }
+
+    #[test]
+    fn login_name_snapshot_preserves_native_bytes_without_utf8_conversion() {
+        let snapshot = snapshot_login_name_with(&ScriptedLoginNameSource {
+            result: Ok(()),
+            bytes: RefCell::new(vec![b'u', 0xff, 0]),
+        })
+        .expect("scripted login name succeeds");
+        assert_eq!(snapshot.as_bytes(), &[b'u', 0xff]);
+    }
+
+    #[test]
+    fn login_name_snapshot_rejects_unterminated_or_failed_output() {
+        assert_eq!(
+            snapshot_login_name_with(&ScriptedLoginNameSource {
+                result: Ok(()),
+                bytes: RefCell::new(vec![b'x'; MAX_LOGIN_NAME_BYTES]),
+            }),
+            Err(LoginNameError::NotTerminated {
+                capacity: MAX_LOGIN_NAME_BYTES,
+            })
+        );
+        assert_eq!(
+            snapshot_login_name_with(&ScriptedLoginNameSource {
+                result: Err(6),
+                bytes: RefCell::new(vec![b'x', 0]),
+            }),
+            Err(LoginNameError::Os(6))
         );
     }
 

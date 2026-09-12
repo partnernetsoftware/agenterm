@@ -6,8 +6,8 @@ use agenterm_dyn::{
 };
 #[cfg(not(target_os = "macos"))]
 use agenterm_dyn::{
-    CpuCountError, DlAddressError, DomainNameError, DomainNameSnapshot, MachHostPortError,
-    MachTimebaseError,
+    CpuCountError, DlAddressError, DomainNameError, DomainNameSnapshot, LoginNameError,
+    LoginNameSnapshot, MachHostPortError, MachTimebaseError,
 };
 
 #[test]
@@ -61,6 +61,15 @@ fn domain_name_snapshot_is_honestly_unsupported_off_darwin() {
     assert_eq!(
         DomainNameSnapshot::acquire(),
         Err(DomainNameError::Unsupported)
+    );
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn login_name_snapshot_is_honestly_unsupported_off_darwin() {
+    assert_eq!(
+        LoginNameSnapshot::acquire(),
+        Err(LoginNameError::Unsupported)
     );
 }
 
