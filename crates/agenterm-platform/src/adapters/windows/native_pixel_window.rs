@@ -2191,6 +2191,17 @@ fn apply_directive(state: &mut HostState, result: Result<PixelWindowDirective, P
         }
         Ok(_) => {}
         Err(error) => {
+            // A callback error ends the window. Record it before the deferred
+            // error is reported: an exit whose only trace is a vanished window
+            // is unactionable, and every "it disappeared" report starts from
+            // zero without this line.
+            state
+                .backend
+                .control
+                .record_failure(PixelWindowError::failed(
+                    "pixel_window_application_error",
+                    format!("application callback returned an error: {error}"),
+                ));
             state.deferred_error = Some(error);
             state.exit = true;
         }

@@ -120,10 +120,21 @@ pub fn classify_event(event: ImeEvent, anchor_available: bool) -> ImeAction {
         }
         ImeEvent::Preedit { .. } | ImeEvent::Disabled => ImeAction::ClearPreedit,
         ImeEvent::Commit(text) => {
-            if text.is_empty() || text.chars().any(char::is_control) {
+            // Carriage return and line feed are ordinary text-input characters —
+            // committing "...\r" is how a control caller submits a line — so
+            // they must pass through. Other control characters are dropped
+            // rather than injected into the terminal, and a commit that is only
+            // control characters clears the preedit without sending anything.
+            let usable: String = text
+                .chars()
+                .filter(|character| {
+                    !character.is_control() || *character == '\r' || *character == '\n'
+                })
+                .collect();
+            if usable.is_empty() {
                 ImeAction::ClearPreedit
             } else {
-                ImeAction::CommitText(text)
+                ImeAction::CommitText(usable)
             }
         }
     }
@@ -158,6 +169,29 @@ mod tests {
         assert_eq!(
             classify_event(ImeEvent::Commit("你好".to_owned()), true),
             ImeAction::CommitText("你好".to_owned())
+        );
+    }
+
+    /// A commit that ends in a newline is how a control caller submits a line:
+    /// `\r` and `\n` must reach the PTY, not be treated as control characters
+    /// to drop. Other control characters are stripped instead of injected.
+    #[test]
+    fn commits_keep_newlines_and_strip_other_control_characters() {
+        assert_eq!(
+            classify_event(ImeEvent::Commit("echo 你好\r".to_owned()), true),
+            ImeAction::CommitText("echo 你好\r".to_owned())
+        );
+        assert_eq!(
+            classify_event(ImeEvent::Commit("line\n".to_owned()), true),
+            ImeAction::CommitText("line\n".to_owned())
+        );
+        assert_eq!(
+            classify_event(ImeEvent::Commit("a\u{7}b".to_owned()), true),
+            ImeAction::CommitText("ab".to_owned())
+        );
+        assert_eq!(
+            classify_event(ImeEvent::Commit("\u{7}".to_owned()), true),
+            ImeAction::ClearPreedit
         );
     }
 }

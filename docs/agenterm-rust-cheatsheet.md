@@ -5926,3 +5926,29 @@ idempotent) or not, and prove it with a test that enqueues far past the
 capacity and asserts no overflow. A command that is genuinely new every
 time — keyboard, button, wheel notch — keeps its own slot and is the only
 thing the bound should ever be spent on.
+
+## A kill-on-close job makes a launcher's exit the whole tree's exit
+
+Windows `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` terminates every process in a
+job when its last handle closes. That is the right cleanup primitive for a
+terminal's child shell — the terminal owns the shell, and when the terminal
+goes the shell should too — but it also means the job defines a *fate
+group*: whoever is in it dies together. A process cannot leave a job it
+already belongs to, and a nested job does not exempt its members from the
+outer one, so a shell started inside another job stays welded to it.
+
+Two consequences worth stating before blaming a crash on the wrong process.
+First, `IsProcessInJob(handle, NULL, ...)` answers for the *calling* process
+and is cheap; run it when a "B crashed and took A with it" report arrives,
+because the interesting question is not whether A crashed but whether A and
+B share a fate group. Second, a process tree is evidence: walk the parent
+chain (toolhelp `th32ParentProcessID`) before assuming two processes are
+independent. In one real report an agent process turned out to be a
+grandchild of the GUI that "crashed", so the GUI's exit *was* the agent's
+exit, and the resize that preceded it only ended the session that held the
+job open.
+
+The product rule: create a child job for cleanup only when the child's
+whole subtree is genuinely yours to reclaim, and prefer
+`SILENT_BREAKAWAY_OK` on any job a launcher puts a long-lived user session
+in, so a GUI that wants its own lifecycle can take it.

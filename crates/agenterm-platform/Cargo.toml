@@ -447,6 +447,13 @@ process-window = [
 window = ["process-window"]
 input = ["window"]
 window-enum = [
+    # The Linux app inventory spawns a breakaway visible child to attach to a
+    # foreign window's session. Only the Linux adapter needs it, but the
+    # feature must imply it so a Linux cross-build that enables window-enum
+    # alone still compiles: without this, `cargo build --target
+    # x86_64-unknown-linux-gnu` fails on `crate::process_spawn` being absent
+    # while a Windows or macOS host build never notices.
+    "process-spawn",
     "dep:x11rb",
     "dep:windows-sys",
     "windows-sys/Win32_Foundation",
