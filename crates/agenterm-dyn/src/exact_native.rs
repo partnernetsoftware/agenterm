@@ -160,7 +160,14 @@ pub unsafe fn invoke_exact(
         .collect::<Vec<_>>();
     validate_exact_native_signature(call.result, &parameters)?;
     let family = call.result;
-    let library = open_library(call.library)?;
+    let library = open_library(call.library).map_err(|error| ExactNativeError::LibraryLoad {
+        library: if call.library.is_empty() {
+            "<current-process>".to_owned()
+        } else {
+            call.library.to_owned()
+        },
+        message: error.to_string(),
+    })?;
     match family {
         ExactNativeType::I32 => {
             invoke_homogeneous!(&library, call.symbol, call.arguments, I32, i32)
@@ -225,16 +232,10 @@ fn current_process_library() -> Result<Library, libloading::Error> {
     libloading::os::windows::Library::this().map(Into::into)
 }
 
-fn open_library(name: &str) -> Result<Library, ExactNativeError> {
+pub(crate) fn open_library(name: &str) -> Result<Library, libloading::Error> {
     if name.is_empty() {
-        return current_process_library().map_err(|error| ExactNativeError::LibraryLoad {
-            library: "<current-process>".to_owned(),
-            message: error.to_string(),
-        });
+        return current_process_library();
     }
     // SAFETY: this unrestricted native operation deliberately runs library init/fini code.
-    unsafe { Library::new(name) }.map_err(|error| ExactNativeError::LibraryLoad {
-        library: name.to_owned(),
-        message: error.to_string(),
-    })
+    unsafe { Library::new(name) }
 }

@@ -8,6 +8,7 @@ mod exact_native;
 mod exec;
 #[cfg(unix)]
 mod exec_error;
+mod fixed_native;
 mod hosts;
 mod macos_resource;
 mod native;
@@ -31,6 +32,10 @@ pub use exec::{
 };
 #[cfg(unix)]
 pub use exec_error::ExecError;
+pub use fixed_native::{
+    FixedNativeCall, FixedNativeError, FixedNativePrototype, FixedNativeType, FixedNativeValue,
+    invoke_fixed, validate_fixed_native_signature,
+};
 pub use hosts::{
     ALL_CELLS, CU_ADJACENT_PROBE_CATALOG, CuAdjacentProbeCell, HostArch, HostCell, HostOs,
     LAYER3_CANDIDATES, LINUX_AARCH64, LINUX_ATSPI_EXISTENCE_LIBS, LINUX_X86_64, MACOS_AARCH64,
