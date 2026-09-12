@@ -180,6 +180,50 @@ fn a_fourth_capability_is_only_an_additional_wat_guest() {
     }
 }
 
+/// The effective group id as an independent POSIX process reports it: `id -g`
+/// is a second program, so this compares two facts rather than one path with
+/// itself.
+#[cfg(unix)]
+fn host_effective_gid_from_id() -> u32 {
+    let output = std::process::Command::new("id")
+        .arg("-g")
+        .output()
+        .expect("the POSIX id command runs");
+    assert!(output.status.success(), "id -g must succeed");
+    String::from_utf8(output.stdout)
+        .expect("id -g prints utf-8")
+        .trim()
+        .parse()
+        .expect("id -g prints a numeric gid")
+}
+
+/// A fifth read-only capability costs one more guest and no production code:
+/// the door's own import table stays at eight, so the addition is a new
+/// comparable marginal point rather than a new mechanism.
+#[cfg(unix)]
+#[test]
+fn a_fifth_read_only_capability_is_another_wat_guest_with_no_production_change() {
+    // Five compiler-facing ordinary declarations plus the opt-in native
+    // declaration remain unchanged. The "eighth door" name counts raw host
+    // imports, where two-pass Fleet and ACU results each also have a length
+    // import; this assertion intentionally counts a different public table.
+    assert_eq!(
+        door_declarations().len() + native_door_declarations().len(),
+        6,
+        "adding a capability must not change the door's import table"
+    );
+    let egid = run_wat(
+        include_str!("fixtures/native/getegid.wat"),
+        Budget::default(),
+    )
+    .expect("getegid runs");
+    assert_eq!(
+        egid as u32,
+        host_effective_gid_from_id(),
+        "getegid must report the group id an independent process sees"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn exact_nonzero_arity_gp_and_f64_signatures_use_their_own_abi_families() {
