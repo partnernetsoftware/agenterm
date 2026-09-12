@@ -157,15 +157,21 @@ pub(super) fn device_claim_payload(
             ));
         }
     };
-    let executable = match std::env::current_exe() {
+    // Resolved here, after the durable claim exists: on refusal
+    // `abort_unclaimed_claim` marks the unclaimed claim failed and releases the
+    // runtime lock (or reports `device_claim_cleanup_uncertain`). The owner has
+    // not started, but the claim itself was durable before this point, so this
+    // is a pre-owner-spawn failure, not a zero-side-effect one.
+    let executable = match crate::owner_executable::resolve_current() {
         Ok(executable) => executable,
-        Err(_) => {
-            return Err(abort_unclaimed_claim(
+        Err(error) => {
+            return Err(abort_unclaimed_claim_with_detail(
                 &store,
                 &record,
                 request,
                 "device_owner_spawn_failed",
-                "agenterm-cu executable identity is unavailable",
+                "the sibling agenterm-cu owner executable is unavailable",
+                owner_executable_detail(&error),
                 now,
             ));
         }
@@ -687,6 +693,74 @@ fn reconcile_records(store: &DeviceLeaseStore, records: &mut [DeviceLeaseRecord]
     }
 }
 
+/// One durable-cleanup attempt's outcome for a claim whose owner never started.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum CleanupOutcome {
+    Cleaned,
+    Failed(String),
+}
+
+/// The structured detail for one owner-executable resolution failure.
+///
+/// `io_kind` stays nullable and keeps the native kind verbatim: a permission or
+/// I/O failure is not collapsed into "missing".
+fn owner_executable_detail(error: &crate::owner_executable::OwnerExecutableError) -> Value {
+    json!({
+        "reason": error.reason(),
+        "io_kind": error.kind().map(|kind| format!("{kind:?}")),
+        "resolution": "current_exe_sibling",
+        "owner_started": false,
+        "effect": "not_performed",
+    })
+}
+
+/// Builds the terminal error for a claim whose owner never started.
+///
+/// The primary detail survives both outcomes: a completed cleanup returns the
+/// original code carrying it, and an uncertain cleanup keeps it **beside** the
+/// cleanup facts instead of replacing it. An empty primary keeps the original
+/// no-detail shape, so callers that carry nothing are unchanged.
+fn claim_failure_error(
+    code: &'static str,
+    message: &'static str,
+    primary: Value,
+    state_cleanup: &CleanupOutcome,
+    runtime_lock_cleanup: &CleanupOutcome,
+) -> CuError {
+    if *state_cleanup == CleanupOutcome::Cleaned && *runtime_lock_cleanup == CleanupOutcome::Cleaned
+    {
+        return if primary.as_object().is_some_and(|object| object.is_empty()) {
+            CuError::new(code, message)
+        } else {
+            CuError::new(code, message).with_detail(primary)
+        };
+    }
+    let mut detail = primary;
+    let Some(object) = detail.as_object_mut() else {
+        return CuError::new(
+            "device_claim_cleanup_uncertain",
+            "device owner did not start and its durable claim cleanup is uncertain",
+        );
+    };
+    let cleanup_value = |outcome: &CleanupOutcome| match outcome {
+        CleanupOutcome::Cleaned => Value::Null,
+        CleanupOutcome::Failed(code) => Value::String(code.clone()),
+    };
+    object.insert("effect".to_owned(), json!("unknown"));
+    object.insert("cause".to_owned(), json!(code));
+    object.insert("state_cleanup".to_owned(), cleanup_value(state_cleanup));
+    object.insert(
+        "runtime_lock_cleanup".to_owned(),
+        cleanup_value(runtime_lock_cleanup),
+    );
+    object.insert("lease_redacted".to_owned(), json!(true));
+    CuError::new(
+        "device_claim_cleanup_uncertain",
+        "device owner did not start and its durable claim cleanup is uncertain",
+    )
+    .with_detail(detail)
+}
+
 fn abort_unclaimed_claim(
     store: &DeviceLeaseStore,
     record: &DeviceLeaseRecord,
@@ -695,27 +769,42 @@ fn abort_unclaimed_claim(
     message: &'static str,
     now_utc_ms: i64,
 ) -> CuError {
+    abort_unclaimed_claim_with_detail(
+        store,
+        record,
+        request,
+        code,
+        message,
+        Value::Object(serde_json::Map::new()),
+        now_utc_ms,
+    )
+}
+
+/// [`abort_unclaimed_claim`] for a failure that carries its own structured detail.
+fn abort_unclaimed_claim_with_detail(
+    store: &DeviceLeaseStore,
+    record: &DeviceLeaseRecord,
+    request: &JobRequestContext<'_>,
+    code: &'static str,
+    message: &'static str,
+    primary: Value,
+    now_utc_ms: i64,
+) -> CuError {
     let state = store.mark_unclaimed_open_failed(&record.handle(), code, now_utc_ms);
     let runtime_lock = request.runtime.lock_release(
         &record.runtime_lock_id,
         request.session_lease,
         now_utc_ms / 1_000,
     );
-    if state.is_ok() && runtime_lock.is_ok() {
-        CuError::new(code, message)
-    } else {
-        CuError::new(
-            "device_claim_cleanup_uncertain",
-            "device owner did not start and its durable claim cleanup is uncertain",
-        )
-        .with_detail(json!({
-            "effect": "unknown",
-            "cause": code,
-            "state_cleanup": state.err().map(|error| error.code),
-            "runtime_lock_cleanup": runtime_lock.err().map(|error| error.code),
-            "lease_redacted": true,
-        }))
-    }
+    let state_outcome = match state {
+        Ok(_) => CleanupOutcome::Cleaned,
+        Err(error) => CleanupOutcome::Failed(error.code),
+    };
+    let lock_outcome = match runtime_lock {
+        Ok(_) => CleanupOutcome::Cleaned,
+        Err(error) => CleanupOutcome::Failed(error.code),
+    };
+    claim_failure_error(code, message, primary, &state_outcome, &lock_outcome)
 }
 
 fn classify_owner_exit(
@@ -938,4 +1027,120 @@ fn detach_reaper(mut child: std::process::Child) {
         .spawn(move || {
             let _ = child.wait();
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::owner_executable::OwnerExecutableError;
+
+    #[test]
+    fn owner_detail_keeps_absence_and_inspection_failures_apart() {
+        let missing = owner_executable_detail(&OwnerExecutableError::Missing);
+        assert_eq!(missing["reason"], "owner_executable_missing");
+        assert!(missing["io_kind"].is_null(), "absence has no io kind");
+        assert_eq!(missing["resolution"], "current_exe_sibling");
+        assert_eq!(missing["owner_started"], false);
+        assert_eq!(missing["effect"], "not_performed");
+
+        let denied = owner_executable_detail(&OwnerExecutableError::Unavailable(
+            std::io::ErrorKind::PermissionDenied,
+        ));
+        assert_eq!(denied["reason"], "owner_executable_unavailable");
+        assert_eq!(denied["io_kind"], "PermissionDenied");
+        assert!(
+            !denied["io_kind"].is_null(),
+            "an inspection failure must not collapse into absence"
+        );
+    }
+
+    #[test]
+    fn a_cleaned_claim_returns_the_original_code_with_its_primary_detail() {
+        let primary = owner_executable_detail(&OwnerExecutableError::Missing);
+        let error = claim_failure_error(
+            "device_owner_spawn_failed",
+            "the sibling agenterm-cu owner executable is unavailable",
+            primary,
+            &CleanupOutcome::Cleaned,
+            &CleanupOutcome::Cleaned,
+        );
+        assert_eq!(error.code, "device_owner_spawn_failed");
+        let detail = error.detail.expect("primary detail");
+        assert_eq!(detail["reason"], "owner_executable_missing");
+        assert_eq!(detail["effect"], "not_performed");
+        assert!(
+            detail.get("cause").is_none(),
+            "a clean abort is not uncertain"
+        );
+    }
+
+    #[test]
+    fn an_empty_primary_keeps_the_original_no_detail_shape() {
+        let error = claim_failure_error(
+            "device_owner_start_failed",
+            "resident device owner could not start",
+            Value::Object(serde_json::Map::new()),
+            &CleanupOutcome::Cleaned,
+            &CleanupOutcome::Cleaned,
+        );
+        assert_eq!(error.code, "device_owner_start_failed");
+        assert!(
+            error.detail.is_none(),
+            "callers that carry nothing stay unchanged"
+        );
+    }
+
+    #[test]
+    fn an_uncertain_cleanup_keeps_the_primary_detail_beside_the_cleanup_facts() {
+        for (state, lock) in [
+            (
+                CleanupOutcome::Cleaned,
+                CleanupOutcome::Failed("device_lock_release_failed".to_owned()),
+            ),
+            (
+                CleanupOutcome::Failed("device_state_write_failed".to_owned()),
+                CleanupOutcome::Cleaned,
+            ),
+            (
+                CleanupOutcome::Failed("device_state_write_failed".to_owned()),
+                CleanupOutcome::Failed("device_lock_release_failed".to_owned()),
+            ),
+        ] {
+            let primary = owner_executable_detail(&OwnerExecutableError::Unavailable(
+                std::io::ErrorKind::PermissionDenied,
+            ));
+            let error = claim_failure_error(
+                "device_owner_spawn_failed",
+                "the sibling agenterm-cu owner executable is unavailable",
+                primary,
+                &state,
+                &lock,
+            );
+            assert_eq!(error.code, "device_claim_cleanup_uncertain");
+            let detail = error.detail.expect("uncertain detail");
+            // The primary fields must survive the uncertain branch.
+            assert_eq!(detail["reason"], "owner_executable_unavailable");
+            assert_eq!(detail["io_kind"], "PermissionDenied");
+            assert_eq!(detail["resolution"], "current_exe_sibling");
+            assert_eq!(detail["owner_started"], false);
+            // ... beside the cleanup facts and the cause.
+            assert_eq!(detail["effect"], "unknown");
+            assert_eq!(detail["cause"], "device_owner_spawn_failed");
+            assert_eq!(detail["lease_redacted"], true);
+            assert_eq!(
+                detail["state_cleanup"],
+                match &state {
+                    CleanupOutcome::Cleaned => Value::Null,
+                    CleanupOutcome::Failed(code) => Value::String(code.clone()),
+                }
+            );
+            assert_eq!(
+                detail["runtime_lock_cleanup"],
+                match &lock {
+                    CleanupOutcome::Cleaned => Value::Null,
+                    CleanupOutcome::Failed(code) => Value::String(code.clone()),
+                }
+            );
+        }
+    }
 }

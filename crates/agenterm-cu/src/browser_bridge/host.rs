@@ -23,6 +23,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::deadline_frame_io::{self, FrameIoError};
+
 use super::{
     ACU_EXTENSION_ID, ACU_NATIVE_HOST_NAME, BRIDGE_EXTENSION_VERSION, BridgeProtocolError,
     BridgeRequest, ConnectionEndpoint, ConnectionEntry, ConnectionId, DebugFilesRequest,
@@ -760,9 +762,7 @@ fn send_to_connection_at(
             BridgeHostError::new("browser_bridge_host_unavailable")
         }
     })?;
-    #[cfg(unix)]
-    stream
-        .set_nonblocking(true)
+    deadline_frame_io::prepare(&stream)
         .map_err(|_| BridgeHostError::new("browser_bridge_deadline_setup_failed"))?;
     let is_effect = matches!(
         request.command.as_str(),
@@ -807,117 +807,49 @@ fn send_to_connection_at(
 }
 
 fn remaining(deadline: Instant) -> Result<Duration, BridgeHostError> {
-    let remaining = deadline.saturating_duration_since(Instant::now());
-    if remaining.is_zero() {
-        Err(BridgeHostError::new("browser_bridge_request_timeout"))
-    } else {
-        Ok(remaining)
-    }
+    deadline_frame_io::remaining(deadline)
+        .map_err(|_| BridgeHostError::new("browser_bridge_request_timeout"))
 }
 
-fn set_remaining_timeout(
-    stream: &mut NativeStream,
-    deadline: Instant,
-) -> Result<(), BridgeHostError> {
-    let timeout = remaining(deadline)?;
-    #[cfg(windows)]
-    {
-        stream
-            .set_io_timeout(timeout)
-            .map_err(|_| BridgeHostError::new("browser_bridge_timeout_configuration_failed"))
-    }
-    #[cfg(unix)]
-    {
-        let _ = (stream, timeout);
-        Ok(())
-    }
-}
-
-fn wait_readable(stream: &mut NativeStream, deadline: Instant) -> Result<(), BridgeHostError> {
-    set_remaining_timeout(stream, deadline)?;
-    #[cfg(unix)]
-    if !stream
-        .wait_readable(remaining(deadline)?)
-        .map_err(|_| BridgeHostError::new("browser_bridge_protocol_io"))?
-    {
-        return Err(BridgeHostError::new("browser_bridge_request_timeout"));
-    }
-    Ok(())
-}
-
-fn wait_writable(stream: &mut NativeStream, deadline: Instant) -> Result<(), BridgeHostError> {
-    set_remaining_timeout(stream, deadline)?;
-    #[cfg(unix)]
-    if !stream
-        .wait_writable(remaining(deadline)?)
-        .map_err(|_| BridgeHostError::new("browser_bridge_protocol_io"))?
-    {
-        return Err(BridgeHostError::new("browser_bridge_request_timeout"));
-    }
-    Ok(())
-}
-
-fn map_deadline_io(error: io::Error, fallback: &'static str) -> BridgeHostError {
-    if matches!(
-        error.kind(),
-        io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
-    ) {
-        BridgeHostError::new("browser_bridge_request_timeout")
-    } else {
-        BridgeHostError::new(fallback)
+fn frame_io_error(error: FrameIoError, eof_code: &'static str) -> BridgeHostError {
+    match error {
+        FrameIoError::Deadline => BridgeHostError::new("browser_bridge_request_timeout"),
+        FrameIoError::Eof => BridgeHostError::new(eof_code),
+        FrameIoError::FrameSize => BridgeHostError::new("browser_bridge_message_too_large"),
+        FrameIoError::Io(error) => match error.kind() {
+            io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock => {
+                BridgeHostError::new("browser_bridge_request_timeout")
+            }
+            _ => BridgeHostError::new(eof_code),
+        },
     }
 }
 
 fn write_all_with_deadline(
     stream: &mut NativeStream,
-    mut bytes: &[u8],
+    bytes: &[u8],
     deadline: Instant,
 ) -> Result<(), BridgeHostError> {
-    while !bytes.is_empty() {
-        wait_writable(stream, deadline)?;
-        match stream.write(bytes) {
-            Ok(0) => return Err(BridgeHostError::new("browser_bridge_request_write_failed")),
-            Ok(written) => bytes = &bytes[written..],
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
-            Err(error) => {
-                return Err(map_deadline_io(
-                    error,
-                    "browser_bridge_request_write_failed",
-                ));
-            }
-        }
-    }
-    Ok(())
+    deadline_frame_io::write_all_before(stream, bytes, deadline)
+        .map_err(|error| frame_io_error(error, "browser_bridge_request_write_failed"))
 }
 
 fn flush_with_deadline(
     stream: &mut NativeStream,
     deadline: Instant,
 ) -> Result<(), BridgeHostError> {
-    wait_writable(stream, deadline)?;
-    stream
-        .flush()
-        .map_err(|error| map_deadline_io(error, "browser_bridge_request_flush_failed"))
+    deadline_frame_io::flush_before(stream, deadline)
+        .map_err(|error| frame_io_error(error, "browser_bridge_request_flush_failed"))
 }
 
 fn read_exact_with_deadline(
     stream: &mut NativeStream,
-    mut bytes: &mut [u8],
+    bytes: &mut [u8],
     deadline: Instant,
     eof_code: &'static str,
 ) -> Result<(), BridgeHostError> {
-    while !bytes.is_empty() {
-        wait_readable(stream, deadline)?;
-        match stream.read(bytes) {
-            Ok(0) => return Err(BridgeHostError::new(eof_code)),
-            Ok(read) => bytes = &mut bytes[read..],
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
-            Err(error) => return Err(map_deadline_io(error, eof_code)),
-        }
-    }
-    Ok(())
+    deadline_frame_io::read_exact_before(stream, bytes, deadline)
+        .map_err(|error| frame_io_error(error, eof_code))
 }
 
 fn read_frame_with_deadline(

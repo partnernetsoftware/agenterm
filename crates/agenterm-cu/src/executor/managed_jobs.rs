@@ -17,18 +17,20 @@ use crate::{
         JobEnvironment, JobExpiry, JobOutputCursor, JobOutputStream, JobPolicyAction,
         JobProcessLimits, JobResourcePolicy, JobStateFilter,
     },
+    execution_control::ExecutionControl,
     idempotency_store::FinalReplay,
     managed_job_ipc::{
-        JobState, ManagedJobOperation, ManagedJobProtocolError, ManagedJobResult, OutputStream,
-        base64_decode, base64_encode, client_request,
+        JobState, JobStatus, ManagedJobOperation, ManagedJobProtocolError, ManagedJobResult,
+        OutputStream, ROUND_TIMEOUT_CODE, WAIT_QUANTUM, WAIT_ROUND_BUDGET, WAIT_ROUND_MARGIN,
+        base64_decode, base64_encode, client_request, client_request_before,
     },
     managed_job_owner::{
         LAUNCH_SCHEMA_VERSION, ManagedJobEnvironment, ManagedJobLaunch, ManagedJobProcessLimits,
     },
     managed_job_store::{
-        ManagedJobDetachLiveness, ManagedJobOnExpiry, ManagedJobOrigin, ManagedJobRecord,
-        ManagedJobState, ManagedJobStore, ManagedJobTerminalTrigger, OwnerLiveness,
-        ResidentOwnerIdentity,
+        ManagedJobDetachLiveness, ManagedJobHandle, ManagedJobOnExpiry, ManagedJobOrigin,
+        ManagedJobRecord, ManagedJobState, ManagedJobStore, ManagedJobTerminalTrigger,
+        OwnerLiveness, ResidentOwnerIdentity,
     },
     runtime_coordinator::RuntimeCoordinator,
 };
@@ -268,23 +270,21 @@ fn start_resident_launch(
             return Err(error);
         }
     };
-    let executable = match std::env::current_exe() {
+    // The owner is the distributed sibling `agenterm-cu`, not necessarily the
+    // host that embedded this executor: an in-process `agenterm:acu` caller runs
+    // inside the product binary, whose own command surface has no owner mode.
+    // This refusal happens before the owner process exists, but the durable
+    // start intent and its record are already published, so this is honestly
+    // pre-owner-spawn and not a zero-effect failure; `mark_clean_owner_failure`
+    // closes the record as it does for every other pre-spawn failure.
+    let executable = match owner_launch_program(crate::owner_executable::resolve_current) {
         Ok(executable) => executable,
-        Err(_) => {
-            let error = CuError::new(
-                "managed_job_owner_spawn_failed",
-                "agenterm-cu executable identity is unavailable",
-            );
+        Err(error) => {
             mark_clean_owner_failure(store, record, error.code.as_str(), now)?;
             return Err(error);
         }
     };
-    let mut command = ProcessCommand::new(executable);
-    command
-        .arg(crate::MANAGED_JOB_OWNER_ARG)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    let mut command = owner_command(&executable);
     let (mut owner_child, mode) = match spawn_detached_child(&mut command) {
         Ok(spawned) => spawned,
         Err(_) => {
@@ -379,7 +379,7 @@ fn start_resident_launch(
     }
 }
 
-/// Stop every nonterminal managed job bound to an already-terminal session.
+/// Stop every live job and release every resident owner bound to a terminal session.
 /// The caller must retain that session's admission gate for the entire call.
 pub(super) fn stop_session_jobs(session_id: &str) -> Result<Value, CuError> {
     let store = ManagedJobStore::open()?;
@@ -395,11 +395,26 @@ pub(super) fn stop_session_jobs(session_id: &str) -> Result<Value, CuError> {
     let mut failed = Vec::new();
 
     for record in records {
-        match record.state {
+        match &record.state {
             ManagedJobState::StartFailed { .. }
             | ManagedJobState::Exited { .. }
             | ManagedJobState::Signaled { .. }
-            | ManagedJobState::Detached => already_terminal += 1,
+            | ManagedJobState::Detached => {
+                if record.owner.is_none() {
+                    already_terminal += 1;
+                    continue;
+                }
+                match release_session_owner(&record, observe_session_owner, client_request) {
+                    Ok(SessionOwnerRelease::AlreadyTerminal) => already_terminal += 1,
+                    Ok(SessionOwnerRelease::Stopped | SessionOwnerRelease::Detached) => {
+                        failed.push(cleanup_failure(
+                            &record,
+                            "managed_job_response_invalid".to_owned(),
+                        ));
+                    }
+                    Err(code) => failed.push(cleanup_failure(&record, code)),
+                }
+            }
             ManagedJobState::StartIntent => {
                 let now = now_utc_ms().ok_or_else(clock_error)?;
                 match store.mark_unclaimed_start_failed(
@@ -416,26 +431,11 @@ pub(super) fn stop_session_jobs(session_id: &str) -> Result<Value, CuError> {
                 }
             }
             ManagedJobState::Starting | ManagedJobState::Running => {
-                match client_request(&record.handle(), ManagedJobOperation::StopAndRelease) {
-                    Ok(ManagedJobResult::Stop { status }) => match status.state {
-                        JobState::Detached => detached += 1,
-                        JobState::Running => failed.push(json!({
-                            "job_id": record.job_id,
-                            "generation": record.generation,
-                            "code": "managed_job_stop_unverified",
-                        })),
-                        _ => stopped += 1,
-                    },
-                    Ok(_) => failed.push(json!({
-                        "job_id": record.job_id,
-                        "generation": record.generation,
-                        "code": "managed_job_response_invalid",
-                    })),
-                    Err(error) => failed.push(json!({
-                        "job_id": record.job_id,
-                        "generation": record.generation,
-                        "code": error.code,
-                    })),
+                match release_session_owner(&record, observe_session_owner, client_request) {
+                    Ok(SessionOwnerRelease::Stopped) => stopped += 1,
+                    Ok(SessionOwnerRelease::Detached) => detached += 1,
+                    Ok(SessionOwnerRelease::AlreadyTerminal) => already_terminal += 1,
+                    Err(code) => failed.push(cleanup_failure(&record, code)),
                 }
             }
             ManagedJobState::OrphanedUncertain => failed.push(json!({
@@ -466,6 +466,99 @@ pub(super) fn stop_session_jobs(session_id: &str) -> Result<Value, CuError> {
             "jobs": cleanup,
         })))
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SessionOwnerRelease {
+    AlreadyTerminal,
+    Stopped,
+    Detached,
+}
+
+/// What one exact observation of a record's recorded resident owner proved.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SessionOwnerObservation {
+    /// The recorded owner object is gone: dead, or its PID now names another object.
+    Absent,
+    /// The recorded owner object is still live under its exact start identity.
+    Live,
+    /// The observation could not decide.
+    Unknown,
+}
+
+/// Observes one recorded owner identity exactly, with no PID guessing.
+fn observe_session_owner(identity: &ResidentOwnerIdentity) -> SessionOwnerObservation {
+    match agenterm_platform::process_observation::verify_identity(
+        identity.pid,
+        &identity.start_identity,
+    ) {
+        agenterm_platform::process_observation::IdentityVerdict::PidReused
+        | agenterm_platform::process_observation::IdentityVerdict::Dead => {
+            SessionOwnerObservation::Absent
+        }
+        agenterm_platform::process_observation::IdentityVerdict::Live => {
+            SessionOwnerObservation::Live
+        }
+        agenterm_platform::process_observation::IdentityVerdict::IdentityUnavailable
+        | agenterm_platform::process_observation::IdentityVerdict::Unobservable => {
+            SessionOwnerObservation::Unknown
+        }
+    }
+}
+
+fn release_session_owner(
+    record: &ManagedJobRecord,
+    observe: impl FnOnce(&ResidentOwnerIdentity) -> SessionOwnerObservation,
+    request: impl FnOnce(
+        &ManagedJobHandle,
+        ManagedJobOperation,
+    ) -> Result<ManagedJobResult, ManagedJobProtocolError>,
+) -> Result<SessionOwnerRelease, String> {
+    let was_terminal = matches!(
+        &record.state,
+        ManagedJobState::StartFailed { .. }
+            | ManagedJobState::Exited { .. }
+            | ManagedJobState::Signaled { .. }
+            | ManagedJobState::Detached
+    );
+    match request(&record.handle(), ManagedJobOperation::StopAndRelease) {
+        Ok(ManagedJobResult::Stop { status }) => {
+            if matches!(status.state, JobState::Running) {
+                return Err("managed_job_stop_unverified".to_owned());
+            }
+            if was_terminal {
+                Ok(SessionOwnerRelease::AlreadyTerminal)
+            } else if matches!(status.state, JobState::Detached) {
+                Ok(SessionOwnerRelease::Detached)
+            } else {
+                Ok(SessionOwnerRelease::Stopped)
+            }
+        }
+        Ok(_) => Err("managed_job_response_invalid".to_owned()),
+        // An unreachable owner is proof that a **terminal** record was already
+        // released, and no proof at all for a record that still claims to be
+        // live: that one belongs in `failed` with its typed code, so a release
+        // that never happened is not reported as an already-terminal success.
+        // A failed connect is not proof of release: the record must carry an
+        // exact owner identity, and an observation of that identity must show it
+        // absent (dead, or a recycled PID). A live same-identity owner, or an
+        // undecidable read, stays a typed failure rather than a claimed release.
+        Err(error) if error.code == "managed_job_owner_unavailable" && was_terminal => {
+            match record.owner.as_ref().map(observe) {
+                Some(SessionOwnerObservation::Absent) => Ok(SessionOwnerRelease::AlreadyTerminal),
+                _ => Err(error.code),
+            }
+        }
+        Err(error) => Err(error.code),
+    }
+}
+
+fn cleanup_failure(record: &ManagedJobRecord, code: String) -> Value {
+    json!({
+        "job_id": record.job_id,
+        "generation": record.generation,
+        "code": code,
+    })
 }
 
 pub(super) fn public_job_identity(record: &ManagedJobRecord) -> Value {
@@ -863,37 +956,166 @@ pub(super) fn job_renew_payload(
     }
 }
 
+/// What one cooperative round proved.
+///
+/// The classification is deliberately richer than `Result`: a round that ran
+/// out of its own budget proved nothing, while a round that failed with a typed
+/// transport or protocol error proved something that must outrank a
+/// cancellation sample taken in the same round.
+enum WaitRound {
+    /// A complete reply frame that passed schema and request-identity validation.
+    Reply(Box<ManagedJobResult>),
+    /// The round exhausted its own absolute budget; nothing was proved.
+    Inconclusive,
+    /// A typed failure that was already formed when the round returned.
+    Failed(ManagedJobProtocolError),
+}
+
+trait WaitRounds {
+    fn round(&mut self, timeout_ms: u64, deadline: Instant) -> WaitRound;
+}
+
+/// The production round source: one bounded IPC exchange with the resident owner.
+struct ResidentWaitRounds<'a> {
+    handle: &'a ManagedJobHandle,
+}
+
+impl WaitRounds for ResidentWaitRounds<'_> {
+    fn round(&mut self, timeout_ms: u64, deadline: Instant) -> WaitRound {
+        match client_request_before(
+            self.handle,
+            ManagedJobOperation::Wait { timeout_ms },
+            deadline,
+        ) {
+            Ok(result) => WaitRound::Reply(Box::new(result)),
+            Err(error) if error.code == ROUND_TIMEOUT_CODE => WaitRound::Inconclusive,
+            Err(error) => WaitRound::Failed(error),
+        }
+    }
+}
+
+/// The terminal or deadline-bounded observation `job-wait` reports.
+#[derive(Debug)]
+enum WaitOutcome {
+    /// A complete, parsed terminal reply: the job finished.
+    Terminal(JobStatus),
+    /// The caller's deadline elapsed without a terminal reply.
+    TimedOut(JobStatus),
+}
+
+/// Drives the cooperative wait loop.
+///
+/// Precedence at every boundary is fixed: a complete terminal reply wins, then
+/// an already-formed typed error, then the call-scoped cancellation sample,
+/// then the caller's absolute deadline; only then does the loop continue. The
+/// cancellation check therefore happens strictly after the current round's
+/// request, stream and callback have returned, and it never performs an effect
+/// on the job.
+fn drive_wait(
+    rounds: &mut impl WaitRounds,
+    deadline: Instant,
+    control: ExecutionControl<'_>,
+) -> Result<WaitOutcome, CuError> {
+    let mut last: Option<JobStatus> = None;
+    loop {
+        let quantum = deadline
+            .saturating_duration_since(Instant::now())
+            .min(WAIT_QUANTUM);
+        // One absolute deadline for this round's connect, writes, flush and
+        // reads. It is never reset by a fragment, and the frozen budget caps it
+        // so a slow host cannot turn one round into a hundreds-of-milliseconds
+        // block.
+        let round_deadline = Instant::now() + (quantum + WAIT_ROUND_MARGIN).min(WAIT_ROUND_BUDGET);
+        let request_ms = u64::try_from(quantum.as_millis()).unwrap_or(0);
+        match rounds.round(request_ms, round_deadline) {
+            WaitRound::Reply(result) => match *result {
+                ManagedJobResult::Wait { completed, status } => {
+                    if completed {
+                        return Ok(WaitOutcome::Terminal(status));
+                    }
+                    last = Some(status);
+                }
+                _ => return Err(response_kind_error()),
+            },
+            WaitRound::Failed(error) => return Err(client_error(error)),
+            WaitRound::Inconclusive => {}
+        }
+        control.check_observe()?;
+        if deadline.saturating_duration_since(Instant::now()).is_zero() {
+            let status = last.ok_or_else(|| {
+                CuError::new(
+                    ROUND_TIMEOUT_CODE,
+                    "managed-job wait ended before any status was observed",
+                )
+            })?;
+            return Ok(WaitOutcome::TimedOut(status));
+        }
+    }
+}
+
+/// Maps a resolver result into the managed-job owner-launch contract.
+///
+/// It starts nothing: the caller refuses before any owner process exists. The
+/// resolver is a parameter so a test can prove the refusal mapping without a
+/// missing sibling on disk, and so production has exactly one choice of program.
+fn owner_launch_program(
+    resolve: impl FnOnce() -> Result<std::path::PathBuf, crate::owner_executable::OwnerExecutableError>,
+) -> Result<std::path::PathBuf, CuError> {
+    resolve().map_err(|error| {
+        CuError::new(
+            "managed_job_owner_spawn_failed",
+            "the sibling agenterm-cu owner executable is unavailable",
+        )
+        .with_detail(json!({
+            "reason": error.reason(),
+            "io_kind": error.kind().map(|kind| format!("{kind:?}")),
+            "resolution": "current_exe_sibling",
+            "owner_started": false,
+        }))
+    })
+}
+
+/// Builds the resident managed-job owner command for an explicit program.
+///
+/// The launch document travels on stdin, so the internal owner argument is the
+/// whole argv. An explicit program keeps the spawn boundary testable without
+/// letting a test choose production's program.
+fn owner_command(program: &std::path::Path) -> ProcessCommand {
+    let mut command = ProcessCommand::new(program);
+    command
+        .arg(crate::MANAGED_JOB_OWNER_ARG)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    command
+}
+
 pub(super) fn job_wait_payload(
     job_id: &str,
     generation: u64,
     timeout_ms: u64,
     expect_exit: Option<i32>,
+    control: ExecutionControl<'_>,
 ) -> Result<Value, CuError> {
+    // An already-cancelled call must be refused before `checked_record` opens
+    // the store, because opening it creates the durable state parent. A
+    // cancellation that arrives here must not leave a state root behind.
+    control.check_observe()?;
     let record = checked_record(job_id, generation)?;
+    let handle = record.handle();
     let deadline = Instant::now() + Duration::from_millis(timeout_ms);
-    loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        let slice = remaining.min(Duration::from_secs(300));
-        let result = client_request(
-            &record.handle(),
-            ManagedJobOperation::Wait {
-                timeout_ms: slice.as_millis().try_into().unwrap_or(300_000),
-            },
-        )
-        .map_err(client_error)?;
-        let ManagedJobResult::Wait { completed, status } = result else {
-            return Err(response_kind_error());
-        };
-        if completed || remaining.is_zero() {
-            verify_expected_exit(&status.state, completed, expect_exit)?;
-            return Ok(json!({
-                "job_id": job_id,
-                "generation": generation,
-                "completed": completed,
-                "status": status,
-            }));
-        }
-    }
+    let mut rounds = ResidentWaitRounds { handle: &handle };
+    let (completed, status) = match drive_wait(&mut rounds, deadline, control)? {
+        WaitOutcome::Terminal(status) => (true, status),
+        WaitOutcome::TimedOut(status) => (false, status),
+    };
+    verify_expected_exit(&status.state, completed, expect_exit)?;
+    Ok(json!({
+        "job_id": job_id,
+        "generation": generation,
+        "completed": completed,
+        "status": status,
+    }))
 }
 
 pub(super) fn job_prune_payload(
@@ -1723,7 +1945,516 @@ fn replay_error() -> CuError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
     use super::*;
+
+    fn running_status() -> JobStatus {
+        JobStatus {
+            state: JobState::Running,
+            adopted: false,
+            stdin_open: true,
+            lease_remaining_ms: 1_000,
+            stdout_earliest_cursor: 0,
+            stdout_current_cursor: 0,
+            stderr_earliest_cursor: 0,
+            stderr_current_cursor: 0,
+        }
+    }
+
+    fn exited_status(exit_code: i32) -> JobStatus {
+        JobStatus {
+            state: JobState::Exited { exit_code },
+            ..running_status()
+        }
+    }
+
+    /// One scripted round outcome.
+    enum Step {
+        Running,
+        Terminal(i32),
+        WrongKind,
+        Inconclusive,
+        Failed(&'static str),
+    }
+
+    /// A round source with no IPC, so the wait state machine is exercised purely.
+    struct Scripted {
+        steps: Vec<Step>,
+        timeouts: Vec<u64>,
+        cancel_after: Option<usize>,
+        flag: Arc<AtomicBool>,
+        completed: usize,
+        /// The largest budget any round was handed, so the frozen production
+        /// bound is observable rather than only implicitly asserted.
+        max_round_budget: Duration,
+    }
+
+    impl Scripted {
+        fn new(steps: Vec<Step>) -> Self {
+            Self {
+                steps,
+                timeouts: Vec::new(),
+                cancel_after: None,
+                flag: Arc::new(AtomicBool::new(false)),
+                completed: 0,
+                max_round_budget: Duration::ZERO,
+            }
+        }
+
+        /// Sets the cancellation probe after `rounds` rounds have returned, which
+        /// models a cancel that arrives while the next round would be in flight.
+        fn cancelling_after(mut self, rounds: usize) -> Self {
+            self.cancel_after = Some(rounds);
+            self
+        }
+
+        fn probe(&self) -> Arc<AtomicBool> {
+            Arc::clone(&self.flag)
+        }
+    }
+
+    impl WaitRounds for Scripted {
+        fn round(&mut self, timeout_ms: u64, deadline: Instant) -> WaitRound {
+            // Every round carries one absolute deadline that no fragment resets.
+            let budget = deadline.saturating_duration_since(Instant::now());
+            self.max_round_budget = self.max_round_budget.max(budget);
+            assert!(
+                budget <= WAIT_QUANTUM + WAIT_ROUND_MARGIN,
+                "a round deadline must stay inside one quantum plus its transport margin"
+            );
+            self.timeouts.push(timeout_ms);
+            let index = self.completed.min(self.steps.len() - 1);
+            self.completed += 1;
+            if self.cancel_after == Some(self.completed) {
+                self.flag.store(true, Ordering::Relaxed);
+            }
+            match &self.steps[index] {
+                Step::Running => WaitRound::Reply(Box::new(ManagedJobResult::Wait {
+                    completed: false,
+                    status: running_status(),
+                })),
+                Step::Terminal(exit_code) => WaitRound::Reply(Box::new(ManagedJobResult::Wait {
+                    completed: true,
+                    status: exited_status(*exit_code),
+                })),
+                Step::WrongKind => WaitRound::Reply(Box::new(ManagedJobResult::Status {
+                    status: running_status(),
+                })),
+                Step::Inconclusive => WaitRound::Inconclusive,
+                Step::Failed(code) => WaitRound::Failed(ManagedJobProtocolError {
+                    code: (*code).to_owned(),
+                    known_written_lower_bound: None,
+                    delivery_uncertain: None,
+                }),
+            }
+        }
+    }
+
+    fn control(flag: &Arc<AtomicBool>) -> impl Fn() -> bool + '_ {
+        let flag = Arc::clone(flag);
+        move || flag.load(Ordering::Relaxed)
+    }
+
+    /// P0: the production wait loop hands every round the frozen absolute budget
+    /// and never a wider one, so a fast healthy path cannot conceal a failure
+    /// path that would block for hundreds of milliseconds.
+    #[test]
+    fn wait_every_round_deadline_stays_within_the_frozen_budget() {
+        let mut scripted = Scripted::new(vec![Step::Running]);
+        let flag = scripted.probe();
+        let probe = control(&flag);
+        let outcome = drive_wait(
+            &mut scripted,
+            Instant::now() + Duration::from_millis(120),
+            ExecutionControl::with_cancel_probe(&probe),
+        )
+        .expect("a deadline-bounded wait returns its last snapshot");
+        assert!(matches!(outcome, WaitOutcome::TimedOut(_)));
+        assert!(
+            scripted.timeouts.len() >= 3,
+            "a 120ms wait must be sliced into several bounded rounds"
+        );
+        assert!(
+            scripted.max_round_budget <= WAIT_ROUND_BUDGET,
+            "every round must stay inside the frozen budget, observed {:?}",
+            scripted.max_round_budget
+        );
+        assert!(
+            scripted.max_round_budget > Duration::ZERO,
+            "the bound must be a real observed value, not an untested constant"
+        );
+    }
+
+    /// P0: one cooperative round must return far inside the worker's hard-cancel
+    /// grace (`cancel_grace_ms: 150` in `src/script_catalog.rs`), because that is
+    /// the deadline after which the supervisor stops waiting for the callback and
+    /// terminates the worker instead.
+    #[test]
+    fn wait_slice_and_margin_stay_inside_the_worker_cancel_grace() {
+        let grace = Duration::from_millis(150);
+        assert!(
+            WAIT_QUANTUM + WAIT_ROUND_MARGIN < grace,
+            "one wait round must finish well before the worker's hard-cancel grace"
+        );
+        assert!(WAIT_QUANTUM > Duration::ZERO);
+    }
+
+    /// P0: an already-cancelled call must be refused before the store is opened,
+    /// because opening it creates the durable state parent as a side effect.
+    #[test]
+    fn wait_entry_cancellation_refuses_before_the_store_is_consulted() {
+        let flag = Arc::new(AtomicBool::new(true));
+        let probe = control(&flag);
+        let error = job_wait_payload(
+            "00000000-0000-4000-8000-00000000dead",
+            1,
+            0,
+            None,
+            ExecutionControl::with_cancel_probe(&probe),
+        )
+        .expect_err("a pre-cancelled wait must refuse");
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("typed cancellation detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+    }
+
+    /// A complete terminal reply is accepted even when the same round also
+    /// observed cancellation: parsed truth outranks the robustness signal.
+    #[test]
+    fn wait_terminal_reply_outranks_a_cancellation_in_the_same_round() {
+        let scripted = Scripted::new(vec![Step::Terminal(0)]).cancelling_after(1);
+        let flag = scripted.probe();
+        let probe = control(&flag);
+        let mut scripted = scripted;
+        let outcome = drive_wait(
+            &mut scripted,
+            Instant::now() + Duration::from_secs(5),
+            ExecutionControl::with_cancel_probe(&probe),
+        )
+        .expect("a complete terminal reply must be accepted");
+        match outcome {
+            WaitOutcome::Terminal(status) => {
+                assert!(matches!(status.state, JobState::Exited { exit_code: 0 }));
+            }
+            WaitOutcome::TimedOut(_) => {
+                panic!("a terminal reply must not be reported as a timeout")
+            }
+        }
+    }
+
+    /// An incomplete round is followed by the cancellation sample, and no further
+    /// round may start once that sample is observed.
+    #[test]
+    fn wait_incomplete_then_cancel_returns_cancelled_without_another_round() {
+        let mut scripted = Scripted::new(vec![Step::Running]).cancelling_after(1);
+        let flag = scripted.probe();
+        let probe = control(&flag);
+        let error = drive_wait(
+            &mut scripted,
+            Instant::now() + Duration::from_secs(30),
+            ExecutionControl::with_cancel_probe(&probe),
+        )
+        .expect_err("a cancelled wait must not report an outcome");
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("typed cancellation detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        assert_eq!(
+            scripted.timeouts.len(),
+            1,
+            "no round may start after the cancellation is observed"
+        );
+    }
+
+    /// Cancellation answers without any terminal claim when the terminal state was
+    /// never observed, so a cancel can never masquerade as job progress.
+    #[test]
+    fn wait_cancellation_never_fabricates_a_terminal_claim() {
+        let mut scripted = Scripted::new(vec![Step::Running]).cancelling_after(1);
+        let flag = scripted.probe();
+        let probe = control(&flag);
+        let error = drive_wait(
+            &mut scripted,
+            Instant::now() + Duration::from_secs(30),
+            ExecutionControl::with_cancel_probe(&probe),
+        )
+        .expect_err("a cancelled wait must not report an outcome");
+        assert!(error.detail.is_some());
+        assert_eq!(error.code, "cancelled");
+    }
+
+    /// Cancellation outranks an already-expired deadline.
+    #[test]
+    fn wait_cancellation_outranks_an_expired_deadline() {
+        let mut scripted = Scripted::new(vec![Step::Running]);
+        let flag = scripted.probe();
+        flag.store(true, Ordering::Relaxed);
+        let probe = control(&flag);
+        let error = drive_wait(
+            &mut scripted,
+            Instant::now(),
+            ExecutionControl::with_cancel_probe(&probe),
+        )
+        .expect_err("cancellation must win the deadline race");
+        assert_eq!(error.code, "cancelled");
+    }
+
+    /// A typed transport error that already formed outranks a cancellation
+    /// observed in the same round; it must never be washed into `cancelled`.
+    #[test]
+    fn wait_typed_error_outranks_a_cancellation_in_the_same_round() {
+        let mut scripted =
+            Scripted::new(vec![Step::Failed("managed_job_protocol_io")]).cancelling_after(1);
+        let flag = scripted.probe();
+        let probe = control(&flag);
+        let error = drive_wait(
+            &mut scripted,
+            Instant::now() + Duration::from_secs(30),
+            ExecutionControl::with_cancel_probe(&probe),
+        )
+        .expect_err("a typed transport error must be reported");
+        assert_eq!(error.code, "managed_job_protocol_io");
+    }
+
+    /// Without cancellation the deadline still reports the last observed status,
+    /// sliced rather than issued as one long blocking wait.
+    #[test]
+    fn wait_deadline_without_cancellation_reports_the_last_status_in_slices() {
+        let mut scripted = Scripted::new(vec![Step::Running]);
+        let flag = scripted.probe();
+        let probe = control(&flag);
+        let outcome = drive_wait(
+            &mut scripted,
+            Instant::now() + Duration::from_millis(30),
+            ExecutionControl::with_cancel_probe(&probe),
+        )
+        .expect("a deadline-bounded wait returns its last snapshot");
+        assert!(matches!(outcome, WaitOutcome::TimedOut(_)));
+        let quantum_ms = u64::try_from(WAIT_QUANTUM.as_millis()).expect("quantum fits u64");
+        assert!(
+            scripted.timeouts.iter().all(|ms| *ms <= quantum_ms),
+            "every round must request at most one quantum"
+        );
+        assert!(
+            scripted.timeouts.len() >= 2,
+            "a 30ms deadline must be sliced, not issued as one long wait"
+        );
+    }
+
+    /// A round that exhausted only its own budget proved nothing, so no status is
+    /// invented for it.
+    #[test]
+    fn wait_inconclusive_rounds_never_fabricate_a_status() {
+        let mut scripted = Scripted::new(vec![Step::Inconclusive]);
+        let flag = scripted.probe();
+        let probe = control(&flag);
+        let error = drive_wait(
+            &mut scripted,
+            Instant::now(),
+            ExecutionControl::with_cancel_probe(&probe),
+        )
+        .expect_err("an unobserved status must not be reported as a timeout snapshot");
+        assert_eq!(error.code, ROUND_TIMEOUT_CODE);
+    }
+
+    #[test]
+    fn wait_rejects_a_mismatched_reply_kind() {
+        let mut scripted = Scripted::new(vec![Step::WrongKind]);
+        let flag = scripted.probe();
+        let probe = control(&flag);
+        let error = drive_wait(
+            &mut scripted,
+            Instant::now() + Duration::from_millis(30),
+            ExecutionControl::with_cancel_probe(&probe),
+        )
+        .expect_err("a non-wait reply must be refused");
+        assert_eq!(error.code, "managed_job_response_invalid");
+    }
+
+    /// P0 measurement seam.
+    ///
+    /// A real AF_UNIX round against a peer that loops exactly like the resident
+    /// owner (`accept` with the production tick, one request per connection)
+    /// measures the two quantities the public reply does not carry: one
+    /// cooperative round's cost, and the interval from the cancellation token
+    /// being set to the callback returning.
+    #[cfg(unix)]
+    #[test]
+    fn wait_round_cost_and_cancel_return_are_measured_on_a_real_socket() {
+        use std::sync::Mutex;
+
+        use agenterm_platform::ipc::NativeListener;
+
+        let handle = ManagedJobHandle {
+            job_id: "00000000-0000-4000-8000-0000000000aa".to_owned(),
+            generation: 1,
+            nonce: "b".repeat(32),
+        };
+        let endpoint = crate::managed_job_ipc::endpoint_for(&handle).expect("derived endpoint");
+        let socket_path = endpoint.unix_socket_path().expect("unix socket endpoint");
+        let mut listener = NativeListener::bind(&endpoint).expect("bind scripted owner");
+        let limits = crate::deadline_frame_io::FrameLimits {
+            max_bytes: crate::managed_job_ipc::FRAME_MAX_BYTES,
+            little_endian: false,
+        };
+        let serving = Arc::new(AtomicBool::new(true));
+        let stop = Arc::clone(&serving);
+        let server = std::thread::spawn(move || {
+            let mut rounds = 0_u64;
+            while stop.load(Ordering::Relaxed) {
+                let Ok(mut stream) = listener.accept(Duration::from_millis(100)) else {
+                    continue;
+                };
+                let budget = Instant::now() + Duration::from_millis(500);
+                let Ok(body) =
+                    crate::deadline_frame_io::read_frame_before(&mut stream, budget, limits)
+                else {
+                    continue;
+                };
+                let request: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+                let reply = crate::managed_job_ipc::ManagedJobReply {
+                    schema_version: 3,
+                    request_id: request["request_id"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_owned(),
+                    ok: true,
+                    result: Some(ManagedJobResult::Wait {
+                        completed: false,
+                        status: running_status(),
+                    }),
+                    error: None,
+                };
+                let encoded = serde_json::to_vec(&reply).expect("reply json");
+                let _ = crate::deadline_frame_io::write_frame_before(
+                    &mut stream,
+                    &encoded,
+                    budget,
+                    limits,
+                );
+                let _ = crate::deadline_frame_io::flush_before(&mut stream, budget);
+                rounds += 1;
+            }
+            rounds
+        });
+
+        // (a) one cooperative round, measured directly.
+        let mut rounds = ResidentWaitRounds { handle: &handle };
+        let single = Instant::now();
+        let outcome = rounds.round(25, Instant::now() + WAIT_ROUND_BUDGET);
+        let round_cost = single.elapsed();
+        assert!(
+            matches!(outcome, WaitRound::Reply(_)),
+            "the scripted peer must answer one complete wait reply"
+        );
+
+        // (b) cancellation token set -> callback returned.
+        let token_set = Arc::new(Mutex::new(None::<Instant>));
+        let flag = Arc::new(AtomicBool::new(false));
+        let canceller_flag = Arc::clone(&flag);
+        let canceller_at = Arc::clone(&token_set);
+        let canceller = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(120));
+            *canceller_at.lock().expect("token instant") = Some(Instant::now());
+            canceller_flag.store(true, Ordering::Relaxed);
+        });
+        let probe_flag = Arc::clone(&flag);
+        let probe = move || probe_flag.load(Ordering::Relaxed);
+        let started = Instant::now();
+        let mut rounds = ResidentWaitRounds { handle: &handle };
+        let error = drive_wait(
+            &mut rounds,
+            Instant::now() + Duration::from_secs(30),
+            ExecutionControl::with_cancel_probe(&probe),
+        )
+        .expect_err("the cancellation must end the wait");
+        let returned = Instant::now();
+        canceller.join().expect("canceller");
+        serving.store(false, Ordering::Relaxed);
+        let total_rounds = server.join().expect("scripted owner");
+
+        let token_at = token_set
+            .lock()
+            .expect("token instant")
+            .expect("token instant");
+        let interval = returned.saturating_duration_since(token_at);
+        eprintln!(
+            "MEASURED one_round={round_cost:?} cancel_to_return={interval:?} \
+             wait_elapsed={:?} rounds_in_run={total_rounds}",
+            returned.saturating_duration_since(started)
+        );
+        assert_eq!(error.code, "cancelled");
+        assert!(
+            interval < Duration::from_millis(150),
+            "cancel -> callback return must stay inside the worker grace, measured {interval:?}"
+        );
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    /// The owner-launch boundary refuses before anything starts, and reports the
+    /// resolver's own reason and native kind instead of a bare message.
+    #[test]
+    fn owner_launch_refusal_maps_the_resolver_error_without_starting_an_owner() {
+        let error =
+            owner_launch_program(|| Err(crate::owner_executable::OwnerExecutableError::Missing))
+                .expect_err("a missing sibling must refuse the launch");
+        assert_eq!(error.code, "managed_job_owner_spawn_failed");
+        let detail = error.detail.expect("structured launch refusal");
+        assert_eq!(detail["reason"], "owner_executable_missing");
+        assert_eq!(detail["owner_started"], false);
+        assert!(detail["io_kind"].is_null());
+
+        let error = owner_launch_program(|| {
+            Err(crate::owner_executable::OwnerExecutableError::Unavailable(
+                std::io::ErrorKind::PermissionDenied,
+            ))
+        })
+        .expect_err("an unreadable sibling must refuse the launch");
+        let detail = error.detail.expect("structured launch refusal");
+        assert_eq!(detail["reason"], "owner_executable_unavailable");
+        assert_eq!(detail["io_kind"], "PermissionDenied");
+    }
+
+    /// The program the owner command starts is the resolved sibling, and the
+    /// internal owner argument is its whole argv (the launch document is stdin).
+    #[test]
+    fn owner_launch_program_is_the_resolved_sibling_and_argv_is_exact() {
+        let program =
+            owner_launch_program(|| Ok(std::path::PathBuf::from("/opt/agenterm/agenterm-cu")))
+                .expect("an available sibling resolves");
+        let command = owner_command(&program);
+        assert_eq!(
+            command.get_program(),
+            std::ffi::OsStr::new("/opt/agenterm/agenterm-cu")
+        );
+        let arguments = command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(arguments, vec![crate::MANAGED_JOB_OWNER_ARG.to_owned()]);
+    }
+
+    #[test]
+    fn wait_expected_exit_verification_is_unchanged() {
+        assert!(verify_expected_exit(&exited_status(3).state, true, Some(3)).is_ok());
+        assert_eq!(
+            verify_expected_exit(&exited_status(3).state, true, Some(7))
+                .expect_err("a different exit code must not satisfy the expectation")
+                .code,
+            "managed_job_exit_mismatch"
+        );
+        assert_eq!(
+            verify_expected_exit(&running_status().state, false, Some(0))
+                .expect_err("an incomplete wait must not satisfy an exit expectation")
+                .code,
+            "managed_job_exit_mismatch"
+        );
+    }
 
     fn record(session_id: Option<&str>) -> ManagedJobRecord {
         ManagedJobRecord {
@@ -1759,6 +2490,231 @@ mod tests {
                 .expect_err("ownerless record must not be mutable")
                 .code,
             "managed_job_session_mismatch"
+        );
+    }
+
+    #[test]
+    fn session_cleanup_releases_a_terminal_owner_without_relabelling_terminal_truth() {
+        let mut terminal = record(Some("session-a"));
+        terminal.owner = Some(ResidentOwnerIdentity {
+            pid: 42,
+            start_identity: "owner-start".to_owned(),
+        });
+        terminal.state = ManagedJobState::Exited { exit_code: 7 };
+        terminal.terminal_trigger = Some(ManagedJobTerminalTrigger::RootExit);
+        let state_before = terminal.state.clone();
+        let trigger_before = terminal.terminal_trigger;
+        let result = release_session_owner(
+            &terminal,
+            |_| SessionOwnerObservation::Unknown,
+            |handle, operation| {
+                assert_eq!(handle, &terminal.handle());
+                assert!(matches!(operation, ManagedJobOperation::StopAndRelease));
+                Ok(ManagedJobResult::Stop {
+                    status: exited_status(7),
+                })
+            },
+        )
+        .expect("terminal owner release succeeds");
+
+        assert_eq!(result, SessionOwnerRelease::AlreadyTerminal);
+        assert_eq!(terminal.state, state_before);
+        assert_eq!(terminal.terminal_trigger, trigger_before);
+    }
+
+    #[test]
+    fn session_cleanup_treats_an_absent_owner_as_an_idempotent_terminal_result() {
+        let mut terminal = record(Some("session-a"));
+        terminal.owner = Some(ResidentOwnerIdentity {
+            pid: 42,
+            start_identity: "owner-start".to_owned(),
+        });
+        terminal.state = ManagedJobState::Signaled { signal: 15 };
+        terminal.terminal_trigger = Some(ManagedJobTerminalTrigger::ExplicitStop);
+
+        for _ in 0..2 {
+            let result = release_session_owner(
+                &terminal,
+                |_| SessionOwnerObservation::Absent,
+                |_, operation| {
+                    assert!(matches!(operation, ManagedJobOperation::StopAndRelease));
+                    Err(ManagedJobProtocolError {
+                        code: "managed_job_owner_unavailable".to_owned(),
+                        known_written_lower_bound: None,
+                        delivery_uncertain: None,
+                    })
+                },
+            )
+            .expect("an absent owner is already released");
+            assert_eq!(result, SessionOwnerRelease::AlreadyTerminal);
+        }
+        assert!(matches!(
+            terminal.state,
+            ManagedJobState::Signaled { signal: 15 }
+        ));
+        assert_eq!(
+            terminal.terminal_trigger,
+            Some(ManagedJobTerminalTrigger::ExplicitStop)
+        );
+    }
+
+    #[test]
+    fn session_cleanup_preserves_non_absence_owner_failures() {
+        let mut terminal = record(Some("session-a"));
+        terminal.owner = Some(ResidentOwnerIdentity {
+            pid: 42,
+            start_identity: "owner-start".to_owned(),
+        });
+        terminal.state = ManagedJobState::StartFailed {
+            code: "launch_failed".to_owned(),
+        };
+        let error = release_session_owner(
+            &terminal,
+            |_| SessionOwnerObservation::Unknown,
+            |_, _| {
+                Err(ManagedJobProtocolError {
+                    code: "managed_job_protocol_io".to_owned(),
+                    known_written_lower_bound: None,
+                    delivery_uncertain: None,
+                })
+            },
+        )
+        .expect_err("non-absence failures remain cleanup failures");
+        assert_eq!(error, "managed_job_protocol_io");
+    }
+
+    /// A failed connect proves nothing on its own: a terminal record counts as
+    /// already released only when its recorded owner identity is observed absent.
+    #[test]
+    fn session_cleanup_requires_an_exact_absent_observation_to_claim_a_release() {
+        for (observation, released) in [
+            (SessionOwnerObservation::Absent, true),
+            (SessionOwnerObservation::Live, false),
+            (SessionOwnerObservation::Unknown, false),
+        ] {
+            let mut terminal = record(Some("session-a"));
+            terminal.owner = Some(ResidentOwnerIdentity {
+                pid: 42,
+                start_identity: "owner-start".to_owned(),
+            });
+            terminal.state = ManagedJobState::Exited { exit_code: 7 };
+            let observed = std::cell::Cell::new(None);
+            let result = release_session_owner(
+                &terminal,
+                |identity| {
+                    observed.set(Some(identity.clone()));
+                    observation
+                },
+                |handle, operation| {
+                    assert_eq!(handle, &terminal.handle());
+                    assert!(matches!(operation, ManagedJobOperation::StopAndRelease));
+                    Err(ManagedJobProtocolError {
+                        code: "managed_job_owner_unavailable".to_owned(),
+                        known_written_lower_bound: None,
+                        delivery_uncertain: None,
+                    })
+                },
+            );
+            let seen = observed.into_inner().expect("the observer must run");
+            assert_eq!(
+                (seen.pid, seen.start_identity.as_str()),
+                (42, "owner-start"),
+                "the observer must receive the record's exact identity"
+            );
+            match (released, result) {
+                (true, Ok(SessionOwnerRelease::AlreadyTerminal)) => {}
+                (false, Err(code)) => assert_eq!(code, "managed_job_owner_unavailable"),
+                other => panic!("unexpected outcome for {observation:?}: {other:?}"),
+            }
+        }
+    }
+
+    /// Without a recorded owner identity there is nothing to observe, so the
+    /// unavailable owner stays a typed failure even for a terminal record.
+    #[test]
+    fn session_cleanup_never_claims_a_release_without_a_recorded_owner_identity() {
+        let mut terminal = record(Some("session-a"));
+        terminal.state = ManagedJobState::Signaled { signal: 15 };
+        terminal.owner = None;
+        let observed = std::cell::Cell::new(false);
+        let error = release_session_owner(
+            &terminal,
+            |_| {
+                observed.set(true);
+                SessionOwnerObservation::Absent
+            },
+            |_, _| {
+                Err(ManagedJobProtocolError {
+                    code: "managed_job_owner_unavailable".to_owned(),
+                    known_written_lower_bound: None,
+                    delivery_uncertain: None,
+                })
+            },
+        )
+        .expect_err("no identity, no release claim");
+        assert_eq!(error, "managed_job_owner_unavailable");
+        assert!(
+            !observed.into_inner(),
+            "there is nothing to observe without an identity"
+        );
+    }
+
+    /// The non-terminal half of the split is unchanged: even an absent owner is
+    /// not proof that a record still claiming to be live was released.
+    #[test]
+    fn session_cleanup_keeps_the_nonterminal_split_even_with_an_absent_owner() {
+        let mut live = record(Some("session-a"));
+        live.owner = Some(ResidentOwnerIdentity {
+            pid: 42,
+            start_identity: "owner-start".to_owned(),
+        });
+        live.state = ManagedJobState::Running;
+        let error = release_session_owner(
+            &live,
+            |_| SessionOwnerObservation::Absent,
+            |_, _| {
+                Err(ManagedJobProtocolError {
+                    code: "managed_job_owner_unavailable".to_owned(),
+                    known_written_lower_bound: None,
+                    delivery_uncertain: None,
+                })
+            },
+        )
+        .expect_err("a live record's unavailable owner is a failure");
+        assert_eq!(error, "managed_job_owner_unavailable");
+    }
+
+    #[test]
+    fn session_cleanup_reports_an_absent_owner_on_a_live_record_as_a_failure() {
+        let mut live = record(Some("session-a"));
+        live.owner = Some(ResidentOwnerIdentity {
+            pid: 42,
+            start_identity: "owner-start".to_owned(),
+        });
+        live.state = ManagedJobState::Running;
+        let requests = std::sync::atomic::AtomicUsize::new(0);
+        let error = release_session_owner(
+            &live,
+            |_| SessionOwnerObservation::Unknown,
+            |_, operation| {
+                requests.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                assert!(matches!(operation, ManagedJobOperation::StopAndRelease));
+                Err(ManagedJobProtocolError {
+                    code: "managed_job_owner_unavailable".to_owned(),
+                    known_written_lower_bound: None,
+                    delivery_uncertain: None,
+                })
+            },
+        )
+        .expect_err("an absent owner on a live record is not proof of a release");
+        assert_eq!(error, "managed_job_owner_unavailable");
+        // The refusal must come from exactly one release attempt: the function
+        // takes `&record`, so asserting the record itself is unchanged would be
+        // tautological and would not notice a second request.
+        assert_eq!(
+            requests.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "a live record's failed release must not be retried inside one call"
         );
     }
 

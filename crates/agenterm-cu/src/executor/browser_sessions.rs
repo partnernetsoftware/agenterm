@@ -121,19 +121,24 @@ pub(super) fn browser_session_start_payload(
     };
     publish_spec(&spec_path(&paths), &spec).map_err(state_unavailable)?;
 
-    let executable = std::env::current_exe().map_err(|error| {
+    // Resolved at the owner-spawn boundary, not at entry: by this point the
+    // session directory exists and the owner spec has already been published,
+    // and this branch does not roll them back. The refusal is therefore
+    // honestly pre-owner-spawn, not a zero-side-effect failure.
+    let program = crate::owner_executable::resolve_current().map_err(|error| {
         CuError::new(
             "browser_owner_spawn_failed",
-            format!("current executable is unavailable: {error}"),
+            "the sibling agenterm-cu owner executable is unavailable",
         )
+        .with_detail(json!({
+            "reason": error.reason(),
+            "io_kind": error.kind().map(|kind| format!("{kind:?}")),
+            "resolution": "current_exe_sibling",
+            "owner_started": false,
+            "session_state_retained": true,
+        }))
     })?;
-    let mut command = ProcessCommand::new(executable);
-    command
-        .arg(OWNER_ARG)
-        .arg(&paths.directory)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    let mut command = owner_command(&program, &paths.directory);
     let (mut owner_child, spawn_mode) = spawn_detached_child(&mut command).map_err(|error| {
         CuError::new(
             "browser_owner_spawn_failed",
@@ -180,6 +185,21 @@ pub(super) fn browser_session_start_payload(
         ));
     }
     wait_for_start(&paths, &starting, &mut owner_child, ready_timeout_ms)
+}
+
+/// Builds one resident browser-session owner command for an explicit program.
+///
+/// Production passes the resolved sibling; the explicit program keeps the
+/// spawn boundary testable without letting a test choose production's program.
+fn owner_command(program: &std::path::Path, directory: &std::path::Path) -> ProcessCommand {
+    let mut command = ProcessCommand::new(program);
+    command
+        .arg(OWNER_ARG)
+        .arg(directory)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    command
 }
 
 fn bridge_install_error(error: BrowserBridgeInstallError) -> CuError {

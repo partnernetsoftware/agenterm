@@ -428,7 +428,7 @@ impl Executor {
                 timeout_ms,
                 expect_exit,
                 ..
-            } => job_wait_payload(job_id, *generation, *timeout_ms, *expect_exit),
+            } => job_wait_payload(job_id, *generation, *timeout_ms, *expect_exit, control),
             Command::JobSetState {
                 job_id,
                 generation,

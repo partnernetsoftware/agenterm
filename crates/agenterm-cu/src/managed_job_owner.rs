@@ -1999,6 +1999,236 @@ mod tests {
         );
     }
 
+    /// A live process the court adopts but does not own.
+    ///
+    /// `Drop` removes it even when an assertion panics: these tests are run
+    /// under deliberate mutation, so the red path is the common path and must
+    /// not leak a spinning shell.
+    #[cfg(unix)]
+    struct AdoptableFixture {
+        child: std::process::Child,
+        pid: u32,
+        start_identity: String,
+    }
+
+    #[cfg(unix)]
+    impl AdoptableFixture {
+        fn spawn() -> Self {
+            use std::os::unix::process::CommandExt as _;
+
+            // `job-adopt` requires a group leader, so the fixture must lead its
+            // own group exactly as an externally created process would.
+            let child = std::process::Command::new("/bin/sh")
+                .arg("-c")
+                .arg("while :; do sleep 1; done")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .process_group(0)
+                .spawn()
+                .expect("spawn adoptable fixture");
+            let pid = child.id();
+            let start_identity = start_identity(pid).expect("fixture start identity");
+            Self {
+                child,
+                pid,
+                start_identity,
+            }
+        }
+
+        fn is_live(&self) -> bool {
+            verify_identity(self.pid, &self.start_identity) == IdentityVerdict::Live
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for AdoptableFixture {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    /// Session end must not kill a process CU only adopted.
+    ///
+    /// `stop_and_release` is what the `StopAndRelease` IPC serves, and it
+    /// branches on `on_expiry` *before* it could reach `stop_with`: a detach
+    /// policy is finished through `finish_adopted_detached`, so the adopted
+    /// group's `terminate()` inside `stop_adopted` is structurally unreachable
+    /// on this path. That claim belongs here and not in an end-to-end court:
+    /// the owner returns from `run_to_completion` as soon as a terminal report
+    /// exists, so a real session sweep normally finds the owner already gone
+    /// and takes the `managed_job_owner_unavailable` path without ever
+    /// exercising this code.
+    #[cfg(unix)]
+    #[test]
+    fn session_end_releases_a_detach_policy_owner_without_killing_the_adopted_process() {
+        let directory = test_directory("detach-session-end");
+        let state_path = directory.join("jobs.json");
+        let store = ManagedJobStore::open_at(&state_path).expect("open store");
+        let record = store
+            .reserve_start(None, now_utc_ms().expect("clock"))
+            .expect("reserve");
+        let handle = record.handle();
+
+        let fixture = AdoptableFixture::spawn();
+
+        let owner_identity = ResidentOwnerIdentity {
+            pid: std::process::id(),
+            start_identity: start_identity(std::process::id()).expect("owner start identity"),
+        };
+        // `start_adopted_owner` publishes `running`, and only a claimed intent
+        // may take that edge: the launcher claims it before the owner runs.
+        store
+            .claim_starting(
+                &handle,
+                owner_identity.clone(),
+                now_utc_ms().expect("clock"),
+            )
+            .expect("claim the reserved intent");
+        let mut owner = start_adopted_owner(
+            store,
+            handle.clone(),
+            owner_identity,
+            ManagedJobAdoption {
+                process_id: fixture.pid,
+                start_identity: fixture.start_identity.clone(),
+            },
+            ManagedJobOnExpiry::Detach,
+            60_000,
+        )
+        .expect("adopt the fixture under a detach policy");
+
+        let report = owner.stop_and_release().expect("session end release");
+        assert_eq!(
+            report.terminal,
+            ManagedJobTerminal::Detached,
+            "a detach policy must reach detached truth, never a signalled terminal"
+        );
+        assert!(
+            fixture.is_live(),
+            "session end must leave the adopted process running under its exact identity"
+        );
+
+        let reopened = ManagedJobStore::open_at(&state_path).expect("reopen store");
+        let stored = reopened
+            .get(&handle.job_id)
+            .expect("read store")
+            .expect("job record");
+        assert!(
+            matches!(
+                stored.state,
+                crate::managed_job_store::ManagedJobState::Detached
+            ),
+            "the durable record must publish detached, not a stop"
+        );
+        assert_eq!(
+            stored.detach_liveness,
+            Some(ManagedJobDetachLiveness::Live),
+            "the receipt must say the process survived rather than claim it by default"
+        );
+        assert_eq!(
+            stored.terminal_trigger,
+            Some(ManagedJobTerminalTrigger::SessionEnd),
+            "a detach published by session end must record that cause exactly"
+        );
+
+        // `AdoptableFixture::drop` removes the process; it must outlive the
+        // survival claim, so hold it until here.
+        drop(fixture);
+        fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    /// The `finished` gate decides the winner, and session end is not allowed
+    /// to relabel a cause that was already published.
+    ///
+    /// This covers the other edge of the same branch: `stop_and_release`
+    /// returns the existing `terminal_report` for a detach policy instead of
+    /// publishing a second terminal. Without that early return the sweep would
+    /// rewrite a `lease_expiry` receipt as `session_end`, which is a different
+    /// statement about why the process was let go.
+    #[cfg(unix)]
+    #[test]
+    fn session_end_does_not_relabel_a_detach_already_published_by_lease_expiry() {
+        let directory = test_directory("detach-no-relabel");
+        let state_path = directory.join("jobs.json");
+        let store = ManagedJobStore::open_at(&state_path).expect("open store");
+        let record = store
+            .reserve_start(None, now_utc_ms().expect("clock"))
+            .expect("reserve");
+        let handle = record.handle();
+
+        let fixture = AdoptableFixture::spawn();
+
+        let owner_identity = ResidentOwnerIdentity {
+            pid: std::process::id(),
+            start_identity: start_identity(std::process::id()).expect("owner start identity"),
+        };
+        store
+            .claim_starting(
+                &handle,
+                owner_identity.clone(),
+                now_utc_ms().expect("clock"),
+            )
+            .expect("claim the reserved intent");
+        // A lease that is already spent: the next lifecycle poll is the lease
+        // expiry, so the detach is published before any session end runs.
+        let mut owner = start_adopted_owner(
+            store,
+            handle.clone(),
+            owner_identity,
+            ManagedJobAdoption {
+                process_id: fixture.pid,
+                start_identity: fixture.start_identity.clone(),
+            },
+            ManagedJobOnExpiry::Detach,
+            1,
+        )
+        .expect("adopt the fixture under a detach policy");
+
+        thread::sleep(Duration::from_millis(20));
+        owner.poll_lifecycle().expect("lease expiry poll");
+        assert!(
+            owner.terminal_report.is_some(),
+            "the spent lease must publish the detach before session end"
+        );
+
+        let reopened = ManagedJobStore::open_at(&state_path).expect("reopen store");
+        let after_expiry = reopened
+            .get(&handle.job_id)
+            .expect("read store")
+            .expect("job record");
+        assert_eq!(
+            after_expiry.terminal_trigger,
+            Some(ManagedJobTerminalTrigger::LeaseExpiry),
+            "the published cause is the lease expiry"
+        );
+
+        let report = owner.stop_and_release().expect("session end release");
+        assert_eq!(
+            report.terminal,
+            ManagedJobTerminal::Detached,
+            "session end must return the terminal that was already published"
+        );
+
+        let after_session_end = reopened
+            .get(&handle.job_id)
+            .expect("read store")
+            .expect("job record");
+        assert_eq!(
+            after_session_end.terminal_trigger,
+            Some(ManagedJobTerminalTrigger::LeaseExpiry),
+            "session end must not rewrite the cause that already won the gate"
+        );
+        assert!(
+            fixture.is_live(),
+            "neither path may touch the adopted process"
+        );
+
+        drop(fixture);
+        fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
     #[test]
     #[ignore = "spawned by the owner lifecycle test"]
     fn contained_output_probe() {

@@ -21,6 +21,7 @@ pub mod browser_session_owner;
 pub mod cdp;
 pub mod cli;
 pub mod command;
+pub(crate) mod deadline_frame_io;
 pub(crate) mod device_lease_ipc;
 pub(crate) mod device_lease_owner;
 pub(crate) mod device_lease_store;
@@ -44,6 +45,7 @@ pub mod macos_spaces;
 pub(crate) mod managed_job_ipc;
 pub(crate) mod managed_job_owner;
 pub(crate) mod managed_job_store;
+pub(crate) mod owner_executable;
 pub mod screen_reader_observe;
 
 #[doc(hidden)]

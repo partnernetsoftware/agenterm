@@ -8,15 +8,18 @@
 
 use std::{
     io::{self, Read, Write},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
-use agenterm_platform::ipc::{IpcEndpoint, IpcTransportErrorCode, NativeListener};
+use agenterm_platform::ipc::{
+    IpcEndpoint, IpcTransportError, IpcTransportErrorCode, NativeListener,
+};
 use agenterm_platform::{entropy::secure_random_array, ipc::NativeStream};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::command::JobResourcePolicy;
+use crate::deadline_frame_io::{self, FrameIoError, FrameLimits};
 use crate::managed_job_owner::{
     ManagedJobOwnerError, OutputCursorError, RESOURCE_MEMBERS_MAX, ResidentJobOwner,
     ResidentJobState, ResidentJobStatus, ResidentPriorityResult, ResidentResourcePolicyReply,
@@ -25,13 +28,48 @@ use crate::managed_job_owner::{
 use crate::managed_job_store::{ManagedJobHandle, ManagedJobStore};
 
 const SCHEMA_VERSION: u32 = 3;
-const FRAME_MAX_BYTES: usize = 128 * 1024;
+pub(crate) const FRAME_MAX_BYTES: usize = 128 * 1024;
 const REQUEST_ID_MAX_BYTES: usize = 128;
 const STDIN_BYTES_MAX: usize = 64 * 1024;
 const OUTPUT_BYTES_MAX: usize = 64 * 1024;
 const WAIT_MAX_MS: u64 = 300_000;
 const ACCEPT_TICK: Duration = Duration::from_millis(100);
 const STREAM_TIMEOUT: Duration = Duration::from_secs(305);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// One owner-side wait slice inside a cooperative `job-wait` call.
+///
+/// The wait is sliced so a call-scoped cancellation probe is sampled at a round
+/// boundary instead of after one long blocking exchange. This constant and
+/// [`WAIT_ROUND_MARGIN`] are the frozen pair behind [`WAIT_ROUND_BUDGET`].
+pub(crate) const WAIT_QUANTUM: Duration = Duration::from_millis(25);
+
+/// One cooperative round's transport margin above the caller's owner-side wait.
+///
+/// This margin is the extra time one complete round may spend connecting,
+/// writing, flushing and reading before it is declared inconclusive. It is
+/// deliberately *not* a per-fragment allowance: the round's single absolute
+/// deadline is recomputed from the remaining budget, never reset.
+pub(crate) const WAIT_ROUND_MARGIN: Duration = Duration::from_millis(25);
+
+/// The frozen absolute budget for one **production** round: connect, every write
+/// fragment, flush, every read fragment and the owner-side wait together.
+///
+/// `executor::managed_jobs::drive_wait` is the only place that computes a round
+/// deadline, and it computes exactly `min(remaining, WAIT_QUANTUM) +
+/// WAIT_ROUND_MARGIN`, so no round can exceed this value. A test in that module
+/// records the observed per-round bound and asserts it; a harness that needs a
+/// larger outer deadline must say so explicitly instead of widening this one.
+/// The sum stays far below the worker's hard-cancel grace (`cancel_grace_ms:
+/// 150` in `src/script_catalog.rs`).
+pub(crate) const WAIT_ROUND_BUDGET: Duration = Duration::from_millis(50);
+
+/// Protocol code for a round that exhausted its own absolute budget.
+///
+/// It is deliberately distinct from `managed_job_protocol_io`: a round that ran
+/// out of its own short budget is *inconclusive*, so the caller must sample
+/// cancellation and the caller deadline instead of reporting a transport error.
+pub(crate) const ROUND_TIMEOUT_CODE: &str = "managed_job_round_timeout";
 
 pub(crate) fn run_resident(reader: impl Read) -> Result<(), ManagedJobOwnerError> {
     let launch = read_launch(reader)?;
@@ -144,9 +182,43 @@ pub(crate) enum ManagedJobOperation {
     },
 }
 
+/// Bounds one complete request/reply exchange with the resident owner.
+#[derive(Clone, Copy)]
+enum IoBudget {
+    /// The bounded legacy budget: a short connect plus the long stream timeout.
+    Blocking,
+    /// One cooperative round: connect, every write and read fragment, and flush
+    /// all share this single absolute deadline.
+    Before(Instant),
+}
+
 pub(crate) fn client_request(
     handle: &ManagedJobHandle,
     operation: ManagedJobOperation,
+) -> Result<ManagedJobResult, ManagedJobProtocolError> {
+    request_once(handle, operation, IoBudget::Blocking)
+}
+
+/// Sends one request whose connect, write, flush and read must all complete
+/// before `deadline`.
+///
+/// The caller keeps its own observation cadence: when this returns
+/// [`ROUND_TIMEOUT_CODE`] the round was inconclusive rather than failed, so a
+/// cancellation probe sampled at the round boundary still owns the outcome.
+/// The stream is dropped on return, so no request, stream or helper thread of
+/// this round outlives the call.
+pub(crate) fn client_request_before(
+    handle: &ManagedJobHandle,
+    operation: ManagedJobOperation,
+    deadline: Instant,
+) -> Result<ManagedJobResult, ManagedJobProtocolError> {
+    request_once(handle, operation, IoBudget::Before(deadline))
+}
+
+fn request_once(
+    handle: &ManagedJobHandle,
+    operation: ManagedJobOperation,
+    budget: IoBudget,
 ) -> Result<ManagedJobResult, ManagedJobProtocolError> {
     validate_operation(&operation).map_err(protocol_error)?;
     let endpoint = endpoint_for(handle).map_err(|error| protocol_error(error.code))?;
@@ -158,16 +230,95 @@ pub(crate) fn client_request(
     };
     let encoded =
         serde_json::to_vec(&request).map_err(|_| protocol_error("managed_job_request_invalid"))?;
-    let mut stream = NativeStream::connect(&endpoint, Duration::from_secs(2))
-        .map_err(|_| protocol_error("managed_job_owner_unavailable"))?;
-    stream
-        .set_io_timeout(STREAM_TIMEOUT)
-        .map_err(|_| protocol_error("managed_job_protocol_io"))?;
-    write_frame(&mut stream, &encoded).map_err(|_| protocol_error("managed_job_protocol_io"))?;
-    let reply_bytes = read_frame(&mut stream)
-        .map_err(|_| protocol_error("managed_job_protocol_io"))?
-        .ok_or_else(|| protocol_error("managed_job_response_missing"))?;
-    let reply: ManagedJobReply = serde_json::from_slice(&reply_bytes)
+    let reply_bytes = exchange(&endpoint, &encoded, budget)?;
+    decode_reply(&reply_bytes, &request_id)
+}
+
+fn exchange(
+    endpoint: &IpcEndpoint,
+    encoded: &[u8],
+    budget: IoBudget,
+) -> Result<Vec<u8>, ManagedJobProtocolError> {
+    match budget {
+        IoBudget::Blocking => {
+            let mut stream = NativeStream::connect(endpoint, CONNECT_TIMEOUT)
+                .map_err(|_| protocol_error("managed_job_owner_unavailable"))?;
+            stream
+                .set_io_timeout(STREAM_TIMEOUT)
+                .map_err(|_| protocol_error("managed_job_protocol_io"))?;
+            write_frame(&mut stream, encoded)
+                .map_err(|_| protocol_error("managed_job_protocol_io"))?;
+            read_frame(&mut stream)
+                .map_err(|_| protocol_error("managed_job_protocol_io"))?
+                .ok_or_else(|| protocol_error("managed_job_response_missing"))
+        }
+        IoBudget::Before(deadline) => {
+            // The connect call gets the smaller of its own bounded attempt and
+            // whatever is left, so a cancellation round is never held by a
+            // connect that outlives the round budget.
+            let remaining_before_connect =
+                deadline_frame_io::remaining(deadline).map_err(round_io)?;
+            let connect = remaining_before_connect.min(CONNECT_TIMEOUT);
+            let mut stream = NativeStream::connect(endpoint, connect).map_err(|error| {
+                protocol_error(classify_round_connect_failure(
+                    remaining_before_connect.is_zero(),
+                    &error,
+                ))
+            })?;
+            deadline_frame_io::prepare(&stream)
+                .map_err(|_| protocol_error("managed_job_protocol_io"))?;
+            let limits = FrameLimits {
+                max_bytes: FRAME_MAX_BYTES,
+                little_endian: false,
+            };
+            deadline_frame_io::write_frame_before(&mut stream, encoded, deadline, limits)
+                .map_err(round_io)?;
+            deadline_frame_io::flush_before(&mut stream, deadline).map_err(round_io)?;
+            deadline_frame_io::read_frame_before(&mut stream, deadline, limits).map_err(round_io)
+        }
+    }
+}
+
+/// Classifies a failed `Before`-budget connect.
+///
+/// A connect that ran out of the round's own budget is **inconclusive**: the
+/// owner may be healthy and merely slow to accept, so it carries the
+/// round-timeout code and the caller keeps sampling cancellation and its own
+/// deadline. Only a real transport refusal — no listener, a refused connection,
+/// an unusable endpoint — means the owner is unavailable. Unix also surfaces an
+/// in-progress nonblocking connect as `WouldBlock` (`EAGAIN`/`EINPROGRESS`),
+/// which is another "not yet refused" result rather than a missing owner.
+pub(crate) fn classify_round_connect_failure(
+    budget_exhausted: bool,
+    error: &IpcTransportError,
+) -> &'static str {
+    if budget_exhausted
+        || error.code == IpcTransportErrorCode::ConnectTimeout
+        || matches!(
+            error.io_kind(),
+            io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+        )
+    {
+        ROUND_TIMEOUT_CODE
+    } else {
+        "managed_job_owner_unavailable"
+    }
+}
+
+fn round_io(error: FrameIoError) -> ManagedJobProtocolError {
+    match error {
+        FrameIoError::Deadline => protocol_error(ROUND_TIMEOUT_CODE),
+        FrameIoError::Eof | FrameIoError::FrameSize | FrameIoError::Io(_) => {
+            protocol_error("managed_job_protocol_io")
+        }
+    }
+}
+
+fn decode_reply(
+    reply_bytes: &[u8],
+    request_id: &str,
+) -> Result<ManagedJobResult, ManagedJobProtocolError> {
+    let reply: ManagedJobReply = serde_json::from_slice(reply_bytes)
         .map_err(|_| protocol_error("managed_job_response_invalid"))?;
     if reply.schema_version != SCHEMA_VERSION
         || reply.request_id != request_id
@@ -551,8 +702,7 @@ fn read_frame(reader: &mut impl Read) -> io::Result<Option<Vec<u8>>> {
         }
     }
     reader.read_exact(&mut length[1..])?;
-    let length = usize::try_from(u32::from_be_bytes(length))
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid frame length"))?;
+    let length = deadline_frame_io::frame_length(length, false);
     if length == 0 || length > FRAME_MAX_BYTES {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -571,9 +721,9 @@ fn write_frame(writer: &mut impl Write, bytes: &[u8]) -> io::Result<()> {
             "managed-job reply frame size invalid",
         ));
     }
-    let length = u32::try_from(bytes.len())
+    let length = deadline_frame_io::frame_length_u32(bytes.len())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "reply too large"))?;
-    writer.write_all(&length.to_be_bytes())?;
+    writer.write_all(&deadline_frame_io::frame_header(length, false))?;
     writer.write_all(bytes)?;
     writer.flush()
 }
@@ -661,6 +811,46 @@ mod tests {
         path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    /// The cooperative round writer must emit the same wire bytes as the legacy
+    /// blocking path: one big-endian length prefix followed by the body. A body
+    /// written without its prefix makes the owner read the body's first four
+    /// bytes as a length, fail framing, and drop the connection.
+    #[cfg(unix)]
+    #[test]
+    fn deadline_frame_writer_prefixes_the_body_on_the_wire() {
+        use std::io::Read as _;
+
+        use agenterm_platform::ipc::NativeStreamExt as _;
+
+        let (left, right) = std::os::unix::net::UnixStream::pair().expect("frame socket pair");
+        let endpoint = IpcEndpoint::UnixSocket("/tmp/agenterm-cu-frame-test".to_owned());
+        let mut writer =
+            NativeStream::from_owned_fd(left.into(), &endpoint, Duration::from_secs(1))
+                .expect("writer stream");
+        let mut wire = right;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let body = br#"{"schema_version":3}"#;
+        let limits = FrameLimits {
+            max_bytes: FRAME_MAX_BYTES,
+            little_endian: false,
+        };
+        deadline_frame_io::prepare(&writer).expect("deadline-bounded mode");
+        deadline_frame_io::write_frame_before(&mut writer, body, deadline, limits)
+            .expect("deadline frame write");
+        deadline_frame_io::flush_before(&mut writer, deadline).expect("deadline frame flush");
+
+        let mut header = [0_u8; 4];
+        wire.read_exact(&mut header).expect("length prefix");
+        assert_eq!(
+            deadline_frame_io::frame_length(header, false),
+            body.len(),
+            "the cooperative round must prefix its body with its exact length"
+        );
+        let mut received = vec![0_u8; body.len()];
+        wire.read_exact(&mut received).expect("frame body");
+        assert_eq!(received, body);
+    }
 
     use crate::{
         managed_job_owner::{
@@ -794,6 +984,206 @@ mod tests {
         );
         #[cfg(windows)]
         assert!(rendered.starts_with(r"pipe:\\.\pipe\agenterm-cu-job-"));
+    }
+
+    /// Item 2 of the CU-JW1 ruling: the cost of a **real** resident owner, not a
+    /// socket emulation.
+    ///
+    /// The owner is the production `ResidentJobOwner` from `owner_fixture` (a
+    /// real child process plus a real durable store), served over its real
+    /// native endpoint the way `run_resident` serves it. Only semantics and the
+    /// cancellation bound are asserted; cost values stay diagnostics so a loaded
+    /// host cannot turn them into a brittle gate.
+    #[cfg(unix)]
+    #[test]
+    fn resident_owner_wait_cost_and_status_latency_are_measured() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+
+        let (directory, mut owner) = owner_fixture("jw1-cost");
+        let store = ManagedJobStore::open_at(directory.join("jobs.json")).expect("open store");
+        let handle = store
+            .list()
+            .expect("list records")
+            .into_iter()
+            .next()
+            .expect("the fixture reserves exactly one job")
+            .handle();
+        let endpoint = endpoint_for(&handle).expect("derived endpoint");
+        let mut listener = NativeListener::bind(&endpoint).expect("bind owner endpoint");
+        let serving = Arc::new(AtomicBool::new(true));
+        let stop = Arc::clone(&serving);
+        let server = std::thread::spawn(move || {
+            let mut rounds = 0_u64;
+            while stop.load(Ordering::Relaxed) {
+                let Ok(mut stream) = listener.accept(ACCEPT_TICK) else {
+                    continue;
+                };
+                if serve_authenticated_request(&mut owner, &mut stream).is_ok() {
+                    let _ = stream.finish_server_response();
+                    rounds += 1;
+                }
+            }
+            (rounds, owner)
+        });
+
+        let window = Duration::from_secs(6);
+        let started = Instant::now();
+        let mut rounds = 0_u64;
+        let mut budget_exhaustions = 0_u64;
+        while started.elapsed() < window {
+            // The harness uses the frozen production budget, never a wider one,
+            // so a failure path cannot hide behind a generous outer deadline.
+            match client_request_before(
+                &handle,
+                ManagedJobOperation::Wait { timeout_ms: 25 },
+                Instant::now() + WAIT_ROUND_BUDGET,
+            ) {
+                Ok(ManagedJobResult::Wait { .. }) => rounds += 1,
+                Ok(_) => panic!("a wait round may only answer with a wait reply"),
+                Err(error) => {
+                    assert_eq!(
+                        error.code, ROUND_TIMEOUT_CODE,
+                        "a live owner may only exhaust a short round's own budget"
+                    );
+                    budget_exhaustions += 1;
+                }
+            }
+        }
+        let window_wall = started.elapsed();
+
+        let flag = Arc::new(AtomicBool::new(false));
+        let token_set = Arc::new(std::sync::Mutex::new(None::<Instant>));
+        let canceller_flag = Arc::clone(&flag);
+        let canceller_at = Arc::clone(&token_set);
+        let canceller = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(60));
+            *canceller_at.lock().expect("token instant") = Some(Instant::now());
+            canceller_flag.store(true, Ordering::Relaxed);
+        });
+        let cancel_return = loop {
+            let reply = client_request_before(
+                &handle,
+                ManagedJobOperation::Wait { timeout_ms: 25 },
+                Instant::now() + WAIT_ROUND_BUDGET,
+            );
+            if flag.load(Ordering::Relaxed) {
+                break Instant::now();
+            }
+            match reply {
+                Ok(ManagedJobResult::Wait { .. }) => {}
+                Ok(_) => panic!("a wait round may only answer with a wait reply"),
+                Err(error) => panic!("a live owner must answer the round: {}", error.code),
+            }
+        };
+        canceller.join().expect("canceller");
+        let token_at = token_set
+            .lock()
+            .expect("token instant")
+            .expect("token instant");
+        let cancel_to_return = cancel_return.saturating_duration_since(token_at);
+
+        let status_started = Instant::now();
+        let status = client_request_before(
+            &handle,
+            ManagedJobOperation::Status,
+            Instant::now() + WAIT_ROUND_BUDGET,
+        );
+        let status_latency = status_started.elapsed();
+        serving.store(false, Ordering::Relaxed);
+        let (served_rounds, _owner) = server.join().expect("owner server");
+
+        eprintln!(
+            "MEASURED real_owner window={window_wall:?} rounds={rounds} \
+             budget_exhaustions={budget_exhaustions} served_rounds={served_rounds} \
+             cancel_to_return={cancel_to_return:?} status_latency={status_latency:?}"
+        );
+        let _ = std::fs::remove_file(endpoint.unix_socket_path().expect("socket path"));
+        assert!(rounds > 0, "the real owner must answer cooperative rounds");
+        assert!(
+            cancel_to_return < Duration::from_millis(150),
+            "cancel -> callback return must stay inside the worker grace, measured {cancel_to_return:?}"
+        );
+        assert!(
+            matches!(status, Ok(ManagedJobResult::Status { .. })),
+            "a status call right after a cancellation must still succeed"
+        );
+        assert!(
+            status_latency < Duration::from_millis(150),
+            "the owner must not leave a lock delay behind a cancelled wait, measured {status_latency:?}"
+        );
+    }
+
+    /// The frozen round budget is the sum of exactly the two values the wait
+    /// loop uses; a harness must not quietly widen it to pass the grace gate.
+    /// The classification is by cause, not by "a connect failed": only a spent
+    /// round budget or a timeout-ish transport result is a round timeout.
+    #[test]
+    fn round_connect_failures_are_classified_by_cause() {
+        let refused = IpcTransportError::new(
+            IpcTransportErrorCode::InvalidEndpoint,
+            "unix:/tmp/absent-owner.sock",
+            io::Error::new(io::ErrorKind::ConnectionRefused, "refused"),
+        );
+        assert_eq!(
+            classify_round_connect_failure(false, &refused),
+            "managed_job_owner_unavailable"
+        );
+        let missing = IpcTransportError::new(
+            IpcTransportErrorCode::InvalidEndpoint,
+            "unix:/tmp/absent-owner.sock",
+            io::Error::new(io::ErrorKind::NotFound, "missing"),
+        );
+        assert_eq!(
+            classify_round_connect_failure(false, &missing),
+            "managed_job_owner_unavailable"
+        );
+        // A spent budget is inconclusive whatever the platform reported.
+        assert_eq!(
+            classify_round_connect_failure(true, &refused),
+            ROUND_TIMEOUT_CODE
+        );
+        // Timeouts and in-progress nonblocking connects are not absences.
+        for kind in [io::ErrorKind::TimedOut, io::ErrorKind::WouldBlock] {
+            let error = IpcTransportError::new(
+                IpcTransportErrorCode::ConnectTimeout,
+                "unix:/tmp/absent-owner.sock",
+                io::Error::new(kind, "not yet refused"),
+            );
+            assert_eq!(
+                classify_round_connect_failure(false, &error),
+                ROUND_TIMEOUT_CODE
+            );
+        }
+    }
+
+    /// A real absent endpoint is an owner failure, and a round that starts with
+    /// no budget left is a round timeout — neither case waits on the scheduler.
+    #[test]
+    fn a_real_absent_endpoint_and_a_spent_budget_are_distinct() {
+        let absent = client_request_before(
+            &test_handle('z'),
+            ManagedJobOperation::Status,
+            Instant::now() + Duration::from_secs(1),
+        )
+        .expect_err("no owner is listening");
+        assert_eq!(absent.code, "managed_job_owner_unavailable");
+
+        let spent = client_request_before(
+            &test_handle('y'),
+            ManagedJobOperation::Status,
+            Instant::now(),
+        )
+        .expect_err("an exhausted round budget is not an owner failure");
+        assert_eq!(spent.code, ROUND_TIMEOUT_CODE);
+    }
+
+    #[test]
+    fn frozen_round_budget_is_the_sum_of_the_wait_quantum_and_its_margin() {
+        assert_eq!(WAIT_ROUND_BUDGET, WAIT_QUANTUM + WAIT_ROUND_MARGIN);
+        assert!(WAIT_ROUND_BUDGET < Duration::from_millis(150));
     }
 
     #[test]

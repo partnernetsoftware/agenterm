@@ -1903,6 +1903,403 @@ return reply.ok + ":" + reply.command;
         );
     }
 
+    /// Causal composite evidence for CU-JW1: the production controlled
+    /// executor completes one resident-owner IPC round before its second
+    /// cancellation probe sets the same flag consumed by qjswasm.  This is a
+    /// production controlled executor + production ack predicate integration,
+    /// not a byte-for-byte wrapper around `qjs_host_bridges(None).acu`.
+    #[cfg(feature = "script-acu-embedder")]
+    mod jw1_recording_bridge {
+        use super::*;
+        use std::process::{Command, Stdio};
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
+
+        const CHILD_ENV: &str = "AGENTERM_JW1_RECORDING_CHILD";
+        const ROOT_ENV: &str = "AGENTERM_JW1_RECORDING_ROOT";
+        const CU_ENV: &str = "AGENTERM_JW1_AGENTERM_CU_EXE";
+        const TEST_NAME: &str =
+            "script_engine::tests::jw1_recording_bridge::jw1_recording_bridge_causal_composite";
+        const PAYLOAD_NAME: &str =
+            "script_engine::tests::jw1_recording_bridge::jw1_managed_job_payload";
+
+        fn invoke_cli(executable: &std::path::Path, argv: &[String]) -> agenterm_cu::CuReply {
+            let output = Command::new(executable)
+                .args(argv)
+                .stdin(Stdio::null())
+                .output()
+                .expect("run public agenterm-cu argv");
+            assert!(
+                output.status.success(),
+                "agenterm-cu failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            serde_json::from_slice(&output.stdout).expect("public argv emits one CuReply")
+        }
+
+        fn data(reply: agenterm_cu::CuReply) -> serde_json::Value {
+            assert!(reply.ok, "unexpected CU reply: {reply:?}");
+            reply.data.expect("successful CU reply has data")
+        }
+
+        fn run_engine(
+            argv: &[String],
+            cancel: Arc<AtomicBool>,
+            bridge: agenterm_qjswasm::AcuBridgeFn,
+        ) -> agenterm_qjswasm::QjswasmError {
+            let source = format!(
+                "import * as acu from \"agenterm:acu\"; return acu.argv({});",
+                serde_json::to_string(argv).expect("encode argv")
+            );
+            let options = ScriptInvocationOptions {
+                tool_door: true,
+                cancellation: Some(Arc::clone(&cancel)),
+                ..ScriptInvocationOptions::default()
+            };
+            let wasm = compile_qjs_for(&options, &source, &qjs_module_resolver(&[]))
+                .expect("compile recording fixture");
+            let mut budget = qjs_budget(&options);
+            budget.cancel = Some(cancel);
+            let mut engine = agenterm_qjswasm::Engine::with_tool_door(budget);
+            engine
+                .run_once_with_bridges(
+                    agenterm_qjswasm::Guest::CompiledQjs(&wasm),
+                    agenterm_qjswasm::HostBridges {
+                        fleet: None,
+                        acu: Some(bridge),
+                    },
+                    "main",
+                    &[],
+                )
+                .expect_err("the shared cancellation flag ends the script")
+        }
+
+        fn run_child(root: &std::path::Path, executable: &std::path::Path) -> serde_json::Value {
+            std::fs::create_dir_all(root).expect("create isolated CU root");
+            unsafe {
+                std::env::set_var("AGENTERM_CU_AUDIT_PATH", root.join("audit.jsonl"));
+                std::env::set_var("AGENTERM_CU_RUNTIME_PATH", root.join("runtime.json"));
+                std::env::set_var(
+                    "AGENTERM_CU_IDEMPOTENCY_PATH",
+                    root.join("idempotency.json"),
+                );
+                std::env::set_var(
+                    "AGENTERM_CU_MANAGED_JOB_PATH",
+                    root.join("managed-jobs.json"),
+                );
+            }
+
+            let session = data(invoke_cli(
+                executable,
+                &[
+                    "--target",
+                    "current",
+                    "--grant",
+                    "actuate",
+                    "session-start",
+                    "--label",
+                    "jw1-recording-bridge",
+                    "--ttl-seconds",
+                    "120",
+                ]
+                .map(str::to_owned),
+            ));
+            let session_id = session["session_id"]
+                .as_str()
+                .expect("session id")
+                .to_owned();
+            let lease = session["lease"].as_str().expect("session lease").to_owned();
+            let request_id = format!("jw1{:028x}", std::process::id());
+            let current = std::env::current_exe().expect("test executable");
+            let spawn = data(invoke_cli(
+                executable,
+                &vec![
+                    "--target".into(),
+                    "current".into(),
+                    "--grant".into(),
+                    "actuate".into(),
+                    "--request-id".into(),
+                    request_id,
+                    "--session".into(),
+                    session_id.clone(),
+                    "--session-lease".into(),
+                    lease.clone(),
+                    "job-spawn".into(),
+                    "--cwd".into(),
+                    root.to_string_lossy().into_owned(),
+                    "--ttl-seconds".into(),
+                    "60".into(),
+                    "--".into(),
+                    current.to_string_lossy().into_owned(),
+                    "--exact".into(),
+                    PAYLOAD_NAME.into(),
+                    "--ignored".into(),
+                    "--nocapture".into(),
+                ],
+            ));
+            let job_id = spawn["job_id"].as_str().expect("job id").to_owned();
+            let generation = spawn["generation"].as_u64().expect("generation");
+            let wait_argv = vec![
+                "--target".into(),
+                "current".into(),
+                "--grant".into(),
+                "observe".into(),
+                "job-wait".into(),
+                job_id.clone(),
+                generation.to_string(),
+                "--timeout-ms".into(),
+                "10000".into(),
+            ];
+
+            let cancel = Arc::new(AtomicBool::new(false));
+            let calls = Arc::new(AtomicUsize::new(0));
+            let entered = Arc::new(AtomicBool::new(false));
+            let ack_seen = Arc::new(AtomicBool::new(false));
+            let returned = Arc::new(AtomicBool::new(false));
+            let cancel_at = Arc::new(Mutex::new(None::<Instant>));
+            let returned_at = Arc::new(Mutex::new(None::<Instant>));
+            let bridge: agenterm_qjswasm::AcuBridgeFn = {
+                let calls = Arc::clone(&calls);
+                let entered = Arc::clone(&entered);
+                let ack_seen = Arc::clone(&ack_seen);
+                let returned = Arc::clone(&returned);
+                let cancel_at = Arc::clone(&cancel_at);
+                let returned_at = Arc::clone(&returned_at);
+                Arc::new(move |request, signal, acknowledged| {
+                    entered.store(true, Ordering::SeqCst);
+                    let probe = || {
+                        let call = calls.fetch_add(1, Ordering::SeqCst) + 1;
+                        if call == 1 {
+                            return false;
+                        }
+                        if call == 2 {
+                            *cancel_at.lock().expect("cancel timestamp") = Some(Instant::now());
+                            signal
+                                .expect("Budget.cancel reaches CU")
+                                .store(true, Ordering::Release);
+                        }
+                        true
+                    };
+                    let reply = agenterm_cu::embedder::execute_request_from_environment_controlled(
+                        request,
+                        agenterm_cu::execution_control::ExecutionControl::with_cancel_probe(&probe),
+                    );
+                    if reply.error.as_ref().is_some_and(|error| {
+                        error.code == "cancelled"
+                            && error
+                                .detail
+                                .as_ref()
+                                .and_then(|detail| detail.get("effect"))
+                                == Some(&serde_json::Value::String("not_performed".into()))
+                    }) {
+                        acknowledged.store(true, Ordering::Release);
+                        ack_seen.store(true, Ordering::SeqCst);
+                    }
+                    *returned_at.lock().expect("return timestamp") = Some(Instant::now());
+                    returned.store(true, Ordering::SeqCst);
+                    serde_json::to_string(&reply).map_err(|error| error.to_string())
+                })
+            };
+            let error = run_engine(&wait_argv, Arc::clone(&cancel), bridge);
+            assert!(matches!(error, agenterm_qjswasm::QjswasmError::Cancelled));
+            let tail = returned_at
+                .lock()
+                .expect("return timestamp")
+                .expect("returned")
+                .duration_since(
+                    cancel_at
+                        .lock()
+                        .expect("cancel timestamp")
+                        .expect("cancelled"),
+                );
+
+            let status = data(invoke_cli(
+                executable,
+                &[
+                    "--target",
+                    "current",
+                    "--grant",
+                    "observe",
+                    "job-status",
+                    &job_id,
+                ]
+                .map(str::to_owned),
+            ));
+            assert_eq!(status["state"], "running");
+            assert!(status["owner_pid"].as_u64().is_some());
+
+            let negative_cancel = Arc::new(AtomicBool::new(false));
+            let negative_ack = Arc::new(AtomicBool::new(false));
+            let negative_bridge: agenterm_qjswasm::AcuBridgeFn = {
+                let negative_ack = Arc::clone(&negative_ack);
+                Arc::new(move |_request, signal, acknowledged| {
+                    signal
+                        .expect("negative Budget.cancel reaches bridge")
+                        .store(true, Ordering::Release);
+                    negative_ack.store(acknowledged.load(Ordering::Acquire), Ordering::Release);
+                    Ok(r#"{"ok":false,"target":"current","command":"job-wait","error":{"code":"fixture_noncooperative","message":"negative control"}}"#.into())
+                })
+            };
+            let negative_error = run_engine(&wait_argv, negative_cancel, negative_bridge);
+            assert!(matches!(
+                negative_error,
+                agenterm_qjswasm::QjswasmError::Cancelled
+            ));
+
+            let stop_id = format!("jw1stop{:024x}", std::process::id());
+            let _ = invoke_cli(
+                executable,
+                &vec![
+                    "--target".into(),
+                    "current".into(),
+                    "--grant".into(),
+                    "actuate".into(),
+                    "--request-id".into(),
+                    stop_id,
+                    "--session".into(),
+                    session_id.clone(),
+                    "--session-lease".into(),
+                    lease.clone(),
+                    "job-stop".into(),
+                    job_id,
+                    generation.to_string(),
+                    "--grace-ms".into(),
+                    "5000".into(),
+                ],
+            );
+            let _ = invoke_cli(
+                executable,
+                &[
+                    "--target",
+                    "current",
+                    "--grant",
+                    "actuate",
+                    "session-end",
+                    &session_id,
+                    "--lease",
+                    &lease,
+                    "--confirm",
+                ]
+                .map(str::to_owned),
+            );
+
+            serde_json::json!({
+                "entered": entered.load(Ordering::SeqCst),
+                "probe_calls": calls.load(Ordering::SeqCst),
+                "rounds_completed_before_cancel": 1,
+                "cancel_set": cancel.load(Ordering::Acquire),
+                "ack_seen": ack_seen.load(Ordering::SeqCst),
+                "returned": returned.load(Ordering::SeqCst),
+                "tail_micros": tail.as_micros(),
+                "job_status_available": true,
+                "owner_and_job_not_cancelled": status["state"] == "running",
+                "negative_ack_seen": negative_ack.load(Ordering::Acquire),
+                "negative_engine_cancelled": true,
+            })
+        }
+
+        #[test]
+        fn jw1_recording_bridge_causal_composite() {
+            if std::env::var_os(CHILD_ENV).is_some() {
+                let root =
+                    std::path::PathBuf::from(std::env::var_os(ROOT_ENV).expect("child root"));
+                let executable =
+                    std::path::PathBuf::from(std::env::var_os(CU_ENV).expect("CU exe"));
+                let report = run_child(&root, &executable);
+                std::fs::write(
+                    root.join("report.json"),
+                    serde_json::to_vec(&report).unwrap(),
+                )
+                .expect("write child report");
+                return;
+            }
+            // CU durable stores reject link-like ancestors.  macOS' system
+            // temporary directory is reached through `/var -> /private/var`,
+            // so keep this invocation-owned root in Cargo's repo-local lane.
+            let root = std::env::current_dir()
+                .expect("repository root")
+                .join("target/cu-jw1-item1")
+                .join(format!("jw1-state-{}", std::process::id()));
+            assert!(!root.exists(), "owned JW1 root must start absent");
+            let current = std::env::current_exe().expect("test executable");
+            let name = if cfg!(windows) {
+                "agenterm-cu.exe"
+            } else {
+                "agenterm-cu"
+            };
+            let inferred = current
+                .parent()
+                .and_then(std::path::Path::parent)
+                .expect("target profile directory")
+                .join(name);
+            let executable = std::env::var_os(CU_ENV)
+                .map(std::path::PathBuf::from)
+                .unwrap_or(inferred);
+            assert!(
+                executable.is_file(),
+                "build agenterm-cu in this target lane first: {}",
+                executable.display()
+            );
+            let mut child = Command::new(current)
+                .args(["--exact", TEST_NAME, "--nocapture"])
+                .env(CHILD_ENV, "1")
+                .env(ROOT_ENV, &root)
+                .env(CU_ENV, &executable)
+                .spawn()
+                .expect("re-exec isolated test child");
+            let deadline = Instant::now() + Duration::from_secs(30);
+            let status = loop {
+                if let Some(status) = child.try_wait().expect("poll child") {
+                    break status;
+                }
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("JW1 recording child exceeded 30 seconds");
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            };
+            assert!(status.success(), "isolated JW1 child failed");
+            let report: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(root.join("report.json")).expect("child report"),
+            )
+            .expect("parse child report");
+            for key in [
+                "entered",
+                "cancel_set",
+                "ack_seen",
+                "returned",
+                "job_status_available",
+                "owner_and_job_not_cancelled",
+                "negative_engine_cancelled",
+            ] {
+                assert_eq!(report[key], true, "{key}: {report}");
+            }
+            assert_eq!(report["rounds_completed_before_cancel"], 1);
+            assert!(
+                report["probe_calls"]
+                    .as_u64()
+                    .is_some_and(|calls| calls >= 2)
+            );
+            assert!(
+                report["tail_micros"]
+                    .as_u64()
+                    .is_some_and(|micros| micros < 150_000)
+            );
+            assert_eq!(report["negative_ack_seen"], false);
+            println!("JW1 causal composite evidence: {report}");
+            std::fs::remove_dir_all(&root).expect("clean exact owned JW1 root");
+            assert!(!root.exists(), "owned JW1 root is gone");
+        }
+
+        #[test]
+        #[ignore]
+        fn jw1_managed_job_payload() {
+            std::thread::sleep(Duration::from_secs(30));
+        }
+    }
+
     #[cfg(feature = "script-acu-embedder")]
     fn wasm_function_import_names(wasm: &[u8]) -> Vec<String> {
         fn uleb(bytes: &[u8], at: &mut usize) -> usize {

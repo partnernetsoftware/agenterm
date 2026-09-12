@@ -364,6 +364,83 @@ mod tests {
         assert_eq!(value["error"]["detail"]["effect"], "not_performed");
     }
 
+    /// The correction from the CU-JW1 ruling: a real controlled `job-wait` call
+    /// carrying an already-set cancellation token must be refused before any
+    /// durable path exists. A script that is cancelled while sleeping cannot
+    /// prove this, because it never reaches its `job-wait` call — only a
+    /// controlled call with a pre-set token can.
+    #[test]
+    fn pre_cancelled_job_wait_creates_no_durable_path() {
+        let _guard = isolate();
+        let parent = std::env::temp_dir().join(format!(
+            "agenterm-cu-provider-jw1-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("test clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir(&parent).expect("isolated parent");
+        // Every durable CU path points at a nested path that must never appear.
+        let nested = parent.join("never");
+        let variables = [
+            ("AGENTERM_CU_MANAGED_JOB_PATH", nested.join("jobs.json")),
+            ("AGENTERM_CU_IDEMPOTENCY_PATH", nested.join("requests.json")),
+            ("AGENTERM_CU_AUDIT_PATH", nested.join("audit.jsonl")),
+            ("AGENTERM_CU_RUNTIME_PATH", nested.join("runtime.json")),
+        ];
+        let previous = variables
+            .iter()
+            .map(|(name, _)| (*name, std::env::var_os(name)))
+            .collect::<Vec<_>>();
+        for (name, value) in variables.iter() {
+            // SAFETY: TEST_LOCK serializes every test in this binary that reads
+            // or writes these product paths.
+            unsafe { std::env::set_var(name, value) };
+        }
+        let flag = AtomicBool::new(true);
+        let cancel = CancelV1 {
+            struct_size: std::mem::size_of::<CancelV1>(),
+            version: 1,
+            context: (&flag as *const AtomicBool).cast(),
+            is_cancelled: Some(read_cancelled),
+        };
+        let request = br#"{"acu_request":1,"kind":"argv","argv":["--target","current","--grant","observe","job-wait","00000000-0000-4000-8000-0000000000de","1","--timeout-ms","60000"]}"#;
+        let mut reply = vec![0_u8; MAX_REPLY_BYTES];
+        let mut reply_len = 0_usize;
+        let status = call_v2(request, &mut reply, &mut reply_len, &cancel);
+        let encoded = reply[..reply_len.min(reply.len())].to_vec();
+        for (name, value) in previous {
+            // SAFETY: the guard is still held for the whole call above.
+            unsafe {
+                match value {
+                    Some(value) => std::env::set_var(name, value),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+        assert_eq!(status, STATUS_OK);
+        let value: serde_json::Value =
+            serde_json::from_slice(&encoded).expect("typed CuReply JSON");
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["error"]["code"], "cancelled");
+        assert_eq!(value["error"]["detail"]["effect"], "not_performed");
+        assert_eq!(value["error"]["detail"]["phase"], "observe_wait");
+        assert!(
+            !nested.exists(),
+            "a pre-cancelled wait must not create any durable state, request or audit path"
+        );
+        let entries = std::fs::read_dir(&parent)
+            .expect("read isolated parent")
+            .map(|entry| entry.expect("directory entry").file_name())
+            .collect::<Vec<_>>();
+        assert!(
+            entries.is_empty(),
+            "the isolated parent must stay empty, found {entries:?}"
+        );
+        std::fs::remove_dir(&parent).expect("cleanup isolated parent");
+    }
+
     #[test]
     fn rejects_invalid_pointers_and_clears_valid_length_outputs() {
         let _guard = isolate();
