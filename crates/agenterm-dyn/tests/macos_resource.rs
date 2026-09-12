@@ -1,10 +1,11 @@
 //! Typed ownership tests for Darwin's `mach_host_self` send right.
 
 use agenterm_dyn::{
-    ALL_CELLS, CpuCountSnapshot, DlAddressSnapshot, MachHostPort, SystemProbeStatus,
+    ALL_CELLS, CpuCountSnapshot, DlAddressSnapshot, MachHostPort, MachTimebaseSnapshot,
+    SystemProbeStatus,
 };
 #[cfg(not(target_os = "macos"))]
-use agenterm_dyn::{CpuCountError, DlAddressError, MachHostPortError};
+use agenterm_dyn::{CpuCountError, DlAddressError, MachHostPortError, MachTimebaseError};
 
 #[test]
 fn only_darwin_catalogues_mach_host_self_as_owned_live() {
@@ -49,6 +50,15 @@ fn current_image_snapshot_is_honestly_unsupported_off_darwin() {
 #[test]
 fn cpu_count_snapshot_is_honestly_unsupported_off_darwin() {
     assert_eq!(CpuCountSnapshot::acquire(), Err(CpuCountError::Unsupported));
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn mach_timebase_snapshot_is_honestly_unsupported_off_darwin() {
+    assert_eq!(
+        MachTimebaseSnapshot::acquire(),
+        Err(MachTimebaseError::Unsupported)
+    );
 }
 
 #[cfg(target_os = "macos")]
@@ -107,4 +117,24 @@ fn cpu_count_snapshot_is_a_live_positive_host_fact() {
                 .expect("available parallelism")
                 .get()
     );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn mach_timebase_snapshot_matches_the_direct_native_ratio() {
+    #[repr(C)]
+    struct DirectTimebase {
+        numer: u32,
+        denom: u32,
+    }
+    unsafe extern "C" {
+        fn mach_timebase_info(info: *mut DirectTimebase) -> libc::c_int;
+    }
+
+    let snapshot = MachTimebaseSnapshot::acquire().expect("typed Mach timebase snapshot");
+    let mut direct = DirectTimebase { numer: 0, denom: 0 };
+    // SAFETY: direct is complete writable storage for the native out structure.
+    assert_eq!(unsafe { mach_timebase_info(&mut direct) }, 0);
+    assert_eq!(snapshot.numerator(), direct.numer);
+    assert_eq!(snapshot.denominator(), direct.denom);
 }

@@ -50,7 +50,7 @@ pub use hosts::{
 };
 pub use macos_resource::{
     CpuCountError, CpuCountSnapshot, DlAddressError, DlAddressSnapshot, MachHostPort,
-    MachHostPortError,
+    MachHostPortError, MachTimebaseError, MachTimebaseSnapshot,
 };
 pub use sym::Symbol;
 pub use unix_groups::{MAX_SUPPLEMENTARY_GROUPS, SupplementaryGroups, SupplementaryGroupsError};

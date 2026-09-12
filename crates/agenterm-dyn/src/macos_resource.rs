@@ -2,6 +2,85 @@
 
 use std::fmt;
 
+/// Failure to acquire Darwin's Mach absolute-time conversion ratio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachTimebaseError {
+    Unsupported,
+    Kernel(i32),
+    Invalid { numer: u32, denom: u32 },
+}
+
+impl fmt::Display for MachTimebaseError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unsupported => formatter.write_str("Mach timebase is unsupported on this host"),
+            Self::Kernel(status) => {
+                write!(formatter, "mach_timebase_info failed with status {status}")
+            }
+            Self::Invalid { numer, denom } => {
+                write!(formatter, "invalid Mach timebase ratio {numer}/{denom}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for MachTimebaseError {}
+
+/// Pointer-free conversion ratio from Mach absolute ticks to nanoseconds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachTimebaseSnapshot {
+    numer: u32,
+    denom: u32,
+}
+
+impl MachTimebaseSnapshot {
+    #[cfg(target_os = "macos")]
+    pub fn acquire() -> Result<Self, MachTimebaseError> {
+        let mut info = MachTimebaseInfo { numer: 0, denom: 0 };
+        // SAFETY: `info` is complete writable storage for the native out value.
+        let status = unsafe { mach_timebase_info(&mut info) };
+        if status != KERN_SUCCESS {
+            return Err(MachTimebaseError::Kernel(status));
+        }
+        snapshot_timebase(info)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn acquire() -> Result<Self, MachTimebaseError> {
+        Err(MachTimebaseError::Unsupported)
+    }
+
+    pub fn numerator(self) -> u32 {
+        self.numer
+    }
+
+    pub fn denominator(self) -> u32 {
+        self.denom
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct MachTimebaseInfo {
+    numer: u32,
+    denom: u32,
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn snapshot_timebase(info: MachTimebaseInfo) -> Result<MachTimebaseSnapshot, MachTimebaseError> {
+    if info.numer == 0 || info.denom == 0 {
+        return Err(MachTimebaseError::Invalid {
+            numer: info.numer,
+            denom: info.denom,
+        });
+    }
+    Ok(MachTimebaseSnapshot {
+        numer: info.numer,
+        denom: info.denom,
+    })
+}
+
 #[cfg(any(target_os = "macos", test))]
 const MAX_SYSCTL_VALUE_BYTES: usize = 64;
 #[cfg(any(target_os = "macos", test))]
@@ -360,6 +439,7 @@ unsafe extern "C" {
     fn mach_host_self() -> u32;
     fn mach_port_deallocate(task: u32, name: u32) -> i32;
     fn mach_port_get_refs(task: u32, name: u32, right: u32, refs: *mut u32) -> i32;
+    fn mach_timebase_info(info: *mut MachTimebaseInfo) -> i32;
     fn sysctlbyname(
         name: *const std::ffi::c_char,
         old_value: *mut std::ffi::c_void,
@@ -377,7 +457,8 @@ mod tests {
 
     use super::{
         CpuCountError, DlAddressError, DlInfo, MAX_SYSCTL_FETCH_ATTEMPTS, MAX_SYSCTL_VALUE_BYTES,
-        OwnedPort, ReleasePort, acquire_cpu_count_with, snapshot_dl_info,
+        MachTimebaseError, MachTimebaseInfo, OwnedPort, ReleasePort, acquire_cpu_count_with,
+        snapshot_dl_info, snapshot_timebase,
     };
 
     struct CountingReleaser(Rc<Cell<u32>>);
@@ -523,5 +604,32 @@ mod tests {
             .get();
         assert!(snapshot.logical_cpus() >= available as u32);
         assert!(snapshot.logical_cpus() > 0);
+    }
+
+    #[test]
+    fn timebase_snapshot_copies_fields_by_role_and_rejects_zeroes() {
+        let snapshot = snapshot_timebase(MachTimebaseInfo {
+            numer: 52,
+            denom: 74,
+        })
+        .expect("valid synthetic ratio");
+        assert_eq!(snapshot.numerator(), 52);
+        assert_eq!(snapshot.denominator(), 74);
+        assert_eq!(
+            snapshot_timebase(MachTimebaseInfo { numer: 0, denom: 1 }),
+            Err(MachTimebaseError::Invalid { numer: 0, denom: 1 })
+        );
+        assert_eq!(
+            snapshot_timebase(MachTimebaseInfo { numer: 1, denom: 0 }),
+            Err(MachTimebaseError::Invalid { numer: 1, denom: 0 })
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn timebase_snapshot_is_live_and_nonzero() {
+        let snapshot = super::MachTimebaseSnapshot::acquire().expect("Mach timebase snapshot");
+        assert!(snapshot.numerator() > 0);
+        assert!(snapshot.denominator() > 0);
     }
 }
