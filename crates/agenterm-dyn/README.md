@@ -128,7 +128,7 @@ multiplicative nested-loop work and body-side effects on the rejected form.
 | Cell | PID library | PID symbol | Size probe | Secondary probe | Additional headless probes |
 |------|-------------|------------|------------|-----------------|----------------------------|
 | linux × x86_64/aarch64 | `libc.so.6` | `getpid` | `ioctl(TIOCGWINSZ)` | `getppid` | fixed-ABI live rows include `time`, caller-owned-pointer `times`, `getrusage(RUSAGE_SELF, …)`, `getrlimit(RLIMIT_NOFILE, …)`, `clock_gettime`, `uname`, uid/gid/pid group, `sysconf`, `getcwd`, `isatty`, `access`/`dup`/`lseek`, `getpriority`/`nice`, `sched_yield`, `alarm`, `umask`, `getdtablesize`, `gethostid`, `getpagesize`; variadic `open`/`fcntl` and Darwin-only rows are placeholders |
-| macos × x86_64/aarch64 | `libSystem.B.dylib` | `getpid` | signature-gated loaded-symbol `ioctl(TIOCGWINSZ)` through Unix's variadic ABI | `time` | shared fixed-ABI live rows plus `sysctlbyname`, `mach_absolute_time`, `getprogname`, `issetugid`, `_NSGetExecutablePath`, `proc_pidpath`, `arc4random`, `clock_gettime_nsec_np`, `sysctl`, `mach_timebase_info`, `pthread_main_np`, `getlogin_r`, `pthread_threadid_np`, `pthread_getname_np`, `proc_pidinfo`, `_NSGetArgc`, `_NSGetArgv`, `_NSGetEnviron`, `proc_pid_rusage`, `_dyld_image_count`, `getentropy`, `proc_name`, `pthread_get_stackaddr_np`, `pthread_get_stacksize_np`, `pthread_self`, `pthread_cpu_number_np`, `malloc_good_size`, `_NSGetProgname`, `proc_libversion`, `pthread_jit_write_protect_supported_np`, `sysctlnametomib`, `pthread_equal`, `gethostname`, `confstr`, `clock_getres`, `pthread_is_threaded_np`, `_NSGetMachExecuteHeader`, `_dyld_get_image_name`, `_dyld_get_image_vmaddr_slide`, `dladdr`, `gethostuuid`, `_dyld_get_image_header`, `arc4random_uniform`, `getdomainname`, `statvfs`, `gettimeofday`, `getgroups`, and `realpath`; variadic `open`/`fcntl` and `mach_host_self` are placeholders |
+| macos × x86_64/aarch64 | `libSystem.B.dylib` | `getpid` | signature-gated loaded-symbol `ioctl(TIOCGWINSZ)` through Unix's variadic ABI | `time` | shared fixed-ABI live rows plus the documented Darwin probes; variadic `open`/`fcntl` remain placeholders, while `mach_host_self` is live only through owned `MachHostPort::acquire` |
 | windows × x86_64/aarch64 | `kernel32.dll` | `GetCurrentProcessId` | `GetConsoleScreenBufferInfo` | `GetCurrentThreadId` | placeholders only |
 
 All six rows compile as data on every host. `live_cell()` selects the row
@@ -228,7 +228,7 @@ without wiring dyn into cu, platform, or the ABI:
 - [wall-clock time via `gettimeofday`](examples/gettimeofday.md) (macOS)
 - [supplementary groups via `getgroups`](examples/getgroups.md) (macOS)
 - [resolved path via `realpath`](examples/realpath.md) (macOS)
-- [`mach_host_self` resource-safety boundary](examples/mach-host-self.md) (macOS; intentionally not live)
+- [owned `mach_host_self` send-right reference](examples/mach-host-self.md) (macOS)
 - [clock ticks per second via `sysconf`](examples/sysconf-clk-tck.md)
 - [online processor count via `sysconf`](examples/sysconf-nprocessors-onln.md)
 - [whether standard input is a terminal](examples/isatty-stdin.md)
@@ -262,7 +262,7 @@ Independent integration tests live under `crates/agenterm-dyn/tests/`:
 | `catalog_docs.rs` | Portable Darwin row parity plus live-probe example/README coverage |
 | `macos_ioctl.rs` | macOS coverage of Unix variadic `ioctl(TIOCGWINSZ)` through the loaded libSystem symbol |
 | `macos_probes.rs` | Darwin-only live `dlcall` facts compared with later native calls |
-| `macos_resource.rs` | `mach_host_self` stays Placeholder and is never live-called |
+| `macos_resource.rs` | typed `mach_host_self` acquisition, send-ref accounting, and exactly-once Drop release |
 | `smoke.rs` | Real `dlcall` into host libraries per OS (`#[cfg]`-gated) |
 
 ```bash
@@ -318,9 +318,9 @@ fields because live capacity counters can change between calls. The
 dynamic-loader image count is an instantaneous positive fact checked against a
 later native call. `getentropy` fills independent caller-owned 16-byte
 buffers; the smoke checks only successful status and never observes entropy
-contents. `mach_host_self`
-remains intentionally uncalled because its returned send right has no dyn release
-owner. `ioctl(TIOCGWINSZ)` uses the resolved
+contents. `mach_host_self` is acquired only through `MachHostPort`, whose Drop
+releases exactly the acquired send-right reference without destroying the host;
+it never crosses the generic `dlcall` door. `ioctl(TIOCGWINSZ)` uses the resolved
 `libSystem.B.dylib` symbol through Unix's signature-gated variadic ABI and an
 owned pty must return the seeded 24×80 size. This records the CI-native smoke
 contract; it does not claim a local macOS-machine result. `access` missing-path uses

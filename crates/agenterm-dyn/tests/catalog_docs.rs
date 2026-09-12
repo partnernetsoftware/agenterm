@@ -117,26 +117,26 @@ fn every_darwin_only_live_probe_has_a_linked_example() {
 }
 
 #[test]
-fn mach_host_self_remains_placeholder_with_honesty_only_documentation() {
+fn mach_host_self_is_owned_live_with_callable_documentation() {
     for cell in [MACOS_X86_64, MACOS_AARCH64] {
         let probe = cell
             .system_probes
             .iter()
             .find(|probe| probe.name == "mach_host_self")
             .expect("Darwin catalog contains mach_host_self");
-        assert!(matches!(probe.status, SystemProbeStatus::Placeholder));
+        assert_eq!(
+            probe.status,
+            SystemProbeStatus::LiveOwned {
+                api: "MachHostPort::acquire"
+            }
+        );
     }
 
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let example = fs::read_to_string(root.join("examples/mach-host-self.md"))
         .expect("mach_host_self honesty document is readable");
     assert!(example.contains("send right"));
-    assert!(
-        !example
-            .lines()
-            .any(|line| line.trim_start().starts_with("```")),
-        "mach_host_self honesty documentation must not contain callable code"
-    );
+    assert!(example.contains("MachHostPort::acquire"));
 
     let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
     assert!(readme.contains("](examples/mach-host-self.md)"));

@@ -73,6 +73,8 @@ pub enum SystemProbeStatus {
         lib: &'static str,
         symbol: &'static str,
     },
+    /// A matching-host typed API owns and releases the native resource.
+    LiveOwned { api: &'static str },
     /// Matrix placeholder only; no behavior or successful result is claimed.
     Placeholder,
 }
@@ -505,10 +507,12 @@ const MACOS_SYSTEM_PROBES: [SystemProbe; 85] = [
     macos_live("gettimeofday", "gettimeofday"),
     macos_live("getgroups", "getgroups"),
     macos_live("realpath", "realpath"),
-    // `mach_host_self` allocates a send right. `dlcall` intentionally has no
-    // ownership-aware Mach API to release that right, so it is catalogued but
-    // never invoked by the headless probe suite.
-    placeholder("mach_host_self"),
+    SystemProbe {
+        name: "mach_host_self",
+        status: SystemProbeStatus::LiveOwned {
+            api: "MachHostPort::acquire",
+        },
+    },
 ];
 
 const PLACEHOLDER_SYSTEM_PROBES: [SystemProbe; 85] = [

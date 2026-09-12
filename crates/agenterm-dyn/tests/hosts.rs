@@ -227,7 +227,9 @@ fn additional_system_probes_use_explicit_live_and_placeholder_statuses() {
                 })
                 .map(|probe| match probe.status {
                     SystemProbeStatus::LiveDlcall { lib, symbol } => (probe.name, lib, symbol),
-                    SystemProbeStatus::Placeholder => panic!("Linux probe must be live"),
+                    SystemProbeStatus::Placeholder | SystemProbeStatus::LiveOwned { .. } => {
+                        panic!("Linux probe must be dlcall-live")
+                    }
                 })
                 .collect::<Vec<_>>(),
             [
@@ -376,10 +378,12 @@ fn additional_system_probes_use_explicit_live_and_placeholder_statuses() {
                     }
                 ))
         );
-        assert!(matches!(
+        assert_eq!(
             c.system_probes[mach_host_self].status,
-            SystemProbeStatus::Placeholder
-        ));
+            SystemProbeStatus::LiveOwned {
+                api: "MachHostPort::acquire"
+            }
+        );
     }
     for c in [WINDOWS_X86_64, WINDOWS_AARCH64] {
         assert!(

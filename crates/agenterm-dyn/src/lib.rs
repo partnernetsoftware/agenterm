@@ -6,6 +6,7 @@ mod eval;
 #[cfg(unix)]
 mod exec;
 mod hosts;
+mod macos_resource;
 mod native;
 mod parse;
 mod sym;
@@ -24,6 +25,7 @@ pub use hosts::{
     MACOS_X86_64, PLATFORM_CANDIDATES, ProbeFact, SecondaryProbe, SizeProbe, SystemProbe,
     SystemProbeStatus, WINDOWS_AARCH64, WINDOWS_X86_64, cell, cu_adjacent_probe, live_cell,
 };
+pub use macos_resource::{MachHostPort, MachHostPortError};
 pub use sym::Symbol;
 pub use value::Value;
 

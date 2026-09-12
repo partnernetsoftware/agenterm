@@ -3418,9 +3418,12 @@ is not general variadic FFI and adds no C or libffi shim.
 `agenterm-dyn` stores headless probe rows as one fixed-length
 `[SystemProbe; N]` on every `{linux,macos,windows} × {x86_64,aarch64}` cell.
 A Darwin-only live name still needs a same-length Placeholder on Linux and
-Windows or the crate will not compile. Keep `mach_host_self` last and
-Placeholder: `dlcall` has no Mach-port release owner, so a live call would
-leak a send right.
+Windows or the crate will not compile. Keep `mach_host_self` last. It is live
+on the two Darwin rows only through the typed `MachHostPort::acquire` owner;
+the other four rows remain Placeholder. Each successful acquisition adds one
+send-right user reference, and Drop pairs it with exactly one
+`mach_port_deallocate`. The raw port name must not cross the generic `dlcall`
+door: releasing this reference is not closing or destroying the host.
 
 Store the assembled six-cell matrix as `static`, not a copying `const`. At 82
 probe rows per cell, the public `[HostCell; 6]` crossed Clippy's
