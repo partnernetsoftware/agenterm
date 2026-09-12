@@ -83,6 +83,58 @@ fn default_discovery_does_not_advertise_the_native_opt_in() {
     assert_eq!(native[0].field, "native_call");
 }
 
+/// The door's counts are **sets at different layers**, not one number read three
+/// ways: the host signature inventory (raw, `host.rs`, eight entries), the
+/// compiler's default declarations (everything except `native_call`), and what
+/// the opt-in adds. This pins the relation rather than a bare number, so a
+/// different raw inventory cannot be mistaken for drift in the compiler-visible
+/// set.
+#[test]
+fn the_native_opt_in_adds_exactly_one_declaration_to_the_default_door() {
+    use std::collections::BTreeSet;
+    let default: BTreeSet<(String, String)> = door_declarations()
+        .into_iter()
+        .map(|declaration| {
+            (
+                declaration.module.to_string(),
+                declaration.field.to_string(),
+            )
+        })
+        .collect();
+    let native: BTreeSet<(String, String)> = native_door_declarations()
+        .into_iter()
+        .map(|declaration| {
+            (
+                declaration.module.to_string(),
+                declaration.field.to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        default.len(),
+        5,
+        "the default door declaration set is five entries"
+    );
+    assert_eq!(native.len(), 1, "the native opt-in is exactly one entry");
+    assert!(
+        default.is_disjoint(&native),
+        "native_call must not already be in the default set"
+    );
+    let mut opt_in = default.clone();
+    opt_in.extend(native.iter().cloned());
+    assert_eq!(
+        opt_in.len(),
+        6,
+        "the opt-in set is the default five plus one"
+    );
+    let added: BTreeSet<(String, String)> = opt_in.difference(&default).cloned().collect();
+    assert_eq!(
+        added,
+        BTreeSet::from([("agenterm".to_string(), "native_call".to_string())]),
+        "the opt-in's exact difference from the default set is the single native entry"
+    );
+}
+
 fn wat_for(spec: &str, spec_ptr: i32, spec_len: i32, block_ptr: i32, block_len: i32) -> String {
     let quoted = spec.replace('\\', "\\\\").replace('"', "\\\"");
     format!(
