@@ -450,7 +450,9 @@ court has claim-preserving `.wat` or typed-owner evidence.
 - 统一 `abi` 迁移桥已落地：运行时构造的 `AbiSignature` / `NativeCall`
   会按**当前真实 trampoline 矩阵**分类，然后反向委托
   `invoke_exact` / `invoke_fixed` / `invoke_fixed_pointer`。它没有新增 loader、
-  door 或 ABI 形状，也没有完成最终依赖反转；下一步是让旧三族变成
+  door 或 ABI 形状，也没有完成最终依赖反转。qjswasm 已把 exact/fixed/
+  fixed-pointer prototype 枚举、同质族判据和 canonical argument conversion
+  本地化，不再导入 dyn 的旧策略枚举或 validator；下一步是让旧三族变成
   统一机制体的兼容薄封装。raw `Pointer` 只有一个 ABI 位，是否可空及
   pointee 宽度、对齐、NUL 契约仍属调用方与 qjswasm 上层 schema。
 

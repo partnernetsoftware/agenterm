@@ -7,11 +7,7 @@
 
 use std::fmt;
 
-use agenterm_dyn::{
-    ExactNativeType, ExactNativeValue, FixedNativePrototype, FixedNativeValue,
-    FixedPointerPrototype, FixedPointerValue, UnixIoctlError, UnixIoctlRequest, invoke_unix_ioctl,
-    validate_exact_native_signature,
-};
+use agenterm_dyn::{AbiValue, UnixIoctlError, UnixIoctlRequest, invoke_unix_ioctl};
 
 /// Schema version stored in every argument-block header.
 pub const NATIVE_BLOCK_VERSION: u32 = 1;
@@ -748,11 +744,6 @@ pub(crate) fn invoke_native_call(
             // The execution phase goes through the one policy-free ABI entry;
             // the upper catalog above already decided this shape is allowed.
             let abi_params = abi_parameters(call)?;
-            let abi_arguments = arguments
-                .iter()
-                .copied()
-                .map(abi_from_exact)
-                .collect::<Vec<_>>();
             let abi_call = agenterm_dyn::NativeCall {
                 library: &call.spec.library,
                 symbol: &call.spec.symbol,
@@ -760,7 +751,7 @@ pub(crate) fn invoke_native_call(
                     result: abi_type(call.spec.result).ok_or_else(unsupported_signature(call))?,
                     params: &abi_params,
                 },
-                arguments: &abi_arguments,
+                arguments: &arguments,
             };
             // SAFETY: the guest declaration is the native-door caller's explicit ABI assertion.
             unsafe { agenterm_dyn::invoke_abi(&abi_call) }
@@ -777,11 +768,6 @@ pub(crate) fn invoke_native_call(
                 .map(|(index, argument)| fixed_argument(index, argument, call))
                 .collect::<Result<Vec<_>, _>>()?;
             let abi_params = abi_parameters(call)?;
-            let abi_arguments = arguments
-                .iter()
-                .copied()
-                .map(abi_from_fixed)
-                .collect::<Vec<_>>();
             let abi_call = agenterm_dyn::NativeCall {
                 library: &call.spec.library,
                 symbol: &call.spec.symbol,
@@ -789,7 +775,7 @@ pub(crate) fn invoke_native_call(
                     result: abi_type(call.spec.result).ok_or_else(unsupported_signature(call))?,
                     params: &abi_params,
                 },
-                arguments: &abi_arguments,
+                arguments: &arguments,
             };
             // SAFETY: native_dispatch admitted this enumerated fixed prototype.
             unsafe { agenterm_dyn::invoke_abi(&abi_call) }
@@ -813,11 +799,6 @@ pub(crate) fn invoke_native_call(
             // contract. The generic door cannot infer that contract from an
             // opaque `ptr` prototype.
             let abi_params = abi_parameters(call)?;
-            let abi_arguments = arguments
-                .iter()
-                .copied()
-                .map(abi_from_pointer)
-                .collect::<Vec<_>>();
             let abi_call = agenterm_dyn::NativeCall {
                 library: &call.spec.library,
                 symbol: &call.spec.symbol,
@@ -825,7 +806,7 @@ pub(crate) fn invoke_native_call(
                     result: abi_type(call.spec.result).ok_or_else(unsupported_signature(call))?,
                     params: &abi_params,
                 },
-                arguments: &abi_arguments,
+                arguments: &arguments,
             };
             // SAFETY: native_dispatch admitted one enumerated fixed prototype; the
             // guest still owns the pointee contract. `invoke_abi` re-checks the
@@ -913,11 +894,6 @@ pub(crate) fn invoke_native_json(
                 .map(|(index, (ty, value))| exact_json_argument(index, ty, value))
                 .collect::<Result<Vec<_>, _>>()?;
             let abi_params = abi_parameters_for_spec(&spec)?;
-            let abi_arguments = arguments
-                .iter()
-                .copied()
-                .map(abi_from_exact)
-                .collect::<Vec<_>>();
             let abi_call = agenterm_dyn::NativeCall {
                 library: &spec.library,
                 symbol: &spec.symbol,
@@ -930,7 +906,7 @@ pub(crate) fn invoke_native_json(
                     })?,
                     params: &abi_params,
                 },
-                arguments: &abi_arguments,
+                arguments: &arguments,
             };
             // SAFETY: native_dispatch admitted the exact-family declaration.
             unsafe { agenterm_dyn::invoke_abi(&abi_call) }
@@ -954,11 +930,6 @@ pub(crate) fn invoke_native_json(
                 .map(|(index, (ty, value))| fixed_json_argument(index, ty, value))
                 .collect::<Result<Vec<_>, _>>()?;
             let abi_params = abi_parameters_for_spec(&spec)?;
-            let abi_arguments = arguments
-                .iter()
-                .copied()
-                .map(abi_from_fixed)
-                .collect::<Vec<_>>();
             let abi_call = agenterm_dyn::NativeCall {
                 library: &spec.library,
                 symbol: &spec.symbol,
@@ -971,7 +942,7 @@ pub(crate) fn invoke_native_json(
                     })?,
                     params: &abi_params,
                 },
-                arguments: &abi_arguments,
+                arguments: &arguments,
             };
             // SAFETY: native_dispatch admitted this enumerated fixed prototype.
             unsafe { agenterm_dyn::invoke_abi(&abi_call) }
@@ -994,10 +965,37 @@ pub(crate) fn invoke_native_json(
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum NativeDispatch {
-    Exact { result: ExactNativeType },
-    Fixed(FixedNativePrototype),
-    FixedPointer(FixedPointerPrototype),
+    Exact { result: NativeType },
+    Fixed(FixedPrototype),
+    FixedPointer(PointerPrototype),
     UnixIoctl(UnixIoctlPrototype),
+}
+
+/// Heterogeneous scalar shapes exposed by the qjswasm native catalog.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FixedPrototype {
+    I32U64U64,
+    U64I32,
+    IsizeI32,
+    I64I32I64I32,
+}
+
+/// Pointer-bearing shapes exposed by the qjswasm native catalog.
+///
+/// The two nullable variants are intentionally local policy: they select which
+/// guest position accepts `KIND_NULL`; dyn receives an ordinary ABI pointer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PointerPrototype {
+    I32Pointer,
+    I32I32Pointer,
+    I32PointerI32,
+    I32PointerNullablePointer,
+    I32NullablePointerPointer,
+    I32PointerPointer,
+    I32PointerPointerPointer,
+    I32PointerU64,
+    I32I32PointerU32,
+    I32U64PointerU64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1021,46 +1019,40 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
             }),
         };
     }
-    if let Some(result) = exact_type(spec.result) {
-        let parameter_types = spec
+    if let Some(result) = exact_scalar_type(spec.result)
+        && spec.parameters.len() <= MAX_NATIVE_ARITY
+        && spec
             .parameters
             .iter()
-            .copied()
-            .map(exact_type)
-            .collect::<Option<Vec<_>>>();
-        if let Some(parameter_types) = parameter_types
-            && validate_exact_native_signature(result, &parameter_types).is_ok()
-        {
-            return Ok(NativeDispatch::Exact { result });
-        }
+            .all(|parameter| exact_scalar_type(*parameter) == Some(result))
+    {
+        return Ok(NativeDispatch::Exact { result });
     }
     let fixed = match (spec.result, spec.parameters.as_slice()) {
-        (NativeType::Isize, [NativeType::I32]) => Some(FixedNativePrototype::IsizeI32),
+        (NativeType::Isize, [NativeType::I32]) => Some(FixedPrototype::IsizeI32),
         (NativeType::I64, [NativeType::I32, NativeType::I64, NativeType::I32]) => {
-            Some(FixedNativePrototype::I64I32I64I32)
+            Some(FixedPrototype::I64I32I64I32)
         }
-        (NativeType::U64, [NativeType::I32]) => Some(FixedNativePrototype::U64I32),
-        (NativeType::I32, [NativeType::U64, NativeType::U64]) => {
-            Some(FixedNativePrototype::I32U64U64)
-        }
+        (NativeType::U64, [NativeType::I32]) => Some(FixedPrototype::U64I32),
+        (NativeType::I32, [NativeType::U64, NativeType::U64]) => Some(FixedPrototype::I32U64U64),
         _ => None,
     };
     if let Some(fixed) = fixed {
         return Ok(NativeDispatch::Fixed(fixed));
     }
     let fixed_pointer = match (spec.result, spec.parameters.as_slice()) {
-        (NativeType::I32, [NativeType::Pointer]) => Some(FixedPointerPrototype::I32Pointer),
+        (NativeType::I32, [NativeType::Pointer]) => Some(PointerPrototype::I32Pointer),
         (NativeType::I32, [NativeType::I32, NativeType::Pointer]) => {
-            Some(FixedPointerPrototype::I32I32Pointer)
+            Some(PointerPrototype::I32I32Pointer)
         }
         (NativeType::I32, [NativeType::Pointer, NativeType::I32]) => {
-            Some(FixedPointerPrototype::I32PointerI32)
+            Some(PointerPrototype::I32PointerI32)
         }
         (NativeType::I32, [NativeType::Pointer, NativeType::U64]) => {
-            Some(FixedPointerPrototype::I32PointerU64)
+            Some(PointerPrototype::I32PointerU64)
         }
         (NativeType::I32, [NativeType::Pointer, NativeType::Pointer]) => {
-            Some(FixedPointerPrototype::I32PointerPointer)
+            Some(PointerPrototype::I32PointerPointer)
         }
         (
             NativeType::I32,
@@ -1069,18 +1061,18 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
                 NativeType::Pointer,
                 NativeType::Pointer,
             ],
-        ) => Some(FixedPointerPrototype::I32PointerPointerPointer),
+        ) => Some(PointerPrototype::I32PointerPointerPointer),
         (NativeType::I32, [NativeType::Pointer, NativeType::NullablePointer]) => {
-            Some(FixedPointerPrototype::I32PointerNullablePointer)
+            Some(PointerPrototype::I32PointerNullablePointer)
         }
         (NativeType::I32, [NativeType::NullablePointer, NativeType::Pointer]) => {
-            Some(FixedPointerPrototype::I32NullablePointerPointer)
+            Some(PointerPrototype::I32NullablePointerPointer)
         }
         (NativeType::I32, [NativeType::I32, NativeType::Pointer, NativeType::U32]) => {
-            Some(FixedPointerPrototype::I32I32PointerU32)
+            Some(PointerPrototype::I32I32PointerU32)
         }
         (NativeType::I32, [NativeType::U64, NativeType::Pointer, NativeType::U64]) => {
-            Some(FixedPointerPrototype::I32U64PointerU64)
+            Some(PointerPrototype::I32U64PointerU64)
         }
         _ => None,
     };
@@ -1159,43 +1151,43 @@ fn exact_json_argument(
     index: usize,
     ty: NativeType,
     value: &serde_json::Value,
-) -> Result<ExactNativeValue, NativeDoorError> {
+) -> Result<AbiValue, NativeDoorError> {
     let invalid = || NativeDoorError::ArgumentValueInvalid { index, ty };
     match ty {
         NativeType::I32 => value
             .as_i64()
             .and_then(|value| i32::try_from(value).ok())
-            .map(ExactNativeValue::I32)
+            .map(AbiValue::I32)
             .ok_or_else(invalid),
         NativeType::U32 => value
             .as_u64()
             .and_then(|value| u32::try_from(value).ok())
-            .map(ExactNativeValue::U32)
+            .map(AbiValue::U32)
             .ok_or_else(invalid),
         NativeType::I64 => value
             .as_str()
             .and_then(|value| value.parse().ok())
-            .map(ExactNativeValue::I64)
+            .map(AbiValue::I64)
             .ok_or_else(invalid),
         NativeType::U64 => value
             .as_str()
             .and_then(|value| value.parse().ok())
-            .map(ExactNativeValue::U64)
+            .map(AbiValue::U64)
             .ok_or_else(invalid),
         NativeType::Isize => value
             .as_str()
             .and_then(|value| value.parse().ok())
-            .map(ExactNativeValue::Isize)
+            .map(AbiValue::Isize)
             .ok_or_else(invalid),
         NativeType::Usize => value
             .as_str()
             .and_then(|value| value.parse().ok())
-            .map(ExactNativeValue::Usize)
+            .map(AbiValue::Usize)
             .ok_or_else(invalid),
         NativeType::F64 => value
             .as_f64()
             .filter(|value| value.is_finite())
-            .map(ExactNativeValue::F64)
+            .map(AbiValue::F64)
             .ok_or_else(invalid),
         _ => Err(NativeDoorError::InvocationSignatureUnsupported {
             result: ty,
@@ -1208,28 +1200,28 @@ fn fixed_json_argument(
     index: usize,
     ty: NativeType,
     value: &serde_json::Value,
-) -> Result<FixedNativeValue, NativeDoorError> {
+) -> Result<AbiValue, NativeDoorError> {
     let invalid = || NativeDoorError::ArgumentValueInvalid { index, ty };
     match ty {
         NativeType::I32 => value
             .as_i64()
             .and_then(|value| i32::try_from(value).ok())
-            .map(FixedNativeValue::I32)
+            .map(AbiValue::I32)
             .ok_or_else(invalid),
         NativeType::I64 => value
             .as_str()
             .and_then(|value| value.parse().ok())
-            .map(FixedNativeValue::I64)
+            .map(AbiValue::I64)
             .ok_or_else(invalid),
         NativeType::U64 => value
             .as_str()
             .and_then(|value| value.parse().ok())
-            .map(FixedNativeValue::U64)
+            .map(AbiValue::U64)
             .ok_or_else(invalid),
         NativeType::Isize => value
             .as_str()
             .and_then(|value| value.parse().ok())
-            .map(FixedNativeValue::Isize)
+            .map(AbiValue::Isize)
             .ok_or_else(invalid),
         _ => Err(NativeDoorError::InvocationSignatureUnsupported {
             result: ty,
@@ -1245,15 +1237,15 @@ fn unsupported_signature(call: &DecodedNativeCall) -> impl FnOnce() -> NativeDoo
     }
 }
 
-fn exact_type(ty: NativeType) -> Option<ExactNativeType> {
+fn exact_scalar_type(ty: NativeType) -> Option<NativeType> {
     match ty {
-        NativeType::I32 => Some(ExactNativeType::I32),
-        NativeType::U32 => Some(ExactNativeType::U32),
-        NativeType::I64 => Some(ExactNativeType::I64),
-        NativeType::U64 => Some(ExactNativeType::U64),
-        NativeType::Isize => Some(ExactNativeType::Isize),
-        NativeType::Usize => Some(ExactNativeType::Usize),
-        NativeType::F64 => Some(ExactNativeType::F64),
+        NativeType::I32
+        | NativeType::U32
+        | NativeType::I64
+        | NativeType::U64
+        | NativeType::Isize
+        | NativeType::Usize
+        | NativeType::F64 => Some(ty),
         _ => None,
     }
 }
@@ -1262,7 +1254,7 @@ fn exact_argument(
     index: usize,
     argument: &NativeArgument,
     call: &DecodedNativeCall,
-) -> Result<ExactNativeValue, NativeDoorError> {
+) -> Result<AbiValue, NativeDoorError> {
     let NativeArgument::Scalar { ty, bits } = argument else {
         return Err(unsupported_signature(call)());
     };
@@ -1275,24 +1267,24 @@ fn exact_argument(
         NativeType::I32 => {
             let value = *bits as i32;
             (value as i64 as u64 == *bits)
-                .then_some(ExactNativeValue::I32(value))
+                .then_some(AbiValue::I32(value))
                 .ok_or_else(invalid)
         }
         NativeType::U32 => u32::try_from(*bits)
-            .map(ExactNativeValue::U32)
+            .map(AbiValue::U32)
             .map_err(|_| invalid()),
-        NativeType::I64 => Ok(ExactNativeValue::I64(*bits as i64)),
-        NativeType::U64 => Ok(ExactNativeValue::U64(*bits)),
+        NativeType::I64 => Ok(AbiValue::I64(*bits as i64)),
+        NativeType::U64 => Ok(AbiValue::U64(*bits)),
         NativeType::Isize => {
             let value = *bits as isize;
             (value as i64 as u64 == *bits)
-                .then_some(ExactNativeValue::Isize(value))
+                .then_some(AbiValue::Isize(value))
                 .ok_or_else(invalid)
         }
         NativeType::Usize => usize::try_from(*bits)
-            .map(ExactNativeValue::Usize)
+            .map(AbiValue::Usize)
             .map_err(|_| invalid()),
-        NativeType::F64 => Ok(ExactNativeValue::F64(f64::from_bits(*bits))),
+        NativeType::F64 => Ok(AbiValue::F64(f64::from_bits(*bits))),
         _ => Err(unsupported_signature(call)()),
     }
 }
@@ -1301,7 +1293,7 @@ fn fixed_argument(
     index: usize,
     argument: &NativeArgument,
     call: &DecodedNativeCall,
-) -> Result<FixedNativeValue, NativeDoorError> {
+) -> Result<AbiValue, NativeDoorError> {
     let NativeArgument::Scalar { ty, bits } = argument else {
         return Err(unsupported_signature(call)());
     };
@@ -1314,15 +1306,15 @@ fn fixed_argument(
         NativeType::I32 => {
             let value = *bits as i32;
             (value as i64 as u64 == *bits)
-                .then_some(FixedNativeValue::I32(value))
+                .then_some(AbiValue::I32(value))
                 .ok_or_else(invalid)
         }
-        NativeType::I64 => Ok(FixedNativeValue::I64(*bits as i64)),
-        NativeType::U64 => Ok(FixedNativeValue::U64(*bits)),
+        NativeType::I64 => Ok(AbiValue::I64(*bits as i64)),
+        NativeType::U64 => Ok(AbiValue::U64(*bits)),
         NativeType::Isize => {
             let value = *bits as isize;
             (value as i64 as u64 == *bits)
-                .then_some(FixedNativeValue::Isize(value))
+                .then_some(AbiValue::Isize(value))
                 .ok_or_else(invalid)
         }
         _ => Err(unsupported_signature(call)()),
@@ -1334,7 +1326,7 @@ fn fixed_pointer_argument(
     index: usize,
     argument: &NativeArgument,
     call: &DecodedNativeCall,
-) -> Result<FixedPointerValue, NativeDoorError> {
+) -> Result<AbiValue, NativeDoorError> {
     match argument {
         NativeArgument::Scalar {
             ty: NativeType::I32,
@@ -1342,7 +1334,7 @@ fn fixed_pointer_argument(
         } => {
             let value = *bits as i32;
             if value as i64 as u64 == *bits {
-                Ok(FixedPointerValue::I32(value))
+                Ok(AbiValue::I32(value))
             } else {
                 Err(NativeDoorError::ScalarNotCanonical {
                     index,
@@ -1354,31 +1346,27 @@ fn fixed_pointer_argument(
         NativeArgument::Scalar {
             ty: NativeType::U32,
             bits,
-        } => u32::try_from(*bits)
-            .map(FixedPointerValue::U32)
-            .map_err(|_| NativeDoorError::ScalarNotCanonical {
+        } => u32::try_from(*bits).map(AbiValue::U32).map_err(|_| {
+            NativeDoorError::ScalarNotCanonical {
                 index,
                 ty: NativeType::U32,
                 bits: *bits,
-            }),
+            }
+        }),
         NativeArgument::Scalar {
             ty: NativeType::U64,
             bits,
-        } => Ok(FixedPointerValue::U64(*bits)),
+        } => Ok(AbiValue::U64(*bits)),
         NativeArgument::GuestSpan { ty, span } if ty.is_pointer() => {
             // SAFETY: decode_native_call proved offset + len is within the one
             // guest allocation. `add` therefore yields an in-bounds or one-past
             // raw address without constructing an aliased Rust reference.
             let pointer = unsafe { memory_base.add(span.offset) }.cast();
-            match ty {
-                NativeType::Pointer => Ok(FixedPointerValue::Pointer(pointer)),
-                NativeType::NullablePointer => Ok(FixedPointerValue::NullablePointer(pointer)),
-                _ => unreachable!("is_pointer excludes scalar types"),
-            }
+            Ok(AbiValue::Pointer(pointer))
         }
         NativeArgument::Null {
             ty: NativeType::NullablePointer,
-        } => Ok(FixedPointerValue::NullablePointer(std::ptr::null_mut())),
+        } => Ok(AbiValue::Pointer(std::ptr::null_mut())),
         NativeArgument::Null { .. }
         | NativeArgument::GuestSpan { .. }
         | NativeArgument::Scalar { .. } => Err(unsupported_signature(call)()),
@@ -1414,37 +1402,6 @@ fn abi_parameters(call: &DecodedNativeCall) -> Result<Vec<agenterm_dyn::AbiType>
         .iter()
         .map(|ty| abi_type(*ty).ok_or_else(unsupported_signature(call)))
         .collect()
-}
-
-const fn abi_from_exact(value: ExactNativeValue) -> agenterm_dyn::AbiValue {
-    match value {
-        ExactNativeValue::I32(bits) => agenterm_dyn::AbiValue::I32(bits),
-        ExactNativeValue::U32(bits) => agenterm_dyn::AbiValue::U32(bits),
-        ExactNativeValue::I64(bits) => agenterm_dyn::AbiValue::I64(bits),
-        ExactNativeValue::U64(bits) => agenterm_dyn::AbiValue::U64(bits),
-        ExactNativeValue::Isize(bits) => agenterm_dyn::AbiValue::Isize(bits),
-        ExactNativeValue::Usize(bits) => agenterm_dyn::AbiValue::Usize(bits),
-        ExactNativeValue::F64(bits) => agenterm_dyn::AbiValue::F64(bits),
-    }
-}
-
-const fn abi_from_fixed(value: FixedNativeValue) -> agenterm_dyn::AbiValue {
-    match value {
-        FixedNativeValue::I32(bits) => agenterm_dyn::AbiValue::I32(bits),
-        FixedNativeValue::I64(bits) => agenterm_dyn::AbiValue::I64(bits),
-        FixedNativeValue::U64(bits) => agenterm_dyn::AbiValue::U64(bits),
-        FixedNativeValue::Isize(bits) => agenterm_dyn::AbiValue::Isize(bits),
-    }
-}
-
-fn abi_from_pointer(value: FixedPointerValue) -> agenterm_dyn::AbiValue {
-    match value {
-        FixedPointerValue::I32(bits) => agenterm_dyn::AbiValue::I32(bits),
-        FixedPointerValue::U32(bits) => agenterm_dyn::AbiValue::U32(bits),
-        FixedPointerValue::U64(bits) => agenterm_dyn::AbiValue::U64(bits),
-        FixedPointerValue::Pointer(address) => agenterm_dyn::AbiValue::Pointer(address),
-        FixedPointerValue::NullablePointer(address) => agenterm_dyn::AbiValue::Pointer(address),
-    }
 }
 
 /// The result bit pattern, accepted **only** in the position the spec declared.
@@ -1555,7 +1512,7 @@ mod json_adapter_tests {
         let maximum = serde_json::Value::String(u64::MAX.to_string());
         assert_eq!(
             exact_json_argument(0, NativeType::U64, &maximum),
-            Ok(ExactNativeValue::U64(u64::MAX))
+            Ok(AbiValue::U64(u64::MAX))
         );
         assert_eq!(
             exact_json_argument(0, NativeType::U64, &serde_json::json!(42)),
@@ -1585,75 +1542,73 @@ mod json_adapter_tests {
         assert_eq!(
             native_dispatch(&parse("|abs|i32(i32)")),
             Ok(NativeDispatch::Exact {
-                result: ExactNativeType::I32,
+                result: NativeType::I32,
             })
         );
         assert_eq!(
             native_dispatch(&parse("|sysconf|isize(i32)")),
-            Ok(NativeDispatch::Fixed(FixedNativePrototype::IsizeI32))
+            Ok(NativeDispatch::Fixed(FixedPrototype::IsizeI32))
         );
         assert_eq!(
             native_dispatch(&parse("|lseek|i64(i32,i64,i32)")),
-            Ok(NativeDispatch::Fixed(FixedNativePrototype::I64I32I64I32,))
+            Ok(NativeDispatch::Fixed(FixedPrototype::I64I32I64I32,))
         );
         assert_eq!(
             native_dispatch(&parse("|uname|i32(ptr)")),
-            Ok(NativeDispatch::FixedPointer(
-                FixedPointerPrototype::I32Pointer,
-            ))
+            Ok(NativeDispatch::FixedPointer(PointerPrototype::I32Pointer,))
         );
         assert_eq!(
             native_dispatch(&parse("|getrlimit|i32(i32,ptr)")),
             Ok(NativeDispatch::FixedPointer(
-                FixedPointerPrototype::I32I32Pointer,
+                PointerPrototype::I32I32Pointer,
             ))
         );
         assert_eq!(
             native_dispatch(&parse("|access|i32(ptr,i32)")),
             Ok(NativeDispatch::FixedPointer(
-                FixedPointerPrototype::I32PointerI32,
+                PointerPrototype::I32PointerI32,
             ))
         );
         assert_eq!(
             native_dispatch(&parse("|gethostuuid|i32(ptr,ptr)")),
             Ok(NativeDispatch::FixedPointer(
-                FixedPointerPrototype::I32PointerPointer,
+                PointerPrototype::I32PointerPointer,
             ))
         );
         assert_eq!(
             native_dispatch(&parse("|getentropy|i32(ptr,u64)")),
             Ok(NativeDispatch::FixedPointer(
-                FixedPointerPrototype::I32PointerU64,
+                PointerPrototype::I32PointerU64,
             ))
         );
         assert_eq!(
             native_dispatch(&parse("|sysctlnametomib|i32(ptr,ptr,ptr)")),
             Ok(NativeDispatch::FixedPointer(
-                FixedPointerPrototype::I32PointerPointerPointer,
+                PointerPrototype::I32PointerPointerPointer,
             ))
         );
         assert_eq!(
             native_dispatch(&parse("|gettimeofday|i32(ptr,ptr?)")),
             Ok(NativeDispatch::FixedPointer(
-                FixedPointerPrototype::I32PointerNullablePointer,
+                PointerPrototype::I32PointerNullablePointer,
             ))
         );
         assert_eq!(
             native_dispatch(&parse("|pthread_threadid_np|i32(ptr?,ptr)")),
             Ok(NativeDispatch::FixedPointer(
-                FixedPointerPrototype::I32NullablePointerPointer,
+                PointerPrototype::I32NullablePointerPointer,
             ))
         );
         assert_eq!(
             native_dispatch(&parse("|proc_pidpath|i32(i32,ptr,u32)")),
             Ok(NativeDispatch::FixedPointer(
-                FixedPointerPrototype::I32I32PointerU32,
+                PointerPrototype::I32I32PointerU32,
             ))
         );
         assert_eq!(
             native_dispatch(&parse("|pthread_getname_np|i32(u64,ptr,u64)")),
             Ok(NativeDispatch::FixedPointer(
-                FixedPointerPrototype::I32U64PointerU64,
+                PointerPrototype::I32U64PointerU64,
             ))
         );
         assert_eq!(

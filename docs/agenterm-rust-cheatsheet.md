@@ -3453,12 +3453,14 @@ and public error vocabulary, but must delegate the unsafe typed invocation to
 the core owner. A second copied macro table is a second living FFI truth even
 when its current arms are byte-for-byte identical.
 
-Pointer nullability is positional ABI meaning, not merely a machine pointer
-class. `i32(ptr, ptr?)` and `i32(ptr?, ptr)` need distinct admitted prototypes
-even when both eventually call the same `extern "C" fn(*mut c_void,
-*mut c_void) -> i32`. Keep the role order in the prototype table and prove a
-required slot rejects a null record before library loading; never reuse the
-reversed prototype because the register layout happens to match.
+Pointer nullability is positional **upper-layer schema meaning**, not a distinct
+machine ABI class. A policy-free ABI mechanism therefore carries one raw
+`Pointer` position, while `i32(ptr, ptr?)` and `i32(ptr?, ptr)` remain distinct
+admitted prototypes in qjswasm even though both eventually call the same
+`extern "C" fn(*mut c_void, *mut c_void) -> i32`. Keep the role order in the
+upper prototype table and prove a required slot rejects a null record before
+library loading; never reuse the reversed prototype because the register layout
+happens to match.
 
 For a two-stage native size query, keep the query and fetch as separate real
 courts. The query must pass a declared nullable data pointer as null while a

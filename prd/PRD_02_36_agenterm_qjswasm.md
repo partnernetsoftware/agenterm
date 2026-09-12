@@ -403,6 +403,10 @@ integration.
 - Exact, fixed and fixed-pointer native calls now keep their declaration parser,
   prototype catalog, nullability and guest-span checks in this crate, while all
   five raw and JSON execution arms delegate through `agenterm-dyn::invoke_abi`.
+  The local catalog no longer imports dyn's legacy prototype/value enums or its
+  exact-family validator; canonical argument conversion produces raw
+  `AbiValue` positions directly. The two nullable pointer positions remain
+  distinct here while both lower to dyn's single machine-level `Pointer` type.
   Unix `ioctl` retains its separate dyn mechanism entry. This crate maps dyn's
   mechanism signature/library/symbol failures back into the existing
   `NativeDoorError` codes using the original spec; it contains no second loader
