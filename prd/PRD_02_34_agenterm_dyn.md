@@ -1,10 +1,153 @@
 # PRD 02.34 — agenterm-dyn（极小 / 动态 / 底层）
 
-Status: active product node — user re-authorized continuing past Wave 9;
-Wave 10 is shipped (catalog 85) with Darwin-native evidence.
+Status: active product node — dyn is the native ABI/ownership core consumed by
+qjswasm; the small S-expression surface is being retired court by court into
+`.wat`. Typed owners and the six-cell catalog continue to grow with native evidence.
 Owner: 政委定方向；主会话按独占文件域推进。
 
 Parallel crate `crates/agenterm-dyn`, not a fourth engine, not libagenterm, not cu.
+
+## 当前产品身份：受限的高级 FFI 内核，而不是通用 libffi
+
+可以把 dyn 理解成一种**受限、类型化、可逐格证明的高级 FFI**，但不能把它描述成
+“任意 C 函数都能调用”的通用 FFI。它把传统 FFI 经常混在一起的职责拆成三层：
+
+1. **native invocation core** 只接受枚举过的 ABI 原型，先验证再加载；
+2. **typed owner / snapshot** 封装有所有权、caller-buffer、链表或 borrowed-pointer
+   风险的 OS 事实，不把裸指针交给消费者；
+3. **host fact catalog** 分开记录六个 OS×ISA cell 的真实状态，不用一格的运行证据
+   替代另一格。
+
+qjswasm 是当前真实消费者：它拥有 guest-memory 解码、door、预算、取消与错误映射，
+随后把已经验证的调用委托给 dyn 的 `invoke_exact`、`invoke_fixed` 或
+`invoke_fixed_pointer`。CU 通过 Script Runtime 的 `agenterm:native` 模块间接使用这条
+链；CU 不直接依赖 dyn，也没有第二套 loader。tinyvm 仍负责 `.qjs`→Wasm 与 Wasm
+执行，不拥有 native ABI。
+
+### Markdown tree-DAG（当前功能树）
+
+下面是 DAG，不是互斥目录树：qjswasm 同时依赖三个 invocation family；catalog 与
+typed owners 也会共同描述同一个 native fact（`LiveDlcallOwned`）。
+
+```text
+agenterm-dyn
+├── A. 可执行 native core                         [保留]
+│   ├── exact_native
+│   │   ├── 7 个同质标量族 × arity 0..=6 = 49 个可执行组合
+│   │   ├── validate_exact_native_signature
+│   │   └── invoke_exact
+│   ├── fixed_native
+│   │   ├── 枚举式异构标量 prototype
+│   │   ├── validate_fixed_native_signature
+│   │   └── invoke_fixed
+│   ├── fixed_pointer
+│   │   ├── 枚举式 caller-buffer / pointer prototype
+│   │   ├── validate_fixed_pointer_signature
+│   │   └── invoke_fixed_pointer
+│   └── unix_ioctl
+│       └── 仅 (i32, i32|u64, ptr) -> i32 的 variadic 特例
+│
+├── B. typed native owners / snapshots            [保留并继续扩展]
+│   ├── Unix
+│   │   ├── InterfaceAddresses       getifaddrs/freeifaddrs 恰一次释放
+│   │   ├── SupplementaryGroups      有界 gid 集合
+│   │   ├── ResolvedPath             realpath owned bytes
+│   │   ├── HostnameSnapshot         native bytes + 真 NUL
+│   │   ├── ClockSnapshot            受控 clock id + pointer-free timespec
+│   │   └── StatVfsSnapshot          pointer-free filesystem facts
+│   └── Darwin
+│       ├── MachHostPort             send-right RAII
+│       ├── MachTimebaseSnapshot     numer/denom
+│       ├── CpuCountSnapshot         hw.ncpu
+│       ├── DlAddressSnapshot        copied image/symbol bytes
+│       └── DomainNameSnapshot       bounded native bytes
+│
+├── C. OS×ISA facts                                 [保留]
+│   ├── hosts.rs: win/lnx/osx × x86_64/aarch64
+│   ├── Placeholder | LiveDlcall | LiveOwned | LiveDlcallOwned
+│   └── CU-adjacent facts（发现/兼容元数据，不是授权策略）
+│
+├── D. executable-code boundary                     [保留]
+│   ├── CodeBuffer: W^X，永不 RWX
+│   ├── NameTable: emitted / foreign name
+│   └── ExecError: 独立 typed error
+│
+└── E. 小 S-expression 解释器                      [迁移后退役]
+    ├── parse.rs + eval.rs + sym.rs + value.rs
+    ├── Dyn / Value / Symbol / DynError
+    └── native.rs 旧 dlcall 入口
+
+共享边（DAG）
+qjswasm ──uses──> A
+qjswasm ──guest span──> A.fixed_pointer
+Script Runtime / CU ──agenterm:native──> qjswasm ──> A
+B ──describes the same native facts──> C.LiveOwned / C.LiveDlcallOwned
+E ──courts are being ported to .wat──> qjswasm ──> A
+```
+
+### Mermaid flowchart memory-palace（调用与所有权记忆宫殿）
+
+把系统记成五个房间：门厅只解码，机房只执行，保管室只管寿命，地图室只记事实，
+旧书库等待搬完后关闭。任何新能力必须能指出它进入哪个房间；跨房间复制 loader、
+资源释放纪律或 OS×ISA 真相都属于第二份真相。
+
+```mermaid
+flowchart LR
+    subgraph Hall[门厅 · Script Runtime / qjswasm]
+        QJS[.qjs / .wat guest]
+        Door[agenterm:native + native_call]
+        Guard[guest span decode<br/>budget · cancel · typed mapping]
+        QJS --> Door --> Guard
+    end
+
+    subgraph Engine[机房 · dyn native core]
+        Exact[Exact 49]
+        Fixed[Fixed scalar prototypes]
+        Pointer[Fixed pointer prototypes]
+        Ioctl[Unix ioctl variadic exception]
+        Loader[唯一 loader / symbol resolution]
+        Exact --> Loader
+        Fixed --> Loader
+        Pointer --> Loader
+        Ioctl --> Loader
+    end
+
+    subgraph Vault[保管室 · typed owners]
+        UnixOwner[Unix lists / buffers / snapshots]
+        DarwinOwner[Mach rights / Darwin snapshots]
+        Drop[bounded copy or exactly-once Drop]
+        UnixOwner --> Drop
+        DarwinOwner --> Drop
+    end
+
+    subgraph Map[地图室 · six-cell facts]
+        Cells[win · lnx · osx<br/>x86_64 · aarch64]
+        Status[Placeholder / LiveDlcall<br/>LiveOwned / LiveDlcallOwned]
+        Cells --> Status
+    end
+
+    subgraph Archive[旧书库 · retiring Lisp]
+        Lisp[Dyn + S-expression + dlcall]
+        Courts[legacy native courts/examples]
+        Lisp --> Courts
+    end
+
+    Guard --> Exact
+    Guard --> Fixed
+    Guard --> Pointer
+    Guard -. enumerated exception .-> Ioctl
+    Vault --> Status
+    Courts -. claim-preserving port .-> QJS
+    Lisp -. delete only after all courts move .-> ArchiveGate{retirement gate}
+    Status --> ArchiveGate
+
+    CU[agenterm-cu] -->|through supervised Script Runtime| QJS
+    Tiny[tinyvm] -->|compile / execute Wasm only| QJS
+```
+
+这张图同时给出禁止项：不得增加第二个 native loader；不得让 guest 直接持有 OS
+资源指针；不得把 `LiveOwned` 当成别的 target cell 的 runtime 证据；不得在 legacy
+court 的用户主张尚未迁移时只按文件删除小 Lisp。
 
 ## Exec base (dyn.1, 2026-08-16) — 身份补充
 
@@ -17,6 +160,10 @@ Parallel crate `crates/agenterm-dyn`, not a fourth engine, not libagenterm, not 
 `dlcall` 跳板原样保留；新路径是「名字表条目 + 发射的 call」，非删门。
 
 ## Current authorized scope
+
+This section records the still-shipped legacy S-expression surface while its
+native claims migrate. It is not the target architecture; the current target
+and keep/retire boundary are the tree-DAG above.
 
 First cut is the body: S-expr + intern + `if` / `set` / `do` + comparisons +
 fixnum `+` `-` + bounded `repeat` + one hand (`dlcall`).
@@ -173,25 +320,24 @@ implemented functionality. Do not begin them without explicit 政委 direction.
 
 ### Active re-layering track (2026-09-12)
 
-Dyn is an important bottom-layer module, and this track is authorized to explore and
-implement the strongest sustainable layering rather than merely preserve the current
-shape. The current S-expression surface remains shipped product truth while migration
-evidence is built. A handoff reported
-that a lost prototype moved native argument memory into qjswasm guest linear memory
-and held the Rust production-code increment at zero when a fourth native capability
-was added. The prototype is no longer present, so that report is an input to a new
-decisive experiment, not product evidence.
+Dyn is an important bottom-layer module. The experiment has now produced the
+shipping layering: qjswasm owns the guest door and memory decoding, while dyn owns
+the validated exact/fixed/fixed-pointer invocation core. qjswasm has a real Cargo
+dependency on dyn and its native dispatcher calls dyn's `invoke_*` APIs. The current
+S-expression surface remains shipped product truth only until each non-language
+court has claim-preserving `.wat` or typed-owner evidence.
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
-  owns the active fixed-door slope court. Its bounded prototype is authorized now. It forbids JIT, C/libffi, deleting the Unix
-  variadic `ioctl` exception, adding a CU verb, or deleting this shipped language
-  before current-tree evidence exists.
-- Migrating and then deleting `eval.rs` / `parse.rs` / `sym.rs` / `value.rs` follows a successful slope result
-  plus a complete public-consumer migration. Read-only inventory found no other crate,
-  binary or task consumer, but the old surface still owns `Dyn`/`Value`/`Symbol`,
-  `native.rs`, roughly 212 tests and 84 executable examples; this is a deliberate
-  evidence migration, not a four-file deletion. `hosts.rs` remains the six-cell fact
-  owner and `exec.rs` remains available for the separately bounded future JIT tool.
+  owns the qualification ledger and remaining release/runtime evidence. Its bounded
+  prototype is now implemented. It still forbids JIT, C/libffi, losing the Unix
+  variadic `ioctl` exception, or deleting a shipped language court before equivalent
+  current-tree evidence exists.
+- Migrating and then deleting `eval.rs` / `parse.rs` / `sym.rs` / `value.rs` requires
+  complete court and public-consumer migration. The legacy `Dyn`/`Value`/`Symbol`
+  surface has no non-test Rust consumer outside this crate, but its native courts and
+  examples still carry claims that must move rather than disappear. `hosts.rs`
+  remains the six-cell fact owner and `exec.rs` remains the separately bounded future
+  JIT tool.
 - [`plan/design-guest-runtime-placement-experiment.md`](../plan/design-guest-runtime-placement-experiment.md)
   freezes the unresolved product choice between optional static CU linkage and a
   versioned provider ABI. No `guest-run` verb may land before one placement is both
@@ -204,23 +350,26 @@ work described by the linked plans.
 
 ### Boundary with the supervised qjswasm artifact route
 
-Agenterm commit `3afbdc1d` gives public `.wasm` execution an explicit
-`plain` or `compiled-qjs` convention, bounded artifact input, and
-`WorkerSupervisor` containment for native-door crashes and hard timeouts.
-That is qjswasm and Script Runtime capability. It neither adds an
-`agenterm-dyn` capability nor establishes that dyn can be removed.
+Public `.wasm`/`.qjs` execution has an explicit artifact convention, bounded input,
+and `WorkerSupervisor` containment for native-door crashes and hard timeouts.
+The qjswasm native door now delegates validated exact/fixed/fixed-pointer execution
+to dyn, and the public `native-acu-composition-smoke` proves one supervised guest can
+compose `agenterm:native` with `agenterm:acu`. This establishes dyn as a real lower
+layer; it does not establish that the legacy Lisp can be deleted before its remaining
+courts move.
 
-In particular, the shipped `Dyn`/`Value`/`Symbol` API, heterogeneous
-integer/pointer ABI, Unix variadic `ioctl` exception, six-cell `hosts.rs`
-facts, and the future-JIT boundary retained in `exec.rs` remain independently
-owned. Any migration or deletion still requires the native-door experiment's
-precommitted parity, slope, target, and consumer gates.
+In particular, the heterogeneous integer/pointer ABI, Unix variadic `ioctl`
+exception, six-cell `hosts.rs` facts, typed owners, and the future-JIT boundary in
+`exec.rs` remain independently owned by dyn. `Dyn`/`Value`/`Symbol` are legacy
+language API and retire only with the remaining language component after evidence
+migration.
 
 ## Non-goals until 政委 orders otherwise
 
 - No JIT / sljit / DynASM / copy-and-patch.
 - No lambda / cons / strings / quote.
-- No cu or `agenterm-platform` import.
+- No direct `agenterm-cu` or `agenterm-platform` import. CU consumes dyn only through
+  the supervised Script Runtime/qjswasm path.
 - No libffi, no C dependency, no fourth engine, no thickening libagenterm.
 
 ## Wave 11 (2026-09-12): Unix interface address lists as a typed owner (`8ae3b00a`)
@@ -251,7 +400,8 @@ precommitted parity, slope, target, and consumer gates.
 **证据**：`8ae3b00a dyn: own Unix interface address lists`（`src/unix_resource.rs` +178、`tests/unix_resource.rs` +45、
 `tests/catalog_docs.rs` +28、`tests/hosts.rs` +17、`examples/getifaddrs.md`、`README.md`）。
 
-**明确非目标**：不解析地址 bytes（只搬运 native 事实）；不接 CU / qjswasm；不宣称任何网络能力或权限。
+**明确非目标**：不解析地址 bytes（只搬运 native 事实）；该 owner 不经标量 native
+door 暴露给 CU/qjswasm；不宣称任何网络能力或权限。
 
 **不得外推**：catalog 该行的 `LiveOwned` 只表示"存在 owner 类型与释放路径"，**不等于 Linux runtime 已证**；
 Linux/Windows 的运行资格仍按本 PRD 的六格纪律逐格取得。
