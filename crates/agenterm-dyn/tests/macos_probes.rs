@@ -2,7 +2,7 @@
 
 #![cfg(target_os = "macos")]
 
-use std::ffi::{CStr, c_void};
+use std::ffi::CStr;
 
 use agenterm_dyn::{Dyn, SystemProbeStatus, Value, live_cell};
 
@@ -153,23 +153,4 @@ fn dlcall_confstr_writes_cs_path() {
             .expect("direct confstr must NUL-terminate successful output")
             .to_bytes()
     );
-}
-
-#[test]
-fn dlcall_dyld_get_image_vmaddr_slide_matches_image_zero() {
-    unsafe extern "C" {
-        fn _dyld_get_image_vmaddr_slide(image_index: u32) -> isize;
-    }
-
-    let symbol = live_symbol("dyld_get_image_vmaddr_slide");
-    let mut env = Dyn::new();
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "ptr" "u32" 0)"#),
-    )
-    .expect("_dyld_get_image_vmaddr_slide dlcall")
-    .as_ptr()
-    .expect("_dyld_get_image_vmaddr_slide pointer") as *mut c_void;
-    let direct = unsafe { _dyld_get_image_vmaddr_slide(0) } as *mut c_void;
-    assert_eq!(got, direct);
 }

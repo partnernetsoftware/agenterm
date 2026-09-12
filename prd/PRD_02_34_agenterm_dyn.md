@@ -464,8 +464,11 @@ court has claim-preserving `.wat` or typed-owner evidence.
   `_dyld_get_image_name(0)`、`_dyld_get_image_header(0)` 与
   `pthread_get_stackaddr_np(pthread_self())`，对应九个 Lisp court 已删除。
   既有 `i32(ptr,ptr)` 机制随后接管 `dladdr` 的状态、符号地址与 image-path
-  direct oracle，删除第十个 Lisp court；`macos_probes.rs` 还剩五个复杂
-  caller-buffer/结构体或异构标量 court。
+  direct oracle，删除第十个 Lisp court。统一入口又新增真实的
+  `isize(u32)` 单态 trampoline，以 signed `isize` direct oracle 接管
+  `_dyld_get_image_vmaddr_slide(0)`，不再沿用旧 Lisp court 将返回值伪装成
+  pointer 的做法；`macos_probes.rs` 还剩四个 caller-buffer/结构体或异构标量
+  court。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded

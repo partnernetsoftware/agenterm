@@ -202,6 +202,29 @@ fn pointer_result_shapes_match_direct_darwin_calls() {
     assert_ne!(u64_argument, AbiValue::Pointer(std::ptr::null_mut()));
 }
 
+/// A direct heterogeneous scalar shape preserves the signed Darwin slide;
+/// unlike the retired Lisp court, it does not disguise `isize` as a pointer.
+#[cfg(target_os = "macos")]
+#[test]
+fn dyld_image_slide_matches_the_direct_signed_result() {
+    unsafe extern "C" {
+        fn _dyld_get_image_vmaddr_slide(image_index: u32) -> isize;
+    }
+
+    let value = oracle(
+        LIB,
+        "_dyld_get_image_vmaddr_slide",
+        AbiType::Isize,
+        &[AbiType::U32],
+        &[AbiValue::U32(0)],
+    )
+    .expect("dyld image slide through the raw ABI");
+    assert_eq!(
+        value,
+        AbiValue::Isize(unsafe { _dyld_get_image_vmaddr_slide(0) })
+    );
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn two_pointer_result_buffer_matches_direct_dladdr_fields() {

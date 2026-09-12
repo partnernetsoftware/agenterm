@@ -197,6 +197,14 @@ enum Family {
     Fixed(FixedNativePrototype),
     FixedPointer(FixedPointerPrototype),
     PointerResult(PointerResultPrototype),
+    DirectScalar(DirectScalarPrototype),
+}
+
+/// Scalar shapes implemented directly by the unified mechanism rather than by
+/// a legacy compatibility family.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DirectScalarPrototype {
+    IsizeU32,
 }
 
 /// Pointer-returning monomorphic shapes implemented directly by the unified
@@ -346,6 +354,9 @@ fn classify(signature: AbiSignature<'_>, arguments: &[AbiValue]) -> Result<Famil
             [AbiType::U64] => return Ok(Family::PointerResult(PointerResultPrototype::U64)),
             _ => {}
         }
+    }
+    if signature.result == AbiType::Isize && signature.params == [AbiType::U32] {
+        return Ok(Family::DirectScalar(DirectScalarPrototype::IsizeU32));
     }
     Err(AbiError::SignatureUnsupported {
         result: signature.result,
@@ -610,16 +621,37 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
             };
             Ok(AbiValue::Pointer(address))
         }
+        Family::DirectScalar(DirectScalarPrototype::IsizeU32) => {
+            let [AbiValue::U32(argument)] = call.arguments else {
+                unreachable!("classification checked isize(u32) arguments")
+            };
+            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
+                library: display_library(call.library),
+                message: error.to_string(),
+            })?;
+            // SAFETY: classification admitted `isize(u32)`; the caller asserts
+            // that the resolved symbol really has this C ABI.
+            let function = unsafe {
+                library.get::<unsafe extern "C" fn(u32) -> isize>(call.symbol.as_bytes())
+            }
+            .map_err(|error| pointer_result_symbol_error(call, error))?;
+            // SAFETY: the caller owns the symbol contract and library lifetime.
+            Ok(AbiValue::Isize(unsafe { function(*argument) }))
+        }
+    }
+}
+
+fn display_library(library: &str) -> String {
+    if library.is_empty() {
+        "<current-process>".to_owned()
+    } else {
+        library.to_owned()
     }
 }
 
 fn pointer_result_symbol_error(call: &NativeCall<'_>, error: libloading::Error) -> AbiError {
     AbiError::SymbolLookup {
-        library: if call.library.is_empty() {
-            "<current-process>".to_owned()
-        } else {
-            call.library.to_owned()
-        },
+        library: display_library(call.library),
         symbol: call.symbol.to_owned(),
         message: error.to_string(),
     }
