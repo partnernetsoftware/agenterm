@@ -51,6 +51,11 @@ pub struct ScriptInvocationOptions {
     /// `ScriptProfile::Tool` and nothing else; every other engine ignores it,
     /// because only qjswasm has a second door to open.
     pub tool_door: bool,
+    /// True only when execution is inside the Script worker process supervised
+    /// by `WorkerSupervisor`. It is not a permission bit: it records that a
+    /// crash, hang, or UB caused by a falsely declared native signature is
+    /// contained by a hard-timeout process-tree teardown.
+    pub(crate) native_door_contained: bool,
     /// Set by the worker when a cancel frame names this invocation: the
     /// engine ends the call at its next host wait or operation.
     pub cancellation: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
@@ -413,18 +418,27 @@ fn qjs_budget(options: &ScriptInvocationOptions) -> agenterm_qjswasm::Budget {
 pub(crate) const QJS_MAX_MEMORY_PAGES: usize = 1024;
 
 #[cfg(feature = "script-qjswasm")]
-/// Compile through whichever door this invocation is allowed: the tool door
-/// when the profile says so, the sandbox otherwise. One function so `check`
-/// and `execute` cannot disagree about which language a script is checked
-/// against and run in -- the mismatch the door comment in
-/// `agenterm-qjswasm` already records as the worst shape a gate can have.
+/// Compile through the doors selected for this phase. Tool-vs-sandbox remains
+/// symmetric between check and execute. The native door is the deliberate
+/// exception: only production execution inside the supervised worker enables
+/// it, because compiling/checking does not provide crash or hang containment.
 fn compile_qjs_for(
     options: &ScriptInvocationOptions,
     source: &str,
     resolve: &dyn Fn(&str) -> Option<String>,
+    execution: bool,
 ) -> Result<Vec<u8>, agenterm_qjswasm::CompileError> {
+    let native_door = execution && options.native_door_contained;
     let allocation_probe = std::env::var_os("AGENTERM_QJS_ALLOCATION_PROBE").is_some();
-    if options.tool_door && allocation_probe {
+    if options.tool_door && native_door && allocation_probe {
+        agenterm_qjswasm::compile_qjs_tool_native_with_modules_and_allocation_probe(source, resolve)
+    } else if options.tool_door && native_door {
+        agenterm_qjswasm::compile_qjs_tool_native_with_modules(source, resolve)
+    } else if native_door && allocation_probe {
+        agenterm_qjswasm::compile_qjs_native_with_modules_and_allocation_probe(source, resolve)
+    } else if native_door {
+        agenterm_qjswasm::compile_qjs_native_with_modules(source, resolve)
+    } else if options.tool_door && allocation_probe {
         agenterm_qjswasm::compile_qjs_tool_with_modules_and_allocation_probe(source, resolve)
     } else if options.tool_door {
         agenterm_qjswasm::compile_qjs_tool_with_modules(source, resolve)
@@ -432,6 +446,24 @@ fn compile_qjs_for(
         agenterm_qjswasm::compile_qjs_with_modules_and_allocation_probe(source, resolve)
     } else {
         agenterm_qjswasm::compile_qjs_with_modules(source, resolve)
+    }
+}
+
+#[cfg(feature = "script-qjswasm")]
+fn qjs_execution_engine(options: &ScriptInvocationOptions) -> agenterm_qjswasm::Engine {
+    let engine = if options.tool_door {
+        agenterm_qjswasm::Engine::with_tool_door(qjs_budget(options))
+    } else {
+        agenterm_qjswasm::Engine::with_budget(qjs_budget(options))
+    };
+    if options.native_door_contained {
+        // This is crash/hang/UB containment, not an Agent permission decision.
+        // Dynamic symbol lookup cannot validate the signature declared by the
+        // guest. The Script worker sets this fact only inside its supervised
+        // child process; direct client pack/load/qualify calls leave it false.
+        engine.enable_native_door()
+    } else {
+        engine
     }
 }
 
@@ -915,11 +947,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // cancellation identity must not disappear merely because compilation
         // happened earlier. Source execution builds the engine from this exact
         // budget above; keep the artifact route symmetric.
-        let mut engine = if options.tool_door {
-            agenterm_qjswasm::Engine::with_tool_door(qjs_budget(options))
-        } else {
-            agenterm_qjswasm::Engine::with_budget(qjs_budget(options))
-        };
+        let mut engine = qjs_execution_engine(options);
         engine.set_tool_args(qjs_arguments(options.arguments.as_ref()));
         Some(
             engine
@@ -1015,15 +1043,15 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         source: &str,
         _options: &ScriptInvocationOptions,
     ) -> Result<(), ScriptEngineError> {
-        // Same contract as `execute`: `source` is text. `check_qjs` compiles
-        // and load-validates under the budget the run will spend, and executes
-        // nothing -- the two must share an entry point, or a check would accept
-        // what the run then refuses.
+        // Same source and tool-door contract as `execute`: `source` is text.
+        // Native is intentionally absent here. A native declaration is an
+        // unsafe assertion `dlsym` cannot verify, and check has no supervised
+        // worker process to contain a crash or hang.
         // The same resolver `execute` uses. A `check` that could not follow an
         // `import` would refuse working scripts, which is the failure the door
         // declaration comment above this impl already records for host names.
         let resolve = qjs_module_resolver(&qjs_roots(_options));
-        let wasm = compile_qjs_for(_options, source, &resolve).map_err(qjs_compile_error)?;
+        let wasm = compile_qjs_for(_options, source, &resolve, false).map_err(qjs_compile_error)?;
         // The validator has to know the door too, or `check` refuses bytes
         // `execute` would run: a tool script's `tool.*` imports are exactly
         // what a sandbox validator exists to reject.
@@ -1072,14 +1100,10 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // engine's. A script with no `import` never calls it and compiles to
         // the same bytes either way.
         let resolve = qjs_module_resolver(&qjs_roots(options));
-        let wasm = compile_qjs_for(options, source, &resolve).map_err(qjs_compile_error)?;
-        // Built after the door is known: a sandbox engine refuses tool bytes
-        // at load time, so this is the one place the two have to agree.
-        let mut engine = if options.tool_door {
-            agenterm_qjswasm::Engine::with_tool_door(qjs_budget(options))
-        } else {
-            agenterm_qjswasm::Engine::with_budget(qjs_budget(options))
-        };
+        let wasm = compile_qjs_for(options, source, &resolve, true).map_err(qjs_compile_error)?;
+        // Built after both ordinary door selection and the supervised native
+        // containment boundary are known.
+        let mut engine = qjs_execution_engine(options);
         // The CLI's `-- ARGS...` arrive as `options.arguments` (a JSON array
         // of strings) and become the script's `$0`, `$1`, ... -- the only way
         // a `.qjs` task entry can be told what to act on. `main`'s arity is
@@ -1752,6 +1776,37 @@ mod tests {
     // `gate_two_trait_equivalence::both_backends_agree_on_check`, where they
     // are compared against qjswasm's answers rather than asserted alone.
 
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn qjswasm_native_door_tracks_the_supervised_worker_fact_and_keeps_tool_selection() {
+        let sandbox = qjs_execution_engine(&ScriptInvocationOptions::default());
+        assert!(!sandbox.has_native_door());
+        assert!(!sandbox.has_tool_door());
+
+        let tool = qjs_execution_engine(&ScriptInvocationOptions {
+            tool_door: true,
+            native_door_contained: true,
+            ..ScriptInvocationOptions::default()
+        });
+        assert!(tool.has_native_door());
+        assert!(tool.has_tool_door());
+    }
+
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn direct_backend_artifact_execution_refuses_the_native_import() {
+        let wasm = wat::parse_str(include_str!(
+            "../crates/agenterm-qjswasm/tests/fixtures/native/getpid.wat"
+        ))
+        .expect("native fixture is valid WAT");
+        let error = QjswasmEngineBackend
+            .execute_artifact(&wasm, &ScriptInvocationOptions::default(), None)
+            .expect("qjswasm owns wasm artifacts")
+            .expect_err("an in-process backend call has no native containment");
+        assert!(error.message.contains("agenterm.native_call"), "{error:?}");
+        assert!(error.message.contains("with_native_door"), "{error:?}");
+    }
+
     /// A `.qjs` script's completion value reaches the caller.
     ///
     /// Before the `049ebba` bump this backend could not have reported one: the
@@ -1886,7 +1941,7 @@ return reply.ok + ":" + reply.command;
             ..ScriptInvocationOptions::default()
         };
         let resolve = qjs_module_resolver(&[]);
-        let wasm = compile_qjs_for(&options, AGENTERM_ACU_ENTRY_SOURCE, &resolve)
+        let wasm = compile_qjs_for(&options, AGENTERM_ACU_ENTRY_SOURCE, &resolve, false)
             .expect("production ACU closure compiles");
         assert_eq!(
             wasm_function_import_names(&wasm),
@@ -1957,7 +2012,7 @@ return reply.ok + ":" + reply.command;
                 cancellation: Some(Arc::clone(&cancel)),
                 ..ScriptInvocationOptions::default()
             };
-            let wasm = compile_qjs_for(&options, &source, &qjs_module_resolver(&[]))
+            let wasm = compile_qjs_for(&options, &source, &qjs_module_resolver(&[]), false)
                 .expect("compile recording fixture");
             let mut budget = qjs_budget(&options);
             budget.cancel = Some(cancel);

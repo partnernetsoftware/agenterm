@@ -687,6 +687,11 @@ fn execute_inner(
         arguments: serde_json::to_value(&invocation.arguments).ok(),
         budgets: Some(invocation.budgets.clone()),
         tool_door: invocation.profile == crate::script_protocol::ScriptProfile::Tool,
+        // The worker is an independently supervised process. If a caller lies
+        // about a dynamically loaded native signature, the supervisor's hard
+        // timeout tears down this process tree. Direct in-process backend
+        // callers leave the default false and cannot load the native door.
+        native_door_contained: true,
         fixed_clock_ms: invocation.fixed_clock_ms,
         env_allow: invocation.env_allow.clone(),
     };

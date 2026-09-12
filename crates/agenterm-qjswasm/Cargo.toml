@@ -43,6 +43,7 @@ tinyvm-qjs = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "b488
 # answer with one. Same crates the rest of the workspace already carries.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+libloading = "0.8"
 
 [dev-dependencies]
 # The shared corpus-scan contract: the scenarios every engine's scanner has to

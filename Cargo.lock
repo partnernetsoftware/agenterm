@@ -183,6 +183,7 @@ version = "0.1.16"
 dependencies = [
  "agenterm-platform",
  "agenterm-script-common",
+ "libloading 0.8.9",
  "png 0.17.16",
  "serde",
  "serde_json",

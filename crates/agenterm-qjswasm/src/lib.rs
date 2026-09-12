@@ -150,6 +150,24 @@ pub fn compile_qjs(source: &str) -> Result<Vec<u8>, CompileError> {
     )
 }
 
+/// [`compile_qjs`] with the crash-capable native door declared explicitly.
+///
+/// This is an execution-containment choice, not a permission policy. Dynamic
+/// symbol lookup cannot prove that a caller's textual C signature matches the
+/// symbol. A false declaration can hang or crash the current process, so
+/// ordinary compile/check paths and ordinary [`Engine`] constructors keep the
+/// door absent. Production callers must run the resulting guest in a
+/// supervised worker process whose hard-timeout path reclaims the process
+/// tree.
+pub fn compile_qjs_native(source: &str) -> Result<Vec<u8>, CompileError> {
+    tinyvm_qjs::compile_qjs_m1_with(
+        source,
+        tinyvm_qjs::Options {
+            names: tinyvm_qjs::Names::Declared(host::declarations_with_native()),
+        },
+    )
+}
+
 /// [`compile_qjs`] for a **tool** script: the `agenterm.*` door plus the
 /// `tool.*` door (`fs_*`, `process_*`, `env_*`, `tool_result`; see
 /// [`tool_door_declarations`]).
@@ -179,7 +197,18 @@ pub fn compile_qjs_tool(source: &str) -> Result<Vec<u8>, CompileError> {
     tinyvm_qjs::compile_qjs_m1_with(
         source,
         tinyvm_qjs::Options {
-            names: tinyvm_qjs::Names::Declared(both_doors()),
+            names: tinyvm_qjs::Names::Declared(both_doors(false)),
+        },
+    )
+}
+
+/// [`compile_qjs_tool`] with the native door declared as a second, explicit
+/// opt-in. See [`compile_qjs_native`] for the process-containment contract.
+pub fn compile_qjs_tool_native(source: &str) -> Result<Vec<u8>, CompileError> {
+    tinyvm_qjs::compile_qjs_m1_with(
+        source,
+        tinyvm_qjs::Options {
+            names: tinyvm_qjs::Names::Declared(both_doors(true)),
         },
     )
 }
@@ -192,7 +221,7 @@ pub fn compile_qjs_tool_with_modules(
     tinyvm_qjs::compile_qjs_m1_with_modules(
         source,
         tinyvm_qjs::Options {
-            names: tinyvm_qjs::Names::Declared(both_doors()),
+            names: tinyvm_qjs::Names::Declared(both_doors(false)),
         },
         resolve,
     )
@@ -211,7 +240,35 @@ pub fn compile_qjs_tool_with_modules_and_allocation_probe(
     tinyvm_qjs::compile_qjs_m1_with_modules_and_allocation_probe(
         source,
         tinyvm_qjs::Options {
-            names: tinyvm_qjs::Names::Declared(both_doors()),
+            names: tinyvm_qjs::Names::Declared(both_doors(false)),
+        },
+        resolve,
+    )
+}
+
+/// [`compile_qjs_tool_with_modules`] with the native door declared.
+pub fn compile_qjs_tool_native_with_modules(
+    source: &str,
+    resolve: &dyn Fn(&str) -> Option<String>,
+) -> Result<Vec<u8>, CompileError> {
+    tinyvm_qjs::compile_qjs_m1_with_modules(
+        source,
+        tinyvm_qjs::Options {
+            names: tinyvm_qjs::Names::Declared(both_doors(true)),
+        },
+        resolve,
+    )
+}
+
+/// Diagnostic twin of [`compile_qjs_tool_native_with_modules`].
+pub fn compile_qjs_tool_native_with_modules_and_allocation_probe(
+    source: &str,
+    resolve: &dyn Fn(&str) -> Option<String>,
+) -> Result<Vec<u8>, CompileError> {
+    tinyvm_qjs::compile_qjs_m1_with_modules_and_allocation_probe(
+        source,
+        tinyvm_qjs::Options {
+            names: tinyvm_qjs::Names::Declared(both_doors(true)),
         },
         resolve,
     )
@@ -220,8 +277,12 @@ pub fn compile_qjs_tool_with_modules_and_allocation_probe(
 /// The fleet door followed by the tool door: declaration order is import
 /// order, so a tool script's `agenterm.*` imports come first, exactly where a
 /// sandbox script's would be.
-fn both_doors() -> Vec<HostFn> {
-    let mut decls = host::declarations();
+fn both_doors(native: bool) -> Vec<HostFn> {
+    let mut decls = if native {
+        host::declarations_with_native()
+    } else {
+        host::declarations()
+    };
     decls.extend(tool::declarations());
     decls
 }
@@ -267,6 +328,34 @@ pub fn compile_qjs_with_modules_and_allocation_probe(
         source,
         tinyvm_qjs::Options {
             names: tinyvm_qjs::Names::Declared(host::declarations()),
+        },
+        resolve,
+    )
+}
+
+/// [`compile_qjs_with_modules`] with the native door declared.
+pub fn compile_qjs_native_with_modules(
+    source: &str,
+    resolve: &dyn Fn(&str) -> Option<String>,
+) -> Result<Vec<u8>, CompileError> {
+    tinyvm_qjs::compile_qjs_m1_with_modules(
+        source,
+        tinyvm_qjs::Options {
+            names: tinyvm_qjs::Names::Declared(host::declarations_with_native()),
+        },
+        resolve,
+    )
+}
+
+/// Diagnostic twin of [`compile_qjs_native_with_modules`].
+pub fn compile_qjs_native_with_modules_and_allocation_probe(
+    source: &str,
+    resolve: &dyn Fn(&str) -> Option<String>,
+) -> Result<Vec<u8>, CompileError> {
+    tinyvm_qjs::compile_qjs_m1_with_modules_and_allocation_probe(
+        source,
+        tinyvm_qjs::Options {
+            names: tinyvm_qjs::Names::Declared(host::declarations_with_native()),
         },
         resolve,
     )
@@ -364,10 +453,23 @@ pub fn tool_door_declarations() -> Vec<HostFn> {
 /// against each other from outside.
 ///
 /// Five declarations, seven imports: both `fleet_result` and `acu_result` are
-/// two-pass byte results and bring their private length imports with them. See
-/// `src/host.rs`.
+/// two-pass byte results and bring their private length imports with them. The
+/// native declaration is intentionally separate; see
+/// [`native_door_declarations`].
 pub fn door_declarations() -> Vec<HostFn> {
     host::declarations()
+}
+
+/// The one declaration added by the crash-capable native door.
+///
+/// Kept separate from [`door_declarations`] so discovery of the default host
+/// surface cannot accidentally advertise an import the default [`Engine`]
+/// refuses.
+pub fn native_door_declarations() -> Vec<HostFn> {
+    host::declarations_with_native()
+        .into_iter()
+        .filter(|declaration| declaration.field == "native_call")
+        .collect()
 }
 
 /// Bounds on one guest. Execution limits live in the tinyvm core; the three
@@ -1083,6 +1185,10 @@ pub struct Engine {
     /// Whether slots here get the `tool.*` door. Set only by
     /// [`with_tool_door`](Self::with_tool_door), never by a guest.
     tool_door: bool,
+    /// Whether slots may import `agenterm.native_call`. This is closed by
+    /// default because a falsely declared native signature can crash or hang
+    /// this process; see [`enable_native_door`](Self::enable_native_door).
+    native_door: bool,
     /// What `arg_count()` / `arg(n)` answer inside a tool script. Set by the
     /// embedder per invocation with [`set_tool_args`](Self::set_tool_args);
     /// meaningless -- and unreachable -- without the tool door.
@@ -1116,6 +1222,7 @@ impl Engine {
         Self {
             budget,
             tool_door: false,
+            native_door: false,
             tool_args: Vec::new(),
             slots: Vec::new(),
             failed_stdout: String::new(),
@@ -1150,6 +1257,28 @@ impl Engine {
         }
     }
 
+    /// Build an engine with the crash-capable native door explicitly open.
+    ///
+    /// This is a process-containment boundary, not a permission boundary.
+    /// `dlsym`/`GetProcAddress` cannot validate the textual signature supplied
+    /// by a guest. A false declaration can crash, corrupt, or indefinitely
+    /// block the current process despite the schema and exact Rust ABI stubs.
+    /// Callers opening this door must therefore execute the engine in an
+    /// independently supervised worker whose hard timeout reclaims its process
+    /// tree. The door remains closed in `new`, `with_budget`, and
+    /// `with_tool_door`.
+    pub fn with_native_door(budget: Budget) -> Self {
+        Self::with_budget(budget).enable_native_door()
+    }
+
+    /// Open the native door on an existing builder, including an engine made
+    /// by [`with_tool_door`](Self::with_tool_door). The returned engine keeps
+    /// its tool arguments and every other budget/configuration field.
+    pub fn enable_native_door(mut self) -> Self {
+        self.native_door = true;
+        self
+    }
+
     pub fn budget(&self) -> &Budget {
         &self.budget
     }
@@ -1157,6 +1286,11 @@ impl Engine {
     /// Whether this engine's slots have the `tool.*` door.
     pub fn has_tool_door(&self) -> bool {
         self.tool_door
+    }
+
+    /// Whether this engine's slots may import `agenterm.native_call`.
+    pub fn has_native_door(&self) -> bool {
+        self.native_door
     }
 
     /// Compile (for `.qjs`), validate, bind the host door, instantiate, and run
@@ -1193,8 +1327,12 @@ impl Engine {
                 // Compiled against the doors this engine will actually bind,
                 // so a tool engine's `check` and `execute` agree just as a
                 // sandbox engine's do.
-                owned = if self.tool_door {
+                owned = if self.tool_door && self.native_door {
+                    compile_qjs_tool_native(source)?
+                } else if self.tool_door {
                     compile_qjs_tool(source)?
+                } else if self.native_door {
+                    compile_qjs_native(source)?
                 } else {
                     compile_qjs(source)?
                 };
@@ -1202,7 +1340,14 @@ impl Engine {
             }
         };
         let tool = self.tool_door.then(|| self.tool_args.clone());
-        let slot = slot::Slot::load(bytes, &self.budget, bridges, convention, tool)?;
+        let slot = slot::Slot::load(
+            bytes,
+            &self.budget,
+            bridges,
+            convention,
+            tool,
+            self.native_door,
+        )?;
         let id = SlotId {
             engine: self.id,
             index: self.next_index,
@@ -1412,7 +1557,7 @@ pub fn validate_wasm(bytes: &[u8]) -> Result<(), QjswasmError> {
 pub fn validate_wasm_with(bytes: &[u8], budget: &Budget) -> Result<(), QjswasmError> {
     let module = tinyvm::WasmModule::from_bytes_explained(bytes, budget.limits)
         .map_err(QjswasmError::from_load)?;
-    host::check_declarations(&module, false)
+    host::check_declarations(&module, false, false)
 }
 
 /// [`validate_wasm_with`] as an [`Engine::with_tool_door`] would gate: a
@@ -1422,7 +1567,7 @@ pub fn validate_wasm_with(bytes: &[u8], budget: &Budget) -> Result<(), QjswasmEr
 pub fn validate_wasm_tool_with(bytes: &[u8], budget: &Budget) -> Result<(), QjswasmError> {
     let module = tinyvm::WasmModule::from_bytes_explained(bytes, budget.limits)
         .map_err(QjswasmError::from_load)?;
-    host::check_declarations(&module, true)
+    host::check_declarations(&module, true, false)
 }
 
 /// Route a path to a guest kind by extension. `.wasm` and `.qjs` only.

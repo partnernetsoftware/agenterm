@@ -1,11 +1,13 @@
-//! Bounded schema for the planned `agenterm.native_call` door.
+//! Bounded schema and exact invocation table for `agenterm.native_call`.
 //!
-//! This module deliberately stops before symbol lookup or invocation. It owns
-//! the guest-authored declaration and argument-block format, and turns hostile
-//! guest bytes into typed, bounded host data. The future host-door wiring has
-//! one conversion from [`NativeDoorError`] to [`crate::QjswasmError::Door`].
+//! It owns the guest-authored declaration and argument-block format, turns
+//! hostile guest bytes into typed bounded data, and admits only exact scalar
+//! function-pointer types at the invocation boundary. The host door has one
+//! conversion from [`NativeDoorError`] to [`crate::QjswasmError::Door`].
 
 use std::fmt;
+
+use libloading::Library;
 
 /// Schema version stored in every argument-block header.
 pub const NATIVE_BLOCK_VERSION: u32 = 1;
@@ -122,7 +124,7 @@ pub enum SpanRegion {
     Argument(usize),
 }
 
-/// Strongly typed schema failures. The future door maps this enum once.
+/// Strongly typed schema and invocation failures. The door maps this enum once.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NativeDoorError {
     SpecTooLong {
@@ -204,10 +206,31 @@ pub enum NativeDoorError {
     NullPayloadNonZero {
         index: usize,
     },
+    DoorArgumentNegative {
+        index: usize,
+        value: i32,
+    },
+    InvocationSignatureUnsupported {
+        result: NativeType,
+        parameters: Vec<NativeType>,
+    },
+    ScalarNotCanonical {
+        index: usize,
+        ty: NativeType,
+        bits: u64,
+    },
+    LibraryLoad {
+        library: String,
+        message: String,
+    },
+    SymbolLoad {
+        symbol: String,
+        message: String,
+    },
 }
 
 impl NativeDoorError {
-    /// Stable machine-readable name used by the single future door mapping.
+    /// Stable machine-readable name used by the single host-door mapping.
     pub const fn code(&self) -> &'static str {
         match self {
             Self::SpecTooLong { .. } => "native_spec_too_long",
@@ -234,6 +257,13 @@ impl NativeDoorError {
             Self::ArgumentKindMismatch { .. } => "native_argument_kind_mismatch",
             Self::NullForNonNullablePointer { .. } => "native_null_not_permitted",
             Self::NullPayloadNonZero { .. } => "native_null_payload_nonzero",
+            Self::DoorArgumentNegative { .. } => "native_door_argument_negative",
+            Self::InvocationSignatureUnsupported { .. } => {
+                "native_invocation_signature_unsupported"
+            }
+            Self::ScalarNotCanonical { .. } => "native_scalar_not_canonical",
+            Self::LibraryLoad { .. } => "native_library_load_failed",
+            Self::SymbolLoad { .. } => "native_symbol_load_failed",
         }
     }
 }
@@ -304,6 +334,27 @@ impl fmt::Display for NativeDoorError {
             }
             Self::NullPayloadNonZero { index } => {
                 write!(f, "argument {index} null record has a nonzero payload")
+            }
+            Self::DoorArgumentNegative { index, value } => {
+                write!(f, "door argument {index} is negative: {value}")
+            }
+            Self::InvocationSignatureUnsupported { result, parameters } => {
+                write!(
+                    f,
+                    "invocation does not have one exact homogeneous scalar type: {result:?}({parameters:?})"
+                )
+            }
+            Self::ScalarNotCanonical { index, ty, bits } => {
+                write!(
+                    f,
+                    "argument {index} is not a canonical {ty:?} value: 0x{bits:016x}"
+                )
+            }
+            Self::LibraryLoad { library, message } => {
+                write!(f, "could not load native library {library:?}: {message}")
+            }
+            Self::SymbolLoad { symbol, message } => {
+                write!(f, "could not resolve native symbol {symbol:?}: {message}")
             }
         }
     }
@@ -445,6 +496,24 @@ pub fn native_register_pattern_cardinality() -> usize {
         .map(|arity| parameter_class_count.pow(arity as u32))
         .sum::<usize>();
     parameter_patterns * return_class_count
+}
+
+/// Number of exact Rust `extern C` stubs admitted by the executable slice.
+///
+/// This is intentionally smaller than [`native_register_pattern_cardinality`]:
+/// seven exact scalar types, each at every arity from zero through six. The
+/// result type and every parameter have to be that same exact type.
+pub fn native_invocation_stub_cardinality() -> usize {
+    let exact_scalar_types = [
+        NativeType::I32,
+        NativeType::U32,
+        NativeType::I64,
+        NativeType::U64,
+        NativeType::Isize,
+        NativeType::Usize,
+        NativeType::F64,
+    ];
+    exact_scalar_types.len() * (0..=MAX_NATIVE_ARITY).count()
 }
 
 /// Validate and decode one declaration plus fixed-layout argument block.
@@ -622,4 +691,213 @@ fn le_u32(bytes: &[u8]) -> u32 {
 
 fn le_u64(bytes: &[u8]) -> u64 {
     u64::from_le_bytes(bytes.try_into().expect("schema slices eight bytes"))
+}
+
+macro_rules! invoke_homogeneous {
+    ($library:expr, $call:expr, $args:expr, $ty:ty) => {{
+        match $args.as_slice() {
+            [] => invoke_0::<$ty>($library, $call),
+            [a] => invoke_1::<$ty>($library, $call, *a),
+            [a, b] => invoke_2::<$ty>($library, $call, *a, *b),
+            [a, b, c] => invoke_3::<$ty>($library, $call, *a, *b, *c),
+            [a, b, c, d] => invoke_4::<$ty>($library, $call, *a, *b, *c, *d),
+            [a, b, c, d, e] => invoke_5::<$ty>($library, $call, *a, *b, *c, *d, *e),
+            [a, b, c, d, e, f] => invoke_6::<$ty>($library, $call, *a, *b, *c, *d, *e, *f),
+            _ => unreachable!("the schema caps native arity at six"),
+        }?
+    }};
+}
+
+/// Invoke one decoded call and publish its result into the guest block.
+///
+/// The first executable slice deliberately supports only exact homogeneous
+/// scalar signatures. A register class is not a Rust function-pointer type:
+/// accepting every GP width or mixed GP/F64 pattern would turn a declaration
+/// typo into undefined behaviour. Each admitted family below has seven fixed
+/// stubs (arity zero through six) whose Rust type exactly matches the declared
+/// native type. Pointers, narrow integers, mixed signatures, `void`, `f32`,
+/// variadics and structure values remain typed refusals.
+pub(crate) fn invoke_native_call(
+    memory: &mut [u8],
+    call: &DecodedNativeCall,
+) -> Result<(), NativeDoorError> {
+    let bits = match call.spec.result {
+        NativeType::I32 if all_parameters(call, NativeType::I32) => {
+            let args = exact_i32_arguments(call)?;
+            let library = open_library(&call.spec.library)?;
+            invoke_homogeneous!(&library, call, args, i32) as i64 as u64
+        }
+        NativeType::U32 if all_parameters(call, NativeType::U32) => {
+            let args = exact_u32_arguments(call)?;
+            let library = open_library(&call.spec.library)?;
+            invoke_homogeneous!(&library, call, args, u32) as u64
+        }
+        NativeType::I64 if all_parameters(call, NativeType::I64) => {
+            let args = exact_i64_arguments(call)?;
+            let library = open_library(&call.spec.library)?;
+            invoke_homogeneous!(&library, call, args, i64) as u64
+        }
+        NativeType::U64 if all_parameters(call, NativeType::U64) => {
+            let args = exact_u64_arguments(call)?;
+            let library = open_library(&call.spec.library)?;
+            invoke_homogeneous!(&library, call, args, u64)
+        }
+        NativeType::Isize if all_parameters(call, NativeType::Isize) => {
+            let args = exact_isize_arguments(call)?;
+            let library = open_library(&call.spec.library)?;
+            invoke_homogeneous!(&library, call, args, isize) as i64 as u64
+        }
+        NativeType::Usize if all_parameters(call, NativeType::Usize) => {
+            let args = exact_usize_arguments(call)?;
+            let library = open_library(&call.spec.library)?;
+            invoke_homogeneous!(&library, call, args, usize) as u64
+        }
+        NativeType::F64 if all_parameters(call, NativeType::F64) => {
+            let args = exact_f64_arguments(call)?;
+            let library = open_library(&call.spec.library)?;
+            invoke_homogeneous!(&library, call, args, f64).to_bits()
+        }
+        _ => {
+            return Err(NativeDoorError::InvocationSignatureUnsupported {
+                result: call.spec.result,
+                parameters: call.spec.parameters.clone(),
+            });
+        }
+    };
+    let memory_len = memory.len();
+    let slot = memory
+        .get_mut(call.return_slot.offset..call.return_slot.offset + call.return_slot.len)
+        .ok_or(NativeDoorError::SpanOutOfBounds {
+            region: SpanRegion::Block,
+            end: call.return_slot.offset + call.return_slot.len,
+            memory_len,
+        })?;
+    slot.copy_from_slice(&bits.to_le_bytes());
+    Ok(())
+}
+
+fn all_parameters(call: &DecodedNativeCall, ty: NativeType) -> bool {
+    call.spec
+        .parameters
+        .iter()
+        .all(|candidate| *candidate == ty)
+}
+
+macro_rules! exact_arguments {
+    ($name:ident, $ty:ty, $native:expr, $convert:expr) => {
+        fn $name(call: &DecodedNativeCall) -> Result<Vec<$ty>, NativeDoorError> {
+            call.arguments
+                .iter()
+                .enumerate()
+                .map(|(index, argument)| match argument {
+                    NativeArgument::Scalar { ty, bits } if *ty == $native => ($convert)(*bits)
+                        .ok_or(NativeDoorError::ScalarNotCanonical {
+                            index,
+                            ty: *ty,
+                            bits: *bits,
+                        }),
+                    _ => Err(NativeDoorError::InvocationSignatureUnsupported {
+                        result: call.spec.result,
+                        parameters: call.spec.parameters.clone(),
+                    }),
+                })
+                .collect()
+        }
+    };
+}
+
+exact_arguments!(exact_i32_arguments, i32, NativeType::I32, |bits: u64| {
+    let value = bits as i32;
+    (value as i64 as u64 == bits).then_some(value)
+});
+exact_arguments!(exact_u32_arguments, u32, NativeType::U32, |bits: u64| {
+    u32::try_from(bits).ok()
+});
+exact_arguments!(exact_i64_arguments, i64, NativeType::I64, |bits: u64| {
+    Some(bits as i64)
+});
+exact_arguments!(exact_u64_arguments, u64, NativeType::U64, |bits: u64| {
+    Some(bits)
+});
+exact_arguments!(
+    exact_isize_arguments,
+    isize,
+    NativeType::Isize,
+    |bits: u64| {
+        let value = bits as isize;
+        (value as i64 as u64 == bits).then_some(value)
+    }
+);
+exact_arguments!(
+    exact_usize_arguments,
+    usize,
+    NativeType::Usize,
+    |bits: u64| { usize::try_from(bits).ok() }
+);
+exact_arguments!(exact_f64_arguments, f64, NativeType::F64, |bits: u64| {
+    Some(f64::from_bits(bits))
+});
+
+fn symbol_error(call: &DecodedNativeCall, error: libloading::Error) -> NativeDoorError {
+    NativeDoorError::SymbolLoad {
+        symbol: call.spec.symbol.clone(),
+        message: error.to_string(),
+    }
+}
+
+macro_rules! typed_invoker {
+    ($name:ident, ($($arg:ident),*)) => {
+        #[allow(clippy::too_many_arguments)]
+        fn $name<T: Copy>(
+            library: &Library,
+            call: &DecodedNativeCall,
+            $($arg: T),*
+        ) -> Result<T, NativeDoorError> {
+            // SAFETY: the caller selects this exact Rust `extern C` signature
+            // only for the same exact declared scalar type and arity. As with
+            // every dlsym-style API, the declaration is the caller's unsafe
+            // assertion that the exported symbol has that signature.
+            let function = unsafe {
+                library.get::<unsafe extern "C" fn($($arg: T),*) -> T>(call.spec.symbol.as_bytes())
+            }
+            .map_err(|error| symbol_error(call, error))?;
+            // SAFETY: the canonical arguments have the exact `T` selected
+            // above, and the Library remains alive for the call.
+            Ok(unsafe { function($($arg),*) })
+        }
+    };
+}
+
+typed_invoker!(invoke_0, ());
+typed_invoker!(invoke_1, (a));
+typed_invoker!(invoke_2, (a, b));
+typed_invoker!(invoke_3, (a, b, c));
+typed_invoker!(invoke_4, (a, b, c, d));
+typed_invoker!(invoke_5, (a, b, c, d, e));
+typed_invoker!(invoke_6, (a, b, c, d, e, f));
+
+#[cfg(unix)]
+fn current_process_library() -> Result<Library, libloading::Error> {
+    Ok(libloading::os::unix::Library::this().into())
+}
+
+#[cfg(windows)]
+fn current_process_library() -> Result<Library, libloading::Error> {
+    libloading::os::windows::Library::this().map(Into::into)
+}
+
+fn open_library(name: &str) -> Result<Library, NativeDoorError> {
+    if name.is_empty() {
+        return current_process_library().map_err(|error| NativeDoorError::LibraryLoad {
+            library: "<current-process>".to_owned(),
+            message: error.to_string(),
+        });
+    }
+    // SAFETY: loading a library deliberately executes that library's
+    // initializer/finalizer routines. This unrestricted runtime operation is
+    // synchronous, and the handle remains alive through symbol invocation.
+    unsafe { Library::new(name) }.map_err(|error| NativeDoorError::LibraryLoad {
+        library: name.to_owned(),
+        message: error.to_string(),
+    })
 }

@@ -97,10 +97,11 @@ impl Slot {
         bridges: HostBridges,
         convention: Convention,
         tool_door: Option<Vec<String>>,
+        native_door: bool,
     ) -> Result<Self, QjswasmError> {
         let mut module = tinyvm::WasmModule::from_bytes_explained(bytes, budget.limits)
             .map_err(QjswasmError::from_load)?;
-        let door = host::install(&mut module, budget, bridges, tool_door)?;
+        let door = host::install(&mut module, budget, bridges, tool_door, native_door)?;
         // Instantiation applies data segments and initial globals and runs the
         // start function, so a guest whose start traps, overruns its budget or
         // observes this operation's cancellation fails here -- classified like
