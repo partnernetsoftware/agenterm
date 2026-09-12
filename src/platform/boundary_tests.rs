@@ -591,6 +591,62 @@ fn frontend_path_attr_debt_does_not_grow() {
     );
 }
 
+/// A frozen surface may only name paths that exist in this checkout. A gate
+/// that accepts a stale `crates/.../native.rs` reports a green over a file
+/// nobody can open, which is worse than a missing gate: it hides the very
+/// migration that moved the path.
+///
+/// A trailing `/` is this manifest's directory convention, so a name without
+/// one must be a regular file.
+fn chassis_l1_surface_path_shape(field: &str, value: &str) -> Result<PathBuf, String> {
+    if value.is_empty() {
+        return Err(format!("{field} contains an empty path"));
+    }
+    if value.starts_with('/') || value.starts_with('~') || value.starts_with('\\') {
+        return Err(format!(
+            "{field} names {value:?}, which is absolute or home-expanded; the surface \
+             must name repository-relative paths"
+        ));
+    }
+    if value.contains('\\') || value.contains(':') {
+        return Err(format!(
+            "{field} names {value:?}, which uses a non-portable separator or drive prefix"
+        ));
+    }
+    if Path::new(value)
+        .components()
+        .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(format!(
+            "{field} names {value:?}, which escapes the repository root"
+        ));
+    }
+    Ok(PathBuf::from(value))
+}
+
+/// Checks one manifest entry against the checkout rooted at `root`.
+fn chassis_l1_surface_path_exists(root: &Path, field: &str, value: &str) -> Result<(), String> {
+    let relative = chassis_l1_surface_path_shape(field, value)?;
+    let wants_directory = value.ends_with('/');
+    let full = root.join(&relative);
+    let found = if wants_directory {
+        full.is_dir()
+    } else {
+        full.is_file()
+    };
+    if found {
+        return Ok(());
+    }
+    let kind = if wants_directory {
+        "directory"
+    } else {
+        "regular file"
+    };
+    Err(format!(
+        "{field} names {value:?}, but this checkout has no such {kind}"
+    ))
+}
+
 #[test]
 fn chassis_l1_surface_names_the_six_cell_candidate_tax() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -621,6 +677,18 @@ fn chassis_l1_surface_names_the_six_cell_candidate_tax() {
             assert!(!path.is_empty(), "L1 paths must not be empty");
             assert!(l1_paths.insert(path), "duplicate L1 path: {path}");
         }
+        for path in prefixes.iter().filter_map(|v| v.as_str()) {
+            let field = format!("l1_reasons.{reason}.path_prefixes");
+            if let Err(problem) = chassis_l1_surface_path_exists(&root, &field, path) {
+                panic!("{problem}");
+            }
+        }
+        for path in exact.iter().filter_map(|v| v.as_str()) {
+            let field = format!("l1_reasons.{reason}.exact_paths");
+            if let Err(problem) = chassis_l1_surface_path_exists(&root, &field, path) {
+                panic!("{problem}");
+            }
+        }
     }
     assert!(
         not_l1.iter().any(|p| p.as_str() == Some("src/frontend/")),
@@ -637,6 +705,9 @@ fn chassis_l1_surface_names_the_six_cell_candidate_tax() {
             !l1_paths.contains(excluded),
             "{excluded} cannot be both L1 and explicitly-not-L1"
         );
+        if let Err(problem) = chassis_l1_surface_path_exists(&root, "explicitly_not_l1", excluded) {
+            panic!("{problem}");
+        }
     }
     let notes = value["notes"].as_array().expect("notes");
     assert!(
@@ -647,4 +718,69 @@ fn chassis_l1_surface_names_the_six_cell_candidate_tax() {
         }),
         "surface must state that the named Candidate tax does not claim the workbench PE is thin"
     );
+}
+
+#[test]
+fn chassis_l1_surface_rejects_a_missing_repo_relative_path() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let missing_file = chassis_l1_surface_path_exists(
+        &root,
+        "l1_reasons.loader.exact_paths",
+        "crates/agenterm-chassis/src/no_such_surface_file.rs",
+    )
+    .expect_err("a named file that does not exist must be refused");
+    assert!(
+        missing_file.contains("l1_reasons.loader.exact_paths")
+            && missing_file.contains("no_such_surface_file.rs")
+            && missing_file.contains("regular file"),
+        "the refusal must name the JSON field and the missing value: {missing_file}"
+    );
+    let missing_directory = chassis_l1_surface_path_exists(
+        &root,
+        "l1_reasons.loader.path_prefixes",
+        "crates/agenterm-chassis/src/no_such_surface_dir/",
+    )
+    .expect_err("a named directory that does not exist must be refused");
+    assert!(
+        missing_directory.contains("l1_reasons.loader.path_prefixes")
+            && missing_directory.contains("no_such_surface_dir")
+            && missing_directory.contains("directory"),
+        "the refusal must name the JSON field and the missing value: {missing_directory}"
+    );
+}
+
+#[test]
+fn chassis_l1_surface_path_shape_accepts_the_names_the_manifest_uses() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    assert!(chassis_l1_surface_path_shape("field", "rust-toolchain.toml").is_ok());
+    assert!(chassis_l1_surface_path_shape("field", "crates/agenterm-chassis/src/loader/").is_ok());
+    assert!(chassis_l1_surface_path_exists(&root, "field", "rust-toolchain.toml").is_ok());
+    assert!(
+        chassis_l1_surface_path_exists(&root, "field", "crates/agenterm-chassis/src/loader/")
+            .is_ok()
+    );
+    // A file named without the directory convention must not pass as a directory.
+    assert!(chassis_l1_surface_path_exists(&root, "field", "rust-toolchain.toml/").is_err());
+}
+
+#[test]
+fn chassis_l1_surface_refuses_paths_that_leave_the_repository() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for value in [
+        "/etc/passwd",
+        "~/secret",
+        "C:/windows/system32",
+        "crates/../../etc/passwd",
+        "crates\\agenterm-cu\\src\\lib.rs",
+        "",
+    ] {
+        let problem = match chassis_l1_surface_path_exists(&root, "explicitly_not_l1", value) {
+            Ok(()) => panic!("{value:?} must be refused"),
+            Err(problem) => problem,
+        };
+        assert!(
+            problem.contains("explicitly_not_l1"),
+            "the refusal must name the JSON field: {problem}"
+        );
+    }
 }
