@@ -504,17 +504,18 @@ pub fn native_register_pattern_cardinality() -> usize {
 /// seven exact scalar types, each at every arity from zero through six. The
 /// result type and every parameter have to be that same exact type.
 pub fn native_invocation_stub_cardinality() -> usize {
-    let exact_scalar_types = [
-        NativeType::I32,
-        NativeType::U32,
-        NativeType::I64,
-        NativeType::U64,
-        NativeType::Isize,
-        NativeType::Usize,
-        NativeType::F64,
-    ];
-    exact_scalar_types.len() * (0..=MAX_NATIVE_ARITY).count()
+    EXACT_SCALAR_FAMILIES.len() * (0..=MAX_NATIVE_ARITY).count()
 }
+
+const EXACT_SCALAR_FAMILIES: [NativeType; 7] = [
+    NativeType::I32,
+    NativeType::U32,
+    NativeType::I64,
+    NativeType::U64,
+    NativeType::Isize,
+    NativeType::Usize,
+    NativeType::F64,
+];
 
 /// Validate and decode one declaration plus fixed-layout argument block.
 ///
@@ -721,48 +722,48 @@ pub(crate) fn invoke_native_call(
     memory: &mut [u8],
     call: &DecodedNativeCall,
 ) -> Result<(), NativeDoorError> {
-    let bits = match call.spec.result {
-        NativeType::I32 if all_parameters(call, NativeType::I32) => {
+    let family =
+        exact_family(call).ok_or_else(|| NativeDoorError::InvocationSignatureUnsupported {
+            result: call.spec.result,
+            parameters: call.spec.parameters.clone(),
+        })?;
+    let bits = match family {
+        NativeType::I32 => {
             let args = exact_i32_arguments(call)?;
             let library = open_library(&call.spec.library)?;
             invoke_homogeneous!(&library, call, args, i32) as i64 as u64
         }
-        NativeType::U32 if all_parameters(call, NativeType::U32) => {
+        NativeType::U32 => {
             let args = exact_u32_arguments(call)?;
             let library = open_library(&call.spec.library)?;
             invoke_homogeneous!(&library, call, args, u32) as u64
         }
-        NativeType::I64 if all_parameters(call, NativeType::I64) => {
+        NativeType::I64 => {
             let args = exact_i64_arguments(call)?;
             let library = open_library(&call.spec.library)?;
             invoke_homogeneous!(&library, call, args, i64) as u64
         }
-        NativeType::U64 if all_parameters(call, NativeType::U64) => {
+        NativeType::U64 => {
             let args = exact_u64_arguments(call)?;
             let library = open_library(&call.spec.library)?;
             invoke_homogeneous!(&library, call, args, u64)
         }
-        NativeType::Isize if all_parameters(call, NativeType::Isize) => {
+        NativeType::Isize => {
             let args = exact_isize_arguments(call)?;
             let library = open_library(&call.spec.library)?;
             invoke_homogeneous!(&library, call, args, isize) as i64 as u64
         }
-        NativeType::Usize if all_parameters(call, NativeType::Usize) => {
+        NativeType::Usize => {
             let args = exact_usize_arguments(call)?;
             let library = open_library(&call.spec.library)?;
             invoke_homogeneous!(&library, call, args, usize) as u64
         }
-        NativeType::F64 if all_parameters(call, NativeType::F64) => {
+        NativeType::F64 => {
             let args = exact_f64_arguments(call)?;
             let library = open_library(&call.spec.library)?;
             invoke_homogeneous!(&library, call, args, f64).to_bits()
         }
-        _ => {
-            return Err(NativeDoorError::InvocationSignatureUnsupported {
-                result: call.spec.result,
-                parameters: call.spec.parameters.clone(),
-            });
-        }
+        _ => unreachable!("exact_family returns only executable scalar families"),
     };
     let memory_len = memory.len();
     let slot = memory
@@ -774,6 +775,15 @@ pub(crate) fn invoke_native_call(
         })?;
     slot.copy_from_slice(&bits.to_le_bytes());
     Ok(())
+}
+
+fn exact_family(call: &DecodedNativeCall) -> Option<NativeType> {
+    if call.spec.parameters.len() > MAX_NATIVE_ARITY {
+        return None;
+    }
+    EXACT_SCALAR_FAMILIES
+        .into_iter()
+        .find(|ty| call.spec.result == *ty && all_parameters(call, *ty))
 }
 
 fn all_parameters(call: &DecodedNativeCall, ty: NativeType) -> bool {
@@ -900,4 +910,80 @@ fn open_library(name: &str) -> Result<Library, NativeDoorError> {
         library: name.to_owned(),
         message: error.to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn decoded_call(result: NativeType, parameters: Vec<NativeType>) -> DecodedNativeCall {
+        let spec = NativeSpec {
+            library: String::new(),
+            symbol: "unused".to_owned(),
+            result,
+            parameters,
+        };
+        DecodedNativeCall {
+            signature: classify_signature(&spec),
+            spec,
+            return_slot: GuestSpan { offset: 0, len: 8 },
+            initial_return_bits: 0,
+            arguments: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn executable_admission_contains_exactly_seven_families_at_seven_arities() {
+        let expected_families = [
+            NativeType::I32,
+            NativeType::U32,
+            NativeType::I64,
+            NativeType::U64,
+            NativeType::Isize,
+            NativeType::Usize,
+            NativeType::F64,
+        ];
+        let mut admitted = 0;
+        for ty in expected_families {
+            for arity in 0..=6 {
+                let call = decoded_call(ty, vec![ty; arity]);
+                assert_eq!(exact_family(&call), Some(ty));
+                admitted += 1;
+            }
+        }
+        assert_eq!(admitted, 49);
+        assert_eq!(native_invocation_stub_cardinality(), 49);
+    }
+
+    #[test]
+    fn executable_admission_rejects_every_non_exact_shape() {
+        let rejected = [
+            decoded_call(NativeType::I32, vec![NativeType::I32, NativeType::U32]),
+            decoded_call(NativeType::Pointer, vec![]),
+            decoded_call(NativeType::NullablePointer, vec![]),
+            decoded_call(NativeType::I8, vec![]),
+            decoded_call(NativeType::U8, vec![]),
+            decoded_call(NativeType::I16, vec![]),
+            decoded_call(NativeType::U16, vec![]),
+            decoded_call(NativeType::Void, vec![]),
+            decoded_call(NativeType::I32, vec![NativeType::I32; 7]),
+        ];
+        for call in rejected {
+            assert_eq!(exact_family(&call), None, "unexpected admission: {call:?}");
+            let mut memory = [0_u8; 8];
+            assert_eq!(
+                invoke_native_call(&mut memory, &call),
+                Err(NativeDoorError::InvocationSignatureUnsupported {
+                    result: call.spec.result,
+                    parameters: call.spec.parameters.clone(),
+                })
+            );
+            assert_eq!(memory, [0; 8]);
+        }
+
+        assert_eq!(
+            parse_native_spec(b"|unused|f32()"),
+            Err(NativeDoorError::UnsupportedType { name: "f32" })
+        );
+    }
 }
