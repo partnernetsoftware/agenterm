@@ -567,6 +567,42 @@ fn time_null_pointer_matches_an_adjacent_direct_call() {
 
 #[cfg(unix)]
 #[test]
+fn alarm_zero_is_contained_in_an_isolated_process() {
+    const CHILD_FLAG: &str = "AGENTERM_QJSWASM_ALARM_CHILD";
+    if std::env::var_os(CHILD_FLAG).is_none() {
+        let status = std::process::Command::new(std::env::current_exe().expect("test executable"))
+            .args([
+                "--exact",
+                "alarm_zero_is_contained_in_an_isolated_process",
+                "--nocapture",
+            ])
+            .env(CHILD_FLAG, "1")
+            .status()
+            .expect("spawn isolated alarm child");
+        assert!(status.success(), "isolated alarm child failed: {status}");
+        return;
+    }
+
+    assert_eq!(
+        unsafe { libc::alarm(0) },
+        0,
+        "child starts without an alarm"
+    );
+    let guest = run_wat(
+        include_str!("fixtures/native/alarm_zero.wat"),
+        Budget::default(),
+    )
+    .expect("alarm(0) guest runs");
+    assert_eq!(guest, 0);
+    assert_eq!(
+        unsafe { libc::alarm(0) },
+        0,
+        "guest leaves no alarm pending"
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
     let output = std::process::Command::new("uname")
         .arg("-s")

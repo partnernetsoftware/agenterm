@@ -514,6 +514,8 @@ court has claim-preserving `.wat` or typed-owner evidence.
   统一机制新增真实 `i64(ptr)` trampoline；qjswasm 在上层 catalog 暴露
   `time(ptr?)`，WAT 以 NULL 调用并与随后 direct libc 时间保持一秒内相邻。
   Linux/macOS 两份 Lisp courts 已删除，nullability 仍不进入 dyn。
+  `alarm(0)` 的 WAT court 在独立测试子进程中运行，调用前后均用 direct libc
+  确认没有 pending alarm；Linux/macOS 的 wrapper 与 child Lisp courts 已删除。
   `getrlimit(RLIMIT_NOFILE)` 的既有 WAT court 现分别读取 `rlim_cur` 与
   `rlim_max`，并与一次 direct libc 结构体结果逐字段精确比较；补齐原先仅覆盖
   soft limit 的缺口后，Linux/macOS 两份 Lisp caller-buffer courts 已删除。
