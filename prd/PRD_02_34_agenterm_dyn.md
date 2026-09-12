@@ -72,15 +72,15 @@ agenterm-dyn
 │   │   ├── 执行：按调用方 ABI 描述调用            [保留]
 │   │   ├── 7 个同质标量族 × arity 0..=6 = 49 组合  [**策略 → 上层 qjswasm**]
 │   │   ├── validate_exact_native_signature        [**策略 → 上层 qjswasm**]
-│   │   └── invoke_exact                            [兼容薄封装 → invoke_abi]
+│   │   └── invoke_exact                            [crate-private 迁移残件]
 │   ├── fixed_native
 │   │   ├── 枚举式异构标量 prototype               [**策略 → 上层 qjswasm**]
 │   │   ├── validate_fixed_native_signature        [**策略 → 上层 qjswasm**]
-│   │   └── invoke_fixed                            [兼容薄封装 → invoke_abi]
+│   │   └── invoke_fixed                            [crate-private 迁移残件]
 │   ├── fixed_pointer
 │   │   ├── 枚举式 caller-buffer / pointer prototype [**策略 → 上层 qjswasm**]
 │   │   ├── validate_fixed_pointer_signature        [**策略 → 上层 qjswasm**]
-│   │   └── invoke_fixed_pointer                    [兼容薄封装 → invoke_abi]
+│   │   └── invoke_fixed_pointer                    [crate-private 迁移残件]
 │   └── unix_ioctl
 │       ├── variadic 调用机制 (i32, i32|u64, ptr) -> i32  [保留]
 │       └── UnixIoctlRequest 的“允许签名”          [**策略 → 上层**]
@@ -197,7 +197,7 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
 | `macos_resource.rs`（Mach right、domain/login/timebase、DlAddress…） | **removed** | 无生产消费者；不得在 dyn 复制 typed OS contract |
 | `unix_resource.rs`（getifaddrs / statvfs / clock） | **removed** | 等价平台能力由 `agenterm-platform` 的 owning feature 提供 |
 | `unix_groups.rs` / `unix_path.rs` | **removed** | 无生产消费者；调用方使用 owning platform/filesystem contract |
-| `exact_native.rs` / `fixed_native.rs` / `fixed_pointer.rs` | **split** | 执行机制留 dyn；“允许的 prototype 枚举 + validator”迁往上层的 catalog/策略 |
+| `exact_native.rs` / `fixed_native.rs` / `fixed_pointer.rs` | **internal** | 不再公开；只暂存 `invoke_abi` 使用的单态 trampoline，后续折叠进统一机制表 |
 | `unix_ioctl.rs` | **split** | variadic 调用机制留；“允许签名”判据迁上层 |
 | `exec.rs` + `exec_error.rs` | **keep** | W^X trampoline 与机器码执行底座（机制正确性，不是权限限制） |
 | `error.rs` | **removed** | 旧语言错误；ABI/exec/ioctl 机制保留各自 typed error |
