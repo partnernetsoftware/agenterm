@@ -525,7 +525,14 @@ const MACOS_SYSTEM_PROBES: [SystemProbe; 86] = [
         "dyld_get_image_vmaddr_slide",
         "_dyld_get_image_vmaddr_slide",
     ),
-    macos_live("dladdr", "dladdr"),
+    SystemProbe {
+        name: "dladdr",
+        status: SystemProbeStatus::LiveDlcallOwned {
+            lib: "libSystem.B.dylib",
+            symbol: "dladdr",
+            api: "DlAddressSnapshot::current_image",
+        },
+    },
     macos_live("gethostuuid", "gethostuuid"),
     macos_live("dyld_get_image_header", "_dyld_get_image_header"),
     macos_live("arc4random_uniform", "arc4random_uniform"),

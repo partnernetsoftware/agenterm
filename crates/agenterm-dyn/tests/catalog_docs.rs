@@ -55,7 +55,6 @@ const DARWIN_ONLY_LIVE_EXAMPLES: &[(&str, &str)] = &[
         "dyld_get_image_vmaddr_slide",
         "dyld-get-image-vmaddr-slide.md",
     ),
-    ("dladdr", "dladdr.md"),
     ("gethostuuid", "gethostuuid.md"),
     ("dyld_get_image_header", "dyld-get-image-header.md"),
     ("arc4random_uniform", "arc4random-uniform.md"),
@@ -230,4 +229,32 @@ fn unix_statvfs_keeps_dlcall_and_typed_snapshot_documentation() {
 
     let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
     assert!(readme.contains("](examples/statvfs.md)"));
+}
+
+#[test]
+fn darwin_dladdr_keeps_dlcall_and_typed_snapshot_documentation() {
+    for cell in [MACOS_X86_64, MACOS_AARCH64] {
+        let probe = cell
+            .system_probes
+            .iter()
+            .find(|probe| probe.name == "dladdr")
+            .expect("Darwin catalog contains dladdr");
+        assert_eq!(
+            probe.status,
+            SystemProbeStatus::LiveDlcallOwned {
+                lib: "libSystem.B.dylib",
+                symbol: "dladdr",
+                api: "DlAddressSnapshot::current_image",
+            }
+        );
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let example =
+        fs::read_to_string(root.join("examples/dladdr.md")).expect("dladdr docs are readable");
+    assert!(example.contains("DlAddressSnapshot::current_image"));
+    assert!(example.contains("dlcall"));
+
+    let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
+    assert!(readme.contains("](examples/dladdr.md)"));
 }

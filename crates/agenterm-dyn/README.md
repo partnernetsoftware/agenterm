@@ -227,7 +227,7 @@ without wiring dyn into cu, platform, or the ABI:
 - [Mach-O execute header via `_NSGetMachExecuteHeader`](examples/nsget-mach-execute-header.md) (macOS)
 - [loaded-image name via `_dyld_get_image_name`](examples/dyld-get-image-name.md) (macOS)
 - [loaded-image vmaddr slide via `_dyld_get_image_vmaddr_slide`](examples/dyld-get-image-vmaddr-slide.md) (macOS)
-- [loaded address via `dladdr`](examples/dladdr.md) (macOS)
+- [loaded-image facts via `dladdr`](examples/dladdr.md) (macOS; native-call and typed snapshot evidence)
 - [host UUID via `gethostuuid`](examples/gethostuuid.md) (macOS)
 - [loaded-image header via `_dyld_get_image_header`](examples/dyld-get-image-header.md) (macOS)
 - [bounded random word via `arc4random_uniform`](examples/arc4random-uniform.md) (macOS)
@@ -315,14 +315,16 @@ direct-libc baselines. Darwin-specific smokes cover `sysctlbyname`,
 `pthread_jit_write_protect_supported_np`, `sysctlnametomib`, `pthread_equal`,
 `gethostname`, `confstr`, `clock_getres`, `pthread_is_threaded_np`,
 `_NSGetMachExecuteHeader`, `_dyld_get_image_name`,
-`_dyld_get_image_vmaddr_slide`, `dladdr`, `gethostuuid`,
+`_dyld_get_image_vmaddr_slide`, `gethostuuid`,
 `_dyld_get_image_header`, `arc4random_uniform`, `getdomainname`,
-`gettimeofday` and `realpath`; `statvfs` and `getgroups` additionally have
-bounded typed snapshots on both Linux and macOS;
+`gettimeofday` and `realpath`; `dladdr` additionally has a bounded,
+pointer-free current-image snapshot on macOS, while `statvfs` and `getgroups`
+have bounded typed snapshots on both Linux and macOS;
 the caller-owned timebase, login, thread-id, thread-name, `proc_bsdinfo`, and
 `rusage_info_v4` buffers are compared with direct C baselines. Wave 8
-loader/uuid facts (`dladdr`, `gethostuuid`, `_dyld_get_image_header`) are live
-`dlcall`s compared with later native calls. Wave 9 bounds random results,
+loader/uuid facts (`dladdr`, `gethostuuid`, `_dyld_get_image_header`) retain
+live `dlcall`s compared with later native calls; `dladdr` also compares its
+typed owned image-path bytes with a direct current-image query. Wave 9 bounds random results,
 compares independent domain-name buffers, and compares only stable `statvfs`
 fields because live capacity counters can change between calls. The
 dynamic-loader image count is an instantaneous positive fact checked against a

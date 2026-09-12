@@ -449,7 +449,6 @@ fn darwin_system_probe_symbols_preserve_exact_c_spellings() {
                 "dyld_get_image_vmaddr_slide",
                 "_dyld_get_image_vmaddr_slide",
             ),
-            ("dladdr", "dladdr"),
             ("gethostuuid", "gethostuuid"),
             ("dyld_get_image_header", "_dyld_get_image_header"),
             ("arc4random_uniform", "arc4random_uniform"),
@@ -470,6 +469,18 @@ fn darwin_system_probe_symbols_preserve_exact_c_spellings() {
                 } if actual == symbol
             ));
         }
+        assert_eq!(
+            c.system_probes
+                .iter()
+                .find(|probe| probe.name == "dladdr")
+                .expect("Darwin dladdr probe")
+                .status,
+            SystemProbeStatus::LiveDlcallOwned {
+                lib: "libSystem.B.dylib",
+                symbol: "dladdr",
+                api: "DlAddressSnapshot::current_image",
+            }
+        );
     }
 }
 
@@ -661,6 +672,39 @@ fn per_cell_status_separates_darwin_only_and_unix_apis() {
                     api: "StatVfsSnapshot::acquire",
                 },
                 "statvfs keeps dlcall and typed snapshot evidence on Unix: {}/{}",
+                cell.os,
+                cell.arch
+            );
+        }
+    }
+}
+
+#[test]
+fn dladdr_combines_raw_and_typed_evidence_only_on_darwin() {
+    for cell in ALL_CELLS {
+        let status = cell
+            .system_probes
+            .iter()
+            .find(|probe| probe.name == "dladdr")
+            .expect("cell contains dladdr")
+            .status;
+        if cell.os == "macos" {
+            assert_eq!(
+                status,
+                SystemProbeStatus::LiveDlcallOwned {
+                    lib: "libSystem.B.dylib",
+                    symbol: "dladdr",
+                    api: "DlAddressSnapshot::current_image",
+                },
+                "dladdr evidence is complete on {}/{}",
+                cell.os,
+                cell.arch
+            );
+        } else {
+            assert_eq!(
+                status,
+                SystemProbeStatus::Placeholder,
+                "dladdr is unavailable on {}/{}",
                 cell.os,
                 cell.arch
             );

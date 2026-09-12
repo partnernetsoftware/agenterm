@@ -4,7 +4,7 @@
 
 use std::ffi::{CStr, CString, c_void};
 
-use agenterm_dyn::{Dyn, StatVfsSnapshot, SystemProbeStatus, Value, live_cell};
+use agenterm_dyn::{DlAddressSnapshot, Dyn, StatVfsSnapshot, SystemProbeStatus, Value, live_cell};
 
 const LIB: &str = "libSystem.B.dylib";
 
@@ -1035,6 +1035,22 @@ fn dlcall_dladdr_writes_caller_owned_info() {
             unsafe { CStr::from_ptr(direct.dli_fname) }.to_bytes()
         );
     }
+
+    let owned = DlAddressSnapshot::current_image().expect("typed current-image snapshot");
+    let mut local = unsafe { std::mem::zeroed::<libc::Dl_info>() };
+    let local_status = unsafe {
+        libc::dladdr(
+            dlcall_dladdr_writes_caller_owned_info as *const () as *const c_void,
+            &mut local,
+        )
+    };
+    assert_ne!(local_status, 0, "direct local-image dladdr must succeed");
+    assert!(!local.dli_fname.is_null(), "local image has a path");
+    assert_eq!(
+        owned.image_path(),
+        unsafe { CStr::from_ptr(local.dli_fname) }.to_bytes(),
+        "typed snapshot copies the same current-image native path"
+    );
 }
 
 #[test]
