@@ -588,33 +588,6 @@ mod linux {
     }
 
     #[test]
-    fn dlcall_getdtablesize_matches_libc() {
-        let probe = live_system_probe("getdtablesize");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let got = eval_native(&mut env, &format!(r#"(dlcall "{lib}" "{symbol}" "i32")"#))
-            .expect("getdtablesize dlcall");
-        let real = unsafe { libc::getdtablesize() };
-        assert!(real > 0, "descriptor table size should be positive");
-        assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
-    fn dlcall_gethostid_matches_libc() {
-        let probe = live_system_probe("gethostid");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let got = eval_native(&mut env, &format!(r#"(dlcall "{lib}" "{symbol}" "i64")"#))
-            .expect("gethostid dlcall");
-        let real = unsafe { libc::gethostid() };
-        assert_eq!(got, Value::Int(real));
-    }
-
-    #[test]
     fn dlcall_ioctl_winsize() {
         let c = cell();
         let SizeProbe::IoctlTiocgwinsz {
@@ -1197,31 +1170,6 @@ mod macos {
         .expect("umask restore");
         assert_eq!(restored, Value::Int(0));
         assert_eq!(previous & !0o777, 0);
-    }
-
-    #[test]
-    fn dlcall_sizes_and_hostid_match_libc() {
-        let mut env = Dyn::new();
-        let dt = live_system_probe("getdtablesize");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = dt.status else {
-            unreachable!()
-        };
-        let got = eval_native(&mut env, &format!(r#"(dlcall "{lib}" "{symbol}" "i32")"#))
-            .expect("getdtablesize");
-        let real = unsafe { libc::getdtablesize() };
-        assert!(real > 0);
-        assert_eq!(got, Value::Int(i64::from(real)));
-
-        let hid = live_system_probe("gethostid");
-        let SystemProbeStatus::LiveDlcall {
-            symbol: hid_sym, ..
-        } = hid.status
-        else {
-            unreachable!()
-        };
-        let got_id = eval_native(&mut env, &format!(r#"(dlcall "{lib}" "{hid_sym}" "i64")"#))
-            .expect("gethostid");
-        assert_eq!(got_id, Value::Int(unsafe { libc::gethostid() }));
     }
 
     #[test]

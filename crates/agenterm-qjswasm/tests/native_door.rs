@@ -480,6 +480,23 @@ fn scheduling_scalar_calls_match_direct_libc() {
 
 #[cfg(unix)]
 #[test]
+fn host_scalar_limits_and_identity_match_direct_libc() {
+    let table_source = wat_for_scalar_args("|getdtablesize|i32()", &[]);
+    let table_size = run_wat(&table_source, Budget::default()).expect("getdtablesize guest runs");
+    let direct_table_size = unsafe { libc::getdtablesize() };
+    assert!(
+        direct_table_size > 0,
+        "descriptor table size must be positive"
+    );
+    assert_eq!(table_size, i64::from(direct_table_size));
+
+    let host_source = wat_for_scalar_args("|gethostid|i64()", &[]);
+    let host_id = run_wat(&host_source, Budget::default()).expect("gethostid guest runs");
+    assert_eq!(host_id, unsafe { libc::gethostid() });
+}
+
+#[cfg(unix)]
+#[test]
 fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
     let output = std::process::Command::new("uname")
         .arg("-s")
