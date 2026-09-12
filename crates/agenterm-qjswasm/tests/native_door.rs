@@ -1,6 +1,4 @@
 #[cfg(unix)]
-use agenterm_dyn::{ClockId, ClockSnapshot, CpuCountSnapshot, MachTimebaseSnapshot};
-#[cfg(unix)]
 use std::sync::Arc;
 #[cfg(unix)]
 use std::sync::atomic::AtomicBool;
@@ -1112,10 +1110,6 @@ fn three_retired_darwin_output_structs_match_direct_oracles() {
     assert!(direct_timebase.numer > 0 && direct_timebase.denom > 0);
     assert_eq!(packed as u32, direct_timebase.numer);
     assert_eq!((packed >> 32) as u32, direct_timebase.denom);
-    let snapshot = MachTimebaseSnapshot::acquire().expect("typed Mach timebase snapshot");
-    assert_eq!(snapshot.numerator(), direct_timebase.numer);
-    assert_eq!(snapshot.denominator(), direct_timebase.denom);
-
     let cpu = run_wat(
         include_str!("fixtures/native/pthread_cpu_number_np.wat"),
         Budget::default(),
@@ -1123,9 +1117,21 @@ fn three_retired_darwin_output_structs_match_direct_oracles() {
     .expect("pthread_cpu_number_np runs through i32(ptr)") as u32;
     let mut direct_cpu = 0_u32;
     assert_eq!(unsafe { pthread_cpu_number_np(&mut direct_cpu) }, 0);
-    let logical_cpus = CpuCountSnapshot::acquire()
-        .expect("typed logical CPU count")
-        .logical_cpus();
+    let mut logical_cpus = 0_u32;
+    let mut logical_cpus_len = std::mem::size_of_val(&logical_cpus);
+    let name = c"hw.ncpu";
+    assert_eq!(
+        unsafe {
+            libc::sysctlbyname(
+                name.as_ptr(),
+                (&raw mut logical_cpus).cast(),
+                &mut logical_cpus_len,
+                std::ptr::null_mut(),
+                0,
+            )
+        },
+        0
+    );
     assert!(
         cpu < logical_cpus,
         "guest CPU must be in the host CPU range"
@@ -1153,7 +1159,19 @@ fn three_retired_darwin_output_structs_match_direct_oracles() {
 #[cfg(unix)]
 #[test]
 fn retired_clock_callers_run_through_wat_with_nullable_second_pointer_boundaries() {
-    let before = ClockSnapshot::acquire(ClockId::Monotonic).expect("monotonic oracle before");
+    fn monotonic_seconds() -> i64 {
+        let mut now = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        assert_eq!(
+            unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut now) },
+            0
+        );
+        now.tv_sec
+    }
+
+    let before = monotonic_seconds();
     let clock_source = include_str!("fixtures/native/clock_gettime.wat").to_owned();
     #[cfg(target_os = "macos")]
     let clock_source = clock_source.replace(
@@ -1162,8 +1180,8 @@ fn retired_clock_callers_run_through_wat_with_nullable_second_pointer_boundaries
     );
     let seconds =
         run_wat(&clock_source, Budget::default()).expect("clock_gettime runs through i32(i32,ptr)");
-    let after = ClockSnapshot::acquire(ClockId::Monotonic).expect("monotonic oracle after");
-    assert!(before.seconds <= seconds && seconds <= after.seconds);
+    let after = monotonic_seconds();
+    assert!(before <= seconds && seconds <= after);
 
     let before = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

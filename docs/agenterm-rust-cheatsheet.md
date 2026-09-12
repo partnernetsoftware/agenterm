@@ -3816,6 +3816,14 @@ not a second product authority. When engines disagree, reduce the case and use
 the language/ABI specifications to adjudicate it rather than blindly copying
 the reference behavior.
 
+When a lower-layer owner is migration debt, do not make an upper crate's
+black-box test depend on that owner merely as an oracle. If the operating system
+or standard library offers an independent direct observation, use it in the
+upper test instead. This prevents test-only imports from becoming false API
+compatibility obligations while retaining cross-path evidence. Keep the direct
+oracle target-gated and preserve the original comparison strength; replacing an
+exact native comparison with a weaker range check is not a migration.
+
 For standard WASM tail calls, do not implement `return_call` as an ordinary
 recursive `call` followed by `return`. Return a typed tail-target/argument
 outcome to one dispatch trampoline so a defined target replaces the current

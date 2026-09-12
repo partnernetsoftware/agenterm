@@ -504,6 +504,12 @@ compose `agenterm:native` with `agenterm:acu`. This establishes dyn as a real lo
 layer; it does not establish that the legacy Lisp can be deleted before its remaining
 courts move.
 
+Qjswasm's native-door court no longer imports dyn's typed snapshots as test
+oracles: Mach timebase, CPU count and monotonic clock assertions now compare
+against independent direct platform calls. Typed owners therefore have no
+consumer outside dyn; their remaining exports and self-tests are migration debt,
+not a cross-crate compatibility contract.
+
 In particular, the heterogeneous integer/pointer ABI mechanism, Unix variadic
 `ioctl` exception and future-JIT boundary in `exec.rs` remain independently owned by
 dyn. The six-cell `hosts.rs` facts and typed owners are migration debt, not dyn's
