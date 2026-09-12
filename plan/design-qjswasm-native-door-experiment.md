@@ -193,6 +193,27 @@ cargo test --test script_native_artifact_supervisor
 3. 写入独立 `research/.../RESULTS.md`，包含 exact SHA、工具链、门面计数、49/381 独立复算、runtime
    attribution、release bytes、偏差和复跑命令；完成前 §7 迁移门保持关闭。
 
+### 8.6 判据 7 的 artifact boundary 表（可执行测量口径；**不改变判据权重，release 仍未测定**）
+
+以下每一行都对应可由仓库构建入口重建的 artifact。字节工具沿用 `scripts/qjs/stage-build.qjs`
+的 `rh.metadata(path).len` 与 package 链的 `rh.sha256_file`，不把工作区里来源不明的旧 `dist/` 文件当基线。
+
+| 层 | artifact（repo-relative pattern） | profile / target | 构建入口 | 字节工具 | before/after source identity 要求 | 能说明什么 | **不能**说明什么 |
+|---|---|---|---|---|---|---|---|
+| **L1 机制** | `target/<lane>/release/deps/libagenterm_qjswasm-<cargo-hash>.rlib`（哈希文件名，按唯一 pattern 解析） | `release` / 同一 host target | `cargo build -p agenterm-qjswasm --release` | bytes + SHA-256 | before/after 各自在同 toolchain/profile/target 的空 lane 重建 | qjswasm crate archive 增量 | 最终链接贡献与交付足迹 |
+| **L2 最终链接体** | 隔离 staging 下的 `dist/<lane>/agenterm`，其来源必须是同一次 build 的 release client artifact | build 所用的同一 release profile / target | `build`，同时声明 `CARGO_TARGET_DIR=target/<lane>` 与 `AGENTERM_BUILD_DIST_DIR=dist/<lane>` | bytes + SHA-256 | before/after 使用相同 build task、profile、target 与 stage 步骤 | dead-strip 后根产品净增量，包含 native door 与目标 OS 链接接缝 | 不能把差值中的某段字节单独归给 qjswasm；`abi-dev` 动态库不是本边界，禁止混入 |
+| **L3 交付包** | 隔离 staging 下的 `agenterm-<version>-<target>-unsigned-preview.zip`、provenance、SHA-256 与 SBOM | Candidate 使用的同一 profile / target | `package-release-qualified` 的非发布资格路径 | archive bytes + SHA-256 + receipt | before/after 各留 exact source identity 与 artifact-manifest receipt | 实际交付足迹及其源码绑定 | 机制归因 |
+
+**逐层缺口（不得伪造文件）**
+1. L1 没有稳定文件名或独立预算，只能在空 lane 中要求 pattern **唯一命中**；零个或多个候选都使测量无效。
+2. L2 的 OS 接缝不单独 materialize；只报告整个最终链接体的 before/after 差值，不制造接缝子文件。
+3. L3 已有 provenance 字段可绑定 source commit 与 artifact manifest；仍须为 before/after 各自产生 receipt。
+4. `aedfdf96` 提供 target 与 dist 的 repo-local 单层 lane，但尚未完成真实隔离 build；在该黑盒门通过前，三层继续标**未测定**。
+
+**四元口径怎么填（每行都一样）**：`boundary` = 上表该层 artifact；`tool` = `rustc -V`/`cargo -V`（+`cargo xwin`/`zig` 版本）；`build` = 该行"构建入口"逐字命令；`target-execution` = 该 artifact 是否在目标上**运行过**（未运行一律标**仅编译**）。
+
+**不得外推**：本表只命名**测量口径**。L1/L2/L3 的 release 数字**仍未测定**；任何"包/可执行大小"的数字在未按本表取得前**不得**写进任何判决。
+
 ## 9. 明确非目标
 
 - 不删除 `invoke_unix_ioctl`；不把定参调用冒充 variadic。
