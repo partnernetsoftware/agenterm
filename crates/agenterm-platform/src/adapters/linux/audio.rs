@@ -86,7 +86,6 @@ fn probe_wpctl(probed: &mut Vec<String>) -> Option<NativeAudioState> {
     let volume = run_command("wpctl", &["get-volume", "@DEFAULT_AUDIO_SINK@"])?;
     let inspect = run_command("wpctl", &["inspect", "@DEFAULT_AUDIO_SINK@"])?;
     let uid = parse_wpctl_name(&inspect.stdout).unwrap_or_else(|| "default-audio-sink".into());
-    let name = friendly_sink_name(&uid);
     Some(NativeAudioState {
         device_id: 0,
         provider: "linux-pipewire-wpctl",

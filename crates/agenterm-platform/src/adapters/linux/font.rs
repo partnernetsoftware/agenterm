@@ -1,7 +1,4 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::OnceLock,
-};
+use std::{path::Path, sync::OnceLock};
 
 use ab_glyph::{Font, FontRef, ScaleFont};
 
@@ -262,6 +259,8 @@ pub(crate) fn destroy_terminal_font(_raw: isize) {}
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     #[test]

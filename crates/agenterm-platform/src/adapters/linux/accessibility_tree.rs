@@ -4291,26 +4291,6 @@ async fn apply_atspi_wheel_delta(
     Ok(())
 }
 
-async fn wheel_node_center_async(
-    window_handle: Option<isize>,
-    node_id: &str,
-) -> Result<PointerPosition, AccessibilityTreeError> {
-    let indices = parse_node_path(node_id)?;
-    let conn = connect().await?;
-    let identity = window_handle.and_then(window_identity);
-    let roots = registry_children(&conn).await?;
-    let selected = select_roots(&conn, roots, identity.as_ref()).await?;
-    if selected.is_empty() {
-        return Err(AccessibilityTreeError::failed(
-            "a11y_scroll_wheel_unavailable",
-            format!("node path {node_id} has no AT-SPI Component for wheel delivery"),
-        ));
-    }
-    let object = resolve_path(&conn, &selected, &indices).await?;
-    let proxy = open_bus_object(&conn, &object).await?;
-    wheel_delivery_center_for_proxy(&proxy).await
-}
-
 async fn wheel_delivery_center_for_proxy(
     proxy: &AccessibleProxy<'_>,
 ) -> Result<PointerPosition, AccessibilityTreeError> {
