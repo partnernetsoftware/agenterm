@@ -149,7 +149,7 @@ before/after diff。因此 `edc59a29` 以 `getegid.wat` 建立了新的可比边
 | 1 正确性 | **目标资格未完成** | 3 个首组 Unix fixture + 1 个 addition 在本机 macOS 运行通过；`getpid/getppid/getuid` 均与独立 host oracle 精确相等。[实测·本机真机执行；其它 target 未运行] |
 | 2 能力斜率（主） | **通过（第五点替代测量）** | 基线 `b6755b0f` 到 `edc59a29` 新增 `getegid`；`crates/agenterm-qjswasm/src/**/*.rs` 聚合 SHA-256 前后均为 `44241fd41b550705a6de8d0c6bf24caf3300243d2071b4e3ffff45aaf68d0e51`，生产 Rust diff = 0。[实测·本机真机执行] |
 | 3 门面冻结 | **当前通过** | `SIGNATURES` 为 8 项，默认门为 7 项，native opt-in 只追加 1 项；第四 fixture 没有新增 import。[结构审计；本机专属测试通过] |
-| 4 有限桩表 | **部分通过** | 参数类 2、返回类 3、arity `0..=6`，独立枚举为 `3 × Σ(2^0..2^6) = 381`；可执行 exact homogeneous 表为 `7 × 7 = 49`。实现以宏列出 0–6 arity，尚无规格所说的生成器结果文件。[结构审计；本机独立计数测试通过] |
+| 4 有限桩表 | **部分通过** | 参数类 2、返回类 3、arity `0..=6`，独立枚举为 `3 × Σ(2^0..2^6) = 381`；`22b79c0f` 让生产与测试共用唯一 exact-family admission，单测独立遍历 `7 × 7 = 49` 并钉住拒绝矩阵。实现以宏列出 0–6 arity，尚无规格所说的生成器结果文件。[结构审计；本机独立枚举测试通过] |
 | 5 no-JIT / cross | **部分通过** | 代码使用固定 Rust `extern C` stubs + `libloading`，未见 executable allocation、机器码生成、汇编或 C build；双 MSVC 与 Linux x86_64 已有仅编译账，本机 macOS 有 runtime，Windows/Linux runtime 未取得。[结构审计 + `RESULTS.md` 实测] |
 | 6 资源边界 | **当前通过 schema 审计** | spec 1024 B、library 512 B、symbol 255 B、arity 6、block exact-size；span/addition/narrowing 有 typed checked paths 和测试。[结构审计；本机专属测试通过] |
 | 7 体积账 | **未完成** | L1/L2/L3 均未测定；没有同 boundary/tool/build/target-execution 四元口径的 release before/after bytes。 |

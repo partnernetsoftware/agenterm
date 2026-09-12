@@ -50,7 +50,7 @@ rustc -V; cargo -V; cargo xwin --version; command -v zig
 |---|---|---|---|
 | raw imports | **8** | **8 ✓** | `crates/agenterm-qjswasm/src/host.rs:209`：`const SIGNATURES: [(&str, usize, usize); 8] = [`（源码直接可数） |
 | compiler declarations | **5 + native 1** | **5 + 1 = 6 ✓** | 运行期读数：`door_declarations().len() + native_door_declarations().len() == 6`，由 `tests/native_door.rs` 的第五能力测试断言并通过；`native_door_declarations()` 按 `field == "native_call"` 过滤，见 `src/lib.rs:468-473` |
-| exact stubs | **49** | **49 ✓（独立乘积）** | `src/native.rs` 的 executable selector 分列 `I32/U32/I64/U64/Isize/Usize/F64` 七种 exact Rust 类型；`invoke_homogeneous!` 分列 arity 0..=6 七种函数指针形状。因此 `7 × 7 = 49`。同文件的 `native_invocation_stub_cardinality()` 由相同集合计算并返回 49 |
+| exact stubs | **49** | **49 ✓（生产 admission + 独立枚举）** | `22b79c0f` 让生产 invocation 与 cardinality 共用唯一的七-family admission helper；私有单测独立枚举七种 exact Rust 类型 × arity 0..=6，逐项确认 49 个组合 admitted，并确认异构、pointer、窄整数、void、f32 与 arity 7 被拒绝 |
 | schema patterns | **381** | **381 ✓（独立枚举）** | `crates/agenterm-qjswasm/tests/native_door_schema.rs:410` 起的 `register_pattern_cardinality_is_derived_from_classes_and_arity`，在 `:436` 断言 `assert_eq!(independently_enumerated, 381)`，该测试**在本机通过**；派生自 `MAX_NATIVE_ARITY = 6`（`src/native.rs:25`）与 class 基数 |
 
 复跑：
