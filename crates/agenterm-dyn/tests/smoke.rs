@@ -24,9 +24,7 @@ fn cu_adjacent_catalog_has_six_cells() {
 #[cfg(target_os = "linux")]
 mod linux {
     use super::*;
-    use agenterm_dyn::{
-        HostCell, LINUX_ATSPI_EXISTENCE_LIBS, SizeProbe, SystemProbe, SystemProbeStatus,
-    };
+    use agenterm_dyn::{HostCell, LINUX_ATSPI_EXISTENCE_LIBS, SizeProbe, SystemProbeStatus};
 
     #[repr(C)]
     struct Winsize {
@@ -75,51 +73,6 @@ mod linux {
                 .unwrap_or_else(|| panic!("missing system probe {name}"));
             assert!(matches!(probe.status, SystemProbeStatus::Placeholder));
         }
-    }
-
-    fn getpid_script() -> String {
-        let c = cell();
-        format!(
-            r#"(dlcall "{}" "{}" "{}")"#,
-            c.pid_lib, c.pid_symbol, c.pid_ret_type
-        )
-    }
-
-    #[test]
-    fn dlcall_getpid_is_stable_across_cached_library_calls() {
-        let mut env = Dyn::new();
-        let script = getpid_script();
-        let first = eval_native(&mut env, &script).expect("first getpid dlcall");
-        let second = eval_native(&mut env, &script).expect("cached-library getpid dlcall");
-        assert_eq!(first, second, "cached libc must not change symbol results");
-    }
-
-    #[test]
-    fn missing_symbol_does_not_evict_cached_libc() {
-        let c = cell();
-        let missing_symbol = "agenterm_dyn_missing_before_getpid";
-        let missing = format!(r#"(dlcall "{}" "{missing_symbol}" "i32")"#, c.pid_lib);
-        let mut env = Dyn::new();
-        let err = eval_native(&mut env, &missing).unwrap_err();
-        assert!(matches!(err, DynError::DlCall(_)));
-        assert!(err.to_string().contains(missing_symbol));
-
-        let got = eval_native(&mut env, &getpid_script()).expect("getpid after missing symbol");
-        let real = unsafe { libc::getpid() };
-        assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    fn live_system_probe(name: &str) -> SystemProbe {
-        let probe = cell()
-            .system_probes
-            .into_iter()
-            .find(|probe| probe.name == name)
-            .unwrap_or_else(|| panic!("missing {name} system probe"));
-        assert!(matches!(
-            probe.status,
-            SystemProbeStatus::LiveDlcall { .. } | SystemProbeStatus::LiveDlcallOwned { .. }
-        ));
-        probe
     }
 
     #[test]
@@ -190,23 +143,6 @@ mod linux {
             drop(ProbeFd(slave));
         }
         (None, false)
-    }
-
-    #[test]
-    fn eval_do_sequence_with_dlcall() {
-        let c = cell();
-        let mut env = Dyn::new();
-        let script = format!(
-            r#"
-            (do
-              (set pid (dlcall "{}" "{}" "{}"))
-              pid)
-            "#,
-            c.pid_lib, c.pid_symbol, c.pid_ret_type
-        );
-        let v = eval_native(&mut env, script.trim()).expect("do/dlcall");
-        let real = unsafe { libc::getpid() };
-        assert_eq!(v, Value::Int(i64::from(real)));
     }
 
     #[test]
@@ -294,39 +230,6 @@ mod macos {
         live_cell().expect("macos cell")
     }
 
-    fn getpid_script() -> String {
-        let c = cell();
-        format!(
-            r#"(dlcall "{}" "{}" "{}")"#,
-            c.pid_lib, c.pid_symbol, c.pid_ret_type
-        )
-    }
-
-    #[test]
-    fn dlcall_getpid_matches_libc_and_second_dlcall() {
-        let mut env = Dyn::new();
-        let script = getpid_script();
-        let got = eval_native(&mut env, &script).expect("getpid dlcall");
-        let again = eval_native(&mut env, &script).expect("second getpid dlcall");
-        assert_eq!(got, again);
-        let real = unsafe { libc::getpid() };
-        assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
-    fn missing_symbol_does_not_evict_cached_libsystem() {
-        let c = cell();
-        let missing_symbol = "agenterm_dyn_missing_before_getpid";
-        let missing = format!(r#"(dlcall "{}" "{missing_symbol}" "i32")"#, c.pid_lib);
-        let mut env = Dyn::new();
-        let err = eval_native(&mut env, &missing).unwrap_err();
-        assert!(matches!(err, DynError::DlCall(_)));
-        assert!(err.to_string().contains(missing_symbol));
-        let got = eval_native(&mut env, &getpid_script()).expect("getpid after missing symbol");
-        let real = unsafe { libc::getpid() };
-        assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
     #[test]
     fn dlcall_ioctl_winsize() {
         let c = cell();
@@ -406,23 +309,6 @@ mod macos {
         } else {
             (None, false)
         }
-    }
-
-    #[test]
-    fn eval_do_sequence_with_dlcall() {
-        let c = cell();
-        let mut env = Dyn::new();
-        let script = format!(
-            r#"
-            (do
-              (set pid (dlcall "{}" "{}" "{}"))
-              pid)
-            "#,
-            c.pid_lib, c.pid_symbol, c.pid_ret_type
-        );
-        let v = eval_native(&mut env, script.trim()).expect("do/dlcall");
-        let real = unsafe { libc::getpid() };
-        assert_eq!(v, Value::Int(i64::from(real)));
     }
 }
 

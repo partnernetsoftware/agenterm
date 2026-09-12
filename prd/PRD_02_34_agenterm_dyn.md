@@ -445,6 +445,11 @@ the borrowed host address entirely with its unsafe Rust caller. qjswasm does not
 publish that address into guest memory; its existing `env_get` tool surface owns
 copying environment text. The Linux/macOS Lisp pointer courts are retired while
 the Windows CRT loader-fallback court remains separate.
+The platform smoke no longer repeats `getpid`, `do + dlcall`, or
+missing-symbol/cache assertions. The language integration court still owns the
+unsafe native entry and native-error boundary, while `native.rs` unit tests own
+the retiring Lisp environment's bounded cache behavior until that layer is
+deleted.
 Unix `ioctl` (Linux and macOS) is owned by dyn's `invoke_unix_ioctl` only for the
 validated `(i32, u64|i32, ptr) -> i32` signature. The legacy Lisp entrance and
 the qjswasm native door both delegate there; the fixed trampoline remains for
