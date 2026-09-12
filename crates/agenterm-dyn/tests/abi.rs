@@ -92,6 +92,50 @@ fn matrix_pointer_representative_matches_the_direct_call() {
     );
 }
 
+/// Pointer results are raw machine addresses. The mechanism preserves their
+/// bits; ownership and dereference rules remain with the caller.
+#[cfg(target_os = "macos")]
+#[test]
+fn pointer_result_shapes_match_direct_darwin_calls() {
+    unsafe extern "C" {
+        fn _dyld_get_image_header(image_index: u32) -> *mut c_void;
+    }
+
+    let no_arguments = oracle(LIB, "getprogname", AbiType::Pointer, &[], &[])
+        .expect("getprogname through the raw ABI");
+    assert_eq!(
+        no_arguments,
+        AbiValue::Pointer(unsafe { libc::getprogname() }.cast_mut().cast())
+    );
+
+    let u32_argument = oracle(
+        LIB,
+        "_dyld_get_image_header",
+        AbiType::Pointer,
+        &[AbiType::U32],
+        &[AbiValue::U32(0)],
+    )
+    .expect("dyld image header through the raw ABI");
+    assert_eq!(
+        u32_argument,
+        AbiValue::Pointer(unsafe { _dyld_get_image_header(0) })
+    );
+
+    let thread = unsafe { libc::pthread_self() } as u64;
+    let u64_argument = oracle(
+        LIB,
+        "pthread_get_stackaddr_np",
+        AbiType::Pointer,
+        &[AbiType::U64],
+        &[AbiValue::U64(thread)],
+    )
+    .expect("pthread stack address through the raw ABI");
+    assert_eq!(
+        u64_argument,
+        AbiValue::Pointer(unsafe { libc::pthread_get_stackaddr_np(libc::pthread_self()) })
+    );
+}
+
 #[cfg(target_os = "macos")]
 unsafe fn assume_name(slot: &mut std::mem::MaybeUninit<libc::utsname>) -> libc::utsname {
     unsafe { slot.assume_init() }

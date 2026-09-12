@@ -67,7 +67,8 @@ agenterm-dyn
 │   ├── abi
 │   │   ├── AbiSignature / NativeCall              [调用方运行时描述]
 │   │   ├── validate_abi / invoke_abi              [统一机制入口]
-│   │   └── Pointer 只表达 ABI 地址位；可空与 pointee 契约在上层
+│   │   ├── pointer return: ptr() / ptr(u32) / ptr(u64) [机制支持]
+│   │   └── Pointer 只表达 ABI 地址位；所有权、可空与 pointee 契约在上层
 │   ├── exact_native
 │   │   ├── 执行：按调用方 ABI 描述调用            [保留]
 │   │   ├── 7 个同质标量族 × arity 0..=6 = 49 组合  [**策略 → 上层 qjswasm**]
@@ -456,6 +457,8 @@ court has claim-preserving `.wat` or typed-owner evidence.
   本地化，不再导入 dyn 的旧策略枚举或 validator。raw `Pointer` 只有一个
   ABI 位，是否可空及
   pointee 宽度、对齐、NUL 契约仍属调用方与 qjswasm 上层 schema。
+  统一入口随后新增 `ptr()` / `ptr(u32)` / `ptr(u64)` 三个真实单态
+  pointer-return trampoline；返回值只保留机器地址位，不声明所有权或可解引用性。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded

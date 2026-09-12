@@ -30,7 +30,7 @@
 //! # What is not listed
 //!
 //! No type is listed that the mechanism cannot execute today. There is no `Void`
-//! (no family prototype returns nothing) and no `F32` (no family trampoline takes
+//! (no mechanism prototype returns nothing) and no `F32` (no trampoline takes
 //! or returns one). A shape outside the matrix is refused with
 //! [`AbiError::SignatureUnsupported`] rather than approximated.
 
@@ -39,7 +39,7 @@ use std::fmt;
 
 use crate::exact_native::{
     ExactNativeCall, ExactNativeError, ExactNativeType, ExactNativeValue, MAX_EXACT_NATIVE_ARITY,
-    invoke_exact_mechanism,
+    invoke_exact_mechanism, open_library,
 };
 use crate::fixed_native::{
     FixedNativeCall, FixedNativeError, FixedNativePrototype, FixedNativeType, FixedNativeValue,
@@ -196,6 +196,16 @@ enum Family {
     },
     Fixed(FixedNativePrototype),
     FixedPointer(FixedPointerPrototype),
+    PointerResult(PointerResultPrototype),
+}
+
+/// Pointer-returning monomorphic shapes implemented directly by the unified
+/// mechanism. Pointer ownership and pointee meaning remain the caller's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PointerResultPrototype {
+    NoArguments,
+    U32,
+    U64,
 }
 
 /// Maps an exact-family position onto its family type. `None` means the exact
@@ -328,6 +338,14 @@ fn classify(signature: AbiSignature<'_>, arguments: &[AbiValue]) -> Result<Famil
         .find(|prototype| pointer_matches(*prototype, signature))
     {
         return Ok(Family::FixedPointer(prototype));
+    }
+    if signature.result == AbiType::Pointer {
+        match signature.params {
+            [] => return Ok(Family::PointerResult(PointerResultPrototype::NoArguments)),
+            [AbiType::U32] => return Ok(Family::PointerResult(PointerResultPrototype::U32)),
+            [AbiType::U64] => return Ok(Family::PointerResult(PointerResultPrototype::U64)),
+            _ => {}
+        }
     }
     Err(AbiError::SignatureUnsupported {
         result: signature.result,
@@ -548,5 +566,61 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
                 Err(error) => Err(pointer_error(error, signature, call)),
             }
         }
+        Family::PointerResult(prototype) => {
+            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
+                library: if call.library.is_empty() {
+                    "<current-process>".to_owned()
+                } else {
+                    call.library.to_owned()
+                },
+                message: error.to_string(),
+            })?;
+            let address = match (prototype, call.arguments) {
+                (PointerResultPrototype::NoArguments, []) => {
+                    // SAFETY: classification admitted this exact shape; the caller
+                    // asserts that the symbol really has the declared C ABI.
+                    let function = unsafe {
+                        library.get::<unsafe extern "C" fn() -> *mut c_void>(call.symbol.as_bytes())
+                    }
+                    .map_err(|error| pointer_result_symbol_error(call, error))?;
+                    // SAFETY: the caller owns the symbol contract and library lifetime.
+                    unsafe { function() }
+                }
+                (PointerResultPrototype::U32, [AbiValue::U32(argument)]) => {
+                    // SAFETY: as above, for the admitted `ptr(u32)` shape.
+                    let function = unsafe {
+                        library
+                            .get::<unsafe extern "C" fn(u32) -> *mut c_void>(call.symbol.as_bytes())
+                    }
+                    .map_err(|error| pointer_result_symbol_error(call, error))?;
+                    // SAFETY: the caller owns the symbol contract and library lifetime.
+                    unsafe { function(*argument) }
+                }
+                (PointerResultPrototype::U64, [AbiValue::U64(argument)]) => {
+                    // SAFETY: as above, for the admitted `ptr(u64)` shape.
+                    let function = unsafe {
+                        library
+                            .get::<unsafe extern "C" fn(u64) -> *mut c_void>(call.symbol.as_bytes())
+                    }
+                    .map_err(|error| pointer_result_symbol_error(call, error))?;
+                    // SAFETY: the caller owns the symbol contract and library lifetime.
+                    unsafe { function(*argument) }
+                }
+                _ => unreachable!("classification checked pointer-result arguments"),
+            };
+            Ok(AbiValue::Pointer(address))
+        }
+    }
+}
+
+fn pointer_result_symbol_error(call: &NativeCall<'_>, error: libloading::Error) -> AbiError {
+    AbiError::SymbolLookup {
+        library: if call.library.is_empty() {
+            "<current-process>".to_owned()
+        } else {
+            call.library.to_owned()
+        },
+        symbol: call.symbol.to_owned(),
+        message: error.to_string(),
     }
 }
