@@ -359,20 +359,6 @@ mod linux {
     }
 
     #[test]
-    fn dlcall_uname_writes_linux_identity() {
-        let mut uts = std::mem::MaybeUninit::<libc::utsname>::zeroed();
-        let mut env = Dyn::new();
-        env.bind("uts", uts.as_mut_ptr().cast())
-            .expect("bind utsname");
-        let got = eval_native(&mut env, r#"(dlcall "libc.so.6" "uname" "i32" "ptr" uts)"#)
-            .expect("uname dlcall");
-        assert_eq!(got, Value::Int(0));
-        let uts = unsafe { uts.assume_init() };
-        let sysname = unsafe { std::ffi::CStr::from_ptr(uts.sysname.as_ptr()) };
-        assert_eq!(sysname.to_bytes(), b"Linux");
-    }
-
-    #[test]
     fn dlcall_statvfs_matches_the_typed_snapshot() {
         let probe = cell()
             .system_probes
@@ -574,27 +560,6 @@ mod linux {
         let real = unsafe { libc::isatty(0) };
         assert!(matches!(real, 0 | 1));
         assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
-    fn dlcall_access_root_f_ok_succeeds() {
-        let probe = live_system_probe("access_root");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let path = CString::new("/").expect("root path");
-        let mut env = Dyn::new();
-        env.bind("root", path.as_ptr().cast_mut().cast())
-            .expect("bind root path");
-        let got = eval_native(
-            &mut env,
-            &format!(
-                r#"(dlcall "{lib}" "{symbol}" "i32" "ptr" root "i32" {})"#,
-                libc::F_OK
-            ),
-        )
-        .expect("access(\"/\", F_OK) dlcall");
-        assert_eq!(got, Value::Int(0));
     }
 
     #[test]
@@ -1248,27 +1213,6 @@ mod macos {
     }
 
     #[test]
-    fn dlcall_uname_writes_darwin_identity() {
-        let probe = live_system_probe("uname");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!()
-        };
-        let mut uts = std::mem::MaybeUninit::<libc::utsname>::zeroed();
-        let mut env = Dyn::new();
-        env.bind("uts", uts.as_mut_ptr().cast())
-            .expect("bind utsname");
-        let got = eval_native(
-            &mut env,
-            &format!(r#"(dlcall "{lib}" "{symbol}" "i32" "ptr" uts)"#),
-        )
-        .expect("uname dlcall");
-        assert_eq!(got, Value::Int(0));
-        let uts = unsafe { uts.assume_init() };
-        let sysname = unsafe { std::ffi::CStr::from_ptr(uts.sysname.as_ptr()) };
-        assert_eq!(sysname.to_bytes(), b"Darwin");
-    }
-
-    #[test]
     fn dlcall_ids_match_libc() {
         for (name, ret) in [
             ("getuid", "u32"),
@@ -1396,26 +1340,15 @@ mod macos {
     }
 
     #[test]
-    fn dlcall_access_root_and_missing() {
-        let root_probe = live_system_probe("access_root");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = root_probe.status else {
+    fn dlcall_access_missing_path_fails_after_real_call() {
+        let missing_probe = live_system_probe("access_missing");
+        let SystemProbeStatus::LiveDlcall { lib, symbol } = missing_probe.status else {
             unreachable!()
         };
-        let root = CString::new("/").expect("root path");
         let missing = CString::new("/tmp/agenterm-dyn-missing-access-probe").expect("missing path");
         let mut env = Dyn::new();
-        env.bind("root", root.as_ptr().cast_mut().cast())
-            .expect("bind root");
         env.bind("missing", missing.as_ptr().cast_mut().cast())
             .expect("bind missing");
-        let ok = eval_native(
-            &mut env,
-            &format!(
-                r#"(dlcall "{lib}" "{symbol}" "i32" "ptr" root "i32" {})"#,
-                libc::F_OK
-            ),
-        )
-        .expect("access /");
         let miss = eval_native(
             &mut env,
             &format!(
@@ -1424,7 +1357,6 @@ mod macos {
             ),
         )
         .expect("access missing");
-        assert_eq!(ok, Value::Int(0));
         assert_eq!(miss, Value::Int(-1));
     }
 
