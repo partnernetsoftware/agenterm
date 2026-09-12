@@ -205,6 +205,7 @@ enum Family {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DirectScalarPrototype {
     IsizeU32,
+    I32I32I32Pointer,
     UsizeI32PointerUsize,
 }
 
@@ -358,6 +359,13 @@ fn classify(signature: AbiSignature<'_>, arguments: &[AbiValue]) -> Result<Famil
     }
     if signature.result == AbiType::Isize && signature.params == [AbiType::U32] {
         return Ok(Family::DirectScalar(DirectScalarPrototype::IsizeU32));
+    }
+    if signature.result == AbiType::I32
+        && signature.params == [AbiType::I32, AbiType::I32, AbiType::Pointer]
+    {
+        return Ok(Family::DirectScalar(
+            DirectScalarPrototype::I32I32I32Pointer,
+        ));
     }
     if signature.result == AbiType::Usize
         && signature.params == [AbiType::I32, AbiType::Pointer, AbiType::Usize]
@@ -645,6 +653,31 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
             .map_err(|error| pointer_result_symbol_error(call, error))?;
             // SAFETY: the caller owns the symbol contract and library lifetime.
             Ok(AbiValue::Isize(unsafe { function(*argument) }))
+        }
+        Family::DirectScalar(DirectScalarPrototype::I32I32I32Pointer) => {
+            let [
+                AbiValue::I32(first),
+                AbiValue::I32(second),
+                AbiValue::Pointer(output),
+            ] = call.arguments
+            else {
+                unreachable!("classification checked i32(i32,i32,ptr) arguments")
+            };
+            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
+                library: display_library(call.library),
+                message: error.to_string(),
+            })?;
+            // SAFETY: classification admitted `i32(i32,i32,ptr)`; the caller
+            // asserts that the resolved symbol really has this C ABI.
+            let function = unsafe {
+                library.get::<unsafe extern "C" fn(i32, i32, *mut c_void) -> i32>(
+                    call.symbol.as_bytes(),
+                )
+            }
+            .map_err(|error| pointer_result_symbol_error(call, error))?;
+            // SAFETY: the caller owns the symbol contract, output storage and
+            // library lifetime.
+            Ok(AbiValue::I32(unsafe { function(*first, *second, *output) }))
         }
         Family::DirectScalar(DirectScalarPrototype::UsizeI32PointerUsize) => {
             let [

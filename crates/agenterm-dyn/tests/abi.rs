@@ -262,6 +262,37 @@ fn confstr_matches_the_direct_length_and_native_bytes() {
     );
 }
 
+/// The raw mechanism passes an opaque output address; this court, rather than
+/// dyn, owns the Darwin `rusage_info_v4` field interpretation.
+#[cfg(target_os = "macos")]
+#[test]
+fn proc_pid_rusage_matches_direct_v4_fields() {
+    let pid = unsafe { libc::getpid() };
+    let flavor = libc::RUSAGE_INFO_V4;
+    let mut bridged = unsafe { std::mem::zeroed::<libc::rusage_info_v4>() };
+    let value = oracle(
+        LIB,
+        "proc_pid_rusage",
+        AbiType::I32,
+        &[AbiType::I32, AbiType::I32, AbiType::Pointer],
+        &[
+            AbiValue::I32(pid),
+            AbiValue::I32(flavor),
+            AbiValue::Pointer((&raw mut bridged).cast()),
+        ],
+    )
+    .expect("proc_pid_rusage through the raw ABI");
+    assert_eq!(value, AbiValue::I32(0));
+
+    let mut direct = unsafe { std::mem::zeroed::<libc::rusage_info_v4>() };
+    let direct_status = unsafe {
+        libc::proc_pid_rusage(pid, flavor, (&raw mut direct).cast::<libc::rusage_info_t>())
+    };
+    assert_eq!(direct_status, 0, "direct proc_pid_rusage must succeed");
+    assert_eq!(bridged.ri_uuid, direct.ri_uuid);
+    assert_eq!(bridged.ri_proc_start_abstime, direct.ri_proc_start_abstime);
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn two_pointer_result_buffer_matches_direct_dladdr_fields() {

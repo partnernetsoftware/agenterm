@@ -96,28 +96,3 @@ fn dlcall_proc_pidinfo_writes_caller_owned_bsdinfo() {
     assert_eq!(info.pbi_pid, direct.pbi_pid);
     assert_eq!(info.pbi_ppid, direct.pbi_ppid);
 }
-
-#[test]
-fn dlcall_proc_pid_rusage_writes_caller_owned_v4() {
-    let symbol = live_symbol("proc_pid_rusage");
-    let pid = unsafe { libc::getpid() };
-    let flavor = libc::RUSAGE_INFO_V4;
-    let mut ri = unsafe { std::mem::zeroed::<libc::rusage_info_v4>() };
-    let mut env = Dyn::new();
-    env.bind("ri", (&raw mut ri).cast())
-        .expect("bind rusage_info_v4");
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "i32" "i32" {pid} "i32" {flavor} "ptr" ri)"#),
-    )
-    .expect("proc_pid_rusage dlcall");
-    assert_eq!(got, Value::Int(0));
-
-    let mut direct = unsafe { std::mem::zeroed::<libc::rusage_info_v4>() };
-    let direct_status = unsafe {
-        libc::proc_pid_rusage(pid, flavor, (&raw mut direct).cast::<libc::rusage_info_t>())
-    };
-    assert_eq!(direct_status, 0, "direct proc_pid_rusage must succeed");
-    assert_eq!(ri.ri_uuid, direct.ri_uuid);
-    assert_eq!(ri.ri_proc_start_abstime, direct.ri_proc_start_abstime);
-}

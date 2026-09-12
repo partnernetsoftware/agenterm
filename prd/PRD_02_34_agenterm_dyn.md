@@ -469,8 +469,10 @@ court has claim-preserving `.wat` or typed-owner evidence.
   `_dyld_get_image_vmaddr_slide(0)`，不再沿用旧 Lisp court 将返回值伪装成
   pointer 的做法。真实的 `usize(i32,ptr,usize)` trampoline 又接管 `confstr`
   的完整 `size_t` 返回值、NUL 终止输出与 direct native bytes oracle，不再经
-  Lisp 的 `u64`/language-integer 表示；`macos_probes.rs` 还剩三个复杂
-  caller-buffer/结构体 court。
+  Lisp 的 `u64`/language-integer 表示。`i32(i32,i32,ptr)` raw trampoline
+  随后接管 `proc_pid_rusage`；结构体解释仍只存在于 direct-oracle court，dyn
+  仅搬运其 opaque pointer。`macos_probes.rs` 还剩两个复杂 caller-buffer/
+  结构体 court。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded
