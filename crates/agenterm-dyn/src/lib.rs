@@ -9,6 +9,7 @@ mod exec;
 #[cfg(unix)]
 mod exec_error;
 mod fixed_native;
+mod fixed_pointer;
 mod hosts;
 mod macos_resource;
 mod native;
@@ -16,6 +17,7 @@ mod parse;
 mod sym;
 mod unix_groups;
 mod unix_ioctl;
+mod unix_path;
 mod unix_resource;
 mod value;
 
@@ -36,6 +38,10 @@ pub use fixed_native::{
     FixedNativeCall, FixedNativeError, FixedNativePrototype, FixedNativeType, FixedNativeValue,
     invoke_fixed, validate_fixed_native_signature,
 };
+pub use fixed_pointer::{
+    FixedPointerCall, FixedPointerError, FixedPointerPrototype, FixedPointerType,
+    FixedPointerValue, invoke_fixed_pointer, validate_fixed_pointer_signature,
+};
 pub use hosts::{
     ALL_CELLS, CU_ADJACENT_PROBE_CATALOG, CuAdjacentProbeCell, HostArch, HostCell, HostOs,
     LAYER3_CANDIDATES, LINUX_AARCH64, LINUX_ATSPI_EXISTENCE_LIBS, LINUX_X86_64, MACOS_AARCH64,
@@ -46,6 +52,7 @@ pub use macos_resource::{MachHostPort, MachHostPortError};
 pub use sym::Symbol;
 pub use unix_groups::{MAX_SUPPLEMENTARY_GROUPS, SupplementaryGroups, SupplementaryGroupsError};
 pub use unix_ioctl::{UnixIoctlError, UnixIoctlRequest, invoke_unix_ioctl};
+pub use unix_path::{MAX_REALPATH_BYTES, RealPathError, ResolvedPath};
 pub use unix_resource::{InterfaceAddress, InterfaceAddresses, InterfaceAddressesError};
 pub use value::Value;
 
