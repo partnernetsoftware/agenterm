@@ -11,6 +11,7 @@ use crate::exact_native::open_library;
 pub enum FixedNativeType {
     I32,
     I64,
+    U64,
     Isize,
 }
 
@@ -19,6 +20,7 @@ pub enum FixedNativeType {
 pub enum FixedNativeValue {
     I32(i32),
     I64(i64),
+    U64(u64),
     Isize(isize),
 }
 
@@ -27,6 +29,7 @@ impl FixedNativeValue {
         match self {
             Self::I32(_) => FixedNativeType::I32,
             Self::I64(_) => FixedNativeType::I64,
+            Self::U64(_) => FixedNativeType::U64,
             Self::Isize(_) => FixedNativeType::Isize,
         }
     }
@@ -39,6 +42,8 @@ pub enum FixedNativePrototype {
     IsizeI32,
     /// C `int64_t function(int, int64_t, int)`, used by `lseek` on supported Unix targets.
     I64I32I64I32,
+    /// C `uint64_t function(int)`, used by `clock_gettime_nsec_np` on Darwin.
+    U64I32,
 }
 
 impl FixedNativePrototype {
@@ -46,6 +51,7 @@ impl FixedNativePrototype {
         match self {
             Self::IsizeI32 => FixedNativeType::Isize,
             Self::I64I32I64I32 => FixedNativeType::I64,
+            Self::U64I32 => FixedNativeType::U64,
         }
     }
 
@@ -57,6 +63,7 @@ impl FixedNativePrototype {
                 FixedNativeType::I64,
                 FixedNativeType::I32,
             ],
+            Self::U64I32 => &[FixedNativeType::I32],
         }
     }
 }
@@ -156,8 +163,20 @@ pub unsafe fn invoke_fixed(
                 FixedNativeValue::I32(c),
             ],
         ) => invoke_i64_i32_i64_i32(&library, call.symbol, *a, *b, *c).map(FixedNativeValue::I64),
+        (FixedNativePrototype::U64I32, [FixedNativeValue::I32(a)]) => {
+            invoke_u64_i32(&library, call.symbol, *a).map(FixedNativeValue::U64)
+        }
         _ => unreachable!("fixed signature validation admitted the prototype"),
     }
+}
+
+fn invoke_u64_i32(library: &Library, symbol: &str, a: i32) -> Result<u64, FixedNativeError> {
+    // SAFETY: invoke_fixed admitted this exact prototype; the remaining symbol
+    // signature assertion belongs to its unsafe caller.
+    let function = unsafe { library.get::<unsafe extern "C" fn(i32) -> u64>(symbol.as_bytes()) }
+        .map_err(|error| symbol_error(symbol, error))?;
+    // SAFETY: the argument has the admitted type and the library stays live.
+    Ok(unsafe { function(a) })
 }
 
 fn symbol_error(symbol: &str, error: libloading::Error) -> FixedNativeError {

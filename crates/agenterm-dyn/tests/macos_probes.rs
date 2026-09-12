@@ -150,28 +150,6 @@ fn dlcall_proc_pidpath_writes_a_caller_buffer() {
 }
 
 #[test]
-fn dlcall_clock_gettime_nsec_np_is_monotonic_against_libc() {
-    let symbol = live_symbol("clock_gettime_nsec_np");
-    let clock = i64::from(libc::CLOCK_UPTIME_RAW);
-    let mut env = Dyn::new();
-    let script = format!(r#"(dlcall "{LIB}" "{symbol}" "u64" "i32" {clock})"#);
-    let first = eval_native(&mut env, &script).expect("first clock_gettime_nsec_np dlcall");
-    let second = eval_native(&mut env, &script).expect("second clock_gettime_nsec_np dlcall");
-    let first = first.as_int().expect("integer nsec result") as u64;
-    let second = second.as_int().expect("integer nsec result") as u64;
-    // libc 0.2 does not bind clock_gettime_nsec_np; call the same Darwin symbol.
-    unsafe extern "C" {
-        fn clock_gettime_nsec_np(clock_id: libc::clockid_t) -> u64;
-    }
-    let direct = unsafe { clock_gettime_nsec_np(libc::CLOCK_UPTIME_RAW) };
-    assert!(second >= first, "later dlcall tick must not precede first");
-    assert!(
-        direct >= second,
-        "later libc tick must not precede last dlcall"
-    );
-}
-
-#[test]
 fn dlcall_sysctl_writes_ncpu_into_caller_buffer() {
     let symbol = live_symbol("sysctl");
     let mut mib = [libc::CTL_HW, libc::HW_NCPU];

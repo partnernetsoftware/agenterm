@@ -34,6 +34,46 @@ fn admitted_signature_reaches_library_loading() {
     ));
 }
 
+#[test]
+fn u64_i32_rejects_the_wrong_argument_before_library_loading() {
+    let arguments = [FixedNativeValue::U64(1)];
+    let call = FixedNativeCall {
+        library: "agenterm-native-library-that-does-not-exist",
+        symbol: "unused",
+        prototype: FixedNativePrototype::U64I32,
+        arguments: &arguments,
+    };
+    // SAFETY: signature rejection occurs before loading or calling.
+    assert!(matches!(
+        unsafe { invoke_fixed(&call) },
+        Err(FixedNativeError::SignatureUnsupported { .. })
+    ));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn clock_gettime_nsec_np_matches_the_darwin_oracle() {
+    let clock_id = i32::try_from(libc::CLOCK_UPTIME_RAW).expect("Darwin clock id fits i32");
+    let arguments = [FixedNativeValue::I32(clock_id)];
+    let call = FixedNativeCall {
+        library: "",
+        symbol: "clock_gettime_nsec_np",
+        prototype: FixedNativePrototype::U64I32,
+        arguments: &arguments,
+    };
+    // SAFETY: Darwin exports clock_gettime_nsec_np with this uint64_t(int) ABI.
+    let actual = unsafe { invoke_fixed(&call) }.expect("clock_gettime_nsec_np should resolve");
+    unsafe extern "C" {
+        fn clock_gettime_nsec_np(clock_id: libc::clockid_t) -> u64;
+    }
+    // SAFETY: CLOCK_UPTIME_RAW is a supported Darwin clock id.
+    let expected = unsafe { clock_gettime_nsec_np(libc::CLOCK_UPTIME_RAW) };
+    let FixedNativeValue::U64(actual) = actual else {
+        panic!("clock_gettime_nsec_np must return u64");
+    };
+    assert!(expected >= actual);
+}
+
 #[cfg(unix)]
 #[test]
 fn sysconf_pagesize_matches_the_platform_oracle() {

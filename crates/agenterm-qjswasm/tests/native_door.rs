@@ -13,9 +13,17 @@ use agenterm_qjswasm::{
 };
 
 fn run_wat(source: &str, budget: Budget) -> Result<i64, QjswasmError> {
+    run_wat_with_args(source, budget, &[])
+}
+
+fn run_wat_with_args(
+    source: &str,
+    budget: Budget,
+    arguments: &[Value],
+) -> Result<i64, QjswasmError> {
     let wasm = wat::parse_str(source).expect("native-door fixture is valid WAT");
     let outcome =
-        Engine::with_native_door(budget).run_once(Guest::Wasm(&wasm), None, "main", &[])?;
+        Engine::with_native_door(budget).run_once(Guest::Wasm(&wasm), None, "main", arguments)?;
     match outcome.values.as_slice() {
         [Value::I64(bits)] => Ok(*bits),
         other => panic!("native fixture returned {other:?}"),
@@ -633,6 +641,29 @@ fn mach_absolute_time_keeps_the_retired_monotonic_oracle() {
 
 #[cfg(target_os = "macos")]
 #[test]
+fn clock_gettime_nsec_np_keeps_the_retired_monotonic_oracle() {
+    unsafe extern "C" {
+        fn clock_gettime_nsec_np(clock_id: libc::clockid_t) -> u64;
+    }
+
+    let clock_id = i32::try_from(libc::CLOCK_UPTIME_RAW).expect("Darwin clock id fits i32");
+    let source = include_str!("fixtures/native/clock_gettime_nsec_np.wat");
+    let arguments = [Value::I32(clock_id)];
+    let first = run_wat_with_args(source, Budget::default(), &arguments)
+        .expect("first clock_gettime_nsec_np call runs through u64(i32)") as u64;
+    let second = run_wat_with_args(source, Budget::default(), &arguments)
+        .expect("second clock_gettime_nsec_np call runs through u64(i32)") as u64;
+    // SAFETY: Darwin exports this uint64_t(int) ABI and the clock id is supported.
+    let direct = unsafe { clock_gettime_nsec_np(libc::CLOCK_UPTIME_RAW) };
+    assert!(second >= first, "later guest tick must not precede first");
+    assert!(
+        direct >= second,
+        "later direct tick must not precede guest call"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn five_more_retired_scalar_probes_keep_current_thread_identity() {
     unsafe extern "C" {
         fn pthread_is_threaded_np() -> i32;
@@ -967,6 +998,10 @@ fn wat_native_calls_validate_arguments_and_the_complete_signature_before_loading
         ),
         (
             wat_for_scalar_args(&format!("{missing_library}|unused|isize(i64)"), &[0]),
+            "native_invocation_signature_unsupported",
+        ),
+        (
+            wat_for_scalar_args(&format!("{missing_library}|unused|u64(i64)"), &[0]),
             "native_invocation_signature_unsupported",
         ),
     ];

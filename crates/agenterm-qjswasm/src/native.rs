@@ -955,6 +955,7 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
         (NativeType::I64, [NativeType::I32, NativeType::I64, NativeType::I32]) => {
             Some(FixedNativePrototype::I64I32I64I32)
         }
+        (NativeType::U64, [NativeType::I32]) => Some(FixedNativePrototype::U64I32),
         _ => None,
     };
     if let Some(fixed) = fixed {
@@ -1126,6 +1127,11 @@ fn fixed_json_argument(
             .and_then(|value| value.parse().ok())
             .map(FixedNativeValue::I64)
             .ok_or_else(invalid),
+        NativeType::U64 => value
+            .as_str()
+            .and_then(|value| value.parse().ok())
+            .map(FixedNativeValue::U64)
+            .ok_or_else(invalid),
         NativeType::Isize => value
             .as_str()
             .and_then(|value| value.parse().ok())
@@ -1143,6 +1149,9 @@ fn fixed_json_result(value: FixedNativeValue) -> serde_json::Value {
         FixedNativeValue::I32(value) => serde_json::json!({"type":"i32","value":value}),
         FixedNativeValue::I64(value) => {
             serde_json::json!({"type":"i64","value":value.to_string()})
+        }
+        FixedNativeValue::U64(value) => {
+            serde_json::json!({"type":"u64","value":value.to_string()})
         }
         FixedNativeValue::Isize(value) => {
             serde_json::json!({"type":"isize","value":value.to_string()})
@@ -1264,6 +1273,7 @@ fn fixed_argument(
                 .ok_or_else(invalid)
         }
         NativeType::I64 => Ok(FixedNativeValue::I64(*bits as i64)),
+        NativeType::U64 => Ok(FixedNativeValue::U64(*bits)),
         NativeType::Isize => {
             let value = *bits as isize;
             (value as i64 as u64 == *bits)
@@ -1332,6 +1342,7 @@ fn fixed_result_bits(value: FixedNativeValue) -> u64 {
     match value {
         FixedNativeValue::I32(value) => value as i64 as u64,
         FixedNativeValue::I64(value) => value as u64,
+        FixedNativeValue::U64(value) => value,
         FixedNativeValue::Isize(value) => value as i64 as u64,
     }
 }

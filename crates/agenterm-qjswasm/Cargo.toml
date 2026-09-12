@@ -56,3 +56,7 @@ tempfile = "3.25"
 # Never a runtime dependency: the encoder that produces this crate's own wasm
 # lives upstream in `tinyvm-qjs`.
 wat = "1"
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+# Direct Darwin oracle constants and declarations for native-door courts only.
+libc = "0.2"
