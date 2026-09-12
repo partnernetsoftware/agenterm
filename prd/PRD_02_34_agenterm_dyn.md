@@ -505,6 +505,9 @@ court has claim-preserving `.wat` or typed-owner evidence.
   状态约束与 direct libc equality；Linux/macOS 四份 Lisp courts 已删除。
   `access(missing,F_OK)` 现在由含 NUL 结尾合成路径的 WAT guest 覆盖，并与
   direct libc 的 `-1` 精确比较；两份 Lisp failure courts 已删除。
+  `dup(0)`/`close(fd)` 由同一 WAT guest 串接：第一次 native 返回的描述符直接写入
+  第二次调用记录，失败或关闭非零即 trap；宿主另跑 direct `dup/close` oracle。
+  Linux/macOS 两份 Lisp 资源清理 court 已删除。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded

@@ -372,36 +372,6 @@ mod linux {
     }
 
     #[test]
-    fn dlcall_dup_stdin_then_close() {
-        let probe = live_system_probe("dup_stdin");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let fd = eval_native(
-            &mut env,
-            &format!(r#"(dlcall "{lib}" "{symbol}" "i32" "i32" 0)"#),
-        )
-        .expect("dup(0) dlcall")
-        .as_int()
-        .expect("dup return code");
-        let close = (fd >= 0).then(|| {
-            eval_native(
-                &mut env,
-                &format!(r#"(dlcall "{lib}" "close" "i32" "i32" {fd})"#),
-            )
-        });
-
-        assert!(fd >= 0, "dup(0) returned {fd}");
-        assert_eq!(
-            close
-                .expect("successful dup should be closed")
-                .expect("close duplicated fd dlcall"),
-            Value::Int(0)
-        );
-    }
-
-    #[test]
     fn dlcall_getpriority_process_matches_libc() {
         let probe = live_system_probe("getpriority_process");
         let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
@@ -920,34 +890,12 @@ mod macos {
     }
 
     #[test]
-    fn dlcall_dup_lseek_match_libc() {
+    fn dlcall_lseek_matches_libc() {
         let mut env = Dyn::new();
-        let dup = live_system_probe("dup_stdin");
-        let SystemProbeStatus::LiveDlcall {
-            lib,
-            symbol: dup_sym,
-        } = dup.status
-        else {
-            unreachable!()
-        };
-        let fd = eval_native(
-            &mut env,
-            &format!(r#"(dlcall "{lib}" "{dup_sym}" "i32" "i32" 0)"#),
-        )
-        .expect("dup")
-        .as_int()
-        .expect("dup int");
-        assert!(fd >= 0, "dup(0) returned {fd}");
-        let close = eval_native(
-            &mut env,
-            &format!(r#"(dlcall "{lib}" "close" "i32" "i32" {fd})"#),
-        )
-        .expect("close");
-        assert_eq!(close, Value::Int(0));
-
         let lseek = live_system_probe("lseek_stdin_cur");
         let SystemProbeStatus::LiveDlcall {
-            symbol: lseek_sym, ..
+            lib,
+            symbol: lseek_sym,
         } = lseek.status
         else {
             unreachable!()

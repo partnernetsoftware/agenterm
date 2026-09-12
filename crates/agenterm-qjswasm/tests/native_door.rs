@@ -524,6 +524,25 @@ fn access_missing_path_preserves_the_native_failure_result() {
 
 #[cfg(unix)]
 #[test]
+fn a_guest_can_feed_one_native_result_into_the_next_call() {
+    let direct_fd = unsafe { libc::dup(0) };
+    assert!(direct_fd >= 0, "direct dup(0) must succeed");
+    assert_eq!(
+        unsafe { libc::close(direct_fd) },
+        0,
+        "direct close must succeed"
+    );
+
+    let proof = run_wat(
+        include_str!("fixtures/native/dup_close_stdin.wat"),
+        Budget::default(),
+    )
+    .expect("dup/close guest runs");
+    assert_eq!(proof, 1);
+}
+
+#[cfg(unix)]
+#[test]
 fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
     let output = std::process::Command::new("uname")
         .arg("-s")
