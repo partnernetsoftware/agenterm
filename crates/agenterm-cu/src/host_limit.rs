@@ -70,7 +70,7 @@ pub(crate) fn audio_unsupported_detail(
 pub(crate) fn audio_unsupported() -> CuError {
     #[cfg(target_os = "linux")]
     {
-        return match agenterm_platform::audio::query_default_output_result() {
+        match agenterm_platform::audio::query_default_output_result() {
             agenterm_platform::audio::AudioQueryResult::Unsupported(unsupported) => {
                 audio_unsupported_detail(unsupported)
             }
@@ -78,7 +78,7 @@ pub(crate) fn audio_unsupported() -> CuError {
                 "audio_unsupported",
                 "default-output volume and mute observation are unavailable on this Linux host",
             ),
-        };
+        }
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -107,7 +107,7 @@ fn audio_unsupported_non_linux() -> CuError {
 pub(crate) fn service_unsupported() -> CuError {
     #[cfg(target_os = "linux")]
     {
-        return host_limit_error(
+        host_limit_error(
             "service_unsupported",
             format!(
                 "service inventory and status require Linux systemd D-Bus (org.freedesktop.systemd1); {} cannot reach that provider",
@@ -125,7 +125,7 @@ pub(crate) fn service_unsupported() -> CuError {
                     "process-state / ps (process facts only; not unit inventory)",
                 ],
             },
-        );
+        )
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -149,7 +149,7 @@ pub(crate) fn service_unsupported() -> CuError {
 pub(crate) fn login_session_unsupported() -> CuError {
     #[cfg(target_os = "linux")]
     {
-        return host_limit_error(
+        host_limit_error(
             "login_session_unsupported",
             format!(
                 "console login-session inventory requires Linux systemd-logind (sd-login); {} cannot load or use that provider",
@@ -165,7 +165,7 @@ pub(crate) fn login_session_unsupported() -> CuError {
                     "resource-status / power-status (host facts; not OS screen lock)",
                 ],
             },
-        );
+        )
     }
     #[cfg(not(target_os = "linux"))]
     {

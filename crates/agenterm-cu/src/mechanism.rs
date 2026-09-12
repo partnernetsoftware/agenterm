@@ -2235,9 +2235,7 @@ pub mod clipboard {
             match get_text() {
                 Ok(got) if got == expected => return Ok(()),
                 Ok(_) | Err(_) => {
-                    if let Err(error) = ensure_x11_clipboard_owner_alive(&mut child, deadline) {
-                        return Err(error);
-                    }
+                    ensure_x11_clipboard_owner_alive(&mut child, deadline)?;
                     thread::sleep(Duration::from_millis(20));
                 }
             }
@@ -2260,9 +2258,7 @@ pub mod clipboard {
             match get_type(type_name, expected.len().max(1)) {
                 Ok(got) if got == expected => return Ok(()),
                 Ok(_) | Err(_) => {
-                    if let Err(error) = ensure_x11_clipboard_owner_alive(&mut child, deadline) {
-                        return Err(error);
-                    }
+                    ensure_x11_clipboard_owner_alive(&mut child, deadline)?;
                     thread::sleep(Duration::from_millis(20));
                 }
             }

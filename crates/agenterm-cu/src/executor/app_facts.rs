@@ -80,8 +80,8 @@ fn linux_app_facts_selector_candidates(selector: &str, candidates: &mut Vec<Stri
             ];
             let exec_alias =
                 read_desktop_exec_basename(&app.path).map(|name| name.to_ascii_lowercase());
-            let matches = aliases.iter().any(|alias| *alias == wanted)
-                || exec_alias.as_deref() == Some(wanted.as_str());
+            let matches =
+                aliases.contains(&wanted) || exec_alias.as_deref() == Some(wanted.as_str());
             if matches {
                 push_unique_candidate(candidates, file_name);
                 push_unique_candidate(candidates, &app.path);

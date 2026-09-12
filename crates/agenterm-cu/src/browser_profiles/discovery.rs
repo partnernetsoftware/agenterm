@@ -106,9 +106,7 @@ pub(crate) fn resolve_linux_executable(name: &str) -> Option<PathBuf> {
     if let Some(path) = known_linux_path(name) {
         return Some(path);
     }
-    let Some(path_var) = std::env::var_os("PATH") else {
-        return None;
-    };
+    let path_var = std::env::var_os("PATH")?;
     std::env::split_paths(&path_var)
         .map(|dir| dir.join(name))
         .find(|candidate| is_launchable_file(candidate))
