@@ -3437,7 +3437,10 @@ individual cell values `const` so target-selected references remain available.
 `mach2` crate. `agenterm-dyn` must not take that dependency. For a probe
 baseline, declare the `#[repr(C)]` layout and `unsafe extern "C"` symbol
 locally (same pattern as `clock_gettime_nsec_np`) and compare `Dyn::eval`
-against that later native call.
+against that later native call. In edition 2024 the extern block itself must
+be `unsafe extern`; keep a separate `SAFETY` comment at each call site. For
+fixed NUL-terminated arguments, use Rust's `c"..."` literal instead of a
+manual byte string ending in `\0`.
 
 On Darwin, `pthread_t` is `usize`. `libc::pthread_threadid_np(std::ptr::null_mut(), …)`
 does not type-check; pass integer `0` for the current thread. Never spell

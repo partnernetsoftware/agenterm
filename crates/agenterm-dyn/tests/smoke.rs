@@ -1662,7 +1662,9 @@ mod macos {
             }
             // Both owners fall out of scope on a partial openpty failure.
         }
-        let fd = unsafe { libc::open(b"/dev/tty\0".as_ptr().cast(), libc::O_RDONLY) };
+        // SAFETY: the C string is NUL-terminated and remains alive for the call;
+        // the returned descriptor is immediately wrapped by `ProbeFd` on success.
+        let fd = unsafe { libc::open(c"/dev/tty".as_ptr().cast(), libc::O_RDONLY) };
         if fd >= 0 {
             (Some(ProbeFd(fd)), false)
         } else {
