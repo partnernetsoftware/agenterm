@@ -78,8 +78,12 @@ fixnum `+` `-` + bounded `repeat` + one hand (`dlcall`).
   `_dyld_get_image_header`, `arc4random_uniform`, `getdomainname`,
   `statvfs`, `gettimeofday`, `getgroups`, and `realpath`
   against `libSystem.B.dylib`.
-  `mach_host_self` stays a placeholder because dyn has no ownership-aware
-  release path for its send right. Unix `ioctl` calls its resolved symbol through a
+  `mach_host_self` is **no longer a placeholder on Darwin**: `MachHostPort::acquire()`
+  takes one owned send-right reference and its `Drop` calls `mach_port_deallocate`
+  exactly once, with typed `MachHostPortError` and an observable
+  `send_right_refs()` count. Every other cell stays a placeholder / typed
+  `Unsupported`, and this evidence belongs only to the host ISA that actually ran.
+  Unix `ioctl` calls its resolved symbol through a
   signature-gated Rust variadic path for `(i32, u64|i32, ptr) -> i32`, not
   general variadic FFI. CU-adjacent macOS notes name AX as a cu live hand.
 - Last Linux Wave 8 evidence is `cargo test --locked -p agenterm-dyn` with Rust
@@ -140,8 +144,10 @@ Integer/void/ptr libc rows are live on Linux (`libc.so.6`) and macOS
 `_dyld_get_image_vmaddr_slide`, `dladdr`, `gethostuuid`,
 `_dyld_get_image_header`, `arc4random_uniform`, `getdomainname`,
 `statvfs`, `gettimeofday`, `getgroups`, and `realpath`.
-`mach_host_self` remains a placeholder because dyn cannot release its returned
-Mach send right. Windows extra probes stay placeholders. No
+`mach_host_self` is owned on Darwin through `MachHostPort` (`acquire()` plus a
+`Drop` that deallocates exactly once, typed `MachHostPortError`); the other cells
+stay placeholder / typed `Unsupported`, and the real-machine evidence is the host
+ISA only. Windows extra probes stay placeholders. No
 C shim.
 Restore process-global side effects before the test ends (`umask` pattern).
 Unix `ioctl` (Linux and macOS) transmutes its already-resolved symbol only for the validated
