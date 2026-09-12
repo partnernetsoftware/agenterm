@@ -13,6 +13,7 @@ mod macos_resource;
 mod native;
 mod parse;
 mod sym;
+mod unix_groups;
 mod unix_ioctl;
 mod unix_resource;
 mod value;
@@ -38,6 +39,7 @@ pub use hosts::{
 };
 pub use macos_resource::{MachHostPort, MachHostPortError};
 pub use sym::Symbol;
+pub use unix_groups::{MAX_SUPPLEMENTARY_GROUPS, SupplementaryGroups, SupplementaryGroupsError};
 pub use unix_ioctl::{UnixIoctlError, UnixIoctlRequest, invoke_unix_ioctl};
 pub use unix_resource::{InterfaceAddress, InterfaceAddresses, InterfaceAddressesError};
 pub use value::Value;
