@@ -1,65 +1,87 @@
 # PRD 02.34 — agenterm-dyn（极小 / 动态 / 底层）
 
-Status: active product node — dyn is the native ABI/ownership core consumed by
-qjswasm; the small S-expression surface is being retired court by court into
-`.wat`. Typed owners and the six-cell catalog continue to grow with native evidence.
+Status: active product node — dyn is the **无策略底层机制层**（动态库/符号解析、按调用方 ABI
+描述执行调用、raw value/pointer 搬运、variadic `ioctl` ABI、W^X trampoline、机制错误）
+consumed by qjswasm; the small S-expression surface is being retired court by court into
+`.wat`. **Typed owners and the six-cell catalog are 待迁移现状债**（2026-09-12 裁决：它们属上层
+adapter/`agenterm-platform` 与产品/测试层，留在 dyn 只是**尚未搬走**，不是继续扩展目标）。
 Owner: 政委定方向；主会话按独占文件域推进。
 
 Parallel crate `crates/agenterm-dyn`, not a fourth engine, not libagenterm, not cu.
 
-## 当前产品身份：受限的高级 FFI 内核，而不是通用 libffi
+## 当前产品身份：无策略的底层动态能力转接（2026-09-12 裁决重写）
 
-可以把 dyn 理解成一种**受限、类型化、可逐格证明的高级 FFI**，但不能把它描述成
-“任意 C 函数都能调用”的通用 FFI。它把传统 FFI 经常混在一起的职责拆成三层：
+**dyn 不是产品层，也不是策略层。** 它是**无产品策略、无允许集合、无授权语义**的
+底层动态能力转接：把“能不能用、允许用什么、暴露给谁”全部交给上层，自己只保证
+**机制正确**。
 
-1. **native invocation core** 只接受枚举过的 ABI 原型，先验证再加载；
-2. **typed owner / snapshot** 封装有所有权、caller-buffer、链表或 borrowed-pointer
-   风险的 OS 事实，不把裸指针交给消费者；
-3. **host fact catalog** 分开记录六个 OS×ISA cell 的真实状态，不用一格的运行证据
-   替代另一格。
+**dyn 拥有（机制）**
 
-qjswasm 是当前真实消费者：它拥有 guest-memory 解码、door、预算、取消与错误映射，
-随后把已经验证的调用委托给 dyn 的 `invoke_exact`、`invoke_fixed` 或
-`invoke_fixed_pointer`；Unix `ioctl` 特例也委托给 dyn 的 `invoke_unix_ioctl`，不在
-qjswasm 内复制 variadic 调用实现。CU 通过 Script Runtime 的 `agenterm:native` 模块间接使用这条
-链；CU 不直接依赖 dyn，也没有第二套 loader。tinyvm 仍负责 `.qjs`→Wasm 与 Wasm
-执行，不拥有 native ABI。
+1. **动态库打开与符号解析**——唯一的 loader/symbol resolution 路径（`libloading`）；
+2. **按调用方提供的 ABI 描述执行调用**——调用方给出参数类/返回类（宽度、指针、
+   可空性），dyn 负责布局与跳转，**不由 dyn 决定“哪些 ABI 允许”**；
+3. **raw pointer / value 搬运**——整数、浮点、指针位的传参取回；
+4. **必要 ABI 机制**——Unix variadic `ioctl` 特例；
+5. **W^X trampoline 与机器码执行底座**（`src/exec.rs`，写态/执态互斥，永不 RWX）；
+6. **机制错误传播**——加载失败、符号缺失、ABI 布局不一致、缓冲区错误等。
 
-这里的“验证”目前不是完整的 native memory-safety 证明。`fixed_pointer` 已验证
-prototype、参数 kind、nullability，以及 guest span 的 `offset + len` 不溢出且位于
-Wasm 线性内存内；但它尚未把 span 的长度与具体 C symbol 的最小读写宽度关联，也
-不验证 host ABI 对齐或字符串 NUL。换言之，当前 pointer door 是由
-`WorkerSupervisor` 隔离的受限 raw FFI，而不是可安全接收敌对 pointer contract 的
-内存安全 FFI。当前产品选择是把具体 pointee 宽度、对齐、动态长度与 NUL 义务明确
-保留给受监管 guest；这是 unrestricted Script Runtime 的 unsafe ABI 边界，不能只靠
-夹具碰巧给了足够大的 buffer 来宣称安全。若未来要宣称敌对 pointer contract 也被
-typed 验证，则必须新增显式 callee contract 与 pre-load 拒绝证据，而不是把 symbol
-allowlist 当成权限策略。
+**上层拥有（策略）**
+
+- **qjswasm / Script Runtime**：wire schema、`prototype`/catalog/validator、允许集合、
+  暴露面、budget、cancel、`WorkerSupervisor` 监管；
+- **typed OS contracts**（owner / snapshot：Mach right、接口地址表、domain/login name、
+  realpath、statvfs、groups 等）：移交 **`agenterm-platform`** 或专门的上层 adapter；
+  **最终模块落点仍需逐项迁移裁决**，本 PRD 不预先分配；
+- **facts / catalog / evidence**：属**产品层与测试层**（六格状态、court/证据模型、
+  发布资格），不属于 dyn。
+
+**回答用户问题（已实现 vs 目标态）**
+
+- **已实现**：今天的东西可以概括为 **libdl-like（打开库/解析符号）＋ 一部分
+  libffi-like（一组枚举式固定 ABI 的调用执行）＋ 自有的 W^X/ABI 执行基础设施**。
+- **尚未达到**：它还**不是 libffi 的完整超集**——参数类与 prototype 由 dyn 枚举、
+  variadic 只覆盖 `ioctl` 一个特例、结构体/by-value 传递未做、host ABI 对齐与
+  pointee 最小读写宽度不由 dyn 校验。
+- **目标态**：把“**允许集合**”从 dyn 的枚举变成**调用方传入的 ABI 描述**，dyn 只执行；
+  目标是**扩大或参数化 ABI 机制覆盖**（更多参数类/返回类、更多调用形状）。**“是不是 libffi 的
+  完整超集”仍由 dyn 的实际 ABI 支持矩阵决定**，不能靠上层策略宣称，也不是上层的“能力”。
+
+**机制正确性留在 dyn，权限语义不在 dyn**：unsafe 契约、错误传播、W^X、以及收到
+**host 侧 ABI/value/pointer 描述后**的调用布局与执行错误，都是 dyn 的机制职责；
+而“哪个 symbol 可用、允许哪种 pointer contract、给谁授权”是**上层策略**。
+**guest-memory / schema 校验属 qjswasm door，不属 dyn**：guest span 解码（含
+`offset + len` 不溢出且在 Wasm 线性内存内）、参数 kind、nullability 与 schema 判定
+全部由 qjswasm 侧完成；dyn 只看到已经解码并验证过的 host 侧描述。
+dyn **不**校验 host ABI 对齐、NUL 或具体 callee 的最小读写宽度；这些义务由上层与
+受监管 guest 承担，不应被记成 dyn 的策略或授权。
 
 ### Markdown tree-DAG（当前功能树）
 
-下面是 DAG，不是互斥目录树：qjswasm 同时依赖三个 invocation family；catalog 与
-typed owners 也会共同描述同一个 native fact（`LiveDlcallOwned`）。
+下面是 DAG，不是互斥目录树：qjswasm 同时依赖三个 invocation family。
+**标注说明**：下面带 `[迁移]` 的条目是**历史现状 / 迁移债**（2026-09-12 前 dyn 曾拥有，现裁定迁出），
+**不是继续扩展目标**；历史交付记录不抹除，但不得再被读成 dyn 的职责。
 
 ```text
 agenterm-dyn
-├── A. 可执行 native core                         [保留]
+├── A. 可执行 native core                         [机制保留 · 策略迁移]
 │   ├── exact_native
-│   │   ├── 7 个同质标量族 × arity 0..=6 = 49 个可执行组合
-│   │   ├── validate_exact_native_signature
-│   │   └── invoke_exact
+│   │   ├── 执行：按调用方 ABI 描述调用            [保留]
+│   │   ├── 7 个同质标量族 × arity 0..=6 = 49 组合  [**策略 → 上层 qjswasm**]
+│   │   ├── validate_exact_native_signature        [**策略 → 上层 qjswasm**]
+│   │   └── invoke_exact                            [保留]
 │   ├── fixed_native
-│   │   ├── 枚举式异构标量 prototype
-│   │   ├── validate_fixed_native_signature
-│   │   └── invoke_fixed
+│   │   ├── 枚举式异构标量 prototype               [**策略 → 上层 qjswasm**]
+│   │   ├── validate_fixed_native_signature        [**策略 → 上层 qjswasm**]
+│   │   └── invoke_fixed                            [保留]
 │   ├── fixed_pointer
-│   │   ├── 枚举式 caller-buffer / pointer prototype
-│   │   ├── validate_fixed_pointer_signature
-│   │   └── invoke_fixed_pointer
+│   │   ├── 枚举式 caller-buffer / pointer prototype [**策略 → 上层 qjswasm**]
+│   │   ├── validate_fixed_pointer_signature        [**策略 → 上层 qjswasm**]
+│   │   └── invoke_fixed_pointer                    [保留]
 │   └── unix_ioctl
-│       └── 仅 (i32, i32|u64, ptr) -> i32 的 variadic 特例
+│       ├── variadic 调用机制 (i32, i32|u64, ptr) -> i32  [保留]
+│       └── UnixIoctlRequest 的“允许签名”          [**策略 → 上层**]
 │
-├── B. typed native owners / snapshots            [保留并继续扩展]
+├── B. typed native owners / snapshots            [**迁移：上层 adapter / agenterm-platform（逐项裁决）**]
 │   ├── Unix
 │   │   ├── InterfaceAddresses       getifaddrs/freeifaddrs 恰一次释放
 │   │   ├── SupplementaryGroups      有界 gid 集合
@@ -75,7 +97,7 @@ agenterm-dyn
 │       ├── DomainNameSnapshot       bounded native bytes
 │       └── LoginNameSnapshot        1024-byte bound + true NUL + native bytes
 │
-├── C. OS×ISA facts                                 [保留]
+├── C. OS×ISA facts                                 [**迁移：产品/测试层 facts**]
 │   ├── hosts.rs: win/lnx/osx × x86_64/aarch64
 │   ├── Placeholder | LiveDlcall | LiveOwned | LiveDlcallOwned
 │   └── CU-adjacent facts（发现/兼容元数据，不是授权策略）
@@ -116,19 +138,26 @@ flowchart LR
         Guard -. 尚未证明 .-> Gap
     end
 
-    subgraph Engine[机房 · dyn native core]
-        Exact[Exact 49]
-        Fixed[Fixed scalar prototypes]
-        Pointer[Fixed pointer prototypes]
-        Ioctl[Unix ioctl variadic exception]
+    subgraph Engine[机房 · dyn mechanism core（无策略，保留）]
         Loader[唯一 loader / symbol resolution]
-        Exact --> Loader
-        Fixed --> Loader
-        Pointer --> Loader
+        Abi[按调用方传入的 ABI 描述执行调用]
+        Raw[raw pointer / value 搬运]
+        Ioctl[Unix ioctl variadic ABI 机制]
+        WX[W^X trampoline / exec.rs]
+        Abi --> Loader
+        Raw --> Loader
         Ioctl --> Loader
+        WX --> Loader
     end
 
-    subgraph Vault[保管室 · typed owners]
+    subgraph Policy[上层机房 · policy（qjswasm / Script Runtime）]
+        Proto[prototype / 允许集合 / validator]
+        Schema[wire schema · 暴露面]
+        Budget[budget · cancel · WorkerSupervisor 监管]
+    end
+    Policy -->|提供 ABI 描述| Abi
+
+    subgraph Vault[保管室 · typed owners（待迁移 → 上层 adapter / platform）]
         UnixOwner[Unix lists / buffers / snapshots]
         DarwinOwner[Mach rights / Darwin snapshots]
         Drop[bounded copy or exactly-once Drop]
@@ -136,7 +165,7 @@ flowchart LR
         DarwinOwner --> Drop
     end
 
-    subgraph Map[地图室 · six-cell facts]
+    subgraph Map[地图室 · six-cell facts（待迁移 → 产品/测试层）]
         Cells[win · lnx · osx<br/>x86_64 · aarch64]
         Status[Placeholder / LiveDlcall<br/>LiveOwned / LiveDlcallOwned]
         Cells --> Status
@@ -148,11 +177,11 @@ flowchart LR
         Lisp --> Courts
     end
 
-    Guard --> Exact
-    Guard --> Fixed
-    Guard --> Pointer
+    Guard --> Schema
+    Schema --> Proto
+    Proto -->|已验证的 ABI 描述| Abi
     Guard -. enumerated exception .-> Ioctl
-    Vault --> Status
+    Vault -. 待迁移 .-> Status
     Courts -. claim-preserving port .-> QJS
     Lisp -. delete only after all courts move .-> ArchiveGate{retirement gate}
     Status --> ArchiveGate
@@ -163,7 +192,57 @@ flowchart LR
 
 这张图同时给出禁止项：不得增加第二个 native loader；不得让 guest 直接持有 OS
 资源指针；不得把 `LiveOwned` 当成别的 target cell 的 runtime 证据；不得在 legacy
-court 的用户主张尚未迁移时只按文件删除小 Lisp。
+court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 dyn 决定允许集合、
+授权语义、budget/cancel，或持有 typed OS owner 与六格 facts**（那些属上层与产品层）。
+
+### 无策略边界：keep / move / delete 迁移表（2026-09-12 裁决）
+
+| 模块（现 `crates/agenterm-dyn/src/`） | 判定 | 说明 |
+|---|---|---|
+| `hosts.rs`（six-cell facts / catalog / Placeholder-Live* 状态） | **move** | 属产品/测试层 facts；不属 dyn 机制 |
+| `macos_resource.rs`（Mach right、domain/login/timebase、DlAddress…） | **move** | typed OS owner/snapshot ⇒ 上层 adapter 或 `agenterm-platform`（**逐项裁决**） |
+| `unix_resource.rs`（getifaddrs / statvfs / clock） | **move** | 同上 |
+| `unix_groups.rs` / `unix_path.rs` | **move** | 同上 |
+| `exact_native.rs` / `fixed_native.rs` / `fixed_pointer.rs` | **split** | 执行机制留 dyn；“允许的 prototype 枚举 + validator”迁往上层的 catalog/策略 |
+| `unix_ioctl.rs` | **split** | variadic 调用机制留；“允许签名”判据迁上层 |
+| `exec.rs` + `exec_error.rs` | **keep** | W^X trampoline 与机器码执行底座（机制正确性，不是权限限制） |
+| `error.rs` | **keep** | 机制错误传播 |
+| `native.rs`（旧 `dlcall` 入口） | **split/retire** | 调用 ABI 机制与退役中的小 Lisp 语言层分开处置 |
+| `parse.rs` / `eval.rs` / `sym.rs` / `value.rs` | **delete（退役）** | 语言层；其 court 主张须先迁到等价证据 |
+| `lib.rs` 公开面 | **rewrite** | 现导出面即策略面（owner/facts/允许集合/budget 常量），需按上表收口 |
+
+**兼容顺序（两步走，任一步可独立回退）**
+
+1. **先加机制入口**：在 `exact_native`/`fixed_native`/`fixed_pointer` 上新增“**调用方传入
+   ABI 描述**”的入口，现有 `invoke_*` 变为其薄封装——外部签名不变，qjswasm 无需同时改；
+2. **再搬策略**：把 prototype 表与 validator 迁到 qjswasm 侧（成为上层 policy），随后从
+   dyn 删除枚举；owner/facts 另开叶按“逐项裁决”迁往上层 adapter 或 `agenterm-platform`；
+3. **最后退役语言层**：仅在每个 court 的用户主张都有等价 `.wat`/typed 证据后删除。
+
+**不变量（验收必须同时证明）**
+
+- **单 loader / 不新增第二 door**：`crates/agenterm-dyn/src` 内 `dlsym`/`libloading`
+  **只有一处**；`crates/agenterm-qjswasm/src` 内仍为 **1（注释）**；新入口是“参数化调用”，
+  不是新 loader；
+- **策略在上层**：dyn 不得持有允许集合、授权语义、budget/cancel 或 typed owner 的事实；
+- **机制正确性**：unsafe 契约、错误传播、W^X（永不 RWX）由 dyn 保持不变。
+
+**验收证据（建议口径）**
+
+- 两侧 owning tests（`cargo test -p agenterm-dyn`、`-p agenterm-qjswasm`）与现有 native-door
+  门测试全绿；两侧 `clippy --all-targets -- -D warnings`、`cargo fmt -p <crate> -- --check`、
+  `git diff --check` clean；
+- **loader 计数**两侧分别为 1 / 1（且 qjswasm 那处是注释）；
+- **一条可逆变异**：让 dyn 自行白名单（而不是接受调用方描述）⇒ 相应用例**必须变红**，
+  证明策略确实在上层；原地还原并核哈希相等。
+
+**非目标（本次裁决新增）**
+
+- dyn 不拥有“**允许哪些 symbol / prototype**”的判据；
+- dyn 不拥有 **typed OS owner / snapshot**；
+- dyn 不拥有 **six-cell product facts / catalog / evidence / court** 策略；
+- dyn 不拥有 **budget / cancel / 监管**；
+- 不新增第二 loader、第二 door 或第二套 ABI 执行子系统。
 
 ## Exec base (dyn.1, 2026-08-16) — 身份补充
 
@@ -353,10 +432,12 @@ implemented functionality. Do not begin them without explicit 政委 direction.
 
 ### Active re-layering track (2026-09-12)
 
-Dyn is an important bottom-layer module. The experiment has now produced the
-shipping layering: qjswasm owns the guest door and memory decoding, while dyn owns
-the validated exact/fixed/fixed-pointer invocation core. qjswasm has a real Cargo
-dependency on dyn and its native dispatcher calls dyn's `invoke_*` APIs. The current
+Dyn is an important bottom-layer module. **2026-09-12 裁决修正本节口径**：qjswasm 拥有
+guest door、内存解码**与全部策略**（prototype/catalog/validator、budget、cancel、监管），
+dyn **只拥有机制**——它执行**调用方传入的 ABI 描述**，不再拥有“允许的
+exact/fixed/fixed-pointer 集合”。qjswasm 仍有真实的 Cargo 依赖，其 native dispatcher
+调用 dyn 的 `invoke_*`；但这些 `invoke_*` 的**允许集合判据迁往上层的 catalog/策略**
+（迁移表与兼容顺序见上文“无策略边界”一节）。 The current
 S-expression surface remains shipped product truth only until each non-language
 court has claim-preserving `.wat` or typed-owner evidence.
 
@@ -368,9 +449,9 @@ court has claim-preserving `.wat` or typed-owner evidence.
 - Migrating and then deleting `eval.rs` / `parse.rs` / `sym.rs` / `value.rs` requires
   complete court and public-consumer migration. The legacy `Dyn`/`Value`/`Symbol`
   surface has no non-test Rust consumer outside this crate, but its native courts and
-  examples still carry claims that must move rather than disappear. `hosts.rs`
-  remains the six-cell fact owner and `exec.rs` remains the separately bounded future
-  JIT tool.
+  examples still carry claims that must move rather than disappear. `hosts.rs` 目前仍是
+  six-cell fact owner、`exec.rs` 仍是单独设界的 future JIT tool——**这两者是历史现状 /
+  迁移债**（按 2026-09-12 裁决，facts 与 typed owner 将迁出 dyn；`exec.rs` 作为机制保留）。
 - Current court migration has moved the scalar, clock-pointer, Darwin output-pointer,
   Mach-clock, and duplicate Darwin `ioctl` claims to qjswasm `.wat` or typed-owner
   evidence. The two-required-pointer `i32(ptr,ptr)` family now carries the
@@ -427,6 +508,9 @@ evidence for Linux or Windows.
 - No direct `agenterm-cu` or `agenterm-platform` import. CU consumes dyn only through
   the supervised Script Runtime/qjswasm path.
 - No libffi, no C dependency, no fourth engine, no thickening libagenterm.
+- **No product policy inside dyn**（2026-09-12）：不拥有允许集合/授权语义、不拥有
+  typed OS owner/snapshot、不拥有 six-cell facts/catalog/evidence、不拥有 budget/cancel/监管。
+- No second loader or second native door: the one loader stays in dyn, the policy moves up.
 
 ## Wave 11 (2026-09-12): Unix interface address lists as a typed owner (`8ae3b00a`)
 
