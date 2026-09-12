@@ -8,10 +8,9 @@
 use std::fmt;
 
 use agenterm_dyn::{
-    ExactNativeCall, ExactNativeError, ExactNativeType, ExactNativeValue, FixedNativeCall,
-    FixedNativeError, FixedNativePrototype, FixedNativeValue, FixedPointerCall, FixedPointerError,
-    FixedPointerPrototype, FixedPointerValue, UnixIoctlError, UnixIoctlRequest, invoke_exact,
-    invoke_fixed, invoke_fixed_pointer, invoke_unix_ioctl, validate_exact_native_signature,
+    ExactNativeType, ExactNativeValue, FixedNativePrototype, FixedNativeValue,
+    FixedPointerPrototype, FixedPointerValue, UnixIoctlError, UnixIoctlRequest, invoke_unix_ioctl,
+    validate_exact_native_signature,
 };
 
 /// Schema version stored in every argument-block header.
@@ -739,55 +738,73 @@ pub(crate) fn invoke_native_call(
     // spans are allowed to alias intentionally.
     let memory_base = memory.as_mut_ptr();
     let bits = match native_dispatch(&call.spec)? {
-        NativeDispatch::Exact { result } => {
+        NativeDispatch::Exact { .. } => {
             let arguments = call
                 .arguments
                 .iter()
                 .enumerate()
                 .map(|(index, argument)| exact_argument(index, argument, call))
                 .collect::<Result<Vec<_>, _>>()?;
-            let native_call = ExactNativeCall {
+            // The execution phase goes through the one policy-free ABI entry;
+            // the upper catalog above already decided this shape is allowed.
+            let abi_params = abi_parameters(call)?;
+            let abi_arguments = arguments
+                .iter()
+                .copied()
+                .map(abi_from_exact)
+                .collect::<Vec<_>>();
+            let abi_call = agenterm_dyn::NativeCall {
                 library: &call.spec.library,
                 symbol: &call.spec.symbol,
-                result,
-                arguments: &arguments,
+                signature: agenterm_dyn::AbiSignature {
+                    result: abi_type(call.spec.result).ok_or_else(unsupported_signature(call))?,
+                    params: &abi_params,
+                },
+                arguments: &abi_arguments,
             };
             // SAFETY: the guest declaration is the native-door caller's explicit ABI assertion.
-            unsafe { invoke_exact(&native_call) }
-                .map(exact_result_bits)
-                .map_err(|error| map_exact_error(call, error))?
+            unsafe { agenterm_dyn::invoke_abi(&abi_call) }
+                .map_err(|error| map_abi_error(call, error))
+                .and_then(|value| {
+                    abi_result_bits(value, call.spec.result).ok_or_else(unsupported_signature(call))
+                })?
         }
-        NativeDispatch::Fixed(prototype) => {
+        NativeDispatch::Fixed(_prototype) => {
             let arguments = call
                 .arguments
                 .iter()
                 .enumerate()
                 .map(|(index, argument)| fixed_argument(index, argument, call))
                 .collect::<Result<Vec<_>, _>>()?;
-            let native_call = FixedNativeCall {
+            let abi_params = abi_parameters(call)?;
+            let abi_arguments = arguments
+                .iter()
+                .copied()
+                .map(abi_from_fixed)
+                .collect::<Vec<_>>();
+            let abi_call = agenterm_dyn::NativeCall {
                 library: &call.spec.library,
                 symbol: &call.spec.symbol,
-                prototype,
-                arguments: &arguments,
+                signature: agenterm_dyn::AbiSignature {
+                    result: abi_type(call.spec.result).ok_or_else(unsupported_signature(call))?,
+                    params: &abi_params,
+                },
+                arguments: &abi_arguments,
             };
             // SAFETY: native_dispatch admitted this enumerated fixed prototype.
-            unsafe { invoke_fixed(&native_call) }
-                .map(fixed_result_bits)
-                .map_err(|error| map_fixed_error(call, error))?
+            unsafe { agenterm_dyn::invoke_abi(&abi_call) }
+                .map_err(|error| map_abi_error(call, error))
+                .and_then(|value| {
+                    abi_result_bits(value, call.spec.result).ok_or_else(unsupported_signature(call))
+                })?
         }
-        NativeDispatch::FixedPointer(prototype) => {
+        NativeDispatch::FixedPointer(_prototype) => {
             let arguments = call
                 .arguments
                 .iter()
                 .enumerate()
                 .map(|(index, argument)| fixed_pointer_argument(memory_base, index, argument, call))
                 .collect::<Result<Vec<_>, _>>()?;
-            let native_call = FixedPointerCall {
-                library: &call.spec.library,
-                symbol: &call.spec.symbol,
-                prototype,
-                arguments: &arguments,
-            };
             // SAFETY: native_dispatch admitted one enumerated fixed prototype;
             // decode_native_call bounded every declared span within this one
             // live memory allocation, and the foreign call is synchronous. The
@@ -795,9 +812,29 @@ pub(crate) fn invoke_native_call(
             // and aligned enough for the selected C symbol's complete pointee
             // contract. The generic door cannot infer that contract from an
             // opaque `ptr` prototype.
-            unsafe { invoke_fixed_pointer(&native_call) }
-                .map(|value| value as i64 as u64)
-                .map_err(|error| map_fixed_pointer_error(call, error))?
+            let abi_params = abi_parameters(call)?;
+            let abi_arguments = arguments
+                .iter()
+                .copied()
+                .map(abi_from_pointer)
+                .collect::<Vec<_>>();
+            let abi_call = agenterm_dyn::NativeCall {
+                library: &call.spec.library,
+                symbol: &call.spec.symbol,
+                signature: agenterm_dyn::AbiSignature {
+                    result: abi_type(call.spec.result).ok_or_else(unsupported_signature(call))?,
+                    params: &abi_params,
+                },
+                arguments: &abi_arguments,
+            };
+            // SAFETY: native_dispatch admitted one enumerated fixed prototype; the
+            // guest still owns the pointee contract. `invoke_abi` re-checks the
+            // mechanism matrix before the foreign call.
+            unsafe { agenterm_dyn::invoke_abi(&abi_call) }
+                .map_err(|error| map_abi_error(call, error))
+                .and_then(|value| {
+                    abi_result_bits(value, call.spec.result).ok_or_else(unsupported_signature(call))
+                })?
         }
         NativeDispatch::UnixIoctl(prototype) => {
             let fd = ioctl_i32_argument(0, &call.arguments[0], call)?;
@@ -831,11 +868,12 @@ pub(crate) fn invoke_native_call(
     Ok(())
 }
 
-/// Invoke the exact native slice from a language-level JSON argument array.
+/// Invoke the scalar native slice from a language-level JSON argument array.
 ///
 /// This is the `.qjs` adapter for the existing door, not a second native
 /// implementation: parsing and canonical conversion remain here, while the
-/// sole loader and fixed ABI selectors remain `agenterm_dyn::invoke_exact`.
+/// Parsing, the canonical conversion and the catalog remain here in qjswasm;
+/// **execution delegates to `agenterm_dyn::invoke_abi`**, the policy-free ABI entry.
 pub(crate) fn invoke_native_json(
     spec: &[u8],
     arguments_json: &[u8],
@@ -865,7 +903,7 @@ pub(crate) fn invoke_native_json(
         });
     }
     let value = match dispatch {
-        NativeDispatch::Exact { result } => {
+        NativeDispatch::Exact { .. } => {
             let arguments = spec
                 .parameters
                 .iter()
@@ -874,18 +912,39 @@ pub(crate) fn invoke_native_json(
                 .enumerate()
                 .map(|(index, (ty, value))| exact_json_argument(index, ty, value))
                 .collect::<Result<Vec<_>, _>>()?;
-            let call = ExactNativeCall {
+            let abi_params = abi_parameters_for_spec(&spec)?;
+            let abi_arguments = arguments
+                .iter()
+                .copied()
+                .map(abi_from_exact)
+                .collect::<Vec<_>>();
+            let abi_call = agenterm_dyn::NativeCall {
                 library: &spec.library,
                 symbol: &spec.symbol,
-                result,
-                arguments: &arguments,
+                signature: agenterm_dyn::AbiSignature {
+                    result: abi_type(spec.result).ok_or_else(|| {
+                        NativeDoorError::InvocationSignatureUnsupported {
+                            result: spec.result,
+                            parameters: spec.parameters.clone(),
+                        }
+                    })?,
+                    params: &abi_params,
+                },
+                arguments: &abi_arguments,
             };
             // SAFETY: native_dispatch admitted the exact-family declaration.
-            unsafe { invoke_exact(&call) }
-                .map(exact_json_result)
-                .map_err(|error| map_exact_error_for_spec(&spec, error))?
+            unsafe { agenterm_dyn::invoke_abi(&abi_call) }
+                .map_err(|error| map_abi_error_for_spec(&spec, error))
+                .and_then(|value| {
+                    abi_json_result(value, spec.result).ok_or_else(|| {
+                        NativeDoorError::InvocationSignatureUnsupported {
+                            result: spec.result,
+                            parameters: spec.parameters.clone(),
+                        }
+                    })
+                })?
         }
-        NativeDispatch::Fixed(prototype) => {
+        NativeDispatch::Fixed(_prototype) => {
             let arguments = spec
                 .parameters
                 .iter()
@@ -894,16 +953,37 @@ pub(crate) fn invoke_native_json(
                 .enumerate()
                 .map(|(index, (ty, value))| fixed_json_argument(index, ty, value))
                 .collect::<Result<Vec<_>, _>>()?;
-            let call = FixedNativeCall {
+            let abi_params = abi_parameters_for_spec(&spec)?;
+            let abi_arguments = arguments
+                .iter()
+                .copied()
+                .map(abi_from_fixed)
+                .collect::<Vec<_>>();
+            let abi_call = agenterm_dyn::NativeCall {
                 library: &spec.library,
                 symbol: &spec.symbol,
-                prototype,
-                arguments: &arguments,
+                signature: agenterm_dyn::AbiSignature {
+                    result: abi_type(spec.result).ok_or_else(|| {
+                        NativeDoorError::InvocationSignatureUnsupported {
+                            result: spec.result,
+                            parameters: spec.parameters.clone(),
+                        }
+                    })?,
+                    params: &abi_params,
+                },
+                arguments: &abi_arguments,
             };
             // SAFETY: native_dispatch admitted this enumerated fixed prototype.
-            unsafe { invoke_fixed(&call) }
-                .map(fixed_json_result)
-                .map_err(|error| map_fixed_error_for_spec(&spec, error))?
+            unsafe { agenterm_dyn::invoke_abi(&abi_call) }
+                .map_err(|error| map_abi_error_for_spec(&spec, error))
+                .and_then(|value| {
+                    abi_json_result(value, spec.result).ok_or_else(|| {
+                        NativeDoorError::InvocationSignatureUnsupported {
+                            result: spec.result,
+                            parameters: spec.parameters.clone(),
+                        }
+                    })
+                })?
         }
         NativeDispatch::FixedPointer(_) | NativeDispatch::UnixIoctl(_) => {
             unreachable!("pointer JSON calls reject above")
@@ -1124,22 +1204,6 @@ fn exact_json_argument(
     }
 }
 
-fn exact_json_result(value: ExactNativeValue) -> serde_json::Value {
-    match value {
-        ExactNativeValue::I32(value) => serde_json::json!({"type":"i32","value":value}),
-        ExactNativeValue::U32(value) => serde_json::json!({"type":"u32","value":value}),
-        ExactNativeValue::I64(value) => serde_json::json!({"type":"i64","value":value.to_string()}),
-        ExactNativeValue::U64(value) => serde_json::json!({"type":"u64","value":value.to_string()}),
-        ExactNativeValue::Isize(value) => {
-            serde_json::json!({"type":"isize","value":value.to_string()})
-        }
-        ExactNativeValue::Usize(value) => {
-            serde_json::json!({"type":"usize","value":value.to_string()})
-        }
-        ExactNativeValue::F64(value) => serde_json::json!({"type":"f64","value":value}),
-    }
-}
-
 fn fixed_json_argument(
     index: usize,
     ty: NativeType,
@@ -1171,55 +1235,6 @@ fn fixed_json_argument(
             result: ty,
             parameters: vec![ty],
         }),
-    }
-}
-
-fn fixed_json_result(value: FixedNativeValue) -> serde_json::Value {
-    match value {
-        FixedNativeValue::I32(value) => serde_json::json!({"type":"i32","value":value}),
-        FixedNativeValue::I64(value) => {
-            serde_json::json!({"type":"i64","value":value.to_string()})
-        }
-        FixedNativeValue::U64(value) => {
-            serde_json::json!({"type":"u64","value":value.to_string()})
-        }
-        FixedNativeValue::Isize(value) => {
-            serde_json::json!({"type":"isize","value":value.to_string()})
-        }
-    }
-}
-
-fn map_exact_error_for_spec(spec: &NativeSpec, error: ExactNativeError) -> NativeDoorError {
-    match error {
-        ExactNativeError::SignatureUnsupported { .. } => {
-            NativeDoorError::InvocationSignatureUnsupported {
-                result: spec.result,
-                parameters: spec.parameters.clone(),
-            }
-        }
-        ExactNativeError::LibraryLoad { library, message } => {
-            NativeDoorError::LibraryLoad { library, message }
-        }
-        ExactNativeError::SymbolLoad { symbol, message } => {
-            NativeDoorError::SymbolLoad { symbol, message }
-        }
-    }
-}
-
-fn map_fixed_error_for_spec(spec: &NativeSpec, error: FixedNativeError) -> NativeDoorError {
-    match error {
-        FixedNativeError::SignatureUnsupported { .. } => {
-            NativeDoorError::InvocationSignatureUnsupported {
-                result: spec.result,
-                parameters: spec.parameters.clone(),
-            }
-        }
-        FixedNativeError::LibraryLoad { library, message } => {
-            NativeDoorError::LibraryLoad { library, message }
-        }
-        FixedNativeError::SymbolLoad { symbol, message } => {
-            NativeDoorError::SymbolLoad { symbol, message }
-        }
     }
 }
 
@@ -1370,60 +1385,164 @@ fn fixed_pointer_argument(
     }
 }
 
-fn exact_result_bits(value: ExactNativeValue) -> u64 {
+/// Maps one declared schema position onto the policy-free ABI position.
+///
+/// `ptr` and `ptr?` are the same ABI position: nullability is an upper-layer
+/// schema distinction, and qjswasm keeps it in its own null check.
+fn abi_type(ty: NativeType) -> Option<agenterm_dyn::AbiType> {
+    match ty {
+        NativeType::I32 => Some(agenterm_dyn::AbiType::I32),
+        NativeType::U32 => Some(agenterm_dyn::AbiType::U32),
+        NativeType::I64 => Some(agenterm_dyn::AbiType::I64),
+        NativeType::U64 => Some(agenterm_dyn::AbiType::U64),
+        NativeType::Isize => Some(agenterm_dyn::AbiType::Isize),
+        NativeType::Usize => Some(agenterm_dyn::AbiType::Usize),
+        NativeType::F64 => Some(agenterm_dyn::AbiType::F64),
+        NativeType::Pointer | NativeType::NullablePointer => Some(agenterm_dyn::AbiType::Pointer),
+        // Narrow integers and `void` are refused by the upper catalog before an
+        // execution arm runs; if one ever arrives, the mechanism has no position
+        // for it and the call is refused rather than approximated.
+        NativeType::Void | NativeType::I8 | NativeType::U8 | NativeType::I16 | NativeType::U16 => {
+            None
+        }
+    }
+}
+
+fn abi_parameters(call: &DecodedNativeCall) -> Result<Vec<agenterm_dyn::AbiType>, NativeDoorError> {
+    call.spec
+        .parameters
+        .iter()
+        .map(|ty| abi_type(*ty).ok_or_else(unsupported_signature(call)))
+        .collect()
+}
+
+const fn abi_from_exact(value: ExactNativeValue) -> agenterm_dyn::AbiValue {
     match value {
-        ExactNativeValue::I32(value) => value as i64 as u64,
-        ExactNativeValue::U32(value) => u64::from(value),
-        ExactNativeValue::I64(value) => value as u64,
-        ExactNativeValue::U64(value) => value,
-        ExactNativeValue::Isize(value) => value as i64 as u64,
-        ExactNativeValue::Usize(value) => value as u64,
-        ExactNativeValue::F64(value) => value.to_bits(),
+        ExactNativeValue::I32(bits) => agenterm_dyn::AbiValue::I32(bits),
+        ExactNativeValue::U32(bits) => agenterm_dyn::AbiValue::U32(bits),
+        ExactNativeValue::I64(bits) => agenterm_dyn::AbiValue::I64(bits),
+        ExactNativeValue::U64(bits) => agenterm_dyn::AbiValue::U64(bits),
+        ExactNativeValue::Isize(bits) => agenterm_dyn::AbiValue::Isize(bits),
+        ExactNativeValue::Usize(bits) => agenterm_dyn::AbiValue::Usize(bits),
+        ExactNativeValue::F64(bits) => agenterm_dyn::AbiValue::F64(bits),
     }
 }
 
-fn fixed_result_bits(value: FixedNativeValue) -> u64 {
+const fn abi_from_fixed(value: FixedNativeValue) -> agenterm_dyn::AbiValue {
     match value {
-        FixedNativeValue::I32(value) => value as i64 as u64,
-        FixedNativeValue::I64(value) => value as u64,
-        FixedNativeValue::U64(value) => value,
-        FixedNativeValue::Isize(value) => value as i64 as u64,
+        FixedNativeValue::I32(bits) => agenterm_dyn::AbiValue::I32(bits),
+        FixedNativeValue::I64(bits) => agenterm_dyn::AbiValue::I64(bits),
+        FixedNativeValue::U64(bits) => agenterm_dyn::AbiValue::U64(bits),
+        FixedNativeValue::Isize(bits) => agenterm_dyn::AbiValue::Isize(bits),
     }
 }
 
-fn map_exact_error(call: &DecodedNativeCall, error: ExactNativeError) -> NativeDoorError {
-    match error {
-        ExactNativeError::SignatureUnsupported { .. } => unsupported_signature(call)(),
-        ExactNativeError::LibraryLoad { library, message } => {
-            NativeDoorError::LibraryLoad { library, message }
-        }
-        ExactNativeError::SymbolLoad { symbol, message } => {
-            NativeDoorError::SymbolLoad { symbol, message }
-        }
+fn abi_from_pointer(value: FixedPointerValue) -> agenterm_dyn::AbiValue {
+    match value {
+        FixedPointerValue::I32(bits) => agenterm_dyn::AbiValue::I32(bits),
+        FixedPointerValue::U32(bits) => agenterm_dyn::AbiValue::U32(bits),
+        FixedPointerValue::U64(bits) => agenterm_dyn::AbiValue::U64(bits),
+        FixedPointerValue::Pointer(address) => agenterm_dyn::AbiValue::Pointer(address),
+        FixedPointerValue::NullablePointer(address) => agenterm_dyn::AbiValue::Pointer(address),
     }
 }
 
-fn map_fixed_error(call: &DecodedNativeCall, error: FixedNativeError) -> NativeDoorError {
-    match error {
-        FixedNativeError::SignatureUnsupported { .. } => unsupported_signature(call)(),
-        FixedNativeError::LibraryLoad { library, message } => {
-            NativeDoorError::LibraryLoad { library, message }
-        }
-        FixedNativeError::SymbolLoad { symbol, message } => {
-            NativeDoorError::SymbolLoad { symbol, message }
-        }
+/// The result bit pattern, accepted **only** in the position the spec declared.
+///
+/// There is no fallback arm: a result that does not match the declared type is a
+/// typed refusal, never a silent zero.
+fn abi_result_bits(value: agenterm_dyn::AbiValue, expected: NativeType) -> Option<u64> {
+    match (expected, value) {
+        (NativeType::I32, agenterm_dyn::AbiValue::I32(bits)) => Some(bits as i64 as u64),
+        (NativeType::U32, agenterm_dyn::AbiValue::U32(bits)) => Some(u64::from(bits)),
+        (NativeType::I64, agenterm_dyn::AbiValue::I64(bits)) => Some(bits as u64),
+        (NativeType::U64, agenterm_dyn::AbiValue::U64(bits)) => Some(bits),
+        (NativeType::Isize, agenterm_dyn::AbiValue::Isize(bits)) => Some(bits as i64 as u64),
+        (NativeType::Usize, agenterm_dyn::AbiValue::Usize(bits)) => Some(bits as u64),
+        (NativeType::F64, agenterm_dyn::AbiValue::F64(bits)) => Some(bits.to_bits()),
+        _ => None,
     }
 }
 
-fn map_fixed_pointer_error(call: &DecodedNativeCall, error: FixedPointerError) -> NativeDoorError {
+/// The JSON rendering of a result, replicating the retired per-family helpers:
+/// 32-bit values are numbers, wider integers are decimal strings.
+fn abi_json_result(
+    value: agenterm_dyn::AbiValue,
+    expected: NativeType,
+) -> Option<serde_json::Value> {
+    match (expected, value) {
+        (NativeType::I32, agenterm_dyn::AbiValue::I32(bits)) => {
+            Some(serde_json::json!({"type":"i32","value":bits}))
+        }
+        (NativeType::U32, agenterm_dyn::AbiValue::U32(bits)) => {
+            Some(serde_json::json!({"type":"u32","value":bits}))
+        }
+        (NativeType::I64, agenterm_dyn::AbiValue::I64(bits)) => {
+            Some(serde_json::json!({"type":"i64","value":bits.to_string()}))
+        }
+        (NativeType::U64, agenterm_dyn::AbiValue::U64(bits)) => {
+            Some(serde_json::json!({"type":"u64","value":bits.to_string()}))
+        }
+        (NativeType::Isize, agenterm_dyn::AbiValue::Isize(bits)) => {
+            Some(serde_json::json!({"type":"isize","value":bits.to_string()}))
+        }
+        (NativeType::Usize, agenterm_dyn::AbiValue::Usize(bits)) => {
+            Some(serde_json::json!({"type":"usize","value":bits.to_string()}))
+        }
+        (NativeType::F64, agenterm_dyn::AbiValue::F64(bits)) => {
+            Some(serde_json::json!({"type":"f64","value":bits}))
+        }
+        _ => None,
+    }
+}
+
+/// The spec-side twin of `map_abi_error`: the JSON path holds a spec, not a
+/// decoded call, so the refusal is rebuilt from the spec itself.
+fn map_abi_error_for_spec(spec: &NativeSpec, error: agenterm_dyn::AbiError) -> NativeDoorError {
     match error {
-        FixedPointerError::SignatureUnsupported { .. } => unsupported_signature(call)(),
-        FixedPointerError::LibraryLoad { library, message } => {
+        agenterm_dyn::AbiError::SignatureUnsupported { .. }
+        | agenterm_dyn::AbiError::ArgumentCount { .. }
+        | agenterm_dyn::AbiError::ArgumentShape { .. } => {
+            NativeDoorError::InvocationSignatureUnsupported {
+                result: spec.result,
+                parameters: spec.parameters.clone(),
+            }
+        }
+        agenterm_dyn::AbiError::LibraryLoad { library, message } => {
             NativeDoorError::LibraryLoad { library, message }
         }
-        FixedPointerError::SymbolLoad { symbol, message } => {
-            NativeDoorError::SymbolLoad { symbol, message }
+        agenterm_dyn::AbiError::SymbolLookup {
+            symbol, message, ..
+        } => NativeDoorError::SymbolLoad { symbol, message },
+    }
+}
+
+fn abi_parameters_for_spec(
+    spec: &NativeSpec,
+) -> Result<Vec<agenterm_dyn::AbiType>, NativeDoorError> {
+    spec.parameters
+        .iter()
+        .map(|ty| {
+            abi_type(*ty).ok_or_else(|| NativeDoorError::InvocationSignatureUnsupported {
+                result: spec.result,
+                parameters: spec.parameters.clone(),
+            })
+        })
+        .collect()
+}
+
+fn map_abi_error(call: &DecodedNativeCall, error: agenterm_dyn::AbiError) -> NativeDoorError {
+    match error {
+        agenterm_dyn::AbiError::SignatureUnsupported { .. }
+        | agenterm_dyn::AbiError::ArgumentCount { .. }
+        | agenterm_dyn::AbiError::ArgumentShape { .. } => unsupported_signature(call)(),
+        agenterm_dyn::AbiError::LibraryLoad { library, message } => {
+            NativeDoorError::LibraryLoad { library, message }
         }
+        // The door's symbol error has no library field; the spec still carries it.
+        agenterm_dyn::AbiError::SymbolLookup {
+            symbol, message, ..
+        } => NativeDoorError::SymbolLoad { symbol, message },
     }
 }
 
@@ -1450,8 +1569,13 @@ mod json_adapter_tests {
     #[test]
     fn wide_integer_results_remain_exact_decimal_strings() {
         assert_eq!(
-            exact_json_result(ExactNativeValue::I64(i64::MIN)),
-            serde_json::json!({"type":"i64","value":i64::MIN.to_string()})
+            abi_json_result(agenterm_dyn::AbiValue::I64(i64::MIN), NativeType::I64),
+            Some(serde_json::json!({"type":"i64","value":i64::MIN.to_string()}))
+        );
+        // The fixed family's wide integer keeps the same exact-decimal rule.
+        assert_eq!(
+            abi_json_result(agenterm_dyn::AbiValue::Isize(isize::MIN), NativeType::Isize),
+            Some(serde_json::json!({"type":"isize","value":isize::MIN.to_string()}))
         );
     }
 
@@ -1563,7 +1687,7 @@ mod json_adapter_tests {
 
     #[cfg(unix)]
     #[test]
-    fn json_adapter_invokes_sysconf_through_the_fixed_core() {
+    fn json_adapter_invokes_sysconf_through_the_policy_free_abi_core() {
         #[cfg(target_os = "macos")]
         let pagesize_key = 29;
         #[cfg(target_os = "linux")]
@@ -1581,7 +1705,7 @@ mod json_adapter_tests {
             b"|sysconf|isize(i32)",
             format!("[{pagesize_key}]").as_bytes(),
         )
-        .expect("the JSON adapter reaches dyn's fixed core");
+        .expect("the JSON adapter reaches dyn's policy-free ABI core");
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&actual).expect("result JSON"),
             serde_json::json!({"type":"isize","value":expected})

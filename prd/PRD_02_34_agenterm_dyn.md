@@ -439,9 +439,11 @@ implemented functionality. Do not begin them without explicit 政委 direction.
 Dyn is an important bottom-layer module. **2026-09-12 裁决修正本节口径**：qjswasm 拥有
 guest door、内存解码**与全部策略**（prototype/catalog/validator、budget、cancel、监管），
 dyn **只拥有机制**——它执行**调用方传入的 ABI 描述**，不再拥有“允许的
-exact/fixed/fixed-pointer 集合”。qjswasm 仍有真实的 Cargo 依赖，其 native dispatcher
-调用 dyn 的 `invoke_*`；但这些 `invoke_*` 的**允许集合判据迁往上层的 catalog/策略**
-（迁移表与兼容顺序见上文“无策略边界”一节）。 The current
+exact/fixed/fixed-pointer 集合”。qjswasm 仍有真实的 Cargo 依赖；其 native dispatcher
+保留 prototype/catalog 判定与 guest schema，五个 scalar/pointer 执行臂已经统一调用
+dyn 的 `invoke_abi`。旧 `invoke_exact` / `invoke_fixed` / `invoke_fixed_pointer` 不再是
+qjswasm 的执行入口，但其机制体仍被 `invoke_abi` 反向委托，尚待下一刀收拢。
+The current
 S-expression surface remains shipped product truth only until each non-language
 court has claim-preserving `.wat` or typed-owner evidence.
 
@@ -491,17 +493,19 @@ work described by the linked plans.
 
 Public `.wasm`/`.qjs` execution has an explicit artifact convention, bounded input,
 and `WorkerSupervisor` containment for native-door crashes and hard timeouts.
-The qjswasm native door now delegates validated exact/fixed/fixed-pointer and Unix
-`ioctl` execution to dyn, and the public `native-acu-composition-smoke` proves one supervised guest can
+The qjswasm native door now keeps declaration parsing, nullability, guest-span checks and
+the exposed prototype catalog in qjswasm, then delegates all five exact/fixed/fixed-pointer
+execution arms through dyn's policy-free `invoke_abi`. Unix `ioctl` continues through its
+separate dyn mechanism entry. The public `native-acu-composition-smoke` proves one supervised guest can
 compose `agenterm:native` with `agenterm:acu`. This establishes dyn as a real lower
 layer; it does not establish that the legacy Lisp can be deleted before its remaining
 courts move.
 
-In particular, the heterogeneous integer/pointer ABI, Unix variadic `ioctl`
-exception, six-cell `hosts.rs` facts, typed owners, and the future-JIT boundary in
-`exec.rs` remain independently owned by dyn. `Dyn`/`Value`/`Symbol` are legacy
-language API and retire only with the remaining language component after evidence
-migration.
+In particular, the heterogeneous integer/pointer ABI mechanism, Unix variadic
+`ioctl` exception and future-JIT boundary in `exec.rs` remain independently owned by
+dyn. The six-cell `hosts.rs` facts and typed owners are migration debt, not dyn's
+target ownership. `Dyn`/`Value`/`Symbol` are legacy language API and retire only with
+the remaining language component after evidence migration.
 
 `DomainNameSnapshot::acquire()` and `LoginNameSnapshot::acquire()` are the
 typed Darwin boundaries for `getdomainname` and `getlogin_r`. Both publish

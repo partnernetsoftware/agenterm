@@ -143,6 +143,8 @@ flowchart LR
   LOAD{"tinyvm validate<br/>Limits accepted?"}
   SLOT["persistent bounded slot"]
   DOOR["versioned Script host door"]
+  NATIVEPOLICY["native schema + prototype catalog<br/>nullability · guest-span checks"]
+  DYNABI["agenterm-dyn invoke_abi<br/>policy-free ABI execution"]
   EXPLICIT["explicit call sites only<br/>bare host value → typed compile refusal"]
   CAPTURE["bounded child capture<br/>per-stream loss flags · JSON-fit"]
   HANDLES["per-slot child ledger<br/>32 retained · pre-spawn refusal"]
@@ -188,6 +190,7 @@ flowchart LR
   MANY -. bytes · modules · deadline .-> COMP
   UP -. exact git rev .-> COMP & LOAD
   LOAD -->|yes| SLOT --> DOOR --> EXPLICIT --> PRODUCT --> RECEIPT
+  DOOR --> NATIVEPOLICY --> DYNABI --> RECEIPT
   DOOR --> ACUOBJ --> ACUSIZE
   ACUSIZE -->|3,738,112 B · green| ACUDYN --> ACUCLI --> RECEIPT
   ACUSIZE -->|regression| REJECT
@@ -397,10 +400,13 @@ integration.
   six-cell claim.
 - `cargo test -p agenterm-qjswasm` owns crate behavior; do not pin a historical
   pass count because the suite grows.
-- Exact homogeneous native calls delegate to `agenterm-dyn::invoke_exact`.
-  This crate still owns guest schema/memory/budget/cancel/writeback semantics
-  and maps dyn's typed signature/library/symbol failures into the existing
-  `NativeDoorError` codes; it no longer contains a second loader or stub table.
+- Exact, fixed and fixed-pointer native calls now keep their declaration parser,
+  prototype catalog, nullability and guest-span checks in this crate, while all
+  five raw and JSON execution arms delegate through `agenterm-dyn::invoke_abi`.
+  Unix `ioctl` retains its separate dyn mechanism entry. This crate maps dyn's
+  mechanism signature/library/symbol failures back into the existing
+  `NativeDoorError` codes using the original spec; it contains no second loader
+  or stub table.
 - `.qjs` callers use the built-in `agenterm:native` module as a typed language
   adapter over that same opt-in door. It accepts a signature plus JSON values,
   preserves wide integers as decimal strings, and shares the raw door's
