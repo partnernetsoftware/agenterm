@@ -214,6 +214,47 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
+    /// Pins the public verb surface so that growth becomes a visible, reviewable act.
+    ///
+    /// `build.rs` validates the catalog's *shape* on every build, but nothing pinned
+    /// its *size*: a new verb or alias could change the public surface without
+    /// leaving a trace anywhere a reviewer looks. The provider ABI is already pinned
+    /// by `agenterm-cu-provider`'s `abi_version_is_exact`; this is the same device for
+    /// the verb catalog.
+    ///
+    /// Updating these constants is the explicit step that records growth. The pin
+    /// deliberately does **not** forbid growth: whether the frozen surface may grow
+    /// is an owner policy decision, not this test's.
+    #[test]
+    fn public_verb_surface_is_pinned_for_review() {
+        use sha2::{Digest as _, Sha256};
+
+        const VERB_COUNT: usize = 247;
+        const SPELLING_COUNT: usize = 427;
+        const SURFACE_SHA256: &str =
+            "48dde816611a7f8f44a2cd65052640dc89bd44390fbb4f2567629d142c0f7de6";
+
+        let spellings = VERBS
+            .iter()
+            .flat_map(|verb| std::iter::once(verb.name).chain(verb.aliases.iter().copied()))
+            .collect::<BTreeSet<_>>();
+        let mut digest = Sha256::new();
+        for spelling in &spellings {
+            digest.update(spelling.as_bytes());
+            digest.update(b"\n");
+        }
+        let observed = digest
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        assert_eq!(
+            (VERBS.len(), spellings.len(), observed.as_str()),
+            (VERB_COUNT, SPELLING_COUNT, SURFACE_SHA256),
+            "the public verb surface changed: updating this pin is the review step that records it"
+        );
+    }
+
     #[test]
     fn hot_table_matches_the_validated_cold_catalog() {
         assert_eq!(VERBS.len(), cold_verbs().len());
