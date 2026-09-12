@@ -695,6 +695,38 @@ fn times_elapsed_and_each_tms_field_precede_direct_libc_baselines() {
 
 #[cfg(unix)]
 #[test]
+fn getrusage_cpu_times_precede_direct_libc_baselines() {
+    fn micros(value: libc::timeval) -> i64 {
+        value.tv_sec * 1_000_000 + i64::from(value.tv_usec)
+    }
+
+    for (selector, label) in [(0, "user"), (1, "system")] {
+        let guest = run_wat_with_args(
+            include_str!("fixtures/native/getrusage_cpu_time.wat"),
+            Budget::default(),
+            &[Value::I64(selector)],
+        )
+        .expect("getrusage guest runs");
+        let mut direct = unsafe { std::mem::zeroed::<libc::rusage>() };
+        assert_eq!(
+            unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut direct) },
+            0,
+            "direct getrusage succeeds"
+        );
+        let baseline = if selector == 0 {
+            micros(direct.ru_utime)
+        } else {
+            micros(direct.ru_stime)
+        };
+        assert!(
+            baseline >= guest,
+            "later direct {label} CPU time must not precede the guest"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
     let output = std::process::Command::new("uname")
         .arg("-s")

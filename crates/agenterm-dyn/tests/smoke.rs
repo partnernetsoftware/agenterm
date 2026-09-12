@@ -143,41 +143,6 @@ mod linux {
         assert_eq!(got, Value::Int(i64::from(real)));
     }
 
-    #[test]
-    fn dlcall_getrusage_writes_caller_owned_rusage_and_matches_libc_baseline() {
-        let probe = live_system_probe("getrusage");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut dlcall_usage: libc::rusage = unsafe { std::mem::zeroed() };
-        let mut env = Dyn::new();
-        env.bind("usage", (&mut dlcall_usage as *mut libc::rusage).cast())
-            .expect("bind caller-owned rusage");
-
-        let got = eval_native(
-            &mut env,
-            &format!(
-                r#"(dlcall "{lib}" "{symbol}" "i32" "i32" {} "ptr" usage)"#,
-                libc::RUSAGE_SELF
-            ),
-        )
-        .expect("getrusage dlcall");
-        assert_eq!(got, Value::Int(0));
-
-        let mut libc_usage: libc::rusage = unsafe { std::mem::zeroed() };
-        let baseline = unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut libc_usage) };
-        assert_eq!(baseline, 0, "direct libc getrusage baseline");
-        assert!(
-            timeval_at_most(dlcall_usage.ru_utime, libc_usage.ru_utime)
-                && timeval_at_most(dlcall_usage.ru_stime, libc_usage.ru_stime),
-            "later direct libc baseline must not precede dlcall CPU usage"
-        );
-    }
-
-    fn timeval_at_most(left: libc::timeval, right: libc::timeval) -> bool {
-        (left.tv_sec, left.tv_usec) <= (right.tv_sec, right.tv_usec)
-    }
-
     fn live_system_probe(name: &str) -> SystemProbe {
         let probe = cell()
             .system_probes
@@ -513,40 +478,6 @@ mod macos {
         let got = eval_native(&mut env, &getpid_script()).expect("getpid after missing symbol");
         let real = unsafe { libc::getpid() };
         assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
-    fn dlcall_getrusage_writes_caller_owned_rusage_and_matches_libc_baseline() {
-        let probe = live_system_probe("getrusage");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!()
-        };
-        let mut dlcall_usage: libc::rusage = unsafe { std::mem::zeroed() };
-        let mut env = Dyn::new();
-        env.bind("usage", (&mut dlcall_usage as *mut libc::rusage).cast())
-            .expect("bind caller-owned rusage");
-        let got = eval_native(
-            &mut env,
-            &format!(
-                r#"(dlcall "{lib}" "{symbol}" "i32" "i32" {} "ptr" usage)"#,
-                libc::RUSAGE_SELF
-            ),
-        )
-        .expect("getrusage dlcall");
-        assert_eq!(got, Value::Int(0));
-
-        let mut libc_usage: libc::rusage = unsafe { std::mem::zeroed() };
-        let baseline = unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut libc_usage) };
-        assert_eq!(baseline, 0, "direct libc getrusage baseline");
-        assert!(
-            timeval_at_most(dlcall_usage.ru_utime, libc_usage.ru_utime)
-                && timeval_at_most(dlcall_usage.ru_stime, libc_usage.ru_stime),
-            "later direct libc baseline must not precede dlcall CPU usage"
-        );
-    }
-
-    fn timeval_at_most(left: libc::timeval, right: libc::timeval) -> bool {
-        (left.tv_sec, left.tv_usec) <= (right.tv_sec, right.tv_usec)
     }
 
     #[test]
