@@ -210,6 +210,25 @@ fn wat_for_scalar_args(spec: &str, arguments: &[u64]) -> String {
     )
 }
 
+#[cfg(unix)]
+fn host_page_size() -> i64 {
+    let output = std::process::Command::new("getconf")
+        .arg("PAGESIZE")
+        .output()
+        .expect("the POSIX getconf oracle runs");
+    assert!(output.status.success(), "getconf PAGESIZE must succeed");
+    String::from_utf8(output.stdout)
+        .expect("getconf emits UTF-8 digits")
+        .trim()
+        .parse()
+        .expect("getconf emits an integer page size")
+}
+
+#[cfg(target_os = "macos")]
+const HOST_SC_PAGESIZE: i32 = 29;
+#[cfg(target_os = "linux")]
+const HOST_SC_PAGESIZE: i32 = 30;
+
 /// The parent pid as the host reports it: `std`'s own process fact, not the
 /// guest's answer and not the `native_call` path under test.
 #[cfg(unix)]
@@ -355,6 +374,15 @@ fn exact_nonzero_arity_gp_and_f64_signatures_use_their_own_abi_families() {
     assert_eq!(f64::from_bits(bits), 1.0);
 }
 
+#[cfg(unix)]
+#[test]
+fn a_mixed_sysconf_signature_reaches_the_dyn_fixed_core() {
+    let source = wat_for_scalar_args("|sysconf|isize(i32)", &[HOST_SC_PAGESIZE as i64 as u64]);
+    let page_size = run_wat(&source, Budget::default())
+        .expect("sysconf(_SC_PAGESIZE) runs through the fixed mixed prototype");
+    assert_eq!(page_size, host_page_size());
+}
+
 #[test]
 fn exact_stubs_are_not_confused_with_register_class_patterns() {
     assert_eq!(native_invocation_stub_cardinality(), 7 * 7);
@@ -437,6 +465,10 @@ fn wat_native_calls_validate_arguments_and_the_complete_signature_before_loading
                 &[u64::from(u32::MAX) + 1],
             ),
             "native_scalar_not_canonical",
+        ),
+        (
+            wat_for_scalar_args(&format!("{missing_library}|unused|isize(i64)"), &[0]),
+            "native_invocation_signature_unsupported",
         ),
     ];
 

@@ -1,14 +1,15 @@
-//! Bounded schema and exact invocation table for `agenterm.native_call`.
+//! Bounded schema and typed invocation dispatch for `agenterm.native_call`.
 //!
 //! It owns the guest-authored declaration and argument-block format, turns
-//! hostile guest bytes into typed bounded data, and admits only exact scalar
-//! function-pointer types at the invocation boundary. The host door has one
-//! conversion from [`NativeDoorError`] to [`crate::QjswasmError::Door`].
+//! hostile guest bytes into typed bounded data, and admits only enumerated
+//! scalar function-pointer types at the invocation boundary. The host door has
+//! one conversion from [`NativeDoorError`] to [`crate::QjswasmError::Door`].
 
 use std::fmt;
 
 use agenterm_dyn::{
-    ExactNativeCall, ExactNativeError, ExactNativeType, ExactNativeValue, invoke_exact,
+    ExactNativeCall, ExactNativeError, ExactNativeType, ExactNativeValue, FixedNativeCall,
+    FixedNativeError, FixedNativePrototype, FixedNativeValue, invoke_exact, invoke_fixed,
     validate_exact_native_signature,
 };
 
@@ -714,44 +715,54 @@ fn le_u64(bytes: &[u8]) -> u64 {
 
 /// Invoke one decoded call and publish its result into the guest block.
 ///
-/// The first executable slice deliberately supports only exact homogeneous
-/// scalar signatures. A register class is not a Rust function-pointer type:
-/// accepting every GP width or mixed GP/F64 pattern would turn a declaration
-/// typo into undefined behaviour. Each admitted family below has seven fixed
-/// stubs (arity zero through six) whose Rust type exactly matches the declared
-/// native type. Pointers, narrow integers, mixed signatures, `void`, `f32`,
-/// variadics and structure values remain typed refusals.
+/// The executable slice supports the exact homogeneous families plus a small
+/// enumerated set of heterogeneous scalar prototypes. A register class is not
+/// a Rust function-pointer type: accepting every GP width or mixed GP/F64
+/// pattern would turn a declaration typo into undefined behaviour. Pointers,
+/// narrow integers, unlisted mixed signatures, `void`, `f32`, variadics and
+/// structure values remain typed refusals.
 pub(crate) fn invoke_native_call(
     memory: &mut [u8],
     call: &DecodedNativeCall,
 ) -> Result<(), NativeDoorError> {
-    let result = exact_type(call.spec.result).ok_or_else(unsupported_signature(call))?;
-    let parameter_types = call
-        .spec
-        .parameters
-        .iter()
-        .copied()
-        .map(|ty| exact_type(ty).ok_or_else(unsupported_signature(call)))
-        .collect::<Result<Vec<_>, _>>()?;
-    validate_exact_native_signature(result, &parameter_types)
-        .map_err(|error| map_exact_error(call, error))?;
-    let arguments = call
-        .arguments
-        .iter()
-        .enumerate()
-        .map(|(index, argument)| exact_argument(index, argument, call))
-        .collect::<Result<Vec<_>, _>>()?;
-    let native_call = ExactNativeCall {
-        library: &call.spec.library,
-        symbol: &call.spec.symbol,
-        result,
-        arguments: &arguments,
+    let bits = match native_dispatch(&call.spec)? {
+        NativeDispatch::Exact { result } => {
+            let arguments = call
+                .arguments
+                .iter()
+                .enumerate()
+                .map(|(index, argument)| exact_argument(index, argument, call))
+                .collect::<Result<Vec<_>, _>>()?;
+            let native_call = ExactNativeCall {
+                library: &call.spec.library,
+                symbol: &call.spec.symbol,
+                result,
+                arguments: &arguments,
+            };
+            // SAFETY: the guest declaration is the native-door caller's explicit ABI assertion.
+            unsafe { invoke_exact(&native_call) }
+                .map(exact_result_bits)
+                .map_err(|error| map_exact_error(call, error))?
+        }
+        NativeDispatch::Fixed(prototype) => {
+            let arguments = call
+                .arguments
+                .iter()
+                .enumerate()
+                .map(|(index, argument)| fixed_argument(index, argument, call))
+                .collect::<Result<Vec<_>, _>>()?;
+            let native_call = FixedNativeCall {
+                library: &call.spec.library,
+                symbol: &call.spec.symbol,
+                prototype,
+                arguments: &arguments,
+            };
+            // SAFETY: native_dispatch admitted this enumerated fixed prototype.
+            unsafe { invoke_fixed(&native_call) }
+                .map(fixed_result_bits)
+                .map_err(|error| map_fixed_error(call, error))?
+        }
     };
-    // SAFETY: the guest declaration is the native-door caller's explicit ABI assertion.
-    // The dyn core admits only its exact homogeneous fixed signatures.
-    let value =
-        unsafe { invoke_exact(&native_call) }.map_err(|error| map_exact_error(call, error))?;
-    let bits = exact_result_bits(value);
     let memory_len = memory.len();
     let slot = memory
         .get_mut(call.return_slot.offset..call.return_slot.offset + call.return_slot.len)
@@ -774,24 +785,7 @@ pub(crate) fn invoke_native_json(
     arguments_json: &[u8],
 ) -> Result<String, NativeDoorError> {
     let spec = parse_native_spec(spec)?;
-    let result =
-        exact_type(spec.result).ok_or_else(|| NativeDoorError::InvocationSignatureUnsupported {
-            result: spec.result,
-            parameters: spec.parameters.clone(),
-        })?;
-    let parameter_types = spec
-        .parameters
-        .iter()
-        .copied()
-        .map(|ty| {
-            exact_type(ty).ok_or_else(|| NativeDoorError::InvocationSignatureUnsupported {
-                result: spec.result,
-                parameters: spec.parameters.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    validate_exact_native_signature(result, &parameter_types)
-        .map_err(|error| map_exact_error_for_spec(&spec, error))?;
+    let dispatch = native_dispatch(&spec)?;
     let text =
         std::str::from_utf8(arguments_json).map_err(|_| NativeDoorError::ArgumentsNotUtf8)?;
     let values = serde_json::from_str::<serde_json::Value>(text)
@@ -805,25 +799,84 @@ pub(crate) fn invoke_native_json(
             actual: values.len(),
         });
     }
-    let arguments = spec
-        .parameters
-        .iter()
-        .copied()
-        .zip(values)
-        .enumerate()
-        .map(|(index, (ty, value))| exact_json_argument(index, ty, value))
-        .collect::<Result<Vec<_>, _>>()?;
-    let call = ExactNativeCall {
-        library: &spec.library,
-        symbol: &spec.symbol,
-        result,
-        arguments: &arguments,
+    let value = match dispatch {
+        NativeDispatch::Exact { result } => {
+            let arguments = spec
+                .parameters
+                .iter()
+                .copied()
+                .zip(values)
+                .enumerate()
+                .map(|(index, (ty, value))| exact_json_argument(index, ty, value))
+                .collect::<Result<Vec<_>, _>>()?;
+            let call = ExactNativeCall {
+                library: &spec.library,
+                symbol: &spec.symbol,
+                result,
+                arguments: &arguments,
+            };
+            // SAFETY: native_dispatch admitted the exact-family declaration.
+            unsafe { invoke_exact(&call) }
+                .map(exact_json_result)
+                .map_err(|error| map_exact_error_for_spec(&spec, error))?
+        }
+        NativeDispatch::Fixed(prototype) => {
+            let arguments = spec
+                .parameters
+                .iter()
+                .copied()
+                .zip(values)
+                .enumerate()
+                .map(|(index, (ty, value))| fixed_json_argument(index, ty, value))
+                .collect::<Result<Vec<_>, _>>()?;
+            let call = FixedNativeCall {
+                library: &spec.library,
+                symbol: &spec.symbol,
+                prototype,
+                arguments: &arguments,
+            };
+            // SAFETY: native_dispatch admitted this enumerated fixed prototype.
+            unsafe { invoke_fixed(&call) }
+                .map(fixed_json_result)
+                .map_err(|error| map_fixed_error_for_spec(&spec, error))?
+        }
     };
-    // SAFETY: the declaration is validated against the same exact-family
-    // admission gate as the raw-memory adapter immediately above.
-    let value =
-        unsafe { invoke_exact(&call) }.map_err(|error| map_exact_error_for_spec(&spec, error))?;
-    Ok(exact_json_result(value).to_string())
+    Ok(value.to_string())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NativeDispatch {
+    Exact { result: ExactNativeType },
+    Fixed(FixedNativePrototype),
+}
+
+fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError> {
+    if let Some(result) = exact_type(spec.result) {
+        let parameter_types = spec
+            .parameters
+            .iter()
+            .copied()
+            .map(exact_type)
+            .collect::<Option<Vec<_>>>();
+        if let Some(parameter_types) = parameter_types
+            && validate_exact_native_signature(result, &parameter_types).is_ok()
+        {
+            return Ok(NativeDispatch::Exact { result });
+        }
+    }
+    let fixed = match (spec.result, spec.parameters.as_slice()) {
+        (NativeType::Isize, [NativeType::I32]) => Some(FixedNativePrototype::IsizeI32),
+        (NativeType::I64, [NativeType::I32, NativeType::I64, NativeType::I32]) => {
+            Some(FixedNativePrototype::I64I32I64I32)
+        }
+        _ => None,
+    };
+    fixed.map(NativeDispatch::Fixed).ok_or_else(|| {
+        NativeDoorError::InvocationSignatureUnsupported {
+            result: spec.result,
+            parameters: spec.parameters.clone(),
+        }
+    })
 }
 
 fn exact_json_argument(
@@ -891,6 +944,47 @@ fn exact_json_result(value: ExactNativeValue) -> serde_json::Value {
     }
 }
 
+fn fixed_json_argument(
+    index: usize,
+    ty: NativeType,
+    value: &serde_json::Value,
+) -> Result<FixedNativeValue, NativeDoorError> {
+    let invalid = || NativeDoorError::ArgumentValueInvalid { index, ty };
+    match ty {
+        NativeType::I32 => value
+            .as_i64()
+            .and_then(|value| i32::try_from(value).ok())
+            .map(FixedNativeValue::I32)
+            .ok_or_else(invalid),
+        NativeType::I64 => value
+            .as_str()
+            .and_then(|value| value.parse().ok())
+            .map(FixedNativeValue::I64)
+            .ok_or_else(invalid),
+        NativeType::Isize => value
+            .as_str()
+            .and_then(|value| value.parse().ok())
+            .map(FixedNativeValue::Isize)
+            .ok_or_else(invalid),
+        _ => Err(NativeDoorError::InvocationSignatureUnsupported {
+            result: ty,
+            parameters: vec![ty],
+        }),
+    }
+}
+
+fn fixed_json_result(value: FixedNativeValue) -> serde_json::Value {
+    match value {
+        FixedNativeValue::I32(value) => serde_json::json!({"type":"i32","value":value}),
+        FixedNativeValue::I64(value) => {
+            serde_json::json!({"type":"i64","value":value.to_string()})
+        }
+        FixedNativeValue::Isize(value) => {
+            serde_json::json!({"type":"isize","value":value.to_string()})
+        }
+    }
+}
+
 fn map_exact_error_for_spec(spec: &NativeSpec, error: ExactNativeError) -> NativeDoorError {
     match error {
         ExactNativeError::SignatureUnsupported { .. } => {
@@ -903,6 +997,23 @@ fn map_exact_error_for_spec(spec: &NativeSpec, error: ExactNativeError) -> Nativ
             NativeDoorError::LibraryLoad { library, message }
         }
         ExactNativeError::SymbolLoad { symbol, message } => {
+            NativeDoorError::SymbolLoad { symbol, message }
+        }
+    }
+}
+
+fn map_fixed_error_for_spec(spec: &NativeSpec, error: FixedNativeError) -> NativeDoorError {
+    match error {
+        FixedNativeError::SignatureUnsupported { .. } => {
+            NativeDoorError::InvocationSignatureUnsupported {
+                result: spec.result,
+                parameters: spec.parameters.clone(),
+            }
+        }
+        FixedNativeError::LibraryLoad { library, message } => {
+            NativeDoorError::LibraryLoad { library, message }
+        }
+        FixedNativeError::SymbolLoad { symbol, message } => {
             NativeDoorError::SymbolLoad { symbol, message }
         }
     }
@@ -967,6 +1078,37 @@ fn exact_argument(
     }
 }
 
+fn fixed_argument(
+    index: usize,
+    argument: &NativeArgument,
+    call: &DecodedNativeCall,
+) -> Result<FixedNativeValue, NativeDoorError> {
+    let NativeArgument::Scalar { ty, bits } = argument else {
+        return Err(unsupported_signature(call)());
+    };
+    let invalid = || NativeDoorError::ScalarNotCanonical {
+        index,
+        ty: *ty,
+        bits: *bits,
+    };
+    match ty {
+        NativeType::I32 => {
+            let value = *bits as i32;
+            (value as i64 as u64 == *bits)
+                .then_some(FixedNativeValue::I32(value))
+                .ok_or_else(invalid)
+        }
+        NativeType::I64 => Ok(FixedNativeValue::I64(*bits as i64)),
+        NativeType::Isize => {
+            let value = *bits as isize;
+            (value as i64 as u64 == *bits)
+                .then_some(FixedNativeValue::Isize(value))
+                .ok_or_else(invalid)
+        }
+        _ => Err(unsupported_signature(call)()),
+    }
+}
+
 fn exact_result_bits(value: ExactNativeValue) -> u64 {
     match value {
         ExactNativeValue::I32(value) => value as i64 as u64,
@@ -979,6 +1121,14 @@ fn exact_result_bits(value: ExactNativeValue) -> u64 {
     }
 }
 
+fn fixed_result_bits(value: FixedNativeValue) -> u64 {
+    match value {
+        FixedNativeValue::I32(value) => value as i64 as u64,
+        FixedNativeValue::I64(value) => value as u64,
+        FixedNativeValue::Isize(value) => value as i64 as u64,
+    }
+}
+
 fn map_exact_error(call: &DecodedNativeCall, error: ExactNativeError) -> NativeDoorError {
     match error {
         ExactNativeError::SignatureUnsupported { .. } => unsupported_signature(call)(),
@@ -986,6 +1136,18 @@ fn map_exact_error(call: &DecodedNativeCall, error: ExactNativeError) -> NativeD
             NativeDoorError::LibraryLoad { library, message }
         }
         ExactNativeError::SymbolLoad { symbol, message } => {
+            NativeDoorError::SymbolLoad { symbol, message }
+        }
+    }
+}
+
+fn map_fixed_error(call: &DecodedNativeCall, error: FixedNativeError) -> NativeDoorError {
+    match error {
+        FixedNativeError::SignatureUnsupported { .. } => unsupported_signature(call)(),
+        FixedNativeError::LibraryLoad { library, message } => {
+            NativeDoorError::LibraryLoad { library, message }
+        }
+        FixedNativeError::SymbolLoad { symbol, message } => {
             NativeDoorError::SymbolLoad { symbol, message }
         }
     }
@@ -1016,6 +1178,56 @@ mod json_adapter_tests {
         assert_eq!(
             exact_json_result(ExactNativeValue::I64(i64::MIN)),
             serde_json::json!({"type":"i64","value":i64::MIN.to_string()})
+        );
+    }
+
+    #[test]
+    fn dispatch_distinguishes_exact_fixed_and_unsupported_signatures() {
+        let parse = |text: &str| parse_native_spec(text.as_bytes()).expect("spec parses");
+        assert_eq!(
+            native_dispatch(&parse("|abs|i32(i32)")),
+            Ok(NativeDispatch::Exact {
+                result: ExactNativeType::I32,
+            })
+        );
+        assert_eq!(
+            native_dispatch(&parse("|sysconf|isize(i32)")),
+            Ok(NativeDispatch::Fixed(FixedNativePrototype::IsizeI32))
+        );
+        assert_eq!(
+            native_dispatch(&parse("|lseek|i64(i32,i64,i32)")),
+            Ok(NativeDispatch::Fixed(FixedNativePrototype::I64I32I64I32,))
+        );
+        assert!(matches!(
+            native_dispatch(&parse("missing|unused|isize(i64)")),
+            Err(NativeDoorError::InvocationSignatureUnsupported { .. })
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn json_adapter_invokes_sysconf_through_the_fixed_core() {
+        #[cfg(target_os = "macos")]
+        let pagesize_key = 29;
+        #[cfg(target_os = "linux")]
+        let pagesize_key = 30;
+        let output = std::process::Command::new("getconf")
+            .arg("PAGESIZE")
+            .output()
+            .expect("the POSIX getconf oracle runs");
+        assert!(output.status.success(), "getconf PAGESIZE must succeed");
+        let expected = String::from_utf8(output.stdout)
+            .expect("getconf emits UTF-8 digits")
+            .trim()
+            .to_owned();
+        let actual = invoke_native_json(
+            b"|sysconf|isize(i32)",
+            format!("[{pagesize_key}]").as_bytes(),
+        )
+        .expect("the JSON adapter reaches dyn's fixed core");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&actual).expect("result JSON"),
+            serde_json::json!({"type":"isize","value":expected})
         );
     }
 }
