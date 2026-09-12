@@ -51,8 +51,8 @@ Parallel crate `crates/agenterm-dyn`, not a fourth engine, not libagenterm, not 
 **guest-memory / schema 校验属 qjswasm door，不属 dyn**：guest span 解码（含
 `offset + len` 不溢出且在 Wasm 线性内存内）、参数 kind、nullability 与 schema 判定
 全部由 qjswasm 侧完成；dyn 只看到已经解码并验证过的 host 侧描述。
-dyn **不**校验 host ABI 对齐、NUL 或具体 callee 的最小读写宽度；这些义务由上层与
-受监管 guest 承担，不应被记成 dyn 的策略或授权。
+dyn **不**校验 host ABI 对齐、NUL 或具体 callee 的最小读写宽度；这些义务由调用方与
+上层 schema/contract 承担，不应被记成 dyn 的策略或授权。
 
 ### Markdown tree-DAG（当前功能树）
 
@@ -605,15 +605,6 @@ In particular, the heterogeneous integer/pointer ABI mechanism, Unix variadic
 dyn. The six-cell `hosts.rs` facts, typed owners, and the `Dyn` / `Value` /
 `Symbol` language component were removed after their evidence migration completed.
 
-`DomainNameSnapshot::acquire()` and `LoginNameSnapshot::acquire()` are the
-typed Darwin boundaries for `getdomainname` and `getlogin_r`. Both publish
-bounded, owned native bytes without requiring UTF-8 or leaking caller buffers,
-require a real NUL terminator after success, preserve typed native failures,
-and return `Unsupported` elsewhere. Their catalog rows are now `LiveOwned`:
-the independent direct native oracles and synthetic failure courts supersede
-the removed legacy Lisp calls, without turning Darwin runtime evidence into
-evidence for Linux or Windows.
-
 ## Non-goals until 政委 orders otherwise
 
 - No JIT / sljit / DynASM / copy-and-patch.
@@ -625,42 +616,10 @@ evidence for Linux or Windows.
   typed OS owner/snapshot、不拥有 six-cell facts/catalog/evidence、不拥有 budget/cancel/监管。
 - No second loader or second native door: the one loader stays in dyn, the policy moves up.
 
-## Wave 11 (2026-09-12): Unix interface address lists as a typed owner (`8ae3b00a`)
+## Historical owner waves
 
-**用户问题**：调用方需要"本地接口地址表"，但不能把 native 链表的裸指针带出 dyn——裸 `getifaddrs`
-链表的所有权、上界与释放时机必须由一个类型负责，否则调用方要么泄漏，要么在别人 free 之后继续读。
-
-**公开 owner**：`InterfaceAddresses::acquire() -> Result<Self, InterfaceAddressesError>`。
-取得成功后由该值独占 native 链表；调用方只能读**已拷贝**的事实，拿不到指针。
-
-**不变量**（实现见 `crates/agenterm-dyn/src/unix_resource.rs`）：
-1. **私有 raw 链表**：链表头只存在于私有 `OwnedList<T, F: FreeList<T>> { head, freer }` 内，字段不对外公开；
-2. **有界、pointer-free 快照**：对外只暴露 `InterfaceAddress { name: Vec<u8>（native 字节、去尾 NUL）, flags: u32, address_family: Option<u16> }`；进入快照后不再持有任何 native 指针；
-3. **Drop 恰好 free 一次**：`OwnedList::drop` 只调用一次 `freer.free(head)`，`SystemFreer` 对应取得时的那**一次** `freeifaddrs`；注入式 `FreeList` seam 让"恰好一次"可在测试里判定（`#[cfg(any(unix, test))]`）。
-
-**typed 失败**：`InterfaceAddressesError::{Os(..), TooManyEntries { limit }, Unsupported}`——不 panic、不返回部分真值。
-
-**六格状态**（逐格陈述，不跨格外推）：
-| 格 | 状态 |
-|---|---|
-| macOS aarch64 | **本机 runtime 通过**（`tests/unix_resource.rs`） |
-| macOS x86_64 | **未测定**；不得沿用 aarch64 runtime |
-| Linux x86_64 | **仅 `cargo zigbuild` 编译**；runtime 未取得 |
-| Linux aarch64 | **未测定** |
-| Windows x86_64 | **placeholder + typed `Unsupported`**；MSVC 仅编译，不声称 runtime 支持 |
-| Windows aarch64 | **placeholder + typed `Unsupported`**；MSVC 仅编译，不声称 runtime 支持 |
-
-**证据**：`8ae3b00a dyn: own Unix interface address lists`（`src/unix_resource.rs` +178、`tests/unix_resource.rs` +45、
-`tests/catalog_docs.rs` +28、`tests/hosts.rs` +17、`examples/getifaddrs.md`、`README.md`）。
-
-**明确非目标**：不解析地址 bytes（只搬运 native 事实）；该 owner 不经标量 native
-door 暴露给 CU/qjswasm；不宣称任何网络能力或权限。
-
-**不得外推**：catalog 该行的 `LiveOwned` 只表示"存在 owner 类型与释放路径"，**不等于 Linux runtime 已证**；
-Linux/Windows 的运行资格仍按本 PRD 的六格纪律逐格取得。
-
-## If a new authorized increment is opened
-
-Use managed local agent sessions from the repository root, with `harden`,
-`probes`, and `examples` as exclusive file domains. Do not use worktrees.
-Push `[skip ci]` only when `origin/main...HEAD` is `0 1`.
+Earlier waves temporarily placed typed snapshots, resource ownership, and
+six-cell product facts in dyn. Those commits remain useful history, but their
+APIs, catalogs, tests, and examples have now been removed after repository-wide
+consumer and evidence checks. They are not current dyn capabilities and must
+not be extended here.

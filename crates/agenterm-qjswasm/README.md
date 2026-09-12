@@ -490,20 +490,21 @@ tinyvm 的宿主回调签名是 `Fn(&[Val], &mut [u8]) -> Result<Vec<Val>, WasmE
 ## 与相邻 crate 的关系
 
 The `agenterm.native_call` guest schema remains owned here, including hostile
-span decoding, canonical scalar bits, budgets, cancellation, and guest-memory
-writeback. Its exact homogeneous native execution delegates to
-`agenterm-dyn::invoke_exact`, which is the sole owner of library/symbol
-resolution and the seven-family, arity-zero-through-six Rust `extern "C"`
-selector. This dependency adds no JIT, C shim, libffi, CU verb, or platform
-policy.
+span decoding, canonical scalar bits, budgets, cancellation, guest-memory
+writeback, and the exposed prototype catalog. After this layer admits and
+decodes a call, all exact, fixed-scalar, and fixed-pointer execution delegates
+to `agenterm-dyn::invoke_abi`. Dyn owns the one library/symbol loader and the
+real monomorphic `extern "C"` trampoline matrix, but no exposure policy. This
+dependency adds no JIT, C shim, libffi, CU verb, or platform policy.
 
 Product `.qjs` code imports `agenterm:native` and calls `native.call(spec,
 arguments)`. The module is only a language adapter over that same contained
 door: it JSON-encodes the argument array, and the host returns
 `{type,value}`. `i32`/`u32`/`f64` values use JSON numbers; `i64`/`u64`/`isize`/
 `usize` use exact decimal strings in both directions so binary64 cannot round a
-native integer. The adapter does not add a loader or selector: after parsing
-and canonical conversion it reaches the same `agenterm-dyn::invoke_exact`.
+native integer. The adapter does not add a loader: after parsing, catalog
+admission, and canonical conversion it reaches the same
+`agenterm-dyn::invoke_abi`.
 It is declared only when the raw native door is declared, shares the same host
 operation/byte budget and cancellation sampling, and preserves the existing
 `native_*` typed failure codes.
