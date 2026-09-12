@@ -84,6 +84,22 @@ fn current_image_snapshot_owns_native_path_bytes() {
 #[test]
 fn cpu_count_snapshot_is_a_live_positive_host_fact() {
     let snapshot = CpuCountSnapshot::acquire().expect("Darwin hw.ncpu snapshot");
+    let mut direct = 0_u32;
+    let mut direct_size = std::mem::size_of_val(&direct);
+    // SAFETY: the name is NUL-terminated, both output pointers are valid, and
+    // this read-only query supplies no replacement value.
+    let status = unsafe {
+        libc::sysctlbyname(
+            c"hw.ncpu".as_ptr(),
+            (&raw mut direct).cast(),
+            &mut direct_size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    assert_eq!(status, 0, "direct hw.ncpu query succeeds");
+    assert_eq!(direct_size, std::mem::size_of_val(&direct));
+    assert_eq!(snapshot.logical_cpus(), direct);
     assert!(snapshot.logical_cpus() > 0);
     assert!(
         snapshot.logical_cpus() as usize
