@@ -196,6 +196,20 @@ This track changes no shipped capability count until its public migration lands,
 does authorize the bounded native-door prototype, measurements, and follow-on migration
 work described by the linked plans.
 
+### Boundary with the supervised qjswasm artifact route
+
+Agenterm commit `3afbdc1d` gives public `.wasm` execution an explicit
+`plain` or `compiled-qjs` convention, bounded artifact input, and
+`WorkerSupervisor` containment for native-door crashes and hard timeouts.
+That is qjswasm and Script Runtime capability. It neither adds an
+`agenterm-dyn` capability nor establishes that dyn can be removed.
+
+In particular, the shipped `Dyn`/`Value`/`Symbol` API, heterogeneous
+integer/pointer ABI, Unix variadic `ioctl` exception, six-cell `hosts.rs`
+facts, and the future-JIT boundary retained in `exec.rs` remain independently
+owned. Any migration or deletion still requires the native-door experiment's
+precommitted parity, slope, target, and consumer gates.
+
 ## Non-goals until 政委 orders otherwise
 
 - No JIT / sljit / DynASM / copy-and-patch.

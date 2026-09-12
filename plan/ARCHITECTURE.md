@@ -718,6 +718,13 @@ boundary_tests.rs        结构红线闸（不是全文 diff 引擎）
 
 结构工作 = **约定文档（本文）+ 测试/脚本闸 +（可选）依赖图**；不是「装个 LSP 插件」。
 
+The public `.wasm` route belongs to Script Runtime/qjswasm: callers name the
+`plain` or `compiled-qjs` convention, input is bounded, and native-door crash
+or timeout is contained by `WorkerSupervisor`. `agenterm-dyn` remains a
+separate bottom-layer owner for its Rust API, heterogeneous native ABI,
+six-cell host facts, Unix `ioctl` exception, and future-JIT boundary. Neither
+surface is evidence that the other may be deleted.
+
 ### 8.4 升级路径（要真·双向时）
 
 自由 prose MD ↔ 任意 Rust **无法**可靠全文双向。可机读路径：
