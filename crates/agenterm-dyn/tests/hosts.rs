@@ -776,6 +776,39 @@ fn domain_name_combines_raw_and_typed_evidence_only_on_darwin() {
 }
 
 #[test]
+fn login_name_combines_raw_and_typed_evidence_only_on_darwin() {
+    for cell in ALL_CELLS {
+        let status = cell
+            .system_probes
+            .iter()
+            .find(|probe| probe.name == "getlogin_r")
+            .expect("cell contains getlogin_r")
+            .status;
+        if cell.os == "macos" {
+            assert_eq!(
+                status,
+                SystemProbeStatus::LiveDlcallOwned {
+                    lib: "libSystem.B.dylib",
+                    symbol: "getlogin_r",
+                    api: "LoginNameSnapshot::acquire",
+                },
+                "getlogin_r evidence is complete on {}/{}",
+                cell.os,
+                cell.arch
+            );
+        } else {
+            assert_eq!(
+                status,
+                SystemProbeStatus::Placeholder,
+                "getlogin_r is unavailable on {}/{}",
+                cell.os,
+                cell.arch
+            );
+        }
+    }
+}
+
+#[test]
 fn mach_timebase_combines_raw_and_typed_evidence_only_on_darwin() {
     for cell in ALL_CELLS {
         let status = cell

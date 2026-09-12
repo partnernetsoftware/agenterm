@@ -200,7 +200,7 @@ without wiring dyn into cu, platform, or the ABI:
 - [MIB lookup via `sysctlnametomib`](examples/sysctlnametomib.md) (macOS)
 - [Mach tick-to-nanosecond ratio via `mach_timebase_info`](examples/mach-timebase-info.md) (macOS; native-call and typed snapshot evidence)
 - [main-thread predicate via `pthread_main_np`](examples/pthread-main-np.md) (macOS)
-- [login name via `getlogin_r`](examples/getlogin-r.md) (macOS)
+- [login name via `getlogin_r`](examples/getlogin-r.md) (macOS; native-call and typed snapshot evidence)
 - [current thread id via `pthread_threadid_np`](examples/pthread-threadid-np.md) (macOS)
 - [current thread name via `pthread_getname_np`](examples/pthread-getname-np.md) (macOS)
 - [BSD process facts via `proc_pidinfo`](examples/proc-pidinfo.md) (macOS)
@@ -306,7 +306,8 @@ source defines the same integer/void/ptr libc rows as Linux against
 direct-libc baselines. Darwin-specific smokes cover `sysctlbyname`,
 `mach_absolute_time`, `getprogname`, `issetugid`, `_NSGetExecutablePath`,
 `proc_pidpath`, `arc4random`, `clock_gettime_nsec_np`, `sysctl`,
-`mach_timebase_info`, `pthread_main_np`, `getlogin_r`, `pthread_threadid_np`,
+`mach_timebase_info`, `pthread_main_np`, `getlogin_r` (native-call and typed
+snapshot evidence), `pthread_threadid_np`,
 `pthread_getname_np`,
 `proc_pidinfo`, `_NSGetArgc`, `_NSGetArgv`, `_NSGetEnviron`,
 `proc_pid_rusage`, `_dyld_image_count`, `getentropy`, `proc_name`,

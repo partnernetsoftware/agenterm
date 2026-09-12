@@ -505,7 +505,14 @@ const MACOS_SYSTEM_PROBES: [SystemProbe; 86] = [
         },
     },
     macos_live("pthread_main_np", "pthread_main_np"),
-    macos_live("getlogin_r", "getlogin_r"),
+    SystemProbe {
+        name: "getlogin_r",
+        status: SystemProbeStatus::LiveDlcallOwned {
+            lib: "libSystem.B.dylib",
+            symbol: "getlogin_r",
+            api: "LoginNameSnapshot::acquire",
+        },
+    },
     macos_live("pthread_threadid_np", "pthread_threadid_np"),
     macos_live("pthread_getname_np", "pthread_getname_np"),
     macos_live("proc_pidinfo", "proc_pidinfo"),

@@ -20,7 +20,6 @@ const DARWIN_ONLY_LIVE_EXAMPLES: &[(&str, &str)] = &[
     ("clock_gettime_nsec_np", "clock-gettime-nsec-np.md"),
     ("sysctl", "sysctl.md"),
     ("pthread_main_np", "pthread-main-np.md"),
-    ("getlogin_r", "getlogin-r.md"),
     ("pthread_threadid_np", "pthread-threadid-np.md"),
     ("pthread_getname_np", "pthread-getname-np.md"),
     ("proc_pidinfo", "proc-pidinfo.md"),
@@ -315,6 +314,34 @@ fn darwin_domain_name_keeps_dlcall_and_typed_snapshot_documentation() {
 
     let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
     assert!(readme.contains("](examples/getdomainname.md)"));
+}
+
+#[test]
+fn darwin_login_name_keeps_dlcall_and_typed_snapshot_documentation() {
+    for cell in [MACOS_X86_64, MACOS_AARCH64] {
+        let probe = cell
+            .system_probes
+            .iter()
+            .find(|probe| probe.name == "getlogin_r")
+            .expect("Darwin catalog contains getlogin_r");
+        assert_eq!(
+            probe.status,
+            SystemProbeStatus::LiveDlcallOwned {
+                lib: "libSystem.B.dylib",
+                symbol: "getlogin_r",
+                api: "LoginNameSnapshot::acquire",
+            }
+        );
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let example = fs::read_to_string(root.join("examples/getlogin-r.md"))
+        .expect("getlogin_r documentation is readable");
+    assert!(example.contains("LoginNameSnapshot::acquire"));
+    assert!(example.contains("dlcall"));
+
+    let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
+    assert!(readme.contains("](examples/getlogin-r.md)"));
 }
 
 #[test]
