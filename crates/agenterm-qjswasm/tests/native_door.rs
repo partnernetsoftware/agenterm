@@ -633,6 +633,34 @@ fn proc_libversion_reuses_the_two_required_pointer_prototype_without_losing_outp
 
 #[cfg(target_os = "macos")]
 #[test]
+fn getentropy_preserves_the_retired_status_claim_without_comparing_random_bytes() {
+    let mut direct = [0_u8; 16];
+    let direct_status = unsafe { libc::getentropy(direct.as_mut_ptr().cast(), direct.len()) };
+    assert_eq!(direct_status, 0, "direct getentropy succeeds");
+
+    let source = include_str!("fixtures/native/getentropy.wat");
+    assert_eq!(
+        run_wat(source, Budget::default()).expect("getentropy runs through i32(ptr,u64)"),
+        i64::from(direct_status),
+    );
+
+    let null_buffer = source.replacen(
+        "(i32.store (i32.const 144) (i32.const 1))",
+        "(i32.store (i32.const 144) (i32.const 2))",
+        1,
+    );
+    let error = run_wat(&null_buffer, Budget::default())
+        .expect_err("getentropy requires a non-null output buffer");
+    assert!(
+        matches!(&error, QjswasmError::Door(message)
+            if message.contains("native_null_not_permitted")
+                && message.contains("argument 0")),
+        "unexpected required-pointer error: {error:?}"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn pthread_threadid_np_reaches_dyn_with_nullable_input_and_required_output() {
     let source = include_str!("fixtures/native/pthread_threadid_np.wat");
     let got = run_wat(source, Budget::default())

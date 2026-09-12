@@ -376,6 +376,9 @@ court has claim-preserving `.wat` or typed-owner evidence.
   evidence. The two-required-pointer `i32(ptr,ptr)` family now carries the
   `gethostuuid` UUID bytes and both `proc_libversion` integer outputs through the
   same dyn prototype, each compared with an independent direct native oracle.
+  `getentropy` now uses the enumerated `i32(ptr,u64)` family; its replacement
+  court deliberately preserves only the two successful status claims because
+  independent entropy buffers have no exact content oracle.
   This is incremental retirement evidence, not permission to delete the remaining
   Lisp courts or language files as a batch.
 - [`plan/design-guest-runtime-placement-experiment.md`](../plan/design-guest-runtime-placement-experiment.md)

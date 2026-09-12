@@ -22,6 +22,10 @@ mod unix {
             &[FixedPointerType::Pointer, FixedPointerType::I32]
         );
         assert_eq!(
+            FixedPointerPrototype::I32PointerU64.parameters(),
+            &[FixedPointerType::Pointer, FixedPointerType::U64]
+        );
+        assert_eq!(
             FixedPointerPrototype::I32PointerPointer.parameters(),
             &[FixedPointerType::Pointer, FixedPointerType::Pointer]
         );

@@ -48,6 +48,8 @@ pub enum FixedPointerPrototype {
     I32I32Pointer,
     /// C `int function(void *, int)`, used by `access`.
     I32PointerI32,
+    /// C `int function(void *, uint64_t)`, used by `getentropy`.
+    I32PointerU64,
     /// C `int function(void *, void *)`, with both pointers required.
     I32PointerPointer,
     /// C `int function(void *, void *)`, with only the second pointer nullable.
@@ -66,6 +68,7 @@ impl FixedPointerPrototype {
             Self::I32Pointer => &[FixedPointerType::Pointer],
             Self::I32I32Pointer => &[FixedPointerType::I32, FixedPointerType::Pointer],
             Self::I32PointerI32 => &[FixedPointerType::Pointer, FixedPointerType::I32],
+            Self::I32PointerU64 => &[FixedPointerType::Pointer, FixedPointerType::U64],
             Self::I32PointerPointer => &[FixedPointerType::Pointer, FixedPointerType::Pointer],
             Self::I32PointerNullablePointer => {
                 &[FixedPointerType::Pointer, FixedPointerType::NullablePointer]
@@ -184,6 +187,10 @@ pub unsafe fn invoke_fixed_pointer(call: &FixedPointerCall<'_>) -> Result<i32, F
             [FixedPointerValue::Pointer(a), FixedPointerValue::I32(b)],
         ) => invoke_i32_pointer_i32(&library, call.symbol, *a, *b),
         (
+            FixedPointerPrototype::I32PointerU64,
+            [FixedPointerValue::Pointer(a), FixedPointerValue::U64(b)],
+        ) => invoke_i32_pointer_u64(&library, call.symbol, *a, *b),
+        (
             FixedPointerPrototype::I32PointerPointer,
             [FixedPointerValue::Pointer(a), FixedPointerValue::Pointer(b)],
         ) => invoke_i32_pointer_pointer(&library, call.symbol, *a, *b),
@@ -233,6 +240,20 @@ fn invoke_i32_pointer_pointer(
     }
     .map_err(|error| symbol_error(symbol, error))?;
     // SAFETY: the caller owns both pointer contracts and the library stays live.
+    Ok(unsafe { function(a, b) })
+}
+
+fn invoke_i32_pointer_u64(
+    library: &Library,
+    symbol: &str,
+    a: *mut c_void,
+    b: u64,
+) -> Result<i32, FixedPointerError> {
+    // SAFETY: see invoke_i32_pointer.
+    let function =
+        unsafe { library.get::<unsafe extern "C" fn(*mut c_void, u64) -> i32>(symbol.as_bytes()) }
+            .map_err(|error| symbol_error(symbol, error))?;
+    // SAFETY: the caller owns the pointer contract and the library stays live.
     Ok(unsafe { function(a, b) })
 }
 

@@ -240,27 +240,6 @@ fn dlcall_proc_pid_rusage_writes_caller_owned_v4() {
 }
 
 #[test]
-fn dlcall_getentropy_fills_caller_owned_buffer() {
-    const BYTES: usize = 16;
-
-    let symbol = live_symbol("getentropy");
-    let mut bytes = [0_u8; BYTES];
-    let mut env = Dyn::new();
-    env.bind("bytes", bytes.as_mut_ptr().cast())
-        .expect("bind entropy output");
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "i32" "ptr" bytes "u64" {BYTES})"#),
-    )
-    .expect("getentropy dlcall");
-    assert_eq!(got, Value::Int(0));
-
-    let mut direct = [0_u8; BYTES];
-    let direct_status = unsafe { libc::getentropy(direct.as_mut_ptr().cast(), BYTES) };
-    assert_eq!(direct_status, 0, "direct getentropy must succeed");
-}
-
-#[test]
 fn dlcall_pthread_get_stackaddr_np_matches_libc_current_thread() {
     let symbol = live_symbol("pthread_get_stackaddr_np");
     let thread = unsafe { libc::pthread_self() } as u64;
