@@ -214,6 +214,7 @@ fn additional_system_probes_use_explicit_live_and_placeholder_statuses() {
                 "getgroups",
                 "realpath",
                 "mach_host_self",
+                "getifaddrs",
             ]
         );
         assert_eq!(
@@ -281,7 +282,14 @@ fn additional_system_probes_use_explicit_live_and_placeholder_statuses() {
         assert!(
             c.system_probes[sysctlbyname..]
                 .iter()
+                .filter(|probe| probe.name != "getifaddrs")
                 .all(|probe| matches!(probe.status, SystemProbeStatus::Placeholder))
+        );
+        assert_eq!(
+            c.system_probes.last().expect("getifaddrs row").status,
+            SystemProbeStatus::LiveOwned {
+                api: "InterfaceAddresses::acquire"
+            }
         );
     }
     for c in [MACOS_X86_64, MACOS_AARCH64] {
@@ -364,9 +372,10 @@ fn additional_system_probes_use_explicit_live_and_placeholder_statuses() {
                 "getgroups",
                 "realpath",
                 "mach_host_self",
+                "getifaddrs",
             ]
         );
-        assert_eq!(mach_host_self + 1, c.system_probes.len());
+        assert_eq!(mach_host_self + 2, c.system_probes.len());
         assert!(
             c.system_probes[sysctlbyname..mach_host_self]
                 .iter()
@@ -382,6 +391,12 @@ fn additional_system_probes_use_explicit_live_and_placeholder_statuses() {
             c.system_probes[mach_host_self].status,
             SystemProbeStatus::LiveOwned {
                 api: "MachHostPort::acquire"
+            }
+        );
+        assert_eq!(
+            c.system_probes[mach_host_self + 1].status,
+            SystemProbeStatus::LiveOwned {
+                api: "InterfaceAddresses::acquire"
             }
         );
     }

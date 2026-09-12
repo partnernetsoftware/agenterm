@@ -51,7 +51,7 @@ pub struct HostCell {
     pub secondary_probe: SecondaryProbe,
     /// Headless system-call smoke candidates. Linux and macOS are live; Windows
     /// rows stay placeholders.
-    pub system_probes: [SystemProbe; 85],
+    pub system_probes: [SystemProbe; 86],
 }
 
 // PLATFORM-CANDIDATE: headless native-call smoke contract per OS.
@@ -79,7 +79,7 @@ pub enum SystemProbeStatus {
     Placeholder,
 }
 
-const LINUX_SYSTEM_PROBES: [SystemProbe; 85] = [
+const LINUX_SYSTEM_PROBES: [SystemProbe; 86] = [
     SystemProbe {
         name: "time",
         status: SystemProbeStatus::LiveDlcall {
@@ -397,6 +397,12 @@ const LINUX_SYSTEM_PROBES: [SystemProbe; 85] = [
     placeholder("getgroups"),
     placeholder("realpath"),
     placeholder("mach_host_self"),
+    SystemProbe {
+        name: "getifaddrs",
+        status: SystemProbeStatus::LiveOwned {
+            api: "InterfaceAddresses::acquire",
+        },
+    },
 ];
 
 const fn macos_live(name: &'static str, symbol: &'static str) -> SystemProbe {
@@ -416,7 +422,7 @@ const fn placeholder(name: &'static str) -> SystemProbe {
     }
 }
 
-const MACOS_SYSTEM_PROBES: [SystemProbe; 85] = [
+const MACOS_SYSTEM_PROBES: [SystemProbe; 86] = [
     macos_live("time", "time"),
     macos_live("times", "times"),
     macos_live("getrusage", "getrusage"),
@@ -513,9 +519,15 @@ const MACOS_SYSTEM_PROBES: [SystemProbe; 85] = [
             api: "MachHostPort::acquire",
         },
     },
+    SystemProbe {
+        name: "getifaddrs",
+        status: SystemProbeStatus::LiveOwned {
+            api: "InterfaceAddresses::acquire",
+        },
+    },
 ];
 
-const PLACEHOLDER_SYSTEM_PROBES: [SystemProbe; 85] = [
+const PLACEHOLDER_SYSTEM_PROBES: [SystemProbe; 86] = [
     SystemProbe {
         name: "time",
         status: SystemProbeStatus::Placeholder,
@@ -730,6 +742,7 @@ const PLACEHOLDER_SYSTEM_PROBES: [SystemProbe; 85] = [
     placeholder("getgroups"),
     placeholder("realpath"),
     placeholder("mach_host_self"),
+    placeholder("getifaddrs"),
 ];
 
 // PLATFORM-CANDIDATE: terminal/console size probe contract per OS.

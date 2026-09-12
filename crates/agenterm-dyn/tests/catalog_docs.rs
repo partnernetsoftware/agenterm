@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
-use agenterm_dyn::{LINUX_X86_64, MACOS_AARCH64, MACOS_X86_64, SystemProbeStatus};
+use agenterm_dyn::{LINUX_AARCH64, LINUX_X86_64, MACOS_AARCH64, MACOS_X86_64, SystemProbeStatus};
 
 const DARWIN_ONLY_LIVE_EXAMPLES: &[(&str, &str)] = &[
     ("sysctlbyname", "sysctlbyname.md"),
@@ -140,4 +140,30 @@ fn mach_host_self_is_owned_live_with_callable_documentation() {
 
     let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
     assert!(readme.contains("](examples/mach-host-self.md)"));
+}
+
+#[test]
+fn unix_getifaddrs_owner_has_callable_documentation() {
+    for cell in [LINUX_X86_64, LINUX_AARCH64, MACOS_X86_64, MACOS_AARCH64] {
+        let probe = cell
+            .system_probes
+            .iter()
+            .find(|probe| probe.name == "getifaddrs")
+            .expect("Unix catalog contains getifaddrs");
+        assert_eq!(
+            probe.status,
+            SystemProbeStatus::LiveOwned {
+                api: "InterfaceAddresses::acquire"
+            }
+        );
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let example = fs::read_to_string(root.join("examples/getifaddrs.md"))
+        .expect("getifaddrs ownership example is readable");
+    assert!(example.contains("freeifaddrs"));
+    assert!(example.contains("InterfaceAddresses::acquire"));
+
+    let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
+    assert!(readme.contains("](examples/getifaddrs.md)"));
 }

@@ -119,6 +119,7 @@ multiplicative nested-loop work and body-side effects on the rejected form.
 | `dlcall` | Only native primitive — invoked from lists, not a verb table |
 | `REPEAT_MAX` / `MAX_TOTAL_REPEAT_ITERATIONS` | Per-form and per-top-level repeat-work bounds |
 | `hosts::*` | Six-cell host table + CU-adjacent catalog (`PLATFORM-CANDIDATE`) |
+| `InterfaceAddresses::acquire` | Own a Unix `getifaddrs` list and copy pointer-free interface snapshots; typed unsupported on Windows |
 
 ## Six-cell host table
 
@@ -127,8 +128,8 @@ multiplicative nested-loop work and body-side effects on the rejected form.
 
 | Cell | PID library | PID symbol | Size probe | Secondary probe | Additional headless probes |
 |------|-------------|------------|------------|-----------------|----------------------------|
-| linux × x86_64/aarch64 | `libc.so.6` | `getpid` | `ioctl(TIOCGWINSZ)` | `getppid` | fixed-ABI live rows include `time`, caller-owned-pointer `times`, `getrusage(RUSAGE_SELF, …)`, `getrlimit(RLIMIT_NOFILE, …)`, `clock_gettime`, `uname`, uid/gid/pid group, `sysconf`, `getcwd`, `isatty`, `access`/`dup`/`lseek`, `getpriority`/`nice`, `sched_yield`, `alarm`, `umask`, `getdtablesize`, `gethostid`, `getpagesize`; variadic `open`/`fcntl` and Darwin-only rows are placeholders |
-| macos × x86_64/aarch64 | `libSystem.B.dylib` | `getpid` | signature-gated loaded-symbol `ioctl(TIOCGWINSZ)` through Unix's variadic ABI | `time` | shared fixed-ABI live rows plus the documented Darwin probes; variadic `open`/`fcntl` remain placeholders, while `mach_host_self` is live only through owned `MachHostPort::acquire` |
+| linux × x86_64/aarch64 | `libc.so.6` | `getpid` | `ioctl(TIOCGWINSZ)` | `getppid` | fixed-ABI live rows include `time`, caller-owned-pointer `times`, `getrusage(RUSAGE_SELF, …)`, `getrlimit(RLIMIT_NOFILE, …)`, `clock_gettime`, `uname`, uid/gid/pid group, `sysconf`, `getcwd`, `isatty`, `access`/`dup`/`lseek`, `getpriority`/`nice`, `sched_yield`, `alarm`, `umask`, `getdtablesize`, `gethostid`, `getpagesize`; `getifaddrs` is live through the typed owner; variadic `open`/`fcntl` and Darwin-only rows are placeholders |
+| macos × x86_64/aarch64 | `libSystem.B.dylib` | `getpid` | signature-gated loaded-symbol `ioctl(TIOCGWINSZ)` through Unix's variadic ABI | `time` | shared fixed-ABI live rows plus the documented Darwin probes; variadic `open`/`fcntl` remain placeholders, while `mach_host_self` and `getifaddrs` are live only through typed owners |
 | windows × x86_64/aarch64 | `kernel32.dll` | `GetCurrentProcessId` | `GetConsoleScreenBufferInfo` | `GetCurrentThreadId` | placeholders only |
 
 All six rows compile as data on every host. `live_cell()` selects the row
@@ -229,6 +230,7 @@ without wiring dyn into cu, platform, or the ABI:
 - [supplementary groups via `getgroups`](examples/getgroups.md) (macOS)
 - [resolved path via `realpath`](examples/realpath.md) (macOS)
 - [owned `mach_host_self` send-right reference](examples/mach-host-self.md) (macOS)
+- [owned interface-address snapshot via `getifaddrs`](examples/getifaddrs.md) (Linux and macOS)
 - [clock ticks per second via `sysconf`](examples/sysconf-clk-tck.md)
 - [online processor count via `sysconf`](examples/sysconf-nprocessors-onln.md)
 - [whether standard input is a terminal](examples/isatty-stdin.md)

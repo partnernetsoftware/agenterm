@@ -10,6 +10,7 @@ mod macos_resource;
 mod native;
 mod parse;
 mod sym;
+mod unix_resource;
 mod value;
 
 pub use error::DynError;
@@ -27,6 +28,7 @@ pub use hosts::{
 };
 pub use macos_resource::{MachHostPort, MachHostPortError};
 pub use sym::Symbol;
+pub use unix_resource::{InterfaceAddress, InterfaceAddresses, InterfaceAddressesError};
 pub use value::Value;
 
 /// Maximum number of distinct bindings retained by one [`Dyn`] environment.
