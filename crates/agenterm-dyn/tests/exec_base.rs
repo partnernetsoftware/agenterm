@@ -5,10 +5,13 @@
 //! 2. a hand-written `call` into the `dlsym`-resolved `getpid` returns the same
 //!    PID as calling `getpid` directly.
 
-#![cfg(all(unix, target_arch = "x86_64"))]
+#![cfg(unix)]
 
-use agenterm_dyn::{BufferState, CodeBuffer, NameTable, x86_64_call_thunk, x86_64_mov_rax_ret};
+#[cfg(target_arch = "x86_64")]
+use agenterm_dyn::{BufferState, NameTable, x86_64_call_thunk, x86_64_mov_rax_ret};
+use agenterm_dyn::{CodeBuffer, ExecError};
 
+#[cfg(target_arch = "x86_64")]
 fn host_libc_name() -> &'static str {
     if cfg!(target_os = "macos") {
         "libSystem.B.dylib"
@@ -18,6 +21,7 @@ fn host_libc_name() -> &'static str {
 }
 
 #[test]
+#[cfg(target_arch = "x86_64")]
 fn acceptance_1_mov_rax_42_ret() {
     let mut buf = CodeBuffer::new(64).expect("map code buffer");
     assert_eq!(buf.state(), BufferState::Writable);
@@ -35,6 +39,28 @@ fn acceptance_1_mov_rax_42_ret() {
 }
 
 #[test]
+fn execution_failures_have_their_own_stable_error_boundary() {
+    let mut buf = CodeBuffer::new(64).expect("map code buffer");
+    let offset = buf
+        .append(&[0])
+        .expect("stage one byte without entering it");
+
+    // SAFETY: the call is rejected on state before the bytes are entered.
+    let error = unsafe { buf.enter_i64(offset) }.expect_err("writable code must not execute");
+    assert_eq!(
+        error,
+        ExecError::Exec(
+            "enter requires an executable buffer (W^X); call make_executable first".into(),
+        )
+    );
+    assert_eq!(
+        error.to_string(),
+        "exec base error: enter requires an executable buffer (W^X); call make_executable first"
+    );
+}
+
+#[test]
+#[cfg(target_arch = "x86_64")]
 fn acceptance_2_call_getpid_matches_direct() {
     // Resolve getpid as a dlsym address and record it in the name table as a
     // foreign (outward call-gate) entry.

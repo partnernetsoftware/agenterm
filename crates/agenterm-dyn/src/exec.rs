@@ -34,7 +34,7 @@
 
 use std::collections::HashMap;
 
-use crate::error::DynError;
+use crate::exec_error::ExecError;
 
 #[cfg(target_os = "linux")]
 const MAP_ANON: i32 = libc::MAP_ANONYMOUS;
@@ -47,15 +47,15 @@ fn page_size() -> usize {
     if raw <= 0 { 4096 } else { raw as usize }
 }
 
-fn mapped_len(capacity: usize, page_size: usize) -> Result<usize, DynError> {
+fn mapped_len(capacity: usize, page_size: usize) -> Result<usize, ExecError> {
     let capacity = capacity.max(1);
     let rounded = capacity
         .checked_add(page_size - 1)
-        .ok_or_else(|| DynError::Exec("code buffer capacity cannot be page-aligned".into()))?
+        .ok_or_else(|| ExecError::Exec("code buffer capacity cannot be page-aligned".into()))?
         / page_size
         * page_size;
     if rounded > isize::MAX as usize {
-        return Err(DynError::Exec(format!(
+        return Err(ExecError::Exec(format!(
             "code buffer mapping of {rounded} bytes exceeds the pointer offset limit"
         )));
     }
@@ -85,7 +85,7 @@ impl CodeBuffer {
     ///
     /// The buffer starts [`BufferState::Writable`] so bytes can be staged; it
     /// is never mapped writable-and-executable at once.
-    pub fn new(capacity: usize) -> Result<Self, DynError> {
+    pub fn new(capacity: usize) -> Result<Self, ExecError> {
         let ps = page_size();
         let mapped = mapped_len(capacity, ps)?;
         // SAFETY: anonymous private mapping, fixed args; the returned pointer is
@@ -102,7 +102,7 @@ impl CodeBuffer {
         };
         if ptr == libc::MAP_FAILED {
             let err = std::io::Error::last_os_error();
-            return Err(DynError::Exec(format!("mmap failed: {err}")));
+            return Err(ExecError::Exec(format!("mmap failed: {err}")));
         }
         Ok(Self {
             ptr: ptr as *mut u8,
@@ -133,18 +133,18 @@ impl CodeBuffer {
     /// executable buffer is a W^X violation and is rejected loudly rather than
     /// silently corrupting live code. A full buffer is likewise rejected — this
     /// cut does not grow or remap.
-    pub fn append(&mut self, bytes: &[u8]) -> Result<usize, DynError> {
+    pub fn append(&mut self, bytes: &[u8]) -> Result<usize, ExecError> {
         if self.state != BufferState::Writable {
-            return Err(DynError::Exec(
+            return Err(ExecError::Exec(
                 "append requires a writable buffer (W^X); call make_writable first".into(),
             ));
         }
         let offset = self.filled;
         let end = offset
             .checked_add(bytes.len())
-            .ok_or_else(|| DynError::Exec("append length overflow".into()))?;
+            .ok_or_else(|| ExecError::Exec("append length overflow".into()))?;
         if end > self.mapped {
-            return Err(DynError::Exec(format!(
+            return Err(ExecError::Exec(format!(
                 "append of {} bytes exceeds buffer capacity {} (filled {})",
                 bytes.len(),
                 self.mapped,
@@ -160,25 +160,25 @@ impl CodeBuffer {
     }
 
     /// Flip to [`BufferState::Executable`] (read+exec, not writable).
-    pub fn make_executable(&mut self) -> Result<(), DynError> {
+    pub fn make_executable(&mut self) -> Result<(), ExecError> {
         self.protect(libc::PROT_READ | libc::PROT_EXEC)?;
         self.state = BufferState::Executable;
         Ok(())
     }
 
     /// Flip back to [`BufferState::Writable`] (read+write, not executable).
-    pub fn make_writable(&mut self) -> Result<(), DynError> {
+    pub fn make_writable(&mut self) -> Result<(), ExecError> {
         self.protect(libc::PROT_READ | libc::PROT_WRITE)?;
         self.state = BufferState::Writable;
         Ok(())
     }
 
-    fn protect(&self, prot: i32) -> Result<(), DynError> {
+    fn protect(&self, prot: i32) -> Result<(), ExecError> {
         // SAFETY: mprotect over exactly this mapping's page range.
         let rc = unsafe { libc::mprotect(self.ptr as *mut libc::c_void, self.mapped, prot) };
         if rc != 0 {
             let err = std::io::Error::last_os_error();
-            return Err(DynError::Exec(format!("mprotect failed: {err}")));
+            return Err(ExecError::Exec(format!("mprotect failed: {err}")));
         }
         Ok(())
     }
@@ -202,14 +202,14 @@ impl CodeBuffer {
     /// return (or a tail jump whose target returns). The buffer must be
     /// [`BufferState::Executable`]; the caller owns every register/stack/ABI
     /// obligation of the emitted code, exactly as with `dlcall`.
-    pub unsafe fn enter_i64(&self, offset: usize) -> Result<i64, DynError> {
+    pub unsafe fn enter_i64(&self, offset: usize) -> Result<i64, ExecError> {
         if self.state != BufferState::Executable {
-            return Err(DynError::Exec(
+            return Err(ExecError::Exec(
                 "enter requires an executable buffer (W^X); call make_executable first".into(),
             ));
         }
         if offset >= self.filled {
-            return Err(DynError::Exec(format!(
+            return Err(ExecError::Exec(format!(
                 "enter offset {offset} is outside filled range 0..{}",
                 self.filled
             )));
@@ -396,7 +396,7 @@ mod tests {
         };
         assert_eq!(
             error,
-            DynError::Exec("code buffer capacity cannot be page-aligned".into())
+            ExecError::Exec("code buffer capacity cannot be page-aligned".into())
         );
     }
 
@@ -409,7 +409,7 @@ mod tests {
             .expect_err("rounded mapping beyond isize::MAX must fail closed");
         assert_eq!(
             error,
-            DynError::Exec(format!(
+            ExecError::Exec(format!(
                 "code buffer mapping of {} bytes exceeds the pointer offset limit",
                 largest_aligned + page_size
             ))
