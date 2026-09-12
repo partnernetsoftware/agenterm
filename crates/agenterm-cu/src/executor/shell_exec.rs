@@ -113,6 +113,22 @@ pub(super) fn shell_exec_payload(
         })?
         .into_inner()
         .map_err(|_| CuError::new("shell_exec_capture_failed", "capture state was poisoned"))?;
+    // A command can cross the aggregate limit and exit before the in-loop check
+    // observes it: the loop tests `exceeded` and then `try_wait`, so a fast
+    // pipeline that finishes while the drain workers are still scheduled breaks
+    // out with the flag unset. The drained capture is the authority afterwards
+    // too, so a truncated capture is reported as loss instead of returning a
+    // successful short result.
+    if capture.exceeded {
+        return Err(CuError::new(
+            "shell_exec_output_limit",
+            "shell stdout and stderr exceeded the caller's aggregate byte limit",
+        )
+        .with_detail(json!({
+            "cleanup": "verified",
+            "max_output_bytes": max_output_bytes,
+        })));
+    }
     Ok(json!({
         "schema_version": 1,
         "shell": shell,
