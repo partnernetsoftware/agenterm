@@ -466,13 +466,47 @@ const fn platform_name() -> &'static str {
 mod tests {
     use super::*;
 
-    fn fixture() -> (PathBuf, PathBuf, PathBuf) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// Monotonic in-process sequence, so two concurrently created fixtures can
+    /// never land on the same root path.
+    static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    /// Owns one test root and removes it on every exit path, including a panic.
+    struct Fixture(PathBuf);
+
+    impl std::ops::Deref for Fixture {
+        type Target = PathBuf;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl AsRef<std::path::Path> for Fixture {
+        fn as_ref(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn fixture() -> (Fixture, PathBuf, PathBuf) {
+        let sequence = FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let root = std::env::temp_dir().join(format!(
-            "agenterm-cu-setup-{}-{}",
+            "agenterm-cu-setup-{}-{}-{}",
             std::process::id(),
-            rand_suffix()
+            rand_suffix(),
+            sequence
         ));
-        fs::create_dir_all(&root).unwrap();
+        // `create_dir` rather than `create_dir_all`: an anomalous reuse of a root
+        // must fail loudly instead of silently merging two tests' directories,
+        // which is what the concurrency test below exists to catch.
+        fs::create_dir(&root).expect("the fixture root must be unique");
         let source = root.join(if cfg!(windows) {
             "source.exe"
         } else {
@@ -481,7 +515,62 @@ mod tests {
         fs::write(&source, b"exact agenterm-cu fixture").unwrap();
         let bin = root.join("bin");
         let target = bin.join(entrypoint_name());
-        (root, source, target)
+        (Fixture(root), source, target)
+    }
+
+    /// Concurrent fixtures must each own a distinct root and must not delete one
+    /// another's files, with every root alive at the same time.
+    #[test]
+    fn concurrent_fixtures_are_unique_and_do_not_delete_each_other() {
+        const FIXTURES: usize = 128;
+
+        let mut fixtures = Vec::with_capacity(FIXTURES);
+        let mut roots = std::collections::BTreeSet::new();
+        for index in 0..FIXTURES {
+            let (root, _source, _target) = fixture();
+            let marker = root.join(format!("marker-{index}"));
+            fs::write(&marker, b"mine").expect("marker write");
+            assert!(
+                roots.insert(root.to_path_buf()),
+                "two fixtures must not share a root: {}",
+                root.display()
+            );
+            fixtures.push((root, marker));
+        }
+        // Every root is still alive and every marker still belongs to its owner:
+        // a shared or prematurely removed root would show up here.
+        for (index, (root, marker)) in fixtures.iter().enumerate() {
+            assert!(root.is_dir(), "fixture root {} vanished", root.display());
+            assert_eq!(
+                fs::read(marker).expect("marker must survive"),
+                b"mine",
+                "fixture {index} lost its marker"
+            );
+        }
+        assert_eq!(fixtures.len(), FIXTURES);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_entry_conflict_holds_under_repetition() {
+        use std::os::unix::fs::symlink;
+
+        for _ in 0..100 {
+            let (root, source, target) = fixture();
+            fs::create_dir_all(target.parent().unwrap()).unwrap();
+            let referent = root.join("referent");
+            fs::write(&referent, b"keep").unwrap();
+            symlink(&referent, &target).unwrap();
+            let error = run(&source, target.parent().unwrap(), SetupMode::Apply).unwrap_err();
+            assert_eq!(error.code, "setup_entrypoint_conflict");
+            assert_eq!(fs::read(&referent).unwrap(), b"keep");
+            assert!(
+                fs::symlink_metadata(&target)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink()
+            );
+        }
     }
 
     fn rand_suffix() -> u128 {
