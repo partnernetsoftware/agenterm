@@ -20,7 +20,12 @@ record guesses, one-off preferences, or a second living source map.
    safe failure result.
 3. Search every consumer of a changed geometry, protocol, feature, or native
    contract before the first build.
-4. Use a task-specific target directory when isolation matters:
+4. Locate the owning test target before a mutation run. A test inside
+   `src/**` belongs to `cargo test --lib`; a similarly named integration test
+   belongs to `cargo test --test <name>`. When a contract spans both, run both
+   targets: a green command that never compiled the mutated assertion is not a
+   successful red/green experiment.
+5. Use a task-specific target directory when isolation matters:
 
 ```powershell
 $env:CARGO_TARGET_DIR = 'target/my-leaf'
@@ -98,6 +103,14 @@ discard unused code.
 ---
 
 ## 3. FFI and native adapters
+
+Keep the mechanism support matrix separate from an upper-layer exposure
+catalog. The former records ABI shapes for which the native layer has a real
+calling implementation; the latter records which of those shapes a product
+chooses to expose. If the two sets currently happen to be equal, there is no
+hidden "supported but unexposed" test case: prove the boundary by narrowing the
+upper catalog while the raw mechanism test remains green, or add a real native
+calling implementation before claiming a larger mechanism set.
 
 Native calls belong behind typed platform contracts. A sound adapter states:
 

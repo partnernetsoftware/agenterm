@@ -64,6 +64,10 @@ dyn **不**校验 host ABI 对齐、NUL 或具体 callee 的最小读写宽度�
 ```text
 agenterm-dyn
 ├── A. 可执行 native core                         [机制保留 · 策略迁移]
+│   ├── abi
+│   │   ├── AbiSignature / NativeCall              [调用方运行时描述]
+│   │   ├── validate_abi / invoke_abi              [迁移桥：反向委托现有三族]
+│   │   └── Pointer 只表达 ABI 地址位；可空与 pointee 契约在上层
 │   ├── exact_native
 │   │   ├── 执行：按调用方 ABI 描述调用            [保留]
 │   │   ├── 7 个同质标量族 × arity 0..=6 = 49 组合  [**策略 → 上层 qjswasm**]
@@ -440,6 +444,13 @@ exact/fixed/fixed-pointer 集合”。qjswasm 仍有真实的 Cargo 依赖，其
 （迁移表与兼容顺序见上文“无策略边界”一节）。 The current
 S-expression surface remains shipped product truth only until each non-language
 court has claim-preserving `.wat` or typed-owner evidence.
+
+- 统一 `abi` 迁移桥已落地：运行时构造的 `AbiSignature` / `NativeCall`
+  会按**当前真实 trampoline 矩阵**分类，然后反向委托
+  `invoke_exact` / `invoke_fixed` / `invoke_fixed_pointer`。它没有新增 loader、
+  door 或 ABI 形状，也没有完成最终依赖反转；下一步是让旧三族变成
+  统一机制体的兼容薄封装。raw `Pointer` 只有一个 ABI 位，是否可空及
+  pointee 宽度、对齐、NUL 契约仍属调用方与 qjswasm 上层 schema。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded

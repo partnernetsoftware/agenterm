@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::ffi::c_void;
 
+pub mod abi;
 mod error;
 mod eval;
 mod exact_native;
@@ -21,6 +22,7 @@ mod unix_path;
 mod unix_resource;
 mod value;
 
+pub use abi::{AbiError, AbiSignature, AbiType, AbiValue, NativeCall, invoke_abi, validate_abi};
 pub use error::DynError;
 pub use eval::{MAX_TOTAL_REPEAT_ITERATIONS, REPEAT_MAX};
 pub use exact_native::{
