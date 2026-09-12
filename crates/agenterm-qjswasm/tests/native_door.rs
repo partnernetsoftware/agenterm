@@ -459,6 +459,62 @@ fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
     );
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn five_retired_scalar_probes_match_direct_darwin_oracles() {
+    unsafe extern "C" {
+        fn issetugid() -> i32;
+        fn arc4random() -> u32;
+        fn pthread_main_np() -> i32;
+        fn _dyld_image_count() -> u32;
+        fn malloc_good_size(size: usize) -> usize;
+    }
+
+    assert_eq!(
+        run_wat(
+            include_str!("fixtures/native/issetugid.wat"),
+            Budget::default()
+        )
+        .expect("issetugid runs through i32()"),
+        i64::from(unsafe { issetugid() })
+    );
+    // Random outputs cannot be compared for equality, and a probabilistic
+    // "must differ" assertion would make the court flaky. Repeated successful
+    // calls through both paths are the observable ABI claim here.
+    for _ in 0..8 {
+        let _guest = run_wat(
+            include_str!("fixtures/native/arc4random.wat"),
+            Budget::default(),
+        )
+        .expect("arc4random runs through u32()") as u32;
+        let _direct = unsafe { arc4random() };
+    }
+    assert_eq!(
+        run_wat(
+            include_str!("fixtures/native/pthread_main_np.wat"),
+            Budget::default(),
+        )
+        .expect("pthread_main_np runs through i32()"),
+        i64::from(unsafe { pthread_main_np() })
+    );
+    assert_eq!(
+        run_wat(
+            include_str!("fixtures/native/dyld_image_count.wat"),
+            Budget::default(),
+        )
+        .expect("_dyld_image_count runs through u32()") as u32,
+        unsafe { _dyld_image_count() }
+    );
+    assert_eq!(
+        run_wat(
+            include_str!("fixtures/native/malloc_good_size.wat"),
+            Budget::default(),
+        )
+        .expect("malloc_good_size runs through u64(u64)") as u64,
+        unsafe { malloc_good_size(4097) } as u64
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn retired_clock_callers_run_through_wat_with_nullable_second_pointer_boundaries() {

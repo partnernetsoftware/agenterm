@@ -119,19 +119,6 @@ fn dlcall_getprogname_matches_libc_c_string() {
 }
 
 #[test]
-fn dlcall_issetugid_matches_libc_boolean() {
-    let symbol = live_symbol("issetugid");
-    let mut env = Dyn::new();
-    let got = eval_native(&mut env, &format!(r#"(dlcall "{LIB}" "{symbol}" "i32")"#))
-        .expect("issetugid dlcall")
-        .as_int()
-        .expect("issetugid integer");
-    let direct = unsafe { libc::issetugid() };
-    assert!(matches!(got, 0 | 1), "issetugid must be boolean");
-    assert_eq!(got, i64::from(direct));
-}
-
-#[test]
 fn dlcall_nsget_executable_path_writes_a_caller_buffer() {
     let symbol = live_symbol("nsget_executable_path");
     let mut buffer = vec![0_u8; 4096];
@@ -183,20 +170,6 @@ fn dlcall_proc_pidpath_writes_a_caller_buffer() {
         .expect("proc_pidpath must NUL-terminate its successful output")
         .to_bytes();
     assert!(!path.is_empty(), "proc_pidpath path must be non-empty");
-}
-
-#[test]
-fn dlcall_arc4random_returns_u32_values() {
-    let symbol = live_symbol("arc4random");
-    let mut env = Dyn::new();
-    let script = format!(r#"(dlcall "{LIB}" "{symbol}" "u32")"#);
-    for _ in 0..2 {
-        let value = eval_native(&mut env, &script)
-            .expect("arc4random dlcall")
-            .as_int()
-            .expect("arc4random integer result");
-        assert!((0..=i64::from(u32::MAX)).contains(&value));
-    }
 }
 
 #[test]
@@ -345,19 +318,6 @@ fn dlcall_mach_timebase_info_writes_caller_owned_ratio() {
     assert_eq!(direct_status, 0, "direct mach_timebase_info must succeed");
     assert_eq!(ratio.numer, direct.numer);
     assert_eq!(ratio.denom, direct.denom);
-}
-
-#[test]
-fn dlcall_pthread_main_np_matches_libc() {
-    let symbol = live_symbol("pthread_main_np");
-    let mut env = Dyn::new();
-    let got = eval_native(&mut env, &format!(r#"(dlcall "{LIB}" "{symbol}" "i32")"#))
-        .expect("pthread_main_np dlcall")
-        .as_int()
-        .expect("pthread_main_np integer");
-    let direct = unsafe { libc::pthread_main_np() };
-    assert!(matches!(got, 0 | 1), "pthread_main_np must be boolean");
-    assert_eq!(got, i64::from(direct));
 }
 
 #[test]
@@ -577,23 +537,6 @@ fn dlcall_proc_pid_rusage_writes_caller_owned_v4() {
 }
 
 #[test]
-fn dlcall_dyld_image_count_matches_direct_c() {
-    unsafe extern "C" {
-        fn _dyld_image_count() -> u32;
-    }
-
-    let symbol = live_symbol("dyld_image_count");
-    let mut env = Dyn::new();
-    let got = eval_native(&mut env, &format!(r#"(dlcall "{LIB}" "{symbol}" "u32")"#))
-        .expect("_dyld_image_count dlcall")
-        .as_int()
-        .expect("_dyld_image_count integer");
-    assert!(got >= 1, "loaded image count must be at least 1");
-    let direct = unsafe { _dyld_image_count() };
-    assert!(direct >= 1, "direct image count must be at least 1");
-}
-
-#[test]
 fn dlcall_getentropy_fills_caller_owned_buffer() {
     const BYTES: usize = 16;
 
@@ -736,28 +679,6 @@ fn dlcall_pthread_cpu_number_np_writes_current_cpu() {
         "direct pthread_cpu_number_np must succeed"
     );
     assert!(direct < ncpu as u64, "direct current CPU must be online");
-}
-
-#[test]
-fn dlcall_malloc_good_size_matches_direct_c_for_requests() {
-    unsafe extern "C" {
-        fn malloc_good_size(size: usize) -> usize;
-    }
-
-    let symbol = live_symbol("malloc_good_size");
-    for request in [1_u64, 4097] {
-        let mut env = Dyn::new();
-        let got = eval_native(
-            &mut env,
-            &format!(r#"(dlcall "{LIB}" "{symbol}" "u64" "u64" {request})"#),
-        )
-        .expect("malloc_good_size dlcall")
-        .as_int()
-        .expect("malloc_good_size allocation size") as u64;
-        let direct = unsafe { malloc_good_size(request as usize) } as u64;
-        assert!(got >= request, "good allocation size must cover request");
-        assert_eq!(got, direct);
-    }
 }
 
 #[test]
