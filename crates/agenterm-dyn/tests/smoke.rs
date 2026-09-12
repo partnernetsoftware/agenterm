@@ -88,15 +88,6 @@ mod linux {
     }
 
     #[test]
-    fn dlcall_getpid_matches_libc() {
-        let mut env = Dyn::new();
-        let script = getpid_script();
-        let got = eval_native(&mut env, &script).expect("getpid dlcall");
-        let real = unsafe { libc::getpid() };
-        assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
     fn dlcall_getpid_is_stable_across_cached_library_calls() {
         let mut env = Dyn::new();
         let script = getpid_script();
@@ -120,29 +111,6 @@ mod linux {
         assert_eq!(got, Value::Int(i64::from(real)));
     }
 
-    #[test]
-    fn dlcall_getppid_secondary_probe() {
-        let c = cell();
-        let SecondaryProbe::Native {
-            lib,
-            symbol,
-            ret_type,
-        } = c.secondary_probe
-        else {
-            panic!("linux secondary should be getppid family");
-        };
-        let system_probe = live_system_probe("getppid");
-        assert_eq!(
-            system_probe.status,
-            SystemProbeStatus::LiveDlcall { lib, symbol }
-        );
-        let mut env = Dyn::new();
-        let script = format!(r#"(dlcall "{lib}" "{symbol}" "{ret_type}")"#);
-        let got = eval_native(&mut env, &script).expect("getppid dlcall");
-        let real = unsafe { libc::getppid() };
-        assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
     fn live_system_probe(name: &str) -> SystemProbe {
         let probe = cell()
             .system_probes
@@ -154,52 +122,6 @@ mod linux {
             SystemProbeStatus::LiveDlcall { .. } | SystemProbeStatus::LiveDlcallOwned { .. }
         ));
         probe
-    }
-
-    #[test]
-    fn dlcall_getuid_matches_libc() {
-        let probe = live_system_probe("getuid");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let got = eval_native(&mut env, &format!(r#"(dlcall "{lib}" "{symbol}" "u32")"#))
-            .expect("getuid dlcall");
-        let real = unsafe { libc::getuid() };
-        assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
-    fn dlcall_getegid_matches_libc() {
-        let probe = live_system_probe("getegid");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let got = eval_native(&mut env, &format!(r#"(dlcall "{lib}" "{symbol}" "u32")"#))
-            .expect("getegid dlcall");
-        let real = unsafe { libc::getegid() };
-        assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
-    fn dlcall_sysconf_pagesize_matches_libc() {
-        let probe = live_system_probe("sysconf_pagesize");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let got = eval_native(
-            &mut env,
-            &format!(
-                r#"(dlcall "{lib}" "{symbol}" "i64" "i32" {})"#,
-                libc::_SC_PAGESIZE
-            ),
-        )
-        .expect("sysconf(_SC_PAGESIZE) dlcall");
-        let real = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
-        assert!(real > 0, "host page size should be positive");
-        assert_eq!(got, Value::Int(real));
     }
 
     #[test]
@@ -481,26 +403,6 @@ mod macos {
     }
 
     #[test]
-    fn dlcall_ids_match_libc() {
-        for (name, ret) in [("getuid", "u32"), ("getppid", "i32"), ("getegid", "u32")] {
-            let probe = live_system_probe(name);
-            let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-                unreachable!()
-            };
-            let mut env = Dyn::new();
-            let got = eval_native(&mut env, &format!(r#"(dlcall "{lib}" "{symbol}" "{ret}")"#))
-                .unwrap_or_else(|e| panic!("{name}: {e}"));
-            let real = match name {
-                "getuid" => i64::from(unsafe { libc::getuid() }),
-                "getppid" => i64::from(unsafe { libc::getppid() }),
-                "getegid" => i64::from(unsafe { libc::getegid() }),
-                _ => unreachable!(),
-            };
-            assert_eq!(got, Value::Int(real), "{name}");
-        }
-    }
-
-    #[test]
     fn dlcall_getcwd_writes_current_directory() {
         use std::os::unix::ffi::OsStrExt;
         let probe = live_system_probe("getcwd");
@@ -658,39 +560,6 @@ mod macos {
             .expect("bind env_key");
         let script = format!(r#"(dlcall "{}" "getenv" "ptr" "ptr" env_key)"#, c.pid_lib);
         eval_native(&mut env, &script).expect("getenv dlcall should resolve and run");
-    }
-
-    #[test]
-    fn dlcall_clock_getres_smoke() {
-        let probe = live_system_probe("clock_getres");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut ts = libc::timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        };
-        let mut env = Dyn::new();
-        env.bind("ts", (&mut ts as *mut libc::timespec).cast())
-            .expect("bind timespec");
-        let got = eval_native(
-            &mut env,
-            &format!(
-                r#"(dlcall "{lib}" "{symbol}" "i32" "i32" {} "ptr" ts)"#,
-                libc::CLOCK_MONOTONIC
-            ),
-        )
-        .expect("clock_getres dlcall");
-        assert_eq!(got, Value::Int(0));
-
-        let mut baseline = libc::timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        };
-        let status = unsafe { libc::clock_getres(libc::CLOCK_MONOTONIC, &mut baseline) };
-        assert_eq!(status, 0, "direct libc clock_getres baseline");
-        assert_eq!(ts.tv_sec, baseline.tv_sec);
-        assert_eq!(ts.tv_nsec, baseline.tv_nsec);
     }
 }
 

@@ -426,6 +426,11 @@ later direct libc baselines. The duplicate Linux/macOS Lisp courts are retired.
 The Unix `getrusage` court likewise normalizes the guest-written user and system
 `timeval` values to microseconds and compares each with a later direct libc
 baseline; its duplicate Linux/macOS Lisp courts are retired.
+Existing qjswasm courts also remain the sole executable claims for Unix
+`getpid`/`getppid`/`getuid`/`getegid`, page-size `sysconf`, and Darwin
+`clock_getres`; their residual scalar Lisp duplicates are retired. Cache and
+language-composition courts that happen to call `getpid` remain until those
+separate claims migrate.
 Unix `ioctl` (Linux and macOS) is owned by dyn's `invoke_unix_ioctl` only for the
 validated `(i32, u64|i32, ptr) -> i32` signature. The legacy Lisp entrance and
 the qjswasm native door both delegate there; the fixed trampoline remains for
