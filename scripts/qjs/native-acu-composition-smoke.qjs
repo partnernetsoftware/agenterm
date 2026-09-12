@@ -1,0 +1,31 @@
+// Public black-box proof that one supervised QJS guest can use the ACU module
+// and the dyn-backed native module without either bridge swallowing the other's
+// arguments. Help is intentionally target-free and has no ambient CU dependency.
+import * as acu from "agenterm:acu";
+import * as native from "agenterm:native";
+
+if (arg_count() !== 0) { throw "expected: no arguments"; }
+
+const help = acu.argv(["--help"]);
+if (help === null || typeof help !== "object"
+    || help.ok !== true
+    || help.command !== "help") {
+  throw "native_acu_help_envelope";
+}
+
+const pid = native.call("|getpid|i32()", []);
+if (pid === null || typeof pid !== "object"
+    || pid.type !== "i32"
+    || pid.value <= 0) {
+  throw "native_acu_getpid_result";
+}
+
+const magnitude = native.call("|abs|i32(i32)", [-7]);
+if (magnitude === null || typeof magnitude !== "object"
+    || magnitude.type !== "i32"
+    || magnitude.value !== 7) {
+  throw "native_acu_abs_result";
+}
+
+print("PASS: one supervised QJS guest composed target-free ACU help with dyn-backed getpid and abs");
+return;

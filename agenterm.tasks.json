@@ -3062,6 +3062,23 @@
         "task.acu-provider-smoke"
       ]
     },
+    "native-acu-composition-smoke": {
+      "inputs": [
+        "built-agenterm-with-acu-provider"
+      ],
+      "outputs": [
+        "native-acu-composition-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.native-acu-composition-smoke"
+      ]
+    },
     "acu-provider-job-wait-cancel-smoke": {
       "inputs": [
         "built-agenterm-with-acu-provider",
@@ -8986,6 +9003,20 @@
       "dependencies": [],
       "platforms": [
         "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": []
+    },
+    {
+      "id": "native-acu-composition-smoke",
+      "description": "Prove one supervised QJS guest composes target-free agenterm:acu help with dyn-backed exact native getpid and abs calls without losing arguments.",
+      "entry": "scripts/qjs/native-acu-composition-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [],
+      "dependencies": [],
+      "platforms": [
         "linux",
         "macos"
       ],
