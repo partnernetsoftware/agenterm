@@ -492,6 +492,9 @@ court has claim-preserving `.wat` or typed-owner evidence.
   `sysconf(_SC_CLK_TCK)` 与 `sysconf(_SC_NPROCESSORS_ONLN)` 复用既有
   `isize(i32)` 机制；WAT court 保留正值和 direct libc 精确断言，并与已有
   page-size oracle 合并，三份 Linux/macOS Lisp 测试随之退役。
+  `getpagesize()` 原先只返回布尔形状检查的 addition fixture 已提升为直接返回值
+  的正式 WAT court，并与 `sysconf(_SC_PAGESIZE)` 精确比较；两份 Lisp court
+  因而删除，而不是用较弱断言替代。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded

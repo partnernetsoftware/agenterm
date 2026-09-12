@@ -366,23 +366,15 @@ fn session_and_process_group_ids_cross_the_native_door() {
 
 #[cfg(unix)]
 #[test]
-fn a_fourth_capability_is_only_an_additional_wat_guest() {
-    let directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/native/additions");
-    let mut additions = std::fs::read_dir(directory)
-        .expect("native addition fixtures exist")
-        .collect::<Result<Vec<_>, _>>()
-        .expect("native addition fixtures are readable");
-    additions.sort_by_key(std::fs::DirEntry::file_name);
-    assert!(!additions.is_empty(), "the fourth capability is present");
-    for addition in additions {
-        let source = std::fs::read_to_string(addition.path()).expect("addition is UTF-8 WAT");
-        assert_eq!(
-            run_wat(&source, Budget::default()).expect("addition runs"),
-            1,
-            "each added WAT returns its own boolean proof"
-        );
-    }
+fn getpagesize_matches_the_independent_sysconf_oracle() {
+    let expected = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    assert!(expected > 0, "sysconf page size must be positive");
+    let actual = run_wat(
+        include_str!("fixtures/native/getpagesize.wat"),
+        Budget::default(),
+    )
+    .expect("getpagesize guest runs");
+    assert_eq!(actual, expected);
 }
 
 /// The effective group id as an independent POSIX process reports it: `id -g`

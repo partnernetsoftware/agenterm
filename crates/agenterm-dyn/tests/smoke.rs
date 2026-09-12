@@ -645,20 +645,6 @@ mod linux {
     }
 
     #[test]
-    fn dlcall_getpagesize_matches_libc_and_sysconf() {
-        let probe = live_system_probe("getpagesize");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let got = eval_native(&mut env, &format!(r#"(dlcall "{lib}" "{symbol}" "i32")"#))
-            .expect("getpagesize dlcall");
-        let sysconf = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
-        assert!(sysconf > 0, "page size should be positive");
-        assert_eq!(got, Value::Int(sysconf));
-    }
-
-    #[test]
     fn dlcall_ioctl_winsize() {
         let c = cell();
         let SizeProbe::IoctlTiocgwinsz {
@@ -1295,16 +1281,6 @@ mod macos {
         let got_id = eval_native(&mut env, &format!(r#"(dlcall "{lib}" "{hid_sym}" "i64")"#))
             .expect("gethostid");
         assert_eq!(got_id, Value::Int(unsafe { libc::gethostid() }));
-
-        let ps = live_system_probe("getpagesize");
-        let SystemProbeStatus::LiveDlcall { symbol: ps_sym, .. } = ps.status else {
-            unreachable!()
-        };
-        let got_ps = eval_native(&mut env, &format!(r#"(dlcall "{lib}" "{ps_sym}" "i32")"#))
-            .expect("getpagesize");
-        let sysconf = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
-        assert!(sysconf > 0);
-        assert_eq!(got_ps, Value::Int(sysconf));
     }
 
     #[test]
