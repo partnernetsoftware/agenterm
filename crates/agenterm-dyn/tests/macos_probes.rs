@@ -5,8 +5,7 @@
 use std::ffi::{CStr, CString, c_void};
 
 use agenterm_dyn::{
-    DlAddressSnapshot, Dyn, HostnameSnapshot, MachTimebaseSnapshot, StatVfsSnapshot,
-    SystemProbeStatus, Value, live_cell,
+    DlAddressSnapshot, Dyn, HostnameSnapshot, StatVfsSnapshot, SystemProbeStatus, Value, live_cell,
 };
 
 const LIB: &str = "libSystem.B.dylib";
@@ -289,41 +288,6 @@ fn dlcall_pthread_equal_recognizes_current_thread() {
     let direct =
         unsafe { libc::pthread_equal(first as libc::pthread_t, second as libc::pthread_t) };
     assert_ne!(direct, 0, "direct C call must recognize the current thread");
-}
-
-#[test]
-fn dlcall_mach_timebase_info_writes_caller_owned_ratio() {
-    #[repr(C)]
-    struct Timebase {
-        numer: u32,
-        denom: u32,
-    }
-    unsafe extern "C" {
-        fn mach_timebase_info(info: *mut Timebase) -> libc::c_int;
-    }
-
-    let symbol = live_symbol("mach_timebase_info");
-    let mut ratio = Timebase { numer: 0, denom: 0 };
-    let mut env = Dyn::new();
-    env.bind("ratio", (&mut ratio as *mut Timebase).cast())
-        .expect("bind timebase output");
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "i32" "ptr" ratio)"#),
-    )
-    .expect("mach_timebase_info dlcall");
-    assert_eq!(got, Value::Int(0));
-    assert!(ratio.numer > 0, "timebase numerator must be positive");
-    assert!(ratio.denom > 0, "timebase denominator must be positive");
-
-    let mut direct = Timebase { numer: 0, denom: 0 };
-    let direct_status = unsafe { mach_timebase_info(&mut direct) };
-    assert_eq!(direct_status, 0, "direct mach_timebase_info must succeed");
-    assert_eq!(ratio.numer, direct.numer);
-    assert_eq!(ratio.denom, direct.denom);
-    let snapshot = MachTimebaseSnapshot::acquire().expect("typed Mach timebase snapshot");
-    assert_eq!(snapshot.numerator(), direct.numer);
-    assert_eq!(snapshot.denominator(), direct.denom);
 }
 
 #[test]
@@ -625,38 +589,6 @@ fn dlcall_pthread_get_stackaddr_np_matches_libc_current_thread() {
 }
 
 #[test]
-fn dlcall_pthread_cpu_number_np_writes_current_cpu() {
-    unsafe extern "C" {
-        fn pthread_cpu_number_np(cpu: *mut u32) -> libc::c_int;
-    }
-
-    let symbol = live_symbol("pthread_cpu_number_np");
-    // The `dlcall` ABI exposes this caller-owned output slot as `u64`; zeroing
-    // its upper bytes preserves the C function's `u32` write exactly.
-    let mut cpu = 0_u64;
-    let mut env = Dyn::new();
-    env.bind("cpu", (&mut cpu as *mut u64).cast())
-        .expect("bind current CPU output");
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "i32" "ptr" cpu)"#),
-    )
-    .expect("pthread_cpu_number_np dlcall");
-    assert_eq!(got, Value::Int(0));
-    let ncpu = unsafe { libc::sysconf(libc::_SC_NPROCESSORS_ONLN) };
-    assert!(ncpu > 0, "online CPU count must be positive");
-    assert!(cpu < ncpu as u64, "current CPU must be online");
-
-    let mut direct = 0_u64;
-    let direct_status = unsafe { pthread_cpu_number_np((&mut direct as *mut u64).cast()) };
-    assert_eq!(
-        direct_status, 0,
-        "direct pthread_cpu_number_np must succeed"
-    );
-    assert!(direct < ncpu as u64, "direct current CPU must be online");
-}
-
-#[test]
 fn dlcall_nsget_progname_matches_libc_outer_pointer_and_c_string() {
     let symbol = live_symbol("nsget_progname");
     let mut env = Dyn::new();
@@ -768,38 +700,6 @@ fn dlcall_confstr_writes_cs_path() {
             .expect("direct confstr must NUL-terminate successful output")
             .to_bytes()
     );
-}
-
-#[test]
-fn dlcall_clock_getres_writes_monotonic_timespec() {
-    let symbol = live_symbol("clock_getres");
-    let clock = libc::CLOCK_MONOTONIC;
-    let mut ts = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    let mut env = Dyn::new();
-    env.bind("ts", (&mut ts as *mut libc::timespec).cast())
-        .expect("bind clock_getres timespec");
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "i32" "i32" {clock} "ptr" ts)"#),
-    )
-    .expect("clock_getres dlcall");
-    assert_eq!(got, Value::Int(0));
-    assert!(
-        (0..1_000_000_000).contains(&ts.tv_nsec),
-        "timespec nsec must be in 0..1e9"
-    );
-
-    let mut direct = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    let direct_status = unsafe { libc::clock_getres(clock, &mut direct) };
-    assert_eq!(direct_status, 0, "direct clock_getres must succeed");
-    assert_eq!(ts.tv_sec, direct.tv_sec);
-    assert_eq!(ts.tv_nsec, direct.tv_nsec);
 }
 
 #[test]

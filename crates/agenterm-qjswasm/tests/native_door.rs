@@ -1,5 +1,5 @@
 #[cfg(unix)]
-use agenterm_dyn::{ClockId, ClockSnapshot};
+use agenterm_dyn::{ClockId, ClockSnapshot, CpuCountSnapshot, MachTimebaseSnapshot};
 #[cfg(unix)]
 use std::sync::Arc;
 #[cfg(unix)]
@@ -567,6 +567,73 @@ fn five_more_retired_scalar_probes_keep_current_thread_identity() {
         .expect("the WAT chains pthread_self into pthread_get_stacksize_np") as u64,
         unsafe { pthread_get_stacksize_np(direct_thread) }
     );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn three_retired_darwin_output_structs_match_direct_oracles() {
+    #[repr(C)]
+    struct Timebase {
+        numer: u32,
+        denom: u32,
+    }
+    #[repr(C)]
+    struct Timespec {
+        seconds: i64,
+        nanoseconds: i64,
+    }
+    unsafe extern "C" {
+        fn mach_timebase_info(info: *mut Timebase) -> i32;
+        fn pthread_cpu_number_np(cpu: *mut u32) -> i32;
+        fn clock_getres(clock_id: i32, resolution: *mut Timespec) -> i32;
+    }
+
+    let packed = run_wat(
+        include_str!("fixtures/native/mach_timebase_info.wat"),
+        Budget::default(),
+    )
+    .expect("mach_timebase_info runs through i32(ptr)") as u64;
+    let mut direct_timebase = Timebase { numer: 0, denom: 0 };
+    assert_eq!(unsafe { mach_timebase_info(&mut direct_timebase) }, 0);
+    assert!(direct_timebase.numer > 0 && direct_timebase.denom > 0);
+    assert_eq!(packed as u32, direct_timebase.numer);
+    assert_eq!((packed >> 32) as u32, direct_timebase.denom);
+    let snapshot = MachTimebaseSnapshot::acquire().expect("typed Mach timebase snapshot");
+    assert_eq!(snapshot.numerator(), direct_timebase.numer);
+    assert_eq!(snapshot.denominator(), direct_timebase.denom);
+
+    let cpu = run_wat(
+        include_str!("fixtures/native/pthread_cpu_number_np.wat"),
+        Budget::default(),
+    )
+    .expect("pthread_cpu_number_np runs through i32(ptr)") as u32;
+    let mut direct_cpu = 0_u32;
+    assert_eq!(unsafe { pthread_cpu_number_np(&mut direct_cpu) }, 0);
+    let logical_cpus = CpuCountSnapshot::acquire()
+        .expect("typed logical CPU count")
+        .logical_cpus();
+    assert!(
+        cpu < logical_cpus,
+        "guest CPU must be in the host CPU range"
+    );
+    assert!(
+        direct_cpu < logical_cpus,
+        "direct CPU must be in the host CPU range"
+    );
+
+    let packed = run_wat(
+        include_str!("fixtures/native/clock_getres.wat"),
+        Budget::default(),
+    )
+    .expect("clock_getres runs through i32(i32,ptr)") as u64;
+    let mut direct_resolution = Timespec {
+        seconds: 0,
+        nanoseconds: 0,
+    };
+    assert_eq!(unsafe { clock_getres(6, &mut direct_resolution) }, 0);
+    assert!((0..1_000_000_000).contains(&direct_resolution.nanoseconds));
+    assert_eq!(packed as u32, direct_resolution.seconds as u32);
+    assert_eq!((packed >> 32) as u32, direct_resolution.nanoseconds as u32);
 }
 
 #[cfg(unix)]
