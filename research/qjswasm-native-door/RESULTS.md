@@ -105,3 +105,73 @@ rg -n 'NativeType::(I32|U32|I64|U64|Isize|Usize|F64)|invoke_[0-6]' crates/agente
 ./scripts/doc-redact-check.sh research/qjswasm-native-door/RESULTS.md   # 期望输出：clean
 git diff --check                                                      # 期望：无输出
 ```
+
+---
+
+# 追加：follow-up source state（两次资格提交之后）
+
+上一节（§1–§8）的**测量身份保持不变**，不要覆盖它：那里的每个数字都出自 `93a46fcd`。
+本节只记录**新的 source state**，并明确哪些是**在新 HEAD 上实测**、哪些**没有重跑**。
+
+## F1. follow-up source identity 与自上次以来的两次提交
+
+| 项 | 值 |
+|---|---|
+| **HEAD（本节 source identity）** | `a6de447386267b34c521d946fa95dd3c78e3f9e5`（short `a6de4473`） |
+| 工作树 | `git status --porcelain` **为空（clean）** |
+| 自 `93a46fcd` 以来的资格提交 | ① **`22b79c0f qjswasm: gate exact native stub admission`**（exact 49 从 believability 升级为可执行准入门）<br/>② **`a6de4473 qjswasm: distinguish native door declaration layers`**（5 → 6 的精确差集门） |
+| 生产 Rust 聚合哈希（**新**，与 §5 的旧值**不同**，因为这两次提交改了 `src/native.rs`） | `4bf30cf1047443826d69f91727561fa7d824cb7396a2ed1ca1c0b942ae09a0f6` |
+
+> §5 记录的 `44241fd4…`（`b6755b0f` == `93a46fcd`）**只描述那两个提交之间的不变性**；本节 HEAD 的生产面已被 `22b79c0f` 改动 ⇒ **不得再用旧哈希描述 HEAD**。
+
+## F2. 在**当前 HEAD 实测**的三格（host，真机执行）
+
+```sh
+CARGO_TARGET_DIR=target/s5-followup cargo test -p agenterm-qjswasm --lib native
+CARGO_TARGET_DIR=target/s5-followup cargo test -p agenterm-qjswasm --test native_door_schema
+CARGO_TARGET_DIR=target/s5-followup cargo test -p agenterm-qjswasm --test native_door
+```
+
+| 格 | 结果（本节实测） | 状态 |
+|---|---|---|
+| native lib 定向 | `ok. 2 passed; 0 failed`（50 filtered out） | **真机执行** |
+| `native_door_schema` | `ok. 9 passed; 0 failed` | **真机执行** |
+| `native_door` runtime | `ok. 11 passed; 0 failed` | **真机执行** |
+
+**未重跑项（不得沿用为新证据）**：§3 的 Windows x86_64 / aarch64 `xwin clippy` 与 Linux x86_64 的 zigbuild 格**都停在 `93a46fcd`**——本节**没有**在新 HEAD 上重跑它们，因此它们在当前 HEAD 的状态是**未测定**，不是"仍然绿"。lane `target/s5-followup` 采集后已 `rm -rf`。
+
+## F3. exact 49 的依据更新（从"数字"到"可执行门"）
+
+`93a46fcd` 时的状况是：`native_invocation_stub_cardinality()` 给出 `7 × 7 = 49`，但**没有任何断言证明这 49 个组合真的被受理**（§4 因此把 49 标为"未复算"）。
+`22b79c0f` 之后，依据变成三层，缺一不可：
+
+1. **生产侧唯一准入判定**：`crates/agenterm-qjswasm/src/native.rs:780` 的私有纯 helper
+   `fn exact_family(call: &DecodedNativeCall) -> Option<NativeType>` —— 先做 `parameters.len() > MAX_NATIVE_ARITY ⇒ None`，再在 `EXACT_SCALAR_FAMILIES` 上 `find(result == ty && all_parameters(..))`；`invoke_native_call` 调用它（**单一真相**，不再有第二份 match 分类）。
+2. **独立枚举**：`native.rs` 的 `#[cfg(test)]` 单元测试自行枚举 7 类型 × arity `0..=6`（测试内 `admitted` 计数器），断言**恰好 49**；expected 不来自被测 helper。
+3. **拒绝矩阵**：异构参数、pointer/narrow/void/f32 结果、以及 **arity 7**（超过 `MAX_NATIVE_ARITY = 6`）一律 `None`/typed 拒绝。
+
+⇒ 49 现在是"**生产受理集合的基数 = 独立枚举的基数**"，而不是 `sizeof(table) × arity` 的算术陈述。
+
+## F4. 8 / 6 / 1 的层次解释（S5 的"8 还是 6"疑问，现已闭合）
+
+| 层 | 值 | 归属 | 判据 |
+|---|---|---|---|
+| **raw host signature inventory** | **8** | `src/host.rs:209` `const SIGNATURES: [(&str, usize, usize); 8]` | 源码常量；**不是**编译器可见声明集合 |
+| **compiler default door declarations** | **5** | `door_declarations()`（`lib.rs:459`） | 集合基数 |
+| **native opt-in 追加** | **+1（仅 `native_call`）** | `native_door_declarations()`（`lib.rs:468`） | `default.is_disjoint(&native)` |
+| **opt-in compiler declarations** | **6** | 并集 | `opt_in − default` 恰为 `{("agenterm","native_call")}` |
+
+⇒ **8 与 6 不是漂移**：它们是 **raw inventory** 与 **compiler-visible declarations** 两层。
+`a6de4473` 的测试 `the_native_opt_in_adds_exactly_one_declaration_to_the_default_door` 用**差集**钉住这一关系（而不是再钉裸数字）。
+`93a46fcd` 时 S5 曾把"门上 import = 6 ≠ 8"记为**待裁偏差**；**该偏差的答案是"两层"，不是缺陷**。
+
+## F5. Release
+
+**L1 / L2 / L3 仍未测定**（与 §6 一致，未因本节而改变）。本节全部数据来自 **debug（dev profile）**。
+
+## F6. 本节未声称项
+
+- **未声称**在 `a6de4473` 上重跑过任何 Windows/Linux 跨目标格（§F2 已列白）；
+- **未声称** raw inventory(8) 的字段集合可从公开 API 取得（仍只有 `host.rs` 的结构只读证据）；
+- **未声称** release 三层任何结论；
+- **未声称** 49 与新 helper 之外还有别的准入路径（`invoke_native_call` 是唯一调用点）。
