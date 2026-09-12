@@ -235,7 +235,7 @@ without wiring dyn into cu, platform, or the ABI:
 - [filesystem facts via `statvfs`](examples/statvfs.md) (Linux and macOS; typed snapshot evidence)
 - [wall-clock time via `gettimeofday`](examples/gettimeofday.md) (macOS)
 - [supplementary groups via `getgroups`](examples/getgroups.md) (Linux and macOS; typed owner evidence)
-- [resolved path via `realpath`](examples/realpath.md) (macOS)
+- [owned resolved path via `ResolvedPath`](examples/realpath.md) (Linux and macOS)
 - [owned `mach_host_self` send-right reference](examples/mach-host-self.md) (macOS)
 - [owned interface-address snapshot via `getifaddrs`](examples/getifaddrs.md) (Linux and macOS)
 - [clock ticks per second via `sysconf`](examples/sysconf-clk-tck.md)
@@ -318,7 +318,8 @@ Darwin-specific smokes cover `mach_absolute_time`, `getprogname`, `issetugid`, `
 `_NSGetMachExecuteHeader`, `_dyld_get_image_name`,
 `_dyld_get_image_vmaddr_slide`, `gethostuuid`,
 `_dyld_get_image_header`, `arc4random_uniform`,
-`gettimeofday` and `realpath`; `dladdr` additionally has a bounded,
+`gettimeofday`; `realpath` is owned by `ResolvedPath` on both Unix hosts;
+`dladdr` additionally has a bounded,
 pointer-free current-image snapshot on macOS; `getdomainname` and `getlogin_r`
 are now represented only by their bounded typed snapshots, while
 `gethostname`, `statvfs`, and `getgroups` have bounded typed snapshots on both

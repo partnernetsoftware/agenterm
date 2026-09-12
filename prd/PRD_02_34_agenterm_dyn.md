@@ -242,8 +242,8 @@ fixnum `+` `-` + bounded `repeat` + one hand (`dlcall`).
   `statvfs`, `gettimeofday`, `getgroups`, and `realpath`.
   `CpuCountSnapshot::acquire` owns only the bounded, pointer-free `hw.ncpu`
   fact rather than exposing general `sysctlbyname` caller buffers.
-  `gethostname`, `getdomainname`, `getlogin_r`, `statvfs`, and `getgroups`
-  are typed-only snapshot/owner rows; the remaining native-call rows resolve
+  `gethostname`, `getdomainname`, `getlogin_r`, `statvfs`, `getgroups`, and
+  `realpath` are typed-only snapshot/owner rows; the remaining native-call rows resolve
   through `libSystem.B.dylib`.
   `mach_host_self` is **no longer a placeholder on Darwin**: `MachHostPort::acquire()`
   takes one owned send-right reference and its `Drop` calls `mach_port_deallocate`
@@ -273,7 +273,7 @@ fixnum `+` `-` + bounded `repeat` + one hand (`dlcall`).
   `statvfs` field-comparison courts each reported `ok`.
   Wave 9 is therefore host-evidenced and shipped; no Windows result is used as
   a substitute for that evidence.
-  Wave 10 adds `gettimeofday`, `getgroups`, and `realpath` to the Darwin live
+  Wave 10 originally added `gettimeofday`, `getgroups`, and `realpath` to the Darwin live
   catalog (85 rows). Measured on this aarch64-apple-darwin host with Rust 1.97:
   **185 passed** (25 unit + 3 catalog/docs + 40 errors + 11 hosts + 26 language
   + 1 macos_ioctl + 48 macos_probes + 4 macos_resource + 27 cfg-gated macOS
@@ -321,8 +321,8 @@ Integer/void/ptr libc rows are live on Linux (`libc.so.6`) and macOS
 `statvfs`, `gettimeofday`, `getgroups`, and `realpath`.
 `CpuCountSnapshot::acquire` is the typed-only owner of the fixed `hw.ncpu`
 query, not a general `sysctlbyname` interface. The current
-`gethostname`, `getdomainname`, `getlogin_r`, `statvfs`, and `getgroups` rows
-are typed-only snapshot/owner facts rather than legacy Lisp calls.
+`gethostname`, `getdomainname`, `getlogin_r`, `statvfs`, `getgroups`, and
+`realpath` rows are typed-only snapshot/owner facts rather than legacy Lisp calls.
 `mach_host_self` is owned on Darwin through `MachHostPort` (`acquire()` plus a
 `Drop` that deallocates exactly once, typed `MachHostPortError`); the other cells
 stay placeholder / typed `Unsupported`, and the real-machine evidence is the host

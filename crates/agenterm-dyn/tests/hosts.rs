@@ -287,7 +287,7 @@ fn additional_system_probes_use_explicit_live_and_placeholder_statuses() {
                 .filter(|probe| {
                     !matches!(
                         probe.name,
-                        "gethostname" | "statvfs" | "getgroups" | "getifaddrs"
+                        "gethostname" | "statvfs" | "getgroups" | "realpath" | "getifaddrs"
                     )
                 })
                 .all(|probe| matches!(probe.status, SystemProbeStatus::Placeholder))
@@ -419,6 +419,11 @@ fn additional_system_probes_use_explicit_live_and_placeholder_statuses() {
                                 api: "SupplementaryGroups::acquire"
                             }
                         ) | (
+                            "realpath",
+                            SystemProbeStatus::LiveOwned {
+                                api: "ResolvedPath::acquire"
+                            }
+                        ) | (
                             "getdomainname",
                             SystemProbeStatus::LiveOwned {
                                 api: "DomainNameSnapshot::acquire"
@@ -490,7 +495,6 @@ fn darwin_system_probe_symbols_preserve_exact_c_spellings() {
             ("dyld_get_image_header", "_dyld_get_image_header"),
             ("arc4random_uniform", "arc4random_uniform"),
             ("gettimeofday", "gettimeofday"),
-            ("realpath", "realpath"),
         ] {
             let probe = c
                 .system_probes
@@ -714,6 +718,26 @@ fn per_cell_status_separates_darwin_only_and_unix_apis() {
                     api: "HostnameSnapshot::acquire",
                 },
                 "gethostname keeps typed snapshot evidence on Unix: {}/{}",
+                cell.os,
+                cell.arch
+            );
+        }
+        let realpath = status_of(cell, "realpath");
+        if cell.os == "windows" {
+            assert_eq!(
+                realpath,
+                SystemProbeStatus::Placeholder,
+                "realpath is unavailable on Windows: {}/{}",
+                cell.os,
+                cell.arch
+            );
+        } else {
+            assert_eq!(
+                realpath,
+                SystemProbeStatus::LiveOwned {
+                    api: "ResolvedPath::acquire",
+                },
+                "realpath keeps typed ownership on Unix: {}/{}",
                 cell.os,
                 cell.arch
             );

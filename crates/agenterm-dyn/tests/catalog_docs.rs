@@ -55,7 +55,6 @@ const DARWIN_ONLY_LIVE_EXAMPLES: &[(&str, &str)] = &[
     ("dyld_get_image_header", "dyld-get-image-header.md"),
     ("arc4random_uniform", "arc4random-uniform.md"),
     ("gettimeofday", "gettimeofday.md"),
-    ("realpath", "realpath.md"),
 ];
 
 #[test]
@@ -246,6 +245,32 @@ fn unix_statvfs_has_typed_snapshot_documentation() {
 
     let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
     assert!(readme.contains("](examples/statvfs.md)"));
+}
+
+#[test]
+fn unix_realpath_has_typed_owner_documentation() {
+    for cell in [LINUX_X86_64, LINUX_AARCH64, MACOS_X86_64, MACOS_AARCH64] {
+        let probe = cell
+            .system_probes
+            .iter()
+            .find(|probe| probe.name == "realpath")
+            .expect("Unix catalog contains realpath");
+        assert_eq!(
+            probe.status,
+            SystemProbeStatus::LiveOwned {
+                api: "ResolvedPath::acquire",
+            }
+        );
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let example = fs::read_to_string(root.join("examples/realpath.md"))
+        .expect("realpath documentation is readable");
+    assert!(example.contains("ResolvedPath::acquire"));
+    assert!(!example.contains("(dlcall"));
+
+    let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
+    assert!(readme.contains("](examples/realpath.md)"));
 }
 
 #[test]

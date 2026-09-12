@@ -1,14 +1,18 @@
-# Resolve a Darwin path with `realpath`
+# Resolve a Unix path with `ResolvedPath`
 
-macOS example. The embedding Rust host binds a NUL-terminated path as `path`
-and a writable `PATH_MAX` byte buffer as `buf`, retaining both through unsafe
-evaluation.
+Linux and macOS expose `ResolvedPath::acquire(path)` as the typed owner for
+`realpath(path, NULL)`. It copies the native result into an owned `PathBuf` and
+releases the C allocation exactly once before returning.
 
-```lisp
-(dlcall "libSystem.B.dylib" "realpath" "ptr" "ptr" path "ptr" buf)
+```rust
+use std::path::Path;
+
+use agenterm_dyn::ResolvedPath;
+
+let resolved = ResolvedPath::acquire(Path::new("."))?;
+assert!(resolved.as_path().is_absolute());
+# Ok::<(), agenterm_dyn::RealPathError>(())
 ```
 
-A non-null result is the bound buffer pointer and holds the resolved
-NUL-terminated path. A null result stays `0`; the script does not invent a
-path or hide the native failure. dyn does not allocate that buffer. The call
-opens no caller-owned file descriptor and returns no Mach right.
+Interior NUL input and native failures remain typed errors. Windows returns
+`RealPathError::Unsupported`; it is not reported as a live Unix fact.

@@ -417,7 +417,12 @@ const LINUX_SYSTEM_PROBES: [SystemProbe; 86] = [
             api: "SupplementaryGroups::acquire",
         },
     },
-    placeholder("realpath"),
+    SystemProbe {
+        name: "realpath",
+        status: SystemProbeStatus::LiveOwned {
+            api: "ResolvedPath::acquire",
+        },
+    },
     placeholder("mach_host_self"),
     SystemProbe {
         name: "getifaddrs",
@@ -578,7 +583,12 @@ const MACOS_SYSTEM_PROBES: [SystemProbe; 86] = [
             api: "SupplementaryGroups::acquire",
         },
     },
-    macos_live("realpath", "realpath"),
+    SystemProbe {
+        name: "realpath",
+        status: SystemProbeStatus::LiveOwned {
+            api: "ResolvedPath::acquire",
+        },
+    },
     SystemProbe {
         name: "mach_host_self",
         status: SystemProbeStatus::LiveOwned {
