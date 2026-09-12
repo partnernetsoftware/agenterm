@@ -66,7 +66,7 @@ agenterm-dyn
 ├── A. 可执行 native core                         [机制保留 · 策略迁移]
 │   ├── abi
 │   │   ├── AbiSignature / NativeCall              [调用方运行时描述]
-│   │   ├── validate_abi / invoke_abi              [统一机制入口；fixed 两族仍在迁移]
+│   │   ├── validate_abi / invoke_abi              [统一机制入口；pointer 族仍在迁移]
 │   │   └── Pointer 只表达 ABI 地址位；可空与 pointee 契约在上层
 │   ├── exact_native
 │   │   ├── 执行：按调用方 ABI 描述调用            [保留]
@@ -76,7 +76,7 @@ agenterm-dyn
 │   ├── fixed_native
 │   │   ├── 枚举式异构标量 prototype               [**策略 → 上层 qjswasm**]
 │   │   ├── validate_fixed_native_signature        [**策略 → 上层 qjswasm**]
-│   │   └── invoke_fixed                            [保留]
+│   │   └── invoke_fixed                            [兼容薄封装 → invoke_abi]
 │   ├── fixed_pointer
 │   │   ├── 枚举式 caller-buffer / pointer prototype [**策略 → 上层 qjswasm**]
 │   │   ├── validate_fixed_pointer_signature        [**策略 → 上层 qjswasm**]
@@ -442,17 +442,17 @@ dyn **只拥有机制**——它执行**调用方传入的 ABI 描述**，不再
 exact/fixed/fixed-pointer 集合”。qjswasm 仍有真实的 Cargo 依赖；其 native dispatcher
 保留 prototype/catalog 判定与 guest schema，五个 scalar/pointer 执行臂已经统一调用
 dyn 的 `invoke_abi`。旧 `invoke_exact` / `invoke_fixed` / `invoke_fixed_pointer` 不再是
-qjswasm 的执行入口；其中 `invoke_exact` 已成为统一入口的兼容薄封装，fixed 与
-fixed-pointer 的机制体仍被 `invoke_abi` 反向委托，尚待后续两刀收拢。
+qjswasm 的执行入口；其中 `invoke_exact` 与 `invoke_fixed` 已成为统一入口的兼容
+薄封装，fixed-pointer 的机制体仍被 `invoke_abi` 反向委托，尚待最后一刀收拢。
 The current
 S-expression surface remains shipped product truth only until each non-language
 court has claim-preserving `.wat` or typed-owner evidence.
 
 - 统一 `abi` 迁移桥已落地：运行时构造的 `AbiSignature` / `NativeCall`
   会按**当前真实 trampoline 矩阵**分类；exact family 已改为
-  `invoke_exact → invoke_abi → crate-private exact mechanism`，fixed 与
+  `invoke_exact` / `invoke_fixed → invoke_abi → crate-private family mechanism`，
   fixed-pointer 暂仍由统一入口反向委托。它没有新增 loader、door 或 ABI
-  形状，且尚未完成后两族的最终依赖反转。qjswasm 已把 exact/fixed/
+  形状，且尚未完成 pointer 族的最终依赖反转。qjswasm 已把 exact/fixed/
   fixed-pointer prototype 枚举、同质族判据和 canonical argument conversion
   本地化，不再导入 dyn 的旧策略枚举或 validator；下一步是让旧三族变成
   统一机制体的兼容薄封装。raw `Pointer` 只有一个 ABI 位，是否可空及

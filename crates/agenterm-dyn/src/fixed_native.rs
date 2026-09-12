@@ -137,13 +137,89 @@ pub fn validate_fixed_native_signature(
     }
 }
 
-/// Resolve and invoke one enumerated heterogeneous scalar prototype.
+/// Resolve and invoke one enumerated heterogeneous scalar prototype through the
+/// unified ABI mechanism entry.
 ///
 /// # Safety
 /// The caller asserts that `symbol` really has `prototype`'s fixed,
 /// non-variadic C ABI. Native initializers, finalizers, and the function may
 /// have arbitrary process effects.
 pub unsafe fn invoke_fixed(
+    call: &FixedNativeCall<'_>,
+) -> Result<FixedNativeValue, FixedNativeError> {
+    use crate::abi::{AbiError, AbiSignature, AbiType, AbiValue, NativeCall, invoke_abi};
+
+    const fn abi_type(ty: FixedNativeType) -> AbiType {
+        match ty {
+            FixedNativeType::I32 => AbiType::I32,
+            FixedNativeType::I64 => AbiType::I64,
+            FixedNativeType::U64 => AbiType::U64,
+            FixedNativeType::Isize => AbiType::Isize,
+        }
+    }
+    const fn abi_value(value: FixedNativeValue) -> AbiValue {
+        match value {
+            FixedNativeValue::I32(bits) => AbiValue::I32(bits),
+            FixedNativeValue::I64(bits) => AbiValue::I64(bits),
+            FixedNativeValue::U64(bits) => AbiValue::U64(bits),
+            FixedNativeValue::Isize(bits) => AbiValue::Isize(bits),
+        }
+    }
+
+    let parameters = call
+        .prototype
+        .parameters()
+        .iter()
+        .copied()
+        .map(abi_type)
+        .collect::<Vec<_>>();
+    let arguments = call
+        .arguments
+        .iter()
+        .copied()
+        .map(abi_value)
+        .collect::<Vec<_>>();
+    let native = NativeCall {
+        library: call.library,
+        symbol: call.symbol,
+        signature: AbiSignature {
+            result: abi_type(call.prototype.result()),
+            params: &parameters,
+        },
+        arguments: &arguments,
+    };
+    // SAFETY: the legacy caller upholds the same symbol and process contract.
+    match unsafe { invoke_abi(&native) } {
+        Ok(AbiValue::I32(bits)) => Ok(FixedNativeValue::I32(bits)),
+        Ok(AbiValue::I64(bits)) => Ok(FixedNativeValue::I64(bits)),
+        Ok(AbiValue::U64(bits)) => Ok(FixedNativeValue::U64(bits)),
+        Ok(AbiValue::Isize(bits)) => Ok(FixedNativeValue::Isize(bits)),
+        Ok(_)
+        | Err(AbiError::SignatureUnsupported { .. })
+        | Err(AbiError::ArgumentCount { .. })
+        | Err(AbiError::ArgumentShape { .. }) => Err(FixedNativeError::SignatureUnsupported {
+            prototype: call.prototype,
+            parameters: call
+                .arguments
+                .iter()
+                .map(|argument| argument.ty())
+                .collect(),
+        }),
+        Err(AbiError::LibraryLoad { library, message }) => {
+            Err(FixedNativeError::LibraryLoad { library, message })
+        }
+        Err(AbiError::SymbolLookup {
+            symbol, message, ..
+        }) => Err(FixedNativeError::SymbolLoad { symbol, message }),
+    }
+}
+
+/// Executes an admitted fixed-family shape without re-entering the public
+/// compatibility wrapper.
+///
+/// # Safety
+/// The caller must uphold [`invoke_fixed`]'s complete ABI contract.
+pub(crate) unsafe fn invoke_fixed_mechanism(
     call: &FixedNativeCall<'_>,
 ) -> Result<FixedNativeValue, FixedNativeError> {
     validate_fixed_native_signature(call.prototype, call.arguments)?;
