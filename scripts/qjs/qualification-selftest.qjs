@@ -22,6 +22,46 @@ function expect_rejection(expected, condition) {
   return 0;
 }
 
+function manifest_rejected(manifest) {
+  try {
+    qualification.validate_manifest(manifest);
+  } catch (_) {
+    return 1;
+  }
+  return 0;
+}
+
+function role_contract_self_test() {
+  const overlapping_roles = {
+    schema_version: 2,
+    receipt_schema_version: 1,
+    required_gates: [{ id: "shared-gate", evidence: ["evidence.one", "evidence.two"] }],
+    registered_gates: [{ id: "shared-gate", evidence: ["evidence.two", "evidence.one"] }]
+  };
+  const overlap_result = qualification.validate_manifest(overlapping_roles);
+  assert_ok(overlap_result.overlap_count === 1, "qualification_selftest_role_overlap");
+  expect_rejection("qualification_required_gate_duplicate", manifest_rejected({
+    schema_version: 2,
+    receipt_schema_version: 1,
+    required_gates: [overlapping_roles.required_gates[0], overlapping_roles.required_gates[0]],
+    registered_gates: []
+  }));
+  expect_rejection("qualification_registered_gate_duplicate", manifest_rejected({
+    schema_version: 2,
+    receipt_schema_version: 1,
+    required_gates: overlapping_roles.required_gates,
+    registered_gates: [
+      overlapping_roles.registered_gates[0], overlapping_roles.registered_gates[0]
+    ]
+  }));
+  expect_rejection("qualification_gate_evidence_mismatch", manifest_rejected({
+    schema_version: 2,
+    receipt_schema_version: 1,
+    required_gates: [{ id: "shared-gate", evidence: ["evidence.one"] }],
+    registered_gates: [{ id: "shared-gate", evidence: ["evidence.two"] }]
+  }));
+}
+
 function zeros(count) {
   let value = "";
   let index = 0;
@@ -206,6 +246,11 @@ function ordered(source, first_marker, second_marker) {
 }
 
 const args = rh.args();
+if (args.length === 1 && args[0] === "--manifest-role-self-test") {
+  role_contract_self_test();
+  print("PASS: qualification manifest role contract");
+  return;
+}
 if (args.length !== 2) { throw "expected: REPO CLI_EXE"; }
 
 const repo = rh.absolute(args[0]);
@@ -218,15 +263,23 @@ assert_ok(
   qualification.gate_declared(role_manifest, role_manifest.required_gates[0].id) !== 0,
   "qualification_selftest_required_gate_declared"
 );
-assert_ok(
-  qualification.gate_declared(role_manifest, role_manifest.registered_gates[0].id) === 0,
-  "qualification_selftest_registered_gate_cannot_report"
-);
+let registered_only_id = "";
+for (const registered_gate of role_manifest.registered_gates) {
+  if (qualification.gate_declared(role_manifest, registered_gate.id) === 0) {
+    registered_only_id = "" + registered_gate.id;
+    break;
+  }
+}
+assert_ok(registered_only_id !== "", "qualification_selftest_registered_only_fixture");
+assert_ok(qualification.gate_declared(role_manifest, registered_only_id) === 0,
+  "qualification_selftest_registered_gate_cannot_report");
 assert_ok(
   qualification.catalog_gates(role_manifest).length
     === role_manifest.required_gates.length + role_manifest.registered_gates.length,
   "qualification_selftest_catalog_gate_union"
 );
+
+role_contract_self_test();
 
 const missing_manifest = path.join(repo, "target/qualification/missing-gates.json");
 expect_rejection("qualification_manifest_missing", would_reject_read_manifest(missing_manifest));

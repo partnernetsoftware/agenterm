@@ -112,12 +112,40 @@ export function sha256(p) {
   return rh.sha256_file(p);
 }
 
-export function read_manifest(p) {
-  q_require(
-    rh.exists(p) && rh.metadata(p).is_file,
-    "qualification_manifest_missing:" + p
-  );
-  const manifest = rh.parse_file(p);
+function validate_gate_role(gates, gate_ids, evidence_owners, other_role) {
+  for (const gate of gates) {
+    const gate_id = "" + gate.id;
+    q_require(
+      valid_id(gate_id, 0) !== 0 && gate_ids[gate_id] === undefined,
+      "qualification_gate_id:" + gate_id
+    );
+    gate_ids[gate_id] = gate;
+    q_require(rh.is_array(gate.evidence), "qualification_evidence_id:" + gate_id);
+    const local_evidence = {};
+    for (const id of gate.evidence) {
+      const evidence_id = "" + id;
+      q_require(
+        valid_id(evidence_id, 1) !== 0 && local_evidence[evidence_id] === undefined,
+        "qualification_evidence_id:" + evidence_id
+      );
+      local_evidence[evidence_id] = true;
+      const owner = evidence_owners[evidence_id];
+      q_require(owner === undefined || owner === gate_id,
+        "qualification_evidence_id:" + evidence_id);
+      evidence_owners[evidence_id] = gate_id;
+    }
+    const counterpart = other_role[gate_id];
+    if (counterpart !== undefined) {
+      q_require(exact_values(gate.evidence, counterpart.evidence) !== 0,
+        "qualification_gate_evidence_mismatch:" + gate_id);
+    }
+  }
+}
+
+// required_gates is the exact Candidate receipt set; registered_gates is the
+// discovery/UTM catalog. The roles are unique internally. Cross-role overlap
+// is valid only when both declarations own the same evidence set.
+export function validate_manifest(manifest) {
   q_require(rh.int_of(manifest.schema_version) === 2, "qualification_manifest_schema");
   q_require(rh.int_of(manifest.receipt_schema_version) === 1, "qualification_receipt_schema");
   q_require(
@@ -126,27 +154,29 @@ export function read_manifest(p) {
       && rh.is_array(manifest.registered_gates),
     "qualification_manifest_empty"
   );
-  const gate_ids = {};
-  const evidence_ids = {};
-  const declared_gates = [];
-  for (const gate of manifest.required_gates) { declared_gates.push(gate); }
-  for (const gate of manifest.registered_gates) { declared_gates.push(gate); }
-  for (const gate of declared_gates) {
-    const gate_id = "" + gate.id;
-    q_require(
-      valid_id(gate_id, 0) !== 0 && gate_ids[gate_id] === undefined,
-      "qualification_gate_id:" + gate_id
-    );
-    gate_ids[gate_id] = true;
-    for (const id of gate.evidence) {
-      const evidence_id = "" + id;
-      q_require(
-        valid_id(evidence_id, 1) !== 0 && evidence_ids[evidence_id] === undefined,
-        "qualification_evidence_id:" + evidence_id
-      );
-      evidence_ids[evidence_id] = true;
-    }
+  const required = {};
+  const registered = {};
+  const evidence_owners = {};
+  validate_gate_role(manifest.required_gates, required, evidence_owners, registered);
+  validate_gate_role(manifest.registered_gates, registered, evidence_owners, required);
+  let overlap_count = 0;
+  for (const gate of manifest.required_gates) {
+    if (registered[gate.id] !== undefined) { overlap_count = overlap_count + 1; }
   }
+  return {
+    required_count: manifest.required_gates.length,
+    registered_count: manifest.registered_gates.length,
+    overlap_count: overlap_count
+  };
+}
+
+export function read_manifest(p) {
+  q_require(
+    rh.exists(p) && rh.metadata(p).is_file,
+    "qualification_manifest_missing:" + p
+  );
+  const manifest = rh.parse_file(p);
+  validate_manifest(manifest);
   return manifest;
 }
 

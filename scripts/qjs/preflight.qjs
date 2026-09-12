@@ -5,6 +5,7 @@
 // Ported from scripts/rh/preflight.rh; runs under `--profile tool`.
 import * as rh from "lib/rh_compat";
 import * as artifact_manifest from "lib/artifact_manifest";
+import * as qualification from "lib/qualification";
 
 // rh's "strip every allowed character and see whether anything is left",
 // spelled once (the original repeated the replace chain per site).
@@ -20,7 +21,61 @@ function quoted_value(line) {
   return "";
 }
 
+function validate_gate_manifest(manifest) {
+  try {
+    const result = qualification.validate_manifest(manifest);
+    return {
+      passed: 1,
+      required_count: result.required_count,
+      registered_count: result.registered_count,
+      overlap_count: result.overlap_count
+    };
+  } catch (_) {
+    return { passed: 0 };
+  }
+}
+function gate_manifest_self_test() {
+  const base = {
+    schema_version: 2,
+    receipt_schema_version: 1,
+    required_gates: [{ id: "required-only", evidence: [] }],
+    registered_gates: [{ id: "registered-only", evidence: ["evidence.one"] }]
+  };
+  rh.require(validate_gate_manifest(base).passed === 1, "preflight_gate_roles_are_distinct");
+  const overlap = {
+    schema_version: 2,
+    receipt_schema_version: 1,
+    required_gates: [{ id: "shared-gate", evidence: ["evidence.one", "evidence.two"] }],
+    registered_gates: [{ id: "shared-gate", evidence: ["evidence.two", "evidence.one"] }]
+  };
+  rh.require(validate_gate_manifest(overlap).passed === 1, "preflight_gate_overlap_valid");
+  const duplicate_required = {
+    schema_version: 2, receipt_schema_version: 1,
+    required_gates: [base.required_gates[0], base.required_gates[0]], registered_gates: []
+  };
+  rh.require(validate_gate_manifest(duplicate_required).passed === 0,
+    "preflight_gate_required_duplicate");
+  const duplicate_registered = {
+    schema_version: 2, receipt_schema_version: 1,
+    required_gates: base.required_gates,
+    registered_gates: [base.registered_gates[0], base.registered_gates[0]]
+  };
+  rh.require(validate_gate_manifest(duplicate_registered).passed === 0,
+    "preflight_gate_registered_duplicate");
+  const drift = {
+    schema_version: 2, receipt_schema_version: 1,
+    required_gates: [{ id: "shared-gate", evidence: ["evidence.one"] }],
+    registered_gates: [{ id: "shared-gate", evidence: ["evidence.two"] }]
+  };
+  rh.require(validate_gate_manifest(drift).passed === 0, "preflight_gate_evidence_drift");
+  print("PASS: preflight gate-manifest role contract");
+}
+
 const args = rh.args();
+if (args.length === 1 && args[0] === "--gate-manifest-self-test") {
+  gate_manifest_self_test();
+  return;
+}
 if (args.length !== 2) {
   if (args.length !== 3) { throw "expected: REPO OUTPUT_PATH [--quiet]"; }
   if (args[2] !== "--quiet") { throw "expected: REPO OUTPUT_PATH [--quiet]"; }
@@ -494,85 +549,16 @@ if (artifact_passed !== 0) {
   });
 }
 
-let gate_manifest_passed = 1;
 const gate_manifest = JSON.parse(rh.read_text(rh.join(repo, "scripts/qualification-gates.json")));
-if (gate_manifest.schema_version !== 2) {
-  gate_manifest_passed = 0;
-}
-if (gate_manifest_passed !== 0) {
-  if (gate_manifest.receipt_schema_version !== 1) {
-    gate_manifest_passed = 0;
-  }
-}
-if (gate_manifest_passed !== 0) {
-  if (!rh.is_array(gate_manifest.required_gates)
-      || !rh.is_array(gate_manifest.registered_gates)) {
-    gate_manifest_passed = 0;
-  }
-}
-if (gate_manifest_passed !== 0) {
-  if (gate_manifest.required_gates.length === 0) {
-    gate_manifest_passed = 0;
-  }
-}
-if (gate_manifest_passed !== 0) {
-  const ids = {};
-  let ids_count = 0;
-  let required_count = 0;
-  let registered_count = 0;
-  const declared_gates = [];
-  for (const gate of gate_manifest.required_gates) {
-    declared_gates.push(gate);
-    required_count = required_count + 1;
-  }
-  for (const gate of gate_manifest.registered_gates) {
-    declared_gates.push(gate);
-    registered_count = registered_count + 1;
-  }
-  const gate_alphabet = [];
-  for (const c of rh.LOWER) { gate_alphabet.push(c); }
-  for (const c of rh.DIGITS) { gate_alphabet.push(c); }
-  gate_alphabet.push("-");
-  for (const required_entry of declared_gates) {
-    const gate_id = required_entry.id;
-    if (gate_id.length < 2) {
-      gate_manifest_passed = 0;
-    }
-    if (gate_manifest_passed !== 0) {
-      if (gate_id.startsWith("-")) {
-        gate_manifest_passed = 0;
-      }
-    }
-    if (gate_manifest_passed !== 0) {
-      if (!rh.only_chars(required_entry.id, gate_alphabet)) {
-        gate_manifest_passed = 0;
-      }
-    }
-    if (gate_manifest_passed !== 0) {
-      if (ids[gate_id] === true) {
-        gate_manifest_passed = 0;
-      }
-    }
-    if (gate_manifest_passed !== 0) {
-      ids[gate_id] = true;
-      ids_count = ids_count + 1;
-    }
-  }
-  if (gate_manifest_passed !== 0) {
-    gates.push({
-      id: "gate-manifest",
-      passed: 1,
-      detail: "required_gates=" + required_count
-        + ",registered_gates=" + registered_count
-        + ",declared_gates=" + ids_count
-    });
-  } else {
-    gates.push({
-      id: "gate-manifest",
-      passed: 0,
-      detail: "Qualification gate manifest schema or gate IDs are invalid."
-    });
-  }
+const gate_manifest_result = validate_gate_manifest(gate_manifest);
+if (gate_manifest_result.passed !== 0) {
+  gates.push({
+    id: "gate-manifest",
+    passed: 1,
+    detail: "required_gates=" + gate_manifest_result.required_count
+      + ",registered_gates=" + gate_manifest_result.registered_count
+      + ",overlap=" + gate_manifest_result.overlap_count
+  });
 } else {
   gates.push({
     id: "gate-manifest",

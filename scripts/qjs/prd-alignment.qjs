@@ -1,4 +1,5 @@
 import * as rh from "lib/rh_compat";
+import * as qualification from "lib/qualification";
 // Keep the PRD modules, shipped evidence contract, and public catalogs aligned.
 //
 // Args:
@@ -13,7 +14,134 @@ function well_formed_name(name, code) {
   rh.require(!name.endsWith("-"), code + ":" + name);
 }
 
+function evidence_set(evidence, code) {
+  rh.require(rh.is_array(evidence), code + ":not-an-array");
+  const ids = {};
+  let count = 0;
+  for (const source_id of evidence) {
+    const evidence_id = "" + source_id;
+    rh.require(evidence_id !== "" && ids[evidence_id] !== true,
+      code + ":" + evidence_id);
+    ids[evidence_id] = true;
+    count = count + 1;
+  }
+  return { ids: ids, count: count };
+}
+
+function same_evidence(left, right) {
+  const left_set = evidence_set(left, "prd_alignment_gate_evidence_duplicate");
+  const right_set = evidence_set(right, "prd_alignment_gate_evidence_duplicate");
+  if (left_set.count !== right_set.count) { return false; }
+  for (const evidence_id of left) {
+    if (right_set.ids[evidence_id] !== true) { return false; }
+  }
+  return true;
+}
+
+function collect_evidence_gates(required_gates, registered_gates, host_gates) {
+  const gates = [];
+  const by_id = {};
+  const add = (gate) => {
+    const gate_id = "" + gate.id;
+    const declared = evidence_set(gate.evidence, "prd_alignment_gate_evidence_duplicate");
+    if (declared.count === 0) { return; }
+    const existing = by_id[gate_id];
+    if (existing !== undefined) {
+      rh.require(same_evidence(existing.evidence, gate.evidence),
+        "prd_alignment_gate_evidence_mismatch:" + gate_id);
+      return;
+    }
+    gates.push(gate);
+    by_id[gate_id] = gate;
+  };
+  for (const gate of required_gates) { add(gate); }
+  for (const gate of registered_gates) { add(gate); }
+  for (const gate of host_gates) { add(gate); }
+  return gates;
+}
+
+// The alignment contract owns which evidence identities support product
+// capabilities. Gate catalogs may contain additional delivery or diagnostic
+// evidence; every capability identity, however, must have an owning gate.
+function validate_capability_evidence(capabilities, evidence_gates) {
+  const registered = {};
+  let registered_count = 0;
+  for (const gate of evidence_gates) {
+    for (const source_id of gate.evidence) {
+      const evidence_id = "" + source_id;
+      if (registered[evidence_id] !== true) {
+        registered[evidence_id] = true;
+        registered_count = registered_count + 1;
+      }
+    }
+  }
+  const expected = {};
+  let expected_count = 0;
+  for (const capability of capabilities) {
+    if (capability.kind !== "decision") {
+      for (const source_id of capability.evidence_ids) {
+        const evidence_id = "" + source_id;
+        if (expected[evidence_id] !== true) {
+          expected[evidence_id] = true;
+          expected_count = expected_count + 1;
+        }
+      }
+    }
+  }
+  for (const capability of capabilities) {
+    if (capability.kind !== "decision") {
+      for (const source_id of capability.evidence_ids) {
+        const evidence_id = "" + source_id;
+        rh.require(registered[evidence_id] === true,
+          "prd_alignment_list_mismatch:capability_evidence:missing=" + evidence_id);
+      }
+    }
+  }
+  return { registered_count: registered_count, expected_count: expected_count };
+}
+
+function alignment_evidence_self_test() {
+  const required = [{ id: "required-only", evidence: ["evidence.required"] }];
+  const registered = [
+    { id: "shared", evidence: ["evidence.two", "evidence.one"] },
+    { id: "registered-only", evidence: ["evidence.extra"] }
+  ];
+  const host = [{ id: "shared", evidence: ["evidence.one", "evidence.two"] }];
+  const gates = collect_evidence_gates(required, registered, host);
+  rh.require(gates.length === 3, "prd_alignment_selftest_gate_union");
+  const capabilities = [{
+    kind: "behavior", evidence_ids: ["evidence.required", "evidence.one"]
+  }];
+  const result = validate_capability_evidence(capabilities, gates);
+  rh.require(result.expected_count === 2 && result.registered_count === 4,
+    "prd_alignment_selftest_capability_subset");
+  let drift_rejected = 0;
+  try {
+    collect_evidence_gates(
+      [{ id: "shared", evidence: ["evidence.one"] }],
+      [{ id: "shared", evidence: ["evidence.two"] }], []
+    );
+  } catch (_) {
+    drift_rejected = 1;
+  }
+  rh.require(drift_rejected === 1, "prd_alignment_selftest_gate_drift");
+  let missing_rejected = 0;
+  try {
+    validate_capability_evidence(
+      [{ kind: "behavior", evidence_ids: ["evidence.missing"] }], gates
+    );
+  } catch (_) {
+    missing_rejected = 1;
+  }
+  rh.require(missing_rejected === 1, "prd_alignment_selftest_missing_evidence");
+  print("PASS: PRD alignment evidence authority contract");
+}
+
 const args = rh.args();
+if (args.length === 1 && args[0] === "--evidence-contract-self-test") {
+  alignment_evidence_self_test();
+  return;
+}
 if (args.length !== 1) {
   if (args.length !== 2) { throw "expected: REPO [CLI_EXE]"; }
 }
@@ -241,260 +369,17 @@ for (const capability of capabilities) {
 const gate_manifest = rh.parse_file(rh.join(repo, "scripts/qualification-gates.json"));
 const registered_evidence = {};
 let registered_count = 0;
-const evidence_suites = {
-  "cli-smoke": true,
-  "control-center-smoke": true,
-  "control-center-linux-smoke": true,
-  "control-center-macos-smoke": true,
-  "cu-linux-smoke": true,
-  "cu-linux-external-terminal-send-smoke": true,
-  "cu-linux-shell-exec-smoke": true,
-  "cu-linux-pty-smoke": true,
-  "cu-scroll-wheel-smoke": true,
-  "cu-linux-scroll-smoke": true,
-  "cu-linux-atspi-drag-smoke": true,
-  "cu-linux-double-click-smoke": true,
-  "cu-linux-gtk-rclick-smoke": true,
-  "cu-linux-hover-click-smoke": true,
-  "cu-linux-chrome-text-smoke": true,
-  "cu-linux-unlock-honesty-smoke": true,
-  "cu-linux-cdp-page-fill-smoke": true,
-  "cu-linux-page-click-smoke": true,
-  "cu-linux-page-targets-smoke": true,
-  "cu-linux-page-find-smoke": true,
-  "cu-linux-page-screenshot-smoke": true,
-  "cu-linux-page-scroll-smoke": true,
-  "cu-linux-page-hover-smoke": true,
-  "cu-linux-browser-profiles-open-smoke": true,
-  "cu-linux-gtk-entry-focused-send-text-smoke": true,
-  "cu-linux-gtk-entry-text-smoke": true,
-  "cu-linux-gtk-entry-caret-smoke": true,
-  "cu-linux-gtk-button-focus-smoke": true,
-  "cu-linux-gtk-entry-paste-smoke": true,
-  "cu-linux-gtk-entry-send-keys-smoke": true,
-  "cu-linux-gtk-copy-smoke": true,
-  "cu-linux-gtk-entry-selection-smoke": true,
-  "cu-linux-desktop-state-smoke": true,
-  "cu-linux-workspace-desktop-smoke": true,
-  "cu-linux-tree-honesty-smoke": true,
-  "cu-linux-snapshot-diff-smoke": true,
-  "cu-linux-verify-expect-honesty-smoke": true,
-  "cu-linux-browser-tabs-smoke": true,
-  "cu-linux-browser-tab-select-smoke": true,
-  "cu-linux-tab-list-honesty-smoke": true,
-  "cu-linux-tab-close-smoke": true,
-  "cu-linux-window-title-contains-smoke": true,
-  "cu-linux-window-move-smoke": true,
-  "cu-linux-raise-activate-smoke": true,
-  "cu-linux-orderwin-smoke": true,
-  "cu-linux-display-scale-smoke": true,
-  "cu-linux-keyboard-layout-smoke": true,
-  "cu-linux-network-interfaces-smoke": true,
-  "cu-linux-network-dns-smoke": true,
-  "cu-linux-network-routes-smoke": true,
-  "cu-linux-network-probe-smoke": true,
-  "cu-linux-proxy-env-smoke": true,
-  "cu-linux-file-inspect-smoke": true,
-  "cu-linux-file-mode-smoke": true,
-  "cu-linux-file-attributes-smoke": true,
-  "cu-linux-file-copy-smoke": true,
-  "cu-linux-file-watch-smoke": true,
-  "cu-linux-resize-expect-smoke": true,
-  "cu-linux-a11y-status-smoke": true,
-  "cu-linux-app-inventory-smoke": true,
-  "cu-linux-ime-status-smoke": true,
-  "cu-linux-minimize-expect-smoke": true,
-  "cu-linux-hide-show-smoke": true,
-  "cu-linux-maximize-expect-smoke": true,
-  "cu-linux-window-opacity-smoke": true,
-  "cu-linux-fullscreen-expect-smoke": true,
-  "cu-linux-topmost-expect-smoke": true,
-  "cu-linux-window-close-smoke": true,
-  "cu-linux-windows-inventory-smoke": true,
-  "cu-linux-menu-invoke-smoke": true,
-  "cu-linux-menu-invoke-honesty-smoke": true,
-  "cu-linux-menu-inspect-smoke": true,
-  "cu-linux-invoke-smoke": true,
-  "cu-linux-observe-smoke": true,
-  "cu-linux-wait-ready-honesty-smoke": true,
-  "cu-linux-pointer-smoke": true,
-  "cu-linux-power-status-smoke": true,
-  "cu-linux-privilege-plan-smoke": true,
-  "cu-linux-processor-topology-smoke": true,
-  "cu-linux-processor-affinity-smoke": true,
-  "cu-linux-audio-status-smoke": true,
-  "cu-linux-host-memory-smoke": true,
-  "cu-linux-process-sockets-smoke": true,
-  "cu-linux-ps-smoke": true,
-  "cu-linux-query-smoke": true,
-  "cu-linux-get-text-honesty-smoke": true,
-  "cu-linux-focused-honesty-smoke": true,
-  "cu-linux-screenshot-window-smoke": true,
-  "cu-linux-get-extents-smoke": true,
-  "cu-linux-hit-honesty-smoke": true,
-  "cu-linux-process-usage-smoke": true,
-  "cu-linux-process-state-smoke": true,
-  "cu-linux-process-signal-smoke": true,
-  "cu-linux-process-wait-smoke": true,
-  "cu-linux-process-kill-smoke": true,
-  "cu-linux-process-argv-cwd-smoke": true,
-  "cu-linux-process-environment-smoke": true,
-  "cu-linux-process-fds-smoke": true,
-  "cu-linux-process-watch-smoke": true,
-  "cu-linux-windows-watch-smoke": true,
-  "cu-linux-process-threads-smoke": true,
-  "cu-linux-process-maps-smoke": true,
-  "cu-linux-cache-hierarchy-smoke": true,
-  "cu-linux-resource-status-smoke": true,
-  "cu-linux-device-inventory-smoke": true,
-  "cu-linux-fontconfig-monospace-smoke": true,
-  "cu-linux-local-clock-smoke": true,
-  "cu-linux-clipboard-utf8-smoke": true,
-  "cu-linux-capabilities-honesty-smoke": true,
-  "cu-linux-terminal-shallow-tree-smoke": true,
-  "cu-linux-boot-identity-smoke": true,
-  "cu-linux-login-session-smoke": true,
-  "cu-linux-app-facts-smoke": true,
-  "cu-linux-service-smoke": true,
-  "cu-linux-spaces-smoke": true,
-  "cu-linux-clipboard-mime-smoke": true,
-  "cu-windows-smoke": true,
-  "cu-windows-external-terminal-send-smoke": true,
-  "cu-windows-browser-smoke": true,
-  "cu-macos-smoke": true,
-  "cu-macos-window-activate-smoke": true,
-  "cu-macos-external-terminal-send-smoke": true,
-  "cu-macos-save-panel-smoke": true,
-  "cu-macos-app-facts-smoke": true,
-  "cu-app-watch-smoke": true,
-  "cu-macos-windows-watch-filters-smoke": true,
-  "cu-macos-windows-inventory-filters-smoke": true,
-  "cu-macos-file-watch-smoke": true,
-  "cu-windows-file-watch-smoke": true,
-  "cu-windows-app-facts-smoke": true,
-  "cu-pty-smoke": true,
-  "cu-login-session-smoke": true,
-  "cu-audio-smoke": true,
-  "cu-service-smoke": true,
-  "cu-network-interfaces-smoke": true,
-  "cu-desktop-state-smoke": true,
-  "cu-app-facts-smoke": true,
-  "acu-mcp-provider-smoke": true,
-  "acu-job-resources-compat-smoke": true,
-  "acu-job-resources-projection-smoke": true,
-  "acu-zoom-legacy-rect-smoke": true,
-  "acu-elements-page-compat-smoke": true,
-  "acu-browser-bridge-compat-smoke": true,
-  "acu-browser-profile-lifecycle-retirement-smoke": true,
-  "acu-storage-legacy-boundary-smoke": true,
-  "acu-resource-volumes-compat-smoke": true,
-  "cu-process-inventory-smoke": true,
-  "cu-process-inspection-smoke": true,
-  "cu-process-sockets-smoke": true,
-  "cu-process-cgroup-smoke": true,
-  "cu-process-set-state-smoke": true,
-  "cu-process-policy-smoke": true,
-  "cu-process-signal-smoke": true,
-  "cu-network-routes-smoke": true,
-  "cu-network-dns-smoke": true,
-  "cu-network-probe-smoke": true,
-  "cu-resource-status-smoke": true,
-  "cu-resource-pressure-top-smoke": true,
-  "cu-host-resource-smoke": true,
-  "cu-storage-devices-smoke": true,
-  "cu-linux-storage-devices-smoke": true,
-  "cu-storage-volumes-smoke": true,
-  "cu-privilege-plan-smoke": true,
-  "cu-privilege-provider-contract-smoke": true,
-  "cu-privileged-signal-plan-smoke": true,
-  "cu-persisted-grant-smoke": true,
-  "cu-browser-session-smoke": true,
-  "cu-browser-profile-inventory-smoke": true,
-  "cu-browser-bridge-setup-selector-smoke": true,
-  "cu-browser-extension-reload-smoke": true,
-  "cu-terminal-viewport-smoke": true,
-  "cu-simulator-readonly-smoke": true,
-  "cu-simulator-lifecycle-smoke": true,
-  "cu-file-transaction-smoke": true,
-  "cu-file-attributes-smoke": true,
-  "cu-file-mode-smoke": true,
-  "cu-file-xattr-mutation-smoke": true,
-  "cu-linux-file-xattr-mutation-smoke": true,
-  "cu-file-move-transaction-smoke": true,
-  "cu-managed-job-smoke": true,
-  "cu-setup-cli-smoke": true,
-  "cu-setup-runtime-refresh-smoke": true,
-  "cu-doctor-smoke": true,
-  "cu-power-status-smoke": true,
-  "cu-power-action-plan-smoke": true,
-  "cu-clipboard-roundtrip-smoke": true,
-  "cu-host-open-smoke": true,
-  "cu-permissions-open-smoke": true,
-  "cu-host-notify-smoke": true,
-  "cu-linux-host-notify-smoke": true,
-  "cu-linux-host-open-smoke": true,
-  "cu-runtime-status-smoke": true,
-  "cu-runtime-capability-core-smoke": true,
-  "cu-runtime-capability-core-linux-smoke": true,
-  "cu-runtime-capability-core-windows-smoke": true,
-  "cu-runtime-capability-process-smoke": true,
-  "cu-runtime-capability-desktop-macos-smoke": true,
-  "cu-device-inventory-smoke": true,
-  "cu-device-screenshot-inventory-smoke": true,
-  "cu-device-watch-smoke": true,
-  "cu-device-lease-smoke": true,
-  "cu-macos-pointer-smoke": true,
-  "cu-pointer-scroll-smoke": true,
-  "cu-tree-selector-smoke": true,
-  "cu-query-watch-smoke": true,
-  "unix-frontend-linux-smoke": true,
-  "unix-frontend-macos-smoke": true,
-  "server-smoke": true,
-  "native-ipc-smoke": true,
-  "native-ipc-compat-smoke": true,
-  "remote-ui-smoke": true,
-  "remote-ui-upgrade-smoke": true,
-  "fleet-smoke": true,
-  "script-smoke": true,
-  "startup-smoke": true,
-  "theme-smoke": true,
-  "wake-smoke": true,
-  "working-context-smoke": true,
-  "workbench-smoke": true
-};
-const evidence_gates = [];
-const evidence_gate_by_id = {};
-const qualification_catalog_gates = [];
-for (const gate of gate_manifest.required_gates) { qualification_catalog_gates.push(gate); }
-for (const gate of gate_manifest.registered_gates) { qualification_catalog_gates.push(gate); }
-for (const gate of qualification_catalog_gates) {
-  const gate_id = "" + gate.id;
-  if (evidence_suites[gate_id] === true) {
-    evidence_gates.push(gate);
-    evidence_gate_by_id[gate_id] = gate;
-  }
-}
+qualification.validate_manifest(gate_manifest);
+
 const host_native_manifest = rh.parse_file(rh.join(repo, "scripts/host-native-evidence-gates.json"));
-rh.require(gate_manifest.schema_version === 2, "prd_alignment_qualification_schema");
 rh.require(host_native_manifest.schema_version === 1, "prd_alignment_host_native_schema");
 for (const gate of host_native_manifest.gates) {
-  const host_gate_id = "" + gate.id;
-  rh.require(
-    evidence_suites[host_gate_id] === true
-      && (gate.platform === "linux" || gate.platform === "macos"),
-    "prd_alignment_host_native_gate:" + gate.id
-  );
-  const existing_gate = evidence_gate_by_id[host_gate_id];
-  if (existing_gate !== undefined) {
-    rh.require(
-      JSON.stringify(existing_gate.evidence) === JSON.stringify(gate.evidence),
-      "prd_alignment_host_native_evidence_mismatch:" + gate.id
-    );
-  } else {
-    evidence_gates.push(gate);
-    evidence_gate_by_id[host_gate_id] = gate;
-  }
+  rh.require(gate.platform === "linux" || gate.platform === "macos",
+    "prd_alignment_host_native_gate:" + gate.id);
 }
+const evidence_gates = collect_evidence_gates(
+  gate_manifest.required_gates, gate_manifest.registered_gates, host_native_manifest.gates
+);
 // The evidence suites live at scripts/qjs/<suite>.qjs since 2026-08-29;
 // the check reads their source for the evidence ids they emit.
 const suite_dir = rh.join(repo, "scripts/qjs");
@@ -552,8 +437,8 @@ for (const gate of evidence_gates) {
     );
     // Host-native registration mirrors the owning qualification gate, and a
     // few aggregate Linux journeys intentionally emit a dedicated court's
-    // evidence too. Validate every declaration above, but count each public
-    // evidence identity once when comparing it with the capability contract.
+    // evidence too. Validate every declaration above and count each public
+    // evidence identity once; the capability contract must be a subset.
     if (registered_evidence[evidence_key] !== true) {
       registered_evidence[evidence_key] = true;
       registered_count = registered_count + 1;
@@ -561,32 +446,9 @@ for (const gate of evidence_gates) {
   }
 }
 
-// No `Object.keys` in this engine yet: the distinct expected evidence ids
-// are kept as an array alongside the map.
-const expected_evidence_map = {};
-const expected_evidence_keys = [];
-for (const capability of capabilities) {
-  if (capability.kind !== "decision") {
-    for (const evidence_id of capability.evidence_ids) {
-      const evidence_key = "" + evidence_id;
-      if (expected_evidence_map[evidence_key] !== true) {
-        expected_evidence_keys.push(evidence_key);
-      }
-      expected_evidence_map[evidence_key] = true;
-    }
-  }
-}
-rh.require(
-  expected_evidence_keys.length === registered_count,
-  "prd_alignment_list_count:capability_evidence:expected=" +
-    expected_evidence_keys.length + ":actual=" + registered_count
-);
-for (const expected_key of expected_evidence_keys) {
-  rh.require(
-    registered_evidence[expected_key] === true,
-    "prd_alignment_list_mismatch:capability_evidence:missing=" + expected_key
-  );
-}
+const evidence_contract = validate_capability_evidence(capabilities, evidence_gates);
+rh.require(evidence_contract.registered_count === registered_count,
+  "prd_alignment_evidence_collection_mismatch");
 
 const cli_options = { cwd: repo, timeout_ms: 10000 };
 const catalog_code = rh.command_stdout_file(cli, ["cli", "list-commands"], stdout_path, cli_options);
