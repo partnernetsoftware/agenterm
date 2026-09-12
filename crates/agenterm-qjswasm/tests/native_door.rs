@@ -574,6 +574,91 @@ fn pthread_threadid_np_reaches_dyn_with_nullable_input_and_required_output() {
     );
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn nsget_executable_path_preserves_the_two_stage_caller_buffer_contract() {
+    unsafe extern "C" {
+        fn _NSGetExecutablePath(buffer: *mut libc::c_char, size: *mut u32) -> libc::c_int;
+    }
+    let required = run_wat(
+        include_str!("fixtures/native/nsget_executable_path_size.wat"),
+        Budget::default(),
+    )
+    .expect("a null path requests the required executable-path capacity") as u64;
+    assert!(
+        required > 1,
+        "the required capacity includes a non-empty path and NUL"
+    );
+    assert!(
+        required <= 4096,
+        "the qualification buffer covers the reported capacity"
+    );
+
+    let mut direct_size = 0_u32;
+    // SAFETY: null requests the required size and direct_size is writable for u32.
+    assert_eq!(
+        unsafe { _NSGetExecutablePath(std::ptr::null_mut(), &mut direct_size) },
+        -1
+    );
+    assert_eq!(required, u64::from(direct_size));
+
+    let mut direct = [0_u8; 4096];
+    let mut successful_size = u32::try_from(direct.len()).expect("capacity fits u32");
+    // SAFETY: direct is writable for successful_size bytes and the call is synchronous.
+    assert_eq!(
+        unsafe { _NSGetExecutablePath(direct.as_mut_ptr().cast(), &mut successful_size) },
+        0
+    );
+    let direct_path = std::ffi::CStr::from_bytes_until_nul(&direct)
+        .expect("the direct executable path is NUL-terminated")
+        .to_bytes();
+    assert!(!direct_path.is_empty());
+    let expected_hash = direct_path.iter().fold(0_u64, |hash, byte| {
+        hash.wrapping_mul(257) ^ u64::from(*byte)
+    });
+    let source = include_str!("fixtures/native/nsget_executable_path.wat");
+    assert_eq!(
+        run_wat_with_args(source, Budget::default(), &[Value::I64(0)])
+            .expect("the sufficient guest buffer receives the executable path") as u64,
+        expected_hash
+    );
+    assert_eq!(
+        run_wat_with_args(source, Budget::default(), &[Value::I64(1)])
+            .expect("the sufficient guest buffer preserves the size-slot semantics") as u64,
+        u64::from(successful_size)
+    );
+    let current = std::env::current_exe().expect("current executable path");
+    let current = current.as_os_str().as_encoded_bytes();
+    assert!(
+        direct_path.starts_with(current) || current.starts_with(direct_path),
+        "_NSGetExecutablePath and current_exe must identify the executable"
+    );
+
+    let null_size = source.replacen(
+        "(i32.store (i32.const 160) (i32.const 1))",
+        "(i32.store (i32.const 160) (i32.const 2))",
+        1,
+    );
+    let error = run_wat_with_args(&null_size, Budget::default(), &[Value::I64(0)])
+        .expect_err("the required size pointer rejects null before loading");
+    assert!(
+        matches!(&error, QjswasmError::Door(message)
+            if message.contains("native_null_not_permitted")
+                && message.contains("argument 1")),
+        "unexpected required-size error: {error:?}"
+    );
+
+    let out_of_bounds = source.replacen("(i64.const 17179874304)", "(i64.const 17179934720)", 1);
+    let error = run_wat_with_args(&out_of_bounds, Budget::default(), &[Value::I64(0)])
+        .expect_err("an out-of-bounds size span is rejected before loading");
+    assert!(
+        matches!(&error, QjswasmError::Door(message)
+            if message.contains("native_span_out_of_bounds")
+                && message.contains("Argument(1)")),
+        "unexpected size-span error: {error:?}"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn unix_ioctl_variadic_requests_share_the_one_native_door() {

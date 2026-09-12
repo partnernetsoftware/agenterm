@@ -46,34 +46,6 @@ fn dlcall_getprogname_matches_libc_c_string() {
 }
 
 #[test]
-fn dlcall_nsget_executable_path_writes_a_caller_buffer() {
-    let symbol = live_symbol("nsget_executable_path");
-    let mut buffer = vec![0_u8; 4096];
-    let mut length = u32::try_from(buffer.len()).expect("test buffer fits u32");
-    let mut env = Dyn::new();
-    env.bind("path", buffer.as_mut_ptr().cast())
-        .expect("bind executable-path buffer");
-    env.bind("len", (&mut length as *mut u32).cast())
-        .expect("bind executable-path length");
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "i32" "ptr" path "ptr" len)"#),
-    )
-    .expect("_NSGetExecutablePath dlcall");
-    assert_eq!(got, Value::Int(0));
-    let path = CStr::from_bytes_until_nul(&buffer)
-        .expect("_NSGetExecutablePath must NUL-terminate on success")
-        .to_bytes();
-    assert!(!path.is_empty(), "executable path must be non-empty");
-    let current = std::env::current_exe().expect("current executable path");
-    let current = current.as_os_str().as_encoded_bytes();
-    assert!(
-        path.starts_with(current) || current.starts_with(path),
-        "_NSGetExecutablePath and current_exe must identify the executable"
-    );
-}
-
-#[test]
 fn dlcall_sysctl_writes_ncpu_into_caller_buffer() {
     let symbol = live_symbol("sysctl");
     let mut mib = [libc::CTL_HW, libc::HW_NCPU];

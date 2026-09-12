@@ -3447,6 +3447,13 @@ even when both eventually call the same `extern "C" fn(*mut c_void,
 required slot rejects a null record before library loading; never reuse the
 reversed prototype because the register layout happens to match.
 
+For a two-stage native size query, keep the query and fetch as separate real
+courts. The query must pass a declared nullable data pointer as null while a
+required size pointer remains writable, and it must verify the native status
+plus the written capacity. The fetch must provide that bounded guest span and
+verify success, size-slot semantics, termination, and output bytes. Collapsing
+both stages into one generous buffer never proves the nullable query contract.
+
 The qjswasm native fixture directories encode how tests invoke `main`.
 `tests/fixtures/native/additions/` is the table-driven zero-argument court: its
 loader calls every fixture as `main()`. A fixture whose `main` accepts guest
