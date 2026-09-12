@@ -661,6 +661,50 @@ fn getentropy_preserves_the_retired_status_claim_without_comparing_random_bytes(
 
 #[cfg(target_os = "macos")]
 #[test]
+fn sysctlnametomib_returns_each_caller_owned_output_exactly() {
+    unsafe extern "C" {
+        fn sysctlnametomib(
+            name: *const libc::c_char,
+            mibp: *mut libc::c_int,
+            sizep: *mut usize,
+        ) -> libc::c_int;
+    }
+
+    let name = std::ffi::CString::new("hw.ncpu").expect("literal has no NUL");
+    let mut direct = [0_i32; 8];
+    let mut direct_len = direct.len();
+    let status = unsafe { sysctlnametomib(name.as_ptr(), direct.as_mut_ptr(), &mut direct_len) };
+    assert_eq!(status, 0, "direct sysctlnametomib succeeds");
+    assert!((1..=direct.len()).contains(&direct_len));
+
+    let source = include_str!("fixtures/native/sysctlnametomib.wat");
+    let actual_len = run_wat_with_args(source, Budget::default(), &[Value::I64(0)])
+        .expect("guest returns the exact MIB length");
+    assert_eq!(actual_len, direct_len as i64);
+    for (index, expected) in direct[..direct_len].iter().enumerate() {
+        let actual =
+            run_wat_with_args(source, Budget::default(), &[Value::I64((index + 1) as i64)])
+                .expect("guest returns one exact MIB element");
+        assert_eq!(actual, i64::from(*expected), "MIB element {index}");
+    }
+
+    let null_output = source.replacen(
+        "(i32.store (i32.const 160) (i32.const 1))",
+        "(i32.store (i32.const 160) (i32.const 2))",
+        1,
+    );
+    let error = run_wat_with_args(&null_output, Budget::default(), &[Value::I64(0)])
+        .expect_err("the MIB output pointer is required");
+    assert!(
+        matches!(&error, QjswasmError::Door(message)
+            if message.contains("native_null_not_permitted")
+                && message.contains("argument 1")),
+        "unexpected required-pointer error: {error:?}"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn pthread_threadid_np_reaches_dyn_with_nullable_input_and_required_output() {
     let source = include_str!("fixtures/native/pthread_threadid_np.wat");
     let got = run_wat(source, Budget::default())

@@ -379,6 +379,10 @@ court has claim-preserving `.wat` or typed-owner evidence.
   `getentropy` now uses the enumerated `i32(ptr,u64)` family; its replacement
   court deliberately preserves only the two successful status claims because
   independent entropy buffers have no exact content oracle.
+  `sysctlnametomib` uses the enumerated three-required-pointer family; a
+  selector-driven WAT fixture returns the output length and every MIB element
+  separately so the direct-C array oracle remains exact rather than becoming a
+  hash approximation.
   This is incremental retirement evidence, not permission to delete the remaining
   Lisp courts or language files as a batch.
 - [`plan/design-guest-runtime-placement-experiment.md`](../plan/design-guest-runtime-placement-experiment.md)

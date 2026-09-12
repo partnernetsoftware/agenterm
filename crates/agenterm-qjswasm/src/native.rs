@@ -982,6 +982,14 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
         (NativeType::I32, [NativeType::Pointer, NativeType::Pointer]) => {
             Some(FixedPointerPrototype::I32PointerPointer)
         }
+        (
+            NativeType::I32,
+            [
+                NativeType::Pointer,
+                NativeType::Pointer,
+                NativeType::Pointer,
+            ],
+        ) => Some(FixedPointerPrototype::I32PointerPointerPointer),
         (NativeType::I32, [NativeType::Pointer, NativeType::NullablePointer]) => {
             Some(FixedPointerPrototype::I32PointerNullablePointer)
         }
@@ -1492,6 +1500,12 @@ mod json_adapter_tests {
             native_dispatch(&parse("|getentropy|i32(ptr,u64)")),
             Ok(NativeDispatch::FixedPointer(
                 FixedPointerPrototype::I32PointerU64,
+            ))
+        );
+        assert_eq!(
+            native_dispatch(&parse("|sysctlnametomib|i32(ptr,ptr,ptr)")),
+            Ok(NativeDispatch::FixedPointer(
+                FixedPointerPrototype::I32PointerPointerPointer,
             ))
         );
         assert_eq!(
