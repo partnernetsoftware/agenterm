@@ -222,6 +222,16 @@ pub enum NativeDoorError {
         ty: NativeType,
         bits: u64,
     },
+    ArgumentsNotUtf8,
+    ArgumentsMalformed,
+    ArgumentCountMismatch {
+        declared: usize,
+        actual: usize,
+    },
+    ArgumentValueInvalid {
+        index: usize,
+        ty: NativeType,
+    },
     LibraryLoad {
         library: String,
         message: String,
@@ -265,6 +275,10 @@ impl NativeDoorError {
                 "native_invocation_signature_unsupported"
             }
             Self::ScalarNotCanonical { .. } => "native_scalar_not_canonical",
+            Self::ArgumentsNotUtf8 => "native_arguments_not_utf8",
+            Self::ArgumentsMalformed => "native_arguments_malformed",
+            Self::ArgumentCountMismatch { .. } => "native_argument_count_mismatch",
+            Self::ArgumentValueInvalid { .. } => "native_argument_value_invalid",
             Self::LibraryLoad { .. } => "native_library_load_failed",
             Self::SymbolLoad { .. } => "native_symbol_load_failed",
         }
@@ -352,6 +366,17 @@ impl fmt::Display for NativeDoorError {
                     f,
                     "argument {index} is not a canonical {ty:?} value: 0x{bits:016x}"
                 )
+            }
+            Self::ArgumentsNotUtf8 => f.write_str("argument document is not UTF-8"),
+            Self::ArgumentsMalformed => f.write_str("argument document must be a JSON array"),
+            Self::ArgumentCountMismatch { declared, actual } => {
+                write!(
+                    f,
+                    "declaration has {declared} parameters, JSON has {actual}"
+                )
+            }
+            Self::ArgumentValueInvalid { index, ty } => {
+                write!(f, "argument {index} is not an exact JSON value for {ty:?}")
             }
             Self::LibraryLoad { library, message } => {
                 write!(f, "could not load native library {library:?}: {message}")
@@ -739,6 +764,150 @@ pub(crate) fn invoke_native_call(
     Ok(())
 }
 
+/// Invoke the exact native slice from a language-level JSON argument array.
+///
+/// This is the `.qjs` adapter for the existing door, not a second native
+/// implementation: parsing and canonical conversion remain here, while the
+/// sole loader and fixed ABI selectors remain `agenterm_dyn::invoke_exact`.
+pub(crate) fn invoke_native_json(
+    spec: &[u8],
+    arguments_json: &[u8],
+) -> Result<String, NativeDoorError> {
+    let spec = parse_native_spec(spec)?;
+    let result =
+        exact_type(spec.result).ok_or_else(|| NativeDoorError::InvocationSignatureUnsupported {
+            result: spec.result,
+            parameters: spec.parameters.clone(),
+        })?;
+    let parameter_types = spec
+        .parameters
+        .iter()
+        .copied()
+        .map(|ty| {
+            exact_type(ty).ok_or_else(|| NativeDoorError::InvocationSignatureUnsupported {
+                result: spec.result,
+                parameters: spec.parameters.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    validate_exact_native_signature(result, &parameter_types)
+        .map_err(|error| map_exact_error_for_spec(&spec, error))?;
+    let text =
+        std::str::from_utf8(arguments_json).map_err(|_| NativeDoorError::ArgumentsNotUtf8)?;
+    let values = serde_json::from_str::<serde_json::Value>(text)
+        .map_err(|_| NativeDoorError::ArgumentsMalformed)?;
+    let values = values
+        .as_array()
+        .ok_or(NativeDoorError::ArgumentsMalformed)?;
+    if values.len() != spec.parameters.len() {
+        return Err(NativeDoorError::ArgumentCountMismatch {
+            declared: spec.parameters.len(),
+            actual: values.len(),
+        });
+    }
+    let arguments = spec
+        .parameters
+        .iter()
+        .copied()
+        .zip(values)
+        .enumerate()
+        .map(|(index, (ty, value))| exact_json_argument(index, ty, value))
+        .collect::<Result<Vec<_>, _>>()?;
+    let call = ExactNativeCall {
+        library: &spec.library,
+        symbol: &spec.symbol,
+        result,
+        arguments: &arguments,
+    };
+    // SAFETY: the declaration is validated against the same exact-family
+    // admission gate as the raw-memory adapter immediately above.
+    let value =
+        unsafe { invoke_exact(&call) }.map_err(|error| map_exact_error_for_spec(&spec, error))?;
+    Ok(exact_json_result(value).to_string())
+}
+
+fn exact_json_argument(
+    index: usize,
+    ty: NativeType,
+    value: &serde_json::Value,
+) -> Result<ExactNativeValue, NativeDoorError> {
+    let invalid = || NativeDoorError::ArgumentValueInvalid { index, ty };
+    match ty {
+        NativeType::I32 => value
+            .as_i64()
+            .and_then(|value| i32::try_from(value).ok())
+            .map(ExactNativeValue::I32)
+            .ok_or_else(invalid),
+        NativeType::U32 => value
+            .as_u64()
+            .and_then(|value| u32::try_from(value).ok())
+            .map(ExactNativeValue::U32)
+            .ok_or_else(invalid),
+        NativeType::I64 => value
+            .as_str()
+            .and_then(|value| value.parse().ok())
+            .map(ExactNativeValue::I64)
+            .ok_or_else(invalid),
+        NativeType::U64 => value
+            .as_str()
+            .and_then(|value| value.parse().ok())
+            .map(ExactNativeValue::U64)
+            .ok_or_else(invalid),
+        NativeType::Isize => value
+            .as_str()
+            .and_then(|value| value.parse().ok())
+            .map(ExactNativeValue::Isize)
+            .ok_or_else(invalid),
+        NativeType::Usize => value
+            .as_str()
+            .and_then(|value| value.parse().ok())
+            .map(ExactNativeValue::Usize)
+            .ok_or_else(invalid),
+        NativeType::F64 => value
+            .as_f64()
+            .filter(|value| value.is_finite())
+            .map(ExactNativeValue::F64)
+            .ok_or_else(invalid),
+        _ => Err(NativeDoorError::InvocationSignatureUnsupported {
+            result: ty,
+            parameters: vec![ty],
+        }),
+    }
+}
+
+fn exact_json_result(value: ExactNativeValue) -> serde_json::Value {
+    match value {
+        ExactNativeValue::I32(value) => serde_json::json!({"type":"i32","value":value}),
+        ExactNativeValue::U32(value) => serde_json::json!({"type":"u32","value":value}),
+        ExactNativeValue::I64(value) => serde_json::json!({"type":"i64","value":value.to_string()}),
+        ExactNativeValue::U64(value) => serde_json::json!({"type":"u64","value":value.to_string()}),
+        ExactNativeValue::Isize(value) => {
+            serde_json::json!({"type":"isize","value":value.to_string()})
+        }
+        ExactNativeValue::Usize(value) => {
+            serde_json::json!({"type":"usize","value":value.to_string()})
+        }
+        ExactNativeValue::F64(value) => serde_json::json!({"type":"f64","value":value}),
+    }
+}
+
+fn map_exact_error_for_spec(spec: &NativeSpec, error: ExactNativeError) -> NativeDoorError {
+    match error {
+        ExactNativeError::SignatureUnsupported { .. } => {
+            NativeDoorError::InvocationSignatureUnsupported {
+                result: spec.result,
+                parameters: spec.parameters.clone(),
+            }
+        }
+        ExactNativeError::LibraryLoad { library, message } => {
+            NativeDoorError::LibraryLoad { library, message }
+        }
+        ExactNativeError::SymbolLoad { symbol, message } => {
+            NativeDoorError::SymbolLoad { symbol, message }
+        }
+    }
+}
+
 fn unsupported_signature(call: &DecodedNativeCall) -> impl FnOnce() -> NativeDoorError + '_ {
     || NativeDoorError::InvocationSignatureUnsupported {
         result: call.spec.result,
@@ -819,5 +988,34 @@ fn map_exact_error(call: &DecodedNativeCall, error: ExactNativeError) -> NativeD
         ExactNativeError::SymbolLoad { symbol, message } => {
             NativeDoorError::SymbolLoad { symbol, message }
         }
+    }
+}
+
+#[cfg(test)]
+mod json_adapter_tests {
+    use super::*;
+
+    #[test]
+    fn wide_integer_arguments_use_exact_decimal_strings() {
+        let maximum = serde_json::Value::String(u64::MAX.to_string());
+        assert_eq!(
+            exact_json_argument(0, NativeType::U64, &maximum),
+            Ok(ExactNativeValue::U64(u64::MAX))
+        );
+        assert_eq!(
+            exact_json_argument(0, NativeType::U64, &serde_json::json!(42)),
+            Err(NativeDoorError::ArgumentValueInvalid {
+                index: 0,
+                ty: NativeType::U64,
+            })
+        );
+    }
+
+    #[test]
+    fn wide_integer_results_remain_exact_decimal_strings() {
+        assert_eq!(
+            exact_json_result(ExactNativeValue::I64(i64::MIN)),
+            serde_json::json!({"type":"i64","value":i64::MIN.to_string()})
+        );
     }
 }

@@ -75,22 +75,32 @@ fn default_discovery_does_not_advertise_the_native_opt_in() {
     assert!(
         door_declarations()
             .iter()
-            .all(|declaration| declaration.field != "native_call")
+            .all(|declaration| !declaration.field.starts_with("native_"))
     );
     let native = native_door_declarations();
-    assert_eq!(native.len(), 1);
-    assert_eq!(native[0].module, "agenterm");
-    assert_eq!(native[0].field, "native_call");
+    assert_eq!(native.len(), 3);
+    assert!(
+        native
+            .iter()
+            .all(|declaration| declaration.module == "agenterm")
+    );
+    assert_eq!(
+        native
+            .iter()
+            .map(|declaration| declaration.field.as_str())
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from(["native_call", "native_invoke", "native_result"])
+    );
 }
 
 /// The door's counts are **sets at different layers**, not one number read three
-/// ways: the host signature inventory (raw, `host.rs`, eight entries), the
-/// compiler's default declarations (everything except `native_call`), and what
+/// ways: the host signature inventory (raw, `host.rs`, eleven entries), the
+/// compiler's default declarations (everything except the native family), and what
 /// the opt-in adds. This pins the relation rather than a bare number, so a
 /// different raw inventory cannot be mistaken for drift in the compiler-visible
 /// set.
 #[test]
-fn the_native_opt_in_adds_exactly_one_declaration_to_the_default_door() {
+fn the_native_opt_in_adds_exactly_three_declarations_to_the_default_door() {
     use std::collections::BTreeSet;
     let default: BTreeSet<(String, String)> = door_declarations()
         .into_iter()
@@ -115,23 +125,31 @@ fn the_native_opt_in_adds_exactly_one_declaration_to_the_default_door() {
         5,
         "the default door declaration set is five entries"
     );
-    assert_eq!(native.len(), 1, "the native opt-in is exactly one entry");
+    assert_eq!(
+        native.len(),
+        3,
+        "the native opt-in is exactly three entries"
+    );
     assert!(
         default.is_disjoint(&native),
-        "native_call must not already be in the default set"
+        "native declarations must not already be in the default set"
     );
     let mut opt_in = default.clone();
     opt_in.extend(native.iter().cloned());
     assert_eq!(
         opt_in.len(),
-        6,
-        "the opt-in set is the default five plus one"
+        8,
+        "the opt-in set is the default five plus three"
     );
     let added: BTreeSet<(String, String)> = opt_in.difference(&default).cloned().collect();
     assert_eq!(
         added,
-        BTreeSet::from([("agenterm".to_string(), "native_call".to_string())]),
-        "the opt-in's exact difference from the default set is the single native entry"
+        BTreeSet::from([
+            ("agenterm".to_string(), "native_call".to_string()),
+            ("agenterm".to_string(), "native_invoke".to_string()),
+            ("agenterm".to_string(), "native_result".to_string()),
+        ]),
+        "the opt-in's exact difference is the raw ABI plus its QJS adapter"
     );
 }
 
@@ -288,18 +306,17 @@ fn host_effective_gid_from_id() -> u32 {
 }
 
 /// A fifth read-only capability costs one more guest and no production code:
-/// the door's own import table stays at eight, so the addition is a new
+/// the door's own raw import table stays at eleven, so the addition is a new
 /// comparable marginal point rather than a new mechanism.
 #[cfg(unix)]
 #[test]
 fn a_fifth_read_only_capability_is_another_wat_guest_with_no_production_change() {
-    // Five compiler-facing ordinary declarations plus the opt-in native
-    // declaration remain unchanged. The "eighth door" name counts raw host
-    // imports, where two-pass Fleet and ACU results each also have a length
-    // import; this assertion intentionally counts a different public table.
+    // Five ordinary declarations plus three native declarations remain
+    // unchanged. The latter are the language-neutral raw call and the QJS
+    // request/result adapter; two-pass results add private length imports.
     assert_eq!(
         door_declarations().len() + native_door_declarations().len(),
-        6,
+        8,
         "adding a capability must not change the door's import table"
     );
     let egid = run_wat(

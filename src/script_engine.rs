@@ -524,6 +524,22 @@ export function argv(args) {
 }
 "#;
 
+/// Language adapter over the one contained native door. The raw import stays
+/// usable by hand-written wasm; QJS sends a typed signature plus a JSON array
+/// and receives a tagged result without learning guest-memory layout.
+pub(crate) const AGENTERM_NATIVE_MODULE_SOURCE: &str = r#"
+function request(spec, args) {
+  const status = native_invoke(spec, JSON.stringify(args));
+  const result = native_result();
+  if (status !== 0) { throw "agenterm:native door status " + status + ": " + result; }
+  return JSON.parse(result);
+}
+
+export function call(spec, args) {
+  return request(spec, args);
+}
+"#;
+
 pub(crate) const AGENTERM_ACU_ENTRY_LABEL: &str = "agenterm-acu.qjs";
 pub(crate) const AGENTERM_ACU_ENTRY_SOURCE: &str = include_str!("../skills/acu/acu.qjs");
 pub(crate) const AGENTERM_ACU_ARGV_SOURCE: &str = include_str!("../skills/acu/lib/argv.qjs");
@@ -539,6 +555,7 @@ pub(crate) const AGENTERM_ACU_COMPOUND_SOURCE: &str =
 /// to different bytes depending on which public door reached the compiler.
 pub(crate) fn qjs_builtin_module_source(specifier: &str) -> Option<&'static str> {
     match specifier {
+        "agenterm:native" => Some(AGENTERM_NATIVE_MODULE_SOURCE),
         "agenterm:acu" => Some(AGENTERM_ACU_MODULE_SOURCE),
         "agenterm:acu/argv" => Some(AGENTERM_ACU_ARGV_SOURCE),
         "agenterm:acu/legacy-args" => Some(AGENTERM_ACU_LEGACY_ARGS_SOURCE),
@@ -1878,6 +1895,79 @@ mod tests {
         assert!(tool.has_tool_door());
     }
 
+    #[cfg(all(feature = "script-qjswasm", unix))]
+    #[test]
+    fn qjs_native_module_and_acu_module_share_one_contained_guest() {
+        let source = r#"
+import * as native from "agenterm:native";
+import * as acu from "agenterm:acu";
+const reply = acu.call({verb:"probe"});
+const pid = native.call("|getpid|i32()", []);
+const magnitude = native.call("|abs|i32(i32)", [-7]);
+return reply.value + ":" + pid.type + ":" + pid.value + ":" + magnitude.value;
+"#;
+        let options = ScriptInvocationOptions {
+            native_door_contained: true,
+            ..ScriptInvocationOptions::default()
+        };
+        let resolve = qjs_module_resolver(&[]);
+        let wasm = compile_qjs_for(&options, source, &resolve, true)
+            .expect("both product modules compile against the contained door");
+        let acu: agenterm_qjswasm::AcuBridgeFn = Arc::new(|request, _, _| {
+            assert!(request.contains("\"verb\":\"probe\""), "{request}");
+            Ok(r#"{"ok":true,"value":"acu"}"#.to_owned())
+        });
+        let mut engine = agenterm_qjswasm::Engine::with_native_door(qjs_budget(&options));
+        let outcome = engine
+            .run_once_with_bridges(
+                agenterm_qjswasm::Guest::CompiledQjs(&wasm),
+                agenterm_qjswasm::HostBridges {
+                    fleet: None,
+                    acu: Some(acu),
+                },
+                "main",
+                &[],
+            )
+            .expect("ACU and dyn-backed native execution coexist");
+        let expected = format!("acu:i32:{}:7", std::process::id());
+        assert_eq!(
+            outcome.values.first(),
+            Some(&agenterm_qjswasm::Value::Js(
+                agenterm_qjswasm::JsValue::Str(expected)
+            ))
+        );
+    }
+
+    #[cfg(all(feature = "script-qjswasm", unix))]
+    #[test]
+    fn qjs_native_module_preserves_the_native_doors_typed_errors() {
+        let source = r#"
+import * as native from "agenterm:native";
+return native.call("|getpid|ptr()", []);
+"#;
+        let options = ScriptInvocationOptions {
+            native_door_contained: true,
+            ..ScriptInvocationOptions::default()
+        };
+        let resolve = qjs_module_resolver(&[]);
+        let wasm = compile_qjs_for(&options, source, &resolve, true)
+            .expect("the language adapter compiles");
+        let mut engine = agenterm_qjswasm::Engine::with_native_door(qjs_budget(&options));
+        let error = engine
+            .run_once_with_bridges(
+                agenterm_qjswasm::Guest::CompiledQjs(&wasm),
+                agenterm_qjswasm::HostBridges::default(),
+                "main",
+                &[],
+            )
+            .expect_err("pointer results remain outside the exact scalar slice");
+        assert!(
+            matches!(error, agenterm_qjswasm::QjswasmError::Door(ref message)
+                if message.contains("native_invocation_signature_unsupported")),
+            "{error:?}"
+        );
+    }
+
     #[cfg(feature = "script-qjswasm")]
     #[test]
     fn direct_backend_artifact_execution_refuses_the_native_import() {
@@ -1991,6 +2081,7 @@ return reply.ok + ":" + reply.command;
     #[test]
     fn embedded_acu_entry_and_all_reserved_modules_compile_from_one_registry() {
         for specifier in [
+            "agenterm:native",
             "agenterm:acu",
             "agenterm:acu/argv",
             "agenterm:acu/legacy-args",

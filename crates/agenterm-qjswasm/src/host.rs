@@ -9,6 +9,9 @@
 //! acu_result_len()                                       -> i32
 //! acu_result(dst_ptr, dst_len)                           -> i32   // written, negative = too small
 //! native_call(spec_ptr, spec_len, block_ptr, block_len)  -> i32
+//! native_invoke(spec_ptr, spec_len, args_ptr, args_len)  -> i32
+//! native_result_len()                                   -> i32
+//! native_result(dst_ptr, dst_len)                        -> i32
 //! ```
 //!
 //! # Why the bridge answer arrives in two passes
@@ -168,7 +171,7 @@ impl Meter {
 use tinyvm::{Val, WasmError};
 use tinyvm_qjs::{HostFn, HostParam, HostResult};
 
-use crate::native::{NativeDoorError, decode_native_call, invoke_native_call};
+use crate::native::{NativeDoorError, decode_native_call, invoke_native_call, invoke_native_json};
 use crate::tool;
 use crate::{AcuBridgeFn, Budget, FleetBridgeFn, HostBridges, QjswasmError};
 
@@ -206,7 +209,7 @@ const NATIVE_CALL_FAILED: &str = "agenterm door: native call failed";
 /// The exact shape of each door import: `(field, params, results)`. Every
 /// parameter and result is `i32`, which `ImportDesc::i32_only` reports in one
 /// flag, so this table is a complete signature check.
-const SIGNATURES: [(&str, usize, usize); 8] = [
+const SIGNATURES: [(&str, usize, usize); 11] = [
     ("print", 2, 0),
     ("fleet_call", 4, 1),
     ("fleet_result_len", 0, 1),
@@ -215,6 +218,9 @@ const SIGNATURES: [(&str, usize, usize); 8] = [
     ("acu_result_len", 0, 1),
     ("acu_result", 2, 1),
     ("native_call", 4, 1),
+    ("native_invoke", 4, 1),
+    ("native_result_len", 0, 1),
+    ("native_result", 2, 1),
 ];
 
 /// The same door, said in the vocabulary the `.qjs` compiler needs: which host
@@ -233,9 +239,9 @@ const SIGNATURES: [(&str, usize, usize); 8] = [
 /// `plan/design-agenterm-qjswasm.md` 6.5 as the cross-repo contract; upstream
 /// carries the mechanism (`Names::Declared`) and no `agenterm` vocabulary.
 ///
-/// # Why six declarations become eight imports
+/// # Why eight declarations become eleven imports
 ///
-/// `fleet_result` and `acu_result` are [`HostResult::Bytes`] doors: a wasm function cannot
+/// `fleet_result`, `acu_result`, and `native_result` are [`HostResult::Bytes`] doors: a wasm function cannot
 /// return a slice, so the compiler asks `fleet_result_len` how many bytes are
 /// waiting, bump-allocates a string of exactly that size on the guest's own
 /// heap, then has `fleet_result` fill it -- and traps unless the copy wrote
@@ -256,8 +262,9 @@ const SIGNATURES: [(&str, usize, usize); 8] = [
 /// # Order
 ///
 /// Declaration order is import order upstream. [`declarations`] describes the
-/// default seven-import door; [`declarations_with_native`] appends
-/// `native_call` and then matches [`SIGNATURES`] exactly. Only declarations a
+/// default seven-import door; [`declarations_with_native`] appends the raw
+/// `native_call` plus the `native_invoke`/`native_result` QJS adapter, and then
+/// matches [`SIGNATURES`] exactly. Only declarations a
 /// script actually mentions become imports.
 pub(crate) fn declarations() -> Vec<HostFn> {
     declarations_for(false)
@@ -322,6 +329,22 @@ fn declarations_for(native: bool) -> Vec<HostFn> {
             ],
             result: HostResult::I32,
         });
+        declarations.push(HostFn {
+            name: "native_invoke".to_string(),
+            module: DOOR.to_string(),
+            field: "native_invoke".to_string(),
+            params: vec![HostParam::StrPtrLen, HostParam::StrPtrLen],
+            result: HostResult::I32,
+        });
+        declarations.push(HostFn {
+            name: "native_result".to_string(),
+            module: DOOR.to_string(),
+            field: "native_result".to_string(),
+            params: Vec::new(),
+            result: HostResult::Bytes {
+                length: "native_result_len".to_string(),
+            },
+        });
     }
     declarations
 }
@@ -341,6 +364,9 @@ struct Pending {
     /// ACU has an independent retained result so interleaved fleet calls
     /// cannot overwrite its two-pass copy.
     acu_result: Vec<u8>,
+    /// The language adapter has its own retained JSON result. The raw
+    /// `native_call` ABI never touches it.
+    native_result: Vec<u8>,
     /// Why the door itself failed, when the reason is longer than the
     /// `&'static str` a `tinyvm::WasmError` can carry -- today, an embedder's
     /// bridge that panicked. Written on the way out of the callback and read
@@ -431,7 +457,7 @@ impl HostState {
 }
 
 /// Bind the default seven door functions, plus the explicitly selected native
-/// function, into `module` and return the state they share.
+/// family, into `module` and return the state they share.
 ///
 /// A guest need not import all four -- or any. Only the imports it actually
 /// declares are bound; the rest are simply absent, which is why the loop below
@@ -464,6 +490,7 @@ pub(crate) fn install(
         max_stdout: budget.max_stdout_bytes,
         result: Vec::new(),
         acu_result: Vec::new(),
+        native_result: Vec::new(),
         fault: None,
     }));
 
@@ -648,6 +675,37 @@ pub(crate) fn install(
                 .map_err(WasmError::Trap)?;
             Ok(vec![Val::I32(STATUS_OK)])
         })?;
+
+        let state = Rc::clone(&pending);
+        let meter_for_native = Rc::clone(&meter);
+        bind(module, DOOR, "native_invoke", move |args, memory| {
+            let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            let arguments = guest_slice(memory, arg(args, 2)?, arg(args, 3)?)?;
+            state.borrow_mut().native_result.clear();
+            meter_for_native
+                .borrow_mut()
+                .charge(spec.len().saturating_add(arguments.len()))
+                .map_err(WasmError::Trap)?;
+            let result = invoke_native_json(spec, arguments)
+                .map_err(|error| record_native_fault(&state, error))?;
+            meter_for_native.borrow_mut().answered(result.len());
+            meter_for_native
+                .borrow_mut()
+                .check_cancel()
+                .map_err(WasmError::Trap)?;
+            state.borrow_mut().native_result = result.into_bytes();
+            Ok(vec![Val::I32(STATUS_OK)])
+        })?;
+
+        let state = Rc::clone(&pending);
+        bind(module, DOOR, "native_result_len", move |_args, _memory| {
+            Ok(vec![Val::I32(result_len(&state.borrow().native_result)?)])
+        })?;
+
+        let state = Rc::clone(&pending);
+        bind(module, DOOR, "native_result", move |args, memory| {
+            copy_result(&state.borrow().native_result, args, memory)
+        })?;
     }
 
     Ok(HostState {
@@ -711,16 +769,16 @@ pub(crate) fn check_declarations(
         // running" must be tellable apart.
         //
         // `tool.*` in a slot that did not open it is refused the same way but
-        // says something different: the capability exists, this slot was not
-        // given it. That is the sandbox rule enforced at the only place it
-        // can be -- a guest's bytes cannot open a door by naming it.
-        if door == DOOR && desc.field == "native_call" && !native {
-            return Err(QjswasmError::Door(
-                "guest imports `agenterm.native_call`, but the native door is not open in this slot: \
+        // says something different: the capability exists, but this engine
+        // instance was not configured with its crash-containment boundary.
+        // Guest bytes cannot change that runtime configuration by naming it.
+        if door == DOOR && desc.field.starts_with("native_") && !native {
+            return Err(QjswasmError::Door(format!(
+                "guest imports `agenterm.{}`, but the native door is not open in this slot: \
                  only an engine explicitly opened with `Engine::with_native_door` or \
-                 `Engine::enable_native_door` offers it"
-                    .to_owned(),
-            ));
+                 `Engine::enable_native_door` offers it",
+                desc.field
+            )));
         }
         let table: &[(&str, usize, usize)] = if door == DOOR {
             &SIGNATURES

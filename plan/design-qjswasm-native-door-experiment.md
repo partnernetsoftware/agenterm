@@ -128,7 +128,9 @@ before/after diff。因此 `edc59a29` 以 `getegid.wat` 建立了新的可比边
 。这通过了斜率门，但必须把改用第五能力的偏差留在账上；S5 仍阻止资格宣判。
 
 判决树 trace：判据 1 尚缺各 target 的运行证据 → 不判；判据 2 的新可比边际点生产 Rust diff 为零 →
-主斜率通过；判据 3 的一次 `7 → 8` 已由表与测试锁住、未见第四扇门 → 通过当前树审计；
+主斜率通过；判据 3 的一次 `7 → 8` 是 raw `native_call` 落地时的历史基线。当前树另为
+`.qjs` 增加同一 native capability 的值式适配器，raw inventory 为 11，compiler-visible 集合为
+默认 5 + native family 3 = 8；适配器仍进入同一 qjswasm dispatch 与 dyn loader/stub，不是第四扇执行门；
 判据 4 有固定表和独立计数，但没有生成器产物账 → 部分通过；**判据 5 的 target 编译账已补齐**
 （`x86_64-pc-windows-msvc`、`aarch64-pc-windows-msvc` 的 clippy 与 Linux `x86_64` 的 zigbuild，
 三者均 rc=0 且属**仅编译**，见 §8.2 与 `RESULTS.md` §F7–§F11），但 Windows/Linux 的 **runtime
@@ -141,7 +143,7 @@ before/after diff。因此 `edc59a29` 以 `getegid.wat` 建立了新的可比边
 | S1 schema + validator | **已实现** | `b7ff748e` 新增 `src/native.rs` 与 `tests/native_door_schema.rs`；上限、checked span、exact block、typed error code、GP/F64 分类和独立 381-pattern 重算均有测试 | 无实现缺口；最终结果账本仍须记录该 SHA/测试 |
 | S2 单一 door + bounded caller | **已实现** | `35098c28` 将唯一 `agenterm.native_call(i32,i32,i32,i32)->i32` 接入 opt-in Engine；`native_door.rs` 覆盖默认关闭、显式开启、声明发现和 budget/cancel；非宿主目标编译归属已由 S5 记录 | 尚缺 Windows/Linux runtime 归属 |
 | S3 三能力 + 负面矩阵 | **本机实现完成** | Unix `getpid/getppid/getuid` 真调用并分别与进程 ID、父进程 ID、real UID 的独立 host oracle 精确比较；另有 `abs(i32)` 与 `cos(f64)` 精确 ABI family；schema 测试覆盖 spec/block/argument span 和尺寸，door 测试区分 library/symbol/signature/OOB | 证据只归属于实际运行测试的 Unix host；逐 target runtime 资格仍由 S5 补齐 |
-| S4 第四能力 | **斜率已由第五点补测通过** | 原第四点仍由 `getpagesize.wat` 证明；`edc59a29` 只新增 `getegid.wat` 与测试，独立 `id -g` oracle 精确相等，door 仍只有一个 native import | 原第四点没有独立基线，因此按 §8.4 记录规格偏差；第五点是替代的可比边际点，不改写原历史 |
+| S4 第四能力 | **斜率已由第五点补测通过** | 原第四点仍由 `getpagesize.wat` 证明；`edc59a29` 只新增 `getegid.wat` 与测试，独立 `id -g` oracle 精确相等，当时 door 仍只有一个 native import | 原第四点没有独立基线，因此按 §8.4 记录规格偏差；第五点是替代的可比边际点，不改写原历史；后续 QJS 语言适配器另记在判据 3 当前状态 |
 | S5 qualification | **部分完成（编译面已补齐，运行面未齐）** | `research/qjswasm-native-door/RESULTS.md` 在 `93a46fcd` 记录本机 schema 9/9 与 runtime 10/10 及 49/381 复算；**追加段 §F7–§F11 在 `2158fffb` 记录**双 MSVC clippy（`-D warnings`，rc=0，qjswasm 零诊断）与 Linux `x86_64` `cargo zigbuild --all-targets`（rc=0，仅依赖 `agenterm-platform` 的 warning）**均已完成且均为仅编译**；`3afbdc1d` 另证 public artifact 监督 | **仍未取得 Windows/Linux runtime**（三格只到编译/静态检查，未在任何非宿主目标运行）；缺同口径 release qjswasm/根产品增量 |
 
 ### 8.3 判据账（数字均为当前树结构审计，不冒充目标运行）
@@ -150,7 +152,7 @@ before/after diff。因此 `edc59a29` 以 `getegid.wat` 建立了新的可比边
 |------|------|---------------------|
 | 1 正确性 | **目标资格未完成** | 3 个首组 Unix fixture + 1 个 addition 在本机 macOS 运行通过；`getpid/getppid/getuid` 均与独立 host oracle 精确相等。[实测·本机真机执行；其它 target 未运行] |
 | 2 能力斜率（主） | **通过（第五点替代测量）** | 基线 `b6755b0f` 到 `edc59a29` 新增 `getegid`；`crates/agenterm-qjswasm/src/**/*.rs` 聚合 SHA-256 前后均为 `44241fd41b550705a6de8d0c6bf24caf3300243d2071b4e3ffff45aaf68d0e51`，生产 Rust diff = 0。[实测·本机真机执行] |
-| 3 门面冻结 | **当前通过** | raw host `SIGNATURES` 为 8 项；compiler 默认声明为 5 项，native opt-in 的集合差恰好只追加 `native_call` 1 项，得到 6 项。8 与 6 是 inventory 与 compiler-visible 两层，不是漂移；后续 fixture 没有新增 import。[结构审计；本机专属测试通过] |
+| 3 门面冻结 | **历史 raw 门通过；当前语言适配器有账** | 原 raw host `SIGNATURES` 为 8 项，compiler 默认 5 + `native_call` 1 = 6。当前为使 `.qjs` 无需伪造线性内存块即可到达同一门，增加 `native_invoke` 与两段式 `native_result`：raw inventory 11，compiler 默认 5 + native family 3 = 8。集合测试钉住三项只在 native opt-in 出现；执行仍唯一落到 qjswasm dispatch → `agenterm_dyn::invoke_exact`，没有第二 loader/stub。[结构审计；本机组合测试通过] |
 | 4 有限桩表 | **部分通过** | 参数类 2、返回类 3、arity `0..=6`，独立枚举为 `3 × Σ(2^0..2^6) = 381`；`22b79c0f` 让生产与测试共用唯一 exact-family admission，单测独立遍历 `7 × 7 = 49` 并钉住拒绝矩阵。实现以宏列出 0–6 arity，尚无规格所说的生成器结果文件。[结构审计；本机独立枚举测试通过] |
 | 5 no-JIT / cross | **部分通过（编译面已补齐，运行面未齐）** | 代码使用固定 Rust `extern C` stubs + `libloading`，未见 executable allocation、机器码生成、汇编或 C build；**双 MSVC clippy 与 Linux x86_64 zigbuild 的仅编译账已在当前 follow-up source state 复验**（`RESULTS.md` §F7–§F11，测于 `2158fffb`：x64/aarch64 rc=0 且 qjswasm 零诊断，Linux rc=0 且仅依赖有 warning），本机 macOS 有 runtime；**Windows/Linux runtime 未取得**。[结构审计 + `RESULTS.md` 实测（仅编译）] |
 | 6 资源边界 | **当前通过 schema 审计** | spec 1024 B、library 512 B、symbol 255 B、arity 6、block exact-size；span/addition/narrowing 有 typed checked paths 和测试。[结构审计；本机专属测试通过] |

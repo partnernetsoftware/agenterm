@@ -460,7 +460,7 @@ pub fn door_declarations() -> Vec<HostFn> {
     host::declarations()
 }
 
-/// The one declaration added by the crash-capable native door.
+/// The declarations added by the crash-capable native door.
 ///
 /// Kept separate from [`door_declarations`] so discovery of the default host
 /// surface cannot accidentally advertise an import the default [`Engine`]
@@ -468,7 +468,12 @@ pub fn door_declarations() -> Vec<HostFn> {
 pub fn native_door_declarations() -> Vec<HostFn> {
     host::declarations_with_native()
         .into_iter()
-        .filter(|declaration| declaration.field == "native_call")
+        .filter(|declaration| {
+            matches!(
+                declaration.field.as_str(),
+                "native_call" | "native_invoke" | "native_result"
+            )
+        })
         .collect()
 }
 

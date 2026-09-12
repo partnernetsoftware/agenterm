@@ -401,6 +401,12 @@ integration.
   This crate still owns guest schema/memory/budget/cancel/writeback semantics
   and maps dyn's typed signature/library/symbol failures into the existing
   `NativeDoorError` codes; it no longer contains a second loader or stub table.
+- `.qjs` callers use the built-in `agenterm:native` module as a typed language
+  adapter over that same opt-in door. It accepts a signature plus JSON values,
+  preserves wide integers as decimal strings, and shares the raw door's
+  budget, cancellation, failure codes, and dyn execution path. A combined
+  engine court proves `agenterm:native` and `agenterm:acu` coexist in one guest
+  without introducing an `agenterm-cu` → `agenterm-dyn` dependency.
 - public Script CLI black boxes own `.qjs` route, diagnostics, receipts and
   product-host calls.
 - v0.1.18 G4 owns the release-critical task/journey migration. Quick-only green

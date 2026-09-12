@@ -497,6 +497,17 @@ resolution and the seven-family, arity-zero-through-six Rust `extern "C"`
 selector. This dependency adds no JIT, C shim, libffi, CU verb, or platform
 policy.
 
+Product `.qjs` code imports `agenterm:native` and calls `native.call(spec,
+arguments)`. The module is only a language adapter over that same contained
+door: it JSON-encodes the argument array, and the host returns
+`{type,value}`. `i32`/`u32`/`f64` values use JSON numbers; `i64`/`u64`/`isize`/
+`usize` use exact decimal strings in both directions so binary64 cannot round a
+native integer. The adapter does not add a loader or selector: after parsing
+and canonical conversion it reaches the same `agenterm-dyn::invoke_exact`.
+It is declared only when the raw native door is declared, shares the same host
+operation/byte budget and cancellation sampling, and preserves the existing
+`native_*` typed failure codes.
+
 | 面 | crate | 引擎 | 信任模型 |
 |----|-------|------|----------|
 | `.qjs` / `.wasm`（本 crate） | `agenterm-qjswasm` + `tinyvm-qjs` | tinyvm，**无 JIT**，自研编译器 | 不信任字节 |
