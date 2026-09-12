@@ -195,6 +195,7 @@ pub enum NativeDoorError {
     HostAddressNotPermitted {
         index: usize,
     },
+    ResultPointerOutsideGuestSpans,
     ArgumentKindMismatch {
         index: usize,
         kind: u32,
@@ -267,6 +268,7 @@ impl NativeDoorError {
             Self::RecordReservedNonZero { .. } => "native_record_reserved_nonzero",
             Self::UnknownArgumentKind { .. } => "native_argument_kind_unknown",
             Self::HostAddressNotPermitted { .. } => "native_host_address_not_permitted",
+            Self::ResultPointerOutsideGuestSpans => "native_result_pointer_outside_guest_spans",
             Self::ArgumentKindMismatch { .. } => "native_argument_kind_mismatch",
             Self::NullForNonNullablePointer { .. } => "native_null_not_permitted",
             Self::NullPayloadNonZero { .. } => "native_null_payload_nonzero",
@@ -337,6 +339,9 @@ impl fmt::Display for NativeDoorError {
             }
             Self::HostAddressNotPermitted { index } => {
                 write!(f, "argument {index} attempts to supply a raw host address")
+            }
+            Self::ResultPointerOutsideGuestSpans => {
+                f.write_str("native result pointer is outside every declared guest span")
             }
             Self::ArgumentKindMismatch { index, kind, ty } => {
                 write!(
@@ -734,6 +739,7 @@ pub(crate) fn invoke_native_call(
     // derived from this allocation, never overlapping `&mut` slices: guest
     // spans are allowed to alias intentionally.
     let memory_base = memory.as_mut_ptr();
+    let memory_len = memory.len();
     let bits = match native_dispatch(&call.spec)? {
         NativeDispatch::Exact { .. } => {
             let arguments = call
@@ -757,9 +763,7 @@ pub(crate) fn invoke_native_call(
             // SAFETY: the guest declaration is the native-door caller's explicit ABI assertion.
             unsafe { agenterm_dyn::invoke_abi(&abi_call) }
                 .map_err(|error| map_abi_error(call, error))
-                .and_then(|value| {
-                    abi_result_bits(value, call.spec.result).ok_or_else(unsupported_signature(call))
-                })?
+                .and_then(|value| abi_result_bits(value, call, memory_base, memory_len))?
         }
         NativeDispatch::Fixed(_prototype) => {
             let arguments = call
@@ -781,9 +785,7 @@ pub(crate) fn invoke_native_call(
             // SAFETY: native_dispatch admitted this enumerated fixed prototype.
             unsafe { agenterm_dyn::invoke_abi(&abi_call) }
                 .map_err(|error| map_abi_error(call, error))
-                .and_then(|value| {
-                    abi_result_bits(value, call.spec.result).ok_or_else(unsupported_signature(call))
-                })?
+                .and_then(|value| abi_result_bits(value, call, memory_base, memory_len))?
         }
         NativeDispatch::FixedPointer(_prototype) => {
             let arguments = call
@@ -814,9 +816,7 @@ pub(crate) fn invoke_native_call(
             // mechanism matrix before the foreign call.
             unsafe { agenterm_dyn::invoke_abi(&abi_call) }
                 .map_err(|error| map_abi_error(call, error))
-                .and_then(|value| {
-                    abi_result_bits(value, call.spec.result).ok_or_else(unsupported_signature(call))
-                })?
+                .and_then(|value| abi_result_bits(value, call, memory_base, memory_len))?
         }
         NativeDispatch::UnixIoctl(prototype) => {
             let fd = ioctl_i32_argument(0, &call.arguments[0], call)?;
@@ -990,6 +990,7 @@ enum PointerPrototype {
     VoidNullablePointer,
     I64NullablePointer,
     I64Pointer,
+    PointerPointerUsize,
     I32Pointer,
     I32I32Pointer,
     I32PointerI32,
@@ -1052,6 +1053,9 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
             Some(PointerPrototype::I64NullablePointer)
         }
         (NativeType::I64, [NativeType::Pointer]) => Some(PointerPrototype::I64Pointer),
+        (NativeType::Pointer, [NativeType::Pointer, NativeType::Usize]) => {
+            Some(PointerPrototype::PointerPointerUsize)
+        }
         (NativeType::I32, [NativeType::Pointer]) => Some(PointerPrototype::I32Pointer),
         (NativeType::I32, [NativeType::I32, NativeType::Pointer]) => {
             Some(PointerPrototype::I32I32Pointer)
@@ -1368,6 +1372,16 @@ fn fixed_pointer_argument(
             ty: NativeType::U64,
             bits,
         } => Ok(AbiValue::U64(*bits)),
+        NativeArgument::Scalar {
+            ty: NativeType::Usize,
+            bits,
+        } => usize::try_from(*bits).map(AbiValue::Usize).map_err(|_| {
+            NativeDoorError::ScalarNotCanonical {
+                index,
+                ty: NativeType::Usize,
+                bits: *bits,
+            }
+        }),
         NativeArgument::GuestSpan { ty, span } if ty.is_pointer() => {
             // SAFETY: decode_native_call proved offset + len is within the one
             // guest allocation. `add` therefore yields an in-bounds or one-past
@@ -1418,8 +1432,13 @@ fn abi_parameters(call: &DecodedNativeCall) -> Result<Vec<agenterm_dyn::AbiType>
 ///
 /// There is no fallback arm: a result that does not match the declared type is a
 /// typed refusal, never a silent zero.
-fn abi_result_bits(value: agenterm_dyn::AbiValue, expected: NativeType) -> Option<u64> {
-    match (expected, value) {
+fn abi_result_bits(
+    value: agenterm_dyn::AbiValue,
+    call: &DecodedNativeCall,
+    memory_base: *mut u8,
+    memory_len: usize,
+) -> Result<u64, NativeDoorError> {
+    let scalar = match (call.spec.result, value) {
         (NativeType::Void, agenterm_dyn::AbiValue::Void) => Some(0),
         (NativeType::I32, agenterm_dyn::AbiValue::I32(bits)) => Some(bits as i64 as u64),
         (NativeType::U32, agenterm_dyn::AbiValue::U32(bits)) => Some(u64::from(bits)),
@@ -1428,8 +1447,26 @@ fn abi_result_bits(value: agenterm_dyn::AbiValue, expected: NativeType) -> Optio
         (NativeType::Isize, agenterm_dyn::AbiValue::Isize(bits)) => Some(bits as i64 as u64),
         (NativeType::Usize, agenterm_dyn::AbiValue::Usize(bits)) => Some(bits as u64),
         (NativeType::F64, agenterm_dyn::AbiValue::F64(bits)) => Some(bits.to_bits()),
+        (NativeType::Pointer, agenterm_dyn::AbiValue::Pointer(pointer)) => {
+            if pointer.is_null() {
+                return Ok(0);
+            }
+            let offset = (pointer as usize)
+                .checked_sub(memory_base as usize)
+                .filter(|offset| *offset < memory_len)
+                .ok_or(NativeDoorError::ResultPointerOutsideGuestSpans)?;
+            let declared = call.arguments.iter().any(|argument| {
+                matches!(argument, NativeArgument::GuestSpan { span, .. }
+                    if offset >= span.offset && offset < span.offset + span.len)
+            });
+            if !declared {
+                return Err(NativeDoorError::ResultPointerOutsideGuestSpans);
+            }
+            return Ok(offset as u64);
+        }
         _ => None,
-    }
+    };
+    scalar.ok_or_else(unsupported_signature(call))
 }
 
 /// The JSON rendering of a result, replicating the retired per-family helpers:
@@ -1618,6 +1655,12 @@ mod json_adapter_tests {
             Ok(NativeDispatch::FixedPointer(PointerPrototype::I64Pointer))
         );
         assert_eq!(
+            native_dispatch(&parse("|getcwd|ptr(ptr,usize)")),
+            Ok(NativeDispatch::FixedPointer(
+                PointerPrototype::PointerPointerUsize,
+            ))
+        );
+        assert_eq!(
             native_dispatch(&parse("|pthread_threadid_np|i32(ptr?,ptr)")),
             Ok(NativeDispatch::FixedPointer(
                 PointerPrototype::I32NullablePointerPointer,
@@ -1651,6 +1694,50 @@ mod json_adapter_tests {
             native_dispatch(&parse("missing|unused|isize(i64)")),
             Err(NativeDoorError::InvocationSignatureUnsupported { .. })
         ));
+    }
+
+    #[test]
+    fn pointer_results_must_land_in_a_declared_guest_span() {
+        let spec = parse_native_spec(b"|getcwd|ptr(ptr,usize)").expect("spec parses");
+        let call = DecodedNativeCall {
+            signature: classify_signature(&spec),
+            spec,
+            return_slot: GuestSpan { offset: 8, len: 8 },
+            initial_return_bits: 0,
+            arguments: vec![
+                NativeArgument::GuestSpan {
+                    ty: NativeType::Pointer,
+                    span: GuestSpan {
+                        offset: 16,
+                        len: 16,
+                    },
+                },
+                NativeArgument::Scalar {
+                    ty: NativeType::Usize,
+                    bits: 16,
+                },
+            ],
+        };
+        let mut memory = [0_u8; 64];
+        let base = memory.as_mut_ptr();
+        assert_eq!(
+            abi_result_bits(
+                agenterm_dyn::AbiValue::Pointer(unsafe { base.add(16) }.cast()),
+                &call,
+                base,
+                memory.len(),
+            ),
+            Ok(16)
+        );
+        assert_eq!(
+            abi_result_bits(
+                agenterm_dyn::AbiValue::Pointer(unsafe { base.add(40) }.cast()),
+                &call,
+                base,
+                memory.len(),
+            ),
+            Err(NativeDoorError::ResultPointerOutsideGuestSpans)
+        );
     }
 
     #[test]

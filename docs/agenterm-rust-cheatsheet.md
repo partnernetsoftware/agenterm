@@ -6055,3 +6055,23 @@ typed pointee safety, it needs an explicit callee contract for minimum widths,
 alignment, dynamic-length relationships and terminators, with pre-load typed
 rejection tests. A symbol allowlist is not a substitute for an unimplemented
 general capability and must not be smuggled in as permission policy.
+
+## Rebase native pointer results onto declared guest spans
+
+A native function may return the same pointer that a Wasm guest supplied as a
+caller-owned buffer (`getcwd` is the canonical case). Never publish that host
+virtual address in a guest integer slot. After the synchronous call, accept null
+as guest offset zero; otherwise subtract the current linear-memory base with
+checked arithmetic and require the result to lie inside one of that call's
+declared guest spans. Publish only the resulting guest offset. A pointer that is
+inside the Wasm allocation but outside every declared argument span is still a
+typed refusal: allocation membership alone would let an opaque native result
+name the schema block, return slot, or unrelated guest data.
+
+Keep the layers distinct. Dyn's policy-free ABI mechanism returns raw pointer
+bits because Rust callers own their pointer contract. The qjswasm door owns the
+guest-address rebasing and its stable error code because it alone knows the
+linear-memory base and decoded spans. Prove both sides: a direct dyn oracle must
+show the true pointer-returning C trampoline, a WAT court must require buffer
+identity plus the pointee claim, and an adversarial unit test must reject an
+in-allocation result outside the declared span.

@@ -225,6 +225,7 @@ enum PointerResultPrototype {
     NoArguments,
     U32,
     U64,
+    PointerUsize,
 }
 
 /// Maps an exact-family position onto its family type. `None` means the exact
@@ -364,6 +365,9 @@ fn classify(signature: AbiSignature<'_>, arguments: &[AbiValue]) -> Result<Famil
             [] => return Ok(Family::PointerResult(PointerResultPrototype::NoArguments)),
             [AbiType::U32] => return Ok(Family::PointerResult(PointerResultPrototype::U32)),
             [AbiType::U64] => return Ok(Family::PointerResult(PointerResultPrototype::U64)),
+            [AbiType::Pointer, AbiType::Usize] => {
+                return Ok(Family::PointerResult(PointerResultPrototype::PointerUsize));
+            }
             _ => {}
         }
     }
@@ -680,6 +684,20 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
                     .map_err(|error| pointer_result_symbol_error(call, error))?;
                     // SAFETY: the caller owns the symbol contract and library lifetime.
                     unsafe { function(*argument) }
+                }
+                (
+                    PointerResultPrototype::PointerUsize,
+                    [AbiValue::Pointer(buffer), AbiValue::Usize(length)],
+                ) => {
+                    // SAFETY: as above, for the admitted `ptr(ptr,usize)` shape.
+                    let function = unsafe {
+                        library.get::<unsafe extern "C" fn(*mut c_void, usize) -> *mut c_void>(
+                            call.symbol.as_bytes(),
+                        )
+                    }
+                    .map_err(|error| pointer_result_symbol_error(call, error))?;
+                    // SAFETY: the caller owns the complete buffer contract.
+                    unsafe { function(*buffer, *length) }
                 }
                 _ => unreachable!("classification checked pointer-result arguments"),
             };

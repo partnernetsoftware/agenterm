@@ -125,35 +125,6 @@ mod linux {
     }
 
     #[test]
-    fn dlcall_getcwd_writes_current_directory() {
-        use std::os::unix::ffi::OsStrExt;
-
-        let probe = live_system_probe("getcwd");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut buffer = [0_u8; 4096];
-        let buffer_ptr = buffer.as_mut_ptr();
-        let mut env = Dyn::new();
-        env.bind("cwd", buffer_ptr.cast()).expect("bind cwd buffer");
-        let got = eval_native(
-            &mut env,
-            &format!(
-                r#"(dlcall "{lib}" "{symbol}" "ptr" "ptr" cwd "u64" {})"#,
-                buffer.len()
-            ),
-        )
-        .expect("getcwd dlcall");
-        assert_eq!(got, Value::Ptr(buffer_ptr as usize));
-        let end = buffer
-            .iter()
-            .position(|byte| *byte == 0)
-            .expect("getcwd result should be NUL terminated");
-        let expected = std::env::current_dir().expect("read current directory");
-        assert_eq!(&buffer[..end], expected.as_os_str().as_bytes());
-    }
-
-    #[test]
     fn dlcall_getpriority_process_matches_libc() {
         let probe = live_system_probe("getpriority_process");
         let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
@@ -400,34 +371,6 @@ mod macos {
         let got = eval_native(&mut env, &getpid_script()).expect("getpid after missing symbol");
         let real = unsafe { libc::getpid() };
         assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
-    fn dlcall_getcwd_writes_current_directory() {
-        use std::os::unix::ffi::OsStrExt;
-        let probe = live_system_probe("getcwd");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!()
-        };
-        let mut buffer = [0_u8; 4096];
-        let buffer_ptr = buffer.as_mut_ptr();
-        let mut env = Dyn::new();
-        env.bind("cwd", buffer_ptr.cast()).expect("bind cwd buffer");
-        let got = eval_native(
-            &mut env,
-            &format!(
-                r#"(dlcall "{lib}" "{symbol}" "ptr" "ptr" cwd "u64" {})"#,
-                buffer.len()
-            ),
-        )
-        .expect("getcwd dlcall");
-        assert_eq!(got, Value::Ptr(buffer_ptr as usize));
-        let end = buffer
-            .iter()
-            .position(|byte| *byte == 0)
-            .expect("getcwd result should be NUL terminated");
-        let expected = std::env::current_dir().expect("read current directory");
-        assert_eq!(&buffer[..end], expected.as_os_str().as_bytes());
     }
 
     #[test]

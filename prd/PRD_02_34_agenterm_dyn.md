@@ -431,6 +431,11 @@ Existing qjswasm courts also remain the sole executable claims for Unix
 `clock_getres`; their residual scalar Lisp duplicates are retired. Cache and
 language-composition courts that happen to call `getpid` remain until those
 separate claims migrate.
+Unix `getcwd` now exercises dyn's real `ptr(ptr,usize)` mechanism. qjswasm maps
+the returned address back to a guest offset only when it lies inside a declared
+guest span (null maps to zero); an external host address is a typed refusal. The
+WAT court requires buffer identity and NUL termination, then compares the exact
+current-directory bytes, replacing the Linux/macOS Lisp courts.
 Unix `ioctl` (Linux and macOS) is owned by dyn's `invoke_unix_ioctl` only for the
 validated `(i32, u64|i32, ptr) -> i32` signature. The legacy Lisp entrance and
 the qjswasm native door both delegate there; the fixed trampoline remains for

@@ -727,6 +727,27 @@ fn getrusage_cpu_times_precede_direct_libc_baselines() {
 
 #[cfg(unix)]
 #[test]
+fn getcwd_returns_its_guest_buffer_and_matches_current_directory_bytes() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let guest = run_wat(
+        include_str!("fixtures/native/getcwd.wat"),
+        Budget::default(),
+    )
+    .expect("getcwd guest runs");
+    let expected = std::env::current_dir().expect("read current directory");
+    let expected = expected
+        .as_os_str()
+        .as_bytes()
+        .iter()
+        .fold(0_i64, |hash, byte| {
+            hash.wrapping_mul(257) ^ i64::from(*byte)
+        });
+    assert_eq!(guest, expected);
+}
+
+#[cfg(unix)]
+#[test]
 fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
     let output = std::process::Command::new("uname")
         .arg("-s")

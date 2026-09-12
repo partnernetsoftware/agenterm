@@ -130,6 +130,35 @@ fn void_pointer_shape_calls_free_null() {
     assert_eq!(value, AbiValue::Void);
 }
 
+#[cfg(unix)]
+#[test]
+fn pointer_result_with_pointer_and_usize_matches_getcwd() {
+    let mut bridged = [0_u8; 4096];
+    let value = unsafe {
+        invoke_abi(&NativeCall {
+            library: "",
+            symbol: "getcwd",
+            signature: AbiSignature {
+                result: AbiType::Pointer,
+                params: &[AbiType::Pointer, AbiType::Usize],
+            },
+            arguments: &[
+                AbiValue::Pointer(bridged.as_mut_ptr().cast()),
+                AbiValue::Usize(bridged.len()),
+            ],
+        })
+    }
+    .expect("getcwd through the raw ABI");
+    assert_eq!(value, AbiValue::Pointer(bridged.as_mut_ptr().cast()));
+
+    let bridged = CStr::from_bytes_until_nul(&bridged).expect("getcwd terminates its output");
+    let mut direct = [0_u8; 4096];
+    let direct_result = unsafe { libc::getcwd(direct.as_mut_ptr().cast(), direct.len()) };
+    assert_eq!(direct_result.cast::<u8>(), direct.as_mut_ptr());
+    let direct = CStr::from_bytes_until_nul(&direct).expect("direct getcwd terminates its output");
+    assert_eq!(bridged.to_bytes(), direct.to_bytes());
+}
+
 /// Pointer results are raw machine addresses. The mechanism preserves their
 /// bits; ownership and dereference rules remain with the caller.
 #[cfg(target_os = "macos")]
