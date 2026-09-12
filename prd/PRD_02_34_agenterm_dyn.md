@@ -20,7 +20,8 @@ Parallel crate `crates/agenterm-dyn`, not a fourth engine, not libagenterm, not 
 
 qjswasm 是当前真实消费者：它拥有 guest-memory 解码、door、预算、取消与错误映射，
 随后把已经验证的调用委托给 dyn 的 `invoke_exact`、`invoke_fixed` 或
-`invoke_fixed_pointer`。CU 通过 Script Runtime 的 `agenterm:native` 模块间接使用这条
+`invoke_fixed_pointer`；Unix `ioctl` 特例也委托给 dyn 的 `invoke_unix_ioctl`，不在
+qjswasm 内复制 variadic 调用实现。CU 通过 Script Runtime 的 `agenterm:native` 模块间接使用这条
 链；CU 不直接依赖 dyn，也没有第二套 loader。tinyvm 仍负责 `.qjs`→Wasm 与 Wasm
 执行，不拥有 native ABI。
 
@@ -61,7 +62,7 @@ agenterm-dyn
 │       ├── CpuCountSnapshot         hw.ncpu
 │       ├── DlAddressSnapshot        copied image/symbol bytes
 │       ├── DomainNameSnapshot       bounded native bytes
-│       └── LoginNameSnapshot        bounded native bytes or typed OS failure
+│       └── LoginNameSnapshot        1024-byte bound + true NUL + native bytes
 │
 ├── C. OS×ISA facts                                 [保留]
 │   ├── hosts.rs: win/lnx/osx × x86_64/aarch64
@@ -81,6 +82,7 @@ agenterm-dyn
 共享边（DAG）
 qjswasm ──uses──> A
 qjswasm ──guest span──> A.fixed_pointer
+qjswasm ──validated ioctl request──> A.unix_ioctl
 Script Runtime / CU ──agenterm:native──> qjswasm ──> A
 B ──describes the same native facts──> C.LiveOwned / C.LiveDlcallOwned
 E ──courts are being ported to .wat──> qjswasm ──> A
@@ -231,9 +233,11 @@ fixnum `+` `-` + bounded `repeat` + one hand (`dlcall`).
   exactly once, with typed `MachHostPortError` and an observable
   `send_right_refs()` count. Every other cell stays a placeholder / typed
   `Unsupported`, and this evidence belongs only to the host ISA that actually ran.
-  Unix `ioctl` calls its resolved symbol through a
-  signature-gated Rust variadic path for `(i32, u64|i32, ptr) -> i32`, not
-  general variadic FFI. CU-adjacent macOS notes name AX as a cu live hand.
+  Both the retiring Lisp court and the current qjswasm native door delegate Unix
+  `ioctl` to dyn's signature-gated variadic path for
+  `(i32, u64|i32, ptr) -> i32`; neither owns a second variadic implementation,
+  and this does not authorize general variadic FFI. CU-adjacent macOS notes name
+  AX as a cu live hand.
 - Last Linux Wave 8 evidence is `cargo test --locked -p agenterm-dyn` with Rust
   1.97: **150 passed** (25 unit + 40 errors + 11 hosts + 26 language + 48
   cfg-gated Linux smoke; 0 doctests). Wave 9 Darwin-native evidence is GitHub
@@ -298,9 +302,10 @@ stay placeholder / typed `Unsupported`, and the real-machine evidence is the hos
 ISA only. Windows extra probes stay placeholders. No
 C shim.
 Restore process-global side effects before the test ends (`umask` pattern).
-Unix `ioctl` (Linux and macOS) transmutes its already-resolved symbol only for the validated
-`(i32, u64|i32, ptr) -> i32` signature; the fixed trampoline remains for every
-other call and this does not authorize general variadic FFI.
+Unix `ioctl` (Linux and macOS) is owned by dyn's `invoke_unix_ioctl` only for the
+validated `(i32, u64|i32, ptr) -> i32` signature. The legacy Lisp entrance and
+the qjswasm native door both delegate there; the fixed trampoline remains for
+every other call and this does not authorize general variadic FFI.
 Linux caller-owned `ptr` coverage includes `getcwd`, `uname`, `times`,
 `clock_gettime`, `getrusage`, and `getrlimit`.
 
@@ -339,6 +344,10 @@ court has claim-preserving `.wat` or typed-owner evidence.
   examples still carry claims that must move rather than disappear. `hosts.rs`
   remains the six-cell fact owner and `exec.rs` remains the separately bounded future
   JIT tool.
+- Current court migration has moved the scalar, clock-pointer, Darwin output-pointer,
+  Mach-clock, and duplicate Darwin `ioctl` claims to qjswasm `.wat` or typed-owner
+  evidence. This is incremental retirement evidence, not permission to delete the
+  remaining Lisp courts or language files as a batch.
 - [`plan/design-guest-runtime-placement-experiment.md`](../plan/design-guest-runtime-placement-experiment.md)
   freezes the unresolved product choice between optional static CU linkage and a
   versioned provider ABI. No `guest-run` verb may land before one placement is both
@@ -353,8 +362,8 @@ work described by the linked plans.
 
 Public `.wasm`/`.qjs` execution has an explicit artifact convention, bounded input,
 and `WorkerSupervisor` containment for native-door crashes and hard timeouts.
-The qjswasm native door now delegates validated exact/fixed/fixed-pointer execution
-to dyn, and the public `native-acu-composition-smoke` proves one supervised guest can
+The qjswasm native door now delegates validated exact/fixed/fixed-pointer and Unix
+`ioctl` execution to dyn, and the public `native-acu-composition-smoke` proves one supervised guest can
 compose `agenterm:native` with `agenterm:acu`. This establishes dyn as a real lower
 layer; it does not establish that the legacy Lisp can be deleted before its remaining
 courts move.
@@ -364,6 +373,16 @@ exception, six-cell `hosts.rs` facts, typed owners, and the future-JIT boundary 
 `exec.rs` remain independently owned by dyn. `Dyn`/`Value`/`Symbol` are legacy
 language API and retire only with the remaining language component after evidence
 migration.
+
+`LoginNameSnapshot::acquire()` is the typed Darwin boundary for `getlogin_r`.
+It owns a fixed 1,024-byte sentinel-initialized buffer, accepts only a real NUL
+as termination, and publishes the preceding native bytes without requiring
+UTF-8 or leaking the caller buffer. A nonzero `getlogin_r` return is itself the
+OS error code and maps to `LoginNameError::Os(code)` without consulting `errno`;
+successful unterminated output is `NotTerminated`, and non-Darwin cells return
+typed `Unsupported`. The macOS catalog keeps both the legacy native-call fact and
+this snapshot as `LiveDlcallOwned`; Linux and Windows remain placeholders, so the
+Darwin runtime result is not evidence for another cell.
 
 ## Non-goals until 政委 orders otherwise
 
