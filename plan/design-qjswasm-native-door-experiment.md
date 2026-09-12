@@ -140,7 +140,7 @@ before/after diff。因此 `edc59a29` 以 `getegid.wat` 建立了新的可比边
 | S2 单一 door + bounded caller | **已实现** | `35098c28` 将唯一 `agenterm.native_call(i32,i32,i32,i32)->i32` 接入 opt-in Engine；`native_door.rs` 覆盖默认关闭、显式开启、声明发现和 budget/cancel | 尚缺全部目标格编译/运行归属 |
 | S3 三能力 + 负面矩阵 | **本机实现完成** | Unix `getpid/getppid/getuid` 真调用并分别与进程 ID、父进程 ID、real UID 的独立 host oracle 精确比较；另有 `abs(i32)` 与 `cos(f64)` 精确 ABI family；schema 测试覆盖 spec/block/argument span 和尺寸，door 测试区分 library/symbol/signature/OOB | 证据只归属于实际运行测试的 Unix host；逐 target runtime 资格仍由 S5 补齐 |
 | S4 第四能力 | **斜率已由第五点补测通过** | 原第四点仍由 `getpagesize.wat` 证明；`edc59a29` 只新增 `getegid.wat` 与测试，独立 `id -g` oracle 精确相等，door 仍只有一个 native import | 原第四点没有独立基线，因此按 §8.4 记录规格偏差；第五点是替代的可比边际点，不改写原历史 |
-| S5 qualification | **未完成** | `3afbdc1d` 另行证明 public plain/compiled-qjs artifact 协议，以及 Unix worker crash/timeout 监督测试；它不等于本实验六格资格 | 缺两 MSVC + Linux + 本机的精确 SHA compile ledger；缺可运行 cell 的逐格 native runtime；缺同口径 release qjswasm/根产品增量；缺独立 `RESULTS.md` |
+| S5 qualification | **部分完成** | `research/qjswasm-native-door/RESULTS.md` 在 `93a46fcd` 记录本机 schema 9/9 与 runtime 10/10、双 MSVC clippy 仅编译、Linux x86_64 zigbuild 仅编译，以及 49/381 复算；`3afbdc1d` 另证 public artifact 监督 | 缺 Windows/Linux runtime；缺同口径 release qjswasm/根产品增量 |
 
 ### 8.3 判据账（数字均为当前树结构审计，不冒充目标运行）
 
@@ -150,7 +150,7 @@ before/after diff。因此 `edc59a29` 以 `getegid.wat` 建立了新的可比边
 | 2 能力斜率（主） | **通过（第五点替代测量）** | 基线 `b6755b0f` 到 `edc59a29` 新增 `getegid`；`crates/agenterm-qjswasm/src/**/*.rs` 聚合 SHA-256 前后均为 `44241fd41b550705a6de8d0c6bf24caf3300243d2071b4e3ffff45aaf68d0e51`，生产 Rust diff = 0。[实测·本机真机执行] |
 | 3 门面冻结 | **当前通过** | `SIGNATURES` 为 8 项，默认门为 7 项，native opt-in 只追加 1 项；第四 fixture 没有新增 import。[结构审计；本机专属测试通过] |
 | 4 有限桩表 | **部分通过** | 参数类 2、返回类 3、arity `0..=6`，独立枚举为 `3 × Σ(2^0..2^6) = 381`；可执行 exact homogeneous 表为 `7 × 7 = 49`。实现以宏列出 0–6 arity，尚无规格所说的生成器结果文件。[结构审计；本机独立计数测试通过] |
-| 5 no-JIT / cross | **部分通过** | 代码使用固定 Rust `extern C` stubs + `libloading`，未见 executable allocation、机器码生成、汇编或 C build；目标 compile/runtime ledger 未交。[结构审计] |
+| 5 no-JIT / cross | **部分通过** | 代码使用固定 Rust `extern C` stubs + `libloading`，未见 executable allocation、机器码生成、汇编或 C build；双 MSVC 与 Linux x86_64 已有仅编译账，本机 macOS 有 runtime，Windows/Linux runtime 未取得。[结构审计 + `RESULTS.md` 实测] |
 | 6 资源边界 | **当前通过 schema 审计** | spec 1024 B、library 512 B、symbol 255 B、arity 6、block exact-size；span/addition/narrowing 有 typed checked paths 和测试。[结构审计；本机专属测试通过] |
 | 7 体积账 | **未完成** | L1/L2/L3 均未测定；没有同 boundary/tool/build/target-execution 四元口径的 release before/after bytes。 |
 
@@ -163,7 +163,7 @@ before/after diff。因此 `edc59a29` 以 `getegid.wat` 建立了新的可比边
 4. `3afbdc1d script: supervise native wasm artifacts` 增加 public `.wasm` 的 explicit convention、bounded
    protocol 与 `WorkerSupervisor` crash/timeout 隔离。它是 Script Runtime 的投递/监督证据，不是 S1/S3
    的替代品，也不补齐 native door 的 target runtime、斜率或 release-size 判据。
-5. 本实验尚无 `research/.../RESULTS.md`；按判决性实验纪律不得标“已判决”。
+5. `research/qjswasm-native-door/RESULTS.md` 已建立，但 release L1/L2/L3 仍未测定；按判决性实验纪律不得标“已判决”。
 
 诚实条款：本次没有为了让 B 看起来胜出而改判据或把结构推断改写成真机实测。当前结果有且只有一种
 合规读法：**实现已前进，资格实验仍 active；没有证据支持删除/弱化 dyn。**
