@@ -90,6 +90,7 @@ pub mod corpus_scan;
 use std::sync::Arc;
 
 mod host;
+pub mod native;
 mod slot;
 mod tool;
 
