@@ -40,8 +40,11 @@ crates/agenterm-control-client/
                              frame、pipe/socket、typed response/receipt、instance
                              scope；无 GUI、PTY 状态或 subprocess CLI
 
-crates/agenterm-dyn/         内部 `publish = false` 的极小 native door：
-                             intern + S-expr eval + bounded integer/pointer `dlcall`
+crates/agenterm-dyn/         `publish = false` 的**无策略底层动态 ABI 机制层**：唯一 loader /
+                             符号解析、按调用方 ABI 描述执行调用、raw 值/指针搬运、
+                             variadic `ioctl` ABI 机制、W^X trampoline、机制错误
+                             历史现状/迁移债：intern + S-expr eval + `dlcall` 语言层退役中；
+                             typed owners 与六格 facts 待迁上层/产品层（非 dyn 职责）
                              不属于 Script engine family，不接 cu/platform/libagenterm
 
 crates/agenterm-qjswasm/     agenterm 自有脚本引擎的**业务层**：`agenterm.*` 宿主门
@@ -124,8 +127,11 @@ src/platform/adapters/       主机实现（物理目录）
 **妥当**：分叉停在「主机如何画 / 如何收事件」。
 **不妥当**：分叉停在「点了 Tab 算不算选中」——产品规则只应有一份。
 
-`crates/agenterm-dyn` 只拥有小语言、资源上界、原生签名门和六格 host-fact
-目录。它的 public 证据是 package integration tests 与 CI native/cross cells，不是
+`crates/agenterm-dyn` 只拥有**机制**：唯一 loader/符号解析、按调用方 ABI 描述执行、
+raw 值/指针搬运、variadic `ioctl` ABI、W^X。**策略不在这里**：schema、
+prototype/catalog/validator、budget/cancel/监管归 qjswasm/Script Runtime；typed OS
+contracts 与六格 facts/catalog/evidence 是**待迁出的现状债**（前者去
+`agenterm-platform`/上层 adapter，后者归产品/测试层）。它的 public 证据是 package integration tests 与 CI native/cross cells，不是
 CU 命令或 Script Runtime API。当前边界禁止它导入 `agenterm-cu`、
 `agenterm-platform` 或 libagenterm；如果未来迁移 host facts 或合并 ABI，必须先在
 owning PRD 授权并同批更新本结构 SSOT。
@@ -720,10 +726,11 @@ boundary_tests.rs        结构红线闸（不是全文 diff 引擎）
 
 The public `.wasm` route belongs to Script Runtime/qjswasm: callers name the
 `plain` or `compiled-qjs` convention, input is bounded, and native-door crash
-or timeout is contained by `WorkerSupervisor`. `agenterm-dyn` remains a
-separate bottom-layer owner for its Rust API, heterogeneous native ABI,
-six-cell host facts, Unix `ioctl` exception, and future-JIT boundary. Neither
-surface is evidence that the other may be deleted.
+or timeout is contained by `WorkerSupervisor`. `agenterm-dyn` is the **无策略**
+mechanism layer (caller-provided ABI description, Unix `ioctl` ABI exception,
+W^X/`exec.rs` future-JIT boundary); **six-cell host facts and typed owners are
+migration debt** that belongs to the product/test layer and upper adapters, not to
+dyn. Neither surface is evidence that the other may be deleted.
 
 ### 8.4 升级路径（要真·双向时）
 
