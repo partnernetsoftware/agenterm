@@ -916,6 +916,9 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
         (NativeType::I32, [NativeType::Pointer, NativeType::I32]) => {
             Some(FixedPointerPrototype::I32PointerI32)
         }
+        (NativeType::I32, [NativeType::Pointer, NativeType::NullablePointer]) => {
+            Some(FixedPointerPrototype::I32PointerNullablePointer)
+        }
         _ => None,
     };
     fixed_pointer
@@ -1183,8 +1186,15 @@ fn fixed_pointer_argument(
             // guest allocation. `add` therefore yields an in-bounds or one-past
             // raw address without constructing an aliased Rust reference.
             let pointer = unsafe { memory_base.add(span.offset) }.cast();
-            Ok(FixedPointerValue::Pointer(pointer))
+            match ty {
+                NativeType::Pointer => Ok(FixedPointerValue::Pointer(pointer)),
+                NativeType::NullablePointer => Ok(FixedPointerValue::NullablePointer(pointer)),
+                _ => unreachable!("is_pointer excludes scalar types"),
+            }
         }
+        NativeArgument::Null {
+            ty: NativeType::NullablePointer,
+        } => Ok(FixedPointerValue::NullablePointer(std::ptr::null_mut())),
         NativeArgument::Null { .. }
         | NativeArgument::GuestSpan { .. }
         | NativeArgument::Scalar { .. } => Err(unsupported_signature(call)()),
@@ -1308,6 +1318,12 @@ mod json_adapter_tests {
             native_dispatch(&parse("|access|i32(ptr,i32)")),
             Ok(NativeDispatch::FixedPointer(
                 FixedPointerPrototype::I32PointerI32,
+            ))
+        );
+        assert_eq!(
+            native_dispatch(&parse("|gettimeofday|i32(ptr,ptr?)")),
+            Ok(NativeDispatch::FixedPointer(
+                FixedPointerPrototype::I32PointerNullablePointer,
             ))
         );
         assert!(matches!(

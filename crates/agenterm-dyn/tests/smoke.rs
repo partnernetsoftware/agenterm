@@ -340,25 +340,6 @@ mod linux {
     }
 
     #[test]
-    fn dlcall_clock_gettime_writes_timespec() {
-        let mut ts = libc::timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        };
-        let mut env = Dyn::new();
-        env.bind("ts", (&mut ts as *mut libc::timespec).cast())
-            .expect("bind timespec");
-        let got = eval_native(
-            &mut env,
-            r#"(dlcall "libc.so.6" "clock_gettime" "i32" "i32" 1 "ptr" ts)"#,
-        )
-        .expect("clock_gettime dlcall");
-        assert_eq!(got, Value::Int(0));
-        assert!(ts.tv_sec > 0);
-        assert!((0..1_000_000_000).contains(&ts.tv_nsec));
-    }
-
-    #[test]
     fn dlcall_statvfs_matches_the_typed_snapshot() {
         let probe = cell()
             .system_probes
@@ -1184,32 +1165,6 @@ mod macos {
 
     fn timeval_at_most(left: libc::timeval, right: libc::timeval) -> bool {
         (left.tv_sec, left.tv_usec) <= (right.tv_sec, right.tv_usec)
-    }
-
-    #[test]
-    fn dlcall_clock_gettime_writes_timespec() {
-        let probe = live_system_probe("clock_gettime");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!()
-        };
-        let mut ts = libc::timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        };
-        let mut env = Dyn::new();
-        env.bind("ts", (&mut ts as *mut libc::timespec).cast())
-            .expect("bind timespec");
-        let got = eval_native(
-            &mut env,
-            &format!(
-                r#"(dlcall "{lib}" "{symbol}" "i32" "i32" {} "ptr" ts)"#,
-                libc::CLOCK_MONOTONIC
-            ),
-        )
-        .expect("clock_gettime dlcall");
-        assert_eq!(got, Value::Int(0));
-        assert!(ts.tv_sec > 0);
-        assert!((0..1_000_000_000).contains(&ts.tv_nsec));
     }
 
     #[test]

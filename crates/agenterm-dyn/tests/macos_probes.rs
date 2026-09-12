@@ -1202,36 +1202,6 @@ fn dlcall_statvfs_matches_stable_root_filesystem_fields() {
 }
 
 #[test]
-fn dlcall_gettimeofday_writes_caller_owned_timeval() {
-    let symbol = live_symbol("gettimeofday");
-    let mut tv = libc::timeval {
-        tv_sec: 0,
-        tv_usec: 0,
-    };
-    let mut env = Dyn::new();
-    env.bind("tv", (&mut tv as *mut libc::timeval).cast())
-        .expect("bind gettimeofday timeval");
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "i32" "ptr" tv "ptr" 0)"#),
-    )
-    .expect("gettimeofday dlcall");
-    assert_eq!(got, Value::Int(0));
-    assert!(tv.tv_sec > 0, "tv_sec must be positive");
-
-    let mut later = libc::timeval {
-        tv_sec: 0,
-        tv_usec: 0,
-    };
-    let later_status = unsafe { libc::gettimeofday(&mut later, std::ptr::null_mut()) };
-    assert_eq!(later_status, 0, "direct gettimeofday must succeed");
-    assert!(
-        later.tv_sec > tv.tv_sec || (later.tv_sec == tv.tv_sec && later.tv_usec >= tv.tv_usec),
-        "later libc gettimeofday must not precede the dlcall timeval"
-    );
-}
-
-#[test]
 fn dlcall_getgroups_matches_later_native_set() {
     let symbol = live_symbol("getgroups");
     // libc 0.2 does not bind Darwin `NGROUPS_MAX` (syslimits.h: 16).

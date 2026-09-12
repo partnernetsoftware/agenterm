@@ -21,6 +21,10 @@ mod unix {
             FixedPointerPrototype::I32PointerI32.parameters(),
             &[FixedPointerType::Pointer, FixedPointerType::I32]
         );
+        assert_eq!(
+            FixedPointerPrototype::I32PointerNullablePointer.parameters(),
+            &[FixedPointerType::Pointer, FixedPointerType::NullablePointer]
+        );
     }
 
     #[test]
@@ -117,5 +121,30 @@ mod unix {
         let oracle_rc = unsafe { libc::access(path.as_ptr(), libc::F_OK) };
         assert_eq!(rc, oracle_rc);
         assert_eq!(rc, 0);
+    }
+
+    #[test]
+    fn gettimeofday_accepts_only_its_second_pointer_as_nullable() {
+        let mut actual = libc::timeval {
+            tv_sec: 0,
+            tv_usec: 0,
+        };
+        let arguments = [
+            FixedPointerValue::Pointer((&mut actual as *mut libc::timeval).cast()),
+            FixedPointerValue::NullablePointer(std::ptr::null_mut()),
+        ];
+        let call = FixedPointerCall {
+            library: "",
+            symbol: "gettimeofday",
+            prototype: FixedPointerPrototype::I32PointerNullablePointer,
+            arguments: &arguments,
+        };
+        // SAFETY: gettimeofday has this ABI; timeval is writable and timezone is nullable.
+        assert_eq!(
+            unsafe { invoke_fixed_pointer(&call) }.expect("gettimeofday resolves"),
+            0
+        );
+        assert!(actual.tv_sec > 0);
+        assert!((0..1_000_000).contains(&actual.tv_usec));
     }
 }

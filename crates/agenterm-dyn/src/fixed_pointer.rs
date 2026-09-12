@@ -12,6 +12,7 @@ use crate::exact_native::open_library;
 pub enum FixedPointerType {
     I32,
     Pointer,
+    NullablePointer,
 }
 
 /// One canonical argument for a fixed pointer prototype.
@@ -19,6 +20,7 @@ pub enum FixedPointerType {
 pub enum FixedPointerValue {
     I32(i32),
     Pointer(*mut c_void),
+    NullablePointer(*mut c_void),
 }
 
 impl FixedPointerValue {
@@ -26,6 +28,7 @@ impl FixedPointerValue {
         match self {
             Self::I32(_) => FixedPointerType::I32,
             Self::Pointer(_) => FixedPointerType::Pointer,
+            Self::NullablePointer(_) => FixedPointerType::NullablePointer,
         }
     }
 }
@@ -39,6 +42,8 @@ pub enum FixedPointerPrototype {
     I32I32Pointer,
     /// C `int function(void *, int)`, used by `access`.
     I32PointerI32,
+    /// C `int function(void *, void *)`, with only the second pointer nullable.
+    I32PointerNullablePointer,
 }
 
 impl FixedPointerPrototype {
@@ -47,6 +52,9 @@ impl FixedPointerPrototype {
             Self::I32Pointer => &[FixedPointerType::Pointer],
             Self::I32I32Pointer => &[FixedPointerType::I32, FixedPointerType::Pointer],
             Self::I32PointerI32 => &[FixedPointerType::Pointer, FixedPointerType::I32],
+            Self::I32PointerNullablePointer => {
+                &[FixedPointerType::Pointer, FixedPointerType::NullablePointer]
+            }
         }
     }
 }
@@ -147,8 +155,30 @@ pub unsafe fn invoke_fixed_pointer(call: &FixedPointerCall<'_>) -> Result<i32, F
             FixedPointerPrototype::I32PointerI32,
             [FixedPointerValue::Pointer(a), FixedPointerValue::I32(b)],
         ) => invoke_i32_pointer_i32(&library, call.symbol, *a, *b),
+        (
+            FixedPointerPrototype::I32PointerNullablePointer,
+            [
+                FixedPointerValue::Pointer(a),
+                FixedPointerValue::NullablePointer(b),
+            ],
+        ) => invoke_i32_pointer_pointer(&library, call.symbol, *a, *b),
         _ => unreachable!("fixed pointer signature validation admitted the prototype"),
     }
+}
+
+fn invoke_i32_pointer_pointer(
+    library: &Library,
+    symbol: &str,
+    a: *mut c_void,
+    b: *mut c_void,
+) -> Result<i32, FixedPointerError> {
+    // SAFETY: see invoke_i32_pointer.
+    let function = unsafe {
+        library.get::<unsafe extern "C" fn(*mut c_void, *mut c_void) -> i32>(symbol.as_bytes())
+    }
+    .map_err(|error| symbol_error(symbol, error))?;
+    // SAFETY: the caller owns both pointer contracts and the library stays live.
+    Ok(unsafe { function(a, b) })
 }
 
 fn symbol_error(symbol: &str, error: libloading::Error) -> FixedPointerError {

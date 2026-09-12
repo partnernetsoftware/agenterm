@@ -1,4 +1,6 @@
 #[cfg(unix)]
+use agenterm_dyn::{ClockId, ClockSnapshot};
+#[cfg(unix)]
 use std::sync::Arc;
 #[cfg(unix)]
 use std::sync::atomic::AtomicBool;
@@ -455,6 +457,76 @@ fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
         .expect("access runs through i32(ptr,i32)"),
         0
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn retired_clock_callers_run_through_wat_with_nullable_second_pointer_boundaries() {
+    let before = ClockSnapshot::acquire(ClockId::Monotonic).expect("monotonic oracle before");
+    let clock_source = include_str!("fixtures/native/clock_gettime.wat").to_owned();
+    #[cfg(target_os = "macos")]
+    let clock_source = clock_source.replace(
+        "(i64.store (i32.const 152) (i64.const 1))",
+        "(i64.store (i32.const 152) (i64.const 6))",
+    );
+    let seconds =
+        run_wat(&clock_source, Budget::default()).expect("clock_gettime runs through i32(i32,ptr)");
+    let after = ClockSnapshot::acquire(ClockId::Monotonic).expect("monotonic oracle after");
+    assert!(before.seconds <= seconds && seconds <= after.seconds);
+
+    let before = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock follows Unix epoch")
+        .as_secs() as i64;
+    for source in [
+        include_str!("fixtures/native/gettimeofday_null.wat"),
+        include_str!("fixtures/native/gettimeofday_span.wat"),
+    ] {
+        let seconds = run_wat(source, Budget::default())
+            .expect("gettimeofday accepts null and guest-span timezone pointers");
+        let after = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock follows Unix epoch")
+            .as_secs() as i64;
+        assert!(before <= seconds && seconds <= after);
+    }
+}
+
+#[test]
+fn nullable_pointer_kinds_are_checked_before_library_loading() {
+    let make = |second_kind: u32| {
+        format!(
+            r#"(module
+              (import "agenterm" "native_call"
+                (func $native_call (param i32 i32 i32 i32) (result i32)))
+              (memory 1)
+              (data (i32.const 0) "agenterm-native-library-that-does-not-exist|f|i32(ptr,ptr?)")
+              (func (export "main") (result i64)
+                (i32.store (i32.const 128) (i32.const 1))
+                (i32.store (i32.const 132) (i32.const 2))
+                (i64.store (i32.const 136) (i64.const 0))
+                (i32.store (i32.const 144) (i32.const 1))
+                (i32.store (i32.const 148) (i32.const 0))
+                (i64.store (i32.const 152) (i64.const 68719476992))
+                (i32.store (i32.const 160) (i32.const {second_kind}))
+                (i32.store (i32.const 164) (i32.const 0))
+                (i64.store (i32.const 168) (i64.const 0))
+                (drop (call $native_call (i32.const 0) (i32.const 59)
+                  (i32.const 128) (i32.const 48)))
+                (i64.load (i32.const 136))))"#
+        )
+    };
+    for (kind, code) in [
+        (0, "native_argument_kind_mismatch"),
+        (3, "native_host_address_not_permitted"),
+    ] {
+        let error = run_wat(&make(kind), Budget::default()).expect_err(code);
+        assert!(
+            matches!(&error, QjswasmError::Door(message)
+            if message.contains(code) && !message.contains("native_library_load_failed")),
+            "expected pre-load {code}, got {error:?}"
+        );
+    }
 }
 
 #[cfg(unix)]
