@@ -502,6 +502,34 @@ fn proc_pidpath_reaches_dyn_and_matches_current_executable_bytes() {
     );
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn pthread_threadid_np_reaches_dyn_with_nullable_input_and_required_output() {
+    let source = include_str!("fixtures/native/pthread_threadid_np.wat");
+    let got = run_wat(source, Budget::default())
+        .expect("pthread_threadid_np runs through i32(ptr?,ptr)") as u64;
+    let mut direct = 0_u64;
+    // SAFETY: null requests the current thread and direct is complete writable
+    // storage for the synchronous native output.
+    assert_eq!(unsafe { libc::pthread_threadid_np(0, &mut direct) }, 0);
+    assert_ne!(direct, 0);
+    assert_eq!(got, direct);
+
+    let null_output = source.replacen(
+        "(i32.store (i32.const 160) (i32.const 1))",
+        "(i32.store (i32.const 160) (i32.const 2))",
+        1,
+    );
+    let error = run_wat(&null_output, Budget::default())
+        .expect_err("the required output pointer rejects a null record before loading");
+    assert!(
+        matches!(&error, QjswasmError::Door(message)
+            if message.contains("native_null_not_permitted")
+                && message.contains("argument 1")),
+        "unexpected required-output error: {error:?}"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn unix_ioctl_variadic_requests_share_the_one_native_door() {

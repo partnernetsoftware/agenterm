@@ -149,28 +149,6 @@ fn dlcall_sysctlnametomib_writes_caller_owned_mib() {
 }
 
 #[test]
-fn dlcall_pthread_threadid_np_matches_libc_current_thread() {
-    let symbol = live_symbol("pthread_threadid_np");
-    let mut tid: u64 = 0;
-    let mut env = Dyn::new();
-    env.bind("tid", (&mut tid as *mut u64).cast())
-        .expect("bind thread-id output");
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "i32" "ptr" 0 "ptr" tid)"#),
-    )
-    .expect("pthread_threadid_np dlcall");
-    assert_eq!(got, Value::Int(0));
-    assert_ne!(tid, 0, "current thread id must be non-zero");
-
-    let mut direct: u64 = 0;
-    // Darwin pthread_t is usize; a typed null pointer does not coerce.
-    let direct_status = unsafe { libc::pthread_threadid_np(0, &mut direct) };
-    assert_eq!(direct_status, 0, "direct pthread_threadid_np must succeed");
-    assert_eq!(tid, direct);
-}
-
-#[test]
 fn dlcall_pthread_getname_np_matches_libc_current_thread() {
     let symbol = live_symbol("pthread_getname_np");
     let thread = unsafe { libc::pthread_self() };

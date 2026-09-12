@@ -3440,6 +3440,13 @@ and public error vocabulary, but must delegate the unsafe typed invocation to
 the core owner. A second copied macro table is a second living FFI truth even
 when its current arms are byte-for-byte identical.
 
+Pointer nullability is positional ABI meaning, not merely a machine pointer
+class. `i32(ptr, ptr?)` and `i32(ptr?, ptr)` need distinct admitted prototypes
+even when both eventually call the same `extern "C" fn(*mut c_void,
+*mut c_void) -> i32`. Keep the role order in the prototype table and prove a
+required slot rejects a null record before library loading; never reuse the
+reversed prototype because the register layout happens to match.
+
 The qjswasm native fixture directories encode how tests invoke `main`.
 `tests/fixtures/native/additions/` is the table-driven zero-argument court: its
 loader calls every fixture as `main()`. A fixture whose `main` accepts guest

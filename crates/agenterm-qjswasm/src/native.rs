@@ -975,6 +975,9 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
         (NativeType::I32, [NativeType::Pointer, NativeType::NullablePointer]) => {
             Some(FixedPointerPrototype::I32PointerNullablePointer)
         }
+        (NativeType::I32, [NativeType::NullablePointer, NativeType::Pointer]) => {
+            Some(FixedPointerPrototype::I32NullablePointerPointer)
+        }
         (NativeType::I32, [NativeType::I32, NativeType::Pointer, NativeType::U32]) => {
             Some(FixedPointerPrototype::I32I32PointerU32)
         }
@@ -1466,6 +1469,12 @@ mod json_adapter_tests {
             native_dispatch(&parse("|gettimeofday|i32(ptr,ptr?)")),
             Ok(NativeDispatch::FixedPointer(
                 FixedPointerPrototype::I32PointerNullablePointer,
+            ))
+        );
+        assert_eq!(
+            native_dispatch(&parse("|pthread_threadid_np|i32(ptr?,ptr)")),
+            Ok(NativeDispatch::FixedPointer(
+                FixedPointerPrototype::I32NullablePointerPointer,
             ))
         );
         assert_eq!(
