@@ -550,3 +550,61 @@ fn system_probe_index(c: HostCell, name: &str) -> usize {
         .position(|probe| probe.name == name)
         .expect("system probe must be catalogued")
 }
+
+/// A probe's status is per cell, not per name: `mach_host_self` is a Darwin-only
+/// API, so it is owned on macOS and a placeholder everywhere else; `getifaddrs`
+/// is Unix, so it is owned on both Unix cells and a placeholder on Windows.
+/// Pinning that here keeps a cross-cell reading of one name from "cleaning up" a
+/// difference that the table is right to keep.
+#[test]
+fn per_cell_status_separates_darwin_only_and_unix_apis() {
+    fn status_of(cell: &HostCell, name: &str) -> SystemProbeStatus {
+        cell.system_probes
+            .iter()
+            .find(|probe| probe.name == name)
+            .unwrap_or_else(|| panic!("cell {}/{} has no {name} probe", cell.os, cell.arch))
+            .status
+    }
+    for cell in &ALL_CELLS {
+        let mach = status_of(cell, "mach_host_self");
+        if cell.os == "macos" {
+            assert_eq!(
+                mach,
+                SystemProbeStatus::LiveOwned {
+                    api: "MachHostPort::acquire"
+                },
+                "mach_host_self is owned on Darwin: {}/{}",
+                cell.os,
+                cell.arch
+            );
+        } else {
+            assert_eq!(
+                mach,
+                SystemProbeStatus::Placeholder,
+                "mach_host_self stays a placeholder off Darwin: {}/{}",
+                cell.os,
+                cell.arch
+            );
+        }
+        let ifaddrs_status = status_of(cell, "getifaddrs");
+        if cell.os == "windows" {
+            assert_eq!(
+                ifaddrs_status,
+                SystemProbeStatus::Placeholder,
+                "getifaddrs is not a Windows API: {}/{}",
+                cell.os,
+                cell.arch
+            );
+        } else {
+            assert_eq!(
+                ifaddrs_status,
+                SystemProbeStatus::LiveOwned {
+                    api: "InterfaceAddresses::acquire"
+                },
+                "getifaddrs is owned on Unix: {}/{}",
+                cell.os,
+                cell.arch
+            );
+        }
+    }
+}
