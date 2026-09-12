@@ -496,7 +496,14 @@ const MACOS_SYSTEM_PROBES: [SystemProbe; 86] = [
     macos_live("arc4random", "arc4random"),
     macos_live("clock_gettime_nsec_np", "clock_gettime_nsec_np"),
     macos_live("sysctl", "sysctl"),
-    macos_live("mach_timebase_info", "mach_timebase_info"),
+    SystemProbe {
+        name: "mach_timebase_info",
+        status: SystemProbeStatus::LiveDlcallOwned {
+            lib: "libSystem.B.dylib",
+            symbol: "mach_timebase_info",
+            api: "MachTimebaseSnapshot::acquire",
+        },
+    },
     macos_live("pthread_main_np", "pthread_main_np"),
     macos_live("getlogin_r", "getlogin_r"),
     macos_live("pthread_threadid_np", "pthread_threadid_np"),

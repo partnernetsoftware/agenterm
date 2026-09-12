@@ -742,3 +742,27 @@ fn dladdr_combines_raw_and_typed_evidence_only_on_darwin() {
         }
     }
 }
+
+#[test]
+fn mach_timebase_combines_raw_and_typed_evidence_only_on_darwin() {
+    for cell in ALL_CELLS {
+        let status = cell
+            .system_probes
+            .iter()
+            .find(|probe| probe.name == "mach_timebase_info")
+            .expect("cell contains Mach timebase")
+            .status;
+        if cell.os == "macos" {
+            assert_eq!(
+                status,
+                SystemProbeStatus::LiveDlcallOwned {
+                    lib: "libSystem.B.dylib",
+                    symbol: "mach_timebase_info",
+                    api: "MachTimebaseSnapshot::acquire",
+                }
+            );
+        } else {
+            assert_eq!(status, SystemProbeStatus::Placeholder);
+        }
+    }
+}

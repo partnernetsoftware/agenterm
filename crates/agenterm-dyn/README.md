@@ -198,7 +198,7 @@ without wiring dyn into cu, platform, or the ABI:
 - [uptime nanoseconds via `clock_gettime_nsec_np`](examples/clock-gettime-nsec-np.md) (macOS)
 - [hardware CPU count via `sysctl`](examples/sysctl.md) (macOS)
 - [MIB lookup via `sysctlnametomib`](examples/sysctlnametomib.md) (macOS)
-- [Mach tick-to-nanosecond ratio via `mach_timebase_info`](examples/mach-timebase-info.md) (macOS)
+- [Mach tick-to-nanosecond ratio via `mach_timebase_info`](examples/mach-timebase-info.md) (macOS; native-call and typed snapshot evidence)
 - [main-thread predicate via `pthread_main_np`](examples/pthread-main-np.md) (macOS)
 - [login name via `getlogin_r`](examples/getlogin-r.md) (macOS)
 - [current thread id via `pthread_threadid_np`](examples/pthread-threadid-np.md) (macOS)

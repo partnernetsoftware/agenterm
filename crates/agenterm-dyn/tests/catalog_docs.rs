@@ -19,7 +19,6 @@ const DARWIN_ONLY_LIVE_EXAMPLES: &[(&str, &str)] = &[
     ("arc4random", "arc4random.md"),
     ("clock_gettime_nsec_np", "clock-gettime-nsec-np.md"),
     ("sysctl", "sysctl.md"),
-    ("mach_timebase_info", "mach-timebase-info.md"),
     ("pthread_main_np", "pthread-main-np.md"),
     ("getlogin_r", "getlogin-r.md"),
     ("pthread_threadid_np", "pthread-threadid-np.md"),
@@ -289,4 +288,30 @@ fn darwin_dladdr_keeps_dlcall_and_typed_snapshot_documentation() {
 
     let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
     assert!(readme.contains("](examples/dladdr.md)"));
+}
+
+#[test]
+fn darwin_mach_timebase_keeps_dlcall_and_typed_snapshot_documentation() {
+    for cell in [MACOS_X86_64, MACOS_AARCH64] {
+        let probe = cell
+            .system_probes
+            .iter()
+            .find(|probe| probe.name == "mach_timebase_info")
+            .expect("Darwin catalog contains Mach timebase");
+        assert_eq!(
+            probe.status,
+            SystemProbeStatus::LiveDlcallOwned {
+                lib: "libSystem.B.dylib",
+                symbol: "mach_timebase_info",
+                api: "MachTimebaseSnapshot::acquire",
+            }
+        );
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let example = fs::read_to_string(root.join("examples/mach-timebase-info.md"))
+        .expect("Mach timebase docs are readable");
+    assert!(example.contains("MachTimebaseSnapshot::acquire"));
+    assert!(example.contains("dlcall"));
+    let readme = fs::read_to_string(root.join("README.md")).expect("crate README is readable");
+    assert!(readme.contains("](examples/mach-timebase-info.md)"));
 }

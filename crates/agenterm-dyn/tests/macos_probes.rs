@@ -5,7 +5,8 @@
 use std::ffi::{CStr, CString, c_void};
 
 use agenterm_dyn::{
-    DlAddressSnapshot, Dyn, HostnameSnapshot, StatVfsSnapshot, SystemProbeStatus, Value, live_cell,
+    DlAddressSnapshot, Dyn, HostnameSnapshot, MachTimebaseSnapshot, StatVfsSnapshot,
+    SystemProbeStatus, Value, live_cell,
 };
 
 const LIB: &str = "libSystem.B.dylib";
@@ -320,6 +321,9 @@ fn dlcall_mach_timebase_info_writes_caller_owned_ratio() {
     assert_eq!(direct_status, 0, "direct mach_timebase_info must succeed");
     assert_eq!(ratio.numer, direct.numer);
     assert_eq!(ratio.denom, direct.denom);
+    let snapshot = MachTimebaseSnapshot::acquire().expect("typed Mach timebase snapshot");
+    assert_eq!(snapshot.numerator(), direct.numer);
+    assert_eq!(snapshot.denominator(), direct.denom);
 }
 
 #[test]
