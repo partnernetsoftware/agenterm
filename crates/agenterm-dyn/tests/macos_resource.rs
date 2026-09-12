@@ -5,7 +5,10 @@ use agenterm_dyn::{
     SystemProbeStatus,
 };
 #[cfg(not(target_os = "macos"))]
-use agenterm_dyn::{CpuCountError, DlAddressError, MachHostPortError, MachTimebaseError};
+use agenterm_dyn::{
+    CpuCountError, DlAddressError, DomainNameError, DomainNameSnapshot, MachHostPortError,
+    MachTimebaseError,
+};
 
 #[test]
 fn only_darwin_catalogues_mach_host_self_as_owned_live() {
@@ -50,6 +53,15 @@ fn current_image_snapshot_is_honestly_unsupported_off_darwin() {
 #[test]
 fn cpu_count_snapshot_is_honestly_unsupported_off_darwin() {
     assert_eq!(CpuCountSnapshot::acquire(), Err(CpuCountError::Unsupported));
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn domain_name_snapshot_is_honestly_unsupported_off_darwin() {
+    assert_eq!(
+        DomainNameSnapshot::acquire(),
+        Err(DomainNameError::Unsupported)
+    );
 }
 
 #[cfg(not(target_os = "macos"))]

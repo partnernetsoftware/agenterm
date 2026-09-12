@@ -2,6 +2,102 @@
 
 use std::fmt;
 
+/// Maximum native-byte length accepted for one Darwin domain-name snapshot.
+pub const MAX_DOMAIN_NAME_BYTES: usize = 255;
+
+/// Failure to acquire a bounded, pointer-free Darwin domain name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DomainNameError {
+    Unsupported,
+    Os(i32),
+    NotTerminated { capacity: usize },
+}
+
+impl fmt::Display for DomainNameError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unsupported => formatter.write_str("getdomainname is unsupported on this host"),
+            Self::Os(code) => write!(formatter, "getdomainname failed with OS error {code}"),
+            Self::NotTerminated { capacity } => write!(
+                formatter,
+                "getdomainname did not terminate its {capacity}-byte output buffer"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for DomainNameError {}
+
+/// One owned Darwin domain name copied as native bytes without its trailing NUL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DomainNameSnapshot {
+    bytes: Vec<u8>,
+}
+
+impl DomainNameSnapshot {
+    #[cfg(target_os = "macos")]
+    pub fn acquire() -> Result<Self, DomainNameError> {
+        snapshot_domain_name_with(&SystemDomainNameSource)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn acquire() -> Result<Self, DomainNameError> {
+        Err(DomainNameError::Unsupported)
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+trait DomainNameSource {
+    fn fill(&self, output: &mut [u8]) -> Result<(), i32>;
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn snapshot_domain_name_with(
+    source: &impl DomainNameSource,
+) -> Result<DomainNameSnapshot, DomainNameError> {
+    let mut output = [0xff; MAX_DOMAIN_NAME_BYTES + 1];
+    source.fill(&mut output).map_err(DomainNameError::Os)?;
+    let length =
+        output
+            .iter()
+            .position(|byte| *byte == 0)
+            .ok_or(DomainNameError::NotTerminated {
+                capacity: output.len(),
+            })?;
+    Ok(DomainNameSnapshot {
+        bytes: output[..length].to_vec(),
+    })
+}
+
+#[cfg(target_os = "macos")]
+struct SystemDomainNameSource;
+
+#[cfg(target_os = "macos")]
+impl DomainNameSource for SystemDomainNameSource {
+    fn fill(&self, output: &mut [u8]) -> Result<(), i32> {
+        let capacity = libc::c_int::try_from(output.len())
+            .expect("domain-name buffer capacity fits Darwin c_int");
+        // SAFETY: output owns writable storage for its reported capacity and
+        // remains alive until the synchronous call returns.
+        let status = unsafe { libc::getdomainname(output.as_mut_ptr().cast(), capacity) };
+        if status == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error()
+                .raw_os_error()
+                .unwrap_or(status))
+        }
+    }
+}
+
 /// Failure to acquire Darwin's Mach absolute-time conversion ratio.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachTimebaseError {
@@ -451,15 +547,66 @@ unsafe extern "C" {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
     use std::ffi::c_char;
     use std::rc::Rc;
 
     use super::{
-        CpuCountError, DlAddressError, DlInfo, MAX_SYSCTL_FETCH_ATTEMPTS, MAX_SYSCTL_VALUE_BYTES,
+        CpuCountError, DlAddressError, DlInfo, DomainNameError, DomainNameSource,
+        MAX_DOMAIN_NAME_BYTES, MAX_SYSCTL_FETCH_ATTEMPTS, MAX_SYSCTL_VALUE_BYTES,
         MachTimebaseError, MachTimebaseInfo, OwnedPort, ReleasePort, acquire_cpu_count_with,
-        snapshot_dl_info, snapshot_timebase,
+        snapshot_dl_info, snapshot_domain_name_with, snapshot_timebase,
     };
+
+    struct ScriptedDomainNameSource {
+        result: Result<(), i32>,
+        bytes: RefCell<Vec<u8>>,
+    }
+
+    impl DomainNameSource for ScriptedDomainNameSource {
+        fn fill(&self, output: &mut [u8]) -> Result<(), i32> {
+            let bytes = self.bytes.borrow();
+            output[..bytes.len()].copy_from_slice(&bytes);
+            self.result
+        }
+    }
+
+    #[test]
+    fn domain_name_snapshot_preserves_native_bytes_and_allows_empty() {
+        let snapshot = snapshot_domain_name_with(&ScriptedDomainNameSource {
+            result: Ok(()),
+            bytes: RefCell::new(vec![b'd', 0xff, 0]),
+        })
+        .expect("scripted domain name succeeds");
+        assert_eq!(snapshot.as_bytes(), &[b'd', 0xff]);
+
+        let empty = snapshot_domain_name_with(&ScriptedDomainNameSource {
+            result: Ok(()),
+            bytes: RefCell::new(vec![0]),
+        })
+        .expect("an empty Darwin domain is valid");
+        assert!(empty.as_bytes().is_empty());
+    }
+
+    #[test]
+    fn domain_name_snapshot_rejects_unterminated_or_failed_output() {
+        assert_eq!(
+            snapshot_domain_name_with(&ScriptedDomainNameSource {
+                result: Ok(()),
+                bytes: RefCell::new(vec![b'x'; MAX_DOMAIN_NAME_BYTES + 1]),
+            }),
+            Err(DomainNameError::NotTerminated {
+                capacity: MAX_DOMAIN_NAME_BYTES + 1,
+            })
+        );
+        assert_eq!(
+            snapshot_domain_name_with(&ScriptedDomainNameSource {
+                result: Err(5),
+                bytes: RefCell::new(vec![b'x', 0]),
+            }),
+            Err(DomainNameError::Os(5))
+        );
+    }
 
     struct CountingReleaser(Rc<Cell<u32>>);
 

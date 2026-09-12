@@ -5,7 +5,8 @@
 use std::ffi::{CStr, CString, c_void};
 
 use agenterm_dyn::{
-    DlAddressSnapshot, Dyn, HostnameSnapshot, StatVfsSnapshot, SystemProbeStatus, Value, live_cell,
+    DlAddressSnapshot, DomainNameSnapshot, Dyn, HostnameSnapshot, StatVfsSnapshot,
+    SystemProbeStatus, Value, live_cell,
 };
 
 const LIB: &str = "libSystem.B.dylib";
@@ -897,6 +898,8 @@ fn dlcall_getdomainname_matches_independent_caller_buffer() {
     let direct = CStr::from_bytes_until_nul(&direct)
         .expect("direct getdomainname must NUL-terminate its bounded output");
     assert_eq!(domain.to_bytes(), direct.to_bytes());
+    let snapshot = DomainNameSnapshot::acquire().expect("typed domain-name snapshot");
+    assert_eq!(domain.to_bytes(), snapshot.as_bytes());
 }
 
 #[test]

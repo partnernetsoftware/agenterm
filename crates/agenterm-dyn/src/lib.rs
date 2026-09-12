@@ -49,8 +49,9 @@ pub use hosts::{
     SystemProbeStatus, WINDOWS_AARCH64, WINDOWS_X86_64, cell, cu_adjacent_probe, live_cell,
 };
 pub use macos_resource::{
-    CpuCountError, CpuCountSnapshot, DlAddressError, DlAddressSnapshot, MachHostPort,
-    MachHostPortError, MachTimebaseError, MachTimebaseSnapshot,
+    CpuCountError, CpuCountSnapshot, DlAddressError, DlAddressSnapshot, DomainNameError,
+    DomainNameSnapshot, MAX_DOMAIN_NAME_BYTES, MachHostPort, MachHostPortError, MachTimebaseError,
+    MachTimebaseSnapshot,
 };
 pub use sym::Symbol;
 pub use unix_groups::{MAX_SUPPLEMENTARY_GROUPS, SupplementaryGroups, SupplementaryGroupsError};
