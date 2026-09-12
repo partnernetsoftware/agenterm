@@ -48,6 +48,8 @@ pub enum FixedPointerPrototype {
     I32I32Pointer,
     /// C `int function(void *, int)`, used by `access`.
     I32PointerI32,
+    /// C `int function(void *, void *)`, with both pointers required.
+    I32PointerPointer,
     /// C `int function(void *, void *)`, with only the second pointer nullable.
     I32PointerNullablePointer,
     /// C `int function(void *, void *)`, with only the first pointer nullable.
@@ -64,6 +66,7 @@ impl FixedPointerPrototype {
             Self::I32Pointer => &[FixedPointerType::Pointer],
             Self::I32I32Pointer => &[FixedPointerType::I32, FixedPointerType::Pointer],
             Self::I32PointerI32 => &[FixedPointerType::Pointer, FixedPointerType::I32],
+            Self::I32PointerPointer => &[FixedPointerType::Pointer, FixedPointerType::Pointer],
             Self::I32PointerNullablePointer => {
                 &[FixedPointerType::Pointer, FixedPointerType::NullablePointer]
             }
@@ -180,6 +183,10 @@ pub unsafe fn invoke_fixed_pointer(call: &FixedPointerCall<'_>) -> Result<i32, F
             FixedPointerPrototype::I32PointerI32,
             [FixedPointerValue::Pointer(a), FixedPointerValue::I32(b)],
         ) => invoke_i32_pointer_i32(&library, call.symbol, *a, *b),
+        (
+            FixedPointerPrototype::I32PointerPointer,
+            [FixedPointerValue::Pointer(a), FixedPointerValue::Pointer(b)],
+        ) => invoke_i32_pointer_pointer(&library, call.symbol, *a, *b),
         (
             FixedPointerPrototype::I32PointerNullablePointer,
             [

@@ -482,36 +482,6 @@ fn dlcall_dladdr_writes_caller_owned_info() {
 }
 
 #[test]
-fn dlcall_gethostuuid_writes_caller_owned_uuid() {
-    unsafe extern "C" {
-        fn gethostuuid(id: *mut u8, wait: *const libc::timespec) -> libc::c_int;
-    }
-
-    let symbol = live_symbol("gethostuuid");
-    let mut id = [0_u8; 16];
-    let wait = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    let mut env = Dyn::new();
-    env.bind("id", id.as_mut_ptr().cast())
-        .expect("bind host uuid output");
-    env.bind("wait", (&raw const wait).cast_mut().cast())
-        .expect("bind gethostuuid wait timespec");
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "i32" "ptr" id "ptr" wait)"#),
-    )
-    .expect("gethostuuid dlcall");
-    assert_eq!(got, Value::Int(0));
-
-    let mut direct = [0_u8; 16];
-    let direct_status = unsafe { gethostuuid(direct.as_mut_ptr(), &wait) };
-    assert_eq!(direct_status, 0, "direct gethostuuid must succeed");
-    assert_eq!(id, direct);
-}
-
-#[test]
 fn dlcall_dyld_get_image_header_matches_image_zero() {
     unsafe extern "C" {
         fn _dyld_get_image_header(image_index: u32) -> *const c_void;

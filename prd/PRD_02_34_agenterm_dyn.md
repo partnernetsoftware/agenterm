@@ -25,6 +25,17 @@ qjswasm 内复制 variadic 调用实现。CU 通过 Script Runtime 的 `agenterm
 链；CU 不直接依赖 dyn，也没有第二套 loader。tinyvm 仍负责 `.qjs`→Wasm 与 Wasm
 执行，不拥有 native ABI。
 
+这里的“验证”目前不是完整的 native memory-safety 证明。`fixed_pointer` 已验证
+prototype、参数 kind、nullability，以及 guest span 的 `offset + len` 不溢出且位于
+Wasm 线性内存内；但它尚未把 span 的长度与具体 C symbol 的最小读写宽度关联，也
+不验证 host ABI 对齐或字符串 NUL。换言之，当前 pointer door 是由
+`WorkerSupervisor` 隔离的受限 raw FFI，而不是可安全接收敌对 pointer contract 的
+内存安全 FFI。当前产品选择是把具体 pointee 宽度、对齐、动态长度与 NUL 义务明确
+保留给受监管 guest；这是 unrestricted Script Runtime 的 unsafe ABI 边界，不能只靠
+夹具碰巧给了足够大的 buffer 来宣称安全。若未来要宣称敌对 pointer contract 也被
+typed 验证，则必须新增显式 callee contract 与 pre-load 拒绝证据，而不是把 symbol
+allowlist 当成权限策略。
+
 ### Markdown tree-DAG（当前功能树）
 
 下面是 DAG，不是互斥目录树：qjswasm 同时依赖三个 invocation family；catalog 与
@@ -101,6 +112,8 @@ flowchart LR
         Door[agenterm:native + native_call]
         Guard[guest span decode<br/>budget · cancel · typed mapping]
         QJS --> Door --> Guard
+        Gap[当前缺口<br/>span 宽度 · host 对齐 · NUL<br/>尚未绑定具体 C contract]
+        Guard -. 尚未证明 .-> Gap
     end
 
     subgraph Engine[机房 · dyn native core]

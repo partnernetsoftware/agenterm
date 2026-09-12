@@ -576,6 +576,43 @@ fn pthread_getname_np_reaches_dyn_with_the_current_thread_handle() {
 
 #[cfg(target_os = "macos")]
 #[test]
+fn gethostuuid_reaches_dyn_with_two_required_guest_spans() {
+    unsafe extern "C" {
+        fn gethostuuid(id: *mut u8, wait: *const libc::timespec) -> libc::c_int;
+    }
+    let wait = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    let mut direct = [0_u8; 16];
+    let direct_status = unsafe { gethostuuid(direct.as_mut_ptr(), &wait) };
+    assert_eq!(direct_status, 0, "direct gethostuuid succeeds");
+    let expected_hash = direct.iter().fold(0_u64, |hash, byte| {
+        hash.wrapping_mul(257) ^ u64::from(*byte)
+    });
+    let source = include_str!("fixtures/native/gethostuuid.wat");
+    assert_eq!(
+        run_wat(source, Budget::default()).expect("gethostuuid runs through i32(ptr,ptr)") as u64,
+        expected_hash
+    );
+
+    let null_first = source.replacen(
+        "(i32.store (i32.const 144) (i32.const 1))",
+        "(i32.store (i32.const 144) (i32.const 2))",
+        1,
+    );
+    let error = run_wat(&null_first, Budget::default())
+        .expect_err("a required pointer rejects null before native execution");
+    assert!(
+        matches!(&error, QjswasmError::Door(message)
+            if message.contains("native_null_not_permitted")
+                && message.contains("argument 0")),
+        "unexpected required-pointer error: {error:?}"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn pthread_threadid_np_reaches_dyn_with_nullable_input_and_required_output() {
     let source = include_str!("fixtures/native/pthread_threadid_np.wat");
     let got = run_wat(source, Budget::default())

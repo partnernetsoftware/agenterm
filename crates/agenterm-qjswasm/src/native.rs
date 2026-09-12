@@ -789,8 +789,12 @@ pub(crate) fn invoke_native_call(
                 arguments: &arguments,
             };
             // SAFETY: native_dispatch admitted one enumerated fixed prototype;
-            // decode_native_call bounded every span within this one live memory
-            // allocation, and the foreign call is synchronous.
+            // decode_native_call bounded every declared span within this one
+            // live memory allocation, and the foreign call is synchronous. The
+            // guest remains the unsafe ABI caller: it must declare spans large
+            // and aligned enough for the selected C symbol's complete pointee
+            // contract. The generic door cannot infer that contract from an
+            // opaque `ptr` prototype.
             unsafe { invoke_fixed_pointer(&native_call) }
                 .map(|value| value as i64 as u64)
                 .map_err(|error| map_fixed_pointer_error(call, error))?
@@ -971,6 +975,9 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
         }
         (NativeType::I32, [NativeType::Pointer, NativeType::I32]) => {
             Some(FixedPointerPrototype::I32PointerI32)
+        }
+        (NativeType::I32, [NativeType::Pointer, NativeType::Pointer]) => {
+            Some(FixedPointerPrototype::I32PointerPointer)
         }
         (NativeType::I32, [NativeType::Pointer, NativeType::NullablePointer]) => {
             Some(FixedPointerPrototype::I32PointerNullablePointer)
@@ -1470,6 +1477,12 @@ mod json_adapter_tests {
             native_dispatch(&parse("|access|i32(ptr,i32)")),
             Ok(NativeDispatch::FixedPointer(
                 FixedPointerPrototype::I32PointerI32,
+            ))
+        );
+        assert_eq!(
+            native_dispatch(&parse("|gethostuuid|i32(ptr,ptr)")),
+            Ok(NativeDispatch::FixedPointer(
+                FixedPointerPrototype::I32PointerPointer,
             ))
         );
         assert_eq!(

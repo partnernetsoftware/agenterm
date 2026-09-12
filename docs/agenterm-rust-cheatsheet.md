@@ -6013,3 +6013,22 @@ The product rule: create a child job for cleanup only when the child's
 whole subtree is genuinely yours to reclaim, and prefer
 `SILENT_BREAKAWAY_OK` on any job a launcher puts a long-lived user session
 in, so a GUI that wants its own lifecycle can take it.
+
+## A bounded guest span is not a proved C pointee contract
+
+For the qjswasm native door, a kind-1 guest span proves only that its declared
+`offset + len` does not overflow and lies inside the current Wasm linear
+memory. An opaque `ptr` ABI type does not reveal how many bytes a selected C
+symbol will read or write, what host alignment it requires, whether a string
+must contain a NUL, or whether a scalar length argument agrees with the span.
+Do not describe that range check as native memory safety, and do not use a
+large successful fixture as evidence that short or misaligned hostile spans
+are rejected.
+
+When the Script Runtime keeps arbitrary native symbols available, the guest is
+the unsafe ABI caller and `WorkerSupervisor` is the crash-containment boundary;
+document that obligation at the `unsafe` call site. If a future surface claims
+typed pointee safety, it needs an explicit callee contract for minimum widths,
+alignment, dynamic-length relationships and terminators, with pre-load typed
+rejection tests. A symbol allowlist is not a substitute for an unimplemented
+general capability and must not be smuggled in as permission policy.
