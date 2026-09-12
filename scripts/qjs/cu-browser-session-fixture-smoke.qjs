@@ -17,11 +17,6 @@ function normalized(path) {
   return ("" + path).replaceAll("\\", "/");
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
-}
 
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
@@ -32,10 +27,10 @@ harness.require(args.length === 3, "expected: REPO AGENTERM_CU_EXE FIXTURE_EXE")
 const repo = rh.absolute(args[0]);
 let cu = rh.absolute(args[1]);
 let fixture = rh.absolute(args[2]);
-if (!direct_file(cu) && harness.host_is_windows()) { cu = cu + ".exe"; }
-if (!direct_file(fixture) && harness.host_is_windows()) { fixture = fixture + ".exe"; }
-require(direct_file(cu), "browser_session_fixture_cu_missing");
-require(direct_file(fixture), "browser_session_fixture_executable_missing");
+if (!rh.is_direct_file(cu) && harness.host_is_windows()) { cu = cu + ".exe"; }
+if (!rh.is_direct_file(fixture) && harness.host_is_windows()) { fixture = fixture + ".exe"; }
+require(rh.is_direct_file(cu), "browser_session_fixture_cu_missing");
+require(rh.is_direct_file(fixture), "browser_session_fixture_executable_missing");
 require(!harness.host_is_windows(), "browser_session_fixture_runtime_not_applicable_on_windows");
 
 const context = harness.new_context(repo, "cu-browser-session-fixture");
