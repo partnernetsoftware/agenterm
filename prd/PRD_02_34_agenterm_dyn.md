@@ -495,6 +495,9 @@ court has claim-preserving `.wat` or typed-owner evidence.
   `getpagesize()` 原先只返回布尔形状检查的 addition fixture 已提升为直接返回值
   的正式 WAT court，并与 `sysconf(_SC_PAGESIZE)` 精确比较；两份 Lisp court
   因而删除，而不是用较弱断言替代。
+  `nice(0)` 与 `sched_yield()` 随后复用 exact `i32` 标量机制迁入动态生成的
+  WAT guests；前者保留 direct 返回值比较，后者保留 direct status `0` 与精确
+  比较，Linux/macOS Lisp courts 已删除。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded

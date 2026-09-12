@@ -460,22 +460,6 @@ mod linux {
     }
 
     #[test]
-    fn dlcall_nice_zero_matches_libc() {
-        let probe = live_system_probe("nice_zero");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let got = eval_native(
-            &mut env,
-            &format!(r#"(dlcall "{lib}" "{symbol}" "i32" "i32" 0)"#),
-        )
-        .expect("nice(0) dlcall");
-        let real = unsafe { libc::nice(0) };
-        assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
     fn dlcall_lseek_stdin_cur_matches_libc() {
         let probe = live_system_probe("lseek_stdin_cur");
         let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
@@ -526,20 +510,6 @@ mod linux {
         let real = unsafe { libc::isatty(2) };
         assert!(matches!(real, 0 | 1));
         assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
-    fn dlcall_sched_yield_matches_libc_status() {
-        let probe = live_system_probe("sched_yield");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let got = eval_native(&mut env, &format!(r#"(dlcall "{lib}" "{symbol}" "i32")"#))
-            .expect("sched_yield i32 dlcall");
-        let direct = unsafe { libc::sched_yield() };
-        assert_eq!(direct, 0, "sched_yield direct status");
-        assert_eq!(got, Value::Int(i64::from(direct)));
     }
 
     #[test]
@@ -1141,7 +1111,7 @@ mod macos {
     }
 
     #[test]
-    fn dlcall_priority_nice_yield_alarm_umask() {
+    fn dlcall_priority_alarm_umask() {
         let mut env = Dyn::new();
         let prio = live_system_probe("getpriority_process");
         let SystemProbeStatus::LiveDlcall { lib, symbol } = prio.status else {
@@ -1160,35 +1130,6 @@ mod macos {
             Value::Int(i64::from(unsafe {
                 libc::getpriority(libc::PRIO_PROCESS, 0)
             }))
-        );
-
-        let nice = live_system_probe("nice_zero");
-        let SystemProbeStatus::LiveDlcall {
-            symbol: nice_sym, ..
-        } = nice.status
-        else {
-            unreachable!()
-        };
-        let got_nice = eval_native(
-            &mut env,
-            &format!(r#"(dlcall "{lib}" "{nice_sym}" "i32" "i32" 0)"#),
-        )
-        .expect("nice");
-        assert_eq!(got_nice, Value::Int(i64::from(unsafe { libc::nice(0) })));
-
-        let yld = live_system_probe("sched_yield");
-        let SystemProbeStatus::LiveDlcall {
-            symbol: yld_sym, ..
-        } = yld.status
-        else {
-            unreachable!()
-        };
-        let yld_direct = unsafe { libc::sched_yield() };
-        assert_eq!(yld_direct, 0, "sched_yield direct status");
-        assert_eq!(
-            eval_native(&mut env, &format!(r#"(dlcall "{lib}" "{yld_sym}" "i32")"#))
-                .expect("sched_yield"),
-            Value::Int(i64::from(yld_direct))
         );
 
         run_isolated_test("macos::dlcall_alarm_zero_child");

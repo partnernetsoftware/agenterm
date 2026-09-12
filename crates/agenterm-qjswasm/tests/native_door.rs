@@ -466,6 +466,20 @@ fn mixed_sysconf_queries_reach_the_dyn_fixed_core() {
 
 #[cfg(unix)]
 #[test]
+fn scheduling_scalar_calls_match_direct_libc() {
+    let nice_source = wat_for_scalar_args("|nice|i32(i32)", &[0]);
+    let nice = run_wat(&nice_source, Budget::default()).expect("nice(0) guest runs");
+    assert_eq!(nice, i64::from(unsafe { libc::nice(0) }));
+
+    let yield_source = wat_for_scalar_args("|sched_yield|i32()", &[]);
+    let yielded = run_wat(&yield_source, Budget::default()).expect("sched_yield guest runs");
+    let direct = unsafe { libc::sched_yield() };
+    assert_eq!(direct, 0, "direct sched_yield must succeed");
+    assert_eq!(yielded, i64::from(direct));
+}
+
+#[cfg(unix)]
+#[test]
 fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
     let output = std::process::Command::new("uname")
         .arg("-s")
