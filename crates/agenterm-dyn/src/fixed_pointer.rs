@@ -12,6 +12,7 @@ use crate::exact_native::open_library;
 pub enum FixedPointerType {
     I32,
     U32,
+    U64,
     Pointer,
     NullablePointer,
 }
@@ -21,6 +22,7 @@ pub enum FixedPointerType {
 pub enum FixedPointerValue {
     I32(i32),
     U32(u32),
+    U64(u64),
     Pointer(*mut c_void),
     NullablePointer(*mut c_void),
 }
@@ -30,6 +32,7 @@ impl FixedPointerValue {
         match self {
             Self::I32(_) => FixedPointerType::I32,
             Self::U32(_) => FixedPointerType::U32,
+            Self::U64(_) => FixedPointerType::U64,
             Self::Pointer(_) => FixedPointerType::Pointer,
             Self::NullablePointer(_) => FixedPointerType::NullablePointer,
         }
@@ -51,6 +54,8 @@ pub enum FixedPointerPrototype {
     I32NullablePointerPointer,
     /// C `int function(int, void *, unsigned int)`, used by `proc_pidpath`.
     I32I32PointerU32,
+    /// C `int function(uint64_t, void *, uint64_t)`, used by `pthread_getname_np`.
+    I32U64PointerU64,
 }
 
 impl FixedPointerPrototype {
@@ -69,6 +74,11 @@ impl FixedPointerPrototype {
                 FixedPointerType::I32,
                 FixedPointerType::Pointer,
                 FixedPointerType::U32,
+            ],
+            Self::I32U64PointerU64 => &[
+                FixedPointerType::U64,
+                FixedPointerType::Pointer,
+                FixedPointerType::U64,
             ],
         }
     }
@@ -192,6 +202,14 @@ pub unsafe fn invoke_fixed_pointer(call: &FixedPointerCall<'_>) -> Result<i32, F
                 FixedPointerValue::U32(c),
             ],
         ) => invoke_i32_i32_pointer_u32(&library, call.symbol, *a, *b, *c),
+        (
+            FixedPointerPrototype::I32U64PointerU64,
+            [
+                FixedPointerValue::U64(a),
+                FixedPointerValue::Pointer(b),
+                FixedPointerValue::U64(c),
+            ],
+        ) => invoke_i32_u64_pointer_u64(&library, call.symbol, *a, *b, *c),
         _ => unreachable!("fixed pointer signature validation admitted the prototype"),
     }
 }
@@ -270,6 +288,22 @@ fn invoke_i32_i32_pointer_u32(
     // SAFETY: see invoke_i32_pointer.
     let function = unsafe {
         library.get::<unsafe extern "C" fn(i32, *mut c_void, u32) -> i32>(symbol.as_bytes())
+    }
+    .map_err(|error| symbol_error(symbol, error))?;
+    // SAFETY: the caller owns the pointer contract and the library stays live.
+    Ok(unsafe { function(a, b, c) })
+}
+
+fn invoke_i32_u64_pointer_u64(
+    library: &Library,
+    symbol: &str,
+    a: u64,
+    b: *mut c_void,
+    c: u64,
+) -> Result<i32, FixedPointerError> {
+    // SAFETY: see invoke_i32_pointer.
+    let function = unsafe {
+        library.get::<unsafe extern "C" fn(u64, *mut c_void, u64) -> i32>(symbol.as_bytes())
     }
     .map_err(|error| symbol_error(symbol, error))?;
     // SAFETY: the caller owns the pointer contract and the library stays live.

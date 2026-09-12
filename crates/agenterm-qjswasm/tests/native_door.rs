@@ -548,6 +548,34 @@ fn proc_name_reaches_dyn_and_matches_direct_libc_bytes() {
 
 #[cfg(target_os = "macos")]
 #[test]
+fn pthread_getname_np_reaches_dyn_with_the_current_thread_handle() {
+    let thread = unsafe { libc::pthread_self() } as u64;
+    let mut direct = [0_i8; 64];
+    let direct_status = unsafe {
+        libc::pthread_getname_np(thread as libc::pthread_t, direct.as_mut_ptr(), direct.len())
+    };
+    let expected_hash = if direct_status == 0 {
+        let bytes = unsafe { std::ffi::CStr::from_ptr(direct.as_ptr()) }.to_bytes();
+        bytes.iter().fold(0_u64, |hash, byte| {
+            (hash.wrapping_mul(257) ^ u64::from(*byte)) & u64::from(u32::MAX)
+        })
+    } else {
+        0
+    };
+    let expected = (u64::from(direct_status as u32) << 32) | expected_hash;
+    assert_eq!(
+        run_wat_with_args(
+            include_str!("fixtures/native/pthread_getname_np.wat"),
+            Budget::default(),
+            &[Value::I64(thread as i64)],
+        )
+        .expect("pthread_getname_np runs through i32(u64,ptr,u64)") as u64,
+        expected
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn pthread_threadid_np_reaches_dyn_with_nullable_input_and_required_output() {
     let source = include_str!("fixtures/native/pthread_threadid_np.wat");
     let got = run_wat(source, Budget::default())

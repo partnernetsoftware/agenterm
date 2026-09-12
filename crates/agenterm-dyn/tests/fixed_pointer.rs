@@ -37,6 +37,14 @@ mod unix {
                 FixedPointerType::U32,
             ]
         );
+        assert_eq!(
+            FixedPointerPrototype::I32U64PointerU64.parameters(),
+            &[
+                FixedPointerType::U64,
+                FixedPointerType::Pointer,
+                FixedPointerType::U64,
+            ]
+        );
     }
 
     #[test]
@@ -53,6 +61,39 @@ mod unix {
             unsafe { invoke_fixed_pointer(&call) },
             Err(FixedPointerError::SignatureUnsupported { .. })
         ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn pthread_getname_np_matches_the_direct_current_thread_oracle() {
+        let thread = unsafe { libc::pthread_self() } as u64;
+        let mut actual = [0_i8; 64];
+        let mut expected = [0_i8; 64];
+        let arguments = [
+            FixedPointerValue::U64(thread),
+            FixedPointerValue::Pointer(actual.as_mut_ptr().cast()),
+            FixedPointerValue::U64(actual.len() as u64),
+        ];
+        let call = FixedPointerCall {
+            library: "libSystem.B.dylib",
+            symbol: "pthread_getname_np",
+            prototype: FixedPointerPrototype::I32U64PointerU64,
+            arguments: &arguments,
+        };
+        let actual_status = unsafe { invoke_fixed_pointer(&call) }.expect("typed call runs");
+        let expected_status = unsafe {
+            libc::pthread_getname_np(
+                thread as libc::pthread_t,
+                expected.as_mut_ptr(),
+                expected.len(),
+            )
+        };
+        assert_eq!(actual_status, expected_status);
+        if actual_status == 0 {
+            let actual = unsafe { std::ffi::CStr::from_ptr(actual.as_ptr()) };
+            let expected = unsafe { std::ffi::CStr::from_ptr(expected.as_ptr()) };
+            assert_eq!(actual.to_bytes(), expected.to_bytes());
+        }
     }
 
     #[test]

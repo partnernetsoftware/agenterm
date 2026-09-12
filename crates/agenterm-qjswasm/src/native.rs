@@ -981,6 +981,9 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
         (NativeType::I32, [NativeType::I32, NativeType::Pointer, NativeType::U32]) => {
             Some(FixedPointerPrototype::I32I32PointerU32)
         }
+        (NativeType::I32, [NativeType::U64, NativeType::Pointer, NativeType::U64]) => {
+            Some(FixedPointerPrototype::I32U64PointerU64)
+        }
         _ => None,
     };
     fixed_pointer
@@ -1325,6 +1328,10 @@ fn fixed_pointer_argument(
                 ty: NativeType::U32,
                 bits: *bits,
             }),
+        NativeArgument::Scalar {
+            ty: NativeType::U64,
+            bits,
+        } => Ok(FixedPointerValue::U64(*bits)),
         NativeArgument::GuestSpan { ty, span } if ty.is_pointer() => {
             // SAFETY: decode_native_call proved offset + len is within the one
             // guest allocation. `add` therefore yields an in-bounds or one-past
@@ -1481,6 +1488,12 @@ mod json_adapter_tests {
             native_dispatch(&parse("|proc_pidpath|i32(i32,ptr,u32)")),
             Ok(NativeDispatch::FixedPointer(
                 FixedPointerPrototype::I32I32PointerU32,
+            ))
+        );
+        assert_eq!(
+            native_dispatch(&parse("|pthread_getname_np|i32(u64,ptr,u64)")),
+            Ok(NativeDispatch::FixedPointer(
+                FixedPointerPrototype::I32U64PointerU64,
             ))
         );
         assert_eq!(
