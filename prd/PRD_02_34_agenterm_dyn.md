@@ -2,9 +2,8 @@
 
 Status: active product node — dyn is the **无策略底层机制层**（动态库/符号解析、按调用方 ABI
 描述执行调用、raw value/pointer 搬运、variadic `ioctl` ABI、W^X trampoline、机制错误）
-consumed by qjswasm; the former small S-expression surface was retired court by court into
-`.wat`. **Typed owners and the six-cell catalog are 待迁移现状债**（2026-09-12 裁决：它们属上层
-adapter/`agenterm-platform` 与产品/测试层，留在 dyn 只是**尚未搬走**，不是继续扩展目标）。
+consumed by qjswasm. The former S-expression surface, typed-owner side APIs, and
+six-cell product catalog have been removed from dyn after consumer and evidence migration.
 Owner: 政委定方向；主会话按独占文件域推进。
 
 Parallel crate `crates/agenterm-dyn`, not a fourth engine, not libagenterm, not cu.
@@ -18,8 +17,8 @@ Parallel crate `crates/agenterm-dyn`, not a fourth engine, not libagenterm, not 
 **dyn 拥有（机制）**
 
 1. **动态库打开与符号解析**——唯一的 loader/symbol resolution 路径（`libloading`）；
-2. **按调用方提供的 ABI 描述执行调用**——调用方给出参数类/返回类（宽度、指针、
-   可空性），dyn 负责布局与跳转，**不由 dyn 决定“哪些 ABI 允许”**；
+2. **按调用方提供的 ABI 描述执行调用**——调用方给出参数类/返回类（宽度、指针），
+   dyn 负责布局与跳转，**不由 dyn 决定“哪些 ABI 允许”**；
 3. **raw pointer / value 搬运**——整数、浮点、指针位的传参取回；
 4. **必要 ABI 机制**——Unix variadic `ioctl` 特例；
 5. **W^X trampoline 与机器码执行底座**（`src/exec.rs`，写态/执态互斥，永不 RWX）；
@@ -58,8 +57,8 @@ dyn **不**校验 host ABI 对齐、NUL 或具体 callee 的最小读写宽度�
 ### Markdown tree-DAG（当前功能树）
 
 下面是 DAG，不是互斥目录树：qjswasm 同时依赖三个 invocation family。
-**标注说明**：下面带 `[迁移]` 的条目是**历史现状 / 迁移债**（2026-09-12 前 dyn 曾拥有，现裁定迁出），
-**不是继续扩展目标**；历史交付记录不抹除，但不得再被读成 dyn 的职责。
+**标注说明**：`[已迁出]` 条目是历史能力的去向，不是当前 dyn API；历史交付记录
+不抹除，但不得再被读成 dyn 的职责。
 
 ```text
 agenterm-dyn
@@ -86,7 +85,7 @@ agenterm-dyn
 │       ├── variadic 调用机制 (i32, i32|u64, ptr) -> i32  [保留]
 │       └── UnixIoctlRequest 的“允许签名”          [**策略 → 上层**]
 │
-├── B. typed native owners / snapshots            [**迁移：上层 adapter / agenterm-platform（逐项裁决）**]
+├── B. typed native owners / snapshots            [已迁出 dyn]
 │   ├── Unix
 │   │   ├── InterfaceAddresses       getifaddrs/freeifaddrs 恰一次释放
 │   │   ├── SupplementaryGroups      有界 gid 集合
@@ -102,7 +101,7 @@ agenterm-dyn
 │       ├── DomainNameSnapshot       bounded native bytes
 │       └── LoginNameSnapshot        1024-byte bound + true NUL + native bytes
 │
-├── C. OS×ISA facts                                 [**迁移：产品/测试层 facts**]
+├── C. OS×ISA facts                                 [已迁出 dyn]
 │   ├── hosts.rs: win/lnx/osx × x86_64/aarch64
 │   ├── Placeholder | LiveDlcall | LiveOwned | LiveDlcallOwned
 │   └── CU-adjacent facts（发现/兼容元数据，不是授权策略）
@@ -112,7 +111,7 @@ agenterm-dyn
 │   ├── NameTable: emitted / foreign name
 │   └── ExecError: 独立 typed error
 │
-└── E. 小 S-expression 解释器                      [迁移后退役]
+└── E. 小 S-expression 解释器                      [已退役]
     ├── parse.rs + eval.rs + sym.rs + value.rs
     ├── Dyn / Value / Symbol / DynError
     └── native.rs 旧 dlcall 入口
@@ -122,14 +121,14 @@ qjswasm ──uses──> A
 qjswasm ──guest span──> A.fixed_pointer
 qjswasm ──validated ioctl request──> A.unix_ioctl
 Script Runtime / CU ──agenterm:native──> qjswasm ──> A
-B ──describes the same native facts──> C.LiveOwned / C.LiveDlcallOwned
-E ──courts are being ported to .wat──> qjswasm ──> A
+B ──historical contracts now belong above dyn──> agenterm-platform / adapters
+E ──claims moved to raw ABI or WAT courts──> qjswasm ──> A
 ```
 
 ### Mermaid flowchart memory-palace（调用与所有权记忆宫殿）
 
-把系统记成五个房间：门厅只解码，机房只执行，保管室只管寿命，地图室只记事实，
-旧书库等待搬完后关闭。任何新能力必须能指出它进入哪个房间；跨房间复制 loader、
+把系统记成五个房间：门厅只解码，机房只执行；保管室、地图室与旧书库已经从
+dyn 搬出或关闭。任何新能力必须能指出它进入哪个房间；跨房间复制 loader、
 资源释放纪律或 OS×ISA 真相都属于第二份真相。
 
 ```mermaid
@@ -162,34 +161,24 @@ flowchart LR
     end
     Policy -->|提供 ABI 描述| Abi
 
-    subgraph Vault[保管室 · typed owners（待迁移 → 上层 adapter / platform）]
-        UnixOwner[Unix lists / buffers / snapshots]
-        DarwinOwner[Mach rights / Darwin snapshots]
-        Drop[bounded copy or exactly-once Drop]
-        UnixOwner --> Drop
-        DarwinOwner --> Drop
+    subgraph Vault[保管室 · typed owners（已迁出 dyn）]
+        UpperOwner[agenterm-platform / upper adapters]
     end
 
-    subgraph Map[地图室 · six-cell facts（待迁移 → 产品/测试层）]
-        Cells[win · lnx · osx<br/>x86_64 · aarch64]
-        Status[Placeholder / LiveDlcall<br/>LiveOwned / LiveDlcallOwned]
-        Cells --> Status
+    subgraph Map[地图室 · product facts（已迁出 dyn）]
+        ProductFacts[product catalog / test evidence]
     end
 
-    subgraph Archive[旧书库 · retiring Lisp]
-        Lisp[Dyn + S-expression + dlcall]
-        Courts[legacy native courts/examples]
-        Lisp --> Courts
+    subgraph Archive[旧书库 · retired Lisp]
+        Closed[Dyn / S-expression / textual dlcall removed]
     end
 
     Guard --> Schema
     Schema --> Proto
     Proto -->|已验证的 ABI 描述| Abi
     Guard -. enumerated exception .-> Ioctl
-    Vault -. 待迁移 .-> Status
-    Courts -. claim-preserving port .-> QJS
-    Lisp -. delete only after all courts move .-> ArchiveGate{retirement gate}
-    Status --> ArchiveGate
+    UpperOwner -. outside dyn .-> ProductFacts
+    Closed -. claims already ported .-> QJS
 
     CU[agenterm-cu] -->|through supervised Script Runtime| QJS
     Tiny[tinyvm] -->|compile / execute Wasm only| QJS
@@ -204,17 +193,17 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
 
 | 模块（现 `crates/agenterm-dyn/src/`） | 判定 | 说明 |
 |---|---|---|
-| `hosts.rs`（six-cell facts / catalog / Placeholder-Live* 状态） | **move** | 属产品/测试层 facts；不属 dyn 机制 |
-| `macos_resource.rs`（Mach right、domain/login/timebase、DlAddress…） | **move** | typed OS owner/snapshot ⇒ 上层 adapter 或 `agenterm-platform`（**逐项裁决**） |
-| `unix_resource.rs`（getifaddrs / statvfs / clock） | **move** | 同上 |
-| `unix_groups.rs` / `unix_path.rs` | **move** | 同上 |
+| `hosts.rs`（six-cell facts / catalog / Placeholder-Live* 状态） | **removed** | 无生产消费者；产品事实继续由实际 qjswasm catalog/courts 表达 |
+| `macos_resource.rs`（Mach right、domain/login/timebase、DlAddress…） | **removed** | 无生产消费者；不得在 dyn 复制 typed OS contract |
+| `unix_resource.rs`（getifaddrs / statvfs / clock） | **removed** | 等价平台能力由 `agenterm-platform` 的 owning feature 提供 |
+| `unix_groups.rs` / `unix_path.rs` | **removed** | 无生产消费者；调用方使用 owning platform/filesystem contract |
 | `exact_native.rs` / `fixed_native.rs` / `fixed_pointer.rs` | **split** | 执行机制留 dyn；“允许的 prototype 枚举 + validator”迁往上层的 catalog/策略 |
 | `unix_ioctl.rs` | **split** | variadic 调用机制留；“允许签名”判据迁上层 |
 | `exec.rs` + `exec_error.rs` | **keep** | W^X trampoline 与机器码执行底座（机制正确性，不是权限限制） |
-| `error.rs` | **keep** | 机制错误传播 |
-| `native.rs`（旧 `dlcall` 入口） | **split/retire** | 调用 ABI 机制与退役中的小 Lisp 语言层分开处置 |
-| `parse.rs` / `eval.rs` / `sym.rs` / `value.rs` | **delete（退役）** | 语言层；其 court 主张须先迁到等价证据 |
-| `lib.rs` 公开面 | **rewrite** | 现导出面即策略面（owner/facts/允许集合/budget 常量），需按上表收口 |
+| `error.rs` | **removed** | 旧语言错误；ABI/exec/ioctl 机制保留各自 typed error |
+| `native.rs`（旧 `dlcall` 入口） | **removed** | textual language entrance retired after court migration |
+| `parse.rs` / `eval.rs` / `sym.rs` / `value.rs` | **removed** | language layer retired after equivalent evidence landed |
+| `lib.rs` 公开面 | **rewritten** | owner/facts/language exports removed; mechanism exports remain |
 
 **兼容顺序（两步走，任一步可独立回退）**
 
@@ -574,9 +563,9 @@ WAT evidence, and no production consumer outside this crate used the language AP
 - `eval.rs` / `parse.rs` / `sym.rs` / `value.rs` and the legacy
   `Dyn` / `Value` / `Symbol` API were deleted after complete executable-court and
   public-consumer migration. Remaining `(dlcall ...)` examples are historical
-  catalog migration records, not a callable API. `hosts.rs` 目前仍是
-  six-cell fact owner、`exec.rs` 仍是单独设界的 future JIT tool——**这两者是历史现状 /
-  迁移债**（按 2026-09-12 裁决，facts 与 typed owner 将迁出 dyn；`exec.rs` 作为机制保留）。
+  catalog migration records, not a callable API. `hosts.rs` and the typed-owner
+  modules were subsequently removed; `exec.rs` remains the separately bounded
+  future-JIT mechanism.
 - Current court migration has moved the scalar, clock-pointer, Darwin output-pointer,
   Mach-clock, and duplicate Darwin `ioctl` claims to qjswasm `.wat` or typed-owner
   evidence. The two-required-pointer `i32(ptr,ptr)` family now carries the
@@ -612,17 +601,15 @@ separate dyn mechanism entry. The public `native-acu-composition-smoke` proves o
 compose `agenterm:native` with `agenterm:acu`. This establishes dyn as a real lower
 layer. The legacy Lisp was deleted only after its remaining courts moved.
 
-Qjswasm's native-door court no longer imports dyn's typed snapshots as test
-oracles: Mach timebase, CPU count and monotonic clock assertions now compare
-against independent direct platform calls. Typed owners therefore have no
-consumer outside dyn; their remaining exports and self-tests are migration debt,
-not a cross-crate compatibility contract.
+Qjswasm's native-door court does not import typed snapshots from dyn as test
+oracles: Mach timebase, CPU count and monotonic clock assertions compare
+against independent direct platform calls. Repository-wide consumer checks
+therefore allowed the unused dyn owner exports and self-tests to be removed.
 
 In particular, the heterogeneous integer/pointer ABI mechanism, Unix variadic
 `ioctl` exception and future-JIT boundary in `exec.rs` remain independently owned by
-dyn. The six-cell `hosts.rs` facts and typed owners are migration debt, not dyn's
-target ownership. `Dyn` / `Value` / `Symbol` and their language component were
-retired after that evidence migration completed.
+dyn. The six-cell `hosts.rs` facts, typed owners, and the `Dyn` / `Value` /
+`Symbol` language component were removed after their evidence migration completed.
 
 `DomainNameSnapshot::acquire()` and `LoginNameSnapshot::acquire()` are the
 typed Darwin boundaries for `getdomainname` and `getlogin_r`. Both publish
