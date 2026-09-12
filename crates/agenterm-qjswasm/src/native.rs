@@ -7,7 +7,10 @@
 
 use std::fmt;
 
-use libloading::Library;
+use agenterm_dyn::{
+    ExactNativeCall, ExactNativeError, ExactNativeType, ExactNativeValue, invoke_exact,
+    validate_exact_native_signature,
+};
 
 /// Schema version stored in every argument-block header.
 pub const NATIVE_BLOCK_VERSION: u32 = 1;
@@ -504,18 +507,8 @@ pub fn native_register_pattern_cardinality() -> usize {
 /// seven exact scalar types, each at every arity from zero through six. The
 /// result type and every parameter have to be that same exact type.
 pub fn native_invocation_stub_cardinality() -> usize {
-    EXACT_SCALAR_FAMILIES.len() * (0..=MAX_NATIVE_ARITY).count()
+    agenterm_dyn::exact_native_stub_cardinality()
 }
-
-const EXACT_SCALAR_FAMILIES: [NativeType; 7] = [
-    NativeType::I32,
-    NativeType::U32,
-    NativeType::I64,
-    NativeType::U64,
-    NativeType::Isize,
-    NativeType::Usize,
-    NativeType::F64,
-];
 
 /// Validate and decode one declaration plus fixed-layout argument block.
 ///
@@ -694,21 +687,6 @@ fn le_u64(bytes: &[u8]) -> u64 {
     u64::from_le_bytes(bytes.try_into().expect("schema slices eight bytes"))
 }
 
-macro_rules! invoke_homogeneous {
-    ($library:expr, $call:expr, $args:expr, $ty:ty) => {{
-        match $args.as_slice() {
-            [] => invoke_0::<$ty>($library, $call),
-            [a] => invoke_1::<$ty>($library, $call, *a),
-            [a, b] => invoke_2::<$ty>($library, $call, *a, *b),
-            [a, b, c] => invoke_3::<$ty>($library, $call, *a, *b, *c),
-            [a, b, c, d] => invoke_4::<$ty>($library, $call, *a, *b, *c, *d),
-            [a, b, c, d, e] => invoke_5::<$ty>($library, $call, *a, *b, *c, *d, *e),
-            [a, b, c, d, e, f] => invoke_6::<$ty>($library, $call, *a, *b, *c, *d, *e, *f),
-            _ => unreachable!("the schema caps native arity at six"),
-        }?
-    }};
-}
-
 /// Invoke one decoded call and publish its result into the guest block.
 ///
 /// The first executable slice deliberately supports only exact homogeneous
@@ -722,49 +700,33 @@ pub(crate) fn invoke_native_call(
     memory: &mut [u8],
     call: &DecodedNativeCall,
 ) -> Result<(), NativeDoorError> {
-    let family =
-        exact_family(call).ok_or_else(|| NativeDoorError::InvocationSignatureUnsupported {
-            result: call.spec.result,
-            parameters: call.spec.parameters.clone(),
-        })?;
-    let bits = match family {
-        NativeType::I32 => {
-            let args = exact_i32_arguments(call)?;
-            let library = open_library(&call.spec.library)?;
-            invoke_homogeneous!(&library, call, args, i32) as i64 as u64
-        }
-        NativeType::U32 => {
-            let args = exact_u32_arguments(call)?;
-            let library = open_library(&call.spec.library)?;
-            invoke_homogeneous!(&library, call, args, u32) as u64
-        }
-        NativeType::I64 => {
-            let args = exact_i64_arguments(call)?;
-            let library = open_library(&call.spec.library)?;
-            invoke_homogeneous!(&library, call, args, i64) as u64
-        }
-        NativeType::U64 => {
-            let args = exact_u64_arguments(call)?;
-            let library = open_library(&call.spec.library)?;
-            invoke_homogeneous!(&library, call, args, u64)
-        }
-        NativeType::Isize => {
-            let args = exact_isize_arguments(call)?;
-            let library = open_library(&call.spec.library)?;
-            invoke_homogeneous!(&library, call, args, isize) as i64 as u64
-        }
-        NativeType::Usize => {
-            let args = exact_usize_arguments(call)?;
-            let library = open_library(&call.spec.library)?;
-            invoke_homogeneous!(&library, call, args, usize) as u64
-        }
-        NativeType::F64 => {
-            let args = exact_f64_arguments(call)?;
-            let library = open_library(&call.spec.library)?;
-            invoke_homogeneous!(&library, call, args, f64).to_bits()
-        }
-        _ => unreachable!("exact_family returns only executable scalar families"),
+    let result = exact_type(call.spec.result).ok_or_else(unsupported_signature(call))?;
+    let parameter_types = call
+        .spec
+        .parameters
+        .iter()
+        .copied()
+        .map(|ty| exact_type(ty).ok_or_else(unsupported_signature(call)))
+        .collect::<Result<Vec<_>, _>>()?;
+    validate_exact_native_signature(result, &parameter_types)
+        .map_err(|error| map_exact_error(call, error))?;
+    let arguments = call
+        .arguments
+        .iter()
+        .enumerate()
+        .map(|(index, argument)| exact_argument(index, argument, call))
+        .collect::<Result<Vec<_>, _>>()?;
+    let native_call = ExactNativeCall {
+        library: &call.spec.library,
+        symbol: &call.spec.symbol,
+        result,
+        arguments: &arguments,
     };
+    // SAFETY: the guest declaration is the native-door caller's explicit ABI assertion.
+    // The dyn core admits only its exact homogeneous fixed signatures.
+    let value =
+        unsafe { invoke_exact(&native_call) }.map_err(|error| map_exact_error(call, error))?;
+    let bits = exact_result_bits(value);
     let memory_len = memory.len();
     let slot = memory
         .get_mut(call.return_slot.offset..call.return_slot.offset + call.return_slot.len)
@@ -777,213 +739,85 @@ pub(crate) fn invoke_native_call(
     Ok(())
 }
 
-fn exact_family(call: &DecodedNativeCall) -> Option<NativeType> {
-    if call.spec.parameters.len() > MAX_NATIVE_ARITY {
-        return None;
+fn unsupported_signature(call: &DecodedNativeCall) -> impl FnOnce() -> NativeDoorError + '_ {
+    || NativeDoorError::InvocationSignatureUnsupported {
+        result: call.spec.result,
+        parameters: call.spec.parameters.clone(),
     }
-    EXACT_SCALAR_FAMILIES
-        .into_iter()
-        .find(|ty| call.spec.result == *ty && all_parameters(call, *ty))
 }
 
-fn all_parameters(call: &DecodedNativeCall, ty: NativeType) -> bool {
-    call.spec
-        .parameters
-        .iter()
-        .all(|candidate| *candidate == ty)
+fn exact_type(ty: NativeType) -> Option<ExactNativeType> {
+    match ty {
+        NativeType::I32 => Some(ExactNativeType::I32),
+        NativeType::U32 => Some(ExactNativeType::U32),
+        NativeType::I64 => Some(ExactNativeType::I64),
+        NativeType::U64 => Some(ExactNativeType::U64),
+        NativeType::Isize => Some(ExactNativeType::Isize),
+        NativeType::Usize => Some(ExactNativeType::Usize),
+        NativeType::F64 => Some(ExactNativeType::F64),
+        _ => None,
+    }
 }
 
-macro_rules! exact_arguments {
-    ($name:ident, $ty:ty, $native:expr, $convert:expr) => {
-        fn $name(call: &DecodedNativeCall) -> Result<Vec<$ty>, NativeDoorError> {
-            call.arguments
-                .iter()
-                .enumerate()
-                .map(|(index, argument)| match argument {
-                    NativeArgument::Scalar { ty, bits } if *ty == $native => ($convert)(*bits)
-                        .ok_or(NativeDoorError::ScalarNotCanonical {
-                            index,
-                            ty: *ty,
-                            bits: *bits,
-                        }),
-                    _ => Err(NativeDoorError::InvocationSignatureUnsupported {
-                        result: call.spec.result,
-                        parameters: call.spec.parameters.clone(),
-                    }),
-                })
-                .collect()
-        }
+fn exact_argument(
+    index: usize,
+    argument: &NativeArgument,
+    call: &DecodedNativeCall,
+) -> Result<ExactNativeValue, NativeDoorError> {
+    let NativeArgument::Scalar { ty, bits } = argument else {
+        return Err(unsupported_signature(call)());
     };
-}
-
-exact_arguments!(exact_i32_arguments, i32, NativeType::I32, |bits: u64| {
-    let value = bits as i32;
-    (value as i64 as u64 == bits).then_some(value)
-});
-exact_arguments!(exact_u32_arguments, u32, NativeType::U32, |bits: u64| {
-    u32::try_from(bits).ok()
-});
-exact_arguments!(exact_i64_arguments, i64, NativeType::I64, |bits: u64| {
-    Some(bits as i64)
-});
-exact_arguments!(exact_u64_arguments, u64, NativeType::U64, |bits: u64| {
-    Some(bits)
-});
-exact_arguments!(
-    exact_isize_arguments,
-    isize,
-    NativeType::Isize,
-    |bits: u64| {
-        let value = bits as isize;
-        (value as i64 as u64 == bits).then_some(value)
-    }
-);
-exact_arguments!(
-    exact_usize_arguments,
-    usize,
-    NativeType::Usize,
-    |bits: u64| { usize::try_from(bits).ok() }
-);
-exact_arguments!(exact_f64_arguments, f64, NativeType::F64, |bits: u64| {
-    Some(f64::from_bits(bits))
-});
-
-fn symbol_error(call: &DecodedNativeCall, error: libloading::Error) -> NativeDoorError {
-    NativeDoorError::SymbolLoad {
-        symbol: call.spec.symbol.clone(),
-        message: error.to_string(),
-    }
-}
-
-macro_rules! typed_invoker {
-    ($name:ident, ($($arg:ident),*)) => {
-        #[allow(clippy::too_many_arguments)]
-        fn $name<T: Copy>(
-            library: &Library,
-            call: &DecodedNativeCall,
-            $($arg: T),*
-        ) -> Result<T, NativeDoorError> {
-            // SAFETY: the caller selects this exact Rust `extern C` signature
-            // only for the same exact declared scalar type and arity. As with
-            // every dlsym-style API, the declaration is the caller's unsafe
-            // assertion that the exported symbol has that signature.
-            let function = unsafe {
-                library.get::<unsafe extern "C" fn($($arg: T),*) -> T>(call.spec.symbol.as_bytes())
-            }
-            .map_err(|error| symbol_error(call, error))?;
-            // SAFETY: the canonical arguments have the exact `T` selected
-            // above, and the Library remains alive for the call.
-            Ok(unsafe { function($($arg),*) })
-        }
+    let invalid = || NativeDoorError::ScalarNotCanonical {
+        index,
+        ty: *ty,
+        bits: *bits,
     };
-}
-
-typed_invoker!(invoke_0, ());
-typed_invoker!(invoke_1, (a));
-typed_invoker!(invoke_2, (a, b));
-typed_invoker!(invoke_3, (a, b, c));
-typed_invoker!(invoke_4, (a, b, c, d));
-typed_invoker!(invoke_5, (a, b, c, d, e));
-typed_invoker!(invoke_6, (a, b, c, d, e, f));
-
-#[cfg(unix)]
-fn current_process_library() -> Result<Library, libloading::Error> {
-    Ok(libloading::os::unix::Library::this().into())
-}
-
-#[cfg(windows)]
-fn current_process_library() -> Result<Library, libloading::Error> {
-    libloading::os::windows::Library::this().map(Into::into)
-}
-
-fn open_library(name: &str) -> Result<Library, NativeDoorError> {
-    if name.is_empty() {
-        return current_process_library().map_err(|error| NativeDoorError::LibraryLoad {
-            library: "<current-process>".to_owned(),
-            message: error.to_string(),
-        });
-    }
-    // SAFETY: loading a library deliberately executes that library's
-    // initializer/finalizer routines. This unrestricted runtime operation is
-    // synchronous, and the handle remains alive through symbol invocation.
-    unsafe { Library::new(name) }.map_err(|error| NativeDoorError::LibraryLoad {
-        library: name.to_owned(),
-        message: error.to_string(),
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn decoded_call(result: NativeType, parameters: Vec<NativeType>) -> DecodedNativeCall {
-        let spec = NativeSpec {
-            library: String::new(),
-            symbol: "unused".to_owned(),
-            result,
-            parameters,
-        };
-        DecodedNativeCall {
-            signature: classify_signature(&spec),
-            spec,
-            return_slot: GuestSpan { offset: 0, len: 8 },
-            initial_return_bits: 0,
-            arguments: Vec::new(),
+    match ty {
+        NativeType::I32 => {
+            let value = *bits as i32;
+            (value as i64 as u64 == *bits)
+                .then_some(ExactNativeValue::I32(value))
+                .ok_or_else(invalid)
         }
-    }
-
-    #[test]
-    fn executable_admission_contains_exactly_seven_families_at_seven_arities() {
-        let expected_families = [
-            NativeType::I32,
-            NativeType::U32,
-            NativeType::I64,
-            NativeType::U64,
-            NativeType::Isize,
-            NativeType::Usize,
-            NativeType::F64,
-        ];
-        let mut admitted = 0;
-        for ty in expected_families {
-            for arity in 0..=6 {
-                let call = decoded_call(ty, vec![ty; arity]);
-                assert_eq!(exact_family(&call), Some(ty));
-                admitted += 1;
-            }
+        NativeType::U32 => u32::try_from(*bits)
+            .map(ExactNativeValue::U32)
+            .map_err(|_| invalid()),
+        NativeType::I64 => Ok(ExactNativeValue::I64(*bits as i64)),
+        NativeType::U64 => Ok(ExactNativeValue::U64(*bits)),
+        NativeType::Isize => {
+            let value = *bits as isize;
+            (value as i64 as u64 == *bits)
+                .then_some(ExactNativeValue::Isize(value))
+                .ok_or_else(invalid)
         }
-        assert_eq!(admitted, 49);
-        assert_eq!(native_invocation_stub_cardinality(), 49);
+        NativeType::Usize => usize::try_from(*bits)
+            .map(ExactNativeValue::Usize)
+            .map_err(|_| invalid()),
+        NativeType::F64 => Ok(ExactNativeValue::F64(f64::from_bits(*bits))),
+        _ => Err(unsupported_signature(call)()),
     }
+}
 
-    #[test]
-    fn executable_admission_rejects_every_non_exact_shape() {
-        let rejected = [
-            decoded_call(NativeType::I32, vec![NativeType::I32, NativeType::U32]),
-            decoded_call(NativeType::Pointer, vec![]),
-            decoded_call(NativeType::NullablePointer, vec![]),
-            decoded_call(NativeType::I8, vec![]),
-            decoded_call(NativeType::U8, vec![]),
-            decoded_call(NativeType::I16, vec![]),
-            decoded_call(NativeType::U16, vec![]),
-            decoded_call(NativeType::Void, vec![]),
-            decoded_call(NativeType::I32, vec![NativeType::I32; 7]),
-        ];
-        for call in rejected {
-            assert_eq!(exact_family(&call), None, "unexpected admission: {call:?}");
-            let mut memory = [0_u8; 8];
-            assert_eq!(
-                invoke_native_call(&mut memory, &call),
-                Err(NativeDoorError::InvocationSignatureUnsupported {
-                    result: call.spec.result,
-                    parameters: call.spec.parameters.clone(),
-                })
-            );
-            assert_eq!(memory, [0; 8]);
+fn exact_result_bits(value: ExactNativeValue) -> u64 {
+    match value {
+        ExactNativeValue::I32(value) => value as i64 as u64,
+        ExactNativeValue::U32(value) => u64::from(value),
+        ExactNativeValue::I64(value) => value as u64,
+        ExactNativeValue::U64(value) => value,
+        ExactNativeValue::Isize(value) => value as i64 as u64,
+        ExactNativeValue::Usize(value) => value as u64,
+        ExactNativeValue::F64(value) => value.to_bits(),
+    }
+}
+
+fn map_exact_error(call: &DecodedNativeCall, error: ExactNativeError) -> NativeDoorError {
+    match error {
+        ExactNativeError::SignatureUnsupported { .. } => unsupported_signature(call)(),
+        ExactNativeError::LibraryLoad { library, message } => {
+            NativeDoorError::LibraryLoad { library, message }
         }
-
-        assert_eq!(
-            parse_native_spec(b"|unused|f32()"),
-            Err(NativeDoorError::UnsupportedType { name: "f32" })
-        );
+        ExactNativeError::SymbolLoad { symbol, message } => {
+            NativeDoorError::SymbolLoad { symbol, message }
+        }
     }
 }

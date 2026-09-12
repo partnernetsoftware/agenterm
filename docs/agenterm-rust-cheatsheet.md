@@ -3413,6 +3413,13 @@ smoke tests open a 24×80 pty slave and require `TIOCGWINSZ` to return the same
 dimensions. All other names and signatures retain the fixed trampoline: this
 is not general variadic FFI and adds no C or libffi shim.
 
+When two crates share one native-call ABI family, keep exactly one executable
+selector and one library/symbol resolver. The consumer may retain its hostile
+wire decoder, canonical-value conversion, budgets, cancellation, writeback,
+and public error vocabulary, but must delegate the unsafe typed invocation to
+the core owner. A second copied macro table is a second living FFI truth even
+when its current arms are byte-for-byte identical.
+
 ## Six-cell `system_probes` must grow together
 
 `agenterm-dyn` stores headless probe rows as one fixed-length

@@ -3,6 +3,7 @@ use std::ffi::c_void;
 
 mod error;
 mod eval;
+mod exact_native;
 #[cfg(unix)]
 mod exec;
 mod hosts;
@@ -15,6 +16,10 @@ mod value;
 
 pub use error::DynError;
 pub use eval::{MAX_TOTAL_REPEAT_ITERATIONS, REPEAT_MAX};
+pub use exact_native::{
+    ExactNativeCall, ExactNativeError, ExactNativeType, ExactNativeValue, MAX_EXACT_NATIVE_ARITY,
+    exact_native_stub_cardinality, invoke_exact, validate_exact_native_signature,
+};
 #[cfg(unix)]
 pub use exec::{
     BufferState, CodeBuffer, NameEntry, NameTable, aarch64_mov_x0_ret, x86_64_call_thunk,

@@ -397,6 +397,10 @@ integration.
   six-cell claim.
 - `cargo test -p agenterm-qjswasm` owns crate behavior; do not pin a historical
   pass count because the suite grows.
+- Exact homogeneous native calls delegate to `agenterm-dyn::invoke_exact`.
+  This crate still owns guest schema/memory/budget/cancel/writeback semantics
+  and maps dyn's typed signature/library/symbol failures into the existing
+  `NativeDoorError` codes; it no longer contains a second loader or stub table.
 - public Script CLI black boxes own `.qjs` route, diagnostics, receipts and
   product-host calls.
 - v0.1.18 G4 owns the release-critical task/journey migration. Quick-only green

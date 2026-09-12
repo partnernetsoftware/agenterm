@@ -489,6 +489,14 @@ tinyvm 的宿主回调签名是 `Fn(&[Val], &mut [u8]) -> Result<Vec<Val>, WasmE
 
 ## 与相邻 crate 的关系
 
+The `agenterm.native_call` guest schema remains owned here, including hostile
+span decoding, canonical scalar bits, budgets, cancellation, and guest-memory
+writeback. Its exact homogeneous native execution delegates to
+`agenterm-dyn::invoke_exact`, which is the sole owner of library/symbol
+resolution and the seven-family, arity-zero-through-six Rust `extern "C"`
+selector. This dependency adds no JIT, C shim, libffi, CU verb, or platform
+policy.
+
 | 面 | crate | 引擎 | 信任模型 |
 |----|-------|------|----------|
 | `.qjs` / `.wasm`（本 crate） | `agenterm-qjswasm` + `tinyvm-qjs` | tinyvm，**无 JIT**，自研编译器 | 不信任字节 |

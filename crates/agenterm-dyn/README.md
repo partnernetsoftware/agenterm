@@ -6,6 +6,12 @@ S-expression list language (`do` / `set` / `if` / comparisons / `not` / `and` /
 `dlcall` resolves symbols with `libloading` and uses bounded Rust `extern "C"`
 dispatch for integer and pointer signatures.
 
+The crate also owns the typed exact-homogeneous native core consumed by
+`agenterm-qjswasm`: library and symbol resolution plus the seven exact scalar
+families at arities zero through six. Qjswasm retains its guest wire schema,
+memory validation, budgets, cancellation, result writeback, and public error
+mapping; there is only one executable exact-stub selector.
+
 ## What this is
 
 - A geek/hack module for calling arbitrary native symbols from a minimal
@@ -21,8 +27,8 @@ dispatch for integer and pointer signatures.
 - **Not** libagenterm (`agenterm-abi`). `agenterm-dyn` walks **in parallel**
   with the C ABI shell; it does not export `agt_*` symbols and is not wired
   into the root `agenterm` binary yet.
-- **Not** integrated with `agenterm-cu` / `agenterm-con` in this crate's
-  initial landing.
+- **Not** integrated with `agenterm-cu` / `agenterm-con`; the first consumer is
+  `agenterm-qjswasm` and only of the typed exact-native core.
 - **Not** integrated with `agenterm-platform` — that wiring is explicitly
   deferred to a later milestone.
 
@@ -117,6 +123,7 @@ multiplicative nested-loop work and body-side effects on the rejected form.
 | `Dyn::eval` | Safely evaluate pure S-expr source; rejects any AST containing `dlcall` before execution |
 | `Dyn::eval_native` | Unsafe native-capable evaluation; caller upholds ABI, pointer, aliasing, lifetime, library, thread, and side-effect contracts |
 | `dlcall` | Only native primitive — invoked from lists, not a verb table |
+| `invoke_exact` | Unsafe typed core for exact homogeneous scalar signatures; owns loading, symbol resolution, and fixed invocation |
 | `REPEAT_MAX` / `MAX_TOTAL_REPEAT_ITERATIONS` | Per-form and per-top-level repeat-work bounds |
 | `hosts::*` | Six-cell host table + CU-adjacent catalog (`PLATFORM-CANDIDATE`) |
 | `InterfaceAddresses::acquire` | Own a Unix `getifaddrs` list and copy pointer-free interface snapshots; typed unsupported on Windows |
