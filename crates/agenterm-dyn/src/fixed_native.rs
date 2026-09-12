@@ -44,6 +44,8 @@ pub enum FixedNativePrototype {
     I64I32I64I32,
     /// C `uint64_t function(int)`, used by `clock_gettime_nsec_np` on Darwin.
     U64I32,
+    /// C `int function(uint64_t, uint64_t)`, used by `pthread_equal` on Darwin.
+    I32U64U64,
 }
 
 impl FixedNativePrototype {
@@ -52,6 +54,7 @@ impl FixedNativePrototype {
             Self::IsizeI32 => FixedNativeType::Isize,
             Self::I64I32I64I32 => FixedNativeType::I64,
             Self::U64I32 => FixedNativeType::U64,
+            Self::I32U64U64 => FixedNativeType::I32,
         }
     }
 
@@ -64,6 +67,7 @@ impl FixedNativePrototype {
                 FixedNativeType::I32,
             ],
             Self::U64I32 => &[FixedNativeType::I32],
+            Self::I32U64U64 => &[FixedNativeType::U64, FixedNativeType::U64],
         }
     }
 }
@@ -166,8 +170,26 @@ pub unsafe fn invoke_fixed(
         (FixedNativePrototype::U64I32, [FixedNativeValue::I32(a)]) => {
             invoke_u64_i32(&library, call.symbol, *a).map(FixedNativeValue::U64)
         }
+        (FixedNativePrototype::I32U64U64, [FixedNativeValue::U64(a), FixedNativeValue::U64(b)]) => {
+            invoke_i32_u64_u64(&library, call.symbol, *a, *b).map(FixedNativeValue::I32)
+        }
         _ => unreachable!("fixed signature validation admitted the prototype"),
     }
+}
+
+fn invoke_i32_u64_u64(
+    library: &Library,
+    symbol: &str,
+    a: u64,
+    b: u64,
+) -> Result<i32, FixedNativeError> {
+    // SAFETY: invoke_fixed admitted this exact prototype; the remaining symbol
+    // signature assertion belongs to its unsafe caller.
+    let function =
+        unsafe { library.get::<unsafe extern "C" fn(u64, u64) -> i32>(symbol.as_bytes()) }
+            .map_err(|error| symbol_error(symbol, error))?;
+    // SAFETY: the arguments have the admitted types and the library stays live.
+    Ok(unsafe { function(a, b) })
 }
 
 fn invoke_u64_i32(library: &Library, symbol: &str, a: i32) -> Result<u64, FixedNativeError> {

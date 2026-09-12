@@ -50,6 +50,43 @@ fn u64_i32_rejects_the_wrong_argument_before_library_loading() {
     ));
 }
 
+#[test]
+fn i32_u64_u64_rejects_the_wrong_argument_before_library_loading() {
+    let arguments = [FixedNativeValue::U64(1), FixedNativeValue::I64(1)];
+    let call = FixedNativeCall {
+        library: "agenterm-native-library-that-does-not-exist",
+        symbol: "unused",
+        prototype: FixedNativePrototype::I32U64U64,
+        arguments: &arguments,
+    };
+    // SAFETY: signature rejection occurs before loading or calling.
+    assert!(matches!(
+        unsafe { invoke_fixed(&call) },
+        Err(FixedNativeError::SignatureUnsupported { .. })
+    ));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn pthread_equal_recognizes_the_current_thread() {
+    let first = unsafe { libc::pthread_self() } as u64;
+    let second = unsafe { libc::pthread_self() } as u64;
+    let arguments = [FixedNativeValue::U64(first), FixedNativeValue::U64(second)];
+    let call = FixedNativeCall {
+        library: "",
+        symbol: "pthread_equal",
+        prototype: FixedNativePrototype::I32U64U64,
+        arguments: &arguments,
+    };
+    // SAFETY: these values came from pthread_self and Darwin's pthread_t is the
+    // u64 ABI asserted by this enumerated prototype.
+    let actual = unsafe { invoke_fixed(&call) }.expect("pthread_equal should resolve");
+    assert!(matches!(actual, FixedNativeValue::I32(value) if value != 0));
+    let direct =
+        unsafe { libc::pthread_equal(first as libc::pthread_t, second as libc::pthread_t) };
+    assert_ne!(direct, 0, "direct C call must recognize the current thread");
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn clock_gettime_nsec_np_matches_the_darwin_oracle() {

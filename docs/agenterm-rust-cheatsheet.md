@@ -3440,6 +3440,13 @@ and public error vocabulary, but must delegate the unsafe typed invocation to
 the core owner. A second copied macro table is a second living FFI truth even
 when its current arms are byte-for-byte identical.
 
+The qjswasm native fixture directories encode how tests invoke `main`.
+`tests/fixtures/native/additions/` is the table-driven zero-argument court: its
+loader calls every fixture as `main()`. A fixture whose `main` accepts guest
+arguments belongs directly under `tests/fixtures/native/` and needs a dedicated
+test that supplies those arguments. Putting a parameterized fixture in
+`additions/` creates an invalid test call rather than broader ABI coverage.
+
 ## Six-cell `system_probes` must grow together
 
 `agenterm-dyn` stores headless probe rows as one fixed-length

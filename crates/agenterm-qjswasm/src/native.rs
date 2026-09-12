@@ -956,6 +956,9 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
             Some(FixedNativePrototype::I64I32I64I32)
         }
         (NativeType::U64, [NativeType::I32]) => Some(FixedNativePrototype::U64I32),
+        (NativeType::I32, [NativeType::U64, NativeType::U64]) => {
+            Some(FixedNativePrototype::I32U64U64)
+        }
         _ => None,
     };
     if let Some(fixed) = fixed {

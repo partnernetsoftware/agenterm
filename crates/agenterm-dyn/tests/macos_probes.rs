@@ -225,25 +225,6 @@ fn dlcall_sysctlnametomib_writes_caller_owned_mib() {
 }
 
 #[test]
-fn dlcall_pthread_equal_recognizes_current_thread() {
-    let symbol = live_symbol("pthread_equal");
-    let first = unsafe { libc::pthread_self() } as u64;
-    let second = unsafe { libc::pthread_self() } as u64;
-    let mut env = Dyn::new();
-    let got = eval_native(
-        &mut env,
-        &format!(r#"(dlcall "{LIB}" "{symbol}" "i32" "u64" {first} "u64" {second})"#),
-    )
-    .expect("pthread_equal dlcall")
-    .as_int()
-    .expect("pthread_equal integer result");
-    assert_ne!(got, 0, "dlcall must recognize the current thread");
-    let direct =
-        unsafe { libc::pthread_equal(first as libc::pthread_t, second as libc::pthread_t) };
-    assert_ne!(direct, 0, "direct C call must recognize the current thread");
-}
-
-#[test]
 fn dlcall_getlogin_r_matches_direct_c_buffer() {
     unsafe extern "C" {
         fn getlogin_r(name: *mut libc::c_char, name_len: usize) -> libc::c_int;

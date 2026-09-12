@@ -664,6 +664,24 @@ fn clock_gettime_nsec_np_keeps_the_retired_monotonic_oracle() {
 
 #[cfg(target_os = "macos")]
 #[test]
+fn pthread_equal_keeps_the_retired_current_thread_oracle() {
+    let first = unsafe { libc::pthread_self() } as u64;
+    let second = unsafe { libc::pthread_self() } as u64;
+    let arguments = [Value::I64(first as i64), Value::I64(second as i64)];
+    let actual = run_wat_with_args(
+        include_str!("fixtures/native/pthread_equal.wat"),
+        Budget::default(),
+        &arguments,
+    )
+    .expect("pthread_equal runs through i32(u64,u64)");
+    assert_ne!(actual, 0, "guest call must recognize the current thread");
+    let direct =
+        unsafe { libc::pthread_equal(first as libc::pthread_t, second as libc::pthread_t) };
+    assert_ne!(direct, 0, "direct C call must recognize the current thread");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn five_more_retired_scalar_probes_keep_current_thread_identity() {
     unsafe extern "C" {
         fn pthread_is_threaded_np() -> i32;
@@ -1002,6 +1020,10 @@ fn wat_native_calls_validate_arguments_and_the_complete_signature_before_loading
         ),
         (
             wat_for_scalar_args(&format!("{missing_library}|unused|u64(i64)"), &[0]),
+            "native_invocation_signature_unsupported",
+        ),
+        (
+            wat_for_scalar_args(&format!("{missing_library}|unused|i32(u64,i64)"), &[0, 0]),
             "native_invocation_signature_unsupported",
         ),
     ];
