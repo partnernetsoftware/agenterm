@@ -508,6 +508,9 @@ court has claim-preserving `.wat` or typed-owner evidence.
   `dup(0)`/`close(fd)` 由同一 WAT guest 串接：第一次 native 返回的描述符直接写入
   第二次调用记录，失败或关闭非零即 trap；宿主另跑 direct `dup/close` oracle。
   Linux/macOS 两份 Lisp 资源清理 court 已删除。
+  `lseek(0,0,SEEK_CUR)` 复用已有 `i64(i32,i64,i32)` fixed trampoline，WAT
+  guest 与 direct libc 精确比较（包括合法的 `-1` 非 seekable 结果）；两份 Lisp
+  courts 已删除。
 
 - [`plan/design-qjswasm-native-door-experiment.md`](../plan/design-qjswasm-native-door-experiment.md)
   owns the qualification ledger and remaining release/runtime evidence. Its bounded

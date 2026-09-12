@@ -543,6 +543,18 @@ fn a_guest_can_feed_one_native_result_into_the_next_call() {
 
 #[cfg(unix)]
 #[test]
+fn lseek_stdin_position_matches_direct_libc() {
+    let source = wat_for_scalar_args(
+        "|lseek|i64(i32,i64,i32)",
+        &[0, 0, libc::SEEK_CUR as i64 as u64],
+    );
+    let actual = run_wat(&source, Budget::default()).expect("lseek guest runs");
+    let direct = unsafe { libc::lseek(0, 0, libc::SEEK_CUR) };
+    assert_eq!(actual, direct);
+}
+
+#[cfg(unix)]
+#[test]
 fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
     let output = std::process::Command::new("uname")
         .arg("-s")

@@ -391,25 +391,6 @@ mod linux {
     }
 
     #[test]
-    fn dlcall_lseek_stdin_cur_matches_libc() {
-        let probe = live_system_probe("lseek_stdin_cur");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let got = eval_native(
-            &mut env,
-            &format!(
-                r#"(dlcall "{lib}" "{symbol}" "i64" "i32" 0 "i64" 0 "i32" {})"#,
-                libc::SEEK_CUR
-            ),
-        )
-        .expect("lseek(0, 0, SEEK_CUR) dlcall");
-        let real = unsafe { libc::lseek(0, 0, libc::SEEK_CUR) };
-        assert_eq!(got, Value::Int(real));
-    }
-
-    #[test]
     fn dlcall_alarm_zero_returns_integer_and_leaves_none_pending() {
         run_isolated_test("linux::dlcall_alarm_zero_child");
     }
@@ -887,31 +868,6 @@ mod macos {
             .expect("getcwd result should be NUL terminated");
         let expected = std::env::current_dir().expect("read current directory");
         assert_eq!(&buffer[..end], expected.as_os_str().as_bytes());
-    }
-
-    #[test]
-    fn dlcall_lseek_matches_libc() {
-        let mut env = Dyn::new();
-        let lseek = live_system_probe("lseek_stdin_cur");
-        let SystemProbeStatus::LiveDlcall {
-            lib,
-            symbol: lseek_sym,
-        } = lseek.status
-        else {
-            unreachable!()
-        };
-        let got_off = eval_native(
-            &mut env,
-            &format!(
-                r#"(dlcall "{lib}" "{lseek_sym}" "i64" "i32" 0 "i64" 0 "i32" {})"#,
-                libc::SEEK_CUR
-            ),
-        )
-        .expect("lseek");
-        assert_eq!(
-            got_off,
-            Value::Int(unsafe { libc::lseek(0, 0, libc::SEEK_CUR) })
-        );
     }
 
     #[test]
