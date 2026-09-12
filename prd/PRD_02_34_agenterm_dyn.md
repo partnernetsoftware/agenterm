@@ -60,7 +60,8 @@ agenterm-dyn
 │       ├── MachTimebaseSnapshot     numer/denom
 │       ├── CpuCountSnapshot         hw.ncpu
 │       ├── DlAddressSnapshot        copied image/symbol bytes
-│       └── DomainNameSnapshot       bounded native bytes
+│       ├── DomainNameSnapshot       bounded native bytes
+│       └── LoginNameSnapshot        bounded native bytes or typed OS failure
 │
 ├── C. OS×ISA facts                                 [保留]
 │   ├── hosts.rs: win/lnx/osx × x86_64/aarch64
