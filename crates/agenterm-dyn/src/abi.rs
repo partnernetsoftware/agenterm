@@ -216,6 +216,8 @@ enum DirectScalarPrototype {
     I32I32I32U64PointerI32,
     I32PointerU32PointerPointerPointerUsize,
     UsizeI32PointerUsize,
+    I32U32U32,
+    I32I32U32,
 }
 
 /// Pointer-returning monomorphic shapes implemented directly by the unified
@@ -422,6 +424,12 @@ fn classify(signature: AbiSignature<'_>, arguments: &[AbiValue]) -> Result<Famil
         return Ok(Family::DirectScalar(
             DirectScalarPrototype::UsizeI32PointerUsize,
         ));
+    }
+    if signature.result == AbiType::I32 && signature.params == [AbiType::U32, AbiType::U32] {
+        return Ok(Family::DirectScalar(DirectScalarPrototype::I32U32U32));
+    }
+    if signature.result == AbiType::I32 && signature.params == [AbiType::I32, AbiType::U32] {
+        return Ok(Family::DirectScalar(DirectScalarPrototype::I32I32U32));
     }
     Err(AbiError::SignatureUnsupported {
         result: signature.result,
@@ -878,6 +886,40 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
             Ok(AbiValue::Usize(unsafe {
                 function(*name, *buffer, *length)
             }))
+        }
+        Family::DirectScalar(DirectScalarPrototype::I32U32U32) => {
+            let [AbiValue::U32(which), AbiValue::U32(who)] = call.arguments else {
+                unreachable!("classification checked i32(u32,u32) arguments")
+            };
+            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
+                library: display_library(call.library),
+                message: error.to_string(),
+            })?;
+            // SAFETY: classification admitted `i32(u32,u32)`; the caller
+            // asserts that the resolved symbol really has this C ABI.
+            let function = unsafe {
+                library.get::<unsafe extern "C" fn(u32, u32) -> i32>(call.symbol.as_bytes())
+            }
+            .map_err(|error| pointer_result_symbol_error(call, error))?;
+            // SAFETY: the caller owns the symbol contract and library lifetime.
+            Ok(AbiValue::I32(unsafe { function(*which, *who) }))
+        }
+        Family::DirectScalar(DirectScalarPrototype::I32I32U32) => {
+            let [AbiValue::I32(which), AbiValue::U32(who)] = call.arguments else {
+                unreachable!("classification checked i32(i32,u32) arguments")
+            };
+            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
+                library: display_library(call.library),
+                message: error.to_string(),
+            })?;
+            // SAFETY: classification admitted `i32(i32,u32)`; the caller
+            // asserts that the resolved symbol really has this C ABI.
+            let function = unsafe {
+                library.get::<unsafe extern "C" fn(i32, u32) -> i32>(call.symbol.as_bytes())
+            }
+            .map_err(|error| pointer_result_symbol_error(call, error))?;
+            // SAFETY: the caller owns the symbol contract and library lifetime.
+            Ok(AbiValue::I32(unsafe { function(*which, *who) }))
         }
     }
 }

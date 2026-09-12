@@ -979,6 +979,8 @@ enum FixedPrototype {
     U64I32,
     IsizeI32,
     I64I32I64I32,
+    I32U32U32,
+    I32I32U32,
 }
 
 /// Pointer-bearing shapes exposed by the qjswasm native catalog.
@@ -1040,6 +1042,8 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
         }
         (NativeType::U64, [NativeType::I32]) => Some(FixedPrototype::U64I32),
         (NativeType::I32, [NativeType::U64, NativeType::U64]) => Some(FixedPrototype::I32U64U64),
+        (NativeType::I32, [NativeType::U32, NativeType::U32]) => Some(FixedPrototype::I32U32U32),
+        (NativeType::I32, [NativeType::I32, NativeType::U32]) => Some(FixedPrototype::I32I32U32),
         _ => None,
     };
     if let Some(fixed) = fixed {
@@ -1324,6 +1328,9 @@ fn fixed_argument(
                 .then_some(AbiValue::I32(value))
                 .ok_or_else(invalid)
         }
+        NativeType::U32 => u32::try_from(*bits)
+            .map(AbiValue::U32)
+            .map_err(|_| invalid()),
         NativeType::I64 => Ok(AbiValue::I64(*bits as i64)),
         NativeType::U64 => Ok(AbiValue::U64(*bits)),
         NativeType::Isize => {

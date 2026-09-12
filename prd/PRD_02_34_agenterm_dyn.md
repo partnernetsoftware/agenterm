@@ -436,6 +436,10 @@ the returned address back to a guest offset only when it lies inside a declared
 guest span (null maps to zero); an external host address is a typed refusal. The
 WAT court requires buffer identity and NUL termination, then compares the exact
 current-directory bytes, replacing the Linux/macOS Lisp courts.
+`getpriority(PRIO_PROCESS, 0)` now uses each host's truthful C ABI:
+`i32(u32,u32)` on Linux and `i32(i32,u32)` on Darwin. Two monomorphic dyn
+trampolines and one parameterized WAT court with a direct libc oracle replace
+the two legacy Lisp courts instead of preserving their Darwin type lie.
 Unix `ioctl` (Linux and macOS) is owned by dyn's `invoke_unix_ioctl` only for the
 validated `(i32, u64|i32, ptr) -> i32` signature. The legacy Lisp entrance and
 the qjswasm native door both delegate there; the fixed trampoline remains for

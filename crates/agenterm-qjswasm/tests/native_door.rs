@@ -496,6 +496,17 @@ fn scheduling_scalar_calls_match_direct_libc() {
     let direct = unsafe { libc::sched_yield() };
     assert_eq!(direct, 0, "direct sched_yield must succeed");
     assert_eq!(yielded, i64::from(direct));
+
+    #[cfg(target_os = "linux")]
+    let priority_spec = "|getpriority|i32(u32,u32)";
+    #[cfg(target_os = "macos")]
+    let priority_spec = "|getpriority|i32(i32,u32)";
+    let priority_source =
+        wat_for_scalar_args(priority_spec, &[libc::PRIO_PROCESS as i64 as u64, 0]);
+    let priority = run_wat(&priority_source, Budget::default())
+        .expect("getpriority(PRIO_PROCESS, 0) guest runs");
+    let direct_priority = unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) };
+    assert_eq!(priority, i64::from(direct_priority));
 }
 
 #[cfg(unix)]

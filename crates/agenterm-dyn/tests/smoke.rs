@@ -125,25 +125,6 @@ mod linux {
     }
 
     #[test]
-    fn dlcall_getpriority_process_matches_libc() {
-        let probe = live_system_probe("getpriority_process");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = probe.status else {
-            unreachable!("live_system_probe validates status")
-        };
-        let mut env = Dyn::new();
-        let got = eval_native(
-            &mut env,
-            &format!(
-                r#"(dlcall "{lib}" "{symbol}" "i32" "u32" {} "u32" 0)"#,
-                libc::PRIO_PROCESS
-            ),
-        )
-        .expect("getpriority(PRIO_PROCESS, 0) dlcall");
-        let real = unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) };
-        assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
     fn dlcall_ioctl_winsize() {
         let c = cell();
         let SizeProbe::IoctlTiocgwinsz {
@@ -288,7 +269,7 @@ mod linux {
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
-    use agenterm_dyn::{HostCell, SizeProbe, SystemProbe, SystemProbeStatus};
+    use agenterm_dyn::{HostCell, SizeProbe};
 
     #[repr(C)]
     struct Winsize {
@@ -327,19 +308,6 @@ mod macos {
         live_cell().expect("macos cell")
     }
 
-    fn live_system_probe(name: &str) -> SystemProbe {
-        let probe = cell()
-            .system_probes
-            .into_iter()
-            .find(|probe| probe.name == name)
-            .unwrap_or_else(|| panic!("missing {name} system probe"));
-        assert!(matches!(
-            probe.status,
-            SystemProbeStatus::LiveDlcall { .. } | SystemProbeStatus::LiveDlcallOwned { .. }
-        ));
-        probe
-    }
-
     fn getpid_script() -> String {
         let c = cell();
         format!(
@@ -371,29 +339,6 @@ mod macos {
         let got = eval_native(&mut env, &getpid_script()).expect("getpid after missing symbol");
         let real = unsafe { libc::getpid() };
         assert_eq!(got, Value::Int(i64::from(real)));
-    }
-
-    #[test]
-    fn dlcall_priority_matches_libc() {
-        let mut env = Dyn::new();
-        let prio = live_system_probe("getpriority_process");
-        let SystemProbeStatus::LiveDlcall { lib, symbol } = prio.status else {
-            unreachable!()
-        };
-        let got = eval_native(
-            &mut env,
-            &format!(
-                r#"(dlcall "{lib}" "{symbol}" "i32" "u32" {} "u32" 0)"#,
-                libc::PRIO_PROCESS
-            ),
-        )
-        .expect("getpriority");
-        assert_eq!(
-            got,
-            Value::Int(i64::from(unsafe {
-                libc::getpriority(libc::PRIO_PROCESS, 0)
-            }))
-        );
     }
 
     #[test]
