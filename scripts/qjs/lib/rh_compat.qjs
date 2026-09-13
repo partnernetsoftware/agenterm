@@ -375,21 +375,16 @@ export function int_of(value) {
   return 0;
 }
 
-// The door has no `process.list` and a spawn handle is a slot index, not
-// a PID, so "is this pid alive" and "who is its parent" are asked of the
-// host directly: `kill -0` / `ps -o ppid=` on Unix, `tasklist` /
-// `Get-CimInstance` on Windows.
+// A spawn handle is a slot index, not a PID. Liveness uses the bounded
+// platform observation door; parent identity still needs the host's native
+// process query because the observation record deliberately has no parent.
 function ipc_host_is_windows() {
   return env_or("OS", "") === "Windows_NT";
 }
 
 export function process_alive(pid) {
-  const pid_text = "" + pid;
-  if (ipc_host_is_windows()) {
-    const out = command("tasklist", ["/FI", "PID eq " + pid_text, "/NH", "/FO", "CSV"], { timeout_ms: 5000 });
-    return out.success && out.stdout.includes("\"" + pid_text + "\"");
-  }
-  return command_status("kill", ["-0", pid_text], { timeout_ms: 2000 }) === 0;
+  if (process_observe(pid) !== 0) { throw "process_observe:" + tool_result(); }
+  return JSON.parse(tool_result()).state === "live";
 }
 
 export function process_parent_pid(pid) {

@@ -251,8 +251,7 @@ function tab_index_by_id(snapshot, id) {
   throw "fleet_tab_id_missing:" + id;
 }
 
-// rh's `std::process::list()` has no door op; the host is asked directly
-// (`kill -0` / `tasklist`), see rh_compat.process_alive.
+// The compatibility helper uses the bounded platform process observation.
 function process_present(pid) {
   return rh.process_alive(pid) ? 1 : 0;
 }

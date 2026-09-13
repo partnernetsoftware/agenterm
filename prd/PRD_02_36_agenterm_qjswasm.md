@@ -75,6 +75,10 @@ agenterm-qjswasm
 │  │  └─ the shared command journal publishes through `fs.append` on every host;
 │  │     native-ipc-smoke no longer launches one `sh -c cat` child per record or
 │  │     maintains a second copy of the JSONL record projection
+│  │  └─ `process.observe(pid)` projects the platform crate's bounded single-PID
+│  │     `live | dead | unknown` record instead of transporting a full process
+│  │     inventory; `rh_compat.process_alive` removes tasklist/kill subprocesses
+│  │     across eleven checks in six gates while preserving its boolean surface
 │  ├─ [x] declaration-driven Native Importer composition
 │  │  ├─ user problem: scripts need an extensible native surface without copying a loader or ABI executor
 │  │  ├─ invariant: spec/schema/catalog/nullability and exact-family cardinality are local qjswasm policy
@@ -334,6 +338,7 @@ flowchart LR
   EXPLICIT["explicit call sites only<br/>bare host value → typed compile refusal"]
   CAPTURE["bounded child capture<br/>per-stream loss flags · JSON-fit"]
   SELECT["host-side JSON field selection<br/>producer Value → bounded projection<br/>protocol-info first consumer · door unchanged"]
+  OBSERVE["bounded single-PID observation<br/>live · dead · unknown<br/>no inventory transport"]
   HANDLES["per-slot child ledger<br/>32 retained · pre-spawn refusal"]
   LOCKS["per-slot lock ledger<br/>32 lifetime handles · stable tombstones<br/>pre-open refusal"]
   PATHS["shared path helper<br/>`.` / `./` lexical normalization"]
@@ -397,6 +402,7 @@ flowchart LR
   COMPAT -. legacy syntax projected to typed calls .-> ACUCLI
   PRODUCT -. child process .-> HANDLES --> CAPTURE --> RECEIPT
   PRODUCT -. producer-owned JSON value .-> SELECT --> DOOR
+  PRODUCT -. arbitrary PID liveness .-> OBSERVE --> DOOR
   PRODUCT -. advisory lock .-> LOCKS --> RECEIPT
   PRODUCT -. process.command .-> QPTY --> RECEIPT
   PRODUCT -. native path identity .-> PATHS --> RECEIPT

@@ -920,6 +920,12 @@ then one `deps/` listing exceeded the bridge result cap. Native aggregation
 measured 204,283 files / 44,738,264,418 logical bytes in 1.88 seconds without
 raising Script compute or host-operation budgets.
 
+When a Script consumer asks about one native identity, prefer one bounded
+exact-key platform query over transporting a complete inventory for guest-side
+filtering. Price the bridge bytes and guest parse steps as well as the host
+lookup: an O(n) inventory can dominate even when it counts as one host
+operation.
+
 GUI tests inherit `AGENTERM_NO_ACTIVATE=1`. Use public `wait-*` commands instead
 of fixed sleeps. A test that launches a GUI must own endpoint/workspace
 isolation and process cleanup.

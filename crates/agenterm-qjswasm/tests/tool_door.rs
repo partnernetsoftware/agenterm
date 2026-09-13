@@ -822,6 +822,44 @@ fn process_list_and_tree_contain_the_tool_host_identity() {
 }
 
 #[test]
+fn process_observe_distinguishes_one_live_pid_from_one_missing_pid() {
+    let out = run_tool(
+        r#"
+        if (process_observe(process_id()) !== 0) { throw tool_result(); }
+        const live = JSON.parse(tool_result());
+        if (process_observe(2147483647) !== 0) { throw tool_result(); }
+        const dead = JSON.parse(tool_result());
+        return live.state + ":" + (live.start_identity !== null)
+          + "|" + dead.state + ":" + (dead.reason !== "");
+        "#,
+    );
+    assert_eq!(string_of(&out), "live:true|dead:true", "{out:?}");
+    assert_eq!(
+        out.tool_calls
+            .iter()
+            .filter(|call| call.as_str() == "tool.process.observe")
+            .count(),
+        2,
+        "{:?}",
+        out.tool_calls
+    );
+}
+
+#[test]
+fn process_observe_refuses_a_negative_id_before_touching_the_host() {
+    let out = run_tool(
+        r#"
+        const status = process_observe(-1);
+        return status + ":" + tool_result();
+        "#,
+    );
+    assert!(
+        string_of(&out).contains("process.observe: pid is negative"),
+        "{out:?}"
+    );
+}
+
+#[test]
 fn process_kill_pid_refuses_a_negative_id_before_touching_the_host() {
     let out = run_tool(
         r#"

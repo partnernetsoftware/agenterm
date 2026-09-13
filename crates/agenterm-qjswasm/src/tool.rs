@@ -117,7 +117,7 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 53] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 54] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
@@ -153,6 +153,7 @@ pub(crate) const SIGNATURES: [(&str, usize, usize); 53] = [
     ("process.release", 1, 1),
     ("process.wait", 2, 1),
     ("process.pid", 1, 1),
+    ("process.observe", 1, 1),
     ("process.list", 0, 1),
     ("process.tree", 1, 1),
     ("process.kill_pid", 1, 1),
@@ -314,6 +315,7 @@ pub(crate) fn declarations() -> Vec<HostFn> {
             HostResult::I32,
         ),
         decl("process.pid", vec![HostParam::I32], HostResult::I32),
+        decl("process.observe", vec![HostParam::I32], HostResult::I32),
         decl("process.list", Vec::new(), HostResult::I32),
         decl("process.tree", vec![HostParam::I32], HostResult::I32),
         decl("process.kill_pid", vec![HostParam::I32], HostResult::I32),
@@ -1474,6 +1476,28 @@ pub(crate) fn install(
         })
     })?;
 
+    // Observe one arbitrary PID without transporting or parsing the complete
+    // machine inventory. Absence and incomplete evidence are successful,
+    // distinct states; only malformed input is a door error.
+    let state = Rc::clone(&shared);
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "process.observe",
+        move |args, _memory| {
+            let raw_pid = arg(args, 0)?;
+            answer(&state, "process.observe", || {
+                let pid = u32::try_from(raw_pid)
+                    .map_err(|_| "process.observe: pid is negative".to_owned())?;
+                Ok(
+                    process_observation_json(agenterm_platform::process_observation::observe(pid))
+                        .to_string(),
+                )
+            })
+        },
+    )?;
+
     // A bounded native process inventory lets qualification observe the
     // descendants of the exact gate child it owns. The platform crate owns
     // enumeration and its target-specific caps; the door only projects the
@@ -2329,6 +2353,31 @@ fn child_pid(s: &ToolState, h: i32, op: &str) -> Result<u32, String> {
     }
 }
 
+fn process_observation_json(
+    observation: agenterm_platform::process_observation::ProcessObservation,
+) -> serde_json::Value {
+    use agenterm_platform::process_observation::ProcessObservation;
+
+    match observation {
+        ProcessObservation::Live { start_identity } => serde_json::json!({
+            "state": "live",
+            "start_identity": start_identity,
+        }),
+        ProcessObservation::Dead { reason } => serde_json::json!({
+            "state": "dead",
+            "reason": reason,
+        }),
+        ProcessObservation::Unknown { reason } => serde_json::json!({
+            "state": "unknown",
+            "reason": reason,
+        }),
+        _ => serde_json::json!({
+            "state": "unknown",
+            "reason": "process observation state is newer than this tool door",
+        }),
+    }
+}
+
 fn window_error(
     op: &str,
     e: agenterm_platform::contract::process_window::ProcessWindowError,
@@ -2706,6 +2755,24 @@ fn truncate_json_string(text: &mut String, encoded_bytes_to_remove: usize, encod
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn process_observation_keeps_incomplete_evidence_distinct_from_death() {
+        use agenterm_platform::process_observation::ProcessObservation;
+
+        let unknown = process_observation_json(ProcessObservation::Unknown {
+            reason: "process_access_denied".to_owned(),
+        });
+        assert_eq!(unknown["state"], "unknown");
+        assert_eq!(unknown["reason"], "process_access_denied");
+
+        let dead = process_observation_json(ProcessObservation::Dead {
+            reason: "process_not_found".to_owned(),
+        });
+        assert_eq!(dead["state"], "dead");
+        assert_eq!(dead["reason"], "process_not_found");
+        assert_ne!(unknown["state"], dead["state"]);
+    }
 
     /// The allocator seam: ids are signed i32 and never reused, and exhaustion is
     /// refused before any child would start. Driving the counter near the top keeps
