@@ -35,6 +35,19 @@ QuickJS C library, rquickjs, wasmtime, JIT or executable-memory path is linked.
 This crate owns AgenTerm business integration; generic language and VM work is
 made in the tinyvm repository and consumed by one exact git revision.
 
+At the host boundary this crate is AgenTerm's **native import compiler/adapter**.
+It lowers a guest declaration into a native target, ABI values, call-scoped
+storage and a transport-specific result plan, then invokes agenterm-dyn's
+policy-free **ABI Importer mechanism**. The wider product concept is the
+**Native Importer**: ABI calls are its mature first family, dedicated `ioctl` is
+already a sibling path, and future evidence may admit syscall, direct host entry or other
+native mechanism families without pretending they are dynamic-library calls.
+Dyn connects a lowered native operation to the host; qjswasm owns the
+declaration and lowering; tinyvm only executes the resulting Wasm and host
+bridge; CU consumes selected capabilities through its fixed-sibling provider
+and typed projection. This is not JavaScript module import, a general libffi,
+an authorization system, or a direct `agenterm-cu -> agenterm-dyn` dependency.
+
 ## Markdown-tree DAG
 
 ```text
@@ -49,11 +62,16 @@ agenterm-qjswasm
 │  ├─ [x] Fleet facade and public CLI route
 │  ├─ [x] qualify / pack / run / bounded check-many, including recursive imports
 │  ├─ [x] qjswasm → process.command → ACU headless PTY public journey
-│  ├─ [x] native ABI composition
+│  ├─ [x] declaration-driven Native Importer composition
 │  │  ├─ user problem: scripts need an extensible native surface without copying a loader or ABI executor
 │  │  ├─ invariant: spec/schema/catalog/nullability and exact-family cardinality are local qjswasm policy
 │  │  ├─ mechanism: every non-ioctl call lowers to caller-provided AbiSignature/AbiValue and one dyn invoke_abi
 │  │  │     (or its reuse entry with the handle this engine already loaded)
+│  │  ├─ layered identity
+│  │  │  ├─ qjswasm = import declaration + lowering + storage/result ownership
+│  │  │  ├─ agenterm-dyn = ABI Importer mechanism; no exposure or caller policy
+│  │  │  ├─ tinyvm = no-JIT Wasm executor; no dyn, symbol or CU knowledge
+│  │  │  └─ CU = typed product projection through the fixed-sibling provider; no direct dyn dependency
 │  │  ├─ [x] one engine keeps at most 32 loaded libraries, keyed by the declared string, never evicted
 │  │  │  ├─ user problem: a script that calls one library in a loop paid one load and one close per call
 │  │  │  ├─ invariant: reuse changes only where the load comes from — a full table falls back to the one-shot entry, a failed load is reported once by dyn's own error, so no refusal code is added and no capability is narrowed
@@ -111,6 +129,27 @@ agenterm-qjswasm
 │  │  │  │     not folding, and must not consume the space it claims to release
 │  │  │  ├─ safe failure: if ownership, ordering or byte parity cannot be retained, keep the old path
 │  │  │  └─ non-goal: no new ABI shape, symbol policy, tinyvm→dyn dependency or JIT authorization
+│  │  ├─ [~] import lowering becomes the reusable product grammar
+│  │  │  ├─ [x] raw and JSON paths share NativeCall construction in the private unsafe
+│  │  │  │     `invoke_prepared` seam; result encoding remains transport-specific
+│  │  │  ├─ [x] raw bits, JSON scalars and JSON regions retain distinct result plans
+│  │  │  ├─ [x] dedicated UnixIoctl remains a sibling mechanism, not a counterfeit ABI family
+│  │  │  ├─ [x] mechanism-only shapes are derived from dyn and differenced against exposure
+│  │  │  │     instead of being restated as a second mechanism table
+│  │  │  ├─ [ ] add a new lowering/storage/result form only when a named consumer is blocked
+│  │  │  │     and the leaf either deletes parallel machinery or proves measured value
+│  │  │  ├─ [ ] admit syscall, direct host entry or another mechanism family through the same declaration
+│  │  │  │     grammar only after its owner, error boundary and evidence court are named
+│  │  │  └─ economic target: adding a host ability approaches adding one owned declaration
+│  │  │        plus its evidence, not another family-specific Rust dispatch pipeline
+│  │  ├─ known limits of the current Native Importer
+│  │  │  ├─ the compatibility court currently derives 75 dyn mechanism shapes and
+│  │  │  │     69 qjswasm declarations / 66 distinct exposed shapes; the court owns these counts
+│  │  │  ├─ JSON regions currently admit the 10 court-derived pointer prototypes whose native result is i32;
+│  │  │  │     pointer results and the other result families remain intentionally unexposed there
+│  │  │  ├─ one Engine reuses at most 32 library handles; symbols are still resolved per call
+│  │  │  ├─ an ABI prototype does not encode pointee width, alignment, termination or C struct layout
+│  │  │  └─ non-host target checks are compile evidence unless a native runner court says otherwise
 │  │  ├─ [x] JSON pointer calls take one call-scoped host region per pointer position
 │  │  │  ├─ user problem: a JSON caller has no guest linear memory to point into, so every
 │  │  │  │     pointer prototype answered `native_invocation_signature_unsupported`
@@ -246,13 +285,13 @@ flowchart LR
   LOAD{"tinyvm validate<br/>Limits accepted?"}
   SLOT["persistent bounded slot"]
   DOOR["versioned Script host door"]
-  NATIVEPOLICY["native schema + prototype catalog<br/>nullability · guest-span checks"]
-  DECL["native exposure declarations<br/>qjswasm policy · ptr/ptr? retained"]
+  NATIVEPOLICY["Native Importer declaration schema<br/>nullability · guest-span checks"]
+  DECL["import lowering plan<br/>target · ABI values · storage · result"]
   INVOKE["invoke_prepared<br/>one NativeCall construction seam"]
   JSONREGION["JSON pointer call<br/>one call-scoped host region per ptr<br/>16-byte aligned · zero-filled<br/>snapshot readback · no address published"]
-  DYNABI["agenterm-dyn invoke_abi<br/>policy-free ABI execution"]
+  DYNABI["agenterm-dyn ABI Importer mechanism<br/>loader · symbol · trampoline · invoke_abi"]
   ENCODERS["transport encoders<br/>raw bits · JSON scalar · region answer"]
-  CUCALLER["CU caller / extensible automation"]
+  CUCALLER["CU typed product projection<br/>fixed-sibling provider"]
   SCRIPTRUNTIME["Script Runtime"]
   NODIRECT["boundary invariant<br/>agenterm-cu does not depend on agenterm-dyn"]
   EXPLICIT["explicit call sites only<br/>bare host value → typed compile refusal"]
@@ -293,11 +332,11 @@ flowchart LR
   ARG_STOP["kill exact specialization<br/>retain attribution only"]
   PIN["AgenTerm exact pin<br/>tinyvm + tinyvm-qjs same rev"]
   NORTH["long horizon<br/>tinyvm replaces Wasmtime<br/>workload by workload"]
-  NATIVEPOLICY --> DECL
-  DECL --> INVOKE
+  NATIVEPOLICY -->|derive once| DECL
+  DECL -->|lower target + values| INVOKE
   JSONREGION -. call-scoped storage .-> INVOKE
-  INVOKE --> DYNABI --> ENCODERS
-  ENCODERS -. preserve existing wire .-> DOOR
+  INVOKE --> DYNABI -->|raw ABI value| ENCODERS
+  ENCODERS -. transport-specific writeback to guest .-> DOOR
   CORE["Core Wasm conformance<br/>malformed + differential fuzz"]
   COURT{"size · cold start · throughput<br/>security · embedder parity"}
   STANDARD["WASI / Component compatibility<br/>in generic tinyvm layer"]
@@ -308,7 +347,7 @@ flowchart LR
   LOAD -->|yes| SLOT --> DOOR --> EXPLICIT --> PRODUCT --> RECEIPT
   DOOR --> NATIVEPOLICY --> DYNABI --> RECEIPT
   NATIVEPOLICY -. JSON caller has no guest span · one host region per ptr .-> JSONREGION --> DYNABI
-  CUCALLER --> SCRIPTRUNTIME --> DOOR
+  CUCALLER -->|typed command / reply| SCRIPTRUNTIME --> DOOR
   CUCALLER -. Cargo boundary + composition court .-> NODIRECT
   NODIRECT -. native extension continues through Script Runtime .-> NATIVEPOLICY
   DOOR --> ACUOBJ --> ACUSIZE

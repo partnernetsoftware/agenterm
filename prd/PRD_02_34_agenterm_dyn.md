@@ -1,13 +1,24 @@
-# PRD 02.34 — agenterm-dyn（极小 / 动态 / 底层）
+# PRD 02.34 — agenterm-dyn（极小 / Native Importer mechanisms / 底层）
 
-Status: active product node — dyn is the **面向宿主硬件与操作系统的无策略底层动态能力微核**
-（动态链接与符号解析、按调用方 ABI 描述执行调用、raw value/pointer 搬运、variadic `ioctl`
-ABI、隔离的 future-JIT/host-ISA 槽位、机制错误）consumed by qjswasm.
+Status: active product node — dyn is the **面向宿主硬件与操作系统的无策略 Native Importer 机制微核**；
+当前成熟 family 是 ABI Importer mechanism，另有专用 `ioctl` sibling。它拥有动态链接与
+符号解析、按调用方 ABI 描述执行调用、raw value/pointer 搬运、variadic `ioctl` ABI、
+隔离的 future-JIT/host-ISA 槽位与机制错误，并由 qjswasm 消费。
 The former S-expression surface, typed-owner side APIs, and six-cell product catalog have
 been removed from dyn after consumer and evidence migration.
 Owner: 政委定方向；主会话按独占文件域推进。
 
 Parallel crate `crates/agenterm-dyn`, not a fourth engine, not libagenterm, not cu.
+
+术语只有两层：**Native Importer** 是完整产品概念；**ABI Importer mechanism** 是 dyn
+当前最成熟的具体机制 family。这里的 native import 不是 JavaScript 文件导入，也不是权限或插件系统。它表示：
+上层给出目标、调用形状与已经准备好的值，底层机制把这份声明连接到宿主进程、
+操作系统和硬件能力。动态库 symbol + ABI 是当前最成熟的 family，`ioctl` 已是另一条
+专用 family；未来有真实消费者时，syscall、direct host entry 或其他 native mechanism 也可以成为
+并列后端，而不必伪装成普通动态库调用。dyn 是 import 的**机制端**；qjswasm 是把 guest
+声明、storage 与结果规则降低成该机制调用的 **import compiler/adapter**；tinyvm 只执行
+Wasm 与 host bridge；CU 再把有产品意义的 imported mechanism 投射成 typed command。
+这四层的依赖方向与所有权不得倒置。
 
 **微核不等于"只有 ABI"**：ABI 调用工具（`abi.rs` 的统一入口 + 五族单态 trampoline）是
 当前**最成熟的子树**，不是 dyn 的全部，也不把 dyn 缩成 qjswasm 私有的 FFI helper：
@@ -80,7 +91,7 @@ dyn **不**校验 host ABI 对齐、NUL 或具体 callee 的最小读写宽度�
 
 ```text
 agenterm-dyn
-├── A. 可执行 dynamic mechanism core               [机制保留 · 策略迁移]
+├── A. 可执行 Native Importer mechanism core         [机制保留 · 策略迁移]
 │   ├── abi                                        [唯一调用入口，调用方给描述]
 │   │   ├── AbiSignature / NativeCall / AbiValue    [调用方运行时描述]
 │   │   ├── validate_abi / invoke_abi               [一次性 load + 调用的兼容入口]
@@ -160,7 +171,35 @@ qjswasm JSON ──────┘          │                                �
 dyn ──稳定的 AbiSignature / AbiValue / AbiError 代数──> 允许上层删除家族专用执行流程
 qjswasm ──仍拥有 exposure / nullability / storage / budget──> 但把它们写成声明数据
 tinyvm ──仍只提供 Wasm 执行与 host bridge──> 不直接依赖 dyn
+CU ──仍经 fixed-sibling provider / typed Executor──> 不直接依赖 dyn
 ```
+
+### Native import 分层目标与增强路线
+
+产品目标不是把 dyn 扩成任意 FFI，也不是把 qjswasm 的所有代码搬到 dyn；目标是让
+新增宿主能力越来越接近“增加一条有 owner 的声明”，而不是复制解析、dispatch、内存、
+错误和证据流程。
+
+1. **机制层（dyn）**：今天拥有 loader、symbol resolution、ABI 形状查询、单态 trampoline、
+   handle 生命周期、专用 `ioctl` 与机制错误；未来可以容纳 syscall、direct host entry 或其他
+   native mechanism family。开放的是 family 空间，不是无条件扩张：每个 family 都必须有
+   真实消费者、独立错误边界和可证伪证据。callback、struct-by-value 与 future JIT 仍各需
+   独立证据和授权。
+2. **降低层（qjswasm）**：从 native declaration 派生 target、ABI values、call-scoped
+   storage 与 transport-specific result plan；raw、JSON scalar 与 JSON region 已共用一次
+   `NativeCall` construction/invoke seam，但它们有意不同的输入和结果语义不得伪合并。
+3. **执行层（tinyvm）**：保持通用 no-JIT Wasm executor，只承载 host bridge，不认识 dyn、
+   libc symbol、CU command 或 AgenTerm policy；native import 的收益通过 qjswasm 间接进入 guest。
+4. **产品层（CU / Script Runtime）**：把值得稳定发布的 imported mechanism 提升成 typed
+   command、身份、预算、取消与证据；不建立 `agenterm-cu -> agenterm-dyn` 静态依赖。
+5. **经济门**：增强 dyn 必须带来真实新消费者或让上层删除一份平行机制；折叠 qjswasm
+   必须净删控制流、表或 mapper，或用测量证明释放 guest steps/host bytes。只新增 wrapper、
+   symbol 特例表或第二份 pointee 真相不是 native import 进展。
+
+当前已知边界也属于设计：同一个 `i32(ptr,ptr)` 可以表示 UUID + timespec，也可以表示
+两个 `i32` 出参，所以 prototype 只能描述顶层 ABI，不能凭 symbol 名猜 pointee layout。
+具体宽度、对齐、NUL 与 readback 必须由上层有 owner 的 import declaration/schema 表达；
+若没有这样的单一真相，安全结果是拒绝新增映射，而不是在 dyn 里建立 symbol allowlist。
 
 ### dyn 之上的分层折叠路线（已收敛）
 
@@ -205,14 +244,13 @@ dyn 搬出或关闭。任何新能力必须能指出它进入哪个房间；跨�
 
 ```mermaid
 flowchart LR
-    subgraph Hall[门厅 · Script Runtime / qjswasm]
+    subgraph Hall[门厅 · qjswasm native import compiler / adapter]
         QJS[.qjs / .wat guest]
         Door[agenterm:native + native_call]
         Guard[guest span decode<br/>budget · cancel · typed mapping]
-        Prepare[PreparedAbiCall<br/>声明驱动的参数与 storage 计划]
-        Outcome[NativeOutcome<br/>一次 ABI 结果 · transport 后编码]
+        Lower[invoke_prepared<br/>private unsafe NativeCall construction seam]
+        Encode[transport-specific result<br/>raw bits · JSON scalar · region snapshot]
         QJS --> Door --> Guard
-        Guard -. 计划中的折叠 .-> Prepare
         Gap[当前缺口<br/>span 宽度 · host 对齐 · NUL<br/>尚未绑定具体 C contract]
         Guard -. 尚未证明 .-> Gap
     end
@@ -236,10 +274,11 @@ flowchart LR
         Schema[wire schema · 暴露面]
         Budget[budget · cancel · WorkerSupervisor 监管]
     end
-    Policy -->|派生声明数据| Prepare
-    Prepare -->|提供 ABI 描述与值| Abi
-    Abi --> Outcome
-    Outcome -. raw bits / JSON / region snapshot .-> Door
+    Lower -. 读取有 owner 的声明数据 .-> Policy
+    Guard --> Lower
+    Lower -->|提供 ABI 描述与值| Abi
+    Abi --> Encode
+    Encode --> Door
 
     subgraph Vault[保管室 · typed owners（已迁出 dyn）]
         UpperOwner[agenterm-platform / upper adapters]
@@ -260,7 +299,7 @@ flowchart LR
     UpperOwner -. outside dyn .-> ProductFacts
     Closed -. claims already ported .-> QJS
 
-    CU[agenterm-cu] -->|through supervised Script Runtime| QJS
+    CU[agenterm-cu typed projection] -->|fixed-sibling provider / supervised Script Runtime| QJS
     QJS -->|compile .qjs to .wasm / execute no-JIT| Tiny[tinyvm]
     Tiny -. tinyvm 不依赖 dyn .-> Engine
     Guard -. span 越界 · pointee 宽度 · NUL 由上层判定，不入 dyn .-> Matrix
