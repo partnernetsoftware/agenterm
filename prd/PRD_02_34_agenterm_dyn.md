@@ -593,8 +593,11 @@ The qjswasm native door now keeps declaration parsing, nullability, guest-span c
 the exposed prototype catalog in qjswasm, then delegates all five exact/fixed/fixed-pointer
 execution arms through dyn's policy-free `invoke_abi`. Unix `ioctl` continues through its
 separate dyn mechanism entry. The public `native-acu-composition-smoke` proves one supervised guest can
-compose `agenterm:native` with `agenterm:acu`. This establishes dyn as a real lower
-layer. The legacy Lisp was deleted only after its remaining courts moved.
+compose `agenterm:native` with `agenterm:acu`: that same guest takes one authorized typed
+`capabilities` reply through the ACU Executor, its typed `refused` reply for the same verb when
+the invocation carries no granted selector, and dyn-backed raw ABI calls before and after both.
+This establishes dyn as a real lower layer. The legacy Lisp was deleted only after its
+remaining courts moved.
 
 Qjswasm's native-door court does not import typed snapshots from dyn as test
 oracles: Mach timebase, CPU count and monotonic clock assertions compare

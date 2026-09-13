@@ -1,11 +1,38 @@
-// Public black-box proof that one supervised QJS guest can use the ACU module
-// and the dyn-backed native module without either bridge swallowing the other's
-// arguments. Help is intentionally target-free and has no ambient CU dependency.
+// Public black-box proof that ONE supervised QJS guest composes both extension
+// paths without either bridge swallowing the other's request:
+//
+//   CU caller -> Script Runtime -> agenterm:acu -> Command/Executor -> CuReply
+//   CU caller -> Script Runtime -> agenterm:native -> qjswasm -> agenterm-dyn
+//
+// The ACU half is deliberately more than `--help`: help is answered by the CLI
+// parser before verb dispatch, so it proves the bridge is wired but never that
+// a request entered the Executor. The authorized `capabilities` request below
+// is what proves the Executor was reached in this guest, and the un-granted
+// request proves the Executor's authorization gate answers typed and fails
+// closed there instead of silently succeeding.
+//
+// Precondition, stated rather than assumed: this court runs outside a granted
+// selector. The task contract forwards no AGENTERM_CU_GRANT* environment, so a
+// request without `--grant` is genuinely unauthorized here. A granted ambient
+// environment would red the refusal assertion, which is the honest outcome.
 import * as acu from "agenterm:acu";
 import * as native from "agenterm:native";
 
 if (arg_count() !== 0) { throw "expected: no arguments"; }
 
+function exact_keys(value, expected) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const keys = Object.keys(value);
+  if (keys.length !== expected.length) { return false; }
+  for (const key of expected) {
+    if (!keys.includes(key)) { return false; }
+  }
+  return true;
+}
+
+// 1. Target-free CLI short-circuit: help is decided before any verb dispatch.
 const help = acu.argv(["--help"]);
 if (help === null || typeof help !== "object"
     || help.ok !== true
@@ -13,6 +40,7 @@ if (help === null || typeof help !== "object"
   throw "native_acu_help_envelope";
 }
 
+// 2. dyn-backed raw ABI in the same guest, before the ACU Executor request.
 const pid = native.call("|getpid|i32()", []);
 if (pid === null || typeof pid !== "object"
     || pid.type !== "i32"
@@ -27,5 +55,44 @@ if (magnitude === null || typeof magnitude !== "object"
   throw "native_acu_abs_result";
 }
 
-print("PASS: one supervised QJS guest composed target-free ACU help with dyn-backed raw ABI getpid and abs");
+// 3. Authorized typed Executor read: the request crosses Command -> Executor
+//    and comes back as one CuReply envelope, not as a helper shortcut.
+const authorized = acu.argv([
+  "--target", "current", "--grant", "observe", "capabilities"
+]);
+if (authorized === null || typeof authorized !== "object"
+    || !exact_keys(authorized, ["ok", "target", "command", "data"])
+    || authorized.ok !== true
+    || authorized.target !== "current"
+    || authorized.command !== "capabilities"
+    || authorized.data === null || typeof authorized.data !== "object"
+    || authorized.data.verbs === null || typeof authorized.data.verbs !== "object") {
+  throw "native_acu_executor_capabilities_envelope";
+}
+
+// 4. The same verb without a granted selector must fail closed inside that
+//    Executor with the typed refusal, never with a thrown bridge error.
+const refused = acu.call({ verb: "capabilities", target: "current" });
+if (refused === null || typeof refused !== "object"
+    || !exact_keys(refused, ["ok", "target", "command", "error"])
+    || refused.ok !== false
+    || refused.target !== "current"
+    || refused.command !== "capabilities"
+    || refused.error === null || typeof refused.error !== "object"
+    || refused.error.code !== "refused"
+    || typeof refused.error.message !== "string"
+    || refused.error.message.length === 0) {
+  throw "native_acu_executor_refusal";
+}
+
+// 5. The native bridge still answers after the ACU Executor hop, and with the
+//    same process identity: neither bridge consumed the other's arguments.
+const after = native.call("|getpid|i32()", []);
+if (after === null || typeof after !== "object"
+    || after.type !== "i32"
+    || after.value !== pid.value) {
+  throw "native_acu_no_argument_loss";
+}
+
+print("PASS: one supervised QJS guest composed target-free ACU help, an authorized typed Executor capabilities reply, its typed refusal without a granted selector, and dyn-backed raw ABI getpid/abs without argument loss");
 return;

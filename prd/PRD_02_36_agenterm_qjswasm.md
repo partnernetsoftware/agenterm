@@ -429,9 +429,16 @@ integration.
 - `.qjs` callers use the built-in `agenterm:native` module as a typed language
   adapter over that same opt-in door. It accepts a signature plus JSON values,
   preserves wide integers as decimal strings, and shares the raw door's
-  budget, cancellation, failure codes, and dyn execution path. A combined
-  engine court proves `agenterm:native` and `agenterm:acu` coexist in one guest
-  without introducing an `agenterm-cu` → `agenterm-dyn` dependency.
+  budget, cancellation, failure codes, and dyn execution path. The public
+  `native-acu-composition-smoke` proves the two extension bridges coexist in
+  one supervised guest without an `agenterm-cu` → `agenterm-dyn` dependency,
+  and it proves the ACU bridge is not merely wired: that guest takes one
+  authorized typed `capabilities` reply through Command/Executor, takes the
+  typed `refused` reply for the same verb when the invocation carries no
+  granted selector, and still resolves dyn-backed raw ABI calls before and
+  after both ACU requests. `--help` remains in the court only as the
+  target-free CLI short-circuit that answers before verb dispatch; it is never
+  quoted as evidence that the Executor ran.
 - public Script CLI black boxes own `.qjs` route, diagnostics, receipts and
   product-host calls.
 - v0.1.18 G4 owns the release-critical task/journey migration. Quick-only green

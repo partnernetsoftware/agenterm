@@ -9010,7 +9010,7 @@
     },
     {
       "id": "native-acu-composition-smoke",
-      "description": "Prove one supervised QJS guest composes target-free agenterm:acu help with dyn-backed raw ABI getpid and abs calls without losing arguments.",
+      "description": "Prove one supervised QJS guest crosses the ACU Executor (one authorized typed capabilities reply plus its typed refusal without a granted selector) and the dyn-backed raw ABI getpid and abs calls without losing arguments.",
       "entry": "scripts/qjs/native-acu-composition-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

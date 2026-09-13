@@ -882,6 +882,12 @@ Use the smallest authoritative evidence first:
 step invokes that path, run an explicit `cargo build -p PACKAGE --bin NAME` and
 record the product binary as the evidence subject.
 
+An unwind-only dynamic artifact needs its own lint/test lane. Linting
+`agenterm-cu-provider` under the default profile stops in `build.rs` with
+`must be built with panic=unwind: use --profile abi-release (or abi-dev)`; the
+owning evidence is `cargo clippy -p agenterm-cu-provider --profile abi-dev
+--all-targets -- -D warnings`, not a dev/release invocation.
+
 The same stale-artifact trap applies to `libagenterm`: an `abi-dev` build
 refreshes `target/abi-dev/libagenterm.*`, while an integration-test executable
 may still open `target/debug/libagenterm.*`. If a new export is present in the

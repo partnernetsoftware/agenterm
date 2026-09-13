@@ -171,6 +171,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │  ├─ no path search, static/child/MCU fallback or malformed JSON acceptance
   │  │  └─ provider panic serializes and permanently latches failure
   │  └─ consumed directly by CLI, MCP and qjswasm
+  │     └─ the qjswasm composition half is `native-acu-composition-smoke`: one supervised guest
+  │        takes an authorized typed `capabilities` reply and its typed refusal through the
+  │        Executor, composed with dyn-backed raw ABI calls (PRD 36)
   ├─ [~] acu.qjs = Bun-free syntax adapter
   │  ├─ [x] bounded host argv + global normalization + direct native spelling → agenterm:acu.argv
   │  ├─ [x] no Bun / binary lookup / CU child process / MCU fallback; public CLI still uses the common Script Worker isolation process
