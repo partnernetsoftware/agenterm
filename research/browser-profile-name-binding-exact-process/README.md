@@ -20,6 +20,7 @@ has a distinct id, state root, source digest, input digest and budget.
 | `binding-model.qjs` | Platform-neutral pure model: process chain, ownership freeze, cleanup, stage receipts, V1-V7/D1-D3 decision tree | Implemented, self-tested |
 | `court-current-host.qjs` | Platform-neutral model checks for the runtime half of V2, the V6/V7 contracts and every decision-tree combination | Implemented |
 | `capability-preflight.qjs` | Registered tool-profile host preflight: real child PID, exact process observations, durable read-back, lock contention and digest | Implemented, admission-free |
+| `admission-dry-run.qjs` | Registered tool-profile admission dry-run: drives the external broker through one complete rehearsal transaction in a disposable root | Implemented, disposable-only |
 | `court-current-host.qjs` live path | macOS live court (browser launch, real `process.observe`/`parent`) | **Not implemented, fail-closed** |
 | `result-template.json` | Receipt/stage field contract | Implemented |
 | `fixtures/` | Synthetic Profile fixtures | Reused bytes with provenance |
@@ -51,6 +52,60 @@ It must emit `IDENTITY_SOURCE_PROVEN`, one all-true capability record, the
 declared evidence id and `PASS`. It starts only an owned sleeping shell child,
 removes its scratch directory, launches no browser and reserves no ordinal.
 This proves host primitives, not V3-V5 or D1-D3.
+
+## Admission dry-run
+
+`admission-dry-run.qjs` is a **separate** entry from `court-current-host.qjs`,
+on purpose. It uses `arg`, `env.*` and `process.spawn`, which the plain
+`cli script run` embedder does not declare. Adding those calls to the model
+court would make the ordinary `--self-test` path fail to compile, so the
+dry-run is its own file and is reachable only as a registered
+`profile: "tool"` task.
+
+It drives the real broker through one complete rehearsal transaction — reserve,
+a legal `preflight` stage, a legal terminal and `finish`, plus an independent
+`abandon` path — inside a disposable root. It launches **no** browser, reaches
+**no** design verdict, and reserves **no** formal ordinal.
+
+```sh
+research/browser-profile-name-binding-exact-process/run-current-host.sh \
+  --admission-dry-run
+research/browser-profile-name-binding-exact-process/run-current-host.sh \
+  --admission-red-gate       # needs nothing registered
+```
+
+**Registered task entry.** `agenterm.tasks.json` provides a task with
+`"entry": "research/browser-profile-name-binding-exact-process/admission-dry-run.qjs"`,
+`"profile": "tool"` and `"platforms": ["macos"]`. That manifest is a declared
+hot file, so it is maintained by the owning agent rather than by this
+directory's author.
+
+**Why the ordinal is still named `R1`.** The broker accepts only `R1`/`D1`; a
+reservation with any other ordinal fails `reserve_ordinal`. The dry-run
+therefore cannot avoid the name. Isolation comes from the **root**: the runner
+creates a `mktemp -d` directory, points the broker at it, and asserts the formal
+root is byte-for-byte unchanged afterwards.
+
+**Disposable roots must be fully resolved.** `fs.create_new_regular_durable`
+deliberately refuses to traverse a link-like ancestor: it opens each path
+component as a real directory. On macOS `TMPDIR` sits under `/var`, which is a
+symlink to `/private/var`, so an unresolved `mktemp` path fails with the
+misleading `Not a directory` even though `fs.exists` reports it. `TMPDIR` also
+ends in a separator, which doubles the slash. The runner therefore resolves the
+root with `pwd -P` before handing it over.
+
+**What it does not prove.** This is not a side-effect-free admission check. It
+really writes a ledger, a journal and receipts — into the disposable root. It
+proves that the admission state machine round-trips through the real broker and
+that the refusal surface behaves as documented. It proves nothing about V3-V5
+or D1-D3, and it does not reserve, consume or replace the formal `R1`.
+
+Facts carrying `argv`, `env`, titles, URLs or home paths are refused by the
+template's forbidden-key list (`stage_forbidden_key`), and a key that is merely
+unlisted fails the whitelist (`stage_fact_not_whitelisted`). Both are exercised
+from the runner by `--admission-red-gate`, which also asserts the dry-run entry
+is unreachable from the plain run path and proves the formal-root snapshot
+detects an in-place byte change even when the path set is unchanged.
 
 ## Broker self-test
 

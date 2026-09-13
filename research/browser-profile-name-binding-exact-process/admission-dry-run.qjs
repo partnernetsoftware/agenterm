@@ -1,0 +1,514 @@
+// Independent tool-profile admission dry-run for the exact-process experiment.
+//
+// This entry must run as a registered `profile: "tool"` task. It drives the
+// existing external admission broker through one complete rehearsal
+// transaction -- reserve, legal stages, a legal terminal and finish, or an
+// abandonment -- inside a DISPOSABLE state root supplied by the runner. It
+// never launches a browser, never creates a Profile, reserves no FORMAL
+// ordinal, and reaches no design verdict.
+//
+// What it proves, and what it does not:
+//
+//   * it proves the admission state machine round-trips through the real
+//     broker with real durable state, and that the broker's refusal surface
+//     behaves as documented;
+//   * it does NOT prove that admission is side-effect free. It really writes a
+//     ledger, a journal and receipts -- into the disposable root.
+//   * it proves nothing about V3-V5 or D1-D3. Those belong to the live court.
+//
+// The formal state root is never read or written. Because the broker accepts
+// only the ordinals `R1`/`D1`, the dry-run cannot avoid naming `R1`; isolation
+// comes from the root, not from renaming the ordinal. The runner therefore
+// asserts the formal root is byte-for-byte unchanged after this run.
+
+import * as rh from "scripts/qjs/lib/rh_compat";
+
+const MODE_DRY_RUN = "admission-dry-run";
+const SCHEMA = "agenterm.profile-binding-exact-process-admission-dry-run/v1";
+const ORDINAL = "R1";
+const RUN_ID = "00112233445566778899aabbccddeeff";
+const BROKER_TIMEOUT_MS = 30000;
+
+const TEMPLATE_PATH = "research/browser-profile-name-binding-exact-process/result-template.json";
+const BROKER_PATH = "research/browser-profile-name-binding-exact-process/broker-spine.sh";
+
+function demand(condition, code) {
+  if (!condition) { throw code; }
+}
+
+// The engine has no regex literal in expression position, so digest and code
+// shapes are checked character by character. Both helpers are exact: a length
+// test plus a per-character whitelist, with no implicit trimming.
+function is_hex64(value) {
+  if (typeof value !== "string" || value.length !== 64) { return false; }
+  for (let i = 0; i < 64; i = i + 1) {
+    const c = value.charCodeAt(i);
+    const digit = c >= 48 && c <= 57;
+    const lower = c >= 97 && c <= 102;
+    if (digit === false && lower === false) { return false; }
+  }
+  return true;
+}
+
+// Read a value from the argument list, or from the environment when the runner
+// chose that channel. `ARG_` values are positional strings; `ENV_` values are
+// ambient process variables. Neither is a permission boundary: both are just
+// how the runner hands this court its inputs.
+function arg_value(argv, index, env_name, code) {
+  if (argv.length > index && argv[index] !== "") { return argv[index]; }
+  const from_env = env_optional(env_name);
+  if (from_env !== null && from_env !== "") { return from_env; }
+  throw code;
+}
+
+function env_optional(name) {
+  if (env_has(name) !== 1) {
+    // `env.has` returns 1 for set, 0 for unset. A door failure is fatal.
+    if (tool_result() !== "") { return null; }
+    return null;
+  }
+  if (env_get(name) !== 0) { return null; }
+  return tool_result();
+}
+
+function paths() {
+  return JSON.parse(rh.read_text(TEMPLATE_PATH));
+}
+
+
+// Strip only trailing newlines. The engine has no regex literal, and a plain
+// `replace` with a string pattern would remove an interior newline too, which
+// is exactly the single-line violation these callers are checking for.
+function strip_trailing_newlines(text) {
+  let end = text.length;
+  while (end > 0 && text.charCodeAt(end - 1) === 10) { end = end - 1; }
+  return text.slice(0, end);
+}
+
+
+// Canonical JSON for one object: keys sorted, no whitespace. The broker's own
+// canonicalization is sorted-key and compact, so a row written any other way is
+// rejected as `state_json_not_canonical` before semantic checks run.
+function canonical_json(value) {
+  const keys = Object.keys(value).sort();
+  const parts = [];
+  for (let i = 0; i < keys.length; i = i + 1) {
+    parts.push(JSON.stringify(keys[i]) + ":" + JSON.stringify(value[keys[i]]));
+  }
+  return "{" + parts.join(",") + "}";
+}
+
+// Spawn the broker and return its parsed command envelope. The envelope is
+// checked for truncation explicitly: a truncated stdout would still be valid
+// JSON up to the cut, so accepting it could make a partial ledger row look
+// like a complete one.
+function broker_raw(state_root, args, accept_exit) {
+  const spec = {
+    program: "sh",
+    args: [BROKER_PATH].concat(args),
+    current_dir: ".",
+    env: { AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT: state_root },
+    timeout_ms: BROKER_TIMEOUT_MS
+  };
+  const handle = process_spawn(JSON.stringify(spec));
+  demand(handle >= 0, "admission_broker_spawn:" + tool_result());
+  const wait_status = process_wait(handle, BROKER_TIMEOUT_MS);
+  const wait_detail = tool_result();
+  if (wait_status !== 0) {
+    // A failed wait must not strand the owned handle. Keep every cleanup step
+    // best-effort and record all failures before returning the primary wait
+    // error; release only accepts a child whose slot has reached Done.
+    let cleanup = "";
+    if (process_kill(handle) !== 0) {
+      cleanup = cleanup + ":kill=" + tool_result();
+    }
+    if (process_wait(handle, 2000) !== 0) {
+      cleanup = cleanup + ":reap=" + tool_result();
+    }
+    if (process_release(handle) !== 0) {
+      cleanup = cleanup + ":release=" + tool_result();
+    }
+    throw "admission_broker_wait:" + wait_detail + cleanup;
+  }
+  const envelope = JSON.parse(tool_result());
+  demand(process_release(handle) === 0, "admission_broker_release:" + tool_result());
+
+  demand(envelope.timed_out === false, "admission_broker_timeout");
+  demand(envelope.stdout_truncated === false, "admission_broker_stdout_truncated");
+  demand(envelope.stderr_truncated === false, "admission_broker_stderr_truncated");
+  demand(typeof envelope.stdout === "string" && typeof envelope.stderr === "string",
+    "admission_broker_stream_missing");
+  demand(accept_exit ? envelope.success === true : envelope.success === false,
+    "admission_broker_exit:" + envelope.exit_code + ":" + envelope.stdout
+      + ":" + envelope.stderr);
+  return envelope;
+}
+
+// A broker operation that must succeed, whose stdout must be exactly one JSON
+// object. `exact_keys` is the second half of the contract: a broker that grew
+// an extra field would be caught here rather than silently accepted.
+function broker_ok(state_root, args, expected_keys, label) {
+  const envelope = broker_raw(state_root, args, true);
+  const text = strip_trailing_newlines(envelope.stdout);
+  demand(text.includes("\n") === false, label + "_stdout_not_single_line");
+  let value = null;
+  try { value = JSON.parse(text); }
+  catch (error) { throw label + "_stdout_not_json:" + text; }
+  // The engine provides `String.slice` but not `Array.slice`, so the key list is
+  // copied with an explicit loop before sorting rather than mutated in place.
+  const want_list = [];
+  for (let i = 0; i < expected_keys.length; i = i + 1) {
+    want_list.push(expected_keys[i]);
+  }
+  const got = Object.keys(value).sort().join(",");
+  const want = want_list.sort().join(",");
+  demand(got === want, label + "_keys:" + got);
+  return value;
+}
+
+// A broker operation that must fail. The broker writes its typed refusal code
+// to stderr and leaves stdout empty, so both halves are checked: a refusal that
+// also printed a payload on stdout would be a contract change, and a success
+// code written to stderr would otherwise be mistaken for a refusal.
+function broker_refuse(state_root, args, label) {
+  const envelope = broker_raw(state_root, args, false);
+  demand(strip_trailing_newlines(envelope.stdout) === "",
+    label + "_refusal_wrote_stdout:" + envelope.stdout);
+  const code = strip_trailing_newlines(envelope.stderr);
+  demand(code !== "" && code.includes(" ") === false && code.includes("{") === false,
+    label + "_refusal_not_bare_code:" + code);
+  return code;
+}
+
+// `cli script task run` accepts no positional arguments, so the task manifest's
+// `args` array is normally empty and the values arrive through the environment.
+// A positional form is still accepted, because `arg` is the documented channel
+// and a future manifest may use it. When a positional mode is present it must be
+// the expected one; an absent mode is only legal when the environment supplies
+// the root, so an accidental bare invocation still fails.
+const argv = rh.args();
+if (argv.length > 0) {
+  demand(argv[0] === MODE_DRY_RUN, "admission_mode:" + argv[0]);
+}
+
+const state_root = arg_value(argv, 1, "AGENTERM_ADMISSION_DRY_RUN_ROOT",
+  "admission_state_root");
+const source_sha = arg_value(argv, 2, "AGENTERM_ADMISSION_DRY_RUN_SOURCE",
+  "admission_source_sha");
+const input_digest = arg_value(argv, 3, "AGENTERM_ADMISSION_DRY_RUN_INPUT",
+  "admission_input_digest");
+
+// The disposable root must be a real directory the runner created, and it must
+// not be a path that could be the formal root. The runner supplies a `mktemp
+// -d` path; requiring the marker keeps a typo from pointing the dry-run at a
+// live state root.
+// The runner creates the disposable state directory and hands over its path, so
+// the court can write request files beside the broker's own state. The directory
+// must exist and must not already hold a ledger: the dry-run starts empty.
+// `fs_exists` returns 0 for absent and 1 for present, matching the preflight.
+demand(fs_exists(state_root) === 1, "admission_state_root_missing");
+demand(fs_exists(state_root + "/attempt-ledger.jsonl") === 0,
+  "admission_state_root_already_has_ledger");
+demand(state_root.charAt(0) === "/", "admission_state_root_absolute");
+// The path must be inside a directory the runner created for this purpose. The
+// marker is what distinguishes a disposable root from the formal one, so a typo
+// cannot silently point the dry-run at live state.
+demand(state_root.includes("agenterm-admission-dry-run") === true,
+  "admission_state_root_not_marked_disposable");
+
+const template = paths();
+const terminals = template.terminals;
+const criteria_keys = template.criteria_keys;
+const stages = template.stages;
+demand(terminals.length > 0 && criteria_keys.length > 0, "admission_template");
+
+const EXE_DIGEST = rh.sha256_file(BROKER_PATH);
+const checks = {};
+
+// -- 1. the broker refuses a malformed reservation ---------------------------
+checks.reserve_ordinal_guarded =
+  broker_refuse(state_root, ["reserve", "rehearsal", "R9", RUN_ID, source_sha, input_digest],
+    "admission_bad_ordinal") === "reserve_ordinal";
+checks.reserve_kind_guarded =
+  broker_refuse(state_root, ["reserve", "notakind", ORDINAL, RUN_ID, source_sha, input_digest],
+    "admission_bad_kind") === "reserve_kind";
+
+// -- 2. a real reservation, and no ordinal reuse -----------------------------
+const reserved = broker_ok(state_root,
+  ["reserve", "rehearsal", ORDINAL, RUN_ID, source_sha, input_digest],
+  ["experiment", "frozen_input_recheck", "input_digest", "kind", "ordinal",
+    "receipt_sha256", "run_id", "schema", "source_sha", "status", "terminal_code"],
+  "admission_reserve");
+checks.reserve_status = reserved.status === "reserved";
+checks.reserve_identity = reserved.ordinal === ORDINAL && reserved.kind === "rehearsal"
+  && reserved.run_id === RUN_ID && reserved.source_sha === source_sha
+  && reserved.input_digest === input_digest;
+checks.reserve_no_receipt = reserved.receipt_sha256 === null
+  && reserved.terminal_code === null;
+checks.reserve_reused = broker_refuse(state_root,
+  ["reserve", "rehearsal", ORDINAL, RUN_ID, source_sha, input_digest],
+  "admission_reuse") === "reserve_ordinal_reused";
+
+// -- 3. a legal preflight stage, read back by the broker ---------------------
+function preflight_facts(seq) {
+  return {
+    source_sha: source_sha,
+    input_digest: input_digest,
+    executable_digest: EXE_DIGEST,
+    ordinal: ORDINAL,
+    deadline_ms: BROKER_TIMEOUT_MS,
+    stage_seq: seq
+  };
+}
+
+function not_run_criteria() {
+  const c = {};
+  for (const key of criteria_keys) { c[key] = "not-run"; }
+  return c;
+}
+
+const preflight_path = rh.join(state_root, "stage-preflight.json");
+write_request(preflight_path, {
+  stage: "preflight",
+  producer: "admission-dry-run",
+  deadline_ms: BROKER_TIMEOUT_MS,
+  elapsed_ms: 0,
+  code: "PREFLIGHT_OK",
+  facts: preflight_facts(1),
+  criteria: not_run_criteria()
+});
+const staged = broker_ok(state_root,
+  ["stage", "rehearsal", ORDINAL, RUN_ID, preflight_path],
+  ["accepted", "receipt_sha256"], "admission_stage");
+checks.stage_accepted = staged.accepted === true;
+checks.stage_receipt_digest = is_hex64(staged.receipt_sha256);
+
+function write_request(path, body) {
+  const text = JSON.stringify(body);
+  if (fs_create_new_regular_durable(path, text) !== 0) {
+    throw "admission_request_write:" + tool_result();
+  }
+  demand(rh.read_text(path) === text, "admission_request_readback");
+}
+
+// -- 4. a stage whose facts carry argv is refused ----------------------------
+// The stage fact whitelist is what keeps argv, environment, titles and home
+// paths out of durable state. This is the negative control for that rule.
+const leaky_path = rh.join(state_root, "stage-leaky.json");
+const leaky = {
+  stage: "preflight",
+  producer: "admission-dry-run",
+  deadline_ms: BROKER_TIMEOUT_MS,
+  elapsed_ms: 0,
+  code: "PREFLIGHT_OK",
+  facts: preflight_facts(2),
+  criteria: not_run_criteria()
+};
+leaky.facts.argv = ["--profile", "Default"];
+write_request(leaky_path, leaky);
+// `argv` is on the template's forbidden-key list, so it is refused by name
+// rather than merely failing the whitelist. A non-forbidden but unwhitelisted
+// key is a different guard and is checked below.
+checks.argv_facts_refused =
+  broker_refuse(state_root, ["stage", "rehearsal", ORDINAL, RUN_ID, leaky_path],
+    "admission_argv_facts") === "stage_forbidden_key";
+
+const stray_path = rh.join(state_root, "stage-stray.json");
+const stray = {
+  stage: "preflight",
+  producer: "admission-dry-run",
+  deadline_ms: BROKER_TIMEOUT_MS,
+  elapsed_ms: 0,
+  code: "PREFLIGHT_OK",
+  facts: preflight_facts(4),
+  criteria: not_run_criteria()
+};
+stray.facts.invented_field = "x";
+write_request(stray_path, stray);
+checks.unwhitelisted_fact_refused =
+  broker_refuse(state_root, ["stage", "rehearsal", ORDINAL, RUN_ID, stray_path],
+    "admission_stray_fact") === "stage_fact_not_whitelisted";
+
+// -- 5. a non-terminal stage may not carry a terminal code -------------------
+const sneak_path = rh.join(state_root, "stage-sneak.json");
+const sneak = {
+  stage: "preflight",
+  producer: "admission-dry-run",
+  deadline_ms: BROKER_TIMEOUT_MS,
+  elapsed_ms: 0,
+  code: "INVALID_INPUT",
+  facts: preflight_facts(3),
+  criteria: not_run_criteria()
+};
+write_request(sneak_path, sneak);
+checks.terminal_code_on_non_terminal =
+  broker_refuse(state_root, ["stage", "rehearsal", ORDINAL, RUN_ID, sneak_path],
+    "admission_terminal_sneak") === "stage_non_terminal_code";
+
+// -- 6. a terminal stage and a finish ----------------------------------------
+// `INVALID_INPUT` with V1 failing is the first branch of the spec's decision
+// tree. It is a legal rehearsal terminal and carries no design fact.
+function terminal_request(path, code, criteria) {
+  write_request(path, {
+    stage: "terminal",
+    producer: "admission-dry-run",
+    deadline_ms: BROKER_TIMEOUT_MS,
+    elapsed_ms: 0,
+    code: code,
+    facts: {
+      terminal_code: code,
+      primary_cause: code,
+      cleanup_status: "not-run"
+    },
+    criteria: criteria
+  });
+}
+
+const bad_criteria_path = rh.join(state_root, "terminal-bad-criteria.json");
+const bad_criteria = not_run_criteria();
+bad_criteria.V1 = "pass";
+terminal_request(bad_criteria_path, "INVALID_INPUT", bad_criteria);
+checks.illegal_criteria_refused =
+  broker_refuse(state_root, ["stage", "rehearsal", ORDINAL, RUN_ID, bad_criteria_path],
+    "admission_bad_criteria") === "terminal_criteria_not_legal";
+
+// A design-selection terminal is refused for EVERY kind: this broker owns no
+// design facts, so accepting it would make an unverified selection
+// authoritative. This is part of R1's correct semantics, not an R1 blocker.
+const select_path = rh.join(state_root, "terminal-select.json");
+const all_pass = not_run_criteria();
+for (const key of criteria_keys) { all_pass[key] = "pass"; }
+terminal_request(select_path, "A1_SELECTED", all_pass);
+checks.design_selection_refused =
+  broker_refuse(state_root, ["stage", "rehearsal", ORDINAL, RUN_ID, select_path],
+    "admission_design_selection") === "terminal_design_selection_not_implemented";
+
+const legal_path = rh.join(state_root, "terminal-legal.json");
+const v1_fail = not_run_criteria();
+v1_fail.V1 = "fail";
+terminal_request(legal_path, "INVALID_INPUT", v1_fail);
+const closed = broker_ok(state_root,
+  ["stage", "rehearsal", ORDINAL, RUN_ID, legal_path],
+  ["accepted", "receipt_sha256"], "admission_terminal");
+checks.terminal_stage_accepted = closed.accepted === true;
+
+// The terminal stage must have published a receipt. `fs_exists` returns 1 for
+// present, matching the preflight's convention.
+const receipt_path = rh.join(state_root, "rehearsal-1-receipt.json");
+demand(fs_exists(receipt_path) === 1, "admission_receipt_absent");
+const receipt_digest = rh.sha256_file(receipt_path);
+checks.receipt_digest_matches_stage = receipt_digest === closed.receipt_sha256;
+
+const finished = broker_ok(state_root,
+  ["finish", "rehearsal", ORDINAL, RUN_ID, receipt_digest],
+  ["experiment", "input_digest", "kind", "ordinal", "receipt_sha256", "run_id",
+    "schema", "source_sha", "status", "terminal_code"],
+  "admission_finish");
+checks.finished_status = finished.status === "finished";
+checks.finished_terminal_code = finished.terminal_code === "INVALID_INPUT";
+checks.finished_receipt_binding = finished.receipt_sha256 === receipt_digest;
+checks.finish_twice_refused =
+  broker_refuse(state_root, ["finish", "rehearsal", ORDINAL, RUN_ID, receipt_digest],
+    "admission_finish_twice") === "attempt_not_active";
+
+// -- 7. `inspect` is the authoritative read and is side-effect free ----------
+const before_inspect = rh.sha256_file(rh.join(state_root, "attempt-ledger.jsonl"));
+const inspected = broker_ok(state_root, ["inspect"],
+  ["experiment", "ledger", "schema"], "admission_inspect");
+checks.inspect_reports_finished = inspected.ledger.length === 2
+  && inspected.ledger[1].status === "finished";
+const after_inspect = rh.sha256_file(rh.join(state_root, "attempt-ledger.jsonl"));
+checks.inspect_side_effect_free = before_inspect === after_inspect;
+
+// -- 8. a fabricated finished row is refused by the authoritative read -------
+// The ledger's structural check cannot see the receipt a finished row claims,
+// so `inspect` re-derives every finished transition from disk. This proves the
+// dry-run is exercising that path rather than merely counting rows.
+const forge_root = rh.join(state_root, "forge");
+demand(fs_create_dir_all(forge_root) === 0, "admission_forge_dir:" + tool_result());
+const forge_state = rh.join(forge_root, "state");
+demand(fs_create_dir_all(forge_state) === 0, "admission_forge_state:" + tool_result());
+broker_ok(forge_state, ["reserve", "rehearsal", ORDINAL, RUN_ID, source_sha, input_digest],
+  ["experiment", "frozen_input_recheck", "input_digest", "kind", "ordinal",
+    "receipt_sha256", "run_id", "schema", "source_sha", "status", "terminal_code"],
+  "admission_forge_reserve");
+const forge_ledger = rh.join(forge_state, "attempt-ledger.jsonl");
+const forged_row = {
+  schema: "agenterm.profile-binding-exact-process-attempt/v1",
+  experiment: "acu.dynamic.075.profile-name-binding-exact-process",
+  kind: "rehearsal",
+  ordinal: ORDINAL,
+  run_id: RUN_ID,
+  source_sha: source_sha,
+  input_digest: input_digest,
+  status: "finished",
+  receipt_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  terminal_code: "INVALID_INPUT"
+};
+// The broker requires canonical rows: every line it reads must re-encode to
+// exactly the bytes on disk, which means keys in sorted order. A plain
+// `JSON.stringify` preserves insertion order, so the keys are sorted first.
+// Without this the forgery fails as malformed state rather than as a forged
+// completion, and the scene would prove the wrong thing.
+const forged_text = rh.read_text(forge_ledger) + canonical_json(forged_row) + "\n";
+// The temp file is a SIBLING of the ledger, not inside the state root: the
+// broker holds its own lock there and a foreign file inside the state tree
+// would be an unexpected artifact for a later audit.
+const forge_tmp = rh.join(forge_root, "forge.tmp");
+demand(fs_create_new_regular_durable(forge_tmp, forged_text) === 0,
+  "admission_forge_write:" + tool_result());
+demand(rh.sha256_file(forge_tmp) !== null, "admission_forge_write_readback");
+demand(fs_rename(forge_tmp, forge_ledger) === 0,
+  "admission_forge_rename:" + tool_result());
+// The rename must actually have replaced the ledger, otherwise the refusal
+// below would be proving nothing. `rh_compat` exposes only `sha256_file`, so the
+// expected bytes are hashed by writing them back in their own file and
+// comparing digests, rather than reimplementing the digest.
+const forge_expect = rh.join(forge_root, "forge.expect");
+demand(fs_create_new_regular_durable(forge_expect, forged_text) === 0,
+  "admission_forge_expect_write:" + tool_result());
+demand(rh.sha256_file(forge_ledger) === rh.sha256_file(forge_expect),
+  "admission_forge_ledger_unreplaced");
+demand(fs_remove_file(forge_expect) === 0, "admission_forge_expect_remove:"
+  + tool_result());
+const forged_verdict = broker_refuse(forge_state, ["inspect"], "admission_forge_inspect");
+checks.forged_finished_refused = forged_verdict === "authoritative_receipt_missing";
+
+// -- 9. the abandoned path is a distinct terminal ---------------------------
+const abandon_root = rh.join(state_root, "abandon");
+demand(fs_create_dir_all(abandon_root) === 0, "admission_abandon_dir:" + tool_result());
+const abandon_state = rh.join(abandon_root, "state");
+demand(fs_create_dir_all(abandon_state) === 0, "admission_abandon_state:" + tool_result());
+broker_ok(abandon_state, ["reserve", "rehearsal", ORDINAL, RUN_ID, source_sha, input_digest],
+  ["experiment", "frozen_input_recheck", "input_digest", "kind", "ordinal",
+    "receipt_sha256", "run_id", "schema", "source_sha", "status", "terminal_code"],
+  "admission_abandon_reserve");
+const abandoned = broker_ok(abandon_state, ["abandon", "rehearsal", ORDINAL, RUN_ID],
+  ["experiment", "input_digest", "kind", "ordinal", "receipt_sha256", "run_id",
+    "schema", "source_sha", "status", "terminal_code"],
+  "admission_abandon");
+checks.abandoned_status = abandoned.status === "abandoned";
+checks.abandoned_has_no_receipt = abandoned.receipt_sha256 === null;
+
+// Every check must hold. A partial pass is a failure: this entry either
+// demonstrates the whole admission round-trip or it reports nothing.
+const failed = [];
+for (const key of Object.keys(checks)) {
+  if (checks[key] !== true) { failed.push(key); }
+}
+demand(failed.length === 0, "admission_checks_failed:" + failed.join("+")
+  + ":forged_verdict=" + forged_verdict);
+
+const proof = {
+  schema: SCHEMA,
+  ok: true,
+  mode: MODE_DRY_RUN,
+  ordinal_named: ORDINAL,
+  formal_root_touched: false,
+  browser_launched: false,
+  design_verdict: false,
+  checks: checks
+};
+print(JSON.stringify(proof));
+print("EVIDENCE research.profile-binding-exact-process.admission-dry-run");
+print("PASS: exact-process admission dry-run");

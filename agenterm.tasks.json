@@ -3118,6 +3118,24 @@
         "research.profile-binding-exact-process.capability-preflight"
       ]
     },
+    "browser-profile-name-binding-exact-process-admission-dry-run": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "exact-process-admission-dry-run-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 60000,
+        "max_operations": 10000000,
+        "max_host_operations": 512,
+        "max_output_bytes": 32768
+      },
+      "network": [],
+      "evidence": [
+        "research.profile-binding-exact-process.admission-dry-run"
+      ]
+    },
     "acu-mcp-provider-smoke": {
       "inputs": [
         "built-agenterm-with-acu-provider"
@@ -9071,6 +9089,22 @@
       "args": [
         "."
       ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "browser-profile-name-binding-exact-process-admission-dry-run",
+      "description": "Prove the exact-process experiment's admission broker can complete one legal rehearsal transaction and its typed refusal paths in a disposable root without launching a browser, touching formal state or producing a design verdict.",
+      "entry": "research/browser-profile-name-binding-exact-process/admission-dry-run.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [],
       "dependencies": [],
       "platforms": [
         "macos"

@@ -135,6 +135,15 @@ sh research/browser-profile-name-binding-exact-process/run-current-host.sh \
   --broker-self-test
 ```
 
+Admission dry-run (verified through the registered tool-profile task): all 24
+checks true, ending in `PASS: exact-process admission dry-run`
+with `formal_root_touched: false` and `browser_launched: false`.
+
+Red gate: `ADMISSION_RED_GATE_PASS` (the entry is refused by the plain run path,
+a facts payload carrying `argv` is refused, a non-whitelisted fact key is
+refused, an in-place byte mutation changes the tree snapshot, and the formal
+root is unchanged).
+
 Last run on this host: `BROKER_SELF_TEST_PASS requests=130 failures=0`, and
 `BROKER_SELF_TEST_HARNESS_PASS`.
 
