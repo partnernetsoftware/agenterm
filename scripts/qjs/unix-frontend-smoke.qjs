@@ -40,10 +40,6 @@ function inspect_png(path) {
   return JSON.parse(tool_result());
 }
 
-function trimmed(value) {
-  return ("" + value).trim();
-}
-
 function text_contains(text, needle) {
   return ("" + text).includes(needle);
 }
@@ -254,19 +250,6 @@ function wait_macos_agenterm_active(context) {
     harness.sleep_ms(20);
   }
   throw "unix_frontend_macos_activation_timeout";
-}
-
-function wait_native_focus(context, cli, platform, native_window_id) {
-  for (let attempt = 0; attempt < 160; attempt = attempt + 1) {
-    const snapshot = json_cli(context, cli, ["ui-snapshot"]);
-    const os_focused = os_focused_for_platform(context, platform, native_window_id);
-    const focus_surface = "" + snapshot.focus.surface;
-    if (snapshot.focus.window_focused && focus_surface === "terminal" && os_focused !== 0) {
-      return snapshot;
-    }
-    harness.sleep_ms(20);
-  }
-  throw "unix_frontend_native_focus_event_timeout";
 }
 
 function set_native_clipboard(context, platform, text) {
