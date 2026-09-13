@@ -268,10 +268,12 @@ pub enum NativeDoorError {
     /// `termination: "nul"` and the call left no NUL in the region.
     NativeRegionUnterminated {
         index: usize,
+        native_status: i32,
     },
     /// `output: "text"` and the bytes before the terminator are not UTF-8.
     NativeRegionNotUtf8 {
         index: usize,
+        native_status: i32,
     },
     LibraryLoad {
         library: String,
@@ -447,16 +449,22 @@ impl fmt::Display for NativeDoorError {
                     "arguments ask for {requested} region bytes, maximum {maximum}"
                 )
             }
-            Self::NativeRegionUnterminated { index } => {
+            Self::NativeRegionUnterminated {
+                index,
+                native_status,
+            } => {
                 write!(
                     f,
-                    "argument {index} region has no NUL after the call though termination is \"nul\""
+                    "argument {index} region has no NUL after the call though termination is \"nul\"; native status was {native_status}"
                 )
             }
-            Self::NativeRegionNotUtf8 { index } => {
+            Self::NativeRegionNotUtf8 {
+                index,
+                native_status,
+            } => {
                 write!(
                     f,
-                    "argument {index} region output is not UTF-8 though output is \"text\""
+                    "argument {index} region output is not UTF-8 though output is \"text\"; native status was {native_status}"
                 )
             }
             Self::LibraryLoad { library, message } => {
@@ -1174,7 +1182,7 @@ fn invoke_pointer_json(
         serde_json::Value::Array(
             positions
                 .iter()
-                .map(|(index, region)| regions[*region].readback(*index))
+                .map(|(index, region)| regions[*region].readback(*index, status))
                 .collect::<Result<Vec<_>, _>>()?,
         ),
     );
@@ -1586,18 +1594,25 @@ impl NativeRegion {
 
     /// The region's declared output contract, as one `regions` entry.
     ///
-    /// `output: "bytes"` answers the exact bytes, never a guessed written
-    /// length and never an encoding layer (no hex, no digest, no base64): the
-    /// caller asked for bytes and gets them, so the answer is bounded by the
-    /// slot's byte budget rather than by a representation choice made here.
-    fn readback(&self, index: usize) -> Result<serde_json::Value, NativeDoorError> {
+    /// `output: "bytes"` answers a post-call snapshot of the selected bytes,
+    /// never a guessed written length and never proof that the callee wrote
+    /// them. Bytes left untouched by the callee remain the host's zero fill or
+    /// the caller's input. The native status is retained on readback failures
+    /// because rejecting an encoding contract must not erase the C result.
+    fn readback(
+        &self,
+        index: usize,
+        native_status: i32,
+    ) -> Result<serde_json::Value, NativeDoorError> {
         let bytes = self.bytes();
         let content = match self.contract {
             RegionContract::NulText | RegionContract::NulBytes => {
-                let end = bytes
-                    .iter()
-                    .position(|byte| *byte == 0)
-                    .ok_or(NativeDoorError::NativeRegionUnterminated { index })?;
+                let end = bytes.iter().position(|byte| *byte == 0).ok_or(
+                    NativeDoorError::NativeRegionUnterminated {
+                        index,
+                        native_status,
+                    },
+                )?;
                 &bytes[..end]
             }
             RegionContract::RawBytes => bytes,
@@ -1605,7 +1620,10 @@ impl NativeRegion {
         let value = match self.contract {
             RegionContract::NulText => serde_json::Value::String(
                 std::str::from_utf8(content)
-                    .map_err(|_| NativeDoorError::NativeRegionNotUtf8 { index })?
+                    .map_err(|_| NativeDoorError::NativeRegionNotUtf8 {
+                        index,
+                        native_status,
+                    })?
                     .to_owned(),
             ),
             RegionContract::NulBytes | RegionContract::RawBytes => content
@@ -2653,7 +2671,7 @@ mod json_adapter_tests {
         assert_eq!(
             answer["regions"][0]["value"],
             serde_json::json!(b"/nonexistent".to_vec()),
-            "the callee read the region's own bytes, and they came back"
+            "readback is the post-call buffer snapshot: a non-writing callee leaves the caller's input unchanged"
         );
     }
 
@@ -2671,7 +2689,10 @@ mod json_adapter_tests {
                 &NativeLibraryCache::new(),
                 region_bound(),
             ),
-            Err(NativeDoorError::NativeRegionNotUtf8 { index: 0 })
+            Err(NativeDoorError::NativeRegionNotUtf8 {
+                index: 0,
+                native_status: -1,
+            })
         );
     }
 
@@ -2692,8 +2713,11 @@ mod json_adapter_tests {
             contract: RegionContract::NulBytes,
         };
         assert_eq!(
-            region.readback(3),
-            Err(NativeDoorError::NativeRegionUnterminated { index: 3 })
+            region.readback(3, -17),
+            Err(NativeDoorError::NativeRegionUnterminated {
+                index: 3,
+                native_status: -17,
+            })
         );
     }
 
