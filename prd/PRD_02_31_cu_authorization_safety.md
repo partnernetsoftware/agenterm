@@ -271,7 +271,10 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   canonical `window-place.center` operation refuses before effect with
   `scope_missing`. It also scans every published audit record from the journey
   and rejects credential, installation-key, lease, secret, session and token
-  fields. The public Windows smoke owns an
+  fields. The authorized `attempt` and `ok` records must share one non-empty
+  decision ID; operation mismatch, revocation, expiry and missing scope must
+  each publish exactly one distinct `denied` outcome for the bound grant. The
+  public Windows smoke owns an
   isolated one-shot observe grant:
   its first `capabilities` command succeeds, the second is refused as
   exhausted, and a separately revoked grant is refused before dispatch. Four

@@ -9802,7 +9802,7 @@
     },
     {
       "id": "cu-persisted-grant-smoke",
-      "description": "Prove on macOS that persisted current-target grants bind one canonical operation, expire and revoke durably, refuse actuation without its scope, preserve use budgets on refusal, and publish no authority material in audit records.",
+      "description": "Prove on macOS that persisted current-target grants bind one canonical operation, expire and revoke durably, refuse actuation without its scope, preserve use budgets on refusal, pair authorized audit records by decision, and publish no authority material.",
       "entry": "scripts/qjs/cu-persisted-grant-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

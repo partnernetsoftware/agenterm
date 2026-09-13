@@ -46,6 +46,43 @@ function assert_audit_has_no_authority_material(path) {
   }
 }
 
+function audit_records(path) {
+  const lines = rh.read_text(path).split("\n");
+  const records = [];
+  for (let i = 0; i < lines.length; i = i + 1) {
+    if (lines[i].trim() !== "") { records.push(JSON.parse(lines[i])); }
+  }
+  return records;
+}
+
+function assert_one_denied(records, grant_id, outcome) {
+  let matched = 0;
+  for (let i = 0; i < records.length; i = i + 1) {
+    const record = records[i];
+    if (record.grant_id === grant_id && record.decision === "denied" && record.outcome === outcome) {
+      ensure(typeof record.decision_id === "string" && record.decision_id.length > 0,
+        "cu_persisted_grant_denied_decision_id:" + outcome);
+      matched = matched + 1;
+    }
+  }
+  ensure(matched === 1, "cu_persisted_grant_denied_record_count:" + outcome + ":" + matched);
+}
+
+function assert_authorized_pair(records, grant_id) {
+  let attempt_id = "";
+  let outcome_id = "";
+  for (let i = 0; i < records.length; i = i + 1) {
+    const record = records[i];
+    if (record.grant_id === grant_id && record.decision === "authorized") {
+      if (record.outcome === "attempt") { attempt_id = record.decision_id; }
+      if (record.outcome === "ok") { outcome_id = record.decision_id; }
+    }
+  }
+  ensure(typeof attempt_id === "string" && attempt_id.length > 0,
+    "cu_persisted_grant_authorized_attempt_missing");
+  ensure(outcome_id === attempt_id, "cu_persisted_grant_authorized_decision_drift");
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   print(declared_evidence[0]);
@@ -177,7 +214,14 @@ try {
   ensure(actuation.error.message.indexOf("scope_missing") >= 0,
     "cu_persisted_grant_actuation_error_reason");
 
-  assert_audit_has_no_authority_material(rh.join(context.run_directory, "cu-audit.jsonl"));
+  const audit_path = rh.join(context.run_directory, "cu-audit.jsonl");
+  const records = audit_records(audit_path);
+  assert_authorized_pair(records, grant.grant_id);
+  assert_one_denied(records, grant.grant_id, "operation_mismatch");
+  assert_one_denied(records, grant.grant_id, "revoked");
+  assert_one_denied(records, expiry_grant.grant_id, "expired");
+  assert_one_denied(records, actuation_grant.grant_id, "scope_missing");
+  assert_audit_has_no_authority_material(audit_path);
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
