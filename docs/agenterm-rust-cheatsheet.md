@@ -6254,3 +6254,14 @@ For a large Rust file, make this change with unique-text patches and inspect the
 whole diff against `HEAD`. Do not delete line-number slices with a rewrite
 script: an offset can remove a function body while leaving a plausible doc
 comment, and formatting cannot prove that the intended function survived.
+
+## One admitted scalar type needs one canonicalizer across transports
+
+When two transports dispatch through the same closed ABI family, do not copy a
+strict subset of the scalar conversion match for the narrower-looking path.
+The duplicate can silently omit a type that the shared declaration already
+admits, leaving one transport executable and the other typed-refused. Keep one
+canonicalizer for each input representation, let the family table own which
+types are reachable, and prove a formerly omitted position with an independent
+native oracle. This is a real fold only when it deletes the subset helper and
+adds no trait, parallel table, or policy branch.

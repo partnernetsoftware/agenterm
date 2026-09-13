@@ -844,7 +844,7 @@ pub(crate) fn invoke_native_call(
                 .arguments
                 .iter()
                 .enumerate()
-                .map(|(index, argument)| fixed_argument(index, argument, &call.spec))
+                .map(|(index, argument)| exact_argument(index, argument, &call.spec))
                 .collect::<Result<Vec<_>, _>>()?;
             // SAFETY: native_dispatch admitted this enumerated fixed prototype.
             unsafe { invoke_prepared(&call.spec, &arguments, libraries) }
@@ -1006,7 +1006,7 @@ pub(crate) fn invoke_native_json(
                 .copied()
                 .zip(values)
                 .enumerate()
-                .map(|(index, (ty, value))| fixed_json_argument(index, ty, value))
+                .map(|(index, (ty, value))| exact_json_argument(index, ty, value))
                 .collect::<Result<Vec<_>, _>>()?;
             // SAFETY: native_dispatch admitted this enumerated fixed prototype.
             unsafe { invoke_prepared(&spec, &arguments, libraries) }.and_then(|value| {
@@ -1056,7 +1056,7 @@ fn invoke_pointer_json(
         } else {
             // A scalar position keeps the exact value grammar it has in the
             // fixed family; only the pointer positions changed meaning.
-            layout.push(JsonPointerArgument::Scalar(fixed_json_argument(
+            layout.push(JsonPointerArgument::Scalar(exact_json_argument(
                 index, ty, value,
             )?));
         }
@@ -1849,40 +1849,6 @@ fn exact_json_argument(
     }
 }
 
-fn fixed_json_argument(
-    index: usize,
-    ty: NativeType,
-    value: &serde_json::Value,
-) -> Result<AbiValue, NativeDoorError> {
-    let invalid = || NativeDoorError::ArgumentValueInvalid { index, ty };
-    match ty {
-        NativeType::I32 => value
-            .as_i64()
-            .and_then(|value| i32::try_from(value).ok())
-            .map(AbiValue::I32)
-            .ok_or_else(invalid),
-        NativeType::I64 => value
-            .as_str()
-            .and_then(|value| value.parse().ok())
-            .map(AbiValue::I64)
-            .ok_or_else(invalid),
-        NativeType::U64 => value
-            .as_str()
-            .and_then(|value| value.parse().ok())
-            .map(AbiValue::U64)
-            .ok_or_else(invalid),
-        NativeType::Isize => value
-            .as_str()
-            .and_then(|value| value.parse().ok())
-            .map(AbiValue::Isize)
-            .ok_or_else(invalid),
-        _ => Err(NativeDoorError::InvocationSignatureUnsupported {
-            result: ty,
-            parameters: vec![ty],
-        }),
-    }
-}
-
 fn exact_scalar_type(ty: NativeType) -> Option<NativeType> {
     EXACT_SCALAR_TYPES.contains(&ty).then_some(ty)
 }
@@ -1922,41 +1888,6 @@ fn exact_argument(
             .map(AbiValue::Usize)
             .map_err(|_| invalid()),
         NativeType::F64 => Ok(AbiValue::F64(f64::from_bits(*bits))),
-        _ => Err(unsupported_json_spec(spec)),
-    }
-}
-
-fn fixed_argument(
-    index: usize,
-    argument: &NativeArgument,
-    spec: &NativeSpec,
-) -> Result<AbiValue, NativeDoorError> {
-    let NativeArgument::Scalar { ty, bits } = argument else {
-        return Err(unsupported_json_spec(spec));
-    };
-    let invalid = || NativeDoorError::ScalarNotCanonical {
-        index,
-        ty: *ty,
-        bits: *bits,
-    };
-    match ty {
-        NativeType::I32 => {
-            let value = *bits as i32;
-            (value as i64 as u64 == *bits)
-                .then_some(AbiValue::I32(value))
-                .ok_or_else(invalid)
-        }
-        NativeType::U32 => u32::try_from(*bits)
-            .map(AbiValue::U32)
-            .map_err(|_| invalid()),
-        NativeType::I64 => Ok(AbiValue::I64(*bits as i64)),
-        NativeType::U64 => Ok(AbiValue::U64(*bits)),
-        NativeType::Isize => {
-            let value = *bits as isize;
-            (value as i64 as u64 == *bits)
-                .then_some(AbiValue::Isize(value))
-                .ok_or_else(invalid)
-        }
         _ => Err(unsupported_json_spec(spec)),
     }
 }
@@ -3175,6 +3106,24 @@ mod json_adapter_tests {
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&actual).expect("result JSON"),
             serde_json::json!({"type":"isize","value":expected})
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn json_and_raw_fixed_calls_share_the_u32_argument_grammar() {
+        #[cfg(target_os = "macos")]
+        let spec = b"|getpriority|i32(i32,u32)";
+        #[cfg(target_os = "linux")]
+        let spec = b"|getpriority|i32(u32,u32)";
+
+        // SAFETY: this is the independent libc oracle for the same fixed call.
+        let expected = unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) };
+        let actual = invoke_native_json(spec, b"[0,0]", &NativeLibraryCache::new(), region_bound())
+            .expect("the JSON transport accepts the fixed family's declared u32 position");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&actual).expect("result JSON"),
+            serde_json::json!({"type":"i32","value":expected})
         );
     }
 }

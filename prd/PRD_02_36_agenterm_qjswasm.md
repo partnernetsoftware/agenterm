@@ -80,6 +80,15 @@ agenterm-qjswasm
 │  │  │  │  └─ economy: `native.rs` +113/−182, net −69 LOC; two error mappers,
 │  │  │  │        two ABI-parameter helpers and six repeated call blocks collapse without
 │  │  │  │        adding a struct, trait, branch or public API
+│  │  │  ├─ [x] raw and JSON transports share one scalar canonicalizer per ABI type
+│  │  │  │  ├─ user problem: the fixed-family copies drifted from the exact-family grammar,
+│  │  │  │  │     so JSON refused the already-exposed `u32` position that raw calls executed
+│  │  │  │  ├─ invariant: family dispatch still selects the admitted trampoline; canonical
+│  │  │  │  │     scalar bytes and typed value failures have one owner across transports
+│  │  │  │  ├─ evidence: the JSON `getpriority` oracle exercises `i32(i32,u32)` on macOS and
+│  │  │  │  │     `i32(u32,u32)` on Linux against libc, while the raw oracle remains unchanged
+│  │  │  │  └─ economy: two strict-subset helpers are deleted; no trait, table, ABI shape,
+│  │  │  │        loader, policy, handle or public entry is added
 │  │  │  ├─ [x] no `PreparedAbiCall` wrapper: `invoke_prepared` already owns the one call
 │  │  │  │     construction site; a struct over the same borrowed spec and arguments removes no truth
 │  │  │  ├─ [x] no `NativeOutcome` wrapper: raw bits, JSON scalars and region snapshots are
