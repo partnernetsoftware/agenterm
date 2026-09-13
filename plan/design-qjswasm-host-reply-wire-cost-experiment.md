@@ -134,6 +134,11 @@ only: their steps may be quoted as judged numbers only if they reproduce the
 non-probe A median within the recorded spread, and this must be stated either
 way. Wall time is recorded but is not a gate. Percentages divide by the same
 journey's own A total steps only; no cross-pin ratio and no cross-journey ratio.
+Two differences are named throughout: **`ΔB = steps_A − steps_B`** and
+**`ΔC = steps_A − steps_C`** — the steps a shape **removes**, so a shape that is
+cheaper than the control has a positive value. A negative value means the shape
+cost *more* than the control; it is recorded as such and can never satisfy a
+gate.
 
 ### 1.4 Disease detector
 
@@ -171,14 +176,17 @@ replaced with a synthetic shape.
 
 | id | nature | criterion |
 |---|---|---|
-| V0 | Boolean / validity | §1.2 V1–V4 hold: reply sets frozen and digest-stable, control reproduces, B is JSON-equivalent to A, C is JSON-equivalent to A over every field the census says the journey reads. A shape that fails validity is dropped; if C fails, the verdict may fall back to B alone; if both fail, the experiment is killed with no verdict. |
-| W0 | Boolean / primary gate | `(steps_C − steps_A) / journey_total_steps ≥ 10%` holds in **at least two of the three** journeys, with each shape's own 3-run median. |
-| W1 | Share / decomposition | `(steps_B − steps_A) / (steps_C − steps_A)` per journey: the indentation-only share of the removable wire. This decides *which* wire change is the owner, not whether one is. |
+| V0 | Boolean / validity | §1.2 V1–V4 hold: reply sets frozen and digest-stable, control reproduces, B is JSON-equivalent to A, C is JSON-equivalent to A over every field the census says the journey reads. A shape that fails validity is dropped; if C fails, the verdict falls back to the independent W0-B gate below; if both fail, the experiment is killed with no verdict. |
+| W0-C | Boolean / primary gate | `ΔC / journey_total_steps ≥ 10%` holds in **at least two of the three** journeys, with each shape's own 3-run median. |
+| W0-B | Boolean / primary gate (fallback branch) | Used only when C failed V0 while B holds: `ΔB / journey_total_steps ≥ 10%` holds in **at least two of the journeys that still have a valid B**. Failing it kills the route; passing it names **one** owner — compact reply text — and never reaches W1 or field selection. |
+| W1 | Share / decomposition | `ΔB / ΔC` per journey: the indentation-only share of the removable wire, evaluated only on the branch where C is valid. This decides *which* wire change is the owner, not whether one is. |
 | S0 | Safety / semantics | No shape changes guest-visible values, typed failures, exit classes or budget outcomes; no run reaches a step ceiling; reply flagging/truncation contracts are unchanged; the journey's A runs show no step regression against their own frozen baseline. |
-| M0 | List | The per-journey reply census (reply count, envelope bytes, payload bytes, steps per shape, share, notes) — the primary product of this experiment may be this list, not one number. |
+| M0 | List | The per-journey reply census (reply count, envelope bytes, payload bytes, steps per shape, ΔB, ΔC, shares, notes) — the primary product of this experiment may be this list, not one number. |
 
-Order, as declared above: **V0 (validity/safety) → W0 (gate) → W1 (mechanism) →
-M0 (the list)**. Every criterion appears as a node in §4.
+Order, as declared above: **V0 (validity/safety) → W0-C (primary gate) → W1
+(mechanism) → M0 (the list)**, with **W0-B as the independent gate of the
+C-invalid branch**; the branch is chosen by V0, never by which gate looks more
+likely to pass. Every criterion appears as a node in §4.
 
 Judged numbers are medians of 3; a share is reported to one decimal and never
 rounded up to reach 10%. A shape may not be re-run "for a better number" after
@@ -193,15 +201,17 @@ flowchart TD
   FREEZE --> CAP{"V1 reply sets stable for<br/>at least 2 journeys?"}
   CAP -->|no| NOV["no verdict: experiment incomplete<br/>record the census as far as it goes"]
   CAP -->|yes| V0{"V0: B JSON-equal to A,<br/>C equal over every read field?"}
-  V0 -->|both fail| KILL["KILL: no verdict on the wire"]
-  V0 -->|C fails, B holds| FB["fall back to B-only judgement"]
-  V0 -->|yes| W0{"W0: (C-A)/journey total >= 10%<br/>in at least 2 of 3 journeys?"}
-  W0 -->|no| KILL
-  W0 -->|yes| W1{"W1: does B alone explain<br/>>= 75% of (C-A)?"}
-  W1 -->|yes| OWN1["owner = compact reply text<br/>product wire, small change"]
+  V0 -->|both fail| KILL["KILL: retain the census<br/>and the per-shape table"]
+  V0 -->|yes| W0C{"W0-C: deltaC / journey total >= 10%<br/>in at least 2 of 3 journeys?"}
+  W0C -->|no| KILL
+  W0C -->|yes| W1{"W1: deltaB / deltaC >= 75%<br/>on those journeys?"}
+  W1 -->|yes| OWN1["owner = compact reply text only<br/>product wire, small change"]
   W1 -->|no| OWN2["owner = host-side field selection<br/>product wire, new door/API shape<br/>separate decision"]
-  FB --> W1
+  V0 -->|C fails, B holds| W0B{"W0-B: deltaB / journey total >= 10%<br/>in at least 2 journeys with a valid B?"}
+  W0B -->|no| KILL
+  W0B -->|yes| OWN1B["owner = compact reply text only<br/>W1 and field selection not reached"]
   OWN1 --> STOP["experiment ends<br/>implementation is a new leaf"]
+  OWN1B --> STOP
   OWN2 --> STOP
   KILL --> STOPS["retain the census and the per-shape table<br/>frontier stays upstream"]
 ```
@@ -210,16 +220,35 @@ Kill criteria:
 
 - V0 fails for both B and C, or the semantic equivalence cannot be established
   for a shape without changing what the guest reads;
-- W0 fails: `C` removes less than 10% of the journey's own total steps in two or
-  more journeys — the reply bytes are then not the next owner at this pin;
+- **W0-C fails** on the C-valid branch: `ΔC` removes less than 10% of the
+  journey's own total steps in two or more journeys — the reply bytes are then
+  not the next owner at this pin;
+- **W0-B fails** on the C-invalid branch: with only B valid, `ΔB` removes less
+  than 10% of the journey's own total steps in two or more valid journeys;
 - fewer than two journeys produce a frozen reply set with three reproducible
   medians each;
 - satisfying a shape requires any disease-detector item from §1.4, a budget
   change, a redefinition of a read field, or a second guest parser.
 
-All pass/fail combinations exit: validity failure → no verdict; C-only failure
-→ B-only judgement; W0 fail → kill with the census retained; W0 pass → W1
-chooses between the two wire owners and the experiment ends.
+All pass/fail combinations exit, in the order V0 chooses the branch:
+
+1. V1 reply sets unstable for two or more journeys → **no verdict**, experiment
+   incomplete, census recorded as far as it goes.
+2. V0 fails for B and C → **kill**, no verdict on the wire.
+3. V0 holds → W0-C: `ΔC/total < 10%` in two or more journeys → **kill** with the
+   census retained; `ΔC/total ≥ 10%` in two or more → W1: `ΔB/ΔC ≥ 75%` →
+   **owner = compact reply text**; `ΔB/ΔC < 75%` → **owner = host-side field
+   selection**. Both exits end the experiment as a new leaf.
+4. V0 fails for C but holds for B → W0-B: `ΔB/total < 10%` in two or more valid
+   journeys → **kill**; `ΔB/total ≥ 10%` → **owner = compact reply text only**,
+   and neither W1 nor field selection is evaluated on this branch.
+5. Fewer than two journeys usable, any S0 breach, or any disease/budget item →
+   **stop** with the census retained.
+
+W1 is a decomposition rule, not a second gate: with `ΔC/total ≥ 10%` a 75% share
+admits a compact-only owner whose own share may be as low as 7.5% of the journey
+total. That consequence is accepted here, before any number exists, and must not
+be re-argued afterwards.
 
 Time box is evidence-based, not calendar-based:
 
@@ -227,8 +256,8 @@ Time box is evidence-based, not calendar-based:
    and A/B/C each have a 3-run median**, or as soon as only one journey remains
    usable (then: no verdict).
 2. No product wire implementation, no door/API addition, no guest change and no
-   upstream work happens inside this experiment. Passing W0 ends the experiment,
-   it does not start the implementation.
+   upstream work happens inside this experiment. Passing `W0-C` or `W0-B` ends
+   the experiment, it does not start the implementation.
 3. No second journey may be added, no shape may gain a variant (for example a
    "compact + selected fields" hybrid), and no ceiling may be moved after the
    first numbers exist.
@@ -279,7 +308,7 @@ that deviation in §8 as the previous experiment did.
 | choice | reason excluded |
 |---|---|
 | reopen the upstream prelude / `.length` / string-record family | three times rejected and frozen; reopening requires its own pre-registered upstream experiment (double control, closed-form slope), not this leaf |
-| treat per-node parse constants as this experiment's owner | they are the residual after W0 kills the wire route, and they belong to a pin bump |
+| treat per-node parse constants as this experiment's owner | they are the residual after `W0-C` or `W0-B` kills the wire route, and they belong to a pin bump |
 | guest-side field selection, a second JSON parser or a new guest instruction | that is the disease in §1.4; the guest stays byte-for-byte the guest |
 | the record-serialization owner (guest as JSON encoder for `fs.append`) | a separate candidate with its own consumers; mixing it here would confound the wire share |
 | dyn symbol resolution, native region copies, engine/instance lifecycle | audited this round and eliminated: no consumer repeats the load, the region path has three call sites in one court, and the library cache already covers the loop case |
@@ -294,8 +323,9 @@ that deviation in §8 as the previous experiment did.
 - Whether the same wire share holds on other pins: a pin that changes the
   per-byte price re-opens the *share*, not the procedure.
 - Whether a host-side field-selection door is the right API shape, what it costs
-  to carry, and who owns its schema — that is the next leaf if W1 sends the
-  verdict there.
+  to carry, and who owns its schema — that is the next leaf only if `W1` sends
+  the verdict there (`ΔB/ΔC < 75%` while `C` is valid); the `W0-B` branch never
+  reaches it, and a killed route reaches neither.
 - Whether compacting replies is acceptable to the human-facing CLI JSON format
   and to other consumers of the same text.
 - The input direction: `JSON.stringify(args)` on the way out of the guest (that
@@ -322,16 +352,18 @@ that deviation in §8 as the previous experiment did.
 | reply sets: journeys frozen, reply count, sha256 manifest | |
 | control runs: 3 totals + spread per journey | |
 
-| journey | replies | envelope B | payload B | steps A | steps B | steps C | (C−A)/total | B share of (C−A) | `json_parse_bytes` |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| server-smoke | | | | | | | | | |
-| workbench-smoke | | | | | | | | | |
-| native-ipc-smoke | | | | | | | | | |
+| journey | replies | envelope bytes | payload bytes | steps A | steps B | steps C | ΔB | ΔC | ΔC/total | ΔB/ΔC | `json_parse_bytes` |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| server-smoke | | | | | | | | | | | |
+| workbench-smoke | | | | | | | | | | | |
+| native-ipc-smoke | | | | | | | | | | | |
 
 Then, in order:
 
-1. **Verdict path**: walk §4 node by node (`V0 yes → W0 yes → W1 …`) and write
-   the path, not only the conclusion.
+1. **Verdict path**: walk §4 node by node, naming the branch V0 chose, and write
+   the path rather than only the conclusion — for example
+   `V0 yes → W0-C yes → W1 no → field selection`, or
+   `V0 C fails, B holds → W0-B yes → compact reply text only`.
 2. **Numbers**: the table above, medians of 3, with units and measurement
    conditions; every number labelled 真机执行 / 仅字节测量 / 编码器验证 /
    结构推断 as applicable.
@@ -345,9 +377,10 @@ Then, in order:
 5. **Surprises**: anything that contradicted the expectation, named explicitly.
 6. **Spec bugs**: if the decision tree missed a combination or a criterion was
    ambiguous, fix the specification here rather than in prose.
-7. **Follow-up**: the owner named by W1 (compact reply text, or host-side field
-   selection), or the upstream frontier if W0 killed the route — as a new leaf,
-   never as work inside this one.
+7. **Follow-up**: the owner named by the branch that ran — compact reply text
+   (from `W0-C` + `W1`, or from `W0-B` alone) or host-side field selection (from
+   `W1 < 75%`) — or the upstream frontier if a gate killed the route. Always a
+   new leaf, never as work inside this one.
 
 `RESULTS.md` in the evidence directory must additionally carry the rerun
 commands, the A/B/C court invocations, the independent reference values (reply
