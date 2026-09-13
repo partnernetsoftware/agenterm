@@ -382,13 +382,6 @@ function fixture_state_text(seq, event, role) {
     event: event, role: role, pid: 1, bundle_id: "b", window: { handle: null, ordinary_onscreen_count: 0 }, failure_code: null });
 }
 
-function native_options(run_root) {
-  return { fixture_contract: fixture_contract_fixture(), run_root: run_root, uid: 501, manifest_path: "manifest.json",
-    process_probe: "process-probe", bundle_root: "b", selected_executable: "s",
-    primary_executable: "primary", secondary_executable: "secondary",
-    foreground_probe: "foreground-probe", max_windows: 16, ready_timeout_ms: 200 };
-}
-
 function test_native_ready() {
   // The manifest validator is injected (the fake adapter's stub), so this test
   // needs no real build artifact and works on a clean checkout. The production
@@ -788,8 +781,6 @@ function test_production_adapter(template) {
   expect_throw(function () { adm.validate_manifest("/nonexistent-repo", "missing.json", "aarch64", {}); }, "manifest_shared_wired");
 }
 
-// has_item over a plain array of strings, local to avoid importing rh semantics.
-function calls_push(list, value) { list.push(value); }
 // Count exact entries; this engine has no Array.prototype.filter with a callback.
 function count_matching(list, value) {
   let n = 0;
