@@ -172,6 +172,7 @@ use tinyvm::{Val, WasmError};
 use tinyvm_qjs::{HostFn, HostParam, HostResult};
 
 use crate::native::{NativeDoorError, decode_native_call, invoke_native_call, invoke_native_json};
+use crate::native_cache::NativeLibraryCache;
 use crate::tool;
 use crate::{AcuBridgeFn, Budget, FleetBridgeFn, HostBridges, QjswasmError};
 
@@ -467,12 +468,15 @@ impl HostState {
 /// `tool` opens the `tool.*` door beside this one (see `src/tool.rs`). `native`
 /// separately opens the crash-capable native door. Both are constructor
 /// choices on [`crate::Engine`], never imports a guest can open for itself.
+/// `libraries` is the engine's loaded-library table, which the native door
+/// clones into the two closures that execute a call.
 pub(crate) fn install(
     module: &mut tinyvm::WasmModule,
     budget: &Budget,
     bridges: HostBridges,
     tool: Option<Vec<String>>,
     native: bool,
+    libraries: Rc<NativeLibraryCache>,
 ) -> Result<HostState, QjswasmError> {
     check_declarations(module, tool.is_some(), native)?;
     let meter = Rc::new(RefCell::new(Meter::new(
@@ -648,6 +652,7 @@ pub(crate) fn install(
     if native {
         let state = Rc::clone(&pending);
         let meter_for_native = Rc::clone(&meter);
+        let libraries_for_call = Rc::clone(&libraries);
         bind(module, DOOR, "native_call", move |args, memory| {
             let positions =
                 native_positions(args).map_err(|error| record_native_fault(&state, error))?;
@@ -663,7 +668,7 @@ pub(crate) fn install(
                 positions.block_len,
             )
             .map_err(|error| record_native_fault(&state, error))?;
-            invoke_native_call(memory, &call)
+            invoke_native_call(memory, &call, &libraries_for_call)
                 .map_err(|error| record_native_fault(&state, error))?;
             meter_for_native.borrow_mut().answered(8);
             // A native function is synchronous and cannot be preempted safely.
@@ -678,6 +683,7 @@ pub(crate) fn install(
 
         let state = Rc::clone(&pending);
         let meter_for_native = Rc::clone(&meter);
+        let libraries_for_invoke = Rc::clone(&libraries);
         bind(module, DOOR, "native_invoke", move |args, memory| {
             let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
             let arguments = guest_slice(memory, arg(args, 2)?, arg(args, 3)?)?;
@@ -686,7 +692,7 @@ pub(crate) fn install(
                 .borrow_mut()
                 .charge(spec.len().saturating_add(arguments.len()))
                 .map_err(WasmError::Trap)?;
-            let result = invoke_native_json(spec, arguments)
+            let result = invoke_native_json(spec, arguments, &libraries_for_invoke)
                 .map_err(|error| record_native_fault(&state, error))?;
             meter_for_native.borrow_mut().answered(result.len());
             meter_for_native
@@ -1098,6 +1104,12 @@ mod tests {
         }
     }
 
+    /// An empty library table for the door installs below. None of these tests
+    /// reaches the native door, and one table per test keeps them independent.
+    fn empty_libraries() -> Rc<NativeLibraryCache> {
+        Rc::new(NativeLibraryCache::new())
+    }
+
     /// Load, bind the door, instantiate, invoke -- the exact sequence a slot
     /// performs, minus the slot.
     fn run(
@@ -1115,6 +1127,7 @@ mod tests {
             },
             None,
             false,
+            empty_libraries(),
         ) {
             Ok(state) => state,
             Err(error) => panic!("door failed to install: {error}"),
@@ -1140,7 +1153,14 @@ mod tests {
     fn install_error(wasm: &[u8]) -> QjswasmError {
         let budget = Budget::default();
         let mut module = load(wasm, &budget);
-        match install(&mut module, &budget, HostBridges::default(), None, false) {
+        match install(
+            &mut module,
+            &budget,
+            HostBridges::default(),
+            None,
+            false,
+            empty_libraries(),
+        ) {
             Ok(_) => panic!("expected the door to refuse this guest"),
             Err(error) => error,
         }
@@ -1723,6 +1743,7 @@ mod tests {
             HostBridges::default(),
             Some(Vec::new()),
             false,
+            empty_libraries(),
         )
         .expect("the tool door binds it");
     }

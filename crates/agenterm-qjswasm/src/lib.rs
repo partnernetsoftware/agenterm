@@ -87,10 +87,14 @@ pub fn identity() -> String {
 pub mod check_many;
 pub mod corpus_scan;
 
+use std::rc::Rc;
 use std::sync::Arc;
+
+use crate::native_cache::NativeLibraryCache;
 
 mod host;
 pub mod native;
+mod native_cache;
 mod slot;
 mod tool;
 
@@ -1194,6 +1198,11 @@ pub struct Engine {
     /// default because a falsely declared native signature can crash or hang
     /// this process; see [`enable_native_door`](Self::enable_native_door).
     native_door: bool,
+    /// The libraries this engine is holding open, so a script that calls one
+    /// library repeatedly pays for one load instead of one per call. Every slot
+    /// of this engine shares it; a second engine starts empty, and nothing here
+    /// is process-global. See [`native_cache`].
+    native_libraries: Rc<NativeLibraryCache>,
     /// What `arg_count()` / `arg(n)` answer inside a tool script. Set by the
     /// embedder per invocation with [`set_tool_args`](Self::set_tool_args);
     /// meaningless -- and unreachable -- without the tool door.
@@ -1228,6 +1237,7 @@ impl Engine {
             budget,
             tool_door: false,
             native_door: false,
+            native_libraries: Rc::new(NativeLibraryCache::new()),
             tool_args: Vec::new(),
             slots: Vec::new(),
             failed_stdout: String::new(),
@@ -1352,6 +1362,7 @@ impl Engine {
             convention,
             tool,
             self.native_door,
+            Rc::clone(&self.native_libraries),
         )?;
         let id = SlotId {
             engine: self.id,

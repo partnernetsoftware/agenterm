@@ -53,6 +53,11 @@ agenterm-qjswasm
 │  │  ├─ user problem: scripts need an extensible native surface without copying a loader or ABI executor
 │  │  ├─ invariant: spec/schema/catalog/nullability and exact-family cardinality are local qjswasm policy
 │  │  ├─ mechanism: every non-ioctl call lowers to caller-provided AbiSignature/AbiValue and one dyn invoke_abi
+│  │  │     (or its reuse entry with the handle this engine already loaded)
+│  │  ├─ [x] one engine keeps at most 32 loaded libraries, keyed by the declared string, never evicted
+│  │  │  ├─ user problem: a script that calls one library in a loop paid one load and one close per call
+│  │  │  ├─ invariant: reuse changes only where the load comes from — a full table falls back to the one-shot entry, a failed load is reported once by dyn's own error, so no refusal code is added and no capability is narrowed
+│  │  │  └─ evidence: the native_cache unit court (one string hands back one allocation, 32 then the 33rd declined without eviction, a failed load owns no slot, keys are the declared bytes) plus unchanged door behavior
 │  │  ├─ black-box owner: native_door + native_door_schema + native/ACU composition smoke
 │  │  │  └─ six-cell delivery: the Candidate runtime-control step runs that court after the
 │  │  │     ACU provider courts and publishes `cu.retirement-cell.native-acu-composition`
@@ -428,6 +433,33 @@ integration.
   mechanism signature/library/symbol failures back into the existing
   `NativeDoorError` codes using the original spec; it contains no second loader
   or stub table.
+- One `Engine` owns one bounded table of loaded libraries (`src/native_cache.rs`):
+  at most 32 distinct declared strings, keyed **verbatim** (the empty string means
+  this process, as it does for `NativeCall::library`), never evicted, and no
+  symbols cached. A hit runs the same five arms through
+  `agenterm_dyn::invoke_abi_with_handle`; a miss opens the library with no
+  `RefCell` borrow alive and adopts the handle; a full table takes the one-shot
+  `invoke_abi`, which is exactly this crate's behaviour before the table existed.
+  A load that **fails** is attempted once per call and is never retried:
+  `resolve` returns dyn's own `AbiError`, the existing `map_abi_error` /
+  `map_abi_error_for_spec` mapping reports it, and the slot stays unoccupied,
+  because opening a library runs its initialisers and a second attempt would run
+  them twice for one call. The reuse entry was added to dyn for this caller
+  (`prd/PRD_02_34_agenterm_dyn.md`: the handle belongs to the caller, `Drop`
+  closes it, dyn keeps no global cache). The table is therefore an optimization
+  that cannot refuse: it adds no `NativeDoorError` code, no permission meaning, no
+  process-global state, no symbol cache, and no cross-guest or cross-thread
+  sharing — it is a field on the engine, so a second engine starts empty and the
+  whole path stays single-threaded. Its owning court is the unit module in
+  `src/native_cache.rs` (one string hands back one allocation; the 33rd distinct
+  string is declined without evicting an adopted one; a failed load is reported
+  once by the mechanism's own error and occupies no slot; keys are the declared
+  bytes, so a near-miss is a different library), and
+  `tests/native_door.rs` keeps door behavior unchanged, including a repeated
+  declaration that must answer the same value on every call of one slot. **A load
+  count is not claimed here**: an already-loaded system library does not move any
+  cheap oracle, so proving fewer `dlopen` calls needs its own fixture library in
+  its own leaf.
 - The exposure catalog is pinned inside dyn's mechanism matrix by an owning gate
   (`native::mechanism_compatibility`): the 69 exposed declarations (49 exact + 6
   fixed + 14 pointer) are enumerated from the very tables dispatch uses and each

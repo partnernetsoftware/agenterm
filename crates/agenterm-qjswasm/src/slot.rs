@@ -18,7 +18,10 @@
 //! dropping the slot drops the guest's linear memory, its pending bridge
 //! buffer, and its captured bridge closure in one move.
 
+use std::rc::Rc;
+
 use crate::host::{self, HostState};
+use crate::native_cache::NativeLibraryCache;
 use crate::{Budget, Cost, HostBridges, JsValue, Outcome, QjswasmError, Value};
 
 const ALLOCATION_PROBE_EXPORT: &str = "__tinyvm_qjs_heap_ptr";
@@ -98,10 +101,18 @@ impl Slot {
         convention: Convention,
         tool_door: Option<Vec<String>>,
         native_door: bool,
+        libraries: Rc<NativeLibraryCache>,
     ) -> Result<Self, QjswasmError> {
         let mut module = tinyvm::WasmModule::from_bytes_explained(bytes, budget.limits)
             .map_err(QjswasmError::from_load)?;
-        let door = host::install(&mut module, budget, bridges, tool_door, native_door)?;
+        let door = host::install(
+            &mut module,
+            budget,
+            bridges,
+            tool_door,
+            native_door,
+            libraries,
+        )?;
         // Instantiation applies data segments and initial globals and runs the
         // start function, so a guest whose start traps, overruns its budget or
         // observes this operation's cancellation fails here -- classified like

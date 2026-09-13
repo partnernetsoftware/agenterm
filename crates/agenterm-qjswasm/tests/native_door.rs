@@ -72,6 +72,53 @@ fn the_same_native_guest_is_refused_by_default_and_runs_only_when_opted_in() {
     );
 }
 
+/// Repeating one declaration stays correct, on every call, without a clock.
+///
+/// The oracle is the process id, so the assertion is an equality and not a
+/// timing: this is the shape the engine's library table exists for, and it must
+/// change where the load comes from and nothing else about the call.
+#[cfg(unix)]
+#[test]
+fn a_repeated_declaration_is_correct_on_every_call_within_one_engine() {
+    // Two native calls to one declared library inside a single invocation: the
+    // guest returns the second result, and both calls must have answered.
+    let twice_in_one_call = r#"(module
+      (import "agenterm" "native_call"
+        (func $native_call (param i32 i32 i32 i32) (result i32)))
+      (memory 1)
+      (data (i32.const 0) "|getpid|i32()")
+      (func (export "main") (result i64)
+        (i32.store (i32.const 128) (i32.const 1))
+        (i32.store (i32.const 132) (i32.const 0))
+        (i64.store (i32.const 136) (i64.const 0))
+        (drop (call $native_call
+          (i32.const 0) (i32.const 13) (i32.const 128) (i32.const 16)))
+        (drop (call $native_call
+          (i32.const 0) (i32.const 13) (i32.const 128) (i32.const 16)))
+        (i64.load (i32.const 136))))"#;
+    assert_eq!(
+        run_wat(twice_in_one_call, Budget::default()).expect("getpid runs twice"),
+        i64::from(std::process::id())
+    );
+
+    // And across calls of one live slot, where the second and third call are the
+    // ones that reuse the engine's load rather than opening their own.
+    let wasm = wat::parse_str(include_str!("fixtures/native/getpid.wat"))
+        .expect("native-door fixture is valid WAT");
+    let mut engine = Engine::with_native_door(Budget::default());
+    let slot = engine
+        .spawn(Guest::Wasm(&wasm), None)
+        .expect("the slot loads");
+    for call in 0..3 {
+        let outcome = engine.call(slot, "main", &[]).expect("getpid runs");
+        assert_eq!(
+            outcome.values,
+            [Value::I64(i64::from(std::process::id()))],
+            "call {call} must answer the process id"
+        );
+    }
+}
+
 #[test]
 fn native_opt_in_composes_with_the_tool_door_without_losing_arguments() {
     let mut engine = Engine::with_tool_door(Budget::default()).enable_native_door();

@@ -9,6 +9,8 @@ use std::fmt;
 
 use agenterm_dyn::{AbiValue, UnixIoctlError, UnixIoctlRequest, invoke_unix_ioctl};
 
+use crate::native_cache::{LibrarySource, NativeLibraryCache};
+
 /// Schema version stored in every argument-block header.
 pub const NATIVE_BLOCK_VERSION: u32 = 1;
 /// Bytes in `[version:u32, argc:u32, initial_return_bits:u64]`.
@@ -745,9 +747,15 @@ fn le_u64(bytes: &[u8]) -> u64 {
 /// returns, retained pointers, narrow integers, unlisted mixed signatures,
 /// `f32`, variadics and structure values remain typed refusals. The one
 /// catalogued void shape is `void(ptr?)`, used for `free(NULL)`.
+///
+/// `libraries` is the engine's loaded-library table. It changes where a load
+/// comes from, never whether a call is admitted: the catalog above still decides
+/// that, a full table takes the one-shot entry rather than a refusal, and a load
+/// that failed is reported once instead of being re-attempted.
 pub(crate) fn invoke_native_call(
     memory: &mut [u8],
     call: &DecodedNativeCall,
+    libraries: &NativeLibraryCache,
 ) -> Result<(), NativeDoorError> {
     // Take the guest memory base once. Pointer prototypes receive raw addresses
     // derived from this allocation, never overlapping `&mut` slices: guest
@@ -762,8 +770,9 @@ pub(crate) fn invoke_native_call(
                 .enumerate()
                 .map(|(index, argument)| exact_argument(index, argument, call))
                 .collect::<Result<Vec<_>, _>>()?;
-            // The execution phase goes through the one policy-free ABI entry;
-            // the upper catalog above already decided this shape is allowed.
+            // The execution phase goes through the one policy-free ABI entry,
+            // reusing this engine's loaded handle when it has one; the upper
+            // catalog above already decided this shape is allowed.
             let abi_params = abi_parameters(call)?;
             let abi_call = agenterm_dyn::NativeCall {
                 library: &call.spec.library,
@@ -775,7 +784,7 @@ pub(crate) fn invoke_native_call(
                 arguments: &arguments,
             };
             // SAFETY: the guest declaration is the native-door caller's explicit ABI assertion.
-            unsafe { agenterm_dyn::invoke_abi(&abi_call) }
+            unsafe { invoke_with(libraries, &abi_call) }
                 .map_err(|error| map_abi_error(call, error))
                 .and_then(|value| abi_result_bits(value, call, memory_base, memory_len))?
         }
@@ -797,7 +806,7 @@ pub(crate) fn invoke_native_call(
                 arguments: &arguments,
             };
             // SAFETY: native_dispatch admitted this enumerated fixed prototype.
-            unsafe { agenterm_dyn::invoke_abi(&abi_call) }
+            unsafe { invoke_with(libraries, &abi_call) }
                 .map_err(|error| map_abi_error(call, error))
                 .and_then(|value| abi_result_bits(value, call, memory_base, memory_len))?
         }
@@ -828,7 +837,7 @@ pub(crate) fn invoke_native_call(
             // SAFETY: native_dispatch admitted one enumerated fixed prototype; the
             // guest still owns the pointee contract. `invoke_abi` re-checks the
             // mechanism matrix before the foreign call.
-            unsafe { agenterm_dyn::invoke_abi(&abi_call) }
+            unsafe { invoke_with(libraries, &abi_call) }
                 .map_err(|error| map_abi_error(call, error))
                 .and_then(|value| abi_result_bits(value, call, memory_base, memory_len))?
         }
@@ -870,9 +879,13 @@ pub(crate) fn invoke_native_call(
 /// implementation: parsing and canonical conversion remain here, while the
 /// Parsing, the canonical conversion and the catalog remain here in qjswasm;
 /// **execution delegates to `agenterm_dyn::invoke_abi`**, the policy-free ABI entry.
+///
+/// `libraries` is the engine's loaded-library table, exactly as in
+/// [`invoke_native_call`].
 pub(crate) fn invoke_native_json(
     spec: &[u8],
     arguments_json: &[u8],
+    libraries: &NativeLibraryCache,
 ) -> Result<String, NativeDoorError> {
     let spec = parse_native_spec(spec)?;
     let dispatch = native_dispatch(&spec)?;
@@ -924,7 +937,7 @@ pub(crate) fn invoke_native_json(
                 arguments: &arguments,
             };
             // SAFETY: native_dispatch admitted the exact-family declaration.
-            unsafe { agenterm_dyn::invoke_abi(&abi_call) }
+            unsafe { invoke_with(libraries, &abi_call) }
                 .map_err(|error| map_abi_error_for_spec(&spec, error))
                 .and_then(|value| {
                     abi_json_result(value, spec.result).ok_or_else(|| {
@@ -960,7 +973,7 @@ pub(crate) fn invoke_native_json(
                 arguments: &arguments,
             };
             // SAFETY: native_dispatch admitted this enumerated fixed prototype.
-            unsafe { agenterm_dyn::invoke_abi(&abi_call) }
+            unsafe { invoke_with(libraries, &abi_call) }
                 .map_err(|error| map_abi_error_for_spec(&spec, error))
                 .and_then(|value| {
                     abi_json_result(value, spec.result).ok_or_else(|| {
@@ -976,6 +989,39 @@ pub(crate) fn invoke_native_json(
         }
     };
     Ok(value.to_string())
+}
+
+/// Run one admitted call through this engine's loaded handle when it has one.
+///
+/// The cache decides where a load comes from and nothing else. A hit reuses a
+/// load this engine has already paid for; a full table takes the one-shot entry,
+/// which is exactly what this crate did before the cache existed; a load that
+/// failed is **not** retried — the error the cache already holds goes to this
+/// function's caller, whose existing mapping reports it, because a second
+/// attempt would run the library's initialisers twice for one call.
+///
+/// # Safety
+///
+/// The caller asserts `agenterm_dyn::invoke_abi`'s complete ABI contract for
+/// `call`. A cached handle was opened for exactly the string `call` names, which
+/// is the one thing `invoke_abi_with_handle` re-checks.
+unsafe fn invoke_with(
+    libraries: &NativeLibraryCache,
+    call: &agenterm_dyn::NativeCall<'_>,
+) -> Result<AbiValue, agenterm_dyn::AbiError> {
+    match libraries.resolve(call.library) {
+        // SAFETY: forwarded from this function's caller.
+        Ok(LibrarySource::Cached(handle)) => unsafe {
+            agenterm_dyn::invoke_abi_with_handle(&handle, call)
+        },
+        // SAFETY: forwarded from this function's caller; the one-shot entry
+        // loads and checks everything itself.
+        Ok(LibrarySource::AtCapacity) => unsafe { agenterm_dyn::invoke_abi(call) },
+        // The load already ran once, in the table. A second attempt would run
+        // the library's initialisers twice for one call, so dyn's own error goes
+        // to the caller's existing mapping untouched.
+        Err(error) => Err(error),
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1934,7 +1980,7 @@ mod json_adapter_tests {
     #[test]
     fn json_adapter_refuses_pointer_prototypes_without_inventing_host_addresses() {
         assert_eq!(
-            invoke_native_json(b"|uname|i32(ptr)", br#"[0]"#),
+            invoke_native_json(b"|uname|i32(ptr)", br#"[0]"#, &NativeLibraryCache::new()),
             Err(NativeDoorError::InvocationSignatureUnsupported {
                 result: NativeType::I32,
                 parameters: vec![NativeType::Pointer],
@@ -1961,6 +2007,7 @@ mod json_adapter_tests {
         let actual = invoke_native_json(
             b"|sysconf|isize(i32)",
             format!("[{pagesize_key}]").as_bytes(),
+            &NativeLibraryCache::new(),
         )
         .expect("the JSON adapter reaches dyn's policy-free ABI core");
         assert_eq!(
