@@ -161,6 +161,8 @@ agenterm-qjswasm
 │  │  ├─ [~] import lowering becomes the reusable product grammar
 │  │  │  ├─ [x] raw and JSON paths share NativeCall construction in the private unsafe
 │  │  │  │     `invoke_prepared` seam; result encoding remains transport-specific
+│  │  │  ├─ [x] raw scalar and pointer dispatch share one execution/result tail while
+│  │  │  │     retaining separate argument mappers and their distinct typed refusals
 │  │  │  ├─ [x] raw bits, JSON scalars and JSON regions retain distinct result plans
 │  │  │  ├─ [x] dedicated UnixIoctl remains a sibling mechanism, not a counterfeit ABI family
 │  │  │  ├─ [x] mechanism-only shapes are derived from dyn and differenced against exposure

@@ -753,35 +753,28 @@ pub(crate) fn invoke_native_call(
     let memory_base = memory.as_mut_ptr();
     let memory_len = memory.len();
     let bits = match native_dispatch(&call.spec)? {
-        NativeDispatch::Scalar => {
+        dispatch @ (NativeDispatch::Scalar | NativeDispatch::Pointer) => {
+            // For pointers, the guest remains the unsafe ABI caller: it must
+            // declare spans large and aligned enough for the selected C symbol's
+            // complete pointee contract. The generic door cannot infer that
+            // contract from an opaque `ptr` prototype.
             let arguments = call
                 .arguments
                 .iter()
                 .enumerate()
-                .map(|(index, argument)| exact_argument(index, argument, &call.spec))
-                .collect::<Result<Vec<_>, _>>()?;
-            // SAFETY: the guest declaration is the native-door caller's explicit
-            // ABI assertion; `native_dispatch` admitted this exact or enumerated
-            // scalar family.
-            unsafe { invoke_prepared(&call.spec, &arguments, libraries) }
-                .and_then(|value| abi_result_bits(value, call, memory_base, memory_len))?
-        }
-        NativeDispatch::Pointer => {
-            // The guest remains the unsafe ABI caller: it must declare spans
-            // large and aligned enough for the selected C symbol's complete
-            // pointee contract. The generic door cannot infer that contract from
-            // an opaque `ptr` prototype.
-            let arguments = call
-                .arguments
-                .iter()
-                .enumerate()
-                .map(|(index, argument)| {
-                    fixed_pointer_argument(memory_base, index, argument, &call.spec)
+                .map(|(index, argument)| match dispatch {
+                    NativeDispatch::Scalar => exact_argument(index, argument, &call.spec),
+                    NativeDispatch::Pointer => {
+                        fixed_pointer_argument(memory_base, index, argument, &call.spec)
+                    }
+                    NativeDispatch::UnixIoctl(_) => unreachable!(),
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            // SAFETY: native_dispatch admitted one enumerated fixed prototype;
+            // SAFETY: the guest declaration is the native-door caller's explicit
+            // ABI assertion, and native_dispatch admitted the exact scalar family
+            // or one enumerated fixed-pointer prototype. For pointers,
             // decode_native_call bounded every declared span within this one live
-            // memory allocation, and the foreign call is synchronous.
+            // memory allocation; the foreign call is synchronous.
             unsafe { invoke_prepared(&call.spec, &arguments, libraries) }
                 .and_then(|value| abi_result_bits(value, call, memory_base, memory_len))?
         }
