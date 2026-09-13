@@ -1,0 +1,1585 @@
+// Platform-neutral pure model for the browser profile-name binding
+// exact-process experiment (third, independent precommitment).
+//
+// There is no tool door, filesystem access, browser access, clock, or fault
+// bypass in this module. Every "live" fact is supplied as plain data by a
+// caller; this module only decides what those facts imply. The live court is a
+// separate, currently unimplemented fail-closed path.
+//
+// Provenance: the fixture bytes and the pure parse/layout discipline are copied
+// from `research/browser-profile-name-binding-v2/`. No mutable result state and
+// no attempt ledger is imported from either exhausted experiment. Neither
+// exhausted court reached a verdict, so no value from them is authoritative.
+//
+// Spec: plan/design-browser-profile-name-binding-exact-process-experiment.md
+
+export function demand(condition, code) {
+  if (!condition) { throw code; }
+}
+
+function copy(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function same(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+// --- bounded, redacted stage receipt -----------------------------------------
+//
+// Spec §1.7: before each side effect and before every possible throw, publish
+// and read back one bounded redacted stage receipt. It never contains argv,
+// environment, titles, URLs or home paths.
+
+const STAGE_FACT_WHITELIST = [
+  "source_sha",
+  "input_digest",
+  "executable_digest",
+  "browser_family",
+  "browser_version",
+  "ordinal",
+  "deadline_ms",
+  "chain_length",
+  "last_completed_stage",
+  "stage_seq",
+  "frozen_identity_count",
+  "dead_identity_count",
+  "baseline_row_count",
+  "final_row_count",
+  "primary_cause",
+  "cleanup_status",
+  "terminal_code"
+];
+
+const STAGE_FORBIDDEN_KEYS = [
+  "argv",
+  "env",
+  "environment",
+  "title",
+  "window_title",
+  "url",
+  "home",
+  "home_path",
+  "path",
+  "profile_instance_id",
+  "candidate_label",
+  "selector",
+  "selector_output",
+  "provisional_verdict",
+  "design_verdict",
+  "verdict"
+];
+
+const STAGE_FACT_LIMIT = 24;
+const STAGE_STRING_LIMIT = 128;
+
+function stage_fact_admissible(key, value) {
+  if (!list_has(STAGE_FACT_WHITELIST, key)) {
+    return false;
+  }
+  if (value === null || value === true || value === false) {
+    return true;
+  }
+  if (typeof value === "number") {
+    return true;
+  }
+  if (typeof value === "string") {
+    return value.length <= STAGE_STRING_LIMIT
+      && !contains_control(value);
+  }
+  return false;
+}
+
+export function stage_receipt(stage, producer, code, facts) {
+  const keys = Object.keys(facts);
+  demand(keys.length <= STAGE_FACT_LIMIT, "stage_receipt_fact_limit");
+  const bounded = {};
+  for (let i = 0; i < keys.length; i = i + 1) {
+    const key = keys[i];
+    demand(!list_has(STAGE_FORBIDDEN_KEYS, key),
+      "stage_receipt_forbidden_key:" + key);
+    demand(stage_fact_admissible(key, facts[key]),
+      "stage_receipt_inadmissible_fact:" + key);
+    bounded[key] = facts[key];
+  }
+  return {
+    schema: "agenterm.profile-binding-exact-process-stage/v1",
+    stage: stage,
+    producer: producer,
+    code: code,
+    facts: bounded
+  };
+}
+
+// An in-memory stand-in for "atomically publish and read back". The live court
+// replaces this with a real durable write; the model only requires that the
+// read-back equals the published value and that a failure is typed.
+export function publish_readback(receipt) {
+  const bytes = JSON.stringify(receipt);
+  const readback = JSON.parse(bytes);
+  demand(same(receipt, readback), "stage_receipt_readback_mismatch");
+  return bytes;
+}
+
+// A stage journal records the last completed stage and every published row.
+function empty_journal() {
+  return {rows: []};
+}
+
+function journal_publish(journal, receipt) {
+  const bytes = publish_readback(receipt);
+  journal.rows.push(bytes);
+  return bytes;
+}
+
+function journal_last_completed(journal) {
+  if (journal.rows.length === 0) {
+    return null;
+  }
+  return JSON.parse(journal.rows[journal.rows.length - 1]).stage;
+}
+
+function terminal_result(journal, terminal, criteria) {
+  journal_publish(journal, stage_receipt(
+    "terminal", "court", terminal,
+    {last_completed_stage: journal_last_completed(journal),
+      stage_seq: journal.rows.length + 1, terminal_code: terminal}
+  ));
+  return {terminal: terminal, v: criteria, journal: journal};
+}
+
+// --- small helpers -----------------------------------------------------------
+
+function list_has(list, value) {
+  for (let i = 0; i < list.length; i = i + 1) {
+    if (list[i] === value) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function contains_control(text) {
+  for (let i = 0; i < text.length; i = i + 1) {
+    const code = text.charCodeAt(i);
+    if (code < 32 || code === 127) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function is_false(value) {
+  return value === false;
+}
+
+// --- process facts -----------------------------------------------------------
+//
+// Facts are exactly the shape the shipped exact-key doors produce:
+//   process.observe -> {state: "live"|"dead"|"unknown", start_identity|null}
+//   process.parent  -> {state: "live"|"dead"|"unknown", parent_id}
+//
+// `parent.live` only reports that a native record supplied a parent id. It is
+// never read as liveness; only `observe` decides liveness and identity.
+
+export function observation(state, start_identity) {
+  if (state === "live") {
+    return {state: "live", start_identity: start_identity};
+  }
+  return {state: state, reason: "typed"};
+}
+
+export function parent_record(state, parent_id) {
+  if (state === "live") {
+    return {state: "live", parent_id: parent_id};
+  }
+  return {state: state, reason: "typed"};
+}
+
+function parent_id_of(record) {
+  if (record.state !== "live") {
+    return null;
+  }
+  return record.parent_id;
+}
+
+// Spec §1.3/§1.4: every PID is bracketed by two `observe` records; both must be
+// `live` with equal non-null start identities; the parent observation must sit
+// between them. The ceiling is 64 edges. A repeated PID is rejected. The chain
+// must terminate at the exact invocation-owned browser PID and start identity.
+const CHAIN_CEILING = 64;
+
+export function chain_step(pid, bracket_before, parent_record_value, bracket_after) {
+  if (bracket_before.state !== "live" || bracket_after.state !== "live") {
+    return {ok: false, code: "INCONCLUSIVE_PROCESS_IDENTITY"};
+  }
+  const before = bracket_before.start_identity;
+  const after = bracket_after.start_identity;
+  if (before === null || before === undefined
+      || after === null || after === undefined) {
+    return {ok: false, code: "INCONCLUSIVE_PROCESS_IDENTITY"};
+  }
+  if (before !== after) {
+    return {ok: false, code: "INCONCLUSIVE_PROCESS_IDENTITY"};
+  }
+  return {ok: true, pid: pid, start_identity: before,
+    parent_id: parent_id_of(parent_record_value)};
+}
+
+// Walk a chain description and classify it. `steps` is an ordered list of
+//   {pid, before, parent, after}
+// where `before`/`after` are observations and `parent` is a parent record.
+export function classify_chain(steps, owned_pid, owned_start_identity) {
+  if (steps.length === 0) {
+    return {ok: false, code: "INCONCLUSIVE_OWNERSHIP"};
+  }
+  if (steps.length > CHAIN_CEILING) {
+    return {ok: false, code: "INCONCLUSIVE_OWNERSHIP"};
+  }
+  const seen = [];
+  let terminus_ok = false;
+  for (let i = 0; i < steps.length; i = i + 1) {
+    const step = steps[i];
+    if (list_has(seen, step.pid)) {
+      return {ok: false, code: "INCONCLUSIVE_OWNERSHIP"};
+    }
+    seen.push(step.pid);
+    const walked = chain_step(
+      step.pid, step.before, step.parent, step.after
+    );
+    if (!walked.ok) {
+      return {ok: false, code: walked.code};
+    }
+    const is_last = i === steps.length - 1;
+    if (is_last) {
+      // The final step must be the invocation-owned browser identity. Its
+      // parent record may legitimately report PID 0 (the browser is the root
+      // of the owned tree) or any parent; the terminus is decided by the owned
+      // PID and start identity, never by the parent record.
+      terminus_ok = true;
+      break;
+    }
+    if (walked.parent_id === null || walked.parent_id === 0) {
+      // Reaching PID 0 or a missing parent before the terminus: ownership is
+      // unproven.
+      return {ok: false, code: "INCONCLUSIVE_OWNERSHIP"};
+    }
+    if (walked.parent_id !== steps[i + 1].pid) {
+      return {ok: false, code: "INCONCLUSIVE_OWNERSHIP"};
+    }
+  }
+  if (terminus_ok !== true) {
+    return {ok: false, code: "INCONCLUSIVE_OWNERSHIP"};
+  }
+  // The chain is expressed host -> ... -> browser. It must terminate at the
+  // exact invocation-owned PID and start identity.
+  const last = chain_step(
+    steps[steps.length - 1].pid,
+    steps[steps.length - 1].before,
+    steps[steps.length - 1].parent,
+    steps[steps.length - 1].after
+  );
+  if (!last.ok || last.pid !== owned_pid) {
+    return {ok: false, code: "INCONCLUSIVE_OWNERSHIP"};
+  }
+  if (last.start_identity !== owned_start_identity) {
+    return {ok: false, code: "INCONCLUSIVE_OWNERSHIP"};
+  }
+  return {ok: true, code: "OWNERSHIP_PROVEN", chain_length: steps.length};
+}
+
+export function build_chain(pids, owned_pid, owned_start_identity) {
+  // Host is pids[0]; its parent is pids[1]; ...; last is the owned browser.
+  const steps = [];
+  for (let i = 0; i < pids.length; i = i + 1) {
+    const is_last = i === pids.length - 1;
+    const parent_id = is_last ? 0 : pids[i + 1];
+    const identity = "identity-" + pids[i];
+    steps.push({
+      pid: pids[i],
+      before: observation("live", identity),
+      parent: parent_record("live", parent_id),
+      after: observation("live", identity)
+    });
+  }
+  if (pids[pids.length - 1] !== owned_pid) {
+    // Chain does not end at the owned identity; leave it for the classifier.
+    return steps;
+  }
+  if (owned_start_identity !== null
+      && owned_start_identity !== "identity-" + owned_pid) {
+    steps[steps.length - 1].before =
+      observation("live", "identity-other");
+    steps[steps.length - 1].after =
+      observation("live", "identity-other");
+  }
+  return steps;
+}
+
+// --- ownership freeze and cleanup --------------------------------------------
+//
+// Spec §1.5: ownership is frozen before any selector runs. §1.6: cleanup is
+// stop/reap the owned handle, observe every frozen identity until dead, then
+// require the complete live inventory to equal the preserved baseline.
+//
+// The cleanup input has a hard field whitelist. Selector output, candidate
+// labels, profile_instance_id and provisional verdicts may not appear.
+
+const CLEANUP_INPUT_WHITELIST = [
+  "owned_handle",
+  "frozen_identities",
+  "baseline_rows",
+  "live_rows"
+];
+
+const CLEANUP_FORBIDDEN_FIELDS = [
+  "profile_instance_id",
+  "candidate_label",
+  "candidate_labels",
+  "selector",
+  "selector_output",
+  "selector_result",
+  "provisional_model_output",
+  "provisional_verdict",
+  "design_verdict",
+  "verdict"
+];
+
+function cleanup_input_admissible(input) {
+  const keys = Object.keys(input);
+  for (let i = 0; i < keys.length; i = i + 1) {
+    if (list_has(CLEANUP_FORBIDDEN_FIELDS, keys[i])) {
+      return false;
+    }
+    if (!list_has(CLEANUP_INPUT_WHITELIST, keys[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// V4 · exact termination: stop the owned handle, then require a `dead`
+// observation for every frozen owned identity. No step may be skipped.
+function cleanup_termination(input, stop_result, death_observations) {
+  if (!cleanup_input_admissible(input)) {
+    return {ok: false, code: "CLEANUP_NOT_INDEPENDENT", v4: false};
+  }
+  if (stop_result !== "stopped") {
+    return {ok: false, code: "INCONCLUSIVE_CLEANUP", v4: false};
+  }
+  const wanted = input.frozen_identities.length;
+  if (death_observations.length !== wanted) {
+    return {ok: false, code: "INCONCLUSIVE_CLEANUP", v4: false};
+  }
+  for (let i = 0; i < death_observations.length; i = i + 1) {
+    const observed = death_observations[i];
+    if (observed.identity !== input.frozen_identities[i]) {
+      return {ok: false, code: "INCONCLUSIVE_CLEANUP", v4: false};
+    }
+    if (observed.observation.state !== "dead") {
+      return {ok: false, code: "INCONCLUSIVE_CLEANUP", v4: false};
+    }
+  }
+  return {ok: true, code: "TERMINATION_PROVEN", v4: true};
+}
+
+// V5 · inventory restoration: the final complete live inventory must equal the
+// preserved baseline. Registry hygiene is reported separately and cannot make a
+// dead process live or invalidate an exact restoration.
+function inventory_rows(rows) {
+  // Compare rows as a sorted multiset of their identity keys.
+  const keys = [];
+  for (let i = 0; i < rows.length; i = i + 1) {
+    const row = rows[i];
+    keys.push(row.connection_identity);
+  }
+  keys.sort();
+  return keys;
+}
+
+function cleanup_restoration(input, final_inventory) {
+  if (!cleanup_input_admissible(input)) {
+    return {ok: false, code: "CLEANUP_NOT_INDEPENDENT", v5: false};
+  }
+  if (final_inventory.complete !== true) {
+    return {ok: false, code: "INCONCLUSIVE_CLEANUP", v5: false};
+  }
+  const baseline = inventory_rows(input.baseline_rows);
+  const live = inventory_rows(final_inventory.rows);
+  const registry_hygiene = final_inventory.registry_hygiene === true;
+  if (!same(baseline, live)) {
+    return {ok: false, code: "INCONCLUSIVE_CLEANUP", v5: false,
+      rows_equal: false, registry_hygiene: registry_hygiene};
+  }
+  return {ok: true, code: "INVENTORY_RESTORED", v5: true,
+    rows_equal: true, registry_hygiene: registry_hygiene};
+}
+
+// --- V2 · identity source ----------------------------------------------------
+//
+// Spec §1.2 and V2: the court must use process.pid/observe/parent for the live
+// ownership chain, and neither production nor research source may contain
+// /bin/ps, pgrep, a process-table parser, process-group inference or a
+// session-id predicate.
+//
+// Scope. The rule governs *executable* source: the court's live path and this
+// model's own decision logic. It does not govern (a) the pattern table below,
+// which exists to state the rule, nor (b) the negative-test fixtures in
+// `identity_source_self_test`, which must contain a forbidden construct in
+// order to prove it is refused. The caller therefore scans the court's live
+// region and treats this module's rule declarations as exempt by identity.
+
+const FORBIDDEN_SOURCE_PATTERNS = [
+  "/bin/ps",
+  "/usr/bin/ps",
+  "pgrep",
+  "ps -",
+  "ps axo",
+  "session_id",
+  "getsid",
+  "getpgid",
+  "setpgid"
+];
+
+// Comments may *name* a forbidden construct in order to forbid it; the scanner
+// therefore ignores line comments, the same way a reviewer reads the file.
+function strip_line_comments(text) {
+  const lines = text.split("\n");
+  const kept = [];
+  for (let i = 0; i < lines.length; i = i + 1) {
+    const line = lines[i];
+    const at = line.indexOf("//");
+    if (at < 0) {
+      kept.push(line);
+    } else {
+      kept.push(line.substring(0, at));
+    }
+  }
+  return kept.join("\n");
+}
+
+function scan_source(name, text) {
+  const stripped = strip_line_comments(text);
+  for (let i = 0; i < FORBIDDEN_SOURCE_PATTERNS.length; i = i + 1) {
+    if (stripped.indexOf(FORBIDDEN_SOURCE_PATTERNS[i]) >= 0) {
+      return {ok: false, code: "INCONCLUSIVE_IDENTITY_SOURCE",
+        source: name, pattern: FORBIDDEN_SOURCE_PATTERNS[i]};
+    }
+  }
+  return {ok: true, source: name};
+}
+
+// The runtime half of V2: every process fact consumed by the chain must have
+// come from an exact-key door call. A recorded call log proves this.
+const EXACT_KEY_OPS = ["process.pid", "process.observe", "process.parent"];
+
+function scan_calls(calls) {
+  for (let i = 0; i < calls.length; i = i + 1) {
+    const op = calls[i].op;
+    if (!list_has(EXACT_KEY_OPS, op)) {
+      return {ok: false, code: "INCONCLUSIVE_IDENTITY_SOURCE",
+        call_index: i, op: op};
+    }
+  }
+  return {ok: true, call_count: calls.length};
+}
+
+export function identity_source_verdict(sources, calls) {
+  if (sources.length === 0) {
+    return {ok: false, code: "INCONCLUSIVE_IDENTITY_SOURCE",
+      reason: "no_source_scanned"};
+  }
+  for (let i = 0; i < sources.length; i = i + 1) {
+    const scanned = scan_source(sources[i].name, sources[i].text);
+    if (!scanned.ok) {
+      return scanned;
+    }
+  }
+  const call_scan = scan_calls(calls);
+  if (!call_scan.ok) {
+    return call_scan;
+  }
+  return {ok: true, code: "IDENTITY_SOURCE_PROVEN",
+    source_count: sources.length, call_count: call_scan.call_count};
+}
+
+// --- V7 · selector independence ---------------------------------------------
+
+function cleanup_reads_selector_code(cleanup_source) {
+  // The cleanup/ownership region of the court source must not read the fields
+  // this criterion forbids.
+  const forbidden_reads = [
+    "profile_instance_id",
+    "candidate_label",
+    "selector_output",
+    "provisional_verdict"
+  ];
+  const stripped = strip_line_comments(cleanup_source);
+  for (let i = 0; i < forbidden_reads.length; i = i + 1) {
+    if (stripped.indexOf(forbidden_reads[i]) >= 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function selector_independence_verdict(region_source, cleanup_input) {
+  if (!cleanup_input_admissible(cleanup_input)) {
+    return {ok: false, code: "INVALID_EXPERIMENT", v7: false,
+      reason: "cleanup_input_field_not_allowed"};
+  }
+  if (!cleanup_reads_selector_code(region_source)) {
+    return {ok: false, code: "INVALID_EXPERIMENT", v7: false,
+      reason: "ownership_or_cleanup_reads_forbidden_field"};
+  }
+  return {ok: true, code: "SELECTOR_INDEPENDENCE_PROVEN", v7: true};
+}
+
+// --- design arms: D1, D2, D3 -------------------------------------------------
+//
+// D1 is a non-voting negative control: the archived relation-free 1-1-1
+// fallback must demonstrate ambiguity. It can only reject A0.
+// D2 is the A1 verified-edge checklist; D3 is the B explicit-binding model.
+
+function classify_cardinality(matches) {
+  if (matches.length === 0) {
+    return "connection_count_zero";
+  }
+  if (matches.length > 1) {
+    return "connection_count_multiple";
+  }
+  return "unique";
+}
+
+// A0: relation-free 1-1-1 fallback. When two candidates both present exactly
+// one connection, the fallback cannot distinguish them: it is ambiguous.
+function a0_negative_control(candidates) {
+  let ambiguous = [];
+  for (let i = 0; i < candidates.length; i = i + 1) {
+    const candidate = candidates[i];
+    if (classify_cardinality(candidate.matches) === "unique") {
+      ambiguous.push(candidate.name);
+    }
+  }
+  if (ambiguous.length >= 2) {
+    return {code: "A0_REJECTED", ambiguous_count: ambiguous.length};
+  }
+  if (ambiguous.length === 1) {
+    return {code: "A0_INCONCLUSIVE", ambiguous_count: 1};
+  }
+  return {code: "A0_INCONCLUSIVE", ambiguous_count: 0};
+}
+
+// D2 (A1): one trusted issuer must authenticate a collision-resistant,
+// Profile-unique value on both the candidate directory and the live connection,
+// followed by restart persistence and all name-safety arms.
+const A1_EDGE_FIELDS = [
+  "shared_issuer",
+  "authenticated",
+  "collision_resistant",
+  "injective",
+  "profile_unique",
+  "two_sided"
+];
+
+function a1_edge_exists(edge) {
+  if (edge === null || edge === undefined) {
+    return false;
+  }
+  for (let i = 0; i < A1_EDGE_FIELDS.length; i = i + 1) {
+    if (edge[A1_EDGE_FIELDS[i]] !== true) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function d2_verdict(edge, arms) {
+  if (!a1_edge_exists(edge)) {
+    return {eligible: false, selected: false, code: "A1_STRUCTURALLY_INELIGIBLE"};
+  }
+  // Every arm must pass; any failure rejects A1 without widening its surface.
+  for (let i = 0; i < arms.length; i = i + 1) {
+    if (arms[i].passed !== true) {
+      return {eligible: true, selected: false, code: "A1_REJECTED",
+        failed_arm: arms[i].id};
+    }
+  }
+  if (arms.length === 0) {
+    return {eligible: true, selected: false, code: "A1_REJECTED",
+      failed_arm: "no_arms"};
+  }
+  return {eligible: true, selected: true, code: "A1_SELECTED",
+    arm_count: arms.length};
+}
+
+// D3 (B): explicit durable binding over
+// create / use / rename / duplicate / stale-generation / crash-recovery.
+function b_empty_state() {
+  return {schema: 1, records: []};
+}
+
+function b_active_index(state, application, directory) {
+  for (let i = 0; i < state.records.length; i = i + 1) {
+    const row = state.records[i];
+    if (row.status === "active" && row.application === application
+        && row.directory === directory) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function b_create(state, request, authority) {
+  if (authority.authorized !== true) {
+    return {code: "authority_refused", state: copy(state)};
+  }
+  if (request.expected_generation !== 0) {
+    return {code: "generation_conflict", state: copy(state)};
+  }
+  if (b_active_index(state, request.application, request.directory) >= 0) {
+    return {code: "duplicate_binding", state: copy(state)};
+  }
+  const next = copy(state);
+  next.records.push({
+    application: request.application,
+    directory: request.directory,
+    instance: request.instance,
+    generation: 1,
+    status: "active"
+  });
+  return {code: "created", state: next, generation: 1};
+}
+
+function b_use(state, request) {
+  const index = b_active_index(state, request.application, request.directory);
+  if (index < 0) {
+    return {code: "not_found", state: copy(state)};
+  }
+  const row = state.records[index];
+  if (row.generation !== request.expected_generation) {
+    return {code: "stale_generation", state: copy(state)};
+  }
+  if (row.instance !== request.instance) {
+    return {code: "instance_mismatch", state: copy(state)};
+  }
+  return {code: "used", state: copy(state), instance: row.instance};
+}
+
+function b_rename(state, request, authority) {
+  if (authority.authorized !== true) {
+    return {code: "authority_refused", state: copy(state)};
+  }
+  const index = b_active_index(state, request.application, request.directory);
+  if (index < 0) {
+    return {code: "not_found", state: copy(state)};
+  }
+  if (state.records[index].generation !== request.expected_generation) {
+    return {code: "generation_conflict", state: copy(state)};
+  }
+  if (b_active_index(state, request.application, request.new_directory) >= 0) {
+    return {code: "duplicate_binding", state: copy(state)};
+  }
+  const next = copy(state);
+  next.records[index].status = "revoked";
+  next.records.push({
+    application: request.application,
+    directory: request.new_directory,
+    instance: request.instance,
+    generation: next.records[index].generation + 1,
+    status: "active"
+  });
+  return {code: "renamed", state: next,
+    generation: next.records[index].generation + 1};
+}
+
+function b_crash_recovery(state, durable_bytes) {
+  // A crash-recovered store must equal the last durably written state, and a
+  // binding whose instance no longer exists must be refused rather than
+  // silently rebound.
+  const recovered = JSON.parse(durable_bytes);
+  if (!same(state, recovered)) {
+    return {code: "recovery_diverged", state: copy(recovered)};
+  }
+  const index = b_active_index(recovered, "browser-a", "profile-1");
+  if (index < 0) {
+    return {code: "recovered_absent", state: copy(recovered)};
+  }
+  if (recovered.records[index].instance !== "instance-1") {
+    return {code: "recovered_instance_mismatch", state: copy(recovered)};
+  }
+  return {code: "recovered", state: copy(recovered)};
+}
+
+export function b_arms() {
+  const authority = {authorized: true};
+  const seeded = b_create(
+    b_empty_state(),
+    {application: "browser-a", directory: "profile-1",
+      instance: "instance-1", expected_generation: 0},
+    authority
+  );
+  demand(seeded.code === "created", "b_model_seed_failed");
+  const state = seeded.state;
+
+  const create_ok = seeded.code === "created" && seeded.generation === 1;
+  const create_authority = b_create(
+    b_empty_state(),
+    {application: "browser-a", directory: "profile-1",
+      instance: "instance-1", expected_generation: 0},
+    {authorized: false}
+  ).code === "authority_refused";
+  const create_dup = b_create(
+    state,
+    {application: "browser-a", directory: "profile-1",
+      instance: "instance-2", expected_generation: 0},
+    authority
+  ).code === "duplicate_binding";
+  const create_generation = b_create(
+    state,
+    {application: "browser-b", directory: "profile-2",
+      instance: "instance-2", expected_generation: 1},
+    authority
+  ).code === "generation_conflict";
+
+  const use_ok = b_use(
+    state,
+    {application: "browser-a", directory: "profile-1",
+      instance: "instance-1", expected_generation: 1}
+  ).code === "used";
+  const use_stale = b_use(
+    state,
+    {application: "browser-a", directory: "profile-1",
+      instance: "instance-1", expected_generation: 2}
+  ).code === "stale_generation";
+  const use_missing = b_use(
+    state,
+    {application: "browser-z", directory: "profile-9",
+      instance: "instance-9", expected_generation: 1}
+  ).code === "not_found";
+  const use_instance = b_use(
+    state,
+    {application: "browser-a", directory: "profile-1",
+      instance: "instance-9", expected_generation: 1}
+  ).code === "instance_mismatch";
+
+  const renamed = b_rename(
+    state,
+    {application: "browser-a", directory: "profile-1",
+      new_directory: "profile-renamed", instance: "instance-1",
+      expected_generation: 1},
+    authority
+  );
+  const rename_ok = renamed.code === "renamed" && renamed.generation === 2;
+  const rename_generation = b_rename(
+    state,
+    {application: "browser-a", directory: "profile-1",
+      new_directory: "profile-renamed", instance: "instance-1",
+      expected_generation: 0},
+    authority
+  ).code === "generation_conflict";
+  const rename_dup = b_rename(
+    renamed.state,
+    {application: "browser-a", directory: "profile-renamed",
+      new_directory: "profile-renamed", instance: "instance-1",
+      expected_generation: 2},
+    authority
+  ).code === "duplicate_binding";
+  const old_after_rename = b_use(
+    renamed.state,
+    {application: "browser-a", directory: "profile-1",
+      instance: "instance-1", expected_generation: 1}
+  ).code === "not_found";
+
+  const durable = JSON.stringify(state);
+  const recovery_ok = b_crash_recovery(state, durable).code === "recovered";
+  const recovery_diverged = b_crash_recovery(
+    state, JSON.stringify(b_empty_state())
+  ).code === "recovery_diverged";
+
+  return [
+    {id: "create", passed: create_ok},
+    {id: "create-authority", passed: create_authority},
+    {id: "create-duplicate", passed: create_dup},
+    {id: "create-generation", passed: create_generation},
+    {id: "use", passed: use_ok},
+    {id: "use-stale-generation", passed: use_stale},
+    {id: "use-missing", passed: use_missing},
+    {id: "use-instance-mismatch", passed: use_instance},
+    {id: "rename", passed: rename_ok},
+    {id: "rename-generation", passed: rename_generation},
+    {id: "rename-duplicate", passed: rename_dup},
+    {id: "rename-old-not-found", passed: old_after_rename},
+    {id: "crash-recovery", passed: recovery_ok},
+    {id: "crash-recovery-diverged", passed: recovery_diverged}
+  ];
+}
+
+function all_arms_pass(arms) {
+  if (arms.length === 0) {
+    return false;
+  }
+  for (let i = 0; i < arms.length; i = i + 1) {
+    if (arms[i].passed !== true) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// D3 runs when A1 is structurally ineligible (no edge to test) or when A1 was
+// actually tested and rejected. Both are "A1 did not win", and the spec makes B
+// the explicit fallback for either. B must still pass its own full arm set; the
+// absence of an A1 edge is never itself evidence for B (spec §6).
+function d3_verdict(a1_cleared, arms) {
+  if (a1_cleared !== true) {
+    return {selected: false, code: "D3_PRECONDITION_UNMET"};
+  }
+  if (all_arms_pass(arms)) {
+    return {selected: true, code: "B_SELECTED", arm_count: arms.length};
+  }
+  return {selected: false, code: "INCONCLUSIVE_MECHANISM"};
+}
+
+// --- decision tree -----------------------------------------------------------
+//
+// Spec §4, in the declared order: validity, then safety control, then eligible
+// designs. Every combination has an exit.
+
+function validate(args) {
+  const journal = empty_journal();
+  journal_publish(journal, stage_receipt(
+    "preflight", "court", "PREFLIGHT_VALIDATED",
+    {source_sha: args.source_sha, input_digest: args.input_digest,
+      executable_digest: args.executable_digest,
+      ordinal: args.ordinal, deadline_ms: args.deadline_ms,
+      stage_seq: 1}
+  ));
+  if (args.v1 !== true) {
+    return terminal_result(journal, "INVALID_INPUT", {V1: false});
+  }
+  if (args.v2 !== true) {
+    return terminal_result(journal, "INCONCLUSIVE_IDENTITY_SOURCE",
+      {V2: false});
+  }
+  if (args.v3 !== true) {
+    return terminal_result(journal, "INCONCLUSIVE_OWNERSHIP", {V3: false});
+  }
+  if (args.v4 !== true || args.v5 !== true) {
+    return terminal_result(journal, "INCONCLUSIVE_CLEANUP",
+      {V4: args.v4, V5: args.v5});
+  }
+  if (args.v6 !== true) {
+    // Persistence failure cannot prove its own terminal row. The fixed stdout
+    // terminal is non-evidence and carries no design result; any reservation
+    // remains authoritative for independent audit.
+    return {terminal: "INVALID_EVIDENCE", v: {V6: false}, journal: journal,
+      persistence_failed: true, design: null};
+  }
+  if (args.v7 !== true) {
+    return terminal_result(journal, "INVALID_EXPERIMENT", {V7: false});
+  }
+  return {terminal: null, v: {V1: true, V2: true, V3: true, V4: true,
+    V5: true, V6: true, V7: true}, journal: journal};
+}
+
+export function decide(args) {
+  const validity = validate(args);
+  if (validity.terminal !== null) {
+    const stopped = {trace: ["validity"], terminal: validity.terminal,
+      criteria: validity.v, journal: validity.journal, design: null};
+    if (validity.persistence_failed === true) {
+      stopped.persistence_failed = true;
+    }
+    return stopped;
+  }
+  const trace = ["validity-pass", "d1"];
+  const a0 = a0_negative_control(args.a0_candidates);
+  if (a0.ambiguous_count >= 2) {
+    trace.push("d1-rejects-a0");
+  } else {
+    trace.push("d1-inconclusive-a0-not-rejected");
+  }
+  // D1 never selects another design; it only shapes the A0 verdict.
+  trace.push("d2");
+  const d2 = d2_verdict(args.a1_edge, args.a1_arms);
+  if (d2.selected === true) {
+    trace.push("a1-selected");
+    return {trace: trace, terminal: "A1_SELECTED", design: "A1",
+      criteria: validity.v, a0: a0, d2: d2, journal: validity.journal};
+  }
+  // A1 ineligible or rejected: D3 becomes the explicit fallback. The signal is
+  // "A1 did not and cannot select", which covers both the ineligible and the
+  // tested-and-rejected cases.
+  trace.push("d3");
+  const a1_cleared = d2.selected !== true;
+  const d3 = d3_verdict(a1_cleared, args.b_arms);
+  if (d3.selected === true) {
+    trace.push("b-selected");
+    return {trace: trace, terminal: "B_SELECTED", design: "B",
+      criteria: validity.v, a0: a0, d2: d2, d3: d3,
+      journal: validity.journal};
+  }
+  trace.push("b-inconclusive");
+  return {trace: trace, terminal: "INCONCLUSIVE_MECHANISM", design: null,
+    criteria: validity.v, a0: a0, d2: d2, d3: d3,
+    journal: validity.journal};
+}
+
+// --- manifests and self-test -------------------------------------------------
+
+export function model_manifest() {
+  return {
+    schema: 1,
+    experiment: "browser-profile-name-binding-exact-process",
+    exact_key_ops: copy(EXACT_KEY_OPS),
+    chain_ceiling: CHAIN_CEILING,
+    stage_fact_whitelist: copy(STAGE_FACT_WHITELIST),
+    stage_forbidden_keys: copy(STAGE_FORBIDDEN_KEYS),
+    cleanup_input_whitelist: copy(CLEANUP_INPUT_WHITELIST),
+    cleanup_forbidden_fields: copy(CLEANUP_FORBIDDEN_FIELDS),
+    forbidden_source_patterns: copy(FORBIDDEN_SOURCE_PATTERNS),
+    validity_criteria: ["V1", "V2", "V3", "V4", "V5", "V6", "V7"],
+    design_criteria: ["D1", "D2", "D3"],
+    decision_terminals: [
+      "INVALID_INPUT", "INCONCLUSIVE_IDENTITY_SOURCE",
+      "INCONCLUSIVE_OWNERSHIP", "INCONCLUSIVE_CLEANUP", "INVALID_EVIDENCE",
+      "INVALID_EXPERIMENT", "A1_SELECTED", "B_SELECTED",
+      "INCONCLUSIVE_MECHANISM"
+    ],
+    kill_criteria: [
+      "NEW_INFORMATION_INSUFFICIENT", "CLEANUP_NOT_INDEPENDENT"
+    ]
+  };
+}
+
+export function valid_args() {
+  return {
+    source_sha: "a",
+    input_digest: "b",
+    executable_digest: "c",
+    ordinal: "R1",
+    deadline_ms: 1,
+    v1: true, v2: true, v3: true, v4: true, v5: true, v6: true, v7: true,
+    a0_candidates: [
+      {name: "dir-a", matches: [{connection_identity: "conn-a"}]},
+      {name: "dir-b", matches: [{connection_identity: "conn-b"}]}
+    ],
+    a1_edge: null,
+    a1_arms: [],
+    b_arms: b_arms()
+  };
+}
+
+// Every validity combination must be proven, including each single failure.
+function prove_validity_matrix() {
+  const base = valid_args();
+  const cases = [];
+  const singles = ["v1", "v2", "v3", "v4", "v5", "v6", "v7"];
+  const expected = {
+    v1: "INVALID_INPUT",
+    v2: "INCONCLUSIVE_IDENTITY_SOURCE",
+    v3: "INCONCLUSIVE_OWNERSHIP",
+    v4: "INCONCLUSIVE_CLEANUP",
+    v5: "INCONCLUSIVE_CLEANUP",
+    v6: "INVALID_EVIDENCE",
+    v7: "INVALID_EXPERIMENT"
+  };
+  for (let i = 0; i < singles.length; i = i + 1) {
+    const field = singles[i];
+    const args = copy(base);
+    args[field] = false;
+    const result = decide(args);
+    // A later criterion must not mask an earlier one: with only `field` false,
+    // the terminal must be exactly the claimed one.
+    cases.push({
+      id: "single-" + field,
+      expected: expected[field],
+      actual: result.terminal,
+      passed: result.terminal === expected[field]
+    });
+  }
+  // All pass reaches the design stage.
+  const all_pass = decide(copy(base));
+  cases.push({
+    id: "all-valid",
+    expected: "B_SELECTED",
+    actual: all_pass.terminal,
+    passed: all_pass.terminal === "B_SELECTED"
+  });
+  // V4 and V5 fail together: still INCONCLUSIVE_CLEANUP.
+  const both_cleanup = copy(base);
+  both_cleanup.v4 = false;
+  both_cleanup.v5 = false;
+  const both_result = decide(both_cleanup);
+  cases.push({
+    id: "cleanup-both-fail",
+    expected: "INCONCLUSIVE_CLEANUP",
+    actual: both_result.terminal,
+    passed: both_result.terminal === "INCONCLUSIVE_CLEANUP"
+  });
+  // V6 and V7 fail together: V6 precedes V7, so INVALID_EVIDENCE wins.
+  const both_evidence = copy(base);
+  both_evidence.v6 = false;
+  both_evidence.v7 = false;
+  const both_evidence_result = decide(both_evidence);
+  cases.push({
+    id: "evidence-both-fail-v6-precedes",
+    expected: "INVALID_EVIDENCE",
+    actual: both_evidence_result.terminal,
+    passed: both_evidence_result.terminal === "INVALID_EVIDENCE"
+  });
+  // Validity cannot be outweighed: even a selectable A1 must not select when a
+  // validity gate fails.
+  const masked = copy(base);
+  masked.v3 = false;
+  masked.a1_edge = {
+    shared_issuer: true, authenticated: true, collision_resistant: true,
+    injective: true, profile_unique: true, two_sided: true
+  };
+  masked.a1_arms = [{id: "restart", passed: true}];
+  const masked_result = decide(masked);
+  cases.push({
+    id: "validity-precedes-design",
+    expected: "INCONCLUSIVE_OWNERSHIP",
+    actual: masked_result.terminal,
+    passed: masked_result.terminal === "INCONCLUSIVE_OWNERSHIP"
+  });
+  return cases;
+}
+
+// Every design-tree combination must be proven, in the declared order.
+function prove_design_matrix() {
+  const cases = [];
+  const full_edge = {
+    shared_issuer: true, authenticated: true, collision_resistant: true,
+    injective: true, profile_unique: true, two_sided: true
+  };
+  const passing_arms = [
+    {id: "edge", passed: true},
+    {id: "restart-persistence", passed: true},
+    {id: "name-safety", passed: true}
+  ];
+
+  // 1. A0 ambiguity is demonstrated; A0 is rejected and no other design moves.
+  const a0 = a0_negative_control([
+    {name: "dir-a", matches: [{connection_identity: "conn-a"}]},
+    {name: "dir-b", matches: [{connection_identity: "conn-b"}]}
+  ]);
+  cases.push({
+    id: "d1-rejects-a0",
+    expected: "A0_REJECTED",
+    actual: a0.code,
+    passed: a0.code === "A0_REJECTED"
+  });
+
+  // 2. A1 edge absent -> structurally ineligible, D3 runs.
+  const no_edge = decide({
+    source_sha: "a", input_digest: "b", executable_digest: "c",
+    ordinal: "R1", deadline_ms: 1,
+    v1: true, v2: true, v3: true, v4: true, v5: true, v6: true, v7: true,
+    a0_candidates: [],
+    a1_edge: null, a1_arms: [], b_arms: b_arms()
+  });
+  cases.push({
+    id: "a1-absent-falls-to-b",
+    expected: "B_SELECTED",
+    actual: no_edge.terminal,
+    passed: no_edge.terminal === "B_SELECTED"
+  });
+
+  // 3. A1 edge present and all arms pass -> A1 selected, B not consulted.
+  const a1_ok = decide({
+    source_sha: "a", input_digest: "b", executable_digest: "c",
+    ordinal: "R1", deadline_ms: 1,
+    v1: true, v2: true, v3: true, v4: true, v5: true, v6: true, v7: true,
+    a0_candidates: [],
+    a1_edge: full_edge, a1_arms: passing_arms, b_arms: b_arms()
+  });
+  cases.push({
+    id: "a1-all-arms-pass-selects-a1",
+    expected: "A1_SELECTED",
+    actual: a1_ok.terminal,
+    passed: a1_ok.terminal === "A1_SELECTED"
+  });
+
+  // 4. A1 edge present but one arm fails -> A1 rejected, falls through to D3
+  //    and B is selected on its own merits only.
+  const failing_arms = [
+    {id: "edge", passed: true},
+    {id: "restart-persistence", passed: false},
+    {id: "name-safety", passed: true}
+  ];
+  const a1_rejected = decide({
+    source_sha: "a", input_digest: "b", executable_digest: "c",
+    ordinal: "R1", deadline_ms: 1,
+    v1: true, v2: true, v3: true, v4: true, v5: true, v6: true, v7: true,
+    a0_candidates: [],
+    a1_edge: full_edge, a1_arms: failing_arms, b_arms: b_arms()
+  });
+  cases.push({
+    id: "a1-arm-fails-continues-to-b",
+    expected: "B_SELECTED",
+    actual: a1_rejected.terminal,
+    passed: a1_rejected.terminal === "B_SELECTED"
+      && a1_rejected.d2.code === "A1_REJECTED"
+      && a1_rejected.trace.indexOf("d3") >= 0
+  });
+
+  // 5. A1 rejected and B arms fail -> INCONCLUSIVE_MECHANISM, TODO retained.
+  const failing_b = [];
+  const b_all = b_arms();
+  for (let i = 0; i < b_all.length; i = i + 1) {
+    failing_b.push({id: b_all[i].id, passed: false});
+  }
+  const inconclusive = decide({
+    source_sha: "a", input_digest: "b", executable_digest: "c",
+    ordinal: "R1", deadline_ms: 1,
+    v1: true, v2: true, v3: true, v4: true, v5: true, v6: true, v7: true,
+    a0_candidates: [],
+    a1_edge: null, a1_arms: [], b_arms: failing_b
+  });
+  cases.push({
+    id: "a1-ineligible-b-arms-fail",
+    expected: "INCONCLUSIVE_MECHANISM",
+    actual: inconclusive.terminal,
+    passed: inconclusive.terminal === "INCONCLUSIVE_MECHANISM"
+      && inconclusive.design === null
+  });
+
+  // 6. D2 is never reached when it cannot select: A1 absent + empty arms.
+  const d2_no_edge = d2_verdict(null, []);
+  cases.push({
+    id: "d2-no-edge-ineligible",
+    expected: "A1_STRUCTURALLY_INELIGIBLE",
+    actual: d2_no_edge.code,
+    passed: d2_no_edge.code === "A1_STRUCTURALLY_INELIGIBLE"
+      && d2_no_edge.selected === false
+  });
+
+  // 7. D3 precondition: it cannot select B unless A1 was rejected.
+  const d3_unmet = d3_verdict(false, b_arms());
+  cases.push({
+    id: "d3-precondition-unmet",
+    expected: "D3_PRECONDITION_UNMET",
+    actual: d3_unmet.code,
+    passed: d3_unmet.code === "D3_PRECONDITION_UNMET"
+      && d3_unmet.selected === false
+  });
+
+  // 8. D3 cannot select B on an empty arm set.
+  const d3_empty = d3_verdict(true, []);
+  cases.push({
+    id: "d3-empty-arms",
+    expected: "INCONCLUSIVE_MECHANISM",
+    actual: d3_empty.code,
+    passed: d3_empty.code === "INCONCLUSIVE_MECHANISM"
+      && d3_empty.selected === false
+  });
+
+  // 9. B's own arms all pass, proving D3 is not decided by A1's absence alone.
+  const b_only = d3_verdict(true, b_arms());
+  cases.push({
+    id: "d3-b-arms-all-pass",
+    expected: "B_SELECTED",
+    actual: b_only.code,
+    passed: b_only.code === "B_SELECTED" && b_only.selected === true
+  });
+
+  return cases;
+}
+
+// V6 · every modeled validity failure other than persistence failure itself has
+// a read-back-equal terminal stage row. Persistence failure is the sole
+// exception: it must remain INVALID_EVIDENCE with no design fact.
+function prove_stage_persistence() {
+  const cases = [];
+  const base = valid_args();
+  const singles = ["v1", "v2", "v3", "v4", "v5", "v6", "v7"];
+  for (let i = 0; i < singles.length; i = i + 1) {
+    const field = singles[i];
+    const args = copy(base);
+    args[field] = false;
+    const result = validate(args);
+    const rows = result.journal.rows;
+    let readback_equal = rows.length > 0;
+    for (let j = 0; j < rows.length; j = j + 1) {
+      if (JSON.stringify(JSON.parse(rows[j])) !== rows[j]) {
+        readback_equal = false;
+      }
+    }
+    if (field === "v6") {
+      const passed = result.terminal === "INVALID_EVIDENCE"
+        && result.persistence_failed === true && result.design === null
+        && rows.length === 1 && readback_equal === true;
+      cases.push({id: "persistence-failure-is-non-evidence",
+        expected: true, actual: passed, passed: passed});
+    } else {
+      const last = JSON.parse(rows[rows.length - 1]);
+      const passed = rows.length === 2 && readback_equal === true
+        && last.stage === "terminal" && last.code === result.terminal
+        && last.facts.terminal_code === result.terminal;
+      cases.push({id: "terminal-stage-before-" + field,
+        expected: true, actual: passed, passed: passed});
+    }
+  }
+  // A receipt must refuse forbidden keys and over-limit fact sets.
+  let refused_forbidden = false;
+  try {
+    stage_receipt("x", "court", "X", {argv: ["a"]});
+  } catch (error) {
+    refused_forbidden = error === "stage_receipt_forbidden_key:argv";
+  }
+  cases.push({
+    id: "stage-refuses-forbidden-key",
+    expected: true,
+    actual: refused_forbidden,
+    passed: refused_forbidden
+  });
+  let refused_unknown = false;
+  try {
+    stage_receipt("x", "court", "X", {mystery: 1});
+  } catch (error) {
+    refused_unknown = error === "stage_receipt_inadmissible_fact:mystery";
+  }
+  cases.push({
+    id: "stage-refuses-unknown-fact",
+    expected: true,
+    actual: refused_unknown,
+    passed: refused_unknown
+  });
+  let refused_control = false;
+  try {
+    stage_receipt("x", "court", "X", {terminal_code: "a\nb"});
+  } catch (error) {
+    refused_control = error === "stage_receipt_inadmissible_fact:terminal_code";
+  }
+  cases.push({
+    id: "stage-refuses-control-chars",
+    expected: true,
+    actual: refused_control,
+    passed: refused_control
+  });
+  // Read-back mismatch must be typed, not silent.
+  let readback_typed = false;
+  try {
+    publish_readback({schema: "s", stage: "x", producer: "p", code: "c",
+      facts: {chain_length: 1}});
+    readback_typed = true;
+  } catch (error) {
+    readback_typed = false;
+  }
+  cases.push({
+    id: "stage-readback-equal",
+    expected: true,
+    actual: readback_typed,
+    passed: readback_typed
+  });
+  return cases;
+}
+
+export function prove() {
+  const validity = prove_validity_matrix();
+  const design = prove_design_matrix();
+  const stages = prove_stage_persistence();
+  const all = validity.concat(design).concat(stages);
+  let passed = true;
+  for (let i = 0; i < all.length; i = i + 1) {
+    if (all[i].passed !== true) {
+      passed = false;
+    }
+  }
+  return {
+    validity_cases: validity,
+    design_cases: design,
+    stage_cases: stages,
+    case_count: all.length,
+    passed: passed
+  };
+}
+
+export function self_test() {
+  const manifest = model_manifest();
+  demand(manifest.validity_criteria.length === 7,
+    "exact_process_v_criteria_count");
+  demand(manifest.design_criteria.length === 3,
+    "exact_process_d_criteria_count");
+  demand(manifest.decision_terminals.length === 9,
+    "exact_process_terminal_count");
+  const result = prove();
+  demand(result.passed, "exact_process_proof_failed");
+  for (let i = 0; i < result.validity_cases.length; i = i + 1) {
+    demand(result.validity_cases[i].passed,
+      "exact_process_validity_failed:" + result.validity_cases[i].id);
+  }
+  for (let i = 0; i < result.design_cases.length; i = i + 1) {
+    demand(result.design_cases[i].passed,
+      "exact_process_design_failed:" + result.design_cases[i].id);
+  }
+  for (let i = 0; i < result.stage_cases.length; i = i + 1) {
+    demand(result.stage_cases[i].passed,
+      "exact_process_stage_failed:" + result.stage_cases[i].id);
+  }
+  return result;
+}
+
+export function chain_and_cleanup_self_test() {
+  const cases = [];
+  // A well-formed chain of three hops terminates at the owned identity.
+  const good = classify_chain(
+    build_chain([300, 200, 100], 100, "identity-100"), 100, "identity-100"
+  );
+  cases.push({id: "chain-valid", expected: "OWNERSHIP_PROVEN",
+    actual: good.code, passed: good.code === "OWNERSHIP_PROVEN"
+      && good.chain_length === 3});
+
+  // An unbracketed / dead-bracketed PID must be INCONCLUSIVE_PROCESS_IDENTITY.
+  const broken = build_chain([300, 200, 100], 100, "identity-100");
+  broken[0].before = observation("dead", null);
+  const broken_result = classify_chain(broken, 100, "identity-100");
+  cases.push({id: "chain-dead-bracket",
+    expected: "INCONCLUSIVE_PROCESS_IDENTITY",
+    actual: broken_result.code,
+    passed: broken_result.code === "INCONCLUSIVE_PROCESS_IDENTITY"});
+
+  // A null start identity must be INCONCLUSIVE_PROCESS_IDENTITY, never absence.
+  const null_identity = build_chain([300, 200, 100], 100, "identity-100");
+  null_identity[1].before = observation("live", null);
+  const null_result = classify_chain(null_identity, 100, "identity-100");
+  cases.push({id: "chain-null-identity",
+    expected: "INCONCLUSIVE_PROCESS_IDENTITY",
+    actual: null_result.code,
+    passed: null_result.code === "INCONCLUSIVE_PROCESS_IDENTITY"});
+
+  // An identity change across the bracket is PID reuse.
+  const reused = build_chain([300, 200, 100], 100, "identity-100");
+  reused[1].after = observation("live", "identity-different");
+  const reused_result = classify_chain(reused, 100, "identity-100");
+  cases.push({id: "chain-identity-change",
+    expected: "INCONCLUSIVE_PROCESS_IDENTITY",
+    actual: reused_result.code,
+    passed: reused_result.code === "INCONCLUSIVE_PROCESS_IDENTITY"});
+
+  // A repeated PID is rejected.
+  const repeated = build_chain([300, 200, 300, 100], 100, "identity-100");
+  const repeated_result = classify_chain(repeated, 100, "identity-100");
+  cases.push({id: "chain-repeated-pid",
+    expected: "INCONCLUSIVE_OWNERSHIP",
+    actual: repeated_result.code,
+    passed: repeated_result.code === "INCONCLUSIVE_OWNERSHIP"});
+
+  // A chain that does not end at the owned identity is unproven.
+  const foreign = build_chain([300, 200, 100], 100, "identity-100");
+  const foreign_result = classify_chain(foreign, 999, "identity-999");
+  cases.push({id: "chain-foreign-terminus",
+    expected: "INCONCLUSIVE_OWNERSHIP",
+    actual: foreign_result.code,
+    passed: foreign_result.code === "INCONCLUSIVE_OWNERSHIP"});
+
+  // A chain longer than the ceiling is unproven.
+  const long_pids = [];
+  for (let i = 0; i < CHAIN_CEILING + 2; i = i + 1) {
+    long_pids.push(1000 + i);
+  }
+  const too_long = classify_chain(
+    build_chain(long_pids, long_pids[long_pids.length - 1],
+      "identity-" + long_pids[long_pids.length - 1]),
+    long_pids[long_pids.length - 1],
+    "identity-" + long_pids[long_pids.length - 1]
+  );
+  cases.push({id: "chain-ceiling", expected: "INCONCLUSIVE_OWNERSHIP",
+    actual: too_long.code, passed: too_long.code === "INCONCLUSIVE_OWNERSHIP"});
+
+  // Ownership must be frozen before any selector runs: a cleanup input that
+  // carries a selector field is refused.
+  const bad_input = {
+    owned_handle: "h", frozen_identities: ["identity-100"],
+    baseline_rows: [], live_rows: [], profile_instance_id: "instance-1"
+  };
+  const refused = cleanup_termination(bad_input, "stopped", []);
+  cases.push({id: "cleanup-refuses-selector-field",
+    expected: "CLEANUP_NOT_INDEPENDENT",
+    actual: refused.code,
+    passed: refused.code === "CLEANUP_NOT_INDEPENDENT"
+      && refused.v4 === false});
+
+  // A clean cleanup passes V4 and V5 and reports registry hygiene separately.
+  const good_input = {
+    owned_handle: "h", frozen_identities: ["identity-100"],
+    baseline_rows: [{connection_identity: "baseline-1"}],
+    live_rows: []
+  };
+  const termination = cleanup_termination(
+    good_input, "stopped", [{identity: "identity-100",
+      observation: observation("dead", null)}]
+  );
+  const restoration = cleanup_restoration(good_input, {
+    complete: true, registry_hygiene: true,
+    rows: [{connection_identity: "baseline-1"}]
+  });
+  cases.push({id: "cleanup-clean-pass",
+    expected: true,
+    actual: termination.v4 === true && restoration.v5 === true,
+    passed: termination.v4 === true && restoration.v5 === true});
+
+  // A skipped termination step fails V4.
+  const skipped = cleanup_termination(good_input, "stopped", []);
+  cases.push({id: "cleanup-skipped-step",
+    expected: "INCONCLUSIVE_CLEANUP",
+    actual: skipped.code,
+    passed: skipped.code === "INCONCLUSIVE_CLEANUP" && skipped.v4 === false});
+
+  // A surviving process fails V4 (the handle was stopped but the tree lives).
+  const surviving = cleanup_termination(
+    good_input, "stopped", [{identity: "identity-100",
+      observation: observation("live", "identity-100")}]
+  );
+  cases.push({id: "cleanup-survivor",
+    expected: "INCONCLUSIVE_CLEANUP",
+    actual: surviving.code,
+    passed: surviving.code === "INCONCLUSIVE_CLEANUP" && surviving.v4 === false});
+
+  // An inventory that does not match the baseline fails V5.
+  const drifted = cleanup_restoration(good_input, {
+    complete: true, registry_hygiene: false,
+    rows: [{connection_identity: "other"}]
+  });
+  cases.push({id: "cleanup-inventory-drift",
+    expected: "INCONCLUSIVE_CLEANUP",
+    actual: drifted.code,
+    passed: drifted.code === "INCONCLUSIVE_CLEANUP" && drifted.v5 === false});
+
+  // Registry hygiene alone cannot fix an inexact restoration.
+  const hygiene_only = cleanup_restoration(good_input, {
+    complete: true, registry_hygiene: true,
+    rows: [{connection_identity: "other"}]
+  });
+  cases.push({id: "cleanup-hygiene-cannot-heal",
+    expected: "INCONCLUSIVE_CLEANUP",
+    actual: hygiene_only.code,
+    passed: hygiene_only.code === "INCONCLUSIVE_CLEANUP"
+      && hygiene_only.v5 === false && hygiene_only.registry_hygiene === true});
+
+  // An incomplete inventory is inconclusive, not a pass.
+  const incomplete = cleanup_restoration(good_input, {
+    complete: false, registry_hygiene: false, rows: []
+  });
+  cases.push({id: "cleanup-incomplete-inventory",
+    expected: "INCONCLUSIVE_CLEANUP",
+    actual: incomplete.code,
+    passed: incomplete.code === "INCONCLUSIVE_CLEANUP"
+      && incomplete.v5 === false});
+
+  return cases;
+}
+
+export function identity_source_self_test() {
+  const cases = [];
+  const clean = [{name: "court", text: "const p = process.parent(pid);"}];
+  const good_calls = [
+    {op: "process.pid"}, {op: "process.observe"}, {op: "process.parent"}
+  ];
+  const ok = identity_source_verdict(clean, good_calls);
+  cases.push({id: "identity-clean-source", expected: "IDENTITY_SOURCE_PROVEN",
+    actual: ok.code, passed: ok.code === "IDENTITY_SOURCE_PROVEN"});
+
+  const ps_source = [{name: "court", text: "const out = run(\"/bin/ps\");"}];
+  const ps_result = identity_source_verdict(ps_source, good_calls);
+  cases.push({id: "identity-forbids-bin-ps",
+    expected: "INCONCLUSIVE_IDENTITY_SOURCE",
+    actual: ps_result.code,
+    passed: ps_result.code === "INCONCLUSIVE_IDENTITY_SOURCE"
+      && ps_result.pattern === "/bin/ps"});
+
+  const pgrep_source = [{name: "court", text: "run(\"pgrep\", [\"-x\", \"Chrome\"]);"}];
+  const pgrep_result = identity_source_verdict(pgrep_source, good_calls);
+  cases.push({id: "identity-forbids-pgrep",
+    expected: "INCONCLUSIVE_IDENTITY_SOURCE",
+    actual: pgrep_result.code,
+    passed: pgrep_result.code === "INCONCLUSIVE_IDENTITY_SOURCE"});
+
+  const session_source = [{name: "court", text: "const sid = row.session_id;"}];
+  const session_result = identity_source_verdict(session_source, good_calls);
+  cases.push({id: "identity-forbids-session-id",
+    expected: "INCONCLUSIVE_IDENTITY_SOURCE",
+    actual: session_result.code,
+    passed: session_result.code === "INCONCLUSIVE_IDENTITY_SOURCE"});
+
+  const bad_calls = [{op: "process.pid"}, {op: "exec.run"}];
+  const bad_result = identity_source_verdict(clean, bad_calls);
+  cases.push({id: "identity-forbids-non-exact-key-op",
+    expected: "INCONCLUSIVE_IDENTITY_SOURCE",
+    actual: bad_result.code,
+    passed: bad_result.code === "INCONCLUSIVE_IDENTITY_SOURCE"
+      && bad_result.op === "exec.run"});
+
+  const none = identity_source_verdict([], good_calls);
+  cases.push({id: "identity-requires-a-scan",
+    expected: "INCONCLUSIVE_IDENTITY_SOURCE",
+    actual: none.code,
+    passed: none.code === "INCONCLUSIVE_IDENTITY_SOURCE"});
+
+  return cases;
+}
+
+export function selector_independence_self_test() {
+  const cases = [];
+  const clean_region = "const frozen = input.frozen_identities;";
+  const ok_input = {
+    owned_handle: "h", frozen_identities: [], baseline_rows: [], live_rows: []
+  };
+  const ok = selector_independence_verdict(clean_region, ok_input);
+  cases.push({id: "v7-clean", expected: "SELECTOR_INDEPENDENCE_PROVEN",
+    actual: ok.code, passed: ok.code === "SELECTOR_INDEPENDENCE_PROVEN"
+      && ok.v7 === true});
+
+  const dirty_region = "const x = selector_output.instance;";
+  const dirty = selector_independence_verdict(dirty_region, ok_input);
+  cases.push({id: "v7-cleanup-reads-selector",
+    expected: "INVALID_EXPERIMENT",
+    actual: dirty.code,
+    passed: dirty.code === "INVALID_EXPERIMENT" && dirty.v7 === false});
+
+  const bad_input = {
+    owned_handle: "h", frozen_identities: [], baseline_rows: [], live_rows: [],
+    candidate_label: "Work"
+  };
+  const bad = selector_independence_verdict(clean_region, bad_input);
+  cases.push({id: "v7-input-carries-candidate-label",
+    expected: "INVALID_EXPERIMENT",
+    actual: bad.code,
+    passed: bad.code === "INVALID_EXPERIMENT" && bad.v7 === false});
+
+  return cases;
+}
+
+export function run_all() {
+  const proof = self_test();
+  const chain = chain_and_cleanup_self_test();
+  const identity = identity_source_self_test();
+  const selector = selector_independence_self_test();
+  const groups = [
+    {name: "decision-tree", cases: chain},
+    {name: "identity-source", cases: identity},
+    {name: "selector-independence", cases: selector}
+  ];
+  let total = proof.case_count;
+  let passed = proof.passed;
+  for (let i = 0; i < groups.length; i = i + 1) {
+    total = total + groups[i].cases.length;
+    for (let j = 0; j < groups[i].cases.length; j = j + 1) {
+      if (groups[i].cases[j].passed !== true) {
+        passed = false;
+      }
+    }
+  }
+  return {
+    schema: "agenterm.profile-binding-exact-process-self-test/v1",
+    proof: proof,
+    chain_and_cleanup: chain,
+    identity_source: identity,
+    selector_independence: selector,
+    case_total: total,
+    passed: passed
+  };
+}

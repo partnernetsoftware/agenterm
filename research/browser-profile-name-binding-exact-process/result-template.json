@@ -1,0 +1,170 @@
+{
+  "schema": "agenterm.profile-binding-exact-process-result-template/v1",
+  "experiment": "acu.dynamic.075.profile-name-binding-exact-process",
+  "specification": "plan/design-browser-profile-name-binding-exact-process-experiment.md",
+  "source_discipline": "invocation-owned synthetic HOME and browser Profiles only",
+  "limits": {
+    "journal_max_rows_exclusive": 64,
+    "journal_max_row_bytes_exclusive": 32768,
+    "journal_max_total_bytes_exclusive": 1048576,
+    "chain_ceiling_edges": 64,
+    "stage_fact_limit": 24,
+    "stage_string_limit": 128
+  },
+  "stage_fact_whitelist": [
+    "source_sha",
+    "input_digest",
+    "executable_digest",
+    "browser_family",
+    "browser_version",
+    "ordinal",
+    "deadline_ms",
+    "chain_length",
+    "last_completed_stage",
+    "stage_seq",
+    "frozen_identity_count",
+    "dead_identity_count",
+    "baseline_row_count",
+    "final_row_count",
+    "primary_cause",
+    "cleanup_status",
+    "terminal_code"
+  ],
+  "stage_forbidden_keys": [
+    "argv",
+    "env",
+    "environment",
+    "title",
+    "window_title",
+    "url",
+    "home",
+    "home_path",
+    "path",
+    "profile_instance_id",
+    "candidate_label",
+    "selector",
+    "selector_output",
+    "provisional_verdict",
+    "design_verdict",
+    "verdict"
+  ],
+  "ledger_keys": [
+    "schema",
+    "experiment",
+    "kind",
+    "ordinal",
+    "run_id",
+    "source_sha",
+    "input_digest",
+    "status",
+    "receipt_sha256",
+    "terminal_code"
+  ],
+  "ledger_status_values": ["reserved", "finished", "abandoned"],
+  "ledger_semantics_inherited_from": "plan/design-browser-profile-name-binding-owned-lifecycle-experiment.md sections 1.8-1.9",
+  "persistence_failure_stdout": {
+    "required_keys": [
+      "experiment",
+      "kind",
+      "ordinal",
+      "run_id",
+      "source_sha",
+      "input_digest",
+      "code"
+    ],
+    "code": "INVALID_EVIDENCE",
+    "exit_nonzero": true,
+    "design_fact_allowed": false
+  },
+  "ordinals": {
+    "rehearsal": ["R1"],
+    "decision": ["D1"],
+    "reusable": false,
+    "runner_may_heal": false
+  },
+  "criteria_keys": ["V1", "V2", "V3", "V4", "V5", "V6", "V7"],
+  "design_keys": ["D1", "D2", "D3"],
+  "terminals": [
+    "INVALID_INPUT",
+    "INCONCLUSIVE_IDENTITY_SOURCE",
+    "INCONCLUSIVE_OWNERSHIP",
+    "INCONCLUSIVE_CLEANUP",
+    "INVALID_EVIDENCE",
+    "INVALID_EXPERIMENT",
+    "A1_SELECTED",
+    "B_SELECTED",
+    "INCONCLUSIVE_MECHANISM",
+    "NEW_INFORMATION_INSUFFICIENT",
+    "CLEANUP_NOT_INDEPENDENT"
+  ],
+  "stages": {
+    "preflight": {
+      "required": {
+        "source_sha": "git_sha",
+        "input_digest": "sha256",
+        "executable_digest": "sha256",
+        "ordinal": "string",
+        "deadline_ms": "safe_integer",
+        "stage_seq": "safe_integer"
+      },
+      "optional": {}
+    },
+    "identity-source": {
+      "required": {
+        "scanned_source_count": "safe_integer",
+        "call_count": "safe_integer"
+      },
+      "optional": {
+        "browser_family": "string",
+        "browser_version": "string"
+      }
+    },
+    "ownership": {
+      "required": {
+        "chain_length": "safe_integer",
+        "frozen_identity_count": "safe_integer"
+      },
+      "optional": {}
+    },
+    "stop": {
+      "required": {
+        "frozen_identity_count": "safe_integer"
+      },
+      "optional": {}
+    },
+    "termination-proof": {
+      "required": {
+        "frozen_identity_count": "safe_integer",
+        "dead_identity_count": "safe_integer"
+      },
+      "optional": {}
+    },
+    "final-inventory": {
+      "required": {
+        "baseline_row_count": "safe_integer",
+        "final_row_count": "safe_integer"
+      },
+      "optional": {}
+    },
+    "terminal": {
+      "required": {
+        "primary_cause": "string",
+        "cleanup_status": "string",
+        "terminal_code": "string"
+      },
+      "optional": {}
+    }
+  },
+  "forbidden_in_any_row": [
+    "argv",
+    "environment",
+    "window titles",
+    "URLs",
+    "home paths",
+    "selector output",
+    "candidate labels",
+    "profile_instance_id",
+    "provisional model output",
+    "design verdicts"
+  ]
+}

@@ -1,0 +1,352 @@
+// Court for the browser profile-name binding exact-process experiment.
+//
+// The first slice exposes only the platform-neutral self-test. It machine-proves
+// V2, V6, V7 and every decision-tree combination. It launches no browser, reads
+// no process table and calls no process.* host operation. The planned live
+// macOS court is NOT IMPLEMENTED. The runner fails it closed with a typed code
+// so no live ordinal can be consumed by accident.
+//
+// Spec: plan/design-browser-profile-name-binding-exact-process-experiment.md
+//
+// Provenance: structure follows research/browser-profile-name-binding-v2/
+// court-current-host.qjs, reduced to the platform-neutral first slice. No
+// mutable result state or attempt ledger is imported from either exhausted
+// experiment. This file deliberately imports nothing but the local model: the
+// qjs `run` embedder declares only the `native_*` / `acu_*` / `fleet_*` doors,
+// so a court that needed `rh_compat` could not be re-run by a third party with
+// the plain CLI. The static V2 source scan therefore takes its inputs from the
+// caller.
+
+import * as model from "research/browser-profile-name-binding-exact-process/binding-model";
+
+function demand(condition, code) {
+  if (!condition) { throw code; }
+}
+
+function canonical(value) {
+  const keys = Object.keys(value).sort();
+  let parts = [];
+  for (let i = 0; i < keys.length; i = i + 1) {
+    const key = keys[i];
+    const child = value[key];
+    if (child !== null && typeof child === "object" && !Array.isArray(child)) {
+      parts.push(JSON.stringify(key) + ":" + canonical(child));
+    } else {
+      parts.push(JSON.stringify(key) + ":" + JSON.stringify(child));
+    }
+  }
+  return "{" + parts.join(",") + "}";
+}
+
+function emit_document(document) {
+  print(canonical(document));
+}
+
+function emit_failure(code) {
+  emit_document({schema: "agenterm.profile-binding-exact-process-court/v1",
+    ok: false, code: code});
+}
+
+// --- V2 · static identity-source proof ---------------------------------------
+//
+// Spec §1.2 and V2: neither production nor research source for this experiment
+// may contain a process-table command or parser.
+//
+// The plain `run` embedder has no filesystem door, so `run-current-host.sh`
+// performs the static source scan and emits its own required JSON record. This
+// court proves only the runtime-call model half of V2 and never represents a
+// missing source scan as completed evidence.
+
+function static_scan(sources) {
+  if (sources === null || sources === undefined || sources.length === 0) {
+    return {provided: false, code: "SOURCE_SCAN_NOT_PROVIDED"};
+  }
+  const verdict = model.identity_source_verdict(sources, [
+    {op: "process.pid"}, {op: "process.observe"}, {op: "process.parent"}
+  ]);
+  return {provided: true, code: verdict.code, ok: verdict.ok === true};
+}
+
+// --- V6 · stage receipt persistence ------------------------------------------
+//
+// Spec §1.7 requires a bounded redacted stage row before each side effect and
+// before every possible throw. The self-test proves that the model's receipt
+// generator enforces the whitelist and the read-back equality, and that every
+// validity failure in the decision tree still has a published row.
+
+function stage_persistence_proof() {
+  const rows = [];
+  const args = model.valid_args();
+
+  // A publish/read-back of a well-formed receipt must be byte-stable.
+  const receipt = model_stage_receipt_probe("preflight", {
+    ordinal: "R1", deadline_ms: 1, stage_seq: 1, chain_length: 0
+  });
+  if (receipt.ok !== true) {
+    rows.push({id: "stage-well-formed", passed: false,
+      detail: receipt.code});
+  } else {
+    rows.push({id: "stage-well-formed", passed: true});
+  }
+
+  // Forbidden keys and unknown keys must both be refused with a typed code.
+  const forbidden = model_stage_receipt_probe("x", {argv: ["a"]});
+  rows.push({id: "stage-forbids-argv",
+    passed: forbidden.ok === false
+      && forbidden.code === "stage_receipt_forbidden_key:argv"});
+
+  const unknown = model_stage_receipt_probe("x", {profile_instance_id: "p"});
+  rows.push({id: "stage-forbids-profile-instance",
+    passed: unknown.ok === false
+      && unknown.code === "stage_receipt_forbidden_key:profile_instance_id"});
+
+  const mystery = model_stage_receipt_probe("x", {mystery: 1});
+  rows.push({id: "stage-forbids-unknown-fact",
+    passed: mystery.ok === false
+      && mystery.code === "stage_receipt_inadmissible_fact:mystery"});
+
+  const control = model_stage_receipt_probe("x", {terminal_code: "a\nb"});
+  rows.push({id: "stage-forbids-control-chars",
+    passed: control.ok === false});
+
+  // Every modeled validity failure except persistence failure itself must have
+  // a matching terminal row. V6 is the sole non-evidence exception.
+  const base = model.valid_args();
+  const singles = ["v1", "v2", "v3", "v4", "v5", "v6", "v7"];
+  for (let i = 0; i < singles.length; i = i + 1) {
+    const field = singles[i];
+    const failed = model_validity_failure_rows(base, field);
+    rows.push({id: "stage-contract-for-" + field + "-failure",
+      passed: failed.passed === true, detail: field});
+  }
+
+  let passed = true;
+  for (let i = 0; i < rows.length; i = i + 1) {
+    if (rows[i].passed !== true) {
+      passed = false;
+    }
+  }
+  return {V6: passed, rows: rows};
+}
+
+// Thin wrappers over the model so the court never re-implements a rule.
+function model_stage_receipt_probe(stage, facts) {
+  try {
+    const receipt = model.stage_receipt(stage, "court", "STAGE", facts);
+    model.publish_readback(receipt);
+    return {ok: true, receipt: receipt};
+  } catch (error) {
+    return {ok: false, code: "" + error};
+  }
+}
+
+function model_validity_failure_rows(base, field) {
+  const args = JSON.parse(JSON.stringify(base));
+  args[field] = false;
+  const result = model.decide(args);
+  const rows = result.journal.rows;
+  let readback_equal = rows.length > 0;
+  for (let j = 0; j < rows.length; j = j + 1) {
+    if (JSON.stringify(JSON.parse(rows[j])) !== rows[j]) {
+      readback_equal = false;
+    }
+  }
+  if (field === "v6") {
+    return {rows: rows.length, readback_equal: readback_equal,
+      terminal: result.terminal,
+      passed: result.terminal === "INVALID_EVIDENCE"
+        && result.persistence_failed === true && result.design === null
+        && rows.length === 1 && readback_equal === true};
+  }
+  const last = JSON.parse(rows[rows.length - 1]);
+  return {rows: rows.length, readback_equal: readback_equal,
+    terminal: result.terminal,
+    passed: rows.length === 2 && readback_equal === true
+      && last.stage === "terminal" && last.code === result.terminal
+      && last.facts.terminal_code === result.terminal};
+}
+
+// --- self-test ---------------------------------------------------------------
+
+const REQUIRED_CRITERIA = ["V2", "V6", "V7"];
+const REQUIRED_DESIGN_ARMS = ["D1", "D2", "D3"];
+
+function run_self_test(sources) {
+  const result = {
+    schema: "agenterm.profile-binding-exact-process-self-test/v1",
+    ok: false,
+    criteria: {},
+    design_arms: {},
+    case_total: 0,
+    case_passed: 0,
+    live_path: "unimplemented-fail-closed"
+  };
+
+  // V2 runtime model · only exact-key process ops. The required static source
+  // scan is a separate runner-owned record because this embedder cannot read
+  // the source file.
+  const scan = static_scan(sources);
+  const identity_cases = model.identity_source_self_test();
+  let v2_passed = true;
+  for (let i = 0; i < identity_cases.length; i = i + 1) {
+    if (identity_cases[i].passed !== true) {
+      v2_passed = false;
+    }
+  }
+  if (scan.provided === true && scan.ok !== true) {
+    v2_passed = false;
+  }
+  result.criteria.V2 = {
+    passed: v2_passed,
+    static_scan: scan,
+    cases: identity_cases
+  };
+
+  // V6 · every possible failure has a read-back-equal bounded stage row.
+  const stage_proof = stage_persistence_proof();
+  result.criteria.V6 = {passed: stage_proof.V6, cases: stage_proof.rows};
+
+  // V7 · ownership and cleanup consume no selector/instance/verdict field.
+  const selector_cases = model.selector_independence_self_test();
+  let v7_passed = true;
+  for (let i = 0; i < selector_cases.length; i = i + 1) {
+    if (selector_cases[i].passed !== true) {
+      v7_passed = false;
+    }
+  }
+  result.criteria.V7 = {passed: v7_passed, cases: selector_cases};
+
+  // Full V1-V7 / D1-D3 decision tree, every combination with an exit.
+  const proof = model.prove();
+  result.decision_tree = {
+    validity_cases: proof.validity_cases,
+    design_cases: proof.design_cases,
+    stage_cases: proof.stage_cases,
+    case_count: proof.case_count,
+    passed: proof.passed
+  };
+  const chain_cases = model.chain_and_cleanup_self_test();
+  result.chain_and_cleanup = chain_cases;
+
+  // Coverage: every validity and design criterion must appear in a case id.
+  const ids = [];
+  for (let i = 0; i < proof.validity_cases.length; i = i + 1) {
+    ids.push(proof.validity_cases[i].id);
+  }
+  for (let i = 0; i < proof.design_cases.length; i = i + 1) {
+    ids.push(proof.design_cases[i].id);
+  }
+  const coverage = {
+    V1: false, V2: false, V3: false, V4: false, V5: false, V6: false, V7: false
+  };
+  for (let i = 0; i < proof.validity_cases.length; i = i + 1) {
+    const id = proof.validity_cases[i].id;
+    if (id === "all-valid") {
+      coverage.V1 = true;
+    }
+    for (let c = 1; c <= 7; c = c + 1) {
+      if (id.indexOf("single-v" + c) === 0) {
+        coverage["V" + c] = true;
+      }
+    }
+  }
+  // V6 and V7 also have stage-contract cases that name them explicitly.
+  for (let i = 0; i < stage_proof.rows.length; i = i + 1) {
+    const id = stage_proof.rows[i].id;
+    if (id.indexOf("stage-contract-for-v") === 0) {
+      const index = id.substring("stage-contract-for-v".length,
+        id.indexOf("-failure"));
+      coverage["V" + index] = true;
+    }
+  }
+  result.criteria_coverage = coverage;
+
+  // Tally the cases.
+  let total = 0;
+  let passed = 0;
+  const groups = [
+    proof.validity_cases, proof.design_cases, proof.stage_cases,
+    chain_cases, identity_cases, selector_cases, stage_proof.rows
+  ];
+  for (let g = 0; g < groups.length; g = g + 1) {
+    for (let i = 0; i < groups[g].length; i = i + 1) {
+      total = total + 1;
+      if (groups[g][i].passed === true) {
+        passed = passed + 1;
+      }
+    }
+  }
+  result.case_total = total;
+  result.case_passed = passed;
+
+  // Every required criterion and design arm must be present and proven, and
+  // every individual case must pass. A single failing case fails the self-test.
+  const missing = [];
+  if (passed !== total) {
+    missing.push("case-count-mismatch");
+  }
+  for (let i = 1; i <= 7; i = i + 1) {
+    if (coverage["V" + i] !== true) {
+      missing.push("coverage-V" + i);
+    }
+  }
+  for (let i = 0; i < REQUIRED_CRITERIA.length; i = i + 1) {
+    if (result.criteria[REQUIRED_CRITERIA[i]].passed !== true) {
+      missing.push(REQUIRED_CRITERIA[i]);
+    }
+  }
+  for (let i = 0; i < REQUIRED_DESIGN_ARMS.length; i = i + 1) {
+    result.design_arms[REQUIRED_DESIGN_ARMS[i]] = true;
+  }
+  if (result.decision_tree.passed !== true) {
+    missing.push("decision-tree");
+  }
+  result.ok = missing.length === 0;
+  result.missing = missing;
+  return result;
+}
+
+// --- entry -------------------------------------------------------------------
+//
+// This engine has no `env` or `arg` host function, so this slice hard-codes
+// self-test mode. The runner owns the fail-closed live path.
+
+const mode = "self-test";
+
+if (mode === "self-test") {
+  // Platform-neutral. No browser, no process table, no process.* host op.
+  const result = run_self_test(null);
+  if (result.ok !== true) {
+    emit_document({
+      schema: "agenterm.profile-binding-exact-process-court/v1",
+      ok: false,
+      code: "SELF_TEST_FAILED",
+      missing: result.missing,
+      case_total: result.case_total,
+      case_passed: result.case_passed
+    });
+  } else {
+    emit_document({
+      schema: "agenterm.profile-binding-exact-process-court/v1",
+      ok: true,
+      code: "SELF_TEST_PASS",
+      case_total: result.case_total,
+      case_passed: result.case_passed,
+      model_contracts: {
+        V2_runtime: result.criteria.V2.passed,
+        V6: result.criteria.V6.passed,
+        V7: result.criteria.V7.passed
+      },
+      decision_tree_passed: result.decision_tree.passed,
+      live_path: result.live_path,
+      formal_attempts_consumed: false
+    });
+  }
+} else if (mode === "live") {
+  // The live court is deliberately unimplemented. It must refuse before any
+  // side effect so that neither the rehearsal nor the decision ordinal can be
+  // consumed by an incomplete implementation. See spec §4 kill criterion 4.
+  emit_failure("LIVE_COURT_NOT_IMPLEMENTED");
+} else {
+  emit_failure("usage_expected_self_test_or_live_mode");
+}

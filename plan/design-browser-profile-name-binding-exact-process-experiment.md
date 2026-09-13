@@ -91,6 +91,12 @@ profile-instance edge and therefore do not prejudge A1 or B.
    disposable run lane. The receipt includes the last completed stage, typed
    code, deadline, frozen identities already proven and cleanup facts already
    proven. It never contains argv, environment, titles, URLs or home paths.
+   Persistence failure itself is the sole exception: it emits one fixed,
+   redacted `INVALID_EVIDENCE` stdout record containing the experiment, kind,
+   ordinal, run id, source and input digests, and code, then exits nonzero. It
+   publishes no design fact and leaves any reserved ordinal authoritative for
+   independent audit. A prior unrelated stage row cannot prove that the
+   failing stage was persisted.
 8. Admission atomically reserves one named ordinal in the external ledger
    before fixture creation. A reservation is never reused. A residual
    reservation requires independent audit; the runner does not heal it.
@@ -146,7 +152,7 @@ Validity criteria run before any design criterion and cannot be outweighed.
 | V3 | Boolean · ownership | One cycle-free bracketed chain connects the live bridge host identity to the invocation-owned browser identity within 64 hops | `INCONCLUSIVE_OWNERSHIP` |
 | V4 | Boolean · exact termination | Browser stop is followed by `dead` observations for every frozen owned identity; no step is skipped | `INCONCLUSIVE_CLEANUP` |
 | V5 | Boolean · inventory restoration | Final complete live inventory equals the preserved baseline; stale registry hygiene is reported separately | `INCONCLUSIVE_CLEANUP` |
-| V6 | Boolean · evidence persistence | Every possible failure has a read-back-equal bounded stage row written before it | `INVALID_EVIDENCE` |
+| V6 | Boolean · evidence persistence | Every possible failure has a read-back-equal bounded stage row written before it, except persistence failure itself, which emits the fixed non-evidence record from §1.7 | `INVALID_EVIDENCE` |
 | V7 | Safety · selector independence | Ownership and cleanup consume no selector, candidate label, profile instance or provisional verdict field | `INVALID_EXPERIMENT` |
 | D1 | Safety · A0 control | Armed alias trap selects the wrong connection or otherwise demonstrates relation-free ambiguity | Permanently reject A0 |
 | D2 | Checklist/Boolean · A1 edge | Same trusted issuer supplies a unique two-sided edge, restart persistence and all name-safety arms | Select A1 only if every arm passes |
@@ -166,7 +172,8 @@ Decision order is validity, then the safety control, then eligible designs:
    were insufficient and the typed TODO remains.
 3. V3 fails: stop with `INCONCLUSIVE_OWNERSHIP`.
 4. V4 or V5 fails: stop with `INCONCLUSIVE_CLEANUP`.
-5. V6 fails: stop with `INVALID_EVIDENCE`; no design fact may be cited.
+5. V6 fails: use only the fixed non-evidence record from §1.7, stop nonzero
+   with `INVALID_EVIDENCE`, and cite no design fact.
 6. V7 fails: stop with `INVALID_EXPERIMENT`; no design fact may be cited.
 7. V1-V7 pass: D1 becomes eligible. Its trap permanently rejects A0; it never
    selects another design.
