@@ -3154,6 +3154,24 @@
         "research.profile-binding-exact-process.live-self-test"
       ]
     },
+    "profile-binding-exact-process-live-preflight": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "exact-process-live-process-preflight-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 60000,
+        "max_operations": 200000000,
+        "max_host_operations": 512,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "research.profile-binding-exact-process.live-process-preflight"
+      ]
+    },
     "acu-mcp-provider-smoke": {
       "inputs": [
         "built-agenterm-with-acu-provider"
@@ -9144,6 +9162,23 @@
         "macos"
       ],
       "side_effects": []
+    },
+    {
+      "id": "profile-binding-exact-process-live-preflight",
+      "description": "Prove the exact-process live court can bind one owned non-browser child to its frozen identity, walk its real parent chain with exact process observations, and clean it up without launching a browser or reserving an experiment ordinal.",
+      "entry": "research/browser-profile-name-binding-exact-process/live-rehearsal.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "live-process-preflight"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
     },
     {
       "id": "acu-mcp-provider-smoke",

@@ -39,6 +39,8 @@ usage: run-current-host.sh --self-test
        run-current-host.sh --capability-preflight
        run-current-host.sh --live-self-test
        run-current-host.sh --live-red-gate
+       run-current-host.sh --live-process-preflight
+       run-current-host.sh --live-process-red-gate
        run-current-host.sh --broker-self-test
 
 --self-test            Run the platform-neutral court self-test.
@@ -52,6 +54,16 @@ usage: run-current-host.sh --self-test
 --live-red-gate        Prove the live court's adversarial controls hold: a live
                        mode is refused by the court itself, and each mutated
                        guard turns the injected-fixture suite red.
+--live-process-preflight
+                       REAL host evidence with no browser and no ordinal: one
+                       owned, non-browser, short-lived child; a real frozen
+                       identity; the real ownership walk proving this worker
+                       owns the subject; and real observe-to-dead termination
+                       with no orphan left behind.
+--live-process-red-gate
+                       Prove the preflight's guards bite: each mutation must
+                       turn the preflight red. A mutation that fails to apply,
+                       fails to compile, crashes or hangs is rejected.
 --live|rehearsal|decision
                        All refused with LIVE_COURT_NOT_IMPLEMENTED. The live
                        court has no browser-spawn path in this slice.
@@ -377,11 +389,15 @@ live_red_gate() {
     'if (false) {' \
     'terminus identity' || failed=1
 
-  # Gate 5: the parent-relation read must be bracketed. Removing the closing
-  # observation must break the drift and identity scenes.
+  # Gate 5: the parent-relation read must be bracketed. The closing observation
+  # now goes through `bracket_after_observe`, so the mutation makes that hook
+  # return the OPENING record instead of a fresh one: the bracket can then no
+  # longer see a change, and the drift scene must fail.
   mutate_and_expect_fail "$LIVE" "$mutant" \
-    'const after = source.observe(current);' \
-    'const after = before;' \
+    '  return seen;
+}' \
+    '  return {state: "live", start_identity: "echoed-by-mutation"};
+}' \
     'chain bracket' || failed=1
 
   # Gate 6: the cleanup input this court builds must stay inside the model's
@@ -518,12 +534,110 @@ PROBE
   return $rc
 }
 
+# P1-1: the entry must be FAIL-CLOSED. Print the envelope, then print the
+# evidence/pass tokens ONLY when `ok` is true, and exit nonzero when it is not.
+#
+# This gate deliberately does NOT read the envelope's `ok` field. Grepping the
+# envelope would pass even if the entry printed PASS beside `"ok":false` and
+# exited 0 -- which is exactly the fail-open defect this gate exists to catch. It
+# asserts the two observable facts directly: the tokens are ABSENT and the
+# process exit code is NONZERO. A mutation that makes a real check false must
+# produce zero PASS tokens, zero EVIDENCE tokens and rc != 0.
+fail_open_gate() {
+  local root="$REPO/.agenterm-research-state/live-process-red-gate-failopen"
+  local target="$root/live-rehearsal.qjs" out rc
+  local pass_hits evidence_hits
+
+  # Baseline control: the unmutated entry MUST print both tokens and exit 0, or
+  # the gate below would be satisfied by an entry that never prints them at all.
+  mkdir -p "$root"
+  cp "$LIVE" "$target"
+  out=$(probe_source "$target" "live-process-preflight") && rc=0 || rc=$?
+  pass_hits=$(printf '%s\n' "$out" | grep -c '^PASS: exact-process live process preflight$' || true)
+  evidence_hits=$(printf '%s\n' "$out" | grep -c '^EVIDENCE research\.profile-binding-exact-process\.live-process-preflight$' || true)
+  if [ "$rc" -ne 0 ] || [ "$pass_hits" -ne 1 ] || [ "$evidence_hits" -ne 1 ]; then
+    printf '  FAIL fail-closed entry: the unmutated entry did not print exactly one PASS and one EVIDENCE token with rc=0 (rc=%s pass=%s evidence=%s)\n' \
+      "$rc" "$pass_hits" "$evidence_hits"
+    rm -rf "$root"
+    return 1
+  fi
+  printf '  ok   the unmutated entry prints the evidence tokens and exits zero\n'
+
+  # Mutation: make a REAL check false. The entry must then refuse to print either
+  # token and must exit nonzero.
+  cp "$LIVE" "$target"
+  if ! perl -0pi -e 's/\Q  checks.host_clock_is_real = \E/  checks.host_clock_is_real = false \&\& /' "$target" 2>/dev/null; then
+    printf '  FAIL fail-closed entry: the mutation could not be applied\n'
+    rm -rf "$root"; return 1
+  fi
+  if cmp -s "$LIVE" "$target"; then
+    printf '  FAIL fail-closed entry: the mutation did not change the source\n'
+    rm -rf "$root"; return 1
+  fi
+  out=$(probe_source "$target" "live-process-preflight") && rc=0 || rc=$?
+  pass_hits=$(printf '%s\n' "$out" | grep -c '^PASS: exact-process live process preflight$' || true)
+  evidence_hits=$(printf '%s\n' "$out" | grep -c '^EVIDENCE research\.profile-binding-exact-process\.live-process-preflight$' || true)
+  rm -rf "$root"
+  if [ "$pass_hits" -ne 0 ]; then
+    printf '  FAIL fail-closed entry: PASS token printed despite a false check\n'; return 1
+  fi
+  if [ "$evidence_hits" -ne 0 ]; then
+    printf '  FAIL fail-closed entry: EVIDENCE token printed despite a false check\n'; return 1
+  fi
+  if [ "$rc" -eq 0 ]; then
+    printf '  FAIL fail-closed entry: exit code was zero despite a false check\n'; return 1
+  fi
+  case "$out" in
+    *"LIVE_PROCESS_PREFLIGHT_FAILED"*) : ;;
+    *"budget exhausted"* | *"threw and nothing caught"* | *"does not support"* | *"invalid type"*)
+      printf '  FAIL fail-closed entry: the mutation crashed or hung instead of failing a check\n'
+      return 1 ;;
+  esac
+  printf '  ok   a false check prints no PASS/EVIDENCE token and exits nonzero\n'
+  return 0
+}
+
 # Apply one exact-string mutation to a copy of a source and require the court's
 # self-test to fail. Rejecting an inapplicable mutation is the point: a mutation
 # that silently failed to apply would leave a passing suite, and a passing suite
 # read as a red gate is worse than no gate at all.
+# A mutation that needs TWO edits to become observable: first arm an adversary,
+# then remove the guard that must catch it. Both are applied to the same copy and
+# both must change the source; the mutant runs once.
+arm_and_disable_gate() {
+  local source="$1" target="$2" arm_from="$3" arm_to="$4" \
+    off_from="$5" off_to="$6" label="$7"
+  cp "$source" "$target"
+  if ! perl -0pi -e "s/\Q$arm_from\E/$arm_to/" "$target" 2>/dev/null; then
+    printf '  FAIL %s: the arming edit could not be applied\n' "$label"; return 1
+  fi
+  if ! perl -0pi -e "s/\Q$off_from\E/$off_to/" "$target" 2>/dev/null; then
+    printf '  FAIL %s: the disabling edit could not be applied\n' "$label"; return 1
+  fi
+  if cmp -s "$source" "$target"; then
+    printf '  FAIL %s: neither edit changed the source\n' "$label"; return 1
+  fi
+  local out
+  out=$(probe_source "$target" "live-process-preflight") || true
+  if [ -n "${out##*\"ok\":false*}" ]; then
+    printf '  FAIL %s did not turn the mode red (got: %s)\n' "$label" "$out"
+    return 1
+  fi
+  case "$out" in
+    *"LIVE_PROCESS_PREFLIGHT_FAILED"*) : ;;
+    *"budget exhausted"* | *"threw and nothing caught"* | *"does not support"* | *"invalid type"*)
+      printf '  FAIL %s turned the mode red by crashing or hanging\n' "$label"
+      return 1 ;;
+  esac
+  printf '  ok   %s turns the suite red\n' "$label"
+  return 0
+}
+
 mutate_and_expect_fail() {
-  local source="$1" target="$2" from="$3" to="$4" label="$5"
+  # $6 (optional) is a mode; when given, the mutant runs in that mode and the
+  # expected red token is derived from it. Without it the fixed-slice self-test
+  # behavior is unchanged, so the existing gates keep their exact semantics.
+  local source="$1" target="$2" from="$3" to="$4" label="$5" mode="${6:-}"
   cp "$source" "$target"
   if ! perl -0pi -e "s/\Q$from\E/$to/" "$target" 2>/dev/null; then
     printf '  FAIL %s: mutation could not be applied\n' "$label"; return 1
@@ -532,17 +646,228 @@ mutate_and_expect_fail() {
     printf '  FAIL %s: mutation did not change the source\n' "$label"; return 1
   fi
   local out
-  out=$(probe_source "$target") || true
-  # The self-test names every failed check in its thrown code, so a mutation that
-  # broke any guard must surface that token. A mutant that fails to compile would
-  # instead carry a compiler diagnostic, which must NOT count as a red: a
-  # non-compiling mutant proves nothing about the guard it removed.
-  if [ -n "${out##*live_self_test_failed*}" ]; then
-    printf '  FAIL %s did not turn the suite red (got: %s)\n' "$label" "$out"
-    return 1
+  out=$(probe_source "$target" "$mode") || true
+  if [ -z "$mode" ]; then
+    # The self-test names every failed check in its thrown code, so a mutation
+    # that broke any guard must surface that token. A mutant that fails to
+    # compile would instead carry a compiler diagnostic, which must NOT count as
+    # a red: a non-compiling mutant proves nothing about the guard it removed.
+    if [ -n "${out##*live_self_test_failed*}" ]; then
+      printf '  FAIL %s did not turn the suite red (got: %s)\n' "$label" "$out"
+      return 1
+    fi
+  else
+    # Mode runs report an envelope, not a thrown token. The mutation must flip
+    # the envelope to not-ok AND name the check it broke; a crash, a compile
+    # error, a hang or an unrelated failure is not a red for this guard.
+    if [ -n "${out##*\"ok\":false*}" ]; then
+      printf '  FAIL %s did not turn the mode red (got: %s)\n' "$label" "$out"
+      return 1
+    fi
+    # The fail-closed entry signals a failed check by THROWING a named code, which
+  # the engine reports as "the script threw". That is the guard working, not a
+  # crash, so the named preflight refusal must be excluded from the engine-error
+  # patterns. Only a throw that is NOT our named code is a crash.
+    case "$out" in
+      *"LIVE_PROCESS_PREFLIGHT_FAILED"*) : ;;
+      *"budget exhausted"* | *"threw and nothing caught"* | *"does not support"* | *"invalid type"*)
+        printf '  FAIL %s turned the mode red by crashing or hanging, not by a guard\n' \
+          "$label"
+        return 1 ;;
+    esac
   fi
   printf '  ok   %s turns the suite red\n' "$label"
   return 0
+}
+
+# Run the live process preflight and surface its envelope. The preflight is REAL
+# host evidence: it spawns one owned, non-browser, short-lived child. It launches
+# no browser, reserves no ordinal and reaches no design verdict, and the runner
+# asserts those three properties are present rather than trusting a summary.
+live_process_preflight() {
+  local out rc=0
+  out=$(AGENTERM_LIVE_REGION_SOURCE="$LIVE_REGION" AGENTERM_SCRIPT_BACKEND=qjswasm \
+    "$AGENTERM_EXE" cli script task run \
+    profile-binding-exact-process-live-preflight --manifest "$MANIFEST") || rc=$?
+  printf '%s\n' "$out"
+  local missing=""
+  for token in '"ok":true' \
+      'EVIDENCE research.profile-binding-exact-process.live-process-preflight' \
+      'PASS: exact-process live process preflight' \
+      '"browser_launched":false' '"ordinal_reserved":false' \
+      '"formal_root_touched":false' '"design_verdict":false'; do
+    case "$out" in
+      *"$token"*) ;;
+      *) missing="$missing $token" ;;
+    esac
+  done
+  if [ "$rc" -ne 0 ]; then
+    fail "LIVE_PROCESS_PREFLIGHT_EXIT:$rc"
+  fi
+  if [ -n "$missing" ]; then
+    fail "LIVE_PROCESS_PREFLIGHT_CLAIM:$missing"
+  fi
+}
+
+# The preflight red gate. Only the preflight's OWN non-ok envelope counts as a
+# red; a mutation that fails to apply, fails to compile, crashes or hangs is
+# rejected, because it proves nothing about the guard it removed.
+live_process_red_gate() {
+  local failed=0 root
+  root="$REPO/.agenterm-research-state/live-process-red-gate"
+  rm -rf "$root"
+  mkdir -p "$root"
+  local mutant="$root/live-rehearsal.qjs"
+
+  # Gate 1: the baseline must be green, or no mutation can be attributed.
+  local baseline
+  baseline=$(probe_source "$LIVE" "live-process-preflight") || true
+  case "$baseline" in
+    *'"ok":true'*)
+      printf '  ok   the live process preflight passes unmutated\n' ;;
+    *)
+      printf '  FAIL the live process preflight did not pass (got: %s)\n' "$baseline"
+      failed=1 ;;
+  esac
+
+  # Each mutation below either removes a guard that the REAL path exercises, or
+  # injects the adversary that guard exists to catch. The second kind is
+  # necessary because a correctly-behaving owned child never drifts and is never
+  # `unknown`: a guard against those cases cannot be shown to bite by removing it
+  # alone, so the mutation makes the adversary real instead of pretending the
+  # baseline already contains it.
+
+  # Each mutation below flips exactly ONE guard. Two of them first ARM an
+  # adversary through the red-gate hooks, because a correctly-behaving owned child
+  # never drifts its identity and is never `unknown`: a guard against those cases
+  # cannot be shown to bite by removing it alone. Arming the adversary and then
+  # removing the guard is the difference between real evidence and theatre.
+
+  # Gate 2: the closing bracket must be a REAL observation. Arming drift alone
+  # must turn the preflight red, proving the bracket really reads a new record.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    'const DRIFT_MODE = "off";' \
+    'const DRIFT_MODE = "drift";' \
+    'chain bracket reads a new record' 'live-process-preflight' || failed=1
+
+  # Gate 3: the identity comparison must exist. Two mutations are needed together:
+  # arm the drift, then neutralise the comparison. A reused identity would then
+  # pass as the frozen one.
+  arm_and_disable_gate "$LIVE" "$mutant" \
+    'const DRIFT_MODE = "off";' 'const DRIFT_MODE = "drift";' \
+    'if (before.start_identity !== after.start_identity) {' 'if (false) {' \
+    'chain identity comparison' || failed=1
+
+  # Gate 4: `unknown` must never be read as death. Arming the unknown injection
+  # must turn the preflight red, proving the unknown branch is what stops an
+  # unreadable process from being reported as terminated.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    'const UNKNOWN_MODE = "off";' \
+    'const UNKNOWN_MODE = "unknown";' \
+    'unknown is not dead' 'live-process-preflight' || failed=1
+
+  # Gate 5: the clock must be the REAL door clock. Replacing the epoch read with a
+  # small constant is exactly the fake clock this leaf forbids, and the
+  # epoch-scale floor must reject it.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    '      const ms = parseInt(value, 10);' \
+    '      const ms = 1;' \
+    'fake clock (epoch floor)' 'live-process-preflight' || failed=1
+
+  # Gate 6: teardown must AGGREGATE failures rather than abandon the rest. Making
+  # kill refuse must still reap and release, and must surface the failure.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    '  const kill_status = process_kill(handle);' \
+    '  const kill_status = -1;' \
+    'teardown aggregation' 'live-process-preflight' || failed=1
+
+  # Gate 7: the subject must be proven LIVE while the chain runs. The liveness is
+  # now DERIVED from the first bracket, so this mutation removes the derivation
+  # and makes the check's only remaining input a bare `false`.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    '    subject_was_live = chain.ok === true && chain.subject_was_live === true;' \
+    '    subject_was_live = false;' \
+    'subject live during chain' 'live-process-preflight' || failed=1
+
+  # Gate 7c: the frozen binding must be checked on the CLOSING side too. With only
+  # the opening side disabled, a bracket that drifts back must still be caught by
+  # the closing check.
+  arm_and_disable_gate "$LIVE" "$mutant" \
+    '    identity = {pid: frozen.pid, start_identity: frozen.start_identity};' \
+    '    identity = {pid: frozen.pid, start_identity: "TAMPERED-frozen-identity"};' \
+    '    if (is_first && after.start_identity !== subject_identity) {' \
+    '    if (false && after.start_identity !== subject_identity) {' \
+    'frozen subject identity is bound on the closing side' || failed=1
+
+  # Gate 7a: the derived liveness must come from the FIRST BRACKET, not from a
+  # constant. Neutralising the derivation inside the walk must go red even though
+  # the caller still takes the value from the walk.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    '        subject_was_live: brackets[0].before.state === "live"' \
+    '        subject_was_live: false && brackets[0].before.state === "live"' \
+    'subject liveness is derived from the first bracket' 'live-process-preflight' || failed=1
+
+  # Gate 7b: THE FROZEN BINDING (P1-2). Tampering the frozen subject identity must
+  # be refused: the walk may not accept whatever identity happens to be live.
+  # The walk is given an identity that does NOT match the frozen one, and the
+  # binding check is neutralised. The preflight must still not claim ownership.
+  arm_and_disable_gate "$LIVE" "$mutant" \
+    '    identity = {pid: frozen.pid, start_identity: frozen.start_identity};' \
+    '    identity = {pid: frozen.pid, start_identity: "TAMPERED-frozen-identity"};' \
+    '    if (is_first && before.start_identity !== subject_identity) {' \
+    '    if (false && before.start_identity !== subject_identity) {' \
+    'frozen subject identity is bound' || failed=1
+
+  # Gate 8: the handle must be RELEASED. Skipping the release is the resource leak
+  # this leaf forbids; the released flag must go red.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    '  const release_status = process_release(handle);' \
+    '  const release_status = -1;' \
+    'skip release' 'live-process-preflight' || failed=1
+
+  # Gate 9: the frozen identity must be observed UNTIL DEAD, not polled once.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    '  while (clock.now_ms() - started <= deadline_ms) {' \
+    '  while (false) {' \
+    'observe until dead' 'live-process-preflight' || failed=1
+
+  # Gate 10: THE TWO TERMINATION SHAPES (P1-3). PID reuse ends on a LIVE record
+  # with a DIFFERENT identity; ordinary death ends on a `dead` record. Requiring
+  # `dead` in both cases rejects a legitimate reuse, so this mutation must go red.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    '  if (pid_reused === true) {' \
+    '  if (false) {' \
+    'pid-reuse termination shape' || failed=1
+
+  # Gate 11: `pid_reused` must not manufacture a pass. With the reuse shape forced,
+  # a final record still carrying the FROZEN identity must be refused.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    '      && last.start_identity !== frozen_identity;' \
+    '      && last.start_identity === frozen_identity;' \
+    'pid reuse requires a real identity change' || failed=1
+
+  # Gate 12: `unknown` must never terminate the poll in EITHER shape, including
+  # when no termination was proved at all. The scenes this bites are the
+  # `proved_dead === false` pair: with `proved_dead === true` the shape checks
+  # reject an unknown record anyway, so only the unproved scenes make the guard
+  # observable.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    '    if (state === "unknown" && i === observations.length - 1) { return false; }' \
+    '    if (false) { return false; }' \
+    'unknown final observation is never death' || failed=1
+
+  # Gate 13: FAIL-CLOSED ENTRY (P1-1). The evidence/pass tokens must be printed
+  # only when the envelope is ok. Making the entry print them unconditionally is
+  # the fail-open defect, and the runner's token check below must catch it.
+  fail_open_gate || failed=1
+
+  rm -rf "$root"
+  if [ "$failed" -eq 0 ]; then
+    printf '\n%s\n' 'LIVE_PROCESS_RED_GATE_PASS'
+    return 0
+  fi
+  printf '\n%s\n' 'LIVE_PROCESS_RED_GATE_FAILED'
+  return 1
 }
 
 RUN_ID_FOR_GATE=00112233445566778899aabbccddeeff
@@ -589,6 +914,22 @@ case "$1" in
     AGENTERM_LIVE_REGION_SOURCE="$LIVE_REGION" AGENTERM_SCRIPT_BACKEND=qjswasm \
       "$AGENTERM_EXE" cli script task run \
       browser-profile-name-binding-exact-process-live --manifest "$MANIFEST"
+    ;;
+  --live-process-preflight)
+    # REAL host evidence: one owned, non-browser, short-lived child; a real
+    # frozen identity; the real ownership walk; and real observe-to-dead
+    # termination. Launches no browser, reserves no ordinal, reaches no verdict.
+    #
+    # The dedicated registered task carries the mode argument and exact evidence
+    # contract. Probe manifests remain confined to adversarial source mutations.
+    static_source_scan || fail INCONCLUSIVE_IDENTITY_SOURCE
+    live_court_region >"$LIVE_REGION"
+    live_process_preflight
+    ;;
+  --live-process-red-gate)
+    static_source_scan || fail INCONCLUSIVE_IDENTITY_SOURCE
+    live_court_region >"$LIVE_REGION"
+    live_process_red_gate
     ;;
   --live-red-gate)
     static_source_scan || fail INCONCLUSIVE_IDENTITY_SOURCE

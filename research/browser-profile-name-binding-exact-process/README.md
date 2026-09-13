@@ -215,7 +215,7 @@ Run it:
 `--live-self-test` drives the entire court against an **injected fixture**: a
 fake observation source and a fake inventory. No browser is launched, no owned
 process is observed for ownership and no ordinal is reserved. It machine-proves
-the door adapter, the chain walk and the cleanup classifier (43 named checks).
+the door adapter, the chain walk and the cleanup classifier (56 named checks).
 The registered gate exercises injected variants. A separate one-off manual
 implementation audit also probed the real tool door; that probe is not part of
 the reproducible self-test evidence.
@@ -274,6 +274,86 @@ redundant with the deadline: a clock that fails to advance makes a deadline-only
 loop non-terminating, so the bound cannot rest solely on something the
 classifier cannot verify.
 
+## Real-process preflight (`--live-process-preflight`)
+
+This is the **first** code in this experiment that touches real host processes for
+ownership. It is deliberately not the live court: the owned subject is a
+non-browser, short-lived child, no ordinal is reserved, no ledger row is written
+and no design verdict is reached.
+
+```sh
+./research/browser-profile-name-binding-exact-process/run-current-host.sh --live-process-preflight
+./research/browser-profile-name-binding-exact-process/run-current-host.sh --live-process-red-gate
+```
+
+The unmutated preflight runs through the registered tool-profile task
+`profile-binding-exact-process-live-preflight`. Temporary probe manifests are
+used only for adversarial source mutations.
+
+What it does, using the **real** door and the **same** `walk_ownership_chain` and
+cleanup classifiers the live court uses:
+
+1. Reads the real host clock and takes a real bounded sleep.
+2. Spawns one owned, non-browser, short-lived child with `process.spawn_frozen`,
+   which is the only spawn that yields a frozen `{pid, start_identity}`.
+3. Cross-checks `process.pid(handle)` against that frozen identity: two
+   independent doors describing the same owned child.
+4. Walks the ownership chain from the subject up to **this worker**, so the chain
+   proves the subject is owned by this worker rather than by something else.
+5. Tears down best-effort as `kill → wait → release`, **aggregating** failures
+   instead of abandoning the remaining steps.
+6. Observes the frozen identity until it reaches `dead`, treating `unknown` as
+   never-dead, and records every observation.
+7. Asserts no orphan remains and the handle was released.
+
+The worker is **never** part of the termination cleanup: its liveness cannot be a
+precondition of a check that runs inside it.
+
+### The clock is the door's, not a counter
+
+`time.now_ms` is answer-style (status `0`, value in `tool_result`) and reads real
+epoch milliseconds; `time.sleep_ms` performs a real bounded sleep. Neither is a
+step counter: the preflight asserts an epoch-scale floor and that a requested
+sleep actually elapsed. A counter that only advances on sleep is exactly the fake
+clock this leaf forbids, and the epoch floor rejects it.
+
+### `--live-process-red-gate`
+
+Baseline plus fourteen mutations and a fail-closed token gate; each mutation flips
+exactly one guard, and a mutation that cannot be applied, fails to compile, crashes
+or hangs is rejected as a red.
+
+The entry itself is **fail-closed** and the gate asserts that directly: it does not
+read the envelope's `ok` field, because a grep of the envelope would pass even if the
+entry printed `PASS` beside `"ok":false` and exited 0. It asserts the two observable
+facts — zero `PASS`/`EVIDENCE` tokens and a nonzero exit code — plus a control that the
+unmutated entry really does print both tokens once with `rc=0`.
+
+Two mutations must first **arm an adversary** through the `DRIFT_MODE` /
+`UNKNOWN_MODE` hooks. That is not a trick: a correctly-behaving owned child never
+drifts its identity and is never `unknown`, so a guard against those cases cannot
+be shown to bite by removing the guard alone. Arming the adversary and then
+removing the guard is what makes the red attributable; the hooks are pure
+passthroughs on the real path.
+
+| Mutation | Guard |
+|----------|-------|
+| arm `DRIFT_MODE` | the bracket really reads a new record |
+| arm `DRIFT_MODE` + binding off | the frozen subject identity is bound (closing side) |
+| arm `DRIFT_MODE` + binding off | the frozen subject identity is bound (opening side) |
+| arm `DRIFT_MODE` + neutralise the comparison | the identity comparison |
+| arm `UNKNOWN_MODE` | `unknown` is never death |
+| epoch read → constant `1` | the real clock (epoch floor) |
+| `kill_status = -1` | teardown aggregation |
+| `subject_was_live = false` | the subject was live during the chain |
+| derived bracket liveness → `false` | subject liveness comes from the first bracket |
+| `release_status = -1` | the handle is released |
+| deadline loop → `while (false)` | observe-until-dead |
+| `if (pid_reused === true)` → `if (false)` | the PID-reuse termination shape |
+| reuse identity comparison inverted | PID reuse requires a real identity change |
+| unknown-final guard → `if (false)` | `unknown` never terminates the poll |
+| false check → unconditional tokens | the entry is fail-closed |
+
 ### What is still not implemented
 
 `live`, `rehearsal` and `decision` are refused by **both** the runner and the
@@ -286,6 +366,15 @@ browser may be launched before that proof is reviewed (§2). The live court has
 The court's stage-publication wiring against the broker is consequently
 **untested live**: the self-test proves the ownership/cleanup classification, not
 that each side effect is bracketed by a persisted stage.
+
+**This is the R1 blocker.** Stage publication and the formal broker are
+**deliberately out of scope** for the real-process preflight: it writes no ledger
+row and reserves no ordinal, so it cannot show that every throw site is preceded
+by a persisted stage. The preflight narrows the gap — the ownership, identity,
+clock, cleanup and orphan mechanisms are now proven against real host processes
+rather than only against a fixture — but it does **not** close it. A live R1
+rehearsal still requires the stage-publication proof that §4 kill criterion 4
+demands.
 
 `court-current-host.qjs` still reports `live_path: "unimplemented-fail-closed"`.
 That field is now imprecise — the live path exists and is gated — but this

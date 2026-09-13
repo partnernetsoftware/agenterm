@@ -274,7 +274,7 @@ result is reported as `not-supplied` rather than being described as verified.
 ## Live court self-test and red gate
 
 `--live-self-test` proves the door adapter, the ownership chain and the cleanup
-classifier against injected fixtures. All 43 checks pass; no browser is launched,
+classifier against injected fixtures. All 56 checks pass; no browser is launched,
 no owned process is observed for ownership and no ordinal is reserved.
 
 | Group | Checks |
@@ -375,6 +375,146 @@ and the region handed to V7 is non-empty and selector-free.
   this court and none is claimed.
 - `court-current-host.qjs` still reports `live_path: "unimplemented-fail-closed"`,
   which is now imprecise. The model court is outside this slice's write set.
+
+## Real-process preflight (`--live-process-preflight`)
+
+First real-host ownership evidence in this experiment. No browser, no ordinal, no
+ledger row, no design verdict. The subject is one owned, non-browser, short-lived
+child (`/bin/sleep 10`), so a leaked process would outlive the ~1s run and be
+visible.
+
+The unmutated evidence below is produced by the registered tool-profile task
+`profile-binding-exact-process-live-preflight`; probe manifests are reserved for
+the mutation gate.
+
+All 12 checks pass. Representative envelope:
+
+```
+ok: true | chain_length: 2 | slept_ms: 126
+subject_kind: owned non-browser child | subject_seconds: 10
+teardown: {ok: true, killed: true, reaped: true, released: true}
+orphan_free: true | real_host_process: true | injected_fixture: false
+browser_launched: false | ordinal_reserved: false
+formal_root_touched: false | design_verdict: false
+```
+
+| Check | What it establishes |
+|-------|---------------------|
+| `host_clock_is_real` | epoch-scale clock AND a requested 120ms sleep actually elapsed |
+| `identity_is_frozen` | `process.spawn_frozen` yielded a real `{pid, start_identity}` |
+| `pid_door_agrees` | `process.pid(handle)` agrees with the frozen identity |
+| `chain_worker_owns_subject` | the real walk proves THIS worker owns the subject, length 2 |
+| `subject_identity_is_frozen` | the chain's subject identity EQUALS the frozen `process.identity(handle)` value |
+| `subject_was_live_during_chain` | the first bracket really observed it live (derived, never asserted) |
+| `teardown_releases_handle` | kill→wait→release all succeeded |
+| `termination_observed_dead` | the frozen identity reached `dead` via real observation |
+| `termination_never_unknown_as_dead` | no observation was a `dead`-shaped lie about `unknown` |
+| `no_orphan_after_release` | the frozen pid is not still alive under the same identity |
+| `worker_excluded_from_cleanup` | the worker is never part of termination cleanup |
+| `no_outcome_error` | no throw escaped the real-path work |
+
+### Why the ordering is load-bearing
+
+The termination observation runs **after** teardown, and the chain runs
+**before** it. Killing first would make "saw live first" impossible and would hide
+a chain that never proved a live identity; observing before killing is also what
+makes "observed dead" a real transition rather than a tautology. The first
+implementation had this backwards and the `subject_was_live_during_chain` check
+was added specifically because that bug was invisible without it.
+
+### Door contract, measured not assumed
+
+| Op | Style | Return |
+|----|-------|--------|
+| `process.spawn_frozen` | direct | handle ≥ 0; negative = refusal |
+| `process.pid` | direct | **the pid itself**, not a status |
+| `process.kill` | direct | 0 / negative |
+| `process.identity` | answer | `{"pid":u32,"start_identity":String}` |
+| `process.state` | answer | `"running"` / `"exited"` / `"unknown"` |
+| `process.observe` / `parent` | answer | per-state JSON |
+| `process.wait` | answer | command-result JSON |
+| `process.release` | answer | empty string on success |
+| `time.now_ms` | answer | **epoch ms as text** (NOT a direct value) |
+| `time.sleep_ms` | answer | empty payload |
+
+`time.now_ms` being answer-style is a real trap: reading its *return value* yields
+a constant `0`, which is indistinguishable from a frozen clock. The first
+implementation did exactly that and `host_clock_is_real` caught it.
+
+### Red gate (baseline + 14 mutations + the fail-closed token gate)
+
+Every mutation must turn the preflight envelope to `ok:false`; a mutation that
+cannot be applied, fails to compile, crashes or hangs is **rejected** as a red.
+
+| Mutation | Guard proven load-bearing |
+|----------|---------------------------|
+| arm `DRIFT_MODE` | the closing bracket reads a new record |
+| arm `DRIFT_MODE` + `if (false)` | the identity comparison |
+| arm `UNKNOWN_MODE` | `unknown` is never death |
+| `parseInt(value,10)` → `1` | the real clock (epoch floor) |
+| `kill_status = -1` | teardown aggregation |
+| derived liveness → `false` | the subject was live during the chain |
+| first-bracket derivation disabled | liveness comes from the bracket, not a constant |
+| frozen identity tampered + opening binding off | the frozen subject identity is bound (opening side) |
+| frozen identity tampered + closing binding off | the frozen subject identity is bound (closing side) |
+| `release_status = -1` | the handle is released |
+| deadline loop → `while (false)` | observe-until-dead |
+| `if (pid_reused === true)` → `if (false)` | the PID-reuse termination shape |
+| reuse identity comparison inverted | PID reuse requires a real identity change |
+| unknown-final guard → `if (false)` | `unknown` never terminates the poll |
+| a real check forced false | the entry is fail-closed (0 tokens, nonzero exit) |
+
+Two mutations must first arm an adversary. That is honest, not a trick: a
+correctly-behaving owned child never drifts and is never `unknown`, so those
+guards cannot be shown to bite by removing them alone. The hooks are passthroughs
+on the real path.
+
+Three of these gates exist because the first submission got them WRONG and the
+mutations proved it:
+
+- **The frozen identity was not bound.** The walk took only `identity.pid` and
+  re-observed whatever identity was live at that pid, so a completely tampered
+  frozen identity still produced `ok:true`. The walk now takes the frozen identity
+  as a required argument and checks it on BOTH sides of the first bracket
+  (`subject_identity_mismatch` / `subject_identity_mismatch_after`), and a
+  separate `subject_identity_is_frozen` check re-asserts it at the call site.
+- **`subject_was_live` was an unconditional `true`.** It is now DERIVED inside the
+  walk from the first bracket's own before/after records, so a caller cannot claim
+  liveness the walk never observed.
+- **The two termination shapes were conflated.** `never_unknown_as_dead` required a
+  final `dead` record in every case, which REJECTS a legitimate PID reuse (the last
+  observation there is `live` with a different identity). It now accepts exactly
+  two shapes, takes the frozen identity instead of trusting `pid_reused` as a
+  boolean, and requires the poll never to END on `unknown` in either shape.
+- **The entry was fail-open.** It printed `EVIDENCE`/`PASS` unconditionally, so a
+  red result still exited 0 with a PASS line beside it. It now prints the envelope
+  first and throws a named `LIVE_PROCESS_PREFLIGHT_FAILED:<checks>` unless `ok` is
+  true.
+
+The `unknown`-final gate needed two new scenes to bite at all: with
+`proved_dead === true` the shape checks already reject an unknown record, so
+removing the guard was invisible. The `proved_dead === false` pair is what makes it
+observable.
+
+### Orphan evidence
+
+After three consecutive preflight runs and after the red gate (whose mutants can
+abort early), no `/bin/sleep 10` survivor was present. Teardown is best-effort on
+**every** path, including a partially constructed subject, and failures are
+aggregated rather than abandoning the remaining steps — stopping at the first
+failure is exactly how orphans are made.
+
+### Honest limits
+
+- **No browser.** The subject is a non-browser child; the live court's real
+  subject is a browser, and launching one is out of scope here.
+- **No ordinal, no ledger row, no stage publication.** This is the R1 blocker:
+  the preflight cannot show that every throw site is preceded by a persisted
+  stage. It narrows the gap; it does not close it.
+- **A 2-node chain.** The chain is `subject → worker`. Deeper real chains are not
+  exercised, and the ceiling/cycle cases remain fixture-proven only.
+- The `DRIFT_MODE` / `UNKNOWN_MODE` hooks exist for the red gate. They are inert
+  on the real path, but a reviewer should know the file contains them.
 
 ## Backfill (§8)
 

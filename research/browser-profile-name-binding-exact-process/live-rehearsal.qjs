@@ -36,6 +36,7 @@ import * as rh from "scripts/qjs/lib/rh_compat";
 import * as model from "research/browser-profile-name-binding-exact-process/binding-model";
 
 const MODE_SELF_TEST = "live-self-test";
+const MODE_PROCESS_PREFLIGHT = "live-process-preflight";
 
 // Refusals for the modes this slice must not execute. These are returned, not
 // thrown: a caller asking for a live run should read a typed code rather than
@@ -59,6 +60,37 @@ function canonical_json(value) {
     parts.push(JSON.stringify(keys[i]) + ":" + JSON.stringify(value[keys[i]]));
   }
   return "{" + parts.join(",") + "}";
+}
+
+// --- red-gate adversaries ----------------------------------------------------
+//
+// These hooks exist ONLY so the red gate can inject the adversaries the
+// real-path guards exist to catch. A correctly-behaving owned child never drifts
+// its identity and is never `unknown`, so removing a guard against those cases
+// would leave the preflight green and prove nothing about the guard.
+//
+// Each hook is a single-expression passthrough on the real path, so a mutation
+// that flips one expression is a valid, attributable red. They are inert unless a
+// mutation changes them.
+const DRIFT_MODE = "off";
+const UNKNOWN_MODE = "off";
+
+// The closing half of the chain bracket. `DRIFT_MODE = "drift"` returns a
+// DIFFERENT identity for the same pid, which is what a reused pid looks like.
+function bracket_after_observe(source, pid) {
+  const seen = source.observe(pid);
+  if (DRIFT_MODE === "drift" && seen.state === "live") {
+    return {state: "live", start_identity: seen.start_identity + "-drifted"};
+  }
+  return seen;
+}
+
+// Injects an UNREADABLE observation, which must never be read as death.
+function injected_unknown(pid) {
+  if (UNKNOWN_MODE === "unknown" && pid > 0) {
+    return {state: "unknown", start_identity: null, reason: "process_access_denied"};
+  }
+  return {state: "live", start_identity: null};
 }
 
 // --- the observation boundary ------------------------------------------------
@@ -211,13 +243,29 @@ function real_observation_source() {
 // The successor's pid is therefore appended with identity unknown, and the next
 // iteration's `before` fills it in before that node's relation is read. A node
 // whose identity cannot be established fails in `observe`, never silently.
-function walk_ownership_chain(source, host_pid, browser_pid, browser_identity) {
+//
+// `subject_identity` is the FROZEN identity of the first node (the owned subject),
+// as reported by `process.identity(handle)`. It is required: without it the walk
+// would accept whatever identity happened to be live at that pid, which is the
+// same pid-reuse hole the bracket exists to close. The first node's bracket must
+// match this value exactly on BOTH sides, so passing null is refused rather than
+// silently skipped.
+function walk_ownership_chain(source, subject_pid, subject_identity,
+    browser_pid, browser_identity) {
   const pids = [];
   const brackets = [];
   const seen = [];
-  let current = host_pid;
+  let current = subject_pid;
+
+  if (subject_identity === null || subject_identity === undefined
+      || subject_identity === "") {
+    return {ok: false, code: "INCONCLUSIVE_PROCESS_IDENTITY",
+      reason: "subject_identity_missing"};
+  }
 
   for (let hop = 0; hop < CHAIN_CEILING; hop = hop + 1) {
+    const is_first = hop === 0;
+
     // A repeated pid is a cycle, and is refused before any further relation
     // read. This is the §1.4 "rejects a repeated PID" rule.
     if (list_has(seen, current)) {
@@ -236,6 +284,15 @@ function walk_ownership_chain(source, host_pid, browser_pid, browser_identity) {
       return {ok: false, code: "INCONCLUSIVE_PROCESS_IDENTITY",
         reason: "before_no_identity"};
     }
+    // THE FROZEN BINDING. The first node is the owned subject, and its identity
+    // is not a free variable: it must equal what `process.identity(handle)`
+    // froze at spawn. Checking only the pid would accept a reused pid, and
+    // checking only "some live identity" would make the whole chain a statement
+    // about an arbitrary process.
+    if (is_first && before.start_identity !== subject_identity) {
+      return {ok: false, code: "INCONCLUSIVE_PROCESS_IDENTITY",
+        reason: "subject_identity_mismatch"};
+    }
 
     // The relation read is bracketed for EVERY node, terminus included. The
     // bracket is what proves `current` did not change across the read; that
@@ -243,7 +300,7 @@ function walk_ownership_chain(source, host_pid, browser_pid, browser_identity) {
     // terminus test.
     const record = source.parent(current);
 
-    const after = source.observe(current);
+    const after = bracket_after_observe(source, current);
     if (after.state !== "live") {
       return {ok: false, code: "INCONCLUSIVE_PROCESS_IDENTITY",
         reason: "after_" + after.state };
@@ -257,6 +314,12 @@ function walk_ownership_chain(source, host_pid, browser_pid, browser_identity) {
       // bracket exists to detect.
       return {ok: false, code: "INCONCLUSIVE_PROCESS_IDENTITY",
         reason: "identity_drift"};
+    }
+    // The frozen binding must hold on the CLOSING side too: `before === after`
+    // alone would still admit a pair of equal-but-wrong identities.
+    if (is_first && after.start_identity !== subject_identity) {
+      return {ok: false, code: "INCONCLUSIVE_PROCESS_IDENTITY",
+        reason: "subject_identity_mismatch_after"};
     }
 
     if (current === browser_pid) {
@@ -284,7 +347,15 @@ function walk_ownership_chain(source, host_pid, browser_pid, browser_identity) {
         return {ok: false, code: verdict.code, reason: "model_" + verdict.code};
       }
       return {ok: true, code: verdict.code, chain_length: verdict.chain_length,
-        pids: pids, brackets: brackets, terminus_parent_state: record.state};
+        pids: pids, brackets: brackets, terminus_parent_state: record.state,
+        // DERIVED, not asserted: the first bracket's own observations are what
+        // prove the subject was live under the frozen identity while the chain
+        // ran. A caller must not be able to claim this with a bare `true`.
+        subject_identity: subject_identity,
+        subject_was_live: brackets[0].before.state === "live"
+          && brackets[0].after.state === "live"
+          && brackets[0].before.start_identity === subject_identity
+          && brackets[0].after.start_identity === subject_identity};
     }
 
     // Not the terminus: the parent relation must now be usable to advance.
@@ -511,7 +582,7 @@ function self_test() {
 
   function walk(plan) {
     return walk_ownership_chain(fixture_source(plan),
-      pids[0], browser_pid, browser_identity);
+      pids[0], "identity-" + pids[0], browser_pid, browser_identity);
   }
   // 1. A clean chain proves ownership and reports its length.
   const clean = walk(linear_plan(pids));
@@ -542,7 +613,8 @@ function self_test() {
     // before reaching the browser. It must report the ceiling, not an identity
     // failure: the fixture identities are all present.
   const ceiling = walk_ownership_chain(fixture_source(linear_plan(long_pids)),
-    long_pids[0], long_pids[CHAIN_CEILING], "identity-" + long_pids[CHAIN_CEILING]);
+    long_pids[0], "identity-" + long_pids[0],
+    long_pids[CHAIN_CEILING], "identity-" + long_pids[CHAIN_CEILING]);
   checks.ceiling_refused = ceiling.ok !== true
     && ceiling.code === "INCONCLUSIVE_OWNERSHIP" && ceiling.reason === "ceiling";
   // 6. `unknown` is never absence: it fails as an identity problem, not as
@@ -569,10 +641,30 @@ function self_test() {
     && drift.reason === "identity_drift";
   // 9. A terminus with the right pid but the wrong identity is unproven.
   const wrong_id = walk_ownership_chain(fixture_source(linear_plan(pids)),
-    pids[0], browser_pid, "identity-of-something-else");
+    pids[0], "identity-" + pids[0], browser_pid, "identity-of-something-else");
   checks.terminus_identity_refused = wrong_id.ok !== true
     && wrong_id.code === "INCONCLUSIVE_OWNERSHIP"
     && wrong_id.reason === "terminus_identity";
+  // 9a. THE FROZEN BINDING. The first node is the owned subject, so its identity
+  //     must equal the frozen `process.identity(handle)` value. The chain is
+  //     otherwise perfectly well-formed, so ONLY the binding check can refuse it.
+  const wrong_frozen = walk_ownership_chain(fixture_source(linear_plan(pids)),
+    pids[0], "not-the-frozen-identity", browser_pid, browser_identity);
+  checks.subject_frozen_identity_refused = wrong_frozen.ok !== true
+    && wrong_frozen.code === "INCONCLUSIVE_PROCESS_IDENTITY"
+    && wrong_frozen.reason === "subject_identity_mismatch";
+  // 9b. A missing subject identity is refused rather than silently skipped: the
+  //     walk must never accept "whatever identity is live at that pid".
+  const no_frozen = walk_ownership_chain(fixture_source(linear_plan(pids)),
+    pids[0], null, browser_pid, browser_identity);
+  checks.subject_frozen_identity_required = no_frozen.ok !== true
+    && no_frozen.code === "INCONCLUSIVE_PROCESS_IDENTITY"
+    && no_frozen.reason === "subject_identity_missing";
+  // 9c. A clean walk must REPORT the frozen identity as its subject identity, and
+  //     must derive subject liveness from the first bracket rather than assert it.
+  checks.subject_identity_reported = clean.ok === true
+    && clean.subject_identity === "identity-" + pids[0]
+    && clean.subject_was_live === true;
   // 10. A parent record that is `unknown` proves no relation.
   const punknown_plan = linear_plan(pids);
   punknown_plan.parent_unknown_pids = [7001];
@@ -594,22 +686,23 @@ function self_test() {
     && model_clean.chain_length === 3;
   // 12. A single-edge chain (host is the browser's direct child) is legal.
   const one_edge = walk_ownership_chain(
-    fixture_source(linear_plan([7001, 7002])), 7001, 7002, "identity-7002");
+    fixture_source(linear_plan([7001, 7002])), 7001, "identity-7001",
+    7002, "identity-7002");
   checks.single_edge_chain = one_edge.ok === true
     && one_edge.chain_length === 2;
   // 13. A chain of exactly the ceiling length is legal; one edge more is not.
   const exact = [];
   for (let i = 0; i < CHAIN_CEILING; i = i + 1) { exact.push(5000 + i); }
   const at_ceiling = walk_ownership_chain(
-    fixture_source(linear_plan(exact)), exact[0], exact[CHAIN_CEILING - 1],
-    "identity-" + exact[CHAIN_CEILING - 1]);
+    fixture_source(linear_plan(exact)), exact[0], "identity-" + exact[0],
+    exact[CHAIN_CEILING - 1], "identity-" + exact[CHAIN_CEILING - 1]);
   checks.at_ceiling_allowed = at_ceiling.ok === true;
 
   const over = [];
   for (let i = 0; i < CHAIN_CEILING + 1; i = i + 1) { over.push(6000 + i); }
   const over_ceiling = walk_ownership_chain(
-    fixture_source(linear_plan(over)), over[0], over[CHAIN_CEILING],
-    "identity-" + over[CHAIN_CEILING]);
+    fixture_source(linear_plan(over)), over[0], "identity-" + over[0],
+    over[CHAIN_CEILING], "identity-" + over[CHAIN_CEILING]);
   checks.over_ceiling_refused = over_ceiling.ok !== true;
 
   // --- cleanup --------------------------------------------------------------
@@ -656,6 +749,62 @@ function self_test() {
     frozen, 1000, fast_clock());
   checks.cleanup_pid_reuse_recorded = reuse.ok === true
     && death_list(reuse).length === 3 && death_list(reuse)[1].observation.pid_reused === true;
+
+  // 17a-17d: the two termination shapes are NOT interchangeable.
+  //
+  // These drive the pure helper directly, because the helper is what decides
+  // whether a reported termination is corroborated by the observations. A
+  // fixture through `observe_to_dead` cannot express both shapes at once, and
+  // conflating them was the P1-3 defect.
+  const reuse_observations = [
+    {state: "live", start_identity: "identity-7001"},
+    {state: "live", start_identity: "identity-of-a-different-process"}];
+  // PID reuse: the frozen identity is gone and the pid carries another one, so
+  // the final observation is LIVE-and-different, not dead. This must be accepted.
+  checks.termination_pid_reuse_accepted = never_unknown_as_dead(
+    reuse_observations, true, true, "identity-7001") === true;
+  // The same shape WITHOUT pid_reused is a process that is still running under a
+  // reused pid: it must not be accepted as an ordinary death.
+  checks.termination_live_final_not_dead = never_unknown_as_dead(
+    reuse_observations, true, false, "identity-7001") === false;
+  // `pid_reused: true` alone must not manufacture a pass: the final record has to
+  // actually carry a DIFFERENT identity than the frozen one.
+  checks.termination_pid_reuse_requires_real_change = never_unknown_as_dead(
+    [{state: "live", start_identity: "identity-7001"}], true, true,
+    "identity-7001") === false;
+  // An `unknown` final observation is never death, in EITHER shape, even when
+  // the caller claims the termination was proved.
+  checks.termination_unknown_final_never_dead = never_unknown_as_dead(
+    [{state: "live", start_identity: "identity-7001"},
+      {state: "unknown", start_identity: null}], true, false,
+    "identity-7001") === false;
+  checks.termination_unknown_final_never_reuse = never_unknown_as_dead(
+    [{state: "unknown", start_identity: null}], true, true,
+    "identity-7001") === false;
+  // 17a-ii: when NO termination was proved, the observations must still never END
+  // on `unknown`. Without this pair the guard is only reachable through
+  // `proved_dead === true`, where the shape checks reject the unknown record
+  // anyway, so removing the guard would go unnoticed.
+  checks.termination_unproved_unknown_final_refused = never_unknown_as_dead(
+    [{state: "unknown", start_identity: null}], false, false,
+    "identity-7001") === false;
+  checks.termination_unproved_unknown_final_refused_reuse = never_unknown_as_dead(
+    [{state: "unknown", start_identity: null}], false, true,
+    "identity-7001") === false;
+  // A non-terminating poll that simply ran out of budget is still acceptable: the
+  // guard forbids an `unknown` FINAL observation, not an unproved termination.
+  checks.termination_unproved_live_final_accepted = never_unknown_as_dead(
+    [{state: "live", start_identity: "identity-7001"}], false, false,
+    "identity-7001") === true;
+  // An ordinary death still requires a final `dead`.
+  checks.termination_ordinary_dead_accepted = never_unknown_as_dead(
+    [{state: "live", start_identity: "identity-7001"},
+      {state: "dead", start_identity: null}], true, false,
+    "identity-7001") === true;
+  // And a still-live, identity-matching final record is not an ordinary death.
+  checks.termination_ordinary_still_live_refused = never_unknown_as_dead(
+    [{state: "live", start_identity: "identity-7001"}], true, false,
+    "identity-7001") === false;
   // 18. The cleanup input is exact-key: a selector field is not admissible,
   //     and the model is what says so.
   const leaky_input = {owned_handle: 1, frozen_identities: frozen,
@@ -867,6 +1016,349 @@ function self_source_verdict() {
   }).ok === true;
 }
 
+// --- the real-process preflight ---------------------------------------------
+//
+// This is the first code in this experiment that touches REAL host processes for
+// ownership. It is deliberately NOT the live court:
+//
+//   * the owned subject is a non-browser, short-lived child (the browser is what
+//     the live court must own, and no browser may be launched in this slice);
+//   * no ordinal is reserved and no ledger row is written, so nothing here can
+//     produce a design fact;
+//   * it proves the *mechanisms* the live court will rely on against the real
+//     door, which is the only way to tell a fixture-shaped belief from a real one.
+//
+// Real door contract used here (verified against `tool.rs`, not assumed):
+//   process.spawn_frozen  -> direct: handle >= 0, negative is a refusal
+//   process.pid           -> direct: the pid itself (NOT a status code)
+//   process.identity      -> answer: {"pid":u32,"start_identity":String}
+//   process.state         -> answer: "running" | "exited" | "unknown"
+//   process.observe       -> answer: per-state JSON (live/dead/unknown)
+//   process.parent        -> answer: per-state JSON
+//   process.kill          -> direct: 0 | negative
+//   process.wait          -> answer: the command-result JSON
+//   process.release       -> answer: empty string on success
+//   time.now_ms           -> answer: epoch milliseconds as text (REAL clock)
+//   time.sleep_ms         -> answer: empty payload (REAL bounded sleep)
+//
+// `process.identity` REQUIRES a frozen spawn: an unfrozen child has no frozen
+// identity to report and is refused by name.
+
+// The real host clock and bounded sleep. These are the door's own operations, not
+// a counter this file maintains: `time.now_ms` was observed to advance with no
+// sleep at all, which is what distinguishes it from a replay/step clock.
+function host_clock() {
+  return {
+    now_ms: function () {
+      // Answer-style: the status is 0 and the value is parked in `tool_result`,
+      // exactly like `process.observe`. Reading the return value here would
+      // silently yield a constant zero, which is how a fake clock hides.
+      const value = door_answer("time.now_ms", time_now_ms());
+      const ms = parseInt(value, 10);
+      demand(ms > 0, "host_clock_now_value:" + value);
+      return ms;
+    },
+    sleep_ms: function (ms) {
+      door_answer("time.sleep_ms", time_sleep_ms(ms));
+      return ms;
+    }
+  };
+}
+
+// A frozen-spawn direct op: the return value IS the payload, and a negative
+// return is a refusal whose message is parked in `tool_result`.
+function door_direct(op, value) {
+  if (value < 0) { throw op + ":" + tool_result(); }
+  return value;
+}
+
+// An answer-style op: 0 means success and the payload is in `tool_result`.
+function door_answer(op, status) {
+  if (status !== 0) { throw op + ":" + tool_result(); }
+  return tool_result();
+}
+
+function door_json(op, status) {
+  return JSON.parse(door_answer(op, status));
+}
+
+// The subject program. `/bin/sleep` is not a browser, is never re-executed by
+// this court, and is guaranteed to still be alive when the bracket runs, which is
+// what makes the live-identity half of the chain meaningful.
+const SUBJECT_SECONDS = 10;
+
+function spawn_subject() {
+  const spec = {
+    program: "/bin/sleep",
+    args: ["" + SUBJECT_SECONDS],
+    current_dir: ".",
+    env: {},
+    timeout_ms: 60000
+  };
+  const handle = door_direct("process.spawn_frozen",
+    process_spawn_frozen(JSON.stringify(spec)));
+  demand(handle >= 0, "subject_spawn");
+  return handle;
+}
+
+// The full owned-resource lifecycle. EVERY path, success or failure, must end
+// with the handle released, or the worker leaks a slot and the child is orphaned.
+// Failures are ACCUMULATED rather than abandoning the remaining steps: stopping
+// at the first failure is exactly how orphans are made.
+function teardown_subject(handle) {
+  const failures = [];
+  let killed = false;
+  let reaped = false;
+  let released = false;
+
+  // kill is best-effort: a child that already exited reports success too, and a
+  // refusal here must not skip the reap or the release.
+  const kill_status = process_kill(handle);
+  if (kill_status < 0) { failures.push("kill:" + tool_result()); } else { killed = true; }
+
+  const wait_status = process_wait(handle, 5000);
+  if (wait_status !== 0) { failures.push("wait:" + tool_result()); } else { reaped = true; }
+
+  const release_status = process_release(handle);
+  if (release_status !== 0) { failures.push("release:" + tool_result()); } else { released = true; }
+
+  return {ok: failures.length === 0, failures: failures, killed: killed,
+    reaped: reaped, released: released};
+}
+
+// Wait for the frozen identity to reach `dead`, using the REAL clock and REAL
+// bounded sleep. Returns the observations taken so a reviewer can see the
+// evidence rather than a summary claim.
+function observe_identity_until_dead(identity, deadline_ms, clock) {
+  const started = clock.now_ms();
+  const observations = [];
+  while (clock.now_ms() - started <= deadline_ms) {
+    // The observation is routed through the red-gate hook so an unreadable
+    // process can be injected. On the real path the hook is a passthrough. The
+    // injection fires from the FIRST poll, because a correctly-terminated subject
+    // is already `dead` on the first read and a later injection would never be
+    // reached -- an unreachable adversary is not a red gate.
+    const observed_raw = UNKNOWN_MODE === "unknown"
+      ? injected_unknown(identity.pid)
+      : JSON.parse(door_answer("process.observe", process_observe(identity.pid)));
+    const parsed = parse_observation(observed_raw);
+    demand(parsed.ok === true, parsed.code);
+    observations.push(parsed.value);
+    if (parsed.value.state === "dead") {
+      return {ok: true, state: "dead", observations: observations};
+    }
+    if (parsed.value.state === "unknown") {
+      // `unknown` is never death. Retry, and let the deadline decide.
+      clock.sleep_ms(POLL_STEP_MS);
+      continue;
+    }
+    // `live`: the ORIGINAL process is gone only if the pid now carries a
+    // different start identity (the pid was reused).
+    if (parsed.value.start_identity !== identity.start_identity) {
+      return {ok: true, state: "dead", pid_reused: true,
+        observations: observations};
+    }
+    clock.sleep_ms(POLL_STEP_MS);
+  }
+  return {ok: false, state: "live", observations: observations,
+    reason: "termination_deadline_exhausted"};
+}
+
+// Orphan guard: the frozen pid must not still be alive after teardown.
+function assert_no_orphan(identity) {
+  const parsed = parse_observation(
+    JSON.parse(door_answer("process.observe", process_observe(identity.pid))));
+  demand(parsed.ok === true, parsed.code);
+  if (parsed.value.state === "live"
+      && parsed.value.start_identity === identity.start_identity) {
+    return false;
+  }
+  return true;
+}
+
+function process_preflight() {
+  const checks = {};
+  const clock = host_clock();
+  const worker_pid = process_id();
+
+  // A floor on the REAL clock. If `time.now_ms` were a counter that only moves
+  // when the script sleeps, it would start near zero and this would fail.
+  const t0 = clock.now_ms();
+  clock.sleep_ms(120);
+  const t1 = clock.now_ms();
+  const slept_ms = t1 - t0;
+  checks.host_clock_is_real = t0 > 1000000000000 && slept_ms >= 110;
+
+  const handle = spawn_subject();
+  let identity = null;
+  let teardown = null;
+  let chain = null;
+  let termination = null;
+  let orphan_free = false;
+  let outcome_error = null;
+  let subject_was_live = false;
+  try {
+    const frozen = door_json("process.identity", process_identity(handle));
+    identity = {pid: frozen.pid, start_identity: frozen.start_identity};
+    checks.identity_is_frozen = typeof identity.pid === "number"
+      && typeof identity.start_identity === "string"
+      && identity.start_identity !== "";
+
+    // `process.pid` must agree with the frozen identity: two independent doors
+    // describing the same owned child.
+    checks.pid_door_agrees = door_direct("process.pid", process_pid(handle))
+      === identity.pid;
+
+    // The REAL ownership walk, reusing the same `walk_ownership_chain` the live
+    // court uses. The walk goes from the owned subject UP to this worker, so the
+    // terminus is the worker's pid and the worker's own observed identity. The
+    // subject's FROZEN identity is passed in and must match both sides of the
+    // first bracket; the terminus proves the chain ends at this worker rather
+    // than somewhere else.
+    const worker_obs = parse_observation(
+      JSON.parse(door_answer("process.observe", process_observe(worker_pid))));
+    demand(worker_obs.ok === true, worker_obs.code);
+    chain = walk_ownership_chain(real_observation_source(), identity.pid,
+      identity.start_identity, worker_pid, worker_obs.value.start_identity);
+    checks.chain_worker_owns_subject = chain.ok === true
+      && chain.code === "OWNERSHIP_PROVEN"
+      && chain.chain_length === 2;
+    // The frozen identity must be the one the chain actually saw. This is a
+    // SEPARATE check from the chain verdict, because the verdict alone would be
+    // satisfied by any identity that happened to be live at that pid.
+    checks.subject_identity_is_frozen = chain.ok === true
+      && chain.subject_identity === identity.start_identity;
+    // Derived from the first bracket's real observations by the walk, never
+    // assigned here: a bare `true` would claim liveness the walk never proved.
+    subject_was_live = chain.ok === true && chain.subject_was_live === true;
+  } catch (error) {
+    outcome_error = "" + error;
+  }
+
+  // ORDER MATTERS. The subject is still alive here, so the chain bracket above
+  // observed a genuinely live owned process. Teardown must NOT run before this
+  // point: killing first would make the "saw live first" check impossible and
+  // would hide a chain that never actually proved a live identity.
+
+  // Teardown runs on EVERY path, including a partially constructed subject.
+  try {
+    teardown = teardown_subject(handle);
+  } catch (error) {
+    teardown = {ok: false, failures: ["teardown_threw:" + error],
+      killed: false, reaped: false, released: false};
+  }
+  checks.teardown_releases_handle = teardown.ok === true && teardown.released === true;
+
+  if (identity !== null) {
+    try {
+      // Post-teardown: the frozen identity must now reach `dead`.
+      termination = observe_identity_until_dead(identity, 5000, clock);
+      checks.termination_observed_dead = termination.ok === true;
+      checks.termination_never_unknown_as_dead = never_unknown_as_dead(
+        termination.observations, termination.ok === true,
+        termination.pid_reused === true, identity.start_identity);
+      orphan_free = assert_no_orphan(identity);
+      checks.no_orphan_after_release = orphan_free;
+    } catch (error) {
+      outcome_error = outcome_error === null ? "" + error
+        : outcome_error + "|" + error;
+    }
+  } else {
+    checks.termination_observed_dead = false;
+    checks.termination_never_unknown_as_dead = false;
+    checks.no_orphan_after_release = false;
+  }
+
+  // Recorded separately from the post-teardown poll so the evidence shows BOTH
+  // halves: the subject was live when the chain was walked, and dead afterwards.
+  checks.subject_was_live_during_chain = chain !== null && chain.ok === true
+    && chain.subject_was_live === true && subject_was_live === true;
+
+  // The worker itself is NEVER part of the termination cleanup. Its liveness
+  // cannot be a precondition of a check that runs in it.
+  checks.worker_excluded_from_cleanup = worker_pid !== (identity === null
+    ? -1 : identity.pid);
+
+  checks.no_outcome_error = outcome_error === null;
+
+  const failed = [];
+  const keys = Object.keys(checks);
+  for (let i = 0; i < keys.length; i = i + 1) {
+    if (checks[keys[i]] !== true) { failed.push(keys[i]); }
+  }
+
+  return {
+    schema: "agenterm.profile-binding-exact-process-live-process-preflight/v1",
+    ok: failed.length === 0,
+    mode: MODE_PROCESS_PREFLIGHT,
+    checks: checks,
+    failed: failed,
+    worker_pid: worker_pid,
+    subject_pid: identity === null ? null : identity.pid,
+    subject_identity: identity === null ? null : identity.start_identity,
+    subject_kind: "owned non-browser child",
+    subject_seconds: SUBJECT_SECONDS,
+    chain_length: chain === null ? null : chain.chain_length,
+    slept_ms: slept_ms,
+    teardown: teardown,
+    orphan_free: orphan_free,
+    outcome_error: outcome_error,
+    browser_launched: false,
+    ordinal_reserved: false,
+    formal_root_touched: false,
+    design_verdict: false,
+    injected_fixture: false,
+    real_host_process: true
+  };
+}
+
+// A termination is sound only if the observations match ONE of the two declared
+// success shapes, and no observation was ever a `dead`-shaped lie about `unknown`.
+//
+// The two shapes are NOT interchangeable, and conflating them was a real bug:
+//   * ordinary death    -> the final observation is `dead`
+//   * PID reuse         -> the final observation is `live` with an identity
+//                          DIFFERENT from the frozen one, because the original
+//                          process is gone and its pid now carries another
+//                          process. `observe_identity_until_dead` reports this as
+//                          `state: dead, pid_reused: true`, but its last recorded
+//                          OBSERVATION is that reused `live` record.
+// Requiring a final `dead` observation in the reuse case rejects a legitimate
+// termination; accepting a final `live` in the ordinary case would accept a
+// process that is still running. The frozen identity is passed in rather than
+// trusted from a boolean, so `pid_reused: true` alone cannot manufacture a pass.
+function never_unknown_as_dead(observations, proved_dead, pid_reused,
+    frozen_identity) {
+  for (let i = 0; i < observations.length; i = i + 1) {
+    const state = observations[i].state;
+    if (state !== "live" && state !== "dead" && state !== "unknown") {
+      return false;
+    }
+    // `unknown` may never be the observation that terminates the poll, in either
+    // shape: it is explicitly retryable and exhausting the budget is not death.
+    if (state === "unknown" && i === observations.length - 1) { return false; }
+  }
+  if (proved_dead !== true) {
+    // No termination was claimed, so there is nothing to corroborate; the poll
+    // simply must not have ended on `unknown`.
+    return true;
+  }
+  const last = observations[observations.length - 1];
+  if (last === undefined) { return false; }
+  if (pid_reused === true) {
+    // The frozen identity must actually be absent: the final record must be live
+    // AND carry a different identity.
+    if (typeof frozen_identity !== "string" || frozen_identity === "") {
+      return false;
+    }
+    return last.state === "live"
+      && last.start_identity !== null
+      && last.start_identity !== undefined
+      && last.start_identity !== frozen_identity;
+  }
+  return last.state === "dead";
+}
+
 // --- entry -------------------------------------------------------------------
 
 const argv = rh.args();
@@ -875,10 +1367,29 @@ const region_path = env_get("AGENTERM_LIVE_REGION_SOURCE") === 0
   ? tool_result() : "";
 if (region_path !== "") { REGION_SOURCE = rh.read_text(region_path); }
 
-if (mode !== MODE_SELF_TEST) {
-  // Every live mode is refused here as well as in the runner. Two independent
-  // refusals matter: this file is the one that would hold the browser spawn,
-  // so it must be unable to proceed even if the runner is bypassed.
+if (mode === MODE_PROCESS_PREFLIGHT) {
+  // REAL HOST EVIDENCE, no browser and no ordinal: spawn one owned, non-browser,
+  // short-lived child and prove the ownership chain, the frozen identity and the
+  // observe-to-dead termination against the real door. This is NOT a live court
+  // run and produces no design result.
+  //
+  // FAIL-CLOSED ENTRY. The envelope is printed first, and the evidence/pass tokens
+  // are printed ONLY when the envelope says `ok: true`. Printing them
+  // unconditionally would let a red result exit 0 with a PASS line beside it, which
+  // is worse than no gate at all. A failing preflight throws a NAMED code and exits
+  // nonzero, so neither token can appear.
+  const evidence = process_preflight();
+  print(canonical_json(evidence));
+  if (evidence.ok !== true) {
+    throw "LIVE_PROCESS_PREFLIGHT_FAILED:" + evidence.failed.join("+");
+  }
+  print("EVIDENCE research.profile-binding-exact-process.live-process-preflight");
+  print("PASS: exact-process live process preflight");
+} else if (mode !== MODE_SELF_TEST) {
+  // Every remaining non-self-test mode is refused here as well as in the runner.
+  // Two independent refusals matter: this file is the one that would hold the
+  // browser spawn, so it must be unable to proceed even if the runner is
+  // bypassed.
   print(canonical_json({
     schema: "agenterm.profile-binding-exact-process-live-refusal/v1",
     ok: false,
@@ -889,9 +1400,9 @@ if (mode !== MODE_SELF_TEST) {
     ordinal_reserved: false
   }));
   throw LIVE_REFUSAL_CODE;
+} else {
+  const proof = self_test();
+  print(canonical_json(proof));
+  print("EVIDENCE research.profile-binding-exact-process.live-self-test");
+  print("PASS: exact-process live court self-test");
 }
-
-const proof = self_test();
-print(canonical_json(proof));
-print("EVIDENCE research.profile-binding-exact-process.live-self-test");
-print("PASS: exact-process live court self-test");
