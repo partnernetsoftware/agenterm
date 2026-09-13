@@ -82,6 +82,11 @@ agenterm-qjswasm
 │  │  └─ `process.parent(pid)` projects one direct-parent relationship through
 │  │     the same exact-key platform family; native-ipc-compat's five ownership
 │  │     checks no longer launch PowerShell/ps or parse their process-table text
+│  │  └─ task-side process witnesses reuse the shipped process door: script-smoke
+│  │     removes repeated `ps` parsing and `kill -9`, while control-center-linux
+│  │     replaces `kill -0` polling with exact-PID observation; a real 20-round
+│  │     court measured 26.78% steps, 77.84% bridge bytes and 29.46% wall time
+│  │     versus the former `ps` path at equal host-op count
 │  ├─ [x] declaration-driven Native Importer composition
 │  │  ├─ user problem: scripts need an extensible native surface without copying a loader or ABI executor
 │  │  ├─ invariant: spec/schema/catalog/nullability and exact-family cardinality are local qjswasm policy
@@ -343,6 +348,7 @@ flowchart LR
   SELECT["host-side JSON field selection<br/>producer Value → bounded projection<br/>protocol-info first consumer · door unchanged"]
   OBSERVE["bounded single-PID observation<br/>live · dead · unknown<br/>no inventory transport"]
   PARENT["bounded direct-parent observation<br/>one PID · no process-table text"]
+  TASKWIT["task process witnesses reuse the door<br/>no ps parsing · no kill subprocess"]
   HANDLES["per-slot child ledger<br/>32 retained · pre-spawn refusal"]
   LOCKS["per-slot lock ledger<br/>32 lifetime handles · stable tombstones<br/>pre-open refusal"]
   PATHS["shared path helper<br/>`.` / `./` lexical normalization"]
@@ -408,6 +414,7 @@ flowchart LR
   PRODUCT -. producer-owned JSON value .-> SELECT --> DOOR
   PRODUCT -. arbitrary PID liveness .-> OBSERVE --> DOOR
   PRODUCT -. direct child identity .-> PARENT --> OBSERVE
+  PARENT -. task-side reuse .-> TASKWIT --> DOOR
   PRODUCT -. advisory lock .-> LOCKS --> RECEIPT
   PRODUCT -. process.command .-> QPTY --> RECEIPT
   PRODUCT -. native path identity .-> PATHS --> RECEIPT

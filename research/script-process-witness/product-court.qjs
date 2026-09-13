@@ -1,0 +1,19 @@
+import * as smoke from "lib/script_smoke_helpers";
+import * as harness from "lib/test_harness";
+
+const own_pid = process_id();
+if (!smoke.process_exists(own_pid)) {
+  throw "product_court_current_pid_missing";
+}
+let listed = false;
+for (const pid of smoke.process_ids("agenterm")) {
+  if (Number(pid) === own_pid) { listed = true; }
+}
+if (!listed) { throw "product_court_current_name_missing"; }
+const child = harness.start({ program: "sh", args: ["-c", "sleep 30"], timeout_ms: 60000 });
+const child_pid = process_pid(child);
+if (child_pid <= 0) { throw "product_court_child_pid_missing"; }
+smoke.kill_pid(child_pid);
+const killed = harness.wait(child, 5000);
+if (killed.success) { throw "product_court_kill_did_not_fail_child"; }
+print("PASS: script smoke helpers use the structured process door");

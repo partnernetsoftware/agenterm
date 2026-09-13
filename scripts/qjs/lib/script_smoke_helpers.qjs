@@ -15,9 +15,8 @@
 //     slot's max_bridge_result_bytes (1 MiB); there is no per-command knob.
 //   - `output.complete` is `!timed_out`; the door has no truncation signal,
 //     so `truncated` is always false here.
-//   - `std::process::list()` / `std::process::kill(pid)`: the door has no
-//     process table. They are `ps -axo pid=,comm=` and `kill -9` here, run
-//     as ordinary commands (the rh originals were Windows-only anyway).
+//   - `std::process::list()` / `std::process::kill(pid)`: the tool door owns
+//     both operations directly, without task-side process-table commands.
 //   - `stdin_bytes`, `bytes.get`, `bytes.slice`, `to_text`: the door carries
 //     text, and this engine cannot turn a string into its bytes (no
 //     `charCodeAt`, no `s[i]`). The binary framing helpers that need that
@@ -178,32 +177,20 @@ export function failure_text(context, cli, args, expected_exit, audit_path) {
 
 // ---- process table ------------------------------------------------------
 //
-// rh's `std::process::list()` was a host call. The door has none, so the
-// table is `ps -axo pid=,comm=`: one "pid path" line per process.
+// rh's `std::process::list()` was a host call. The tool door preserves that
+// shape as one bounded structured answer.
 
 function process_table() {
-  const out = rh.command("ps", ["-axo", "pid=,comm="], { timeout_ms: 5000 });
-  const rows = [];
-  if (out.exit_code !== 0) { return rows; }
-  for (const line of out.stdout.split("\n")) {
-    const tokens = [];
-    for (const token of line.trim().split(" ")) {
-      if (token !== "") { tokens.push(token); }
-    }
-    if (tokens.length < 2) { continue; }
-    let command = tokens[1];
-    let i = 2;
-    while (i < tokens.length) { command = command + " " + tokens[i]; i = i + 1; }
-    rows.push({ id: Number(tokens[0]), executable_name: file_name(command) });
-  }
-  return rows;
+  if (process_list() !== 0) { throw "process_list:" + tool_result(); }
+  return JSON.parse(tool_result());
 }
 
 export function process_ids(executable_name) {
   const ids = [];
   const wanted = ("" + executable_name).toLowerCase();
   for (const process of process_table()) {
-    if (process.executable_name.toLowerCase() === wanted) { ids.push("" + process.id); }
+    const actual = process.executable_name.toLowerCase();
+    if (actual === wanted) { ids.push("" + process.id); }
   }
   return ids;
 }
@@ -216,10 +203,11 @@ export function process_exists(pid) {
   return false;
 }
 
-// rh's `std::process::kill(pid)`: `kill -9` as a command; absent is not
-// an error, exactly like the host call.
+// rh's `std::process::kill(pid)`: the direct door keeps process ownership in
+// the platform facade instead of spawning a task-side `kill` command. Unlike
+// the old ignored command status, a native termination failure is fail-closed.
 export function kill_pid(pid) {
-  rh.command_status("kill", ["-9", "" + pid], { timeout_ms: 5000 });
+  process_kill_pid(Number(pid));
 }
 
 export function wait_new_process(executable_name, existing, timeout_ms) {

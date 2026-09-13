@@ -285,10 +285,10 @@ function wait_exit(child, code) {
   throw code;
 }
 
-// rh's `std::process::list()` scan; the door has no process list, and
-// `kill -0` asks the kernel the same question.
+// Observe one exact PID without spawning `kill -0` or transporting an inventory.
 function process_present(pid) {
-  return rh.command_status("kill", ["-0", "" + pid], { timeout_ms: 2000 }) === 0;
+  if (process_observe(pid) !== 0) { throw "process_observe:" + tool_result(); }
+  return JSON.parse(tool_result()).state === "live";
 }
 
 function wait_process_gone(pid, code) {

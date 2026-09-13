@@ -1,0 +1,52 @@
+function require(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function ps_rows() {
+  const status = process_command(JSON.stringify({
+    program: "ps",
+    args: ["-axo", "pid=,comm="],
+    timeout_ms: 5000
+  }));
+  require(status === 0, "ps_command:" + tool_result());
+  const output = JSON.parse(tool_result());
+  require(output.success, "ps_failed:" + output.stderr);
+  const rows = [];
+  for (const line of output.stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") { continue; }
+    const tokens = [];
+    for (const value of trimmed.split(" ")) {
+      if (value !== "") { tokens.push(value); }
+    }
+    if (tokens.length < 2) { continue; }
+    rows.push({ id: Number(tokens[0]), executable_name: tokens[tokens.length - 1] });
+  }
+  return rows;
+}
+
+function door_rows() {
+  require(process_list() === 0, "process_list:" + tool_result());
+  return JSON.parse(tool_result());
+}
+
+require(arg_count() === 1, "one variant argument required");
+require(arg(0) === 0, "variant argument read failed");
+const variant = tool_result();
+const own_pid = process_id();
+let own_name = "";
+for (let iteration = 0; iteration < 20; iteration = iteration + 1) {
+  const rows = variant === "door" ? door_rows() : ps_rows();
+  let found = false;
+  for (const row of rows) {
+    if (row.id === own_pid) {
+      found = true;
+      own_name = row.executable_name;
+      break;
+    }
+  }
+  require(found, "current_pid_missing:" + variant + ":" + iteration);
+}
+const name_parts = own_name.split("/");
+own_name = name_parts[name_parts.length - 1];
+print(JSON.stringify({ variant, own_pid, own_name, iterations: 20 }));
