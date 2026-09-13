@@ -1,0 +1,1 @@
+{"action":"resize","columns":90,"input_bytes":null,"lease_expires_unix_ms":1789295075278,"position":{"sequence":11,"server_epoch":"33544-1789295069-788940000"},"rows":24,"schema_version":1,"tab_id":"@2"}

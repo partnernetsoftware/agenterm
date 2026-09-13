@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "request_id": "server-receipt-1789295069778-33543",
+  "operation_id": "tabs.set-note",
+  "payload_fingerprint": "fnv1a64:86726bb3c04d18b0",
+  "outcome": "no_op",
+  "error": {
+    "code": "request_id_conflict",
+    "category": "conflict",
+    "message": "request_id was already used for a different request",
+    "retryable": false
+  }
+}

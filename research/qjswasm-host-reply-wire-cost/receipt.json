@@ -1,0 +1,99 @@
+{
+ "bytes": {
+  "native-ipc-smoke": {
+   "A": {
+    "envelope": 59049,
+    "payload": 51004
+   },
+   "B": {
+    "envelope": 47875,
+    "payload": 41177
+   },
+   "C": {
+    "envelope": 20693,
+    "payload": 16157
+   }
+  },
+  "server-smoke": {
+   "A": {
+    "envelope": 4282,
+    "payload": 225512
+   },
+   "B": {
+    "envelope": 4282,
+    "payload": 126022
+   },
+   "C": {
+    "envelope": 4282,
+    "payload": 2208
+   }
+  },
+  "workbench-smoke": {
+   "A": {
+    "envelope": 128973,
+    "payload": 112450
+   },
+   "B": {
+    "envelope": 75699,
+    "payload": 64285
+   },
+   "C": {
+    "envelope": 1953,
+    "payload": 501
+   }
+  }
+ },
+ "shapes": {
+  "native-ipc-smoke": {
+   "A": {
+    "files": 20,
+    "reply_set_sha256": "9fa0af76fc18ce1dcc91234717ef4ef3c41d1bbe398e3f0fda9221bd1393d6b0",
+    "value_set_sha256": "9b5e9b0e52d83a08986ee6370738d9eabcd0404a318804c75842d83da6c5d74b"
+   },
+   "B": {
+    "files": 20,
+    "reply_set_sha256": "c97ebbb8e9c32bbeacc5797cc902e7ccbbf51b119d9c6a934ef43e5df2dbc9f2",
+    "value_set_sha256": "9b5e9b0e52d83a08986ee6370738d9eabcd0404a318804c75842d83da6c5d74b"
+   },
+   "C": {
+    "files": 20,
+    "reply_set_sha256": "ca31b4dcb0b91179785d8a7750fd9f19ce9010f67df313c5257331cffccecaa7",
+    "value_set_sha256": "536cadcbe4dad406867b3dd511c160457502f17452819e73f5a43357a1843738"
+   }
+  },
+  "server-smoke": {
+   "A": {
+    "files": 68,
+    "reply_set_sha256": "ff23c1edbeeb3a17d0b65b75767e6a19a92426ba953d88d07185374e99642fae",
+    "value_set_sha256": "d0bb1f0fda00acd84e18335d3744ad0eb3b476a5f2dceaea963bdf3789eed3d8"
+   },
+   "B": {
+    "files": 68,
+    "reply_set_sha256": "b4f92251a49ec4c92d74e1ae28f61d8ea6703d33d091c682bbffc3f35e3a1c76",
+    "value_set_sha256": "d0bb1f0fda00acd84e18335d3744ad0eb3b476a5f2dceaea963bdf3789eed3d8"
+   },
+   "C": {
+    "files": 68,
+    "reply_set_sha256": "c8da4f6d8278d7f9ab476e4f711a7d9db44721e819d84f9fb8f12b25d0a1523e",
+    "value_set_sha256": "461c23b6163c5210f2b00e1b3d5abce1b2cba1f1ddce83c93bc3d180376903b7"
+   }
+  },
+  "workbench-smoke": {
+   "A": {
+    "files": 11,
+    "reply_set_sha256": "16e1c1e04d16cf9cc270f894d81f4653a15d991a7dac6a48c962bd4448ed1810",
+    "value_set_sha256": "d188f9540ea576bb2688eee0dd70ea9787cb7fd42c3d1b1efbde5107a6b54c67"
+   },
+   "B": {
+    "files": 11,
+    "reply_set_sha256": "780776cb5b47416b313185f81b23c77a8e54edc4e7b69d9be556362515c0d802",
+    "value_set_sha256": "d188f9540ea576bb2688eee0dd70ea9787cb7fd42c3d1b1efbde5107a6b54c67"
+   },
+   "C": {
+    "files": 11,
+    "reply_set_sha256": "e72b4bc0d27e67ec0570073a5e229c0d26e8dbee78facf72c5944882b6e52b3e",
+    "value_set_sha256": "637d849c9b04c9fa9e628f44ee3314ec483c3f08403046f2e344c1db81bbd5f6"
+   }
+  }
+ }
+}

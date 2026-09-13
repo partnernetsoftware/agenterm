@@ -1,0 +1,1 @@
+{"action":"input","columns":null,"input_bytes":23,"lease_expires_unix_ms":1789295075306,"position":{"sequence":12,"server_epoch":"33544-1789295069-788940000"},"rows":null,"schema_version":1,"tab_id":"@2"}

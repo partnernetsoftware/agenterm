@@ -1,0 +1,20 @@
+{
+  "envelope_version": 2,
+  "invocation_id": "99042-1789296469324686000",
+  "api_version": 2,
+  "ok": true,
+  "exit_class": "success",
+  "operation": "run",
+  "profile": "tool",
+  "stdout": "COURT {\"journey\":\"workbench-smoke\",\"shape\":\"B\",\"replies\":11,\"parsed_replies\":6,\"text_replies\":4,\"status_replies\":1,\"touched_reads\":19,\"envelope_bytes\":75685,\"payload_bytes\":64271}\n",
+  "cost": {
+    "steps": 13678714,
+    "peak_call_depth": 18,
+    "peak_activation_slots": 187,
+    "host_ops": 16,
+    "host_bytes": 80605,
+    "waited_ms": 0,
+    "heap_pages": 10
+  },
+  "duration_ms": 809
+}

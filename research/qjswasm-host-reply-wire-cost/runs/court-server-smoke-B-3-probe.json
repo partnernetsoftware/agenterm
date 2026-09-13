@@ -1,0 +1,25 @@
+{
+  "envelope_version": 2,
+  "invocation_id": "98393-1789296455683321000",
+  "api_version": 2,
+  "ok": true,
+  "exit_class": "success",
+  "operation": "run",
+  "profile": "tool",
+  "stdout": "COURT {\"journey\":\"server-smoke\",\"shape\":\"B\",\"replies\":34,\"parsed_replies\":22,\"text_replies\":12,\"status_replies\":0,\"touched_reads\":80,\"envelope_bytes\":4282,\"payload_bytes\":126022}\n",
+  "cost": {
+    "steps": 10499275,
+    "peak_call_depth": 22,
+    "peak_activation_slots": 164,
+    "host_ops": 73,
+    "host_bytes": 149555,
+    "waited_ms": 0,
+    "heap_pages": 10,
+    "heap_bytes": 631140,
+    "heap_start_bytes": 12504,
+    "json_parse_bytes": 441616,
+    "json_stringify_bytes": 796,
+    "immediate_stringify_host_argument_bytes": 0
+  },
+  "duration_ms": 631
+}

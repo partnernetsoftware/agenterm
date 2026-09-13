@@ -1,0 +1,126 @@
+// Pricing court for the host-reply wire cost experiment.
+//
+//   agenterm cli script run --profile tool --json -- \
+//     research/qjswasm-host-reply-wire-cost/shapes <journey> A|B|C
+//
+// It is a reporter, not a second implementation of a journey: it consumes one
+// frozen reply set in one shape and performs that journey's own read sequence
+// over it -- for every reply, fetch the door envelope through the ordinary
+// host-string path, parse it, take the payload the same way the journey takes
+// it (inside the envelope, or back out of a redirected file), parse the
+// payload when the journey parses it, and read the census paths. The three
+// shapes differ only in bytes, so the difference between two shapes is the
+// price of the bytes that shape removed.
+//
+// The court is deliberately not a performance-tuned program: every operation
+// it performs is performed identically under A, B and C, and the judged number
+// (the difference between shapes) is what those identical operations cost
+// minus the wire bytes. It reads the census that `tools/make_shapes.py` wrote
+// into shapes/<journey>/index.json, so no read path is invented here.
+import * as rh from "lib/rh_compat";
+
+function pad(n) {
+  const text = "" + n;
+  if (text.length >= 4) { return text; }
+  if (text.length === 3) { return "0" + text; }
+  if (text.length === 2) { return "00" + text; }
+  return "000" + text;
+}
+
+// `reads` holds dotted paths; a `[]` suffix means "every element of the array
+// at this point". The deepest value reached is returned so the read is not
+// dead: the walk itself is the cost being priced.
+let touched = 0;
+function read_path(node, parts, at) {
+  if (at >= parts.length) {
+    touched = touched + 1;
+    return node;
+  }
+  let head = parts[at];
+  let each = false;
+  if (head.endsWith("[]")) {
+    each = true;
+    head = head.slice(0, head.length - 2);
+  }
+  let container = node;
+  if (head !== "") {
+    if (container === null || container === undefined) { return null; }
+    container = container[head];
+  }
+  if (container === null || container === undefined) { return null; }
+  if (each) {
+    let last = null;
+    for (const item of container) {
+      last = read_path(item, parts, at + 1);
+    }
+    return last;
+  }
+  return read_path(container, parts, at + 1);
+}
+
+const args = rh.args();
+rh.require(args.length === 3, "expected: SHAPES_DIR JOURNEY A|B|C");
+const shapes = rh.absolute(args[0]);
+const journey = "" + args[1];
+const shape = "" + args[2];
+rh.require(shape === "A" || shape === "B" || shape === "C", "court_shape:" + shape);
+
+const journey_dir = rh.join(shapes, journey);
+const shape_dir = rh.join(journey_dir, shape);
+const index = JSON.parse(rh.read_text(rh.join(journey_dir, "index.json")));
+
+let envelope_bytes = 0;
+let payload_bytes = 0;
+let parsed_replies = 0;
+let text_replies = 0;
+let status_replies = 0;
+for (const reply of index.replies) {
+  const name = pad(reply.seq);
+  const envelope_text = rh.read_text(rh.join(shape_dir, "env-" + name + ".txt"));
+  envelope_bytes = envelope_bytes + envelope_text.length;
+  const envelope = JSON.parse(envelope_text);
+  let payload_text = "";
+  if (reply.source === "envelope") {
+    payload_text = "" + envelope.stdout;
+  } else {
+    payload_text = rh.read_text(rh.join(shape_dir, "pay-" + name + ".txt"));
+  }
+  payload_bytes = payload_bytes + payload_text.length;
+  if (reply.parse === "json") {
+    parsed_replies = parsed_replies + 1;
+    // the journey's own parse: only the journeys that trim do, and a
+    // grep-filtered answer is then wrapped in braces with its trailing comma
+    // dropped before JSON.parse (that fragment is not standalone JSON)
+    let text = payload_text;
+    if (reply.trim === true) { text = text.trim(); }
+    if (reply.form === "fragment") {
+      if (text.endsWith(",")) { text = text.slice(0, text.length - 1); }
+      text = "{" + text + "}";
+    }
+    const value = JSON.parse(text);
+    for (const path of reply.reads) {
+      read_path(value, path.split("."), 0);
+    }
+  } else if (reply.parse === "text") {
+    text_replies = text_replies + 1;
+    // the journey's own treatment of a non-JSON answer (a trim where the
+    // journey trims; native-ipc's invoke only concatenates it for its journal)
+    if (reply.trim === true) { payload_text.trim(); }
+  } else {
+    status_replies = status_replies + 1;
+  }
+}
+
+print(
+  "COURT " + JSON.stringify({
+    journey: journey,
+    shape: shape,
+    replies: index.replies.length,
+    parsed_replies: parsed_replies,
+    text_replies: text_replies,
+    status_replies: status_replies,
+    touched_reads: touched,
+    envelope_bytes: envelope_bytes,
+    payload_bytes: payload_bytes
+  })
+);

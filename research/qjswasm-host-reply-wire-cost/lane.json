@@ -1,0 +1,29 @@
+{
+ "experiment": "qjswasm host-reply wire cost",
+ "spec": "plan/design-qjswasm-host-reply-wire-cost-experiment.md",
+ "execution_date": "2026-09-13",
+ "agenterm_head": "df049328c494a5cf6516fa73657138807c0d1167",
+ "agenterm_dirty": "clean at lane build; the only tree changes are this experiment's own research/ artifacts",
+ "tinyvm_pin": "9ac2598",
+ "tinyvm_qjs_pin": "9ac2598",
+ "cargo_target_dir": "target/frontier-host-reply-wire (repo-local lane)",
+ "binary": "target/frontier-host-reply-wire/debug/agenterm",
+ "binary_sha256": "67c3ba449d29d57981a618c0763811c7eeb4fa260dfb1c0867c71e18e2af70c8",
+ "binary_bytes": 33773464,
+ "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07), cargo 1.97.0 (c980f4866 2026-06-30)",
+ "target": "native macOS aarch64 (host), profile default dev (cargo build --bin agenterm)",
+ "budgets": {
+  "server-smoke": {"timeout_ms": 300000, "max_operations": 1000000000},
+  "native-ipc-smoke": {"timeout_ms": 120000, "max_operations": 100000000},
+  "workbench-smoke": {"timeout_ms": 120000, "max_operations": 1000000000, "phase": "editing", "env": ["AGENTERM_NO_ACTIVATE=1", "AGENTERM_QJS_MAX_MEMORY_PAGES=4096"]}
+ },
+ "commands": {
+  "build": "CARGO_TARGET_DIR=$PWD/target/frontier-host-reply-wire cargo build --bin agenterm",
+  "control": "sh research/qjswasm-host-reply-wire-cost/tools/run-control.sh 3",
+  "capture": "AGENTERM_REPLY_CAPTURE_DIR=... $BIN cli script run --profile tool --json --project-root scripts/qjs --timeout-ms <budget> --max-operations <budget> research/qjswasm-host-reply-wire-cost/capture/<journey>.capture.qjs -- . $BIN $BIN",
+  "shapes": "python3 research/qjswasm-host-reply-wire-cost/tools/make_shapes.py",
+  "court": "sh research/qjswasm-host-reply-wire-cost/tools/run-court.sh <journey> 3 [probe]",
+  "aggregate": "python3 research/qjswasm-host-reply-wire-cost/tools/aggregate.py"
+ },
+ "anchor_note": "the spec's section 5 command was written as `cli script run --profile tool --json -- <replies-dir> A|B|C`; this lane's binary exposes `--profile`, `--json`, `--timeout-ms`, `--max-operations`, `--project-root` and `-- ARGS...` (re-derived from `cli script run --help`), and the court takes SHAPES_DIR JOURNEY SHAPE. The extra `--project-root scripts/qjs` is required because a research/ entry resolves `lib/rh_compat` against the project root, and it changes no journey bytes."
+}

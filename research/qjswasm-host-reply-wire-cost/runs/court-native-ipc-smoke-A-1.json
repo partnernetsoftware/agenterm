@@ -1,0 +1,20 @@
+{
+  "envelope_version": 2,
+  "invocation_id": "98441-1789296456758237000",
+  "api_version": 2,
+  "ok": true,
+  "exit_class": "success",
+  "operation": "run",
+  "profile": "tool",
+  "stdout": "COURT {\"journey\":\"native-ipc-smoke\",\"shape\":\"A\",\"replies\":20,\"parsed_replies\":13,\"text_replies\":7,\"status_replies\":0,\"touched_reads\":375,\"envelope_bytes\":59049,\"payload_bytes\":51004}\n",
+  "cost": {
+    "steps": 11330083,
+    "peak_call_depth": 18,
+    "peak_activation_slots": 158,
+    "host_ops": 25,
+    "host_bytes": 72604,
+    "waited_ms": 0,
+    "heap_pages": 9
+  },
+  "duration_ms": 639
+}

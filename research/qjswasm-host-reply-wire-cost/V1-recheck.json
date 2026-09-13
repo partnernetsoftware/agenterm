@@ -1,0 +1,23 @@
+{
+ "note": "V1 reproducibility recheck (one re-capture per journey into a repo-local scratch directory; the frozen set under replies/ is the first capture and was never overwritten). Reply counts reproduced exactly. The command sequence is identical after masking volatile live values (pid, address, port, timestamp and the server-issued lease-id hex); the residue is the lease-id hex itself, which no mask normalizes perfectly, plus the live envelope/payload bytes, which differ because the answers carry live identity. Byte-identity of a reply set is therefore NOT claimed across captures: V1 freezes one capture and digests it.",
+ "journeys": {
+  "server-smoke": {
+   "frozen_replies": 34,
+   "recapture_replies": 34,
+   "command_sequence_identical_after_masking": true,
+   "frozen_command_shape_sha256": "cc5ade4fd454830360f058f3b7b254666bc2c629bed96c5cef62cae988bb80a3"
+  },
+  "native-ipc-smoke": {
+   "frozen_replies": 20,
+   "recapture_replies": 20,
+   "command_sequence_identical_after_masking": true,
+   "frozen_command_shape_sha256": "fca92eb2032809571687dba4331ab372eb08a5a14a6e9204dd5aff526ca5aa09"
+  },
+  "workbench-smoke": {
+   "frozen_replies": 11,
+   "recapture_replies": 11,
+   "command_sequence_identical_after_masking": true,
+   "frozen_command_shape_sha256": "9832f47ab2b1a973fb2dfc96350697bb8111b2cef77bf4c9b7f637d89db2430e"
+  }
+ }
+}

@@ -1,0 +1,824 @@
+{
+ "note": "Per-journey reply census for the host-reply wire cost experiment. `parse` is json when the journey passes that reply's text to JSON.parse (invoke_json / command_json / json_cli), text when it only does string work on the raw answer, none when it never parses the answer at all. `reads` lists the deepest JSON paths the journey actually reads from the parsed value, in code order; an empty list means the journey parses the answer and reads no field from it (so shape C carries no field of that reply). Derivation is static, from the journey source at the revision recorded in RESULTS.md; every path is matched by the projection tool against the frozen reply, and a path that does not exist in the reply is simply absent from C.",
+ "journeys": {
+  "server-smoke": {
+   "entry": "scripts/qjs/server-smoke.qjs",
+   "anchor_note": "all reply traffic crosses the journey's local run() (scripts/qjs/server-smoke.qjs:98-121); on this host the answer is redirected to a file and read back, so the payload crosses the wire a second time",
+   "replies": [
+    {
+     "seq": 0,
+     "command": "protocol-info --running",
+     "parse": "json",
+     "reads": [
+      "pid",
+      "ui_bridge.ownership_mode",
+      "ui_bridge.server_executable",
+      "ui_bridge.replaceable_ui",
+      "ui_bridge.interactive_lease",
+      "ui_bridge.reconnect",
+      "ui_bridge.rollback_proven"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:237",
+     "note": "ui_bridge itself is only null-checked (line 238); the seven members below are the ones compared"
+    },
+    {
+     "seq": 1,
+     "command": "ui-lease attach",
+     "parse": "json",
+     "reads": [
+      "lease_id",
+      "expires_unix_ms"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:282"
+    },
+    {
+     "seq": 2,
+     "command": "ui-lease attach",
+     "parse": "json",
+     "reads": [
+      "lease_id",
+      "expires_unix_ms"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:283"
+    },
+    {
+     "seq": 3,
+     "command": "ui-lease attach",
+     "parse": "json",
+     "reads": [
+      "lease_id"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:295"
+    },
+    {
+     "seq": 4,
+     "command": "ui-lease detach",
+     "parse": "json",
+     "reads": [],
+     "anchor": "scripts/qjs/server-smoke.qjs:301",
+     "note": "result discarded"
+    },
+    {
+     "seq": 5,
+     "command": "ui-lease heartbeat",
+     "parse": "json",
+     "reads": [
+      "lease_id",
+      "client_pid"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:314"
+    },
+    {
+     "seq": 6,
+     "command": "new-window",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/server-smoke.qjs:319",
+     "trim": true
+    },
+    {
+     "seq": 7,
+     "command": "ui-interact select",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/server-smoke.qjs:328",
+     "note": "expected failure; substring test on the raw answer",
+     "trim": true
+    },
+    {
+     "seq": 8,
+     "command": "ui-interact select",
+     "parse": "json",
+     "reads": [
+      "action",
+      "tab_id"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:386"
+    },
+    {
+     "seq": 9,
+     "command": "ui-interact resize",
+     "parse": "json",
+     "reads": [
+      "rows",
+      "columns"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:387"
+    },
+    {
+     "seq": 10,
+     "command": "ui-interact input",
+     "parse": "json",
+     "reads": [
+      "input_bytes"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:388"
+    },
+    {
+     "seq": 11,
+     "command": "wait-pane",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/server-smoke.qjs:369",
+     "trim": true
+    },
+    {
+     "seq": 12,
+     "command": "ui-bootstrap",
+     "parse": "json",
+     "reads": [
+      "tabs[].id",
+      "tabs[].screen.rows",
+      "tabs[].screen.columns",
+      "active_tab_id",
+      "position.sequence"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:371"
+    },
+    {
+     "seq": 13,
+     "command": "ui-lease acknowledge",
+     "parse": "json",
+     "reads": [
+      "observed_sequence"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:400"
+    },
+    {
+     "seq": 14,
+     "command": "ui-lease acknowledge",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/server-smoke.qjs:406",
+     "note": "expected failure; substring test on the raw answer",
+     "trim": true
+    },
+    {
+     "seq": 15,
+     "command": "ui-lease detach",
+     "parse": "json",
+     "reads": [
+      "detached"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:441"
+    },
+    {
+     "seq": 16,
+     "command": "ui-lease status",
+     "parse": "json",
+     "reads": [
+      "attached",
+      "client_count"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:442"
+    },
+    {
+     "seq": 17,
+     "command": "ui-hello",
+     "parse": "json",
+     "reads": [
+      "capabilities",
+      "server_pid",
+      "position.server_epoch",
+      "position.sequence"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:449"
+    },
+    {
+     "seq": 18,
+     "command": "new-window",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/server-smoke.qjs:461",
+     "trim": true
+    },
+    {
+     "seq": 19,
+     "command": "wait-pane",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/server-smoke.qjs:469",
+     "trim": true
+    },
+    {
+     "seq": 20,
+     "command": "capture-pane",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/server-smoke.qjs:477",
+     "note": "the journey substring-tests the whole pane text",
+     "trim": true
+    },
+    {
+     "seq": 21,
+     "command": "set-tab-note",
+     "parse": "json",
+     "reads": [
+      "outcome",
+      "request_id",
+      "after_position.sequence"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:498"
+    },
+    {
+     "seq": 22,
+     "command": "set-tab-note",
+     "parse": "json",
+     "reads": [
+      "after_position.sequence"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:499"
+    },
+    {
+     "seq": 23,
+     "command": "set-tab-note",
+     "parse": "json",
+     "reads": [
+      "outcome",
+      "error.code"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:500",
+     "note": "expected failure (request_id conflict)"
+    },
+    {
+     "seq": 24,
+     "command": "ui-bootstrap",
+     "parse": "json",
+     "reads": [
+      "active_tab_id"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:515"
+    },
+    {
+     "seq": 25,
+     "command": "set-composer",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/server-smoke.qjs:517",
+     "trim": true
+    },
+    {
+     "seq": 26,
+     "command": "send-composer",
+     "parse": "json",
+     "reads": [
+      "outcome",
+      "wait.condition",
+      "after_position.sequence"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:530"
+    },
+    {
+     "seq": 27,
+     "command": "wait-pane",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/server-smoke.qjs:543",
+     "trim": true
+    },
+    {
+     "seq": 28,
+     "command": "send-composer",
+     "parse": "json",
+     "reads": [
+      "outcome",
+      "wait",
+      "after_position.sequence"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:549"
+    },
+    {
+     "seq": 29,
+     "command": "set-tab-note",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/server-smoke.qjs:557",
+     "trim": true
+    },
+    {
+     "seq": 30,
+     "command": "ui-bootstrap",
+     "parse": "json",
+     "reads": [
+      "tabs[].id",
+      "tabs[].note",
+      "server_pid"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:558"
+    },
+    {
+     "seq": 31,
+     "command": "ui-deltas",
+     "parse": "json",
+     "reads": [
+      "tab_updates[].id",
+      "tab_updates[].note",
+      "events[].tab_id",
+      "events[].kind",
+      "complete",
+      "truncated"
+     ],
+     "anchor": "scripts/qjs/server-smoke.qjs:576"
+    },
+    {
+     "seq": 32,
+     "command": "save-workspace",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/server-smoke.qjs:589",
+     "trim": true
+    },
+    {
+     "seq": 33,
+     "command": "shutdown",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/server-smoke.qjs:591",
+     "trim": true
+    }
+   ]
+  },
+  "workbench-smoke": {
+   "entry": "scripts/qjs/workbench-smoke.qjs",
+   "anchor_note": "phase `editing`; on this host the journey stops at the frozen macOS adapter refusal in process.window_pointer, so the census covers the replies received before that stop point (scripts/qjs/workbench-smoke.qjs:450)",
+   "replies": [
+    {
+     "seq": 0,
+     "command": "ui-snapshot",
+     "parse": "none",
+     "reads": [],
+     "anchor": "scripts/qjs/workbench-smoke.qjs:217",
+     "note": "wait_for_server reads only probe.success; the whole answer is carried and never parsed"
+    },
+    {
+     "seq": 1,
+     "command": "wait-ui --window-state restored",
+     "parse": "json",
+     "reads": [],
+     "anchor": "scripts/qjs/workbench-smoke.qjs:428",
+     "note": "json_cli result discarded"
+    },
+    {
+     "seq": 2,
+     "command": "new-window",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/workbench-smoke.qjs:431",
+     "trim": true
+    },
+    {
+     "seq": 3,
+     "command": "select-window",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/workbench-smoke.qjs:432",
+     "trim": true
+    },
+    {
+     "seq": 4,
+     "command": "wait-ui --active",
+     "parse": "json",
+     "reads": [],
+     "anchor": "scripts/qjs/workbench-smoke.qjs:433",
+     "note": "json_cli result discarded"
+    },
+    {
+     "seq": 5,
+     "command": "wait-ui -t",
+     "parse": "json",
+     "reads": [],
+     "anchor": "scripts/qjs/workbench-smoke.qjs:437",
+     "note": "json_cli result discarded"
+    },
+    {
+     "seq": 6,
+     "command": "new-window",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/workbench-smoke.qjs:440",
+     "trim": true
+    },
+    {
+     "seq": 7,
+     "command": "select-window",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/workbench-smoke.qjs:441",
+     "trim": true
+    },
+    {
+     "seq": 8,
+     "command": "wait-ui --active",
+     "parse": "json",
+     "reads": [
+      "tabs[].id",
+      "tabs[].actions.mode",
+      "tabs[].actions.edit",
+      "tabs[].actions.save",
+      "tabs[].actions.cancel",
+      "tabs[].render.mode",
+      "tab_editor"
+     ],
+     "anchor": "scripts/qjs/workbench-smoke.qjs:442",
+     "note": "read through tab_by_id and assert_editor_closed (lines 305-325)"
+    },
+    {
+     "seq": 9,
+     "command": "ui-snapshot",
+     "parse": "json",
+     "reads": [
+      "tabs[].id",
+      "tabs[].render.text.width"
+     ],
+     "anchor": "scripts/qjs/workbench-smoke.qjs:168",
+     "note": "wait_tab_render iteration"
+    },
+    {
+     "seq": 10,
+     "command": "ui-snapshot",
+     "parse": "json",
+     "reads": [
+      "tabs[].id",
+      "tabs[].render.text.width"
+     ],
+     "anchor": "scripts/qjs/workbench-smoke.qjs:168",
+     "note": "wait_tab_render second iteration; the click after it is the frozen stop point"
+    }
+   ]
+  },
+  "native-ipc-smoke": {
+   "entry": "scripts/qjs/native-ipc-smoke.qjs",
+   "anchor_note": "every reply crosses rh.command_spec (scripts/qjs/lib/rh_compat.qjs:330) from invoke / probe / probe_protocol; on this host protocol-info --running is cut to the seven PROTOCOL_KEYS by grep before the guest parses it (scripts/qjs/native-ipc-smoke.qjs:154-180). the journey's record() also concatenates stdout+stderr of every reply into its command journal; the court does not replay that pass (conservative for the measured delta)",
+   "replies": [
+    {
+     "seq": 0,
+     "command": "protocol-info --running",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:519",
+     "note": "expected failure (exit 2); only substring tests on stdout+stderr plus the journal concat"
+    },
+    {
+     "seq": 1,
+     "command": "protocol-info --running",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:560",
+     "note": "expected failure; substring tests on stdout+stderr"
+    },
+    {
+     "seq": 2,
+     "command": "protocol-info --running",
+     "parse": "json",
+     "reads": [
+      "transport",
+      "endpoint",
+      "server_scope_id",
+      "settings_path",
+      "instance",
+      "pid",
+      "agenterm_version"
+     ],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:279",
+     "note": "wait_protocol success (grep-filtered answer: only the seven PROTOCOL_KEYS lines reach the guest) | payload is the grep-filtered fragment; the guest wraps it in braces before JSON.parse (parse_filtered_protocol, scripts/qjs/native-ipc-smoke.qjs:181-185)",
+     "form": "fragment",
+     "trim": true
+    },
+    {
+     "seq": 3,
+     "command": "protocol-info --running",
+     "parse": "json",
+     "reads": [
+      "pid",
+      "endpoint",
+      "server_scope_id"
+     ],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:696",
+     "note": "/tmp alias leg; same filtered answer, only three keys compared | payload is the grep-filtered fragment; the guest wraps it in braces before JSON.parse (parse_filtered_protocol, scripts/qjs/native-ipc-smoke.qjs:181-185)",
+     "form": "fragment",
+     "trim": true
+    },
+    {
+     "seq": 4,
+     "command": "protocol-info --running",
+     "parse": "json",
+     "reads": [
+      "transport",
+      "endpoint",
+      "server_scope_id",
+      "settings_path",
+      "instance",
+      "pid",
+      "agenterm_version"
+     ],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:279",
+     "note": "wait_protocol success for the settings-override instance; caller compares settings_path | payload is the grep-filtered fragment; the guest wraps it in braces before JSON.parse (parse_filtered_protocol, scripts/qjs/native-ipc-smoke.qjs:181-185)",
+     "form": "fragment",
+     "trim": true
+    },
+    {
+     "seq": 5,
+     "command": "shutdown",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:791"
+    },
+    {
+     "seq": 6,
+     "command": "protocol-info --running",
+     "parse": "json",
+     "reads": [
+      "transport",
+      "endpoint",
+      "server_scope_id",
+      "settings_path",
+      "instance",
+      "pid",
+      "agenterm_version"
+     ],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:279",
+     "note": "wait_protocol success on the explicit TCP endpoint; caller compares pid/endpoint/transport | payload is the grep-filtered fragment; the guest wraps it in braces before JSON.parse (parse_filtered_protocol, scripts/qjs/native-ipc-smoke.qjs:181-185)",
+     "form": "fragment",
+     "trim": true
+    },
+    {
+     "seq": 7,
+     "command": "protocol-info --running",
+     "parse": "json",
+     "reads": [
+      "pid",
+      "endpoint",
+      "transport"
+     ],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:850",
+     "note": "legacy --address compatibility probe | payload is the grep-filtered fragment; the guest wraps it in braces before JSON.parse (parse_filtered_protocol, scripts/qjs/native-ipc-smoke.qjs:181-185)",
+     "form": "fragment",
+     "trim": true
+    },
+    {
+     "seq": 8,
+     "command": "protocol-info --running",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:871",
+     "note": "expected failure; the journey reads only the invoke result's own success flag"
+    },
+    {
+     "seq": 9,
+     "command": "server-list --json",
+     "parse": "json",
+     "reads": [
+      "[].endpoint",
+      "[].endpoint",
+      "[].schema_version",
+      "[].registration_schema_version",
+      "[].instance",
+      "[].transport",
+      "[].server_scope_id",
+      "[].status",
+      "[].classification",
+      "[].owner_state",
+      "[].process_start_identity",
+      "[].lease_nonce",
+      "[].server_epoch",
+      "[].event_epoch",
+      "[].observed_protocol_pid",
+      "[].observed_protocol_endpoint",
+      "[].observed_protocol_server_scope_id",
+      "[].legacy_client_compatibility",
+      "[].cleanup_eligible",
+      "[].cleanup_receipt.schema_version",
+      "[].cleanup_receipt.operation",
+      "[].cleanup_receipt.result",
+      "[].cleanup_receipt.expected_lease_nonce"
+     ],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:877",
+     "note": "server-list --json answers a root ARRAY of rows; find_by_endpoint / find_by_nonce read the loop key of every row, then normalize_row reads the field set below from the matched row only, so shape C over-retains those keys on every row (conservative). retained on every row element: the journey reads them only from the element find_by_endpoint / find_by_nonce matched, so shape C over-retains by design (conservative)",
+     "trim": true
+    },
+    {
+     "seq": 10,
+     "command": "server-list --json",
+     "parse": "json",
+     "reads": [
+      "[].lease_nonce",
+      "[].endpoint",
+      "[].schema_version",
+      "[].registration_schema_version",
+      "[].instance",
+      "[].transport",
+      "[].server_scope_id",
+      "[].status",
+      "[].classification",
+      "[].owner_state",
+      "[].process_start_identity",
+      "[].lease_nonce",
+      "[].server_epoch",
+      "[].event_epoch",
+      "[].observed_protocol_pid",
+      "[].observed_protocol_endpoint",
+      "[].observed_protocol_server_scope_id",
+      "[].legacy_client_compatibility",
+      "[].cleanup_eligible",
+      "[].cleanup_receipt.schema_version",
+      "[].cleanup_receipt.operation",
+      "[].cleanup_receipt.result",
+      "[].cleanup_receipt.expected_lease_nonce"
+     ],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:948",
+     "note": "server-list --json answers a root ARRAY of rows; find_by_endpoint / find_by_nonce read the loop key of every row, then normalize_row reads the field set below from the matched row only, so shape C over-retains those keys on every row (conservative). retained on every row element: the journey reads them only from the element find_by_endpoint / find_by_nonce matched, so shape C over-retains by design (conservative)",
+     "trim": true
+    },
+    {
+     "seq": 11,
+     "command": "server-list --json --prune",
+     "parse": "json",
+     "reads": [
+      "[].lease_nonce",
+      "[].endpoint",
+      "[].schema_version",
+      "[].registration_schema_version",
+      "[].instance",
+      "[].transport",
+      "[].server_scope_id",
+      "[].status",
+      "[].classification",
+      "[].owner_state",
+      "[].process_start_identity",
+      "[].lease_nonce",
+      "[].server_epoch",
+      "[].event_epoch",
+      "[].observed_protocol_pid",
+      "[].observed_protocol_endpoint",
+      "[].observed_protocol_server_scope_id",
+      "[].legacy_client_compatibility",
+      "[].cleanup_eligible",
+      "[].cleanup_receipt.schema_version",
+      "[].cleanup_receipt.operation",
+      "[].cleanup_receipt.result",
+      "[].cleanup_receipt.expected_lease_nonce"
+     ],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:956",
+     "note": "server-list --json answers a root ARRAY of rows; find_by_endpoint / find_by_nonce read the loop key of every row, then normalize_row reads the field set below from the matched row only, so shape C over-retains those keys on every row (conservative). retained on every row element: the journey reads them only from the element find_by_endpoint / find_by_nonce matched, so shape C over-retains by design (conservative)",
+     "trim": true
+    },
+    {
+     "seq": 12,
+     "command": "server-list --json --prune",
+     "parse": "json",
+     "reads": [
+      "[].endpoint",
+      "[].endpoint",
+      "[].schema_version",
+      "[].registration_schema_version",
+      "[].instance",
+      "[].transport",
+      "[].server_scope_id",
+      "[].status",
+      "[].classification",
+      "[].owner_state",
+      "[].process_start_identity",
+      "[].lease_nonce",
+      "[].server_epoch",
+      "[].event_epoch",
+      "[].observed_protocol_pid",
+      "[].observed_protocol_endpoint",
+      "[].observed_protocol_server_scope_id",
+      "[].legacy_client_compatibility",
+      "[].cleanup_eligible",
+      "[].cleanup_receipt.schema_version",
+      "[].cleanup_receipt.operation",
+      "[].cleanup_receipt.result",
+      "[].cleanup_receipt.expected_lease_nonce"
+     ],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:986",
+     "note": "server-list --json answers a root ARRAY of rows; find_by_endpoint / find_by_nonce read the loop key of every row, then normalize_row reads the field set below from the matched row only, so shape C over-retains those keys on every row (conservative). retained on every row element: the journey reads them only from the element find_by_endpoint / find_by_nonce matched, so shape C over-retains by design (conservative)",
+     "trim": true
+    },
+    {
+     "seq": 13,
+     "command": "server-list --json",
+     "parse": "json",
+     "reads": [
+      "[].lease_nonce",
+      "[].endpoint",
+      "[].schema_version",
+      "[].registration_schema_version",
+      "[].instance",
+      "[].transport",
+      "[].server_scope_id",
+      "[].status",
+      "[].classification",
+      "[].owner_state",
+      "[].process_start_identity",
+      "[].lease_nonce",
+      "[].server_epoch",
+      "[].event_epoch",
+      "[].observed_protocol_pid",
+      "[].observed_protocol_endpoint",
+      "[].observed_protocol_server_scope_id",
+      "[].legacy_client_compatibility",
+      "[].cleanup_eligible",
+      "[].cleanup_receipt.schema_version",
+      "[].cleanup_receipt.operation",
+      "[].cleanup_receipt.result",
+      "[].cleanup_receipt.expected_lease_nonce"
+     ],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:1027",
+     "note": "server-list --json answers a root ARRAY of rows; find_by_endpoint / find_by_nonce read the loop key of every row, then normalize_row reads the field set below from the matched row only, so shape C over-retains those keys on every row (conservative). retained on every row element: the journey reads them only from the element find_by_endpoint / find_by_nonce matched, so shape C over-retains by design (conservative)",
+     "trim": true
+    },
+    {
+     "seq": 14,
+     "command": "server-list --json --prune",
+     "parse": "json",
+     "reads": [
+      "[].lease_nonce",
+      "[].endpoint",
+      "[].schema_version",
+      "[].registration_schema_version",
+      "[].instance",
+      "[].transport",
+      "[].server_scope_id",
+      "[].status",
+      "[].classification",
+      "[].owner_state",
+      "[].process_start_identity",
+      "[].lease_nonce",
+      "[].server_epoch",
+      "[].event_epoch",
+      "[].observed_protocol_pid",
+      "[].observed_protocol_endpoint",
+      "[].observed_protocol_server_scope_id",
+      "[].legacy_client_compatibility",
+      "[].cleanup_eligible",
+      "[].cleanup_receipt.schema_version",
+      "[].cleanup_receipt.operation",
+      "[].cleanup_receipt.result",
+      "[].cleanup_receipt.expected_lease_nonce"
+     ],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:1035",
+     "note": "server-list --json answers a root ARRAY of rows; find_by_endpoint / find_by_nonce read the loop key of every row, then normalize_row reads the field set below from the matched row only, so shape C over-retains those keys on every row (conservative). retained on every row element: the journey reads them only from the element find_by_endpoint / find_by_nonce matched, so shape C over-retains by design (conservative)",
+     "trim": true
+    },
+    {
+     "seq": 15,
+     "command": "shutdown",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:1053"
+    },
+    {
+     "seq": 16,
+     "command": "shutdown",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:1059"
+    },
+    {
+     "seq": 17,
+     "command": "protocol-info --running",
+     "parse": "json",
+     "reads": [
+      "transport",
+      "endpoint",
+      "server_scope_id",
+      "settings_path",
+      "instance",
+      "pid",
+      "agenterm_version"
+     ],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:279",
+     "note": "wait_protocol success for the killed Unix authority; caller compares endpoint/server_scope_id/pid | payload is the grep-filtered fragment; the guest wraps it in braces before JSON.parse (parse_filtered_protocol, scripts/qjs/native-ipc-smoke.qjs:181-185)",
+     "form": "fragment",
+     "trim": true
+    },
+    {
+     "seq": 18,
+     "command": "protocol-info --running",
+     "parse": "json",
+     "reads": [
+      "transport",
+      "endpoint",
+      "server_scope_id",
+      "settings_path",
+      "instance",
+      "pid",
+      "agenterm_version"
+     ],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:279",
+     "note": "wait_protocol success for the replacement authority | payload is the grep-filtered fragment; the guest wraps it in braces before JSON.parse (parse_filtered_protocol, scripts/qjs/native-ipc-smoke.qjs:181-185)",
+     "form": "fragment",
+     "trim": true
+    },
+    {
+     "seq": 19,
+     "command": "shutdown",
+     "parse": "text",
+     "reads": [],
+     "anchor": "scripts/qjs/native-ipc-smoke.qjs:1285"
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,1 @@
+{"exit_code":0,"stderr":"","stderr_truncated":false,"stdout":"\"endpoint\":\"unix:/private/tmp/agt-35729-1789295116234/agenterm/agt-v1-f1f92844de5df50bd73a3a2fb5d78b91.sock\",\"pid\":35741,\"server_scope_id\":\"agt-v1-f1f92844de5df50bd73a3a2fb5d78b91\"","stdout_truncated":false,"success":true,"timed_out":false}

@@ -1,0 +1,1097 @@
+{
+  "schema_version": 2,
+  "server_epoch": "33544-1789295069-788940000",
+  "after_sequence": 15,
+  "through_sequence": 25,
+  "current_sequence": 25,
+  "events": [
+    {
+      "sequence": 16,
+      "kind": "tab.created",
+      "tab_id": "@3",
+      "request_id": null,
+      "operation_id": null,
+      "payload": {
+        "index": 2,
+        "parent_id": null,
+        "selected": false
+      }
+    },
+    {
+      "sequence": 17,
+      "kind": "terminal.output",
+      "tab_id": "@3",
+      "request_id": null,
+      "operation_id": null,
+      "payload": {
+        "advanced_by": 22,
+        "output_bytes": 22
+      }
+    },
+    {
+      "sequence": 18,
+      "kind": "tab.state",
+      "tab_id": "@3",
+      "request_id": null,
+      "operation_id": null,
+      "payload": {
+        "became_finalized": true,
+        "error": null,
+        "exit_code": 0,
+        "finalized": true,
+        "parser_drained": true,
+        "reader_closed": true,
+        "state": "dead"
+      }
+    },
+    {
+      "sequence": 19,
+      "kind": "tab.note",
+      "tab_id": "@3",
+      "request_id": null,
+      "operation_id": null,
+      "payload": {
+        "note": "receipt-note-1789295069778-33543",
+        "previous_note": ""
+      }
+    },
+    {
+      "sequence": 20,
+      "kind": "composer.draft",
+      "tab_id": "@2",
+      "request_id": null,
+      "operation_id": null,
+      "payload": {
+        "length": 48
+      }
+    },
+    {
+      "sequence": 21,
+      "kind": "composer.submitted",
+      "tab_id": "@2",
+      "request_id": null,
+      "operation_id": null,
+      "payload": {
+        "length": 48
+      }
+    },
+    {
+      "sequence": 22,
+      "kind": "terminal.output",
+      "tab_id": "@2",
+      "request_id": null,
+      "operation_id": null,
+      "payload": {
+        "advanced_by": 48,
+        "output_bytes": 163
+      }
+    },
+    {
+      "sequence": 23,
+      "kind": "composer.submission-finished",
+      "tab_id": "@2",
+      "request_id": "server-submit-1789295069778-33543",
+      "operation_id": "command.send.composer",
+      "payload": {
+        "enter_written": true,
+        "terminal_finalized": false
+      }
+    },
+    {
+      "sequence": 24,
+      "kind": "terminal.output",
+      "tab_id": "@2",
+      "request_id": null,
+      "operation_id": null,
+      "payload": {
+        "advanced_by": 67,
+        "output_bytes": 230
+      }
+    },
+    {
+      "sequence": 25,
+      "kind": "tab.note",
+      "tab_id": "@3",
+      "request_id": null,
+      "operation_id": null,
+      "payload": {
+        "note": "server-note-1789295069778-33543",
+        "previous_note": "receipt-note-1789295069778-33543"
+      }
+    }
+  ],
+  "tab_updates": [
+    {
+      "id": "@2",
+      "index": 1,
+      "parent_id": null,
+      "collapsed": false,
+      "title": "interaction-1789295069778-33543",
+      "note": "",
+      "process_id": 33604,
+      "dead": false,
+      "exit_code": null,
+      "composer": {
+        "text": "",
+        "sensitive": false,
+        "byte_length": 0
+      },
+      "working_context": {
+        "cwd": "~/repos/agenterm",
+        "cwd_confirmed_path": "~/repos/agenterm",
+        "cwd_confirmed": true,
+        "cwd_source": "launch",
+        "cwd_request_pending": false,
+        "shell": "bash",
+        "proxy_configured": false,
+        "proxy_source": "off",
+        "proxy_application_state": "off",
+        "proxy_request_pending": false
+      },
+      "screen": {
+        "schema_version": 2,
+        "tab_id": "@2",
+        "generation": 25,
+        "terminal_title": "",
+        "rows": 24,
+        "columns": 90,
+        "alternate_screen": false,
+        "application_cursor": false,
+        "bracketed_paste": false,
+        "mouse_protocol_mode": "none",
+        "mouse_protocol_encoding": "default",
+        "scrollback_offset": 0,
+        "max_scrollback": 0,
+        "cursor": {
+          "row": 4,
+          "column": 20,
+          "visible": true
+        },
+        "runs": [
+          {
+            "row": 0,
+            "column": 0,
+            "columns": 90,
+            "text": "<HOST>:agenterm <user>$ echo AGENTERM_UI_INPUT                                                ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 1,
+            "column": 0,
+            "columns": 90,
+            "text": "AGENTERM_UI_INPUT                                                                         ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 2,
+            "column": 0,
+            "columns": 90,
+            "text": "<HOST>:agenterm <user>$ echo AGENTERM_SERVER_RECEIPT_1789295069778-33543                      ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 3,
+            "column": 0,
+            "columns": 90,
+            "text": "AGENTERM_SERVER_RECEIPT_1789295069778-33543                                               ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 4,
+            "column": 0,
+            "columns": 90,
+            "text": "<HOST>:agenterm <user>$                                                                       ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 5,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 6,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 7,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 8,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 9,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 10,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 11,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 12,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 13,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 14,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 15,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 16,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 17,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 18,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 19,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 20,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 21,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 22,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 23,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          }
+        ],
+        "complete": true,
+        "truncated": false
+      }
+    },
+    {
+      "id": "@3",
+      "index": 2,
+      "parent_id": null,
+      "collapsed": false,
+      "title": "headless-1789295069778-33543",
+      "note": "server-note-1789295069778-33543",
+      "process_id": 33624,
+      "dead": true,
+      "exit_code": 0,
+      "composer": {
+        "text": "",
+        "sensitive": false,
+        "byte_length": 0
+      },
+      "working_context": {
+        "cwd": "~/repos/agenterm",
+        "cwd_confirmed_path": "~/repos/agenterm",
+        "cwd_confirmed": true,
+        "cwd_source": "launch",
+        "cwd_request_pending": false,
+        "shell": "bash",
+        "proxy_configured": false,
+        "proxy_source": "off",
+        "proxy_application_state": "off",
+        "proxy_request_pending": false
+      },
+      "screen": {
+        "schema_version": 2,
+        "tab_id": "@3",
+        "generation": 25,
+        "terminal_title": "",
+        "rows": 24,
+        "columns": 90,
+        "alternate_screen": false,
+        "application_cursor": false,
+        "bracketed_paste": false,
+        "mouse_protocol_mode": "none",
+        "mouse_protocol_encoding": "default",
+        "scrollback_offset": 0,
+        "max_scrollback": 0,
+        "cursor": {
+          "row": 1,
+          "column": 0,
+          "visible": true
+        },
+        "runs": [
+          {
+            "row": 0,
+            "column": 0,
+            "columns": 90,
+            "text": "AGENTERM_HEADLESS_OK                                                                      ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 1,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 2,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 3,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 4,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 5,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 6,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 7,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 8,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 9,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 10,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 11,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 12,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 13,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 14,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 15,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 16,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 17,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 18,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 19,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 20,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 21,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 22,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          },
+          {
+            "row": 23,
+            "column": 0,
+            "columns": 90,
+            "text": "                                                                                          ",
+            "style": {
+              "foreground": {
+                "kind": "default"
+              },
+              "background": {
+                "kind": "default"
+              },
+              "bold": false,
+              "italic": false,
+              "underline": false,
+              "inverse": false
+            }
+          }
+        ],
+        "complete": true,
+        "truncated": false
+      }
+    }
+  ],
+  "closed_tab_ids": [],
+  "active_tab_id": "@2",
+  "complete": true,
+  "truncated": false
+}

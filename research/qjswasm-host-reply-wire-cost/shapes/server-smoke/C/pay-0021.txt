@@ -1,0 +1,1 @@
+{"request_id":"server-receipt-1789295069778-33543","outcome":"committed","after_position":{"sequence":19}}

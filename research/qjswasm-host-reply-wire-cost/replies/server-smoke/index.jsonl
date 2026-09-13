@@ -1,0 +1,34 @@
+{"seq":0,"arguments":["protocol-info","--running"],"source":"file","exit_code":0}
+{"seq":1,"arguments":["ui-lease","attach","--client-id","server-smoke-ui-1789295069778-33543","--client-pid","33543"],"source":"file","exit_code":0}
+{"seq":2,"arguments":["ui-lease","attach","--client-id","server-smoke-ui-1789295069778-33543","--client-pid","33543"],"source":"file","exit_code":0}
+{"seq":3,"arguments":["ui-lease","attach","--client-id","conflict-1789295069778-33543","--client-pid","33544"],"source":"file","exit_code":0}
+{"seq":4,"arguments":["ui-lease","detach","--lease-id","ui-8308-1a09a4c0b8e-2","--client-pid","33544"],"source":"file","exit_code":0}
+{"seq":5,"arguments":["ui-lease","heartbeat","--lease-id","ui-8308-1a09a4c0b53-1","--client-pid","33543"],"source":"file","exit_code":0}
+{"seq":6,"arguments":["new-window","-d","-P","-F","#{window_id}","-n","interaction-1789295069778-33543","--","sh"],"source":"file","exit_code":0}
+{"seq":7,"arguments":["ui-interact","select","--lease-id","wrong-lease","--client-pid","33543","-t","@2"],"source":"file","exit_code":1}
+{"seq":8,"arguments":["ui-interact","select","--lease-id","ui-8308-1a09a4c0b53-1","--client-pid","33543","-t","@2"],"source":"file","exit_code":0}
+{"seq":9,"arguments":["ui-interact","resize","--lease-id","ui-8308-1a09a4c0b53-1","--client-pid","33543","-t","@2","--rows","24","--columns","90"],"source":"file","exit_code":0}
+{"seq":10,"arguments":["ui-interact","input","--lease-id","ui-8308-1a09a4c0b53-1","--client-pid","33543","-t","@2","--hex","6563686f204147454e5445524d5f55495f494e5055540d"],"source":"file","exit_code":0}
+{"seq":11,"arguments":["wait-pane","-t","@2","--contains","AGENTERM_UI_INPUT","--timeout-ms","30000"],"source":"file","exit_code":0}
+{"seq":12,"arguments":["ui-bootstrap"],"source":"file","exit_code":0}
+{"seq":13,"arguments":["ui-lease","acknowledge","--lease-id","ui-8308-1a09a4c0b53-1","--client-pid","33543","--sequence","13"],"source":"file","exit_code":0}
+{"seq":14,"arguments":["ui-lease","acknowledge","--lease-id","ui-8308-1a09a4c0b53-1","--client-pid","33543","--sequence","12"],"source":"file","exit_code":1}
+{"seq":15,"arguments":["ui-lease","detach","--lease-id","ui-8308-1a09a4c0b53-1","--client-pid","33543"],"source":"file","exit_code":0}
+{"seq":16,"arguments":["ui-lease","status"],"source":"file","exit_code":0}
+{"seq":17,"arguments":["ui-hello","--minimum","1","--maximum","1","--client-id","server-smoke-1789295069778-33543"],"source":"file","exit_code":0}
+{"seq":18,"arguments":["new-window","-d","-P","-F","#{window_id}","-n","headless-1789295069778-33543","--","sh","-c","echo AGENTERM_HEADLESS_OK"],"source":"file","exit_code":0}
+{"seq":19,"arguments":["wait-pane","-t","@3","--contains","AGENTERM_HEADLESS_OK","--timeout-ms","30000"],"source":"file","exit_code":0}
+{"seq":20,"arguments":["capture-pane","-p","-t","@3","--max-bytes","16384"],"source":"file","exit_code":0}
+{"seq":21,"arguments":["--request-id","server-receipt-1789295069778-33543","--receipt-json","set-tab-note","-t","@3","receipt-note-1789295069778-33543"],"source":"file","exit_code":0}
+{"seq":22,"arguments":["--request-id","server-receipt-1789295069778-33543","--receipt-json","set-tab-note","-t","@3","receipt-note-1789295069778-33543"],"source":"file","exit_code":0}
+{"seq":23,"arguments":["--request-id","server-receipt-1789295069778-33543","--receipt-json","set-tab-note","-t","@3","different-note"],"source":"file","exit_code":1}
+{"seq":24,"arguments":["ui-bootstrap"],"source":"file","exit_code":0}
+{"seq":25,"arguments":["set-composer","-t","@2","echo AGENTERM_SERVER_RECEIPT_1789295069778-33543"],"source":"file","exit_code":0}
+{"seq":26,"arguments":["--request-id","server-submit-1789295069778-33543","--receipt-json","send-composer","-t","@2"],"source":"file","exit_code":0}
+{"seq":27,"arguments":["wait-pane","-t","@2","--contains","AGENTERM_SERVER_RECEIPT_1789295069778-33543","--submit-complete","--timeout-ms","30000"],"source":"file","exit_code":0}
+{"seq":28,"arguments":["--request-id","server-submit-1789295069778-33543","--receipt-json","send-composer","-t","@2"],"source":"file","exit_code":0}
+{"seq":29,"arguments":["set-tab-note","-t","@3","server-note-1789295069778-33543"],"source":"file","exit_code":0}
+{"seq":30,"arguments":["ui-bootstrap"],"source":"file","exit_code":0}
+{"seq":31,"arguments":["ui-deltas","--epoch","33544-1789295069-788940000","--after","15","--limit","64"],"source":"file","exit_code":0}
+{"seq":32,"arguments":["save-workspace"],"source":"file","exit_code":0}
+{"seq":33,"arguments":["shutdown"],"source":"file","exit_code":0}

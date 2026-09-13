@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "request_id": "server-submit-1789295069778-33543",
+  "operation_id": "command.send.composer",
+  "payload_fingerprint": "fnv1a64:e8e27ccf229c2587",
+  "outcome": "committed",
+  "resolved": {
+    "server_pid": 33544,
+    "server_address": "127.0.0.1:23450",
+    "server_epoch": "33544-1789295069-788940000",
+    "session": "agenterm",
+    "tab_id": 2
+  },
+  "before_position": {
+    "epoch": "33544-1789295069-788940000",
+    "sequence": 20
+  },
+  "after_position": {
+    "epoch": "33544-1789295069-788940000",
+    "sequence": 23
+  },
+  "result": {
+    "output": ""
+  }
+}

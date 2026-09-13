@@ -1,0 +1,1 @@
+AgenTerm server is not running: IPC transport Io for tcp:127.0.0.1:1: Connection refused (os error 61): Connection refused (os error 61)

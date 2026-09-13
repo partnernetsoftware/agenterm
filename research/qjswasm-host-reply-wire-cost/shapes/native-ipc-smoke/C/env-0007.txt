@@ -1,0 +1,1 @@
+{"exit_code":0,"stderr":"","stderr_truncated":false,"stdout":"\"endpoint\":\"tcp:127.0.0.1:41944\",\"pid\":35789,\"transport\":\"tcp\"","stdout_truncated":false,"success":true,"timed_out":false}

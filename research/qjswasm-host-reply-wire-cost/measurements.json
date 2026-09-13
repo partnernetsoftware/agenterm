@@ -1,0 +1,293 @@
+{
+ "journeys": {
+  "server-smoke": {
+   "replies": 34,
+   "control_steps": [
+    19634203,
+    19634183,
+    19634207
+   ],
+   "control_median": 19634203,
+   "control_spread": 24,
+   "control_ok": true,
+   "control_exit_classes": [
+    "success"
+   ],
+   "usable": true,
+   "unusable_reason": null,
+   "bytes": {
+    "A": {
+     "envelope": 4282,
+     "payload": 225512
+    },
+    "B": {
+     "envelope": 4282,
+     "payload": 126022
+    },
+    "C": {
+     "envelope": 4282,
+     "payload": 2208
+    }
+   },
+   "court_steps_A": [
+    11724596,
+    11724596,
+    11724596
+   ],
+   "court_median_A": 11724596,
+   "probe_steps_A": [
+    11725060,
+    11725060,
+    11725060
+   ],
+   "json_parse_bytes_A": [
+    441616,
+    441616,
+    441616
+   ],
+   "court_steps_B": [
+    10498811,
+    10498811,
+    10498811
+   ],
+   "court_median_B": 10498811,
+   "probe_steps_B": [
+    10499275,
+    10499275,
+    10499275
+   ],
+   "json_parse_bytes_B": [
+    441616,
+    441616,
+    441616
+   ],
+   "court_steps_C": [
+    1989614,
+    1989614,
+    1989614
+   ],
+   "court_median_C": 1989614,
+   "probe_steps_C": [
+    1990078,
+    1990078,
+    1990078
+   ],
+   "json_parse_bytes_C": [
+    53204,
+    53204,
+    53204
+   ],
+   "delta_B": 1225785,
+   "delta_C": 9734982,
+   "delta_C_over_total": 0.4958175282184869,
+   "delta_B_over_delta_C": 0.1259154870548297
+  },
+  "native-ipc-smoke": {
+   "replies": 20,
+   "control_steps": [
+    20019101,
+    20016458,
+    20016620
+   ],
+   "control_median": 20016620,
+   "control_spread": 2643,
+   "control_ok": true,
+   "control_exit_classes": [
+    "success"
+   ],
+   "usable": true,
+   "unusable_reason": null,
+   "bytes": {
+    "A": {
+     "envelope": 59049,
+     "payload": 51004
+    },
+    "B": {
+     "envelope": 47875,
+     "payload": 41177
+    },
+    "C": {
+     "envelope": 20693,
+     "payload": 16157
+    }
+   },
+   "court_steps_A": [
+    11330083,
+    11330083,
+    11330083
+   ],
+   "court_median_A": 11330083,
+   "probe_steps_A": [
+    11330363,
+    11330363,
+    11330363
+   ],
+   "json_parse_bytes_A": [
+    331428,
+    331428,
+    331428
+   ],
+   "court_steps_B": [
+    9520120,
+    9520120,
+    9520120
+   ],
+   "court_median_B": 9520120,
+   "probe_steps_B": [
+    9520400,
+    9520400,
+    9520400
+   ],
+   "json_parse_bytes_B": [
+    264248,
+    264248,
+    264248
+   ],
+   "court_steps_C": [
+    5325037,
+    5325037,
+    5325037
+   ],
+   "court_median_C": 5325037,
+   "probe_steps_C": [
+    5325317,
+    5325317,
+    5325317
+   ],
+   "json_parse_bytes_C": [
+    137168,
+    137168,
+    137168
+   ],
+   "delta_B": 1809963,
+   "delta_C": 6005046,
+   "delta_C_over_total": 0.30000299750906995,
+   "delta_B_over_delta_C": 0.3014070166989562
+  },
+  "workbench-smoke": {
+   "replies": 11,
+   "control_steps": [
+    20810109,
+    20810109,
+    20810109
+   ],
+   "control_median": 20810109,
+   "control_spread": 0,
+   "control_ok": false,
+   "control_exit_classes": [
+    "script"
+   ],
+   "usable": false,
+   "unusable_reason": "control run does not succeed on this host: its step total is a truncated stop point, not a journey total, so it cannot carry the W0-C denominator",
+   "bytes": {
+    "A": {
+     "envelope": 128973,
+     "payload": 112450
+    },
+    "B": {
+     "envelope": 75699,
+     "payload": 64285
+    },
+    "C": {
+     "envelope": 1953,
+     "payload": 501
+    }
+   },
+   "court_steps_A": [
+    19215824,
+    19215824,
+    19215824
+   ],
+   "court_median_A": 19215824,
+   "probe_steps_A": [
+    19215976,
+    19215976,
+    19215976
+   ],
+   "json_parse_bytes_A": [
+    646792,
+    646792,
+    646792
+   ],
+   "court_steps_B": [
+    13678714,
+    13678714,
+    13678714
+   ],
+   "court_median_B": 13678714,
+   "probe_steps_B": [
+    13678866,
+    13678866,
+    13678866
+   ],
+   "json_parse_bytes_B": [
+    467552,
+    467552,
+    467552
+   ],
+   "court_steps_C": [
+    754289,
+    754289,
+    754289
+   ],
+   "court_median_C": 754289,
+   "probe_steps_C": [
+    754441,
+    754441,
+    754441
+   ],
+   "json_parse_bytes_C": [
+    18724,
+    18724,
+    18724
+   ],
+   "delta_B": 5537110,
+   "delta_C": 18461535,
+   "delta_C_over_total": 0.8871426382245283,
+   "delta_B_over_delta_C": 0.29992684790295066
+  }
+ },
+ "lane": {
+  "experiment": "qjswasm host-reply wire cost",
+  "spec": "plan/design-qjswasm-host-reply-wire-cost-experiment.md",
+  "execution_date": "2026-09-13",
+  "agenterm_head": "df049328c494a5cf6516fa73657138807c0d1167",
+  "agenterm_dirty": "clean at lane build; the only tree changes are this experiment's own research/ artifacts",
+  "tinyvm_pin": "9ac2598",
+  "tinyvm_qjs_pin": "9ac2598",
+  "cargo_target_dir": "target/frontier-host-reply-wire (repo-local lane)",
+  "binary": "target/frontier-host-reply-wire/debug/agenterm",
+  "binary_sha256": "67c3ba449d29d57981a618c0763811c7eeb4fa260dfb1c0867c71e18e2af70c8",
+  "binary_bytes": 33773464,
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07), cargo 1.97.0 (c980f4866 2026-06-30)",
+  "target": "native macOS aarch64 (host), profile default dev (cargo build --bin agenterm)",
+  "budgets": {
+   "server-smoke": {
+    "timeout_ms": 300000,
+    "max_operations": 1000000000
+   },
+   "native-ipc-smoke": {
+    "timeout_ms": 120000,
+    "max_operations": 100000000
+   },
+   "workbench-smoke": {
+    "timeout_ms": 120000,
+    "max_operations": 1000000000,
+    "phase": "editing",
+    "env": [
+     "AGENTERM_NO_ACTIVATE=1",
+     "AGENTERM_QJS_MAX_MEMORY_PAGES=4096"
+    ]
+   }
+  },
+  "commands": {
+   "build": "CARGO_TARGET_DIR=$PWD/target/frontier-host-reply-wire cargo build --bin agenterm",
+   "control": "sh research/qjswasm-host-reply-wire-cost/tools/run-control.sh 3",
+   "capture": "AGENTERM_REPLY_CAPTURE_DIR=... $BIN cli script run --profile tool --json --project-root scripts/qjs --timeout-ms <budget> --max-operations <budget> research/qjswasm-host-reply-wire-cost/capture/<journey>.capture.qjs -- . $BIN $BIN",
+   "shapes": "python3 research/qjswasm-host-reply-wire-cost/tools/make_shapes.py",
+   "court": "sh research/qjswasm-host-reply-wire-cost/tools/run-court.sh <journey> 3 [probe]",
+   "aggregate": "python3 research/qjswasm-host-reply-wire-cost/tools/aggregate.py"
+  },
+  "anchor_note": "the spec's section 5 command was written as `cli script run --profile tool --json -- <replies-dir> A|B|C`; this lane's binary exposes `--profile`, `--json`, `--timeout-ms`, `--max-operations`, `--project-root` and `-- ARGS...` (re-derived from `cli script run --help`), and the court takes SHAPES_DIR JOURNEY SHAPE. The extra `--project-root scripts/qjs` is required because a research/ entry resolves `lib/rh_compat` against the project root, and it changes no journey bytes."
+ }
+}

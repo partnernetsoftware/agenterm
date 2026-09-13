@@ -1,0 +1,1 @@
+{"exit_code":0,"stderr":"","stderr_truncated":false,"stdout":"{\"tabs\":[{\"id\":\"@1\",\"render\":{\"text\":{\"width\":151}}},{\"id\":\"@2\",\"render\":{\"text\":{\"width\":151}}},{\"id\":\"@3\",\"render\":{\"text\":{\"width\":151}}}]}","stdout_truncated":false,"success":true,"timed_out":false}

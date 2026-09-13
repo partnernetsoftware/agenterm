@@ -1,0 +1,1 @@
+{"outcome":"committed","after_position":{"sequence":23}}

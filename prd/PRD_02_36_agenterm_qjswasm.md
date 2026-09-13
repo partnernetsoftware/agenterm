@@ -167,9 +167,17 @@ into any version**: the host-reply wire cost decision experiment,
 [`plan/design-qjswasm-host-reply-wire-cost-experiment.md`](../plan/design-qjswasm-host-reply-wire-cost-experiment.md).
 It asks whether the bytes the host hands a guest as a reply are a large enough
 owner of journey steps that a product-side wire change (compact reply text
-and/or host-side field selection) is the next action. It is a frozen
-specification with an unfilled §8: it has no verdict, it moves no status leaf in
-this module, and running, accepting or killing it is a separate decision.
+and/or host-side field selection) is the next action. **The experiment has now
+run** (2026-09-13, receipt in
+[`research/qjswasm-host-reply-wire-cost/RESULTS.md`](../research/qjswasm-host-reply-wire-cost/RESULTS.md))
+and its frozen criteria returned
+`V0 yes → W0-C yes → W1 no → owner = host-side field selection`: the wire route
+is real at the measured pin (two usable journeys removed 49.58% and 30.00% of
+their own total steps by carrying only the fields they read) and its owner is
+field selection, not compact reply text (the indentation-only share was 12.59%
+and 30.14%, well under the frozen 75%). That result moves **no status leaf in
+this module**: no capability state changed, no product wire, door, API, budget or
+pin was touched, and the owner it names is a new, unstarted leaf.
 
 ## Mermaid flowchart memory palace
 

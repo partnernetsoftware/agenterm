@@ -1,0 +1,79 @@
+--- scripts/qjs/server-smoke.qjs
++++ research/qjswasm-host-reply-wire-cost/capture/server-smoke.capture.qjs
+@@ -21,6 +21,58 @@
+ import * as rh from "lib/rh_compat";
+ import * as harness from "lib/test_harness";
+ 
++// ---- reply-wire-cost capture shim (research reporter; research/ only) ----
++// Appended by tools/make_capture.py. Records the door envelope text and the
++// payload text the journey parses for every CLI reply, so the reply set can be
++// frozen once and replayed by the pricing court. Byte counts are recomputed
++// from the recorded files, never from `.length` (per-call O(n) on this engine).
++const capture_dir = rh.env_or("AGENTERM_REPLY_CAPTURE_DIR", "");
++let capture_seq = 0;
++let capture_index = "";
++
++function capture_pad(n) {
++  const text = "" + n;
++  if (text.length >= 4) { return text; }
++  if (text.length === 3) { return "0" + text; }
++  if (text.length === 2) { return "00" + text; }
++  return "000" + text;
++}
++
++// `source`: "envelope" when the journey read the payload out of the door
++// envelope, "file" when it read it back from a redirected file.
++function capture_record(capture_arguments, envelope_text, output, source) {
++  if (capture_dir === "") { return; }
++  const name = capture_pad(capture_seq);
++  capture_seq = capture_seq + 1;
++  rh.write_text(rh.join(capture_dir, "env-" + name + ".txt"), envelope_text);
++  if (source !== "envelope") {
++    rh.write_text(rh.join(capture_dir, "pay-" + name + ".txt"), output.stdout);
++  }
++  if (output.stderr !== "") {
++    rh.write_text(rh.join(capture_dir, "err-" + name + ".txt"), output.stderr);
++  }
++  const args = [];
++  for (const a of capture_arguments) { args.push("" + a); }
++  const line = JSON.stringify({
++    seq: capture_seq - 1,
++    arguments: args,
++    source: source,
++    exit_code: output.exit_code
++  });
++  capture_index = capture_index + line + "\n";
++  rh.write_text(rh.join(capture_dir, "index.jsonl"), capture_index);
++}
++
++// `rh.command_spec` with the envelope kept: same door calls, same order.
++function capture_command_spec(spec, capture_arguments) {
++  if (process_command(JSON.stringify(spec)) !== 0) { throw "process_command " + spec.program + ":" + tool_result(); }
++  const envelope_text = tool_result();
++  const output = JSON.parse(envelope_text);
++  capture_record(capture_arguments, envelope_text, output, "envelope");
++  return output;
++}
++// ---- end capture shim ----------------------------------------------------
++
+ function catch_text(error) {
+   return "" + error;
+ }
+@@ -103,11 +155,15 @@
+     spec = redirected_spec(spec, answer_path);
+   }
+   if (process_command(JSON.stringify(spec)) !== 0) { throw "process_command:" + tool_result(); }
+-  const output = JSON.parse(tool_result());
++  const envelope_text = tool_result();
++  const output = JSON.parse(envelope_text);
++  let capture_source = "envelope";
+   if (answer_path !== "") {
+     output.stdout = rh.exists(answer_path) ? rh.read_text(answer_path) : "";
+     rh.try_remove_file(answer_path);
+-  }
++    capture_source = "file";
++  }
++  capture_record(arguments, envelope_text, output, capture_source);
+   harness.append_command_record(
+     context, arguments,
+     {

@@ -1,0 +1,213 @@
+{
+ "journey": "workbench-smoke",
+ "replies": [
+  {
+   "seq": 0,
+   "arguments": [
+    "ui-snapshot"
+   ],
+   "source": "envelope",
+   "parse": "none",
+   "form": "object",
+   "trim": false,
+   "reads": [],
+   "unresolved_reads": [],
+   "envelope_bytes": 14970,
+   "payload_bytes": 13075
+  },
+  {
+   "seq": 1,
+   "arguments": [
+    "wait-ui",
+    "--window-state",
+    "restored",
+    "--timeout-ms",
+    "30000"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "object",
+   "trim": false,
+   "reads": [],
+   "unresolved_reads": [],
+   "envelope_bytes": 14970,
+   "payload_bytes": 13075
+  },
+  {
+   "seq": 2,
+   "arguments": [
+    "new-window",
+    "-d",
+    "-n",
+    "workbench-36371",
+    "-F",
+    "#{window_id}"
+   ],
+   "source": "envelope",
+   "parse": "text",
+   "form": "object",
+   "trim": true,
+   "reads": [],
+   "unresolved_reads": [],
+   "envelope_bytes": 126,
+   "payload_bytes": 3
+  },
+  {
+   "seq": 3,
+   "arguments": [
+    "select-window",
+    "-t",
+    "@2"
+   ],
+   "source": "envelope",
+   "parse": "text",
+   "form": "object",
+   "trim": true,
+   "reads": [],
+   "unresolved_reads": [],
+   "envelope_bytes": 122,
+   "payload_bytes": 0
+  },
+  {
+   "seq": 4,
+   "arguments": [
+    "wait-ui",
+    "--active",
+    "@2",
+    "--window-state",
+    "restored",
+    "--timeout-ms",
+    "30000"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "object",
+   "trim": false,
+   "reads": [],
+   "unresolved_reads": [],
+   "envelope_bytes": 17923,
+   "payload_bytes": 15682
+  },
+  {
+   "seq": 5,
+   "arguments": [
+    "wait-ui",
+    "-t",
+    "@2",
+    "--tab-state",
+    "running",
+    "--timeout-ms",
+    "30000"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "object",
+   "trim": false,
+   "reads": [],
+   "unresolved_reads": [],
+   "envelope_bytes": 17923,
+   "payload_bytes": 15682
+  },
+  {
+   "seq": 6,
+   "arguments": [
+    "new-window",
+    "-d",
+    "-n",
+    "workbench-peer-36371",
+    "-F",
+    "#{window_id}"
+   ],
+   "source": "envelope",
+   "parse": "text",
+   "form": "object",
+   "trim": true,
+   "reads": [],
+   "unresolved_reads": [],
+   "envelope_bytes": 126,
+   "payload_bytes": 3
+  },
+  {
+   "seq": 7,
+   "arguments": [
+    "select-window",
+    "-t",
+    "@2"
+   ],
+   "source": "envelope",
+   "parse": "text",
+   "form": "object",
+   "trim": true,
+   "reads": [],
+   "unresolved_reads": [],
+   "envelope_bytes": 122,
+   "payload_bytes": 0
+  },
+  {
+   "seq": 8,
+   "arguments": [
+    "wait-ui",
+    "--active",
+    "@2",
+    "--window-state",
+    "restored",
+    "--timeout-ms",
+    "30000"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "object",
+   "trim": false,
+   "reads": [
+    "tabs[].id",
+    "tabs[].actions.mode",
+    "tabs[].actions.edit",
+    "tabs[].actions.save",
+    "tabs[].actions.cancel",
+    "tabs[].render.mode",
+    "tab_editor"
+   ],
+   "unresolved_reads": [
+    "tabs[].actions.edit",
+    "tabs[].actions.save",
+    "tabs[].actions.cancel"
+   ],
+   "envelope_bytes": 20897,
+   "payload_bytes": 18310
+  },
+  {
+   "seq": 9,
+   "arguments": [
+    "ui-snapshot"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "object",
+   "trim": false,
+   "reads": [
+    "tabs[].id",
+    "tabs[].render.text.width"
+   ],
+   "unresolved_reads": [],
+   "envelope_bytes": 20897,
+   "payload_bytes": 18310
+  },
+  {
+   "seq": 10,
+   "arguments": [
+    "ui-snapshot"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "object",
+   "trim": false,
+   "reads": [
+    "tabs[].id",
+    "tabs[].render.text.width"
+   ],
+   "unresolved_reads": [],
+   "envelope_bytes": 20897,
+   "payload_bytes": 18310
+  }
+ ]
+}

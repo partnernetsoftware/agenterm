@@ -1,0 +1,14 @@
+{
+  "schema_version": 2,
+  "lease_id": "ui-8308-1a09a4c0b53-1",
+  "client_id": "server-smoke-ui-1789295069778-33543",
+  "client_pid": 33543,
+  "server_pid": 33544,
+  "position": {
+    "server_epoch": "33544-1789295069-788940000",
+    "sequence": 7
+  },
+  "expires_unix_ms": 1789295075156,
+  "ttl_ms": 5000,
+  "observed_sequence": 0
+}

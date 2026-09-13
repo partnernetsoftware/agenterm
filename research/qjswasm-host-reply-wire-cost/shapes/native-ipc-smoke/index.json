@@ -1,0 +1,539 @@
+{
+ "journey": "native-ipc-smoke",
+ "replies": [
+  {
+   "seq": 0,
+   "arguments": [
+    "--endpoint",
+    "tcp:127.0.0.1:1",
+    "--address",
+    "127.0.0.1:9",
+    "protocol-info",
+    "--running"
+   ],
+   "source": "envelope",
+   "parse": "text",
+   "form": "object",
+   "trim": false,
+   "reads": [],
+   "unresolved_reads": [],
+   "envelope_bytes": 316,
+   "payload_bytes": 0
+  },
+  {
+   "seq": 1,
+   "arguments": [
+    "--endpoint",
+    "unix:/this-path-is-intentionally-longer-than-the-portable-sockaddr-un-limit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/server.sock",
+    "protocol-info",
+    "--running"
+   ],
+   "source": "envelope",
+   "parse": "text",
+   "form": "object",
+   "trim": false,
+   "reads": [],
+   "unresolved_reads": [],
+   "envelope_bytes": 527,
+   "payload_bytes": 0
+  },
+  {
+   "seq": 2,
+   "arguments": [
+    "--instance",
+    "custom:smoke-35729-1789295116235",
+    "protocol-info",
+    "--running"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "fragment",
+   "trim": true,
+   "reads": [
+    "transport",
+    "endpoint",
+    "server_scope_id",
+    "settings_path",
+    "instance",
+    "pid",
+    "agenterm_version"
+   ],
+   "unresolved_reads": [],
+   "envelope_bytes": 621,
+   "payload_bytes": 466
+  },
+  {
+   "seq": 3,
+   "arguments": [
+    "--instance",
+    "custom:smoke-35729-1789295116235",
+    "protocol-info",
+    "--running"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "fragment",
+   "trim": true,
+   "reads": [
+    "pid",
+    "endpoint",
+    "server_scope_id"
+   ],
+   "unresolved_reads": [],
+   "envelope_bytes": 621,
+   "payload_bytes": 466
+  },
+  {
+   "seq": 4,
+   "arguments": [
+    "--instance",
+    "custom:settings-override-35729-1789295116592",
+    "protocol-info",
+    "--running"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "fragment",
+   "trim": true,
+   "reads": [
+    "transport",
+    "endpoint",
+    "server_scope_id",
+    "settings_path",
+    "instance",
+    "pid",
+    "agenterm_version"
+   ],
+   "unresolved_reads": [],
+   "envelope_bytes": 564,
+   "payload_bytes": 409
+  },
+  {
+   "seq": 5,
+   "arguments": [
+    "--instance",
+    "custom:settings-override-35729-1789295116592",
+    "shutdown"
+   ],
+   "source": "envelope",
+   "parse": "text",
+   "form": "object",
+   "trim": false,
+   "reads": [],
+   "unresolved_reads": [],
+   "envelope_bytes": 122,
+   "payload_bytes": 0
+  },
+  {
+   "seq": 6,
+   "arguments": [
+    "--endpoint",
+    "tcp:127.0.0.1:41944",
+    "protocol-info",
+    "--running"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "fragment",
+   "trim": true,
+   "reads": [
+    "transport",
+    "endpoint",
+    "server_scope_id",
+    "settings_path",
+    "instance",
+    "pid",
+    "agenterm_version"
+   ],
+   "unresolved_reads": [],
+   "envelope_bytes": 476,
+   "payload_bytes": 321
+  },
+  {
+   "seq": 7,
+   "arguments": [
+    "--address",
+    "127.0.0.1:41944",
+    "protocol-info",
+    "--running"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "fragment",
+   "trim": true,
+   "reads": [
+    "pid",
+    "endpoint",
+    "transport"
+   ],
+   "unresolved_reads": [],
+   "envelope_bytes": 476,
+   "payload_bytes": 321
+  },
+  {
+   "seq": 8,
+   "arguments": [
+    "protocol-info",
+    "--running"
+   ],
+   "source": "envelope",
+   "parse": "text",
+   "form": "object",
+   "trim": false,
+   "reads": [],
+   "unresolved_reads": [],
+   "envelope_bytes": 261,
+   "payload_bytes": 0
+  },
+  {
+   "seq": 9,
+   "arguments": [
+    "server-list",
+    "--json"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "object",
+   "trim": true,
+   "reads": [
+    "[].endpoint",
+    "[].endpoint",
+    "[].schema_version",
+    "[].registration_schema_version",
+    "[].instance",
+    "[].transport",
+    "[].server_scope_id",
+    "[].status",
+    "[].classification",
+    "[].owner_state",
+    "[].process_start_identity",
+    "[].lease_nonce",
+    "[].server_epoch",
+    "[].event_epoch",
+    "[].observed_protocol_pid",
+    "[].observed_protocol_endpoint",
+    "[].observed_protocol_server_scope_id",
+    "[].legacy_client_compatibility",
+    "[].cleanup_eligible",
+    "[].cleanup_receipt.schema_version",
+    "[].cleanup_receipt.operation",
+    "[].cleanup_receipt.result",
+    "[].cleanup_receipt.expected_lease_nonce"
+   ],
+   "unresolved_reads": [
+    "[].cleanup_receipt.schema_version",
+    "[].cleanup_receipt.operation",
+    "[].cleanup_receipt.result",
+    "[].cleanup_receipt.expected_lease_nonce"
+   ],
+   "envelope_bytes": 5585,
+   "payload_bytes": 4977
+  },
+  {
+   "seq": 10,
+   "arguments": [
+    "server-list",
+    "--json"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "object",
+   "trim": true,
+   "reads": [
+    "[].lease_nonce",
+    "[].endpoint",
+    "[].schema_version",
+    "[].registration_schema_version",
+    "[].instance",
+    "[].transport",
+    "[].server_scope_id",
+    "[].status",
+    "[].classification",
+    "[].owner_state",
+    "[].process_start_identity",
+    "[].lease_nonce",
+    "[].server_epoch",
+    "[].event_epoch",
+    "[].observed_protocol_pid",
+    "[].observed_protocol_endpoint",
+    "[].observed_protocol_server_scope_id",
+    "[].legacy_client_compatibility",
+    "[].cleanup_eligible",
+    "[].cleanup_receipt.schema_version",
+    "[].cleanup_receipt.operation",
+    "[].cleanup_receipt.result",
+    "[].cleanup_receipt.expected_lease_nonce"
+   ],
+   "unresolved_reads": [
+    "[].cleanup_receipt.schema_version",
+    "[].cleanup_receipt.operation",
+    "[].cleanup_receipt.result",
+    "[].cleanup_receipt.expected_lease_nonce"
+   ],
+   "envelope_bytes": 7992,
+   "payload_bytes": 7155
+  },
+  {
+   "seq": 11,
+   "arguments": [
+    "server-list",
+    "--json",
+    "--prune"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "object",
+   "trim": true,
+   "reads": [
+    "[].lease_nonce",
+    "[].endpoint",
+    "[].schema_version",
+    "[].registration_schema_version",
+    "[].instance",
+    "[].transport",
+    "[].server_scope_id",
+    "[].status",
+    "[].classification",
+    "[].owner_state",
+    "[].process_start_identity",
+    "[].lease_nonce",
+    "[].server_epoch",
+    "[].event_epoch",
+    "[].observed_protocol_pid",
+    "[].observed_protocol_endpoint",
+    "[].observed_protocol_server_scope_id",
+    "[].legacy_client_compatibility",
+    "[].cleanup_eligible",
+    "[].cleanup_receipt.schema_version",
+    "[].cleanup_receipt.operation",
+    "[].cleanup_receipt.result",
+    "[].cleanup_receipt.expected_lease_nonce"
+   ],
+   "unresolved_reads": [],
+   "envelope_bytes": 10447,
+   "payload_bytes": 9415
+  },
+  {
+   "seq": 12,
+   "arguments": [
+    "server-list",
+    "--json",
+    "--prune"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "object",
+   "trim": true,
+   "reads": [
+    "[].endpoint",
+    "[].endpoint",
+    "[].schema_version",
+    "[].registration_schema_version",
+    "[].instance",
+    "[].transport",
+    "[].server_scope_id",
+    "[].status",
+    "[].classification",
+    "[].owner_state",
+    "[].process_start_identity",
+    "[].lease_nonce",
+    "[].server_epoch",
+    "[].event_epoch",
+    "[].observed_protocol_pid",
+    "[].observed_protocol_endpoint",
+    "[].observed_protocol_server_scope_id",
+    "[].legacy_client_compatibility",
+    "[].cleanup_eligible",
+    "[].cleanup_receipt.schema_version",
+    "[].cleanup_receipt.operation",
+    "[].cleanup_receipt.result",
+    "[].cleanup_receipt.expected_lease_nonce"
+   ],
+   "unresolved_reads": [],
+   "envelope_bytes": 10299,
+   "payload_bytes": 9281
+  },
+  {
+   "seq": 13,
+   "arguments": [
+    "server-list",
+    "--json"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "object",
+   "trim": true,
+   "reads": [
+    "[].lease_nonce",
+    "[].endpoint",
+    "[].schema_version",
+    "[].registration_schema_version",
+    "[].instance",
+    "[].transport",
+    "[].server_scope_id",
+    "[].status",
+    "[].classification",
+    "[].owner_state",
+    "[].process_start_identity",
+    "[].lease_nonce",
+    "[].server_epoch",
+    "[].event_epoch",
+    "[].observed_protocol_pid",
+    "[].observed_protocol_endpoint",
+    "[].observed_protocol_server_scope_id",
+    "[].legacy_client_compatibility",
+    "[].cleanup_eligible",
+    "[].cleanup_receipt.schema_version",
+    "[].cleanup_receipt.operation",
+    "[].cleanup_receipt.result",
+    "[].cleanup_receipt.expected_lease_nonce"
+   ],
+   "unresolved_reads": [
+    "[].cleanup_receipt.schema_version",
+    "[].cleanup_receipt.operation",
+    "[].cleanup_receipt.result",
+    "[].cleanup_receipt.expected_lease_nonce"
+   ],
+   "envelope_bytes": 8284,
+   "payload_bytes": 7445
+  },
+  {
+   "seq": 14,
+   "arguments": [
+    "server-list",
+    "--json",
+    "--prune"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "object",
+   "trim": true,
+   "reads": [
+    "[].lease_nonce",
+    "[].endpoint",
+    "[].schema_version",
+    "[].registration_schema_version",
+    "[].instance",
+    "[].transport",
+    "[].server_scope_id",
+    "[].status",
+    "[].classification",
+    "[].owner_state",
+    "[].process_start_identity",
+    "[].lease_nonce",
+    "[].server_epoch",
+    "[].event_epoch",
+    "[].observed_protocol_pid",
+    "[].observed_protocol_endpoint",
+    "[].observed_protocol_server_scope_id",
+    "[].legacy_client_compatibility",
+    "[].cleanup_eligible",
+    "[].cleanup_receipt.schema_version",
+    "[].cleanup_receipt.operation",
+    "[].cleanup_receipt.result",
+    "[].cleanup_receipt.expected_lease_nonce"
+   ],
+   "unresolved_reads": [],
+   "envelope_bytes": 10850,
+   "payload_bytes": 9816
+  },
+  {
+   "seq": 15,
+   "arguments": [
+    "--instance",
+    "custom:smoke-35729-1789295116235",
+    "shutdown"
+   ],
+   "source": "envelope",
+   "parse": "text",
+   "form": "object",
+   "trim": false,
+   "reads": [],
+   "unresolved_reads": [],
+   "envelope_bytes": 122,
+   "payload_bytes": 0
+  },
+  {
+   "seq": 16,
+   "arguments": [
+    "--address",
+    "127.0.0.1:41944",
+    "shutdown"
+   ],
+   "source": "envelope",
+   "parse": "text",
+   "form": "object",
+   "trim": false,
+   "reads": [],
+   "unresolved_reads": [],
+   "envelope_bytes": 122,
+   "payload_bytes": 0
+  },
+  {
+   "seq": 17,
+   "arguments": [
+    "--instance",
+    "custom:smoke-35729-1789295116235",
+    "protocol-info",
+    "--running"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "fragment",
+   "trim": true,
+   "reads": [
+    "transport",
+    "endpoint",
+    "server_scope_id",
+    "settings_path",
+    "instance",
+    "pid",
+    "agenterm_version"
+   ],
+   "unresolved_reads": [],
+   "envelope_bytes": 621,
+   "payload_bytes": 466
+  },
+  {
+   "seq": 18,
+   "arguments": [
+    "--instance",
+    "custom:smoke-35729-1789295116235",
+    "protocol-info",
+    "--running"
+   ],
+   "source": "envelope",
+   "parse": "json",
+   "form": "fragment",
+   "trim": true,
+   "reads": [
+    "transport",
+    "endpoint",
+    "server_scope_id",
+    "settings_path",
+    "instance",
+    "pid",
+    "agenterm_version"
+   ],
+   "unresolved_reads": [],
+   "envelope_bytes": 621,
+   "payload_bytes": 466
+  },
+  {
+   "seq": 19,
+   "arguments": [
+    "--instance",
+    "custom:smoke-35729-1789295116235",
+    "shutdown"
+   ],
+   "source": "envelope",
+   "parse": "text",
+   "form": "object",
+   "trim": false,
+   "reads": [],
+   "unresolved_reads": [],
+   "envelope_bytes": 122,
+   "payload_bytes": 0
+  }
+ ]
+}

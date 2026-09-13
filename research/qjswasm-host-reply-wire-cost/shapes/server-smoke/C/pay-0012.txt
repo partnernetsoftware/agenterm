@@ -1,0 +1,1 @@
+{"position":{"sequence":13},"active_tab_id":"@2","tabs":[{"id":"@1","screen":{"rows":30,"columns":100}},{"id":"@2","screen":{"rows":24,"columns":90}}]}

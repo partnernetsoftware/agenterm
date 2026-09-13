@@ -1,0 +1,20 @@
+{
+  "envelope_version": 2,
+  "invocation_id": "39432-1789295191794412000",
+  "api_version": 2,
+  "ok": true,
+  "exit_class": "success",
+  "operation": "run",
+  "profile": "tool",
+  "stdout": "STEP start internal headless server\nSTEP acquire, renew, conflict, heartbeat, and detach the UI lease\nSTEP require the lease for UI select, resize, and binary input\nSTEP create and observe a real PTY through public IPC\nSTEP prove server-owned receipt replay and asynchronous completion\nSTEP follow server-owned events into terminal post-state\nSTEP persist and stop server without a GUI process\nEVIDENCE server.headless-authority\nPASS: headless server owns PTY, parser, workspace, events, and no HWND\n",
+  "cost": {
+    "steps": 19634207,
+    "peak_call_depth": 23,
+    "peak_activation_slots": 286,
+    "host_ops": 393,
+    "host_bytes": 350479,
+    "waited_ms": 282,
+    "heap_pages": 19
+  },
+  "duration_ms": 2645
+}

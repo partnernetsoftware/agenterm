@@ -1,0 +1,1 @@
+{"exit_code":2,"stderr":"--endpoint and --address are mutually exclusive; --address and --instance are mutually exclusive. --endpoint may pair with --instance for identity (attach/peer pin). [ConflictingCliSelectors]\n","stderr_truncated":false,"stdout":"","stdout_truncated":false,"success":false,"timed_out":false}

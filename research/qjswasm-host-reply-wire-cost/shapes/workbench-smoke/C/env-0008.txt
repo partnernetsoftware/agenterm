@@ -1,0 +1,1 @@
+{"exit_code":0,"stderr":"","stderr_truncated":false,"stdout":"{\"tab_editor\":null,\"tabs\":[{\"actions\":null,\"id\":\"@1\",\"render\":{\"mode\":\"normal\"}},{\"actions\":{\"mode\":\"normal\"},\"id\":\"@2\",\"render\":{\"mode\":\"normal\"}},{\"actions\":null,\"id\":\"@3\",\"render\":{\"mode\":\"normal\"}}]}","stdout_truncated":false,"success":true,"timed_out":false}

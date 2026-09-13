@@ -1,0 +1,1 @@
+{"pid":33544,"ui_bridge":{"interactive_lease":true,"ownership_mode":"split_server_client","reconnect":true,"replaceable_ui":true,"rollback_proven":true,"server_executable":"agenterm.exe"}}
