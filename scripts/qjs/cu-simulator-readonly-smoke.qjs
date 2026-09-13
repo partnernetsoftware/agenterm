@@ -52,6 +52,18 @@ function assert_devices(reply, max) {
   }
 }
 
+function digest_simulator_start_identity(run_directory, identity) {
+  const probe = rh.command("/usr/bin/python3", [
+    "-c",
+    "import hashlib,sys; print(hashlib.sha256(b'agenterm-cu:simulator-host-process-start:v1\\0' + sys.argv[1].encode()).hexdigest())",
+    identity
+  ], { cwd: run_directory, timeout_ms: 30000 });
+  ensure(probe.success, "cu_simulator_identity_digest:" + probe.exit_code);
+  const digest = probe.stdout.trim();
+  ensure(digest.length === 64 && rh.only_chars(digest, rh.HEX), "cu_simulator_identity_digest_shape");
+  return digest;
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -94,12 +106,24 @@ try {
       ensure(typeof app.bundle_id === "string" && app.bundle_id.includes("."), "cu_simulator_app_bundle");
       ensure(app.path === undefined && app.data_path === undefined, "cu_simulator_app_path_leak");
     }
-    const bundle_id = apps.data.apps.length > 0
+    let bundle_id = apps.data.apps.length > 0
       ? apps.data.apps[0].bundle_id : "com.example.agenterm.absent";
+    let status = undefined;
+    for (const app of apps.data.apps) {
+      if (status === undefined || status.data.running !== true) {
+        const candidate = invoke(context.run_directory, executable, [
+          "--target", "current", "--grant", "observe", "simulator-status", booted.udid, app.bundle_id
+        ], true);
+        status = candidate;
+        bundle_id = app.bundle_id;
+      }
+    }
     print("STEP exact app status brackets installation, process and device identity");
-    const status = invoke(context.run_directory, executable, [
-      "--target", "current", "--grant", "observe", "simulator-status", booted.udid, bundle_id
-    ], true);
+    if (status === undefined) {
+      status = invoke(context.run_directory, executable, [
+        "--target", "current", "--grant", "observe", "simulator-status", booted.udid, bundle_id
+      ], true);
+    }
     ensure(status.command === "simulator-status", "cu_simulator_status_identity");
     ensure(status.data.device_udid === booted.udid, "cu_simulator_status_device");
     ensure(status.data.bundle_id === bundle_id, "cu_simulator_status_bundle");
@@ -114,6 +138,26 @@ try {
         && process.start_identity_sha256.length === 64, "cu_simulator_status_start_identity");
       ensure(process.path === undefined && process.environment === undefined
         && process.start_identity === undefined, "cu_simulator_status_private_identity_leak");
+      const process_state = invoke(context.run_directory, executable, [
+        "--target", "current", "--grant", "observe", "process-state", "--pid", "" + process.host_pid
+      ], true);
+      ensure(process_state.command === "process-state"
+        && process_state.data.pid === process.host_pid
+        && process_state.data.state === "live"
+        && process_state.data.verified === true
+        && typeof process_state.data.start_identity === "string"
+        && process_state.data.start_identity.length > 0,
+      "cu_simulator_status_process_state_join");
+      ensure(
+        digest_simulator_start_identity(context.run_directory, process_state.data.start_identity)
+          === process.start_identity_sha256,
+        "cu_simulator_status_start_identity_join"
+      );
+    }
+    if (status.data.running) {
+      print("STEP running simulator app joins host PID and independently hashed process start identity");
+    } else {
+      print("STEP no listed simulator app is running; host process identity join remains unclaimed");
     }
   } else {
     print("STEP no device is already booted; mutation remains intentionally untested");

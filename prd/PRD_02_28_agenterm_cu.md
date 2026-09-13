@@ -680,9 +680,9 @@ ACU-only cutover
 │  ├─ [x] acu.dynamic.005 · legacy window-local zoom corners map to native `--local-region`;
 │  │  └─ bounded pure arithmetic preserves the archived 20 percent padding while native
 │  │     clipping uses one observed window bound; explicit output replaces the hidden path
-│  ├─ [~] acu.dynamic.050 · exact simulator application status is native and Bun-free;
-│  │  └─ bounded macOS read-only court proves installed/non-running truth; a pre-existing
-│  │     running fixture must still prove the host-PID/start-identity/device join
+│  ├─ [x] acu.dynamic.050 · exact simulator application status is native and Bun-free;
+│  │  └─ bounded macOS read-only court proves installed/non-running truth and, when a running
+│  │     app is present, joins its host PID to an independently observed and hashed start identity
 │  ├─ [x] acu.dynamic.051 · the frozen `resource top` witness remains native and the related
 │  │  `resource pressure` spelling now maps losslessly to `resource-pressure`; the public
 │  │  qjswasm court executes both pressure spellings and preserves host-native semantics
@@ -2122,7 +2122,13 @@ flowchart LR
   `--expect accepted` and remains `verified=false`. The registered
   `cu.simulator-readonly` qjswasm court enumerates real devices and apps on an
   already-booted exact device without exposing container paths or performing a
-  mutation. A separate `cu.simulator-lifecycle.macos` court is registered to
+  mutation. When that bounded inventory contains a running app, the same court
+  now requires `simulator-status` to return a live host PID, independently calls
+  `process-state` for that PID, recomputes the domain-separated start-identity
+  SHA-256 outside the implementation, and requires an exact join; the macOS
+  court reached this branch and passed. If no listed app is running, the court
+  names the missing join and does not claim that evidence. A separate
+  `cu.simulator-lifecycle.macos` court is registered to
   boot one exact initially-Shutdown device, independently read back both state
   transitions, restore only that owned mutation, and prove idempotent shutdown
   without activating Simulator.app. The transitional MCU adapter now routes
