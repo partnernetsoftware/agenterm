@@ -181,6 +181,11 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   - [x] return `CuReply` unchanged as `structuredContent`, with `isError`
     derived only from `CuReply.ok`; provider/ABI failure remains a distinct
     JSON-RPC boundary error and there is no static, process, or MCU fallback
+    - [x] the live observe path and the mutation-only lifecycle path share one
+      private CU reply projection: required `content[0].text`, required
+      `structuredContent`, and `isError` now have one construction site. Both
+      normative fields and their compact-JSON equivalence remain unchanged;
+      this is a net −9 LOC contract fold, not an allocation or wire reduction.
   - [x] public macOS stdio evidence proves initialize → tools/list →
     `agenterm_acu_capabilities`, using the staged fixed-sibling provider and an
     observe grant

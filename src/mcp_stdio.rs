@@ -1309,6 +1309,8 @@ fn provider_boundary_reply(code: &str) -> Value {
     })
 }
 
+/// CU tool-success projection: the text mirror and `structuredContent` carry the
+/// same reply value, and `isError` is derived only from `reply.ok`.
 fn acu_tool_response(id: Value, reply: Value) -> Value {
     let is_error = reply.get("ok").and_then(Value::as_bool) != Some(true);
     success_response(
@@ -2199,18 +2201,7 @@ fn complete_acu_tool_call(
             );
         }
     };
-    let is_error = reply.get("ok").and_then(Value::as_bool) != Some(true);
-    success_response(
-        response_id,
-        json!({
-            "content": [{
-                "type": "text",
-                "text": serde_json::to_string(&reply).expect("ACU reply serializes")
-            }],
-            "structuredContent": reply,
-            "isError": is_error
-        }),
-    )
+    acu_tool_response(response_id, reply)
 }
 
 fn resource_title(stable_id: &str) -> &'static str {
