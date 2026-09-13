@@ -164,9 +164,11 @@ Validity criteria run before any design criterion and cannot be outweighed.
 | D3 | Boolean · B model | Explicit binding passes create/use/rename/duplicate/stale-generation/crash-recovery cases with typed refusal and independent cleanup | Select B if A1 is ineligible and every B arm passes |
 
 Every receipt records exact source/input/executable digests, browser family and
-version, ordinal, wall deadline, process-chain length, stage sequence and the
-boolean result for V1-V7. No performance or size claim is made; therefore no
-cross-experiment byte or timing ratio is permitted.
+version, ordinal, wall deadline, process-chain length, stage sequence, stable
+digests of the frozen browser, bridge-host and connection identities, and the
+boolean result for V1-V7. Raw PIDs and paths are not durable stage facts. No
+performance or size claim is made; therefore no cross-experiment byte or timing
+ratio is permitted.
 
 ## 4. Decision tree, kill criteria and timebox
 
@@ -207,6 +209,15 @@ Kill criteria:
 5. A live ordinal is consumed when its external reservation is published.
    There is one rehearsal ordinal and one decision ordinal; neither may be
    repaired, enlarged or rerun after a terminal result.
+
+Kill terminals are early exits outside the ordinary validity-tree sequence and
+have exact criteria shapes. `NEW_INFORMATION_INSUFFICIENT` records V1 and V2
+`pass`, V3 `fail`, and V4-V7 `not-run`; its terminal code and primary cause
+distinguish permanent mechanism insufficiency from an ordinary
+`INCONCLUSIVE_OWNERSHIP` observation. `CLEANUP_NOT_INDEPENDENT` records V1-V3
+`pass`, V7 `fail`, and V4-V6 `not-run`, because the structural selector leak is
+detected before cleanup is allowed to execute. No other criteria shape may use
+either terminal.
 
 The implementation timebox ends when the platform-neutral self-test has
 machine-checked V2, V6, V7 and every decision-tree combination. No browser is
