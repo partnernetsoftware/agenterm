@@ -1184,8 +1184,11 @@ then reverse the exact edits and verify the pre-mutation hashes.
 When several mechanism families converge on one internal error projection, a
 representative from only the oldest family does not own that shared seam. Add a
 black-box failure from each independently routed family (for example an exact
-scalar and a pointer-result lookup); mutate the shared projection and require
-the newly routed representative to fail by name.
+scalar and a fixed-pointer lookup); mutate the shared projection and require
+the newly routed representative to fail by name. If every private family error
+is immediately projected and its family-specific payload is discarded, delete
+those parallel enums: emit one internal mechanism error algebra and attach the
+public library, symbol, and signature context once at the convergence boundary.
 
 If the enum also publishes stable machine-readable string codes, exhaustiveness
 alone is insufficient: construct one representative of every variant, pin its

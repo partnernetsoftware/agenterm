@@ -1,8 +1,8 @@
 //! Typed exact-homogeneous native invocation shared by native-door consumers.
 
-use std::fmt;
-
 use libloading::Library;
+
+use crate::abi::MechanismError;
 
 /// Maximum fixed arity supported by the exact native core.
 pub const MAX_EXACT_NATIVE_ARITY: usize = 6;
@@ -55,48 +55,17 @@ pub struct ExactNativeCall<'a> {
     pub arguments: &'a [ExactNativeValue],
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ExactNativeError {
-    SignatureUnsupported {
-        result: ExactNativeType,
-        parameters: Vec<ExactNativeType>,
-    },
-    SymbolLoad {
-        symbol: String,
-        message: String,
-    },
-}
-
-impl fmt::Display for ExactNativeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::SignatureUnsupported { result, parameters } => write!(
-                f,
-                "invocation does not have one exact homogeneous scalar type: {result:?}({parameters:?})"
-            ),
-            Self::SymbolLoad { symbol, message } => {
-                write!(f, "could not resolve native symbol {symbol:?}: {message}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for ExactNativeError {}
-
 /// Validate the exact homogeneous signature before argument conversion or loading.
 pub fn validate_exact_native_signature(
     result: ExactNativeType,
     parameters: &[ExactNativeType],
-) -> Result<(), ExactNativeError> {
+) -> Result<(), MechanismError> {
     if parameters.len() <= MAX_EXACT_NATIVE_ARITY
         && parameters.iter().all(|parameter| *parameter == result)
     {
         Ok(())
     } else {
-        Err(ExactNativeError::SignatureUnsupported {
-            result,
-            parameters: parameters.to_vec(),
-        })
+        Err(MechanismError::SignatureUnsupported)
     }
 }
 
@@ -134,7 +103,7 @@ macro_rules! invoke_homogeneous {
 pub(crate) unsafe fn invoke_exact_mechanism_with_library(
     library: &Library,
     call: &ExactNativeCall<'_>,
-) -> Result<ExactNativeValue, ExactNativeError> {
+) -> Result<ExactNativeValue, MechanismError> {
     let parameters = call
         .arguments
         .iter()
@@ -167,8 +136,8 @@ pub(crate) unsafe fn invoke_exact_mechanism_with_library(
     }
 }
 
-fn symbol_error(symbol: &str, error: libloading::Error) -> ExactNativeError {
-    ExactNativeError::SymbolLoad {
+fn symbol_error(symbol: &str, error: libloading::Error) -> MechanismError {
+    MechanismError::SymbolLoad {
         symbol: symbol.to_owned(),
         message: error.to_string(),
     }
@@ -177,7 +146,7 @@ fn symbol_error(symbol: &str, error: libloading::Error) -> ExactNativeError {
 macro_rules! typed_invoker {
     ($name:ident, ($($arg:ident),*)) => {
         #[allow(clippy::too_many_arguments)]
-        fn $name<T: Copy>(library: &Library, symbol: &str, $($arg: T),*) -> Result<T, ExactNativeError> {
+        fn $name<T: Copy>(library: &Library, symbol: &str, $($arg: T),*) -> Result<T, MechanismError> {
             // SAFETY: invoke_abi admitted the exact homogeneous Rust type and arity;
             // the remaining symbol-signature assertion belongs to its unsafe caller.
             let function = unsafe { library.get::<unsafe extern "C" fn($($arg: T),*) -> T>(symbol.as_bytes()) }

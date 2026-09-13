@@ -35,16 +35,16 @@ use std::ffi::c_void;
 use std::fmt;
 
 use crate::exact_native::{
-    ExactNativeCall, ExactNativeError, ExactNativeType, ExactNativeValue, MAX_EXACT_NATIVE_ARITY,
+    ExactNativeCall, ExactNativeType, ExactNativeValue, MAX_EXACT_NATIVE_ARITY,
     invoke_exact_mechanism_with_library, open_library,
 };
 use crate::fixed_native::{
-    FixedNativeCall, FixedNativeError, FixedNativePrototype, FixedNativeType, FixedNativeValue,
+    FixedNativeCall, FixedNativePrototype, FixedNativeType, FixedNativeValue,
     invoke_fixed_mechanism_with_library,
 };
 use crate::fixed_pointer::{
-    FixedPointerCall, FixedPointerError, FixedPointerPrototype, FixedPointerType,
-    FixedPointerValue, invoke_fixed_pointer_mechanism_with_library,
+    FixedPointerCall, FixedPointerPrototype, FixedPointerType, FixedPointerValue,
+    invoke_fixed_pointer_mechanism_with_library,
 };
 use libloading::Library;
 
@@ -148,6 +148,14 @@ pub enum AbiError {
         expected: AbiType,
         actual: AbiType,
     },
+}
+
+/// The two failure classes emitted by every private monomorphic family.
+/// Public context is attached once when this crosses into [`AbiError`].
+#[derive(Debug)]
+pub(crate) enum MechanismError {
+    SignatureUnsupported,
+    SymbolLoad { symbol: String, message: String },
 }
 
 impl fmt::Display for AbiError {
@@ -521,27 +529,23 @@ const fn fixed_abi_value(value: FixedNativeValue) -> AbiValue {
     }
 }
 
-macro_rules! define_mechanism_error_projection {
-    ($name:ident, $error:ident) => {
-        fn $name(error: $error, signature: AbiSignature<'_>, call: &NativeCall<'_>) -> AbiError {
-            match error {
-                $error::SymbolLoad { symbol, message } => AbiError::SymbolLookup {
-                    library: call.library.to_owned(),
-                    symbol,
-                    message,
-                },
-                $error::SignatureUnsupported { .. } => AbiError::SignatureUnsupported {
-                    result: signature.result,
-                    params: signature.params.to_vec(),
-                },
-            }
-        }
-    };
+fn mechanism_error(
+    error: MechanismError,
+    signature: AbiSignature<'_>,
+    call: &NativeCall<'_>,
+) -> AbiError {
+    match error {
+        MechanismError::SymbolLoad { symbol, message } => AbiError::SymbolLookup {
+            library: call.library.to_owned(),
+            symbol,
+            message,
+        },
+        MechanismError::SignatureUnsupported => AbiError::SignatureUnsupported {
+            result: signature.result,
+            params: signature.params.to_vec(),
+        },
+    }
 }
-
-define_mechanism_error_projection!(exact_error, ExactNativeError);
-define_mechanism_error_projection!(fixed_error, FixedNativeError);
-define_mechanism_error_projection!(pointer_error, FixedPointerError);
 
 fn convert_arguments<T>(
     call: &NativeCall<'_>,
@@ -672,7 +676,7 @@ unsafe fn invoke_abi_with_library(
             // admitted by the family's own validator.
             match unsafe { invoke_exact_mechanism_with_library(library, &exact) } {
                 Ok(value) => Ok(exact_abi_value(value)),
-                Err(error) => Err(exact_error(error, signature, call)),
+                Err(error) => Err(mechanism_error(error, signature, call)),
             }
         }
         Family::Fixed(prototype) => {
@@ -685,7 +689,7 @@ unsafe fn invoke_abi_with_library(
             // SAFETY: as above.
             match unsafe { invoke_fixed_mechanism_with_library(library, &fixed) } {
                 Ok(value) => Ok(fixed_abi_value(value)),
-                Err(error) => Err(fixed_error(error, signature, call)),
+                Err(error) => Err(mechanism_error(error, signature, call)),
             }
         }
         Family::FixedPointer(prototype) => {
@@ -698,7 +702,7 @@ unsafe fn invoke_abi_with_library(
             // SAFETY: as above.
             match unsafe { invoke_fixed_pointer_mechanism_with_library(library, &pointer) } {
                 Ok(status) => Ok(AbiValue::I32(status)),
-                Err(error) => Err(pointer_error(error, signature, call)),
+                Err(error) => Err(mechanism_error(error, signature, call)),
             }
         }
         Family::PointerResult(prototype) => {

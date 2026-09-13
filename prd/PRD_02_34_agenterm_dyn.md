@@ -258,8 +258,9 @@ declaration → lowering → mechanism → typed-result 管线。若新增代码
    `invoke_prepared` 构造唯一 `NativeCall`，统一 handle reuse 与 dyn-error mapping；
    raw pointer rebasing、JSON scalar encoding 与 region readback 仍是各 transport 的
    有意后处理。该叶净删 69 LOC，没有新增 struct、trait、branch 或 public API。dyn 内部
-   三个 trampoline family 的 `SymbolLoad` / `SignatureUnsupported` 也由一个私有投射定义
-   生成，净删 32 LOC；三族从统一 `AbiValue` 到 family value 的转换与拒绝构造再共用
+   三个 trampoline family 不再各自维护一个随即被丢弃上下文的错误枚举：它们只产生
+   同一个私有两词 `MechanismError`，ABI 边界再一次性补齐公开错误所需的 library、symbol
+   与 signature 上下文，净删 94 LOC；三族从统一 `AbiValue` 到 family value 的转换与拒绝构造再共用
    一个单态化 helper，净删 10 LOC，同时保留三个具名 trampoline 调用和各自的 unsafe
    证据。五词 `AbiError`、75-shape 矩阵与唯一 loader 均未改变。
 2. **[x] 拒绝空壳中间表示**：不引入 `PreparedAbiCall` 或 `NativeOutcome`。

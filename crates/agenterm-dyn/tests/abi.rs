@@ -774,6 +774,24 @@ fn a_missing_pointer_result_symbol_keeps_the_shared_lookup_error() {
     );
 }
 
+#[test]
+fn a_missing_fixed_pointer_symbol_keeps_the_mechanism_error_boundary() {
+    let call = NativeCall {
+        library: "",
+        symbol: "agenterm_no_such_fixed_pointer_symbol_xyz",
+        signature: AbiSignature {
+            result: AbiType::I32,
+            params: &[AbiType::Pointer],
+        },
+        arguments: &[AbiValue::Pointer(std::ptr::null_mut())],
+    };
+    let error = unsafe { invoke_abi(&call) }.expect_err("the symbol must not exist");
+    assert!(
+        matches!(error, AbiError::SymbolLookup { .. }),
+        "expected SymbolLookup, got {error:?}"
+    );
+}
+
 /// Every shape the mechanism matrix admits, as `(result, params)`.
 ///
 /// This is the owner's inventory: the sweep below asserts each entry still has a

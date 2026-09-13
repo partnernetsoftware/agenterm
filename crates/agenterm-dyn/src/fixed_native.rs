@@ -1,8 +1,8 @@
 //! Fixed heterogeneous scalar prototypes which cannot use the homogeneous core.
 
-use std::fmt;
-
 use libloading::Library;
+
+use crate::abi::MechanismError;
 
 /// One scalar type admitted by the fixed-prototype core.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -79,42 +79,11 @@ pub struct FixedNativeCall<'a> {
     pub arguments: &'a [FixedNativeValue],
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum FixedNativeError {
-    SignatureUnsupported {
-        prototype: FixedNativePrototype,
-        parameters: Vec<FixedNativeType>,
-    },
-    SymbolLoad {
-        symbol: String,
-        message: String,
-    },
-}
-
-impl fmt::Display for FixedNativeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::SignatureUnsupported {
-                prototype,
-                parameters,
-            } => write!(
-                f,
-                "arguments do not match fixed prototype {prototype:?}: {parameters:?}"
-            ),
-            Self::SymbolLoad { symbol, message } => {
-                write!(f, "could not resolve native symbol {symbol:?}: {message}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for FixedNativeError {}
-
 /// Validate a fixed prototype before loading a library or resolving a symbol.
 pub fn validate_fixed_native_signature(
     prototype: FixedNativePrototype,
     arguments: &[FixedNativeValue],
-) -> Result<(), FixedNativeError> {
+) -> Result<(), MechanismError> {
     let parameters = arguments
         .iter()
         .map(|argument| argument.ty())
@@ -122,10 +91,7 @@ pub fn validate_fixed_native_signature(
     if parameters == prototype.parameters() {
         Ok(())
     } else {
-        Err(FixedNativeError::SignatureUnsupported {
-            prototype,
-            parameters,
-        })
+        Err(MechanismError::SignatureUnsupported)
     }
 }
 
@@ -138,7 +104,7 @@ pub fn validate_fixed_native_signature(
 pub(crate) unsafe fn invoke_fixed_mechanism_with_library(
     library: &Library,
     call: &FixedNativeCall<'_>,
-) -> Result<FixedNativeValue, FixedNativeError> {
+) -> Result<FixedNativeValue, MechanismError> {
     validate_fixed_native_signature(call.prototype, call.arguments)?;
     match (call.prototype, call.arguments) {
         (FixedNativePrototype::IsizeI32, [FixedNativeValue::I32(a)]) => {
@@ -167,7 +133,7 @@ fn invoke_i32_u64_u64(
     symbol: &str,
     a: u64,
     b: u64,
-) -> Result<i32, FixedNativeError> {
+) -> Result<i32, MechanismError> {
     // SAFETY: invoke_abi admitted this exact prototype; the remaining symbol
     // signature assertion belongs to its unsafe caller.
     let function =
@@ -177,7 +143,7 @@ fn invoke_i32_u64_u64(
     Ok(unsafe { function(a, b) })
 }
 
-fn invoke_u64_i32(library: &Library, symbol: &str, a: i32) -> Result<u64, FixedNativeError> {
+fn invoke_u64_i32(library: &Library, symbol: &str, a: i32) -> Result<u64, MechanismError> {
     // SAFETY: invoke_abi admitted this exact prototype; the remaining symbol
     // signature assertion belongs to its unsafe caller.
     let function = unsafe { library.get::<unsafe extern "C" fn(i32) -> u64>(symbol.as_bytes()) }
@@ -186,14 +152,14 @@ fn invoke_u64_i32(library: &Library, symbol: &str, a: i32) -> Result<u64, FixedN
     Ok(unsafe { function(a) })
 }
 
-fn symbol_error(symbol: &str, error: libloading::Error) -> FixedNativeError {
-    FixedNativeError::SymbolLoad {
+fn symbol_error(symbol: &str, error: libloading::Error) -> MechanismError {
+    MechanismError::SymbolLoad {
         symbol: symbol.to_owned(),
         message: error.to_string(),
     }
 }
 
-fn invoke_isize_i32(library: &Library, symbol: &str, a: i32) -> Result<isize, FixedNativeError> {
+fn invoke_isize_i32(library: &Library, symbol: &str, a: i32) -> Result<isize, MechanismError> {
     // SAFETY: invoke_abi admitted this exact prototype; the remaining symbol
     // signature assertion belongs to its unsafe caller.
     let function = unsafe { library.get::<unsafe extern "C" fn(i32) -> isize>(symbol.as_bytes()) }
@@ -208,7 +174,7 @@ fn invoke_i64_i32_i64_i32(
     a: i32,
     b: i64,
     c: i32,
-) -> Result<i64, FixedNativeError> {
+) -> Result<i64, MechanismError> {
     // SAFETY: invoke_abi admitted this exact prototype; the remaining symbol
     // signature assertion belongs to its unsafe caller.
     let function =

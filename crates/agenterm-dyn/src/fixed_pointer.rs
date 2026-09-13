@@ -1,9 +1,10 @@
 //! Fixed caller-buffer prototypes shared by native-door consumers.
 
 use std::ffi::c_void;
-use std::fmt;
 
 use libloading::Library;
+
+use crate::abi::MechanismError;
 
 /// One argument type admitted by the fixed pointer core.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -91,42 +92,11 @@ pub struct FixedPointerCall<'a> {
     pub arguments: &'a [FixedPointerValue],
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum FixedPointerError {
-    SignatureUnsupported {
-        prototype: FixedPointerPrototype,
-        parameters: Vec<FixedPointerType>,
-    },
-    SymbolLoad {
-        symbol: String,
-        message: String,
-    },
-}
-
-impl fmt::Display for FixedPointerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::SignatureUnsupported {
-                prototype,
-                parameters,
-            } => write!(
-                f,
-                "arguments do not match fixed pointer prototype {prototype:?}: {parameters:?}"
-            ),
-            Self::SymbolLoad { symbol, message } => {
-                write!(f, "could not resolve native symbol {symbol:?}: {message}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for FixedPointerError {}
-
 /// Validate a fixed pointer prototype before loading a library or resolving a symbol.
 pub fn validate_fixed_pointer_signature(
     prototype: FixedPointerPrototype,
     arguments: &[FixedPointerValue],
-) -> Result<(), FixedPointerError> {
+) -> Result<(), MechanismError> {
     let parameters = arguments
         .iter()
         .map(|argument| argument.ty())
@@ -134,10 +104,7 @@ pub fn validate_fixed_pointer_signature(
     if parameters == prototype.parameters() {
         Ok(())
     } else {
-        Err(FixedPointerError::SignatureUnsupported {
-            prototype,
-            parameters,
-        })
+        Err(MechanismError::SignatureUnsupported)
     }
 }
 
@@ -150,7 +117,7 @@ pub fn validate_fixed_pointer_signature(
 pub(crate) unsafe fn invoke_fixed_pointer_mechanism_with_library(
     library: &Library,
     call: &FixedPointerCall<'_>,
-) -> Result<i32, FixedPointerError> {
+) -> Result<i32, MechanismError> {
     validate_fixed_pointer_signature(call.prototype, call.arguments)?;
     match (call.prototype, call.arguments) {
         (FixedPointerPrototype::I32Pointer, [FixedPointerValue::Pointer(a)]) => {
@@ -205,7 +172,7 @@ fn invoke_i32_pointer_pointer(
     symbol: &str,
     a: *mut c_void,
     b: *mut c_void,
-) -> Result<i32, FixedPointerError> {
+) -> Result<i32, MechanismError> {
     // SAFETY: see invoke_i32_pointer.
     let function = unsafe {
         library.get::<unsafe extern "C" fn(*mut c_void, *mut c_void) -> i32>(symbol.as_bytes())
@@ -220,7 +187,7 @@ fn invoke_i32_pointer_u64(
     symbol: &str,
     a: *mut c_void,
     b: u64,
-) -> Result<i32, FixedPointerError> {
+) -> Result<i32, MechanismError> {
     // SAFETY: see invoke_i32_pointer.
     let function =
         unsafe { library.get::<unsafe extern "C" fn(*mut c_void, u64) -> i32>(symbol.as_bytes()) }
@@ -235,7 +202,7 @@ fn invoke_i32_pointer_pointer_pointer(
     a: *mut c_void,
     b: *mut c_void,
     c: *mut c_void,
-) -> Result<i32, FixedPointerError> {
+) -> Result<i32, MechanismError> {
     // SAFETY: see invoke_i32_pointer.
     let function = unsafe {
         library.get::<unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void) -> i32>(
@@ -247,8 +214,8 @@ fn invoke_i32_pointer_pointer_pointer(
     Ok(unsafe { function(a, b, c) })
 }
 
-fn symbol_error(symbol: &str, error: libloading::Error) -> FixedPointerError {
-    FixedPointerError::SymbolLoad {
+fn symbol_error(symbol: &str, error: libloading::Error) -> MechanismError {
+    MechanismError::SymbolLoad {
         symbol: symbol.to_owned(),
         message: error.to_string(),
     }
@@ -258,7 +225,7 @@ fn invoke_i32_pointer(
     library: &Library,
     symbol: &str,
     a: *mut c_void,
-) -> Result<i32, FixedPointerError> {
+) -> Result<i32, MechanismError> {
     // SAFETY: invoke_abi admitted this exact prototype; the remaining
     // symbol and pointee assertions belong to its unsafe caller.
     let function =
@@ -273,7 +240,7 @@ fn invoke_i32_i32_pointer(
     symbol: &str,
     a: i32,
     b: *mut c_void,
-) -> Result<i32, FixedPointerError> {
+) -> Result<i32, MechanismError> {
     // SAFETY: see invoke_i32_pointer.
     let function =
         unsafe { library.get::<unsafe extern "C" fn(i32, *mut c_void) -> i32>(symbol.as_bytes()) }
@@ -287,7 +254,7 @@ fn invoke_i32_pointer_i32(
     symbol: &str,
     a: *mut c_void,
     b: i32,
-) -> Result<i32, FixedPointerError> {
+) -> Result<i32, MechanismError> {
     // SAFETY: see invoke_i32_pointer.
     let function =
         unsafe { library.get::<unsafe extern "C" fn(*mut c_void, i32) -> i32>(symbol.as_bytes()) }
@@ -302,7 +269,7 @@ fn invoke_i32_i32_pointer_u32(
     a: i32,
     b: *mut c_void,
     c: u32,
-) -> Result<i32, FixedPointerError> {
+) -> Result<i32, MechanismError> {
     // SAFETY: see invoke_i32_pointer.
     let function = unsafe {
         library.get::<unsafe extern "C" fn(i32, *mut c_void, u32) -> i32>(symbol.as_bytes())
@@ -318,7 +285,7 @@ fn invoke_i32_u64_pointer_u64(
     a: u64,
     b: *mut c_void,
     c: u64,
-) -> Result<i32, FixedPointerError> {
+) -> Result<i32, MechanismError> {
     // SAFETY: see invoke_i32_pointer.
     let function = unsafe {
         library.get::<unsafe extern "C" fn(u64, *mut c_void, u64) -> i32>(symbol.as_bytes())
