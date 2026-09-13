@@ -115,6 +115,7 @@ agenterm-dyn
 │   ├── exact_native / fixed_native / fixed_pointer [crate-private family mechanism]
 │   │   └── 只暂存 invoke_abi 选择的单态 trampoline；不再公开
 │   ├── open_library                                [唯一 loader（libloading）]
+│   ├── resolve_symbol<T>                           [分类后唯一 typed lookup/error projection]
 │   └── unix_ioctl
 │       ├── variadic 调用机制 (i32, i32|u64, ptr) -> i32  [保留]
 │       └── UnixIoctlRequest 的“允许签名”          [**策略 → 上层**]

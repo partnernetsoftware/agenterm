@@ -756,6 +756,24 @@ fn a_missing_symbol_is_a_symbol_lookup_error() {
     );
 }
 
+#[test]
+fn a_missing_pointer_result_symbol_keeps_the_shared_lookup_error() {
+    let call = NativeCall {
+        library: "",
+        symbol: "agenterm_no_such_pointer_symbol_xyz",
+        signature: AbiSignature {
+            result: AbiType::Pointer,
+            params: &[],
+        },
+        arguments: &[],
+    };
+    let error = unsafe { invoke_abi(&call) }.expect_err("the symbol must not exist");
+    assert!(
+        matches!(error, AbiError::SymbolLookup { .. }),
+        "expected SymbolLookup, got {error:?}"
+    );
+}
+
 /// Every shape the mechanism matrix admits, as `(result, params)`.
 ///
 /// This is the owner's inventory: the sweep below asserts each entry still has a

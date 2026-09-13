@@ -1181,6 +1181,12 @@ that production match, not the integration court. Temporarily add the variant,
 update every production exhaustive match, require `E0004` at the owner court,
 then reverse the exact edits and verify the pre-mutation hashes.
 
+When several mechanism families converge on one internal error projection, a
+representative from only the oldest family does not own that shared seam. Add a
+black-box failure from each independently routed family (for example an exact
+scalar and a pointer-result lookup); mutate the shared projection and require
+the newly routed representative to fail by name.
+
 If the enum also publishes stable machine-readable string codes, exhaustiveness
 alone is insufficient: construct one representative of every variant, pin its
 exact code, and assert that the complete code set is unique. An exhaustive

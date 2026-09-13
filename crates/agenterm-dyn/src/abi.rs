@@ -707,40 +707,34 @@ unsafe fn invoke_abi_with_library(
                     // SAFETY: classification admitted this exact shape; the caller
                     // asserts that the symbol really has the declared C ABI.
                     let function = unsafe {
-                        library.get::<unsafe extern "C" fn() -> *mut c_void>(call.symbol.as_bytes())
-                    }
-                    .map_err(|error| pointer_result_symbol_error(call, error))?;
+                        resolve_symbol::<unsafe extern "C" fn() -> *mut c_void>(library, call)
+                    }?;
                     // SAFETY: the caller owns the symbol contract and library lifetime.
                     unsafe { function() }
                 }
                 (PointerResultPrototype::U32, [AbiValue::U32(argument)]) => {
                     // SAFETY: as above, for the admitted `ptr(u32)` shape.
                     let function = unsafe {
-                        library
-                            .get::<unsafe extern "C" fn(u32) -> *mut c_void>(call.symbol.as_bytes())
-                    }
-                    .map_err(|error| pointer_result_symbol_error(call, error))?;
+                        resolve_symbol::<unsafe extern "C" fn(u32) -> *mut c_void>(library, call)
+                    }?;
                     // SAFETY: the caller owns the symbol contract and library lifetime.
                     unsafe { function(*argument) }
                 }
                 (PointerResultPrototype::U64, [AbiValue::U64(argument)]) => {
                     // SAFETY: as above, for the admitted `ptr(u64)` shape.
                     let function = unsafe {
-                        library
-                            .get::<unsafe extern "C" fn(u64) -> *mut c_void>(call.symbol.as_bytes())
-                    }
-                    .map_err(|error| pointer_result_symbol_error(call, error))?;
+                        resolve_symbol::<unsafe extern "C" fn(u64) -> *mut c_void>(library, call)
+                    }?;
                     // SAFETY: the caller owns the symbol contract and library lifetime.
                     unsafe { function(*argument) }
                 }
                 (PointerResultPrototype::Pointer, [AbiValue::Pointer(argument)]) => {
                     // SAFETY: as above, for the admitted `ptr(ptr)` shape.
                     let function = unsafe {
-                        library.get::<unsafe extern "C" fn(*mut c_void) -> *mut c_void>(
-                            call.symbol.as_bytes(),
+                        resolve_symbol::<unsafe extern "C" fn(*mut c_void) -> *mut c_void>(
+                            library, call,
                         )
-                    }
-                    .map_err(|error| pointer_result_symbol_error(call, error))?;
+                    }?;
                     // SAFETY: the caller owns the input and returned-pointer contracts.
                     unsafe { function(*argument) }
                 }
@@ -750,11 +744,10 @@ unsafe fn invoke_abi_with_library(
                 ) => {
                     // SAFETY: as above, for the admitted `ptr(ptr,usize)` shape.
                     let function = unsafe {
-                        library.get::<unsafe extern "C" fn(*mut c_void, usize) -> *mut c_void>(
-                            call.symbol.as_bytes(),
+                        resolve_symbol::<unsafe extern "C" fn(*mut c_void, usize) -> *mut c_void>(
+                            library, call,
                         )
-                    }
-                    .map_err(|error| pointer_result_symbol_error(call, error))?;
+                    }?;
                     // SAFETY: the caller owns the complete buffer contract.
                     unsafe { function(*buffer, *length) }
                 }
@@ -768,10 +761,8 @@ unsafe fn invoke_abi_with_library(
             };
             // SAFETY: classification admitted `isize(u32)`; the caller asserts
             // that the resolved symbol really has this C ABI.
-            let function = unsafe {
-                library.get::<unsafe extern "C" fn(u32) -> isize>(call.symbol.as_bytes())
-            }
-            .map_err(|error| pointer_result_symbol_error(call, error))?;
+            let function =
+                unsafe { resolve_symbol::<unsafe extern "C" fn(u32) -> isize>(library, call) }?;
             // SAFETY: the caller owns the symbol contract and library lifetime.
             Ok(AbiValue::Isize(unsafe { function(*argument) }))
         }
@@ -782,8 +773,7 @@ unsafe fn invoke_abi_with_library(
             // SAFETY: classification admitted `void(ptr)`; the caller asserts
             // that the resolved symbol really has this C ABI.
             let function =
-                unsafe { library.get::<unsafe extern "C" fn(*mut c_void)>(call.symbol.as_bytes()) }
-                    .map_err(|error| pointer_result_symbol_error(call, error))?;
+                unsafe { resolve_symbol::<unsafe extern "C" fn(*mut c_void)>(library, call) }?;
             // SAFETY: the caller owns the symbol contract, pointer validity and
             // library lifetime.
             unsafe { function(*argument) };
@@ -796,9 +786,8 @@ unsafe fn invoke_abi_with_library(
             // SAFETY: classification admitted `i64(ptr)`; the caller asserts
             // that the resolved symbol really has this C ABI.
             let function = unsafe {
-                library.get::<unsafe extern "C" fn(*mut c_void) -> i64>(call.symbol.as_bytes())
-            }
-            .map_err(|error| pointer_result_symbol_error(call, error))?;
+                resolve_symbol::<unsafe extern "C" fn(*mut c_void) -> i64>(library, call)
+            }?;
             // SAFETY: the caller owns the symbol contract, pointer validity and
             // library lifetime.
             Ok(AbiValue::I64(unsafe { function(*argument) }))
@@ -815,11 +804,8 @@ unsafe fn invoke_abi_with_library(
             // SAFETY: classification admitted `i32(i32,i32,ptr)`; the caller
             // asserts that the resolved symbol really has this C ABI.
             let function = unsafe {
-                library.get::<unsafe extern "C" fn(i32, i32, *mut c_void) -> i32>(
-                    call.symbol.as_bytes(),
-                )
-            }
-            .map_err(|error| pointer_result_symbol_error(call, error))?;
+                resolve_symbol::<unsafe extern "C" fn(i32, i32, *mut c_void) -> i32>(library, call)
+            }?;
             // SAFETY: the caller owns the symbol contract, output storage and
             // library lifetime.
             Ok(AbiValue::I32(unsafe { function(*first, *second, *output) }))
@@ -838,11 +824,10 @@ unsafe fn invoke_abi_with_library(
             // SAFETY: classification admitted `i32(i32,i32,u64,ptr,i32)`; the
             // caller asserts that the resolved symbol really has this C ABI.
             let function = unsafe {
-                library.get::<unsafe extern "C" fn(i32, i32, u64, *mut c_void, i32) -> i32>(
-                    call.symbol.as_bytes(),
+                resolve_symbol::<unsafe extern "C" fn(i32, i32, u64, *mut c_void, i32) -> i32>(
+                    library, call,
                 )
-            }
-            .map_err(|error| pointer_result_symbol_error(call, error))?;
+            }?;
             // SAFETY: the caller owns the symbol contract, output storage and
             // library lifetime.
             Ok(AbiValue::I32(unsafe {
@@ -864,16 +849,17 @@ unsafe fn invoke_abi_with_library(
             // SAFETY: classification admitted `i32(ptr,u32,ptr,ptr,ptr,usize)`;
             // the caller asserts that the resolved symbol really has this C ABI.
             let function = unsafe {
-                library.get::<unsafe extern "C" fn(
-                    *mut c_void,
-                    u32,
-                    *mut c_void,
-                    *mut c_void,
-                    *mut c_void,
-                    usize,
-                ) -> i32>(call.symbol.as_bytes())
-            }
-            .map_err(|error| pointer_result_symbol_error(call, error))?;
+                resolve_symbol::<
+                    unsafe extern "C" fn(
+                        *mut c_void,
+                        u32,
+                        *mut c_void,
+                        *mut c_void,
+                        *mut c_void,
+                        usize,
+                    ) -> i32,
+                >(library, call)
+            }?;
             // SAFETY: the caller owns the symbol contract, all pointer
             // lifetimes and the library lifetime.
             Ok(AbiValue::I32(unsafe {
@@ -899,11 +885,10 @@ unsafe fn invoke_abi_with_library(
             // SAFETY: classification admitted `usize(i32,ptr,usize)`; the caller
             // asserts that the resolved symbol really has this C ABI.
             let function = unsafe {
-                library.get::<unsafe extern "C" fn(i32, *mut c_void, usize) -> usize>(
-                    call.symbol.as_bytes(),
+                resolve_symbol::<unsafe extern "C" fn(i32, *mut c_void, usize) -> usize>(
+                    library, call,
                 )
-            }
-            .map_err(|error| pointer_result_symbol_error(call, error))?;
+            }?;
             // SAFETY: the caller owns the symbol contract, pointer validity and
             // library lifetime.
             Ok(AbiValue::Usize(unsafe {
@@ -916,10 +901,8 @@ unsafe fn invoke_abi_with_library(
             };
             // SAFETY: classification admitted `i32(u32,u32)`; the caller
             // asserts that the resolved symbol really has this C ABI.
-            let function = unsafe {
-                library.get::<unsafe extern "C" fn(u32, u32) -> i32>(call.symbol.as_bytes())
-            }
-            .map_err(|error| pointer_result_symbol_error(call, error))?;
+            let function =
+                unsafe { resolve_symbol::<unsafe extern "C" fn(u32, u32) -> i32>(library, call) }?;
             // SAFETY: the caller owns the symbol contract and library lifetime.
             Ok(AbiValue::I32(unsafe { function(*which, *who) }))
         }
@@ -929,10 +912,8 @@ unsafe fn invoke_abi_with_library(
             };
             // SAFETY: classification admitted `i32(i32,u32)`; the caller
             // asserts that the resolved symbol really has this C ABI.
-            let function = unsafe {
-                library.get::<unsafe extern "C" fn(i32, u32) -> i32>(call.symbol.as_bytes())
-            }
-            .map_err(|error| pointer_result_symbol_error(call, error))?;
+            let function =
+                unsafe { resolve_symbol::<unsafe extern "C" fn(i32, u32) -> i32>(library, call) }?;
             // SAFETY: the caller owns the symbol contract and library lifetime.
             Ok(AbiValue::I32(unsafe { function(*which, *who) }))
         }
@@ -955,10 +936,21 @@ fn open_named_library(library: &str) -> Result<Library, AbiError> {
     })
 }
 
-fn pointer_result_symbol_error(call: &NativeCall<'_>, error: libloading::Error) -> AbiError {
+fn symbol_error(call: &NativeCall<'_>, error: libloading::Error) -> AbiError {
     AbiError::SymbolLookup {
         library: display_library(call.library),
         symbol: call.symbol.to_owned(),
         message: error.to_string(),
     }
+}
+
+/// Resolve one already-classified function pointer and detach that `Copy`
+/// address from libloading's borrow. The caller still keeps `library` alive
+/// through the synchronous invocation that immediately follows.
+unsafe fn resolve_symbol<T: Copy>(library: &Library, call: &NativeCall<'_>) -> Result<T, AbiError> {
+    // SAFETY: the caller selected `T` from the closed family classification and
+    // owns the assertion that the named symbol really has that C ABI.
+    unsafe { library.get::<T>(call.symbol.as_bytes()) }
+        .map(|symbol| *symbol)
+        .map_err(|error| symbol_error(call, error))
 }
