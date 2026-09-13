@@ -363,11 +363,9 @@ if (canonical.kind === "usage") {
   print(JSON.stringify(usage(canonical.command, canonical.message, canonical.code)));
   return 2;
 }
-if (canonical.kind === "todo") {
-  print(JSON.stringify(todo(canonical.gap_id, canonical.command, canonical.message)));
-  return 2;
-}
-let reply = canonical.kind === "identity-kill"
+let reply = canonical.kind === "todo"
+  ? todo(canonical.gap_id, canonical.command, canonical.message)
+  : canonical.kind === "identity-kill"
   ? execute_identity_kill(canonical)
   : canonical.kind === "exec" ? acu.argv(canonical.argv) : execute_compound(canonical);
 if (reply.ok !== true && reply.error !== null && reply.error !== undefined
