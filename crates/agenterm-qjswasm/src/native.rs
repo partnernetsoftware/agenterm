@@ -249,6 +249,30 @@ pub enum NativeDoorError {
         index: usize,
         ty: NativeType,
     },
+    /// A pointer parameter position arrived without a call-scoped region.
+    NativeRegionRequired {
+        index: usize,
+    },
+    /// The region record itself is malformed. `reason` is a bounded,
+    /// stable sentence; the code is what a caller matches on.
+    NativeRegionShapeInvalid {
+        index: usize,
+        reason: &'static str,
+    },
+    /// This call's regions together exceed the slot's region budget. Charged
+    /// before any allocation, and a refusal rather than a smaller region.
+    NativeRegionTooLarge {
+        requested: usize,
+        maximum: usize,
+    },
+    /// `termination: "nul"` and the call left no NUL in the region.
+    NativeRegionUnterminated {
+        index: usize,
+    },
+    /// `output: "text"` and the bytes before the terminator are not UTF-8.
+    NativeRegionNotUtf8 {
+        index: usize,
+    },
     LibraryLoad {
         library: String,
         message: String,
@@ -298,6 +322,11 @@ impl NativeDoorError {
             Self::ArgumentsMalformed => "native_arguments_malformed",
             Self::ArgumentCountMismatch { .. } => "native_argument_count_mismatch",
             Self::ArgumentValueInvalid { .. } => "native_argument_value_invalid",
+            Self::NativeRegionRequired { .. } => "native_region_required",
+            Self::NativeRegionShapeInvalid { .. } => "native_region_shape_invalid",
+            Self::NativeRegionTooLarge { .. } => "native_region_too_large",
+            Self::NativeRegionUnterminated { .. } => "native_region_unterminated",
+            Self::NativeRegionNotUtf8 { .. } => "native_region_not_utf8",
             Self::LibraryLoad { .. } => "native_library_load_failed",
             Self::SymbolLoad { .. } => "native_symbol_load_failed",
         }
@@ -402,6 +431,33 @@ impl fmt::Display for NativeDoorError {
             }
             Self::ArgumentValueInvalid { index, ty } => {
                 write!(f, "argument {index} is not an exact JSON value for {ty:?}")
+            }
+            Self::NativeRegionRequired { index } => {
+                write!(
+                    f,
+                    "argument {index} is a pointer position and needs one region record"
+                )
+            }
+            Self::NativeRegionShapeInvalid { index, reason } => {
+                write!(f, "argument {index} region record: {reason}")
+            }
+            Self::NativeRegionTooLarge { requested, maximum } => {
+                write!(
+                    f,
+                    "arguments ask for {requested} region bytes, maximum {maximum}"
+                )
+            }
+            Self::NativeRegionUnterminated { index } => {
+                write!(
+                    f,
+                    "argument {index} region has no NUL after the call though termination is \"nul\""
+                )
+            }
+            Self::NativeRegionNotUtf8 { index } => {
+                write!(
+                    f,
+                    "argument {index} region output is not UTF-8 though output is \"text\""
+                )
             }
             Self::LibraryLoad { library, message } => {
                 write!(f, "could not load native library {library:?}: {message}")
@@ -882,17 +938,60 @@ pub(crate) fn invoke_native_call(
 ///
 /// `libraries` is the engine's loaded-library table, exactly as in
 /// [`invoke_native_call`].
+///
+/// # Call-scoped regions
+///
+/// A JSON caller has no guest linear memory to point into, so a pointer
+/// parameter position takes one **region record** instead of a raw address:
+///
+/// ```text
+/// {"region":{"capacity":128,"bytes":[47,116,109,112],"termination":"nul","output":"text"}}
+/// ```
+///
+/// The host allocates that storage for exactly this call, zero-fills it,
+/// copies `bytes` into the front, and passes its address to the foreign
+/// function. `capacity` is required, positive, at least `bytes.len()`, and
+/// billed against `max_region_bytes` for the whole call *before* anything is
+/// allocated. `bytes` may be omitted (then empty). `termination` is `"nul"`
+/// (the input must contain no NUL and must leave room for one; after the call
+/// the region must contain a NUL) or `"raw"` (no terminator is added or
+/// required). `output` is `"text"` (answer the bytes before the terminator,
+/// which must be UTF-8; needs `termination: "nul"`) or `"bytes"` (answer them
+/// as integers -- before the terminator for `"nul"`, the whole capacity for
+/// `"raw"`).
+///
+/// Every pointer position needs its own region; a scalar or `null` there is a
+/// typed refusal, not a null pointer. Nothing about a region survives the
+/// call: the answer carries no address, no handle, no registry and no guest
+/// offset, and there is no cross-call lifetime. The readback happens whether
+/// the callee reported success or failure, so a region the callee left
+/// unterminated or non-UTF-8 refuses the whole call rather than being hidden
+/// behind a status.
+///
+/// Only the pointer prototypes whose result is `i32` are served here
+/// ([`pointer_prototype_json_admitted`]); a pointer result has no guest span to
+/// rebase onto and stays refused, as do the `i64`/`void` pointer shapes and the
+/// Unix `ioctl` shapes. The guest remains the unsafe ABI caller: an opaque
+/// `ptr` position does not tell the door how many bytes the selected C symbol
+/// writes, so an under-sized region is exactly the `native_call` hazard.
 pub(crate) fn invoke_native_json(
     spec: &[u8],
     arguments_json: &[u8],
     libraries: &NativeLibraryCache,
+    max_region_bytes: usize,
 ) -> Result<String, NativeDoorError> {
     let spec = parse_native_spec(spec)?;
     let dispatch = native_dispatch(&spec)?;
-    if matches!(
-        dispatch,
-        NativeDispatch::FixedPointer(_) | NativeDispatch::UnixIoctl(_)
-    ) {
+    // The shapes this adapter still does not serve are refused before the JSON
+    // is even parsed, so a declaration mistake keeps outranking an argument
+    // mistake. Exhaustive on purpose: a new dispatch variant cannot slip
+    // through unclassified.
+    let refused = match dispatch {
+        NativeDispatch::Exact { .. } | NativeDispatch::Fixed(_) => false,
+        NativeDispatch::FixedPointer(prototype) => !pointer_prototype_json_admitted(prototype),
+        NativeDispatch::UnixIoctl(_) => true,
+    };
+    if refused {
         return Err(NativeDoorError::InvocationSignatureUnsupported {
             result: spec.result,
             parameters: spec.parameters.clone(),
@@ -984,11 +1083,118 @@ pub(crate) fn invoke_native_json(
                     })
                 })?
         }
-        NativeDispatch::FixedPointer(_) | NativeDispatch::UnixIoctl(_) => {
-            unreachable!("pointer JSON calls reject above")
+        NativeDispatch::FixedPointer(prototype) => {
+            debug_assert!(
+                pointer_prototype_json_admitted(prototype),
+                "the refusal above admits only the i32-returning pointer prototypes"
+            );
+            invoke_pointer_json(&spec, values, libraries, max_region_bytes)?
         }
+        NativeDispatch::UnixIoctl(_) => unreachable!("ioctl JSON calls reject above"),
     };
     Ok(value.to_string())
+}
+
+/// One admitted pointer call, with every pointer position backed by a region.
+///
+/// The layout is built in two passes on purpose. The first decodes and
+/// validates every argument in declaration order (so the guest sees the first
+/// failing position) and allocates each region; the second turns those regions
+/// into addresses. No region is added after an address is taken, so the storage
+/// behind every pointer is fixed for the whole synchronous call.
+///
+/// The answer is the scalar result plus one entry per pointer position:
+/// `{"type":"i32","value":0,"regions":[...]}`, in the same `"type"`/`"value"`
+/// vocabulary the scalar path already answers with. A region entry states the
+/// declaration it was read under (`output`, `termination`) and the bytes it
+/// holds; it never states a written length the door would have to guess.
+fn invoke_pointer_json(
+    spec: &NativeSpec,
+    values: &[serde_json::Value],
+    libraries: &NativeLibraryCache,
+    max_region_bytes: usize,
+) -> Result<serde_json::Value, NativeDoorError> {
+    let mut regions: Vec<NativeRegion> = Vec::new();
+    let mut layout: Vec<JsonPointerArgument> = Vec::with_capacity(values.len());
+    let mut billed = 0_usize;
+    for (index, (ty, value)) in spec.parameters.iter().copied().zip(values).enumerate() {
+        if ty.is_pointer() {
+            let region = NativeRegion::from_json(index, value, max_region_bytes, &mut billed)?;
+            let region_index = regions.len();
+            regions.push(region);
+            layout.push(JsonPointerArgument::Region(region_index));
+        } else {
+            // A scalar position keeps the exact value grammar it has in the
+            // fixed family; only the pointer positions changed meaning.
+            layout.push(JsonPointerArgument::Scalar(fixed_json_argument(
+                index, ty, value,
+            )?));
+        }
+    }
+
+    let mut arguments: Vec<agenterm_dyn::AbiValue> = Vec::with_capacity(layout.len());
+    let mut positions: Vec<(usize, usize)> = Vec::new();
+    for (index, argument) in layout.into_iter().enumerate() {
+        match argument {
+            JsonPointerArgument::Region(region) => {
+                arguments.push(agenterm_dyn::AbiValue::Pointer(regions[region].pointer()));
+                positions.push((index, region));
+            }
+            JsonPointerArgument::Scalar(value) => arguments.push(value),
+        }
+    }
+
+    let abi_params = abi_parameters_for_spec(spec)?;
+    let abi_call = agenterm_dyn::NativeCall {
+        library: &spec.library,
+        symbol: &spec.symbol,
+        signature: agenterm_dyn::AbiSignature {
+            result: abi_type(spec.result).ok_or_else(|| unsupported_json_spec(spec))?,
+            params: &abi_params,
+        },
+        arguments: &arguments,
+    };
+    // SAFETY: native_dispatch admitted one enumerated pointer prototype and the
+    // JSON adapter admitted it only because its result is `i32`; every pointer
+    // argument is storage this call allocated and zero-filled, and the foreign
+    // call is synchronous, so the addresses stay valid for its whole duration.
+    // The guest still owns the pointee contract: an opaque `ptr` position does
+    // not say how many bytes the selected C symbol writes.
+    let value = unsafe { invoke_with(libraries, &abi_call) }
+        .map_err(|error| map_abi_error_for_spec(spec, error))?;
+    let agenterm_dyn::AbiValue::I32(status) = value else {
+        return Err(unsupported_json_spec(spec));
+    };
+
+    let mut answer = serde_json::Map::new();
+    answer.insert("type".to_owned(), serde_json::Value::from("i32"));
+    answer.insert("value".to_owned(), serde_json::Value::from(status));
+    answer.insert(
+        "regions".to_owned(),
+        serde_json::Value::Array(
+            positions
+                .iter()
+                .map(|(index, region)| regions[*region].readback(*index))
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+    );
+    Ok(serde_json::Value::Object(answer))
+}
+
+/// One already-validated argument of a pointer call.
+enum JsonPointerArgument {
+    /// A region this call allocated; the value is its index in that call's
+    /// region list, never an address.
+    Region(usize),
+    Scalar(agenterm_dyn::AbiValue),
+}
+
+/// The refusal this adapter states for a declaration it does not serve.
+fn unsupported_json_spec(spec: &NativeSpec) -> NativeDoorError {
+    NativeDoorError::InvocationSignatureUnsupported {
+        result: spec.result,
+        parameters: spec.parameters.clone(),
+    }
 }
 
 /// Run one admitted call through this engine's loaded handle when it has one.
@@ -1163,6 +1369,268 @@ impl PointerPrototype {
             ),
         }
     }
+}
+
+/// The natural alignment every call-scoped region carries.
+///
+/// A region is host-allocated storage handed to an opaque `ptr` position, and
+/// the door cannot know what the selected C symbol expects. 16 bytes is the
+/// largest natural alignment an admitted prototype can require on a repository
+/// target (`long double` / `max_align_t` on both SysV x86_64 and AArch64), so
+/// the storage is over-allocated to a whole number of these units and every
+/// region starts aligned for anything a C callee may assume.
+const REGION_ALIGNMENT: usize = 16;
+
+/// One alignment unit of region storage. The wrapper exists only so the
+/// *allocation* — not just the struct — carries [`REGION_ALIGNMENT`]: a
+/// `Vec<u8>` may be byte-aligned, a `Vec<RegionWord>` is not.
+#[repr(align(16))]
+#[derive(Clone, Copy)]
+struct RegionWord([u8; REGION_ALIGNMENT]);
+
+impl RegionWord {
+    /// The zeroed unit every region starts as.
+    const ZEROED: Self = Self([0; REGION_ALIGNMENT]);
+
+    /// The unit's own bytes.
+    ///
+    /// Reading the array through the wrapper is what makes the region and the
+    /// alignment unit *the same* storage rather than two allocations that
+    /// happen to agree in size.
+    fn bytes(&self) -> &[u8; REGION_ALIGNMENT] {
+        &self.0
+    }
+}
+
+/// The region contract as one choice rather than two independent fields.
+///
+/// `termination` and `output` are not orthogonal: `"raw"` has no end, so
+/// `"raw" + "text"` has nothing to decode. Keeping the three admitted
+/// combinations in an enum makes the refused fourth unrepresentable, so the
+/// readback cannot be reached in a state the decoder never validated.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RegionContract {
+    /// NUL-terminated; answer as text (the bytes before the terminator).
+    NulText,
+    /// NUL-terminated; answer as the bytes before the terminator.
+    NulBytes,
+    /// No terminator; answer as every byte of the capacity.
+    RawBytes,
+}
+
+impl RegionContract {
+    fn termination(self) -> &'static str {
+        match self {
+            Self::NulText | Self::NulBytes => "nul",
+            Self::RawBytes => "raw",
+        }
+    }
+
+    fn output(self) -> &'static str {
+        match self {
+            Self::NulText => "text",
+            Self::NulBytes | Self::RawBytes => "bytes",
+        }
+    }
+
+    fn requires_nul(self) -> bool {
+        matches!(self, Self::NulText | Self::NulBytes)
+    }
+}
+
+/// The JSON key a pointer argument's region record lives under.
+const REGION_KEY: &str = "region";
+
+/// One call-scoped host region: storage the host owns for exactly one
+/// synchronous call, plus the contract the guest stated for reading it back.
+///
+/// The region is not a guest span and not a host address the guest can name:
+/// it is created by this call, passed as the call's pointer argument, and
+/// dropped when the call returns. Nothing about it survives into a second
+/// call, and no field of the answer exposes its address.
+struct NativeRegion {
+    words: Vec<RegionWord>,
+    capacity: usize,
+    contract: RegionContract,
+}
+
+impl NativeRegion {
+    /// Decode one `{"region": {...}}` argument and allocate its storage.
+    ///
+    /// Every check runs before `words` is allocated, including the bill: the
+    /// running capacity total of this call is compared with the slot's region
+    /// budget here, so an over-budget argument never reaches the allocator.
+    fn from_json(
+        index: usize,
+        value: &serde_json::Value,
+        maximum: usize,
+        billed: &mut usize,
+    ) -> Result<Self, NativeDoorError> {
+        let shape =
+            |reason: &'static str| NativeDoorError::NativeRegionShapeInvalid { index, reason };
+        let Some(argument) = value.as_object() else {
+            return Err(NativeDoorError::NativeRegionRequired { index });
+        };
+        if !argument.contains_key(REGION_KEY) {
+            return Err(NativeDoorError::NativeRegionRequired { index });
+        }
+        if argument.len() != 1 {
+            return Err(shape("the record carries a key beside \"region\""));
+        }
+        let Some(record) = argument[REGION_KEY].as_object() else {
+            return Err(shape("region must be an object"));
+        };
+        for key in record.keys() {
+            if !matches!(
+                key.as_str(),
+                "capacity" | "bytes" | "termination" | "output"
+            ) {
+                return Err(shape(
+                    "region admits only capacity, bytes, termination and output",
+                ));
+            }
+        }
+        let capacity = record
+            .get("capacity")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|capacity| usize::try_from(capacity).ok())
+            .filter(|capacity| *capacity > 0)
+            .ok_or_else(|| shape("capacity must be a positive integer"))?;
+        let input: Vec<u8> = match record.get("bytes") {
+            None => Vec::new(),
+            Some(bytes) => bytes
+                .as_array()
+                .ok_or_else(|| shape("bytes must be an array of 0..=255"))?
+                .iter()
+                .map(|byte| {
+                    byte.as_u64()
+                        .filter(|byte| *byte <= u64::from(u8::MAX))
+                        .map(|byte| byte as u8)
+                        .ok_or_else(|| shape("bytes must be an array of 0..=255"))
+                })
+                .collect::<Result<Vec<u8>, NativeDoorError>>()?,
+        };
+        if input.len() > capacity {
+            return Err(shape("capacity must not be smaller than bytes"));
+        }
+        let termination = record
+            .get("termination")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| shape("termination must be \"nul\" or \"raw\""))?;
+        let output = record
+            .get("output")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| shape("output must be \"text\" or \"bytes\""))?;
+        let contract = match (termination, output) {
+            ("nul", "text") => RegionContract::NulText,
+            ("nul", "bytes") => RegionContract::NulBytes,
+            ("raw", "bytes") => RegionContract::RawBytes,
+            ("raw", "text") => {
+                return Err(shape("output \"text\" needs termination \"nul\""));
+            }
+            ("nul" | "raw", _) => return Err(shape("output must be \"text\" or \"bytes\"")),
+            _ => return Err(shape("termination must be \"nul\" or \"raw\"")),
+        };
+        if contract.requires_nul() {
+            if input.contains(&0) {
+                return Err(shape("termination \"nul\" refuses input bytes of NUL"));
+            }
+            if input.len() >= capacity {
+                return Err(shape(
+                    "termination \"nul\" needs one byte of room for the terminator",
+                ));
+            }
+        }
+        // The bill before the allocation, never after it.
+        *billed = billed.saturating_add(capacity);
+        if *billed > maximum {
+            return Err(NativeDoorError::NativeRegionTooLarge {
+                requested: *billed,
+                maximum,
+            });
+        }
+        let mut region = Self {
+            words: vec![RegionWord::ZEROED; capacity.div_ceil(REGION_ALIGNMENT)],
+            capacity,
+            contract,
+        };
+        region.bytes_mut()[..input.len()].copy_from_slice(&input);
+        Ok(region)
+    }
+
+    /// The region's first `capacity` bytes, zero-filled except for the input.
+    fn bytes(&self) -> &[u8] {
+        // SAFETY: `capacity.div_ceil(REGION_ALIGNMENT)` units were allocated, so
+        // `words.len() * REGION_ALIGNMENT >= capacity`; every byte of every unit
+        // was initialised by `RegionWord::ZEROED`. The cast reinterprets `[u8; N]`
+        // storage as `u8` storage, which changes neither alignment nor validity,
+        // and the slice starts at the wrapper's own first unit.
+        unsafe { std::slice::from_raw_parts(self.words[0].bytes().as_ptr(), self.capacity) }
+    }
+
+    fn bytes_mut(&mut self) -> &mut [u8] {
+        // SAFETY: forwarded from `bytes`; this region is exclusively borrowed.
+        unsafe {
+            std::slice::from_raw_parts_mut(self.words.as_mut_ptr().cast::<u8>(), self.capacity)
+        }
+    }
+
+    /// The raw address handed to the foreign call.
+    ///
+    /// This is the only place a region becomes a pointer, and the pointer is
+    /// call-scoped by construction: it borrows storage this call allocated,
+    /// and the storage outlives the synchronous `invoke_abi` that consumes it.
+    fn pointer(&mut self) -> *mut std::ffi::c_void {
+        self.words.as_mut_ptr().cast()
+    }
+
+    /// The region's declared output contract, as one `regions` entry.
+    ///
+    /// `output: "bytes"` answers the exact bytes, never a guessed written
+    /// length and never an encoding layer (no hex, no digest, no base64): the
+    /// caller asked for bytes and gets them, so the answer is bounded by the
+    /// slot's byte budget rather than by a representation choice made here.
+    fn readback(&self, index: usize) -> Result<serde_json::Value, NativeDoorError> {
+        let bytes = self.bytes();
+        let content = match self.contract {
+            RegionContract::NulText | RegionContract::NulBytes => {
+                let end = bytes
+                    .iter()
+                    .position(|byte| *byte == 0)
+                    .ok_or(NativeDoorError::NativeRegionUnterminated { index })?;
+                &bytes[..end]
+            }
+            RegionContract::RawBytes => bytes,
+        };
+        let value = match self.contract {
+            RegionContract::NulText => serde_json::Value::String(
+                std::str::from_utf8(content)
+                    .map_err(|_| NativeDoorError::NativeRegionNotUtf8 { index })?
+                    .to_owned(),
+            ),
+            RegionContract::NulBytes | RegionContract::RawBytes => content
+                .iter()
+                .map(|byte| serde_json::Value::from(*byte))
+                .collect(),
+        };
+        Ok(serde_json::json!({
+            "index": index,
+            "output": self.contract.output(),
+            "termination": self.contract.termination(),
+            "value": value,
+        }))
+    }
+}
+
+/// Whether the JSON adapter serves this pointer prototype.
+///
+/// The adapter admits exactly the prototypes whose result is `i32`: a pointer
+/// result has no guest span to rebase onto in a call that owns no guest memory,
+/// and an `i64`/`void` result would need a second answer shape. Derived from
+/// the same table dispatch uses, so a new pointer prototype is admitted by
+/// stating its result type there rather than by editing a second list here.
+fn pointer_prototype_json_admitted(prototype: PointerPrototype) -> bool {
+    prototype.declaration().0 == NativeType::I32
 }
 
 /// Every ABI shape this catalog exposes, as the caller's declaration.
@@ -1817,7 +2285,7 @@ mod json_adapter_tests {
 
         let mut previous = engine.cached_hits();
         for call in 0..3 {
-            let answer = invoke_native_json(b"|getpid|i32()", b"[]", &engine)
+            let answer = invoke_native_json(b"|getpid|i32()", b"[]", &engine, region_bound())
                 .expect("getpid runs through the native door");
             let answer: serde_json::Value = serde_json::from_str(&answer).expect("result JSON");
             assert_eq!(
@@ -2040,12 +2508,395 @@ mod json_adapter_tests {
 
     #[test]
     fn json_adapter_refuses_pointer_prototypes_without_inventing_host_addresses() {
+        // A pointer position with no region record is a refusal, not a null
+        // pointer and not an invented address.
+        for argument in [&b"[0]"[..], &b"[null]"[..]] {
+            assert_eq!(
+                invoke_native_json(
+                    b"|uname|i32(ptr)",
+                    argument,
+                    &NativeLibraryCache::new(),
+                    region_bound(),
+                ),
+                Err(NativeDoorError::NativeRegionRequired { index: 0 })
+            );
+        }
+    }
+
+    /// The bound the host passes in: the slot's byte budget, as `host.rs` does.
+    fn region_bound() -> usize {
+        crate::Budget::default().max_bridge_result_bytes
+    }
+
+    /// Both `uname(2)` and the JSON region model are exercised here against an
+    /// oracle that shares neither: the POSIX `uname` program.
+    #[cfg(unix)]
+    #[test]
+    fn a_json_region_carries_uname_through_the_door_and_matches_the_program() {
+        let output = std::process::Command::new("uname")
+            .arg("-s")
+            .output()
+            .expect("the POSIX uname oracle runs");
+        assert!(output.status.success(), "uname -s must succeed");
+        let expected =
+            std::str::from_utf8(output.stdout.strip_suffix(b"\n").unwrap_or(&output.stdout))
+                .expect("uname -s emits UTF-8 text")
+                .to_owned();
+        // `uname` takes no length argument, so the region must be at least
+        // `sizeof(struct utsname)` -- 1280 bytes on Darwin, 390 on Linux. 4096
+        // covers both repository Unix hosts; an under-sized region here would
+        // be a real C overflow, which is the caller's contract, not the door's.
+        let answer = invoke_native_json(
+            b"|uname|i32(ptr)",
+            br#"[{"region":{"capacity":4096,"termination":"nul","output":"text"}}]"#,
+            &NativeLibraryCache::new(),
+            region_bound(),
+        )
+        .expect("uname runs through one call-scoped region");
         assert_eq!(
-            invoke_native_json(b"|uname|i32(ptr)", br#"[0]"#, &NativeLibraryCache::new()),
-            Err(NativeDoorError::InvocationSignatureUnsupported {
-                result: NativeType::I32,
-                parameters: vec![NativeType::Pointer],
+            serde_json::from_str::<serde_json::Value>(&answer).expect("result JSON"),
+            serde_json::json!({
+                "type": "i32",
+                "value": 0,
+                "regions": [{
+                    "index": 0,
+                    "output": "text",
+                    "termination": "nul",
+                    "value": expected,
+                }],
             })
+        );
+    }
+
+    /// Byte output is the exact bytes, in both termination modes.
+    #[cfg(unix)]
+    #[test]
+    fn a_json_region_reads_back_exactly_what_the_callee_left() {
+        let libraries = NativeLibraryCache::new();
+        let name = {
+            let output = std::process::Command::new("uname")
+                .arg("-s")
+                .output()
+                .expect("the POSIX uname oracle runs");
+            output
+                .stdout
+                .strip_suffix(b"\n")
+                .unwrap_or(&output.stdout)
+                .to_vec()
+        };
+        let read = |termination: &str, output: &str, capacity: usize| {
+            let arguments = format!(
+                r#"[{{"region":{{"capacity":{capacity},"termination":"{termination}","output":"{output}"}}}}]"#
+            );
+            let answer = invoke_native_json(
+                b"|uname|i32(ptr)",
+                arguments.as_bytes(),
+                &libraries,
+                region_bound(),
+            )
+            .expect("uname runs through one call-scoped region");
+            let answer: serde_json::Value = serde_json::from_str(&answer).expect("result JSON");
+            answer["regions"][0]["value"].clone()
+        };
+
+        // `nul` + `bytes`: the bytes before the terminator, so the array stops
+        // exactly where the text form stops -- the capacity is not the answer.
+        let bytes = read("nul", "bytes", 4096);
+        assert_eq!(
+            bytes,
+            serde_json::json!(name),
+            "the byte form must answer the same content the text form does"
+        );
+        // `raw` + `bytes`: the whole capacity, with no invented written length
+        // and the host's zero fill still visible past what `uname` wrote.
+        let raw = read("raw", "bytes", 4096);
+        let raw = raw.as_array().expect("the raw form answers an array");
+        assert_eq!(raw.len(), 4096, "raw answers the whole capacity");
+        assert_eq!(
+            raw[..name.len()]
+                .iter()
+                .map(|byte| byte.as_u64())
+                .collect::<Vec<_>>(),
+            name.iter()
+                .map(|byte| Some(u64::from(*byte)))
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(
+            raw[name.len()].as_u64(),
+            Some(0),
+            "the callee terminated it"
+        );
+        assert_eq!(
+            raw[4095].as_u64(),
+            Some(0),
+            "past the C struct the region is still the host's zero fill"
+        );
+    }
+
+    /// The region's input bytes are really the callee's pointee, and the
+    /// readback happens even when the callee reports failure.
+    #[cfg(unix)]
+    #[test]
+    fn a_json_region_input_reaches_the_callee_and_is_read_back_after_a_failure() {
+        let answer = invoke_native_json(
+            b"|access|i32(ptr,i32)",
+            br#"[{"region":{"capacity":64,"bytes":[47,110,111,110,101,120,105,115,116,101,110,116],"termination":"nul","output":"bytes"}},0]"#,
+            &NativeLibraryCache::new(),
+            region_bound(),
+        )
+        .expect("access runs through one call-scoped region");
+        let answer: serde_json::Value = serde_json::from_str(&answer).expect("result JSON");
+        assert_eq!(
+            answer["value"], -1,
+            "a missing path is access's own failure"
+        );
+        assert_eq!(
+            answer["regions"][0]["value"],
+            serde_json::json!(b"/nonexistent".to_vec()),
+            "the callee read the region's own bytes, and they came back"
+        );
+    }
+
+    /// `output: "text"` is a promise about the region, and a callee that leaves
+    /// non-UTF-8 behind refuses the call rather than lossily decoding it.
+    #[cfg(unix)]
+    #[test]
+    fn a_json_text_region_that_is_not_utf8_is_refused_by_name() {
+        // `access` writes nothing, so the region keeps the byte the guest put
+        // there -- which is not text, and is exactly what the contract forbids.
+        assert_eq!(
+            invoke_native_json(
+                b"|access|i32(ptr,i32)",
+                br#"[{"region":{"capacity":64,"bytes":[255],"termination":"nul","output":"text"}},0]"#,
+                &NativeLibraryCache::new(),
+                region_bound(),
+            ),
+            Err(NativeDoorError::NativeRegionNotUtf8 { index: 0 })
+        );
+    }
+
+    /// A `nul` region with no terminator cannot be answered as anything.
+    ///
+    /// The live courts cannot own this one deterministically: the host zero
+    /// fills every region and requires room for the terminator, so only a
+    /// callee that writes the *whole* capacity can remove it -- and the one
+    /// catalogued symbol that fills a bounded buffer (`getentropy`) writes
+    /// random bytes, which happen to contain a zero about once in 256 bytes.
+    /// The state is therefore built here exactly as such a callee would leave
+    /// it, and the readback rule is what is under test.
+    #[test]
+    fn a_nul_region_without_a_terminator_is_refused_by_name() {
+        let region = NativeRegion {
+            words: vec![RegionWord([0x41; REGION_ALIGNMENT]); 4],
+            capacity: 64,
+            contract: RegionContract::NulBytes,
+        };
+        assert_eq!(
+            region.readback(3),
+            Err(NativeDoorError::NativeRegionUnterminated { index: 3 })
+        );
+    }
+
+    /// The region bill is per call, charged before anything is allocated.
+    #[cfg(unix)]
+    #[test]
+    fn a_region_bill_over_the_slot_bound_is_refused_before_allocation() {
+        let libraries = NativeLibraryCache::new();
+        assert_eq!(
+            invoke_native_json(
+                b"|uname|i32(ptr)",
+                br#"[{"region":{"capacity":65,"termination":"nul","output":"text"}}]"#,
+                &libraries,
+                64,
+            ),
+            Err(NativeDoorError::NativeRegionTooLarge {
+                requested: 65,
+                maximum: 64,
+            })
+        );
+        // Two regions that each fit are still refused together when their sum
+        // crosses the bound: the bill is the call's, not the position's.
+        assert_eq!(
+            invoke_native_json(
+                b"|gettimeofday|i32(ptr,ptr?)",
+                br#"[{"region":{"capacity":40,"termination":"nul","output":"bytes"}},{"region":{"capacity":40,"termination":"nul","output":"bytes"}}]"#,
+                &libraries,
+                64,
+            ),
+            Err(NativeDoorError::NativeRegionTooLarge {
+                requested: 80,
+                maximum: 64,
+            })
+        );
+    }
+
+    /// Every malformed record has its own named refusal.
+    ///
+    /// `access` is the callee on purpose: it writes nothing, so a case that
+    /// were accidentally well-formed still cannot overflow the region it was
+    /// given -- a mistake in this table must redden the assertion, not run a
+    /// C function with a wrong pointee.
+    #[test]
+    fn the_region_record_refuses_every_malformed_shape_by_name() {
+        let libraries = NativeLibraryCache::new();
+        let cases = [
+            r#"{"capacity":0,"termination":"nul","output":"text"}"#,
+            r#"{"capacity":1.5,"termination":"nul","output":"text"}"#,
+            r#"{"capacity":4,"bytes":[1,2,3,4,5],"termination":"raw","output":"bytes"}"#,
+            r#"{"capacity":8,"bytes":[256],"termination":"raw","output":"bytes"}"#,
+            r#"{"capacity":8,"bytes":["A"],"termination":"raw","output":"bytes"}"#,
+            r#"{"capacity":8,"bytes":-1,"termination":"raw","output":"bytes"}"#,
+            r#"{"capacity":8,"termination":"raw"}"#,
+            r#"{"capacity":8,"termination":"truncate","output":"bytes"}"#,
+            r#"{"capacity":8,"termination":"nul","output":"chunk"}"#,
+            r#"{"capacity":1,"bytes":[65],"termination":"nul","output":"bytes"}"#,
+            r#"{"capacity":8,"bytes":[65,0],"termination":"nul","output":"bytes"}"#,
+            r#"{"capacity":8,"termination":"raw","output":"text"}"#,
+            r#"{"capacity":8,"termination":"nul","output":"text","extra":1}"#,
+        ];
+        for case in cases {
+            let arguments = format!(r#"[{{"region":{case}}},0]"#);
+            let error = invoke_native_json(
+                b"|access|i32(ptr,i32)",
+                arguments.as_bytes(),
+                &libraries,
+                region_bound(),
+            )
+            .expect_err("a malformed region record is refused");
+            assert!(
+                matches!(
+                    error,
+                    NativeDoorError::NativeRegionShapeInvalid { index: 0, .. }
+                ),
+                "{case} answered {error:?}"
+            );
+            assert!(
+                error.code() == "native_region_shape_invalid",
+                "{case} answered the code {}",
+                error.code()
+            );
+        }
+        // Everything that is not a record carrying exactly one `region` key is
+        // the *required* refusal, not the shape one: a scalar, null, an array,
+        // an object with no `region`, and an object with only other keys.
+        for (arguments, expected) in [
+            (r#"[8,0]"#, "native_region_required"),
+            (r#"[null,0]"#, "native_region_required"),
+            (r#"[[],0]"#, "native_region_required"),
+            (r#"[{},0]"#, "native_region_required"),
+            (r#"[{"scope":8},0]"#, "native_region_required"),
+            (
+                r#"[{"region":{"capacity":8,"termination":"nul","output":"text"},"extra":1},0]"#,
+                "native_region_shape_invalid",
+            ),
+        ] {
+            let error = invoke_native_json(
+                b"|access|i32(ptr,i32)",
+                arguments.as_bytes(),
+                &libraries,
+                region_bound(),
+            )
+            .expect_err("a position without one region record is refused");
+            assert_eq!(error.code(), expected, "{arguments} answered {error:?}");
+        }
+    }
+
+    /// The argument refusal precedes the loader: a guest with both mistakes
+    /// hears the argument one, and no library is opened for a refused call.
+    #[test]
+    fn a_refused_region_outranks_a_library_that_could_not_load() {
+        let libraries = NativeLibraryCache::new();
+        assert_eq!(
+            invoke_native_json(
+                b"no_such_library_agenterm_h6a|uname|i32(ptr)",
+                b"[0]",
+                &libraries,
+                region_bound(),
+            ),
+            Err(NativeDoorError::NativeRegionRequired { index: 0 })
+        );
+        assert_eq!(libraries.len(), 0, "a refused call loads nothing");
+    }
+
+    /// The JSON pointer adapter admits the `i32` results and nothing else.
+    #[test]
+    fn only_the_i32_pointer_prototypes_are_admitted_by_the_json_adapter() {
+        for prototype in [
+            PointerPrototype::VoidNullablePointer,
+            PointerPrototype::I64NullablePointer,
+            PointerPrototype::I64Pointer,
+            PointerPrototype::PointerPointerUsize,
+        ] {
+            assert!(
+                !pointer_prototype_json_admitted(prototype),
+                "{:?} must stay refused: its result has no JSON answer shape here",
+                prototype.declaration()
+            );
+        }
+        assert_eq!(
+            PointerPrototype::ALL
+                .into_iter()
+                .filter(|prototype| pointer_prototype_json_admitted(*prototype))
+                .count(),
+            PointerPrototype::ALL.len() - 4,
+            "the admission is derived from the result type in the one prototype table"
+        );
+        let libraries = NativeLibraryCache::new();
+        for spec in [
+            b"|getcwd|ptr(ptr,usize)".as_slice(),
+            b"|free|void(ptr?)",
+            b"|time|i64(ptr?)",
+            b"|ioctl|i32(i32,i32,ptr)",
+        ] {
+            let error = invoke_native_json(spec, b"[]", &libraries, region_bound())
+                .expect_err("a shape outside the JSON pointer family stays refused");
+            assert!(
+                matches!(
+                    error,
+                    NativeDoorError::InvocationSignatureUnsupported { .. }
+                ),
+                "{:?} answered {error:?}",
+                String::from_utf8_lossy(spec)
+            );
+        }
+    }
+
+    /// A call with no pointer position answers the same bytes it always did.
+    ///
+    /// `unix` because the comparison needs one real symbol the host process
+    /// image exports; the guarantee itself is structural -- the exact and fixed
+    /// arms this test exercises are the ones the region work never touched.
+    #[cfg(unix)]
+    #[test]
+    fn a_scalar_json_call_without_a_region_answers_unchanged_bytes() {
+        let libraries = NativeLibraryCache::new();
+        for arguments in [&b"[-7]"[..], &b"[7]"[..]] {
+            assert_eq!(
+                invoke_native_json(b"|abs|i32(i32)", arguments, &libraries, region_bound()),
+                Ok(r#"{"type":"i32","value":7}"#.to_owned())
+            );
+        }
+    }
+
+    /// Region storage is aligned for anything a C callee may assume.
+    #[test]
+    fn region_storage_carries_the_maximum_natural_alignment() {
+        let mut billed = 0;
+        let mut region = NativeRegion::from_json(
+            0,
+            &serde_json::json!({"region":{"capacity":1,"termination":"raw","output":"bytes"}}),
+            region_bound(),
+            &mut billed,
+        )
+        .expect("a one-byte region decodes");
+        assert_eq!(
+            billed, 1,
+            "the bill is the capacity, not the padded storage"
+        );
+        assert_eq!(
+            region.pointer() as usize % REGION_ALIGNMENT,
+            0,
+            "every region starts at the alignment a C pointee may require"
         );
     }
 
@@ -2069,6 +2920,7 @@ mod json_adapter_tests {
             b"|sysconf|isize(i32)",
             format!("[{pagesize_key}]").as_bytes(),
             &NativeLibraryCache::new(),
+            region_bound(),
         )
         .expect("the JSON adapter reaches dyn's policy-free ABI core");
         assert_eq!(

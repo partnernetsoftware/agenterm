@@ -14,6 +14,20 @@ fn run_wat(source: &str, budget: Budget) -> Result<i64, QjswasmError> {
     run_wat_with_args(source, budget, &[])
 }
 
+/// The whole outcome, not only `main`'s values.
+///
+/// A byte door answers through `native_result`, and stdout is the one channel
+/// a hand-written guest has for handing that answer back verbatim; a court that
+/// compares JSON needs the bytes, not a fold of them. `unix` because both
+/// courts that read an answer this way run on a POSIX callee.
+#[cfg(unix)]
+fn run_wat_outcome(source: &str, budget: Budget) -> agenterm_qjswasm::Outcome {
+    let wasm = wat::parse_str(source).expect("native-door fixture is valid WAT");
+    Engine::with_native_door(budget)
+        .run_once(Guest::Wasm(&wasm), None, "main", &[])
+        .expect("the native-door fixture runs")
+}
+
 fn run_wat_with_args(
     source: &str,
     budget: Budget,
@@ -849,6 +863,75 @@ fn caller_buffer_prototypes_reach_dyn_and_match_independent_host_oracles() {
         )
         .expect("access runs through i32(ptr,i32)"),
         0
+    );
+}
+
+/// The language adapter's whole path in one court: a JSON region crosses the
+/// raw door, the host allocates the storage `uname(2)` writes into, and the
+/// answer parses to the same system name the `uname` program prints.
+#[cfg(unix)]
+#[test]
+fn a_json_region_reaches_uname_through_the_raw_door_and_matches_the_program() {
+    let output = std::process::Command::new("uname")
+        .arg("-s")
+        .output()
+        .expect("the POSIX uname oracle runs");
+    assert!(output.status.success(), "uname -s must succeed");
+    let name = String::from_utf8(
+        output
+            .stdout
+            .strip_suffix(b"\n")
+            .unwrap_or(&output.stdout)
+            .to_vec(),
+    )
+    .expect("uname -s emits UTF-8 text");
+
+    let outcome = run_wat_outcome(
+        include_str!("fixtures/native/native_invoke_region_uname.wat"),
+        Budget::default(),
+    );
+    assert_eq!(
+        outcome.values.as_slice(),
+        [Value::I64(0)],
+        "the region call answers status 0"
+    );
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(outcome.stdout.trim_end())
+            .expect("the door answers JSON"),
+        serde_json::json!({
+            "type": "i32",
+            "value": 0,
+            "regions": [{
+                "index": 0,
+                "output": "text",
+                "termination": "nul",
+                "value": name,
+            }],
+        })
+    );
+}
+
+/// The answer is capped by the same slot budget as every other door answer, and
+/// an over-budget answer is the door's own refusal -- never a prefix of it.
+#[cfg(unix)]
+#[test]
+fn a_json_answer_over_the_slot_budget_is_refused_not_truncated_at_the_door() {
+    let outcome = run_wat_outcome(
+        include_str!("fixtures/native/native_invoke_region_over_budget.wat"),
+        Budget {
+            max_bridge_result_bytes: 64,
+            ..Budget::default()
+        },
+    );
+    assert_eq!(
+        outcome.values.as_slice(),
+        [Value::I64(1)],
+        "the door answers its refusal status"
+    );
+    assert_eq!(
+        outcome.stdout.trim_end(),
+        "agenterm: native result exceeds the slot's max_bridge_result_bytes",
+        "the whole refusal, not the first 64 bytes of an answer"
     );
 }
 

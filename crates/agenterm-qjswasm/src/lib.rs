@@ -499,6 +499,13 @@ pub struct Budget {
     /// Largest single `fleet_call` result the door will hold. Exceeding this is
     /// an error, deliberately *not* a truncation: half a JSON document is worse
     /// than a refusal, because the guest cannot tell it was cut.
+    ///
+    /// It is also the native door's byte budget, because both halves of a
+    /// `native_invoke` pointer call are this kind of guest-sized quantity: the
+    /// call-scoped region the host allocates for a JSON `ptr` argument (every
+    /// capacity in one call is billed against this number before anything is
+    /// allocated) and the JSON answer the adapter returns. An answer over the
+    /// cap is the same refusal-with-a-typed-message, never a prefix.
     pub max_bridge_result_bytes: usize,
     /// Largest string the seam will copy out of a guest when projecting a
     /// returned [`JsValue::Str`].

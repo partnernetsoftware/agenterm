@@ -195,6 +195,12 @@ const ACU_NOT_UTF8: &str = "agenterm: acu_call command must be UTF-8 text";
 const RESULT_TOO_LARGE: &str = "agenterm: fleet result exceeds the slot's max_bridge_result_bytes";
 const ACU_RESULT_TOO_LARGE: &str =
     "agenterm: ACU result exceeds the slot's max_bridge_result_bytes";
+/// The native adapter's JSON answer is door-authored but guest-sized: a region
+/// readback is as large as the capacity the guest asked for. It is therefore
+/// subject to the same slot cap as a bridge answer, and refused rather than cut
+/// -- half a JSON document is exactly as useless here as it is there.
+const NATIVE_RESULT_TOO_LARGE: &str =
+    "agenterm: native result exceeds the slot's max_bridge_result_bytes";
 
 /// The `&'static str` the core carries when a bridge panicked. The useful text
 /// -- which op, and what the panic said -- does not fit in a
@@ -684,6 +690,10 @@ pub(crate) fn install(
         let state = Rc::clone(&pending);
         let meter_for_native = Rc::clone(&meter);
         let libraries_for_invoke = Rc::clone(&libraries);
+        // One number bounds both halves of a pointer call: the region the host
+        // allocates for this call (billed before that allocation) and the JSON
+        // answer it hands back.
+        let max_result = budget.max_bridge_result_bytes;
         bind(module, DOOR, "native_invoke", move |args, memory| {
             let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
             let arguments = guest_slice(memory, arg(args, 2)?, arg(args, 3)?)?;
@@ -692,15 +702,22 @@ pub(crate) fn install(
                 .borrow_mut()
                 .charge(spec.len().saturating_add(arguments.len()))
                 .map_err(WasmError::Trap)?;
-            let result = invoke_native_json(spec, arguments, &libraries_for_invoke)
+            let result = invoke_native_json(spec, arguments, &libraries_for_invoke, max_result)
                 .map_err(|error| record_native_fault(&state, error))?;
-            meter_for_native.borrow_mut().answered(result.len());
+            // The cap applies to the answer the door produced, success or
+            // refusal alike, and replaces it wholesale rather than cutting it.
+            let (status, payload) = if result.len() > max_result {
+                (STATUS_ERR, NATIVE_RESULT_TOO_LARGE.as_bytes().to_vec())
+            } else {
+                (STATUS_OK, result.into_bytes())
+            };
+            meter_for_native.borrow_mut().answered(payload.len());
             meter_for_native
                 .borrow_mut()
                 .check_cancel()
                 .map_err(WasmError::Trap)?;
-            state.borrow_mut().native_result = result.into_bytes();
-            Ok(vec![Val::I32(STATUS_OK)])
+            state.borrow_mut().native_result = payload;
+            Ok(vec![Val::I32(status)])
         })?;
 
         let state = Rc::clone(&pending);
