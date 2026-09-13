@@ -681,6 +681,11 @@ integration.
   decoder never validated. Readback failures retain the native status inside the
   typed error, because refusing an encoding contract must not erase the C result,
   and the readback runs whether the callee reported success or failure.
+- Those five codes are one subset of the native door's 40-word machine-readable
+  error algebra. The owning `native_door_schema` court constructs every variant,
+  pins every spelling, requires every code to be distinct, and uses a second
+  exhaustive match with no wildcard so adding a 41st word is a compile-time
+  compatibility event rather than an unreviewed diagnostic change.
 - Region storage is budgeted before it exists. The call's capacity total and its
   worst-case encoded JSON answer bound (`\u00XX` escaping as six bytes per byte
   for text, three digits plus a separator for byte arrays, plus fixed envelope

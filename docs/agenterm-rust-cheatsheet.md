@@ -1181,6 +1181,13 @@ that production match, not the integration court. Temporarily add the variant,
 update every production exhaustive match, require `E0004` at the owner court,
 then reverse the exact edits and verify the pre-mutation hashes.
 
+If the enum also publishes stable machine-readable string codes, exhaustiveness
+alone is insufficient: construct one representative of every variant, pin its
+exact code, and assert that the complete code set is unique. An exhaustive
+`Display` match catches a missing variant but cannot catch two variants silently
+sharing one code or an existing code being renamed. Mutate one arm to reuse a
+different arm's code and require the owner court to fail by name.
+
 ### Audit an API boundary before adding a cache
 
 - Trace the full call path before caching an expensive FFI or parser call. A product facade may already own a bounded cache even when the render caller looks uncached.

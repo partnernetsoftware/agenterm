@@ -335,74 +335,292 @@ fn raw_host_addresses_and_unknown_kinds_are_typed_refusals() {
     ));
 }
 
+fn native_door_error_word(error: &NativeDoorError) -> &'static str {
+    match error {
+        NativeDoorError::SpecTooLong { .. } => "spec-too-long",
+        NativeDoorError::SpanOverflow { .. } => "span-overflow",
+        NativeDoorError::SpanOutOfBounds { .. } => "span-out-of-bounds",
+        NativeDoorError::SpecNotUtf8 => "spec-not-utf8",
+        NativeDoorError::MalformedSpec => "malformed-spec",
+        NativeDoorError::LibraryTooLong { .. } => "library-too-long",
+        NativeDoorError::SymbolTooLong { .. } => "symbol-too-long",
+        NativeDoorError::InvalidLibrary => "invalid-library",
+        NativeDoorError::InvalidSymbol => "invalid-symbol",
+        NativeDoorError::UnknownType { .. } => "unknown-type",
+        NativeDoorError::UnsupportedType { .. } => "unsupported-type",
+        NativeDoorError::VoidParameter { .. } => "void-parameter",
+        NativeDoorError::ArityTooLarge { .. } => "arity-too-large",
+        NativeDoorError::HeaderTooShort { .. } => "header-too-short",
+        NativeDoorError::UnsupportedVersion { .. } => "unsupported-version",
+        NativeDoorError::ArityMismatch { .. } => "arity-mismatch",
+        NativeDoorError::BlockTooShort { .. } => "block-too-short",
+        NativeDoorError::BlockTooLong { .. } => "block-too-long",
+        NativeDoorError::RecordReservedNonZero { .. } => "record-reserved-nonzero",
+        NativeDoorError::UnknownArgumentKind { .. } => "unknown-argument-kind",
+        NativeDoorError::HostAddressNotPermitted { .. } => "host-address-not-permitted",
+        NativeDoorError::ResultPointerOutsideGuestSpans => "result-pointer-outside-guest-spans",
+        NativeDoorError::ArgumentKindMismatch { .. } => "argument-kind-mismatch",
+        NativeDoorError::NullForNonNullablePointer { .. } => "null-for-non-nullable-pointer",
+        NativeDoorError::NullPayloadNonZero { .. } => "null-payload-nonzero",
+        NativeDoorError::DoorArgumentNegative { .. } => "door-argument-negative",
+        NativeDoorError::InvocationSignatureUnsupported { .. } => {
+            "invocation-signature-unsupported"
+        }
+        NativeDoorError::InvocationTargetUnsupported { .. } => "invocation-target-unsupported",
+        NativeDoorError::ScalarNotCanonical { .. } => "scalar-not-canonical",
+        NativeDoorError::ArgumentsNotUtf8 => "arguments-not-utf8",
+        NativeDoorError::ArgumentsMalformed => "arguments-malformed",
+        NativeDoorError::ArgumentCountMismatch { .. } => "argument-count-mismatch",
+        NativeDoorError::ArgumentValueInvalid { .. } => "argument-value-invalid",
+        NativeDoorError::NativeRegionRequired { .. } => "native-region-required",
+        NativeDoorError::NativeRegionShapeInvalid { .. } => "native-region-shape-invalid",
+        NativeDoorError::NativeRegionTooLarge { .. } => "native-region-too-large",
+        NativeDoorError::NativeRegionUnterminated { .. } => "native-region-unterminated",
+        NativeDoorError::NativeRegionNotUtf8 { .. } => "native-region-not-utf8",
+        NativeDoorError::LibraryLoad { .. } => "library-load",
+        NativeDoorError::SymbolLoad { .. } => "symbol-load",
+    }
+}
+
 #[test]
-fn every_schema_error_has_a_stable_distinct_code() {
+fn every_native_door_error_has_one_stable_distinct_code() {
     let errors = vec![
-        NativeDoorError::SpecTooLong {
-            actual: 2,
-            maximum: 1,
-        },
-        NativeDoorError::SpanOverflow {
-            region: SpanRegion::Spec,
-        },
-        NativeDoorError::SpanOutOfBounds {
-            region: SpanRegion::Block,
-            end: 2,
-            memory_len: 1,
-        },
-        NativeDoorError::SpecNotUtf8,
-        NativeDoorError::MalformedSpec,
-        NativeDoorError::LibraryTooLong {
-            actual: 2,
-            maximum: 1,
-        },
-        NativeDoorError::SymbolTooLong {
-            actual: 2,
-            maximum: 1,
-        },
-        NativeDoorError::InvalidLibrary,
-        NativeDoorError::InvalidSymbol,
-        NativeDoorError::UnknownType {
-            name: "future".to_owned(),
-        },
-        NativeDoorError::UnsupportedType { name: "f32" },
-        NativeDoorError::VoidParameter { index: 0 },
-        NativeDoorError::ArityTooLarge {
-            actual: 7,
-            maximum: 6,
-        },
-        NativeDoorError::HeaderTooShort {
-            actual: 0,
-            minimum: 16,
-        },
-        NativeDoorError::UnsupportedVersion {
-            actual: 2,
-            expected: 1,
-        },
-        NativeDoorError::ArityMismatch {
-            declared: 1,
-            encoded: 0,
-        },
-        NativeDoorError::BlockTooShort {
-            actual: 16,
-            expected: 32,
-        },
-        NativeDoorError::BlockTooLong {
-            actual: 48,
-            expected: 32,
-        },
-        NativeDoorError::RecordReservedNonZero { index: 0, value: 1 },
-        NativeDoorError::UnknownArgumentKind { index: 0, kind: 4 },
-        NativeDoorError::HostAddressNotPermitted { index: 0 },
-        NativeDoorError::ArgumentKindMismatch {
-            index: 0,
-            kind: 0,
-            ty: NativeType::Pointer,
-        },
-        NativeDoorError::NullForNonNullablePointer { index: 0 },
-        NativeDoorError::NullPayloadNonZero { index: 0 },
+        (
+            NativeDoorError::SpecTooLong {
+                actual: 2,
+                maximum: 1,
+            },
+            "native_spec_too_long",
+        ),
+        (
+            NativeDoorError::SpanOverflow {
+                region: SpanRegion::Spec,
+            },
+            "native_span_overflow",
+        ),
+        (
+            NativeDoorError::SpanOutOfBounds {
+                region: SpanRegion::Block,
+                end: 2,
+                memory_len: 1,
+            },
+            "native_span_out_of_bounds",
+        ),
+        (NativeDoorError::SpecNotUtf8, "native_spec_not_utf8"),
+        (NativeDoorError::MalformedSpec, "native_spec_malformed"),
+        (
+            NativeDoorError::LibraryTooLong {
+                actual: 2,
+                maximum: 1,
+            },
+            "native_library_too_long",
+        ),
+        (
+            NativeDoorError::SymbolTooLong {
+                actual: 2,
+                maximum: 1,
+            },
+            "native_symbol_too_long",
+        ),
+        (NativeDoorError::InvalidLibrary, "native_library_invalid"),
+        (NativeDoorError::InvalidSymbol, "native_symbol_invalid"),
+        (
+            NativeDoorError::UnknownType {
+                name: "future".to_owned(),
+            },
+            "native_type_unknown",
+        ),
+        (
+            NativeDoorError::UnsupportedType { name: "f32" },
+            "native_type_unsupported",
+        ),
+        (
+            NativeDoorError::VoidParameter { index: 0 },
+            "native_void_parameter",
+        ),
+        (
+            NativeDoorError::ArityTooLarge {
+                actual: 7,
+                maximum: 6,
+            },
+            "native_arity_too_large",
+        ),
+        (
+            NativeDoorError::HeaderTooShort {
+                actual: 0,
+                minimum: 16,
+            },
+            "native_header_too_short",
+        ),
+        (
+            NativeDoorError::UnsupportedVersion {
+                actual: 2,
+                expected: 1,
+            },
+            "native_block_version_unsupported",
+        ),
+        (
+            NativeDoorError::ArityMismatch {
+                declared: 1,
+                encoded: 0,
+            },
+            "native_arity_mismatch",
+        ),
+        (
+            NativeDoorError::BlockTooShort {
+                actual: 16,
+                expected: 32,
+            },
+            "native_block_too_short",
+        ),
+        (
+            NativeDoorError::BlockTooLong {
+                actual: 48,
+                expected: 32,
+            },
+            "native_block_too_long",
+        ),
+        (
+            NativeDoorError::RecordReservedNonZero { index: 0, value: 1 },
+            "native_record_reserved_nonzero",
+        ),
+        (
+            NativeDoorError::UnknownArgumentKind { index: 0, kind: 4 },
+            "native_argument_kind_unknown",
+        ),
+        (
+            NativeDoorError::HostAddressNotPermitted { index: 0 },
+            "native_host_address_not_permitted",
+        ),
+        (
+            NativeDoorError::ResultPointerOutsideGuestSpans,
+            "native_result_pointer_outside_guest_spans",
+        ),
+        (
+            NativeDoorError::ArgumentKindMismatch {
+                index: 0,
+                kind: 0,
+                ty: NativeType::Pointer,
+            },
+            "native_argument_kind_mismatch",
+        ),
+        (
+            NativeDoorError::NullForNonNullablePointer { index: 0 },
+            "native_null_not_permitted",
+        ),
+        (
+            NativeDoorError::NullPayloadNonZero { index: 0 },
+            "native_null_payload_nonzero",
+        ),
+        (
+            NativeDoorError::DoorArgumentNegative {
+                index: 0,
+                value: -1,
+            },
+            "native_door_argument_negative",
+        ),
+        (
+            NativeDoorError::InvocationSignatureUnsupported {
+                result: NativeType::I32,
+                parameters: vec![NativeType::F64],
+            },
+            "native_invocation_signature_unsupported",
+        ),
+        (
+            NativeDoorError::InvocationTargetUnsupported { operation: "ioctl" },
+            "native_invocation_target_unsupported",
+        ),
+        (
+            NativeDoorError::ScalarNotCanonical {
+                index: 0,
+                ty: NativeType::I32,
+                bits: u64::MAX,
+            },
+            "native_scalar_not_canonical",
+        ),
+        (
+            NativeDoorError::ArgumentsNotUtf8,
+            "native_arguments_not_utf8",
+        ),
+        (
+            NativeDoorError::ArgumentsMalformed,
+            "native_arguments_malformed",
+        ),
+        (
+            NativeDoorError::ArgumentCountMismatch {
+                declared: 1,
+                actual: 0,
+            },
+            "native_argument_count_mismatch",
+        ),
+        (
+            NativeDoorError::ArgumentValueInvalid {
+                index: 0,
+                ty: NativeType::I32,
+            },
+            "native_argument_value_invalid",
+        ),
+        (
+            NativeDoorError::NativeRegionRequired { index: 0 },
+            "native_region_required",
+        ),
+        (
+            NativeDoorError::NativeRegionShapeInvalid {
+                index: 0,
+                reason: "fixture",
+            },
+            "native_region_shape_invalid",
+        ),
+        (
+            NativeDoorError::NativeRegionTooLarge {
+                requested: 2,
+                maximum: 1,
+            },
+            "native_region_too_large",
+        ),
+        (
+            NativeDoorError::NativeRegionUnterminated {
+                index: 0,
+                native_status: 0,
+            },
+            "native_region_unterminated",
+        ),
+        (
+            NativeDoorError::NativeRegionNotUtf8 {
+                index: 0,
+                native_status: 0,
+            },
+            "native_region_not_utf8",
+        ),
+        (
+            NativeDoorError::LibraryLoad {
+                library: "fixture".to_owned(),
+                message: "fixture".to_owned(),
+            },
+            "native_library_load_failed",
+        ),
+        (
+            NativeDoorError::SymbolLoad {
+                symbol: "fixture".to_owned(),
+                message: "fixture".to_owned(),
+            },
+            "native_symbol_load_failed",
+        ),
     ];
-    let codes: HashSet<_> = errors.iter().map(NativeDoorError::code).collect();
+    let words: HashSet<_> = errors
+        .iter()
+        .map(|(error, _)| native_door_error_word(error))
+        .collect();
+    let codes: HashSet<_> = errors.iter().map(|(error, _)| error.code()).collect();
+    for (error, expected_code) in &errors {
+        assert_eq!(
+            error.code(),
+            *expected_code,
+            "{} code drifted",
+            native_door_error_word(error)
+        );
+    }
+    assert_eq!(words.len(), errors.len());
     assert_eq!(codes.len(), errors.len());
 }
 
