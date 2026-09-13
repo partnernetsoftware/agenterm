@@ -827,7 +827,7 @@ pub(crate) fn invoke_native_call(
     let memory_base = memory.as_mut_ptr();
     let memory_len = memory.len();
     let bits = match native_dispatch(&call.spec)? {
-        NativeDispatch::Exact { .. } => {
+        NativeDispatch::Exact { .. } | NativeDispatch::Fixed(_) => {
             let arguments = call
                 .arguments
                 .iter()
@@ -835,18 +835,8 @@ pub(crate) fn invoke_native_call(
                 .map(|(index, argument)| exact_argument(index, argument, &call.spec))
                 .collect::<Result<Vec<_>, _>>()?;
             // SAFETY: the guest declaration is the native-door caller's explicit
-            // ABI assertion; `native_dispatch` admitted this exact family.
-            unsafe { invoke_prepared(&call.spec, &arguments, libraries) }
-                .and_then(|value| abi_result_bits(value, call, memory_base, memory_len))?
-        }
-        NativeDispatch::Fixed(_prototype) => {
-            let arguments = call
-                .arguments
-                .iter()
-                .enumerate()
-                .map(|(index, argument)| exact_argument(index, argument, &call.spec))
-                .collect::<Result<Vec<_>, _>>()?;
-            // SAFETY: native_dispatch admitted this enumerated fixed prototype.
+            // ABI assertion; `native_dispatch` admitted this exact or enumerated
+            // scalar family.
             unsafe { invoke_prepared(&call.spec, &arguments, libraries) }
                 .and_then(|value| abi_result_bits(value, call, memory_base, memory_len))?
         }

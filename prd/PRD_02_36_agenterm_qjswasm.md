@@ -89,6 +89,11 @@ agenterm-qjswasm
 │  │  │  │  │     `i32(u32,u32)` on Linux against libc, while the raw oracle remains unchanged
 │  │  │  │  └─ economy: two strict-subset helpers are deleted; no trait, table, ABI shape,
 │  │  │  │        loader, policy, handle or public entry is added
+│  │  │  ├─ [x] raw exact and fixed scalar dispatch share one execution arm
+│  │  │  │  ├─ invariant: `native_dispatch` still chooses the admitted trampoline family;
+│  │  │  │  │     only their now-identical canonicalize → invoke → raw-result path is shared
+│  │  │  │  └─ economy: one duplicate match arm and its parallel SAFETY explanation are
+│  │  │  │        deleted without adding a helper, wrapper, branch or public surface
 │  │  │  ├─ [x] no `PreparedAbiCall` wrapper: `invoke_prepared` already owns the one call
 │  │  │  │     construction site; a struct over the same borrowed spec and arguments removes no truth
 │  │  │  ├─ [x] no `NativeOutcome` wrapper: raw bits, JSON scalars and region snapshots are
