@@ -539,64 +539,22 @@ export function ascii_bytes(text) {
   return bytes;
 }
 
-// XOR of two non-negative ints below 2^16, by bits: the engine has no
-// bitwise operators.
-export function xor16(a, b) {
-  let result = 0;
-  let bit = 1;
-  let x = a;
-  let y = b;
-  for (let i = 0; i < 16; i = i + 1) {
-    if (x % 2 !== y % 2) { result = result + bit; }
-    x = int_div(x, 2);
-    y = int_div(y, 2);
-    bit = bit * 2;
-  }
-  return result;
-}
-
-// One FNV-1a 64 step's multiply, on four 16-bit limbs (low first) so no
-// intermediate leaves the exactly-representable range. The prime
-// 0x00000100000001b3 is [435, 0, 256, 0].
-export function fnv_mul_prime(h) {
-  const p = [435, 0, 256, 0];
-  const r = [0, 0, 0, 0];
-  for (let i = 0; i < 4; i = i + 1) {
-    for (let j = 0; i + j < 4; j = j + 1) {
-      r[i + j] = r[i + j] + h[i] * p[j];
-    }
-  }
-  const out = [];
-  let carry = 0;
-  for (let k = 0; k < 4; k = k + 1) {
-    const v = r[k] + carry;
-    out.push(v % 65536);
-    carry = int_div(v, 65536);
-  }
-  return out;
-}
-
-export function hex4(value) {
-  let text = "";
-  let x = value;
-  for (let i = 0; i < 4; i = i + 1) {
-    text = HEX[x % 16] + text;
-    x = int_div(x, 16);
-  }
-  return text;
-}
-
 // FNV-1a 64 of printable-ASCII text as 16 lower-hex digits: the product's
 // `PayloadFingerprint::from_bytes` spelling minus its "fnv1a64:" prefix
 // (rh's `rh::hash::fnv1a64` answered the same hash as a signed int).
-// Offset basis 0xcbf29ce484222325 is [8997, 33826, 40164, 52210].
+// The M1 compiler's bitwise operators act on 32-bit words. Keep the high and
+// low halves separately; every multiplication by the low prime limb 435 stays
+// exactly representable as binary64, while `>>> 0` performs the modulo 2^32.
 export function fnv1a64_hex(text) {
-  let h = [8997, 33826, 40164, 52210];
+  let high = 3421674724;
+  let low = 2216829733;
   for (const byte of ascii_bytes(text)) {
-    h[0] = xor16(h[0], byte);
-    h = fnv_mul_prime(h);
+    low = (low ^ byte) >>> 0;
+    const product = low * 435;
+    high = (high * 435 + Math.floor(product / 4294967296) + low * 256) >>> 0;
+    low = product >>> 0;
   }
-  return hex4(h[3]) + hex4(h[2]) + hex4(h[1]) + hex4(h[0]);
+  return high.toString(16).padStart(8, "0") + low.toString(16).padStart(8, "0");
 }
 
 // A sorted copy of an array of strings by `<`: the engine's `sort` (tinyvm

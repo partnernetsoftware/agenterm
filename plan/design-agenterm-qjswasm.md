@@ -393,9 +393,9 @@ function named `fleet_result_len` ``）。
 | import 按**语法上提到**发射，不按可达性 | `if (false) { print("x"); } return 1;` 仍然 emit `agenterm.print` |
 | 传给门的字符串不必是字面量 | `let op = "tabs" + ".list"; fleet_call(op, "{}")` → 桥收到 `("tabs.list","{}")` |
 
-**最锋利的一条：status 是数字，而 Number 的 ToString 还没实现，所以 `"status:" + s` 会
-trap。** 状态码要用 `===` 分支，不要拼进字符串。这不是门的问题（是 §3 M3 行记的那三个
-未实现 ECMA-262 转换之一），但它正好落在门最常见的用法上，所以记在这里。
+**历史限制已解除：status 数字现在可以按 ECMA-262 `ToString` 拼进字符串。** 状态码仍应
+以 `===` 分支决定控制流，但诊断可以直接写 `"status:" + s`；把旧 trap 约束继续当成
+门契约，只会迫使消费者保留已经不需要的适配代码。
 
 ### 先做自由函数，不做 `__host.method`
 
@@ -417,9 +417,12 @@ trap。** 状态码要用 `===` 分支，不要拼进字符串。这不是门的
 形状，拒绝时同样 `throw`），验收测试读真文件，三份绑定互锁，两个引擎在
 `tests/script_engine_equivalence.rs` 上**六条一致零分歧**。
 
-**语言层仍缺的**（都不挡门，按上游排期）：捕获外层局部变量的闭包、小数字面量、模板
-字面量、箭头函数、`switch`/`break`/`do`/`for…of`、位运算 / `**` / `??`、`class`、正则，
-以及除 `JSON` 外的任何全局对象。清单以
+**语言层仍缺的**（都不挡门，按上游排期）包括 `switch`、`break`/`continue`、
+`do...while`、`for...in`、`class`、正则、生成器、tagged template，默认/rest/解构参数，
+展开与解构，`**`、`??`、可选链、逗号运算符、BigInt、`new`/`delete`/`void`/`in`/
+`instanceof`、`async`/`await`、语言级 `import`，以及除 `JSON` 外仍未实现的全局对象。
+捕获闭包、小数字面量、普通模板、箭头、`for...of` 与 bitwise 已在当前 pin 到达，不再是
+排期项。清单以
 [PRD 36 §归档门](../prd/PRD_02_36_agenterm_qjswasm.md) 为准。
 
 ## 7. 编译器取舍

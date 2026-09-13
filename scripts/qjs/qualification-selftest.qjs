@@ -246,6 +246,13 @@ function ordered(source, first_marker, second_marker) {
 }
 
 const args = rh.args();
+if (args.length === 1 && args[0] === "--fnv-self-test") {
+  assert_ok(rh.fnv1a64_hex("") === "cbf29ce484222325", "qualification_selftest_fnv_empty");
+  assert_ok(rh.fnv1a64_hex("a") === "af63dc4c8601ec8c", "qualification_selftest_fnv_a");
+  assert_ok(rh.fnv1a64_hex("hello") === "a430d84680aabd0b", "qualification_selftest_fnv_hello");
+  print("PASS: qualification FNV-1a compatibility vectors");
+  return;
+}
 if (args.length === 1 && args[0] === "--manifest-role-self-test") {
   role_contract_self_test();
   print("PASS: qualification manifest role contract");

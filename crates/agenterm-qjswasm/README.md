@@ -39,6 +39,10 @@ AgenTerm 自己的脚本引擎。`.qjs` 用**纯 Rust** 编译成 `.wasm`，`.wa
 在本仓各骗过一次人：`%` 与 `typeof` 早已支持却还挂在拒绝表上，以及本文件曾说这个 crate
 在工作区外而它在里面。
 
+当前 pin 已前进到 `9ac2598`。下面逐项标明的 bitwise 与 `for...of` 又经产品入口复测；
+它们不再沿用本节标题所记的旧 revision，也不能继续留在拒绝表里。未明确重测的其它行
+仍不得借这两项的结果自动升级。
+
 本轮复测走的是**产品自己的路**（`AGENTERM_SCRIPT_BACKEND=qjswasm agenterm cli script
 run FILE`），不是 crate 内的测试夹具——同一条源码经过编译器、装载闸门、槽、门、
 completion value 投影全程，任何一段掉链子这里都看得见。`e1122ff → 14a641a` 这一跳带来
@@ -65,7 +69,7 @@ completion value 投影全程，任何一段掉链子这里都看得见。`e1122
   10.4.2.1 读元素 0——具名分歧）；**非索引属性写是有名字的拒绝**（`a.foo = 1` → `InvalidWrite("an Array key that is not an index below 16777216")`，tinyvm 16da41d 之前是无名 trap；密集向量里
   没地方放，丢掉比 trap 更糟）。**上一版说「没有任何数组方法」，已作废**——见下条。
 - **语句**：`let` / `const` / `var`（真作用域 + 文本可判定的 TDZ）、块、`if`/`else`、
-  `while`、三段式 `for`、`return`、`throw`、`try`/`catch`/`finally`，以及脚本的
+  `while`、三段式 `for`、`for...of`、`return`、`throw`、`try`/`catch`/`finally`，以及脚本的
   ECMA-262 completion value（`1 + 2;` → `3`）。
 - **函数**：声明式带参数、递归与互递归、嵌套声明、读模块顶层绑定。
   **函数是值**：`let f = function(a){...}; f(1)` 可以，`return function(){...}` 再调用
@@ -75,7 +79,10 @@ completion value 投影全程，任何一段掉链子这里都看得见。`e1122
   任意嵌套深度可用，同一个函数表达式的两个实例各有各的环境。
   **上一版说「仍然拒绝」，已作废。**
 - **运算符**：赋值与复合赋值、`||`、`&&`、`==`/`!=`/`===`/`!==`、`<` `<=` `>` `>=`、
-  `+` `-`、`*` `/`、`%`、`typeof`、前后缀 `++`/`--`、一元 `+ - !`、括号、**`?:`**。
+  `+` `-`、`*` `/`、`%`、`typeof`、前后缀 `++`/`--`、一元 `+ - !`、括号、**`?:`**，
+  以及按 ECMA-262 32-bit 词语义运行的 `&` / `|` / `^` / `<<` / `>>` / `>>>`
+  （含对应复合赋值）。`9ac2598` 的产品入口实测 `1 ^ 2` 为 `3`；生产 FNV-1a
+  compatibility helper 也已从逐 bit 循环改为双 32-bit word 实现，并与标准向量逐字节一致。
 - **三个 ECMA-262 转换都到了**（`14a641a`）：`"n=" + 1` 是 `"n=1"`、`"2" * 2` 是 `4`、
   `"a" < "b"` 是 `true`、`1 == "1"` 是 `true`。**上一版 README 说这些 trap，已作废。**
 - **`JSON` 是一个真名字**：`JSON.stringify({a:{b:"c"}})` 给 `{"a":{"b":"c"}}`，
@@ -108,7 +115,11 @@ completion value 投影全程，任何一段掉链子这里都看得见。`e1122
   它就作废，上游有测试钉着那四个「没有」，那天会响。
   仍拒绝的是**参数表**里超出一个普通名字的东西：默认参数 `(a = 1) => a`、rest
   `(...a) => a`、解构 `([a]) => a`——跟普通函数的参数表是同一件事，一起排期。
-- **方法**（`130e929` 到）：字符串 `trim` / `indexOf`，数组 `push` / `pop` / `map`。
+- **方法**（`130e929` 之后持续扩展）：字符串 `trim` / `indexOf` / `startsWith` / `endsWith` /
+  `includes` / `split` / `slice` / `substring` / `charAt` / `charCodeAt` / `toLowerCase` /
+  `toUpperCase` / `padStart` / `padEnd` / `repeat` / `replace` / `replaceAll`，数组
+  `push` / `pop` / `map` / `includes` / `slice` / `sort` / `join` / `concat`，以及数字
+  `toFixed` / `toString(radix)` 已由当前产品入口或生产 corpus 实际执行。
   `map` 的回调可以是箭头、具名函数，能捕获外层绑定，`map` 可链。
   `trim` 认的是**整个** ECMA-262 12.2 WhiteSpace + 12.3 LineTerminator
   （含 `Zs` 全部，`"\u{3000}ab\u{2003}".trim()` 是 `"ab"`）；`indexOf` 的位置是
@@ -132,15 +143,16 @@ completion value 投影全程，任何一段掉链子这里都看得见。`e1122
 
 1. **语法认得，能力还没有**——诊断形如「this engine does not support X yet」：
    数组 elision（`[1, , 2]`——hole 不是 `undefined`，引擎没法分辨，所以按名字拒绝
-   而不是二选一）、`class`、`switch`、`break`/`continue`、`for…of` / `for…in`、`do`/`while`、
+   而不是二选一）、`class`、`switch`、`break`/`continue`、`for…in`、`do`/`while`、
    带标签的模板（`` t`a` ``——**普通模板已经不在这张表上了**，见上）、
    默认 / rest / 解构参数（**箭头函数本身也不在这张表上了**，见上）、
-   位运算与移位、`**`、`??`、可选链、逗号运算符、BigInt、
+   `**`、`??`、可选链、逗号运算符、BigInt、
    `new` / `delete` / `void` / `in` / `instanceof`、展开与 rest、解构、默认参数、
    `async`/`await`、`import`、带标签的语句。（**捕获闭包已从这张表离开**，见上。）
-2. **根本没有全局对象。** `Math`、`String`、`Number`、`Object` 今天不是名字，写它们撞的是
-   门的诊断：``this engine has no host function named `Math`; this embedder declares
-   `print`, `fleet_call` and `fleet_result` ``。`JSON` 是唯一的例外——它是真的实现了。
+2. **全局面仍是显式子集，不是完整 JavaScript realm。** 当前 pin 的产品入口已经实测
+   `Math.trunc/floor/ceil/round/abs/sqrt/sign/pow/min/max`、`Number(...)`、`parseInt(...)`、
+   `Object.keys(...)` 与 `JSON`；它们不再能被写成“没有这个名字”。`String(...)` 与全局
+   `isNaN(...)` 仍撞具名的 host-function diagnostic，不能因为相邻全局到了就推断整个标准库存在。
    内建属性只有**一个**（`4f6af7c`）：`"ab".length` 现在给正确答案，
    且数的是 **UTF-16 码元**不是 UTF-8 字节——`"café".length` 是 4，`"😀".length` 是 2。
    **上一版说它是运行期 trap，已作废。** 但那是 `obj_get` 里的**一条臂**，不是原型链：
