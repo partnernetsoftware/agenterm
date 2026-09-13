@@ -6217,6 +6217,15 @@ set plus net deletion, while the behavioral proof remains the real door suite.
 Do not replace the dead representation with a renamed struct or another derived
 table—that preserves the maintenance cost under a new spelling.
 
+Do not turn a static duplicate into repeated runtime work merely to reduce source
+rows. If deriving the validation view constructs owned strings, vectors, or host
+function records on every module or slot load, the apparent fold has exchanged
+repository bytes for cold-start allocations. Green behavior tests establish
+equivalence, not economic value. Keep the static view plus its drift court until
+a compile-time descriptor can generate both representations without runtime work,
+or a precommitted workload measures the full byte/time/allocation trade and passes
+its gate.
+
 ## A JSON caller's pointer position is host-owned call-scoped storage
 
 When an upper-layer native adapter serves a language whose values are JSON and

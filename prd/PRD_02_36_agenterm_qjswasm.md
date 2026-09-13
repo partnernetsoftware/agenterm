@@ -660,6 +660,16 @@ integration.
   lost, so a silent omission cannot stay green. It also records that the two
   `ioctl` requests stay on their own mechanism entry (the u64 request has no ABI
   trampoline at all).
+- A proposed fold of the 53 tool and 11 host raw signature rows into their richer
+  declaration constructors was implemented and then rejected by the economic
+  gate. Deriving the raw view inside `check_declarations` kept all 74 owning
+  library tests green and removed the parallel source rows, but replaced static
+  data with `HostFn`, `String` and `Vec` construction on every slot load. That is
+  source compression paid for with unmeasured cold-start allocation, not a net
+  runtime fold, so no product code from the experiment remains. Reopen this leaf
+  only when one compile-time descriptor can emit both views without per-load
+  allocation, or when a precommitted slot-load measurement proves that runtime
+  derivation wins the complete byte/time/allocation account.
 - `.qjs` callers use the built-in `agenterm:native` module as a typed language
   adapter over that same opt-in door. It accepts a signature plus JSON values,
   preserves wide integers as decimal strings, and shares the raw door's
