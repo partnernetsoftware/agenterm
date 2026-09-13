@@ -868,7 +868,13 @@ matrix here.
 
 Use the smallest authoritative evidence first:
 
-1. `rustfmt` on touched Rust files.
+1. `cargo fmt` for the touched crates (`cargo fmt -p PACKAGE`), never a bare
+   `rustfmt <file>`: a bare invocation assumes style edition 2015 while these
+   manifests declare edition 2024, and the two editions disagree on nested `use`
+   ordering (`src/platform/adapters/*/contract_manifest.rs` is the measured
+   case), so a "formatted" file turns a clean tree red under
+   `cargo fmt --all -- --check`. To format one file alone, pass the manifest's
+   edition explicitly: `rustfmt --edition 2024 <file>`.
 2. Package Clippy with `--all-targets -- -D warnings`.
 3. Pure scalar/contract tests.
 4. ISA parity and target compilation.
