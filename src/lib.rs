@@ -28,6 +28,7 @@ pub mod incremental_wrapper;
 mod instances;
 mod ipc_endpoint;
 mod ipc_transport;
+mod json_select;
 mod locale;
 mod mcp_acu_mutation;
 pub mod mcp_catalog;

@@ -1236,8 +1236,28 @@ fn run_cli(arguments: Vec<String>, control_options: CliControlOptions) -> i32 {
         return 0;
     }
     if command == "protocol-info" && !has_option(&arguments, "--running") {
-        cli_println!("{}", protocol_info_json("client_binary"));
-        return 0;
+        // The no-server answer goes through the same selection contract as the
+        // host's, from the same producer, so `--select` can never be accepted
+        // here and silently ignored.
+        let value =
+            protocol_info_value_with_ui_bridge("client_binary", ui_bridge::headless_server_facts());
+        match crate::json_select::apply_selection_request(&value, &arguments) {
+            Ok(None) => {
+                cli_println!("{}", protocol_info_json("client_binary"));
+                return 0;
+            }
+            Ok(Some(projected)) => {
+                cli_println!(
+                    "{}",
+                    serde_json::to_string_pretty(&projected).unwrap_or_default()
+                );
+                return 0;
+            }
+            Err(refusal) => {
+                cli_eprintln!("{}", refusal.message);
+                return 1;
+            }
+        }
     }
     if command == "agent-tools" {
         return run_agent_tools(&arguments);
@@ -4850,13 +4870,20 @@ pub(crate) fn protocol_info_json(identity_scope: &str) -> String {
     protocol_info_json_with_ui_bridge(identity_scope, ui_bridge::headless_server_facts())
 }
 
-pub(crate) fn protocol_info_json_with_ui_bridge(
+/// The `protocol-info` document as the product builds it, before serialization.
+///
+/// Splitting the value out of the JSON text is what lets a selector subtract
+/// members from the producer's own document: the projection never parses text,
+/// and the no-selector path still renders through the same
+/// `serde_json::to_string_pretty` call it always did, so its bytes are
+/// unchanged.
+pub(crate) fn protocol_info_value_with_ui_bridge(
     identity_scope: &str,
     ui_bridge_facts: ui_bridge::UiBridgeFacts,
-) -> String {
+) -> serde_json::Value {
     let build_identity = BuildIdentity::current();
     let resolved = resolved_ipc_endpoint().ok();
-    serde_json::to_string_pretty(&serde_json::json!({
+    serde_json::json!({
         "protocol_version": 1,
         "agenterm_version": env!("CARGO_PKG_VERSION"),
         "identity_scope": identity_scope,
@@ -4936,7 +4963,17 @@ pub(crate) fn protocol_info_json_with_ui_bridge(
                 .ok()
                 .map(crate::script_backend::ScriptBackend::as_str),
         },
-    }))
+    })
+}
+
+pub(crate) fn protocol_info_json_with_ui_bridge(
+    identity_scope: &str,
+    ui_bridge_facts: ui_bridge::UiBridgeFacts,
+) -> String {
+    serde_json::to_string_pretty(&protocol_info_value_with_ui_bridge(
+        identity_scope,
+        ui_bridge_facts,
+    ))
     .unwrap_or_default()
 }
 
@@ -5009,6 +5046,46 @@ mod tests {
     use crate::script_protocol::{
         SCRIPT_ARTIFACT_MAX_BYTES, ScriptArtifact, ScriptArtifactConvention,
     };
+
+    /// The no-selector path renders through the same pretty serializer it always
+    /// did, from the same document: splitting the value out of the JSON text
+    /// cannot move a byte, and a selection on that document keeps the named
+    /// paths and shrinks the rest.
+    #[test]
+    fn protocol_info_json_is_the_pretty_rendering_of_the_split_value() {
+        let rendered = super::protocol_info_json_with_ui_bridge(
+            "running_host",
+            crate::ui_bridge::headless_server_facts(),
+        );
+        let value = super::protocol_info_value_with_ui_bridge(
+            "running_host",
+            crate::ui_bridge::headless_server_facts(),
+        );
+        assert_eq!(
+            rendered,
+            serde_json::to_string_pretty(&value).unwrap_or_default()
+        );
+        assert!(!rendered.is_empty(), "the document must render");
+
+        let selector = crate::json_select::Selector::parse("pid,ui_bridge.ownership_mode").unwrap();
+        let projected = selector.project(&value);
+        assert_eq!(projected.get("pid"), value.get("pid"));
+        assert_eq!(
+            projected["ui_bridge"].get("ownership_mode"),
+            value["ui_bridge"].get("ownership_mode")
+        );
+        let projected_text = serde_json::to_string_pretty(&projected).unwrap();
+        assert!(
+            projected_text.len() < rendered.len(),
+            "a selection must shrink the document: {} vs {}",
+            projected_text.len(),
+            rendered.len()
+        );
+        assert!(
+            projected_text.contains(&value["pid"].to_string()),
+            "the retained value keeps its own spelling"
+        );
+    }
 
     #[cfg(feature = "script-qjswasm")]
     #[test]

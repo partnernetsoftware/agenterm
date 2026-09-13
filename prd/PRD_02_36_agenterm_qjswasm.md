@@ -178,22 +178,29 @@ agenterm-qjswasm
    └─ no machine-code JIT in the current engine
 ```
 
-Candidate, recorded only — **no capability-state change above and not scheduled
-into any version**: the host-reply wire cost decision experiment,
+The host-reply wire cost decision experiment,
 [`plan/design-qjswasm-host-reply-wire-cost-experiment.md`](../plan/design-qjswasm-host-reply-wire-cost-experiment.md).
 It asks whether the bytes the host hands a guest as a reply are a large enough
 owner of journey steps that a product-side wire change (compact reply text
 and/or host-side field selection) is the next action. **The experiment has now
 run** (2026-09-13, receipt in
 [`research/qjswasm-host-reply-wire-cost/RESULTS.md`](../research/qjswasm-host-reply-wire-cost/RESULTS.md))
-and its frozen criteria returned
+returned
 `V0 yes → W0-C yes → W1 no → owner = host-side field selection`: the wire route
 is real at the measured pin (two usable journeys removed 49.58% and 30.00% of
 their own total steps by carrying only the fields they read) and its owner is
 field selection, not compact reply text (the indentation-only share was 12.59%
-and 30.14%, well under the frozen 75%). That result moves **no status leaf in
-this module**: no capability state changed, no product wire, door, API, budget or
-pin was touched, and the owner it names is a new, unstarted leaf.
+and 30.14%, well under the frozen 75%). Its first product leaf is now delivered
+at the CLI producer boundary: `protocol-info --json --select` projects the
+producer's `serde_json::Value` before the unchanged serializer, and the real
+`native-ipc-smoke` consumer no longer starts `sh` and `grep` to cut seven keys.
+At the same pin and budget the journey moves from 21,073,417 to 20,120,279 guest
+steps (−4.52%) and from 187,538 to 173,974 host bytes (−7.23%); one full answer
+moves from 61,670 bytes to 213 bytes. The qjswasm door, tinyvm pin, IPC wire and
+budget are unchanged. This is intentionally recorded as a **first-producer
+foundation**, not a completed fold: its production core is still net additive,
+and the economic payback requires a second real producer to reuse it while
+deleting parallel filtering or serialization code.
 
 ## Mermaid flowchart memory palace
 
@@ -218,6 +225,7 @@ flowchart LR
   NODIRECT["boundary invariant<br/>agenterm-cu does not depend on agenterm-dyn"]
   EXPLICIT["explicit call sites only<br/>bare host value → typed compile refusal"]
   CAPTURE["bounded child capture<br/>per-stream loss flags · JSON-fit"]
+  SELECT["host-side JSON field selection<br/>producer Value → bounded projection<br/>protocol-info first consumer · door unchanged"]
   HANDLES["per-slot child ledger<br/>32 retained · pre-spawn refusal"]
   LOCKS["per-slot lock ledger<br/>32 lifetime handles · stable tombstones<br/>pre-open refusal"]
   PATHS["shared path helper<br/>`.` / `./` lexical normalization"]
@@ -281,6 +289,7 @@ flowchart LR
   IDENTITY --> COMPAT
   COMPAT -. legacy syntax projected to typed calls .-> ACUCLI
   PRODUCT -. child process .-> HANDLES --> CAPTURE --> RECEIPT
+  PRODUCT -. producer-owned JSON value .-> SELECT --> DOOR
   PRODUCT -. advisory lock .-> LOCKS --> RECEIPT
   PRODUCT -. process.command .-> QPTY --> RECEIPT
   PRODUCT -. native path identity .-> PATHS --> RECEIPT

@@ -126,6 +126,19 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
       [--contains text|--dead|--submit-complete]
       [--timeout-ms ms]`
     - `ui-snapshot`, `ui-bootstrap`, `protocol-info`
+    - [x] `protocol-info [--running] --json --select PATHS` projects the
+      producer's already-built JSON value before serialization. The bounded
+      selector supports dotted members and `[]` array descent, only subtracts
+      fields the caller could already receive, preserves absent fields as
+      absent, and changes no bytes when omitted. Client-local and running-host
+      answers share one parser/projector and typed malformed/precondition
+      failures; no command field allowlist, IPC wire, or Script door is added.
+      The first real consumer removes its `sh` + `grep` workaround and measures
+      21,073,417 → 20,120,279 guest steps (−4.52%) and 187,538 → 173,974 host
+      bytes (−7.23%) at the same tinyvm pin and budget. This first producer is
+      a reusable-core investment, not yet a repository-wide source fold: the
+      leaf remains net additive until another real producer reuses the core
+      and deletes more parallel filtering/serialization truth than it adds.
     - [x] `agent-tools [--format agenterm|mcp] [--include-unavailable]`
       emits the LLM tool table an autonomous agent binds to. It is a pure
       projection of the typed operation catalog

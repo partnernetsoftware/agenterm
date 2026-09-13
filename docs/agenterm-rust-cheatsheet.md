@@ -6205,3 +6205,23 @@ output. Run the readback whether the callee reported success or failure, and whe
 the readback itself refuses — no terminator where the contract demands one, or
 bytes that are not the text the caller asked for — keep the native status inside
 the typed error: rejecting an encoding contract must not erase the C result.
+
+## Project host JSON at the producer, not inside a byte-transparent door
+
+When a consumer reads only a few fields from a large product-owned JSON reply,
+keep the door and IPC envelope byte-transparent. Split the producer into
+`Value` construction and its existing serializer, apply one bounded pure
+projection to that `Value`, and serialize once. A selector is caller data that
+can only subtract from the document the caller could already receive; it is not
+a field allowlist, capability grant, or second schema catalog. Missing paths
+stay missing, duplicate paths collapse, a shallow path keeps its subtree, and
+omitting the selector must retain the old bytes exactly. Route local and remote
+producers of the same document through one request helper so an accepted option
+cannot be silently ignored on a client-side fast path.
+
+Count the economics honestly. A reusable projector may be net additive at its
+first producer even when it removes shell children and sharply cuts reply
+bytes. Record production/test LOC separately, preserve the no-selector wire,
+measure a real consumer with the same engine pin and budget, and call the work a
+foundation until another producer reuses the core and deletes enough parallel
+filtering or serialization truth to pay back the abstraction.

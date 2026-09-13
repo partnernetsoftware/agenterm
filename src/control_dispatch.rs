@@ -1487,6 +1487,43 @@ pub(crate) enum InstancePickerTarget {
     Pid(u32),
 }
 
+/// Answer `protocol-info` for `args`, applying `--select` before serialization.
+///
+/// Without a selection this calls the unchanged renderer, so the bytes are
+/// exactly what they were before this leaf. With a selection it projects the
+/// producer's own [`serde_json::Value`] and renders that: no text is parsed and
+/// nothing is re-spelled.
+fn protocol_info_response(host: &mut dyn ControlHost, args: &[String]) -> IpcResponse {
+    let value =
+        crate::client::protocol_info_value_with_ui_bridge("running_host", host.ui_bridge_facts());
+    let projected = match crate::json_select::apply_selection_request(&value, args) {
+        Ok(None) => {
+            return IpcResponse::success(crate::client::protocol_info_json_with_ui_bridge(
+                "running_host",
+                host.ui_bridge_facts(),
+            ));
+        }
+        Ok(Some(projected)) => projected,
+        Err(refusal) => {
+            return IpcResponse::typed_failure(
+                refusal.message,
+                refusal.code,
+                "configuration",
+                false,
+            );
+        }
+    };
+    match serde_json::to_string_pretty(&projected) {
+        Ok(json) => IpcResponse::success(json),
+        Err(error) => IpcResponse::typed_failure(
+            error.to_string(),
+            "protocol_info_serialization_failed",
+            "internal",
+            false,
+        ),
+    }
+}
+
 pub(crate) fn dispatch_shared_command(
     host: &mut dyn ControlHost,
     args: &[String],
@@ -1495,12 +1532,7 @@ pub(crate) fn dispatch_shared_command(
 
     match command {
         "start-server" => Some(IpcResponse::success("")),
-        "protocol-info" => Some(IpcResponse::success(
-            crate::client::protocol_info_json_with_ui_bridge(
-                "running_host",
-                host.ui_bridge_facts(),
-            ),
-        )),
+        "protocol-info" => Some(protocol_info_response(host, args)),
         "ui-hello" => {
             let Some(minimum) =
                 option_value(args, "--minimum").and_then(|value| value.parse::<u32>().ok())

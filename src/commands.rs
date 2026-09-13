@@ -628,9 +628,9 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
         "next-window" | "next" => ("agenterm cli next-window", &[][..], &[][..], false),
         "previous-window" | "prev" => ("agenterm cli previous-window", &[][..], &[][..], false),
         "protocol-info" => (
-            "agenterm cli protocol-info [--running]",
-            &[][..],
-            &["--running"][..],
+            "agenterm cli protocol-info [--running] [--json] [--select PATHS]",
+            &["--select"][..],
+            &["--running", "--json"][..],
             false,
         ),
         "rh-pack" => (

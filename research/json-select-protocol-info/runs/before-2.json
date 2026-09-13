@@ -1,0 +1,20 @@
+{
+  "envelope_version": 2,
+  "invocation_id": "77197-1789298608647119000",
+  "api_version": 2,
+  "ok": true,
+  "exit_class": "success",
+  "operation": "run",
+  "profile": "tool",
+  "stdout": "STEP CLI selector conflicts fail fast and typed\nSTEP overlong Unix endpoint fails typed and bounded\nSTEP symlink Unix runtime ancestry fails closed\nSTEP isolated logical instance derives its native endpoint\nSTEP /tmp and /private/tmp resolve one macOS authority\nSTEP explicit settings path overrides role-scoped default\nSTEP explicit loopback TCP remains a live compatibility route\nSTEP environment endpoint priority never falls through to address\nSTEP mixed schema discovery emits typed v2 rows deterministically\nSTEP stale test fixture remains visible until confirmed cleanup\nSTEP legacy live-PID ownership remains unknown and ineligible\nSTEP PID-reuse cleanup cannot remove the live generation\nSTEP each authority shuts down through its selected endpoint\nSTEP killed Unix authority recovers stale endpoint and registration\nEVIDENCE control.native-local-ipc\nPASS: native IPC selection and migration contract\n",
+  "cost": {
+    "steps": 21076038,
+    "peak_call_depth": 19,
+    "peak_activation_slots": 320,
+    "host_ops": 325,
+    "host_bytes": 187538,
+    "waited_ms": 766,
+    "heap_pages": 21
+  },
+  "duration_ms": 2843
+}

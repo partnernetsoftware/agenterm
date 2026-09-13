@@ -146,42 +146,33 @@ function spawn_configured(context, program, arguments, endpoint, address, instan
 // host: `JSON.parse` of the 62 KB `protocol-info --running` answer 5-10M
 // steps, its door envelope another 5-10M, `.length` on it ~1.5M,
 // `JSON.stringify` of one 500-byte record ~125K) and `--max-operations`
-// stops at 100M. Two shapes in this journey blow that ceiling by themselves:
-// the harness journal (read the whole file, concatenate one record, write it
-// back: 80 records measured 50-100M) and the nine full protocol-info parses
-// (~25M each as ported). The door has no `fs.append` and no
-// `process.command` stdout-to-file / field selection -- those are the gaps
-// -- so on a Unix host both go through `sh`: the journal line is appended
-// by `cat >>` (the guest never holds the journal) and protocol-info is cut
-// to its seven top-level keys by `grep` before the guest parses it. A
-// non-Unix host keeps the harness paths.
-const PROTOCOL_KEYS = ["agenterm_version", "endpoint", "instance", "pid", "server_scope_id", "settings_path", "transport"];
+// stops at 100M. One shape in this journey blows that ceiling by itself: the
+// harness journal (read the whole file, concatenate one record, write it
+// back: 80 records measured 50-100M). The door has no `fs.append`, so on a
+// Unix host the journal line is appended by `cat >>` and the guest never
+// holds the journal. A non-Unix host keeps the harness path.
+//
+// `protocol-info` answers with about sixty top-level keys and this journey
+// reads seven of them, so it names those seven and the host sends nothing
+// else: `--json --select` is the product's field selection, applied to the
+// document the producer already built, and the guest parses the seven keys
+// directly. The earlier route to the same set -- `sh` running `grep -E` over
+// the pretty answer, then wrapping the filtered lines in braces and repairing
+// the trailing comma -- is gone: it worked around a door that could not select
+// fields, and with a selection there is nothing left to work around.
+const PROTOCOL_FIELDS =
+  "agenterm_version,endpoint,instance,pid,server_scope_id,settings_path,transport";
 
-function protocol_filter_script() {
-  let alternatives = "";
-  for (const key of PROTOCOL_KEYS) {
-    alternatives = alternatives === "" ? key : alternatives + "|" + key;
-  }
-  return "o=$(\"$@\") || exit $?; printf '%s\\n' \"$o\" | grep -E '^  \"(" + alternatives + ")\": '";
-}
-
-// Run `spec` with its stdout cut to the top-level protocol keys; the
-// arguments recorded are the CLI's own. Only called where `unix_host` holds.
-function run_filtered(spec) {
-  const wrapped_args = ["-c", protocol_filter_script(), "sh", "" + spec.program];
-  for (const a of spec.args) { wrapped_args.push("" + a); }
-  spec.program = "sh";
-  spec.args = wrapped_args;
-  return rh.command_spec(spec);
-}
-
-// The seven keys as one object: the filtered lines wrapped in braces, the
-// last line's trailing comma (present unless it was the object's last key)
-// removed.
-function parse_filtered_protocol(text) {
-  let body = ("" + text).trim();
-  if (body.endsWith(",")) { body = body.slice(0, body.length - 1); }
-  return JSON.parse("{" + body + "}");
+// The selector flags appended to every protocol-info call, in the product's
+// own grammar. `--json` is the machine-output contract flag that enables
+// `--select`, and both are part of the call the journey records.
+function selected_arguments(arguments) {
+  const out = [];
+  for (const a of arguments) { out.push("" + a); }
+  out.push("--json");
+  out.push("--select");
+  out.push(PROTOCOL_FIELDS);
+  return out;
 }
 
 function record(context, arguments, output, expected_failure) {
@@ -248,14 +239,14 @@ function probe(context, program, arguments, endpoint, address, instance, workspa
   };
 }
 
-// `probe` for `protocol-info --running`: the answer cut to the keys this
-// journey reads (see `record`), so a successful probe costs ~0.5M steps
-// instead of ~25M.
+// `probe` for `protocol-info --running`: the answer carries only the keys this
+// journey reads, so a successful probe costs a fraction of the full document.
 function probe_protocol(context, program, arguments, endpoint, address, instance, workspace, timeout_ms) {
-  const spec = configured(context, program, arguments, endpoint, address, instance, workspace);
+  const selected = selected_arguments(arguments);
+  const spec = configured(context, program, selected, endpoint, address, instance, workspace);
   spec.timeout_ms = timeout_ms;
-  const output = unix_host !== 0 ? run_filtered(spec) : rh.command_spec(spec);
-  record(context, arguments, output, output.success === true ? 0 : 1);
+  const output = rh.command_spec(spec);
+  record(context, selected, output, output.success === true ? 0 : 1);
   return {
     success: output.success === true ? 1 : 0,
     exit_code: output.exit_code,
@@ -265,7 +256,6 @@ function probe_protocol(context, program, arguments, endpoint, address, instance
 }
 
 function parse_protocol(output) {
-  if (unix_host !== 0) { return parse_filtered_protocol(output.stdout); }
   return JSON.parse(("" + output.stdout + output.stderr).trim());
 }
 
@@ -673,7 +663,7 @@ try {
     if (native_runtime_directory.startsWith("/private/tmp/")) {
       print("STEP /tmp and /private/tmp resolve one macOS authority");
       const alias_runtime = "/tmp" + runtime_suffix;
-      const alias_arguments = ["--instance", custom_instance, "protocol-info", "--running"];
+      const alias_arguments = selected_arguments(["--instance", custom_instance, "protocol-info", "--running"]);
       const alias_spec = configured(
         context,
         cli,
@@ -685,7 +675,7 @@ try {
       );
       set_env(alias_spec, "XDG_RUNTIME_DIR", alias_runtime);
       alias_spec.timeout_ms = 2000;
-      const alias_output = run_filtered(alias_spec);
+      const alias_output = rh.command_spec(alias_spec);
       record(context, alias_arguments, alias_output, alias_output.success === true ? 0 : 1);
       harness.require(
         alias_output.success === true,
