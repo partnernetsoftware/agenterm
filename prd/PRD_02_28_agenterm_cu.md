@@ -662,8 +662,10 @@ ACU-only cutover
 │  ├─ [x] no adapter branch spawns or recommends the archived MCU runtime
 │  └─ [x] MCU implementation is read-only reference, outside supported entrypoints
 ├─ [x] dynamic repair registry (complete corpus; no unknown fallback)
-│  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green,
-│  │  └─ native macOS/Linux/Windows screenshot courts still required before full closure
+│  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green
+│  │  ├─ [x] macOS public qjswasm court: one invocation-owned Cocoa window proves exact
+│  │  │     inventory, bounded AX tree/query/read and a nonempty PNG without foreground theft
+│  │  └─ [ ] native Linux/Windows screenshot courts remain required before full closure
 │  ├─ [~] acu.dynamic.004 · legacy drag requires exact-window down/held-move/up delivery;
 │  │  ├─ [x] macOS HANDLE delivery is typed-retired as
 │  │     `research-budget-exhausted-without-a-discriminating-result`: the final
