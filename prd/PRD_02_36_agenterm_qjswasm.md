@@ -62,12 +62,16 @@ agenterm-qjswasm
 │  │  │  └─ six-cell delivery: the Candidate runtime-control step runs that court after the
 │  │  │     ACU provider courts and publishes `cu.retirement-cell.native-acu-composition`
 │  │  ├─ safe failure: malformed, unlisted, noncanonical, out-of-span and dyn mechanism failures remain typed
-│  │  ├─ [ ] declaration-driven native pipeline folding
+│  │  ├─ [x] native pipeline folding stops at the one shared invoke seam
 │  │  │  ├─ user problem: dyn already executes one policy-free ABI path, but raw and JSON transports
 │  │  │  │     still repeat family-specific decode, preparation, result conversion and error plumbing
 │  │  │  ├─ invariant: qjswasm keeps exposure, nullability, guest storage, budget and error ownership;
 │  │  │  │     folding turns that policy into declarations and never moves it into dyn or tinyvm
-│  │  │  ├─ [ ] one declaration source derives dispatch, schema compatibility and mechanism gates
+│  │  │  ├─ [x] declaration/mechanism ownership remains deliberately split
+│  │  │  │  ├─ qjswasm's 14 pointer declarations retain ptr/ptr? nullability and JSON exposure policy;
+│  │  │  │  │     dyn's 8 pointer mechanisms answer only whether an ABI trampoline exists
+│  │  │  │  └─ rejected fold: deriving dispatch from dyn loses nullability, cannot select the
+│  │  │  │        separate UnixIoctl path, and requires an equal-size qjswasm policy table anyway
 │  │  │  ├─ [x] one private invoke seam owns ABI-position conversion, NativeCall construction,
 │  │  │  │     handle reuse and dyn-error mapping for all six non-ioctl execution sites
 │  │  │  │  ├─ evidence: raw exact/fixed/fixed-pointer + JSON exact/fixed/region all call
@@ -76,8 +80,11 @@ agenterm-qjswasm
 │  │  │  │  └─ economy: `native.rs` +113/−182, net −69 LOC; two error mappers,
 │  │  │  │        two ABI-parameter helpers and six repeated call blocks collapse without
 │  │  │  │        adding a struct, trait, branch or public API
-│  │  │  ├─ [ ] raw block and JSON lower into one PreparedAbiCall
-│  │  │  ├─ [ ] one NativeOutcome feeds bit, JSON-scalar and region-snapshot encoders
+│  │  │  ├─ [x] no `PreparedAbiCall` wrapper: `invoke_prepared` already owns the one call
+│  │  │  │     construction site; a struct over the same borrowed spec and arguments removes no truth
+│  │  │  ├─ [x] no `NativeOutcome` wrapper: raw bits, JSON scalars and region snapshots are
+│  │  │  │     intentionally different transport results; a shared wrapper adds a shape without
+│  │  │  │     removing their distinct validation or encoding rules
 │  │  │  ├─ evidence: each leaf removes a named parallel arm/helper/table while preserving public
 │  │  │  │     bytes, typed failures, check-before-loader and native+ACU composition
 │  │  │  ├─ economic account: record removed duplication, preserved semantics, released
@@ -222,11 +229,10 @@ flowchart LR
   SLOT["persistent bounded slot"]
   DOOR["versioned Script host door"]
   NATIVEPOLICY["native schema + prototype catalog<br/>nullability · guest-span checks"]
-  DECL["native exposure declarations<br/>ABI + argument storage + result policy"]
-  PREPARED["PreparedAbiCall<br/>one normalized call for raw + JSON"]
+  DECL["native exposure declarations<br/>qjswasm policy · ptr/ptr? retained"]
+  INVOKE["invoke_prepared<br/>one NativeCall construction seam"]
   JSONREGION["JSON pointer call<br/>one call-scoped host region per ptr<br/>16-byte aligned · zero-filled<br/>snapshot readback · no address published"]
   DYNABI["agenterm-dyn invoke_abi<br/>policy-free ABI execution"]
-  OUTCOME["NativeOutcome<br/>ABI value + owned region snapshots"]
   ENCODERS["transport encoders<br/>raw bits · JSON scalar · region answer"]
   CUCALLER["CU caller / extensible automation"]
   SCRIPTRUNTIME["Script Runtime"]
@@ -269,11 +275,10 @@ flowchart LR
   ARG_STOP["kill exact specialization<br/>retain attribution only"]
   PIN["AgenTerm exact pin<br/>tinyvm + tinyvm-qjs same rev"]
   NORTH["long horizon<br/>tinyvm replaces Wasmtime<br/>workload by workload"]
-  NATIVEPOLICY -. planned single source .-> DECL
-  DECL -. planned normalization .-> PREPARED
-  JSONREGION -. storage plan .-> PREPARED
-  PREPARED --> DYNABI --> OUTCOME
-  OUTCOME -. planned final encoding only .-> ENCODERS
+  NATIVEPOLICY --> DECL
+  DECL --> INVOKE
+  JSONREGION -. call-scoped storage .-> INVOKE
+  INVOKE --> DYNABI --> ENCODERS
   ENCODERS -. preserve existing wire .-> DOOR
   CORE["Core Wasm conformance<br/>malformed + differential fuzz"]
   COURT{"size · cold start · throughput<br/>security · embedder parity"}
