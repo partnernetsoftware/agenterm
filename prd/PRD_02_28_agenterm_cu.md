@@ -1076,7 +1076,12 @@ flowchart LR
   Both rehearsal ordinals are consumed, neither produced `REHEARSAL_PASS`, and
   D1 is machine-ineligible. No A0, A1 or B design was selected; this TODO and
   the capability ledger remain unchanged, and no evidence was registered.
-  Further investigation requires a new precommitment and new budget.
+  Further investigation requires a new precommitment and new budget. The later
+  exact-key `process.observe` / `process.parent` door operations are new evidence
+  relative to both exhausted courts. The replacement precommitment in
+  `plan/design-browser-profile-name-binding-exact-process-experiment.md` requires
+  a start-identity-bracketed parent chain, selector-independent cleanup and
+  persisted failure stages before any A0/A1/B decision becomes eligible.
   Legacy `browser bridge status` now
   validates the complete live-connection inventory plus each closed status
   reply, then selects one exact profile-instance prefix without reading tabs;
