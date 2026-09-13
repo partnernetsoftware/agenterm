@@ -258,7 +258,9 @@ declaration → lowering → mechanism → typed-result 管线。若新增代码
    raw pointer rebasing、JSON scalar encoding 与 region readback 仍是各 transport 的
    有意后处理。该叶净删 69 LOC，没有新增 struct、trait、branch 或 public API。dyn 内部
    三个 trampoline family 的 `SymbolLoad` / `SignatureUnsupported` 也由一个私有投射定义
-   生成，净删 32 LOC；五词 `AbiError`、75-shape 矩阵与唯一 loader 均未改变。
+   生成，净删 32 LOC；三族从统一 `AbiValue` 到 family value 的转换与拒绝构造再共用
+   一个单态化 helper，净删 10 LOC，同时保留三个具名 trampoline 调用和各自的 unsafe
+   证据。五词 `AbiError`、75-shape 矩阵与唯一 loader 均未改变。
 2. **[x] 拒绝空壳中间表示**：不引入 `PreparedAbiCall` 或 `NativeOutcome`。
    前者只会给现有的 borrowed spec/arguments 换名，后者会把有意不同的 raw bits、
    JSON scalar 与 region snapshot 伪装成同一种结果；两者都不删除平行真相。

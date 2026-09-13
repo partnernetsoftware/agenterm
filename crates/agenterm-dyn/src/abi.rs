@@ -543,6 +543,20 @@ define_mechanism_error_projection!(exact_error, ExactNativeError);
 define_mechanism_error_projection!(fixed_error, FixedNativeError);
 define_mechanism_error_projection!(pointer_error, FixedPointerError);
 
+fn convert_arguments<T>(
+    call: &NativeCall<'_>,
+    convert: fn(AbiValue) -> Option<T>,
+) -> Result<Vec<T>, AbiError> {
+    call.arguments
+        .iter()
+        .map(|value| convert(*value))
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| AbiError::SignatureUnsupported {
+            result: call.signature.result,
+            params: call.signature.params.to_vec(),
+        })
+}
+
 /// Executes a caller-declared call through the family that owns its shape.
 ///
 /// # Safety
@@ -647,15 +661,7 @@ unsafe fn invoke_abi_with_library(
     let signature = call.signature;
     match classify(signature, call.arguments)? {
         Family::Exact { ty, arity } => {
-            let arguments = call
-                .arguments
-                .iter()
-                .map(|value| exact_argument(*value))
-                .collect::<Option<Vec<_>>>()
-                .ok_or_else(|| AbiError::SignatureUnsupported {
-                    result: signature.result,
-                    params: signature.params.to_vec(),
-                })?;
+            let arguments = convert_arguments(call, exact_argument)?;
             debug_assert_eq!(arguments.len(), arity);
             let exact = ExactNativeCall {
                 symbol: call.symbol,
@@ -670,15 +676,7 @@ unsafe fn invoke_abi_with_library(
             }
         }
         Family::Fixed(prototype) => {
-            let arguments = call
-                .arguments
-                .iter()
-                .map(|value| fixed_argument(*value))
-                .collect::<Option<Vec<_>>>()
-                .ok_or_else(|| AbiError::SignatureUnsupported {
-                    result: signature.result,
-                    params: signature.params.to_vec(),
-                })?;
+            let arguments = convert_arguments(call, fixed_argument)?;
             let fixed = FixedNativeCall {
                 symbol: call.symbol,
                 prototype,
@@ -691,15 +689,7 @@ unsafe fn invoke_abi_with_library(
             }
         }
         Family::FixedPointer(prototype) => {
-            let arguments = call
-                .arguments
-                .iter()
-                .map(|value| pointer_argument(*value))
-                .collect::<Option<Vec<_>>>()
-                .ok_or_else(|| AbiError::SignatureUnsupported {
-                    result: signature.result,
-                    params: signature.params.to_vec(),
-                })?;
+            let arguments = convert_arguments(call, pointer_argument)?;
             let pointer = FixedPointerCall {
                 symbol: call.symbol,
                 prototype,
