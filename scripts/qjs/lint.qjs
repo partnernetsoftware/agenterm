@@ -232,10 +232,38 @@ if (internal_selftest === 1) {
       { cwd: repo, timeout_ms: 10000 }
     );
     rh.require(manifest_code === 0, "lint_qjs_files_git");
-    const qjs_files = [];
+    const listed_files = [];
     for (const source_line of rh.read_text(stdout_path).split("\n")) {
       const relative_path = source_line.trim();
       if (relative_path !== "") {
+        listed_files.push(relative_path);
+      }
+    }
+    // The check path cannot compile a native-door script, by design: the door
+    // is enabled only for production execution inside the supervised worker
+    // (PRD 36), so `check-many` refuses `agenterm:native` before any of this
+    // file's assertions can be read. Each exclusion must name the court that
+    // runs the file instead -- and must still be a tracked file, so a stale
+    // exemption reddens this gate rather than hiding a deletion.
+    const native_door_courts = [
+      {
+        path: "scripts/qjs/native-acu-composition-smoke.qjs",
+        court: "cu-retirement-cell-smoke (Candidate runtime cells)"
+      }
+    ];
+    for (const excluded of native_door_courts) {
+      rh.require(listed_files.includes(excluded.path),
+        "lint_native_door_exclusion_stale:" + excluded.path);
+      rh.require(excluded.court.length > 0,
+        "lint_native_door_court_missing:" + excluded.path);
+    }
+    const qjs_files = [];
+    for (const relative_path of listed_files) {
+      let excluded = 0;
+      for (const entry of native_door_courts) {
+        if (entry.path === relative_path) { excluded = 1; }
+      }
+      if (excluded === 0) {
         qjs_files.push(relative_path);
       }
     }

@@ -888,6 +888,14 @@ An unwind-only dynamic artifact needs its own lint/test lane. Linting
 owning evidence is `cargo clippy -p agenterm-cu-provider --profile abi-dev
 --all-targets -- -D warnings`, not a dev/release invocation.
 
+A script that imports the native door cannot pass a check-only lane.
+`agenterm:native` is enabled only for production execution inside the supervised
+worker, so the repository check corpus (`cli script check-many`) refuses such a
+file before any of its assertions can be read. Exempt it in
+`scripts/qjs/lint.qjs` by naming the court that actually runs it, keep the
+exemption fail-closed against a stale path, and never enable the native door for
+checking to make the gate green.
+
 The same stale-artifact trap applies to `libagenterm`: an `abi-dev` build
 refreshes `target/abi-dev/libagenterm.*`, while an integration-test executable
 may still open `target/debug/libagenterm.*`. If a new export is present in the

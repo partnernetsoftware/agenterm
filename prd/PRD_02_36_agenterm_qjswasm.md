@@ -54,6 +54,8 @@ agenterm-qjswasm
 │  │  ├─ invariant: spec/schema/catalog/nullability and exact-family cardinality are local qjswasm policy
 │  │  ├─ mechanism: every non-ioctl call lowers to caller-provided AbiSignature/AbiValue and one dyn invoke_abi
 │  │  ├─ black-box owner: native_door + native_door_schema + native/ACU composition smoke
+│  │  │  └─ six-cell delivery: the Candidate runtime-control step runs that court after the
+│  │  │     ACU provider courts and publishes `cu.retirement-cell.native-acu-composition`
 │  │  ├─ safe failure: malformed, unlisted, noncanonical, out-of-span and dyn mechanism failures remain typed
 │  │  └─ non-goal: no agenterm-cu → agenterm-dyn dependency, second loader/door, or typed CU effect in dyn
 │  ├─ [~] embedder `agenterm:acu` object: same typed schema/Executor/errors/receipts as CLI and MCP
@@ -438,7 +440,11 @@ integration.
   granted selector, and still resolves dyn-backed raw ABI calls before and
   after both ACU requests. `--help` remains in the court only as the
   target-free CLI short-circuit that answers before verb dispatch; it is never
-  quoted as evidence that the Executor ran.
+  quoted as evidence that the Executor ran. The Candidate runtime-control step
+  now runs that court on every packaged six-cell runtime cell after the ACU
+  provider courts and publishes `cu.retirement-cell.native-acu-composition` in
+  the cell receipt. That path is wired but not yet remotely executed, so this
+  leaf claims no six-cell verdict.
 - public Script CLI black boxes own `.qjs` route, diagnostics, receipts and
   product-host calls.
 - v0.1.18 G4 owns the release-critical task/journey migration. Quick-only green

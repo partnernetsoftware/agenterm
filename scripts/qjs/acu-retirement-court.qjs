@@ -316,6 +316,7 @@ function verify_candidate_identity(repo, identity, blockers) {
   const receipt_upload = named_step(runtime, "Upload ACU native runtime receipt");
   const control_files = [
     "scripts/qjs/cu-retirement-cell-smoke.qjs",
+    "scripts/qjs/native-acu-composition-smoke.qjs",
     "scripts/qjs/acu-provider-smoke.qjs",
     "scripts/qjs/acu-mcp-provider-smoke.qjs",
     "scripts/qjs/acu-power-action-provider-smoke.qjs",

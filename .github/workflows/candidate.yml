@@ -86,6 +86,7 @@ jobs:
           name: candidate-runtime-control-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             scripts/qjs/cu-retirement-cell-smoke.qjs
+            scripts/qjs/native-acu-composition-smoke.qjs
             scripts/qjs/acu-provider-smoke.qjs
             scripts/qjs/acu-mcp-provider-smoke.qjs
             scripts/qjs/acu-power-action-provider-smoke.qjs
@@ -1180,6 +1181,7 @@ jobs:
             "runtime-evidence/setup-$PLATFORM_ID.json" \
             "runtime-evidence/setup-refresh-$PLATFORM_ID.json" \
             "runtime-control/acu-provider-smoke.qjs" \
+            "runtime-control/native-acu-composition-smoke.qjs" \
             "runtime-control/acu-mcp-provider-smoke.qjs" \
             "runtime-control/acu-power-action-provider-smoke.qjs"
 

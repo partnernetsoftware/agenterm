@@ -780,6 +780,7 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
     assert!(CANDIDATE.contains("Upload exact-source ACU runtime control"));
     assert!(CANDIDATE.contains("scripts/qjs/cu-retirement-cell-smoke.qjs"));
     assert!(CANDIDATE.contains("scripts/qjs/acu-provider-smoke.qjs"));
+    assert!(CANDIDATE.contains("scripts/qjs/native-acu-composition-smoke.qjs"));
     assert!(CANDIDATE.contains("scripts/qjs/acu-mcp-provider-smoke.qjs"));
     assert!(CANDIDATE.contains("scripts/qjs/acu-power-action-provider-smoke.qjs"));
     assert!(CANDIDATE.contains("scripts/qjs/cu-setup-cli-smoke.qjs"));
@@ -789,6 +790,7 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
     assert!(runtime.contains("runtime-control/cu-setup-runtime-refresh-smoke.qjs"));
     assert!(runtime.contains("runtime-control/cu-retirement-cell-smoke.qjs"));
     assert!(runtime.contains("runtime-control/acu-mcp-provider-smoke.qjs"));
+    assert!(runtime.contains("runtime-control/native-acu-composition-smoke.qjs"));
     assert!(runtime.contains("runtime-control/acu-power-action-provider-smoke.qjs"));
     assert!(runtime.contains("\"$provider\" \"$abi\""));
     for provider in [
@@ -803,6 +805,7 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
     }
     for contract in [
         "schema_version: 6",
+        "cu.retirement-cell.native-acu-composition",
         "AGENTERM_CU_GRANT: \"observe\"",
         "acu_provider: {",
         "abi_version: 1",
@@ -818,6 +821,7 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
     }
     for contract in [
         "cell.schema_version === 6",
+        "cu.retirement-cell.native-acu-composition",
         "agenterm_consumer.name === consumer_name",
         "acu_provider.name === provider_name",
         "acu_provider.abi_version === 1",

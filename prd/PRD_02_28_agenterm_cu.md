@@ -552,8 +552,13 @@ flowchart LR
   now wired (not yet remotely executed): every one of the six native runtime
   runners consumes only its already sealed archive, runs the packaged
   `agenterm-cu` + colocated `libagenterm` through the exact-source
-  `cu-retirement-cell-smoke`, and uploads a run/attempt/archive/binary-bound
-  receipt. The aggregate requires exactly six current-attempt cells with
+  `cu-retirement-cell-smoke`, uploads a run/attempt/archive/binary-bound
+  receipt, and that court also runs the source-only
+  `native-acu-composition-smoke` court (one supervised guest crossing the ACU
+  Executor for an authorized typed reply plus its typed refusal, composed with
+  dyn-backed raw ABI calls), publishing it as
+  `cu.retirement-cell.native-acu-composition`. The aggregate requires exactly
+  six current-attempt cells with
   matching source identity and embeds their validated summary into the sealed
   Candidate manifest. No runtime cell checks out source, invokes Cargo, or
   mutates machine state; a first successful exact-SHA Candidate remains the
@@ -565,7 +570,7 @@ flowchart LR
 flowchart LR
   B["one local/candidate build<br/>six sealed archives"]
   R["six native execute-only runners<br/>Win · Linux · macOS × x86_64/aarch64"]
-  C["cu-retirement-cell-smoke<br/>provider call/argv + MCP capability/observe<br/>capabilities + runtime-status"]
+  C["cu-retirement-cell-smoke<br/>provider call/argv + MCP capability/observe<br/>capabilities + runtime-status<br/>native+ACU composition: Executor + dyn"]
   E["six exact-attempt receipts<br/>source + archive + CU + ABI hashes"]
   A{"aggregate: exactly six<br/>same source/run/attempt"}
   M["sealed Candidate manifest<br/>embedded ACU runtime summary"]
