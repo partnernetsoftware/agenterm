@@ -148,9 +148,8 @@ function spawn_configured(context, program, arguments, endpoint, address, instan
 // `JSON.stringify` of one 500-byte record ~125K) and `--max-operations`
 // stops at 100M. One shape in this journey blows that ceiling by itself: the
 // harness journal (read the whole file, concatenate one record, write it
-// back: 80 records measured 50-100M). The door has no `fs.append`, so on a
-// Unix host the journal line is appended by `cat >>` and the guest never
-// holds the journal. A non-Unix host keeps the harness path.
+// back: 80 records measured 50-100M). The shared harness now uses the door's
+// `fs.append`, so the guest never holds or rewrites the accumulated journal.
 //
 // `protocol-info` answers with about sixty top-level keys and this journey
 // reads seven of them, so it names those seven and the host sends nothing

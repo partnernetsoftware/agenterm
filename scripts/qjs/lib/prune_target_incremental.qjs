@@ -3,17 +3,19 @@
 // Ported from scripts/rh/lib/prune_target_incremental.rh (archived in the rh
 // repo). A tool library: import it under `--profile tool`.
 //
-// Two rh host surfaces have no door op yet, and this file routes around both
-// by name so the gap is visible at the call site:
+// Two rh host surfaces cannot use the current door shape, and this file keeps
+// those boundaries visible at the call site:
 //
-//   * `std::fs::try_lock_exclusive` -- the tool door has no advisory-lock op
-//     (gap: `fs_try_lock_exclusive(path) -> handle` held until the handle is
-//     released). The pre-flight "is anyone holding this?" probe and the
-//     "hold every session lock while the tree goes" removal both run in a
-//     `perl -e` child (`flock(2)`, the same syscall Rust's `File::try_lock`
-//     and cargo use on Unix); the child holds the locks for the whole
-//     `remove_tree`, exactly as the rh frames did. `lock_available`,
-//     `lock_and_remove` and `remove_session_tree` are the three callers.
+//   * `fs.try_lock_exclusive` exists, but its stable-handle ledger permits 32
+//     lifetime mints per Script slot and deliberately retains tombstones after
+//     unlock. Root/session counts and the number of profile pre-flight probes
+//     have no <=32 contract, so both the "is anyone holding this?" probe and
+//     the "hold every session lock while the tree goes" removal stay in a
+//     `perl -e` child. Both use `flock(2)`, the same syscall Rust's
+//     `File::try_lock` and cargo use on Unix; the removal child holds its locks
+//     for the whole `remove_tree`.
+//     `lock_available`, `lock_and_remove` and `remove_session_tree` are the
+//     three callers.
 //   * `rh::crypto::tree_metadata_digest` -- the door has `crypto_sha256_file`
 //     but not the tree digest (gap: `crypto_tree_metadata_digest(root)`,
 //     which `src/incremental_wrapper.rs::tree_metadata_digest_json` keeps
@@ -67,7 +69,7 @@ const INVOCATION_ALPHABET = concat_all([rh.LOWER, UPPER, rh.DIGITS, [".", "_", "
 const LOCK_TIMEOUT_MS = 10000;
 const REMOVE_TIMEOUT_MS = 600000;
 
-// ---- perl lock helpers (route-around for fs_try_lock_exclusive) ----------
+// ---- perl lock helpers (unbounded sweep beyond the door's lock ledger) ---
 
 // exit 0: acquired (and released again), 1: held elsewhere, 3: unopenable.
 const PERL_PROBE =

@@ -14,7 +14,8 @@
 // generations; the 1280-generation hoard in a long-lived checkout exhausts
 // it before the listing finishes (lib/prune_target_incremental.qjs header
 // has the measured prices). Advisory locks and the tree walks go through a
-// `perl -e` child because the tool door has no `fs_try_lock_exclusive`.
+// `perl -e` child because an unbounded sweep cannot fit the door's 32-mint
+// lifetime lock ledger.
 import * as rh from "lib/rh_compat";
 import * as prune from "lib/prune_target_incremental";
 
