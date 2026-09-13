@@ -3,7 +3,7 @@
 //! `.def` / version scripts / `-exported_symbols_list`). One extra or one
 //! missing symbol fails this test.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
@@ -18,6 +18,86 @@ fn expected_exports() -> BTreeSet<String> {
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .map(str::to_owned)
+        .collect()
+}
+
+fn rust_u16_constants(source: &str) -> BTreeMap<String, String> {
+    source
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim().strip_prefix("pub ").unwrap_or(line.trim());
+            let rest = line.strip_prefix("const ")?;
+            let (name, value) = rest.split_once(": u16 = ")?;
+            Some((
+                name.trim().to_owned(),
+                value.trim_end_matches(';').trim().to_owned(),
+            ))
+        })
+        .collect()
+}
+
+fn resolve_u16(constants: &BTreeMap<String, String>, name: &str) -> u16 {
+    let mut value = constants
+        .get(name)
+        .unwrap_or_else(|| panic!("missing u16 constant {name}"))
+        .as_str();
+    for _ in 0..constants.len() {
+        if let Ok(number) = value.parse::<u16>() {
+            return number;
+        }
+        value = constants
+            .get(value)
+            .unwrap_or_else(|| panic!("{name} refers to unknown u16 constant {value}"));
+    }
+    panic!("cycle while resolving u16 constant {name}");
+}
+
+fn abi_version(source: &str) -> (u16, u16) {
+    let tail = source
+        .split_once("abi_version!(")
+        .expect("src/lib.rs must declare abi_version!(major, minor)")
+        .1;
+    let args = tail
+        .split_once(')')
+        .expect("abi_version! declaration must close")
+        .0;
+    let (major, minor) = args
+        .split_once(',')
+        .expect("abi_version! must contain major and minor");
+    (
+        major.trim().parse().expect("ABI major must be a u16"),
+        minor.trim().parse().expect("ABI minor must be a u16"),
+    )
+}
+
+fn header_abi_version(header: &str) -> (u16, u16) {
+    let define = |name: &str| {
+        header
+            .lines()
+            .find_map(|line| line.trim().strip_prefix(&format!("#define {name} ")))
+            .unwrap_or_else(|| panic!("header is missing {name}"))
+            .trim()
+            .parse::<u16>()
+            .unwrap_or_else(|_| panic!("header {name} must be a u16 literal"))
+    };
+    (define("AGT_ABI_MAJOR"), define("AGT_ABI_MINOR"))
+}
+
+fn required_runtime_symbols(cu_source: &str) -> BTreeSet<String> {
+    let body = cu_source
+        .split_once("const REQUIRED_RUNTIME_SYMBOLS: &[&[u8]] = &[")
+        .expect("agenterm-cu must declare REQUIRED_RUNTIME_SYMBOLS")
+        .1
+        .split_once("];\n")
+        .expect("REQUIRED_RUNTIME_SYMBOLS must be a closed array")
+        .0;
+    body.lines()
+        .filter_map(|line| {
+            line.trim()
+                .strip_prefix("b\"")
+                .and_then(|line| line.strip_suffix("\","))
+                .map(str::to_owned)
+        })
         .collect()
 }
 
@@ -128,6 +208,50 @@ fn header_declares_exactly_the_exported_symbols() {
     );
 }
 
+/// The delivered library, public header and dynamic CU consumer are separate
+/// crates/artifacts, so compilation cannot keep their version and symbol
+/// contracts aligned. Derive every side from its owning source instead of
+/// copying a release number or a second symbol list into packaging scripts.
+#[test]
+fn cu_runtime_requirements_fit_the_exported_abi() {
+    let manifest = manifest();
+    let repo_root = manifest.parent().unwrap().parent().unwrap();
+    let abi_source = fs::read_to_string(manifest.join("src/lib.rs")).expect("read ABI source");
+    let header = fs::read_to_string(repo_root.join("include/agenterm.h")).expect("read ABI header");
+    let cu_source = fs::read_to_string(repo_root.join("crates/agenterm-cu/src/dynlib.rs"))
+        .expect("read CU dynamic ABI consumer");
+
+    let supplied = abi_version(&abi_source);
+    assert_eq!(
+        supplied,
+        header_abi_version(&header),
+        "Rust ABI version and public C header drifted"
+    );
+
+    let cu_constants = rust_u16_constants(&cu_source);
+    let required = (
+        resolve_u16(&cu_constants, "EXPECTED_ABI_MAJOR"),
+        resolve_u16(&cu_constants, "REQUIRED_ABI_MINOR"),
+    );
+    assert!(
+        supplied.0 == required.0 && supplied.1 >= required.1,
+        "libagenterm ABI {}.{} is older than agenterm-cu requirement {}.{}",
+        supplied.0,
+        supplied.1,
+        required.0,
+        required.1
+    );
+
+    let missing: Vec<_> = required_runtime_symbols(&cu_source)
+        .difference(&expected_exports())
+        .cloned()
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "agenterm-cu requires symbols absent from exports.txt: {missing:?}"
+    );
+}
+
 /// Boundary gate: `include/agenterm.h` is a public C header compiled by
 /// external consumers, so it must be pure ASCII. A non-ASCII byte (e.g. an
 /// em dash, arrow, or section sign) triggers MSVC C4819 under CJK code pages
@@ -207,9 +331,17 @@ fn exports_name_mechanisms_not_products() {
         // is agt_native_window_move / _rect.
         "spectacle",
     ];
+    const MECHANISM_EXCEPTIONS: &[&str] = &[
+        // Public since ABI 1.32. Here "workspace desktop" names the EWMH
+        // `_NET_WM_DESKTOP` mechanism, not an AgenTerm workspace.
+        "agt_native_window_workspace_desktop",
+    ];
 
     let mut violations: Vec<String> = Vec::new();
     for name in expected_exports() {
+        if MECHANISM_EXCEPTIONS.contains(&name.as_str()) {
+            continue;
+        }
         let Some(rest) = name.strip_prefix("agt_") else {
             violations.push(format!("{name}: missing the agt_ prefix"));
             continue;

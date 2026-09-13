@@ -1018,6 +1018,9 @@ agt_status agt_native_window_close(intptr_t handle);
 agt_status agt_native_window_minimized(intptr_t handle, int32_t* out_minimized);
 agt_status agt_native_window_maximized(intptr_t handle, int32_t* out_maximized);
 
+/* ABI 1.34: read EWMH `_NET_WM_STATE_FULLSCREEN` for one native window. */
+agt_status agt_native_window_fullscreen(intptr_t handle, int32_t* out_fullscreen);
+
 /* ABI 1.35: read EWMH `_NET_WM_STATE_ABOVE` for one native window. */
 agt_status agt_native_window_above(intptr_t handle, int32_t* out_above);
 

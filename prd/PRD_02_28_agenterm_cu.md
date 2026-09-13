@@ -617,13 +617,13 @@ binary without its matching dylib is inert.
   existing macOS bundle self-test owns that verifier transitively. This is the
   precondition for cu being usable out of the box on a user's machine; no new
   platform code is required.
-- [~] package-time static inspection and install-time execution remain two
-  different authority boundaries. The current doctor verifier executes the
-  delivered CU and is appropriate on the install host, while the macOS stager
-  also calls it despite promising not to invoke staged artifacts. A later
-  delivery leaf must give the stager a source/manifest-backed static ABI and
-  export check; it must not reintroduce a handwritten version number or pretend
-  that cross-target package construction can execute its target binary.
+- [x] package-time static inspection and install-time execution are different
+  authority boundaries. The ABI export court now derives the library version,
+  public-header version, CU compatibility floor and CU required-symbol set from
+  their owning sources, then requires version compatibility and
+  `CU required symbols ⊆ exports.txt`. The macOS stager therefore checks layout
+  without executing a target binary; install-host doctor and the six native
+  Candidate runtime cells retain the stronger real-library execution evidence.
 - [~] **P1 — macOS TCC consent gates (runtime prerequisite, not a code
   defect).** Accessibility (AX tree, AX-backed window ops) and Screen Recording
   / Camera (`device-screenshot` full-screen capture) require TCC authorization.

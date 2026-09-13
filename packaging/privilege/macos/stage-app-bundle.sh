@@ -27,9 +27,6 @@ for name in agenterm agenterm-cc agenterm-cu libagenterm.dylib agenterm-cu-provi
     exit 1
   }
 done
-"$ROOT/packaging/verify-cu-abi.sh" \
-  "$BIN_DIR/agenterm-cu" "$BIN_DIR/libagenterm.dylib"
-
 NEXT="${OUTPUT}.next.$$"
 rm -rf "$NEXT"
 trap 'rm -rf "$NEXT"' EXIT

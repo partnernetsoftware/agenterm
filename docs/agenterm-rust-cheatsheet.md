@@ -2915,6 +2915,19 @@ guard unmangles all of them; commenting the guard out must turn that link
 into `LNK1120: N unresolved externals` with mangled names (`?agt_*@@...`).
 That negative proof is the only evidence the guard actually does something.
 
+## Keep package-time ABI identity static and runtime compatibility executable
+
+Cross-target packaging cannot assume the build host can execute the target
+consumer. Keep the two proofs separate. In an existing source boundary court,
+derive the ABI version from the implementation owner, the public version from
+the header owner, and the consumer floor plus required symbols from the consumer
+owner; assert version compatibility and `required symbols ⊆ exported symbols`
+without copying a release number or symbol list into the test. Let the existing
+artifact-presence court prove that the export catalog reaches the real dynamic
+library, and let native runtime cells execute the final archived consumer/library
+pair. A package stager owns layout and identity, not a weaker extra execution of
+whatever target binary happens to be runnable on the packaging host.
+
 ## Close may wake a reader with buffered data before EOF
 
 For pipes, PTYs, and stream-like native handles, a cross-thread close contract
