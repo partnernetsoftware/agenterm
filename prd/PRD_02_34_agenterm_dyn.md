@@ -150,7 +150,43 @@ qjswasm ──compile .qjs → .wasm / execute no-JIT──> tinyvm（tinyvm 不
 B ──historical contracts now belong above dyn──> agenterm-platform / adapters
 E ──claims moved to raw ABI or WAT courts──> qjswasm ──> A
 D ──isolated slot, 当前无生产调用方──> future JIT / host-ISA folding
+
+上层折叠边（目标架构，不改变所有权）
+qjswasm raw block ─┐
+                    ├──> PreparedAbiCall ──> A.invoke_abi ──> NativeOutcome
+qjswasm JSON ──────┘          │                                │
+                               └─ declaration-driven checks          └─ transport encoder
+
+dyn ──稳定的 AbiSignature / AbiValue / AbiError 代数──> 允许上层删除家族专用执行流程
+qjswasm ──仍拥有 exposure / nullability / storage / budget──> 但把它们写成声明数据
+tinyvm ──仍只提供 Wasm 执行与 host bridge──> 不直接依赖 dyn
 ```
+
+### dyn 之上的分层折叠路线（计划）
+
+这条路线的目标不是把 qjswasm 的策略搬进 dyn，而是让 dyn 的小而
+正交的机制代数成为上层删除平行流程的支点。最终形态是“策略在上层，
+策略以数据表达；机制在 dyn，机制只实现一次”。
+
+1. **[ ] 建立统一调用中间表示**：由 qjswasm 定义 `PreparedAbiCall`
+   与 `NativeOutcome`；raw block 和 JSON 只是两个 decoder/encoder，不再各自拥有
+   load、dispatch、invoke 与 dyn-error mapping 流程。
+2. **[ ] 把原型变成唯一声明源**：每条 exposure 声明 ABI 签名、参数
+   storage policy 与 result policy；dispatch、schema、compatibility gate 和测试矩阵
+   从同一声明派生，不再平行手写家族表。
+3. **[ ] 收敛参数规范化**：scalar、null、guest span 与 call-scoped region
+   统一降为带所有权/宽度证据的 prepared argument，再一次性产生 `AbiValue`。
+4. **[ ] 收敛结果规范化**：bit result、JSON scalar 与 region snapshot 共用
+   `NativeOutcome`；transport 只负责最后的字节编码，不重做 ABI 类型判定。
+5. **[ ] 用减法验收**：每个增量必须同时证明公开错误/输出不漂移，
+   且删除一类家族专用 arm/helper/mapper 或手写清单；只换名不算折叠。
+6. **[-] 暂不扩张机制矩阵**：没有真实消费者的 callback、struct-by-value、
+   新 variadic 或 JIT 不得为了“看起来完整”进入 dyn。
+
+公开黑盒 owner 仍是 qjswasm `native_door` / `native_door_schema` / native+ACU
+composition court；dyn 自身的 `abi` suite 只证明机制。安全失败是：任何无法
+保持原错误词汇、check-before-loader、指针所有权或无 region 路径字节的
+折叠候选都停止并保留现状。
 
 ### Mermaid flowchart memory-palace（调用与所有权记忆宫殿）
 
@@ -164,7 +200,10 @@ flowchart LR
         QJS[.qjs / .wat guest]
         Door[agenterm:native + native_call]
         Guard[guest span decode<br/>budget · cancel · typed mapping]
+        Prepare[PreparedAbiCall<br/>声明驱动的参数与 storage 计划]
+        Outcome[NativeOutcome<br/>一次 ABI 结果 · transport 后编码]
         QJS --> Door --> Guard
+        Guard -. 计划中的折叠 .-> Prepare
         Gap[当前缺口<br/>span 宽度 · host 对齐 · NUL<br/>尚未绑定具体 C contract]
         Guard -. 尚未证明 .-> Gap
     end
@@ -188,7 +227,10 @@ flowchart LR
         Schema[wire schema · 暴露面]
         Budget[budget · cancel · WorkerSupervisor 监管]
     end
-    Policy -->|提供 ABI 描述| Abi
+    Policy -->|派生声明数据| Prepare
+    Prepare -->|提供 ABI 描述与值| Abi
+    Abi --> Outcome
+    Outcome -. raw bits / JSON / region snapshot .-> Door
 
     subgraph Vault[保管室 · typed owners（已迁出 dyn）]
         UpperOwner[agenterm-platform / upper adapters]

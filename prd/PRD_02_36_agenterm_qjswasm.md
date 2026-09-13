@@ -62,6 +62,18 @@ agenterm-qjswasm
 │  │  │  └─ six-cell delivery: the Candidate runtime-control step runs that court after the
 │  │  │     ACU provider courts and publishes `cu.retirement-cell.native-acu-composition`
 │  │  ├─ safe failure: malformed, unlisted, noncanonical, out-of-span and dyn mechanism failures remain typed
+│  │  ├─ [ ] declaration-driven native pipeline folding
+│  │  │  ├─ user problem: dyn already executes one policy-free ABI path, but raw and JSON transports
+│  │  │  │     still repeat family-specific decode, preparation, result conversion and error plumbing
+│  │  │  ├─ invariant: qjswasm keeps exposure, nullability, guest storage, budget and error ownership;
+│  │  │  │     folding turns that policy into declarations and never moves it into dyn or tinyvm
+│  │  │  ├─ [ ] one declaration source derives dispatch, schema compatibility and mechanism gates
+│  │  │  ├─ [ ] raw block and JSON lower into one PreparedAbiCall
+│  │  │  ├─ [ ] one NativeOutcome feeds bit, JSON-scalar and region-snapshot encoders
+│  │  │  ├─ evidence: each leaf removes a named parallel arm/helper/table while preserving public
+│  │  │  │     bytes, typed failures, check-before-loader and native+ACU composition
+│  │  │  ├─ safe failure: if ownership, ordering or byte parity cannot be retained, keep the old path
+│  │  │  └─ non-goal: no new ABI shape, symbol policy, tinyvm→dyn dependency or JIT authorization
 │  │  ├─ [x] JSON pointer calls take one call-scoped host region per pointer position
 │  │  │  ├─ user problem: a JSON caller has no guest linear memory to point into, so every
 │  │  │  │     pointer prototype answered `native_invocation_signature_unsupported`
@@ -191,8 +203,12 @@ flowchart LR
   SLOT["persistent bounded slot"]
   DOOR["versioned Script host door"]
   NATIVEPOLICY["native schema + prototype catalog<br/>nullability · guest-span checks"]
+  DECL["native exposure declarations<br/>ABI + argument storage + result policy"]
+  PREPARED["PreparedAbiCall<br/>one normalized call for raw + JSON"]
   JSONREGION["JSON pointer call<br/>one call-scoped host region per ptr<br/>16-byte aligned · zero-filled<br/>snapshot readback · no address published"]
   DYNABI["agenterm-dyn invoke_abi<br/>policy-free ABI execution"]
+  OUTCOME["NativeOutcome<br/>ABI value + owned region snapshots"]
+  ENCODERS["transport encoders<br/>raw bits · JSON scalar · region answer"]
   CUCALLER["CU caller / extensible automation"]
   SCRIPTRUNTIME["Script Runtime"]
   NODIRECT["boundary invariant<br/>agenterm-cu does not depend on agenterm-dyn"]
@@ -233,6 +249,12 @@ flowchart LR
   ARG_STOP["kill exact specialization<br/>retain attribution only"]
   PIN["AgenTerm exact pin<br/>tinyvm + tinyvm-qjs same rev"]
   NORTH["long horizon<br/>tinyvm replaces Wasmtime<br/>workload by workload"]
+  NATIVEPOLICY -. planned single source .-> DECL
+  DECL -. planned normalization .-> PREPARED
+  JSONREGION -. storage plan .-> PREPARED
+  PREPARED --> DYNABI --> OUTCOME
+  OUTCOME -. planned final encoding only .-> ENCODERS
+  ENCODERS -. preserve existing wire .-> DOOR
   CORE["Core Wasm conformance<br/>malformed + differential fuzz"]
   COURT{"size · cold start · throughput<br/>security · embedder parity"}
   STANDARD["WASI / Component compatibility<br/>in generic tinyvm layer"]
