@@ -43,6 +43,9 @@ flowchart LR
   Q --> D["faster reliable development"]
   D --> N["qjswasm · GUI · browser · device · release"]
   T["MCU retirement TODO"] --> A
+  A --> C["call-scoped cooperative cancellation"]
+  C --> W["process-watch · pty-wait"]
+  C --> B["shared blocking waits remain explicit gaps"]
 ```
 
 ## Subtree map
@@ -192,8 +195,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │  ├─ [x] pure qjs/wasm computation observes the token without a host callback
   │  │  ├─ [x] observe-only `process-watch` acknowledges pre-effect cancellation through the
   │  │  │      additive provider-v2 callback descriptor and returns within the worker grace
-  │  │  └─ [ ] migrate each remaining native wait with phase-aware evidence; mutation replies
-  │  │         remain authoritative after effect dispatch and must never be hidden by late cancel
+  │  │  ├─ [x] `pty-wait` polls the same borrowed token before consulting its PTY authority and
+  │  │  │      between output/status rounds; cancellation returns `effect:not_performed` without a receipt,
+  │  │  │      while one in-flight control-plane request retains its existing uninterruptible 5-second bound
+  │  │  └─ [ ] migrate each remaining native wait with phase-aware evidence
+  │  │     ├─ shared blocking `terminal-wait` / `pty-wait-exit` need an interruptible wait owner;
+  │  │     │  an entry-only check is not cooperative cancellation
+  │  │     └─ mutation replies remain authoritative after effect dispatch and must never be hidden by late cancel
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
   │  ├─ [x] ten compound compatibility shapes execute through pure qjs projections + the same typed calls
   │  │  └─ native failures bypass projection unchanged, preserving command, count and structured effect/recovery facts;

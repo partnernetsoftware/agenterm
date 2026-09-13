@@ -1068,6 +1068,7 @@ impl Executor {
                 *timeout_ms,
                 *max_match_bytes,
                 *max_scan_bytes,
+                control,
             ),
             Command::PtyWaitExit {
                 name,

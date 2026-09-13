@@ -41,6 +41,8 @@ const PTY_OUTPUT_PAGE_BYTES: u64 = 1_048_576;
 const MAX_PTY_WAIT_PATTERN_BYTES: usize = 4_096;
 const MAX_PTY_WAIT_MATCH_BYTES: usize = 65_536;
 const MAX_PTY_WAIT_SCAN_BYTES: u64 = 67_108_864;
+const PTY_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const PTY_WAIT_CANCEL_SLICE: Duration = Duration::from_millis(10);
 
 enum PtyWaitMatcher<'a> {
     Contains(&'a [u8]),
@@ -1274,6 +1276,7 @@ pub(super) fn pty_send_payload(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn pty_wait_payload(
     name: &str,
     contains: Option<&str>,
@@ -1282,6 +1285,7 @@ pub(super) fn pty_wait_payload(
     timeout_ms: u64,
     max_match_bytes: Option<usize>,
     max_scan_bytes: Option<u64>,
+    control: crate::execution_control::ExecutionControl<'_>,
 ) -> Result<Value, CuError> {
     validate_name(name)?;
     if contains.is_some() == regex.is_some() {
@@ -1333,6 +1337,10 @@ pub(super) fn pty_wait_payload(
     } else {
         PtyWaitMatcher::Contains(contains.expect("condition was validated").as_bytes())
     };
+    // Cancellation is a robustness signal, not argument validation. Preserve all
+    // typed shape errors above, then refuse before opening the PTY authority or
+    // taking the first observable snapshot.
+    control.check_observe()?;
     let client = client_for(name)?;
     let (inventory, tab) = sole_job(&client, name)?;
     let tab_id = tab["id"].as_str().ok_or_else(|| {
@@ -1344,6 +1352,7 @@ pub(super) fn pty_wait_payload(
     let mut overlap = Vec::new();
     let mut scanned_bytes = 0_u64;
     loop {
+        control.check_observe()?;
         let regex_scan = matches!(&matcher, PtyWaitMatcher::Regex { .. });
         let remaining_scan = max_scan_bytes.saturating_sub(scanned_bytes);
         if regex_scan && remaining_scan == 0 {
@@ -1483,6 +1492,7 @@ pub(super) fn pty_wait_payload(
             )
             .with_detail(detail));
         }
+        control.check_observe()?;
         let status = status_with_client(&client, name)?;
         if status["finalized"].as_bool() == Some(true) {
             let mut detail = json!({
@@ -1502,12 +1512,25 @@ pub(super) fn pty_wait_payload(
             )
             .with_detail(detail));
         }
+        wait_for_next_pty_poll(deadline, control)?;
+    }
+}
+
+fn wait_for_next_pty_poll(
+    deadline: Instant,
+    control: crate::execution_control::ExecutionControl<'_>,
+) -> Result<(), CuError> {
+    let pause_deadline = Instant::now()
+        + deadline
+            .saturating_duration_since(Instant::now())
+            .min(PTY_WAIT_POLL_INTERVAL);
+    while Instant::now() < pause_deadline {
+        control.check_observe()?;
         thread::sleep(
-            deadline
-                .saturating_duration_since(Instant::now())
-                .min(Duration::from_millis(50)),
+            PTY_WAIT_CANCEL_SLICE.min(pause_deadline.saturating_duration_since(Instant::now())),
         );
     }
+    control.check_observe()
 }
 
 pub(super) fn pty_wait_exit_payload(
@@ -1731,6 +1754,11 @@ pub(super) fn pty_stop_payload(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
     use super::*;
 
     #[test]
@@ -1796,6 +1824,88 @@ mod tests {
         assert_eq!(detail["pattern_bytes"], 16);
         assert_eq!(detail["pattern_sha256"].as_str().map(str::len), Some(64));
         assert!(!detail.to_string().contains("secret"));
+    }
+
+    #[test]
+    fn pty_wait_pre_cancel_exits_before_the_authority_is_consulted() {
+        let probe = || true;
+        let error = pty_wait_payload(
+            "pre-cancelled",
+            Some("needle"),
+            None,
+            "earliest",
+            60_000,
+            None,
+            None,
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+        )
+        .expect_err("a pre-cancelled PTY wait must refuse before opening its authority");
+
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("typed cancellation detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+    }
+
+    #[test]
+    fn executor_routes_the_call_scoped_cancel_probe_into_pty_wait() {
+        let executor = crate::executor::Executor::new(crate::auth::Authorization::new(
+            [crate::auth::Grant::Observe].into_iter().collect(),
+        ));
+        let command = crate::Command::PtyWait {
+            target: crate::TargetRef::Current,
+            name: "pre-cancelled-through-executor".into(),
+            contains: Some("needle".into()),
+            regex: None,
+            cursor: "earliest".into(),
+            timeout_ms: 60_000,
+            max_match_bytes: None,
+            max_scan_bytes: None,
+        };
+        let probe = || true;
+        let reply = executor.execute_controlled(
+            &command,
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+        );
+
+        assert!(!reply.ok);
+        let error = reply.error.expect("typed cancellation reply");
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("typed cancellation detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+    }
+
+    #[test]
+    fn pty_wait_poll_pause_observes_cancellation_inside_the_interval() {
+        assert!(
+            PTY_WAIT_CANCEL_SLICE < PTY_WAIT_POLL_INTERVAL,
+            "the cancellation slice must stay shorter than one PTY poll interval"
+        );
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let raised = Arc::clone(&cancelled);
+        let trigger = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(15));
+            raised.store(true, Ordering::Release);
+        });
+        let probe = || cancelled.load(Ordering::Acquire);
+        let started = Instant::now();
+        let error = wait_for_next_pty_poll(
+            Instant::now() + Duration::from_secs(60),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+        )
+        .expect_err("the PTY poll pause must observe cancellation");
+        trigger.join().expect("cancel trigger");
+
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("typed cancellation detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "PTY poll pause did not observe cancellation inside its bounded test window: {:?}",
+            started.elapsed()
+        );
     }
 
     #[test]
