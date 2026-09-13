@@ -190,6 +190,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │      the same spelling after the legacy verb remains a verb-owned option
   │  ├─ [x] Unix hard-timeout cleanup keeps resident browser/job/PTY/device owners that crossed
   │  │      the explicit `setsid` boundary; same-session descendants remain invocation-owned
+  │  ├─ [x] the compatibility pipeline states TODO records and suffix-array copies once in
+  │  │      `rewrite.qjs`; `compat.qjs` reuses that existing module edge while every gap id,
+  │  │      typed refusal and resulting argv remains frozen
   │  ├─ [~] the Script invocation's call-scoped cancel token reaches ACU without crossing the
   │  │      provider ABI as a Rust layout
   │  │  ├─ [x] pure qjs/wasm computation observes the token without a host callback

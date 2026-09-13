@@ -22,7 +22,7 @@ function usage(command, message) {
   return { kind: "usage", command: command, message: message };
 }
 
-function todo(gap_id, command, message) {
+export function todo(gap_id, command, message) {
   return { kind: "todo", gap_id: gap_id, command: command, message: message };
 }
 
@@ -35,7 +35,7 @@ function append(out, values) {
   return out;
 }
 
-function copy_from(values, start) {
+export function copy_from(values, start) {
   const out = [];
   for (let i = start; i < values.length; i = i + 1) { out.push(values[i]); }
   return out;
