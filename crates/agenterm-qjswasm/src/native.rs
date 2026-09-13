@@ -827,7 +827,7 @@ pub(crate) fn invoke_native_call(
     let memory_base = memory.as_mut_ptr();
     let memory_len = memory.len();
     let bits = match native_dispatch(&call.spec)? {
-        NativeDispatch::Exact | NativeDispatch::Fixed(_) => {
+        NativeDispatch::Exact | NativeDispatch::Fixed => {
             let arguments = call
                 .arguments
                 .iter()
@@ -951,7 +951,7 @@ pub(crate) fn invoke_native_json(
     // mistake. Exhaustive on purpose: a new dispatch variant cannot slip
     // through unclassified.
     let refused = match dispatch {
-        NativeDispatch::Exact | NativeDispatch::Fixed(_) => false,
+        NativeDispatch::Exact | NativeDispatch::Fixed => false,
         NativeDispatch::FixedPointer(prototype) => !pointer_prototype_json_admitted(prototype),
         NativeDispatch::UnixIoctl(_) => true,
     };
@@ -975,7 +975,7 @@ pub(crate) fn invoke_native_json(
         });
     }
     let value = match dispatch {
-        NativeDispatch::Exact | NativeDispatch::Fixed(_) => {
+        NativeDispatch::Exact | NativeDispatch::Fixed => {
             let arguments = spec
                 .parameters
                 .iter()
@@ -1188,7 +1188,7 @@ unsafe fn invoke_prepared(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum NativeDispatch {
     Exact,
-    Fixed(FixedPrototype),
+    Fixed,
     FixedPointer(PointerPrototype),
     UnixIoctl(UnixIoctlPrototype),
 }
@@ -1699,9 +1699,9 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
     }
     let fixed = FixedPrototype::ALL
         .into_iter()
-        .find(|prototype| prototype.declaration() == (spec.result, spec.parameters.as_slice()));
-    if let Some(fixed) = fixed {
-        return Ok(NativeDispatch::Fixed(fixed));
+        .any(|prototype| prototype.declaration() == (spec.result, spec.parameters.as_slice()));
+    if fixed {
+        return Ok(NativeDispatch::Fixed);
     }
     let fixed_pointer = PointerPrototype::ALL
         .into_iter()
@@ -2495,11 +2495,11 @@ mod json_adapter_tests {
         );
         assert_eq!(
             native_dispatch(&parse("|sysconf|isize(i32)")),
-            Ok(NativeDispatch::Fixed(FixedPrototype::IsizeI32))
+            Ok(NativeDispatch::Fixed)
         );
         assert_eq!(
             native_dispatch(&parse("|lseek|i64(i32,i64,i32)")),
-            Ok(NativeDispatch::Fixed(FixedPrototype::I64I32I64I32,))
+            Ok(NativeDispatch::Fixed)
         );
         assert_eq!(
             native_dispatch(&parse("|uname|i32(ptr)")),
