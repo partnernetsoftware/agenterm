@@ -1105,11 +1105,12 @@ pub(crate) fn invoke_native_json(
 
 /// One admitted pointer call, with every pointer position backed by a region.
 ///
-/// The layout is built in two passes on purpose. The first decodes and
-/// validates every argument in declaration order (so the guest sees the first
-/// failing position) and allocates each region; the second turns those regions
-/// into addresses. No region is added after an address is taken, so the storage
-/// behind every pointer is fixed for the whole synchronous call.
+/// The layout is built in three phases on purpose. The first decodes every
+/// argument into a plan without allocating its pointee buffer. The second checks the whole
+/// call's storage and conservative encoded-answer bounds. Only then does the
+/// third allocate regions and turn them into addresses. No region is added
+/// after an address is taken, so every pointer stays fixed for the synchronous
+/// call, and a later oversized argument cannot leave earlier buffers allocated.
 ///
 /// The answer is the scalar result plus one entry per pointer position:
 /// `{"type":"i32","value":0,"regions":[...]}`, in the same `"type"`/`"value"`
@@ -1122,14 +1123,13 @@ fn invoke_pointer_json(
     libraries: &NativeLibraryCache,
     max_region_bytes: usize,
 ) -> Result<serde_json::Value, NativeDoorError> {
-    let mut regions: Vec<NativeRegion> = Vec::new();
+    let mut plans: Vec<RegionPlan> = Vec::new();
     let mut layout: Vec<JsonPointerArgument> = Vec::with_capacity(values.len());
-    let mut billed = 0_usize;
     for (index, (ty, value)) in spec.parameters.iter().copied().zip(values).enumerate() {
         if ty.is_pointer() {
-            let region = NativeRegion::from_json(index, value, max_region_bytes, &mut billed)?;
-            let region_index = regions.len();
-            regions.push(region);
+            let plan = RegionPlan::from_json(index, value)?;
+            let region_index = plans.len();
+            plans.push(plan);
             layout.push(JsonPointerArgument::Region(region_index));
         } else {
             // A scalar position keeps the exact value grammar it has in the
@@ -1139,6 +1139,9 @@ fn invoke_pointer_json(
             )?));
         }
     }
+
+    preflight_region_plans(&plans, max_region_bytes)?;
+    let mut regions: Vec<NativeRegion> = plans.into_iter().map(RegionPlan::materialize).collect();
 
     let mut arguments: Vec<agenterm_dyn::AbiValue> = Vec::with_capacity(layout.len());
     let mut positions: Vec<(usize, usize)> = Vec::new();
@@ -1449,31 +1452,21 @@ impl RegionContract {
 /// The JSON key a pointer argument's region record lives under.
 const REGION_KEY: &str = "region";
 
-/// One call-scoped host region: storage the host owns for exactly one
-/// synchronous call, plus the contract the guest stated for reading it back.
-///
-/// The region is not a guest span and not a host address the guest can name:
-/// it is created by this call, passed as the call's pointer argument, and
-/// dropped when the call returns. Nothing about it survives into a second
-/// call, and no field of the answer exposes its address.
-struct NativeRegion {
-    words: Vec<RegionWord>,
+/// Conservative JSON envelope bytes independent of region contents.
+const REGION_ANSWER_BASE_BYTES: usize = 64;
+/// Conservative JSON metadata bytes for one entry in `regions`.
+const REGION_ANSWER_ENTRY_BYTES: usize = 96;
+
+/// A validated region description before its pointee buffer is allocated.
+struct RegionPlan {
+    input: Vec<u8>,
     capacity: usize,
     contract: RegionContract,
 }
 
-impl NativeRegion {
-    /// Decode one `{"region": {...}}` argument and allocate its storage.
-    ///
-    /// Every check runs before `words` is allocated, including the bill: the
-    /// running capacity total of this call is compared with the slot's region
-    /// budget here, so an over-budget argument never reaches the allocator.
-    fn from_json(
-        index: usize,
-        value: &serde_json::Value,
-        maximum: usize,
-        billed: &mut usize,
-    ) -> Result<Self, NativeDoorError> {
+impl RegionPlan {
+    /// Decode one `{"region": {...}}` argument without allocating its pointee.
+    fn from_json(index: usize, value: &serde_json::Value) -> Result<Self, NativeDoorError> {
         let shape =
             |reason: &'static str| NativeDoorError::NativeRegionShapeInvalid { index, reason };
         let Some(argument) = value.as_object() else {
@@ -1504,7 +1497,7 @@ impl NativeRegion {
             .and_then(|capacity| usize::try_from(capacity).ok())
             .filter(|capacity| *capacity > 0)
             .ok_or_else(|| shape("capacity must be a positive integer"))?;
-        let input: Vec<u8> = match record.get("bytes") {
+        let input = match record.get("bytes") {
             None => Vec::new(),
             Some(bytes) => bytes
                 .as_array()
@@ -1549,23 +1542,80 @@ impl NativeRegion {
                 ));
             }
         }
-        // The bill before the allocation, never after it.
-        *billed = billed.saturating_add(capacity);
-        if *billed > maximum {
-            return Err(NativeDoorError::NativeRegionTooLarge {
-                requested: *billed,
-                maximum,
-            });
-        }
-        let mut region = Self {
-            words: vec![RegionWord::ZEROED; capacity.div_ceil(REGION_ALIGNMENT)],
+        Ok(Self {
+            input,
             capacity,
             contract,
-        };
-        region.bytes_mut()[..input.len()].copy_from_slice(&input);
-        Ok(region)
+        })
     }
 
+    fn materialize(self) -> NativeRegion {
+        let mut region = NativeRegion {
+            words: vec![RegionWord::ZEROED; self.capacity.div_ceil(REGION_ALIGNMENT)],
+            capacity: self.capacity,
+            contract: self.contract,
+        };
+        region.bytes_mut()[..self.input.len()].copy_from_slice(&self.input);
+        region
+    }
+
+    fn encoded_content_bound(&self) -> Option<usize> {
+        let bytes_per_input = match self.contract {
+            RegionContract::NulText => 6,
+            RegionContract::NulBytes | RegionContract::RawBytes => 4,
+        };
+        self.capacity
+            .checked_mul(bytes_per_input)
+            .and_then(|bytes| bytes.checked_add(REGION_ANSWER_ENTRY_BYTES))
+    }
+}
+
+/// Refuse before any pointee allocation when either raw storage or the worst
+/// case serialized answer could exceed the slot's byte ceiling. JSON text may
+/// escape each byte as `\\u00XX` (six bytes); numeric byte arrays need at most
+/// three digits plus a comma (four). The fixed allowances cover the stable
+/// top-level and per-region field names. This is intentionally conservative;
+/// the host still checks the actual serialized result as defense in depth.
+fn preflight_region_plans(plans: &[RegionPlan], maximum: usize) -> Result<(), NativeDoorError> {
+    let capacity = plans
+        .iter()
+        .try_fold(0_usize, |total, plan| total.checked_add(plan.capacity))
+        .unwrap_or(usize::MAX);
+    if capacity > maximum {
+        return Err(NativeDoorError::NativeRegionTooLarge {
+            requested: capacity,
+            maximum,
+        });
+    }
+    let encoded = plans
+        .iter()
+        .try_fold(REGION_ANSWER_BASE_BYTES, |total, plan| {
+            total.checked_add(plan.encoded_content_bound()?)
+        })
+        .unwrap_or(usize::MAX);
+    if encoded > maximum {
+        return Err(NativeDoorError::NativeRegionTooLarge {
+            requested: encoded,
+            maximum,
+        });
+    }
+    Ok(())
+}
+
+/// One call-scoped host region: storage the host owns for exactly one
+/// synchronous call, plus the contract the guest stated for reading it back.
+///
+/// The region is not a guest span and not a host address the guest can name:
+/// it is created by this call, passed as the call's pointer argument, and
+/// dropped when the call returns. Nothing about it survives into a second
+/// call, and no field of the answer exposes its address.
+struct NativeRegion {
+    words: Vec<RegionWord>,
+    capacity: usize,
+    contract: RegionContract,
+}
+
+impl NativeRegion {
     /// The region's first `capacity` bytes, zero-filled except for the input.
     fn bytes(&self) -> &[u8] {
         // SAFETY: `capacity.div_ceil(REGION_ALIGNMENT)` units were allocated, so
@@ -2738,6 +2788,26 @@ mod json_adapter_tests {
                 maximum: 64,
             })
         );
+        // Raw capacity alone fits, but the successful numeric JSON array can
+        // require four encoded bytes per native byte. The adapter must reject
+        // that upper bound before loading `access` or allocating its pointee.
+        assert_eq!(
+            invoke_native_json(
+                b"|access|i32(ptr,i32)",
+                br#"[{"region":{"capacity":64,"bytes":[47],"termination":"raw","output":"bytes"}},0]"#,
+                &libraries,
+                64,
+            ),
+            Err(NativeDoorError::NativeRegionTooLarge {
+                requested: 416,
+                maximum: 64,
+            })
+        );
+        assert_eq!(
+            libraries.len(),
+            0,
+            "encoded-answer refusal must precede both allocation and loading"
+        );
         // Two regions that each fit are still refused together when their sum
         // crosses the bound: the bill is the call's, not the position's.
         assert_eq!(
@@ -2905,18 +2975,16 @@ mod json_adapter_tests {
     /// Region storage is aligned for anything a C callee may assume.
     #[test]
     fn region_storage_carries_the_maximum_natural_alignment() {
-        let mut billed = 0;
-        let mut region = NativeRegion::from_json(
+        let plan = RegionPlan::from_json(
             0,
             &serde_json::json!({"region":{"capacity":1,"termination":"raw","output":"bytes"}}),
-            region_bound(),
-            &mut billed,
         )
         .expect("a one-byte region decodes");
         assert_eq!(
-            billed, 1,
-            "the bill is the capacity, not the padded storage"
+            plan.capacity, 1,
+            "the storage bill is the capacity, not the padded allocation"
         );
+        let mut region = plan.materialize();
         assert_eq!(
             region.pointer() as usize % REGION_ALIGNMENT,
             0,

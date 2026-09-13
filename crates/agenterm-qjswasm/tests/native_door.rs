@@ -911,27 +911,28 @@ fn a_json_region_reaches_uname_through_the_raw_door_and_matches_the_program() {
     );
 }
 
-/// The answer is capped by the same slot budget as every other door answer, and
-/// an over-budget answer is the door's own refusal -- never a prefix of it.
+/// The conservative encoded-answer bound rejects before the region is
+/// allocated or the native symbol is invoked. The host's final serialized
+/// result cap remains a defense in depth, but this input cannot reach it.
 #[cfg(unix)]
 #[test]
-fn a_json_answer_over_the_slot_budget_is_refused_not_truncated_at_the_door() {
-    let outcome = run_wat_outcome(
+fn a_json_answer_over_the_slot_budget_is_refused_before_materialization() {
+    let error = run_wat(
         include_str!("fixtures/native/native_invoke_region_over_budget.wat"),
         Budget {
             max_bridge_result_bytes: 64,
             ..Budget::default()
         },
-    );
-    assert_eq!(
-        outcome.values.as_slice(),
-        [Value::I64(1)],
-        "the door answers its refusal status"
-    );
-    assert_eq!(
-        outcome.stdout.trim_end(),
-        "agenterm: native result exceeds the slot's max_bridge_result_bytes",
-        "the whole refusal, not the first 64 bytes of an answer"
+    )
+    .expect_err("the encoded-answer upper bound refuses before the call");
+    assert!(
+        matches!(
+            error,
+            QjswasmError::Door(ref message)
+                if message
+                    == "native_region_too_large: arguments ask for 416 region bytes, maximum 64"
+        ),
+        "unexpected refusal: {error:?}"
     );
 }
 
