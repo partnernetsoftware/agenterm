@@ -668,11 +668,15 @@ now selects `libc.so.6` on Linux and `libSystem.B.dylib` on macOS instead of
 putting a macOS soname behind `cfg(unix)`: exact `getpid`, fixed `sysconf`,
 fixed-pointer `uname`, missing-symbol classification and reusable-handle calls
 therefore compile as real Linux tests rather than macOS-only evidence. The
-macOS runtime suite is green; both Linux target suites compile, while local
-Linux execution remains unclaimed. The native ARM64 test binary was built for
-the glibc 2.28 floor, but the declared UTM court failed before guest startup
-because its VirtFS bridge directory was absent; this is runner infrastructure,
-not a dyn test result.
+macOS runtime suite is green and both Linux target suites compile. Linux ARM64
+runtime is also green on exact source `be9c8dd1`: the ABI integration binary was
+built for the glibc 2.28 floor, copied into an aarch64 Linux Lima guest, and ran
+all 20 applicable courts with 20 passed / 0 failed. The binary digest was
+`df736bde95e0d13402ef5d8d3bdcdd2d8614bd3bb99367590060e885c7f120af`;
+the guest reported aarch64 and glibc 2.43. This execute-only court supersedes
+the earlier UTM startup blocker without changing that external runner: the
+missing VirtFS bridge was infrastructure, not a dyn result. Linux x86_64
+runtime remains unclaimed.
 Windows now has the matching `kernel32.dll` court: one reusable handle serves
 three exact `GetCurrentProcessId` calls and one existing `i32(ptr)`
 `QueryPerformanceCounter` call, with `std::process` and `windows-sys` as the
