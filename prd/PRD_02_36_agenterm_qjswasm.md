@@ -112,6 +112,8 @@ agenterm-qjswasm
 │  │  │  │  │     `i32(u32,u32)` on Linux against libc, while the raw oracle remains unchanged
 │  │  │  │  └─ economy: two strict-subset helpers are deleted; no trait, table, ABI shape,
 │  │  │  │        loader, policy, handle or public entry is added
+│  │  │  │        the raw fixed-pointer family now delegates its admitted I32/U32/U64/Usize
+│  │  │  │        positions to that same canonicalizer instead of repeating four conversions
 │  │  │  ├─ [x] exact and fixed scalar dispatch share one execution arm per transport
 │  │  │  │  ├─ invariant: `native_dispatch` still chooses the admitted trampoline family;
 │  │  │  │  │     only their now-identical canonicalize → invoke → transport-result path is shared

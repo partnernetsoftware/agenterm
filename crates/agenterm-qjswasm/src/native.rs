@@ -1803,44 +1803,9 @@ fn fixed_pointer_argument(
 ) -> Result<AbiValue, NativeDoorError> {
     match argument {
         NativeArgument::Scalar {
-            ty: NativeType::I32,
-            bits,
-        } => {
-            let value = *bits as i32;
-            if value as i64 as u64 == *bits {
-                Ok(AbiValue::I32(value))
-            } else {
-                Err(NativeDoorError::ScalarNotCanonical {
-                    index,
-                    ty: NativeType::I32,
-                    bits: *bits,
-                })
-            }
-        }
-        NativeArgument::Scalar {
-            ty: NativeType::U32,
-            bits,
-        } => u32::try_from(*bits).map(AbiValue::U32).map_err(|_| {
-            NativeDoorError::ScalarNotCanonical {
-                index,
-                ty: NativeType::U32,
-                bits: *bits,
-            }
-        }),
-        NativeArgument::Scalar {
-            ty: NativeType::U64,
-            bits,
-        } => Ok(AbiValue::U64(*bits)),
-        NativeArgument::Scalar {
-            ty: NativeType::Usize,
-            bits,
-        } => usize::try_from(*bits).map(AbiValue::Usize).map_err(|_| {
-            NativeDoorError::ScalarNotCanonical {
-                index,
-                ty: NativeType::Usize,
-                bits: *bits,
-            }
-        }),
+            ty: NativeType::I32 | NativeType::U32 | NativeType::U64 | NativeType::Usize,
+            ..
+        } => exact_argument(index, argument, spec),
         NativeArgument::GuestSpan { ty, span } if ty.is_pointer() => {
             // SAFETY: decode_native_call proved offset + len is within the one
             // guest allocation. `add` therefore yields an in-bounds or one-past
