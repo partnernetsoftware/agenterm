@@ -15,12 +15,17 @@ use agenterm_dyn::{
 // The reusable handle is exercised only by the macOS-gated handle courts below,
 // so its two names are gated with them: on any other cell this import is unused,
 // and `--all-targets -- -D warnings` turns that into a failed non-host gate.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use agenterm_dyn::{LibraryHandle, invoke_abi_with_handle};
 
-const LIB: &str = "libSystem.B.dylib";
-
 #[cfg(target_os = "macos")]
+const LIB: &str = "libSystem.B.dylib";
+#[cfg(target_os = "linux")]
+const LIB: &str = "libc.so.6";
+#[cfg(target_os = "windows")]
+const LIB: &str = "kernel32.dll";
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn oracle(
     library: &str,
     symbol: &str,
@@ -39,7 +44,7 @@ fn oracle(
 }
 
 /// An exact-family representative: `getpid()` is `i32()`.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn matrix_exact_representative_matches_the_direct_call() {
     let value = oracle(LIB, "getpid", AbiType::I32, &[], &[]).expect("getpid through the bridge");
@@ -54,7 +59,7 @@ fn matrix_exact_representative_matches_the_direct_call() {
 }
 
 /// A fixed-family representative: `sysconf(i32) -> isize` is `IsizeI32`.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn matrix_fixed_representative_matches_the_direct_call() {
     let value = oracle(
@@ -72,7 +77,7 @@ fn matrix_fixed_representative_matches_the_direct_call() {
 }
 
 /// A pointer-family representative: `uname(void *) -> i32` is `I32Pointer`.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn matrix_pointer_representative_matches_the_direct_call() {
     let mut bridged = std::mem::MaybeUninit::<libc::utsname>::zeroed();
@@ -557,7 +562,7 @@ fn two_pointer_result_buffer_matches_direct_dladdr_fields() {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 unsafe fn assume_name(slot: &mut std::mem::MaybeUninit<libc::utsname>) -> libc::utsname {
     unsafe { slot.assume_init() }
 }
@@ -745,7 +750,7 @@ fn an_empty_pointer_is_still_a_pointer_for_the_mechanism() {
 
 /// A shape the mechanism can execute but whose symbol is absent must fail as a
 /// mechanism error, not as a fabricated success.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn a_missing_symbol_is_a_symbol_lookup_error() {
     let error = oracle(LIB, "agenterm_no_such_symbol_xyz", AbiType::I32, &[], &[])
@@ -967,7 +972,7 @@ fn the_signature_query_agrees_with_validate_abi_without_needing_arguments() {
 }
 
 /// The reusable handle must return exactly what the one-shot entry returns.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn the_handle_entry_and_the_one_shot_entry_agree_bit_for_bit() {
     let handle = LibraryHandle::open(LIB).expect("open one reusing handle");
@@ -1030,7 +1035,7 @@ fn the_handle_entry_and_the_one_shot_entry_agree_bit_for_bit() {
 }
 
 /// One handle serves repeated calls, including a pointer-result shape.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn one_handle_serves_repeated_calls() {
     let handle = LibraryHandle::open(LIB).expect("open one reusing handle");
@@ -1092,7 +1097,7 @@ fn one_handle_serves_repeated_calls() {
 }
 
 /// The handle entry keeps the mechanism error vocabulary and adds no new code.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn the_handle_keeps_the_mechanism_error_vocabulary() {
     let handle = LibraryHandle::open(LIB).expect("open one reusing handle");
@@ -1120,7 +1125,7 @@ fn the_handle_keeps_the_mechanism_error_vocabulary() {
         invoke_abi_with_handle(
             &handle,
             &NativeCall {
-                library: "libSystem.x.dylib",
+                library: "agenterm-other-library",
                 symbol: "getpid",
                 signature: exact,
                 arguments: &[],

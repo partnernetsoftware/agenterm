@@ -663,7 +663,13 @@ validated `(i32, u64|i32, ptr) -> i32` signature. The legacy Lisp entrance and
 the qjswasm native door both delegate there; the fixed trampoline remains for
 every other call and this does not authorize general variadic FFI.
 Linux caller-owned `ptr` coverage includes `getcwd`, `uname`, `times`,
-`clock_gettime`, `getrusage`, and `getrlimit`.
+`clock_gettime`, `getrusage`, and `getrlimit`. The shared ABI integration court
+now selects `libc.so.6` on Linux and `libSystem.B.dylib` on macOS instead of
+putting a macOS soname behind `cfg(unix)`: exact `getpid`, fixed `sysconf`,
+fixed-pointer `uname`, missing-symbol classification and reusable-handle calls
+therefore compile as real Linux tests rather than macOS-only evidence. The
+macOS runtime suite is green; both Linux target suites compile, while local
+Linux execution remains unclaimed because the configured runners were offline.
 
 ### examples
 
