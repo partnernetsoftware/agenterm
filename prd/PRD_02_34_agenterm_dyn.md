@@ -201,6 +201,46 @@ CU ──仍经 fixed-sibling provider / typed Executor──> 不直接依赖 d
 具体宽度、对齐、NUL 与 readback 必须由上层有 owner 的 import declaration/schema 表达；
 若没有这样的单一真相，安全结果是拒绝新增映射，而不是在 dyn 里建立 symbol allowlist。
 
+### 原子稳定性宪章
+
+“Native Importer 的 family 空间可以继续增长”不等于“dyn 核心可以无界增长”。把 dyn
+看成一个原子时，它有稳定内核、可插接机制族与隔离实验槽三层；新能力只能沿已有接缝
+增加一个有 owner 的机制族，不能穿透稳定内核另造 loader、错误系统或上层策略。
+
+```text
+dyn atom
+├── stable nucleus
+│   ├── caller-provided AbiSignature / NativeCall / AbiValue
+│   ├── one loader + one symbol-resolution path
+│   ├── five-family, 75-shape ABI mechanism matrix
+│   ├── AbiError five-word mechanism vocabulary
+│   └── LibraryHandle RAII + one-shot/borrowed-handle parity
+├── mechanism-family shell
+│   ├── ABI Importer                                      [x]
+│   ├── Unix ioctl                                        [x]
+│   └── syscall / direct host entry / future families     [ ] consumer-gated
+└── isolated experimental slot
+    └── exec.rs W^X host-ISA substrate                    [~] no production edge
+```
+
+原子性由四类可破坏条件定义，而不是靠“代码很少”的印象定义：
+
+1. **身份漂移**：公开输入/输出代数或五词错误词汇静默变化；
+2. **机制分裂**：出现第二 loader、第二 symbol resolver 或绕过统一入口的调用路径；
+3. **职责渗漏**：symbol/pointee allowlist、budget、授权、typed OS owner 进入 dyn；
+4. **证据失联**：矩阵、句柄复用或新 family 只能由实现自己的正向测试证明，不能被反向变异证伪。
+
+扩展协议固定为：先给出真实非测试消费者与需要删除的上层平行流程；再命名 family
+的最小输入/输出代数、独立错误边界和六格证据；最后接入 qjswasm 的同一
+declaration → lowering → mechanism → typed-result 管线。若新增代码不能带来新消费者，
+也不能净删一份上层机制，它只是候选研究，不进入 stable nucleus。`exec.rs` 即使当前是
+公开 Rust 面，也不因可调用而自动成为 Native Importer 的稳定产品能力；只有生产边、
+兼容性 court 与交付证据三者同时落地，才能从隔离槽晋级。
+
+当前机器证据已覆盖 75-shape 矩阵、exposure ⊆ mechanism、唯一 loader 与句柄复用；
+**错误词汇的无 wildcard 穷举兼容性 court 尚未落地**。该 court 是下一条原子稳定性证据，
+它只冻结机制错误的身份，不新增错误码或运行时代码。
+
 ### dyn 之上的分层折叠路线（已收敛）
 
 这条路线的目标不是把 qjswasm 的策略搬进 dyn，而是让 dyn 的小而
@@ -260,8 +300,8 @@ flowchart LR
         Abi[按调用方传入的 ABI 描述执行调用]
         Raw[raw pointer / value 搬运]
         Ioctl[Unix ioctl variadic ABI 机制]
-        WX[W^X trampoline / exec.rs<br/>隔离槽位 · 当前调用路径不经此处]
-        Matrix[五族单态 trampoline 矩阵<br/>exact 49 · fixed 4 · ptr 8 · ptr-result 5 · direct 9]
+        WX[isolated experimental slot<br/>W^X exec.rs · 当前调用路径不经此处]
+        Matrix[stable nucleus<br/>五族 75-shape ABI matrix · five-word AbiError]
         Abi --> Matrix
         Matrix --> Loader
         Raw --> Loader
