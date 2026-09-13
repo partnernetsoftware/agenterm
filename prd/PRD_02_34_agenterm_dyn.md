@@ -673,10 +673,13 @@ runtime is also green on exact source `be9c8dd1`: the ABI integration binary was
 built for the glibc 2.28 floor, copied into an aarch64 Linux Lima guest, and ran
 all 20 applicable courts with 20 passed / 0 failed. The binary digest was
 `df736bde95e0d13402ef5d8d3bdcdd2d8614bd3bb99367590060e885c7f120af`;
-the guest reported aarch64 and glibc 2.43. This execute-only court supersedes
-the earlier UTM startup blocker without changing that external runner: the
-missing VirtFS bridge was infrastructure, not a dyn result. Linux x86_64
-runtime remains unclaimed.
+the guest reported aarch64 and glibc 2.43. The matching x86_64 binary ran the
+same 20 applicable courts with 20 passed / 0 failed in an x86_64 Linux guest
+reporting glibc 2.41; its digest was
+`1c0233be1e4836ed63bc9261dbf6772a8e7f2688a736f46af80c57a9a7036df0`.
+These execute-only courts supersede the earlier UTM startup blocker without
+changing that external runner: the missing VirtFS bridge was infrastructure,
+not a dyn result.
 Windows now has the matching `kernel32.dll` court: one reusable handle serves
 three exact `GetCurrentProcessId` calls and one existing `i32(ptr)`
 `QueryPerformanceCounter` call, with `std::process` and `windows-sys` as the
