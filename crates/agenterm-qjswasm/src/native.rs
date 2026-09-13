@@ -29,6 +29,20 @@ const KIND_GUEST_SPAN: u32 = 1;
 const KIND_NULL: u32 = 2;
 const KIND_HOST_ADDRESS: u32 = 3;
 
+/// Scalar positions admitted by the qjswasm exact-family catalog.
+///
+/// This is product/schema data owned here. dyn independently decides whether
+/// the caller-provided ABI signature has a concrete mechanism trampoline.
+const EXACT_SCALAR_TYPES: [NativeType; 7] = [
+    NativeType::I32,
+    NativeType::U32,
+    NativeType::I64,
+    NativeType::U64,
+    NativeType::Isize,
+    NativeType::Usize,
+    NativeType::F64,
+];
+
 /// A type in the bounded native declaration grammar.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NativeType {
@@ -541,7 +555,7 @@ pub fn native_register_pattern_cardinality() -> usize {
 /// seven exact scalar types, each at every arity from zero through six. The
 /// result type and every parameter have to be that same exact type.
 pub fn native_invocation_stub_cardinality() -> usize {
-    agenterm_dyn::exact_native_stub_cardinality()
+    EXACT_SCALAR_TYPES.len() * (MAX_NATIVE_ARITY + 1)
 }
 
 /// Validate and decode one declaration plus fixed-layout argument block.
@@ -1257,16 +1271,7 @@ fn unsupported_signature(call: &DecodedNativeCall) -> impl FnOnce() -> NativeDoo
 }
 
 fn exact_scalar_type(ty: NativeType) -> Option<NativeType> {
-    match ty {
-        NativeType::I32
-        | NativeType::U32
-        | NativeType::I64
-        | NativeType::U64
-        | NativeType::Isize
-        | NativeType::Usize
-        | NativeType::F64 => Some(ty),
-        _ => None,
-    }
+    EXACT_SCALAR_TYPES.contains(&ty).then_some(ty)
 }
 
 fn exact_argument(

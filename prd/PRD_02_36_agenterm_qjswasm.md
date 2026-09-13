@@ -49,6 +49,13 @@ agenterm-qjswasm
 │  ├─ [x] Fleet facade and public CLI route
 │  ├─ [x] qualify / pack / run / bounded check-many, including recursive imports
 │  ├─ [x] qjswasm → process.command → ACU headless PTY public journey
+│  ├─ [x] native ABI composition
+│  │  ├─ user problem: scripts need an extensible native surface without copying a loader or ABI executor
+│  │  ├─ invariant: spec/schema/catalog/nullability and exact-family cardinality are local qjswasm policy
+│  │  ├─ mechanism: every non-ioctl call lowers to caller-provided AbiSignature/AbiValue and one dyn invoke_abi
+│  │  ├─ black-box owner: native_door + native_door_schema + native/ACU composition smoke
+│  │  ├─ safe failure: malformed, unlisted, noncanonical, out-of-span and dyn mechanism failures remain typed
+│  │  └─ non-goal: no agenterm-cu → agenterm-dyn dependency, second loader/door, or typed CU effect in dyn
 │  ├─ [~] embedder `agenterm:acu` object: same typed schema/Executor/errors/receipts as CLI and MCP
 │  │  ├─ [x] raw bounded door + non-shadowable qjs module + shared Command/Executor/CuReply adapter
 │  │  ├─ [x] versioned `command|argv` envelope; library-owned argv parser; qjs→CU has no child process, while public CLI keeps common Script Worker isolation
@@ -145,6 +152,9 @@ flowchart LR
   DOOR["versioned Script host door"]
   NATIVEPOLICY["native schema + prototype catalog<br/>nullability · guest-span checks"]
   DYNABI["agenterm-dyn invoke_abi<br/>policy-free ABI execution"]
+  CUCALLER["CU caller / extensible automation"]
+  SCRIPTRUNTIME["Script Runtime"]
+  NODIRECT["boundary invariant<br/>agenterm-cu does not depend on agenterm-dyn"]
   EXPLICIT["explicit call sites only<br/>bare host value → typed compile refusal"]
   CAPTURE["bounded child capture<br/>per-stream loss flags · JSON-fit"]
   HANDLES["per-slot child ledger<br/>32 retained · pre-spawn refusal"]
@@ -191,6 +201,9 @@ flowchart LR
   UP -. exact git rev .-> COMP & LOAD
   LOAD -->|yes| SLOT --> DOOR --> EXPLICIT --> PRODUCT --> RECEIPT
   DOOR --> NATIVEPOLICY --> DYNABI --> RECEIPT
+  CUCALLER --> SCRIPTRUNTIME --> DOOR
+  CUCALLER -. Cargo boundary + composition court .-> NODIRECT
+  NODIRECT -. native extension continues through Script Runtime .-> NATIVEPOLICY
   DOOR --> ACUOBJ --> ACUSIZE
   ACUSIZE -->|3,738,112 B · green| ACUDYN --> ACUCLI --> RECEIPT
   ACUSIZE -->|regression| REJECT
@@ -403,9 +416,11 @@ integration.
 - Exact, fixed and fixed-pointer native calls now keep their declaration parser,
   prototype catalog, nullability and guest-span checks in this crate, while all
   five raw and JSON execution arms delegate through `agenterm-dyn::invoke_abi`.
-  The local catalog no longer imports dyn's legacy prototype/value enums or its
-  exact-family validator; canonical argument conversion produces raw
-  `AbiValue` positions directly. The two nullable pointer positions remain
+  The local catalog no longer imports dyn's legacy prototype/value enums, its
+  exact-family validator, or a dyn-side exposure-cardinality helper: this
+  crate's own exact scalar set and arity derive the catalog cardinality, while
+  canonical argument conversion produces raw `AbiValue` positions directly. The
+  two nullable pointer positions remain
   distinct here while both lower to dyn's single machine-level `Pointer` type.
   Unix `ioctl` retains its separate dyn mechanism entry. This crate maps dyn's
   mechanism signature/library/symbol failures back into the existing

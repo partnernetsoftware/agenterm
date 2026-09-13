@@ -7,11 +7,6 @@ use libloading::Library;
 /// Maximum fixed arity supported by the exact native core.
 pub const MAX_EXACT_NATIVE_ARITY: usize = 6;
 
-/// Number of monomorphic exact-family trampolines implemented by this module.
-pub const fn exact_native_stub_cardinality() -> usize {
-    7 * (MAX_EXACT_NATIVE_ARITY + 1)
-}
-
 /// One exact Rust scalar family with a corresponding `extern "C"` ABI.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExactNativeType {

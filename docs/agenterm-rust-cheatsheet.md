@@ -112,6 +112,14 @@ hidden "supported but unexposed" test case: prove the boundary by narrowing the
 upper catalog while the raw mechanism test remains green, or add a real native
 calling implementation before claiming a larger mechanism set.
 
+An exposure cardinality is upper-layer schema data, not mechanism metadata. Do
+not let the mechanism crate export a count of the shapes a product chooses to
+expose: when the exposure owner already derives its catalog from its own type
+list, that count has two authorities and drifts silently. Prove the migration by
+deleting the mechanism-side helper and keeping the owning cardinality/parity
+test green; `agenterm-dyn` carried such a public exact-family stub count only
+until `agenterm-qjswasm` derived `7 x (arity + 1)` from its own scalar list.
+
 Native calls belong behind typed platform contracts. A sound adapter states:
 
 - which thread may call it;

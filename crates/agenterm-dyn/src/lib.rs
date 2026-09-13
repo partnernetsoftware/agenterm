@@ -10,7 +10,6 @@ mod fixed_pointer;
 mod unix_ioctl;
 
 pub use abi::{AbiError, AbiSignature, AbiType, AbiValue, NativeCall, invoke_abi, validate_abi};
-pub use exact_native::exact_native_stub_cardinality;
 #[cfg(unix)]
 pub use exec::{
     BufferState, CodeBuffer, NameEntry, NameTable, aarch64_mov_x0_ret, x86_64_call_thunk,
