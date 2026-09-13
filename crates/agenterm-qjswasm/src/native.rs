@@ -975,7 +975,7 @@ pub(crate) fn invoke_native_json(
         });
     }
     let value = match dispatch {
-        NativeDispatch::Exact { .. } => {
+        NativeDispatch::Exact { .. } | NativeDispatch::Fixed(_) => {
             let arguments = spec
                 .parameters
                 .iter()
@@ -984,21 +984,8 @@ pub(crate) fn invoke_native_json(
                 .enumerate()
                 .map(|(index, (ty, value))| exact_json_argument(index, ty, value))
                 .collect::<Result<Vec<_>, _>>()?;
-            // SAFETY: native_dispatch admitted the exact-family declaration.
-            unsafe { invoke_prepared(&spec, &arguments, libraries) }.and_then(|value| {
-                abi_json_result(value, spec.result).ok_or_else(|| unsupported_json_spec(&spec))
-            })?
-        }
-        NativeDispatch::Fixed(_prototype) => {
-            let arguments = spec
-                .parameters
-                .iter()
-                .copied()
-                .zip(values)
-                .enumerate()
-                .map(|(index, (ty, value))| exact_json_argument(index, ty, value))
-                .collect::<Result<Vec<_>, _>>()?;
-            // SAFETY: native_dispatch admitted this enumerated fixed prototype.
+            // SAFETY: native_dispatch admitted this exact or enumerated scalar
+            // declaration for the JSON argument encoding above.
             unsafe { invoke_prepared(&spec, &arguments, libraries) }.and_then(|value| {
                 abi_json_result(value, spec.result).ok_or_else(|| unsupported_json_spec(&spec))
             })?
