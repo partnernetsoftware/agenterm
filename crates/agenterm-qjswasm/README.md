@@ -509,6 +509,44 @@ It is declared only when the raw native door is declared, shares the same host
 operation/byte budget and cancellation sampling, and preserves the existing
 `native_*` typed failure codes.
 
+### JSON 指针调用：call-scoped region（`4adf3a6a` → `6ad6462a`）
+
+JSON 调用者**没有客人线性内存**可指，所以指针参数位置收的不是地址，而是一条 **region
+记录**——宿主为**这一次同步调用**分配的存储：
+
+```json
+{"region":{"capacity":4096,"bytes":[47,116,109,112],"termination":"nul","output":"text"}}
+```
+
+| 谁 | 拥有什么 |
+|----|----------|
+| 宿主（门） | 地址、对齐、零填充、生命周期。容量向上取整到 16 字节单元（`long double` / `max_align_t` 在两套仓库 ABI 上都够），**对齐在分配本身**而不只在结构体上；输入拷到前部，调用返回即丢弃 |
+| 调用者 | 宽度与终止契约（`capacity` 必填正整数且 ≥ `bytes.len()`、`termination`、`output`），以及**够大的 pointee**——门不知道被选中的 C 符号会写多少字节 |
+
+- **没有任何东西活过一次调用**：答案里没有地址、handle、registry、digest 或客人偏移，
+  也**没有跨调用生命周期**；每个指针位置各要一条自己的 region。
+- `termination` 与 `output` **不正交**：`"raw"` 没有端点，`"raw" + "text"` 没有可解码的东西
+  ——三种组合在一条枚举里，第四种不可表达。`"nul"` 要求输入不含 NUL、给终止符留位，
+  且调用后 region 内必须真的出现 NUL；`"text"` 要求严格 UTF-8。
+- **答的是调用后缓冲快照，不是 written 长度。** `output: "bytes"` 给精确字节
+  （`nul` 是终止符之前、`raw` 是整个 capacity），不编造任何 written 长度；被调用者没碰过的
+  字节仍是宿主的零填充或调用者自己的输入——那不是「被调用者写的就是这个」的证明。
+  读回失败时 **native status 保留在错误里**：拒绝一个编码契约不该抹掉 C 的结果。
+- 五个稳定码：`native_region_required` · `native_region_shape_invalid` · `native_region_too_large`
+  · `native_region_unterminated` · `native_region_not_utf8`。
+- **物化之前先按最坏编码预算**：整次调用的 capacity 总和与「JSON 最坏编码上界」（`nul`+`text`
+  每字节 ≤ 6 字节的 `\u00XX`、字节数组每字节 ≤ 4，加固定信封余量）在一趟 preflight 里对照
+  `max_bridge_result_bytes` 检查，然后才分配 region、才碰装载器——一次被拒的调用**不打开库**；
+  适配器真正序列化出来的 JSON 答案同受这个 cap，超了整段换成带类型的拒绝，**永不截断**。
+  这个 host 侧终检是纵深防御，不是第一道。
+- 只收**结果类型是 `i32` 的 10 个指针原型**（`PointerPrototype::ALL` 的 14 个减 4）。指针结果
+  （没有客人 span 可 rebase）、`i64`/`void` 指针形状、Unix `ioctl` 保持原有拒绝。
+- **两个门在可空指针上刻意不同**：raw block 门（`agenterm.native_call`）里 `ptr?` 位置的 `null`
+  仍是真正的空指针；JSON 适配器**没有**可作空指针的位置——它只有自己分配的 region——所以
+  `ptr` 与 `ptr?` 在那里都**必须**给 region，标量或 `null` 是同一种带类型的拒绝
+  （`native_region_required`）。
+- 没有指针位置的调用答的字节与从前**逐字节相同**：exact 与 fixed 两臂这段工作没碰。
+
 | 面 | crate | 引擎 | 信任模型 |
 |----|-------|------|----------|
 | `.qjs` / `.wasm`（本 crate） | `agenterm-qjswasm` + `tinyvm-qjs` | tinyvm，**无 JIT**，自研编译器 | 不信任字节 |

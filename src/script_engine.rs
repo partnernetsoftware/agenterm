@@ -1968,6 +1968,91 @@ return native.call("|getpid|ptr()", []);
         );
     }
 
+    /// A product `.qjs` run reaches a real pointer prototype from the built-in
+    /// `agenterm:native` module, through one call-scoped region.
+    ///
+    /// `agenterm-qjswasm` owns the raw door's own region court
+    /// (`native::json_adapter_tests`). This test owns the *product* route and
+    /// nothing else: the embedded module source, the compiler's encoding of a
+    /// JavaScript value into that region record, the engine this backend
+    /// builds from the invocation options, and the JSON answer parsed back
+    /// into JavaScript. A zero-region JSON call is not evidence for any of
+    /// that, and neither is a direct `invoke_native_json` call.
+    ///
+    /// `uname -s` is the oracle because it shares nothing with either side of
+    /// the seam: not the door's region model, not the compiler, not this
+    /// backend. The answer's own shape is asserted too, so a future adapter
+    /// that answered the right string under a different envelope is a failure
+    /// rather than a pass.
+    ///
+    /// `capacity` is 4096 because `uname` takes no length argument and writes
+    /// a whole `struct utsname` (1280 bytes on Darwin, 390 on Linux); an
+    /// under-sized region here would be a real C overflow, which stays the
+    /// caller's contract. `4096 * 6 + 160` worst-case encoded bytes also fits
+    /// the default `max_bridge_result_bytes` of 1 MiB, so the region preflight
+    /// is not what is under test.
+    #[cfg(all(feature = "script-qjswasm", unix))]
+    #[test]
+    fn qjs_native_pointer_region_reaches_uname_from_the_built_in_module() {
+        let source = r#"
+import * as native from "agenterm:native";
+const answer = native.call("|uname|i32(ptr)", [{region:{capacity:4096,termination:"nul",output:"text"}}]);
+return answer.type + ":" + answer.value + ":" + answer.regions[0].value;
+"#;
+        let options = ScriptInvocationOptions {
+            native_door_contained: true,
+            ..ScriptInvocationOptions::default()
+        };
+        let result = QjswasmEngineBackend
+            .execute(source, &options, None)
+            .expect("the built-in module runs one region-backed native call");
+        let oracle = std::process::Command::new("uname")
+            .arg("-s")
+            .output()
+            .expect("the POSIX uname oracle runs");
+        assert!(oracle.status.success(), "uname -s must succeed");
+        let expected = String::from_utf8(oracle.stdout)
+            .expect("uname -s emits UTF-8 text")
+            .trim()
+            .to_owned();
+        assert_eq!(
+            result.value,
+            Some(Value::String(format!("i32:0:{expected}"))),
+            "the region readback must be the kernel's own uname answer"
+        );
+        assert!(result.stdout.is_empty(), "the script printed nothing");
+    }
+
+    /// The same module and the same door refuse a pointer position that is
+    /// not backed by a region, in the product run rather than only in the
+    /// crate's unit court.
+    ///
+    /// This is the one place the two doors deliberately disagree about `ptr?`:
+    /// the raw `agenterm.native_call` block schema still accepts `null` as a
+    /// genuine null pointer, while the JSON adapter has no guest address to be
+    /// null *about* -- it has no pointer positions at all except the regions
+    /// it allocated itself, so `null` and a scalar are the same typed refusal
+    /// there. `native_region_required` is that refusal's stable code.
+    #[cfg(all(feature = "script-qjswasm", unix))]
+    #[test]
+    fn qjs_native_pointer_position_without_a_region_is_refused_by_name() {
+        let source = r#"
+import * as native from "agenterm:native";
+return native.call("|uname|i32(ptr)", [null]);
+"#;
+        let options = ScriptInvocationOptions {
+            native_door_contained: true,
+            ..ScriptInvocationOptions::default()
+        };
+        let error = QjswasmEngineBackend
+            .execute(source, &options, None)
+            .expect_err("a pointer position without a region is refused");
+        assert!(
+            error.message.contains("native_region_required"),
+            "the refusal must carry the stable code: {error:?}"
+        );
+    }
+
     #[cfg(feature = "script-qjswasm")]
     #[test]
     fn direct_backend_artifact_execution_refuses_the_native_import() {

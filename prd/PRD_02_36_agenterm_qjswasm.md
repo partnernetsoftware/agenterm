@@ -62,6 +62,22 @@ agenterm-qjswasm
 │  │  │  └─ six-cell delivery: the Candidate runtime-control step runs that court after the
 │  │  │     ACU provider courts and publishes `cu.retirement-cell.native-acu-composition`
 │  │  ├─ safe failure: malformed, unlisted, noncanonical, out-of-span and dyn mechanism failures remain typed
+│  │  ├─ [x] JSON pointer calls take one call-scoped host region per pointer position
+│  │  │  ├─ user problem: a JSON caller has no guest linear memory to point into, so every
+│  │  │  │     pointer prototype answered `native_invocation_signature_unsupported`
+│  │  │  ├─ invariant: for exactly one synchronous call the host owns the storage's address,
+│  │  │  │     16-byte alignment, zero fill and lifetime, while the caller owns capacity,
+│  │  │  │     termination and output; no address, handle, digest or guest offset is
+│  │  │  │     published and there is no cross-call lifetime; catalog, nullability and
+│  │  │  │     admission remain this crate's policy
+│  │  │  ├─ mechanism: decode every argument into a plan without allocating a pointee →
+│  │  │  │     preflight the call's capacity total and its worst-case encoded answer bound →
+│  │  │  │     materialize → the same `invoke_abi` core through the Engine's loaded-handle
+│  │  │  │     cache → post-call snapshot readback; a refusal precedes the loader
+│  │  │  └─ evidence: `native::json_adapter_tests` (10 admitted `i32` pointer prototypes, POSIX
+│  │  │        `uname` oracle, 5 stable codes, malformed-shape table, alignment, preflight
+│  │  │        before load) + `tests/native_door.rs` WAT court + the product run in
+│  │  │        `src/script_engine.rs` (built-in `agenterm:native` module from `.qjs`)
 │  │  └─ non-goal: no agenterm-cu → agenterm-dyn dependency, second loader/door, or typed CU effect in dyn
 │  ├─ [~] embedder `agenterm:acu` object: same typed schema/Executor/errors/receipts as CLI and MCP
 │  │  ├─ [x] raw bounded door + non-shadowable qjs module + shared Command/Executor/CuReply adapter
@@ -158,6 +174,7 @@ flowchart LR
   SLOT["persistent bounded slot"]
   DOOR["versioned Script host door"]
   NATIVEPOLICY["native schema + prototype catalog<br/>nullability · guest-span checks"]
+  JSONREGION["JSON pointer call<br/>one call-scoped host region per ptr<br/>16-byte aligned · zero-filled<br/>snapshot readback · no address published"]
   DYNABI["agenterm-dyn invoke_abi<br/>policy-free ABI execution"]
   CUCALLER["CU caller / extensible automation"]
   SCRIPTRUNTIME["Script Runtime"]
@@ -208,6 +225,7 @@ flowchart LR
   UP -. exact git rev .-> COMP & LOAD
   LOAD -->|yes| SLOT --> DOOR --> EXPLICIT --> PRODUCT --> RECEIPT
   DOOR --> NATIVEPOLICY --> DYNABI --> RECEIPT
+  NATIVEPOLICY -. JSON caller has no guest span · one host region per ptr .-> JSONREGION --> DYNABI
   CUCALLER --> SCRIPTRUNTIME --> DOOR
   CUCALLER -. Cargo boundary + composition court .-> NODIRECT
   NODIRECT -. native extension continues through Script Runtime .-> NATIVEPOLICY
@@ -261,6 +279,19 @@ flowchart LR
   changes the subtracted operation, that historical ruler cannot compare the
   two implementations; preserve the old verdict, then use a build-only control
   and an independent closure equation in the next experiment.
+- A call-scoped region is storage the host owns for exactly one synchronous
+  call: the host owns its address, alignment, zero fill and lifetime, the caller
+  owns its width and termination contract, and no address, handle, digest or
+  cross-call identity is ever published. A region answer is a post-call buffer
+  snapshot, never a written length, and a readback refusal keeps the native
+  status.
+- A guest-sized host allocation is budgeted before it is materialized, by the
+  worst-case encoded multiple rather than the raw byte count, with the final
+  serialized-answer cap retained as defense in depth.
+- Nullability is upper-layer schema: a nullable pointer position and a
+  non-nullable one are the same ABI position to dyn, and the raw block door's
+  `null` is not available to a JSON caller, which owns no address that `null`
+  could stand for.
 
 ## Long-horizon north star: replace Wasmtime, not merely coexist
 
@@ -493,6 +524,49 @@ integration.
   provider courts and publishes `cu.retirement-cell.native-acu-composition` in
   the cell receipt. That path is wired but not yet remotely executed, so this
   leaf claims no six-cell verdict.
+- The same `agenterm:native` module serves the pointer prototypes through one
+  **call-scoped host region** per pointer position. The host allocates that
+  storage, zero-fills it, keeps 16 bytes of natural alignment in the allocation
+  itself, copies the record's `bytes` into its front, and drops it when the
+  synchronous call returns; the caller states `capacity`, `termination` and
+  `output` and remains responsible for a pointee large enough for the selected C
+  symbol. The answer carries the scalar result plus one entry per pointer
+  position and states no address, handle, digest or written length: it is a
+  post-call buffer snapshot, so bytes the callee left untouched remain the host's
+  zero fill or the caller's own input. Admission is derived from the one
+  prototype table: the 10 `i32`-returning pointer prototypes are served, while a
+  pointer result (no guest span to rebase onto), the `i64`/`void` pointer shapes
+  and the Unix `ioctl` requests keep the refusal they had. `ptr` and `ptr?` both
+  require a region here, because a JSON caller owns no guest address that `null`
+  could stand for; the raw block door keeps admitting `null` at a `ptr?`
+  position, and both nullable prototypes stay in this crate's catalog while dyn
+  receives the single machine-level pointer.
+- Five stable codes are the whole region refusal surface:
+  `native_region_required`, `native_region_shape_invalid`,
+  `native_region_too_large`, `native_region_unterminated` and
+  `native_region_not_utf8`. The `termination`/`output` pair is one choice of
+  three admitted combinations rather than two independent fields, so the fourth
+  (`raw` + `text`) is unrepresentable and the readback cannot run in a state the
+  decoder never validated. Readback failures retain the native status inside the
+  typed error, because refusing an encoding contract must not erase the C result,
+  and the readback runs whether the callee reported success or failure.
+- Region storage is budgeted before it exists. The call's capacity total and its
+  worst-case encoded JSON answer bound (`\u00XX` escaping as six bytes per byte
+  for text, three digits plus a separator for byte arrays, plus fixed envelope
+  allowances) are both checked against the slot's `max_bridge_result_bytes` in
+  one preflight that runs after argument decoding and before any pointee is
+  allocated, so an over-budget call loads no library and leaves no earlier buffer
+  materialized. The host's check of the actually serialized answer remains as
+  defense in depth and replaces an oversized answer whole instead of truncating
+  it. A call with no pointer position answers the same bytes it answered before.
+- No `agenterm-dyn`, `tinyvm` or `tinyvm-qjs` change accompanies the region work:
+  the pin is unchanged and every admitted call still enters
+  `agenterm_dyn::invoke_abi`, or its reuse entry with the handle this engine
+  already loaded. The region path is the same mechanism with a different
+  upper-layer storage decision, so the owning evidence is the crate's
+  `native::json_adapter_tests` (POSIX `uname` oracle, malformed-shape table,
+  alignment, preflight-before-load, admission count) plus `tests/native_door.rs`
+  and the product `.qjs` run in `src/script_engine.rs`, not a second ABI court.
 - public Script CLI black boxes own `.qjs` route, diagnostics, receipts and
   product-host calls.
 - v0.1.18 G4 owns the release-critical task/journey migration. Quick-only green

@@ -6120,3 +6120,62 @@ hand-written list — then deleting a mechanism shape and forging an exposure bo
 redden with a named diagnostic. Keep the inclusion one-way and record the shapes
 the mechanism can execute but the catalog does not expose, rather than forcing the
 two sets to be equal.
+
+## A JSON caller's pointer position is host-owned call-scoped storage
+
+When an upper-layer native adapter serves a language whose values are JSON and
+whose guest has no linear memory, a pointer parameter position has nothing to
+point at. Do not invent an address and do not accept `null` as a null pointer:
+give the caller a storage *record* it cannot address — capacity, optional input
+bytes, a termination mode, an output mode — and let the host own the pointee for
+exactly one synchronous call. Then say which side owns which half. The host owns
+the address, the maximum natural alignment, the zero fill and the lifetime; the
+caller owns the width, the termination contract and a pointee large enough for
+the symbol it selected, because an opaque `ptr` argument still does not tell the
+door how many bytes the selected C symbol writes.
+
+Put the alignment in the **allocation**, not only in a struct field: a `Vec<u8>`
+is byte-aligned however its own fields are declared, so wrap the storage in a
+`#[repr(align(16))]` unit (`max_align_t` / `long double` on the repository's SysV
+and AArch64 targets) and read the bytes through that wrapper, so the region and
+the alignment unit are one allocation rather than two that agree in size. When
+two contract fields do not compose, keep the admitted combinations in one enum
+instead of two independent fields — `raw` termination has no end, so `raw` plus
+a text output has nothing to decode — and then the refused combination is
+unrepresentable rather than merely validated at readback. Publish the storage's
+identity to the caller as an index into *this call's* list, never as an address,
+handle, digest or guest offset, and drop the storage on return: a region that
+outlives its call is a dangling pointee behind a handle-shaped API.
+
+Zero fill is acceptable here, but say what it means. Zero fill plus a "must
+contain a terminator after the call" rule cannot observe a callee that writes
+nothing — the region's first byte is still the host's zero — so the answer must
+be labelled and read as a snapshot paired with the callee's own status, never as
+proof that the callee wrote what came back. Where the caller genuinely needs
+evidence of a C write, the sentinel rule above still applies; a region is the
+right shape when the caller may legitimately read back an untouched buffer.
+
+## Budget an encoded native answer before you materialize what it encodes
+
+A native adapter that hands a guest-sized quantity back through JSON must check
+the **encoded** size before it allocates the storage that quantity describes,
+otherwise the bound it enforces is the raw byte count while the answer it must
+produce is several times larger. Budget the worst case: `\u00XX` escaping makes
+one text byte cost six, a decimal byte array costs three digits plus a separator,
+and the envelope's own field names cost a fixed allowance. Run one preflight over
+the whole call's totals (every position's capacity *and* its encoded bound) after
+argument decoding and before the first allocation, so no region is materialized
+and no library is loaded for a call that will be refused. Prove the ordering with
+a court that asserts the loader table is still empty after the refusal: "refused
+before allocation" is only true if the refused call opened nothing.
+
+Keep the check on the actually serialized answer as defense in depth, and keep it
+a whole refusal rather than a prefix — the preflight is conservative on purpose,
+and a truncated JSON document is worse than a typed error. Then make the readback
+honest about what it is. A readback is a post-call snapshot of the caller's
+storage, never a written length: bytes the callee did not touch remain the host's
+zero fill or the caller's own input, and no field may present them as the callee's
+output. Run the readback whether the callee reported success or failure, and when
+the readback itself refuses — no terminator where the contract demands one, or
+bytes that are not the text the caller asked for — keep the native status inside
+the typed error: rejecting an encoding contract must not erase the C result.
