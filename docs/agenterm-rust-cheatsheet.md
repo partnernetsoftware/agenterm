@@ -6183,6 +6183,19 @@ vocabulary plus the owner's query is the mechanism. Keep the inclusion one way �
 a shape may never enter the catalog before the mechanism can execute it — and
 record the difference instead of forcing the two sets equal.
 
+## Delete a derived representation when production only writes it
+
+A value computed at a boundary is not automatically an abstraction. Before
+preserving a classifier, cached field, or cardinality API, search separately for
+its constructors and its production readers. If production writes it on every
+request but only tests read it to prove its own shape, it is a parallel account,
+not a live seam. Remove the field, classifier, public count helpers, and the
+self-referential tests together; retain the language-level parse court and the
+actual lower-layer mechanism query. The economic proof is the closed reference
+set plus net deletion, while the behavioral proof remains the real door suite.
+Do not replace the dead representation with a renamed struct or another derived
+table—that preserves the maintenance cost under a new spelling.
+
 ## A JSON caller's pointer position is host-owned call-scoped storage
 
 When an upper-layer native adapter serves a language whose values are JSON and

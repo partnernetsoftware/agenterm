@@ -264,12 +264,16 @@ declaration → lowering → mechanism → typed-result 管线。若新增代码
    声明拥有 `ptr`/`ptr?`、JSON admission 与 UnixIoctl 路由；dyn 的 8 个 pointer
    mechanism 只回答 trampoline 是否存在。用 dyn shape 查询派生 qjswasm dispatch
    会丢失 nullability、漏掉独立 ioctl 路径，并仍需一张等大的上层策略表，故判退。
-4. **[x] 用减法验收**：每个增量必须同时证明公开错误/输出不漂移，
+4. **[x] 删除失去读者的派生 ABI 投影**：qjswasm 曾在每次 decode 后写入
+   `NativeSignatureClasses`，并公开一个 381-pattern GP/F64 组合账，但生产路径从不读取；
+   真正执行已经由 dyn 的 75-shape 查询回答。该投影及其自证测试现已删除，语言级
+   `NativeType`、exposure catalog、nullability 与 UnixIoctl 路由保持在 qjswasm。
+5. **[x] 用减法验收**：每个增量必须同时证明公开错误/输出不漂移，
    且删除一类家族专用 arm/helper/mapper 或手写清单；只换名不算折叠。
-5. **[x] 记录四栏经济账**：每叶记录“删除的重复表达 / 保留的公开语义 /
+6. **[x] 记录四栏经济账**：每叶记录“删除的重复表达 / 保留的公开语义 /
    释放的 LOC、字节、步数、编译时间或维护触点 / 该预算投入的新能力”。
    无法得到至少一项净减法的候选是新抽象成本，不得冒充折叠。
-6. **[-] 暂不扩张机制矩阵**：没有真实消费者的 callback、struct-by-value、
+7. **[-] 暂不扩张机制矩阵**：没有真实消费者的 callback、struct-by-value、
    新 variadic 或 JIT 不得为了“看起来完整”进入 dyn。
 
 公开黑盒 owner 仍是 qjswasm `native_door` / `native_door_schema` / native+ACU

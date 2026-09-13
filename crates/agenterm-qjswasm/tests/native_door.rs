@@ -3,9 +3,6 @@ use std::sync::Arc;
 #[cfg(unix)]
 use std::sync::atomic::AtomicBool;
 
-use agenterm_qjswasm::native::{
-    native_invocation_stub_cardinality, native_register_pattern_cardinality,
-};
 use agenterm_qjswasm::{
     Budget, Engine, Guest, QjswasmError, Value, door_declarations, native_door_declarations,
 };
@@ -1780,13 +1777,6 @@ fn hostile_pointer_records_are_rejected_before_loading() {
             "expected pre-load Door({expected_code}), got {error:?}"
         );
     }
-}
-
-#[test]
-fn exact_stubs_are_not_confused_with_register_class_patterns() {
-    assert_eq!(native_invocation_stub_cardinality(), 7 * 7);
-    assert_eq!(native_register_pattern_cardinality(), 381);
-    assert!(native_invocation_stub_cardinality() < native_register_pattern_cardinality());
 }
 
 #[test]

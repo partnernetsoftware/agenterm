@@ -83,28 +83,6 @@ pub struct NativeSpec {
     pub parameters: Vec<NativeType>,
 }
 
-/// The two parameter register classes admitted by this first fixed ABI set.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum ParameterRegisterClass {
-    Gp,
-    F64,
-}
-
-/// Return register classes admitted by this first fixed ABI set.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum ReturnRegisterClass {
-    Void,
-    Gp,
-    F64,
-}
-
-/// ABI classes derived from a parsed declaration.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct NativeSignatureClasses {
-    pub result: ReturnRegisterClass,
-    pub parameters: Vec<ParameterRegisterClass>,
-}
-
 /// A checked guest-memory span. Aliasing is intentionally permitted.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct GuestSpan {
@@ -124,7 +102,6 @@ pub enum NativeArgument {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DecodedNativeCall {
     pub spec: NativeSpec,
-    pub signature: NativeSignatureClasses,
     /// The result field's exact location in guest memory.
     pub return_slot: GuestSpan,
     /// Bits found in that slot before any native call occurs.
@@ -575,55 +552,6 @@ fn parse_type(name: &str) -> Result<NativeType, NativeDoorError> {
     })
 }
 
-/// Derive ABI classes from language-level types.
-pub fn classify_signature(spec: &NativeSpec) -> NativeSignatureClasses {
-    let result = match spec.result {
-        NativeType::Void => ReturnRegisterClass::Void,
-        NativeType::F64 => ReturnRegisterClass::F64,
-        _ => ReturnRegisterClass::Gp,
-    };
-    let parameters = spec
-        .parameters
-        .iter()
-        .map(|ty| match ty {
-            NativeType::F64 => ParameterRegisterClass::F64,
-            _ => ParameterRegisterClass::Gp,
-        })
-        .collect();
-    NativeSignatureClasses { result, parameters }
-}
-
-/// Number of register-position patterns implied by the supported classes.
-///
-/// This is derived rather than written as a remembered constant: for each
-/// arity `0..=MAX_NATIVE_ARITY`, every parameter has one of two classes, and
-/// each parameter pattern combines with each of the three return classes.
-/// It is not a count of safe Rust `extern fn` stubs. Integer-width/sign
-/// compatibility and the function-pointer types used for invocation belong to
-/// the next ABI experiment.
-pub fn native_register_pattern_cardinality() -> usize {
-    let parameter_class_count = [ParameterRegisterClass::Gp, ParameterRegisterClass::F64].len();
-    let return_class_count = [
-        ReturnRegisterClass::Void,
-        ReturnRegisterClass::Gp,
-        ReturnRegisterClass::F64,
-    ]
-    .len();
-    let parameter_patterns = (0..=MAX_NATIVE_ARITY)
-        .map(|arity| parameter_class_count.pow(arity as u32))
-        .sum::<usize>();
-    parameter_patterns * return_class_count
-}
-
-/// Number of exact Rust `extern C` stubs admitted by the executable slice.
-///
-/// This is intentionally smaller than [`native_register_pattern_cardinality`]:
-/// seven exact scalar types, each at every arity from zero through six. The
-/// result type and every parameter have to be that same exact type.
-pub fn native_invocation_stub_cardinality() -> usize {
-    EXACT_SCALAR_TYPES.len() * (MAX_NATIVE_ARITY + 1)
-}
-
 /// Validate and decode one declaration plus fixed-layout argument block.
 ///
 /// `spec_offset`, `block_offset`, and every kind-1 pointee are offsets in the
@@ -764,10 +692,8 @@ pub fn decode_native_call(
         };
         arguments.push(argument);
     }
-    let signature = classify_signature(&spec);
     Ok(DecodedNativeCall {
         spec,
-        signature,
         return_slot,
         initial_return_bits,
         arguments,
@@ -2597,7 +2523,6 @@ mod json_adapter_tests {
     fn pointer_results_must_land_in_a_declared_guest_span() {
         let spec = parse_native_spec(b"|getcwd|ptr(ptr,usize)").expect("spec parses");
         let call = DecodedNativeCall {
-            signature: classify_signature(&spec),
             spec,
             return_slot: GuestSpan { offset: 8, len: 8 },
             initial_return_bits: 0,

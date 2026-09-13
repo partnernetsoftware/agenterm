@@ -5,8 +5,7 @@ use agenterm_qjswasm::native::{
     DecodedNativeCall, GuestSpan, MAX_NATIVE_ARITY, MAX_NATIVE_LIBRARY_BYTES,
     MAX_NATIVE_SPEC_BYTES, MAX_NATIVE_SYMBOL_BYTES, NATIVE_ARGUMENT_RECORD_BYTES,
     NATIVE_BLOCK_HEADER_BYTES, NATIVE_BLOCK_VERSION, NativeArgument, NativeDoorError, NativeType,
-    ParameterRegisterClass, ReturnRegisterClass, SpanRegion, decode_native_call,
-    native_register_pattern_cardinality, parse_native_spec,
+    SpanRegion, decode_native_call, parse_native_spec,
 };
 
 const SPEC_OFFSET: usize = 0;
@@ -45,24 +44,20 @@ fn decode(spec: &str, memory: &[u8], records: usize) -> Result<DecodedNativeCall
 }
 
 #[test]
-fn the_supported_grammar_is_distinct_from_its_register_classes() {
+fn the_supported_grammar_preserves_its_language_level_types() {
     let source = "libsample.so|sample_i64|u64(i8,u16,i32,u64,isize,ptr)";
     let spec = parse_native_spec(source.as_bytes()).expect("supported declaration");
     assert_eq!(spec.library, "libsample.so");
     assert_eq!(spec.symbol, "sample_i64");
     assert_eq!(spec.result, NativeType::U64);
     assert_eq!(spec.parameters.len(), MAX_NATIVE_ARITY);
-    assert!(
-        spec.parameters.iter().all(|ty| *ty != NativeType::F64),
-        "this declaration uses many language types but one GP ABI class"
-    );
+    assert!(spec.parameters.iter().all(|ty| *ty != NativeType::F64));
 
     let floating = parse_native_spec(b"|mixed|f64(ptr?,f64)").expect("supported declaration");
-    let classes = agenterm_qjswasm::native::classify_signature(&floating);
-    assert_eq!(classes.result, ReturnRegisterClass::F64);
+    assert_eq!(floating.result, NativeType::F64);
     assert_eq!(
-        classes.parameters,
-        vec![ParameterRegisterClass::Gp, ParameterRegisterClass::F64]
+        floating.parameters,
+        vec![NativeType::NullablePointer, NativeType::F64]
     );
     assert_eq!(
         parse_native_spec(b"|future|i32(f32)"),
@@ -622,38 +617,4 @@ fn every_native_door_error_has_one_stable_distinct_code() {
     }
     assert_eq!(words.len(), errors.len());
     assert_eq!(codes.len(), errors.len());
-}
-
-#[test]
-fn register_pattern_cardinality_is_derived_from_classes_and_arity() {
-    fn enumerate_parameter_patterns(
-        remaining: usize,
-        prefix: &mut Vec<ParameterRegisterClass>,
-        seen: &mut HashSet<Vec<ParameterRegisterClass>>,
-    ) {
-        seen.insert(prefix.clone());
-        if remaining == 0 {
-            return;
-        }
-        for class in [ParameterRegisterClass::Gp, ParameterRegisterClass::F64] {
-            prefix.push(class);
-            enumerate_parameter_patterns(remaining - 1, prefix, seen);
-            prefix.pop();
-        }
-    }
-
-    let mut patterns = HashSet::new();
-    enumerate_parameter_patterns(MAX_NATIVE_ARITY, &mut Vec::new(), &mut patterns);
-    let returns = [
-        ReturnRegisterClass::Void,
-        ReturnRegisterClass::Gp,
-        ReturnRegisterClass::F64,
-    ];
-    let independently_enumerated = patterns.len() * returns.len();
-    assert_eq!(patterns.len(), 127);
-    assert_eq!(independently_enumerated, 381);
-    assert_eq!(
-        native_register_pattern_cardinality(),
-        independently_enumerated
-    );
 }

@@ -90,6 +90,11 @@ agenterm-qjswasm
 │  │  │  │  │     dyn's 8 pointer mechanisms answer only whether an ABI trampoline exists
 │  │  │  │  └─ rejected fold: deriving dispatch from dyn loses nullability, cannot select the
 │  │  │  │        separate UnixIoctl path, and requires an equal-size qjswasm policy table anyway
+│  │  │  ├─ [x] the unread register-class projection is retired
+│  │  │  │  ├─ qjswasm no longer stores `NativeSignatureClasses` on every decoded call or
+│  │  │  │  │     publishes the hypothetical 381-pattern GP/F64 account
+│  │  │  │  └─ dyn's 75-shape mechanism query and qjswasm's exposure catalog remain the
+│  │  │  │        two live owners; parser and door behavior are unchanged
 │  │  │  ├─ [x] one private invoke seam owns ABI-position conversion, NativeCall construction,
 │  │  │  │     handle reuse and dyn-error mapping for all six non-ioctl execution sites
 │  │  │  │  ├─ evidence: raw exact/fixed/fixed-pointer + JSON exact/fixed/region all call
