@@ -110,13 +110,13 @@ detects an in-place byte change even when the path set is unchanged.
 ## Broker self-test
 
 `broker-spine.sh` is the external attempt ledger, admission and stage
-persistence broker (`wc -l`: 1163 lines). Its ledger/journal/receipt discipline is copied **with
+persistence broker (`wc -l`: 1216 lines). Its ledger/journal/receipt discipline is copied **with
 provenance** from the v2 court's broker (`run-current-host.sh`, its `run_broker`
 heredoc); it is not a rerun, repair or rename of that court. It has its own
 experiment id, schemas, state root, ordinals (`R1`, `D1`, not reusable) and
 input-digest domain, and it never reads or writes v2 state.
 
-`broker-self-test.sh` (`wc -l`: 1400 lines) exercises that discipline entirely
+`broker-self-test.sh` (`wc -l`: 1548 lines) exercises that discipline entirely
 inside a disposable `mktemp` root and reserves **no formal ordinal**:
 
 ```sh
@@ -137,6 +137,52 @@ design-selection terminal until its receipt contract exists; every simulated sid
 enforced read-back; a persistence failure emits the fixed seven-key record,
 forbids a design fact, exits nonzero and leaves the attempt `reserved` for
 audit; and the disposable root has a defined disposition.
+
+### Template consistency is checked at startup (latent contradiction fixed)
+
+The stage shapes and the fact whitelist are two halves of one contract, and they
+had silently disagreed. `identity-source` **required** `scanned_source_count` and
+`call_count`, but **neither was in `stage_fact_whitelist`**. The broker checks the
+whitelist before the shape, so that stage was internally unsatisfiable: no fact
+set could ever publish it.
+
+```text
+facts = its own required counts  -> stage_fact_not_whitelisted
+facts = {}                       -> stage_required_fact_missing
+facts = only whitelisted keys    -> stage_fact_not_in_stage_shape
+```
+
+All three paths fail, which is what makes it a contradiction rather than a
+missing convenience. The defect was **latent from the start**: `identity-source`
+was never staged anywhere, so no existing gate could see it, and it would have
+surfaced only at the first runtime attempt — potentially *after* a live ordinal
+was reserved. The mirror defect was `last_completed_stage`: whitelisted but
+admitted by no stage shape, so `stage_fact_not_in_stage_shape` refused it and it
+was unreachable in both directions.
+
+The fix has two halves:
+
+1. **Data**: `scanned_source_count` and `call_count` are added to
+   `stage_fact_whitelist` (17 → 18 facts), preserving `identity-source`
+   semantics; take no other meaning. `last_completed_stage` is removed from it.
+   No receipt or ledger key is affected.
+2. **Guard**: the broker now validates the template **once at startup**, before
+   any operation and before any state root is created, with a named code per
+   violation:
+
+| Violation | Code |
+|-----------|------|
+| a stage names a fact outside the whitelist | `template_stage_fact_not_whitelisted:<stage>:<fact>` |
+| a whitelisted fact is consumed by no stage shape | `template_whitelist_fact_unused:<fact>` |
+| a stage fact has no declared type | `template_stage_fact_type_missing:<stage>:<fact>` |
+| a stage fact declares an unknown type | `template_stage_fact_type_unknown:<stage>:<fact>:<kind>` |
+
+The type half **reuses** `%FACT_TYPE` rather than restating the legal type list,
+because a second list would be a second truth and would drift. A mutated template
+is refused before any state directory exists, so an inconsistent template cannot
+reserve an ordinal at all. `broker-self-test.sh` covers the positive case, all
+three mutations above, the now-publishable `identity-source` stage against a real
+disposable broker, and the two shape violations that must still be refused.
 
 `inspect` is genuinely read-only: it opens an existing lock **without**
 `O_CREAT`, creates no state root and no `stage-journal` directory, and reports a
@@ -380,6 +426,35 @@ demands.
 That field is now imprecise — the live path exists and is gated — but this
 slice is not authorized to edit the model court, so the stale field is recorded
 here rather than silently rewritten.
+
+### Two independent blockers were open; one is now fixed
+
+The persisted-stage work surfaced **two separate** defects. They are not the same
+bug, and fixing one does not open the other:
+
+1. **Template unsatisfiability — FIXED here.** `identity-source` required two
+   facts that were not whitelisted, so no fact set could publish it. The
+   whitelist now carries them (17 → 18 facts), the orphaned
+   `last_completed_stage` is gone, and the broker validates the template at
+   startup with a named code per violation. See "Template consistency is checked
+   at startup" above.
+2. **Terminal honesty — STILL OPEN.** There is no legal terminal code for
+   "V6 mechanism proven, browser criteria not-run":
+
+   | Terminal | Behaviour |
+   |----------|-----------|
+   | `NEW_INFORMATION_INSUFFICIENT` | refused — `terminal_criteria_not_implemented` |
+   | `CLEANUP_NOT_INDEPENDENT` | refused — `terminal_criteria_not_implemented` |
+   | `INCONCLUSIVE_MECHANISM` | accepted **only** by claiming V1–V7 all pass (unprovable browser-free) |
+   | `INVALID_EVIDENCE` | accepted, but **means V6 failed** and also claims V1–V5 pass |
+
+   Closing the whitelist gap does not open this path, and resolving this would
+   not have made `identity-source` publishable. Until it is ruled on, no attempt can
+   close truthfully, so a browser-free slice must **`abandon`** rather than
+   `finish` — and reserving a live ordinal requires a truthful close.
+
+Neither blocker is closed by this leaf. **No R1, no kill criterion 4, and no
+V1–V7 claim is made anywhere in this directory.**
 
 ## What this directory must never do
 

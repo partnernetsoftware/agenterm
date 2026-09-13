@@ -1374,6 +1374,148 @@ fi
   && ok "a refused oversized row is never published to the journal" \
   || bad "a refused oversized row is never published to the journal ($BIG_ROWS rows)"
 
+# -- 12. startup template consistency --------------------------------------
+#
+# The stage shapes and the fact whitelist are two halves of one contract. When
+# they disagree the template is internally unsatisfiable: `identity-source`
+# required `scanned_source_count` and `call_count`, neither of which was
+# whitelisted, so NO fact set could ever publish that stage -- and the
+# contradiction only surfaced at the first runtime attempt, which is far too
+# late (it can happen after an ordinal is reserved). The broker now validates the
+# template ONCE at startup, before any operation.
+#
+# Every case below asserts a SPECIFIC named code. A mutation that merely broke
+# the broker (compile error, crash, unhandled exception) would fail these checks
+# rather than pass them: the expected token is the named refusal, not "nonzero".
+
+# 12a. the pure/positive case: the shipped template starts.
+TMPL_DIR="$ROOT/tmpl"
+mkdir -p "$TMPL_DIR"
+cp "$DIR/result-template.json" "$TMPL_DIR/result-template.json"
+cp "$DIR/broker-spine.sh" "$TMPL_DIR/broker-spine.sh"
+set +e
+POS_OUT=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$ROOT/state-pos" \
+  "$TMPL_DIR/broker-spine.sh" inspect 2>&1)
+POS_RC=$?
+set -e
+if [ "$POS_RC" -eq 2 ] && [ "$POS_OUT" = "state_absent" ]; then
+  ok "the shipped template passes the startup consistency gate"
+else
+  bad "the shipped template passes the startup consistency gate (rc=$POS_RC, got: $(printf '%s' "$POS_OUT" | head -1))"
+fi
+
+# 12b. delete a fact the whitelist must carry -> named startup refusal.
+python3 - "$TMPL_DIR/result-template.json" <<'PYMUT'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["stage_fact_whitelist"] = [
+    f for f in d["stage_fact_whitelist"] if f != "scanned_source_count"]
+json.dump(d, open(p, "w"))
+PYMUT
+MUT_OUT=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$ROOT/state-mut" \
+  "$TMPL_DIR/broker-spine.sh" inspect 2>&1 || true)
+if printf '%s' "$MUT_OUT" | grep -qE '^template_stage_fact_not_whitelisted:identity-source:scanned_source_count$'; then
+  ok "a stage fact missing from the whitelist is refused at startup by name"
+else
+  bad "a stage fact missing from the whitelist is refused at startup by name (got: $(printf '%s' "$MUT_OUT" | head -1))"
+fi
+
+# 12c. re-introduce an unconsumed whitelist fact -> named startup refusal.
+python3 - "$TMPL_DIR/result-template.json" "$DIR/result-template.json" <<'PYMUT'
+import json, sys
+p, orig = sys.argv[1], sys.argv[2]
+d = json.load(open(orig))
+d["stage_fact_whitelist"] = list(d["stage_fact_whitelist"]) + ["last_completed_stage"]
+json.dump(d, open(p, "w"))
+PYMUT
+ORPH_OUT=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$ROOT/state-orph" \
+  "$TMPL_DIR/broker-spine.sh" inspect 2>&1 || true)
+if printf '%s' "$ORPH_OUT" | grep -qE '^template_whitelist_fact_unused:last_completed_stage$'; then
+  ok "a whitelisted fact no stage shape consumes is refused at startup by name"
+else
+  bad "a whitelisted fact no stage shape consumes is refused at startup by name (got: $(printf '%s' "$ORPH_OUT" | head -1))"
+fi
+
+# 12d. a stage fact whose declared type is unknown must also be caught at
+#      startup, not at the first runtime stage.
+python3 - "$TMPL_DIR/result-template.json" "$DIR/result-template.json" <<'PYMUT'
+import json, sys
+p, orig = sys.argv[1], sys.argv[2]
+d = json.load(open(orig))
+d["stages"]["identity-source"]["required"]["call_count"] = "not_a_real_type"
+json.dump(d, open(p, "w"))
+PYMUT
+TYPE_OUT=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$ROOT/state-type" \
+  "$TMPL_DIR/broker-spine.sh" inspect 2>&1 || true)
+if printf '%s' "$TYPE_OUT" | grep -qE '^template_stage_fact_type_unknown:identity-source:call_count:not_a_real_type$'; then
+  ok "a stage fact with an unknown declared type is refused at startup by name"
+else
+  bad "a stage fact with an unknown declared type is refused at startup by name (got: $(printf '%s' "$TYPE_OUT" | head -1))"
+fi
+
+# 12e. THE BEHAVIOURAL CASE: the stage that could never be published must now be
+#      publishable with exactly its own required facts, against a real broker.
+IS_ROOT="$ROOT/state-identity-source"
+mkdir -p "$IS_ROOT"
+IS_REQ="$ROOT/stage-identity-source.json"
+cat >"$IS_REQ" <<EOF
+{"stage":"identity-source","producer":"broker-self-test","deadline_ms":1000,"elapsed_ms":0,
+ "code":"IDENTITY_SOURCE_OK",
+ "facts":{"scanned_source_count":1,"call_count":4},
+ "criteria":{"V1":"not-run","V2":"not-run","V3":"not-run","V4":"not-run","V5":"not-run","V6":"not-run","V7":"not-run"}}
+EOF
+set +e
+IS_RESERVE=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$IS_ROOT" \
+  "$SPINE" reserve rehearsal R1 "$RUN_ID" "$SRC" "$IN_DIG" 2>&1)
+IS_STAGE=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$IS_ROOT" \
+  "$SPINE" stage rehearsal R1 "$RUN_ID" "$IS_REQ" 2>&1)
+set -e
+if printf '%s' "$IS_RESERVE" | grep -q '"status":"reserved"'; then
+  ok "identity-source R1 reserves in its own disposable root"
+else
+  bad "identity-source R1 reserves in its own disposable root (got: $(printf '%s' "$IS_RESERVE" | head -1))"
+fi
+if printf '%s' "$IS_STAGE" | grep -q '"accepted":true'; then
+  ok "identity-source stages with exactly its required facts (was impossible before)"
+else
+  bad "identity-source stages with exactly its required facts (got: $(printf '%s' "$IS_STAGE" | head -1))"
+fi
+# Read the row back from disk: an `accepted` return alone is not proof it landed.
+IS_ROW=$(sed -n '1p' "$IS_ROOT/stage-journal/rehearsal-1.jsonl" 2>/dev/null || true)
+if printf '%s' "$IS_ROW" | grep -q '"stage":"identity-source"' \
+   && printf '%s' "$IS_ROW" | grep -q '"scanned_source_count":1' \
+   && printf '%s' "$IS_ROW" | grep -q '"call_count":4'; then
+  ok "the identity-source row is readable from disk with its exact facts"
+else
+  bad "the identity-source row is readable from disk with its exact facts (got: $(printf '%s' "$IS_ROW" | head -1))"
+fi
+
+# 12f/12g. the two shape violations must STILL be refused, each by its own code.
+MISS_REQ="$ROOT/stage-missing-required.json"
+cat >"$MISS_REQ" <<EOF
+{"stage":"identity-source","producer":"broker-self-test","deadline_ms":1000,"elapsed_ms":0,
+ "code":"IDENTITY_SOURCE_OK",
+ "facts":{"scanned_source_count":1},
+ "criteria":{"V1":"not-run","V2":"not-run","V3":"not-run","V4":"not-run","V5":"not-run","V6":"not-run","V7":"not-run"}}
+EOF
+expect_fail "a stage missing a required fact is still refused by name" \
+  'stage_required_fact_missing' \
+  env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$IS_ROOT" \
+  "$SPINE" stage rehearsal R1 "$RUN_ID" "$MISS_REQ"
+
+EXTRA_BAD="$ROOT/stage-extra-bad.json"
+cat >"$EXTRA_BAD" <<EOF
+{"stage":"identity-source","producer":"broker-self-test","deadline_ms":1000,"elapsed_ms":0,
+ "code":"IDENTITY_SOURCE_OK",
+ "facts":{"scanned_source_count":1,"call_count":4,"chain_length":1},
+ "criteria":{"V1":"not-run","V2":"not-run","V3":"not-run","V4":"not-run","V5":"not-run","V6":"not-run","V7":"not-run"}}
+EOF
+expect_fail "a fact outside this stage's shape is still refused by name" \
+  'stage_fact_not_in_stage_shape' \
+  env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$IS_ROOT" \
+  "$SPINE" stage rehearsal R1 "$RUN_ID" "$EXTRA_BAD"
+
 # -- 11. the formal state root was never touched ----------------------------
 if [ -d "$DIR/../browser-profile-name-binding-exact-process/.state" ]; then
   bad "no formal state directory was created"

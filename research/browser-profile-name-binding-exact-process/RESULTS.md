@@ -144,10 +144,10 @@ a facts payload carrying `argv` is refused, a non-whitelisted fact key is
 refused, an in-place byte mutation changes the tree snapshot, and the formal
 root is unchanged).
 
-Last run on this host: `BROKER_SELF_TEST_PASS requests=130 failures=0`, and
+Last run on this host: `BROKER_SELF_TEST_PASS requests=139 failures=0`, and
 `BROKER_SELF_TEST_HARNESS_PASS`.
 
-Source sizes (`wc -l`): `broker-spine.sh` 1163, `broker-self-test.sh` 1400,
+Source sizes (`wc -l`): `broker-spine.sh` 1216, `broker-self-test.sh` 1548,
 `broker-self-test-harness.sh` 111.
 
 The suite asserts, against a real disposable root rather than a mock:
@@ -515,6 +515,89 @@ failure is exactly how orphans are made.
   exercised, and the ceiling/cycle cases remain fixture-proven only.
 - The `DRIFT_MODE` / `UNKNOWN_MODE` hooks exist for the red gate. They are inert
   on the real path, but a reviewer should know the file contains them.
+
+## Template consistency: latent contradiction found and fixed
+
+A browser-free persisted-stage slice was attempted and **stopped** by a blocker,
+because `identity-source` could not be published at all. The defect was in the
+template data, not in the broker.
+
+### The contradiction
+
+`result-template.json` declared `identity-source` with **required** facts
+`scanned_source_count` and `call_count`, while `stage_fact_whitelist` contained
+neither. `validate_stage_facts` checks the whitelist **before** the shape, so the
+stage was internally unsatisfiable. Every possible fact strategy was measured
+against a real disposable broker, and each hit a different wall:
+
+| facts supplied | result |
+|---|---|
+| its own required counts | `stage_fact_not_whitelisted` |
+| `{}` | `stage_required_fact_missing` |
+| only whitelisted keys | `stage_fact_not_in_stage_shape` |
+
+All three fail, which is what makes this a contradiction rather than a missing
+convenience. The mirror defect was `last_completed_stage`: whitelisted, but
+admitted by no stage shape, so `stage_fact_not_in_stage_shape` refused it —
+unreachable in both directions.
+
+**Why nothing caught it earlier.** `identity-source` had never been staged
+anywhere: zero occurrences in `broker-self-test.sh`, and no other call site. The
+existing gates exercised the other six stages, so the contradiction stayed latent
+from the moment the template was written and would have surfaced only at the
+first runtime attempt — potentially *after* an ordinal was reserved.
+
+### The fix
+
+Data (`result-template.json`): `scanned_source_count` and `call_count` added to
+`stage_fact_whitelist` (17 → 18), preserving `identity-source` semantics;
+`last_completed_stage` removed. No receipt or ledger key changes.
+
+Guard (`broker-spine.sh`): the template is validated **once at startup**, before
+any operation and before any state root is created.
+
+| Violation | Named code |
+|---|---|
+| a stage names a fact outside the whitelist | `template_stage_fact_not_whitelisted:<stage>:<fact>` |
+| a whitelisted fact is consumed by no stage shape | `template_whitelist_fact_unused:<fact>` |
+| a stage fact has no declared type | `template_stage_fact_type_missing:<stage>:<fact>` |
+| a stage fact declares an unknown type | `template_stage_fact_type_unknown:<stage>:<fact>:<kind>` |
+
+The type half **reuses** `%FACT_TYPE`; a second list of legal types would be a
+second truth and would drift.
+
+### Evidence
+
+`BROKER_SELF_TEST_PASS requests=139 failures=0` — nine new checks over the
+previous 130:
+
+| Check | What it proves |
+|---|---|
+| the shipped template passes the startup consistency gate | the positive case; the guard is not a blanket refusal |
+| a stage fact missing from the whitelist is refused at startup by name | required ⊄ whitelist is caught **before** any operation |
+| a whitelisted fact no stage shape consumes is refused at startup by name | the orphan case (re-introducing `last_completed_stage`) |
+| a stage fact with an unknown declared type is refused at startup by name | the type half, with the specific kind in the code |
+| identity-source R1 reserves in its own disposable root | the behavioural precondition |
+| identity-source stages with exactly its required facts | **the case that was impossible before the fix** |
+| the identity-source row is readable from disk with its exact facts | read-back, not just an `accepted` return |
+| a stage missing a required fact is still refused by name | the fix did not weaken the shape check |
+| a fact outside this stage's shape is still refused by name | the fix did not widen any single stage |
+
+Each mutation was additionally verified to fire **before any state root is
+created**, so an inconsistent template cannot reserve an ordinal at all.
+
+### Still open after this fix
+
+**Terminal honesty is a separate blocker and is NOT fixed here.** There is no
+legal terminal code for "V6 mechanism proven, browser criteria not-run":
+`NEW_INFORMATION_INSUFFICIENT` and `CLEANUP_NOT_INDEPENDENT` are refused by
+`terminal_criteria_not_implemented`, `INCONCLUSIVE_MECHANISM` is accepted only by
+claiming V1–V7 all pass, and `INVALID_EVIDENCE` means V6 **failed**. Closing the
+whitelist gap does not open that path, and resolving it would not have made
+`identity-source` publishable. No attempt can close truthfully until it is ruled
+on, so a browser-free slice must `abandon` rather than `finish`.
+
+No R1 reservation, no kill criterion 4 closure and no V1–V7 claim is made here.
 
 ## Backfill (§8)
 

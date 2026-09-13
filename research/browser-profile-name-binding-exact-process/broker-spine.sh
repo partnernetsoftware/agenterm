@@ -243,6 +243,59 @@ my %FACT_TYPE = (
   boolean => sub { is_bool($_[0]) },
 );
 
+# Startup template-consistency gate. The stage shapes and the fact whitelist are
+# two halves of ONE contract, and when they disagree the template is internally
+# unsatisfiable: a stage can require a fact the whitelist forbids, which no fact
+# set can ever satisfy. That contradiction used to surface only when the stage was
+# first attempted at runtime, which is far too late -- it reads as a transient
+# broker error rather than as a broken template, and it can happen after an
+# ordinal has already been reserved.
+#
+# This is checked ONCE, at startup, before any operation. Each violation has its
+# own named code so the diagnostic names the actual defect. The type half reuses
+# `%FACT_TYPE` rather than duplicating it: a second list of legal types would be a
+# second truth and would drift.
+sub validate_template_consistency {
+  # A) every fact a stage names must be in the whitelist, or the stage can never
+  #    be published.
+  for my $stage (sort keys %STAGES) {
+    my $shape = $STAGES{$stage};
+    ref($shape) eq 'HASH' or fail('template_stage_shape');
+    for my $side (qw(required optional)) {
+      my $facts = $shape->{$side} // {};
+      ref($facts) eq 'HASH' or fail('template_stage_facts_shape');
+      for my $fact (sort keys %$facts) {
+        $FACT_WHITELIST{$fact}
+          or fail("template_stage_fact_not_whitelisted:$stage:$fact");
+        # C) the declared type must be one the validator knows, or the runtime
+        #    type check would fail with `stage_fact_type_unknown` long after the
+        #    template was accepted.
+        my $kind = $facts->{$fact};
+        defined $kind && !ref($kind) && $kind ne ''
+          or fail("template_stage_fact_type_missing:$stage:$fact");
+        $FACT_TYPE{$kind}
+          or fail("template_stage_fact_type_unknown:$stage:$fact:$kind");
+      }
+    }
+  }
+  # B) every whitelisted fact must be consumed by at least one stage shape. An
+  #    unconsumed fact is unreachable: it passes the whitelist gate and is then
+  #    refused by the shape gate, so it is dead in both directions.
+  my %consumed;
+  for my $stage (sort keys %STAGES) {
+    my $shape = $STAGES{$stage};
+    for my $side (qw(required optional)) {
+      my $facts = $shape->{$side} // {};
+      for my $fact (sort keys %$facts) { $consumed{$fact} = 1; }
+    }
+  }
+  for my $fact (sort keys %FACT_WHITELIST) {
+    $consumed{$fact} or fail("template_whitelist_fact_unused:$fact");
+  }
+}
+
+validate_template_consistency();
+
 # The v3 ledger admits exactly one rehearsal and one decision ordinal, and
 # neither is reusable. This mirrors the v2 discipline with a distinct budget.
 my %ORDINAL_KIND = (R1 => 'rehearsal', D1 => 'decision');

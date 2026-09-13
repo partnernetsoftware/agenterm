@@ -20,7 +20,6 @@
     "ordinal",
     "deadline_ms",
     "chain_length",
-    "last_completed_stage",
     "stage_seq",
     "frozen_identity_count",
     "dead_identity_count",
@@ -28,7 +27,9 @@
     "final_row_count",
     "primary_cause",
     "cleanup_status",
-    "terminal_code"
+    "terminal_code",
+    "scanned_source_count",
+    "call_count"
   ],
   "stage_forbidden_keys": [
     "argv",
