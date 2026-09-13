@@ -457,8 +457,8 @@ function wait_exit(child, code) {
 }
 
 // rh compared `protocol.pid == child.id`. A door handle is a slot index, not
-// a PID, so the identity is asked of the host instead: the pid the server
-// reports must be a direct child of this script host (`ps -o ppid=`).
+// a PID, so the bounded platform parent observation proves that the pid the
+// server reports is a direct child of this script host.
 function spawned_by_us(pid) {
   return rh.process_parent_pid(rh.int_of(pid)) === process_id();
 }

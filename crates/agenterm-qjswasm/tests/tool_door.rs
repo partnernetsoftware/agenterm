@@ -860,6 +860,44 @@ fn process_observe_refuses_a_negative_id_before_touching_the_host() {
 }
 
 #[test]
+fn process_parent_answers_one_live_relationship_without_an_inventory() {
+    let out = run_tool(
+        r#"
+        if (process_parent(process_id()) !== 0) { throw tool_result(); }
+        const parent = JSON.parse(tool_result());
+        if (process_parent(2147483647) !== 0) { throw tool_result(); }
+        const missing = JSON.parse(tool_result());
+        return parent.state + ":" + (parent.parent_id > 0)
+          + "|" + missing.state + ":" + (missing.reason !== "");
+        "#,
+    );
+    assert_eq!(string_of(&out), "live:true|dead:true", "{out:?}");
+    assert_eq!(
+        out.tool_calls
+            .iter()
+            .filter(|call| call.as_str() == "tool.process.parent")
+            .count(),
+        2,
+        "{:?}",
+        out.tool_calls
+    );
+}
+
+#[test]
+fn process_parent_refuses_a_negative_id_before_touching_the_host() {
+    let out = run_tool(
+        r#"
+        const status = process_parent(-1);
+        return status + ":" + tool_result();
+        "#,
+    );
+    assert!(
+        string_of(&out).contains("process.parent: pid is negative"),
+        "{out:?}"
+    );
+}
+
+#[test]
 fn process_kill_pid_refuses_a_negative_id_before_touching_the_host() {
     let out = run_tool(
         r#"

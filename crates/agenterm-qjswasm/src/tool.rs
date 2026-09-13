@@ -117,7 +117,7 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 54] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 55] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
@@ -154,6 +154,7 @@ pub(crate) const SIGNATURES: [(&str, usize, usize); 54] = [
     ("process.wait", 2, 1),
     ("process.pid", 1, 1),
     ("process.observe", 1, 1),
+    ("process.parent", 1, 1),
     ("process.list", 0, 1),
     ("process.tree", 1, 1),
     ("process.kill_pid", 1, 1),
@@ -316,6 +317,7 @@ pub(crate) fn declarations() -> Vec<HostFn> {
         ),
         decl("process.pid", vec![HostParam::I32], HostResult::I32),
         decl("process.observe", vec![HostParam::I32], HostResult::I32),
+        decl("process.parent", vec![HostParam::I32], HostResult::I32),
         decl("process.list", Vec::new(), HostResult::I32),
         decl("process.tree", vec![HostParam::I32], HostResult::I32),
         decl("process.kill_pid", vec![HostParam::I32], HostResult::I32),
@@ -1498,6 +1500,29 @@ pub(crate) fn install(
         },
     )?;
 
+    // Resolve one direct parent without spawning a platform command or
+    // transporting the complete process inventory through the guest.
+    let state = Rc::clone(&shared);
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "process.parent",
+        move |args, _memory| {
+            let raw_pid = arg(args, 0)?;
+            answer(&state, "process.parent", || {
+                let pid = u32::try_from(raw_pid)
+                    .map_err(|_| "process.parent: pid is negative".to_owned())?;
+                Ok(
+                    process_parent_observation_json(
+                        agenterm_platform::process_observation::parent(pid),
+                    )
+                    .to_string(),
+                )
+            })
+        },
+    )?;
+
     // A bounded native process inventory lets qualification observe the
     // descendants of the exact gate child it owns. The platform crate owns
     // enumeration and its target-specific caps; the door only projects the
@@ -2378,6 +2403,31 @@ fn process_observation_json(
     }
 }
 
+fn process_parent_observation_json(
+    observation: agenterm_platform::process_observation::ParentProcessObservation,
+) -> serde_json::Value {
+    use agenterm_platform::process_observation::ParentProcessObservation;
+
+    match observation {
+        ParentProcessObservation::Live { parent_id } => serde_json::json!({
+            "state": "live",
+            "parent_id": parent_id,
+        }),
+        ParentProcessObservation::Dead { reason } => serde_json::json!({
+            "state": "dead",
+            "reason": reason,
+        }),
+        ParentProcessObservation::Unknown { reason } => serde_json::json!({
+            "state": "unknown",
+            "reason": reason,
+        }),
+        _ => serde_json::json!({
+            "state": "unknown",
+            "reason": "parent process observation is newer than this tool door",
+        }),
+    }
+}
+
 fn window_error(
     op: &str,
     e: agenterm_platform::contract::process_window::ProcessWindowError,
@@ -2771,6 +2821,21 @@ mod tests {
         });
         assert_eq!(dead["state"], "dead");
         assert_eq!(dead["reason"], "process_not_found");
+        assert_ne!(unknown["state"], dead["state"]);
+    }
+
+    #[test]
+    fn parent_observation_keeps_incomplete_evidence_distinct_from_death() {
+        use agenterm_platform::process_observation::ParentProcessObservation;
+
+        let unknown = process_parent_observation_json(ParentProcessObservation::Unknown {
+            reason: "process_access_denied".to_owned(),
+        });
+        let dead = process_parent_observation_json(ParentProcessObservation::Dead {
+            reason: "process_not_found".to_owned(),
+        });
+        assert_eq!(unknown["state"], "unknown");
+        assert_eq!(dead["state"], "dead");
         assert_ne!(unknown["state"], dead["state"]);
     }
 

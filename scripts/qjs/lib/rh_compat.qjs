@@ -375,12 +375,8 @@ export function int_of(value) {
   return 0;
 }
 
-// A spawn handle is a slot index, not a PID. Liveness uses the bounded
-// platform observation door; parent identity still needs the host's native
-// process query because the observation record deliberately has no parent.
-function ipc_host_is_windows() {
-  return env_or("OS", "") === "Windows_NT";
-}
+// A spawn handle is a slot index, not a PID. Liveness and direct-parent
+// identity use bounded platform observations rather than process-table text.
 
 export function process_alive(pid) {
   if (process_observe(pid) !== 0) { throw "process_observe:" + tool_result(); }
@@ -388,18 +384,9 @@ export function process_alive(pid) {
 }
 
 export function process_parent_pid(pid) {
-  const pid_text = "" + pid;
-  let out;
-  if (ipc_host_is_windows()) {
-    out = command("powershell", ["-NoProfile", "-Command",
-      "(Get-CimInstance Win32_Process -Filter \"ProcessId=" + pid_text + "\").ParentProcessId"], { timeout_ms: 10000 });
-  } else {
-    out = command("ps", ["-o", "ppid=", "-p", pid_text], { timeout_ms: 2000 });
-  }
-  if (!out.success) { return -1; }
-  const text = out.stdout.trim();
-  if (text === "") { return -1; }
-  return Number(text);
+  if (process_parent(pid) !== 0) { throw "process_parent:" + tool_result(); }
+  const observed = JSON.parse(tool_result());
+  return observed.state === "live" ? observed.parent_id : -1;
 }
 
 // ---- wave-2 wf_0e3e1cca-04e-4 ----

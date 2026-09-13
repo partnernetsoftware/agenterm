@@ -79,6 +79,9 @@ agenterm-qjswasm
 │  │     `live | dead | unknown` record instead of transporting a full process
 │  │     inventory; `rh_compat.process_alive` removes tasklist/kill subprocesses
 │  │     across eleven checks in six gates while preserving its boolean surface
+│  │  └─ `process.parent(pid)` projects one direct-parent relationship through
+│  │     the same exact-key platform family; native-ipc-compat's five ownership
+│  │     checks no longer launch PowerShell/ps or parse their process-table text
 │  ├─ [x] declaration-driven Native Importer composition
 │  │  ├─ user problem: scripts need an extensible native surface without copying a loader or ABI executor
 │  │  ├─ invariant: spec/schema/catalog/nullability and exact-family cardinality are local qjswasm policy
@@ -339,6 +342,7 @@ flowchart LR
   CAPTURE["bounded child capture<br/>per-stream loss flags · JSON-fit"]
   SELECT["host-side JSON field selection<br/>producer Value → bounded projection<br/>protocol-info first consumer · door unchanged"]
   OBSERVE["bounded single-PID observation<br/>live · dead · unknown<br/>no inventory transport"]
+  PARENT["bounded direct-parent observation<br/>one PID · no process-table text"]
   HANDLES["per-slot child ledger<br/>32 retained · pre-spawn refusal"]
   LOCKS["per-slot lock ledger<br/>32 lifetime handles · stable tombstones<br/>pre-open refusal"]
   PATHS["shared path helper<br/>`.` / `./` lexical normalization"]
@@ -403,6 +407,7 @@ flowchart LR
   PRODUCT -. child process .-> HANDLES --> CAPTURE --> RECEIPT
   PRODUCT -. producer-owned JSON value .-> SELECT --> DOOR
   PRODUCT -. arbitrary PID liveness .-> OBSERVE --> DOOR
+  PRODUCT -. direct child identity .-> PARENT --> OBSERVE
   PRODUCT -. advisory lock .-> LOCKS --> RECEIPT
   PRODUCT -. process.command .-> QPTY --> RECEIPT
   PRODUCT -. native path identity .-> PATHS --> RECEIPT

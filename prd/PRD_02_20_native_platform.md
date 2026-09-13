@@ -60,6 +60,11 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 - [x] Script Runtime atomic filesystem mechanics and child-pipe observation use
   public filesystem/process facades. Product budgets and receipts remain in the
   unrestricted runtime; duplicate root native adapters are deleted.
+- [x] Single-process observation exposes exact-key liveness/start identity and
+  direct-parent facts without scanning the process table. `Dead` and `Unknown`
+  remain distinct in both contracts; macOS and Linux project the parent from
+  the same native record they already read, while Windows uses one bounded
+  `NtQueryInformationProcess` query rather than a Toolhelp inventory.
 - [x] The optional `process-reference` feature owns stable process-object
   references without reopening by PID: Windows retains an owned process HANDLE,
   Linux retains a pidfd, and macOS retains a kqueue `NOTE_EXIT` registration.

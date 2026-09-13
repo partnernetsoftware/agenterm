@@ -1,4 +1,4 @@
-use crate::contract::process_observation::ProcessObservation;
+use crate::contract::process_observation::{ParentProcessObservation, ProcessObservation};
 
 pub(crate) fn observe(pid: u32) -> ProcessObservation {
     let stat = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
@@ -20,6 +20,53 @@ pub(crate) fn observe(pid: u32) -> ProcessObservation {
         }
     };
     parse_stat_observation(&stat)
+}
+
+pub(crate) fn parent(pid: u32) -> ParentProcessObservation {
+    let stat = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        Ok(stat) => stat,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return ParentProcessObservation::Dead {
+                reason: "process_not_found".to_owned(),
+            };
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            return ParentProcessObservation::Unknown {
+                reason: "process_access_denied".to_owned(),
+            };
+        }
+        Err(error) => {
+            return ParentProcessObservation::Unknown {
+                reason: format!("process_parent_read_failed:{error}"),
+            };
+        }
+    };
+    parse_stat_parent(&stat)
+}
+
+fn parse_stat_parent(stat: &str) -> ParentProcessObservation {
+    let Some(fields) = stat.rsplit_once(") ").map(|(_, fields)| fields) else {
+        return ParentProcessObservation::Unknown {
+            reason: "process_parent_parse_failed".to_owned(),
+        };
+    };
+    let mut fields = fields.split_whitespace();
+    let Some(state) = fields.next() else {
+        return ParentProcessObservation::Unknown {
+            reason: "process_parent_parse_failed".to_owned(),
+        };
+    };
+    if matches!(state, "Z" | "X" | "x") {
+        return ParentProcessObservation::Dead {
+            reason: "process_exited_not_reaped".to_owned(),
+        };
+    }
+    match fields.next().and_then(|value| value.parse::<u32>().ok()) {
+        Some(parent_id) => ParentProcessObservation::Live { parent_id },
+        None => ParentProcessObservation::Unknown {
+            reason: "process_parent_parse_failed".to_owned(),
+        },
+    }
 }
 
 fn parse_stat_observation(stat: &str) -> ProcessObservation {
@@ -54,8 +101,8 @@ fn parse_stat_observation(stat: &str) -> ProcessObservation {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_stat_observation;
-    use crate::contract::process_observation::ProcessObservation;
+    use super::{parse_stat_observation, parse_stat_parent};
+    use crate::contract::process_observation::{ParentProcessObservation, ProcessObservation};
 
     fn stat_with_state(state: &str) -> String {
         format!(
@@ -81,5 +128,13 @@ mod tests {
             ProcessObservation::Live { start_identity: Some(ref identity) }
                 if identity == "proc-start-ticks:12345"
         ));
+    }
+
+    #[test]
+    fn live_state_preserves_the_direct_parent() {
+        assert_eq!(
+            parse_stat_parent(&stat_with_state("S")),
+            ParentProcessObservation::Live { parent_id: 1 }
+        );
     }
 }

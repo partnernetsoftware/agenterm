@@ -1,4 +1,4 @@
-use crate::contract::process_observation::ProcessObservation;
+use crate::contract::process_observation::{ParentProcessObservation, ProcessObservation};
 
 // WaitForSingleObject requires SYNCHRONIZE, which
 // PROCESS_QUERY_LIMITED_INFORMATION does not include on its own.
@@ -72,6 +72,78 @@ pub(crate) fn observe(pid: u32) -> ProcessObservation {
     let ticks = (u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime);
     ProcessObservation::Live {
         start_identity: Some(format!("windows-filetime:{ticks}")),
+    }
+}
+
+pub(crate) fn parent(pid: u32) -> ParentProcessObservation {
+    use std::ffi::c_void;
+    use windows_sys::Win32::{
+        Foundation::{
+            CloseHandle, ERROR_ACCESS_DENIED, ERROR_INVALID_PARAMETER, GetLastError, HANDLE,
+        },
+        System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+    };
+
+    #[repr(C)]
+    struct ProcessBasicInformation {
+        exit_status: i32,
+        peb_base_address: *mut c_void,
+        affinity_mask: usize,
+        base_priority: i32,
+        unique_process_id: usize,
+        inherited_from_unique_process_id: usize,
+    }
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtQueryInformationProcess(
+            process: HANDLE,
+            information_class: u32,
+            information: *mut c_void,
+            information_length: u32,
+            return_length: *mut u32,
+        ) -> i32;
+    }
+
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if process.is_null() {
+        let error = unsafe { GetLastError() };
+        return if error == ERROR_INVALID_PARAMETER {
+            ParentProcessObservation::Dead {
+                reason: "process_not_found".to_owned(),
+            }
+        } else if error == ERROR_ACCESS_DENIED {
+            ParentProcessObservation::Unknown {
+                reason: "process_access_denied".to_owned(),
+            }
+        } else {
+            ParentProcessObservation::Unknown {
+                reason: format!("process_open_failed:{error}"),
+            }
+        };
+    }
+    let mut information = unsafe { std::mem::zeroed::<ProcessBasicInformation>() };
+    let mut returned = 0_u32;
+    let information_length = std::mem::size_of::<ProcessBasicInformation>() as u32;
+    let status = unsafe {
+        NtQueryInformationProcess(
+            process,
+            0,
+            (&raw mut information).cast(),
+            information_length,
+            &mut returned,
+        )
+    };
+    unsafe { CloseHandle(process) };
+    if status < 0 || (returned != 0 && returned < information_length) {
+        return ParentProcessObservation::Unknown {
+            reason: format!("process_parent_query_failed:0x{status:08x}"),
+        };
+    }
+    match u32::try_from(information.inherited_from_unique_process_id) {
+        Ok(parent_id) => ParentProcessObservation::Live { parent_id },
+        Err(_) => ParentProcessObservation::Unknown {
+            reason: "process_parent_id_out_of_range".to_owned(),
+        },
     }
 }
 

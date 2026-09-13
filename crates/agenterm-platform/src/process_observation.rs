@@ -1,6 +1,8 @@
 //! Lightweight single-process liveness and start-identity observation.
 
-pub use crate::contract::process_observation::{IdentityVerdict, ProcessObservation};
+pub use crate::contract::process_observation::{
+    IdentityVerdict, ParentProcessObservation, ProcessObservation,
+};
 
 /// Observe one process without claiming ownership or changing its state.
 ///
@@ -8,6 +10,11 @@ pub use crate::contract::process_observation::{IdentityVerdict, ProcessObservati
 /// dead from permission errors, parse failures, or incomplete native queries.
 pub fn observe(pid: u32) -> ProcessObservation {
     crate::selected::process_observation::observe(pid)
+}
+
+/// Observe the direct parent of one process without scanning the process table.
+pub fn parent(pid: u32) -> ParentProcessObservation {
+    crate::selected::process_observation::parent(pid)
 }
 
 /// Classify one already-observed process against an exact frozen identity.
@@ -73,6 +80,46 @@ mod tests {
         assert!(matches!(
             observe(i32::MAX as u32),
             ProcessObservation::Dead { .. }
+        ));
+    }
+
+    #[test]
+    fn current_process_has_the_callers_parent() {
+        assert!(matches!(
+            parent(std::process::id()),
+            ParentProcessObservation::Live { parent_id } if parent_id > 0
+        ));
+    }
+
+    #[test]
+    fn exact_child_names_this_process_as_its_parent() {
+        #[cfg(windows)]
+        let mut child = std::process::Command::new("cmd.exe")
+            .args(["/d", "/c", "ping -n 6 127.0.0.1 >nul"])
+            .spawn()
+            .expect("spawn parent observation child");
+        #[cfg(unix)]
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "sleep 5"])
+            .spawn()
+            .expect("spawn parent observation child");
+
+        let observation = parent(child.id());
+        let _ = child.kill();
+        let _ = child.wait();
+        assert_eq!(
+            observation,
+            ParentProcessObservation::Live {
+                parent_id: std::process::id(),
+            }
+        );
+    }
+
+    #[test]
+    fn missing_process_has_no_invented_parent() {
+        assert!(matches!(
+            parent(i32::MAX as u32),
+            ParentProcessObservation::Dead { .. }
         ));
     }
 
