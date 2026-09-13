@@ -24,29 +24,18 @@ const declared_evidence = [
   "ux.unix-frontend-macos-stale-paste"
 ];
 
-// A door wall this port cannot route around without changing what is
-// proven. The site throws with the rh spelling so the run fails closed.
-function gap(what) {
-  throw "qjs_gap:" + what;
-}
-
-// rh's `child.platform_facts`: the host's own view of the child's top-level
-// window (supported / present / id / is_foreground). The door has no such
-// fact for a spawned handle; `wait-ui --window-state restored` is the
-// server's claim, not the compositor's, and this journey is about the
-// difference.
+// The door's `process.platform_facts(handle)`: the host's own view of the
+// child's top-level window, the six fields rh's `child.platform_facts` had.
+// A server restored-state claim is not compositor truth, so activation still
+// requires this independent native witness.
 function platform_facts(handle) {
-  // The door's `process.platform_facts(handle)`: the host's own view of the
-  // child's top-level window, the six fields rh's `child.platform_facts` had.
   if (process_platform_facts(handle) !== 0) { throw "process_platform_facts:" + tool_result(); }
   return JSON.parse(tool_result());
 }
 
-// rh's `rh::image::inspect_png(path)` -> {width, height, samples, luminance}.
-// Binary bytes cannot cross the text door and it carries no image operation.
+// The door's `image.inspect_png(path)`: {width, height, samples, luminance},
+// decoded on the host side -- the pixels never cross the text door.
 function inspect_png(path) {
-  // The door's `image.inspect_png(path)`: {width, height, samples, luminance},
-  // decoded on the host side -- the pixels never cross the text door.
   if (image_inspect_png(path) !== 0) { throw "image_inspect_png:" + tool_result(); }
   return JSON.parse(tool_result());
 }

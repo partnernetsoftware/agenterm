@@ -423,9 +423,11 @@ future promotion gates.
   stale declarations that `image.inspect_png`, `process.platform_facts`, or
   `process.window_key` are unavailable. They now call those already-shipped
   tool-door operations directly, preserve the typed Wayland and macOS input
-  refusals, and pass the bounded tool-profile compile gate. The macOS port now
-  reads the window facts as the JSON booleans the door actually returns and
-  waits for asynchronous window-server registration; a direct door probe
+  refusals, and pass the bounded tool-profile compile gate. The shared Unix
+  journey also removes its zero-caller gap helper and contradictory pre-door
+  comments, leaving the shipped operations as the sole mechanism truth. The
+  macOS port now reads the window facts as the JSON booleans the door actually
+  returns and waits for asynchronous window-server registration; a direct door probe
   proves that `--no-activate` preserves an independent foreground window while
   the Control Center is visible behind it. The owning macOS task now reaches
   and emits both renderer evidence and positive native-keyboard evidence; it
