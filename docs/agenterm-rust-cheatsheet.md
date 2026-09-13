@@ -1165,6 +1165,22 @@ real adapter or routing mismatch invisible.
 
 If a recurring answer was hard to discover, add the proven rule here.
 
+### Freeze a closed public error algebra with an exhaustive owner court
+
+When a small mechanism crate promises a closed public error vocabulary, give
+its integration suite one match over the public enum with **no wildcard** and
+exercise every arm. Scattered `matches!(Error::Variant { .. })` assertions
+prove individual paths but cannot reveal that a sixth word entered the public
+algebra. The exhaustive match makes adding, removing, or renaming a variant a
+compile-time compatibility event owned by the public court, while adding no
+runtime code to the library.
+
+Test the gate with a mutation that is allowed to reach it. Adding a variant
+without updating the library's own exhaustive `Display` or mapper only proves
+that production match, not the integration court. Temporarily add the variant,
+update every production exhaustive match, require `E0004` at the owner court,
+then reverse the exact edits and verify the pre-mutation hashes.
+
 ### Audit an API boundary before adding a cache
 
 - Trace the full call path before caching an expensive FFI or parser call. A product facade may already own a bounded cache even when the render caller looks uncached.

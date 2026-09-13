@@ -599,6 +599,59 @@ fn argument_count_and_shape_are_mechanism_errors() {
     );
 }
 
+/// Name every public ABI mechanism refusal without a wildcard.
+///
+/// This match is deliberately exhaustive: adding, removing, or renaming an
+/// `AbiError` variant must stop this owner court at compile time so the stable
+/// mechanism vocabulary cannot drift behind broad `matches!(..)` assertions.
+fn abi_error_word(error: &AbiError) -> &'static str {
+    match error {
+        AbiError::SignatureUnsupported { .. } => "signature_unsupported",
+        AbiError::LibraryLoad { .. } => "library_load",
+        AbiError::SymbolLookup { .. } => "symbol_lookup",
+        AbiError::ArgumentCount { .. } => "argument_count",
+        AbiError::ArgumentShape { .. } => "argument_shape",
+    }
+}
+
+#[test]
+fn the_public_abi_error_vocabulary_is_one_exhaustive_five_word_algebra() {
+    let errors = [
+        AbiError::SignatureUnsupported {
+            result: AbiType::Void,
+            params: vec![],
+        },
+        AbiError::LibraryLoad {
+            library: "missing".into(),
+            message: "load".into(),
+        },
+        AbiError::SymbolLookup {
+            library: "library".into(),
+            symbol: "missing".into(),
+            message: "lookup".into(),
+        },
+        AbiError::ArgumentCount {
+            expected: 1,
+            actual: 0,
+        },
+        AbiError::ArgumentShape {
+            index: 0,
+            expected: AbiType::I32,
+            actual: AbiType::U32,
+        },
+    ];
+    assert_eq!(
+        errors.map(|error| abi_error_word(&error)),
+        [
+            "signature_unsupported",
+            "library_load",
+            "symbol_lookup",
+            "argument_count",
+            "argument_shape",
+        ]
+    );
+}
+
 #[test]
 fn shapes_outside_the_mechanism_matrix_are_refused() {
     // Four pointer parameters: no family trampoline takes that many addresses.

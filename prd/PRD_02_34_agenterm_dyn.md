@@ -237,9 +237,10 @@ declaration → lowering → mechanism → typed-result 管线。若新增代码
 公开 Rust 面，也不因可调用而自动成为 Native Importer 的稳定产品能力；只有生产边、
 兼容性 court 与交付证据三者同时落地，才能从隔离槽晋级。
 
-当前机器证据已覆盖 75-shape 矩阵、exposure ⊆ mechanism、唯一 loader 与句柄复用；
-**错误词汇的无 wildcard 穷举兼容性 court 尚未落地**。该 court 是下一条原子稳定性证据，
-它只冻结机制错误的身份，不新增错误码或运行时代码。
+当前机器证据覆盖 75-shape 矩阵、exposure ⊆ mechanism、唯一 loader、句柄复用，
+以及五词 `AbiError` 的无 wildcard 穷举兼容性 court。该 court 只冻结机制错误的身份，
+不新增错误码或运行时代码；增加第六变体并同步生产 `Display` 后，integration target
+会在穷举 match 处以 `E0004` 具名失败。
 
 ### dyn 之上的分层折叠路线（已收敛）
 
@@ -409,6 +410,9 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
 - **loader 计数**两侧分别为 1 / 1（且 qjswasm 那处是注释）；
 - **机制矩阵扫全**：dyn 侧 `tests/abi.rs` 逐一枚举矩阵（49+4+8+5+9=75）要求
   `validate_abi_signature` 接受，并对矩阵外的形状要求 `SignatureUnsupported`；
+- **错误代数扫全**：dyn 侧 `tests/abi.rs` 用一个无 wildcard 的 match 穷举
+  `SignatureUnsupported / LibraryLoad / SymbolLookup / ArgumentCount / ArgumentShape`；
+  增删改变体必须先显式更新这条兼容性账，不能被零散的 `matches!(..)` 静默漏过；
 - **exposure ⊆ mechanism**：qjswasm 侧 `native::mechanism_compatibility` 用同一张 dispatch
   表枚举曝光形状（69）逐一问 dyn，并记录“机制有、曝光无”的形状与 `ioctl` 自成一径（u64 请求
   没有 ABI trampoline）；删一个机制形状或伪造一个曝光形状都会具名变红；
