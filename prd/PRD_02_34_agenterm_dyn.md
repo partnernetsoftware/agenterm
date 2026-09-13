@@ -1,12 +1,18 @@
 # PRD 02.34 — agenterm-dyn（极小 / 动态 / 底层）
 
-Status: active product node — dyn is the **无策略底层机制层**（动态库/符号解析、按调用方 ABI
-描述执行调用、raw value/pointer 搬运、variadic `ioctl` ABI、W^X trampoline、机制错误）
-consumed by qjswasm. The former S-expression surface, typed-owner side APIs, and
-six-cell product catalog have been removed from dyn after consumer and evidence migration.
+Status: active product node — dyn is the **面向宿主硬件与操作系统的无策略底层动态能力微核**
+（动态链接与符号解析、按调用方 ABI 描述执行调用、raw value/pointer 搬运、variadic `ioctl`
+ABI、隔离的 future-JIT/host-ISA 槽位、机制错误）consumed by qjswasm.
+The former S-expression surface, typed-owner side APIs, and six-cell product catalog have
+been removed from dyn after consumer and evidence migration.
 Owner: 政委定方向；主会话按独占文件域推进。
 
 Parallel crate `crates/agenterm-dyn`, not a fourth engine, not libagenterm, not cu.
+
+**微核不等于"只有 ABI"**：ABI 调用工具（`abi.rs` 的统一入口 + 五族单态 trampoline）是
+当前**最成熟的子树**，不是 dyn 的全部，也不把 dyn 缩成 qjswasm 私有的 FFI helper：
+dyn 仍是独立 crate，自带唯一 loader、独立错误词汇、独立执行底座边界与独立的
+`ioctl` 机制路径。
 
 ## 当前产品身份：无策略的底层动态能力转接（2026-09-12 裁决重写）
 
@@ -21,8 +27,14 @@ Parallel crate `crates/agenterm-dyn`, not a fourth engine, not libagenterm, not 
    dyn 负责布局与跳转，**不由 dyn 决定“哪些 ABI 允许”**；
 3. **raw pointer / value 搬运**——整数、浮点、指针位的传参取回；
 4. **必要 ABI 机制**——Unix variadic `ioctl` 特例；
-5. **W^X trampoline 与机器码执行底座**（`src/exec.rs`，写态/执态互斥，永不 RWX）；
-6. **机制错误传播**——加载失败、符号缺失、ABI 布局不一致、缓冲区错误等。
+5. **W^X trampoline 与机器码执行底座**（`src/exec.rs`，写态/执态互斥，永不 RWX）——
+   这是**隔离的 future-JIT / host-ISA 槽位**：当前生产调用路径（`invoke_abi` 的五族单态
+   trampoline）**不经过 `exec.rs`**，运行时继续 no-JIT；该模块只为将来"把 intern 树折叠
+   到宿主 ISA"保留（见 `### Later — not authorized or implemented`）；
+6. **机制错误传播**——真实词汇是 `AbiError::{SignatureUnsupported, LibraryLoad,
+   SymbolLookup, ArgumentCount, ArgumentShape}`，加上 exec 槽位的 `ExecError` 与
+   `unix_ioctl` 的 `UnixIoctlError`。dyn **不**产生缓冲区/pointee/NUL/对齐错误：guest span
+   宽度、pointee 的最小读写宽度、NUL 终止与 host ABI 对齐由调用方与 qjswasm 判定。
 
 **上层拥有（策略）**
 
@@ -36,14 +48,20 @@ Parallel crate `crates/agenterm-dyn`, not a fourth engine, not libagenterm, not 
 
 **回答用户问题（已实现 vs 目标态）**
 
-- **已实现**：今天的东西可以概括为 **libdl-like（打开库/解析符号）＋ 一部分
-  libffi-like（一组枚举式固定 ABI 的调用执行）＋ 自有的 W^X/ABI 执行基础设施**。
-- **尚未达到**：它还**不是 libffi 的完整超集**——参数类与 prototype 由 dyn 枚举、
-  variadic 只覆盖 `ioctl` 一个特例、结构体/by-value 传递未做、host ABI 对齐与
-  pointee 最小读写宽度不由 dyn 校验。
-- **目标态**：把“**允许集合**”从 dyn 的枚举变成**调用方传入的 ABI 描述**，dyn 只执行；
-  目标是**扩大或参数化 ABI 机制覆盖**（更多参数类/返回类、更多调用形状）。**“是不是 libffi 的
-  完整超集”仍由 dyn 的实际 ABI 支持矩阵决定**，不能靠上层策略宣称，也不是上层的“能力”。
+- **已完成**：① **caller-provided `AbiSignature` / `NativeCall` 已是唯一调用入口**——运行时由调用方
+  构造描述，dyn 只执行；旧 `invoke_exact` / `invoke_fixed` / `invoke_fixed_pointer` 三入口与
+  仅为其服务的 nullable 策略标签已删除（不再是"目标态"）。② 统一入口按**真实 trampoline 支持
+  矩阵**分类，超出即 `AbiError::SignatureUnsupported`，从不近似：homogeneous exact 7 个标量族 ×
+  arity 0..=6 = **49**、fixed **4**、fixed-pointer **8**、pointer-result **5**、direct-scalar **9**，
+  合计 **75** 个单态形状。③ 今天可概括为 **libdl-like（打开库/解析符号）＋ 一部分 libffi-like
+  （枚举式固定 ABI 的调用执行）＋ 自有的 ABI 执行基础设施**。
+- **尚未达到**：它还**不是 libffi 的完整超集**——参数类由机制矩阵枚举、variadic 只覆盖 `ioctl`
+  一个特例、结构体/by-value 传递未做、host ABI 对齐与 pointee 最小读写宽度不由 dyn 校验。
+- **机制矩阵 ≠ 产品 exposure**：**机制矩阵**是 dyn 的答案（"这个形状有没有真实 trampoline"），
+  **产品 exposure allowlist** 是 qjswasm 的答案（"哪些 symbol/契约暴露给 guest"）。二者关系是
+  **exposure ⊆ mechanism**，不要求相等，更不由 dyn 决定；dyn 也不拥有任何 allowlist。
+- **目标态**：继续**扩大或参数化 ABI 机制覆盖**（更多参数类/返回类/调用形状）；"是不是 libffi 的
+  完整超集"只能由 dyn 的实际支持矩阵回答，不能靠上层策略宣称，也不是上层的"能力"。
 
 **机制正确性留在 dyn，权限语义不在 dyn**：unsafe 契约、错误传播、W^X、以及收到
 **host 侧 ABI/value/pointer 描述后**的调用布局与执行错误，都是 dyn 的机制职责；
@@ -62,19 +80,27 @@ dyn **不**校验 host ABI 对齐、NUL 或具体 callee 的最小读写宽度�
 
 ```text
 agenterm-dyn
-├── A. 可执行 native core                         [机制保留 · 策略迁移]
-│   ├── abi
-│   │   ├── AbiSignature / NativeCall              [调用方运行时描述]
-│   │   ├── validate_abi / invoke_abi              [统一机制入口]
-│   │   ├── pointer return: ptr() / ptr(u32) / ptr(u64) [机制支持]
-│   │   └── Pointer 只表达 ABI 地址位；所有权、可空与 pointee 契约在上层
-│   ├── exact_native
-│   │   ├── 执行：按调用方 ABI 描述调用            [保留]
-│   │   └── 7 个同质标量族 × arity 0..=6 = 49 单态 trampoline [机制矩阵]
-│   ├── fixed_native
-│   │   └── 异构标量单态 trampoline                [由 abi 选择]
-│   ├── fixed_pointer
-│   │   └── caller-buffer / pointer 单态 trampoline [由 abi 选择；无 nullable 策略标签]
+├── A. 可执行 dynamic mechanism core               [机制保留 · 策略迁移]
+│   ├── abi                                        [唯一调用入口，调用方给描述]
+│   │   ├── AbiSignature / NativeCall / AbiValue    [调用方运行时描述]
+│   │   ├── validate_abi / invoke_abi               [统一机制入口]
+│   │   ├── validate_abi 只管 argument count / shape；形状支持由族分类回答
+│   │   └── 五族单态 trampoline 矩阵 = 机制支持面（≠ 产品 exposure）
+│   │       ├── exact: 7 同质标量族 × arity 0..=6                      = 49
+│   │       ├── fixed: U64I32 / IsizeI32 / I32U64U64 / I64I32I64I32    = 4
+│   │       ├── fixed_pointer: I32Pointer / I32PointerI32 /
+│   │       │   I32PointerU64 / I32I32Pointer / I32I32PointerU32 /
+│   │       │   I32U64PointerU64 / I32PointerPointer /
+│   │       │   I32PointerPointerPointer                               = 8
+│   │       ├── pointer-result: ptr() / ptr(u32) / ptr(u64) /
+│   │       │   ptr(ptr) / ptr(usize)                                  = 5
+│   │       └── direct-scalar: void(ptr) / i64(ptr) / isize(u32) /
+│   │           i32(i32,i32,ptr) / i32(i32,i32,u64,ptr,i32) /
+│   │           i32(ptr,u32,ptr,ptr,ptr,usize) / usize(i32,ptr,usize) /
+│   │           i32(u32,u32) / i32(i32,u32)                            = 9
+│   ├── exact_native / fixed_native / fixed_pointer [crate-private family mechanism]
+│   │   └── 只暂存 invoke_abi 选择的单态 trampoline；不再公开
+│   ├── open_library                                [唯一 loader（libloading）]
 │   └── unix_ioctl
 │       ├── variadic 调用机制 (i32, i32|u64, ptr) -> i32  [保留]
 │       └── UnixIoctlRequest 的“允许签名”          [**策略 → 上层**]
@@ -100,10 +126,11 @@ agenterm-dyn
 │   ├── Placeholder | LiveDlcall | LiveOwned | LiveDlcallOwned
 │   └── CU-adjacent facts（发现/兼容元数据，不是授权策略）
 │
-├── D. executable-code boundary                     [保留]
-│   ├── CodeBuffer: W^X，永不 RWX
+├── D. executable-code boundary                     [保留 · 隔离槽位]
+│   ├── CodeBuffer: W^X，永不 RWX（future-JIT / host-ISA slot）
 │   ├── NameTable: emitted / foreign name
-│   └── ExecError: 独立 typed error
+│   ├── ExecError: 独立 typed error
+│   └── ⚠ 当前生产调用路径不经过本子树：no-JIT 运行时只走 A 的五族单态 trampoline
 │
 └── E. 小 S-expression 解释器                      [已退役]
     ├── parse.rs + eval.rs + sym.rs + value.rs
@@ -111,12 +138,15 @@ agenterm-dyn
     └── native.rs 旧 dlcall 入口
 
 共享边（DAG）
-qjswasm ──uses──> A
-qjswasm ──guest span──> A.fixed_pointer
+qjswasm ──uses──> A（唯一调用入口 invoke_abi；dyn 不反向决定 exposure）
+qjswasm ──自解码并校验 guest span / nullability / schema──> A
+          （dyn 只收到已解码的 host 侧描述：span 越界、pointee 宽度、NUL 由 qjswasm 判定）
 qjswasm ──validated ioctl request──> A.unix_ioctl
 Script Runtime / CU ──agenterm:native──> qjswasm ──> A
+qjswasm ──compile .qjs → .wasm / execute no-JIT──> tinyvm（tinyvm 不依赖 dyn）
 B ──historical contracts now belong above dyn──> agenterm-platform / adapters
 E ──claims moved to raw ABI or WAT courts──> qjswasm ──> A
+D ──isolated slot, 当前无生产调用方──> future JIT / host-ISA folding
 ```
 
 ### Mermaid flowchart memory-palace（调用与所有权记忆宫殿）
@@ -141,11 +171,13 @@ flowchart LR
         Abi[按调用方传入的 ABI 描述执行调用]
         Raw[raw pointer / value 搬运]
         Ioctl[Unix ioctl variadic ABI 机制]
-        WX[W^X trampoline / exec.rs]
-        Abi --> Loader
+        WX[W^X trampoline / exec.rs<br/>隔离槽位 · 当前调用路径不经此处]
+        Matrix[五族单态 trampoline 矩阵<br/>exact 49 · fixed 4 · ptr 8 · ptr-result 5 · direct 9]
+        Abi --> Matrix
+        Matrix --> Loader
         Raw --> Loader
         Ioctl --> Loader
-        WX --> Loader
+        WX -. future JIT / host-ISA，无生产调用方 .-> Loader
     end
 
     subgraph Policy[上层机房 · policy（qjswasm / Script Runtime）]
@@ -169,19 +201,23 @@ flowchart LR
 
     Guard --> Schema
     Schema --> Proto
-    Proto -->|已验证的 ABI 描述| Abi
+    Proto -->|已验证的 ABI 描述（exposure ⊆ mechanism）| Abi
     Guard -. enumerated exception .-> Ioctl
     UpperOwner -. outside dyn .-> ProductFacts
     Closed -. claims already ported .-> QJS
 
     CU[agenterm-cu] -->|through supervised Script Runtime| QJS
-    Tiny[tinyvm] -->|compile / execute Wasm only| QJS
+    QJS -->|compile .qjs to .wasm / execute no-JIT| Tiny[tinyvm]
+    Tiny -. tinyvm 不依赖 dyn .-> Engine
+    Guard -. span 越界 · pointee 宽度 · NUL 由上层判定，不入 dyn .-> Matrix
 ```
 
 这张图同时给出禁止项：不得增加第二个 native loader；不得让 guest 直接持有 OS
 资源指针；不得把 `LiveOwned` 当成别的 target cell 的 runtime 证据；不得在 legacy
 court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 dyn 决定允许集合、
-授权语义、budget/cancel，或持有 typed OS owner 与六格 facts**（那些属上层与产品层）。
+授权语义、budget/cancel，或持有 typed OS owner 与六格 facts**（那些属上层与产品层）；
+同样**不得把 dyn 缩成 qjswasm 私有的 FFI helper**，也不得把上层策略搬回机制层——
+机制矩阵只回答"这个形状有没有真实 trampoline"，不回答"允不允许"。
 
 ### 无策略边界：keep / move / delete 迁移表（2026-09-12 裁决）
 
@@ -191,9 +227,9 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
 | `macos_resource.rs`（Mach right、domain/login/timebase、DlAddress…） | **removed** | 无生产消费者；不得在 dyn 复制 typed OS contract |
 | `unix_resource.rs`（getifaddrs / statvfs / clock） | **removed** | 等价平台能力由 `agenterm-platform` 的 owning feature 提供 |
 | `unix_groups.rs` / `unix_path.rs` | **removed** | 无生产消费者；调用方使用 owning platform/filesystem contract |
-| `exact_native.rs` / `fixed_native.rs` / `fixed_pointer.rs` | **internal** | 不再公开；只暂存 `invoke_abi` 使用的单态 trampoline，后续折叠进统一机制表 |
+| `exact_native.rs` / `fixed_native.rs` / `fixed_pointer.rs` | **internal** | 不再公开；只暂存 `invoke_abi` 按五族矩阵选择的单态 trampoline（49 + 4 + 8），未被选中的形状一律 `SignatureUnsupported`；后续可折叠进统一机制表 |
 | `unix_ioctl.rs` | **split** | variadic 调用机制留；“允许签名”判据迁上层 |
-| `exec.rs` + `exec_error.rs` | **keep** | W^X trampoline 与机器码执行底座（机制正确性，不是权限限制） |
+| `exec.rs` + `exec_error.rs` | **keep · 隔离槽位** | W^X trampoline 与机器码执行底座（机制正确性，不是权限限制）；**当前生产调用路径不经过它**，只为 future JIT / host-ISA 折叠保留（no-JIT 运行时只走 `abi` 的五族单态 trampoline） |
 | `error.rs` | **removed** | 旧语言错误；ABI/exec/ioctl 机制保留各自 typed error |
 | `native.rs`（旧 `dlcall` 入口） | **removed** | textual language entrance retired after court migration |
 | `parse.rs` / `eval.rs` / `sym.rs` / `value.rs` | **removed** | language layer retired after equivalent evidence landed |
@@ -233,7 +269,11 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
 - dyn 不拥有 **budget / cancel / 监管**；
 - 不新增第二 loader、第二 door 或第二套 ABI 执行子系统。
 
-## Exec base (dyn.1, 2026-08-16) — 身份补充
+## Exec base (dyn.1, 2026-08-16) — 身份补充 (historical record)
+
+本节是第一刀交付时的记录。**它描述的是当时的执行底座，不是当前调用路径**：今天
+`exec.rs` 是隔离的 future-JIT / host-ISA 槽位，`invoke_abi` 的五族单态 trampoline
+不经过它（见上面的 tree-DAG 与 keep/move/delete 表）。
 
 第一刀落地进程内活代码缓冲（`src/exec.rs`，unix-gated）。身份分界：**摆字节安全，
 跳入 unsafe**。`CodeBuffer` 从第一天走 W^X（写态/执态互斥，永不 RWX）；`NameTable`
@@ -465,7 +505,9 @@ The prose adds no cu or platform wiring.
 These are open product decisions, not scheduled branches and not evidence of
 implemented functionality. Do not begin them without explicit 政委 direction.
 
-### Active re-layering track (2026-09-12)
+### Re-layering record (2026-09-12, landed)
+
+本节是记录，不是待办：这一波已落地（含叶 1 的 catalog cardinality 本地化）。
 
 Dyn is an important bottom-layer module. **2026-09-12 裁决修正本节口径**：qjswasm 拥有
 guest door、内存解码**与全部策略**（prototype/catalog/validator、budget、cancel、监管），
