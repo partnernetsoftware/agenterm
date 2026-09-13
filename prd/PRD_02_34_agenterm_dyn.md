@@ -669,7 +669,10 @@ putting a macOS soname behind `cfg(unix)`: exact `getpid`, fixed `sysconf`,
 fixed-pointer `uname`, missing-symbol classification and reusable-handle calls
 therefore compile as real Linux tests rather than macOS-only evidence. The
 macOS runtime suite is green; both Linux target suites compile, while local
-Linux execution remains unclaimed because the configured runners were offline.
+Linux execution remains unclaimed. The native ARM64 test binary was built for
+the glibc 2.28 floor, but the declared UTM court failed before guest startup
+because its VirtFS bridge directory was absent; this is runner infrastructure,
+not a dyn test result.
 Windows now has the matching `kernel32.dll` court: one reusable handle serves
 three exact `GetCurrentProcessId` calls and one existing `i32(ptr)`
 `QueryPerformanceCounter` call, with `std::process` and `windows-sys` as the
