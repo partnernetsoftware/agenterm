@@ -815,26 +815,6 @@ export function append_command_record_lines(context, args, output, expected_fail
 
 // ---- wave-2 gui-smokes ----
 
-// rh's `child.id` for a spawned GUI. The door hands back a slot handle, not
-// a pid, so ask the host for the process whose full command line is exactly
-// the program and arguments we spawned; the per-run `--address` inside
-// `args` makes that line unique to this run. `pgrep -f` matches an extended
-// regex against the whole command line, so the program path is anchored
-// and taken literally apart from `.` (which matches itself). Unix only:
-// on Windows the spawn of `pgrep` itself fails and the door says so.
-// Answers -1 when no process carries that line.
-export function spawned_pid_witness(program, args) {
-  let line = "^" + program;
-  for (const a of args) { line = line + " " + a; }
-  line = line + "$";
-  const spec = { program: "pgrep", args: ["-f", line], timeout_ms: 5000 };
-  const out = JSON.parse(door(process_command(JSON.stringify(spec)), "process_command pgrep"));
-  if (!out.success) { return -1; }
-  const first = out.stdout.trim().split("\n")[0].trim();
-  if (first === "") { return -1; }
-  return Number(first);
-}
-
 // The handle-owned children that a script waited on itself (rh's
 // `child.wait_with_output`) must not be waited again by `complete`: the door
 // answers a second `process_wait` on the same handle with an error. Drop the
