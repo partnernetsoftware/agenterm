@@ -71,7 +71,7 @@ clipboard, IPC, or screenshot modules.
 | `parent-console` | best-effort stdout/stderr lines for GUI-subsystem launchers without process authority | minimal `windows-sys`; none on Unix |
 | `runtime` | target terminal-shell and locale defaults without process authority | none |
 | `process` | observation/tree control, child-pipe probes and compatibility access to `parent-console` / `runtime` | target `libc` / `windows-sys` |
-| `filesystem-conventions` | user home, host roots and sibling executable naming | none |
+| `filesystem-conventions` | user home, host roots, and host artifact naming: sibling executable names and dynamic-library file names | none |
 | `filesystem-entry` | classify path metadata or already-open objects, treating Unix symbolic links and every Windows reparse point as link-like | none |
 | `directory-access` | merge bounded read/execute or content-modify access for a native principal across a quiescent directory tree without following links | `filesystem-entry` + minimal Windows security APIs |
 | `filesystem-open` | open an existing path or one child component without following the final link, then verify the opened object type | target `libc` / minimal `windows-sys` |

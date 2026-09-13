@@ -21,6 +21,10 @@ use libloading::{Library, Symbol};
 use std::sync::Arc;
 
 const EXPECTED_ABI_VERSION: u32 = 1;
+/// Fixed sibling base name of the CU provider artifact. The host suffix comes
+/// from the platform crate's filesystem facade, so this layer names its own
+/// artifact and never the host it runs on.
+const PROVIDER_BASE: &str = "agenterm-cu-provider";
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_REPLY_BYTES: usize = 4 * 1024 * 1024;
 
@@ -134,7 +138,8 @@ impl Provider {
     }
 
     fn load_from(path: &Path) -> Result<Self, &'static str> {
-        if path.file_name().and_then(|name| name.to_str()) != Some(provider_file_name()) {
+        let expected = provider_file_name();
+        if path.file_name().and_then(|name| name.to_str()) != Some(expected.as_str()) {
             return Err("acu_provider_path_not_fixed_sibling_name");
         }
         // SAFETY: the library stays owned by Provider until process teardown;
@@ -290,17 +295,8 @@ fn reply_is_cooperative_cancel(reply: &str) -> bool {
             == Some("not_performed")
 }
 
-fn provider_file_name() -> &'static str {
-    provider_file_name_for(agenterm_platform::platform_kind())
-}
-
-fn provider_file_name_for(platform: agenterm_platform::PlatformKind) -> &'static str {
-    match platform {
-        agenterm_platform::PlatformKind::Windows => "agenterm-cu-provider.dll",
-        agenterm_platform::PlatformKind::Macos => "agenterm-cu-provider.dylib",
-        agenterm_platform::PlatformKind::Linux => "agenterm-cu-provider.so",
-        _ => unreachable!("unsupported agenterm platform kind"),
-    }
+fn provider_file_name() -> String {
+    agenterm_platform::filesystem::dynamic_library_name(PROVIDER_BASE)
 }
 
 fn provider_status(status: i32) -> &'static str {
@@ -322,32 +318,25 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn platform_name_is_fixed_and_contains_no_search_component() {
+    fn provider_name_is_fixed_plugin_shaped_and_contains_no_search_component() {
         let name = provider_file_name();
         assert!(name.starts_with("agenterm-cu-provider."));
-        assert_eq!(PathBuf::from(name).components().count(), 1);
+        assert_eq!(PathBuf::from(&name).components().count(), 1);
+        // The host mapping belongs to agenterm-platform; this layer asserts only
+        // the closed set its loader accepts, so it never names a host itself.
+        let suffix = name.rsplit_once('.').expect("provider name has a suffix").1;
+        assert!(
+            matches!(suffix, "dll" | "dylib" | "so"),
+            "provider suffix {suffix} is outside the closed set"
+        );
     }
 
     #[test]
-    fn staged_provider_names_are_closed_for_every_host_kind() {
-        for (platform, expected) in [
-            (
-                agenterm_platform::PlatformKind::Windows,
-                "agenterm-cu-provider.dll",
-            ),
-            (
-                agenterm_platform::PlatformKind::Macos,
-                "agenterm-cu-provider.dylib",
-            ),
-            (
-                agenterm_platform::PlatformKind::Linux,
-                "agenterm-cu-provider.so",
-            ),
-        ] {
-            let name = provider_file_name_for(platform);
-            assert_eq!(name, expected);
-            assert_eq!(PathBuf::from(name).components().count(), 1);
-        }
+    fn provider_name_is_the_platform_dynamic_library_name_for_its_base() {
+        assert_eq!(
+            provider_file_name(),
+            agenterm_platform::filesystem::dynamic_library_name(PROVIDER_BASE)
+        );
     }
 
     #[test]

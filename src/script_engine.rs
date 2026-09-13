@@ -2455,11 +2455,9 @@ return reply.ok + ":" + reply.command;
                 .join(format!("jw1-state-{}", std::process::id()));
             assert!(!root.exists(), "owned JW1 root must start absent");
             let current = std::env::current_exe().expect("test executable");
-            let name = if cfg!(windows) {
-                "agenterm-cu.exe"
-            } else {
-                "agenterm-cu"
-            };
+            // The host executable name is the platform facade's business; this
+            // product only names its own artifact base.
+            let name = crate::platform::filesystem::executable_name("agenterm-cu");
             let inferred = current
                 .parent()
                 .and_then(std::path::Path::parent)

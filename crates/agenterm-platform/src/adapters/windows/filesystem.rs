@@ -24,6 +24,19 @@ pub fn executable_name(base: &str) -> String {
     format!("{base}.exe")
 }
 
+/// The host's dynamic-library suffix, without the dot.
+pub const fn dynamic_library_suffix() -> &'static str {
+    "dll"
+}
+
+/// The host dynamic-library file name for `base`.
+///
+/// Workspace artifacts are plugin-shaped and carry their own base name
+/// (`agenterm-cu-provider.dll`), so no `lib` prefix is added.
+pub fn dynamic_library_name(base: &str) -> String {
+    format!("{base}.{}", dynamic_library_suffix())
+}
+
 #[cfg(feature = "filesystem")]
 pub fn protect_private_directory(path: &std::path::Path) -> std::io::Result<()> {
     let metadata = std::fs::symlink_metadata(path)?;

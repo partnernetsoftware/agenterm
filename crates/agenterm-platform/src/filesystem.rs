@@ -78,6 +78,37 @@ pub fn sibling_executable(current_executable: &Path, base: &str) -> PathBuf {
     current_executable.with_file_name(executable_name(base))
 }
 
+/// The host's dynamic-library suffix, without the dot.
+#[must_use]
+pub fn dynamic_library_suffix() -> &'static str {
+    selected::filesystem::dynamic_library_suffix()
+}
+
+/// The host dynamic-library file name for `base`, e.g. `base.dylib`.
+///
+/// Workspace artifacts are plugin-shaped and carry their own base name
+/// (`agenterm-cu-provider.dylib`), so no `lib` prefix is added. The base name is
+/// the caller's, so this crate stays free of product names.
+#[must_use]
+pub fn dynamic_library_name(base: &str) -> String {
+    selected::filesystem::dynamic_library_name(base)
+}
+
+/// The dynamic-library suffix each host kind uses, without the dot.
+///
+/// `dynamic_library_suffix()` answers for the compiling host; this table lets a
+/// caller state the closed set without matching on the host itself. The match is
+/// deliberately exhaustive: a new `PlatformKind` has to decide its naming here
+/// instead of silently inheriting one.
+#[must_use]
+pub const fn dynamic_library_suffix_for(kind: crate::PlatformKind) -> &'static str {
+    match kind {
+        crate::PlatformKind::Windows => "dll",
+        crate::PlatformKind::Macos => "dylib",
+        crate::PlatformKind::Linux => "so",
+    }
+}
+
 /// Lexically normalize a path without resolving filesystem entries.
 ///
 /// Absolute paths never pop past their host root. Relative leading `..`
@@ -222,6 +253,36 @@ impl Drop for TemporaryFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dynamic_library_naming_is_closed_for_every_host_kind() {
+        for (kind, expected) in [
+            (crate::PlatformKind::Windows, "dll"),
+            (crate::PlatformKind::Macos, "dylib"),
+            (crate::PlatformKind::Linux, "so"),
+        ] {
+            assert_eq!(dynamic_library_suffix_for(kind), expected);
+        }
+    }
+
+    #[test]
+    fn the_host_dynamic_library_name_agrees_with_the_kind_table() {
+        assert_eq!(
+            dynamic_library_suffix_for(crate::platform_kind()),
+            dynamic_library_suffix(),
+            "the host selector and the kind table must not drift"
+        );
+        assert_eq!(
+            dynamic_library_name("agenterm-cu-provider"),
+            format!("agenterm-cu-provider.{}", dynamic_library_suffix())
+        );
+        assert_eq!(
+            PathBuf::from(dynamic_library_name("worker"))
+                .components()
+                .count(),
+            1
+        );
+    }
 
     #[test]
     fn sibling_name_replaces_the_current_filename() {
