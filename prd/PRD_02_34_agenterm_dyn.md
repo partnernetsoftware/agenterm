@@ -268,8 +268,11 @@ declaration → lowering → mechanism → typed-result 管线。若新增代码
    JSON scalar 与 region snapshot 伪装成同一种结果；两者都不删除平行真相。
 3. **[x] 保持声明与机制的正确分工**：qjswasm 的 14 个 pointer exposure
    声明拥有 `ptr`/`ptr?`、JSON admission 与 UnixIoctl 路由；dyn 的 8 个 pointer
-   mechanism 只回答 trampoline 是否存在。用 dyn shape 查询派生 qjswasm dispatch
-   会丢失 nullability、漏掉独立 ioctl 路径，并仍需一张等大的上层策略表，故判退。
+   mechanism 只回答 trampoline 是否存在。一次反向折叠审计确认：nullability 虽已在
+   decode 阶段消费，仍不能用 dyn family 查询替代 qjswasm 的 exposure 目录——dyn
+   当前有 75 个机制 shape，qjswasm 的 69 条声明只命名 66 个去重 shape，另有 9 个
+   mechanism-only shape；直接派生会静默扩大产品面，维护负向排除表又只是把第二张
+   真相换向。独立 `ioctl` 路由同样必须留在上层，故该候选判退。
 4. **[x] 删除失去读者的派生 ABI 投影**：qjswasm 曾在每次 decode 后写入
    `NativeSignatureClasses`，并公开一个 381-pattern GP/F64 组合账，但生产路径从不读取；
    真正执行已经由 dyn 的 75-shape 查询回答。该投影及其自证测试现已删除，语言级

@@ -101,8 +101,10 @@ agenterm-qjswasm
 │  │  │  ├─ [x] declaration/mechanism ownership remains deliberately split
 │  │  │  │  ├─ qjswasm's 14 pointer declarations retain ptr/ptr? nullability and JSON exposure policy;
 │  │  │  │  │     dyn's 8 pointer mechanisms answer only whether an ABI trampoline exists
-│  │  │  │  └─ rejected fold: deriving dispatch from dyn loses nullability, cannot select the
-│  │  │  │        separate UnixIoctl path, and requires an equal-size qjswasm policy table anyway
+│  │  │  │  └─ rejected fold: nullability is already consumed during decode, but dyn's 75 mechanism
+│  │  │  │        shapes still exceed the 66 distinct exposed shapes by 9; deriving dispatch would
+│  │  │  │        widen the product surface, while a negative exclusion list merely reverses the
+│  │  │  │        duplicate truth, and the separate UnixIoctl route still remains qjswasm-owned
 │  │  │  ├─ [x] the unread register-class projection is retired
 │  │  │  │  ├─ qjswasm no longer stores `NativeSignatureClasses` on every decoded call or
 │  │  │  │  │     publishes the hypothetical 381-pattern GP/F64 account
