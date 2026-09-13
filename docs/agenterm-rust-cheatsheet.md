@@ -6225,3 +6225,19 @@ bytes. Record production/test LOC separately, preserve the no-selector wire,
 measure a real consumer with the same engine pin and budget, and call the work a
 foundation until another producer reuses the core and deletes enough parallel
 filtering or serialization truth to pay back the abstraction.
+
+## Fold the error mapper with the execution seam
+
+When several FFI call sites build the same mechanism call, do not stop after
+extracting the call itself. Compare their error mappers and refusal constructors
+field by field. If they differ only because one caller holds a decoded request
+and another holds its embedded spec, state the mapper once over the narrower
+spec owner and pass that reference from both paths. This both removes another
+parallel truth and makes the preservation test explicit: if either old mapper
+read a field unavailable on the spec, the fold is not byte-preserving and must
+remain split.
+
+For a large Rust file, make this change with unique-text patches and inspect the
+whole diff against `HEAD`. Do not delete line-number slices with a rewrite
+script: an offset can remove a function body while leaving a plausible doc
+comment, and formatting cannot prove that the intended function survived.

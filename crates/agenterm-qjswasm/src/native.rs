@@ -832,24 +832,11 @@ pub(crate) fn invoke_native_call(
                 .arguments
                 .iter()
                 .enumerate()
-                .map(|(index, argument)| exact_argument(index, argument, call))
+                .map(|(index, argument)| exact_argument(index, argument, &call.spec))
                 .collect::<Result<Vec<_>, _>>()?;
-            // The execution phase goes through the one policy-free ABI entry,
-            // reusing this engine's loaded handle when it has one; the upper
-            // catalog above already decided this shape is allowed.
-            let abi_params = abi_parameters(call)?;
-            let abi_call = agenterm_dyn::NativeCall {
-                library: &call.spec.library,
-                symbol: &call.spec.symbol,
-                signature: agenterm_dyn::AbiSignature {
-                    result: abi_type(call.spec.result).ok_or_else(unsupported_signature(call))?,
-                    params: &abi_params,
-                },
-                arguments: &arguments,
-            };
-            // SAFETY: the guest declaration is the native-door caller's explicit ABI assertion.
-            unsafe { invoke_with(libraries, &abi_call) }
-                .map_err(|error| map_abi_error(call, error))
+            // SAFETY: the guest declaration is the native-door caller's explicit
+            // ABI assertion; `native_dispatch` admitted this exact family.
+            unsafe { invoke_prepared(&call.spec, &arguments, libraries) }
                 .and_then(|value| abi_result_bits(value, call, memory_base, memory_len))?
         }
         NativeDispatch::Fixed(_prototype) => {
@@ -857,65 +844,44 @@ pub(crate) fn invoke_native_call(
                 .arguments
                 .iter()
                 .enumerate()
-                .map(|(index, argument)| fixed_argument(index, argument, call))
+                .map(|(index, argument)| fixed_argument(index, argument, &call.spec))
                 .collect::<Result<Vec<_>, _>>()?;
-            let abi_params = abi_parameters(call)?;
-            let abi_call = agenterm_dyn::NativeCall {
-                library: &call.spec.library,
-                symbol: &call.spec.symbol,
-                signature: agenterm_dyn::AbiSignature {
-                    result: abi_type(call.spec.result).ok_or_else(unsupported_signature(call))?,
-                    params: &abi_params,
-                },
-                arguments: &arguments,
-            };
             // SAFETY: native_dispatch admitted this enumerated fixed prototype.
-            unsafe { invoke_with(libraries, &abi_call) }
-                .map_err(|error| map_abi_error(call, error))
+            unsafe { invoke_prepared(&call.spec, &arguments, libraries) }
                 .and_then(|value| abi_result_bits(value, call, memory_base, memory_len))?
         }
         NativeDispatch::FixedPointer(_prototype) => {
+            // The guest remains the unsafe ABI caller: it must declare spans
+            // large and aligned enough for the selected C symbol's complete
+            // pointee contract. The generic door cannot infer that contract from
+            // an opaque `ptr` prototype.
             let arguments = call
                 .arguments
                 .iter()
                 .enumerate()
-                .map(|(index, argument)| fixed_pointer_argument(memory_base, index, argument, call))
+                .map(|(index, argument)| {
+                    fixed_pointer_argument(memory_base, index, argument, &call.spec)
+                })
                 .collect::<Result<Vec<_>, _>>()?;
             // SAFETY: native_dispatch admitted one enumerated fixed prototype;
-            // decode_native_call bounded every declared span within this one
-            // live memory allocation, and the foreign call is synchronous. The
-            // guest remains the unsafe ABI caller: it must declare spans large
-            // and aligned enough for the selected C symbol's complete pointee
-            // contract. The generic door cannot infer that contract from an
-            // opaque `ptr` prototype.
-            let abi_params = abi_parameters(call)?;
-            let abi_call = agenterm_dyn::NativeCall {
-                library: &call.spec.library,
-                symbol: &call.spec.symbol,
-                signature: agenterm_dyn::AbiSignature {
-                    result: abi_type(call.spec.result).ok_or_else(unsupported_signature(call))?,
-                    params: &abi_params,
-                },
-                arguments: &arguments,
-            };
-            // SAFETY: native_dispatch admitted one enumerated fixed prototype; the
-            // guest still owns the pointee contract. `invoke_abi` re-checks the
-            // mechanism matrix before the foreign call.
-            unsafe { invoke_with(libraries, &abi_call) }
-                .map_err(|error| map_abi_error(call, error))
+            // decode_native_call bounded every declared span within this one live
+            // memory allocation, and the foreign call is synchronous.
+            unsafe { invoke_prepared(&call.spec, &arguments, libraries) }
                 .and_then(|value| abi_result_bits(value, call, memory_base, memory_len))?
         }
         NativeDispatch::UnixIoctl(prototype) => {
-            let fd = ioctl_i32_argument(0, &call.arguments[0], call)?;
+            let fd = ioctl_i32_argument(0, &call.arguments[0], &call.spec)?;
             let request = match prototype {
-                UnixIoctlPrototype::I32Request => {
-                    UnixIoctlRequest::I32Bits(ioctl_i32_argument(1, &call.arguments[1], call)?)
-                }
+                UnixIoctlPrototype::I32Request => UnixIoctlRequest::I32Bits(ioctl_i32_argument(
+                    1,
+                    &call.arguments[1],
+                    &call.spec,
+                )?),
                 UnixIoctlPrototype::U64Request => {
-                    UnixIoctlRequest::U64(ioctl_u64_argument(1, &call.arguments[1], call)?)
+                    UnixIoctlRequest::U64(ioctl_u64_argument(1, &call.arguments[1], &call.spec)?)
                 }
             };
-            let argument = ioctl_pointer_argument(memory_base, 2, &call.arguments[2], call)?;
+            let argument = ioctl_pointer_argument(memory_base, 2, &call.arguments[2], &call.spec)?;
             // SAFETY: this is the one enumerated Unix variadic prototype. The
             // decoder bounded the caller-owned guest span and the call is
             // synchronous; the request-specific pointee contract remains the
@@ -1028,32 +994,10 @@ pub(crate) fn invoke_native_json(
                 .enumerate()
                 .map(|(index, (ty, value))| exact_json_argument(index, ty, value))
                 .collect::<Result<Vec<_>, _>>()?;
-            let abi_params = abi_parameters_for_spec(&spec)?;
-            let abi_call = agenterm_dyn::NativeCall {
-                library: &spec.library,
-                symbol: &spec.symbol,
-                signature: agenterm_dyn::AbiSignature {
-                    result: abi_type(spec.result).ok_or_else(|| {
-                        NativeDoorError::InvocationSignatureUnsupported {
-                            result: spec.result,
-                            parameters: spec.parameters.clone(),
-                        }
-                    })?,
-                    params: &abi_params,
-                },
-                arguments: &arguments,
-            };
             // SAFETY: native_dispatch admitted the exact-family declaration.
-            unsafe { invoke_with(libraries, &abi_call) }
-                .map_err(|error| map_abi_error_for_spec(&spec, error))
-                .and_then(|value| {
-                    abi_json_result(value, spec.result).ok_or_else(|| {
-                        NativeDoorError::InvocationSignatureUnsupported {
-                            result: spec.result,
-                            parameters: spec.parameters.clone(),
-                        }
-                    })
-                })?
+            unsafe { invoke_prepared(&spec, &arguments, libraries) }.and_then(|value| {
+                abi_json_result(value, spec.result).ok_or_else(|| unsupported_json_spec(&spec))
+            })?
         }
         NativeDispatch::Fixed(_prototype) => {
             let arguments = spec
@@ -1064,32 +1008,10 @@ pub(crate) fn invoke_native_json(
                 .enumerate()
                 .map(|(index, (ty, value))| fixed_json_argument(index, ty, value))
                 .collect::<Result<Vec<_>, _>>()?;
-            let abi_params = abi_parameters_for_spec(&spec)?;
-            let abi_call = agenterm_dyn::NativeCall {
-                library: &spec.library,
-                symbol: &spec.symbol,
-                signature: agenterm_dyn::AbiSignature {
-                    result: abi_type(spec.result).ok_or_else(|| {
-                        NativeDoorError::InvocationSignatureUnsupported {
-                            result: spec.result,
-                            parameters: spec.parameters.clone(),
-                        }
-                    })?,
-                    params: &abi_params,
-                },
-                arguments: &arguments,
-            };
             // SAFETY: native_dispatch admitted this enumerated fixed prototype.
-            unsafe { invoke_with(libraries, &abi_call) }
-                .map_err(|error| map_abi_error_for_spec(&spec, error))
-                .and_then(|value| {
-                    abi_json_result(value, spec.result).ok_or_else(|| {
-                        NativeDoorError::InvocationSignatureUnsupported {
-                            result: spec.result,
-                            parameters: spec.parameters.clone(),
-                        }
-                    })
-                })?
+            unsafe { invoke_prepared(&spec, &arguments, libraries) }.and_then(|value| {
+                abi_json_result(value, spec.result).ok_or_else(|| unsupported_json_spec(&spec))
+            })?
         }
         NativeDispatch::FixedPointer(prototype) => {
             debug_assert!(
@@ -1155,24 +1077,13 @@ fn invoke_pointer_json(
         }
     }
 
-    let abi_params = abi_parameters_for_spec(spec)?;
-    let abi_call = agenterm_dyn::NativeCall {
-        library: &spec.library,
-        symbol: &spec.symbol,
-        signature: agenterm_dyn::AbiSignature {
-            result: abi_type(spec.result).ok_or_else(|| unsupported_json_spec(spec))?,
-            params: &abi_params,
-        },
-        arguments: &arguments,
-    };
     // SAFETY: native_dispatch admitted one enumerated pointer prototype and the
     // JSON adapter admitted it only because its result is `i32`; every pointer
     // argument is storage this call allocated and zero-filled, and the foreign
     // call is synchronous, so the addresses stay valid for its whole duration.
     // The guest still owns the pointee contract: an opaque `ptr` position does
     // not say how many bytes the selected C symbol writes.
-    let value = unsafe { invoke_with(libraries, &abi_call) }
-        .map_err(|error| map_abi_error_for_spec(spec, error))?;
+    let value = unsafe { invoke_prepared(spec, &arguments, libraries) }?;
     let agenterm_dyn::AbiValue::I32(status) = value else {
         return Err(unsupported_json_spec(spec));
     };
@@ -1200,7 +1111,13 @@ enum JsonPointerArgument {
     Scalar(agenterm_dyn::AbiValue),
 }
 
-/// The refusal this adapter states for a declaration it does not serve.
+/// The refusal this crate states for a declaration it does not execute.
+///
+/// One construction serves every refusal of this shape: the JSON adapter's
+/// pre-classification, the ABI position conversion, the raw family argument
+/// converters and the post-execution result encoders all refuse by naming the
+/// declared result and parameters. Those four paths used to build the same
+/// variant three times over.
 fn unsupported_json_spec(spec: &NativeSpec) -> NativeDoorError {
     NativeDoorError::InvocationSignatureUnsupported {
         result: spec.result,
@@ -1222,6 +1139,8 @@ fn unsupported_json_spec(spec: &NativeSpec) -> NativeDoorError {
 /// The caller asserts `agenterm_dyn::invoke_abi`'s complete ABI contract for
 /// `call`. A cached handle was opened for exactly the string `call` names, which
 /// is the one thing `invoke_abi_with_handle` re-checks.
+///
+/// [`invoke_prepared`] is its only caller.
 unsafe fn invoke_with(
     libraries: &NativeLibraryCache,
     call: &agenterm_dyn::NativeCall<'_>,
@@ -1244,6 +1163,49 @@ unsafe fn invoke_with(
         // to the caller's existing mapping untouched.
         Err(error) => Err(error),
     }
+}
+
+/// Run one already-prepared call through dyn's policy-free ABI entry.
+///
+/// This is the **one** execution phase of the six admitted production call
+/// sites: the raw exact / fixed / fixed-pointer families of
+/// [`invoke_native_call`] and the JSON exact / fixed / pointer-region paths of
+/// [`invoke_native_json`]. It takes exactly what those sites disagreed about —
+/// the declaration and the already-converted `AbiValue` positions — and owns
+/// what they repeated: the parameter conversion, the call construction and the
+/// loaded-handle reuse policy of [`invoke_with`]. Everything that stays
+/// family-specific is post-processing at the call site and is deliberately
+/// absent here: the raw path's result-position check and pointer rebase, the
+/// JSON path's scalar encoding, and the region path's post-call readback.
+///
+/// Unix `ioctl` keeps its own entry (`invoke_unix_ioctl`) and does not call
+/// this function: it has a request argument and a variadic pointee that the
+/// described-argument entry cannot express.
+///
+/// # Safety
+///
+/// The caller asserts `agenterm_dyn::invoke_abi`'s complete ABI contract for the
+/// symbol `spec` names, and that this declaration is one `native_dispatch`
+/// admitted for the argument encoding it converted. Nothing here re-checks the
+/// catalog: admission, nullability and guest-storage policy belong to the
+/// declaration parser and the family argument converters above it.
+unsafe fn invoke_prepared(
+    spec: &NativeSpec,
+    arguments: &[AbiValue],
+    libraries: &NativeLibraryCache,
+) -> Result<AbiValue, NativeDoorError> {
+    let abi_params = abi_parameters_for_spec(spec)?;
+    let abi_call = agenterm_dyn::NativeCall {
+        library: &spec.library,
+        symbol: &spec.symbol,
+        signature: agenterm_dyn::AbiSignature {
+            result: abi_type(spec.result).ok_or_else(|| unsupported_json_spec(spec))?,
+            params: &abi_params,
+        },
+        arguments,
+    };
+    // SAFETY: forwarded from this function's caller.
+    unsafe { invoke_with(libraries, &abi_call) }.map_err(|error| map_abi_error(spec, error))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1778,14 +1740,14 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
 fn ioctl_i32_argument(
     index: usize,
     argument: &NativeArgument,
-    call: &DecodedNativeCall,
+    spec: &NativeSpec,
 ) -> Result<i32, NativeDoorError> {
     let NativeArgument::Scalar {
         ty: NativeType::I32,
         bits,
     } = argument
     else {
-        return Err(unsupported_signature(call)());
+        return Err(unsupported_json_spec(spec));
     };
     let value = *bits as i32;
     (value as i64 as u64 == *bits)
@@ -1800,14 +1762,14 @@ fn ioctl_i32_argument(
 fn ioctl_u64_argument(
     _index: usize,
     argument: &NativeArgument,
-    call: &DecodedNativeCall,
+    spec: &NativeSpec,
 ) -> Result<u64, NativeDoorError> {
     match argument {
         NativeArgument::Scalar {
             ty: NativeType::U64,
             bits,
         } => Ok(*bits),
-        _ => Err(unsupported_signature(call)()),
+        _ => Err(unsupported_json_spec(spec)),
     }
 }
 
@@ -1815,7 +1777,7 @@ fn ioctl_pointer_argument(
     memory_base: *mut u8,
     _index: usize,
     argument: &NativeArgument,
-    call: &DecodedNativeCall,
+    spec: &NativeSpec,
 ) -> Result<*mut std::ffi::c_void, NativeDoorError> {
     match argument {
         NativeArgument::GuestSpan {
@@ -1826,7 +1788,7 @@ fn ioctl_pointer_argument(
             // guest allocation; no aliased Rust reference is constructed.
             Ok(unsafe { memory_base.add(span.offset) }.cast())
         }
-        _ => Err(unsupported_signature(call)()),
+        _ => Err(unsupported_json_spec(spec)),
     }
 }
 
@@ -1921,13 +1883,6 @@ fn fixed_json_argument(
     }
 }
 
-fn unsupported_signature(call: &DecodedNativeCall) -> impl FnOnce() -> NativeDoorError + '_ {
-    || NativeDoorError::InvocationSignatureUnsupported {
-        result: call.spec.result,
-        parameters: call.spec.parameters.clone(),
-    }
-}
-
 fn exact_scalar_type(ty: NativeType) -> Option<NativeType> {
     EXACT_SCALAR_TYPES.contains(&ty).then_some(ty)
 }
@@ -1935,10 +1890,10 @@ fn exact_scalar_type(ty: NativeType) -> Option<NativeType> {
 fn exact_argument(
     index: usize,
     argument: &NativeArgument,
-    call: &DecodedNativeCall,
+    spec: &NativeSpec,
 ) -> Result<AbiValue, NativeDoorError> {
     let NativeArgument::Scalar { ty, bits } = argument else {
-        return Err(unsupported_signature(call)());
+        return Err(unsupported_json_spec(spec));
     };
     let invalid = || NativeDoorError::ScalarNotCanonical {
         index,
@@ -1967,17 +1922,17 @@ fn exact_argument(
             .map(AbiValue::Usize)
             .map_err(|_| invalid()),
         NativeType::F64 => Ok(AbiValue::F64(f64::from_bits(*bits))),
-        _ => Err(unsupported_signature(call)()),
+        _ => Err(unsupported_json_spec(spec)),
     }
 }
 
 fn fixed_argument(
     index: usize,
     argument: &NativeArgument,
-    call: &DecodedNativeCall,
+    spec: &NativeSpec,
 ) -> Result<AbiValue, NativeDoorError> {
     let NativeArgument::Scalar { ty, bits } = argument else {
-        return Err(unsupported_signature(call)());
+        return Err(unsupported_json_spec(spec));
     };
     let invalid = || NativeDoorError::ScalarNotCanonical {
         index,
@@ -2002,7 +1957,7 @@ fn fixed_argument(
                 .then_some(AbiValue::Isize(value))
                 .ok_or_else(invalid)
         }
-        _ => Err(unsupported_signature(call)()),
+        _ => Err(unsupported_json_spec(spec)),
     }
 }
 
@@ -2010,7 +1965,7 @@ fn fixed_pointer_argument(
     memory_base: *mut u8,
     index: usize,
     argument: &NativeArgument,
-    call: &DecodedNativeCall,
+    spec: &NativeSpec,
 ) -> Result<AbiValue, NativeDoorError> {
     match argument {
         NativeArgument::Scalar {
@@ -2064,7 +2019,7 @@ fn fixed_pointer_argument(
         } => Ok(AbiValue::Pointer(std::ptr::null_mut())),
         NativeArgument::Null { .. }
         | NativeArgument::GuestSpan { .. }
-        | NativeArgument::Scalar { .. } => Err(unsupported_signature(call)()),
+        | NativeArgument::Scalar { .. } => Err(unsupported_json_spec(spec)),
     }
 }
 
@@ -2424,14 +2379,6 @@ fn abi_type(ty: NativeType) -> Option<agenterm_dyn::AbiType> {
     }
 }
 
-fn abi_parameters(call: &DecodedNativeCall) -> Result<Vec<agenterm_dyn::AbiType>, NativeDoorError> {
-    call.spec
-        .parameters
-        .iter()
-        .map(|ty| abi_type(*ty).ok_or_else(unsupported_signature(call)))
-        .collect()
-}
-
 /// The result bit pattern, accepted **only** in the position the spec declared.
 ///
 /// There is no fallback arm: a result that does not match the declared type is a
@@ -2442,7 +2389,8 @@ fn abi_result_bits(
     memory_base: *mut u8,
     memory_len: usize,
 ) -> Result<u64, NativeDoorError> {
-    let scalar = match (call.spec.result, value) {
+    let spec = &call.spec;
+    let scalar = match (spec.result, value) {
         (NativeType::Void, agenterm_dyn::AbiValue::Void) => Some(0),
         (NativeType::I32, agenterm_dyn::AbiValue::I32(bits)) => Some(bits as i64 as u64),
         (NativeType::U32, agenterm_dyn::AbiValue::U32(bits)) => Some(u64::from(bits)),
@@ -2470,7 +2418,7 @@ fn abi_result_bits(
         }
         _ => None,
     };
-    scalar.ok_or_else(unsupported_signature(call))
+    scalar.ok_or_else(|| unsupported_json_spec(spec))
 }
 
 /// The JSON rendering of a result, replicating the retired per-family helpers:
@@ -2508,18 +2456,21 @@ fn abi_json_result(
     }
 }
 
-/// The spec-side twin of `map_abi_error`: the JSON path holds a spec, not a
-/// decoded call, so the refusal is rebuilt from the spec itself.
-fn map_abi_error_for_spec(spec: &NativeSpec, error: agenterm_dyn::AbiError) -> NativeDoorError {
+/// One ABI failure mapped onto the door's typed vocabulary.
+///
+/// The two call sites that need this mapping disagree about nothing but where
+/// they keep the declaration: the raw path holds a decoded call, the JSON paths
+/// hold a spec. The mapping is therefore stated once over the spec — dyn keeps a
+/// third account of the same failure (`SymbolLookup::library`), while the door's
+/// `SymbolLoad` has no library field, so neither mapper reads it — and the
+/// decoded-call caller passes `&call.spec`, exactly as `unsupported_signature`
+/// already did. Byte for byte the answers are the ones the two former mappers
+/// gave.
+fn map_abi_error(spec: &NativeSpec, error: agenterm_dyn::AbiError) -> NativeDoorError {
     match error {
         agenterm_dyn::AbiError::SignatureUnsupported { .. }
         | agenterm_dyn::AbiError::ArgumentCount { .. }
-        | agenterm_dyn::AbiError::ArgumentShape { .. } => {
-            NativeDoorError::InvocationSignatureUnsupported {
-                result: spec.result,
-                parameters: spec.parameters.clone(),
-            }
-        }
+        | agenterm_dyn::AbiError::ArgumentShape { .. } => unsupported_json_spec(spec),
         agenterm_dyn::AbiError::LibraryLoad { library, message } => {
             NativeDoorError::LibraryLoad { library, message }
         }
@@ -2534,28 +2485,8 @@ fn abi_parameters_for_spec(
 ) -> Result<Vec<agenterm_dyn::AbiType>, NativeDoorError> {
     spec.parameters
         .iter()
-        .map(|ty| {
-            abi_type(*ty).ok_or_else(|| NativeDoorError::InvocationSignatureUnsupported {
-                result: spec.result,
-                parameters: spec.parameters.clone(),
-            })
-        })
+        .map(|ty| abi_type(*ty).ok_or_else(|| unsupported_json_spec(spec)))
         .collect()
-}
-
-fn map_abi_error(call: &DecodedNativeCall, error: agenterm_dyn::AbiError) -> NativeDoorError {
-    match error {
-        agenterm_dyn::AbiError::SignatureUnsupported { .. }
-        | agenterm_dyn::AbiError::ArgumentCount { .. }
-        | agenterm_dyn::AbiError::ArgumentShape { .. } => unsupported_signature(call)(),
-        agenterm_dyn::AbiError::LibraryLoad { library, message } => {
-            NativeDoorError::LibraryLoad { library, message }
-        }
-        // The door's symbol error has no library field; the spec still carries it.
-        agenterm_dyn::AbiError::SymbolLookup {
-            symbol, message, ..
-        } => NativeDoorError::SymbolLoad { symbol, message },
-    }
 }
 
 #[cfg(test)]

@@ -68,6 +68,14 @@ agenterm-qjswasm
 │  │  │  ├─ invariant: qjswasm keeps exposure, nullability, guest storage, budget and error ownership;
 │  │  │  │     folding turns that policy into declarations and never moves it into dyn or tinyvm
 │  │  │  ├─ [ ] one declaration source derives dispatch, schema compatibility and mechanism gates
+│  │  │  ├─ [x] one private invoke seam owns ABI-position conversion, NativeCall construction,
+│  │  │  │     handle reuse and dyn-error mapping for all six non-ioctl execution sites
+│  │  │  │  ├─ evidence: raw exact/fixed/fixed-pointer + JSON exact/fixed/region all call
+│  │  │  │  │     `invoke_prepared`; `NativeCall` has one production construction site;
+│  │  │  │  │     qjswasm 350/0 and dyn 37/0 remain green
+│  │  │  │  └─ economy: `native.rs` +113/−182, net −69 LOC; two error mappers,
+│  │  │  │        two ABI-parameter helpers and six repeated call blocks collapse without
+│  │  │  │        adding a struct, trait, branch or public API
 │  │  │  ├─ [ ] raw block and JSON lower into one PreparedAbiCall
 │  │  │  ├─ [ ] one NativeOutcome feeds bit, JSON-scalar and region-snapshot encoders
 │  │  │  ├─ evidence: each leaf removes a named parallel arm/helper/table while preserving public
