@@ -256,7 +256,9 @@ declaration → lowering → mechanism → typed-result 管线。若新增代码
 1. **[x] 收敛共同执行缝**：qjswasm 的六个非 ioctl 生产调用点现在都经
    `invoke_prepared` 构造唯一 `NativeCall`，统一 handle reuse 与 dyn-error mapping；
    raw pointer rebasing、JSON scalar encoding 与 region readback 仍是各 transport 的
-   有意后处理。该叶净删 69 LOC，没有新增 struct、trait、branch 或 public API。
+   有意后处理。该叶净删 69 LOC，没有新增 struct、trait、branch 或 public API。dyn 内部
+   三个 trampoline family 的 `SymbolLoad` / `SignatureUnsupported` 也由一个私有投射定义
+   生成，净删 32 LOC；五词 `AbiError`、75-shape 矩阵与唯一 loader 均未改变。
 2. **[x] 拒绝空壳中间表示**：不引入 `PreparedAbiCall` 或 `NativeOutcome`。
    前者只会给现有的 borrowed spec/arguments 换名，后者会把有意不同的 raw bits、
    JSON scalar 与 region snapshot 伪装成同一种结果；两者都不删除平行真相。

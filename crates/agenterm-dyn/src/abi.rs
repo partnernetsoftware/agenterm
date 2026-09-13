@@ -521,59 +521,27 @@ const fn fixed_abi_value(value: FixedNativeValue) -> AbiValue {
     }
 }
 
-fn exact_error(
-    error: ExactNativeError,
-    signature: AbiSignature<'_>,
-    call: &NativeCall<'_>,
-) -> AbiError {
-    match error {
-        ExactNativeError::SymbolLoad { symbol, message } => AbiError::SymbolLookup {
-            library: call.library.to_owned(),
-            symbol,
-            message,
-        },
-        ExactNativeError::SignatureUnsupported { .. } => AbiError::SignatureUnsupported {
-            result: signature.result,
-            params: signature.params.to_vec(),
-        },
-    }
+macro_rules! define_mechanism_error_projection {
+    ($name:ident, $error:ident) => {
+        fn $name(error: $error, signature: AbiSignature<'_>, call: &NativeCall<'_>) -> AbiError {
+            match error {
+                $error::SymbolLoad { symbol, message } => AbiError::SymbolLookup {
+                    library: call.library.to_owned(),
+                    symbol,
+                    message,
+                },
+                $error::SignatureUnsupported { .. } => AbiError::SignatureUnsupported {
+                    result: signature.result,
+                    params: signature.params.to_vec(),
+                },
+            }
+        }
+    };
 }
 
-fn fixed_error(
-    error: FixedNativeError,
-    signature: AbiSignature<'_>,
-    call: &NativeCall<'_>,
-) -> AbiError {
-    match error {
-        FixedNativeError::SymbolLoad { symbol, message } => AbiError::SymbolLookup {
-            library: call.library.to_owned(),
-            symbol,
-            message,
-        },
-        FixedNativeError::SignatureUnsupported { .. } => AbiError::SignatureUnsupported {
-            result: signature.result,
-            params: signature.params.to_vec(),
-        },
-    }
-}
-
-fn pointer_error(
-    error: FixedPointerError,
-    signature: AbiSignature<'_>,
-    call: &NativeCall<'_>,
-) -> AbiError {
-    match error {
-        FixedPointerError::SymbolLoad { symbol, message } => AbiError::SymbolLookup {
-            library: call.library.to_owned(),
-            symbol,
-            message,
-        },
-        FixedPointerError::SignatureUnsupported { .. } => AbiError::SignatureUnsupported {
-            result: signature.result,
-            params: signature.params.to_vec(),
-        },
-    }
-}
+define_mechanism_error_projection!(exact_error, ExactNativeError);
+define_mechanism_error_projection!(fixed_error, FixedNativeError);
+define_mechanism_error_projection!(pointer_error, FixedPointerError);
 
 /// Executes a caller-declared call through the family that owns its shape.
 ///
