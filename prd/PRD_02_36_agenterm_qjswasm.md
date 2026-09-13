@@ -62,6 +62,10 @@ agenterm-qjswasm
 │  ├─ [x] Fleet facade and public CLI route
 │  ├─ [x] qualify / pack / run / bounded check-many, including recursive imports
 │  ├─ [x] qjswasm → process.command → ACU headless PTY public journey
+│  ├─ [x] shipped host imports retire their former subprocess witnesses
+│  │  └─ startup-smoke now reads `process.list` directly: one bounded platform
+│  │     facade replaces the pgrep/tasklist branches and their text parser,
+│  │     deleting 37 script LOC and one child process per inventory snapshot
 │  ├─ [x] declaration-driven Native Importer composition
 │  │  ├─ user problem: scripts need an extensible native surface without copying a loader or ABI executor
 │  │  ├─ invariant: spec/schema/catalog/nullability and exact-family cardinality are local qjswasm policy
