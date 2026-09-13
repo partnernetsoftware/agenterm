@@ -21,13 +21,14 @@
 //     file. Server stdout/stderr go to files in the same wrapper (rh's
 //     `stdout_file`/`stderr_file`).
 //   - `std::process::list()`: `kill -0 PID` is the presence probe.
-//   - `child.window_key(k)` on X11 was XTest to the foreground window;
-//     `xdotool key K` is the same request, and xdotool is already a
-//     precondition of the X11 journey. On Wayland rh's host answered a typed
-//     `process_window_unsupported`; the door has no window op, so that
-//     branch is a gap (see `window_key`).
-//   - `rh::image::inspect_png`: no door op decodes a PNG; `inspect_png` is a
-//     gap and fails closed.
+//   - `child.window_key(k)` on X11 was XTest to the foreground window; the
+//     door's `process.window_key` posts the same XTest request through
+//     `agenterm-platform::process_window`, which requires the child's window
+//     to already be foreground -- the journey activates it first. On Wayland
+//     the door answers the same typed `process_window_unsupported` rh's host
+//     did, and the journey asserts that answer.
+//   - `rh::image::inspect_png`: the door's `image.inspect_png` decodes the
+//     PNG on the host side, so the pixels never cross the text door.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 import * as path from "lib/path";
@@ -41,10 +42,6 @@ const declared_evidence = [
   "control-center.linux-renderer-replacement",
   "control-center.linux-process-isolation"
 ];
-
-function gap(what) {
-  throw "control_center_linux_gap:" + what;
-}
 
 function process_output_text(output) {
   return output.stdout + output.stderr;
@@ -423,23 +420,22 @@ function start_x11_focus_witness(title, pid_file) {
   }, pid_file);
 }
 
-// rh's `child.window_key(key)`. X11: XTest to the foreground window, which
-// the journey has just made the Control Center; `xdotool key` is that
-// request. Wayland: rh's host answered typed `process_window_unsupported`
-// and the journey asserts that answer; the door has no window op to give
-// it, so the site is a gap rather than a simulated answer.
-function window_key(context, backend, key) {
-  if ("" + backend === "x11") {
-    xdotool(context, ["key", "--clearmodifiers", "" + key], 0);
-    return;
+// rh's `child.window_key(key)`: XTest to the child's foreground window. The
+// journey activates the Control Center first, which is exactly the door's
+// `process.window_key` precondition; Wayland answers typed
+// `process_window_unsupported`, which the caller asserts by name.
+function window_key(child, backend, key) {
+  if (process_window_key(child.handle, "" + key) !== 0) {
+    throw "process_window_key:" + backend + ":" + tool_result();
   }
-  gap("process_window_key_" + backend);
 }
 
-// rh's `rh::image::inspect_png(path)` -> {width, height, samples, luminance}.
-// No door op decodes an image; a text door cannot even read the bytes.
+// rh's `rh::image::inspect_png(path)` -> {width, height, samples, luminance},
+// through the door's `image.inspect_png`: decoded on the host side, the
+// pixels never cross the text door.
 function inspect_png(p) {
-  gap("image_inspect_png:" + p);
+  if (image_inspect_png(p) !== 0) { throw "image_inspect_png:" + tool_result(); }
+  return JSON.parse(tool_result());
 }
 
 function remove_native_runtime(runtime) {
@@ -706,9 +702,9 @@ try {
     activate_x11_window(context, native_window);
     wait_x11_active(context, native_window, "control_center_linux_native_input_focus_timeout");
 
-    window_key(context, backend, "Home");
-    for (let step = 0; step < native_input_index; step = step + 1) { window_key(context, backend, "Down"); }
-    window_key(context, backend, "Return");
+    window_key(cc, backend, "Home");
+    for (let step = 0; step < native_input_index; step = step + 1) { window_key(cc, backend, "Down"); }
+    window_key(cc, backend, "Return");
     const keyboard_selected = wait_active_tab(
       context, control_center, registry, endpoint, backend, cc, native_input_tab, server.pid, selected_epoch,
       "control_center_linux_native_keyboard_navigation"
@@ -754,9 +750,9 @@ try {
       "control_center_linux_native_pointer_target_not_visible"
     );
     const pointer_target = tab_id_at_index(selected.connected_server.tabs, pointer_index);
-    window_key(context, backend, "Home");
-    for (let step = 0; step < pointer_index; step = step + 1) { window_key(context, backend, "Down"); }
-    window_key(context, backend, "Return");
+    window_key(cc, backend, "Home");
+    for (let step = 0; step < pointer_index; step = step + 1) { window_key(cc, backend, "Down"); }
+    window_key(cc, backend, "Return");
     const pointer_selected = wait_active_tab(
       context, control_center, registry, endpoint, backend, cc, pointer_target, server.pid, selected_epoch,
       "control_center_linux_native_pointer_navigation"
@@ -791,9 +787,11 @@ try {
   } else {
     let input_failure = "";
     try {
-      window_key(context, backend, "Home");
+      window_key(cc, backend, "Home");
     } catch (error) {
-      input_failure = "control_center_linux_smoke_failed";
+      // The typed refusal is the evidence: keep its text so the assertion
+      // below can read the code the door actually answered.
+      input_failure = "" + error;
     }
     harness.require(
       input_failure.includes("process_window_unsupported") && input_failure.includes("unsupported"),

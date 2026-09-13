@@ -419,6 +419,16 @@ future promotion gates.
 
 ## v0.1.12 macOS convergence evidence
 
+- [~] the active QJS macOS and Linux Control Center journeys no longer stop at
+  stale declarations that `image.inspect_png`, `process.platform_facts`, or
+  `process.window_key` are unavailable. They now call those already-shipped
+  tool-door operations directly, preserve the typed Wayland and macOS input
+  refusals, and pass the bounded tool-profile compile gate. This source
+  convergence is not new runtime evidence: the current macOS host run reaches
+  the existing no-activate foreground precondition before the newly connected
+  image/window calls, and the Linux X11 journey still requires a real X11 host
+  with its named focus tools. The renderer and native-input evidence remains
+  open until those owning black-box journeys reach and prove the calls.
 - [x] native macOS 26.5 arm64 public task
   `control-center-macos-smoke` passes in 5.01 seconds with isolated settings,
   workspace, instance registry, native runtime, logical `dev` authority, and

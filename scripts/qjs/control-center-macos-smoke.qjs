@@ -11,10 +11,10 @@
 // Ported from scripts/rh/control-center-macos-smoke.rh; runs under
 // `--profile tool`. Children are door handles carried in the harness's
 // wave-2 child objects so their pids can be compared with what the server,
-// registry and renderer report. Three rh host facilities have no door op and
-// are typed gaps at their sites: `rh::image::inspect_png`,
-// `child.platform_facts` (foreground/top-level window facts) and
-// `child.window_key`.
+// registry and renderer report. The three rh host facilities this journey
+// needs -- `rh::image::inspect_png`, `child.platform_facts` (foreground and
+// top-level window facts) and `child.window_key` -- are the door's
+// `image.inspect_png`, `process.platform_facts` and `process.window_key`.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 import * as path from "lib/path";
@@ -77,23 +77,32 @@ function emit_macos_evidence(context, id) {
 }
 
 // rh: `rh::image::inspect_png(path) -> {width, height, samples, luminance}`.
-// The tool door has no image op and a PNG cannot cross a text door, so the
-// renderer-PNG truth cannot be measured here. Typed gap, not an approximation.
+// The door decodes the PNG on the host side, so the pixels never cross the
+// text door and the renderer-PNG truth is measured, not approximated.
 function inspect_png(png_path) {
-  throw "gap:rh_image_inspect_png_unavailable:" + png_path;
+  if (image_inspect_png(png_path) !== 0) { throw "image_inspect_png:" + tool_result(); }
+  return JSON.parse(tool_result());
 }
 
 // rh: `child.platform_facts` answered {foreground_window_id,
 // top_level_window_present, top_level_window_is_foreground,
-// top_level_window_id} from the window server. No door op; typed gap.
+// top_level_window_id} from the window server. The door answers the same
+// fields plus `top_level_window_supported`/`top_level_window_title`.
 function platform_facts(child) {
-  throw "gap:process_platform_facts_unavailable:" + child.label;
+  if (process_platform_facts(child.handle) !== 0) {
+    throw "process_platform_facts:" + child.label + ":" + tool_result();
+  }
+  return JSON.parse(tool_result());
 }
 
 // rh: `child.window_key("Home")` posted a key to the child's top-level
-// window. No door op exists for window input; typed gap.
+// window. macOS answers typed `process_window_input_unsupported` with cause
+// `permission_denied` when the host has not granted event-posting access;
+// the caller asserts that safe-failure contract by name.
 function window_key(child, key) {
-  throw "gap:process_window_key_unavailable:" + child.label + ":" + key;
+  if (process_window_key(child.handle, "" + key) !== 0) {
+    throw "process_window_key:" + child.label + ":" + tool_result();
+  }
 }
 
 function native_spec(context, program, registry, runtime, args) {
