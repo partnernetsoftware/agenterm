@@ -4,8 +4,6 @@ use std::fmt;
 
 use libloading::Library;
 
-use crate::exact_native::open_library;
-
 /// One scalar type admitted by the fixed-prototype core.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FixedNativeType {
@@ -73,8 +71,9 @@ impl FixedNativePrototype {
 }
 
 /// A caller-asserted fixed native call and its canonical arguments.
+///
+/// The library is not a field: the caller opens it once and passes the handle.
 pub struct FixedNativeCall<'a> {
-    pub library: &'a str,
     pub symbol: &'a str,
     pub prototype: FixedNativePrototype,
     pub arguments: &'a [FixedNativeValue],
@@ -85,10 +84,6 @@ pub enum FixedNativeError {
     SignatureUnsupported {
         prototype: FixedNativePrototype,
         parameters: Vec<FixedNativeType>,
-    },
-    LibraryLoad {
-        library: String,
-        message: String,
     },
     SymbolLoad {
         symbol: String,
@@ -106,9 +101,6 @@ impl fmt::Display for FixedNativeError {
                 f,
                 "arguments do not match fixed prototype {prototype:?}: {parameters:?}"
             ),
-            Self::LibraryLoad { library, message } => {
-                write!(f, "could not load native library {library:?}: {message}")
-            }
             Self::SymbolLoad { symbol, message } => {
                 write!(f, "could not resolve native symbol {symbol:?}: {message}")
             }
@@ -137,26 +129,20 @@ pub fn validate_fixed_native_signature(
     }
 }
 
-/// Executes an admitted fixed-family shape without re-entering the public
-/// compatibility wrapper.
+/// Executes an admitted fixed-family shape against an already open library.
 ///
 /// # Safety
-/// The caller must uphold [`crate::invoke_abi`]'s complete ABI contract.
-pub(crate) unsafe fn invoke_fixed_mechanism(
+///
+/// The caller must uphold [`crate::invoke_abi`]'s complete ABI contract, and
+/// `library` must be the library the call names: this entry opens nothing.
+pub(crate) unsafe fn invoke_fixed_mechanism_with_library(
+    library: &Library,
     call: &FixedNativeCall<'_>,
 ) -> Result<FixedNativeValue, FixedNativeError> {
     validate_fixed_native_signature(call.prototype, call.arguments)?;
-    let library = open_library(call.library).map_err(|error| FixedNativeError::LibraryLoad {
-        library: if call.library.is_empty() {
-            "<current-process>".to_owned()
-        } else {
-            call.library.to_owned()
-        },
-        message: error.to_string(),
-    })?;
     match (call.prototype, call.arguments) {
         (FixedNativePrototype::IsizeI32, [FixedNativeValue::I32(a)]) => {
-            invoke_isize_i32(&library, call.symbol, *a).map(FixedNativeValue::Isize)
+            invoke_isize_i32(library, call.symbol, *a).map(FixedNativeValue::Isize)
         }
         (
             FixedNativePrototype::I64I32I64I32,
@@ -165,12 +151,12 @@ pub(crate) unsafe fn invoke_fixed_mechanism(
                 FixedNativeValue::I64(b),
                 FixedNativeValue::I32(c),
             ],
-        ) => invoke_i64_i32_i64_i32(&library, call.symbol, *a, *b, *c).map(FixedNativeValue::I64),
+        ) => invoke_i64_i32_i64_i32(library, call.symbol, *a, *b, *c).map(FixedNativeValue::I64),
         (FixedNativePrototype::U64I32, [FixedNativeValue::I32(a)]) => {
-            invoke_u64_i32(&library, call.symbol, *a).map(FixedNativeValue::U64)
+            invoke_u64_i32(library, call.symbol, *a).map(FixedNativeValue::U64)
         }
         (FixedNativePrototype::I32U64U64, [FixedNativeValue::U64(a), FixedNativeValue::U64(b)]) => {
-            invoke_i32_u64_u64(&library, call.symbol, *a, *b).map(FixedNativeValue::I32)
+            invoke_i32_u64_u64(library, call.symbol, *a, *b).map(FixedNativeValue::I32)
         }
         _ => unreachable!("fixed signature validation admitted the prototype"),
     }

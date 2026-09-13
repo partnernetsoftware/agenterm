@@ -5,8 +5,6 @@ use std::fmt;
 
 use libloading::Library;
 
-use crate::exact_native::open_library;
-
 /// One argument type admitted by the fixed pointer core.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FixedPointerType {
@@ -85,8 +83,9 @@ impl FixedPointerPrototype {
 }
 
 /// A caller-asserted fixed pointer call and its canonical arguments.
+///
+/// The library is not a field: the caller opens it once and passes the handle.
 pub struct FixedPointerCall<'a> {
-    pub library: &'a str,
     pub symbol: &'a str,
     pub prototype: FixedPointerPrototype,
     pub arguments: &'a [FixedPointerValue],
@@ -97,10 +96,6 @@ pub enum FixedPointerError {
     SignatureUnsupported {
         prototype: FixedPointerPrototype,
         parameters: Vec<FixedPointerType>,
-    },
-    LibraryLoad {
-        library: String,
-        message: String,
     },
     SymbolLoad {
         symbol: String,
@@ -118,9 +113,6 @@ impl fmt::Display for FixedPointerError {
                 f,
                 "arguments do not match fixed pointer prototype {prototype:?}: {parameters:?}"
             ),
-            Self::LibraryLoad { library, message } => {
-                write!(f, "could not load native library {library:?}: {message}")
-            }
             Self::SymbolLoad { symbol, message } => {
                 write!(f, "could not resolve native symbol {symbol:?}: {message}")
             }
@@ -149,43 +141,37 @@ pub fn validate_fixed_pointer_signature(
     }
 }
 
-/// Executes an admitted pointer-family shape without re-entering the public
-/// compatibility wrapper.
+/// Executes an admitted pointer-family shape against an already open library.
 ///
 /// # Safety
-/// The caller must uphold [`crate::invoke_abi`]'s complete ABI contract.
-pub(crate) unsafe fn invoke_fixed_pointer_mechanism(
+///
+/// The caller must uphold [`crate::invoke_abi`]'s complete ABI contract, and
+/// `library` must be the library the call names: this entry opens nothing.
+pub(crate) unsafe fn invoke_fixed_pointer_mechanism_with_library(
+    library: &Library,
     call: &FixedPointerCall<'_>,
 ) -> Result<i32, FixedPointerError> {
     validate_fixed_pointer_signature(call.prototype, call.arguments)?;
-    let library = open_library(call.library).map_err(|error| FixedPointerError::LibraryLoad {
-        library: if call.library.is_empty() {
-            "<current-process>".to_owned()
-        } else {
-            call.library.to_owned()
-        },
-        message: error.to_string(),
-    })?;
     match (call.prototype, call.arguments) {
         (FixedPointerPrototype::I32Pointer, [FixedPointerValue::Pointer(a)]) => {
-            invoke_i32_pointer(&library, call.symbol, *a)
+            invoke_i32_pointer(library, call.symbol, *a)
         }
         (
             FixedPointerPrototype::I32I32Pointer,
             [FixedPointerValue::I32(a), FixedPointerValue::Pointer(b)],
-        ) => invoke_i32_i32_pointer(&library, call.symbol, *a, *b),
+        ) => invoke_i32_i32_pointer(library, call.symbol, *a, *b),
         (
             FixedPointerPrototype::I32PointerI32,
             [FixedPointerValue::Pointer(a), FixedPointerValue::I32(b)],
-        ) => invoke_i32_pointer_i32(&library, call.symbol, *a, *b),
+        ) => invoke_i32_pointer_i32(library, call.symbol, *a, *b),
         (
             FixedPointerPrototype::I32PointerU64,
             [FixedPointerValue::Pointer(a), FixedPointerValue::U64(b)],
-        ) => invoke_i32_pointer_u64(&library, call.symbol, *a, *b),
+        ) => invoke_i32_pointer_u64(library, call.symbol, *a, *b),
         (
             FixedPointerPrototype::I32PointerPointer,
             [FixedPointerValue::Pointer(a), FixedPointerValue::Pointer(b)],
-        ) => invoke_i32_pointer_pointer(&library, call.symbol, *a, *b),
+        ) => invoke_i32_pointer_pointer(library, call.symbol, *a, *b),
         (
             FixedPointerPrototype::I32PointerPointerPointer,
             [
@@ -193,7 +179,7 @@ pub(crate) unsafe fn invoke_fixed_pointer_mechanism(
                 FixedPointerValue::Pointer(b),
                 FixedPointerValue::Pointer(c),
             ],
-        ) => invoke_i32_pointer_pointer_pointer(&library, call.symbol, *a, *b, *c),
+        ) => invoke_i32_pointer_pointer_pointer(library, call.symbol, *a, *b, *c),
         (
             FixedPointerPrototype::I32I32PointerU32,
             [
@@ -201,7 +187,7 @@ pub(crate) unsafe fn invoke_fixed_pointer_mechanism(
                 FixedPointerValue::Pointer(b),
                 FixedPointerValue::U32(c),
             ],
-        ) => invoke_i32_i32_pointer_u32(&library, call.symbol, *a, *b, *c),
+        ) => invoke_i32_i32_pointer_u32(library, call.symbol, *a, *b, *c),
         (
             FixedPointerPrototype::I32U64PointerU64,
             [
@@ -209,7 +195,7 @@ pub(crate) unsafe fn invoke_fixed_pointer_mechanism(
                 FixedPointerValue::Pointer(b),
                 FixedPointerValue::U64(c),
             ],
-        ) => invoke_i32_u64_pointer_u64(&library, call.symbol, *a, *b, *c),
+        ) => invoke_i32_u64_pointer_u64(library, call.symbol, *a, *b, *c),
         _ => unreachable!("fixed pointer signature validation admitted the prototype"),
     }
 }

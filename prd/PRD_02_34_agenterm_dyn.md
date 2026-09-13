@@ -83,7 +83,10 @@ agenterm-dyn
 ├── A. 可执行 dynamic mechanism core               [机制保留 · 策略迁移]
 │   ├── abi                                        [唯一调用入口，调用方给描述]
 │   │   ├── AbiSignature / NativeCall / AbiValue    [调用方运行时描述]
-│   │   ├── validate_abi / invoke_abi               [统一机制入口]
+│   │   ├── validate_abi / invoke_abi               [一次性 load + 调用的兼容入口]
+│   │   ├── validate_abi_signature                  [形状支持查询，不需要参数值]
+│   │   ├── LibraryHandle / invoke_abi_with_handle  [可复用句柄：一次 load，多次调用]
+│   │   │   └── RAII：Drop 即关闭；句柄属 caller；dyn 不持全局缓存
 │   │   ├── validate_abi 只管 argument count / shape；形状支持由族分类回答
 │   │   └── 五族单态 trampoline 矩阵 = 机制支持面（≠ 产品 exposure）
 │   │       ├── exact: 7 同质标量族 × arity 0..=6                      = 49
@@ -256,6 +259,12 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
   argument count/shape）。该查询不接受、也不拥有 symbol allowlist、nullability、guest span
   或产品 exposure —— 它只能回答机制问题；exposure ⊆ mechanism 由 qjswasm 侧附带 gate 保证
   （见 PRD 02.36）。
+- **可复用句柄只做资源生命周期**：`LibraryHandle` 持有一次 load，`invoke_abi_with_handle`
+  用同一机制执行（同一 open_library、同一五族矩阵、同一错误词汇）；`invoke_abi` 保持
+  “一次性 load + 调用”的兼容语义。句柄**属 caller**，Drop 即关闭（RAII 资源生命周期，
+  不是 permission/ownership policy）；dyn **不建全局缓存**，也不因句柄而持有 allowlist、
+  schema、budget 或任何 qjswasm 策略。句柄只在 load 层复用：符号解析仍按调用进行，
+  第二层缓存不在本能力内。
 
 **验收证据（建议口径）**
 

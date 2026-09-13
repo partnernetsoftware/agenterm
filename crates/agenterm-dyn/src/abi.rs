@@ -36,16 +36,17 @@ use std::fmt;
 
 use crate::exact_native::{
     ExactNativeCall, ExactNativeError, ExactNativeType, ExactNativeValue, MAX_EXACT_NATIVE_ARITY,
-    invoke_exact_mechanism, open_library,
+    invoke_exact_mechanism_with_library, open_library,
 };
 use crate::fixed_native::{
     FixedNativeCall, FixedNativeError, FixedNativePrototype, FixedNativeType, FixedNativeValue,
-    invoke_fixed_mechanism,
+    invoke_fixed_mechanism_with_library,
 };
 use crate::fixed_pointer::{
     FixedPointerCall, FixedPointerError, FixedPointerPrototype, FixedPointerType,
-    FixedPointerValue, invoke_fixed_pointer_mechanism,
+    FixedPointerValue, invoke_fixed_pointer_mechanism_with_library,
 };
+use libloading::Library;
 
 /// One ABI position the mechanism can express.
 ///
@@ -526,9 +527,6 @@ fn exact_error(
     call: &NativeCall<'_>,
 ) -> AbiError {
     match error {
-        ExactNativeError::LibraryLoad { library, message } => {
-            AbiError::LibraryLoad { library, message }
-        }
         ExactNativeError::SymbolLoad { symbol, message } => AbiError::SymbolLookup {
             library: call.library.to_owned(),
             symbol,
@@ -547,9 +545,6 @@ fn fixed_error(
     call: &NativeCall<'_>,
 ) -> AbiError {
     match error {
-        FixedNativeError::LibraryLoad { library, message } => {
-            AbiError::LibraryLoad { library, message }
-        }
         FixedNativeError::SymbolLoad { symbol, message } => AbiError::SymbolLookup {
             library: call.library.to_owned(),
             symbol,
@@ -568,9 +563,6 @@ fn pointer_error(
     call: &NativeCall<'_>,
 ) -> AbiError {
     match error {
-        FixedPointerError::LibraryLoad { library, message } => {
-            AbiError::LibraryLoad { library, message }
-        }
         FixedPointerError::SymbolLoad { symbol, message } => AbiError::SymbolLookup {
             library: call.library.to_owned(),
             symbol,
@@ -601,6 +593,89 @@ fn pointer_error(
 /// * The library and thread requirements of the symbol are the caller's, and so
 ///   are its resource cleanup and process side effects.
 pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
+    let library = open_named_library(call.library)?;
+    // SAFETY: forwarded from the caller.
+    unsafe { invoke_abi_with_library(&library, call) }
+}
+
+/// Executes a call against a library handle the caller already opened.
+///
+/// The handle belongs to the caller: it may serve any number of calls to the
+/// library it opened, and dropping it closes that library. This entry is the same
+/// mechanism as [`invoke_abi`] minus the per-call load — it adds no policy, still
+/// takes the caller's ABI description, and still refuses shapes outside the
+/// matrix. A call naming another library is refused rather than resolved in the
+/// wrong image.
+///
+/// # Safety
+///
+/// The caller asserts [`invoke_abi`]'s complete ABI contract, and `handle` must
+/// be the library the call names.
+pub unsafe fn invoke_abi_with_handle(
+    handle: &LibraryHandle,
+    call: &NativeCall<'_>,
+) -> Result<AbiValue, AbiError> {
+    if call.library != handle.name {
+        return Err(AbiError::LibraryLoad {
+            library: display_library(call.library),
+            message: format!("handle was opened for {}", display_library(&handle.name)),
+        });
+    }
+    // SAFETY: forwarded from the caller.
+    unsafe { invoke_abi_with_library(&handle.library, call) }
+}
+
+/// One loaded dynamic library, owned by whoever opened it.
+///
+/// Mechanism only. It holds an opened library so a caller that calls the same
+/// library repeatedly reuses one load instead of loading per call; it carries no
+/// allowlist, no schema, no budget and no ownership policy, and it does not decide
+/// whose calls may run. Dropping it unloads the library through the same single
+/// loader [`invoke_abi`] uses. The library name is kept only so
+/// [`invoke_abi_with_handle`] can refuse a call that names a different one.
+pub struct LibraryHandle {
+    name: String,
+    library: Library,
+}
+
+impl LibraryHandle {
+    /// Loads `library` once, with [`invoke_abi`]'s error vocabulary.
+    ///
+    /// An empty name means the current process, exactly as it does for
+    /// [`NativeCall::library`].
+    pub fn open(library: &str) -> Result<Self, AbiError> {
+        Ok(Self {
+            name: library.to_owned(),
+            library: open_named_library(library)?,
+        })
+    }
+
+    /// The name this handle was opened for; empty means the current process.
+    #[must_use]
+    pub fn library_name(&self) -> &str {
+        &self.name
+    }
+}
+
+impl std::fmt::Debug for LibraryHandle {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LibraryHandle")
+            .field("library", &display_library(&self.name))
+            .finish_non_exhaustive()
+    }
+}
+
+/// The shared body: one loaded library, one caller-declared call.
+///
+/// # Safety
+///
+/// The caller asserts [`invoke_abi`]'s contract, and `library` must be the library
+/// the call names.
+unsafe fn invoke_abi_with_library(
+    library: &Library,
+    call: &NativeCall<'_>,
+) -> Result<AbiValue, AbiError> {
     let signature = call.signature;
     match classify(signature, call.arguments)? {
         Family::Exact { ty, arity } => {
@@ -615,14 +690,13 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
                 })?;
             debug_assert_eq!(arguments.len(), arity);
             let exact = ExactNativeCall {
-                library: call.library,
                 symbol: call.symbol,
                 result: ty,
                 arguments: &arguments,
             };
             // SAFETY: the caller upholds `invoke_abi`'s contract; the shape was
             // admitted by the family's own validator.
-            match unsafe { invoke_exact_mechanism(&exact) } {
+            match unsafe { invoke_exact_mechanism_with_library(library, &exact) } {
                 Ok(value) => Ok(exact_abi_value(value)),
                 Err(error) => Err(exact_error(error, signature, call)),
             }
@@ -638,13 +712,12 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
                     params: signature.params.to_vec(),
                 })?;
             let fixed = FixedNativeCall {
-                library: call.library,
                 symbol: call.symbol,
                 prototype,
                 arguments: &arguments,
             };
             // SAFETY: as above.
-            match unsafe { invoke_fixed_mechanism(&fixed) } {
+            match unsafe { invoke_fixed_mechanism_with_library(library, &fixed) } {
                 Ok(value) => Ok(fixed_abi_value(value)),
                 Err(error) => Err(fixed_error(error, signature, call)),
             }
@@ -660,26 +733,17 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
                     params: signature.params.to_vec(),
                 })?;
             let pointer = FixedPointerCall {
-                library: call.library,
                 symbol: call.symbol,
                 prototype,
                 arguments: &arguments,
             };
             // SAFETY: as above.
-            match unsafe { invoke_fixed_pointer_mechanism(&pointer) } {
+            match unsafe { invoke_fixed_pointer_mechanism_with_library(library, &pointer) } {
                 Ok(status) => Ok(AbiValue::I32(status)),
                 Err(error) => Err(pointer_error(error, signature, call)),
             }
         }
         Family::PointerResult(prototype) => {
-            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
-                library: if call.library.is_empty() {
-                    "<current-process>".to_owned()
-                } else {
-                    call.library.to_owned()
-                },
-                message: error.to_string(),
-            })?;
             let address = match (prototype, call.arguments) {
                 (PointerResultPrototype::NoArguments, []) => {
                     // SAFETY: classification admitted this exact shape; the caller
@@ -744,10 +808,6 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
             let [AbiValue::U32(argument)] = call.arguments else {
                 unreachable!("classification checked isize(u32) arguments")
             };
-            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
-                library: display_library(call.library),
-                message: error.to_string(),
-            })?;
             // SAFETY: classification admitted `isize(u32)`; the caller asserts
             // that the resolved symbol really has this C ABI.
             let function = unsafe {
@@ -761,10 +821,6 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
             let [AbiValue::Pointer(argument)] = call.arguments else {
                 unreachable!("classification checked void(ptr) arguments")
             };
-            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
-                library: display_library(call.library),
-                message: error.to_string(),
-            })?;
             // SAFETY: classification admitted `void(ptr)`; the caller asserts
             // that the resolved symbol really has this C ABI.
             let function =
@@ -779,10 +835,6 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
             let [AbiValue::Pointer(argument)] = call.arguments else {
                 unreachable!("classification checked i64(ptr) arguments")
             };
-            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
-                library: display_library(call.library),
-                message: error.to_string(),
-            })?;
             // SAFETY: classification admitted `i64(ptr)`; the caller asserts
             // that the resolved symbol really has this C ABI.
             let function = unsafe {
@@ -802,10 +854,6 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
             else {
                 unreachable!("classification checked i32(i32,i32,ptr) arguments")
             };
-            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
-                library: display_library(call.library),
-                message: error.to_string(),
-            })?;
             // SAFETY: classification admitted `i32(i32,i32,ptr)`; the caller
             // asserts that the resolved symbol really has this C ABI.
             let function = unsafe {
@@ -829,10 +877,6 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
             else {
                 unreachable!("classification checked i32(i32,i32,u64,ptr,i32) arguments")
             };
-            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
-                library: display_library(call.library),
-                message: error.to_string(),
-            })?;
             // SAFETY: classification admitted `i32(i32,i32,u64,ptr,i32)`; the
             // caller asserts that the resolved symbol really has this C ABI.
             let function = unsafe {
@@ -859,10 +903,6 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
             else {
                 unreachable!("classification checked i32(ptr,u32,ptr,ptr,ptr,usize) arguments")
             };
-            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
-                library: display_library(call.library),
-                message: error.to_string(),
-            })?;
             // SAFETY: classification admitted `i32(ptr,u32,ptr,ptr,ptr,usize)`;
             // the caller asserts that the resolved symbol really has this C ABI.
             let function = unsafe {
@@ -898,10 +938,6 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
             else {
                 unreachable!("classification checked usize(i32,ptr,usize) arguments")
             };
-            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
-                library: display_library(call.library),
-                message: error.to_string(),
-            })?;
             // SAFETY: classification admitted `usize(i32,ptr,usize)`; the caller
             // asserts that the resolved symbol really has this C ABI.
             let function = unsafe {
@@ -920,10 +956,6 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
             let [AbiValue::U32(which), AbiValue::U32(who)] = call.arguments else {
                 unreachable!("classification checked i32(u32,u32) arguments")
             };
-            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
-                library: display_library(call.library),
-                message: error.to_string(),
-            })?;
             // SAFETY: classification admitted `i32(u32,u32)`; the caller
             // asserts that the resolved symbol really has this C ABI.
             let function = unsafe {
@@ -937,10 +969,6 @@ pub unsafe fn invoke_abi(call: &NativeCall<'_>) -> Result<AbiValue, AbiError> {
             let [AbiValue::I32(which), AbiValue::U32(who)] = call.arguments else {
                 unreachable!("classification checked i32(i32,u32) arguments")
             };
-            let library = open_library(call.library).map_err(|error| AbiError::LibraryLoad {
-                library: display_library(call.library),
-                message: error.to_string(),
-            })?;
             // SAFETY: classification admitted `i32(i32,u32)`; the caller
             // asserts that the resolved symbol really has this C ABI.
             let function = unsafe {
@@ -959,6 +987,14 @@ fn display_library(library: &str) -> String {
     } else {
         library.to_owned()
     }
+}
+
+/// Opens one library with this module's load error, exactly as `invoke_abi` does.
+fn open_named_library(library: &str) -> Result<Library, AbiError> {
+    open_library(library).map_err(|error| AbiError::LibraryLoad {
+        library: display_library(library),
+        message: error.to_string(),
+    })
 }
 
 fn pointer_result_symbol_error(call: &NativeCall<'_>, error: libloading::Error) -> AbiError {

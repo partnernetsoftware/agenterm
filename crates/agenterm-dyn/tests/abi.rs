@@ -9,8 +9,8 @@ use std::ffi::CString;
 use std::ffi::{CStr, c_void};
 
 use agenterm_dyn::{
-    AbiError, AbiSignature, AbiType, AbiValue, NativeCall, invoke_abi, validate_abi,
-    validate_abi_signature,
+    AbiError, AbiSignature, AbiType, AbiValue, LibraryHandle, NativeCall, invoke_abi,
+    invoke_abi_with_handle, validate_abi, validate_abi_signature,
 };
 
 const LIB: &str = "libSystem.B.dylib";
@@ -869,6 +869,194 @@ fn the_signature_query_agrees_with_validate_abi_without_needing_arguments() {
     assert!(
         validate_abi_signature(signature).is_ok(),
         "the shape is still supported when the argument list is wrong"
+    );
+}
+
+/// The reusable handle must return exactly what the one-shot entry returns.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_handle_entry_and_the_one_shot_entry_agree_bit_for_bit() {
+    let handle = LibraryHandle::open(LIB).expect("open one reusing handle");
+    assert_eq!(handle.library_name(), LIB);
+    // exact family: `getpid()` is `i32()`.
+    let exact = AbiSignature {
+        result: AbiType::I32,
+        params: &[],
+    };
+    let one_shot = unsafe {
+        invoke_abi(&NativeCall {
+            library: LIB,
+            symbol: "getpid",
+            signature: exact,
+            arguments: &[],
+        })
+    }
+    .expect("one-shot getpid");
+    let reused = unsafe {
+        invoke_abi_with_handle(
+            &handle,
+            &NativeCall {
+                library: LIB,
+                symbol: "getpid",
+                signature: exact,
+                arguments: &[],
+            },
+        )
+    }
+    .expect("getpid through the handle");
+    assert_eq!(one_shot, reused);
+    // Non-exact family: `void(ptr)` direct-scalar, `free(NULL)`.
+    let void_pointer = AbiSignature {
+        result: AbiType::Void,
+        params: &[AbiType::Pointer],
+    };
+    let arguments = [AbiValue::Pointer(std::ptr::null_mut())];
+    let one_shot = unsafe {
+        invoke_abi(&NativeCall {
+            library: LIB,
+            symbol: "free",
+            signature: void_pointer,
+            arguments: &arguments,
+        })
+    }
+    .expect("one-shot free(NULL)");
+    let reused = unsafe {
+        invoke_abi_with_handle(
+            &handle,
+            &NativeCall {
+                library: LIB,
+                symbol: "free",
+                signature: void_pointer,
+                arguments: &arguments,
+            },
+        )
+    }
+    .expect("free(NULL) through the handle");
+    assert_eq!(one_shot, reused);
+}
+
+/// One handle serves repeated calls, including a pointer-result shape.
+#[cfg(target_os = "macos")]
+#[test]
+fn one_handle_serves_repeated_calls() {
+    let handle = LibraryHandle::open(LIB).expect("open one reusing handle");
+    let exact = AbiSignature {
+        result: AbiType::I32,
+        params: &[],
+    };
+    for _ in 0..3 {
+        let value = unsafe {
+            invoke_abi_with_handle(
+                &handle,
+                &NativeCall {
+                    library: LIB,
+                    symbol: "getpid",
+                    signature: exact,
+                    arguments: &[],
+                },
+            )
+        }
+        .expect("getpid through the handle");
+        assert_eq!(value, AbiValue::I32(std::process::id() as i32));
+    }
+    let buffer_params = [AbiType::Pointer, AbiType::Usize];
+    let pointer_result = AbiSignature {
+        result: AbiType::Pointer,
+        params: &buffer_params,
+    };
+    let mut buffer = vec![0_u8; 4096];
+    let arguments = [
+        AbiValue::Pointer(buffer.as_mut_ptr().cast()),
+        AbiValue::Usize(buffer.len()),
+    ];
+    let first = unsafe {
+        invoke_abi_with_handle(
+            &handle,
+            &NativeCall {
+                library: LIB,
+                symbol: "getcwd",
+                signature: pointer_result,
+                arguments: &arguments,
+            },
+        )
+    }
+    .expect("getcwd through the handle");
+    let second = unsafe {
+        invoke_abi_with_handle(
+            &handle,
+            &NativeCall {
+                library: LIB,
+                symbol: "getcwd",
+                signature: pointer_result,
+                arguments: &arguments,
+            },
+        )
+    }
+    .expect("getcwd again through the same handle");
+    assert_eq!(first, second);
+    assert_ne!(first, AbiValue::Pointer(std::ptr::null_mut()));
+}
+
+/// The handle entry keeps the mechanism error vocabulary and adds no new code.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_handle_keeps_the_mechanism_error_vocabulary() {
+    let handle = LibraryHandle::open(LIB).expect("open one reusing handle");
+    let exact = AbiSignature {
+        result: AbiType::I32,
+        params: &[],
+    };
+    let error = unsafe {
+        invoke_abi_with_handle(
+            &handle,
+            &NativeCall {
+                library: LIB,
+                symbol: "agenterm_dyn_absent_symbol",
+                signature: exact,
+                arguments: &[],
+            },
+        )
+    }
+    .expect_err("an absent symbol is refused");
+    assert!(
+        matches!(error, AbiError::SymbolLookup { .. }),
+        "expected SymbolLookup, got {error:?}"
+    );
+    let error = unsafe {
+        invoke_abi_with_handle(
+            &handle,
+            &NativeCall {
+                library: "libSystem.x.dylib",
+                symbol: "getpid",
+                signature: exact,
+                arguments: &[],
+            },
+        )
+    }
+    .expect_err("a call naming another library is refused");
+    assert!(
+        matches!(error, AbiError::LibraryLoad { .. }),
+        "expected LibraryLoad, got {error:?}"
+    );
+    let unsupported = AbiSignature {
+        result: AbiType::Pointer,
+        params: &[AbiType::I32],
+    };
+    let error = unsafe {
+        invoke_abi_with_handle(
+            &handle,
+            &NativeCall {
+                library: LIB,
+                symbol: "getpid",
+                signature: unsupported,
+                arguments: &[AbiValue::I32(1)],
+            },
+        )
+    }
+    .expect_err("a shape outside the matrix is refused");
+    assert!(
+        matches!(error, AbiError::SignatureUnsupported { .. }),
+        "expected SignatureUnsupported, got {error:?}"
     );
 }
 

@@ -10,8 +10,8 @@ mod fixed_pointer;
 mod unix_ioctl;
 
 pub use abi::{
-    AbiError, AbiSignature, AbiType, AbiValue, NativeCall, invoke_abi, validate_abi,
-    validate_abi_signature,
+    AbiError, AbiSignature, AbiType, AbiValue, LibraryHandle, NativeCall, invoke_abi,
+    invoke_abi_with_handle, validate_abi, validate_abi_signature,
 };
 #[cfg(unix)]
 pub use exec::{

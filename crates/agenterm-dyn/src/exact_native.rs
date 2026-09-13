@@ -46,8 +46,10 @@ impl ExactNativeValue {
 }
 
 /// A caller-asserted fixed native signature and its canonical arguments.
+///
+/// The library is not a field: the caller opens it once and passes the handle, so
+/// a shape cannot silently name one library while executing in another.
 pub struct ExactNativeCall<'a> {
-    pub library: &'a str,
     pub symbol: &'a str,
     pub result: ExactNativeType,
     pub arguments: &'a [ExactNativeValue],
@@ -58,10 +60,6 @@ pub enum ExactNativeError {
     SignatureUnsupported {
         result: ExactNativeType,
         parameters: Vec<ExactNativeType>,
-    },
-    LibraryLoad {
-        library: String,
-        message: String,
     },
     SymbolLoad {
         symbol: String,
@@ -76,9 +74,6 @@ impl fmt::Display for ExactNativeError {
                 f,
                 "invocation does not have one exact homogeneous scalar type: {result:?}({parameters:?})"
             ),
-            Self::LibraryLoad { library, message } => {
-                write!(f, "could not load native library {library:?}: {message}")
-            }
             Self::SymbolLoad { symbol, message } => {
                 write!(f, "could not resolve native symbol {symbol:?}: {message}")
             }
@@ -129,12 +124,15 @@ macro_rules! invoke_homogeneous {
     }};
 }
 
-/// Executes an admitted exact-family shape without re-entering the public
-/// compatibility wrapper.
+/// Executes an admitted exact-family shape against an already open library.
 ///
 /// # Safety
-/// The caller must uphold [`crate::invoke_abi`]'s complete ABI contract.
-pub(crate) unsafe fn invoke_exact_mechanism(
+///
+/// The caller must uphold [`crate::invoke_abi`]'s complete ABI contract, and
+/// `library` must be the library the call names: this entry does not open
+/// anything, so a mismatched handle would resolve the symbol in the wrong image.
+pub(crate) unsafe fn invoke_exact_mechanism_with_library(
+    library: &Library,
     call: &ExactNativeCall<'_>,
 ) -> Result<ExactNativeValue, ExactNativeError> {
     let parameters = call
@@ -144,35 +142,27 @@ pub(crate) unsafe fn invoke_exact_mechanism(
         .collect::<Vec<_>>();
     validate_exact_native_signature(call.result, &parameters)?;
     let family = call.result;
-    let library = open_library(call.library).map_err(|error| ExactNativeError::LibraryLoad {
-        library: if call.library.is_empty() {
-            "<current-process>".to_owned()
-        } else {
-            call.library.to_owned()
-        },
-        message: error.to_string(),
-    })?;
     match family {
         ExactNativeType::I32 => {
-            invoke_homogeneous!(&library, call.symbol, call.arguments, I32, i32)
+            invoke_homogeneous!(library, call.symbol, call.arguments, I32, i32)
         }
         ExactNativeType::U32 => {
-            invoke_homogeneous!(&library, call.symbol, call.arguments, U32, u32)
+            invoke_homogeneous!(library, call.symbol, call.arguments, U32, u32)
         }
         ExactNativeType::I64 => {
-            invoke_homogeneous!(&library, call.symbol, call.arguments, I64, i64)
+            invoke_homogeneous!(library, call.symbol, call.arguments, I64, i64)
         }
         ExactNativeType::U64 => {
-            invoke_homogeneous!(&library, call.symbol, call.arguments, U64, u64)
+            invoke_homogeneous!(library, call.symbol, call.arguments, U64, u64)
         }
         ExactNativeType::Isize => {
-            invoke_homogeneous!(&library, call.symbol, call.arguments, Isize, isize)
+            invoke_homogeneous!(library, call.symbol, call.arguments, Isize, isize)
         }
         ExactNativeType::Usize => {
-            invoke_homogeneous!(&library, call.symbol, call.arguments, Usize, usize)
+            invoke_homogeneous!(library, call.symbol, call.arguments, Usize, usize)
         }
         ExactNativeType::F64 => {
-            invoke_homogeneous!(&library, call.symbol, call.arguments, F64, f64)
+            invoke_homogeneous!(library, call.symbol, call.arguments, F64, f64)
         }
     }
 }
