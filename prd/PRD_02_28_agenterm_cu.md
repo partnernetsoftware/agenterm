@@ -1552,9 +1552,10 @@ flowchart LR
   libproc. Windows is deliberately `process_cwd_unsupported`: there is no
   stable public API for another process's current directory, and undocumented
   remote PEB / `RTL_USER_PROCESS_PARAMETERS` layouts (including WOW64) are not
-  a product contract. Host unit tests and a macOS public-CLI read are green;
-  the registered Linux/macOS journey evidence and Windows refusal court remain
-  to be executed before promotion.
+  a product contract. Host unit tests, the macOS public-CLI read and the registered
+  `cu-runtime-capability-process-smoke` are green on one exact-source macOS build;
+  the dedicated Linux journey and Windows refusal court remain to be executed
+  before promotion.
 - [~] `process-environment` / MCU-compatible `process env PID` closes another
   process-context gap without turning environment secrets into ambient logs.
   Linux reads the 4 MiB-bounded `/proc/<pid>/environ` block and macOS parses
