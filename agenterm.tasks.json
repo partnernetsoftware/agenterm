@@ -3136,6 +3136,24 @@
         "research.profile-binding-exact-process.admission-dry-run"
       ]
     },
+    "browser-profile-name-binding-exact-process-live": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "exact-process-live-self-test-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 200000000,
+        "max_host_operations": 256,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "research.profile-binding-exact-process.live-self-test"
+      ]
+    },
     "acu-mcp-provider-smoke": {
       "inputs": [
         "built-agenterm-with-acu-provider"
@@ -9113,6 +9131,19 @@
         "artifact_write",
         "process_spawn"
       ]
+    },
+    {
+      "id": "browser-profile-name-binding-exact-process-live",
+      "description": "Prove the exact-process live court's browser-free ownership-chain, process-identity, bounded cleanup and selector-independence classifiers against adversarial injected fixtures; live browser modes remain fail-closed.",
+      "entry": "research/browser-profile-name-binding-exact-process/live-rehearsal.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": []
     },
     {
       "id": "acu-mcp-provider-smoke",

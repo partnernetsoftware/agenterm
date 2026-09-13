@@ -19,6 +19,7 @@ COURT="$DIR/court-current-host.qjs"
 MODEL="$DIR/binding-model.qjs"
 PREFLIGHT="$DIR/capability-preflight.qjs"
 ADMISSION="$DIR/admission-dry-run.qjs"
+LIVE="$DIR/live-rehearsal.qjs"
 BROKER="$DIR/broker-spine.sh"
 RH_COMPAT="$REPO/scripts/qjs/lib/rh_compat.qjs"
 TEST_HARNESS="$REPO/scripts/qjs/lib/test_harness.qjs"
@@ -36,6 +37,8 @@ usage() {
 usage: run-current-host.sh --self-test
        run-current-host.sh --static-source-scan
        run-current-host.sh --capability-preflight
+       run-current-host.sh --live-self-test
+       run-current-host.sh --live-red-gate
        run-current-host.sh --broker-self-test
 
 --self-test            Run the platform-neutral court self-test.
@@ -43,6 +46,15 @@ usage: run-current-host.sh --self-test
                        process-table constructs (the V2 static half).
 --capability-preflight Run the static scan and the registered tool-profile
                        host preflight without reserving an ordinal.
+--live-self-test       Run the live court's browser-free self-test through the
+                       tool-profile path. Launches no browser, observes no
+                       owned process, reserves no ordinal.
+--live-red-gate        Prove the live court's adversarial controls hold: a live
+                       mode is refused by the court itself, and each mutated
+                       guard turns the injected-fixture suite red.
+--live|rehearsal|decision
+                       All refused with LIVE_COURT_NOT_IMPLEMENTED. The live
+                       court has no browser-spawn path in this slice.
 --broker-self-test     Run the external ledger / admission / stage persistence
                        broker self-test in a disposable root. Reserves no
                        ordinal and reaches no verdict.
@@ -72,7 +84,8 @@ static_source_scan() {
   # The model is exempt by design: it declares the pattern table that states
   # this very rule, and its negative-test fixtures must embed a forbidden
   # construct in order to prove the scanner refuses it.
-  for source in "$COURT" "$PREFLIGHT" "$ADMISSION" "$RH_COMPAT" "$TEST_HARNESS"; do
+  for source in "$COURT" "$LIVE" "$PREFLIGHT" "$ADMISSION" "$RH_COMPAT" \
+      "$TEST_HARNESS"; do
     for pattern in '/bin/ps' '/usr/bin/ps' 'pgrep' 'ps -' 'ps axo' \
         'session_id' 'getsid' 'getpgid' 'setpgid'; do
       hits=$(sed 's://.*::' "$source" 2>/dev/null \
@@ -90,6 +103,29 @@ static_source_scan() {
 # outside an authorized live run, and no live run is authorized yet. The
 # dry-run asserts this path is unchanged across its execution.
 FORMAL_ROOT="$HOME/.local/share/agenterm/research/profile-binding-exact-process"
+
+# The live court's V7 depends on the ownership+cleanup region of its own source,
+# and the qjs engine cannot read the file it is running. The runner extracts
+# exactly that region and hands it over as data, so the criterion is judged
+# against the real code rather than a restatement. The region deliberately
+# excludes the self-test: the self-test must embed a forbidden field name in
+# order to prove the scanner refuses it, so scanning the whole file would be a
+# false negative against a fixture that is doing its job.
+LIVE_REGION=$(mktemp "${TMPDIR:-/tmp}/agenterm-live-region.XXXXXX")
+trap 'rm -f "$LIVE_REGION"' EXIT HUP INT TERM
+
+live_court_region() {
+  # From the cleanup-boundary comment to the end of the fixture helpers: the
+  # span that observes processes, walks the chain and terminates the owned
+  # handle. Endpoints are matched by their exact comment text, so a rename in
+  # the court makes this extraction fail loudly instead of silently shrinking
+  # the scanned region.
+  awk '
+    /^\/\/ --- the observation boundary/ {inside = 1}
+    /^\/\/ --- the injected fixture/ {inside = 0}
+    inside {print}
+  ' "$LIVE"
+}
 
 # A digest of the complete directory archive, or the single line `absent`.
 # This covers names, file bytes, modes and symlink targets, rather than merely
@@ -259,6 +295,256 @@ EOF
   return 1
 }
 
+# The live court's red gate. Every claim the court makes about refusing an
+# unsafe chain must have a mutation that makes the suite fail; a suite that
+# cannot fail proves nothing. The mutations run against a COPY of the court so
+# the working tree is never the thing under test, and each mutation is applied
+# with an exact string replacement that must match, because a mutation that
+# silently fails to apply is a false red gate.
+live_red_gate() {
+  local failed=0 root
+  # The task path requires a bounded REPOSITORY-RELATIVE entry, so the mutant
+  # cannot live in a temp directory. It goes under the ignored local research
+  # state instead, which is repo-local, untracked and outside target/.
+  root="$REPO/.agenterm-research-state/live-red-gate"
+  rm -rf "$root"
+  mkdir -p "$root"
+  local mutant="$root/live-rehearsal.qjs"
+
+  # The region is written first: every probe run below needs it, and a probe
+  # that ran before it existed would fail on a missing file rather than on the
+  # guard under test.
+  live_court_region >"$LIVE_REGION"
+
+    # Gate 1: the court's browser-free self-test must PASS when driven through the
+  # tool-profile path. The registration this entry will use does not exist yet
+  # (the main-side owner of agenterm.tasks.json adds it), so the gate drives the
+  # UNMUTATED court through the same probe manifest the mutations use. That keeps
+  # the gate runnable now without this file editing the shared manifest.
+  local plain
+  plain=$(probe_run "$LIVE" "$root/plain.qjs" 2>&1) || true
+  case "$plain" in
+    *'"ok":true'*)
+      printf '  ok   the live court passes its browser-free self-test\n' ;;
+    *) printf '  FAIL the live court did not pass its self-test\n'; failed=1 ;;
+  esac
+
+  # Gate 0: a live mode must be refused by the COURT, not only by this runner.
+  # The runner refusal alone would not protect a caller that bypassed it, and the
+  # court is the file that will hold the browser spawn. The refusal must also
+  # report that nothing was launched and no ordinal was reserved.
+  local refusal
+  refusal=$(probe_source "$LIVE" rehearsal) || true
+  # Each property is checked independently. A single ordered pattern would pass
+  # or fail on JSON key order, which is not a property of the refusal at all.
+  live_refusal_ok=1
+  for token in '"code":"LIVE_COURT_NOT_ENABLED"' '"browser_launched":false' \
+      '"ordinal_reserved":false' \
+      '"mode":"rehearsal"'; do
+    case "$refusal" in
+      *"$token"*) ;;
+      *) live_refusal_ok=0 ;;
+    esac
+  done
+  if [ "$live_refusal_ok" -eq 1 ]; then
+    printf '  ok   the court refuses a live mode without launching or reserving\n'
+  else
+    printf '  FAIL the court did not refuse a live mode cleanly (got: %s)\n' "$refusal"
+    failed=1
+  fi
+
+  # Gate 2: the owned chain must refuse identity drift. The mutation removes the
+  # drift comparison; the suite must then report a failure, because the drift
+  # scene is the only thing standing between a reused pid and unproven
+  # ownership.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    'if (before.start_identity !== after.start_identity) {' \
+    'if (false) {' \
+    'identity drift' || failed=1
+
+  # Gate 3: the cleanup must not read `unknown` as death. The mutation makes the
+  # unknown branch return a death record; the budget scene must then fail.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    'if (observed.state === "unknown") {' \
+    'if (observed.state === "unknown") { return {ok: true, observation: {state: "dead", start_identity: null}};' \
+    'unknown-is-not-death' || failed=1
+
+  # Gate 4: the terminus check must compare the frozen identity. Removing the
+  # comparison must break the scene that proves a wrong-identity terminus is
+  # refused.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    'if (before.start_identity !== browser_identity) {' \
+    'if (false) {' \
+    'terminus identity' || failed=1
+
+  # Gate 5: the parent-relation read must be bracketed. Removing the closing
+  # observation must break the drift and identity scenes.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    'const after = source.observe(current);' \
+    'const after = before;' \
+    'chain bracket' || failed=1
+
+  # Gate 6: the cleanup input this court builds must stay inside the model's
+  # whitelist. The mutation adds the selector field the spec forbids, so the
+  # selector-leak scene must fail. The model itself is not mutated: it is a
+  # module with `export`, so it cannot be driven as a task entry, and a mutation
+  # that cannot run is not a red gate.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    '  }).ok === true;' \
+    '  }).ok !== true;' \
+    'cleanup selector independence' || failed=1
+
+  # Gate 7: the chain ceiling must be finite. An infinite ceiling must break the
+  # ceiling scene.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    'for (let hop = 0; hop < CHAIN_CEILING; hop = hop + 1) {' \
+    'for (let hop = 0; hop < 100000; hop = hop + 1) {' \
+    'chain ceiling' || failed=1
+
+  # Gate 8: the per-state door adapter must classify `dead`/`unknown` instead of
+  # killing them at the shape check. The mutation restores the old single-shape
+  # assumption, so the parsed variant flags are never set.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    '  const state = raw.state;' \
+    '  const state = "live";' \
+    'per-state door adapter' || failed=1
+
+  # Gate 9: the TERMINUS must be decided before the parent-live constraint. The
+  # mutation makes the non-terminal parent requirement unconditional, so the
+  # terminus scenes for a non-live parent record must fail.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    '    if (record.state !== "live" || typeof record.parent_id !== "number") {' \
+    '    if (true) {' \
+    'terminus before parent-live' || failed=1
+
+  # Gate 10: exhausting the bound must be reported AS exhaustion, not as an
+  # assumed death. The mutation makes the exhausted path claim termination, so
+  # the scenes that require INCONCLUSIVE_CLEANUP must fail.
+  #
+  # The poll-ceiling guard is deliberately NOT mutated here: removing it makes
+  # the stalled-clock scene non-terminating, and a gate that hangs is not a gate.
+  # The ceiling is instead covered by the stalled-clock scene itself, which can
+  # only report `poll_ceiling_exhausted` if the ceiling exists.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    '  return {ok: false, code: "INCONCLUSIVE_CLEANUP",' \
+    '  return {ok: true, code: "TERMINATION_PROVEN", death: [],' \
+    'cleanup exhaustion is not death' || failed=1
+
+  # Gate 11: the cleanup must read identity drift as PID reuse. The mutation
+  # removes the reuse branch, so the reuse scene must fail.
+  mutate_and_expect_fail "$LIVE" "$mutant" \
+    '    if (observed.start_identity !== identity.start_identity) {' \
+    '    if (false) {' \
+    'cleanup pid reuse' || failed=1
+
+  # Gate 12: the region the runner hands to V7 must be non-empty and must not
+  # itself contain a forbidden field name. An extractor that silently matched
+  # nothing would make V7 vacuously true.
+  if [ -s "$LIVE_REGION" ] && ! grep -F -q 'selector_output' "$LIVE_REGION"; then
+    printf '  ok   the live region is non-empty and selector-free\n'
+  else
+    printf '  FAIL the live region is empty or carries a selector field\n'; failed=1
+  fi
+
+  rm -rf "$root"
+  if [ "$failed" -eq 0 ]; then
+    printf '\n%s\n' 'LIVE_RED_GATE_PASS'
+    return 0
+  fi
+  printf '\n%s\n' 'LIVE_RED_GATE_FAILED'
+  return 1
+}
+
+# Run an arbitrary court source through the registered tool-profile path. The
+# repository manifest is copied with only its task and contract tables replaced,
+# so the project capabilities and script-API pins are exactly the ones the real
+# registration runs under. The temporary manifest is removed before returning.
+# Passing the entry outside the repository is the whole point: a mutation must
+# be executed without editing the shared manifest or the working tree.
+probe_run() {
+  local source="$1" target="$2"
+  cp "$source" "$target"
+  probe_source "$target"
+}
+
+# Run an existing (possibly already-mutated) source through the tool-profile
+# path. Kept separate from the copy step so a mutant is never overwritten by the
+# unmutated original.
+# `AGENTERM_LIVE_REGION_SOURCE` reaches the court through the runner's OWN
+# environment, which the child inherits. No manifest field declares it: this
+# slice invents no task-env schema (a task's `env` list and a contract's
+# `env_allow` are existing concepts this probe must not repurpose), and the
+# registered entry will read it the same way.
+probe_source() {
+  local target="$1" mode="${2:-}" manifest="$REPO/.probe-manifest.tmp" root_abs
+  root_abs=$(CDPATH= cd -- "$REPO" && pwd -P)
+  python3 - "$MANIFEST" "$manifest" "$target" "$root_abs" "$LIVE_REGION" "$mode" <<'PROBE'
+import json, sys
+src, dst, entry, root, region, mode = sys.argv[1:7]
+_ = region
+task_id = "browser-profile-name-binding-exact-process-live"
+d = json.load(open(src))
+d["tasks"] = [{
+  "id": task_id,
+  "description": "probe: live court source",
+  "entry": entry.replace(root + "/", "").replace("./", ""),
+  "profile": "tool",
+  "cwd": ".",
+  "args": [mode] if mode else [],
+  "dependencies": [],
+  "platforms": ["macos"],
+  "side_effects": [],
+}]
+d["contracts"] = {task_id: {
+  "inputs": ["source-tree"],
+  "outputs": ["live-self-test"],
+  "budget": {"timeout_ms": 120000, "max_operations": 200000000,
+             "max_host_operations": 256, "max_output_bytes": 262144},
+  "network": [],
+  "evidence": ["live-self-test"],
+}}
+json.dump(d, open(dst, "w"), indent=2)
+PROBE
+  # The task run is allowed to fail -- a mutation is EXPECTED to fail -- so the
+  # manifest must be removed on both paths. Relying on the caller would leak the
+  # file whenever the probe is aborted, and a leaked manifest would silently be
+  # reused by the next probe.
+  local rc=0
+  AGENTERM_LIVE_REGION_SOURCE="$LIVE_REGION" AGENTERM_SCRIPT_BACKEND=qjswasm \
+    "$AGENTERM_EXE" cli script task run \
+    browser-profile-name-binding-exact-process-live --manifest "$manifest" 2>&1 \
+    || rc=$?
+  rm -f "$manifest"
+  return $rc
+}
+
+# Apply one exact-string mutation to a copy of a source and require the court's
+# self-test to fail. Rejecting an inapplicable mutation is the point: a mutation
+# that silently failed to apply would leave a passing suite, and a passing suite
+# read as a red gate is worse than no gate at all.
+mutate_and_expect_fail() {
+  local source="$1" target="$2" from="$3" to="$4" label="$5"
+  cp "$source" "$target"
+  if ! perl -0pi -e "s/\Q$from\E/$to/" "$target" 2>/dev/null; then
+    printf '  FAIL %s: mutation could not be applied\n' "$label"; return 1
+  fi
+  if cmp -s "$source" "$target"; then
+    printf '  FAIL %s: mutation did not change the source\n' "$label"; return 1
+  fi
+  local out
+  out=$(probe_source "$target") || true
+  # The self-test names every failed check in its thrown code, so a mutation that
+  # broke any guard must surface that token. A mutant that fails to compile would
+  # instead carry a compiler diagnostic, which must NOT count as a red: a
+  # non-compiling mutant proves nothing about the guard it removed.
+  if [ -n "${out##*live_self_test_failed*}" ]; then
+    printf '  FAIL %s did not turn the suite red (got: %s)\n' "$label" "$out"
+    return 1
+  fi
+  printf '  ok   %s turns the suite red\n' "$label"
+  return 0
+}
+
 RUN_ID_FOR_GATE=00112233445566778899aabbccddeeff
 
 AGENTERM_EXE=${AGENTERM_EXE:-"$REPO/target/debug/agenterm"}
@@ -294,6 +580,20 @@ case "$1" in
       browser-profile-name-binding-exact-process-preflight \
       --manifest "$MANIFEST"
     ;;
+  --live-self-test)
+    # The court is a tool-profile entry, so this cannot use the plain run path.
+    # The source region is ambient runner data rather than a task-manifest env
+    # field; the task schema has no per-task environment injection.
+    static_source_scan || fail INCONCLUSIVE_IDENTITY_SOURCE
+    live_court_region >"$LIVE_REGION"
+    AGENTERM_LIVE_REGION_SOURCE="$LIVE_REGION" AGENTERM_SCRIPT_BACKEND=qjswasm \
+      "$AGENTERM_EXE" cli script task run \
+      browser-profile-name-binding-exact-process-live --manifest "$MANIFEST"
+    ;;
+  --live-red-gate)
+    static_source_scan || fail INCONCLUSIVE_IDENTITY_SOURCE
+    live_red_gate
+    ;;
   --broker-self-test)
     # The broker self-test needs no registered task and no agenterm binary: it
     # drives the broker spine directly in a disposable root, so it can run
@@ -314,9 +614,13 @@ case "$1" in
     admission_red_gate
     ;;
   --live|rehearsal|decision)
-    # The live court is deliberately unimplemented. Refusing here is the
-    # spec's §4 kill criterion 4: no live ordinal may be reserved while the
-    # court cannot prove every throw site is preceded by a persisted stage.
+    # Still refused. The live court entry now exists and its browser-free
+    # self-test is gated, but the two conditions this refusal encodes are not
+    # met: no live ordinal may be reserved while the court cannot prove every
+    # throw site is preceded by a persisted stage (§4 kill criterion 4), and no
+    # browser may be launched before that proof is reviewed (§2). The new entry
+    # refuses these modes independently, so bypassing this runner is not a way
+    # to reach a live run.
     fail LIVE_COURT_NOT_IMPLEMENTED
     ;;
   *)

@@ -271,6 +271,111 @@ stronger guarantee. Frozen-input recheck *is* implemented here (recomputed
 under the lock from a supplied manifest); when no manifest is supplied the
 result is reported as `not-supplied` rather than being described as verified.
 
+## Live court self-test and red gate
+
+`--live-self-test` proves the door adapter, the ownership chain and the cleanup
+classifier against injected fixtures. All 43 checks pass; no browser is launched,
+no owned process is observed for ownership and no ordinal is reserved.
+
+| Group | Checks |
+|-------|--------|
+| Door adapter | `live`/`dead`/`unknown` observe variants parsed; parent variants parsed; `reason` preserved; wrong-shape, empty-reason and unknown-state records refused; non-numeric parent id refused; parent id 0 accepted |
+| Chain | clean chain proves ownership; single-edge chain; exactly-ceiling chain allowed |
+| Chain refusal | cycle; PID 0 before terminus; self-parent; over-ceiling; `unknown` is an identity failure; `dead` refused; identity drift; wrong terminus identity; non-terminus `unknown` parent |
+| **Terminus parent** | `unknown`, `dead` and PID 0 parent records at the terminus all still prove ownership |
+| Cleanup | all frozen identities dead; `unknown` is never death and records no death; survivor refused; PID reuse recorded; stalled clock exhausts the poll ceiling; clock progress recorded |
+| Selector independence | selector-bearing input refused; well-formed input admissible; court region selector-free |
+| Model agreement | `classify_chain` accepts the chain this court walks |
+
+### The door emits a PER-STATE shape
+
+`tool.rs` (`process_observation_json`, `process_parent_observation_json`) emits:
+
+```
+live    -> {state:"live",    start_identity:<string|null>} (parent: parent_id)
+dead    -> {state:"dead",    reason:<string>}
+unknown -> {state:"unknown", reason:<string>}
+```
+
+A parser that demanded `start_identity` on every record would kill a `dead` or
+`unknown` read at the shape check, before the chain logic could classify it —
+which is exactly backwards, since `unknown` must reach the identity logic and
+`dead` must reach the termination logic. The adapters are therefore split per
+state, preserve `reason`, and are **pure** so every variant is testable without a
+live process. A one-off manual implementation audit additionally observed a live
+pid, an unused pid (`process_not_found`) and pid 1 (`process_access_denied`) from
+the real door. That probe is not part of the registered, reproducible gate.
+
+### The terminus is decided before the parent-live constraint
+
+Each hop is still bracketed (`observe` → `parent` → `observe`), because the
+bracket is what proves the node did not change across its relation read — that
+fact is needed at the terminus too. But the **advancement** requirement (a
+`live` parent record with a numeric id) applies only when the walk must move to a
+successor. The owned browser is the root of the owned tree, so a `live` parent
+id, PID 0, a self-parent or even a non-`live` parent record must all be able to
+close the chain; the terminus is proven by the owned pid plus the frozen start
+identity, both bracketed. `binding-model.classify_chain` agrees: `chain_step`
+requires only the two brackets to be `live`, and reads the parent record solely
+through `parent_id_of`.
+
+### The cleanup clock is injected, and its bound is not only the clock
+
+Cleanup here is the **classifier**, not a live wall-clock wait: it takes an
+observation source plus an explicit `{now, sleep}` clock and decides
+`TERMINATION_PROVEN` or `INCONCLUSIVE_CLEANUP`. No live cleanup path is enabled in
+this slice, and nothing here claims a real observe-to-dead wait exists.
+
+The poll ceiling is deliberately not redundant with the deadline. A clock that
+fails to advance makes a deadline-only loop non-terminating, so the bound cannot
+depend solely on something the classifier cannot verify. Removing the ceiling was
+observed to exhaust the engine's step budget instead of terminating — it is
+load-bearing. That is also why no red gate mutates the ceiling directly: a gate
+that hangs is not a gate, so the exhaustion *report* is mutated instead.
+
+### Red gate
+
+Twelve gates; each mutation removes one guard through an exact-string replacement
+that must apply and must change the source, and the suite must then report
+`live_self_test_failed`. A non-compiling mutant, or one that crashes the suite
+instead of failing a named check, is **rejected** rather than counted as red.
+
+| Mutation | Guard removed |
+|----------|---------------|
+| `before !== after` → `false` | per-bracket identity comparison |
+| `unknown` branch returns dead | `unknown` is never death |
+| terminus identity → `false` | frozen-identity terminus check |
+| `after = observe(cur)` → `after = before` | closing bracket |
+| `}).ok === true` → `!== true` | selector-independence wiring |
+| `hop < CHAIN_CEILING` → `hop < 100000` | finite chain ceiling |
+| `const state = raw.state` → `"live"` | per-state door adapter |
+| non-terminus parent requirement → always true | terminus before parent-live |
+| exhaustion return → `TERMINATION_PROVEN` | exhaustion is not death |
+| PID-reuse branch → `false` | cleanup PID-reuse detection |
+
+Plus two controls: the court refuses a live mode itself
+(`LIVE_COURT_NOT_ENABLED`, `browser_launched:false`, `ordinal_reserved:false`),
+and the region handed to V7 is non-empty and selector-free.
+
+### Honest limits of this evidence
+
+- The mutations run against a **copy** of the court under the ignored local
+  research state, driven through a probe manifest that replaces only the task
+  and contract tables of the repository manifest. The unmutated self-test runs
+  through the registered tool-profile task.
+- `AGENTERM_LIVE_REGION_SOURCE` reaches the court through the runner's own
+  environment, which the child inherits. No manifest field declares it: this slice
+  invents no task-env schema. A task's `env` list and a contract's `env_allow`
+  exist for other purposes and are not repurposed here.
+- Stage publication around each side effect is **not** exercised. That is the §4
+  kill criterion 4 condition that still blocks a live ordinal, and it is the main
+  untested boundary of this slice.
+- The cleanup whitelist lives in `binding-model.qjs`, a module with `export` that
+  cannot be driven as a task entry, so a model mutation is **not** a red gate for
+  this court and none is claimed.
+- `court-current-host.qjs` still reports `live_path: "unimplemented-fail-closed"`,
+  which is now imprecise. The model court is outside this slice's write set.
+
 ## Backfill (§8)
 
 Intentionally empty until a terminal live result exists. A terminal result must

@@ -195,6 +195,103 @@ stale-generation/crash-recovery model) are re-expressed here as *decision-tree
 arms*, not as a copied verdict: neither exhausted court reached a verdict, so no
 v2 value is authoritative.
 
+## Live court (`live-rehearsal.qjs`)
+
+The live court implements the §1.3 chain walk, the §1.5 frozen-ownership rule
+and the §1.6 observe-to-dead cleanup. It is registered as a **tool-profile**
+task, because it must call `process.observe`, `process.parent`, `process.kill`,
+`process.wait` and `process.release`. That is also why it is a separate file
+rather than a mode of `court-current-host.qjs`: adding those host calls to the
+model court would break its ordinary `cli script run` path, which declares no
+tool door.
+
+Run it:
+
+```sh
+./research/browser-profile-name-binding-exact-process/run-current-host.sh --live-self-test
+./research/browser-profile-name-binding-exact-process/run-current-host.sh --live-red-gate
+```
+
+`--live-self-test` drives the entire court against an **injected fixture**: a
+fake observation source and a fake inventory. No browser is launched, no owned
+process is observed for ownership and no ordinal is reserved. It machine-proves
+the door adapter, the chain walk and the cleanup classifier (43 named checks).
+The registered gate exercises injected variants. A separate one-off manual
+implementation audit also probed the real tool door; that probe is not part of
+the reproducible self-test evidence.
+
+`--live-red-gate` proves those claims bite. Each of ten mutations removes one
+guard and must make the self-test fail; a mutation that cannot be applied, that
+fails to compile, or that crashes the suite instead of failing a named check is
+rejected rather than counted as red. Two further controls assert that the court
+refuses a live mode itself (printing `LIVE_COURT_NOT_ENABLED` with
+`browser_launched:false`, `ordinal_reserved:false`) and that the region handed to
+V7 is non-empty and selector-free.
+
+### The door emits a PER-STATE shape
+
+```
+live    -> {state:"live",    start_identity:<string|null>} (parent: parent_id)
+dead    -> {state:"dead",    reason:<string>}
+unknown -> {state:"unknown", reason:<string>}
+```
+
+The adapter therefore parses by **state**, not by one fixed key set, and
+preserves `reason` so a reviewer can tell "gone" from "unreadable". Demanding
+`start_identity` on every record would kill a `dead` or `unknown` read at the
+shape check — before the chain could classify it, which is backwards for the one
+state (`unknown`) that must reach the identity logic.
+
+### The chain-reading rule (§1.3)
+
+`process.parent` reports only a parent id, so the successor's identity cannot be
+carried forward. Each hop is therefore one bracket around the **current** node:
+
+```
+before  = observe(current)     establishes current identity
+record  = parent(current)      the relation, read between the brackets
+after   = observe(current)     closes the bracket
+```
+
+The successor's identity is established by the **first observation of the next
+iteration**, and a node whose identity cannot be established fails in `observe`
+rather than being assumed.
+
+The bracket is applied to the terminus too, but the **advancement** requirement
+(a `live` parent record with a numeric id) applies only when the walk must move
+to a successor. The owned browser is the root of the owned tree, so its parent
+relation is never used to advance: a `live` parent id, PID 0, a self-parent or
+even a non-`live` parent record must all be able to close the chain. The terminus
+is proven by the owned pid plus the frozen start identity, both bracketed.
+`binding-model.classify_chain` agrees.
+
+### Cleanup is a classifier with an injected clock
+
+Cleanup takes an observation source plus an explicit `{now, sleep}` clock and
+decides `TERMINATION_PROVEN` or `INCONCLUSIVE_CLEANUP`. It is **not** a live
+wall-clock wait, and nothing here claims one exists. The poll ceiling is not
+redundant with the deadline: a clock that fails to advance makes a deadline-only
+loop non-terminating, so the bound cannot rest solely on something the
+classifier cannot verify.
+
+### What is still not implemented
+
+`live`, `rehearsal` and `decision` are refused by **both** the runner and the
+court (`LIVE_COURT_NOT_IMPLEMENTED` / `LIVE_COURT_NOT_ENABLED`). Two conditions
+are unmet: no live ordinal may be reserved while the court cannot prove every
+throw site is preceded by a persisted stage (§4 kill criterion 4), and no
+browser may be launched before that proof is reviewed (§2). The live court has
+**no browser-spawn code path at all** in this slice.
+
+The court's stage-publication wiring against the broker is consequently
+**untested live**: the self-test proves the ownership/cleanup classification, not
+that each side effect is bracketed by a persisted stage.
+
+`court-current-host.qjs` still reports `live_path: "unimplemented-fail-closed"`.
+That field is now imprecise — the live path exists and is gated — but this
+slice is not authorized to edit the model court, so the stale field is recorded
+here rather than silently rewritten.
+
 ## What this directory must never do
 
 - Treat `process.parent.live` as liveness. Only `process.observe` decides
