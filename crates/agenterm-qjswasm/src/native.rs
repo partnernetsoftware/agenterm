@@ -1011,9 +1011,14 @@ unsafe fn invoke_with(
 ) -> Result<AbiValue, agenterm_dyn::AbiError> {
     match libraries.resolve(call.library) {
         // SAFETY: forwarded from this function's caller.
-        Ok(LibrarySource::Cached(handle)) => unsafe {
-            agenterm_dyn::invoke_abi_with_handle(&handle, call)
-        },
+        Ok(LibrarySource::Cached(handle)) => {
+            // The door's own evidence that this arm is the one that ran: a door
+            // that resolved a handle and then called the one-shot entry instead
+            // would leave this count at zero and redden the owning test.
+            #[cfg(all(test, unix))]
+            libraries.note_cached_hit();
+            unsafe { agenterm_dyn::invoke_abi_with_handle(&handle, call) }
+        }
         // SAFETY: forwarded from this function's caller; the one-shot entry
         // loads and checks everything itself.
         Ok(LibrarySource::AtCapacity) => unsafe { agenterm_dyn::invoke_abi(call) },
@@ -1794,6 +1799,62 @@ fn map_abi_error(call: &DecodedNativeCall, error: agenterm_dyn::AbiError) -> Nat
 #[cfg(test)]
 mod json_adapter_tests {
     use super::*;
+
+    /// One declared library is one adopted handle: the door's first call adopts it,
+    /// the next calls run through the adopted handle, and a second engine's table
+    /// knows neither.
+    ///
+    /// The hit count lives on the table, not in a process-global, so this test
+    /// reads only its own engine and needs no serialisation. It is the evidence
+    /// the library table exists for: a door that resolved a handle and then ran the
+    /// one-shot entry anyway would leave this count at zero.
+    #[cfg(unix)]
+    #[test]
+    fn a_repeated_declared_library_is_adopted_once_and_reused_by_the_later_calls() {
+        let engine = NativeLibraryCache::new();
+        assert_eq!(engine.len(), 0, "a fresh engine holds no library");
+        assert_eq!(engine.cached_hits(), 0, "and has served no adopted handle");
+
+        let mut previous = engine.cached_hits();
+        for call in 0..3 {
+            let answer = invoke_native_json(b"|getpid|i32()", b"[]", &engine)
+                .expect("getpid runs through the native door");
+            let answer: serde_json::Value = serde_json::from_str(&answer).expect("result JSON");
+            assert_eq!(
+                answer["type"], "i32",
+                "call {call} kept the result position"
+            );
+            assert_eq!(
+                answer["value"].as_i64().map(|value| value as u64),
+                Some(u64::from(std::process::id())),
+                "call {call} answered this process"
+            );
+            assert_eq!(
+                engine.cached_hits(),
+                previous + 1,
+                "call {call} must run through the adopted-handle branch"
+            );
+            previous = engine.cached_hits();
+            assert_eq!(
+                engine.len(),
+                1,
+                "call {call} names one declared string, which is one adopted library"
+            );
+        }
+        assert_eq!(
+            engine.cached_hits(),
+            3,
+            "three calls on one declared library take the adopted handle three times"
+        );
+
+        let other = NativeLibraryCache::new();
+        assert_eq!(other.len(), 0, "a second engine adopts nothing of its own");
+        assert_eq!(
+            other.cached_hits(),
+            0,
+            "and the second engine's count is its own"
+        );
+    }
 
     #[test]
     fn wide_integer_arguments_use_exact_decimal_strings() {

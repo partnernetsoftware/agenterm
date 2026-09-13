@@ -265,6 +265,11 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
   不是 permission/ownership policy）；dyn **不建全局缓存**，也不因句柄而持有 allowlist、
   schema、budget 或任何 qjswasm 策略。句柄只在 load 层复用：符号解析仍按调用进行，
   第二层缓存不在本能力内。
+- **一次 load 服务多次调用是可变异证据，不是声明**：dyn 侧 `exact_native.rs` 的 `#[cfg(test)]`
+  载入入口计数按**差值**证明两条路径的相对关系——N 次一次性 `invoke_abi` 使入口计数增长 N，
+  一次 `LibraryHandle::open` 加 N 次 `invoke_abi_with_handle` 只增长 1。计数器、访问器与断言全部
+  在 `cfg(test)` 内，无 public API、无 feature、发布字节 0。它证明的是**机制载入入口**被进入的
+  次数，**不是** OS 级 `dlopen` 次数（后者仍需独立 fixture library，见 PRD 02.36）。
 
 **验收证据（建议口径）**
 
@@ -279,6 +284,10 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
   没有 ABI trampoline）；删一个机制形状或伪造一个曝光形状都会具名变红；
 - **一条可逆变异**：让 dyn 自行白名单（而不是接受调用方描述）⇒ 相应用例**必须变红**，
   证明策略确实在上层；原地还原并核哈希相等。
+- **复用路径可被否证（两条可逆变异各一）**：让 `invoke_abi_with_handle` 忽略句柄、每调用重新
+  载入库 ⇒ 载入入口差值用例具名变红；把 qjswasm `invoke_with` 的 adopted-handle 臂改回一次性
+  入口 ⇒ 每表命中计数用例具名变红（这条变异正是行为测试看不见的“解析出句柄却不使用”）。
+  两条均原地还原并核 sha256 相等。
 
 **非目标（本次裁决新增）**
 

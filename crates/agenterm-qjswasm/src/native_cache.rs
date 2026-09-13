@@ -42,6 +42,9 @@ use std::rc::Rc;
 
 use agenterm_dyn::{AbiError, LibraryHandle};
 
+#[cfg(all(test, unix))]
+use std::cell::Cell;
+
 /// Distinct libraries one engine keeps loaded.
 ///
 /// A bound, not a policy: past it the engine stops optimizing and starts
@@ -74,13 +77,43 @@ struct Adopted {
 /// The bounded, non-evicting table one engine owns.
 pub(crate) struct NativeLibraryCache {
     adopted: RefCell<Vec<Adopted>>,
+    /// Test-only: how many door calls this table served through an adopted
+    /// handle, so the door path that reuses a load can be proved and mutated.
+    /// Per table, not process-global: two engines running in parallel tests must
+    /// not be able to read each other's count.
+    ///
+    /// Unix-and-test only, because the owning court needs a symbol the
+    /// current-process image really exports: Unix has `getpid` behind the
+    /// empty-name key, while a Windows image does not export the process id, so
+    /// that cell falls back to the string-keyed `kernel32.dll` fixture and has no
+    /// current-process cell to count here.
+    #[cfg(all(test, unix))]
+    cached_hits: Cell<usize>,
 }
 
 impl NativeLibraryCache {
     pub(crate) fn new() -> Self {
         Self {
             adopted: RefCell::new(Vec::new()),
+            #[cfg(all(test, unix))]
+            cached_hits: Cell::new(0),
         }
+    }
+
+    /// Test-only: record one door call that took the adopted-handle branch.
+    ///
+    /// Called from `native::invoke_with`'s `Cached` arm, so the count is evidence
+    /// about the *call path*, not about [`resolve`](Self::resolve)'s answer: a
+    /// caller that resolved a handle and then ignored it would leave this at zero.
+    #[cfg(all(test, unix))]
+    pub(crate) fn note_cached_hit(&self) {
+        self.cached_hits.set(self.cached_hits.get() + 1);
+    }
+
+    /// Test-only: the adopted-handle branch count for this table.
+    #[cfg(all(test, unix))]
+    pub(crate) fn cached_hits(&self) -> usize {
+        self.cached_hits.get()
     }
 
     /// How many libraries this engine is holding open.

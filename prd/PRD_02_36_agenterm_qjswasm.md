@@ -456,8 +456,16 @@ integration.
   once by the mechanism's own error and occupies no slot; keys are the declared
   bytes, so a near-miss is a different library), and
   `tests/native_door.rs` keeps door behavior unchanged, including a repeated
-  declaration that must answer the same value on every call of one slot. **A load
-  count is not claimed here**: an already-loaded system library does not move any
+  declaration that must answer the same value on every call of one slot. **The
+  door's own reuse path is now owned evidence**: `native::json_adapter_tests`
+  carries a per-table `#[cfg(test)]` count on `invoke_with`'s adopted-handle arm
+  and calls the real `|getpid|i32()` three times on one table — the first call
+  adopts (table length 0 → 1), every call takes that arm, and a second engine's
+  table and count are its own. That count is what falsifies "resolved a handle,
+  then ran the one-shot entry anyway", which no behavioral assertion can see; the
+  matching dyn-side proof is a `cfg(test)` loader-entry delta (N one-shot calls →
+  +N entries; one handle open plus N handle calls → +1). **An OS-level load count
+  is still not claimed here**: an already-loaded system library does not move any
   cheap oracle, so proving fewer `dlopen` calls needs its own fixture library in
   its own leaf.
 - The exposure catalog is pinned inside dyn's mechanism matrix by an owning gate

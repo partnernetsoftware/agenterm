@@ -206,10 +206,116 @@ fn current_process_library() -> Result<Library, libloading::Error> {
     libloading::os::windows::Library::this().map(Into::into)
 }
 
+/// Test-only: how many times this process entered the one loader entry.
+///
+/// A delta instrument, not a product fact. It exists so the owning court can
+/// prove the reuse claim the handle entry was added for: the one-shot entry loads
+/// once per call, and one adopted handle loads once for any number of calls.
+/// Incremented under `cfg(test)` only, so a release build has no counter, no
+/// accessor and no bytes.
+#[cfg(test)]
+static LOADER_ENTRIES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Test-only: the loader entry count, for a delta taken around one call sequence.
+///
+/// This counter is **process-global**, so a test may only assert a delta. One test
+/// function below takes every delta it needs, in order: `cargo test` runs the
+/// functions of one test binary in parallel, and a second test loading a library
+/// at the same time would make any delta unreadable. Serialising the binary, or
+/// trusting a global number, is not a fix for that — the fix is one delta owner.
+#[cfg(test)]
+fn loader_entries() -> usize {
+    LOADER_ENTRIES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Opens one library through the single loader.
+///
+/// The empty name means the current process, exactly as it does for
+/// `NativeCall::library`; both branches are one loader entry.
 pub(crate) fn open_library(name: &str) -> Result<Library, libloading::Error> {
+    #[cfg(test)]
+    LOADER_ENTRIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     if name.is_empty() {
         return current_process_library();
     }
     // SAFETY: this unrestricted native operation deliberately runs library init/fini code.
     unsafe { Library::new(name) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::abi::{
+        AbiError, AbiSignature, AbiType, AbiValue, LibraryHandle, NativeCall, invoke_abi,
+        invoke_abi_with_handle,
+    };
+
+    /// The library is this process and the symbol is absent: the load still
+    /// happens (that is what is counted) and the lookup fails after it, so the
+    /// addresses are never called and the exact shape can take no arguments.
+    const NO_PARAMS: &[AbiType] = &[];
+    const NO_ARGUMENTS: &[AbiValue] = &[];
+    const ABSENT_SYMBOL: &str = "agenterm_dyn_absent_symbol_for_the_loader_count";
+    /// Calls in each half of the sequence. The two halves assert a *relation*, so
+    /// any count above one proves the claim.
+    const CALLS: usize = 3;
+
+    fn absent_call() -> NativeCall<'static> {
+        NativeCall {
+            library: "",
+            symbol: ABSENT_SYMBOL,
+            signature: AbiSignature {
+                result: AbiType::I32,
+                params: NO_PARAMS,
+            },
+            arguments: NO_ARGUMENTS,
+        }
+    }
+
+    /// One adopted handle enters the loader once; the one-shot entry enters it per
+    /// call. Both deltas are taken inside this one function — see
+    /// [`loader_entries`].
+    #[test]
+    fn one_adopted_handle_enters_the_loader_once_while_the_one_shot_entry_enters_it_per_call() {
+        // Half one: the one-shot entry loads, then resolves the absent symbol, so
+        // every call is one loader entry and one `SymbolLookup`.
+        let before = loader_entries();
+        for _ in 0..CALLS {
+            let error = unsafe { invoke_abi(&absent_call()) }
+                .expect_err("an absent symbol is refused after loading");
+            assert!(
+                matches!(error, AbiError::SymbolLookup { .. }),
+                "expected SymbolLookup, got {error:?}"
+            );
+        }
+        assert_eq!(
+            loader_entries() - before,
+            CALLS,
+            "the one-shot entry must load once per call"
+        );
+
+        // Half two: one open, then the same load serves every call. A handle that
+        // re-opened the library per call would grow the delta by CALLS here.
+        let before = loader_entries();
+        let handle = LibraryHandle::open("").expect("this process is loadable");
+        assert_eq!(
+            loader_entries() - before,
+            1,
+            "opening the handle is exactly one load"
+        );
+        let after_open = loader_entries();
+        for _ in 0..CALLS {
+            let error = unsafe { invoke_abi_with_handle(&handle, &absent_call()) }
+                .expect_err("an absent symbol is refused through the handle");
+            assert!(
+                matches!(error, AbiError::SymbolLookup { .. }),
+                "expected SymbolLookup, got {error:?}"
+            );
+        }
+        assert_eq!(
+            loader_entries() - after_open,
+            0,
+            "repeated calls through one handle must add no load"
+        );
+    }
 }
