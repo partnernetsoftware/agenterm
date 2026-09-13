@@ -140,6 +140,11 @@ agenterm-qjswasm
 │  │  │  │  └─ economy: the six heterogeneous signatures live as declaration data instead of an
 │  │  │  │        enum + variant inventory + exhaustive projection; admission remains two explicit
 │  │  │  │        truths while execution carries only the one distinction it consumes
+│  │  │  ├─ [x] pointer dispatch carries a signature, not a prototype identity
+│  │  │  │  ├─ the 14 ptr/ptr? declarations live in one data table; raw conversion, JSON admission,
+│  │  │  │  │     region ownership and result rebasing continue to read the original declaration
+│  │  │  │  └─ economy: one `Pointer` token replaces 14 enum variants, their inventory and their
+│  │  │  │        exhaustive projection; JSON still admits exactly the 10 i32-result rows
 │  │  │  ├─ [x] no `PreparedAbiCall` wrapper: `invoke_prepared` already owns the one call
 │  │  │  │     construction site; a struct over the same borrowed spec and arguments removes no truth
 │  │  │  ├─ [x] no `NativeOutcome` wrapper: raw bits, JSON scalars and region snapshots are

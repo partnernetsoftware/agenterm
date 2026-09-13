@@ -766,7 +766,7 @@ pub(crate) fn invoke_native_call(
             unsafe { invoke_prepared(&call.spec, &arguments, libraries) }
                 .and_then(|value| abi_result_bits(value, call, memory_base, memory_len))?
         }
-        NativeDispatch::FixedPointer(_prototype) => {
+        NativeDispatch::Pointer => {
             // The guest remains the unsafe ABI caller: it must declare spans
             // large and aligned enough for the selected C symbol's complete
             // pointee contract. The generic door cannot infer that contract from
@@ -858,8 +858,7 @@ pub(crate) fn invoke_native_call(
 /// unterminated or non-UTF-8 refuses the whole call rather than being hidden
 /// behind a status.
 ///
-/// Only the pointer prototypes whose result is `i32` are served here
-/// ([`pointer_prototype_json_admitted`]); a pointer result has no guest span to
+/// Only the pointer signatures whose result is `i32` are served here; a pointer result has no guest span to
 /// rebase onto and stays refused, as do the `i64`/`void` pointer shapes and the
 /// Unix `ioctl` shapes. The guest remains the unsafe ABI caller: an opaque
 /// `ptr` position does not tell the door how many bytes the selected C symbol
@@ -878,7 +877,7 @@ pub(crate) fn invoke_native_json(
     // through unclassified.
     let refused = match dispatch {
         NativeDispatch::Scalar => false,
-        NativeDispatch::FixedPointer(prototype) => !pointer_prototype_json_admitted(prototype),
+        NativeDispatch::Pointer => spec.result != NativeType::I32,
         NativeDispatch::UnixIoctl(_) => true,
     };
     if refused {
@@ -916,10 +915,11 @@ pub(crate) fn invoke_native_json(
                 abi_json_result(value, spec.result).ok_or_else(|| unsupported_json_spec(&spec))
             })?
         }
-        NativeDispatch::FixedPointer(prototype) => {
-            debug_assert!(
-                pointer_prototype_json_admitted(prototype),
-                "the refusal above admits only the i32-returning pointer prototypes"
+        NativeDispatch::Pointer => {
+            debug_assert_eq!(
+                spec.result,
+                NativeType::I32,
+                "the refusal above admits only i32-returning pointer signatures"
             );
             invoke_pointer_json(&spec, values, libraries, max_region_bytes)?
         }
@@ -1114,7 +1114,7 @@ unsafe fn invoke_prepared(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum NativeDispatch {
     Scalar,
-    FixedPointer(PointerPrototype),
+    Pointer,
     UnixIoctl(UnixIoctlPrototype),
 }
 
@@ -1133,89 +1133,46 @@ const HETEROGENEOUS_SCALAR_SIGNATURES: &[(NativeType, &[NativeType])] = &[
 
 /// Pointer-bearing shapes exposed by the qjswasm native catalog.
 ///
-/// The two nullable variants are intentionally local policy: they select which
-/// guest position accepts `KIND_NULL`; dyn receives an ordinary ABI pointer.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PointerPrototype {
-    VoidNullablePointer,
-    I64NullablePointer,
-    I64Pointer,
-    PointerPointerUsize,
-    I32Pointer,
-    I32I32Pointer,
-    I32PointerI32,
-    I32PointerNullablePointer,
-    I32NullablePointerPointer,
-    I32PointerPointer,
-    I32PointerPointerPointer,
-    I32PointerU64,
-    I32I32PointerU32,
-    I32U64PointerU64,
-}
-
-impl PointerPrototype {
-    /// Every variant in one table.
-    const ALL: [Self; 14] = [
-        Self::VoidNullablePointer,
-        Self::I64NullablePointer,
-        Self::I64Pointer,
-        Self::PointerPointerUsize,
-        Self::I32Pointer,
-        Self::I32I32Pointer,
-        Self::I32PointerI32,
-        Self::I32PointerNullablePointer,
-        Self::I32NullablePointerPointer,
-        Self::I32PointerPointer,
-        Self::I32PointerPointerPointer,
-        Self::I32PointerU64,
-        Self::I32I32PointerU32,
-        Self::I32U64PointerU64,
-    ];
-
-    /// The declaration this exposure answers for, as `(result, parameters)`.
-    fn declaration(self) -> (NativeType, &'static [NativeType]) {
-        match self {
-            Self::VoidNullablePointer => (NativeType::Void, &[NativeType::NullablePointer]),
-            Self::I64NullablePointer => (NativeType::I64, &[NativeType::NullablePointer]),
-            Self::I64Pointer => (NativeType::I64, &[NativeType::Pointer]),
-            Self::PointerPointerUsize => (
-                NativeType::Pointer,
-                &[NativeType::Pointer, NativeType::Usize],
-            ),
-            Self::I32Pointer => (NativeType::I32, &[NativeType::Pointer]),
-            Self::I32I32Pointer => (NativeType::I32, &[NativeType::I32, NativeType::Pointer]),
-            Self::I32PointerI32 => (NativeType::I32, &[NativeType::Pointer, NativeType::I32]),
-            Self::I32PointerNullablePointer => (
-                NativeType::I32,
-                &[NativeType::Pointer, NativeType::NullablePointer],
-            ),
-            Self::I32NullablePointerPointer => (
-                NativeType::I32,
-                &[NativeType::NullablePointer, NativeType::Pointer],
-            ),
-            Self::I32PointerPointer => {
-                (NativeType::I32, &[NativeType::Pointer, NativeType::Pointer])
-            }
-            Self::I32PointerPointerPointer => (
-                NativeType::I32,
-                &[
-                    NativeType::Pointer,
-                    NativeType::Pointer,
-                    NativeType::Pointer,
-                ],
-            ),
-            Self::I32PointerU64 => (NativeType::I32, &[NativeType::Pointer, NativeType::U64]),
-            Self::I32I32PointerU32 => (
-                NativeType::I32,
-                &[NativeType::I32, NativeType::Pointer, NativeType::U32],
-            ),
-            Self::I32U64PointerU64 => (
-                NativeType::I32,
-                &[NativeType::U64, NativeType::Pointer, NativeType::U64],
-            ),
-        }
-    }
-}
+/// Nullable positions remain explicit declaration data: raw decoding uses them
+/// to decide where `KIND_NULL` is valid, while dyn receives an ordinary pointer.
+const POINTER_SIGNATURES: &[(NativeType, &[NativeType])] = &[
+    (NativeType::Void, &[NativeType::NullablePointer]),
+    (NativeType::I64, &[NativeType::NullablePointer]),
+    (NativeType::I64, &[NativeType::Pointer]),
+    (
+        NativeType::Pointer,
+        &[NativeType::Pointer, NativeType::Usize],
+    ),
+    (NativeType::I32, &[NativeType::Pointer]),
+    (NativeType::I32, &[NativeType::I32, NativeType::Pointer]),
+    (NativeType::I32, &[NativeType::Pointer, NativeType::I32]),
+    (
+        NativeType::I32,
+        &[NativeType::Pointer, NativeType::NullablePointer],
+    ),
+    (
+        NativeType::I32,
+        &[NativeType::NullablePointer, NativeType::Pointer],
+    ),
+    (NativeType::I32, &[NativeType::Pointer, NativeType::Pointer]),
+    (
+        NativeType::I32,
+        &[
+            NativeType::Pointer,
+            NativeType::Pointer,
+            NativeType::Pointer,
+        ],
+    ),
+    (NativeType::I32, &[NativeType::Pointer, NativeType::U64]),
+    (
+        NativeType::I32,
+        &[NativeType::I32, NativeType::Pointer, NativeType::U32],
+    ),
+    (
+        NativeType::I32,
+        &[NativeType::U64, NativeType::Pointer, NativeType::U64],
+    ),
+];
 
 /// The natural alignment every call-scoped region carries.
 ///
@@ -1527,15 +1484,6 @@ impl NativeRegion {
 
 /// Whether the JSON adapter serves this pointer prototype.
 ///
-/// The adapter admits exactly the prototypes whose result is `i32`: a pointer
-/// result has no guest span to rebase onto in a call that owns no guest memory,
-/// and an `i64`/`void` result would need a second answer shape. Derived from
-/// the same table dispatch uses, so a new pointer prototype is admitted by
-/// stating its result type there rather than by editing a second list here.
-fn pointer_prototype_json_admitted(prototype: PointerPrototype) -> bool {
-    prototype.declaration().0 == NativeType::I32
-}
-
 /// Every ABI shape this catalog exposes, as the caller's declaration.
 ///
 /// Derived from the same tables dispatch uses, so it is not a second catalog: it
@@ -1549,11 +1497,11 @@ fn exposure_declarations() -> Vec<(NativeType, Vec<NativeType>)> {
             exposures.push((ty, vec![ty; arity]));
         }
     }
-    for (result, parameters) in HETEROGENEOUS_SCALAR_SIGNATURES.iter().copied().chain(
-        PointerPrototype::ALL
-            .into_iter()
-            .map(PointerPrototype::declaration),
-    ) {
+    for (result, parameters) in HETEROGENEOUS_SCALAR_SIGNATURES
+        .iter()
+        .chain(POINTER_SIGNATURES)
+        .copied()
+    {
         exposures.push((result, parameters.to_vec()));
     }
     exposures
@@ -1594,15 +1542,13 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
     if fixed {
         return Ok(NativeDispatch::Scalar);
     }
-    let fixed_pointer = PointerPrototype::ALL
-        .into_iter()
-        .find(|prototype| prototype.declaration() == (spec.result, spec.parameters.as_slice()));
-    fixed_pointer
-        .map(NativeDispatch::FixedPointer)
-        .ok_or_else(|| NativeDoorError::InvocationSignatureUnsupported {
-            result: spec.result,
-            parameters: spec.parameters.clone(),
-        })
+    if POINTER_SIGNATURES.contains(&(spec.result, spec.parameters.as_slice())) {
+        return Ok(NativeDispatch::Pointer);
+    }
+    Err(NativeDoorError::InvocationSignatureUnsupported {
+        result: spec.result,
+        parameters: spec.parameters.clone(),
+    })
 }
 
 fn ioctl_i32_argument(
@@ -2357,80 +2303,24 @@ mod json_adapter_tests {
             native_dispatch(&parse("|lseek|i64(i32,i64,i32)")),
             Ok(NativeDispatch::Scalar)
         );
-        assert_eq!(
-            native_dispatch(&parse("|uname|i32(ptr)")),
-            Ok(NativeDispatch::FixedPointer(PointerPrototype::I32Pointer,))
-        );
-        assert_eq!(
-            native_dispatch(&parse("|getrlimit|i32(i32,ptr)")),
-            Ok(NativeDispatch::FixedPointer(
-                PointerPrototype::I32I32Pointer,
-            ))
-        );
-        assert_eq!(
-            native_dispatch(&parse("|access|i32(ptr,i32)")),
-            Ok(NativeDispatch::FixedPointer(
-                PointerPrototype::I32PointerI32,
-            ))
-        );
-        assert_eq!(
-            native_dispatch(&parse("|gethostuuid|i32(ptr,ptr)")),
-            Ok(NativeDispatch::FixedPointer(
-                PointerPrototype::I32PointerPointer,
-            ))
-        );
-        assert_eq!(
-            native_dispatch(&parse("|getentropy|i32(ptr,u64)")),
-            Ok(NativeDispatch::FixedPointer(
-                PointerPrototype::I32PointerU64,
-            ))
-        );
-        assert_eq!(
-            native_dispatch(&parse("|sysctlnametomib|i32(ptr,ptr,ptr)")),
-            Ok(NativeDispatch::FixedPointer(
-                PointerPrototype::I32PointerPointerPointer,
-            ))
-        );
-        assert_eq!(
-            native_dispatch(&parse("|gettimeofday|i32(ptr,ptr?)")),
-            Ok(NativeDispatch::FixedPointer(
-                PointerPrototype::I32PointerNullablePointer,
-            ))
-        );
-        assert_eq!(
-            native_dispatch(&parse("|time|i64(ptr?)")),
-            Ok(NativeDispatch::FixedPointer(
-                PointerPrototype::I64NullablePointer,
-            ))
-        );
-        assert_eq!(
-            native_dispatch(&parse("|times|i64(ptr)")),
-            Ok(NativeDispatch::FixedPointer(PointerPrototype::I64Pointer))
-        );
-        assert_eq!(
-            native_dispatch(&parse("|getcwd|ptr(ptr,usize)")),
-            Ok(NativeDispatch::FixedPointer(
-                PointerPrototype::PointerPointerUsize,
-            ))
-        );
-        assert_eq!(
-            native_dispatch(&parse("|pthread_threadid_np|i32(ptr?,ptr)")),
-            Ok(NativeDispatch::FixedPointer(
-                PointerPrototype::I32NullablePointerPointer,
-            ))
-        );
-        assert_eq!(
-            native_dispatch(&parse("|proc_pidpath|i32(i32,ptr,u32)")),
-            Ok(NativeDispatch::FixedPointer(
-                PointerPrototype::I32I32PointerU32,
-            ))
-        );
-        assert_eq!(
-            native_dispatch(&parse("|pthread_getname_np|i32(u64,ptr,u64)")),
-            Ok(NativeDispatch::FixedPointer(
-                PointerPrototype::I32U64PointerU64,
-            ))
-        );
+        for spec in [
+            "|uname|i32(ptr)",
+            "|getrlimit|i32(i32,ptr)",
+            "|access|i32(ptr,i32)",
+            "|gethostuuid|i32(ptr,ptr)",
+            "|getentropy|i32(ptr,u64)",
+            "|sysctlnametomib|i32(ptr,ptr,ptr)",
+            "|gettimeofday|i32(ptr,ptr?)",
+            "|free|void(ptr?)",
+            "|time|i64(ptr?)",
+            "|times|i64(ptr)",
+            "|getcwd|ptr(ptr,usize)",
+            "|pthread_threadid_np|i32(ptr?,ptr)",
+            "|proc_pidpath|i32(i32,ptr,u32)",
+            "|pthread_getname_np|i32(u64,ptr,u64)",
+        ] {
+            assert_eq!(native_dispatch(&parse(spec)), Ok(NativeDispatch::Pointer));
+        }
         assert_eq!(
             native_dispatch(&parse("|ioctl|i32(i32,i32,ptr)")),
             Ok(NativeDispatch::UnixIoctl(UnixIoctlPrototype::I32Request))
@@ -2833,26 +2723,15 @@ mod json_adapter_tests {
     /// The JSON pointer adapter admits the `i32` results and nothing else.
     #[test]
     fn only_the_i32_pointer_prototypes_are_admitted_by_the_json_adapter() {
-        for prototype in [
-            PointerPrototype::VoidNullablePointer,
-            PointerPrototype::I64NullablePointer,
-            PointerPrototype::I64Pointer,
-            PointerPrototype::PointerPointerUsize,
-        ] {
-            assert!(
-                !pointer_prototype_json_admitted(prototype),
-                "{:?} must stay refused: its result has no JSON answer shape here",
-                prototype.declaration()
-            );
-        }
         assert_eq!(
-            PointerPrototype::ALL
-                .into_iter()
-                .filter(|prototype| pointer_prototype_json_admitted(*prototype))
+            POINTER_SIGNATURES
+                .iter()
+                .filter(|(result, _)| *result == NativeType::I32)
                 .count(),
-            PointerPrototype::ALL.len() - 4,
-            "the admission is derived from the result type in the one prototype table"
+            10,
+            "exactly ten pointer declarations have the JSON adapter's i32 answer shape"
         );
+        assert_eq!(POINTER_SIGNATURES.len(), 14);
         let libraries = NativeLibraryCache::new();
         for spec in [
             b"|getcwd|ptr(ptr,usize)".as_slice(),
