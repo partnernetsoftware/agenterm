@@ -32,10 +32,6 @@ function catch_text(error) {
   return "" + error;
 }
 
-function protocol_text(value) {
-  return "" + value;
-}
-
 function file_name(p) {
   const parts = ("" + p).split("/");
   return parts[parts.length - 1];
