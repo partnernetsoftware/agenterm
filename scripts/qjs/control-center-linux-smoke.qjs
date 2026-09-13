@@ -464,9 +464,8 @@ function prepare_private_runtime(runtime) {
   const effective_uid = ("" + id_output.stdout).trim();
   harness.require(effective_uid !== "", "control_center_linux_effective_uid_empty");
 
-  const stat_output = rh.command("stat", ["-c", "%u:%a", "--", runtime], { timeout_ms: 2000 });
-  harness.require(stat_output.success, "control_center_linux_runtime_stat_failed:" + stat_output.stderr);
-  const ownership = ("" + stat_output.stdout).trim();
+  const private_metadata = rh.symlink_metadata(runtime);
+  const ownership = private_metadata.unix_uid + ":" + private_metadata.unix_mode;
   harness.require(
     ownership === effective_uid + ":700",
     "control_center_linux_runtime_not_private_to_effective_uid:" + ownership

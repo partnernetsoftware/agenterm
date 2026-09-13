@@ -361,7 +361,7 @@ fn fs_metadata_reports_a_modification_time() {
 
 #[cfg(unix)]
 #[test]
-fn symlink_metadata_reports_unix_permission_bits_without_a_process_witness() {
+fn symlink_metadata_reports_unix_owner_and_permission_bits_without_a_process_witness() {
     use std::os::unix::fs::PermissionsExt as _;
 
     let dir = std::env::temp_dir().join(format!("agenterm-mode-{}", std::process::id()));
@@ -373,11 +373,16 @@ fn symlink_metadata_reports_unix_permission_bits_without_a_process_witness() {
     let out = run_tool(&format!(
         r#"
         if (fs_symlink_metadata("{}") !== 0) {{ return "metadata: " + tool_result(); }}
-        return JSON.parse(tool_result()).unix_mode;
+        let metadata = JSON.parse(tool_result());
+        return metadata.unix_mode + "|" + metadata.unix_uid;
         "#,
         file.display()
     ));
-    assert_eq!(string_of(&out), "640");
+    use std::os::unix::fs::MetadataExt as _;
+    let uid = std::fs::symlink_metadata(&file)
+        .expect("read fixture owner")
+        .uid();
+    assert_eq!(string_of(&out), format!("640|{uid}"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

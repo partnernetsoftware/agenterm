@@ -986,6 +986,9 @@ pub(crate) fn install(
                     // Permission bits only, in the same octal text form as
                     // `stat %a`; null on hosts without Unix mode bits.
                     "unix_mode": meta.unix_mode.map(|value| format!("{:o}", value & 0o7777)),
+                    // Decimal text keeps the native owner id exact across the
+                    // JSON/JavaScript binary64 boundary; null off Unix.
+                    "unix_uid": meta.unix_uid.map(|value| value.to_string()),
                 })
                 .to_string())
             })

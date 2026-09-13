@@ -69,6 +69,9 @@ agenterm-qjswasm
 │  │  └─ `fs.symlink_metadata` projects the platform facade's Unix mode as octal
 │  │     text: native-ipc-smoke no longer launches GNU/BSD `stat` probes or owns
 │  │     their platform-specific parsing branch
+│  │  └─ the same metadata snapshot projects the Unix owner id as decimal text;
+│  │     control-center-linux-smoke keeps its independent effective-uid oracle
+│  │     while deleting the second `stat` process used to reread owner and mode
 │  │  └─ the shared command journal publishes through `fs.append` on every host;
 │  │     native-ipc-smoke no longer launches one `sh -c cat` child per record or
 │  │     maintains a second copy of the JSONL record projection
