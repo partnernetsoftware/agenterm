@@ -162,6 +162,15 @@ agenterm-qjswasm
    └─ no machine-code JIT in the current engine
 ```
 
+Candidate, recorded only — **no capability-state change above and not scheduled
+into any version**: the host-reply wire cost decision experiment,
+[`plan/design-qjswasm-host-reply-wire-cost-experiment.md`](../plan/design-qjswasm-host-reply-wire-cost-experiment.md).
+It asks whether the bytes the host hands a guest as a reply are a large enough
+owner of journey steps that a product-side wire change (compact reply text
+and/or host-side field selection) is the next action. It is a frozen
+specification with an unfilled §8: it has no verdict, it moves no status leaf in
+this module, and running, accepting or killing it is a separate decision.
+
 ## Mermaid flowchart memory palace
 
 ```mermaid
