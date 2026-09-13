@@ -2113,32 +2113,258 @@ mod mechanism_compatibility {
         }
     }
 
+    /// Every result position `agenterm_dyn::AbiType` can express.
+    ///
+    /// This is the mechanism's own public type list, not a mechanism table.
+    /// `Void` is a result here and is excluded from the argument positions below
+    /// because dyn's own type documentation states it is valid only as a result
+    /// position; that exclusion is the mechanism's statement, not this test's.
+    const ABI_RESULT_POSITIONS: [agenterm_dyn::AbiType; 9] = [
+        agenterm_dyn::AbiType::Void,
+        agenterm_dyn::AbiType::I32,
+        agenterm_dyn::AbiType::U32,
+        agenterm_dyn::AbiType::I64,
+        agenterm_dyn::AbiType::U64,
+        agenterm_dyn::AbiType::Isize,
+        agenterm_dyn::AbiType::Usize,
+        agenterm_dyn::AbiType::F64,
+        agenterm_dyn::AbiType::Pointer,
+    ];
+
+    /// Every argument position `agenterm_dyn::AbiType` can express.
+    const ABI_ARGUMENT_POSITIONS: [agenterm_dyn::AbiType; 8] = [
+        agenterm_dyn::AbiType::I32,
+        agenterm_dyn::AbiType::U32,
+        agenterm_dyn::AbiType::I64,
+        agenterm_dyn::AbiType::U64,
+        agenterm_dyn::AbiType::Isize,
+        agenterm_dyn::AbiType::Usize,
+        agenterm_dyn::AbiType::F64,
+        agenterm_dyn::AbiType::Pointer,
+    ];
+
+    /// The mechanism matrix as the mechanism itself answers it.
+    ///
+    /// A *query over a vocabulary*, never a second mechanism table: the
+    /// positions come from `agenterm_dyn::AbiType`'s own public list, the arity
+    /// bound is this door's parser bound (`MAX_NATIVE_ARITY`, the same 6 dyn's
+    /// exact family uses), and the only authority on membership is
+    /// `agenterm_dyn::validate_abi_signature`, which answers from the shape
+    /// alone and needs no argument values. Every element of the returned vector
+    /// was admitted by dyn's own classification during this call.
+    ///
+    /// Refusal *above* the matrix is owned elsewhere: `agenterm-dyn`'s
+    /// `tests/abi.rs` asks the same query about the shapes outside it,
+    /// including a homogeneous arity beyond the bound.
+    fn mechanism_shapes_by_query() -> Vec<(agenterm_dyn::AbiType, Vec<agenterm_dyn::AbiType>)> {
+        let mut shapes = Vec::new();
+        let mut params: Vec<agenterm_dyn::AbiType> = Vec::new();
+        for result in ABI_RESULT_POSITIONS {
+            collect_mechanism_shapes(result, &mut params, &mut shapes);
+        }
+        shapes
+    }
+
+    /// One result position against every argument sequence up to the arity
+    /// bound, keeping the shapes dyn answers with a real trampoline.
+    fn collect_mechanism_shapes(
+        result: agenterm_dyn::AbiType,
+        params: &mut Vec<agenterm_dyn::AbiType>,
+        shapes: &mut Vec<(agenterm_dyn::AbiType, Vec<agenterm_dyn::AbiType>)>,
+    ) {
+        let signature = agenterm_dyn::AbiSignature {
+            result,
+            params: params.as_slice(),
+        };
+        if agenterm_dyn::validate_abi_signature(signature).is_ok() {
+            shapes.push((result, params.clone()));
+        }
+        if params.len() == MAX_NATIVE_ARITY {
+            return;
+        }
+        for parameter in ABI_ARGUMENT_POSITIONS {
+            params.push(parameter);
+            collect_mechanism_shapes(result, params, shapes);
+            params.pop();
+        }
+    }
+
+    /// One ABI position under the name this door's declarations use.
+    fn position_name(position: agenterm_dyn::AbiType) -> &'static str {
+        match position {
+            agenterm_dyn::AbiType::Void => "void",
+            agenterm_dyn::AbiType::I32 => "i32",
+            agenterm_dyn::AbiType::U32 => "u32",
+            agenterm_dyn::AbiType::I64 => "i64",
+            agenterm_dyn::AbiType::U64 => "u64",
+            agenterm_dyn::AbiType::Isize => "isize",
+            agenterm_dyn::AbiType::Usize => "usize",
+            agenterm_dyn::AbiType::F64 => "f64",
+            agenterm_dyn::AbiType::Pointer => "ptr",
+        }
+    }
+
+    /// One shape as `result(parameter,parameter)`.
+    fn shape_name(shape: &(agenterm_dyn::AbiType, Vec<agenterm_dyn::AbiType>)) -> String {
+        let parameters = shape
+            .1
+            .iter()
+            .map(|position| position_name(*position))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("{}({parameters})", position_name(shape.0))
+    }
+
+    /// The catalog's declarations as the distinct ABI shapes they name.
+    ///
+    /// The declarations are not one-to-one with shapes: `ptr` and `ptr?` are one
+    /// ABI position, so a nullable variant collapses onto the shape its
+    /// non-nullable twin already names.
+    fn exposure_abi_shapes() -> Vec<(agenterm_dyn::AbiType, Vec<agenterm_dyn::AbiType>)> {
+        let mut shapes: Vec<_> = exposure_declarations()
+            .iter()
+            .map(|(result, parameters)| abi_signature(*result, parameters))
+            .collect();
+        shapes.sort_by_key(shape_name);
+        shapes.dedup();
+        shapes
+    }
+
+    /// The complete mechanism-only account: what dyn can execute and this
+    /// catalog does not expose today.
+    ///
+    /// This is the *difference*, not the mechanism matrix: 4 pointer-result
+    /// shapes (this door has no guest span or region to rebase a returned
+    /// address onto) plus 5 direct-scalar shapes (taken over from the retired
+    /// Darwin probes, never exposed here). Restate it when either side
+    /// legitimately moves; the assertion below names every entry that is missing
+    /// or unexpected instead of only counting, so a silent omission fails by
+    /// name.
+    const MECHANISM_ONLY: [(agenterm_dyn::AbiType, &[agenterm_dyn::AbiType]); 9] = [
+        (agenterm_dyn::AbiType::Pointer, &[]),
+        (
+            agenterm_dyn::AbiType::Pointer,
+            &[agenterm_dyn::AbiType::U32],
+        ),
+        (
+            agenterm_dyn::AbiType::Pointer,
+            &[agenterm_dyn::AbiType::U64],
+        ),
+        (
+            agenterm_dyn::AbiType::Pointer,
+            &[agenterm_dyn::AbiType::Pointer],
+        ),
+        (agenterm_dyn::AbiType::Isize, &[agenterm_dyn::AbiType::U32]),
+        (
+            agenterm_dyn::AbiType::I32,
+            &[
+                agenterm_dyn::AbiType::I32,
+                agenterm_dyn::AbiType::I32,
+                agenterm_dyn::AbiType::Pointer,
+            ],
+        ),
+        (
+            agenterm_dyn::AbiType::I32,
+            &[
+                agenterm_dyn::AbiType::I32,
+                agenterm_dyn::AbiType::I32,
+                agenterm_dyn::AbiType::U64,
+                agenterm_dyn::AbiType::Pointer,
+                agenterm_dyn::AbiType::I32,
+            ],
+        ),
+        (
+            agenterm_dyn::AbiType::I32,
+            &[
+                agenterm_dyn::AbiType::Pointer,
+                agenterm_dyn::AbiType::U32,
+                agenterm_dyn::AbiType::Pointer,
+                agenterm_dyn::AbiType::Pointer,
+                agenterm_dyn::AbiType::Pointer,
+                agenterm_dyn::AbiType::Usize,
+            ],
+        ),
+        (
+            agenterm_dyn::AbiType::Usize,
+            &[
+                agenterm_dyn::AbiType::I32,
+                agenterm_dyn::AbiType::Pointer,
+                agenterm_dyn::AbiType::Usize,
+            ],
+        ),
+    ];
+
+    /// The mechanism-only account is derived, and every entry is named.
+    ///
+    /// The old form of this court hand-listed three pointer-result shapes and
+    /// never asked the mechanism which shapes it actually has, so `ptr(ptr)`
+    /// (the `getenv` trampoline dyn proves against its own oracle) was missing
+    /// from the account while the assertion stayed green. This form asks dyn for
+    /// the whole matrix, subtracts the catalog's own declarations, and compares
+    /// the difference against `MECHANISM_ONLY` both ways: a shape dyn lost, a
+    /// shape this catalog silently stopped exposing, and a shape either side
+    /// gained all fail with their own names in the message. The inclusion itself
+    /// still runs one way — a shape may never enter the catalog before the
+    /// mechanism can execute it.
     #[test]
-    fn the_mechanism_stays_broader_than_the_exposure_catalog() {
-        let exposures = exposure_declarations();
-        // Mechanism-only today: dyn executes these pointer-result shapes and the
-        // catalog does not expose them. The inclusion runs one way, so growth may
-        // shrink this set — but a shape may never enter the catalog before the
-        // mechanism can execute it (the test above owns that direction).
-        for declaration in [
-            (NativeType::Pointer, Vec::new()),
-            (NativeType::Pointer, vec![NativeType::U32]),
-            (NativeType::Pointer, vec![NativeType::U64]),
-        ] {
+    fn the_mechanism_only_account_is_derived_and_names_every_entry() {
+        let mechanism = mechanism_shapes_by_query();
+        let exposures = exposure_abi_shapes();
+        for exposure in &exposures {
             assert!(
-                !exposures.contains(&declaration),
-                "{declaration:?} is mechanism-only today; if the catalog grew, restate this set"
-            );
-            let (abi_result, abi_parameters) = abi_signature(declaration.0, &declaration.1);
-            let signature = agenterm_dyn::AbiSignature {
-                result: abi_result,
-                params: &abi_parameters,
-            };
-            assert!(
-                agenterm_dyn::validate_abi_signature(signature).is_ok(),
-                "{declaration:?} must stay executable by the mechanism"
+                mechanism.contains(exposure),
+                "qjswasm exposes {} but dyn has no trampoline for it",
+                shape_name(exposure)
             );
         }
+
+        let mechanism_only: Vec<_> = mechanism
+            .iter()
+            .filter(|shape| !exposures.contains(shape))
+            .cloned()
+            .collect();
+        let expected: Vec<_> = MECHANISM_ONLY
+            .iter()
+            .map(|(result, parameters)| (*result, parameters.to_vec()))
+            .collect();
+        let missing: Vec<_> = expected
+            .iter()
+            .filter(|shape| !mechanism_only.contains(shape))
+            .map(shape_name)
+            .collect();
+        let unexpected: Vec<_> = mechanism_only
+            .iter()
+            .filter(|shape| !expected.contains(shape))
+            .map(shape_name)
+            .collect();
+        assert!(
+            missing.is_empty() && unexpected.is_empty(),
+            "the mechanism-only account ({} shapes today) drifted: missing [{}], unexpected [{}]",
+            mechanism_only.len(),
+            missing.join(", "),
+            unexpected.join(", ")
+        );
+
+        // The account above is only meaningful while the query still covers the
+        // whole mechanism, so the two inventories are asserted last.
+        assert_eq!(
+            exposures.len(),
+            66,
+            "the 69 declarations name these distinct ABI shapes: {}",
+            exposures
+                .iter()
+                .map(shape_name)
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        assert_eq!(
+            mechanism.len(),
+            75,
+            "the query over the mechanism's own vocabulary must answer dyn's real matrix \
+             (49 exact + 4 fixed + 8 fixed-pointer + 5 pointer-result + 9 direct-scalar); \
+             a different number means this universe stopped covering the matrix, or dyn's \
+             matrix moved and both this account and PRD 02.36 need restating"
+        );
     }
 
     #[test]

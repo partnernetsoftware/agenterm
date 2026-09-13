@@ -501,12 +501,21 @@ integration.
   its own leaf.
 - The exposure catalog is pinned inside dyn's mechanism matrix by an owning gate
   (`native::mechanism_compatibility`): the 69 exposed declarations (49 exact + 6
-  fixed + 14 pointer) are enumerated from the very tables dispatch uses and each
+  fixed + 14 pointer, which name 66 distinct ABI shapes because `ptr` and `ptr?`
+  are one position) are enumerated from the very tables dispatch uses and each
   one is asked of `agenterm_dyn::validate_abi_signature`, which answers with the
   shape alone and needs no argument values. The inclusion is one-way —
-  `exposure ⊆ mechanism` — and the gate also records the shapes dyn can execute
-  but this catalog does not expose today, plus that the two `ioctl` requests stay
-  on their own mechanism entry (the u64 request has no ABI trampoline at all).
+  `exposure ⊆ mechanism`. The gate **derives** the mechanism-only account instead
+  of listing it: it asks dyn the same shape-only question over
+  `agenterm_dyn::AbiType`'s own vocabulary up to this door's arity bound, and
+  requires the difference to be exactly the 9 distinct shapes dyn executes that
+  this catalog does not expose today — 4 pointer-result (`ptr()`, `ptr(u32)`,
+  `ptr(u64)`, `ptr(ptr)`) and 5 direct-scalar (`isize(u32)`, `i32(i32,i32,ptr)`,
+  `i32(i32,i32,u64,ptr,i32)`, `i32(ptr,u32,ptr,ptr,ptr,usize)`,
+  `usize(i32,ptr,usize)`) — failing by name on a shape either side gained or
+  lost, so a silent omission cannot stay green. It also records that the two
+  `ioctl` requests stay on their own mechanism entry (the u64 request has no ABI
+  trampoline at all).
 - `.qjs` callers use the built-in `agenterm:native` module as a typed language
   adapter over that same opt-in door. It accepts a signature plus JSON values,
   preserves wide integers as decimal strings, and shares the raw door's
