@@ -92,6 +92,10 @@ agenterm-qjswasm
 │  │     three stale fail-closed gaps are removed without a new host operation;
 │  │     the cross-platform door self-test is green, while the Windows clean-main
 │  │     owning rehearsal remains the delivery gate rather than inferred evidence
+│  │  └─ owned CU fixtures retire command-line `kill -TERM` only where the same
+│  │     scope retains the Script child handle and no graceful-exit result is a
+│  │     product assertion; a11y-status and gtk-copy are the first Linux slice,
+│  │     using the cross-platform owned-handle cleanup whose primitive waits boundedly
 │  ├─ [x] declaration-driven Native Importer composition
 │  │  ├─ user problem: scripts need an extensible native surface without copying a loader or ABI executor
 │  │  ├─ invariant: spec/schema/catalog/nullability and exact-family cardinality are local qjswasm policy
@@ -355,6 +359,7 @@ flowchart LR
   PARENT["bounded direct-parent observation<br/>one PID · no process-table text"]
   TASKWIT["task process witnesses reuse the door<br/>no ps parsing · no kill subprocess"]
   REHEARSE["fresh-clone descendant ownership<br/>inventory · raw-PID cleanup · root identity"]
+  OWNEDKILL["owned CU fixture cleanup<br/>child handle · no kill subprocess"]
   HANDLES["per-slot child ledger<br/>32 retained · pre-spawn refusal"]
   LOCKS["per-slot lock ledger<br/>32 lifetime handles · stable tombstones<br/>pre-open refusal"]
   PATHS["shared path helper<br/>`.` / `./` lexical normalization"]
@@ -422,6 +427,7 @@ flowchart LR
   PRODUCT -. direct child identity .-> PARENT --> OBSERVE
   PARENT -. task-side reuse .-> TASKWIT --> DOOR
   TASKWIT -. release rehearsal .-> REHEARSE --> DOOR
+  TASKWIT -. owned fixture cleanup .-> OWNEDKILL --> DOOR
   PRODUCT -. advisory lock .-> LOCKS --> RECEIPT
   PRODUCT -. process.command .-> QPTY --> RECEIPT
   PRODUCT -. native path identity .-> PATHS --> RECEIPT

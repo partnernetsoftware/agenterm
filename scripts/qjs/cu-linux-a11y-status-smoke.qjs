@@ -683,11 +683,14 @@ try {
   failure = "" + error;
 }
 
-if (fixture_pid > 0) {
-  rh.command("kill", ["-TERM", "" + fixture_pid], { cwd: run_directory, timeout_ms: 5000 });
-}
 if (fixture >= 0) {
-  try { harness.wait(fixture, 5000); } catch (error) { print("cleanup: " + error); }
+  try {
+    harness.kill(fixture);
+  } catch (error) {
+    const cleanup_failure = "fixture_cleanup:" + error;
+    failure = failure === "" ? cleanup_failure : failure + ";" + cleanup_failure;
+    succeeded = 0;
+  }
 }
 
 if (succeeded !== 0) {
