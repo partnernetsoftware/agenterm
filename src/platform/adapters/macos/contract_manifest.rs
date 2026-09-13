@@ -1,5 +1,5 @@
 use crate::platform::{
-    contract::adapter::AdapterContractDeclaration, CapabilityKind, CapabilityStatus, PlatformKind,
+    CapabilityKind, CapabilityStatus, PlatformKind, contract::adapter::AdapterContractDeclaration,
 };
 
 pub(crate) const DECLARATION: AdapterContractDeclaration = AdapterContractDeclaration {
