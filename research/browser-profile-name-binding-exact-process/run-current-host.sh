@@ -34,12 +34,19 @@ usage() {
 usage: run-current-host.sh --self-test
        run-current-host.sh --static-source-scan
        run-current-host.sh --capability-preflight
+       run-current-host.sh --broker-self-test
 
 --self-test            Run the platform-neutral court self-test.
 --static-source-scan   Scan this experiment's sources for forbidden
                        process-table constructs (the V2 static half).
 --capability-preflight Run the static scan and the registered tool-profile
                        host preflight without reserving an ordinal.
+--broker-self-test     Run the external ledger / admission / stage persistence
+                       broker self-test in a disposable root. Reserves no
+                       ordinal and reaches no verdict.
+--broker-harness       Prove the broker self-test summary is fail-closed: a
+                       run with an injected failure must report FAILED and
+                       exit nonzero, and must print no pass token.
 USAGE
 }
 
@@ -100,6 +107,19 @@ case "$1" in
     AGENTERM_SCRIPT_BACKEND=qjswasm "$AGENTERM_EXE" cli script task run \
       browser-profile-name-binding-exact-process-preflight \
       --manifest "$MANIFEST"
+    ;;
+  --broker-self-test)
+    # The broker self-test needs no registered task and no agenterm binary: it
+    # drives the broker spine directly in a disposable root, so it can run
+    # before any host capability is available. It proves the admission
+    # discipline only, never a design fact.
+    sh "$DIR/broker-self-test.sh"
+    ;;
+  --broker-harness)
+    # The aggregator red gate. A self-test that counts failures but still
+    # reports success is worse than no self-test, so the summary's fail-closed
+    # behavior is itself gated.
+    sh "$DIR/broker-self-test-harness.sh"
     ;;
   --live|rehearsal|decision)
     # The live court is deliberately unimplemented. Refusing here is the

@@ -2,10 +2,14 @@
 
 **Status: in progress. This file deliberately contains no conclusion.**
 
-The platform-neutral self-test and admission-free host capability preflight
-have landed. No live ordinal has been reserved, no browser has been launched,
-and no A0/A1/B design has been selected or rejected. The owning PRD leaf
-`acu.dynamic.075.profile-name-binding` and the capability ledger are unchanged.
+The platform-neutral self-test, the admission-free host capability preflight
+and the disposable broker self-test have landed. No live ordinal has been
+reserved, no browser has been launched, and no A0/A1/B design has been selected
+or rejected. The owning PRD leaf `acu.dynamic.075.profile-name-binding` and the
+capability ledger are unchanged.
+
+The broker self-test proves only that the admission machinery enforces its own
+discipline. It admits no attempt and proves no criterion.
 
 ## What is proven today (machine-checked)
 
@@ -120,6 +124,143 @@ Independent reference for the model's decision terminals:
 | `A1_SELECTED` | D2: the authenticated two-sided edge passed every arm |
 | `B_SELECTED` | D3: A1 was ineligible or rejected, and B passed every arm |
 | `INCONCLUSIVE_MECHANISM` | Neither A1 nor B could be selected; the typed TODO remains |
+
+## Broker self-test (§1.7–1.9, in progress)
+
+The external ledger / admission / stage persistence broker is exercised by a
+disposable self-test that reserves no ordinal:
+
+```sh
+sh research/browser-profile-name-binding-exact-process/run-current-host.sh \
+  --broker-self-test
+```
+
+Last run on this host: `BROKER_SELF_TEST_PASS requests=130 failures=0`, and
+`BROKER_SELF_TEST_HARNESS_PASS`.
+
+Source sizes (`wc -l`): `broker-spine.sh` 1163, `broker-self-test.sh` 1400,
+`broker-self-test-harness.sh` 111.
+
+The suite asserts, against a real disposable root rather than a mock:
+
+| Property | How it is checked |
+|---|---|
+| External ledger is authoritative | a reservation is published, then read back **through the broker** |
+| Ordinal non-reuse | R1 and D1 are each refused once reserved, finished or abandoned |
+| State lock is exclusive | a second process holding `state.lock` makes the broker refuse |
+| `reserved`→`finished` | only `finish KIND ORDINAL RUN_ID RECEIPT_SHA` closes an attempt, against the receipt on disk |
+| `reserved`→`abandoned` | `abandon` closes the attempt with no receipt |
+| Receipt digest binding | at `finish` the digest is **re-derived from the journal on disk**, not trusted from the receipt's claim |
+| Terminal row required | `finish` refuses a journal whose last row is not the `terminal` stage |
+| Receipt close-time verification | the receipt is re-read and re-validated at `finish`, so a receipt tampered after staging is refused |
+| Terminal code agreement | `stage.code`, `facts.terminal_code`, receipt `code` and ledger `terminal_code` must all agree and name a template terminal |
+| Terminal↔criteria consistency | a terminal's criteria must match **one of** its legal decision-tree shapes; `INCONCLUSIVE_CLEANUP` has three (V4-only fail, V5-after-V4 fail, and V4+V5 fail), and `INVALID_EVIDENCE`/`INVALID_EXPERIMENT` require every earlier gate `pass` |
+| Every legal shape is exercised | each mapped terminal gets a positive case and at least one near-miss negative case, so a mapping that is too narrow and one that is too wide are both caught |
+| Rehearsal records validity | a rehearsal **may** publish V1-V7 pass/fail; it may never publish a design fact |
+| No unverified design selection | `A1_SELECTED` / `B_SELECTED` are refused by name when closing a rehearsal, because this broker holds no D1-D3 evidence |
+| `inspect` is side-effect free | on a fresh root it reports `state_absent` and creates nothing; on an existing root it creates no lock file and no `stage-journal`, and a before/after filesystem snapshot is identical |
+| Frozen-input recheck is real | the digest is recomputed from a supplied manifest under the lock and compared, and the pinned source revision is checked; a wrong digest and a wrong revision are each refused |
+| Recheck honesty | an omitted manifest is reported as `not-supplied`, and is never reported as `verified` |
+| Frozen files are re-read | changing a declared file's **bytes** while leaving the manifest and claimed digest untouched is refused (`frozen_input_content_changed`), so a manifest-only checker could not pass this |
+| Forged per-file digest | a fabricated `files[].sha256` is caught by the recomputation |
+| Manifest path confinement | absolute paths, `..` traversal, a symlink escaping the root, and a missing file are each refused |
+| Independent revision read | when the manifest declares a repository, the revision is read from it; a disagreement is refused |
+| Journal bounds | the template's three exclusive bounds are enforced on the **candidate** journal before publication; the row-count bound is filled to the limit and the next row refused with the journal **byte-identical** afterwards |
+| Refusal leaves no trace | after a refused over-limit row the journal digest, line count, byte count and ledger digest are all unchanged, and the reservation stays `reserved` |
+| Authoritative read | `inspect` re-derives every `finished` transition from disk: the receipt must exist and hash to the ledger's digest, validate against the reservation, and reproduce the journal's digest and sequence; the journal's last row must be the terminal stage; and the terminal code must survive the kind and criteria gates |
+| Forgery is refused | a hand-forged `finished` row (design-selection code, fabricated digest, no receipt) is refused and never presented as finished |
+| Tampering is refused | a modified real receipt, a modified journal, an appended journal row, a changed terminal code, a ledger/receipt code disagreement, and journal facts that disagree with the receipt are each refused |
+| Mutating paths share the check | a forged `finished` row also blocks a later `reserve`, so it cannot be used as a foothold |
+| The summary is fail-closed | a run with any failed assertion prints `BROKER_SELF_TEST_FAILED`, exits nonzero, and prints **no** pass token; proven by an injected-failure harness, not assumed |
+| No unverified design selection | `A1_SELECTED` / `B_SELECTED` are refused by name for **every** kind, so a `decision` attempt cannot write a terminal receipt or reach `finished` |
+| No receipt-less close | a `finished` row without a receipt digest is refused, and no public operation can write one |
+| Durable stage + read-back | journal and receipt both exist, and the journal row carries its chain sequence |
+| A non-terminal stage may not close | a `preflight` row carrying a terminal code is refused |
+| Persistence failure | a forced write failure yields the fixed seven-key record, no design fact, nonzero exit, **attempt still `reserved`**, no committed receipt, no `finished` row |
+| Prior row cannot substitute for the failing stage | an attempt may hold a genuine, read-back-equal `preflight` row and still be refused at `finish`, because the closing row must be the `terminal` stage; the attempt stays `reserved`, so the earlier row buys nothing |
+| A tampered ledger is refused | a `finished` row with an unknown code, or with a null receipt digest, is rejected by the broker's own validation rather than served as authoritative |
+| Cleanup | no formal state directory is created; the disposable root is removed unless `--keep` |
+
+Fifty red-gate mutations were applied in total; each was reverted to
+restore full green. Every mutation is recorded, **including the four that are
+not independently caught** — those prove real defence in depth, and saying so is
+more honest than presenting a 29/29 score.
+
+| # | Mutation | Red |
+|---|---|---|
+| R1 | lock exclusivity removed | 1 |
+| R2 | ordinal-reuse check dropped | 2 |
+| R3 | receipt bound to a constant digest | 5 |
+| R4 | ledger terminal-code check dropped | 1 |
+| R5 | persistence stdout gains an extra key | 1 |
+| R6 | persistence stdout loses a required key | 1 |
+| N1 | an unjustified receipt-less close reintroduced | 1 |
+| N2 | `finish` without a `terminal` stage allowed | 1 |
+| N3 | receipt digest not verified at `finish` | 2 |
+| N4 | terminal↔criteria mapping unenforced | 1 |
+| N5 | `finish` journal-digest binding dropped | 1 |
+| N6 | `finished` row accepts a null receipt | 1 |
+| N7 | rehearsal design fact allowed | 1 |
+| N8 | design-selection terminal allowed in a rehearsal | 2 |
+| N9 | `INCONCLUSIVE_CLEANUP` collapsed to one legal shape | 2 |
+| N10 | `INVALID_EVIDENCE` mapping ignores V4/V5 | 2 |
+| N11 | `INVALID_EXPERIMENT` mapping ignores V4-V6 | 1 |
+| N12 | `inspect` regains side effects (`O_CREAT` + `ensure_tree`) | 2 |
+| N13 | frozen-input digest not recomputed | 1 |
+| N14 | a supplied recheck mislabeled non-verified | 1 |
+| N15 | an unrelated prior row may substitute for the failing terminal | 1 |
+| N16 | journal row-count bound removed | 1 |
+| N17 | journal single-row byte bound removed | **0** (unreachable through a legal request — defence in depth) |
+| N18 | journal total byte bound removed | **0** (the row-count bound fires first) |
+| N19 | manifest path-escape confinement removed | 1 |
+| N20 | journal bounds not checked before the write | 1 |
+| N21 | frozen symlink not refused | **0** (the realpath containment check also catches it) |
+| N22 | missing frozen file silently skipped | **0** (the content-hash comparison also refuses it) |
+| N23 | declared repository revision not read | 1 |
+| N24 | candidate pre-write journal check downgraded to a no-op | 3 |
+| N25 | self-test summary restored to fail-open (counts but still prints `PASS`) | 3 (caught by the harness) |
+| A1 | authoritative check never called by `inspect` | 14 |
+| A2 | receipt existence not required | 5 |
+| A3 | receipt digest not compared to the ledger | 1 |
+| A5 | journal digest not recomputed from disk | 2 |
+| A7 | ledger `terminal_code` not compared to the receipt | 1 |
+| A8 | kind gate not applied on load | 1 |
+| A9 | criteria gate not applied on load | 1 |
+| A10 | journal facts not compared to the receipt | 1 |
+| A12+A13 | authoritative check removed from BOTH mutating load sites | 2 |
+| A4 | receipt not validated against the reservation | **0** (behind the digest and identity checks) |
+| A6 | journal's last row not required to be terminal | **0** (the digest cross-check fires first; re-signing would need the broker's private digest) |
+| A11 | finished row may bind no reservation | **0** (the structural ledger check refuses first) |
+| A12 *or* A13 alone | one mutating load site unchecked | **0** (the two sites are redundant; removing both goes red) |
+
+Two of these gates were **green on the first attempt and had to be fixed**:
+N5 (nothing re-derived the journal digest at `finish`, so a receipt tampered
+after staging would have closed the attempt) and N7 (the design-fact guard was
+unreachable because the whitelist check fired first). Both were repaired — the
+N5 scene now exists, and the design-fact check now runs first and fails by its
+own name — and only then did the gates bite.
+
+RED WARNING: none of this admits a live attempt. It proves the broker's own
+discipline, not V3-V5 validity, not D1-D3 design facts, and not any verdict.
+The broker executes the structural contract; the court owns the semantics. The
+terminal↔criteria mapping is enforced here because it is a pure function of the
+template's terminal vocabulary and the decision tree in the specification, and
+enforcing it is what stops a `PREFLIGHT_OK` row from closing an attempt.
+
+### Scope of the persistence claim
+
+The broker implements **atomic publication with an enforced read-back**: a
+uniquely named temporary is written, `fsync`'d, `rename`d over the destination
+and then read back and compared byte for byte. That is **process-crash
+evidence** — after a crash the destination is the old or the new complete
+bytes, never a torn write.
+
+It is deliberately **not** a power-loss durability claim: the parent directory
+is not fsynced, so a power loss may lose the rename itself. Unlike v2, this
+broker does not assert power-loss persistence; the live runner owns that
+stronger guarantee. Frozen-input recheck *is* implemented here (recomputed
+under the lock from a supplied manifest); when no manifest is supplied the
+result is reported as `not-supplied` rather than being described as verified.
 
 ## Backfill (§8)
 
