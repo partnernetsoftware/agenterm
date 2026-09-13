@@ -674,7 +674,9 @@ Windows now has the matching `kernel32.dll` court: one reusable handle serves
 three exact `GetCurrentProcessId` calls and one existing `i32(ptr)`
 `QueryPerformanceCounter` call, with `std::process` and `windows-sys` as the
 independent oracles. Its x86_64 and aarch64 test targets compile; Windows runtime
-remains unclaimed until either native runner executes the binary.
+is green on the native ARM64 `win-aarch64-desktop` execute-only court for exact
+source `c3a1e448`; x86_64 Windows runtime remains unclaimed because its configured
+court is not ready.
 
 ### examples
 
