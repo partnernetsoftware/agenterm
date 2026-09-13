@@ -2,11 +2,10 @@
 
 **Status: in progress. This file deliberately contains no conclusion.**
 
-The first implementation slice (platform-neutral self-test) has landed. No live
-ordinal has been reserved, no browser has been launched, no A0/A1/B design has
-been selected or rejected, and no evidence has been registered. The owning PRD
-leaf `acu.dynamic.075.profile-name-binding` and the capability ledger are
-unchanged.
+The platform-neutral self-test and admission-free host capability preflight
+have landed. No live ordinal has been reserved, no browser has been launched,
+and no A0/A1/B design has been selected or rejected. The owning PRD leaf
+`acu.dynamic.075.profile-name-binding` and the capability ledger are unchanged.
 
 ## What is proven today (machine-checked)
 
@@ -28,6 +27,26 @@ the first-slice proof.
 | V7 · selector-independence contract | ✅ first-slice model/static proof | Cleanup input whitelist rejects selector-derived fields. The future live ownership/cleanup region must pass the same source scan before an ordinal is reserved |
 | V1-V7 / D1-D3 tree | ✅ | Every single-criterion failure, both cleanup-failure combinations, the V6-before-V7 precedence, validity-precedes-design, and every design exit (`A1_SELECTED`, `B_SELECTED`, `INCONCLUSIVE_MECHANISM`) has an asserting case |
 | Chain and cleanup | ✅ | Cycle, repeat, ceiling, unbracketed PID, null identity, identity change, foreign terminus, skipped termination step, surviving process, inventory drift, hygiene-cannot-heal, incomplete inventory |
+
+## Admission-free host capability preflight
+
+Command (from the repository root):
+
+```sh
+research/browser-profile-name-binding-exact-process/run-current-host.sh \
+  --capability-preflight
+```
+
+The runner first emits `IDENTITY_SOURCE_PROVEN`, then the registered
+tool-profile task must emit an all-true
+`agenterm.profile-binding-exact-process-capability-preflight/v1` record,
+`EVIDENCE research.profile-binding-exact-process.capability-preflight` and
+`PASS`. This host run proves successful `process.pid`, two-observation identity
+brackets, the direct parent relation, durable create/read-back, exclusive lock
+contention and an independently frozen SHA-256 reference. It launches only an
+owned sleeping shell child, removes its scratch directory, launches no browser
+and reserves no rehearsal or decision ordinal. It does not measure V3-V5 or
+D1-D3.
 
 ## First-slice implementation deviations
 
@@ -63,8 +82,9 @@ The live macOS court is **not implemented** and fails closed with
 `LIVE_COURT_NOT_IMPLEMENTED`. Specifically, nothing below has been executed:
 
 - No browser was launched and no synthetic HOME or Profile fixture was created.
-- No `process.observe` / `process.parent` / `process.pid` call was made. Every
-  process fact used by the model is caller-supplied data.
+- The model self-test made no `process.observe` / `process.parent` /
+  `process.pid` call. The admission-free preflight called all three against its
+  current worker and one owned shell child; it did not observe a browser tree.
 - V3 (real ownership chain), V4 (real termination), V5 (real inventory
   restoration), D1 (armed alias trap), D2 (real A1 edge) and D3 (real durable
   store) are **unmeasured** on this host.

@@ -3,9 +3,9 @@
 Decisive-experiment implementation for
 `plan/design-browser-profile-name-binding-exact-process-experiment.md`.
 
-**Status: in progress (first slice only).** No live ordinal is reserved, no
-browser is launched, no design is selected or rejected. `RESULTS.md` carries no
-conclusion.
+**Status: in progress (admission-free slices only).** No live ordinal is
+reserved, no browser is launched, no design is selected or rejected.
+`RESULTS.md` carries no conclusion.
 
 This is a new precommitment. It does not reopen, amend or repair
 `research/browser-profile-name-binding/` or
@@ -19,6 +19,7 @@ has a distinct id, state root, source digest, input digest and budget.
 |---|---|---|
 | `binding-model.qjs` | Platform-neutral pure model: process chain, ownership freeze, cleanup, stage receipts, V1-V7/D1-D3 decision tree | Implemented, self-tested |
 | `court-current-host.qjs` | Platform-neutral model checks for the runtime half of V2, the V6/V7 contracts and every decision-tree combination | Implemented |
+| `capability-preflight.qjs` | Registered tool-profile host preflight: real child PID, exact process observations, durable read-back, lock contention and digest | Implemented, admission-free |
 | `court-current-host.qjs` live path | macOS live court (browser launch, real `process.observe`/`parent`) | **Not implemented, fail-closed** |
 | `result-template.json` | Receipt/stage field contract | Implemented |
 | `fixtures/` | Synthetic Profile fixtures | Reused bytes with provenance |
@@ -36,6 +37,20 @@ proves only its model half; it cannot inspect its own source through the plain
 qjswasm `run` embedder. The self-test launches no browser, reads no process
 table, and calls no `process.*` host operation. Its live-path sibling refuses
 with a typed code.
+
+The separate host preflight uses the registered `profile: "tool"` entry because
+the plain `script run` embedder intentionally has no process or filesystem
+doors:
+
+```sh
+research/browser-profile-name-binding-exact-process/run-current-host.sh \
+  --capability-preflight
+```
+
+It must emit `IDENTITY_SOURCE_PROVEN`, one all-true capability record, the
+declared evidence id and `PASS`. It starts only an owned sleeping shell child,
+removes its scratch directory, launches no browser and reserves no ordinal.
+This proves host primitives, not V3-V5 or D1-D3.
 
 ## Provenance
 

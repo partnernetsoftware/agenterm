@@ -140,6 +140,11 @@ editing an exhausted marker. Such pressure is a finding, not a requirement.
 
 Implementation is limited to one new research directory, this specification
 and the owning PRD sentence. Production code is out of scope until a verdict.
+Before admission, a registered tool-profile capability preflight may exercise
+the exact process, durable-file, lock and digest primitives against its own
+worker and one owned non-browser child. It reserves no ordinal and produces no
+V3-V5 or D1-D3 fact; its only purpose is to reject an unusable host boundary
+before the irreversible rehearsal reservation.
 
 ## 3. Criteria and measurement discipline
 

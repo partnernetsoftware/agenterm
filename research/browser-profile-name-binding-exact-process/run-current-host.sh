@@ -17,8 +17,12 @@ REPO=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)
 DIR="$REPO/research/browser-profile-name-binding-exact-process"
 COURT="$DIR/court-current-host.qjs"
 MODEL="$DIR/binding-model.qjs"
+PREFLIGHT="$DIR/capability-preflight.qjs"
+RH_COMPAT="$REPO/scripts/qjs/lib/rh_compat.qjs"
+TEST_HARNESS="$REPO/scripts/qjs/lib/test_harness.qjs"
 TEMPLATE="$DIR/result-template.json"
 SPEC="$REPO/plan/design-browser-profile-name-binding-exact-process-experiment.md"
+MANIFEST="$REPO/agenterm.tasks.json"
 
 fail() {
   printf '%s\n' "{\"schema\":\"agenterm.profile-binding-exact-process-runner/v1\",\"ok\":false,\"code\":\"$1\"}"
@@ -29,10 +33,13 @@ usage() {
   cat <<'USAGE'
 usage: run-current-host.sh --self-test
        run-current-host.sh --static-source-scan
+       run-current-host.sh --capability-preflight
 
 --self-test            Run the platform-neutral court self-test.
 --static-source-scan   Scan this experiment's sources for forbidden
                        process-table constructs (the V2 static half).
+--capability-preflight Run the static scan and the registered tool-profile
+                       host preflight without reserving an ordinal.
 USAGE
 }
 
@@ -42,21 +49,23 @@ require_file() {
 
 static_source_scan() {
   # Forbidden constructs per spec sections 1.2 and V2, scanned over the court
-  # source: that is where the live ownership chain will live. Comments are
-  # stripped first, because a file may name a construct in order to forbid it,
-  # exactly as a reviewer reads it.
+  # sources: that is where the live ownership chain and its preflight live.
+  # Comments are stripped first, because a file may name a construct in order
+  # to forbid it, exactly as a reviewer reads it.
   #
   # The model is exempt by design: it declares the pattern table that states
   # this very rule, and its negative-test fixtures must embed a forbidden
   # construct in order to prove the scanner refuses it.
-  for pattern in '/bin/ps' '/usr/bin/ps' 'pgrep' 'ps -' 'ps axo' \
-      'session_id' 'getsid' 'getpgid' 'setpgid'; do
-    hits=$(sed 's://.*::' "$COURT" 2>/dev/null \
-      | grep -F -n -- "$pattern" || true)
-    if [ -n "$hits" ]; then
-      printf '%s\n' "{\"schema\":\"agenterm.profile-binding-exact-process-static-scan/v1\",\"ok\":false,\"code\":\"INCONCLUSIVE_IDENTITY_SOURCE\",\"pattern\":\"$pattern\"}"
-      exit 1
-    fi
+  for source in "$COURT" "$PREFLIGHT" "$RH_COMPAT" "$TEST_HARNESS"; do
+    for pattern in '/bin/ps' '/usr/bin/ps' 'pgrep' 'ps -' 'ps axo' \
+        'session_id' 'getsid' 'getpgid' 'setpgid'; do
+      hits=$(sed 's://.*::' "$source" 2>/dev/null \
+        | grep -F -n -- "$pattern" || true)
+      if [ -n "$hits" ]; then
+        printf '%s\n' "{\"schema\":\"agenterm.profile-binding-exact-process-static-scan/v1\",\"ok\":false,\"code\":\"INCONCLUSIVE_IDENTITY_SOURCE\",\"pattern\":\"$pattern\"}"
+        exit 1
+      fi
+    done
   done
   printf '%s\n' '{"schema":"agenterm.profile-binding-exact-process-static-scan/v1","ok":true,"code":"IDENTITY_SOURCE_PROVEN"}'
 }
@@ -67,6 +76,9 @@ AGENTERM_EXE=${AGENTERM_EXE:-"$REPO/target/debug/agenterm"}
 
 require_file "$COURT" court-current-host.qjs
 require_file "$MODEL" binding-model.qjs
+require_file "$PREFLIGHT" capability-preflight.qjs
+require_file "$RH_COMPAT" rh_compat.qjs
+require_file "$TEST_HARNESS" test_harness.qjs
 require_file "$TEMPLATE" result-template.json
 require_file "$SPEC" "frozen specification"
 require_file "$AGENTERM_EXE" AGENTERM_EXE
@@ -82,6 +94,12 @@ case "$1" in
     static_source_scan || fail INCONCLUSIVE_IDENTITY_SOURCE
     AGENTERM_SCRIPT_BACKEND=qjswasm "$AGENTERM_EXE" cli script run "$COURT" \
       --project-root "$REPO"
+    ;;
+  --capability-preflight)
+    static_source_scan || fail INCONCLUSIVE_IDENTITY_SOURCE
+    AGENTERM_SCRIPT_BACKEND=qjswasm "$AGENTERM_EXE" cli script task run \
+      browser-profile-name-binding-exact-process-preflight \
+      --manifest "$MANIFEST"
     ;;
   --live|rehearsal|decision)
     # The live court is deliberately unimplemented. Refusing here is the

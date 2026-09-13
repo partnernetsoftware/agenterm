@@ -3100,6 +3100,24 @@
         "cu.job-wait-cancel.terminal-truth"
       ]
     },
+    "browser-profile-name-binding-exact-process-preflight": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "exact-process-capability-preflight-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 30000,
+        "max_operations": 10000000,
+        "max_host_operations": 256,
+        "max_output_bytes": 32768
+      },
+      "network": [],
+      "evidence": [
+        "research.profile-binding-exact-process.capability-preflight"
+      ]
+    },
     "acu-mcp-provider-smoke": {
       "inputs": [
         "built-agenterm-with-acu-provider"
@@ -9037,6 +9055,24 @@
       "platforms": [
         "windows",
         "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "browser-profile-name-binding-exact-process-preflight",
+      "description": "Prove the admission-free macOS host primitives for the exact-process profile-binding experiment: owned PID, bracketed process identity and parent relation, durable read-back, exclusive locking and an independent digest.",
+      "entry": "research/browser-profile-name-binding-exact-process/capability-preflight.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
         "macos"
       ],
       "side_effects": [

@@ -1,0 +1,144 @@
+// Admission-free host capability preflight for the exact-process experiment.
+//
+// This entry must run as a registered `profile: "tool"` task. It exercises
+// real host doors but launches no browser, creates no Profile and reserves no
+// experiment ordinal. It proves only that the primitives required by a later
+// live court work on this host; it does not prove V3-V5 or D1-D3.
+
+import * as rh from "scripts/qjs/lib/rh_compat";
+import * as harness from "scripts/qjs/lib/test_harness";
+
+const EVIDENCE = "research.profile-binding-exact-process.capability-preflight";
+const PAYLOAD = "agenterm-profile-binding-exact-process-preflight/v1\n";
+const PAYLOAD_SHA256 = "864bd1bd24e2174fc5665250c38106387bdccb57fed7ee18759c90a2c9055c84";
+
+function demand(condition, code) {
+  if (!condition) { throw code; }
+}
+
+function answer(status, code) {
+  if (status !== 0) { throw code + ":" + tool_result(); }
+  return JSON.parse(tool_result());
+}
+
+function observe(pid) {
+  return answer(process_observe(pid), "capability_preflight_observe");
+}
+
+function parent(pid) {
+  return answer(process_parent(pid), "capability_preflight_parent");
+}
+
+function append_failure(current, next) {
+  return current === "" ? next : current + ";" + next;
+}
+
+const argv = rh.args();
+demand(argv.length === 1, "capability_preflight_args");
+const repo = argv[0];
+const own_pid = process_id();
+demand(own_pid > 0, "capability_preflight_own_pid");
+
+const root = rh.join(repo, ".agenterm-research-state/profile-binding-exact-process-preflight-" + own_pid);
+const payload_path = rh.join(root, "payload.txt");
+const lock_path = rh.join(root, "exclusive.lock");
+let child = -1;
+let lock_handle = -1;
+let failure = "";
+let proof = null;
+
+try {
+  demand(fs_exists(root) === 0, "capability_preflight_root_exists");
+  if (fs_create_dir_all(root) !== 0) {
+    throw "capability_preflight_create_root:" + tool_result();
+  }
+  if (fs_create_new_regular_durable(payload_path, PAYLOAD) !== 0) {
+    throw "capability_preflight_create_durable:" + tool_result();
+  }
+  demand(rh.read_text(payload_path) === PAYLOAD, "capability_preflight_readback");
+  demand(rh.sha256_file(payload_path) === PAYLOAD_SHA256, "capability_preflight_digest");
+
+  lock_handle = fs_try_lock_exclusive(lock_path);
+  demand(lock_handle >= 0, "capability_preflight_first_lock:" + tool_result());
+  demand(fs_try_lock_exclusive(lock_path) === -1, "capability_preflight_second_lock");
+
+  const own_before = observe(own_pid);
+  demand(own_before.state === "live" && own_before.start_identity !== null,
+    "capability_preflight_own_identity_before");
+
+  // macOS sh may exec the final sleep in place. The native identity is the
+  // process start time and the parent relation is unchanged across that exec.
+  child = harness.start({program: "sh", args: ["-c", "sleep 30"], timeout_ms: 60000});
+  const child_pid = process_pid(child);
+  demand(child_pid > 0, "capability_preflight_child_pid:" + tool_result());
+  const child_before = observe(child_pid);
+  const child_parent = parent(child_pid);
+  const child_after = observe(child_pid);
+  const own_after = observe(own_pid);
+
+  demand(child_before.state === "live" && child_after.state === "live",
+    "capability_preflight_child_liveness");
+  demand(child_before.start_identity !== null
+      && child_before.start_identity === child_after.start_identity,
+    "capability_preflight_child_identity_bracket");
+  demand(child_parent.state === "live" && child_parent.parent_id === own_pid,
+    "capability_preflight_parent_chain");
+  demand(own_after.state === "live"
+      && own_before.start_identity === own_after.start_identity,
+    "capability_preflight_owner_identity_bracket");
+
+  proof = {
+    schema: "agenterm.profile-binding-exact-process-capability-preflight/v1",
+    ok: true,
+    process_pid: true,
+    process_observe: true,
+    process_parent: true,
+    start_identity_bracket: true,
+    durable_readback: true,
+    exclusive_lock: true,
+    sha256_reference: true,
+    browser_launched: false,
+    ordinal_reserved: false
+  };
+} catch (error) {
+  failure = "" + error;
+}
+
+if (child >= 0) {
+  try { harness.kill(child); } catch (error) {
+    failure = append_failure(failure, "capability_preflight_child_cleanup:" + error);
+  }
+  try { harness.wait(child, 5000); } catch (error) {
+    failure = append_failure(failure, "capability_preflight_child_wait:" + error);
+  }
+  try {
+    if (process_release(child) !== 0) {
+      throw "capability_preflight_child_release:" + tool_result();
+    }
+  } catch (error) {
+    failure = append_failure(failure, "" + error);
+  }
+}
+if (lock_handle >= 0) {
+  try {
+    if (fs_unlock(lock_handle) !== 0) {
+      throw "capability_preflight_unlock:" + tool_result();
+    }
+  } catch (error) {
+    failure = append_failure(failure, "" + error);
+  }
+}
+if (fs_exists(root) === 1) {
+  try {
+    if (fs_remove_dir_all(root) !== 0) {
+      throw "capability_preflight_remove_root:" + tool_result();
+    }
+  } catch (error) {
+    failure = append_failure(failure, "" + error);
+  }
+}
+
+if (failure !== "") { throw failure; }
+print(JSON.stringify(proof));
+print("EVIDENCE " + EVIDENCE);
+print("PASS: exact-process live capability preflight");
