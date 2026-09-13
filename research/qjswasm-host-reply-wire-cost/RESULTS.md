@@ -253,16 +253,27 @@ question here.
    `workbench-smoke`'s `json_cli` deliberately do **not** do (only native-ipc's
    two parse helpers trim); the trim is now driven per reply by the census. The
    intermediate server-smoke figure was `A 16,419,630 / C 1,987,142` (73.51% /
-   22.97%); the corrected figure is 49.58% / 12.59%. (c) **Redaction** (§3): the
-   capture carried host identity, so it was rewritten by the fixed substitution
-   table before freezing and every shape, digest and measurement was regenerated
-   from the redacted bytes. The pre-redaction figures were server-smoke
-   `A 11,730,259 / C 1,990,362`, ΔC/total 49.6068%, ΔB/ΔC 12.5852%, payload
-   225,692 B; native-ipc `A 11,395,826 / C 5,338,866`, ΔC/total 30.2597%,
-   ΔB/ΔC 29.9229%, envelope 59,802 B; the home-segment rule was folded into the
-   same pass), The redaction moved ΔC/total by −0.025 and
-   −0.262 percentage points (nothing near a gate) because it changes reply
-   spelling, not reply structure. All three changes **lowered or left flat** the
+   22.97%); the corrected figure is 49.58% / 12.59%. (c) **Redaction** (§3): the capture carried host identity, so it was rewritten
+   by one fixed substitution table before freezing, every shape, digest and
+   measurement was regenerated from the redacted bytes, and the tool that did it
+   was deleted. The pass had two published stages, because the first table missed
+   a harness `home/` segment inside a stored run path. Both earlier number sets
+   are recorded here as **superseded, and void as formal results** — §3, §6 and
+   §7 carry the final set only, and `measurements.json` is the machine record:
+   - before any redaction: server `A 11,730,259 / C 1,990,362`, ΔC/total
+     49.6068%, ΔB/ΔC 12.5852%, payload 225,692 B; native-ipc
+     `A 11,395,826 / C 5,338,866`, ΔC/total 30.2597%, ΔB/ΔC 29.9229%, envelope
+     59,802 B;
+   - after the first table only (clone root, account and host rewritten; the
+     stored harness `home/` segment still spelled): native-ipc
+     `A 11,330,281 / C 5,325,661`, ΔC/total 29.9982%, ΔB/ΔC 30.1305%, envelope
+     59,073 B;
+   - **final** (the table applied to the whole tree, that `home/` segment folded
+     to `~/`): server `A 11,724,596 / C 1,989,614`, ΔC/total 49.5818%, ΔB/ΔC
+     12.5915%, payload 225,512 B; native-ipc `A 11,330,083 / C 5,325,037`,
+     ΔC/total 30.0003%, ΔB/ΔC 30.1407%, envelope 59,049 B.
+   The redaction stages moved ΔC/total by at most 0.26 percentage points, always
+   downward, because redaction changes reply spelling, not reply structure. All three changes **lowered or left flat** the
    measured saving; none of them touched a threshold, gate, journey, shape
    definition or read-field definition, and no shape was re-run to improve a
    number — the whole set was regenerated and re-measured from the corrected

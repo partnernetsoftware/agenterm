@@ -400,9 +400,11 @@ are reporters, not judged numbers.
    9.44% / 95.94%, corrected 30.00% / 30.14%); the court briefly applied a `trim`
    that two of the three journeys do not do (intermediate server figures 73.51% /
    22.97%, corrected 49.58% / 12.59%); and the frozen set was **redacted before
-   freezing** because the captured replies carried host identity (pre-redaction
-   server ΔC/total 49.6068%, native-ipc 30.2597%; post-redaction 49.58% and
-   30.00%). None of the three raised the measured saving; each was re-measured
+   freezing** because the captured replies carried host identity (the redaction
+   ran in two stages: before it, server ΔC/total 49.6068% and native-ipc
+   30.2597%; after the first table alone, native-ipc 29.9982%. Both earlier sets
+   are **superseded and void as formal results** — only the table above and
+   `measurements.json` are authoritative). None of the three raised the measured saving; each was re-measured
    from regenerated shapes, and every number set is printed in `RESULTS.md` §8.3.
 4. **Honesty clause**: no metric, threshold, journey, shape definition or
    read-field definition was changed after the numbers existed, and no shape was
