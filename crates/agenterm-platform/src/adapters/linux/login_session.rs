@@ -6,7 +6,7 @@
 #![cfg(target_os = "linux")]
 
 use std::{
-    ffi::{CStr, c_char, c_int, c_void},
+    ffi::{CStr, c_char, c_int},
     ptr::null_mut,
 };
 
@@ -17,8 +17,8 @@ use crate::login_session::{
     LoginSessionError, LoginSessionErrorKind, LoginSessionInventory, LoginSessionProvider,
     NativeLoginSessionRow, finish_inventory,
 };
+use crate::selected::systemd_library::SystemdLibrary;
 
-const LIBSYSTEMD_SONAME: &CStr = c"libsystemd.so.0";
 const MAX_SESSION_VALUE_BYTES: usize = 256;
 
 type SdGetSessions = unsafe extern "C" fn(*mut *mut *mut c_char) -> c_int;
@@ -31,18 +31,8 @@ type SdSessionPredicate = unsafe extern "C" fn(*const c_char) -> c_int;
 type SdSessionGetString = unsafe extern "C" fn(*const c_char, *mut *mut c_char) -> c_int;
 type SdSessionGetLockedHint = unsafe extern "C" fn(*const c_char, *mut c_int) -> c_int;
 
-#[link(name = "dl")]
-unsafe extern "C" {
-    fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
-    fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
-    fn dlclose(handle: *mut c_void) -> c_int;
-}
-
-const RTLD_NOW: c_int = 2;
-const RTLD_LOCAL: c_int = 0;
-
 struct SystemdLogin {
-    handle: *mut c_void,
+    _library: SystemdLibrary,
     get_sessions: SdGetSessions,
     session_get_uid: SdSessionGetUid,
     session_get_user: SdSessionGetUser,
@@ -60,38 +50,26 @@ struct SystemdLogin {
 
 impl SystemdLogin {
     fn load() -> Result<Self, LoginSessionError> {
-        // SAFETY: fixed SONAME is NUL-terminated for dlopen.
-        let handle = unsafe { dlopen(LIBSYSTEMD_SONAME.as_ptr(), RTLD_NOW | RTLD_LOCAL) };
-        if handle.is_null() {
-            return Err(unsupported(
-                "libsystemd.so.0 is unavailable on this Linux host",
-            ));
-        }
-        let loaded = (|| {
-            Ok(Self {
-                handle,
-                get_sessions: unsafe { load_symbol(handle, c"sd_get_sessions")? },
-                session_get_uid: unsafe { load_symbol(handle, c"sd_session_get_uid")? },
-                session_get_user: unsafe { load_symbol(handle, c"sd_session_get_user")? },
-                session_get_display: unsafe { load_symbol(handle, c"sd_session_get_display")? },
-                session_get_leader: unsafe { load_symbol(handle, c"sd_session_get_leader")? },
-                session_get_vt: unsafe { load_symbol(handle, c"sd_session_get_vt")? },
-                session_is_active: unsafe { load_symbol(handle, c"sd_session_is_active")? },
-                session_is_remote: unsafe { load_symbol(handle, c"sd_session_is_remote")? },
-                session_get_type: unsafe { load_symbol(handle, c"sd_session_get_type")? },
-                session_get_class: unsafe { load_symbol(handle, c"sd_session_get_class")? },
-                session_get_state: unsafe { load_symbol(handle, c"sd_session_get_state")? },
-                session_get_seat: unsafe { load_symbol(handle, c"sd_session_get_seat")? },
-                session_get_locked_hint: unsafe {
-                    load_symbol(handle, c"sd_session_get_locked_hint")?
-                },
-            })
-        })();
-        if loaded.is_err() {
-            // SAFETY: handle came from successful dlopen above.
-            unsafe { dlclose(handle) };
-        }
-        loaded
+        let library = SystemdLibrary::open()
+            .ok_or_else(|| unsupported("libsystemd.so.0 is unavailable on this Linux host"))?;
+        Ok(Self {
+            get_sessions: unsafe { load_symbol(&library, c"sd_get_sessions")? },
+            session_get_uid: unsafe { load_symbol(&library, c"sd_session_get_uid")? },
+            session_get_user: unsafe { load_symbol(&library, c"sd_session_get_user")? },
+            session_get_display: unsafe { load_symbol(&library, c"sd_session_get_display")? },
+            session_get_leader: unsafe { load_symbol(&library, c"sd_session_get_leader")? },
+            session_get_vt: unsafe { load_symbol(&library, c"sd_session_get_vt")? },
+            session_is_active: unsafe { load_symbol(&library, c"sd_session_is_active")? },
+            session_is_remote: unsafe { load_symbol(&library, c"sd_session_is_remote")? },
+            session_get_type: unsafe { load_symbol(&library, c"sd_session_get_type")? },
+            session_get_class: unsafe { load_symbol(&library, c"sd_session_get_class")? },
+            session_get_state: unsafe { load_symbol(&library, c"sd_session_get_state")? },
+            session_get_seat: unsafe { load_symbol(&library, c"sd_session_get_seat")? },
+            session_get_locked_hint: unsafe {
+                load_symbol(&library, c"sd_session_get_locked_hint")?
+            },
+            _library: library,
+        })
     }
 
     fn inventory(&self) -> Result<(bool, Vec<NativeLoginSessionRow>), LoginSessionError> {
@@ -213,13 +191,6 @@ impl SystemdLogin {
     }
 }
 
-impl Drop for SystemdLogin {
-    fn drop(&mut self) {
-        // SAFETY: unique dlopen handle; all uses finished before Drop.
-        unsafe { dlclose(self.handle) };
-    }
-}
-
 pub(crate) fn inventory() -> Result<LoginSessionInventory, LoginSessionError> {
     let api = SystemdLogin::load()?;
     let (locked, rows) = api.inventory()?;
@@ -233,17 +204,15 @@ pub(crate) fn lock_console() -> Result<(), LoginSessionError> {
     ))
 }
 
-unsafe fn load_symbol<T: Copy>(handle: *mut c_void, symbol: &CStr) -> Result<T, LoginSessionError> {
-    // SAFETY: live dlopen handle and NUL-terminated symbol name.
-    let pointer = unsafe { dlsym(handle, symbol.as_ptr()) };
-    if pointer.is_null() {
-        return Err(unsupported(
-            "libsystemd lacks a required sd-login operation for login-session inventory",
-        ));
-    }
-    debug_assert_eq!(std::mem::size_of::<T>(), std::mem::size_of::<*mut c_void>());
-    // SAFETY: T matches the named libsystemd function pointer type.
-    Ok(unsafe { std::mem::transmute_copy(&pointer) })
+unsafe fn load_symbol<T: Copy>(
+    library: &SystemdLibrary,
+    symbol: &CStr,
+) -> Result<T, LoginSessionError> {
+    // SAFETY: the caller supplies the exact libsystemd prototype and
+    // SystemdLogin retains the library longer than the copied pointer.
+    unsafe { library.symbol(symbol) }.ok_or_else(|| {
+        unsupported("libsystemd lacks a required sd-login operation for login-session inventory")
+    })
 }
 
 fn predicate(
@@ -415,4 +384,33 @@ fn provider_unavailable(detail: impl Into<String>) -> LoginSessionError {
 
 fn shape(detail: impl Into<String>) -> LoginSessionError {
     LoginSessionError::new(LoginSessionErrorKind::ProviderShape, detail)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_systemd_symbol_keeps_the_login_session_error() {
+        let closes = SystemdLibrary::close_count();
+        let Some(library) = SystemdLibrary::open() else {
+            return;
+        };
+        // SAFETY: the symbol is deliberately absent, so no function pointer is
+        // constructed or invoked.
+        let error = unsafe {
+            load_symbol::<unsafe extern "C" fn()>(
+                &library,
+                c"agenterm_systemd_symbol_that_does_not_exist",
+            )
+        }
+        .unwrap_err();
+        assert_eq!(error.kind(), LoginSessionErrorKind::Unsupported);
+        assert_eq!(
+            error.detail(),
+            "libsystemd lacks a required sd-login operation for login-session inventory"
+        );
+        drop(library);
+        assert_eq!(SystemdLibrary::close_count(), closes + 1);
+    }
 }

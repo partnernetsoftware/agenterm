@@ -1,6 +1,6 @@
 # dyn typed-symbol folding decisive experiment
 
-**IN PROGRESS · arm B killed at V0 · arms A/C undecided · not must-ship · no capability-status change**
+**DECIDED · B killed at V0 · C beat A and was integrated · no dyn capability-status change**
 
 | field | value |
 |---|---|
@@ -226,7 +226,7 @@ verdict.
 - Windows/macOS runtime parity for Linux systemd behavior. Six-cell compilation
   remains required; native behavior is owned by Linux runners.
 
-## 8. Partial result — arm B killed, A/C undecided
+## 8. Result — B killed; C wins
 
 The static API/lifetime audit followed the §4 tree through
 `B → V0 fail → kill B`. A returned `Symbol<'lib, F>` can be dereferenced and the
@@ -237,26 +237,28 @@ violates a precommitted hard constraint. Dyn therefore remains byte-identical an
 B receives no LOC or footprint measurement after its fatal safety gate.
 
 The exact witness and reasoning are recorded in
-`research/dyn-typed-symbol-fold/RESULTS.md`. This is **not yet the final
-architectural verdict**: A and C still require the two-consumer slope and runtime
-evidence. The result may be cited to reject the currently specified dyn typed-
-symbol API, but not as evidence that C wins or that all future dyn symbol seams
-are impossible.
+`research/dyn-typed-symbol-fold/RESULTS.md`. Arm C then passed the two-consumer
+experiment: consumer 1 paid a +17 production-NCLOC intercept, consumer 2 deleted
+25 NCLOC, and the integrated total is 8 NCLOC below A. Two independent loader
+implementations became one. Six-cell compilation passed, Linux aarch64 executed
+180/180 tests, and the baseline/candidate Linux x86_64 release executables were
+byte-identical. The §4 path is therefore `B→V0 fail→kill B; C→V1/D0/V2→S1/S2→F0
+pass→adopt C`. Dyn remains unchanged.
 
 | criterion | A retain | B dyn seam | C platform seam |
 |---|---:|---:|---:|
 | V0 lifetime/raw safety | current conventional ownership | **FAIL — Copy callable escapes** | not run |
-| V1 single mechanism | not run | not run | not run |
-| V2 two-consumer behavior | not run | not run | not run |
-| D0 dependency isolation | not run | not run | not run |
-| shared NCLOC after consumer 1 | not measured | not measured | not measured |
-| marginal NCLOC consumer 2 | not measured | not measured | not measured |
-| total production NCLOC | not measured | not measured | not measured |
-| independent unsafe sites | not measured | not measured | not measured |
-| L1 / L2 / L3 stripped bytes | not measured | not measured | not measured |
+| V1 single mechanism | two implementations | not run after V0 | PASS — one implementation |
+| V2 two-consumer behavior | baseline | not run | PASS — 180/180 Linux runtime |
+| D0 dependency isolation | baseline | not run | PASS — six cells, no new edge |
+| shared NCLOC after consumer 1 | 0 | not measured | +17 |
+| marginal NCLOC consumer 2 | 0 | not measured | -25 |
+| total production NCLOC | 812 | not measured | 804 |
+| loader implementations | 2 | not measured | 1 |
+| L1 / L2 / L3 byte delta | baseline | not measured | 0 / 0 / 0; whole file identical |
 
-The completed A/C section must state the exact decision-tree path, source/toolchain
-identity, every deviation from this specification, both favorable and unfavorable
-readings, negative-mutation results, and whether the result overturned the initial
-expectation. The meter and rerun commands must be sufficient for an independent
-reviewer to reproduce every number.
+The result did overturn the initial dyn-enhancement expectation: the safe economic
+winner is a private platform seam, not a new dyn API. It also rejects the opposite
+overreaction—retaining two loaders—because the second consumer made C net
+subtractive with zero delivered-byte cost. Deviations, mutations, measurement
+commands and execution provenance are in the owning `RESULTS.md`.

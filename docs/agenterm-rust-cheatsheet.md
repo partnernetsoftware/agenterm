@@ -1227,6 +1227,22 @@ different arm's code and require the owner court to fail by name.
 - Do not wrap every native callback helper in its own `catch_unwind`. Keep one mandatory boundary around each `extern "system"` callback and one around independently drained deferred work, restore phase/lifecycle state deliberately, and convert panic to typed fail-closed state there. Repeated nested catches add x64 unwind metadata and duplicate branches; accept consolidation only when callback panic cannot cross FFI and a same-profile final PE proves the size gain.
 - `catch_unwind` is not a delivery invariant when the artifact profile uses `panic = "abort"`; test-profile success can hide that mismatch completely. Any product promising panic containment needs an unwind profile for its complete dependency graph and a test executed under that exact profile. Cargo package overrides cannot change panic strategy, so isolate the product with a named profile and merge its final bytes at staging rather than silently changing sibling products.
 - When an in-process capability graph breaks a fixed main-executable size court, isolate it as a versioned fixed-name sibling `cdylib` rather than searching `PATH`, accepting an environment override, or falling back to a child process. Check ABI before resolving the call symbol, retain the library for every copied function pointer, bound request and reply independently, validate the returned protocol before exposing it, and make absence a typed failure. A panic-latching public ABI must serialize the failed-state check and execution inside the provider itself; a mutex in one consumer does not protect other callers. Build the complete provider dependency graph under an unwind profile, stage it in every platform package, and sign/validate it as its own artifact. This pattern kept the integrated Windows main PE at 3,738,112 bytes under its unchanged 4 MiB court; static linkage measured 8,865,792 bytes and was rejected.
+
+### A borrowed dynamic symbol does not lend its lifetime to a copied function pointer
+
+`libloading::Symbol<'lib, F>` carries `'lib`, but an `extern "C" fn` value `F` is
+`Copy`: dereferencing the symbol or returning it from a scoped closure erases the
+library lifetime from the resulting type. Do not advertise such an API as a
+lifetime-safe generic typed-symbol seam. A public wrapper that truly hides `F`
+cannot generically implement arbitrary C calls on stable Rust without enumerating
+signatures, exposing callable bits, or lowering through an existing ABI dispatcher.
+Use a compile-fail witness that copies the inner function pointer, not one that
+merely tries to return the wrapper. For a narrow OS adapter, a crate-private RAII
+loader may still reduce duplicated `dlopen`/`dlsym`/rollback/Drop code: keep symbol
+names, exact prototypes and product errors in each adapter; expose no raw handle or
+callable publicly; retain the library beside every copied pointer; and require the
+second real consumer to make production NCLOC net negative. A byte-identical final
+binary is valid evidence that the source/unsafe fold added no delivery footprint.
 - Validate a dynamic provider reply once at its owning boundary before any consumer parses or forwards it. A closed tagged envelope must distinguish a missing key from an explicit JSON `null`, reject unknown or contradictory success/error fields, and then bind the reply's target and command identity to the request that produced it. Keep MCP output schemas no looser than this decoder, and prove with a fake provider that a structurally valid crossed reply is never accepted as authoritative.
 - Do not pass a Rust `AtomicBool`, `Arc`, trait object, or other Rust layout across a dynamic-provider ABI. For synchronous cooperative cancellation, add an optional versioned symbol with a caller-sized callback/context descriptor, borrow it only for that call, and never store it or move it to a helper thread. A cancellation request is not a completed cancellation: map it to `Cancelled` only when the operation acknowledges a pre-effect stop such as `effect:not_performed`; after effect dispatch, preserve the authoritative reply or return an explicit outcome-unknown result. Slice interruptible waits comfortably below the worker's hard-cancel grace and prove immediate provider reuse after cancellation.
 - Cargo unifies features across every package selected by one invocation. Do not

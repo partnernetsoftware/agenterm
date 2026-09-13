@@ -1,19 +1,19 @@
 //! Linux proof of the effective user's unique active local graphical session.
 
 use std::{
-    ffi::{CStr, c_char, c_int, c_void},
+    ffi::{CStr, c_char, c_int},
     fs,
     os::unix::fs::MetadataExt as _,
     path::Path,
     ptr::null_mut,
 };
 
+use crate::selected::systemd_library::SystemdLibrary;
 use crate::{
     CapabilityStatus,
     contract::current_target_binding::{CurrentTargetBindingError, CurrentTargetBindingErrorKind},
 };
 
-const LIBSYSTEMD_SONAME: &CStr = c"libsystemd.so.0";
 const MAX_SESSION_VALUE_BYTES: usize = 256;
 const MAX_USER_SESSIONS: usize = 128;
 
@@ -25,16 +25,6 @@ type SdSessionGetString = unsafe extern "C" fn(*const c_char, *mut *mut c_char) 
 type SdSessionGetStartTime = unsafe extern "C" fn(*const c_char, *mut u64) -> c_int;
 type SdSeatGetActive =
     unsafe extern "C" fn(*const c_char, *mut *mut c_char, *mut libc::uid_t) -> c_int;
-
-#[link(name = "dl")]
-unsafe extern "C" {
-    fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
-    fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
-    fn dlclose(handle: *mut c_void) -> c_int;
-}
-
-const RTLD_NOW: c_int = 2;
-const RTLD_LOCAL: c_int = 0;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct SessionSnapshot {
@@ -189,7 +179,7 @@ fn select_unique_session<'a>(
 }
 
 struct SystemdLogin {
-    handle: *mut c_void,
+    _library: SystemdLibrary,
     pid_get_session: SdPidGetSession,
     uid_get_sessions: SdUidGetSessions,
     session_get_uid: SdSessionGetUid,
@@ -205,41 +195,28 @@ struct SystemdLogin {
 
 impl SystemdLogin {
     fn load() -> Result<Self, CurrentTargetBindingError> {
-        // SAFETY: the fixed NUL-terminated SONAME is valid for dlopen. The
-        // returned handle is retained until after all copied function pointers.
-        let handle = unsafe { dlopen(LIBSYSTEMD_SONAME.as_ptr(), RTLD_NOW | RTLD_LOCAL) };
-        if handle.is_null() {
-            return Err(unsupported(
+        let library = SystemdLibrary::open().ok_or_else(|| {
+            unsupported(
                 "login-session-provider-unavailable",
                 "the local login-session provider is unavailable",
-            ));
-        }
-        let loaded = (|| {
-            Ok(Self {
-                handle,
-                // SAFETY: each fixed symbol name is checked for NULL and cast
-                // to the exact signature declared by libsystemd's sd-login API.
-                pid_get_session: unsafe { load_symbol(handle, c"sd_pid_get_session")? },
-                uid_get_sessions: unsafe { load_symbol(handle, c"sd_uid_get_sessions")? },
-                session_get_uid: unsafe { load_symbol(handle, c"sd_session_get_uid")? },
-                session_is_active: unsafe { load_symbol(handle, c"sd_session_is_active")? },
-                session_is_remote: unsafe { load_symbol(handle, c"sd_session_is_remote")? },
-                session_get_type: unsafe { load_symbol(handle, c"sd_session_get_type")? },
-                session_get_class: unsafe { load_symbol(handle, c"sd_session_get_class")? },
-                session_get_state: unsafe { load_symbol(handle, c"sd_session_get_state")? },
-                session_get_seat: unsafe { load_symbol(handle, c"sd_session_get_seat")? },
-                session_get_start_time: unsafe {
-                    load_symbol(handle, c"sd_session_get_start_time")?
-                },
-                seat_get_active: unsafe { load_symbol(handle, c"sd_seat_get_active")? },
-            })
-        })();
-        if loaded.is_err() {
-            // SAFETY: handle came from the successful dlopen above and no
-            // function pointer escapes when construction fails.
-            unsafe { dlclose(handle) };
-        }
-        loaded
+            )
+        })?;
+        Ok(Self {
+            // SAFETY: each fixed symbol name is paired with its exact
+            // libsystemd sd-login function-pointer type.
+            pid_get_session: unsafe { load_symbol(&library, c"sd_pid_get_session")? },
+            uid_get_sessions: unsafe { load_symbol(&library, c"sd_uid_get_sessions")? },
+            session_get_uid: unsafe { load_symbol(&library, c"sd_session_get_uid")? },
+            session_is_active: unsafe { load_symbol(&library, c"sd_session_is_active")? },
+            session_is_remote: unsafe { load_symbol(&library, c"sd_session_is_remote")? },
+            session_get_type: unsafe { load_symbol(&library, c"sd_session_get_type")? },
+            session_get_class: unsafe { load_symbol(&library, c"sd_session_get_class")? },
+            session_get_state: unsafe { load_symbol(&library, c"sd_session_get_state")? },
+            session_get_seat: unsafe { load_symbol(&library, c"sd_session_get_seat")? },
+            session_get_start_time: unsafe { load_symbol(&library, c"sd_session_get_start_time")? },
+            seat_get_active: unsafe { load_symbol(&library, c"sd_seat_get_active")? },
+            _library: library,
+        })
     }
 
     fn pid_session(&self) -> Result<Vec<u8>, CurrentTargetBindingError> {
@@ -388,30 +365,18 @@ impl SystemdLogin {
     }
 }
 
-impl Drop for SystemdLogin {
-    fn drop(&mut self) {
-        // SAFETY: this is the unique retained handle returned by dlopen and all
-        // function-pointer uses have completed before Drop runs.
-        unsafe { dlclose(self.handle) };
-    }
-}
-
 unsafe fn load_symbol<T: Copy>(
-    handle: *mut c_void,
+    library: &SystemdLibrary,
     symbol: &CStr,
 ) -> Result<T, CurrentTargetBindingError> {
-    // SAFETY: caller owns a live dlopen handle and symbol is NUL-terminated.
-    let pointer = unsafe { dlsym(handle, symbol.as_ptr()) };
-    if pointer.is_null() {
-        return Err(unsupported(
+    // SAFETY: the caller supplies the exact libsystemd prototype and
+    // SystemdLogin retains the library longer than the copied pointer.
+    unsafe { library.symbol(symbol) }.ok_or_else(|| {
+        unsupported(
             "login-session-provider-incomplete",
             "the local login-session provider lacks a required operation",
-        ));
-    }
-    debug_assert_eq!(std::mem::size_of::<T>(), std::mem::size_of::<*mut c_void>());
-    // SAFETY: all callers instantiate T with the exact function-pointer type for
-    // the named libsystemd operation, checked above to have pointer size.
-    Ok(unsafe { std::mem::transmute_copy(&pointer) })
+        )
+    })
 }
 
 fn predicate(
@@ -542,6 +507,31 @@ mod tests {
     };
 
     static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(1);
+
+    #[test]
+    fn a_missing_systemd_symbol_keeps_the_binding_error() {
+        let closes = SystemdLibrary::close_count();
+        let Some(library) = SystemdLibrary::open() else {
+            return;
+        };
+        // SAFETY: the symbol is deliberately absent, so no function pointer is
+        // constructed or invoked.
+        let error = unsafe {
+            load_symbol::<unsafe extern "C" fn()>(
+                &library,
+                c"agenterm_systemd_symbol_that_does_not_exist",
+            )
+        }
+        .unwrap_err();
+        assert_eq!(error.kind(), CurrentTargetBindingErrorKind::Unsupported);
+        assert_eq!(error.code(), "login-session-provider-incomplete");
+        assert_eq!(
+            error.message(),
+            "the local login-session provider lacks a required operation"
+        );
+        drop(library);
+        assert_eq!(SystemdLibrary::close_count(), closes + 1);
+    }
 
     fn session(id: &[u8], uid: u32) -> SessionSnapshot {
         SessionSnapshot {

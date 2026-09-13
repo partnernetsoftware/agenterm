@@ -238,11 +238,12 @@ declaration → lowering → mechanism → typed-result 管线。若新增代码
 公开 Rust 面，也不因可调用而自动成为 Native Importer 的稳定产品能力；只有生产边、
 兼容性 court 与交付证据三者同时落地，才能从隔离槽晋级。
 
-候选实验 [`plan/design-dyn-typed-symbol-fold-experiment.md`](../plan/design-dyn-typed-symbol-fold-experiment.md)
-用两个真实 `libsystemd` adapter 比较“保留局部 loader / dyn 的生命周期绑定 typed-symbol
-seam / platform 内部共享 seam”。它尚未开工且不改变能力状态；只有类型系统能阻止 callable
-越过 library 生命周期、第二个消费者产生严格更好的净删除斜率、且 dyn 未获得 raw address、
-symbol 表或策略时，typed-symbol 才可能进入原子核。打平时归 platform，dyn 保持不变。
+决定性实验 [`plan/design-dyn-typed-symbol-fold-experiment.md`](../plan/design-dyn-typed-symbol-fold-experiment.md)
+已用两个真实 `libsystemd` adapter 作出裁决：通用 dyn typed-symbol seam 在 V0 即被
+`Copy` 函数指针逃离 library 生命周期的反例否决；不能用 raw address、`'static` cast 或
+第二张签名表修补。platform-private seam 则在第二消费者后净删 8 production NCLOC、把
+两个 loader/lookup/rollback/Drop 实现收成一个，并保持 Linux release 整文件逐字节一致。
+因此 dyn 原子核不扩张，符号与 product error 仍归两个 adapter，共享装载机制归 platform。
 
 当前机器证据覆盖 75-shape 矩阵、exposure ⊆ mechanism、唯一 loader、句柄复用，
 以及五词 `AbiError` 的无 wildcard 穷举兼容性 court。该 court 只冻结机制错误的身份，

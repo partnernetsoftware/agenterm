@@ -72,6 +72,13 @@ pub(crate) mod login_session;
 pub(crate) mod login_session;
 
 #[cfg(all(
+    target_os = "linux",
+    any(feature = "login-session", feature = "current-target-binding")
+))]
+#[path = "adapters/linux/systemd_library.rs"]
+pub(crate) mod systemd_library;
+
+#[cfg(all(
     feature = "login-session",
     not(any(target_os = "macos", target_os = "linux"))
 ))]
