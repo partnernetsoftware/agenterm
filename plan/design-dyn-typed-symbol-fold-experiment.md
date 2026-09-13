@@ -1,6 +1,6 @@
 # dyn typed-symbol folding decisive experiment
 
-**SPEC ONLY · not started · not must-ship · no capability-status change**
+**IN PROGRESS · arm B killed at V0 · arms A/C undecided · not must-ship · no capability-status change**
 
 | field | value |
 |---|---|
@@ -226,15 +226,26 @@ verdict.
 - Windows/macOS runtime parity for Linux systemd behavior. Six-cell compilation
   remains required; native behavior is owned by Linux runners.
 
-## 8. Result template — not started
+## 8. Partial result — arm B killed, A/C undecided
 
-Until this section and `research/dyn-typed-symbol-fold/RESULTS.md` contain measured
-results, this specification has **no architectural verdict** and must not be cited
-as evidence that dyn should gain a typed-symbol API.
+The static API/lifetime audit followed the §4 tree through
+`B → V0 fail → kill B`. A returned `Symbol<'lib, F>` can be dereferenced and the
+`Copy` function pointer `F` escapes without `'lib`; closure/HRTB APIs have the same
+escape. Hiding `F` prevents escape but stable Rust then requires per-signature
+call implementations, a macro/table, raw address, or `invoke_abi`. Every option
+violates a precommitted hard constraint. Dyn therefore remains byte-identical and
+B receives no LOC or footprint measurement after its fatal safety gate.
+
+The exact witness and reasoning are recorded in
+`research/dyn-typed-symbol-fold/RESULTS.md`. This is **not yet the final
+architectural verdict**: A and C still require the two-consumer slope and runtime
+evidence. The result may be cited to reject the currently specified dyn typed-
+symbol API, but not as evidence that C wins or that all future dyn symbol seams
+are impossible.
 
 | criterion | A retain | B dyn seam | C platform seam |
 |---|---:|---:|---:|
-| V0 lifetime/raw safety | not run | not run | not run |
+| V0 lifetime/raw safety | current conventional ownership | **FAIL — Copy callable escapes** | not run |
 | V1 single mechanism | not run | not run | not run |
 | V2 two-consumer behavior | not run | not run | not run |
 | D0 dependency isolation | not run | not run | not run |
@@ -244,7 +255,7 @@ as evidence that dyn should gain a typed-symbol API.
 | independent unsafe sites | not measured | not measured | not measured |
 | L1 / L2 / L3 stripped bytes | not measured | not measured | not measured |
 
-The completed section must state the exact decision-tree path, source/toolchain
+The completed A/C section must state the exact decision-tree path, source/toolchain
 identity, every deviation from this specification, both favorable and unfavorable
 readings, negative-mutation results, and whether the result overturned the initial
 expectation. The meter and rerun commands must be sufficient for an independent
