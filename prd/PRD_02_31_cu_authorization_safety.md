@@ -266,8 +266,12 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   typed `operation_unbound`, and the first later mutation preserves that marker
   in schema 3. Store input/output is independently capped at 4 MiB. A public
   macOS qjswasm court now proves operation mismatch consumes zero uses, the
-  intended `capabilities` operation consumes exactly one, and revocation
-  durably refuses the remaining use. The public Windows smoke owns an
+  intended `capabilities` operation consumes exactly one, bounded TTL expiry
+  and revocation durably refuse execution, and an observe-only grant for the
+  canonical `window-place.center` operation refuses before effect with
+  `scope_missing`. It also scans every published audit record from the journey
+  and rejects credential, installation-key, lease, secret, session and token
+  fields. The public Windows smoke owns an
   isolated one-shot observe grant:
   its first `capabilities` command succeeds, the second is refused as
   exhausted, and a separately revoked grant is refused before dispatch. Four
@@ -330,8 +334,9 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   `authorized` decision and process-bounded authority scope. Independent
   window enumeration confirms the reported placement, and the smoke rejects
   credential-like fields from the published audit records.
-- [ ] This checkpoint proves current-target one-shot exhaustion and revocation,
-  but does not yet prove bounded expiry through the public gate, every
-  actuation verb, credential absence from every published artifact, Windows
-  ARM64, another OS, or the required remote-transport security review. The
+- [ ] This checkpoint proves current-target one-shot exhaustion, bounded expiry,
+  revocation, and one representative actuation refusal through public gates,
+  but does not yet prove every actuation verb, credential absence from every
+  published artifact, Windows ARM64, another OS, or the required
+  remote-transport security review. The
   module therefore remains planned/partial rather than shipped.

@@ -26,6 +26,26 @@ function reply(output, label) {
   return JSON.parse(output.stdout.trim());
 }
 
+function wait_until_utc_ms(deadline_utc_ms, label) {
+  const wait_deadline = rh.now_ms() + 2000;
+  while (rh.now_ms() < deadline_utc_ms) {
+    ensure(rh.now_ms() < wait_deadline, label + "_timeout");
+    rh.sleep_ms(5);
+  }
+}
+
+function assert_audit_has_no_authority_material(path) {
+  const text = rh.read_text(path).toLowerCase();
+  ensure(text !== "", "cu_persisted_grant_audit_empty");
+  const forbidden = [
+    "\"credential\"", "\"install_key\"", "\"install-key\"",
+    "\"lease\"", "\"secret\"", "\"session\"", "\"token\""
+  ];
+  for (let i = 0; i < forbidden.length; i = i + 1) {
+    ensure(text.indexOf(forbidden[i]) < 0, "cu_persisted_grant_audit_authority_material:" + forbidden[i]);
+  }
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   print(declared_evidence[0]);
@@ -110,6 +130,54 @@ try {
   ]);
   const final_reply = reply(final_output, "cu_persisted_grant_final_list");
   ensure(final_reply.data.grants[0].consumed_uses === 1, "cu_persisted_grant_revoked_consumed");
+
+  print("STEP bounded expiry is refused through the public gate");
+  const expiry_store = rh.join(context.run_directory, "expiry-grants.json");
+  const expiry_created_output = run(executable, context.run_directory, [
+    "grant", "create", "--target", "current", "--scopes", "observe",
+    "--operations", "capabilities", "--ttl-ms", "50", "--max-uses", "1",
+    "--grant-store", expiry_store
+  ]);
+  const expiry_created = reply(expiry_created_output, "cu_persisted_grant_expiry_create");
+  ensure(expiry_created_output.success === true && expiry_created.ok === true,
+    "cu_persisted_grant_expiry_create_failed");
+  const expiry_grant = expiry_created.data.grant;
+  wait_until_utc_ms(expiry_grant.expires_at_utc_ms, "cu_persisted_grant_expiry_wait");
+  const expired_output = run(executable, context.run_directory, [
+    "--target", "current", "--grant-id", expiry_grant.grant_id,
+    "--grant-store", expiry_store, "capabilities"
+  ]);
+  const expired = reply(expired_output, "cu_persisted_grant_expired");
+  ensure(expired_output.success !== true && expired.ok === false,
+    "cu_persisted_grant_expired_false_success");
+  ensure(expired.error.code === "refused", "cu_persisted_grant_expired_error_kind");
+  ensure(expired.error.message.indexOf("expired") >= 0,
+    "cu_persisted_grant_expired_reason");
+
+  print("STEP observe-only authority refuses actuation before effect");
+  const actuation_store = rh.join(context.run_directory, "actuation-grants.json");
+  const actuation_created_output = run(executable, context.run_directory, [
+    "grant", "create", "--target", "current", "--scopes", "observe",
+    "--operations", "window-place.center", "--ttl-ms", "60000", "--max-uses", "1",
+    "--grant-store", actuation_store
+  ]);
+  const actuation_created = reply(actuation_created_output, "cu_persisted_grant_actuation_create");
+  ensure(actuation_created_output.success === true && actuation_created.ok === true,
+    "cu_persisted_grant_actuation_create_failed");
+  const actuation_grant = actuation_created.data.grant;
+  const actuation_output = run(executable, context.run_directory, [
+    "--target", "current", "--grant-id", actuation_grant.grant_id,
+    "--grant-store", actuation_store, "window-place", "--action", "center",
+    "--window", "1"
+  ]);
+  const actuation = reply(actuation_output, "cu_persisted_grant_actuation");
+  ensure(actuation_output.success !== true && actuation.ok === false,
+    "cu_persisted_grant_actuation_false_success");
+  ensure(actuation.error.code === "refused", "cu_persisted_grant_actuation_error_kind");
+  ensure(actuation.error.message.indexOf("scope_missing") >= 0,
+    "cu_persisted_grant_actuation_error_reason");
+
+  assert_audit_has_no_authority_material(rh.join(context.run_directory, "cu-audit.jsonl"));
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
@@ -121,7 +189,7 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
-  print("PASS: persisted grants bind exact operations, preserve budgets on refusal, and revoke durably");
+  print("PASS: persisted grants bind operations, expire and revoke durably, refuse actuation without scope, and keep authority material out of audit records");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
