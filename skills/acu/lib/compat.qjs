@@ -24,13 +24,6 @@ export const LEGACY_TODO_GAP_IDS = [
   "acu.dynamic.004", "acu.dynamic.075",
 ];
 
-function contains(values, wanted) {
-  for (let i = 0; i < values.length; i = i + 1) {
-    if (values[i] === wanted) { return true; }
-  }
-  return false;
-}
-
 function append(out, values) {
   for (let i = 0; i < values.length; i = i + 1) { out.push(values[i]); }
 }
@@ -795,7 +788,7 @@ export function canonicalize(input) {
     }
     return boundary;
   }
-  if (!contains(LEGACY_TOP_LEVEL, entry)) {
+  if (!LEGACY_TOP_LEVEL.includes(entry)) {
     return exec_with_prefix(extracted.prefix, command_args);
   }
   const mapped = rewrite.rewrite(command_args);

@@ -18,13 +18,6 @@ const DIRECT_VERBS = [
   "movewin", "resize", "maximize", "launch", "quit", "hide", "show", "ps"
 ];
 
-function contains(values, wanted) {
-  for (let i = 0; i < values.length; i = i + 1) {
-    if (values[i] === wanted) { return true; }
-  }
-  return false;
-}
-
 function usage(command, message) {
   return { kind: "usage", command: command, message: message };
 }
@@ -121,7 +114,7 @@ function flag_pairs(flags, skipped) {
   const names = Object.keys(flags);
   for (let i = 0; i < names.length; i = i + 1) {
     const name = names[i];
-    if (contains(skipped, name)) { continue; }
+    if (skipped.includes(name)) { continue; }
     const value = flags[name];
     if (value === undefined) { continue; }
     if (value === true) { out.push("--" + name); }
@@ -257,7 +250,7 @@ function expectation_envelope(raw) {
 function query(rest, flags) {
   const names = Object.keys(flags);
   for (let i = 0; i < names.length; i = i + 1) {
-    if (contains(QUERY_TODO_FLAGS, names[i])) {
+    if (QUERY_TODO_FLAGS.includes(names[i])) {
       return todo("acu.dynamic.077", "query", "query predicate requires a later typed adapter");
     }
   }
@@ -309,7 +302,7 @@ function elements(rest, flags) {
   const names = Object.keys(flags);
   const allowed = ["actionable", "max", "depth", "page", "tab-id", "profile"];
   for (let i = 0; i < names.length; i = i + 1) {
-    if (!contains(allowed, names[i])) {
+    if (!allowed.includes(names[i])) {
       return usage("elements",
         "elements accepts only --actionable, --max, --depth, --page, --tab-id and --profile");
     }
@@ -387,7 +380,7 @@ function invoke(rest, flags) {
     action = take_first(rest);
     value = take_first(rest);
   }
-  if (action !== undefined && action !== null && !contains(INVOKE_ACTIONS, action)) {
+  if (action !== undefined && action !== null && !INVOKE_ACTIONS.includes(action)) {
     return todo("acu.dynamic.079", "invoke", "invoke action is not in the typed action set");
   }
   const out = ["invoke", "--window", handle];
@@ -622,7 +615,7 @@ function click(verb, rest, flags) {
       return usage(verb, verb + " pixel coordinates require --to desktop");
     }
     const lower = ("" + target).toLowerCase();
-    if (!contains(["desktop", "screen", "global", "all"], lower)) {
+    if (!["desktop", "screen", "global", "all"].includes(lower)) {
       return todo("acu.dynamic.094", verb, "window-local pixel delivery needs a typed mechanism");
     }
     const x = take_first(rest);
@@ -704,7 +697,7 @@ export function rewrite(input) {
   const rest = { items: copy_from(parsed._, 1), index: 0 };
   const flags = parsed.flags;
 
-  if (contains(DIRECT_VERBS, verb)) { return exec(joined([verb], flags, rest)); }
+  if (DIRECT_VERBS.includes(verb)) { return exec(joined([verb], flags, rest)); }
 
   if (verb === "elements") { return elements(rest, flags); }
   if (verb === "query") { return query(rest, flags); }
@@ -778,13 +771,13 @@ export function rewrite(input) {
     const target = take_handle(rest);
     const relation = take_first(rest);
     const relative = take_first(rest);
-    if (target === null || relative === undefined || !contains(["above", "below"], relation)) {
+    if (target === null || relative === undefined || !["above", "below"].includes(relation)) {
       return usage("orderwin", "orderwin needs TARGET above|below RELATIVE");
     }
     return exec(joined(["orderwin", "--window", target, "--relation", relation,
       "--relative", relative], flags, rest));
   }
-  if (contains(["focus", "raise", "minimize", "restore"], verb)) {
+  if (["focus", "raise", "minimize", "restore"].includes(verb)) {
     return window_action(verb, rest, flags);
   }
   if (verb === "hit") {

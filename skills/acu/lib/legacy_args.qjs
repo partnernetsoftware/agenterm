@@ -35,13 +35,6 @@ function copyArgv(argv) {
   return out;
 }
 
-function contains(values, wanted) {
-  for (let i = 0; i < values.length; i = i + 1) {
-    if (values[i] === wanted) { return true; }
-  }
-  return false;
-}
-
 function boolWord(value) {
   if (typeof value !== "string") { return false; }
   const lower = value.toLowerCase();
@@ -97,7 +90,7 @@ export function parseArgs(argv) {
       } else {
         const name = current.slice(2);
         const next = input[i + 1];
-        if (contains(BOOL_FLAGS, name)) {
+        if (BOOL_FLAGS.includes(name)) {
           if (next !== undefined && boolWord(next)) {
             flags[name] = next;
             i = i + 1;
@@ -119,7 +112,7 @@ export function parseArgs(argv) {
 }
 
 function globalName(name) {
-  return contains(GLOBAL_VALUE_FLAGS, name) || name === "json";
+  return GLOBAL_VALUE_FLAGS.includes(name) || name === "json";
 }
 
 // Extracts global flags wherever the legacy parser accepted them (before the
@@ -158,7 +151,7 @@ export function extractGlobals(argv) {
       remaining.push(current);
       continue;
     }
-    if (seen[name] === true && !contains(REPEATABLE_GLOBAL_FLAGS, name)) {
+    if (seen[name] === true && !REPEATABLE_GLOBAL_FLAGS.includes(name)) {
       fail("acu_legacy_global_duplicate", "--" + name);
     }
     seen[name] = true;
