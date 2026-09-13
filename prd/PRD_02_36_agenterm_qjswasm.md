@@ -66,6 +66,9 @@ agenterm-qjswasm
 │  │  └─ startup-smoke now reads `process.list` directly: one bounded platform
 │  │     facade replaces the pgrep/tasklist branches and their text parser,
 │  │     deleting 37 script LOC and one child process per inventory snapshot
+│  │  └─ `fs.symlink_metadata` projects the platform facade's Unix mode as octal
+│  │     text: native-ipc-smoke no longer launches GNU/BSD `stat` probes or owns
+│  │     their platform-specific parsing branch
 │  ├─ [x] declaration-driven Native Importer composition
 │  │  ├─ user problem: scripts need an extensible native surface without copying a loader or ABI executor
 │  │  ├─ invariant: spec/schema/catalog/nullability and exact-family cardinality are local qjswasm policy

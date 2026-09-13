@@ -410,18 +410,9 @@ function registration_count(directory) {
 }
 
 function unix_mode(context, target) {
-  const path_text = "" + target;
-  const output = rh.command("stat", ["-c", "%a", path_text], { timeout_ms: 2000 });
-  record(context, ["-c", "%a", path_text], output, output.success === true ? 0 : 1);
-  if (output.success === true) {
-    return output.stdout.trim();
-  }
-  const fallback_output = rh.command("stat", ["-f", "%Lp", path_text], { timeout_ms: 2000 });
-  record(context, ["-f", "%Lp", path_text], fallback_output, fallback_output.success === true ? 0 : 1);
-  if (fallback_output.success === true) {
-    return fallback_output.stdout.trim();
-  }
-  throw "native_ipc_unix_stat_unavailable";
+  const mode = rh.symlink_metadata("" + target).unix_mode;
+  if (typeof mode !== "string") { throw "native_ipc_unix_mode_unavailable"; }
+  return mode;
 }
 
 // ---- entry ----------------------------------------------------------------

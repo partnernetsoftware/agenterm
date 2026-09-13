@@ -970,18 +970,22 @@ pub(crate) fn install(
             let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
             answer(&state, "fs.symlink_metadata", || {
                 let path = utf8(path)?;
-                let meta = std::fs::symlink_metadata(path)
+                let meta = agenterm_platform::filesystem_entry::inspect_path(path.as_ref())
                     .map_err(|e| format!("fs.symlink_metadata `{path}`: {e}"))?;
                 Ok(serde_json::json!({
-                    "is_file": meta.is_file(),
-                    "is_dir": meta.is_dir(),
-                    "is_symlink": meta.file_type().is_symlink(),
-                    "len": meta.len(),
+                    "is_file": meta.facts.is_file(),
+                    "is_dir": meta.facts.is_directory(),
+                    "is_symlink": meta.facts.is_link_like(),
+                    "len": meta.length,
                     // Milliseconds since the Unix epoch, or null where the
                     // filesystem has no modification time. `target-report`
                     // (oldest/newest write, age) was the one rh script the door
                     // could not carry without it.
-                    "modified_ms": modified_ms(&meta),
+                    "modified_ms": meta.modified_unix_ns
+                        .and_then(|value| u64::try_from(value / 1_000_000).ok()),
+                    // Permission bits only, in the same octal text form as
+                    // `stat %a`; null on hosts without Unix mode bits.
+                    "unix_mode": meta.unix_mode.map(|value| format!("{:o}", value & 0o7777)),
                 })
                 .to_string())
             })

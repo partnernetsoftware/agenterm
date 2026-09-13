@@ -4751,6 +4751,11 @@ mechanism: on Windows it requires an opened handle through the platform
 accessors are unstable. Never substitute a canonical path for object identity.
 When metadata crosses a JSON/JavaScript boundary, encode wide sizes, timestamps
 and native ids as decimal strings so binary64 cannot round them.
+If a platform facade already carries a native metadata fact, project that fact
+through the existing host import instead of spawning `stat` (or another
+platform-specific text witness) and parsing its dialect in the guest. Publish
+Unix permission bits as bounded octal text and `null` on hosts without that
+fact; the platform facade remains the only native metadata implementation.
 
 Creating a new durable file is a different door from opening an existing one. An
 exclusive create uses `O_CREAT|O_EXCL|O_NOFOLLOW` on Unix and `NtCreateFile` with

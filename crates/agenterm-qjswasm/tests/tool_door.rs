@@ -359,6 +359,28 @@ fn fs_metadata_reports_a_modification_time() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn symlink_metadata_reports_unix_permission_bits_without_a_process_witness() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let dir = std::env::temp_dir().join(format!("agenterm-mode-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let file = dir.join("mode.txt");
+    std::fs::write(&file, "x").expect("fixture");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640))
+        .expect("set fixture mode");
+    let out = run_tool(&format!(
+        r#"
+        if (fs_symlink_metadata("{}") !== 0) {{ return "metadata: " + tool_result(); }}
+        return JSON.parse(tool_result()).unix_mode;
+        "#,
+        file.display()
+    ));
+    assert_eq!(string_of(&out), "640");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A handle answers its child's OS pid before and after the wait, and a
 /// second wait replays the first answer. rh's `child.id` backed ~40 identity
 /// checks in the smoke scripts, and rh let a script `wait_with_output` a child
