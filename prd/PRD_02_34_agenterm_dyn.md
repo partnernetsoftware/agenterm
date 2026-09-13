@@ -168,6 +168,11 @@ tinyvm ──仍只提供 Wasm 执行与 host bridge──> 不直接依赖 dyn
 正交的机制代数成为上层删除平行流程的支点。最终形态是“策略在上层，
 策略以数据表达；机制在 dyn，机制只实现一次”。
 
+**工程经济目标**：折叠不是审美性重构。它要提高每一字节源码承载的
+有效语义，用更少的平行实现同时服务更多 transport、ABI 家族和上层能力。
+删除的空间必须转换为可观测的时间、算力、验证或新能力预算，而不是
+被新增的间接层抵消。
+
 1. **[ ] 建立统一调用中间表示**：由 qjswasm 定义 `PreparedAbiCall`
    与 `NativeOutcome`；raw block 和 JSON 只是两个 decoder/encoder，不再各自拥有
    load、dispatch、invoke 与 dyn-error mapping 流程。
@@ -180,7 +185,10 @@ tinyvm ──仍只提供 Wasm 执行与 host bridge──> 不直接依赖 dyn
    `NativeOutcome`；transport 只负责最后的字节编码，不重做 ABI 类型判定。
 5. **[ ] 用减法验收**：每个增量必须同时证明公开错误/输出不漂移，
    且删除一类家族专用 arm/helper/mapper 或手写清单；只换名不算折叠。
-6. **[-] 暂不扩张机制矩阵**：没有真实消费者的 callback、struct-by-value、
+6. **[ ] 记录四栏经济账**：每叶记录“删除的重复表达 / 保留的公开语义 /
+   释放的 LOC、字节、步数、编译时间或维护触点 / 该预算投入的新能力”。
+   无法得到至少一项净减法的候选是新抽象成本，不得冒充折叠。
+7. **[-] 暂不扩张机制矩阵**：没有真实消费者的 callback、struct-by-value、
    新 variadic 或 JIT 不得为了“看起来完整”进入 dyn。
 
 公开黑盒 owner 仍是 qjswasm `native_door` / `native_door_schema` / native+ACU

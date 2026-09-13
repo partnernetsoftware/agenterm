@@ -72,6 +72,10 @@ agenterm-qjswasm
 │  │  │  ├─ [ ] one NativeOutcome feeds bit, JSON-scalar and region-snapshot encoders
 │  │  │  ├─ evidence: each leaf removes a named parallel arm/helper/table while preserving public
 │  │  │  │     bytes, typed failures, check-before-loader and native+ACU composition
+│  │  │  ├─ economic account: record removed duplication, preserved semantics, released
+│  │  │  │     LOC/bytes/steps/build-time/maintenance touchpoints, and the capability funded next
+│  │  │  ├─ net-reduction gate: an added abstraction that removes no parallel truth is overhead,
+│  │  │  │     not folding, and must not consume the space it claims to release
 │  │  │  ├─ safe failure: if ownership, ordering or byte parity cannot be retained, keep the old path
 │  │  │  └─ non-goal: no new ABI shape, symbol policy, tinyvm→dyn dependency or JIT authorization
 │  │  ├─ [x] JSON pointer calls take one call-scoped host region per pointer position
