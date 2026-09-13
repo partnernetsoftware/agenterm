@@ -37,7 +37,10 @@ const NATIVE_BOUNDARY_MARKERS: &[&str] = &[
     "#[link(",
 ];
 
-const PRODUCT_COUPLING_MARKERS: &[&str] = &[
+/// Product source coupling: naming the product crate or its modules. Banned
+/// everywhere in `agenterm-platform`, adapters included: the crate is embedded
+/// by other applications and must not compile against the product.
+const PRODUCT_SOURCE_COUPLING_MARKERS: &[&str] = &[
     "crate::client",
     "crate::commands",
     "crate::control_center",
@@ -46,10 +49,33 @@ const PRODUCT_COUPLING_MARKERS: &[&str] = &[
     "crate::theme",
     "crate::ui_",
     "agenterm::",
-    "AGENTERM_",
 ];
 
+/// Product-prefixed environment names. The adapters read a few of them by
+/// convention for the products that embed this crate, so they are allowed under
+/// `src/adapters/`; anywhere else — a contract, a facade, a service — the prefix
+/// is a leak of product naming into code that must work for every consumer.
+const PRODUCT_ENV_PREFIX: &str = "AGENTERM_";
+
 const PLATFORM_CRATE: &str = "crates/agenterm-platform";
+
+/// Raw OS mechanisms: calling the OS directly, naming an OS binding crate, or
+/// linking a native library. Inside `agenterm-platform` these belong to the
+/// adapters and to the one selector; a facade that has to name a target must
+/// still go through them rather than reaching the OS itself.
+const RAW_OS_MECHANISM_MARKERS: &[&str] = &[
+    "windows_sys::",
+    "std::os::windows",
+    "std::os::unix",
+    "libc::",
+    "objc2::",
+    "core_foundation::",
+    "rmux_pty::",
+    "softbuffer::",
+    "winit::",
+    "raw_window_handle::",
+    "#[link(",
+];
 
 const SUBSYSTEM_ENTRYPOINTS: &[&str] = &["src/bin/agenterm.rs", "src/bin/agenterm-cc.rs"];
 const WINDOWS_SUBSYSTEM_ATTRIBUTE: &str = "#![cfg_attr(windows, windows_subsystem = \"windows\")]";
@@ -146,35 +172,66 @@ fn platform_crate_native_mechanics_stay_in_selected_and_adapters() {
             .expect("source is below manifest root")
             .to_string_lossy()
             .replace('\\', "/");
-        if relative == format!("{PLATFORM_CRATE}/src/selected.rs")
-            || relative.starts_with(&format!("{PLATFORM_CRATE}/src/adapters/"))
-        {
-            continue;
-        }
         let source = fs::read_to_string(&path).expect("read Rust source");
         let production = mask_test_items(&mask_comments_and_strings(&source));
-        for marker in NATIVE_BOUNDARY_MARKERS {
-            if let Some(position) = production.find(marker) {
-                let line = production[..position]
-                    .bytes()
-                    .filter(|byte| *byte == b'\n')
-                    .count()
-                    + 1;
-                violations.push(format!(
-                    "{relative}:{line}: native marker `{marker}` must stay in selected.rs or adapters"
-                ));
+        let owner = platform_selection_owner(&relative);
+        // Routing is read with string literals kept: a facade hands the choice
+        // to its adapter with `#[path = "adapters/…"]`, and blanking the literal
+        // would hide exactly the delegation this gate is looking for.
+        let routes = routes_to_selection_owner(&mask_test_items(&mask_comments(&source)));
+        // Raw OS mechanics belong to the adapters and to the one selector. A
+        // facade may name a target, but it must not reach the OS itself.
+        if !owner {
+            for marker in RAW_OS_MECHANISM_MARKERS {
+                if let Some(position) = production.find(marker) {
+                    violations.push(format!(
+                        "{relative}:{}: raw OS mechanism `{marker}` must stay in selected.rs or adapters",
+                        line_of(&production, position)
+                    ));
+                }
             }
         }
-        if let Some((position, target)) = find_cfg_target(&production) {
-            let line = production[..position]
-                .bytes()
-                .filter(|byte| *byte == b'\n')
-                .count()
-                + 1;
+        // A target predicate outside those owners has to be the thin gate of a
+        // file that visibly delegates (`crate::selected`, its own `selected`
+        // submodule, or an adapter path), a helper that only exists for the
+        // platforms that have the mechanism (`any(target_os = .., test)`), or a
+        // named exception below. Anything else is a new selector, and a new
+        // selector is a leak rather than a stale test.
+        if owner {
+            continue;
+        }
+        for selection in cfg_predicates(&production) {
+            if !predicate_selects_a_target(&selection.predicate) {
+                continue;
+            }
+            if routes
+                || predicate_requires_test(&selection.predicate)
+                || listed_selection_exception(&relative)
+            {
+                continue;
+            }
             violations.push(format!(
-                "{relative}:{line}: platform cfg target `{target}` must stay in selected.rs or adapters"
+                "{relative}:{}: target predicate `{}` is not a gate over selected.rs or adapters",
+                line_of(&production, selection.predicate_at),
+                selection.predicate.trim()
             ));
         }
+    }
+
+    for (relative, reason) in NATIVE_SELECTION_EXCEPTIONS {
+        let path = root.join(relative);
+        assert!(
+            path.is_file(),
+            "named selection exception {relative} must still exist ({reason})"
+        );
+        let source = fs::read_to_string(&path).expect("read named exception");
+        let production = mask_test_items(&mask_comments_and_strings(&source));
+        assert!(
+            cfg_predicates(&production)
+                .iter()
+                .any(|selection| predicate_selects_a_target(&selection.predicate)),
+            "named selection exception {relative} no longer selects a target; drop the entry ({reason})"
+        );
     }
 
     assert!(
@@ -182,6 +239,221 @@ fn platform_crate_native_mechanics_stay_in_selected_and_adapters() {
         "platform contracts/services contain native mechanics or OS selection:\n{}",
         violations.join("\n")
     );
+}
+
+/// The crate's selection surface: the one selector, any per-feature selector,
+/// and the adapters. Only these may hold raw OS mechanics or name a target.
+fn platform_selection_owner(relative: &str) -> bool {
+    let prefix = format!("{PLATFORM_CRATE}/src/");
+    let Some(within) = relative.strip_prefix(&prefix) else {
+        return false;
+    };
+    within == "selected.rs" || within.ends_with("/selected.rs") || within.starts_with("adapters/")
+}
+
+/// A file that hands the choice to an owner instead of implementing it.
+fn routes_to_selection_owner(production: &str) -> bool {
+    production.contains("crate::selected")
+        || production.contains("mod selected;")
+        || production.contains("adapters/")
+}
+
+/// `cfg(test)` and `cfg(all(test, ..))` can only hold under `cargo test`.
+/// `cfg(any(target_os = "linux", test))` stays product-visible on Linux, so it
+/// is not test-only and must be classified like any other target predicate.
+fn predicate_requires_test(predicate: &str) -> bool {
+    match predicate_operator(predicate) {
+        "test" => true,
+        "all" => split_top_level_arguments(&predicate_after_operator(predicate))
+            .iter()
+            .any(|argument| predicate_requires_test(argument)),
+        _ => false,
+    }
+}
+
+/// The operator of one predicate: `test`, `all`, `any`, or an empty string when
+/// the predicate has no argument list.
+fn predicate_operator(predicate: &str) -> &str {
+    let trimmed = predicate.trim();
+    match trimmed.find('(') {
+        Some(open) => trimmed[..open].trim(),
+        None => trimmed,
+    }
+}
+
+/// The argument list of `all(..)` / `any(..)`, without the operator itself.
+fn predicate_after_operator(predicate: &str) -> String {
+    let Some(open) = predicate.find('(') else {
+        return String::new();
+    };
+    let Some(close) = predicate.rfind(')') else {
+        return String::new();
+    };
+    if close <= open {
+        return String::new();
+    }
+    predicate[open + 1..close].to_owned()
+}
+
+/// Split one predicate list on its top-level commas.
+fn split_top_level_arguments(predicate: &str) -> Vec<String> {
+    let mut arguments = Vec::new();
+    let mut depth = 0_u32;
+    let mut start = 0;
+    for (index, character) in predicate.char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                arguments.push(predicate[start..index].to_owned());
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    arguments.push(predicate[start..].to_owned());
+    arguments
+        .into_iter()
+        .map(|argument| argument.trim().to_owned())
+        .filter(|argument| !argument.is_empty())
+        .collect()
+}
+
+/// One compile-time predicate found in masked source.
+struct CfgPredicate {
+    /// Byte offset of the predicate's first character.
+    predicate_at: usize,
+    /// Byte offset of the `#` that starts the attribute, when this predicate is
+    /// a `#[cfg(..)]` attribute rather than a `cfg!(..)` expression or a
+    /// `#[cfg_attr(..)]` attribute.
+    attribute_at: Option<usize>,
+    predicate: String,
+}
+
+/// Every `cfg(..)` / `cfg_attr(..)` / `cfg!(..)` predicate in masked source.
+fn cfg_predicates(source: &str) -> Vec<CfgPredicate> {
+    let bytes = source.as_bytes();
+    let mut predicates = Vec::new();
+    for name in ["cfg", "cfg_attr"] {
+        let mut cursor = 0;
+        while let Some(relative) = source[cursor..].find(name) {
+            let start = cursor + relative;
+            let before_is_identifier =
+                start > 0 && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_');
+            let after_name = start + name.len();
+            let after_is_identifier = after_name < bytes.len()
+                && (bytes[after_name].is_ascii_alphanumeric() || bytes[after_name] == b'_');
+            if before_is_identifier || after_is_identifier {
+                cursor = after_name;
+                continue;
+            }
+            let mut open = after_name;
+            while open < bytes.len() && bytes[open].is_ascii_whitespace() {
+                open += 1;
+            }
+            let mut expression = false;
+            if name == "cfg" && open < bytes.len() && bytes[open] == b'!' {
+                expression = true;
+                open += 1;
+                while open < bytes.len() && bytes[open].is_ascii_whitespace() {
+                    open += 1;
+                }
+            }
+            if open >= bytes.len() || bytes[open] != b'(' {
+                cursor = after_name;
+                continue;
+            }
+            let mut depth = 0_u32;
+            let mut end = open;
+            for (offset, byte) in bytes[open..].iter().copied().enumerate() {
+                match byte {
+                    b'(' => depth += 1,
+                    b')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = open + offset;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            predicates.push(CfgPredicate {
+                predicate_at: open + 1,
+                attribute_at: if expression || name == "cfg_attr" {
+                    None
+                } else {
+                    attribute_start(bytes, start)
+                },
+                predicate: source[open + 1..end].to_owned(),
+            });
+            cursor = (end + 1).max(after_name);
+        }
+    }
+    predicates.sort_by_key(|selection| selection.predicate_at);
+    predicates
+}
+
+/// The `#` that opens the attribute containing `name_at`, if this occurrence is
+/// an attribute. The gap may hold `[`, `!` (inner attribute) and whitespace.
+fn attribute_start(bytes: &[u8], name_at: usize) -> Option<usize> {
+    let mut cursor = name_at;
+    while cursor > 0 {
+        cursor -= 1;
+        match bytes[cursor] {
+            b'[' | b'!' => continue,
+            byte if byte.is_ascii_whitespace() => continue,
+            b'#' => return Some(cursor),
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// True when a predicate names the target it compiles for.
+fn predicate_selects_a_target(predicate: &str) -> bool {
+    identifier_tokens(predicate).any(|(_, token)| {
+        // `target_arch` is deliberately absent: an architecture-specialized SIMD
+        // path is a performance choice inside a neutral module, not OS selection.
+        matches!(token, "target_os" | "target_family" | "windows" | "unix")
+    })
+}
+
+/// Selection debt that has no owner to route to yet. Each entry names the file
+/// and why the predicate is std-only platform semantics rather than a mechanism;
+/// the caller verifies every entry still exists and still selects a target.
+const NATIVE_SELECTION_EXCEPTIONS: &[(&str, &str)] = &[
+    (
+        "crates/agenterm-platform/src/device_inventory.rs",
+        "cfg-confined std-only locator type",
+    ),
+    (
+        "crates/agenterm-platform/src/filesystem_create.rs",
+        "cfg-confined std-only Windows path semantics",
+    ),
+    (
+        "crates/agenterm-platform/src/contract/host_pressure.rs",
+        "contract helper that exists only on the platform with the mechanism and under test; it holds no raw OS call, and moving it into the owning facade is the recorded next step",
+    ),
+    (
+        "crates/agenterm-platform/src/contract/login_session.rs",
+        "contract helper that exists only on the platform with the mechanism and under test; it holds no raw OS call, and moving it into the owning facade is the recorded next step",
+    ),
+];
+
+fn listed_selection_exception(relative: &str) -> bool {
+    NATIVE_SELECTION_EXCEPTIONS
+        .iter()
+        .any(|(path, _)| *path == relative)
+}
+
+/// The 1-based line a byte offset falls on.
+fn line_of(source: &str, position: usize) -> usize {
+    source[..position]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        + 1
 }
 
 #[test]
@@ -224,7 +496,7 @@ fn platform_crate_has_no_agenterm_product_dependency_or_source_coupling() {
             .replace('\\', "/");
         let source = fs::read_to_string(&path).expect("read Rust source");
         let production = mask_test_items(&mask_comments(&source));
-        for marker in PRODUCT_COUPLING_MARKERS {
+        for marker in PRODUCT_SOURCE_COUPLING_MARKERS {
             if let Some(position) = production.find(marker) {
                 let line = production[..position]
                     .bytes()
@@ -236,11 +508,25 @@ fn platform_crate_has_no_agenterm_product_dependency_or_source_coupling() {
                 ));
             }
         }
+        let in_adapters = relative.contains("/src/adapters/");
+        if !in_adapters && production.contains(PRODUCT_ENV_PREFIX) {
+            let position = production
+                .find(PRODUCT_ENV_PREFIX)
+                .expect("prefix is present");
+            let line = production[..position]
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count()
+                + 1;
+            violations.push(format!(
+                "{relative}:{line}: `{PRODUCT_ENV_PREFIX}` environment name outside the adapters"
+            ));
+        }
     }
 
     assert!(
         violations.is_empty(),
-        "agenterm-platform must be independently consumable and product-neutral:\n{}",
+        "agenterm-platform must stay product-neutral outside its adapters:\n{}",
         violations.join("\n")
     );
 }
@@ -341,21 +627,35 @@ fn identifier_tokens(source: &str) -> impl Iterator<Item = (usize, &str)> {
     })
 }
 
+/// Mask every item that exists only under `cargo test`.
+///
+/// The original marker was the literal `#[cfg(test)]`; the crate also gates test
+/// code as `#[cfg(all(test, ..))]` and as a plain `#[test] fn` outside a test
+/// module, whose fixtures are not product code either.
+/// `cfg(any(target_os = .., test))` is deliberately NOT masked: that item is
+/// compiled for real on the named target and stays classified as product code.
+/// `#[cfg_attr(test, ..)]` only adds an attribute under test, so its item stays
+/// visible too.
 fn mask_test_items(source: &str) -> String {
     let mut bytes = source.as_bytes().to_vec();
-    let marker = b"#[cfg(test)]";
-    let mut cursor = 0;
-    while let Some(relative) = bytes[cursor..]
-        .windows(marker.len())
-        .position(|window| window == marker)
-    {
-        let start = cursor + relative;
-        let Some(open) = bytes[start + marker.len()..]
+    let mut starts = test_only_item_starts(source);
+    for selection in cfg_predicates(source) {
+        if !predicate_requires_test(&selection.predicate) {
+            continue;
+        }
+        if let Some(start) = selection.attribute_at {
+            starts.push(start);
+        }
+    }
+    starts.sort_unstable();
+    starts.dedup();
+    for start in starts {
+        let Some(open) = bytes[start..]
             .iter()
             .position(|byte| *byte == b'{')
-            .map(|offset| start + marker.len() + offset)
+            .map(|offset| start + offset)
         else {
-            break;
+            continue;
         };
         let mut depth = 0_u32;
         let mut end = bytes.len();
@@ -377,9 +677,28 @@ fn mask_test_items(source: &str) -> String {
                 *byte = b' ';
             }
         }
-        cursor = end;
     }
     String::from_utf8(bytes).expect("mask preserves UTF-8")
+}
+
+/// The `#` of every attribute that marks its item as test-only: `#[test]` and
+/// its path-qualified forms, e.g. `#[tokio::test]`.
+fn test_only_item_starts(source: &str) -> Vec<usize> {
+    let bytes = source.as_bytes();
+    let mut starts = Vec::new();
+    let mut cursor = 0;
+    while let Some(relative) = source[cursor..].find("#[") {
+        let hash = cursor + relative;
+        let Some(close) = bytes[hash..].iter().position(|byte| *byte == b']') else {
+            break;
+        };
+        let attribute = &source[hash + 2..hash + close];
+        if attribute == "test" || attribute.ends_with("::test") {
+            starts.push(hash);
+        }
+        cursor = hash + close + 1;
+    }
+    starts
 }
 
 fn mask_comments_and_strings(source: &str) -> String {
@@ -481,6 +800,77 @@ mod tests {
     assert!(masked.contains("windows_sys::native_call"));
     assert!(!masked.contains("std::os::windows"));
     assert!(!masked.contains("windows_sys in a comment"));
+}
+
+#[test]
+fn boundary_mask_also_ignores_all_test_gated_modules_but_not_product_helpers() {
+    let fixture = r#"
+#[cfg(all(test, target_os = "macos"))]
+mod fixtures {
+    fn euid() { let _ = unsafe { libc::geteuid() }; }
+}
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn checked_window() { let _ = unsafe { libc::geteuid() }; }
+#[cfg_attr(test, path = "adapters/macos/probe.rs")]
+mod probe;
+"#;
+    let masked = mask_test_items(&mask_comments_and_strings(fixture));
+    assert!(
+        !masked.contains("mod fixtures"),
+        "a cfg(all(test, ..)) module is test code"
+    );
+    assert!(
+        masked.contains("checked_window"),
+        "cfg(any(target_os = .., test)) is product code on Linux"
+    );
+    assert!(
+        masked.contains("mod probe"),
+        "cfg_attr(test, ..) does not make its item test-only"
+    );
+}
+
+#[test]
+fn selection_owners_routing_gates_and_test_helpers_are_distinguished() {
+    for owner in [
+        "crates/agenterm-platform/src/selected.rs",
+        "crates/agenterm-platform/src/simulator/selected.rs",
+        "crates/agenterm-platform/src/adapters/macos/app_facts.rs",
+    ] {
+        assert!(
+            platform_selection_owner(owner),
+            "{owner} is a selection owner"
+        );
+    }
+    assert!(!platform_selection_owner(
+        "crates/agenterm-platform/src/audio.rs"
+    ));
+    assert!(!platform_selection_owner(
+        "src/platform/adapters/macos/x.rs"
+    ));
+    assert!(routes_to_selection_owner(
+        "crate::selected::audio::status()"
+    ));
+    assert!(routes_to_selection_owner(
+        "#[path = \"adapters/macos/audio.rs\"] mod native;"
+    ));
+    assert!(routes_to_selection_owner("mod selected;"));
+    assert!(!routes_to_selection_owner("pub fn audio_status() {}"));
+    // Only a predicate that cannot hold outside `cargo test` is a test helper.
+    assert!(predicate_requires_test("test"));
+    assert!(predicate_requires_test("all(test, target_os = \"macos\")"));
+    assert!(predicate_requires_test(
+        "all(test, any(target_os = \"linux\", target_os = \"macos\"))"
+    ));
+    assert!(!predicate_requires_test("any(target_os = \"linux\", test)"));
+    assert!(!predicate_requires_test(
+        "any(all(target_os = \"macos\", feature = \"simulator\"), test)"
+    ));
+    assert!(!predicate_requires_test("target_os = \"linux\""));
+    assert!(predicate_selects_a_target(
+        "all(feature = \"native\", windows)"
+    ));
+    assert!(predicate_selects_a_target("target_family = \"unix\""));
+    assert!(!predicate_selects_a_target("feature = \"native\""));
 }
 
 #[test]

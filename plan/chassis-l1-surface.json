@@ -10,7 +10,7 @@
       "exact_paths": [
         "src/bin/agenterm.rs",
         "src/bin/agenterm-com.rs",
-        "crates/agenterm-dyn/src/native.rs",
+        "crates/agenterm-dyn/src/exact_native.rs",
         "rust-toolchain.toml"
       ]
     },
@@ -70,7 +70,6 @@
     "crates/agenterm-chassis/src/bin/",
     "crates/agenterm-chassis/l2/",
     "crates/agenterm-chassis/l3/",
-    "crates/agenterm-dyn/src/hosts.rs",
     "crates/agenterm-dyn/examples/",
     "crates/agenterm-dyn/tests/",
     "src/frontend/",
