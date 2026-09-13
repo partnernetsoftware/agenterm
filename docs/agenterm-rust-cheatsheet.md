@@ -6121,6 +6121,32 @@ redden with a named diagnostic. Keep the inclusion one-way and record the shapes
 the mechanism can execute but the catalog does not expose, rather than forcing the
 two sets to be equal.
 
+## Query a mechanism-only account from its owner, never restate it by hand
+
+Two inventories meet at an `exposure ⊆ mechanism` gate, and only one of them is
+the upper layer's to write down. The catalog half is the exposure owner's own
+declarations, enumerated from the tables its dispatch uses. The other half — the
+shapes the mechanism can really execute and this catalog does not expose — is the
+lower layer's answer, so **derive** it: enumerate candidate shapes from the
+owner's public type vocabulary at the arity bound this door actually parses, ask
+the owner's shape-only query (`validate_abi_signature`, which needs no argument
+values) about each candidate, subtract the catalog-derived set, and compare that
+difference against the recorded account in **both** directions, naming every
+missing and unexpected entry in the message. Assert the two set sizes after it,
+so a query that silently stopped covering the matrix cannot pass by subtracting
+nothing. Compare shapes rather than declarations: `ptr` and `ptr?` are one ABI
+position, so a declaration count and a shape count legitimately differ.
+
+Restating that difference by hand is the failure mode. A three-entry
+"mechanism-only" list stayed green while `ptr(ptr)` — a shape the mechanism
+proves against its own `getenv` oracle — was absent from an account the owning
+PRD states the gate keeps: nothing the gate *covered* was wrong, it had simply
+stopped asking the mechanism what it has, and a hand-written list only loses
+entries. Never carry a second mechanism list to compare against; the owner's
+vocabulary plus the owner's query is the mechanism. Keep the inclusion one way —
+a shape may never enter the catalog before the mechanism can execute it — and
+record the difference instead of forcing the two sets equal.
+
 ## A JSON caller's pointer position is host-owned call-scoped storage
 
 When an upper-layer native adapter serves a language whose values are JSON and
