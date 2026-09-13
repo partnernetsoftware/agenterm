@@ -9,6 +9,12 @@
 > "Current delivery truth" 与 "Product outcome" 之间），作为 P0 分发缺陷、
 > P1 TCC 权限门与验证方式的 authority；本文档是该节引用的证据来源。
 
+> **后续状态（2026-09-13）**：本文记录的旧安装缺库问题已经由当前
+> `packaging/` 与 `install.sh` 的共置路径修复。当前库声明 ABI `1.36`，CU
+> 报告最低要求 `1.29`；交付 verifier 现在按“major 相同且 library minor 不低于
+> CU floor”判断，不再复述历史 `1.28` 常量。以下旧 `.app`、符号数和 ABI
+> `1.28` 数字只属于 2026-09-07 的取证快照，不是当前交付状态。
+
 ## TL;DR（结论先行）
 
 **背景假设被推翻。** agenterm 的底层 computer-use 能力（键盘/指针注入、窗口枚举、窗口截图、a11y 树）在
@@ -84,7 +90,7 @@ cargo feature 选择。abi crate 已对 platform 开启 `input-inject, window-en
 
 ## 三、真正的 gap（不是能力缺失，是交付与权限）
 
-1. **交付打包 gap（P0，唯一阻塞项）**：发布的 cu 二进制/`.app` 未随附匹配的 `libagenterm.dylib`。
+1. **交付打包 gap（历史 P0，现已闭合）**：当时发布的 cu 二进制/`.app` 未随附匹配的 `libagenterm.dylib`。
    - 现象：`agt_* missing` / `native-window-capture-is-unavailable` / `not wired on unix`（全是旧库/缺库症状）。
    - 影响文件：`install.sh`、`packaging/`、cu 的库搜索逻辑 `crates/agenterm-cu/src/dynlib.rs`
      （搜索顺序：`AGENTERM_ABI_LIB` 环境变量 → exe 同目录 → 若干开发路径）。
@@ -96,16 +102,16 @@ cargo feature 选择。abi crate 已对 platform 开启 `input-inject, window-en
 
 ## 四、分优先级落地方案
 
-### P0 —— 让"控制浏览器"最小闭环立即可用（无需写任何平台代码）
+### P0 —— 让"控制浏览器"最小闭环立即可用（已由当前交付链闭合）
 
 最小闭环 = 观察（a11y 树 / 窗口截图）+ 驱动（send-keys / type / pointer-click）。这些**当前源码已全部可用**，
 只差把库送到 cu 手边：
 
 - 方案 A（立即验证／临时）：设 `AGENTERM_ABI_LIB=<repo>/target/abi-release/libagenterm.dylib`，
   配合 `target/release/agenterm-cu`。本次已用此法跑通四项。
-- 方案 B（正式交付，改打包）：让 `.app`/安装产物在 cu 二进制同目录放置同批构建的 `libagenterm.dylib`。
-  - 改：`packaging/` 的 bundle 规则 + `install.sh`，在拷贝 cu 时一并拷贝 `abi-release` 的 dylib，
-    并校验 `agt_abi_version()` 与 cu `EXPECTED_ABI_MAJOR/REQUIRED_ABI_MINOR` 一致。
+- 方案 B（正式交付，已落地）：`.app`/安装产物在 cu 二进制同目录放置同批构建的 `libagenterm.dylib`。
+  - 当前 `packaging/` bundle 规则与 `install.sh` 在拷贝 cu 时一并拷贝 dylib，
+    并通过 CU 的结构化 doctor 报告验证库 ABI 不低于 CU 声明的兼容下限。
   - 依赖：无新 macOS API；纯打包/脚本改动。
   - 权限要求：无（打包阶段）。
 
@@ -133,5 +139,5 @@ cargo feature 选择。abi crate 已对 platform 开启 `input-inject, window-en
 
 ## 六、给下一步的一句话建议
 
-不要去"实现" computer-use（已实现）；把 P0 的**打包随附 dylib**做掉，
-让发布的 cu 旁边永远躺着同版本 `libagenterm.dylib`，然后走 `permissions`/`doctor` 引导授权即可。
+不要去"实现" computer-use（已实现）；保持 cu 与同批构建的 `libagenterm.dylib`
+共同交付，并走 `permissions`/`doctor` 引导授权即可。

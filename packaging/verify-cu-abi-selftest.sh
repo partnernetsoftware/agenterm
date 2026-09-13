@@ -17,24 +17,27 @@ EOF
   chmod 0755 "$TMP/agenterm-cu"
 }
 
-write_cu 1 28 1 28
+write_cu 1 36 1 29
 "$ROOT/packaging/verify-cu-abi.sh" "$TMP/agenterm-cu" "$TMP/libagenterm.dylib" >/dev/null
 
-write_cu 1 27 1 28
+write_cu 1 28 1 29
 if "$ROOT/packaging/verify-cu-abi.sh" "$TMP/agenterm-cu" "$TMP/libagenterm.dylib" >/dev/null 2>&1; then
   echo "older ABI was accepted" >&2
   exit 1
 fi
 
-write_cu 1 29 1 28
+write_cu 1 37 1 29
+"$ROOT/packaging/verify-cu-abi.sh" "$TMP/agenterm-cu" "$TMP/libagenterm.dylib" >/dev/null
+
+write_cu 2 36 1 29
 if "$ROOT/packaging/verify-cu-abi.sh" "$TMP/agenterm-cu" "$TMP/libagenterm.dylib" >/dev/null 2>&1; then
-  echo "non-matching ABI was accepted" >&2
+  echo "wrong ABI major was accepted" >&2
   exit 1
 fi
 
-write_cu 2 28 1 28
+write_cu null 36 1 29
 if "$ROOT/packaging/verify-cu-abi.sh" "$TMP/agenterm-cu" "$TMP/libagenterm.dylib" >/dev/null 2>&1; then
-  echo "wrong ABI major was accepted" >&2
+  echo "malformed ABI version was accepted" >&2
   exit 1
 fi
 
@@ -44,4 +47,4 @@ if "$ROOT/packaging/verify-cu-abi.sh" "$TMP/agenterm-cu" "$TMP/libagenterm.dylib
   exit 1
 fi
 
-echo "PASS: CU package ABI 1.28 structured readiness gate"
+echo "PASS: CU package ABI compatibility follows the delivered CU requirement"

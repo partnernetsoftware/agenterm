@@ -593,12 +593,16 @@ The load refuses an unlocatable library and refuses an ABI major mismatch. The
 capability set, not the binary alone, is therefore the delivery unit: a cu
 binary without its matching dylib is inert.
 
-- [ ] **P0 — distribution defect: the shipped cu binary must be colocated with
-  a version-matched `libagenterm.dylib`, and today it is not.** The macOS
-  `.app` bundle (`~/Applications/AgentermCu.app/Contents/MacOS/`) ships the cu
-  binary with **no `libagenterm.dylib` beside it**, and `install.sh` does not
-  place one either. On such a host cu either fails to locate the library or
-  loads a stale one, and reports `symbol agt_input_send_keys missing` /
+- [x] **P0 — the shipped cu binary is colocated with a compatible
+  `libagenterm` and the delivery gate follows CU's reported ABI floor.** The
+  macOS app stager and `install.sh` now copy the same-build
+  `libagenterm.dylib` beside `agenterm-cu`; Linux release installation does the
+  same with `libagenterm.so`. The structured doctor gate compares the library's
+  reported major/minor with CU's reported required major/minor and accepts a
+  matching major at or above that floor. It no longer carries the stale,
+  contradictory `1.28` release constant: the current library reports `1.36`
+  and CU reports a `1.29` minimum. A missing or stale library reports
+  `symbol agt_input_send_keys missing` /
   `agt_window_enumerate missing` / `input-inject not wired on unix` /
   `native-window-capture-is-unavailable`. These are **stale-library / missing-
   library symptoms, not missing mechanism**: the four foundation symbols
@@ -608,13 +612,18 @@ binary without its matching dylib is inert.
   dlsym `CGWindowListCreateImage` / AXUIElement). Evidence and the full symbol
   and capability audit:
   [`docs/cu-gaps-analysis.md`](../docs/cu-gaps-analysis.md).
-- [ ] the fix is in `packaging/` and `install.sh`: when the cu binary is copied
-  into the bundle / onto `PATH`, copy the same-build `abi-release`
-  `libagenterm.dylib` next to it (or set `AGENTERM_ABI_LIB`), and assert
-  `agt_abi_version()` matches cu's `EXPECTED_ABI_MAJOR` / `REQUIRED_ABI_MINOR`
-  (currently `1` / `29`, library reports `1.29`) at package time. This is the
+- [x] the compatibility self-test proves a newer compatible minor passes, an
+  older minor and a different major fail, and a missing library fails; the
+  existing macOS bundle self-test owns that verifier transitively. This is the
   precondition for cu being usable out of the box on a user's machine; no new
   platform code is required.
+- [~] package-time static inspection and install-time execution remain two
+  different authority boundaries. The current doctor verifier executes the
+  delivered CU and is appropriate on the install host, while the macOS stager
+  also calls it despite promising not to invoke staged artifacts. A later
+  delivery leaf must give the stager a source/manifest-backed static ABI and
+  export check; it must not reintroduce a handwritten version number or pretend
+  that cross-target package construction can execute its target binary.
 - [~] **P1 — macOS TCC consent gates (runtime prerequisite, not a code
   defect).** Accessibility (AX tree, AX-backed window ops) and Screen Recording
   / Camera (`device-screenshot` full-screen capture) require TCC authorization.

@@ -40,19 +40,21 @@ except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error
 
 actual = (detail.get("major"), detail.get("minor"))
 required = (detail.get("required_major"), detail.get("required_minor"))
+if not all(isinstance(value, int) and not isinstance(value, bool) and value >= 0
+           for value in actual + required):
+    raise SystemExit("verify-cu-abi: ABI versions must be non-negative integers")
 if reply.get("ok") is not True or abi.get("status") != "available":
     raise SystemExit("verify-cu-abi: ABI readiness is not available")
-if actual != required:
+if actual[0] != required[0] or actual[1] < required[1]:
     raise SystemExit(
-        "verify-cu-abi: packaged ABI does not exactly match CU requirements: "
+        "verify-cu-abi: packaged ABI is older than CU requirements: "
         f"library={actual[0]}.{actual[1]} required={required[0]}.{required[1]}"
-    )
-if actual != (1, 28):
-    raise SystemExit(
-        f"verify-cu-abi: release contract requires ABI 1.28, got {actual[0]}.{actual[1]}"
     )
 symbols = detail.get("required_symbols")
 if not isinstance(symbols, int) or isinstance(symbols, bool) or symbols <= 0:
     raise SystemExit("verify-cu-abi: required-symbol readiness was not proved")
-print(f"CU_ABI_OK abi={actual[0]}.{actual[1]} required_symbols={symbols}")
+print(
+    f"CU_ABI_OK abi={actual[0]}.{actual[1]} "
+    f"required={required[0]}.{required[1]} required_symbols={symbols}"
+)
 PY

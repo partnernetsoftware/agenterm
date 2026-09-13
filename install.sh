@@ -53,13 +53,19 @@ detail = abi["detail"]
 actual = (detail.get("major"), detail.get("minor"))
 required = (detail.get("required_major"), detail.get("required_minor"))
 symbols = detail.get("required_symbols")
+if not all(isinstance(value, int) and not isinstance(value, bool) and value >= 0
+           for value in actual + required):
+    raise SystemExit("ABI versions must be non-negative integers")
 if reply.get("ok") is not True or abi.get("status") != "available":
     raise SystemExit("ABI readiness is not available")
-if actual != required or actual != (1, 28):
-    raise SystemExit(f"expected exact ABI 1.28, library={actual}, CU requires={required}")
+if actual[0] != required[0] or actual[1] < required[1]:
+    raise SystemExit(f"ABI is older than CU requirements: library={actual}, CU requires={required}")
 if not isinstance(symbols, int) or isinstance(symbols, bool) or symbols <= 0:
     raise SystemExit("required-symbol readiness was not proved")
-print(f"==> Verified agenterm-cu ABI {actual[0]}.{actual[1]} ({symbols} required symbols)")
+print(
+    f"==> Verified agenterm-cu ABI {actual[0]}.{actual[1]} "
+    f"(requires {required[0]}.{required[1]}, {symbols} required symbols)"
+)
 PY
 }
 
