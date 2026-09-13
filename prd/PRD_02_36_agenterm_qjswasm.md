@@ -135,9 +135,11 @@ agenterm-qjswasm
 │  │  │  │  └─ economy: raw and JSON each delete one duplicate match arm and its parallel
 │  │  │  │        SAFETY explanation without adding a helper, wrapper, branch or public surface
 │  │  │  ├─ [x] dispatch carries only data needed after family classification
-│  │  │  │  └─ economy: exact/fixed scalar dispatch no longer copy the result or matched table
-│  │  │  │        row; the spec and declaration table remain their owners while unit variants
-│  │  │  │        record only the chosen family
+│  │  │  │  ├─ exact homogeneous and six heterogeneous scalar declarations converge on one
+│  │  │  │  │     `Scalar` execution token because no downstream stage observes their family identity
+│  │  │  │  └─ economy: the six heterogeneous signatures live as declaration data instead of an
+│  │  │  │        enum + variant inventory + exhaustive projection; admission remains two explicit
+│  │  │  │        truths while execution carries only the one distinction it consumes
 │  │  │  ├─ [x] no `PreparedAbiCall` wrapper: `invoke_prepared` already owns the one call
 │  │  │  │     construction site; a struct over the same borrowed spec and arguments removes no truth
 │  │  │  ├─ [x] no `NativeOutcome` wrapper: raw bits, JSON scalars and region snapshots are

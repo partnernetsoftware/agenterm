@@ -6347,3 +6347,14 @@ canonicalizer for each input representation, let the family table own which
 types are reachable, and prove a formerly omitted position with an independent
 native oracle. This is a real fold only when it deletes the subset helper and
 adds no trait, parallel table, or policy branch.
+
+## Collapse classification identity after its last observer
+
+Two declaration families may remain separate admission truths while sharing one
+execution token. If every downstream match already unions the variants and no
+error, result, storage, or mechanism choice reads their identity, carrying two
+unit variants is a parallel truth with no consumer. Replace the unobserved
+classification with one token, but keep each admission rule explicit: a formula
+stays a formula and an irregular closed set stays declaration data. Do not turn
+the fold into a wider catalog, query lower-layer policy, or erase a distinction
+that still selects a trampoline, storage owner, error vocabulary, or result plan.

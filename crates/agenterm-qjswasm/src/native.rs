@@ -753,7 +753,7 @@ pub(crate) fn invoke_native_call(
     let memory_base = memory.as_mut_ptr();
     let memory_len = memory.len();
     let bits = match native_dispatch(&call.spec)? {
-        NativeDispatch::Exact | NativeDispatch::Fixed => {
+        NativeDispatch::Scalar => {
             let arguments = call
                 .arguments
                 .iter()
@@ -877,7 +877,7 @@ pub(crate) fn invoke_native_json(
     // mistake. Exhaustive on purpose: a new dispatch variant cannot slip
     // through unclassified.
     let refused = match dispatch {
-        NativeDispatch::Exact | NativeDispatch::Fixed => false,
+        NativeDispatch::Scalar => false,
         NativeDispatch::FixedPointer(prototype) => !pointer_prototype_json_admitted(prototype),
         NativeDispatch::UnixIoctl(_) => true,
     };
@@ -901,7 +901,7 @@ pub(crate) fn invoke_native_json(
         });
     }
     let value = match dispatch {
-        NativeDispatch::Exact | NativeDispatch::Fixed => {
+        NativeDispatch::Scalar => {
             let arguments = spec
                 .parameters
                 .iter()
@@ -1113,53 +1113,23 @@ unsafe fn invoke_prepared(
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum NativeDispatch {
-    Exact,
-    Fixed,
+    Scalar,
     FixedPointer(PointerPrototype),
     UnixIoctl(UnixIoctlPrototype),
 }
 
 /// Heterogeneous scalar shapes exposed by the qjswasm native catalog.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum FixedPrototype {
-    I32U64U64,
-    U64I32,
-    IsizeI32,
-    I64I32I64I32,
-    I32U32U32,
-    I32I32U32,
-}
-
-impl FixedPrototype {
-    /// Every variant in one table.
-    ///
-    /// Dispatch looks this table up and `declaration` is an exhaustive match, so
-    /// a new variant cannot be added without stating the shape it answers for —
-    /// the catalog has no second place to drift into.
-    const ALL: [Self; 6] = [
-        Self::I32U64U64,
-        Self::U64I32,
-        Self::IsizeI32,
-        Self::I64I32I64I32,
-        Self::I32U32U32,
-        Self::I32I32U32,
-    ];
-
-    /// The declaration this exposure answers for, as `(result, parameters)`.
-    fn declaration(self) -> (NativeType, &'static [NativeType]) {
-        match self {
-            Self::I32U64U64 => (NativeType::I32, &[NativeType::U64, NativeType::U64]),
-            Self::U64I32 => (NativeType::U64, &[NativeType::I32]),
-            Self::IsizeI32 => (NativeType::Isize, &[NativeType::I32]),
-            Self::I64I32I64I32 => (
-                NativeType::I64,
-                &[NativeType::I32, NativeType::I64, NativeType::I32],
-            ),
-            Self::I32U32U32 => (NativeType::I32, &[NativeType::U32, NativeType::U32]),
-            Self::I32I32U32 => (NativeType::I32, &[NativeType::I32, NativeType::U32]),
-        }
-    }
-}
+const HETEROGENEOUS_SCALAR_SIGNATURES: &[(NativeType, &[NativeType])] = &[
+    (NativeType::I32, &[NativeType::U64, NativeType::U64]),
+    (NativeType::U64, &[NativeType::I32]),
+    (NativeType::Isize, &[NativeType::I32]),
+    (
+        NativeType::I64,
+        &[NativeType::I32, NativeType::I64, NativeType::I32],
+    ),
+    (NativeType::I32, &[NativeType::U32, NativeType::U32]),
+    (NativeType::I32, &[NativeType::I32, NativeType::U32]),
+];
 
 /// Pointer-bearing shapes exposed by the qjswasm native catalog.
 ///
@@ -1184,7 +1154,7 @@ enum PointerPrototype {
 }
 
 impl PointerPrototype {
-    /// Every variant in one table; see [`FixedPrototype::ALL`].
+    /// Every variant in one table.
     const ALL: [Self; 14] = [
         Self::VoidNullablePointer,
         Self::I64NullablePointer,
@@ -1579,15 +1549,11 @@ fn exposure_declarations() -> Vec<(NativeType, Vec<NativeType>)> {
             exposures.push((ty, vec![ty; arity]));
         }
     }
-    for (result, parameters) in FixedPrototype::ALL
-        .into_iter()
-        .map(FixedPrototype::declaration)
-        .chain(
-            PointerPrototype::ALL
-                .into_iter()
-                .map(PointerPrototype::declaration),
-        )
-    {
+    for (result, parameters) in HETEROGENEOUS_SCALAR_SIGNATURES.iter().copied().chain(
+        PointerPrototype::ALL
+            .into_iter()
+            .map(PointerPrototype::declaration),
+    ) {
         exposures.push((result, parameters.to_vec()));
     }
     exposures
@@ -1621,13 +1587,12 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
             .iter()
             .all(|parameter| exact_scalar_type(*parameter) == Some(result))
     {
-        return Ok(NativeDispatch::Exact);
+        return Ok(NativeDispatch::Scalar);
     }
-    let fixed = FixedPrototype::ALL
-        .into_iter()
-        .any(|prototype| prototype.declaration() == (spec.result, spec.parameters.as_slice()));
+    let fixed =
+        HETEROGENEOUS_SCALAR_SIGNATURES.contains(&(spec.result, spec.parameters.as_slice()));
     if fixed {
-        return Ok(NativeDispatch::Fixed);
+        return Ok(NativeDispatch::Scalar);
     }
     let fixed_pointer = PointerPrototype::ALL
         .into_iter()
@@ -2378,19 +2343,19 @@ mod json_adapter_tests {
     }
 
     #[test]
-    fn dispatch_distinguishes_exact_fixed_and_unsupported_signatures() {
+    fn dispatch_unifies_admitted_scalars_and_distinguishes_other_families() {
         let parse = |text: &str| parse_native_spec(text.as_bytes()).expect("spec parses");
         assert_eq!(
             native_dispatch(&parse("|abs|i32(i32)")),
-            Ok(NativeDispatch::Exact)
+            Ok(NativeDispatch::Scalar)
         );
         assert_eq!(
             native_dispatch(&parse("|sysconf|isize(i32)")),
-            Ok(NativeDispatch::Fixed)
+            Ok(NativeDispatch::Scalar)
         );
         assert_eq!(
             native_dispatch(&parse("|lseek|i64(i32,i64,i32)")),
-            Ok(NativeDispatch::Fixed)
+            Ok(NativeDispatch::Scalar)
         );
         assert_eq!(
             native_dispatch(&parse("|uname|i32(ptr)")),
