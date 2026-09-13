@@ -93,7 +93,7 @@ agenterm-dyn
 │   │       │   I32U64PointerU64 / I32PointerPointer /
 │   │       │   I32PointerPointerPointer                               = 8
 │   │       ├── pointer-result: ptr() / ptr(u32) / ptr(u64) /
-│   │       │   ptr(ptr) / ptr(usize)                                  = 5
+│   │       │   ptr(ptr) / ptr(ptr,usize)                             = 5
 │   │       └── direct-scalar: void(ptr) / i64(ptr) / isize(u32) /
 │   │           i32(i32,i32,ptr) / i32(i32,i32,u64,ptr,i32) /
 │   │           i32(ptr,u32,ptr,ptr,ptr,usize) / usize(i32,ptr,usize) /
