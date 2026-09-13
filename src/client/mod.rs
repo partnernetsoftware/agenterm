@@ -5442,7 +5442,7 @@ mod tests {
     fn a_binary_script_is_told_this_door_carries_text() {
         let hint = non_text_script_hint("script source is not UTF-8: invalid utf-8 sequence");
         assert!(hint.contains("carries script *text*"), "{hint}");
-        assert!(hint.contains("`.wasm`"), "{hint}");
+        assert!(hint.contains("script run FILE.wasm"), "{hint}");
         // A genuine read failure must not collect the sentence about modules.
         assert!(non_text_script_hint("No such file or directory").is_empty());
         assert!(non_text_script_hint("script source exceeds the 100 byte limit").is_empty());
