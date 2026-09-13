@@ -69,6 +69,9 @@ agenterm-qjswasm
 │  │  └─ `fs.symlink_metadata` projects the platform facade's Unix mode as octal
 │  │     text: native-ipc-smoke no longer launches GNU/BSD `stat` probes or owns
 │  │     their platform-specific parsing branch
+│  │  └─ the shared command journal publishes through `fs.append` on every host;
+│  │     native-ipc-smoke no longer launches one `sh -c cat` child per record or
+│  │     maintains a second copy of the JSONL record projection
 │  ├─ [x] declaration-driven Native Importer composition
 │  │  ├─ user problem: scripts need an extensible native surface without copying a loader or ABI executor
 │  │  ├─ invariant: spec/schema/catalog/nullability and exact-family cardinality are local qjswasm policy

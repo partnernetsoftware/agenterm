@@ -176,25 +176,7 @@ function selected_arguments(arguments) {
 }
 
 function record(context, arguments, output, expected_failure) {
-  if (unix_host === 0) {
-    harness.append_command_record(context, arguments, output, expected_failure, []);
-    return;
-  }
-  const safe_args = [];
-  for (const a of arguments) { safe_args.push("" + a); }
-  const combined = output.stdout + output.stderr;
-  const entry = {
-    recorded_at_ms: rh.now_ms(),
-    arguments: safe_args,
-    expected_failure: expected_failure !== 0,
-    exit_code: output.exit_code,
-    output: harness.bounded_record_text(combined, 512)
-  };
-  // Stringified once: ~125K steps each time on this engine.
-  const entry_text = JSON.stringify(entry);
-  const appended = rh.command("sh", ["-c", "cat >> \"$1\"", "sh", context.command_journal_path], { stdin: entry_text + "\n", timeout_ms: 5000 });
-  harness.require(appended.success === true, "native_ipc_journal_append_failed:" + appended.stderr);
-  harness.write_atomic(context.command_log_path, "[" + entry_text + "]\n");
+  harness.append_command_record(context, arguments, output, expected_failure, []);
 }
 
 function invoke(context, program, arguments, expected_failure, endpoint, address, instance, workspace) {
