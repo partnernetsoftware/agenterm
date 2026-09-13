@@ -706,7 +706,7 @@ integration.
   lost, so a silent omission cannot stay green. It also records that the two
   `ioctl` requests stay on their own mechanism entry (the u64 request has no ABI
   trampoline at all).
-- A proposed fold of the 53 tool and 11 host raw signature rows into their richer
+- A proposed fold of the then-current 53 tool and 11 host raw signature rows into their richer
   declaration constructors was implemented and then rejected by the economic
   gate. Deriving the raw view inside `check_declarations` kept all 74 owning
   library tests green and removed the parallel source rows, but replaced static

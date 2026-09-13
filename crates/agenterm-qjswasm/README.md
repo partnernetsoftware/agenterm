@@ -270,6 +270,8 @@ PRD 36「A1.1 的答案」定的：`.qjs` 有两种。**沙箱 `.qjs`** 只看�
 | `fs_tree_summary(p,max_entries)` | `tool.fs.tree_summary` | status；原生侧在显式 entry 上限内递归统计文件数、逻辑字节、mtime 与首层 bucket，固定大小 JSON 过桥；超限整体拒绝，不返回截断真相 |
 | `process_command(spec_json)` | `tool.process.command` | status；spec `{program,args,current_dir,env,timeout_ms,stdin_text}`（未知字段拒），暂存 `{exit_code,success,stdout,stderr,stdout_truncated,stderr_truncated,timed_out}`；无 `timeout_ms` 默认 60 s 后杀；截断逐流显式标记，纯 stdout 捷径遇截断则拒绝；超时/取消/槽回收终止 owned process tree，不只直接 child |
 | `process_id()` | `tool.process.id` | 直接 pid |
+| `process_observe(pid)` | `tool.process.observe` | status；暂存单一 PID 的存活事实 `{state:"live",start_identity}`（identity 取不到时为 `null`），或 `{state:"dead",reason}` / `{state:"unknown",reason}`。不存在与证据不足是成功返回的不同事实；负 PID 才是 door 错误。无需搬运整机清单 |
+| `process_parent(pid)` | `tool.process.parent` | status；暂存单一 PID 的直接父关系 `{state:"live",parent_id}`，或彼此有别的 `dead` / `unknown` record。这里的 `live` 只表示原生记录给出了父 PID，不证明进程仍在运行；存活判定用 `process_observe`。无需启动 `ps`/PowerShell 或搬运整机清单 |
 | `process_list()` | `tool.process.list` | status；暂存平台 facade 的有界进程清单 `[{id,parent_id,executable_name}]`，供 owned-child ancestry 与清理证明使用 |
 | `process_tree(pid)` | `tool.process.tree` | status；原生侧从同一有界清单计算含根 PID 的传递子树，只把 owned subtree 暂存给高频资格采样 |
 | `process_pid(handle)` / `process_kill_pid(pid)` | `tool.process.pid` / `tool.process.kill_pid` | 已启动 child 的 PID；或对任意 PID 做强制终止并返回 typed status |
