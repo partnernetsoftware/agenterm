@@ -171,6 +171,12 @@ agenterm-qjswasm
 │  │  │  │     pointer results and the other result families remain intentionally unexposed there
 │  │  │  ├─ one Engine reuses at most 32 library handles; symbols are still resolved per call
 │  │  │  ├─ an ABI prototype does not encode pointee width, alignment, termination or C struct layout
+│  │  │  ├─ raw GuestSpan proves only that the caller-declared range lies in guest memory;
+│  │  │  │     it does not prove the foreign callee stays within that range, and a false ABI/pointee
+│  │  │  │     assertion remains contained-worker failure just like a false function signature
+│  │  │  ├─ rejected hardening: a `(target,library,symbol,signature)` pointee table would validate
+│  │  │  │     only a closed known-symbol set and refuse every other import, turning robustness into
+│  │  │  │     a symbol allowlist; arbitrary native-call containment belongs at the worker boundary
 │  │  │  └─ non-host target checks are compile evidence unless a native runner court says otherwise
 │  │  ├─ [x] JSON pointer calls take one call-scoped host region per pointer position
 │  │  │  ├─ user problem: a JSON caller has no guest linear memory to point into, so every
