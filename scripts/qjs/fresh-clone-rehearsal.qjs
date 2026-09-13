@@ -14,13 +14,9 @@
 // deadline, killed if it outlives it, and drained once. Windows-shaped like
 // the original (`cmd.exe /d /c release.cmd --rehearse`).
 //
-// Gaps, each a door op the script cannot do without, each failing closed at
-// its site rather than approximated (the helpers at the top throw a typed
-// `fresh_clone_gap:*`):
-//   - `std::process::list()`: the descendant observation this proof is named
-//     for, the stale-clone sweep's pid liveness, and the cleanup check.
-//   - `std::process::kill(pid)`: the door kills handles, not pids.
-//   - `child.id`: the observation root.
+// Process inventory, raw-PID termination, and handle-to-PID identity use the
+// tool door directly. The platform facade owns their native implementation;
+// this task owns only descendant selection and cleanup meaning.
 //
 // Changed on purpose: rh redirected the release child's stdout/stderr to
 // files as it ran (`stdout_file` / `stderr_file`); the door captures both
@@ -29,19 +25,19 @@
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
-// gap: the door has no process list (see the header).
-function process_list() {
-  throw "fresh_clone_gap:door_has_no_process_list";
+function host_process_list() {
+  if (process_list() !== 0) { throw "process_list:" + tool_result(); }
+  return JSON.parse(tool_result());
 }
 
-// gap: the door kills handles, not pids (see the header).
 function kill_pid(pid) {
-  throw "fresh_clone_gap:door_kills_handles_not_pids:" + pid;
+  if (process_kill_pid(pid) !== 0) { throw "process_kill_pid:" + tool_result(); }
 }
 
-// gap: a door handle does not answer the child's OS pid (see the header).
 function child_pid(handle) {
-  throw "fresh_clone_gap:door_has_no_child_pid:" + handle;
+  const pid = process_pid(handle);
+  if (pid <= 0) { throw "process_pid:" + tool_result(); }
+  return pid;
 }
 
 function assert_ok(condition, message) {
@@ -125,7 +121,7 @@ function map_has_key(map, key) {
 }
 
 function observe_descendants(root_id, owned_ids, identities) {
-  const snapshot = process_list();
+  const snapshot = host_process_list();
   const included = {};
   const owned_map = owned_ids;
   included["" + root_id] = true;
@@ -272,7 +268,7 @@ function process_text_is_live(owner_text, live_ids) {
 // touched; a directory we cannot delete is left for the next sweep.
 function sweep_stale_owned_clones(clone_owner) {
   const live_ids = [];
-  for (const process of process_list()) {
+  for (const process of host_process_list()) {
     live_ids.push("" + process.id);
   }
   let swept = 0;
@@ -293,11 +289,12 @@ function child_is_running(child) {
 }
 
 function terminate_observed_processes(identities) {
+  const current_pid = rh.pid();
   for (let attempt = 0; attempt < 4; attempt = attempt + 1) {
     let terminated = false;
-    for (const process of process_list()) {
+    for (const process of host_process_list()) {
       const id = "" + process.id;
-      if (process.id !== rh.pid()
+      if (process.id !== current_pid
           && map_has_key(identities, id) !== 0
           && identities[id] === process_key(process)) {
         try {
@@ -315,9 +312,10 @@ function terminate_observed_processes(identities) {
 
 function live_observed_processes(identities) {
   const live = [];
-  for (const process of process_list()) {
+  const current_pid = rh.pid();
+  for (const process of host_process_list()) {
     const id = "" + process.id;
-    if (process.id !== rh.pid()
+    if (process.id !== current_pid
         && map_has_key(identities, id) !== 0
         && identities[id] === process_key(process)) {
       live.push({
@@ -363,6 +361,28 @@ function run_self_test() {
     !release_archive_name_is_local("../candidate.zip"),
     "fresh_clone_selftest_expected_rejection:fresh_clone_package_archive_name"
   );
+  const current_pid = rh.pid();
+  let current_seen = false;
+  for (const process of host_process_list()) {
+    if (process.id === current_pid) { current_seen = true; }
+  }
+  assert_ok(current_seen, "fresh_clone_selftest_process_inventory");
+  const child_spec = rh.env_or("OS", "") === "Windows_NT"
+    ? { program: "cmd.exe", args: ["/d", "/c", "ping -n 30 127.0.0.1 >nul"], timeout_ms: 60000 }
+    : { program: "sh", args: ["-c", "sleep 30"], timeout_ms: 60000 };
+  const child = harness.start(child_spec);
+  const pid = child_pid(child);
+  assert_ok(pid > 0, "fresh_clone_selftest_child_pid");
+  let kill_failure = "";
+  try {
+    kill_pid(pid);
+  } catch (error) {
+    kill_failure = "" + error;
+    harness.kill(child);
+  }
+  const killed = harness.wait(child, 5000);
+  assert_ok(kill_failure === "", "fresh_clone_selftest_raw_pid_kill:" + kill_failure);
+  assert_ok(!killed.success, "fresh_clone_selftest_raw_pid_kill");
   print("PASS: fresh-clone process policy fails closed");
 }
 

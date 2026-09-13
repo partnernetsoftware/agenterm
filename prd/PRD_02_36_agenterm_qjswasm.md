@@ -87,6 +87,11 @@ agenterm-qjswasm
 │  │     replaces `kill -0` polling with exact-PID observation; a real 20-round
 │  │     court measured 26.78% steps, 77.84% bridge bytes and 29.46% wall time
 │  │     versus the former `ps` path at equal host-op count
+│  │  └─ fresh-clone rehearsal consumes the same shipped process door for its
+│  │     full descendant graph, raw-PID cleanup and handle-to-PID root identity;
+│  │     three stale fail-closed gaps are removed without a new host operation;
+│  │     the cross-platform door self-test is green, while the Windows clean-main
+│  │     owning rehearsal remains the delivery gate rather than inferred evidence
 │  ├─ [x] declaration-driven Native Importer composition
 │  │  ├─ user problem: scripts need an extensible native surface without copying a loader or ABI executor
 │  │  ├─ invariant: spec/schema/catalog/nullability and exact-family cardinality are local qjswasm policy
@@ -349,6 +354,7 @@ flowchart LR
   OBSERVE["bounded single-PID observation<br/>live · dead · unknown<br/>no inventory transport"]
   PARENT["bounded direct-parent observation<br/>one PID · no process-table text"]
   TASKWIT["task process witnesses reuse the door<br/>no ps parsing · no kill subprocess"]
+  REHEARSE["fresh-clone descendant ownership<br/>inventory · raw-PID cleanup · root identity"]
   HANDLES["per-slot child ledger<br/>32 retained · pre-spawn refusal"]
   LOCKS["per-slot lock ledger<br/>32 lifetime handles · stable tombstones<br/>pre-open refusal"]
   PATHS["shared path helper<br/>`.` / `./` lexical normalization"]
@@ -415,6 +421,7 @@ flowchart LR
   PRODUCT -. arbitrary PID liveness .-> OBSERVE --> DOOR
   PRODUCT -. direct child identity .-> PARENT --> OBSERVE
   PARENT -. task-side reuse .-> TASKWIT --> DOOR
+  TASKWIT -. release rehearsal .-> REHEARSE --> DOOR
   PRODUCT -. advisory lock .-> LOCKS --> RECEIPT
   PRODUCT -. process.command .-> QPTY --> RECEIPT
   PRODUCT -. native path identity .-> PATHS --> RECEIPT
