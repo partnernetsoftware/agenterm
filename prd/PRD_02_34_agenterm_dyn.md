@@ -151,18 +151,18 @@ B ──historical contracts now belong above dyn──> agenterm-platform / ada
 E ──claims moved to raw ABI or WAT courts──> qjswasm ──> A
 D ──isolated slot, 当前无生产调用方──> future JIT / host-ISA folding
 
-上层折叠边（目标架构，不改变所有权）
+上层折叠边（已落地边界，不改变所有权）
 qjswasm raw block ─┐
-                    ├──> PreparedAbiCall ──> A.invoke_abi ──> NativeOutcome
+                    ├──> invoke_prepared ──> A.invoke_abi ──> transport-specific result
 qjswasm JSON ──────┘          │                                │
-                               └─ declaration-driven checks          └─ transport encoder
+                               └─ one NativeCall construction         └─ raw bits / JSON / region
 
 dyn ──稳定的 AbiSignature / AbiValue / AbiError 代数──> 允许上层删除家族专用执行流程
 qjswasm ──仍拥有 exposure / nullability / storage / budget──> 但把它们写成声明数据
 tinyvm ──仍只提供 Wasm 执行与 host bridge──> 不直接依赖 dyn
 ```
 
-### dyn 之上的分层折叠路线（计划）
+### dyn 之上的分层折叠路线（已收敛）
 
 这条路线的目标不是把 qjswasm 的策略搬进 dyn，而是让 dyn 的小而
 正交的机制代数成为上层删除平行流程的支点。最终形态是“策略在上层，
@@ -173,22 +173,23 @@ tinyvm ──仍只提供 Wasm 执行与 host bridge──> 不直接依赖 dyn
 删除的空间必须转换为可观测的时间、算力、验证或新能力预算，而不是
 被新增的间接层抵消。
 
-1. **[ ] 建立统一调用中间表示**：由 qjswasm 定义 `PreparedAbiCall`
-   与 `NativeOutcome`；raw block 和 JSON 只是两个 decoder/encoder，不再各自拥有
-   load、dispatch、invoke 与 dyn-error mapping 流程。
-2. **[ ] 把原型变成唯一声明源**：每条 exposure 声明 ABI 签名、参数
-   storage policy 与 result policy；dispatch、schema、compatibility gate 和测试矩阵
-   从同一声明派生，不再平行手写家族表。
-3. **[ ] 收敛参数规范化**：scalar、null、guest span 与 call-scoped region
-   统一降为带所有权/宽度证据的 prepared argument，再一次性产生 `AbiValue`。
-4. **[ ] 收敛结果规范化**：bit result、JSON scalar 与 region snapshot 共用
-   `NativeOutcome`；transport 只负责最后的字节编码，不重做 ABI 类型判定。
-5. **[ ] 用减法验收**：每个增量必须同时证明公开错误/输出不漂移，
+1. **[x] 收敛共同执行缝**：qjswasm 的六个非 ioctl 生产调用点现在都经
+   `invoke_prepared` 构造唯一 `NativeCall`，统一 handle reuse 与 dyn-error mapping；
+   raw pointer rebasing、JSON scalar encoding 与 region readback 仍是各 transport 的
+   有意后处理。该叶净删 69 LOC，没有新增 struct、trait、branch 或 public API。
+2. **[x] 拒绝空壳中间表示**：不引入 `PreparedAbiCall` 或 `NativeOutcome`。
+   前者只会给现有的 borrowed spec/arguments 换名，后者会把有意不同的 raw bits、
+   JSON scalar 与 region snapshot 伪装成同一种结果；两者都不删除平行真相。
+3. **[x] 保持声明与机制的正确分工**：qjswasm 的 14 个 pointer exposure
+   声明拥有 `ptr`/`ptr?`、JSON admission 与 UnixIoctl 路由；dyn 的 8 个 pointer
+   mechanism 只回答 trampoline 是否存在。用 dyn shape 查询派生 qjswasm dispatch
+   会丢失 nullability、漏掉独立 ioctl 路径，并仍需一张等大的上层策略表，故判退。
+4. **[x] 用减法验收**：每个增量必须同时证明公开错误/输出不漂移，
    且删除一类家族专用 arm/helper/mapper 或手写清单；只换名不算折叠。
-6. **[ ] 记录四栏经济账**：每叶记录“删除的重复表达 / 保留的公开语义 /
+5. **[x] 记录四栏经济账**：每叶记录“删除的重复表达 / 保留的公开语义 /
    释放的 LOC、字节、步数、编译时间或维护触点 / 该预算投入的新能力”。
    无法得到至少一项净减法的候选是新抽象成本，不得冒充折叠。
-7. **[-] 暂不扩张机制矩阵**：没有真实消费者的 callback、struct-by-value、
+6. **[-] 暂不扩张机制矩阵**：没有真实消费者的 callback、struct-by-value、
    新 variadic 或 JIT 不得为了“看起来完整”进入 dyn。
 
 公开黑盒 owner 仍是 qjswasm `native_door` / `native_door_schema` / native+ACU
