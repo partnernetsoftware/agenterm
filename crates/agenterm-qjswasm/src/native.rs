@@ -827,7 +827,7 @@ pub(crate) fn invoke_native_call(
     let memory_base = memory.as_mut_ptr();
     let memory_len = memory.len();
     let bits = match native_dispatch(&call.spec)? {
-        NativeDispatch::Exact { .. } | NativeDispatch::Fixed(_) => {
+        NativeDispatch::Exact | NativeDispatch::Fixed(_) => {
             let arguments = call
                 .arguments
                 .iter()
@@ -951,7 +951,7 @@ pub(crate) fn invoke_native_json(
     // mistake. Exhaustive on purpose: a new dispatch variant cannot slip
     // through unclassified.
     let refused = match dispatch {
-        NativeDispatch::Exact { .. } | NativeDispatch::Fixed(_) => false,
+        NativeDispatch::Exact | NativeDispatch::Fixed(_) => false,
         NativeDispatch::FixedPointer(prototype) => !pointer_prototype_json_admitted(prototype),
         NativeDispatch::UnixIoctl(_) => true,
     };
@@ -975,7 +975,7 @@ pub(crate) fn invoke_native_json(
         });
     }
     let value = match dispatch {
-        NativeDispatch::Exact { .. } | NativeDispatch::Fixed(_) => {
+        NativeDispatch::Exact | NativeDispatch::Fixed(_) => {
             let arguments = spec
                 .parameters
                 .iter()
@@ -1187,7 +1187,7 @@ unsafe fn invoke_prepared(
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum NativeDispatch {
-    Exact { result: NativeType },
+    Exact,
     Fixed(FixedPrototype),
     FixedPointer(PointerPrototype),
     UnixIoctl(UnixIoctlPrototype),
@@ -1695,7 +1695,7 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
             .iter()
             .all(|parameter| exact_scalar_type(*parameter) == Some(result))
     {
-        return Ok(NativeDispatch::Exact { result });
+        return Ok(NativeDispatch::Exact);
     }
     let fixed = FixedPrototype::ALL
         .into_iter()
@@ -2491,9 +2491,7 @@ mod json_adapter_tests {
         let parse = |text: &str| parse_native_spec(text.as_bytes()).expect("spec parses");
         assert_eq!(
             native_dispatch(&parse("|abs|i32(i32)")),
-            Ok(NativeDispatch::Exact {
-                result: NativeType::I32,
-            })
+            Ok(NativeDispatch::Exact)
         );
         assert_eq!(
             native_dispatch(&parse("|sysconf|isize(i32)")),

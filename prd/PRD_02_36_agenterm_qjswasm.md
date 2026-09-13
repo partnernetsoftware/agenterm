@@ -94,6 +94,9 @@ agenterm-qjswasm
 │  │  │  │  │     only their now-identical canonicalize → invoke → transport-result path is shared
 │  │  │  │  └─ economy: raw and JSON each delete one duplicate match arm and its parallel
 │  │  │  │        SAFETY explanation without adding a helper, wrapper, branch or public surface
+│  │  │  ├─ [x] dispatch carries only data needed after family classification
+│  │  │  │  └─ economy: exact-family dispatch no longer copies `NativeSpec.result`; the spec
+│  │  │  │        remains its single owner while the unit variant records only the chosen family
 │  │  │  ├─ [x] no `PreparedAbiCall` wrapper: `invoke_prepared` already owns the one call
 │  │  │  │     construction site; a struct over the same borrowed spec and arguments removes no truth
 │  │  │  ├─ [x] no `NativeOutcome` wrapper: raw bits, JSON scalars and region snapshots are
