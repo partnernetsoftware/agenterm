@@ -669,34 +669,6 @@ function batch_chain_row_seeded(template, entries) {
   return hashes;
 }
 
-// Independent re-derivation of the whole chain in ONE shell pass, used only by
-// the verifier to check the file the production court wrote. Not production code.
-function batch_chain_row(template, rows_without_hash) {
-  const dir = rh.join(owned_root(), ".verify");
-  rh.create_dir_all(dir);
-  const domain = template["journal_chain"]["domain"];
-  for (let i = 0; i < rows_without_hash.length; i = i + 1) {
-    rh.atomic_write(rh.join(dir, "b" + i), cj.canonical(rows_without_hash[i]));
-  }
-  const loop =
-    "dom='" + domain + "'; prev='" + template["journal_chain"]["zero_predecessor_sha256"] + "'; i=0; " +
-    "while [ -f '" + dir + "/b'$i ]; do " +
-    "printf '%s\\0' \"$dom\" > '" + dir + "/pre'; " +
-    "printf '%s' \"$prev\" | xxd -r -p >> '" + dir + "/pre'; " +
-    "printf '\\0' >> '" + dir + "/pre'; " +
-    "cat '" + dir + "/b'$i >> '" + dir + "/pre'; " +
-    "prev=$(shasum -a 256 '" + dir + "/pre' | cut -d' ' -f1); printf '%s\\n' \"$prev\"; i=$((i+1)); done";
-  const out = rh.command("sh", ["-c", loop], { cwd: dir, timeout_ms: 60000 });
-  require(out.exit_code === 0, "verify_batch_failed:" + out.stderr);
-  rh.try_remove_dir_all(dir);
-  const hashes = [];
-  let st = 0;
-  for (let i = 0; i < out.stdout.length; i = i + 1) {
-    if (out.stdout.charAt(i) === "\n") { if (i > st) { hashes.push(out.stdout.substring(st, i)); } st = i + 1; }
-  }
-  return hashes;
-}
-
 // Production-path tests: the court actually runs and writes the data plane.
 function test_production_court(template, mode) {
   if (mode === "incomplete") { test_production_incomplete(template); return; }
