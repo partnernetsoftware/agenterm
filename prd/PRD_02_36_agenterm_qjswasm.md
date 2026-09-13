@@ -428,6 +428,14 @@ integration.
   mechanism signature/library/symbol failures back into the existing
   `NativeDoorError` codes using the original spec; it contains no second loader
   or stub table.
+- The exposure catalog is pinned inside dyn's mechanism matrix by an owning gate
+  (`native::mechanism_compatibility`): the 69 exposed declarations (49 exact + 6
+  fixed + 14 pointer) are enumerated from the very tables dispatch uses and each
+  one is asked of `agenterm_dyn::validate_abi_signature`, which answers with the
+  shape alone and needs no argument values. The inclusion is one-way —
+  `exposure ⊆ mechanism` — and the gate also records the shapes dyn can execute
+  but this catalog does not expose today, plus that the two `ioctl` requests stay
+  on their own mechanism entry (the u64 request has no ABI trampoline at all).
 - `.qjs` callers use the built-in `agenterm:native` module as a typed language
   adapter over that same opt-in door. It accepts a signature plus JSON values,
   preserves wide integers as decimal strings, and shares the raw door's

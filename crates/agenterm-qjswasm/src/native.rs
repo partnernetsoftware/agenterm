@@ -997,6 +997,37 @@ enum FixedPrototype {
     I32I32U32,
 }
 
+impl FixedPrototype {
+    /// Every variant in one table.
+    ///
+    /// Dispatch looks this table up and `declaration` is an exhaustive match, so
+    /// a new variant cannot be added without stating the shape it answers for —
+    /// the catalog has no second place to drift into.
+    const ALL: [Self; 6] = [
+        Self::I32U64U64,
+        Self::U64I32,
+        Self::IsizeI32,
+        Self::I64I32I64I32,
+        Self::I32U32U32,
+        Self::I32I32U32,
+    ];
+
+    /// The declaration this exposure answers for, as `(result, parameters)`.
+    fn declaration(self) -> (NativeType, &'static [NativeType]) {
+        match self {
+            Self::I32U64U64 => (NativeType::I32, &[NativeType::U64, NativeType::U64]),
+            Self::U64I32 => (NativeType::U64, &[NativeType::I32]),
+            Self::IsizeI32 => (NativeType::Isize, &[NativeType::I32]),
+            Self::I64I32I64I32 => (
+                NativeType::I64,
+                &[NativeType::I32, NativeType::I64, NativeType::I32],
+            ),
+            Self::I32U32U32 => (NativeType::I32, &[NativeType::U32, NativeType::U32]),
+            Self::I32I32U32 => (NativeType::I32, &[NativeType::I32, NativeType::U32]),
+        }
+    }
+}
+
 /// Pointer-bearing shapes exposed by the qjswasm native catalog.
 ///
 /// The two nullable variants are intentionally local policy: they select which
@@ -1017,6 +1048,97 @@ enum PointerPrototype {
     I32PointerU64,
     I32I32PointerU32,
     I32U64PointerU64,
+}
+
+impl PointerPrototype {
+    /// Every variant in one table; see [`FixedPrototype::ALL`].
+    const ALL: [Self; 14] = [
+        Self::VoidNullablePointer,
+        Self::I64NullablePointer,
+        Self::I64Pointer,
+        Self::PointerPointerUsize,
+        Self::I32Pointer,
+        Self::I32I32Pointer,
+        Self::I32PointerI32,
+        Self::I32PointerNullablePointer,
+        Self::I32NullablePointerPointer,
+        Self::I32PointerPointer,
+        Self::I32PointerPointerPointer,
+        Self::I32PointerU64,
+        Self::I32I32PointerU32,
+        Self::I32U64PointerU64,
+    ];
+
+    /// The declaration this exposure answers for, as `(result, parameters)`.
+    fn declaration(self) -> (NativeType, &'static [NativeType]) {
+        match self {
+            Self::VoidNullablePointer => (NativeType::Void, &[NativeType::NullablePointer]),
+            Self::I64NullablePointer => (NativeType::I64, &[NativeType::NullablePointer]),
+            Self::I64Pointer => (NativeType::I64, &[NativeType::Pointer]),
+            Self::PointerPointerUsize => (
+                NativeType::Pointer,
+                &[NativeType::Pointer, NativeType::Usize],
+            ),
+            Self::I32Pointer => (NativeType::I32, &[NativeType::Pointer]),
+            Self::I32I32Pointer => (NativeType::I32, &[NativeType::I32, NativeType::Pointer]),
+            Self::I32PointerI32 => (NativeType::I32, &[NativeType::Pointer, NativeType::I32]),
+            Self::I32PointerNullablePointer => (
+                NativeType::I32,
+                &[NativeType::Pointer, NativeType::NullablePointer],
+            ),
+            Self::I32NullablePointerPointer => (
+                NativeType::I32,
+                &[NativeType::NullablePointer, NativeType::Pointer],
+            ),
+            Self::I32PointerPointer => {
+                (NativeType::I32, &[NativeType::Pointer, NativeType::Pointer])
+            }
+            Self::I32PointerPointerPointer => (
+                NativeType::I32,
+                &[
+                    NativeType::Pointer,
+                    NativeType::Pointer,
+                    NativeType::Pointer,
+                ],
+            ),
+            Self::I32PointerU64 => (NativeType::I32, &[NativeType::Pointer, NativeType::U64]),
+            Self::I32I32PointerU32 => (
+                NativeType::I32,
+                &[NativeType::I32, NativeType::Pointer, NativeType::U32],
+            ),
+            Self::I32U64PointerU64 => (
+                NativeType::I32,
+                &[NativeType::U64, NativeType::Pointer, NativeType::U64],
+            ),
+        }
+    }
+}
+
+/// Every ABI shape this catalog exposes, as the caller's declaration.
+///
+/// Derived from the same tables dispatch uses, so it is not a second catalog: it
+/// exists for the owning test that keeps `exposure ⊆ mechanism` true by asking
+/// dyn rather than by trusting this list.
+#[cfg(test)]
+fn exposure_declarations() -> Vec<(NativeType, Vec<NativeType>)> {
+    let mut exposures = Vec::new();
+    for ty in EXACT_SCALAR_TYPES {
+        for arity in 0..=MAX_NATIVE_ARITY {
+            exposures.push((ty, vec![ty; arity]));
+        }
+    }
+    for (result, parameters) in FixedPrototype::ALL
+        .into_iter()
+        .map(FixedPrototype::declaration)
+        .chain(
+            PointerPrototype::ALL
+                .into_iter()
+                .map(PointerPrototype::declaration),
+        )
+    {
+        exposures.push((result, parameters.to_vec()));
+    }
+    exposures
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1049,66 +1171,15 @@ fn native_dispatch(spec: &NativeSpec) -> Result<NativeDispatch, NativeDoorError>
     {
         return Ok(NativeDispatch::Exact { result });
     }
-    let fixed = match (spec.result, spec.parameters.as_slice()) {
-        (NativeType::Isize, [NativeType::I32]) => Some(FixedPrototype::IsizeI32),
-        (NativeType::I64, [NativeType::I32, NativeType::I64, NativeType::I32]) => {
-            Some(FixedPrototype::I64I32I64I32)
-        }
-        (NativeType::U64, [NativeType::I32]) => Some(FixedPrototype::U64I32),
-        (NativeType::I32, [NativeType::U64, NativeType::U64]) => Some(FixedPrototype::I32U64U64),
-        (NativeType::I32, [NativeType::U32, NativeType::U32]) => Some(FixedPrototype::I32U32U32),
-        (NativeType::I32, [NativeType::I32, NativeType::U32]) => Some(FixedPrototype::I32I32U32),
-        _ => None,
-    };
+    let fixed = FixedPrototype::ALL
+        .into_iter()
+        .find(|prototype| prototype.declaration() == (spec.result, spec.parameters.as_slice()));
     if let Some(fixed) = fixed {
         return Ok(NativeDispatch::Fixed(fixed));
     }
-    let fixed_pointer = match (spec.result, spec.parameters.as_slice()) {
-        (NativeType::Void, [NativeType::NullablePointer]) => {
-            Some(PointerPrototype::VoidNullablePointer)
-        }
-        (NativeType::I64, [NativeType::NullablePointer]) => {
-            Some(PointerPrototype::I64NullablePointer)
-        }
-        (NativeType::I64, [NativeType::Pointer]) => Some(PointerPrototype::I64Pointer),
-        (NativeType::Pointer, [NativeType::Pointer, NativeType::Usize]) => {
-            Some(PointerPrototype::PointerPointerUsize)
-        }
-        (NativeType::I32, [NativeType::Pointer]) => Some(PointerPrototype::I32Pointer),
-        (NativeType::I32, [NativeType::I32, NativeType::Pointer]) => {
-            Some(PointerPrototype::I32I32Pointer)
-        }
-        (NativeType::I32, [NativeType::Pointer, NativeType::I32]) => {
-            Some(PointerPrototype::I32PointerI32)
-        }
-        (NativeType::I32, [NativeType::Pointer, NativeType::U64]) => {
-            Some(PointerPrototype::I32PointerU64)
-        }
-        (NativeType::I32, [NativeType::Pointer, NativeType::Pointer]) => {
-            Some(PointerPrototype::I32PointerPointer)
-        }
-        (
-            NativeType::I32,
-            [
-                NativeType::Pointer,
-                NativeType::Pointer,
-                NativeType::Pointer,
-            ],
-        ) => Some(PointerPrototype::I32PointerPointerPointer),
-        (NativeType::I32, [NativeType::Pointer, NativeType::NullablePointer]) => {
-            Some(PointerPrototype::I32PointerNullablePointer)
-        }
-        (NativeType::I32, [NativeType::NullablePointer, NativeType::Pointer]) => {
-            Some(PointerPrototype::I32NullablePointerPointer)
-        }
-        (NativeType::I32, [NativeType::I32, NativeType::Pointer, NativeType::U32]) => {
-            Some(PointerPrototype::I32I32PointerU32)
-        }
-        (NativeType::I32, [NativeType::U64, NativeType::Pointer, NativeType::U64]) => {
-            Some(PointerPrototype::I32U64PointerU64)
-        }
-        _ => None,
-    };
+    let fixed_pointer = PointerPrototype::ALL
+        .into_iter()
+        .find(|prototype| prototype.declaration() == (spec.result, spec.parameters.as_slice()));
     fixed_pointer
         .map(NativeDispatch::FixedPointer)
         .ok_or_else(|| NativeDoorError::InvocationSignatureUnsupported {
@@ -1407,6 +1478,114 @@ fn fixed_pointer_argument(
         NativeArgument::Null { .. }
         | NativeArgument::GuestSpan { .. }
         | NativeArgument::Scalar { .. } => Err(unsupported_signature(call)()),
+    }
+}
+
+/// The exposure catalog must stay inside dyn's mechanism matrix.
+///
+/// qjswasm owns the exposure allowlist; dyn owns the trampoline matrix. This gate
+/// keeps the one-way inclusion true by *asking dyn*, so a shape the catalog
+/// exposes but no trampoline can execute reddens here instead of reaching a guest
+/// as a "supported" declaration. It never asks dyn for a symbol, a nullability
+/// verdict or a guest span: those stay this crate's policy.
+#[cfg(test)]
+mod mechanism_compatibility {
+    use super::*;
+
+    fn abi_signature(
+        result: NativeType,
+        parameters: &[NativeType],
+    ) -> (agenterm_dyn::AbiType, Vec<agenterm_dyn::AbiType>) {
+        (
+            abi_type(result).expect("an exposed result maps to an ABI position"),
+            parameters
+                .iter()
+                .map(|ty| abi_type(*ty).expect("an exposed parameter maps to an ABI position"))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn every_exposed_shape_has_a_dyn_mechanism_trampoline() {
+        let exposures = exposure_declarations();
+        assert_eq!(
+            exposures.len(),
+            69,
+            "exposure catalog inventory: 49 exact + 6 fixed + 14 pointer"
+        );
+        for (result, parameters) in &exposures {
+            let (abi_result, abi_parameters) = abi_signature(*result, parameters);
+            let signature = agenterm_dyn::AbiSignature {
+                result: abi_result,
+                params: &abi_parameters,
+            };
+            assert!(
+                agenterm_dyn::validate_abi_signature(signature).is_ok(),
+                "qjswasm exposes {result:?}({parameters:?}) but dyn has no trampoline for it"
+            );
+        }
+    }
+
+    #[test]
+    fn the_mechanism_stays_broader_than_the_exposure_catalog() {
+        let exposures = exposure_declarations();
+        // Mechanism-only today: dyn executes these pointer-result shapes and the
+        // catalog does not expose them. The inclusion runs one way, so growth may
+        // shrink this set — but a shape may never enter the catalog before the
+        // mechanism can execute it (the test above owns that direction).
+        for declaration in [
+            (NativeType::Pointer, Vec::new()),
+            (NativeType::Pointer, vec![NativeType::U32]),
+            (NativeType::Pointer, vec![NativeType::U64]),
+        ] {
+            assert!(
+                !exposures.contains(&declaration),
+                "{declaration:?} is mechanism-only today; if the catalog grew, restate this set"
+            );
+            let (abi_result, abi_parameters) = abi_signature(declaration.0, &declaration.1);
+            let signature = agenterm_dyn::AbiSignature {
+                result: abi_result,
+                params: &abi_parameters,
+            };
+            assert!(
+                agenterm_dyn::validate_abi_signature(signature).is_ok(),
+                "{declaration:?} must stay executable by the mechanism"
+            );
+        }
+    }
+
+    #[test]
+    fn the_ioctl_shapes_stay_out_of_the_abi_exposure_inventory() {
+        let exposures = exposure_declarations();
+        for declaration in [
+            (
+                NativeType::I32,
+                vec![NativeType::I32, NativeType::I32, NativeType::Pointer],
+            ),
+            (
+                NativeType::I32,
+                vec![NativeType::I32, NativeType::U64, NativeType::Pointer],
+            ),
+        ] {
+            assert!(
+                !exposures.contains(&declaration),
+                "{declaration:?} belongs to the ioctl mechanism, not to the ABI inventory"
+            );
+        }
+        // The u64 request is why `invoke_unix_ioctl` exists as its own entry: the
+        // ABI matrix has no trampoline for that variadic shape.
+        let (abi_result, abi_parameters) = abi_signature(
+            NativeType::I32,
+            &[NativeType::I32, NativeType::U64, NativeType::Pointer],
+        );
+        let signature = agenterm_dyn::AbiSignature {
+            result: abi_result,
+            params: &abi_parameters,
+        };
+        assert!(
+            agenterm_dyn::validate_abi_signature(signature).is_err(),
+            "the u64 ioctl request must stay outside the ABI matrix"
+        );
     }
 }
 

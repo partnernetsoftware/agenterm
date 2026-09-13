@@ -312,8 +312,8 @@ fn pointer_matches(prototype: FixedPointerPrototype, signature: AbiSignature<'_>
 
 /// Chooses the family that can execute `signature` with `arguments`.
 ///
-/// This is a total function over the mechanism support matrix: a shape outside it
-/// is refused, never approximated.
+/// The argument list is checked against the declaration first, then the shape is
+/// classified by [`classify_signature`].
 fn classify(signature: AbiSignature<'_>, arguments: &[AbiValue]) -> Result<Family, AbiError> {
     if arguments.len() != signature.params.len() {
         return Err(AbiError::ArgumentCount {
@@ -331,6 +331,16 @@ fn classify(signature: AbiSignature<'_>, arguments: &[AbiValue]) -> Result<Famil
             });
         }
     }
+    classify_signature(signature)
+}
+
+/// Chooses the family that can execute `signature`, ignoring argument values.
+///
+/// This is the mechanism support matrix as a total function: a shape outside it
+/// is refused, never approximated. The argument checks belong to [`classify`],
+/// so a caller that only wants to know whether a shape has a real trampoline
+/// does not have to construct values.
+fn classify_signature(signature: AbiSignature<'_>) -> Result<Family, AbiError> {
     // Exact first: homogeneous, arity-bounded, and the most common shape.
     if let Some(ty) = exact_type(signature.result) {
         let arity = signature.params.len();
@@ -436,6 +446,19 @@ fn classify(signature: AbiSignature<'_>, arguments: &[AbiValue]) -> Result<Famil
 /// executing it.
 pub fn validate_abi(call: &NativeCall<'_>) -> Result<(), AbiError> {
     classify(call.signature, call.arguments).map(|_| ())
+}
+
+/// Answers whether the mechanism has a real trampoline for `signature`.
+///
+/// This is the **mechanism support query**: it takes only the caller's ABI
+/// description and needs no argument values, so a caller can ask about a shape
+/// before it has anything to pass. It deliberately holds no symbol allowlist, no
+/// nullability, no guest span and no product exposure — those belong to the
+/// caller and to qjswasm, which keeps its own exposure catalog a subset of this
+/// matrix by asking here. `validate_abi` remains the entry that also checks an
+/// argument list's count and shape.
+pub fn validate_abi_signature(signature: AbiSignature<'_>) -> Result<(), AbiError> {
+    classify_signature(signature).map(|_| ())
 }
 
 fn exact_argument(value: AbiValue) -> Option<ExactNativeValue> {

@@ -10,6 +10,7 @@ use std::ffi::{CStr, c_void};
 
 use agenterm_dyn::{
     AbiError, AbiSignature, AbiType, AbiValue, NativeCall, invoke_abi, validate_abi,
+    validate_abi_signature,
 };
 
 const LIB: &str = "libSystem.B.dylib";
@@ -694,6 +695,180 @@ fn a_missing_symbol_is_a_symbol_lookup_error() {
     assert!(
         matches!(error, AbiError::SymbolLookup { .. }),
         "expected a symbol lookup error, got {error:?}"
+    );
+}
+
+/// Every shape the mechanism matrix admits, as `(result, params)`.
+///
+/// This is the owner's inventory: the sweep below asserts each entry still has a
+/// real trampoline in this build, so a shape dropped from the matrix reddens
+/// here instead of silently vanishing from the mechanism.
+fn mechanism_shapes() -> Vec<(AbiType, Vec<AbiType>)> {
+    let scalars = [
+        AbiType::I32,
+        AbiType::U32,
+        AbiType::I64,
+        AbiType::U64,
+        AbiType::Isize,
+        AbiType::Usize,
+        AbiType::F64,
+    ];
+    let mut shapes = Vec::new();
+    // exact: 7 homogeneous scalar families x arity 0..=6.
+    for ty in scalars {
+        for arity in 0..=6 {
+            shapes.push((ty, vec![ty; arity]));
+        }
+    }
+    // fixed: 4 heterogeneous scalar shapes.
+    shapes.push((AbiType::U64, vec![AbiType::I32]));
+    shapes.push((AbiType::Isize, vec![AbiType::I32]));
+    shapes.push((AbiType::I32, vec![AbiType::U64, AbiType::U64]));
+    shapes.push((AbiType::I64, vec![AbiType::I32, AbiType::I64, AbiType::I32]));
+    // fixed-pointer: 8 pointer-bearing shapes.
+    shapes.push((AbiType::I32, vec![AbiType::Pointer]));
+    shapes.push((AbiType::I32, vec![AbiType::Pointer, AbiType::I32]));
+    shapes.push((AbiType::I32, vec![AbiType::Pointer, AbiType::U64]));
+    shapes.push((AbiType::I32, vec![AbiType::I32, AbiType::Pointer]));
+    shapes.push((
+        AbiType::I32,
+        vec![AbiType::I32, AbiType::Pointer, AbiType::U32],
+    ));
+    shapes.push((
+        AbiType::I32,
+        vec![AbiType::U64, AbiType::Pointer, AbiType::U64],
+    ));
+    shapes.push((AbiType::I32, vec![AbiType::Pointer, AbiType::Pointer]));
+    shapes.push((
+        AbiType::I32,
+        vec![AbiType::Pointer, AbiType::Pointer, AbiType::Pointer],
+    ));
+    // pointer-result: 5 shapes that return a raw address.
+    shapes.push((AbiType::Pointer, vec![]));
+    shapes.push((AbiType::Pointer, vec![AbiType::U32]));
+    shapes.push((AbiType::Pointer, vec![AbiType::U64]));
+    shapes.push((AbiType::Pointer, vec![AbiType::Pointer]));
+    shapes.push((AbiType::Pointer, vec![AbiType::Pointer, AbiType::Usize]));
+    // direct-scalar: 9 shapes the unified mechanism implements itself.
+    shapes.push((AbiType::Void, vec![AbiType::Pointer]));
+    shapes.push((AbiType::I64, vec![AbiType::Pointer]));
+    shapes.push((AbiType::Isize, vec![AbiType::U32]));
+    shapes.push((
+        AbiType::I32,
+        vec![AbiType::I32, AbiType::I32, AbiType::Pointer],
+    ));
+    shapes.push((
+        AbiType::I32,
+        vec![
+            AbiType::I32,
+            AbiType::I32,
+            AbiType::U64,
+            AbiType::Pointer,
+            AbiType::I32,
+        ],
+    ));
+    shapes.push((
+        AbiType::I32,
+        vec![
+            AbiType::Pointer,
+            AbiType::U32,
+            AbiType::Pointer,
+            AbiType::Pointer,
+            AbiType::Pointer,
+            AbiType::Usize,
+        ],
+    ));
+    shapes.push((
+        AbiType::Usize,
+        vec![AbiType::I32, AbiType::Pointer, AbiType::Usize],
+    ));
+    shapes.push((AbiType::I32, vec![AbiType::U32, AbiType::U32]));
+    shapes.push((AbiType::I32, vec![AbiType::I32, AbiType::U32]));
+    shapes
+}
+
+#[test]
+fn the_signature_query_accepts_every_shape_in_the_mechanism_matrix() {
+    let shapes = mechanism_shapes();
+    assert_eq!(shapes.len(), 75, "mechanism matrix inventory");
+    for (result, params) in &shapes {
+        let signature = AbiSignature {
+            result: *result,
+            params,
+        };
+        assert!(
+            validate_abi_signature(signature).is_ok(),
+            "the mechanism lost its trampoline for {result:?}({params:?})"
+        );
+    }
+}
+
+#[test]
+fn the_signature_query_refuses_every_shape_outside_the_matrix() {
+    for (result, params) in [
+        (AbiType::Void, vec![]),
+        (AbiType::I32, vec![AbiType::F64]),
+        (AbiType::U32, vec![AbiType::U32; 7]),
+        (AbiType::Pointer, vec![AbiType::I32]),
+        (
+            AbiType::I32,
+            vec![
+                AbiType::Pointer,
+                AbiType::Pointer,
+                AbiType::Pointer,
+                AbiType::Pointer,
+            ],
+        ),
+    ] {
+        let signature = AbiSignature {
+            result,
+            params: &params,
+        };
+        assert!(
+            matches!(
+                validate_abi_signature(signature),
+                Err(AbiError::SignatureUnsupported { .. })
+            ),
+            "{result:?}({params:?}) must be refused by the mechanism"
+        );
+    }
+}
+
+/// The query takes only the description, so it needs no argument values and no
+/// fabricated buffer. `validate_abi` is the entry that also checks a real
+/// argument list, and the two must not disagree about the shape.
+#[test]
+fn the_signature_query_agrees_with_validate_abi_without_needing_arguments() {
+    let params = vec![AbiType::I32, AbiType::Pointer];
+    let signature = AbiSignature {
+        result: AbiType::I32,
+        params: &params,
+    };
+    assert!(validate_abi_signature(signature).is_ok());
+    let arguments = [AbiValue::I32(1), AbiValue::Pointer(std::ptr::null_mut())];
+    // A null address is an ABI-level pointer like any other: nullability is the
+    // caller's contract, so the mechanism accepts the shape either way.
+    let call = NativeCall {
+        library: LIB,
+        symbol: "uname",
+        signature,
+        arguments: &arguments,
+    };
+    assert!(validate_abi(&call).is_ok());
+    let short = [AbiValue::I32(1)];
+    let call = NativeCall {
+        library: LIB,
+        symbol: "uname",
+        signature,
+        arguments: &short,
+    };
+    assert!(matches!(
+        validate_abi(&call),
+        Err(AbiError::ArgumentCount { .. })
+    ));
+    assert!(
+        validate_abi_signature(signature).is_ok(),
+        "the shape is still supported when the argument list is wrong"
     );
 }
 

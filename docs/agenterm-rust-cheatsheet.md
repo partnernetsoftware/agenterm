@@ -6104,3 +6104,18 @@ linear-memory base and decoded spans. Prove both sides: a direct dyn oracle must
 show the true pointer-returning C trampoline, a WAT court must require buffer
 identity plus the pointee claim, and an adversarial unit test must reject an
 in-allocation result outside the declared span.
+
+## A mechanism-support query answers with the shape alone
+
+When a lower layer owns a support matrix and an upper layer owns an exposure
+allowlist, the gate that keeps `exposure ⊆ mechanism` must not be satisfiable by
+fabricated values. Split classification into a shape-only entry
+(`validate_abi_signature(signature)`) and the argument-checked one
+(`validate_abi(call)`), so an upper layer can ask before it has anything to pass;
+keep symbol, nullability and span policy out of the query entirely. Enumerate the
+upper layer's catalog from the same tables its dispatch uses (an `ALL` array plus
+an exhaustive `declaration()` match doing the lookup), never from a second
+hand-written list — then deleting a mechanism shape and forging an exposure both
+redden with a named diagnostic. Keep the inclusion one-way and record the shapes
+the mechanism can execute but the catalog does not expose, rather than forcing the
+two sets to be equal.

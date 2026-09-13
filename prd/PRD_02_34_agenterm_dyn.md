@@ -251,6 +251,11 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
   不是新 loader；
 - **策略在上层**：dyn 不得持有允许集合、授权语义、budget/cancel 或 typed owner 的事实；
 - **机制正确性**：unsafe 契约、错误传播、W^X（永不 RWX）由 dyn 保持不变。
+- **机制支持可查询**：`validate_abi_signature(signature)` 只凭调用方的 ABI 描述回答
+  “这个形状有没有真实 trampoline”，**不需要构造任何参数值**（`validate_abi(call)` 继续负责
+  argument count/shape）。该查询不接受、也不拥有 symbol allowlist、nullability、guest span
+  或产品 exposure —— 它只能回答机制问题；exposure ⊆ mechanism 由 qjswasm 侧附带 gate 保证
+  （见 PRD 02.36）。
 
 **验收证据（建议口径）**
 
@@ -258,6 +263,11 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
   门测试全绿；两侧 `clippy --all-targets -- -D warnings`、`cargo fmt -p <crate> -- --check`、
   `git diff --check` clean；
 - **loader 计数**两侧分别为 1 / 1（且 qjswasm 那处是注释）；
+- **机制矩阵扫全**：dyn 侧 `tests/abi.rs` 逐一枚举矩阵（49+4+8+5+9=75）要求
+  `validate_abi_signature` 接受，并对矩阵外的形状要求 `SignatureUnsupported`；
+- **exposure ⊆ mechanism**：qjswasm 侧 `native::mechanism_compatibility` 用同一张 dispatch
+  表枚举曝光形状（69）逐一问 dyn，并记录“机制有、曝光无”的形状与 `ioctl` 自成一径（u64 请求
+  没有 ABI trampoline）；删一个机制形状或伪造一个曝光形状都会具名变红；
 - **一条可逆变异**：让 dyn 自行白名单（而不是接受调用方描述）⇒ 相应用例**必须变红**，
   证明策略确实在上层；原地还原并核哈希相等。
 
