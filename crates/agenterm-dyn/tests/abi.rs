@@ -9,9 +9,14 @@ use std::ffi::CString;
 use std::ffi::{CStr, c_void};
 
 use agenterm_dyn::{
-    AbiError, AbiSignature, AbiType, AbiValue, LibraryHandle, NativeCall, invoke_abi,
-    invoke_abi_with_handle, validate_abi, validate_abi_signature,
+    AbiError, AbiSignature, AbiType, AbiValue, NativeCall, invoke_abi, validate_abi,
+    validate_abi_signature,
 };
+// The reusable handle is exercised only by the macOS-gated handle courts below,
+// so its two names are gated with them: on any other cell this import is unused,
+// and `--all-targets -- -D warnings` turns that into a failed non-host gate.
+#[cfg(target_os = "macos")]
+use agenterm_dyn::{LibraryHandle, invoke_abi_with_handle};
 
 const LIB: &str = "libSystem.B.dylib";
 
