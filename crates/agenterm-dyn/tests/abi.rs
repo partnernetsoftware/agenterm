@@ -9,14 +9,9 @@ use std::ffi::CString;
 use std::ffi::{CStr, c_void};
 
 use agenterm_dyn::{
-    AbiError, AbiSignature, AbiType, AbiValue, NativeCall, invoke_abi, validate_abi,
-    validate_abi_signature,
+    AbiError, AbiSignature, AbiType, AbiValue, LibraryHandle, NativeCall, invoke_abi,
+    invoke_abi_with_handle, validate_abi, validate_abi_signature,
 };
-// The reusable handle is exercised only by the macOS-gated handle courts below,
-// so its two names are gated with them: on any other cell this import is unused,
-// and `--all-targets -- -D warnings` turns that into a failed non-host gate.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use agenterm_dyn::{LibraryHandle, invoke_abi_with_handle};
 
 #[cfg(target_os = "macos")]
 const LIB: &str = "libSystem.B.dylib";
@@ -232,6 +227,64 @@ fn pointer_result_with_pointer_loads_the_available_windows_crt() {
     };
     assert!(!path.is_null(), "the test process must have PATH");
     assert!(!unsafe { CStr::from_ptr(path.cast()) }.to_bytes().is_empty());
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn windows_kernel32_covers_exact_fixed_pointer_and_reused_handle_calls() {
+    let handle = LibraryHandle::open(LIB).expect("open kernel32 once");
+    let pid_signature = AbiSignature {
+        result: AbiType::U32,
+        params: &[],
+    };
+    for _ in 0..3 {
+        let value = unsafe {
+            invoke_abi_with_handle(
+                &handle,
+                &NativeCall {
+                    library: LIB,
+                    symbol: "GetCurrentProcessId",
+                    signature: pid_signature,
+                    arguments: &[],
+                },
+            )
+        }
+        .expect("GetCurrentProcessId through one handle");
+        assert_eq!(value, AbiValue::U32(std::process::id()));
+    }
+
+    let mut bridged_counter = 0_i64;
+    let counter_arguments = [AbiValue::Pointer(
+        std::ptr::from_mut(&mut bridged_counter).cast(),
+    )];
+    let value = unsafe {
+        invoke_abi_with_handle(
+            &handle,
+            &NativeCall {
+                library: LIB,
+                symbol: "QueryPerformanceCounter",
+                signature: AbiSignature {
+                    result: AbiType::I32,
+                    params: &[AbiType::Pointer],
+                },
+                arguments: &counter_arguments,
+            },
+        )
+    }
+    .expect("QueryPerformanceCounter through the fixed-pointer family");
+    assert_eq!(value, AbiValue::I32(1));
+    assert!(bridged_counter > 0);
+
+    let mut direct_counter = 0_i64;
+    assert_ne!(
+        unsafe {
+            windows_sys::Win32::System::Performance::QueryPerformanceCounter(
+                &raw mut direct_counter,
+            )
+        },
+        0
+    );
+    assert!(direct_counter > 0);
 }
 
 /// Pointer results are raw machine addresses. The mechanism preserves their

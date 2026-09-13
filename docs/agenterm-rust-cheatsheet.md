@@ -2899,6 +2899,13 @@ A test gated `all(unix, target_arch = "x86_64")` still runs on macOS x86_64.
 after the dyn exec-base merge. Pick the soname from `target_os`, not from
 "unix".
 
+The inverse target caveat applies to Windows ABI courts. On the repository's
+supported Windows x86_64 and aarch64 cells, the platform `system` convention and
+Rust `extern "C"` convention use the same calling convention, so a stable
+`kernel32.dll` export can own a dyn ABI oracle. Do not extend that proof to
+32-bit x86, where `stdcall` decoration and stack cleanup differ; keep the court
+gated to the architectures the product actually ships and compile both cells.
+
 ## Fixed-stride ABI arrays cannot grow by appending fields
 
 If an ABI accepts `T* + record_count`, producer and consumer both step the

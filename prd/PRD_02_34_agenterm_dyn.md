@@ -670,6 +670,11 @@ fixed-pointer `uname`, missing-symbol classification and reusable-handle calls
 therefore compile as real Linux tests rather than macOS-only evidence. The
 macOS runtime suite is green; both Linux target suites compile, while local
 Linux execution remains unclaimed because the configured runners were offline.
+Windows now has the matching `kernel32.dll` court: one reusable handle serves
+three exact `GetCurrentProcessId` calls and one existing `i32(ptr)`
+`QueryPerformanceCounter` call, with `std::process` and `windows-sys` as the
+independent oracles. Its x86_64 and aarch64 test targets compile; Windows runtime
+remains unclaimed until either native runner executes the binary.
 
 ### examples
 
