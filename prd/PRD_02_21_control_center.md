@@ -423,12 +423,16 @@ future promotion gates.
   stale declarations that `image.inspect_png`, `process.platform_facts`, or
   `process.window_key` are unavailable. They now call those already-shipped
   tool-door operations directly, preserve the typed Wayland and macOS input
-  refusals, and pass the bounded tool-profile compile gate. This source
-  convergence is not new runtime evidence: the current macOS host run reaches
-  the existing no-activate foreground precondition before the newly connected
-  image/window calls, and the Linux X11 journey still requires a real X11 host
-  with its named focus tools. The renderer and native-input evidence remains
-  open until those owning black-box journeys reach and prove the calls.
+  refusals, and pass the bounded tool-profile compile gate. The macOS port now
+  reads the window facts as the JSON booleans the door actually returns and
+  waits for asynchronous window-server registration; a direct door probe
+  proves that `--no-activate` preserves an independent foreground window while
+  the Control Center is visible behind it. The owning macOS task now reaches
+  and emits both renderer evidence and positive native-keyboard evidence; it
+  then fails later at the existing explicit-activation focus timeout, so the
+  complete journey is not claimed green. The Linux X11 journey still requires
+  a real X11 host with its named focus tools. Full Control Center evidence
+  remains open until those complete black-box journeys pass.
 - [x] native macOS 26.5 arm64 public task
   `control-center-macos-smoke` passes in 5.01 seconds with isolated settings,
   workspace, instance registry, native runtime, logical `dev` authority, and

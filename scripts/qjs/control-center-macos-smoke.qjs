@@ -220,10 +220,29 @@ function foreground_window_id(child) {
 function preserves_background(child, previous) {
   const previous_id = 0 + previous;
   const facts = platform_facts(child);
-  return facts.top_level_window_present !== 0
-    && (previous_id === 0
-        || (facts.top_level_window_is_foreground === 0
-            && facts.foreground_window_id === previous_id));
+  // The door answers these facts as JSON booleans, not Rhai's 0/1 values.
+  return facts.top_level_window_present
+    && !facts.top_level_window_is_foreground
+    && facts.foreground_window_id === previous_id;
+}
+
+function wait_child_window_present(child, code) {
+  // A renderer frame may precede the window server's on-screen registration.
+  const code_text = "" + code;
+  for (let attempt = 0; attempt < 500; attempt = attempt + 1) {
+    const facts = platform_facts(child);
+    if (facts.top_level_window_supported
+        && facts.top_level_window_present
+        && 0 + facts.top_level_window_id !== 0) {
+      return 0 + facts.top_level_window_id;
+    }
+    if (harness.child_state(child) === "exited") {
+      const output = harness.child_wait(child, 2000);
+      throw code_text + "_early_exit:" + output.stderr;
+    }
+    rh.sleep_ms(20);
+  }
+  throw code_text;
 }
 
 function wait_child_foreground(child, previous, code) {
@@ -231,8 +250,8 @@ function wait_child_foreground(child, previous, code) {
   const code_text = "" + code;
   for (let attempt = 0; attempt < 100; attempt = attempt + 1) {
     const facts = platform_facts(child);
-    if (facts.top_level_window_present !== 0
-        && facts.top_level_window_is_foreground !== 0
+    if (facts.top_level_window_present
+        && facts.top_level_window_is_foreground
         && facts.top_level_window_id !== previous_id
         && facts.foreground_window_id === facts.top_level_window_id) {
       return 0 + facts.foreground_window_id;
@@ -500,29 +519,31 @@ try {
 
   print("STEP no-activate opens one native renderer without stealing focus");
   const foreground_before = foreground_window_id(server);
+  harness.require(foreground_before !== 0, "control_center_macos_foreground_witness");
   const cc_spec = native_spec(context, control_center, registry, runtime, ["open", "--no-activate", "--instance", "dev"]);
   const cc = harness.start_child(context, cc_spec, "control-center");
   owned_children.push(cc);
   wait_registry(registry, cc.pid, cc, "control_center_macos_registry");
   const capture = wait_capture(context, control_center, registry, runtime, cc, cockpit_png, "connected",
     "control_center_macos_first_frame");
+  const control_center_window_id = wait_child_window_present(cc, "control_center_macos_no_activate_window");
   const rendered = inspect_png(cockpit_png);
   const tab_count = 0 + selected.connected_server.tabs.length;
   const expected_tabs = "" + tab_count + " tabs";
   harness.require(
-    preserves_background(cc, foreground_before),
+    control_center_window_id !== foreground_before
+      && preserves_background(cc, foreground_before),
     "control_center_macos_no_activate_stole_focus:" + JSON.stringify({
       before: foreground_before,
       after: foreground_window_id(cc),
+      window_id: control_center_window_id,
       owner_pid: capture.owner_pid,
       control_center_pid: cc.pid
     })
   );
-  if (foreground_before === 0) {
-    print("NO_ACTIVATE_BASELINE_UNAVAILABLE: runner exposed no "
-      + "pre-existing foreground window; focus preservation "
-      + "is not claimed for this journey");
-  }
+  print("NO_ACTIVATE_WITNESS: independent foreground window " + foreground_before
+    + " still frontmost; control center window " + control_center_window_id
+    + " is on screen and not foreground");
   const png_sha256 = rh.sha256_file(cockpit_png);
   harness.require(
     capture.owner_pid === cc.pid
