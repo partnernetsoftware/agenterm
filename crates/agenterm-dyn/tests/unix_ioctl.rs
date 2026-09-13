@@ -45,7 +45,10 @@ mod unix {
                 &mut slave,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
-                &mut requested,
+                // Raw, not `&mut`: libc declares `winp` as `*mut winsize` on
+                // Apple/BSD but `*const winsize` on Linux/Fuchsia (where clippy
+                // calls a mutable borrow unnecessary). `*mut` coerces to `*const`.
+                &raw mut requested,
             )
         };
         let _master = Fd(master);
