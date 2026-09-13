@@ -2,7 +2,7 @@
 
 use libloading::Library;
 
-use crate::abi::MechanismError;
+use crate::abi::{MechanismError, mechanism_symbol_error as symbol_error};
 
 /// Maximum fixed arity supported by the exact native core.
 pub const MAX_EXACT_NATIVE_ARITY: usize = 6;
@@ -133,13 +133,6 @@ pub(crate) unsafe fn invoke_exact_mechanism_with_library(
         ExactNativeType::F64 => {
             invoke_homogeneous!(library, call.symbol, call.arguments, F64, f64)
         }
-    }
-}
-
-fn symbol_error(symbol: &str, error: libloading::Error) -> MechanismError {
-    MechanismError::SymbolLoad {
-        symbol: symbol.to_owned(),
-        message: error.to_string(),
     }
 }
 

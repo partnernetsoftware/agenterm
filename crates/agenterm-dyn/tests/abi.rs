@@ -803,15 +803,28 @@ fn an_empty_pointer_is_still_a_pointer_for_the_mechanism() {
 
 /// A shape the mechanism can execute but whose symbol is absent must fail as a
 /// mechanism error, not as a fabricated success.
+fn assert_missing_symbol(error: AbiError, expected_library: &str, expected_symbol: &str) {
+    match error {
+        AbiError::SymbolLookup {
+            library,
+            symbol,
+            message,
+        } => {
+            assert_eq!(library, expected_library);
+            assert_eq!(symbol, expected_symbol);
+            assert!(!message.is_empty(), "the loader must explain its failure");
+        }
+        other => panic!("expected SymbolLookup, got {other:?}"),
+    }
+}
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn a_missing_symbol_is_a_symbol_lookup_error() {
-    let error = oracle(LIB, "agenterm_no_such_symbol_xyz", AbiType::I32, &[], &[])
-        .expect_err("an absent symbol must be refused");
-    assert!(
-        matches!(error, AbiError::SymbolLookup { .. }),
-        "expected a symbol lookup error, got {error:?}"
-    );
+    let symbol = "agenterm_no_such_symbol_xyz";
+    let error =
+        oracle(LIB, symbol, AbiType::I32, &[], &[]).expect_err("an absent symbol must be refused");
+    assert_missing_symbol(error, LIB, symbol);
 }
 
 #[test]
@@ -826,10 +839,22 @@ fn a_missing_pointer_result_symbol_keeps_the_shared_lookup_error() {
         arguments: &[],
     };
     let error = unsafe { invoke_abi(&call) }.expect_err("the symbol must not exist");
-    assert!(
-        matches!(error, AbiError::SymbolLookup { .. }),
-        "expected SymbolLookup, got {error:?}"
-    );
+    assert_missing_symbol(error, "<current-process>", call.symbol);
+}
+
+#[test]
+fn a_missing_fixed_scalar_symbol_keeps_the_mechanism_error_boundary() {
+    let call = NativeCall {
+        library: "",
+        symbol: "agenterm_no_such_fixed_scalar_symbol_xyz",
+        signature: AbiSignature {
+            result: AbiType::U64,
+            params: &[AbiType::I32],
+        },
+        arguments: &[AbiValue::I32(0)],
+    };
+    let error = unsafe { invoke_abi(&call) }.expect_err("the symbol must not exist");
+    assert_missing_symbol(error, "", call.symbol);
 }
 
 #[test]
@@ -844,10 +869,7 @@ fn a_missing_fixed_pointer_symbol_keeps_the_mechanism_error_boundary() {
         arguments: &[AbiValue::Pointer(std::ptr::null_mut())],
     };
     let error = unsafe { invoke_abi(&call) }.expect_err("the symbol must not exist");
-    assert!(
-        matches!(error, AbiError::SymbolLookup { .. }),
-        "expected SymbolLookup, got {error:?}"
-    );
+    assert_missing_symbol(error, "", call.symbol);
 }
 
 /// Every shape the mechanism matrix admits, as `(result, params)`.

@@ -158,6 +158,14 @@ pub(crate) enum MechanismError {
     SymbolLoad { symbol: String, message: String },
 }
 
+/// Attach symbol identity to one private trampoline-family lookup failure.
+pub(crate) fn mechanism_symbol_error(symbol: &str, error: libloading::Error) -> MechanismError {
+    MechanismError::SymbolLoad {
+        symbol: symbol.to_owned(),
+        message: error.to_string(),
+    }
+}
+
 impl fmt::Display for AbiError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

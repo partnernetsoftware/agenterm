@@ -215,6 +215,9 @@ dyn atom
 │   ├── one loader + one symbol-resolution path
 │   ├── five-family, 75-shape ABI mechanism matrix
 │   ├── AbiError five-word mechanism vocabulary
+│   ├── one private symbol-load constructor across all mechanism-error families [x]
+│   │   └── exact, fixed-scalar and fixed-pointer missing-symbol courts each pin
+│   │       the public library, symbol and non-empty loader message projection
 │   └── LibraryHandle RAII + one-shot/borrowed-handle parity
 ├── mechanism-family shell
 │   ├── ABI Importer                                      [x]

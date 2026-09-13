@@ -2,7 +2,7 @@
 
 use libloading::Library;
 
-use crate::abi::MechanismError;
+use crate::abi::{MechanismError, mechanism_symbol_error as symbol_error};
 
 /// One scalar type admitted by the fixed-prototype core.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -150,13 +150,6 @@ fn invoke_u64_i32(library: &Library, symbol: &str, a: i32) -> Result<u64, Mechan
         .map_err(|error| symbol_error(symbol, error))?;
     // SAFETY: the argument has the admitted type and the library stays live.
     Ok(unsafe { function(a) })
-}
-
-fn symbol_error(symbol: &str, error: libloading::Error) -> MechanismError {
-    MechanismError::SymbolLoad {
-        symbol: symbol.to_owned(),
-        message: error.to_string(),
-    }
 }
 
 fn invoke_isize_i32(library: &Library, symbol: &str, a: i32) -> Result<isize, MechanismError> {

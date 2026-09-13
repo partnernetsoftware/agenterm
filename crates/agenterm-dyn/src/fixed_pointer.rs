@@ -4,7 +4,7 @@ use std::ffi::c_void;
 
 use libloading::Library;
 
-use crate::abi::MechanismError;
+use crate::abi::{MechanismError, mechanism_symbol_error as symbol_error};
 
 /// One argument type admitted by the fixed pointer core.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -212,13 +212,6 @@ fn invoke_i32_pointer_pointer_pointer(
     .map_err(|error| symbol_error(symbol, error))?;
     // SAFETY: the caller owns all pointer contracts and the library stays live.
     Ok(unsafe { function(a, b, c) })
-}
-
-fn symbol_error(symbol: &str, error: libloading::Error) -> MechanismError {
-    MechanismError::SymbolLoad {
-        symbol: symbol.to_owned(),
-        message: error.to_string(),
-    }
 }
 
 fn invoke_i32_pointer(
