@@ -57,10 +57,10 @@
 +}
 +// ---- end capture shim ----------------------------------------------------
  import * as path from "lib/path";
- 
+
  // rh cut diagnostics at 512 characters (`sub_string(0, 512)`).
 @@ -167,12 +219,13 @@
- 
+
  // Run `spec` with its stdout cut to the top-level protocol keys; the
  // arguments recorded are the CLI's own. Only called where `unix_host` holds.
 -function run_filtered(spec) {
@@ -73,7 +73,7 @@
 +  if (capture_arguments === undefined) { capture_arguments = []; }
 +  return capture_command_spec(spec, capture_arguments);
  }
- 
+
  // The seven keys as one object: the filtered lines wrapped in braces, the
 @@ -209,7 +262,7 @@
  function invoke(context, program, arguments, expected_failure, endpoint, address, instance, workspace) {

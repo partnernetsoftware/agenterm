@@ -3,7 +3,7 @@
 @@ -21,6 +21,58 @@
  import * as rh from "lib/rh_compat";
  import * as harness from "lib/test_harness";
- 
+
 +// ---- reply-wire-cost capture shim (research reporter; research/ only) ----
 +// Appended by tools/make_capture.py. Records the door envelope text and the
 +// payload text the journey parses for every CLI reply, so the reply set can be

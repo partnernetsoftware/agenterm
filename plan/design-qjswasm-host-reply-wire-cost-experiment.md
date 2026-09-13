@@ -1,13 +1,15 @@
 # qjswasm host-reply wire cost experiment
 
-Status: **SPEC ONLY · not started · not must-ship · no capability-status change**.
+Status: **COMPLETE · verdict `V0 yes -> W0-C yes -> W1 no -> owner = host-side field selection` · not must-ship · no capability-status change · implementation not started**.
 
-This leaf writes one frozen experiment specification and nothing else. It is not
-scheduled into any version, does not enter `must-ship`, and changes no PRD
-capability state, no `tinyvm` / `tinyvm-qjs` pin, no budget default, no Rust
-source and no `.qjs` script. An accepted verdict would still require its own
-reviewed implementation leaf. The current revisions are execution-time record
-items, never premises of this specification.
+This leaf wrote one frozen experiment specification and then ran it (§8, receipt
+in `research/qjswasm-host-reply-wire-cost/`). It is not scheduled into any
+version, does not enter `must-ship`, and changed no PRD capability state, no
+`tinyvm` / `tinyvm-qjs` pin, no budget default, no Rust source and no `.qjs`
+script. The verdict names the owner of the next step — host-side field selection
+— and that implementation is a **new leaf that has not been started**. The
+revisions recorded in §8 are execution-time record items, never premises of the
+specification.
 
 | field | value |
 |---|---|

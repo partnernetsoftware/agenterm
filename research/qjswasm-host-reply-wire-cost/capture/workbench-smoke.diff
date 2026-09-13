@@ -3,7 +3,7 @@
 @@ -22,6 +22,58 @@
  import * as rh from "lib/rh_compat";
  import * as harness from "lib/test_harness";
- 
+
 +// ---- reply-wire-cost capture shim (research reporter; research/ only) ----
 +// Appended by tools/make_capture.py. Records the door envelope text and the
 +// payload text the journey parses for every CLI reply, so the reply set can be
@@ -61,7 +61,7 @@
    "ux.workbench-compact-tree",
 @@ -81,13 +133,37 @@
  }
- 
+
  // No `"" + response.stdout` copies: a concat costs steps per character here.
 +// Local replacements of the harness entry points the journey already used
 +// (same door calls, same command record); they keep the door envelope.
@@ -92,15 +92,15 @@
 +  const response = capture_invoke_cli(context, cli, args, 0, []);
    return JSON.parse(response.stdout);
  }
- 
+
  function text_cli(context, cli, args) {
 -  const response = harness.invoke_cli(context, cli, args, 0, []);
 +  const response = capture_invoke_cli(context, cli, args, 0, []);
    return response.stdout.trim();
  }
- 
+
 @@ -214,7 +290,7 @@
- 
+
  function wait_for_server(context, cli, gui_child) {
    for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
 -    const probe = harness.run_cli(context, cli, ["ui-snapshot"], 0, []);
@@ -109,7 +109,7 @@
      if (harness.state(gui_child) === "exited") {
        const output = harness.wait(gui_child, 2000);
 @@ -363,7 +439,7 @@
- 
+
  function retain_failure_snapshot(context, cli) {
    rh.create_dir_all(context.failure_directory);
 -  const output = harness.run_cli(context, cli, ["ui-snapshot"], 0, []);

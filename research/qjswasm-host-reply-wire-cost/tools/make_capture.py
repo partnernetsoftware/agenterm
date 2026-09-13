@@ -227,7 +227,12 @@ def main() -> int:
                 fromfile=f"scripts/qjs/{journey}.qjs",
                 tofile=f"research/qjswasm-host-reply-wire-cost/capture/{journey}.capture.qjs",
             )
-            (OUT / f"{journey}.diff").write_text("".join(diff))
+            # Text hygiene: the stored diff must not carry trailing whitespace,
+            # so a whitespace-only suffix is stripped from every line. The
+            # artifact is the capture copy beside it; the diff documents the
+            # change and is not promised to apply verbatim with `patch`.
+            body = "".join(line.rstrip() + "\n" for line in diff)
+            (OUT / f"{journey}.diff").write_text(body)
             print(f"{journey}: wrote {target.name} (+{len(text.splitlines()) - len(source.splitlines())} lines)")
     if failures:
         for failure in failures:
