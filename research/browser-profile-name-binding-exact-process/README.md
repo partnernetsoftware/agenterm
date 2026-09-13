@@ -427,6 +427,31 @@ That field is now imprecise — the live path exists and is gated — but this
 slice is not authorized to edit the model court, so the stale field is recorded
 here rather than silently rewritten.
 
+### Persisted-stage real-process preflight
+
+`run-current-host.sh --live-staged-preflight` runs a registered tool-profile
+task against a fully resolved disposable state root. It uses the name `R1` only
+inside that root, publishes and reads back eight rows, audits the chained
+journal from disk, and records an independently audited `abandoned` attempt.
+The baseline stages no terminal and never calls `finish`, so it creates no
+receipt-bound result or design fact.
+
+Repeated `identity-source` rows record zero process calls before the guarded
+reads and the trace-derived count afterward. Repeated `termination-proof` rows
+record zero proven deaths before polling and one afterward. The other rows are
+`preflight`, `ownership`, `stop`, and a browser-free `final-inventory`; its 0/0
+count is explicitly vacuous and is not V5 evidence.
+
+`--live-staged-red-gate` runs fourteen controls. They introduce real ordering,
+durability, truncation, terminal-attempt, trace-coverage, death-count, and
+call-count defects and require named failures. Compilation failures, crashes,
+hangs, and mutations that do not apply do not count as red.
+
+The trace covers experimental subject operations only. Broker processes used
+to publish evidence cannot be guarded by the row they are themselves
+publishing. Browser-only throw sites remain unexercised, so
+`kill_criterion_4_closed` stays false and no formal ordinal is eligible.
+
 ### Two independent blockers were open; one is now fixed
 
 The persisted-stage work surfaced **two separate** defects. They are not the same

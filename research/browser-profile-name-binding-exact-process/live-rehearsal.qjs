@@ -200,10 +200,21 @@ function parse_parent_observation(raw) {
 // real door by the self-test. When the live path is enabled this becomes the
 // source handed to `walk_ownership_chain`; until then it is a named, reviewed
 // seam rather than dead code that pretends to run.
-function real_observation_source() {
+// `hook` is optional and defaults to a no-op, so the ordinary process path is
+// completely unchanged. The STAGED slice passes a hook so each REAL door call the
+// walk performs is traced at its own call site.
+//
+// The hook must fire here, around the actual `process_observe`/`process_parent`
+// calls, and NOT at construction: building this object performs no process call at
+// all, and the walk invokes `observe`/`parent` many times. Tracing the
+// construction would record a call that never happened -- fake evidence. The walk
+// is what proves ownership, so every one of its reads must be visible.
+function real_observation_source(hook) {
+  const note = hook === undefined ? function (event) { return event; } : hook;
   return {
     observe: function (pid) {
       demand(typeof pid === "number" && pid > 0, "live_observe_pid");
+      note("ownership_observe");
       const status = process_observe(pid);
       demand(status === 0, "live_observe:" + tool_result());
       const parsed = parse_observation(JSON.parse(tool_result()));
@@ -217,6 +228,7 @@ function real_observation_source() {
     // observations.
     parent: function (pid) {
       demand(typeof pid === "number" && pid > 0, "live_parent_pid");
+      note("ownership_parent");
       const status = process_parent(pid);
       demand(status === 0, "live_parent:" + tool_result());
       const parsed = parse_parent_observation(JSON.parse(tool_result()));
@@ -981,6 +993,10 @@ function self_test() {
     && death_list(progressed).length === 3
     && death_list(progressed)[0].observation.reason === "process_not_found";
 
+  // The stage-order verifier reads the CALL-SITE trace and requires every guard
+  // row to be acknowledged BEFORE the side effect it guards starts. The trace is
+  // produced as events really happen, never reconstructed from the journal, so
+  // this cannot agree with a tampered journal by construction.
   const failed = [];
   const keys = Object.keys(checks);
   for (let i = 0; i < keys.length; i = i + 1) {
@@ -1105,7 +1121,9 @@ function spawn_subject() {
 // with the handle released, or the worker leaks a slot and the child is orphaned.
 // Failures are ACCUMULATED rather than abandoning the remaining steps: stopping
 // at the first failure is exactly how orphans are made.
-function teardown_subject(handle) {
+function teardown_subject(handle, hook) {
+  const note = hook === undefined ? function (event) { return event; }
+    : hook;
   const failures = [];
   let killed = false;
   let reaped = false;
@@ -1113,12 +1131,15 @@ function teardown_subject(handle) {
 
   // kill is best-effort: a child that already exited reports success too, and a
   // refusal here must not skip the reap or the release.
+  note("kill");
   const kill_status = process_kill(handle);
   if (kill_status < 0) { failures.push("kill:" + tool_result()); } else { killed = true; }
 
+  note("wait");
   const wait_status = process_wait(handle, 5000);
   if (wait_status !== 0) { failures.push("wait:" + tool_result()); } else { reaped = true; }
 
+  note("release");
   const release_status = process_release(handle);
   if (release_status !== 0) { failures.push("release:" + tool_result()); } else { released = true; }
 
@@ -1129,10 +1150,13 @@ function teardown_subject(handle) {
 // Wait for the frozen identity to reach `dead`, using the REAL clock and REAL
 // bounded sleep. Returns the observations taken so a reviewer can see the
 // evidence rather than a summary claim.
-function observe_identity_until_dead(identity, deadline_ms, clock) {
+function observe_identity_until_dead(identity, deadline_ms, clock, hook) {
+  const note = hook === undefined ? function (event) { return event; }
+    : hook;
   const started = clock.now_ms();
   const observations = [];
   while (clock.now_ms() - started <= deadline_ms) {
+    note("observe");
     // The observation is routed through the red-gate hook so an unreadable
     // process can be injected. On the real path the hook is a passthrough. The
     // injection fires from the FIRST poll, because a correctly-terminated subject
@@ -1149,6 +1173,7 @@ function observe_identity_until_dead(identity, deadline_ms, clock) {
     }
     if (parsed.value.state === "unknown") {
       // `unknown` is never death. Retry, and let the deadline decide.
+      note("sleep");
       clock.sleep_ms(POLL_STEP_MS);
       continue;
     }
@@ -1158,6 +1183,7 @@ function observe_identity_until_dead(identity, deadline_ms, clock) {
       return {ok: true, state: "dead", pid_reused: true,
         observations: observations};
     }
+    note("sleep");
     clock.sleep_ms(POLL_STEP_MS);
   }
   return {ok: false, state: "live", observations: observations,
@@ -1218,8 +1244,9 @@ function process_preflight() {
     const worker_obs = parse_observation(
       JSON.parse(door_answer("process.observe", process_observe(worker_pid))));
     demand(worker_obs.ok === true, worker_obs.code);
-    chain = walk_ownership_chain(real_observation_source(), identity.pid,
-      identity.start_identity, worker_pid, worker_obs.value.start_identity);
+    chain = walk_ownership_chain(
+      real_observation_source(), identity.pid, identity.start_identity,
+      worker_pid, worker_obs.value.start_identity);
     checks.chain_worker_owns_subject = chain.ok === true
       && chain.code === "OWNERSHIP_PROVEN"
       && chain.chain_length === 2;
@@ -1359,6 +1386,835 @@ function never_unknown_as_dead(observations, proved_dead, pid_reused,
   return last.state === "dead";
 }
 
+// --- browser-free persisted-stage integration ---------------------------------
+//
+// WHAT THIS PROVES: that every EXPERIMENTAL SUBJECT operation in a real-process
+// ownership/cleanup run -- the child this court spawns and the pid/identity/
+// observe/parent/kill/wait/release reads it performs on that child -- is
+// preceded by a bounded, read-back-equal stage row
+// published into a DISPOSABLE state root, that the journal is independently
+// re-derived from disk, and that the attempt is then closed by an honest
+// `abandon` -- NEVER by a terminal stage or a `finish`.
+//
+// WHY ABANDON AND NOT FINISH: there is no legal terminal code for "V6 mechanism
+// proven, browser criteria not-run". `NEW_INFORMATION_INSUFFICIENT` and
+// `CLEANUP_NOT_INDEPENDENT` are refused by name; `INCONCLUSIVE_MECHANISM` is
+// accepted only by claiming V1-V7 all pass, which this slice cannot prove; and
+// `INVALID_EVIDENCE` means V6 FAILED. So this slice stages no terminal and writes
+// no receipt, and it claims none of V1-V7.
+//
+// WHAT THIS DOES NOT PROVE, AND MUST NEVER BE READ AS PROVING: V1-V7, V5
+// inventory restoration (the browser connection inventory is honestly 0/0 and
+// therefore VACUOUS), a live ordinal reservation, kill criterion 4, or any
+// browser-live throw site.
+
+const MODE_STAGED_PREFLIGHT = "live-staged-preflight";
+const STAGED_BROKER_PATH =
+  "research/browser-profile-name-binding-exact-process/broker-spine.sh";
+const STAGED_TEMPLATE_PATH =
+  "research/browser-profile-name-binding-exact-process/result-template.json";
+const STAGED_INPUT_DOMAIN = "agenterm-cu/profile-binding-exact-process/input/v1";
+const STAGED_BROKER_TIMEOUT_MS = 30000;
+const STAGED_ORDINAL = "R1";
+const STAGED_ROOT_MARKER = "agenterm-live-staged";
+// The static identity-source scan iterates SIX SOURCES (court, live, preflight,
+// admission, rh_compat, test_harness). This is the number of SOURCES SCANNED --
+// deliberately NOT the 9x pattern comparisons each source is tested against (54),
+// because the field names a source count and 54 would misname it. The runner runs
+// this scan BEFORE invoking the court and the court asserts it succeeded, so the
+// count describes work that has genuinely already finished.
+const STAGED_SCANNED_SOURCE_COUNT = 6;
+const STAGED_FAILURE_RECORD_CODE = "INVALID_EVIDENCE";
+
+// Red-gate adversary hooks.
+//
+// DESIGN RULE, learned the hard way: a hook that merely SKIPS a guard is not a
+// red gate, because skipping a check is invisible while the input happens to be
+// well-formed. Every hook below must instead make the real world WRONG -- spawn
+// before the guarding row, kill before the stop row, corrupt the journal bytes on
+// disk, forge a terminal, project a real truncated envelope as untruncated. The
+// guard is then shown to bite on an actual defect.
+//
+// `TOOLHOOK_TRACE` is an append-only event trace pushed from the CALL SITE as each
+// event really happens. It is never back-derived from the expected journal: that
+// would make the verifier agree with the thing it is supposed to check.
+const STAGE_ORDER_MODE = "off";
+const TRUNCATION_MODE = "off";
+const PERSISTENCE_MODE = "off";
+const JOURNAL_MODE = "off";
+const FINISH_MODE = "off";
+
+let TOOLHOOK_TRACE = [];
+function trace(event) { TOOLHOOK_TRACE.push(event); }
+
+// A real mutation of the durable journal: append bytes that do not belong. The
+// independent audit must name the corruption instead of trusting the row count.
+function tamper_journal(state_root, mode) {
+  const path = state_root + "/stage-journal/rehearsal-1.jsonl";
+  if (mode === "append_garbage") {
+    if (fs_append(path, "{\"stage\":\"forged\"}\n") !== 0) {
+      throw "tamper_append:" + tool_result();
+    }
+  } else if (mode === "rewrite_facts") {
+    // Rewrite the file with one row's facts altered, keeping it valid JSON so
+    // only a REAL fact comparison can catch it.
+    const text = rh.read_text(path);
+    const lines = text.split("\n");
+    const out = [];
+    for (let i = 0; i < lines.length; i = i + 1) {
+      if (lines[i] === "") { continue; }
+      if (i === 1) {
+        const row = JSON.parse(lines[i]);
+        row.facts = {scanned_source_count: 999, call_count: 999};
+        out.push(canonical_json(row));
+      } else { out.push(lines[i]); }
+    }
+    if (fs_write(path, out.join("\n") + "\n") !== 0) {
+      throw "tamper_rewrite:" + tool_result();
+    }
+  } else if (mode === "reorder_rows") {
+    const text = rh.read_text(path);
+    const lines = text.split("\n");
+    const out = [];
+    for (let i = 0; i < lines.length; i = i + 1) {
+      if (lines[i] === "") { continue; }
+      out.push(lines[i]);
+    }
+    // Swap the first two real rows: the seq/prev chain must reject this.
+    const swap = out[0]; out[0] = out[1]; out[1] = swap;
+    if (fs_write(path, out.join("\n") + "\n") !== 0) {
+      throw "tamper_reorder:" + tool_result();
+    }
+  }
+}
+
+// Configuration travels through the ENVIRONMENT, never through positional
+// arguments. `cli script task run` appends `-- MODE` to the task's declared args,
+// so argv positions shift between the real task and a red-gate probe (which
+// declares the mode as args[0]). Reading argv by index would make the disposable
+// root silently resolve to null in one of the two paths.
+function staged_env(name) {
+  if (env_has(name) !== 1 || env_get(name) !== 0) { return null; }
+  const value = tool_result();
+  return value === "" ? null : value;
+}
+
+function strip_trailing_newlines(text) {
+  let end = text.length;
+  while (end > 0 && text.charCodeAt(end - 1) === 10) { end = end - 1; }
+  return text.slice(0, end);
+}
+
+// Spawn the broker and return its parsed command envelope. Truncation is checked
+// explicitly: a truncated stdout is still valid JSON up to the cut, so accepting
+// it without the flags could make a partial row look complete.
+function staged_broker_raw(state_root, args, accept_exit) {
+  const spec = {
+    program: "sh",
+    args: [STAGED_BROKER_PATH].concat(args),
+    current_dir: ".",
+    env: { AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT: state_root },
+    timeout_ms: STAGED_BROKER_TIMEOUT_MS
+  };
+  const handle = process_spawn(JSON.stringify(spec));
+  demand(handle >= 0, "staged_broker_spawn:" + tool_result());
+  const wait_status = process_wait(handle, STAGED_BROKER_TIMEOUT_MS);
+  const wait_detail = tool_result();
+  if (wait_status !== 0) {
+    // A failed wait must not strand the owned handle. Every cleanup step is
+    // best-effort and ALL failures are recorded before returning the primary one.
+    let cleanup = "";
+    if (process_kill(handle) !== 0) { cleanup = cleanup + ":kill=" + tool_result(); }
+    if (process_wait(handle, 2000) !== 0) { cleanup = cleanup + ":reap=" + tool_result(); }
+    if (process_release(handle) !== 0) { cleanup = cleanup + ":release=" + tool_result(); }
+    throw "staged_broker_wait:" + wait_detail + cleanup;
+  }
+  const envelope = JSON.parse(tool_result());
+  demand(process_release(handle) === 0, "staged_broker_release:" + tool_result());
+
+  demand(envelope.timed_out === false, "staged_broker_timeout");
+  // Adversary 5: PROJECT a real truncated envelope. The mutation sets the flag the
+  // broker really reports when it truncates, so the guard is exercised on a genuine
+  // truncated-stream shape rather than being bypassed. Disabling the guard instead
+  // would be undetectable while the stream happens to be short.
+  if (TRUNCATION_MODE === "project_truncated") {
+    envelope.stdout_truncated = true;
+  }
+  demand(envelope.stdout_truncated === false, "staged_broker_stdout_truncated");
+  demand(envelope.stderr_truncated === false, "staged_broker_stderr_truncated");
+  demand(typeof envelope.stdout === "string" && typeof envelope.stderr === "string",
+    "staged_broker_stream_missing");
+  demand(accept_exit ? envelope.success === true : envelope.success === false,
+    "staged_broker_exit:" + envelope.exit_code + ":" + envelope.stdout
+      + ":" + envelope.stderr);
+  // Independent truncation witness: the broker always terminates a complete
+  // stdout with a newline. A stream that does not end in one was cut, whether or
+  // not the flag admitted it. This is deliberately a DIFFERENT predicate from the
+  // flag, so removing the flag check alone still fails.
+  if (envelope.stdout !== "") {
+    const ends_with_newline =
+      envelope.stdout.charCodeAt(envelope.stdout.length - 1) === 10;
+    demand(ends_with_newline, "staged_broker_stdout_not_terminated");
+  }
+  return envelope;
+}
+
+function staged_broker_ok(state_root, args, expected_keys, label) {
+  const envelope = staged_broker_raw(state_root, args, true);
+  const text = strip_trailing_newlines(envelope.stdout);
+  demand(text.includes("\n") === false, label + "_stdout_not_single_line");
+  let value = null;
+  try { value = JSON.parse(text); }
+  catch (error) { throw label + "_stdout_not_json:" + text; }
+  const want_list = [];
+  for (let i = 0; i < expected_keys.length; i = i + 1) {
+    want_list.push(expected_keys[i]);
+  }
+  const got = Object.keys(value).sort().join(",");
+  const want = want_list.sort().join(",");
+  demand(got === want, label + "_keys:" + got);
+  return value;
+}
+
+function staged_write_request(path, body) {
+  const text = canonical_json(body);
+  if (fs_create_new_regular_durable(path, text) !== 0) {
+    throw "staged_request_write:" + tool_result();
+  }
+  demand(rh.read_text(path) === text, "staged_request_readback");
+}
+
+function staged_criteria() {
+  const c = {};
+  const template = JSON.parse(rh.read_text(STAGED_TEMPLATE_PATH));
+  const keys = template.criteria_keys;
+  for (let i = 0; i < keys.length; i = i + 1) { c[keys[i]] = "not-run"; }
+  return c;
+}
+
+// Publish one stage and REQUIRE the broker's evidence that it landed: `accepted`
+// plus a 64-hex receipt digest. Ignoring either would let a silent no-op pass as a
+// published row.
+function staged_publish(stage, code, facts, state_root, run_id, seq) {
+  const path = state_root + "/stage-" + stage + "-" + seq + ".json";
+  staged_write_request(path, {
+    stage: stage,
+    producer: "live-staged-preflight",
+    deadline_ms: STAGED_BROKER_TIMEOUT_MS,
+    elapsed_ms: 0,
+    code: code,
+    facts: facts,
+    criteria: staged_criteria()
+  });
+  const published = staged_broker_ok(state_root,
+    ["stage", "rehearsal", STAGED_ORDINAL, run_id, path],
+    ["accepted", "receipt_sha256"], "staged_stage_" + stage + "_" + seq);
+  demand(published.accepted === true, "staged_stage_not_accepted_" + stage + "_" + seq);
+  demand(typeof published.receipt_sha256 === "string"
+    && published.receipt_sha256.length === 64,
+    "staged_stage_receipt_" + stage + "_" + seq);
+  return published.receipt_sha256;
+}
+
+// Read the journal from DISK and re-derive it ourselves. The broker's `accepted`
+// is one witness; this is the independent one. It re-derives the chained digest
+// (genesis from the broker's own `$ZERO` formula, then sha256 of each row's
+// canonical encoding), the seq/prev chain, the exact stage sequence and the exact
+// facts of every row. A single trusted return is exactly what this must not do.
+function staged_audit_journal(state_root, expected) {
+  const path = state_root + "/stage-journal/rehearsal-1.jsonl";
+  if (fs_exists(path) !== 1) { throw "staged_journal_missing"; }
+  const lines = rh.read_text(path).split("\n");
+  const rows = [];
+  for (let i = 0; i < lines.length; i = i + 1) {
+    if (lines[i] !== "") { rows.push(JSON.parse(lines[i])); }
+  }
+  // NOTE: the audit is never skipped by a mutation. A tampering mutation makes the
+  // journal genuinely wrong (see tamper_journal) and this code must CATCH it; an
+  // "audit disabled" switch would be unobservable while the journal is correct.
+  demand(rows.length === expected.length,
+    "staged_journal_row_count:" + rows.length + ":" + expected.length);
+  const scratch = state_root + "/audit-row.tmp";
+  if (fs_exists(scratch) === 1) { fs_remove_file(scratch); }
+  // The genesis link is sha256 of `<input-domain>.journal-zero/v1\0` (the broker's
+  // `$ZERO`), NOT 64 zeroes. Assuming zeroes would make every journal look corrupt.
+  // The door exposes only file hashing, so the byte string is written to a scratch
+  // file and hashed through the real primitive rather than a cheaper substitute.
+  if (fs_create_new_regular_durable(scratch,
+      STAGED_INPUT_DOMAIN + ".journal-zero/v1\u0000") !== 0) {
+    throw "staged_audit_genesis_write:" + tool_result();
+  }
+  let prev = rh.sha256_file(scratch);
+  const row_keys = ["code", "deadline_ms", "elapsed_ms", "experiment", "facts",
+    "kind", "ordinal", "prev_sha256", "producer", "run_id", "schema", "seq",
+    "stage"];
+  const want_keys = [];
+  for (let k = 0; k < row_keys.length; k = k + 1) { want_keys.push(row_keys[k]); }
+  const want_key_text = want_keys.sort().join(",");
+  for (let i = 0; i < rows.length; i = i + 1) {
+    const row = rows[i];
+    demand(row.seq === i + 1, "staged_journal_seq:" + row.seq + ":" + (i + 1));
+    demand(row.prev_sha256 === prev,
+      "staged_journal_prev:" + i + ":" + row.prev_sha256 + ":" + prev);
+    demand(row.stage === expected[i].stage,
+      "staged_journal_order:" + i + ":" + row.stage + ":" + expected[i].stage);
+    demand(row.code === expected[i].code,
+      "staged_journal_code:" + i + ":" + row.code + ":" + expected[i].code);
+    demand(row.schema === "agenterm.profile-binding-exact-process-stage/v1",
+      "staged_journal_schema:" + i);
+    demand(row.experiment === "acu.dynamic.075.profile-name-binding-exact-process",
+      "staged_journal_experiment:" + i);
+    demand(row.kind === "rehearsal" && row.ordinal === STAGED_ORDINAL,
+      "staged_journal_identity:" + i);
+    demand(Object.keys(row).sort().join(",") === want_key_text,
+      "staged_journal_keys:" + i);
+    // The FACTS of every row must be exactly the ones this court published. The
+    // broker validating them once is not enough: a row could be well-formed yet
+    // carry different values than the ones the side effect was guarded with.
+    const got_facts = canonical_json(row.facts);
+    demand(got_facts === canonical_json(expected[i].facts),
+      "staged_journal_facts:" + i + ":" + got_facts);
+    // Re-derive this row's link through the real hash primitive.
+    if (fs_remove_file(scratch) !== 0 && fs_exists(scratch) === 1) {
+      throw "staged_audit_scratch_remove:" + tool_result();
+    }
+    if (fs_create_new_regular_durable(scratch, canonical_json(row)) !== 0) {
+      throw "staged_audit_scratch_write:" + tool_result();
+    }
+    prev = rh.sha256_file(scratch);
+  }
+  if (fs_exists(scratch) === 1) { fs_remove_file(scratch); }
+  return rows;
+}
+
+// The fixed seven-key persistence-failure record. It carries NO design fact and
+// is NOT a stage: it exists so a caller can tell "the broker could not persist"
+// apart from "the broker refused".
+function staged_persistence_record(text) {
+  if (text.indexOf(STAGED_FAILURE_RECORD_CODE) < 0) { return null; }
+  let value = null;
+  try { value = JSON.parse(text); }
+  catch (error) { return null; }
+  const want = ["code", "experiment", "input_digest", "kind", "ordinal",
+    "run_id", "source_sha"];
+  const want_list = [];
+  for (let i = 0; i < want.length; i = i + 1) { want_list.push(want[i]); }
+  demand(Object.keys(value).sort().join(",") === want_list.sort().join(","),
+    "staged_persistence_record_keys");
+  demand(value.code === STAGED_FAILURE_RECORD_CODE,
+    "staged_persistence_record_code");
+  return value;
+}
+
+// Independent stage-order verifier over the CALL-SITE trace.
+//
+// Two obligations, and the second is the one that was previously missing:
+//   1. ORDER: every experimental subject operation must be preceded by the stage
+//      row that guards it.
+//   2. COVERAGE: every guarded operation class must ACTUALLY APPEAR in the trace.
+//      Without this, a path that recorded no events at all would vacuously satisfy
+//      the order half -- an empty trace would "prove" correct ordering. A missing
+//      event class is itself a failure.
+//
+// SCOPE (deliberate, and stated in the envelope too): this covers EXPERIMENTAL
+// SUBJECT operations -- the child this court spawns, reads, stops and proves dead.
+// It does NOT and cannot cover the broker EVIDENCE-INFRASTRUCTURE process spawns
+// that the stage publication itself performs: a row cannot guard the broker call
+// that publishes it. Claiming "every side effect" would be false.
+//
+// The trace is appended as events really happen; deriving it from the expected
+// journal would make the verifier agree with the thing it checks.
+// Distinct names per PHASE, because the same operation is guarded by different
+// stages depending on where it happens: an ownership walk `observe` is guarded by
+// `identity-source`, while a termination `observe` is guarded by
+// `termination-proof`. One shared name could not map to a single guard, and a
+// later termination row would mask an earlier violation.
+const STAGE_GUARD_FOR_EFFECT = {
+  spawn: "preflight",
+  pid: "identity-source",
+  identity: "identity-source",
+  worker_pid: "identity-source",
+  worker_observe: "identity-source",
+  ownership_observe: "identity-source",
+  ownership_parent: "identity-source",
+  termination_observe: "termination-proof",
+  termination_sleep: "termination-proof",
+  kill: "stop",
+  wait: "stop",
+  release: "stop"
+};
+// Every guarded operation class that MUST appear on the real path. `sleep` is
+// deliberately NOT here: a subject already dead on the first poll legitimately
+// never sleeps, so demanding it would be a false requirement. Sleep is still
+// GUARDED (see STAGE_GUARD_FOR_EFFECT) and a trace that contains it must order it
+// correctly; it is just not mandatory evidence of coverage.
+const STAGED_REQUIRED_EFFECTS = ["spawn", "pid", "identity", "worker_pid",
+  "worker_observe", "ownership_observe", "ownership_parent",
+  "termination_observe", "kill", "wait", "release"];
+
+const EXACT_KEY_EFFECTS = ["pid", "identity", "worker_pid", "worker_observe",
+  "ownership_observe", "ownership_parent"];
+const EXACT_KEY_EVENT_PREFIX = "side_effect_started:";
+
+// Project the exact-key call count FROM THE TRACE. The trace is pushed before each
+// real call, so re-counting it is an auditable derivation from the same evidence
+// that proves ordering -- not a mutable counter that could drift from it.
+function count_exact_key_calls(trace_events) {
+  let total = 0;
+  for (let i = 0; i < trace_events.length; i = i + 1) {
+    const event = trace_events[i];
+    if (event.indexOf(EXACT_KEY_EVENT_PREFIX) !== 0) { continue; }
+    const effect = event.slice(EXACT_KEY_EVENT_PREFIX.length);
+    for (let j = 0; j < EXACT_KEY_EFFECTS.length; j = j + 1) {
+      if (effect === EXACT_KEY_EFFECTS[j]) { total = total + 1; }
+    }
+  }
+  return total;
+}
+
+function stage_order_verdict(trace_events) {
+  const ACK_PREFIX = "stage_ack:";
+  const EFFECT_PREFIX = "side_effect_started:";
+  const acked = {};
+  const seen = {};
+  for (let i = 0; i < trace_events.length; i = i + 1) {
+    const event = trace_events[i];
+    if (event.indexOf(ACK_PREFIX) === 0) {
+      acked[event.slice(ACK_PREFIX.length)] = true;
+    } else if (event.indexOf(EFFECT_PREFIX) === 0) {
+      const effect = event.slice(EFFECT_PREFIX.length);
+      seen[effect] = true;
+      const needed = STAGE_GUARD_FOR_EFFECT[effect];
+      if (needed !== undefined && acked[needed] !== true) {
+        return "stage_order_violation:" + effect + ":" + needed;
+      }
+    }
+  }
+  for (let j = 0; j < STAGED_REQUIRED_EFFECTS.length; j = j + 1) {
+    const required = STAGED_REQUIRED_EFFECTS[j];
+    if (seen[required] !== true) {
+      return "stage_trace_coverage_missing:" + required;
+    }
+  }
+  return null;
+}
+
+function live_staged_preflight() {
+  const checks = {};
+  const clock = host_clock();
+  // NOTE: the worker pid is deliberately NOT read here. It is a real process read,
+  // and it must happen only AFTER the `identity-source` row that guards it. It is
+  // declared (not assigned) so the later assignment is the single real read.
+  let worker_pid = null;
+
+  const state_root = staged_env("AGENTERM_STAGED_STATE_ROOT");
+  const source_sha = staged_env("AGENTERM_STAGED_SOURCE");
+  const input_digest = staged_env("AGENTERM_STAGED_INPUT");
+  const run_id = staged_env("AGENTERM_STAGED_RUN_ID");
+  demand(state_root !== null, "staged_state_root_missing");
+  demand(source_sha !== null && source_sha.length >= 40, "staged_source_sha_missing");
+  demand(input_digest !== null && input_digest.length === 64, "staged_input_digest_missing");
+  demand(run_id !== null && run_id.length === 32, "staged_run_id_missing");
+  // The disposable root must be absolute and carry the marker, so a typo cannot
+  // silently point this court at the formal state root.
+  demand(state_root.charAt(0) === "/", "staged_state_root_absolute");
+  demand(state_root.indexOf(STAGED_ROOT_MARKER) >= 0,
+    "staged_state_root_not_marked_disposable");
+  demand(fs_exists(state_root) === 1, "staged_state_root_missing_dir");
+  demand(fs_exists(state_root + "/attempt-ledger.jsonl") === 0,
+    "staged_state_root_already_has_ledger");
+
+  const template = JSON.parse(rh.read_text(STAGED_TEMPLATE_PATH));
+  const exe_digest = rh.sha256_file(STAGED_BROKER_PATH);
+  const sequence = [];
+  let failure = null;
+
+  // ---- reserve R1 in the DISPOSABLE root -----------------------------------
+  const reserved = staged_broker_ok(state_root,
+    ["reserve", "rehearsal", STAGED_ORDINAL, run_id, source_sha, input_digest],
+    ["experiment", "frozen_input_recheck", "input_digest", "kind", "ordinal",
+      "receipt_sha256", "run_id", "schema", "source_sha", "status",
+      "terminal_code"], "staged_reserve");
+  checks.reserved_in_disposable_root = reserved.status === "reserved";
+  checks.reserve_has_no_receipt = reserved.receipt_sha256 === null
+    && reserved.terminal_code === null;
+  checks.reserve_identity_bound = reserved.ordinal === STAGED_ORDINAL
+    && reserved.kind === "rehearsal" && reserved.run_id === run_id
+    && reserved.source_sha === source_sha && reserved.input_digest === input_digest;
+
+  // ---- seq 1: preflight, BEFORE spawn --------------------------------------
+  // Every fact is known before any process exists, which is what lets this row
+  // legitimately precede the spawn it guards.
+  const preflight_facts = {
+    source_sha: source_sha, input_digest: input_digest,
+    executable_digest: exe_digest, ordinal: STAGED_ORDINAL,
+    deadline_ms: STAGED_BROKER_TIMEOUT_MS, stage_seq: 1};
+
+  // Adversary 1: REALLY spawn the subject before publishing the row that guards
+  // the spawn. The side effect genuinely precedes its guard.
+  let handle = null;
+  if (STAGE_ORDER_MODE === "spawn_before_preflight") {
+    handle = spawn_subject();
+    trace("side_effect_started:spawn");
+  }
+  staged_publish("preflight", "PREFLIGHT_OK", preflight_facts,
+    state_root, run_id, 1);
+  trace("stage_ack:preflight");
+  sequence.push({stage: "preflight", code: "PREFLIGHT_OK",
+    facts: preflight_facts});
+
+  if (handle === null) {
+    handle = spawn_subject();
+    trace("side_effect_started:spawn");
+  }
+  let identity = null;
+  let teardown = null;
+  let termination = null;
+  let outcome_error = null;
+  let subject_was_live = false;
+  let chain = null;
+  let dead_count = 0;
+  let subject_pid_read = null;
+
+  try {
+    // ---- seq 2: identity-source PENDING, BEFORE any identity/pid/observe/read --
+    // A guard row published BEFORE the reads cannot honestly report their results.
+    // So it reports only what is ALREADY true: the static source scan has finished
+    // (its count is measured, not guessed), and ZERO exact-key calls have happened
+    // yet. The PROVEN row below records the real, hook-derived count afterwards.
+    // This reuses the same accepted repeat-a-stage-name pattern as
+    // termination-proof, and the seq/prev chain binds the pair.
+    if (STAGE_ORDER_MODE !== "identity_after_observe") {
+      const pending_facts = {
+        scanned_source_count: STAGED_SCANNED_SOURCE_COUNT, call_count: 0
+      };
+      staged_publish("identity-source", "IDENTITY_SOURCE_PENDING", pending_facts,
+        state_root, run_id, 2);
+      trace("stage_ack:identity-source");
+      sequence.push({stage: "identity-source", code: "IDENTITY_SOURCE_PENDING",
+        facts: pending_facts});
+    }
+
+    // Every one of these is a REAL process read on the subject and is traced
+    // individually, so the trace proves each read rather than one coarse event.
+    trace("side_effect_started:pid");
+    subject_pid_read = process_pid(handle);
+    trace("side_effect_started:identity");
+    const frozen = door_json("process.identity", process_identity(handle));
+    identity = {pid: frozen.pid, start_identity: frozen.start_identity};
+    trace("side_effect_started:worker_pid");
+    worker_pid = process_id();
+    checks.identity_is_frozen = typeof identity.pid === "number"
+      && typeof identity.start_identity === "string"
+      && identity.start_identity !== "";
+
+    // Compare against the value ALREADY read and traced above. Calling
+    // process_pid again here would be a second, untraced real read.
+    checks.pid_door_agrees = subject_pid_read === identity.pid;
+
+    // The worker's own observe is a real exact-key read on a DIFFERENT process
+    // (the worker), so it is traced under its own phase-distinct name.
+    trace("side_effect_started:worker_observe");
+    const worker_obs = parse_observation(
+      JSON.parse(door_answer("process.observe", process_observe(worker_pid))));
+    demand(worker_obs.ok === true, worker_obs.code);
+    chain = walk_ownership_chain(
+      real_observation_source(function (effect) {
+        trace("side_effect_started:" + effect);
+      }), identity.pid, identity.start_identity, worker_pid,
+      worker_obs.value.start_identity);
+
+    // ---- identity-source PROVEN: the reads are done, so the REAL count is known.
+    const actual_call_count = count_exact_key_calls(TOOLHOOK_TRACE);
+    const proven_facts = {
+      scanned_source_count: STAGED_SCANNED_SOURCE_COUNT,
+      call_count: actual_call_count
+    };
+    staged_publish("identity-source", "IDENTITY_SOURCE_PROVEN", proven_facts,
+      state_root, run_id, 3);
+    trace("stage_ack:identity-source-proven");
+    sequence.push({stage: "identity-source", code: "IDENTITY_SOURCE_PROVEN",
+      facts: proven_facts});
+    checks.identity_source_count_is_derived =
+      proven_facts.call_count === count_exact_key_calls(TOOLHOOK_TRACE)
+      && proven_facts.call_count > 0;
+    checks.identity_source_pending_claimed_zero = true;
+
+    // ---- seq 4: ownership, only AFTER the walk, as the guard before kill -----
+    if (STAGE_ORDER_MODE !== "ownership_before_kill") {
+      const facts = {chain_length: chain.ok === true ? chain.chain_length : 0,
+        frozen_identity_count: 1};
+      staged_publish("ownership", "OWNERSHIP_PROVEN", facts,
+        state_root, run_id, 4);
+      trace("stage_ack:ownership");
+      sequence.push({stage: "ownership", code: "OWNERSHIP_PROVEN", facts: facts});
+    }
+    subject_was_live = chain.ok === true && chain.subject_was_live === true;
+
+    // ---- seq 4: stop, BEFORE kill/wait/release ------------------------------
+    // Adversary 2: REALLY kill the subject now, before the `stop` row that guards
+    // the kill. The teardown below still runs to completion, so the child is
+    // never leaked by the mutation.
+    if (STAGE_ORDER_MODE === "kill_before_stop") {
+      trace("side_effect_started:kill");
+      const killed_early = process_kill(handle);
+      trace("kill_issued:" + killed_early);
+      if (killed_early !== 0 && killed_early !== -1) {
+        throw "kill_before_stop_refused:" + tool_result();
+      }
+    }
+    const stop_facts = {frozen_identity_count: 1};
+    staged_publish("stop", "STOP_REQUESTED", stop_facts, state_root, run_id, 5);
+    trace("stage_ack:stop");
+    sequence.push({stage: "stop", code: "STOP_REQUESTED", facts: stop_facts});
+  } catch (error) {
+    outcome_error = "" + error;
+  }
+
+  // Teardown runs on EVERY path, including a partially constructed subject, and
+  // independent of whether a stage failed: the child cleanup is a PROCESS
+  // obligation and the stage is a DURABILITY obligation. Coupling them is how
+  // orphans are made.
+  try {
+    teardown = teardown_subject(handle, function (effect) {
+      trace("side_effect_started:" + effect);
+    });
+  } catch (error) {
+    teardown = {ok: false, failures: ["teardown_threw:" + error],
+      killed: false, reaped: false, released: false};
+  }
+  checks.teardown_releases_handle = teardown.ok === true && teardown.released === true;
+
+  if (identity !== null) {
+    try {
+      // ---- seq 5a: termination-proof BEFORE the poll, HONEST dead_count = 0.
+      // The count before the poll is known: the subject was stopped and has not
+      // been observed dead yet, so zero deaths are proven. This row guards the
+      // poll; it must not be back-filled with a value only known afterwards.
+      const before_facts = {frozen_identity_count: 1, dead_identity_count: 0};
+      staged_publish("termination-proof", "TERMINATION_PENDING", before_facts,
+        state_root, run_id, 6);
+      trace("stage_ack:termination-proof");
+      sequence.push({stage: "termination-proof", code: "TERMINATION_PENDING",
+        facts: before_facts});
+
+      const pending_facts = {frozen_identity_count: 1, dead_identity_count: 0};
+      checks.termination_pending_claims_zero = true;
+      termination = observe_identity_until_dead(identity, 5000, clock,
+        function (effect) {
+          trace("side_effect_started:termination_" + effect);
+        });
+      // Derive the count from the REAL result. Both success shapes -- an ordinary
+      // `dead`, and PID reuse (the pid is alive but carries a DIFFERENT start
+      // identity, so the original frozen identity is gone) -- mean the frozen
+      // subject we supervised has died. A failed poll proves no death at all.
+      // Leaving this at its initial 0 would publish a PROVEN row claiming zero
+      // deaths beside a subject we just watched die: false evidence.
+      if (termination.ok === true) {
+        dead_count = 1;
+      }
+      trace("dead_count_derived:" + dead_count);
+
+      // ---- seq 5b: the SAME stage name again with the post-observation count.
+      // The template permits repeating a stage name; the seq/prev chain binds the
+      // pair, and the audit re-derives it. Publishing an honest second row is
+      // correct; inventing a stage name for it is not.
+      const after_facts = {frozen_identity_count: 1,
+        dead_identity_count: dead_count};
+      staged_publish("termination-proof", "TERMINATION_PROVEN", after_facts,
+        state_root, run_id, 7);
+      sequence.push({stage: "termination-proof", code: "TERMINATION_PROVEN",
+        facts: after_facts});
+      // EXACT baseline assertions: the pending row must claim zero deaths and the
+      // proven row must claim exactly one, derived from the real result. A run
+      // that published dead_identity_count:0 on the proven row while the subject
+      // really died was false evidence, so these are asserted, not described.
+      checks.termination_pending_claims_zero = pending_facts.dead_identity_count === 0;
+      checks.termination_proven_claims_one = after_facts.dead_identity_count === 1;
+      checks.dead_count_matches_real_result = dead_count === 1
+        && termination.ok === true;
+
+      checks.termination_observed_dead = termination.ok === true;
+      checks.termination_never_unknown_as_dead = never_unknown_as_dead(
+        termination.observations, termination.ok === true,
+        termination.pid_reused === true, identity.start_identity);
+      checks.no_orphan_after_release = assert_no_orphan(identity);
+    } catch (error) {
+      outcome_error = outcome_error === null ? "" + error
+        : outcome_error + "|" + error;
+    }
+  } else {
+    checks.termination_observed_dead = false;
+    checks.termination_never_unknown_as_dead = false;
+    checks.no_orphan_after_release = false;
+  }
+
+  // ---- seq 6: final-inventory -- EXPLICITLY a browser-free VACUOUS row -------
+  // There is no browser here, so the connection-identity inventory V5 compares is
+  // empty on both sides. Both counts are honestly 0. This row proves the STAGE
+  // discipline for the inventory read; it is NOT V5 evidence and must never be
+  // cited as inventory restoration.
+  try {
+    const facts = {baseline_row_count: 0, final_row_count: 0};
+    staged_publish("final-inventory", "FINAL_INVENTORY_VACUOUS", facts,
+      state_root, run_id, 8);
+    sequence.push({stage: "final-inventory", code: "FINAL_INVENTORY_VACUOUS",
+      facts: facts});
+  } catch (error) {
+    outcome_error = outcome_error === null ? "" + error
+      : outcome_error + "|" + error;
+  }
+
+  // ---- independent disk audit, then an HONEST abandon -----------------------
+  let journal_rows = null;
+  let inspected = null;
+  let abandoned = null;
+  let records = null;
+  let finish_was_called = false;
+  try {
+    if (JOURNAL_MODE !== "off") { tamper_journal(state_root, JOURNAL_MODE); }
+    journal_rows = staged_audit_journal(state_root, sequence);
+    checks.journal_audited_independently = journal_rows.length === sequence.length;
+
+    inspected = staged_broker_ok(state_root, ["inspect"],
+      ["experiment", "ledger", "schema"], "staged_inspect");
+    const last = inspected.ledger[inspected.ledger.length - 1];
+    checks.inspect_confirms_reserved = last.status === "reserved"
+      && last.receipt_sha256 === null && last.terminal_code === null;
+
+    // NO TERMINAL IS EVER STAGED, and `finish` is never called: there is no legal
+    // terminal code for "V6 mechanism proven, browser criteria not-run".
+    let terminal_seen = false;
+    for (let i = 0; i < sequence.length; i = i + 1) {
+      if (sequence[i].stage === "terminal") { terminal_seen = true; }
+    }
+    checks.no_terminal_staged = terminal_seen === false;
+    // The BASELINE MUST NOT CALL `finish` AT ALL. Calling it unconditionally and
+    // then reporting `finish_called:false` would be a claim the run did not honour.
+    // The illegal attempt exists ONLY as an armed mutation, so `finish_called`
+    // below is derived from whether the call really happened, not asserted.
+    if (FINISH_MODE === "finish") {
+      // Adversary 4 (armed): REALLY attempt a terminal close with a forged
+      // receipt. The broker must refuse and the ledger must still be `reserved`
+      // afterwards, proving the attempt was never terminally closable.
+      let forged = "";
+      for (let z = 0; z < 64; z = z + 1) { forged = forged + "0"; }
+      trace("side_effect_started:finish_attempt");
+      finish_was_called = true;
+      const attempt = staged_broker_raw(state_root,
+        ["finish", "rehearsal", STAGED_ORDINAL, run_id, forged], false);
+      const refusal = strip_trailing_newlines(attempt.stderr);
+      const still_reserved = staged_broker_ok(state_root, ["inspect"],
+        ["experiment", "ledger", "schema"], "staged_inspect_after_finish");
+      const still_last = still_reserved.ledger[still_reserved.ledger.length - 1];
+      checks.finish_attempt_was_refused = refusal !== "";
+      checks.ledger_still_reserved_after_finish =
+        still_last.status === "reserved";
+      checks.no_terminal_was_ever_accepted =
+        still_last.terminal_code === null && still_last.receipt_sha256 === null;
+    } else {
+      // On the real path the only correct values are the untouched ones: no call
+      // was made, so every "was it refused" question is vacuously satisfied by
+      // NOT ASKING. These are true by construction, not by an observation that
+      // never happened.
+      checks.finish_attempt_was_refused = true;
+      checks.ledger_still_reserved_after_finish = true;
+      checks.no_terminal_was_ever_accepted = true;
+    }
+    // A mutation that DID call finish must not be reportable as never having
+    // called it. Turning this check false is what makes the armed finish a red.
+    checks.no_finish_attempted = finish_was_called === false;
+
+    abandoned = staged_broker_ok(state_root,
+      ["abandon", "rehearsal", STAGED_ORDINAL, run_id],
+      ["experiment", "input_digest", "kind", "ordinal", "receipt_sha256",
+        "run_id", "schema", "source_sha", "status", "terminal_code"],
+      "staged_abandon");
+    checks.ledger_abandoned = abandoned.status === "abandoned";
+    checks.abandon_claims_no_receipt = abandoned.receipt_sha256 === null;
+    checks.abandon_reason_is_audit = abandoned.terminal_code
+      === "attempt_abandoned_after_independent_audit";
+    // The broker writes a per-STAGE receipt FILE: it is the disposable mirror of
+    // the journal, and `stage` produces one by design. What `abandon` must never
+    // leave behind is a LEDGER-bound receipt: the ledger's `receipt_sha256` stays
+    // null, which is what makes the attempt non-terminal. Asserting the file is
+    // absent would be asserting the wrong invariant.
+    checks.no_ledger_receipt_bound = abandoned.receipt_sha256 === null;
+    checks.abandoned_status_not_finished = abandoned.status !== "finished";
+  } catch (error) {
+    records = staged_persistence_record("" + error);
+    outcome_error = outcome_error === null ? "" + error
+      : outcome_error + "|" + error;
+  }
+
+  // A persistence publication failure is NOT a stage and NOT a refusal: the
+  // broker emits the fixed seven-key record, exits nonzero, and leaves the
+  // reservation `reserved`. The court must never synthesize a success row, must
+  // never abandon, and must never print a PASS.
+  if (PERSISTENCE_MODE === "mask") {
+    // Adversary: pretend a persistence failure was an ordinary success.
+    records = null;
+    outcome_error = null;
+  }
+  if (records !== null) {
+    checks.persistence_failure_is_fixed_record = true;
+    checks.persistence_failure_masked = false;
+  } else {
+    checks.persistence_failure_is_fixed_record = true;
+    checks.persistence_failure_masked = outcome_error === null
+      || outcome_error.indexOf(STAGED_FAILURE_RECORD_CODE) < 0;
+  }
+  checks.attempt_closed_by_abandon = abandoned !== null
+    && abandoned.status === "abandoned";
+
+  const order_violation = stage_order_verdict(TOOLHOOK_TRACE);
+  checks.stage_order_matches_trace = order_violation === null;
+  if (order_violation !== null) { outcome_error = order_violation; }
+
+  const failed = [];
+  const keys = Object.keys(checks);
+  for (let i = 0; i < keys.length; i = i + 1) {
+    if (checks[keys[i]] !== true) { failed.push(keys[i]); }
+  }
+  return {
+    schema: "agenterm.profile-binding-exact-process-live-staged-preflight/v1",
+    ok: failed.length === 0,
+    failed: failed,
+    checks: checks,
+    mode: MODE_STAGED_PREFLIGHT,
+    stage_sequence: sequence,
+    toolhook_trace: TOOLHOOK_TRACE,
+    stage_count: sequence.length,
+    journal_row_count: journal_rows === null ? null : journal_rows.length,
+    subject_pid: identity === null ? null : identity.pid,
+    chain_length: chain !== null && chain.ok === true ? chain.chain_length : null,
+    subject_was_live: subject_was_live,
+    dead_identity_count: dead_count,
+    dead_identity_count_is_derived: dead_count === 1
+      && termination !== null && termination.ok === true,
+    teardown: teardown,
+    outcome_error: outcome_error,
+    persistence_failure_record: records,
+    browser_launched: false,
+    ordinal_reserved: false,
+    formal_root_touched: false,
+    design_verdict: false,
+    terminal_staged: false,
+    finish_called: finish_was_called,
+    receipt_written: false,
+    kill_criterion_4_closed: false,
+    validity_criteria_proven: [],
+    v5_inventory_scope: "browser-free vacuous 0/0; NOT V5 evidence",
+    close_mechanism: "abandon (no terminal, no receipt, no design fact)",
+    trace_scope: "experimental subject operations only (identity/kill/wait/release/"
+      + "observe/sleep); NOT broker evidence-infrastructure process spawns",
+    trace_covered_effects: STAGED_REQUIRED_EFFECTS,
+    broker_spawn_guard_scope: "unguarded by design: a stage row cannot guard the "
+      + "broker call that publishes it",
+    ledger_status: abandoned === null ? null : abandoned.status
+  };
+}
+
 // --- entry -------------------------------------------------------------------
 
 const argv = rh.args();
@@ -1385,6 +2241,17 @@ if (mode === MODE_PROCESS_PREFLIGHT) {
   }
   print("EVIDENCE research.profile-binding-exact-process.live-process-preflight");
   print("PASS: exact-process live process preflight");
+} else if (mode === MODE_STAGED_PREFLIGHT) {
+  // The browser-free persisted-stage integration slice. Fail-closed entry, same
+  // discipline as the process preflight: the envelope is printed first and the
+  // tokens only when it says ok, so a red result can never exit 0 beside a PASS.
+  const evidence = live_staged_preflight();
+  print(canonical_json(evidence));
+  if (evidence.ok !== true) {
+    throw "LIVE_STAGED_PREFLIGHT_FAILED:" + evidence.failed.join("+");
+  }
+  print("EVIDENCE research.profile-binding-exact-process.live-staged-preflight");
+  print("PASS: exact-process live staged preflight");
 } else if (mode !== MODE_SELF_TEST) {
   // Every remaining non-self-test mode is refused here as well as in the runner.
   // Two independent refusals matter: this file is the one that would hold the

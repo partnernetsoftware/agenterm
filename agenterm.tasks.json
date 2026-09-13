@@ -3172,6 +3172,24 @@
         "research.profile-binding-exact-process.live-process-preflight"
       ]
     },
+    "profile-binding-exact-process-staged-preflight": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "exact-process-live-staged-preflight-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 200000000,
+        "max_host_operations": 1024,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "research.profile-binding-exact-process.live-staged-preflight"
+      ]
+    },
     "acu-mcp-provider-smoke": {
       "inputs": [
         "built-agenterm-with-acu-provider"
@@ -9177,6 +9195,24 @@
         "macos"
       ],
       "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "profile-binding-exact-process-staged-preflight",
+      "description": "Prove persisted stage ordering and read-back for real owned non-browser process operations in a disposable experiment root, then abandon without a terminal claim or formal ordinal reservation.",
+      "entry": "research/browser-profile-name-binding-exact-process/live-rehearsal.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "live-staged-preflight"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
         "process_spawn"
       ]
     },

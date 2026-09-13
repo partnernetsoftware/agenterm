@@ -40,7 +40,13 @@ usage: run-current-host.sh --self-test
        run-current-host.sh --live-self-test
        run-current-host.sh --live-red-gate
        run-current-host.sh --live-process-preflight
-       run-current-host.sh --live-process-red-gate
+       run-current-host.sh --live-staged-preflight   Browser-free persisted-stage integration slice against a
+                          DISPOSABLE root: reserves R1 only there, stages every
+                          guarded side effect, audits the journal from disk, then
+                          closes by an honest `abandon` (no terminal, no finish,
+                          no receipt). Formal root proven byte-identical; no browser.
+--live-staged-red-gate     The staged-preflight red gates (probe mutants only)
+--live-process-red-gate
        run-current-host.sh --broker-self-test
 
 --self-test            Run the platform-neutral court self-test.
@@ -526,7 +532,12 @@ PROBE
   # file whenever the probe is aborted, and a leaked manifest would silently be
   # reused by the next probe.
   local rc=0
-  AGENTERM_LIVE_REGION_SOURCE="$LIVE_REGION" AGENTERM_SCRIPT_BACKEND=qjswasm \
+  AGENTERM_LIVE_REGION_SOURCE="$LIVE_REGION" \
+    AGENTERM_STAGED_STATE_ROOT="${AGENTERM_STAGED_STATE_ROOT:-}" \
+    AGENTERM_STAGED_SOURCE="${AGENTERM_STAGED_SOURCE:-}" \
+    AGENTERM_STAGED_INPUT="${AGENTERM_STAGED_INPUT:-}" \
+    AGENTERM_STAGED_RUN_ID="${AGENTERM_STAGED_RUN_ID:-}" \
+    AGENTERM_SCRIPT_BACKEND=qjswasm \
     "$AGENTERM_EXE" cli script task run \
     browser-profile-name-binding-exact-process-live --manifest "$manifest" 2>&1 \
     || rc=$?
@@ -684,6 +695,313 @@ mutate_and_expect_fail() {
 # host evidence: it spawns one owned, non-browser, short-lived child. It launches
 # no browser, reserves no ordinal and reaches no design verdict, and the runner
 # asserts those three properties are present rather than trusting a summary.
+# One staged-preflight probe run. The mutant lives in an ignored repo-local
+# directory (the tool-profile task requires a repo-relative entry), and each run
+# gets its own disposable root so a mutant can never see another's state.
+staged_probe_source() {
+  local target="$1" root out
+  # The marker is required by the court, so the probe root must carry it too.
+  root=$(mktemp -d "${TMPDIR:-/tmp}/agenterm-live-staged-rg.XXXXXX")
+  mkdir -p "$root/agenterm-live-staged/state"
+  root=$(CDPATH='' cd -- "$root" && pwd -P)
+  mkdir -p "$root/state"
+  # probe_source rewrites the manifest with the mutant as the task entry and
+  # makes it repo-relative; `task run` cannot take a file path directly. The
+  # disposable root and pinned digests ride in the environment, and the mode is
+  # the task's declared arg.
+  local rc=0
+  set +e
+  out=$(AGENTERM_STAGED_STATE_ROOT="$root/agenterm-live-staged/state" \
+    AGENTERM_STAGED_SOURCE="$(git -C "$REPO" rev-parse HEAD)" \
+    AGENTERM_STAGED_INPUT="$(staged_input_digest)" \
+    AGENTERM_STAGED_RUN_ID="$STAGED_RUN_ID" \
+    probe_source "$target" live-staged-preflight)
+  rc=$?
+  set -e
+  rm -rf "$root"
+  printf '%s\n' "$out"
+  return $rc
+}
+
+# Apply one exact-string mutation and require the staged slice to go red with a
+# NAMED failure. A mutation that cannot be applied, does not compile, crashes or
+# hangs is REJECTED, not counted: only the positive token proves the guard is what
+# failed.
+staged_mutate_and_expect_fail() {
+  local from="$1" to="$2" label="$3" expect="$4"
+  # The mutant must live INSIDE the clone: `task run` refuses any entry that is
+  # not a bounded repo-relative path, so a temp-dir mutant is rejected before the
+  # guard under test is even reached.
+  local root="$REPO/.agenterm-research-state/live-staged-red-gate"
+  local mutant="$root/live-rehearsal.qjs"
+  mkdir -p "$root"
+  cp "$LIVE" "$mutant"
+  if ! perl -0pi -e "s/\Q$from\E/$to/" "$mutant" 2>/dev/null; then
+    printf '  FAIL %s: mutation could not be applied\n' "$label"; rm -rf "$root"; return 1
+  fi
+  if cmp -s "$LIVE" "$mutant"; then
+    printf '  FAIL %s: mutation did not change the source\n' "$label"; rm -rf "$root"; return 1
+  fi
+  local out rc=0
+  set +e
+  out=$(staged_probe_source "$mutant")
+  rc=$?
+  set -e
+  # The mutant must be red for the RIGHT reason: the named guard, not a compile
+  # error, crash or hang. A mutant that never reached the guard proves nothing.
+  if [ "$rc" -eq 0 ]; then
+    printf '  FAIL %s exited zero instead of turning red\n' "$label"
+    rm -rf "$root"; return 1
+  fi
+  case "$expect" in
+    stage_order_matches_trace|no_finish_attempted|termination_proven_claims_one|identity_source_count_is_derived)
+      case "$out" in
+        *\"$expect\":false*) ;;
+        *)
+          printf '  FAIL %s did not set %s=false\n' "$label" "$expect"
+          rm -rf "$root"; return 1 ;;
+      esac ;;
+    *) case "$out" in
+      *"$expect"*) ;;
+      *)
+      printf '  FAIL %s did not surface %s (got: %s)\n' "$label" "$expect" \
+        "$(printf '%s' "$out" | tail -1 | cut -c1-110)"
+      rm -rf "$root"; return 1 ;;
+    esac ;;
+  esac
+  case "$out" in
+    *"does not support"* | *"invalid type"* | *"budget exhausted"*)
+      printf '  FAIL %s turned the slice red by crashing, not by the guard\n' "$label"
+      rm -rf "$root"; return 1 ;;
+  esac
+  printf '  ok   %s turns the slice red (%s)\n' "$label" "$expect"
+  rm -rf "$root"
+  return 0
+}
+
+# Force a real guard to fail and return the entry's combined output. Reuses the
+# probe path so the mutant runs in the same mode with the same disposable root.
+staged_fail_open_probe() {
+  local root="$REPO/.agenterm-research-state/live-staged-red-gate"
+  local mutant="$root/live-rehearsal.qjs"
+  mkdir -p "$root"
+  cp "$LIVE" "$mutant"
+  # Force a REAL check false: if the ledger were not abandoned the attempt would
+  # not be closed, and the entry must refuse to report success.
+  perl -0pi -e 's/\Qchecks.ledger_abandoned = abandoned.status === "abandoned";\E/checks.ledger_abandoned = false;/' \
+    "$mutant" 2>/dev/null || true
+  local out rc=0
+  set +e
+  out=$(staged_probe_source "$mutant")
+  rc=$?
+  set -e
+  rm -rf "$root"
+  printf '%s\n' "$out"
+  return $rc
+}
+
+# The staged slice's red gates. Every mutant must make the real world WRONG
+# (spawn before its guard, kill before its guard, corrupt journal bytes, project a
+# truncated envelope) and must surface the NAMED guard. A mutant that merely
+# skips a check is not a gate, and a crash or non-compiling mutant is rejected.
+live_staged_red_gate() {
+  local failed=0
+  local baseline
+  baseline=$(staged_probe_source "$LIVE") || true
+  case "$baseline" in
+    *'"ok":true'*) printf '  ok   the staged preflight passes unmutated\n' ;;
+    *) printf '  FAIL the staged preflight did not pass (got: %s)\n' \
+         "$(printf '%s' "$baseline" | tail -1 | cut -c1-110)"; return 1 ;;
+  esac
+
+  # 1. REAL spawn before the preflight row that guards it. The call-site trace
+  #    records the true order and the independent verifier names the violation.
+  staged_mutate_and_expect_fail \
+    'const STAGE_ORDER_MODE = "off";' \
+    'const STAGE_ORDER_MODE = "spawn_before_preflight";' \
+    'a spawn preceding its preflight guard' 'stage_order_matches_trace' || failed=1
+
+  # 2. REAL kill before the stop row that guards it.
+  staged_mutate_and_expect_fail \
+    'const STAGE_ORDER_MODE = "off";' \
+    'const STAGE_ORDER_MODE = "kill_before_stop";' \
+    'a kill preceding its stop guard' 'stage_order_matches_trace' || failed=1
+
+  # 3. REAL journal corruption on disk, three distinct shapes. Each must be caught
+  #    by the independent audit rather than by the broker's own return.
+  staged_mutate_and_expect_fail \
+    'const JOURNAL_MODE = "off";' 'const JOURNAL_MODE = "append_garbage";' \
+    'a forged journal row appended on disk' 'staged_journal_' || failed=1
+  staged_mutate_and_expect_fail \
+    'const JOURNAL_MODE = "off";' 'const JOURNAL_MODE = "rewrite_facts";' \
+    'journal facts rewritten on disk' 'staged_journal_' || failed=1
+  staged_mutate_and_expect_fail \
+    'const JOURNAL_MODE = "off";' 'const JOURNAL_MODE = "reorder_rows";' \
+    'journal rows reordered on disk' 'staged_journal_' || failed=1
+
+  # 4. REAL truncated-envelope projection: the flag the broker truly sets when it
+  #    truncates is projected onto the envelope. The guard is never disabled.
+  staged_mutate_and_expect_fail \
+    'const TRUNCATION_MODE = "off";' 'const TRUNCATION_MODE = "project_truncated";' \
+    'a truncated broker envelope' 'staged_broker_stdout_truncated' || failed=1
+
+  # 5. FAIL-CLOSED ENTRY. Force a real check false and require that the entry
+  #    emits NO PASS and NO EVIDENCE and exits nonzero. Asserting the token count
+  #    rather than grepping the message is what proves the entry cannot report
+  #    success beside a red result.
+  local fc_out fc_rc=0
+  set +e
+  fc_out=$(staged_fail_open_probe)
+  fc_rc=$?
+  set -e
+  if [ "$fc_rc" -eq 0 ]; then
+    printf '  FAIL a red staged run exited zero\n'; failed=1
+  else
+    local fc_pass fc_ev
+    fc_pass=$(printf '%s' "$fc_out" | grep -c 'PASS:' || true)
+    fc_ev=$(printf '%s' "$fc_out" | grep -c 'EVIDENCE ' || true)
+    if [ "$fc_pass" != "0" ] || [ "$fc_ev" != "0" ]; then
+      printf '  FAIL a red staged run still emitted PASS=%s EVIDENCE=%s\n' \
+        "$fc_pass" "$fc_ev"
+      failed=1
+    else
+      printf '  ok   a red staged run emits no PASS and no EVIDENCE\n'
+    fi
+  fi
+
+  # 8. ARMED illegal finish. On the baseline `finish` is never called; arming the
+  #    mutation performs a REAL finish attempt, which must be refused, must leave
+  #    the ledger `reserved`, and must make `no_finish_attempted` false -- i.e. the
+  #    envelope can no longer claim the call never happened.
+  staged_mutate_and_expect_fail \
+    'const FINISH_MODE = "off";' 'const FINISH_MODE = "finish";' \
+    'an armed illegal finish attempt' 'no_finish_attempted' || failed=1
+
+  # 9. TRACE COVERAGE, not merely ordering. Deleting one real subject operation's
+  #    trace call must turn the slice red with the COVERAGE failure. A gate that
+  #    only reordered events would pass against a trace that recorded nothing, so
+  #    this is what proves the coverage half actually bites.
+  staged_mutate_and_expect_fail \
+    'trace("side_effect_started:" + effect);
+    });' \
+    'if (effect !== "release") { trace("side_effect_started:" + effect); }
+    });' \
+    'a real subject operation dropped from the trace' \
+    'stage_trace_coverage_missing' || failed=1
+
+  # 10. DEAD-COUNT FALSE EVIDENCE. Blocking the derivation republishes a PROVEN row
+  #     claiming zero deaths beside a subject we just watched die. This is the exact
+  #     P1 defect, so it must be a named red.
+  staged_mutate_and_expect_fail \
+    'if (termination.ok === true) {
+        dead_count = 1;
+      }' 'if (termination.ok === false) { dead_count = 1; }' \
+    'a proven termination still claiming zero deaths' \
+    'termination_proven_claims_one' || failed=1
+
+  # 11. TRACE COVERAGE for a real subject read: dropping the subject pid read's
+  #     trace must be caught by the coverage half.
+  staged_mutate_and_expect_fail \
+    'trace("side_effect_started:pid");
+    subject_pid_read = process_pid(handle);' \
+    'subject_pid_read = process_pid(handle);' \
+    'a real subject pid read dropped from the trace' \
+    'stage_trace_coverage_missing' || failed=1
+
+  # 12. TRACE COVERAGE for the walk's own reads: the ownership observe/parent hook
+  #     must be exercised, not just the construction of the source.
+  staged_mutate_and_expect_fail \
+    'note("ownership_parent");' ';' \
+    'the ownership walk parent read dropped from the trace' \
+    'stage_trace_coverage_missing' || failed=1
+
+  # 13. IDENTITY-SOURCE PENDING must claim zero calls, and PROVEN must report the
+  #     trace-projected count. Blocking the projection must be a named red.
+  staged_mutate_and_expect_fail \
+    'const actual_call_count = count_exact_key_calls(TOOLHOOK_TRACE);' \
+    'const actual_call_count = 0;' \
+    'a projected exact-key count forced to zero' \
+    'identity_source_count_is_derived' || failed=1
+
+  if [ "$failed" -eq 0 ]; then
+    printf '\n%s\n' 'LIVE_STAGED_RED_GATE_PASS'
+    return 0
+  fi
+  printf '\n%s\n' 'LIVE_STAGED_RED_GATE_FAILED'
+  return 1
+}
+
+# The browser-free persisted-stage integration slice. It reserves R1 in a
+# DISPOSABLE root, publishes a stage before every guarded side effect, audits the
+# journal from disk, and closes by `abandon`. It launches no browser, touches no
+# formal root, and stages no terminal.
+#
+# `cli script task run` takes no positional arguments, so the disposable root and
+# the pinned digests travel through the environment; the MODE travels after `--`,
+# which `task run` appends to the task's declared args (the registered live task
+# declares `args: []`, so the mode becomes argv[0]).
+staged_run() {
+  local entry="$1" root="$2" manifest="${3:-$MANIFEST}"
+  AGENTERM_SCRIPT_BACKEND=qjswasm \
+    AGENTERM_LIVE_REGION_SOURCE="$LIVE_REGION" \
+    AGENTERM_STAGED_STATE_ROOT="$root/state" \
+    AGENTERM_STAGED_SOURCE="$(git -C "$REPO" rev-parse HEAD)" \
+    AGENTERM_STAGED_INPUT="$(printf 'agenterm-cu/profile-binding-exact-process/input/v1' | \
+      shasum -a 256 | cut -d' ' -f1)" \
+    AGENTERM_STAGED_RUN_ID="$STAGED_RUN_ID" \
+    "$AGENTERM_EXE" cli script task run \
+    "$entry" --manifest "$manifest"
+}
+
+staged_input_digest() {
+  printf 'agenterm-cu/profile-binding-exact-process/input/v1' | shasum -a 256 | cut -d' ' -f1
+}
+
+STAGED_RUN_ID="$(printf 'agenterm-live-staged-run-id/v1' | shasum -a 256 | cut -c1-32)"
+
+live_staged_preflight() {
+  local out rc=0 root before after
+  root=$(mktemp -d "${TMPDIR:-/tmp}/agenterm-live-staged.XXXXXX")
+  # A fully-resolved path: a temp dir under a symlinked parent would otherwise be
+  # handed over unresolved, which the court refuses by design.
+  root=$(CDPATH='' cd -- "$root" && pwd -P)
+  mkdir -p "$root/state"
+  before=$(snapshot_root "$FORMAL_ROOT")
+  set +e
+  out=$(staged_run profile-binding-exact-process-staged-preflight \
+    "$root" 2>&1)
+  rc=$?
+  set -e
+  after=$(snapshot_root "$FORMAL_ROOT")
+  rm -rf "$root"
+  printf '%s\n' "$out"
+  if [ "$before" != "$after" ]; then
+    fail STAGED_FORMAL_ROOT_CHANGED
+  fi
+  if [ "$rc" -ne 0 ]; then
+    fail "STAGED_PREFLIGHT_EXIT:$rc"
+  fi
+  local missing=""
+  for token in '"ok":true' \
+      'EVIDENCE research.profile-binding-exact-process.live-staged-preflight' \
+      'PASS: exact-process live staged preflight' \
+      '"browser_launched":false' '"ordinal_reserved":false' \
+      '"formal_root_touched":false' '"design_verdict":false' \
+      '"terminal_staged":false' '"finish_called":false' '"receipt_written":false' \
+      '"kill_criterion_4_closed":false' '"ledger_status":"abandoned"'; do
+    case "$out" in
+      *"$token"*) ;;
+      *) missing="$missing $token" ;;
+    esac
+  done
+  if [ -n "$missing" ]; then
+    fail "STAGED_PREFLIGHT_CLAIM:$missing"
+  fi
+  if pgrep -f 'sleep 10' >/dev/null 2>&1; then
+    fail STAGED_ORPHAN_REMAINS
+  fi
+}
+
 live_process_preflight() {
   local out rc=0
   out=$(AGENTERM_LIVE_REGION_SOURCE="$LIVE_REGION" AGENTERM_SCRIPT_BACKEND=qjswasm \
@@ -914,6 +1232,18 @@ case "$1" in
     AGENTERM_LIVE_REGION_SOURCE="$LIVE_REGION" AGENTERM_SCRIPT_BACKEND=qjswasm \
       "$AGENTERM_EXE" cli script task run \
       browser-profile-name-binding-exact-process-live --manifest "$MANIFEST"
+    ;;
+  --live-staged-preflight)
+    # Browser-free persisted-stage integration slice. The formal root is
+    # snapshot-guarded around the whole run and no browser is launched.
+    static_source_scan || fail INCONCLUSIVE_IDENTITY_SOURCE
+    live_court_region >"$LIVE_REGION"
+    live_staged_preflight
+    ;;
+  --live-staged-red-gate)
+    static_source_scan || fail INCONCLUSIVE_IDENTITY_SOURCE
+    live_court_region >"$LIVE_REGION"
+    live_staged_red_gate
     ;;
   --live-process-preflight)
     # REAL host evidence: one owned, non-browser, short-lived child; a real

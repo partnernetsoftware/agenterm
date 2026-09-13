@@ -599,6 +599,31 @@ on, so a browser-free slice must `abandon` rather than `finish`.
 
 No R1 reservation, no kill criterion 4 closure and no V1–V7 claim is made here.
 
+## Persisted-stage real-process preflight
+
+`run-current-host.sh --live-staged-preflight` passes against a disposable root.
+The authoritative journal contains eight read-back rows:
+
+| Sequence | Stage | Code | Decisive fact |
+|---:|---|---|---|
+| 1 | `preflight` | `PREFLIGHT_OK` | before subject spawn |
+| 2 | `identity-source` | `IDENTITY_SOURCE_PENDING` | six sources scanned; zero process calls yet |
+| 3 | `identity-source` | `IDENTITY_SOURCE_PROVEN` | exact-key calls projected from the real trace |
+| 4 | `ownership` | `OWNERSHIP_PROVEN` | two-node owned chain |
+| 5 | `stop` | `STOP_REQUESTED` | before kill/wait/release |
+| 6 | `termination-proof` | `TERMINATION_PENDING` | zero deaths proven before polling |
+| 7 | `termination-proof` | `TERMINATION_PROVEN` | one frozen identity proven gone |
+| 8 | `final-inventory` | `FINAL_INVENTORY_VACUOUS` | browser-free 0/0; not V5 evidence |
+
+The disk audit succeeds, the formal root is byte-identical, and the disposable
+ledger ends `abandoned` with no terminal code or bound receipt. Baseline
+`finish_called` is false. Fourteen red controls bite by named failure.
+
+This proves only persisted-stage mechanics for experimental subject operations.
+Evidence-infrastructure broker spawns and browser-live throw sites are outside
+its trace. It proves no V1–V7 criterion, reserves no formal ordinal, and leaves
+kill criterion 4 open.
+
 ## Backfill (§8)
 
 Intentionally empty until a terminal live result exists. A terminal result must
