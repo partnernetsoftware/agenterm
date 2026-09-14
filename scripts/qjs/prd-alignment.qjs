@@ -380,8 +380,9 @@ for (const gate of host_native_manifest.gates) {
 const evidence_gates = collect_evidence_gates(
   gate_manifest.required_gates, gate_manifest.registered_gates, host_native_manifest.gates
 );
-// The evidence suites live at scripts/qjs/<suite>.qjs since 2026-08-29;
-// the check reads their source for the evidence ids they emit.
+// The evidence suites live at scripts/qjs/<suite>.qjs since 2026-08-29.
+// CU suites expose an exact declaration-only result; older suites are checked
+// by reading their source for the evidence ids they emit.
 const suite_dir = rh.join(repo, "scripts/qjs");
 for (const gate of evidence_gates) {
   const suite_name = "" + gate.id;
@@ -394,14 +395,20 @@ for (const gate of evidence_gates) {
   }
   const suite_path = rh.join(suite_dir, effective_suite + ".qjs");
   rh.require(rh.exists(suite_path), "prd_alignment_evidence_suite_missing:" + gate.id);
-  const suite_source = rh.read_text(suite_path);
+  const is_cu_suite = suite_name.startsWith("cu-");
+  let suite_source = "";
   // CU journeys evolve quickly and used to leave newer declared tokens outside
   // the gate manifest.  Ask the script for its declaration-only view: this
   // path returns before touching a desktop, browser, device or product binary.
-  if (suite_name.startsWith("cu-")) {
+  if (is_cu_suite) {
     const listed = rh.command(cli, [
       "cli", "script", "run", suite_path,
       "--profile", "tool", "--cwd", repo, "--project-root", repo,
+      // These public suites are full host journeys even though this path exits
+      // after listing declarations. Preserve the alignment task's reviewed
+      // instruction ceiling instead of silently falling back to script run's
+      // 128M default in this nested invocation.
+      "--max-operations", "1000000000",
       "--", "--list-evidence"
     ], { cwd: repo, timeout_ms: 30000 });
     rh.require(listed.success === true, "prd_alignment_evidence_list_failed:" + gate.id);
@@ -424,17 +431,21 @@ for (const gate of evidence_gates) {
       );
       declaration_index = declaration_index + 1;
     }
+  } else {
+    suite_source = rh.read_text(suite_path);
   }
   for (const evidence_id of gate.evidence) {
     const evidence_key = "" + evidence_id;
     well_formed_name(evidence_key, "prd_alignment_evidence_id");
-    rh.require(
-      suite_source.includes("EVIDENCE " + evidence_key)
-        || suite_source.includes("Write-Evidence '" + evidence_key + "'")
-        || suite_source.includes("'" + evidence_key + "'")
-        || suite_source.includes("\"" + evidence_key + "\""),
-      "prd_alignment_evidence_not_emitted:" + evidence_key
-    );
+    if (!is_cu_suite) {
+      rh.require(
+        suite_source.includes("EVIDENCE " + evidence_key)
+          || suite_source.includes("Write-Evidence '" + evidence_key + "'")
+          || suite_source.includes("'" + evidence_key + "'")
+          || suite_source.includes("\"" + evidence_key + "\""),
+        "prd_alignment_evidence_not_emitted:" + evidence_key
+      );
+    }
     // Host-native registration mirrors the owning qualification gate, and a
     // few aggregate Linux journeys intentionally emit a dedicated court's
     // evidence too. Validate every declaration above and count each public
