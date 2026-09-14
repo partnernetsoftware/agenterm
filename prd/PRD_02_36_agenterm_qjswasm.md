@@ -280,7 +280,9 @@ agenterm-qjswasm
 │  │  │      `setsid` ownership boundary while still terminating same-session descendants
 │  │  ├─ [x] pass the same token through the fixed-sibling provider into the observe-only
 │  │  │      `process-watch` wait without storing the callback or spawning a helper thread
-│  │  └─ [ ] migrate remaining native waits under operation-specific phase/effect semantics
+│  │  └─ [x] remaining named shared native waits use operation-specific phase/effect semantics:
+│  │         `pty-wait`, shared `terminal-wait` and `pty-wait-exit` sample the same borrowed
+│  │         token between bounded authority rounds while same-round terminal/error replies win
 │  ├─ [x] check-many entry + canonical recursive imports share bytes/modules/deadline budgets
 │  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
 ├─ upstream performance frontier

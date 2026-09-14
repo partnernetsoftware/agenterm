@@ -1537,19 +1537,37 @@ pub(super) fn pty_wait_exit_payload(
     name: &str,
     timeout_ms: u64,
     expect_status: Option<i32>,
+    control: crate::execution_control::ExecutionControl<'_>,
 ) -> Result<Value, CuError> {
     let client = client_for(name)?;
     let (_, tab) = sole_job(&client, name)?;
     let tab_id = tab["id"].as_str().ok_or_else(|| {
         CuError::new("pty_job_state_invalid", "PTY job tab omitted its stable id")
     })?;
+    // Authority resolution above happens BEFORE the borrow is consulted, so a
+    // missing client or an invalid job state is never hidden by a pre-cancel.
     let wait = terminal_wait_with_client(
         &client,
         tab_id,
         &TerminalWaitCondition::Finalized,
         timeout_ms,
+        control,
     )?;
+    // NO CANCELLATION CHECK BELOW THIS LINE. Once the finalized wait has returned
+    // the effect is dispatched and its reply is authoritative: the status read and
+    // the exit-status verdict are result processing, not a cancellable wait, so a
+    // late cancel must not replace `pty_job_exit_status_mismatch` (or a successful
+    // verified result) with `cancelled`.
     let status = status_with_client(&client, name)?;
+    finish_pty_wait_exit(name, expect_status, wait, status)
+}
+
+fn finish_pty_wait_exit(
+    name: &str,
+    expect_status: Option<i32>,
+    wait: Value,
+    status: Value,
+) -> Result<Value, CuError> {
     let actual = status["exit_code"].as_i64();
     let verified = expect_status.is_none_or(|expected| actual == Some(i64::from(expected)));
     let payload = json!({
@@ -1906,6 +1924,23 @@ mod tests {
             "PTY poll pause did not observe cancellation inside its bounded test window: {:?}",
             started.elapsed()
         );
+    }
+
+    #[test]
+    fn pty_wait_exit_mismatch_remains_authoritative_after_wait_completion() {
+        let error = finish_pty_wait_exit(
+            "completed-job",
+            Some(0),
+            json!({ "state": "matched", "completed": true }),
+            json!({ "finalized": true, "exit_code": 7 }),
+        )
+        .expect_err("a finalized mismatched status must remain the verdict");
+
+        assert_eq!(error.code, "pty_job_exit_status_mismatch");
+        let detail = error.detail.expect("typed mismatch payload");
+        assert_eq!(detail["completed"], true);
+        assert_eq!(detail["expected_exit_status"], 0);
+        assert_eq!(detail["exit_status"], 7);
     }
 
     #[test]

@@ -201,10 +201,11 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │  ├─ [x] `pty-wait` polls the same borrowed token before consulting its PTY authority and
   │  │  │      between output/status rounds; cancellation returns `effect:not_performed` without a receipt,
   │  │  │      while one in-flight control-plane request retains its existing uninterruptible 5-second bound
-  │  │  └─ [ ] migrate each remaining native wait with phase-aware evidence
-  │  │     ├─ shared blocking `terminal-wait` / `pty-wait-exit` need an interruptible wait owner;
-  │  │     │  an entry-only check is not cooperative cancellation
-  │  │     └─ mutation replies remain authoritative after effect dispatch and must never be hidden by late cancel
+  │  │  └─ [x] remaining shared native waits carry phase-aware cancellation evidence
+  │  │     ├─ `terminal-wait` / `pty-wait-exit` sample before each bounded authority round and
+  │  │     │  through the sliced inter-round pause; an entry-only check is no longer the owner
+  │  │     └─ a matched terminal reply, authority refusal and finalized PTY exit-status verdict
+  │  │        remain authoritative after dispatch and are never hidden by a late cancel
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
   │  ├─ [x] ten compound compatibility shapes execute through pure qjs projections + the same typed calls
   │  │  └─ native failures bypass projection unchanged, preserving command, count and structured effect/recovery facts;

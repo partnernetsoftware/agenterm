@@ -12,6 +12,7 @@ use agenterm_control_client::{ControlClient, ControlResponse, Intent};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
+use crate::execution_control::ExecutionControl;
 use crate::{CuError, TerminalScrollAction, TerminalWaitCondition, receipt::ReceiptLog};
 
 const CAPTURE_MAX_BYTES: usize = 1_048_576;
@@ -1243,7 +1244,25 @@ pub(super) fn terminal_wait_payload(
     tab: &str,
     condition: &TerminalWaitCondition,
     timeout_ms: u64,
+    control: ExecutionControl<'_>,
 ) -> Result<Value, CuError> {
+    terminal_wait_payload_with_client(tab, condition, timeout_ms, control, client)
+}
+
+fn terminal_wait_payload_with_client(
+    tab: &str,
+    condition: &TerminalWaitCondition,
+    timeout_ms: u64,
+    control: ExecutionControl<'_>,
+    resolve_client: impl FnOnce() -> Result<ControlClient, CuError>,
+) -> Result<Value, CuError> {
+    // VALIDATION AND AUTHORITY RESOLUTION COME FIRST, and the borrow is only
+    // consulted afterwards by the wait itself. That ordering is deliberate: an
+    // inherent validation refusal or a missing client is resolved before a
+    // cancellation request, so a pre-cancelled token cannot mask
+    // `terminal_wait_condition_invalid`, `terminal_wait_limit_invalid` or a
+    // client-resolution failure. Once a client exists, cancellation may still
+    // stop the next authority request before it is dispatched.
     validate_tab(tab)?;
     if matches!(condition, TerminalWaitCondition::Contains(text) if text.is_empty()) {
         return Err(CuError::new(
@@ -1257,8 +1276,8 @@ pub(super) fn terminal_wait_payload(
             "terminal-wait --timeout-ms must be in 1..=86400000",
         ));
     }
-    let client = client()?;
-    terminal_wait_with_client(&client, tab, condition, timeout_ms)
+    let client = resolve_client()?;
+    terminal_wait_with_client(&client, tab, condition, timeout_ms, control)
 }
 
 pub(super) fn terminal_wait_with_client(
@@ -1266,6 +1285,7 @@ pub(super) fn terminal_wait_with_client(
     tab: &str,
     condition: &TerminalWaitCondition,
     timeout_ms: u64,
+    control: ExecutionControl<'_>,
 ) -> Result<Value, CuError> {
     validate_tab(tab)?;
     if matches!(condition, TerminalWaitCondition::Contains(text) if text.is_empty()) {
@@ -1280,27 +1300,18 @@ pub(super) fn terminal_wait_with_client(
             "terminal-wait --timeout-ms must be in 1..=86400000",
         ));
     }
-    let started = Instant::now();
-    let deadline = started + Duration::from_millis(timeout_ms);
-    loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err(CuError::new(
-                "terminal_wait_timeout",
-                "terminal condition was not met before the deadline",
-            )
-            .with_detail(
-                json!({ "tab_id": tab, "condition": condition, "timeout_ms": timeout_ms }),
-            ));
-        }
-        let request_timeout = remaining.min(Duration::from_secs(5));
-        let matched = match condition {
+    drive_terminal_wait(
+        tab,
+        condition,
+        timeout_ms,
+        control,
+        |request_timeout| match condition {
             TerminalWaitCondition::Contains(needle) => {
                 let value =
                     terminal_read_with_client(client, tab, CAPTURE_MAX_BYTES, request_timeout)?;
-                value["text"]
+                Ok(value["text"]
                     .as_str()
-                    .is_some_and(|text| text.contains(needle))
+                    .is_some_and(|text| text.contains(needle)))
             }
             TerminalWaitCondition::Exited | TerminalWaitCondition::Finalized => {
                 let response = request(
@@ -1311,7 +1322,7 @@ pub(super) fn terminal_wait_with_client(
                     request_timeout,
                 )?;
                 let value = parse_output(response, "terminal_inspect_invalid")?;
-                match condition {
+                Ok(match condition {
                     TerminalWaitCondition::Exited => {
                         value["windows"].as_array().is_some_and(|rows| {
                             !rows.is_empty()
@@ -1327,10 +1338,47 @@ pub(super) fn terminal_wait_with_client(
                         })
                     }
                     TerminalWaitCondition::Contains(_) => unreachable!(),
-                }
+                })
             }
-        };
+        },
+    )
+}
+
+/// Drives the production terminal wait while leaving one bounded authority
+/// request injectable for owning ordering tests. The request remains synchronous:
+/// cancellation is sampled before dispatch and during the inter-round pause, not
+/// by inventing an early timeout for an in-flight authority request.
+fn drive_terminal_wait(
+    tab: &str,
+    condition: &TerminalWaitCondition,
+    timeout_ms: u64,
+    control: ExecutionControl<'_>,
+    mut request_round: impl FnMut(Duration) -> Result<bool, CuError>,
+) -> Result<Value, CuError> {
+    let started = Instant::now();
+    let deadline = started + Duration::from_millis(timeout_ms);
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(CuError::new(
+                "terminal_wait_timeout",
+                "terminal condition was not met before the deadline",
+            )
+            .with_detail(
+                json!({ "tab_id": tab, "condition": condition, "timeout_ms": timeout_ms }),
+            ));
+        }
+        // The request keeps its existing bounded cap: this is NOT split into
+        // shorter quanta. Chopping it could not make a blocking call
+        // interruptible and would only manufacture timeouts against a healthy
+        // authority. The observation interval is the pause below, which is what
+        // makes cancellation cooperative with a bound of one pause plus a round.
+        let request_timeout = remaining.min(Duration::from_secs(5));
+        control.check_observe()?;
+        let matched = request_round(request_timeout)?;
         if matched {
+            // AUTHORITATIVE RESULT WINS. There is deliberately no cancellation
+            // sample between the reply and this return.
             return Ok(json!({
                 "tab_id": tab,
                 "condition": condition,
@@ -1339,8 +1387,32 @@ pub(super) fn terminal_wait_with_client(
                 "elapsed_ms": started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
             }));
         }
-        thread::sleep(remaining.min(Duration::from_millis(50)));
+        wait_for_next_terminal_poll(deadline, control)?;
     }
+}
+
+/// The pause between wait rounds, sliced so the borrowed cancellation token is
+/// observed several times instead of once. Its total bound and slice width reuse
+/// the same policy the shipped `pty-wait` helper already uses, rather than
+/// inventing a second wait mechanism: no thread, no signal, no async runtime.
+const TERMINAL_WAIT_CANCEL_SLICE: Duration = Duration::from_millis(10);
+
+fn wait_for_next_terminal_poll(
+    deadline: Instant,
+    control: ExecutionControl<'_>,
+) -> Result<(), CuError> {
+    let pause_deadline = Instant::now()
+        + deadline
+            .saturating_duration_since(Instant::now())
+            .min(Duration::from_millis(50));
+    while Instant::now() < pause_deadline {
+        control.check_observe()?;
+        thread::sleep(
+            TERMINAL_WAIT_CANCEL_SLICE
+                .min(pause_deadline.saturating_duration_since(Instant::now())),
+        );
+    }
+    control.check_observe()
 }
 
 fn terminal_read_with_client(
@@ -1370,6 +1442,123 @@ fn terminal_read_with_client(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn terminal_wait_pre_cancel_stops_before_the_authority_request() {
+        let cancelled = || true;
+        let requests = Cell::new(0);
+        let error = drive_terminal_wait(
+            "@1",
+            &TerminalWaitCondition::Exited,
+            1_000,
+            ExecutionControl::with_cancel_probe(&cancelled),
+            |_| {
+                requests.set(requests.get() + 1);
+                Ok(false)
+            },
+        )
+        .expect_err("a pre-cancelled wait must refuse before its first request");
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(requests.get(), 0);
+    }
+
+    #[test]
+    fn terminal_wait_unmatched_round_observes_cancel_before_another_request() {
+        let cancelled = Cell::new(false);
+        let probe = || cancelled.get();
+        let requests = Cell::new(0);
+        let error = drive_terminal_wait(
+            "@1",
+            &TerminalWaitCondition::Exited,
+            1_000,
+            ExecutionControl::with_cancel_probe(&probe),
+            |_| {
+                requests.set(requests.get() + 1);
+                cancelled.set(true);
+                Ok(false)
+            },
+        )
+        .expect_err("an unmatched round must consult cancellation before continuing");
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(requests.get(), 1);
+    }
+
+    #[test]
+    fn terminal_wait_matched_reply_outranks_a_late_cancel() {
+        let cancelled = Cell::new(false);
+        let probe = || cancelled.get();
+        let requests = Cell::new(0);
+        let value = drive_terminal_wait(
+            "@1",
+            &TerminalWaitCondition::Finalized,
+            1_000,
+            ExecutionControl::with_cancel_probe(&probe),
+            |_| {
+                requests.set(requests.get() + 1);
+                cancelled.set(true);
+                Ok(true)
+            },
+        )
+        .expect("the authority's matched reply must outrank a late cancellation");
+        assert_eq!(value["state"], "matched");
+        assert_eq!(requests.get(), 1);
+    }
+
+    #[test]
+    fn terminal_wait_authority_error_outranks_a_late_cancel() {
+        let cancelled = Cell::new(false);
+        let probe = || cancelled.get();
+        let error = drive_terminal_wait(
+            "@1",
+            &TerminalWaitCondition::Finalized,
+            1_000,
+            ExecutionControl::with_cancel_probe(&probe),
+            |_| {
+                cancelled.set(true);
+                Err(CuError::new(
+                    "terminal_authority_refused",
+                    "injected refusal",
+                ))
+            },
+        )
+        .expect_err("the authority refusal must outrank a late cancellation");
+        assert_eq!(error.code, "terminal_authority_refused");
+    }
+
+    /// A pre-cancelled token must never mask an inherent validation refusal: the
+    /// wrapper resolves validation before the borrow is consulted at all.
+    #[test]
+    fn pre_cancel_does_not_mask_inherent_validation() {
+        let probe = || true;
+        let control = ExecutionControl::with_cancel_probe(&probe);
+        let error = terminal_wait_payload(
+            "@1",
+            &TerminalWaitCondition::Contains(String::new()),
+            1_000,
+            control,
+        )
+        .expect_err("empty condition is invalid even when cancelled");
+        assert_eq!(error.code, "terminal_wait_condition_invalid");
+        let error = terminal_wait_payload("@1", &TerminalWaitCondition::Exited, 0, control)
+            .expect_err("invalid timeout is refused even when cancelled");
+        assert_eq!(error.code, "terminal_wait_limit_invalid");
+
+        let error = terminal_wait_payload_with_client(
+            "@1",
+            &TerminalWaitCondition::Exited,
+            1_000,
+            control,
+            || {
+                Err(CuError::new(
+                    "terminal_client_missing",
+                    "injected resolver refusal",
+                ))
+            },
+        )
+        .expect_err("client resolution remains authoritative over a pre-cancel");
+        assert_eq!(error.code, "terminal_client_missing");
+    }
 
     #[test]
     fn structured_snapshot_binds_tab_to_server_cursor() {

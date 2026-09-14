@@ -1075,7 +1075,7 @@ impl Executor {
                 timeout_ms,
                 expect_status,
                 ..
-            } => pty_wait_exit_payload(name, *timeout_ms, *expect_status),
+            } => pty_wait_exit_payload(name, *timeout_ms, *expect_status, control),
             Command::PtySignal {
                 name,
                 signal,
@@ -1149,7 +1149,7 @@ impl Executor {
                 condition,
                 timeout_ms,
                 ..
-            } => terminal_wait_payload(tab, condition, *timeout_ms),
+            } => terminal_wait_payload(tab, condition, *timeout_ms, control),
             Command::TermRead {
                 window,
                 tail,
