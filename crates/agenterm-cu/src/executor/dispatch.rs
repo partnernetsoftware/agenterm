@@ -1374,6 +1374,7 @@ impl Executor {
                 notifications,
                 *interval_ms,
                 mode.as_deref(),
+                control,
             ),
             Command::Verify { window, expect, .. } => verify_payload(*window, expect),
             Command::PageJs {

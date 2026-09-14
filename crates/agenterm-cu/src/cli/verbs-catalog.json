@@ -3211,7 +3211,7 @@
       "aliases": [],
       "grant": "observe",
       "family": "a11y-observe",
-      "summary": "bounded a11y event stream by poll-diff",
+      "summary": "bounded a11y event stream; poll-diff cooperatively observes cancellation",
       "usage": "observe --window HANDLE (--duration S | --duration-ms N) [--depth N] [--max-nodes N]\n        [--max-events N] [--notification A,B] [--interval-ms N] [--mode poll-diff|notifications]\n        [--ready-path PATH]",
       "args": [
         {
@@ -3257,7 +3257,7 @@
         {
           "flag": "--mode",
           "value": "poll-diff|notifications",
-          "help": "event source"
+          "help": "event source; notifications is one bounded uninterruptible native call"
         },
         {
           "flag": "--ready-path",
@@ -7741,7 +7741,7 @@
     },
     {
       "name": "observe",
-      "text": "agenterm-cu observe\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  observe --window HANDLE (--duration S | --duration-ms N) [--depth N] [--max-nodes N]\n          [--max-events N] [--notification A,B] [--interval-ms N] [--mode poll-diff|notifications]\n          [--ready-path PATH]\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --duration S                  seconds, fractions allowed, within (0, 120]\n  --duration-ms N               exact milliseconds (not with --duration)\n  --depth N                     walk depth (root = 0, at most 64)\n  --max-nodes N                 node budget while the platform walks (1..20000)\n  --max-events N                stop after N events (<= 5000, default 200)\n  --notification A,B            event kinds to keep\n  --interval-ms N               poll interval\n  --mode poll-diff|notificationsevent source\n  --ready-path PATH             atomic marker after the complete poll-diff baseline\n\nBounded event stream by poll-diff over the same bounded tree:\nValueChanged / TitleChanged / StateChanged / FocusChanged / Created /\nDestroyed with monotonic seq and t_ms; stops at --max-events (<= 5000,\ndefault 200) with truncated true; reports polls / emitted / filtered /\nstopped. --ready-path publishes a caller-owned no-overwrite JSON marker\nafter the complete poll-diff baseline and before its duration starts; native\nnotifications reject it until subscription readiness is available. Poll-diff\nevents project the node's actions, bounds, depth, states and text from the same\nbefore/after walk that created the event; notification-mode events mark those\ntree facts incomplete. The legacy `cli acu observe` filters this captured event\nset before paging it. Unknown boolean facts match neither true nor false, and\nthe unpublished `required` state fails typed `observe_filter_unavailable`.\n"
+      "text": "agenterm-cu observe\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  observe --window HANDLE (--duration S | --duration-ms N) [--depth N] [--max-nodes N]\n          [--max-events N] [--notification A,B] [--interval-ms N] [--mode poll-diff|notifications]\n          [--ready-path PATH]\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --duration S                  seconds, fractions allowed, within (0, 120]\n  --duration-ms N               exact milliseconds (not with --duration)\n  --depth N                     walk depth (root = 0, at most 64)\n  --max-nodes N                 node budget while the platform walks (1..20000)\n  --max-events N                stop after N events (<= 5000, default 200)\n  --notification A,B            event kinds to keep\n  --interval-ms N               poll interval\n  --mode poll-diff|notifications event source; notifications is one bounded uninterruptible native call\n  --ready-path PATH             atomic marker after the complete poll-diff baseline\n\nBounded event stream by poll-diff over the same bounded tree:\nValueChanged / TitleChanged / StateChanged / FocusChanged / Created /\nDestroyed with monotonic seq and t_ms; stops at --max-events (<= 5000,\ndefault 200) with truncated true; reports polls / emitted / filtered /\nstopped. Poll-diff observes call-scoped cancellation before its baseline and\nbetween tree reads; a later cancellation returns the bounded observation as\ntyped partial evidence. Explicit notifications mode remains one bounded\nuninterruptible native ABI call of at most 120 seconds. --ready-path publishes\na caller-owned no-overwrite JSON marker after the complete poll-diff baseline\nand before its duration starts; native notifications reject it until subscription\nreadiness is available. Poll-diff events project the node's actions, bounds,\ndepth, states and text from the same before/after walk that created the event;\nnotification-mode events mark those tree facts incomplete. The legacy `cli acu\nobserve` filters this captured event set before paging it. Unknown boolean facts\nmatch neither true nor false, and the unpublished `required` state fails typed\n`observe_filter_unavailable`.\n"
     },
     {
       "name": "snapshot",

@@ -1148,10 +1148,10 @@ fn project_observe_event_facts(
     }
 }
 
-/// `observe`: poll the bounded tree and emit the semantic differences
-/// between consecutive walks as a monotonic, filtered, bounded stream. AX
-/// notifications are not subscribed (the platform crate wires no
-/// AXObserver); the reply says `mode: "poll-diff"`.
+/// `observe`: emit one monotonic, filtered, bounded event stream. The default
+/// poll-diff mode compares consecutive bounded tree walks; the explicit native
+/// mode uses the backend's notification subscription and says which mechanism
+/// produced its different event shape.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn observe_payload(
     window: isize,
@@ -1163,7 +1163,85 @@ pub(super) fn observe_payload(
     notifications: &[String],
     interval_ms: Option<u64>,
     mode: Option<&str>,
+    control: crate::execution_control::ExecutionControl<'_>,
 ) -> Result<serde_json::Value, CuError> {
+    observe_with_providers(
+        ObserveArgs {
+            window,
+            duration_ms,
+            ready_path,
+            depth,
+            max_nodes,
+            max_events,
+            notifications,
+            interval_ms,
+            mode,
+        },
+        control,
+        &mechanism::tree_for_window_bounded,
+        &mechanism::observe_window,
+    )
+}
+
+struct ObserveArgs<'a> {
+    window: isize,
+    duration_ms: u64,
+    ready_path: Option<&'a str>,
+    depth: Option<u32>,
+    max_nodes: Option<usize>,
+    max_events: Option<usize>,
+    notifications: &'a [String],
+    interval_ms: Option<u64>,
+    mode: Option<&'a str>,
+}
+
+struct ObservePollArgs<'a> {
+    window: isize,
+    duration_ms: u64,
+    ready_path: Option<&'a str>,
+    depth: Option<u32>,
+    max_nodes: Option<usize>,
+    budget: mechanism::TreeBudget,
+    max_events: usize,
+    wanted: Vec<String>,
+    interval: Duration,
+}
+
+struct ObservePollState {
+    backend: String,
+    started: Instant,
+    events: Vec<serde_json::Value>,
+    filtered: usize,
+    polls: usize,
+    poll_errors: usize,
+    last_poll_error: Option<serde_json::Value>,
+    truncated: bool,
+}
+
+fn observe_with_providers<T, N>(
+    args: ObserveArgs<'_>,
+    control: crate::execution_control::ExecutionControl<'_>,
+    tree: &T,
+    native: &N,
+) -> Result<serde_json::Value, CuError>
+where
+    T: Fn(
+        Option<isize>,
+        mechanism::TreeBudget,
+    ) -> Result<mechanism::A11yTree, mechanism::MechanismError>,
+    N: Fn(isize, u64, usize) -> Result<Vec<mechanism::A11yEvent>, mechanism::MechanismError>,
+{
+    let ObserveArgs {
+        window,
+        duration_ms,
+        ready_path,
+        depth,
+        max_nodes,
+        max_events,
+        notifications,
+        interval_ms,
+        mode,
+    } = args;
     if window == 0 {
         return Err(invalid_input(
             "observe requires --window <handle> (a non-zero handle from `windows`)".into(),
@@ -1206,7 +1284,10 @@ pub(super) fn observe_payload(
     // would silently drop `before`/`after` from every reply, so poll-diff
     // stays the default and `--mode notifications` is the explicit ask.
     if mode == Some("notifications") {
-        return match mechanism::observe_window(window, duration_ms, max_events) {
+        // The shipped ABI exposes this as one bounded blocking call with no
+        // borrowed cancellation probe. Keep its wire and ordering unchanged;
+        // poll-diff below is the cooperatively cancellable mode.
+        return match native(window, duration_ms, max_events) {
             Ok(events) => Ok(native_observe_payload(
                 window,
                 duration_ms,
@@ -1217,32 +1298,86 @@ pub(super) fn observe_payload(
             Err(error) => Err(map_mechanism_err(error)),
         };
     }
-    let mut previous =
-        mechanism::tree_for_window_bounded(Some(window), budget).map_err(map_mechanism_err)?;
+    observe_poll_diff_with_tree(
+        ObservePollArgs {
+            window,
+            duration_ms,
+            ready_path,
+            depth,
+            max_nodes,
+            budget,
+            max_events,
+            wanted,
+            interval,
+        },
+        control,
+        tree,
+    )
+}
+
+fn observe_poll_diff_with_tree<T>(
+    args: ObservePollArgs<'_>,
+    control: crate::execution_control::ExecutionControl<'_>,
+    tree: &T,
+) -> Result<serde_json::Value, CuError>
+where
+    T: Fn(
+        Option<isize>,
+        mechanism::TreeBudget,
+    ) -> Result<mechanism::A11yTree, mechanism::MechanismError>,
+{
+    // PRE-FIRST-AUTHORITY: validation and mode selection are complete, but no
+    // accessibility tree has been read and no readiness marker was published.
+    // Every later cancellation is a private signal owned by this loop.
+    control.check_observe()?;
+    let mut previous = tree(Some(args.window), args.budget).map_err(map_mechanism_err)?;
     let backend = previous.backend.clone();
-    if let Some(path) = ready_path {
-        publish_ready_marker(path, window, &backend, "poll-diff")?;
+    if let Some(path) = args.ready_path {
+        publish_ready_marker(path, args.window, &backend, "poll-diff")?;
     }
     // `duration_ms` is the observation window, not baseline acquisition.
     // Starting it after the full baseline also makes slow accessibility
     // backends receive the same advertised window as fast ones.
     let started = Instant::now();
-    let deadline = started + Duration::from_millis(duration_ms);
+    let deadline = started + Duration::from_millis(args.duration_ms);
     let mut events: Vec<serde_json::Value> = Vec::new();
     let mut seq = 0u64;
     let mut filtered = 0usize;
     let mut polls = 1usize;
     let mut poll_errors = 0usize;
     let mut last_poll_error: Option<serde_json::Value> = None;
-    let mut stopped = "deadline";
     let mut truncated = false;
     loop {
         if Instant::now() >= deadline {
             break;
         }
-        thread::sleep(interval.min(deadline.saturating_duration_since(Instant::now())));
+        let pause_deadline = Instant::now()
+            + args
+                .interval
+                .min(deadline.saturating_duration_since(Instant::now()));
+        if control.sleep_until_cancelled(pause_deadline) {
+            if Instant::now() >= deadline {
+                break;
+            }
+            return observe_poll_cancelled(
+                ObservePollState {
+                    backend,
+                    started,
+                    events,
+                    filtered,
+                    polls,
+                    poll_errors,
+                    last_poll_error,
+                    truncated,
+                },
+                &args,
+            );
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
         polls += 1;
-        let current = match mechanism::tree_for_window_bounded(Some(window), budget) {
+        let current = match tree(Some(args.window), args.budget) {
             Ok(tree) => tree,
             Err(mechanism::MechanismError::Unsupported { reason }) => {
                 return Err(map_mechanism_err(mechanism::MechanismError::Unsupported {
@@ -1263,13 +1398,12 @@ pub(super) fn observe_payload(
         let previous_nodes = observe_node_index(&previous);
         let current_nodes = observe_node_index(&current);
         for event in observe::diff_events(&previous, &current) {
-            if !wanted.iter().any(|name| name == event.notification) {
+            if !args.wanted.iter().any(|name| name == event.notification) {
                 filtered += 1;
                 continue;
             }
-            if events.len() >= max_events {
+            if events.len() >= args.max_events {
                 truncated = true;
-                stopped = "max-events";
                 break;
             }
             let mut value = serde_json::to_value(&event)
@@ -1285,27 +1419,60 @@ pub(super) fn observe_payload(
             break;
         }
     }
-    Ok(serde_json::json!({
+    let stopped = if truncated { "max-events" } else { "deadline" };
+    Ok(ObservePollState {
+        backend,
+        started,
+        events,
+        filtered,
+        polls,
+        poll_errors,
+        last_poll_error,
+        truncated,
+    }
+    .into_value(&args, stopped))
+}
+
+fn observe_poll_cancelled(
+    state: ObservePollState,
+    args: &ObservePollArgs<'_>,
+) -> Result<serde_json::Value, CuError> {
+    let partial = state.into_value(args, "cancelled");
+    Err(CuError::new(
+        "cancelled",
+        "the accessibility observation was cancelled after its baseline",
+    )
+    .with_detail(serde_json::json!({
+        "effect": "partially_performed",
+        "phase": "observe_wait",
+        "partial_observation": partial,
+    })))
+}
+
+impl ObservePollState {
+    fn into_value(self, args: &ObservePollArgs<'_>, stopped: &str) -> serde_json::Value {
+        serde_json::json!({
         "addressing": "accessibility-tree",
         "mechanism": "libagenterm",
-        "backend": backend,
+        "backend": self.backend,
         "mode": "poll-diff",
-        "window": window,
-        "duration_ms": duration_ms,
-        "elapsed_ms": started.elapsed().as_millis() as u64,
-        "interval_ms": interval.as_millis() as u64,
-        "budget": budget_json(depth, max_nodes),
-        "notifications": wanted,
-        "max_events": max_events,
-        "polls": polls,
-        "poll_errors": poll_errors,
-        "last_poll_error": last_poll_error,
-        "emitted": events.len(),
-        "filtered": filtered,
-        "truncated": truncated,
+        "window": args.window,
+        "duration_ms": args.duration_ms,
+        "elapsed_ms": self.started.elapsed().as_millis() as u64,
+        "interval_ms": args.interval.as_millis() as u64,
+        "budget": budget_json(args.depth, args.max_nodes),
+        "notifications": args.wanted,
+        "max_events": args.max_events,
+        "polls": self.polls,
+        "poll_errors": self.poll_errors,
+        "last_poll_error": self.last_poll_error,
+        "emitted": self.events.len(),
+        "filtered": self.filtered,
+        "truncated": self.truncated,
         "stopped": stopped,
-        "events": events,
-    }))
+        "events": self.events,
+        })
+    }
 }
 
 /// Read one schema-1 readiness marker. Partial or non-ready JSON returns
@@ -1558,6 +1725,220 @@ mod tests {
             "scan_truncated": false,
             "nodes": [{ "id": "/0", "name": format!("n{marker}") }],
         })
+    }
+
+    fn observe_args(
+        duration_ms: u64,
+        interval_ms: u64,
+        mode: Option<&'static str>,
+    ) -> ObserveArgs<'static> {
+        ObserveArgs {
+            window: 7,
+            duration_ms,
+            ready_path: None,
+            depth: None,
+            max_nodes: None,
+            max_events: Some(8),
+            notifications: &[],
+            interval_ms: Some(interval_ms),
+            mode,
+        }
+    }
+
+    #[test]
+    fn observe_poll_diff_pre_cancel_takes_no_tree_sample() {
+        let tree_calls = std::cell::Cell::new(0usize);
+        let tree = |_: Option<isize>,
+                    _: mechanism::TreeBudget|
+         -> Result<mechanism::A11yTree, mechanism::MechanismError> {
+            tree_calls.set(tree_calls.get() + 1);
+            unreachable!("a pre-effect cancellation must precede the baseline tree")
+        };
+        let native = |_: isize, _: u64, _: usize| {
+            unreachable!("poll-diff must not call the notification provider")
+        };
+        let error = observe_with_providers(
+            observe_args(30_000, 2_000, None),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&|| true),
+            &tree,
+            &native,
+        )
+        .expect_err("a pre-effect token cancels poll-diff");
+        assert_eq!(tree_calls.get(), 0);
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("cancellation detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert!(detail.get("partial_observation").is_none());
+    }
+
+    #[test]
+    fn observe_poll_diff_round_boundary_preserves_the_returned_sample() {
+        let token = std::cell::Cell::new(false);
+        let tree_calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let tree = |_: Option<isize>,
+                    _: mechanism::TreeBudget|
+         -> Result<mechanism::A11yTree, mechanism::MechanismError> {
+            let call = tree_calls.get() + 1;
+            tree_calls.set(call);
+            let mut tree = selector_tree();
+            if call == 2 {
+                tree.nodes[1].name = "changed".into();
+                token.set(true);
+            }
+            Ok(tree)
+        };
+        let native = |_: isize, _: u64, _: usize| {
+            unreachable!("poll-diff must not call the notification provider")
+        };
+        let error = observe_with_providers(
+            observe_args(30_000, 20, None),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &tree,
+            &native,
+        )
+        .expect_err("the next boundary observes the token");
+        assert!(token.get(), "round two really raised the token");
+        assert_eq!(tree_calls.get(), 2, "no third tree read may begin");
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("cancellation detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        let partial = &detail["partial_observation"];
+        assert_eq!(partial["mode"], "poll-diff");
+        assert_eq!(partial["polls"], 2);
+        assert_eq!(partial["emitted"], 1);
+        assert_eq!(partial["events"].as_array().map(Vec::len), Some(1));
+        assert_eq!(partial["stopped"], "cancelled");
+        assert_eq!(partial["truncated"], false);
+    }
+
+    #[test]
+    fn observe_poll_diff_deadline_outranks_a_token_raised_in_that_round() {
+        let token = std::cell::Cell::new(false);
+        let tree_calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let tree = |_: Option<isize>,
+                    _: mechanism::TreeBudget|
+         -> Result<mechanism::A11yTree, mechanism::MechanismError> {
+            let call = tree_calls.get() + 1;
+            tree_calls.set(call);
+            if call == 2 {
+                std::thread::sleep(Duration::from_millis(60));
+                token.set(true);
+            }
+            Ok(selector_tree())
+        };
+        let native = |_: isize, _: u64, _: usize| {
+            unreachable!("poll-diff must not call the notification provider")
+        };
+        let value = observe_with_providers(
+            observe_args(40, 20, None),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &tree,
+            &native,
+        )
+        .expect("the reached deadline stays authoritative");
+        assert!(token.get(), "round two really raised the token");
+        assert_eq!(tree_calls.get(), 2);
+        assert_eq!(value["stopped"], "deadline");
+        assert_eq!(value["polls"], 2);
+    }
+
+    #[test]
+    fn observe_notifications_keeps_its_bounded_uninterruptible_abi_shape() {
+        let event = mechanism::A11yEvent {
+            notification: "ValueChanged".into(),
+            node_id: "/0/1".into(),
+            role: "text-field".into(),
+            name: "value".into(),
+            t_ms: 4,
+        };
+        let expected = native_observe_payload(
+            7,
+            1_000,
+            8,
+            &observe::OBSERVE_NOTIFICATIONS
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect::<Vec<_>>(),
+            vec![event.clone()],
+        );
+        let tree = |_: Option<isize>, _: mechanism::TreeBudget| {
+            unreachable!("notifications must not call the tree provider")
+        };
+        let native = move |window: isize, duration_ms: u64, max_events: usize| {
+            assert_eq!((window, duration_ms, max_events), (7, 1_000, 8));
+            Ok(vec![event.clone()])
+        };
+        let panic_probe =
+            || -> bool { unreachable!("the legacy notification ABI has no cancellation probe") };
+        let value = observe_with_providers(
+            observe_args(1_000, 50, Some("notifications")),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&panic_probe),
+            &tree,
+            &native,
+        )
+        .expect("notifications keep their existing result");
+        assert_eq!(value, expected);
+        assert!(value.get("effect").is_none());
+        assert!(value.get("partial_observation").is_none());
+    }
+
+    #[test]
+    fn observe_poll_diff_uncancelled_keeps_its_normal_shape() {
+        let tree_calls = std::cell::Cell::new(0usize);
+        let tree = |_: Option<isize>,
+                    _: mechanism::TreeBudget|
+         -> Result<mechanism::A11yTree, mechanism::MechanismError> {
+            tree_calls.set(tree_calls.get() + 1);
+            Ok(selector_tree())
+        };
+        let native = |_: isize, _: u64, _: usize| {
+            unreachable!("poll-diff must not call the notification provider")
+        };
+        let value = observe_with_providers(
+            observe_args(20, 20, None),
+            crate::execution_control::ExecutionControl::none(),
+            &tree,
+            &native,
+        )
+        .expect("an uncancelled observation succeeds on its deadline");
+        assert_eq!(tree_calls.get(), 1);
+        assert_eq!(value["stopped"], "deadline");
+        assert_eq!(value["polls"], 1);
+        assert_eq!(value["truncated"], false);
+        let mut keys = value
+            .as_object()
+            .expect("observation object")
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "addressing",
+                "backend",
+                "budget",
+                "duration_ms",
+                "elapsed_ms",
+                "emitted",
+                "events",
+                "filtered",
+                "interval_ms",
+                "last_poll_error",
+                "max_events",
+                "mechanism",
+                "mode",
+                "notifications",
+                "poll_errors",
+                "polls",
+                "stopped",
+                "truncated",
+                "window",
+            ]
+        );
     }
 
     #[test]
@@ -2193,6 +2574,7 @@ mod tests {
             &[],
             None,
             Some("notifications"),
+            crate::execution_control::ExecutionControl::none(),
         )
         .expect_err("native subscription readiness is not implemented");
         assert_eq!(error.code, "invalid_input");

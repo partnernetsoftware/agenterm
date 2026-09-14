@@ -45,7 +45,7 @@ flowchart LR
   T["MCU retirement TODO"] --> A
   A --> C["call-scoped cooperative cancellation"]
   C --> W["process-watch · pty-wait"]
-  C --> B["shared blocking waits remain explicit gaps"]
+  C --> B["polling waits cooperate · bounded native rounds stay explicit"]
 ```
 
 ## Subtree map
@@ -228,6 +228,11 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │        canonical application binding so identity drift remains authoritative over cancel;
   │  │        `query-watch` preserves its shaped poll-diff observation after the baseline and
   │  │        revalidates the focused-window identity before cancellation can outrank attribution;
+  │  │        `observe --mode poll-diff` checks before its baseline tree and through each sliced
+  │  │        inter-round pause, preserving the same bounded event projection with
+  │  │        `stopped:cancelled` after observation begins; explicit `--mode notifications`
+  │  │        remains one bounded uninterruptible native ABI call of at most 120 seconds because
+  │  │        `agt_a11y_observe_window` carries no borrowed cancellation probe;
   │  │        `windows-watch` preserves the same bounded inventory/event projection after its
   │  │        baseline, including the default one-extra-sample contract, without changing its
   │  │        public `completed` / `truncated` success vocabulary; `process-usage` watch likewise
