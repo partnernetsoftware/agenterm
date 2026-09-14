@@ -197,7 +197,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │      provider ABI as a Rust layout
   │  │  ├─ [x] pure qjs/wasm computation observes the token without a host callback
   │  │  ├─ [x] observe-only `process-watch` acknowledges pre-effect cancellation through the
-  │  │  │      additive provider-v2 callback descriptor and returns within the worker grace
+  │  │  │      additive provider-v2 callback descriptor and returns within the worker grace;
+  │  │  │      after its baseline exists, cancellation preserves the shaped bounded baseline and
+  │  │  │      accumulated events as `effect:partially_performed`, while a same-round snapshot,
+  │  │  │      provider error, event ceiling or deadline remains authoritative
   │  │  ├─ [x] `pty-wait` polls the same borrowed token before consulting its PTY authority and
   │  │  │      between output/status rounds; cancellation returns `effect:not_performed` without a receipt,
   │  │  │      while one in-flight control-plane request retains its existing uninterruptible 5-second bound

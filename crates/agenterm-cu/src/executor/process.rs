@@ -2687,10 +2687,85 @@ pub(super) fn process_watch_payload(
         ));
     }
 
+    // PRE-FIRST-AUTHORITY: this is the ONLY direct `check_observe` in the watch path.
+    // It lives inside `process_watch_with_snapshot` so production and the injected
+    // test seam share the exact same decision, and it runs BEFORE the deadline is
+    // computed, so a cancelled watch has issued zero snapshots and
+    // `effect: not_performed` is exactly true. No parameter is validated here
+    // beyond the caller's own bounds check above.
+    let request = ProcessWatchRequest {
+        pid,
+        parent,
+        name,
+        all,
+        duration_ms,
+        interval_ms,
+        max_events,
+        max_processes,
+    };
+    process_watch_with_snapshot(request, control, &|pid, parent, name, max_processes| {
+        process_watch_snapshot(pid, parent, name, max_processes)
+    })
+}
+
+/// The bounded process-watch request and its bounds, so the encoder and the loop
+/// share one description instead of repeating eight parameters.
+#[derive(Clone, Copy)]
+struct ProcessWatchRequest<'a> {
+    pid: Option<u32>,
+    parent: Option<u32>,
+    name: Option<&'a str>,
+    all: bool,
+    duration_ms: u64,
+    interval_ms: u64,
+    max_events: usize,
+    max_processes: usize,
+}
+
+/// Everything the encoder needs about ONE bounded observation, whether it ended
+/// normally or was cancelled. Both paths publish through `into_value`, so a
+/// cancelled observation cannot bypass the privacy projection or the bounds.
+struct ProcessWatchState {
+    /// The ORIGINAL baseline rows, captured once after the first snapshot. Kept
+    /// explicitly rather than derived from the advancing `previous` map, so the
+    /// published baseline always matches the one the caller was promised.
+    baseline: Vec<Value>,
+    excluded_unidentified: usize,
+    events: Vec<Value>,
+    truncated: bool,
+}
+
+/// The bounded process-watch loop, parameterized over the snapshot provider.
+///
+/// The provider is a borrowed closure so the cancellation cases can drive the
+/// REAL loop; production passes `process_watch_snapshot` through the closure in
+/// `process_watch_payload`, so the tested loop is the shipped loop.
+fn process_watch_with_snapshot<F>(
+    request: ProcessWatchRequest<'_>,
+    control: crate::execution_control::ExecutionControl<'_>,
+    snapshot: &F,
+) -> Result<Value, CuError>
+where
+    F: Fn(Option<u32>, Option<u32>, Option<&str>, usize) -> Result<ProcessWatchSnapshot, CuError>,
+{
+    let ProcessWatchRequest {
+        pid,
+        parent,
+        name,
+        duration_ms,
+        interval_ms,
+        max_events,
+        max_processes,
+        ..
+    } = request;
+    // PRE-FIRST-AUTHORITY: the ONLY direct `check_observe` in this path, and the only
+    // valid place for an `effect: not_performed` claim. It precedes both the deadline
+    // computation and the first authority call, so a cancelled watch issues zero
+    // snapshots. Every later cancellation is a private signal handled below.
+    control.check_observe()?;
     let started = Instant::now();
     let deadline = started + Duration::from_millis(duration_ms);
-    control.check_observe()?;
-    let initial = process_watch_snapshot(pid, parent, name, max_processes)?;
+    let initial = snapshot(pid, parent, name, max_processes)?;
     let mut previous = initial.processes;
     let mut excluded_unidentified = initial.excluded_unidentified;
     let baseline = previous
@@ -2701,18 +2776,42 @@ pub(super) fn process_watch_payload(
     let mut truncated = false;
 
     while Instant::now() < deadline {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        let sleep_deadline = Instant::now() + Duration::from_millis(interval_ms).min(remaining);
-        while Instant::now() < sleep_deadline {
-            control.check_observe()?;
-            std::thread::sleep(
-                Duration::from_millis(10)
-                    .min(sleep_deadline.saturating_duration_since(Instant::now())),
+        // POST-BASELINE PAUSE: a valid cancellation POINT, but it may only report a
+        // private signal. It must never construct a `not_performed` error, because
+        // the baseline above and every prior round already ran real inventory.
+        if process_watch_pause(control, interval_ms, deadline) {
+            return process_watch_cancelled(
+                ProcessWatchState {
+                    baseline,
+                    excluded_unidentified,
+                    events,
+                    truncated,
+                },
+                request,
             );
         }
-        control.check_observe()?;
-        let next = process_watch_snapshot(pid, parent, name, max_processes)?;
-        control.check_observe()?;
+        // LAST-MOMENT CHECK before a later authority call, using the same private
+        // signal shape. A same-round snapshot result, provider error, reached
+        // event ceiling or reached deadline below stays authoritative for this
+        // round, so the deadline is re-checked first.
+        if Instant::now() >= deadline {
+            break;
+        }
+        if control.is_cancelled() {
+            return process_watch_cancelled(
+                ProcessWatchState {
+                    baseline,
+                    excluded_unidentified,
+                    events,
+                    truncated,
+                },
+                request,
+            );
+        }
+        // The snapshot is consumed UNCONDITIONALLY once it returns. There is no
+        // cancellation check between this call and the event derivation below, so
+        // a token that flipped inside the authority call cannot discard the round.
+        let next = snapshot(pid, parent, name, max_processes)?;
         excluded_unidentified = excluded_unidentified.max(next.excluded_unidentified);
         let current = next.processes;
         let t_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
@@ -2740,23 +2839,109 @@ pub(super) fn process_watch_payload(
         }
     }
 
-    Ok(json!({
-        "mode": "bounded-diff",
-        "selector": { "pid": pid, "parent": parent, "name": name, "all": all },
-        "duration_ms": duration_ms,
-        "interval_ms": interval_ms,
-        "max_events": max_events,
-        "max_processes": max_processes,
-        "baseline": baseline,
-        "baseline_count": baseline.len(),
-        "excluded_unidentified": excluded_unidentified,
-        "coverage_complete": excluded_unidentified == 0,
-        "events": events,
-        "emitted": events.len(),
-        "completed": !truncated,
-        "truncated": truncated,
-        "verified": true,
-    }))
+    ProcessWatchState {
+        baseline,
+        excluded_unidentified,
+        events,
+        truncated,
+    }
+    .into_value(request, None)
+}
+
+/// Slice width for the inter-round pause, matching the shared cancellation
+/// policy. The token is observed before each slice and once at the end. Returns
+/// `true` when the watch was cancelled; it never builds an error.
+const PROCESS_WATCH_CANCEL_SLICE: Duration = Duration::from_millis(10);
+
+fn process_watch_pause(
+    control: crate::execution_control::ExecutionControl<'_>,
+    interval_ms: u64,
+    deadline: Instant,
+) -> bool {
+    let sleep_deadline = Instant::now()
+        + Duration::from_millis(interval_ms)
+            .min(deadline.saturating_duration_since(Instant::now()));
+    while Instant::now() < sleep_deadline {
+        if control.is_cancelled() {
+            return true;
+        }
+        std::thread::sleep(
+            PROCESS_WATCH_CANCEL_SLICE
+                .min(sleep_deadline.saturating_duration_since(Instant::now())),
+        );
+    }
+    control.is_cancelled()
+}
+
+/// The post-baseline cancellation outcome: a named `cancelled` failure whose
+/// structured detail carries the COMPLETE shaped bounded process-watch payload.
+///
+/// The payload comes from the SAME `into_value` encoder as a normal watch, so it
+/// has passed the row projection, the event ceiling and the coverage rules before
+/// being attached. `effect` says the observation was partially performed, because
+/// claiming `not_performed` after a baseline would be false.
+fn process_watch_cancelled(
+    state: ProcessWatchState,
+    request: ProcessWatchRequest<'_>,
+) -> Result<Value, CuError> {
+    let partial = state.into_value(request, Some("cancelled"))?;
+    Err(CuError::new(
+        "cancelled",
+        "the process watch was cancelled after observation began",
+    )
+    .with_detail(json!({
+        "effect": "partially_performed",
+        "phase": "observe_wait",
+        "partial_observation": partial,
+    })))
+}
+
+impl ProcessWatchState {
+    /// The ONE encoder for normal and cancelled watches. `termination_override`
+    /// is `None` on the normal path, so its wire shape is byte-identical to the
+    /// shipped payload and gains no new field; the cancelled path adds a nested
+    /// `termination` and forces `completed: false`, because a cancelled watch did
+    /// not complete even when no event ceiling truncated it. `coverage_complete`
+    /// is left untouched: it means provider coverage, not watch completion.
+    fn into_value(
+        self,
+        request: ProcessWatchRequest<'_>,
+        termination_override: Option<&'static str>,
+    ) -> Result<Value, CuError> {
+        // Counts are computed BEFORE the collections are moved into the JSON.
+        let baseline_count = self.baseline.len();
+        let emitted = self.events.len();
+        let cancelled = termination_override.is_some();
+        let mut value = json!({
+            "mode": "bounded-diff",
+            "selector": {
+                "pid": request.pid,
+                "parent": request.parent,
+                "name": request.name,
+                "all": request.all
+            },
+            "duration_ms": request.duration_ms,
+            "interval_ms": request.interval_ms,
+            "max_events": request.max_events,
+            "max_processes": request.max_processes,
+            "baseline": self.baseline,
+            "baseline_count": baseline_count,
+            "excluded_unidentified": self.excluded_unidentified,
+            "coverage_complete": self.excluded_unidentified == 0,
+            "events": self.events,
+            "emitted": emitted,
+            // A cancelled watch is never `completed`, even when nothing truncated.
+            "completed": !self.truncated && !cancelled,
+            "truncated": self.truncated,
+            "verified": true,
+        });
+        if let Some(termination) = termination_override {
+            // Only the cancelled path carries a termination, so the normal success
+            // wire keeps exactly its existing fields.
+            value["termination"] = json!(termination);
+        }
+        Ok(value)
+    }
 }
 
 #[derive(Default)]
@@ -3798,6 +3983,9 @@ mod tests {
             atomic::{AtomicBool, Ordering},
         };
 
+        // The token is raised while the watch is inside a long pause, AFTER the
+        // baseline snapshot has already run. That is a post-baseline cancellation, so
+        // the truthful outcome is a partial observation, NOT `not_performed`.
         let cancelled = Arc::new(AtomicBool::new(false));
         let raised = Arc::clone(&cancelled);
         let trigger = std::thread::spawn(move || {
@@ -3822,11 +4010,376 @@ mod tests {
 
         assert_eq!(error.code, "cancelled");
         let detail = error.detail.expect("typed cancellation detail");
-        assert_eq!(detail["effect"], "not_performed");
+        // The baseline had already run, so claiming no effect is a lie.
+        assert_eq!(detail["effect"], "partially_performed");
         assert_eq!(detail["phase"], "observe_wait");
+        let partial = &detail["partial_observation"];
+        // The complete shaped baseline evidence survives the cancellation.
+        assert_eq!(partial["mode"], "bounded-diff");
+        assert!(partial["baseline_count"].as_u64().is_some_and(|n| n >= 1));
+        assert!(partial["baseline"].as_array().is_some());
+        assert_eq!(partial["termination"], "cancelled");
+        // A cancelled watch never reports completion, even with no truncation.
+        assert_eq!(partial["completed"], false);
+        assert_eq!(partial["truncated"], false);
+        assert_eq!(partial["verified"], true);
         assert!(
-            started.elapsed() < Duration::from_millis(100),
+            started.elapsed() < Duration::from_millis(300),
             "cooperative cancellation exceeded the worker grace"
+        );
+    }
+
+    // ---- cooperative cancellation: production-driver cases -----------------------
+
+    /// Drives the REAL loop (`process_watch_with_snapshot`) with an injected
+    /// snapshot provider, so these cases cannot pass against a decision the shipped
+    /// loop would not take.
+    fn run_watch_with_snapshot<F>(
+        duration_ms: u64,
+        interval_ms: u64,
+        max_events: usize,
+        control: crate::execution_control::ExecutionControl<'_>,
+        snapshot: &F,
+    ) -> Result<Value, CuError>
+    where
+        F: Fn(
+            Option<u32>,
+            Option<u32>,
+            Option<&str>,
+            usize,
+        ) -> Result<ProcessWatchSnapshot, CuError>,
+    {
+        process_watch_with_snapshot(
+            ProcessWatchRequest {
+                pid: Some(u32::MAX),
+                parent: None,
+                name: None,
+                all: false,
+                duration_ms,
+                interval_ms,
+                max_events,
+                max_processes: 4,
+            },
+            control,
+            snapshot,
+        )
+    }
+
+    fn watched(pid: u32, start_identity: &str) -> WatchedProcess {
+        WatchedProcess {
+            pid,
+            parent_pid: 1,
+            executable_name: format!("fixture-{pid}"),
+            start_identity: start_identity.into(),
+        }
+    }
+
+    fn watch_snapshot(
+        rows: Vec<WatchedProcess>,
+        excluded_unidentified: usize,
+    ) -> ProcessWatchSnapshot {
+        ProcessWatchSnapshot {
+            processes: rows
+                .into_iter()
+                .map(|row| ((row.pid, row.start_identity.clone()), row))
+                .collect(),
+            excluded_unidentified,
+        }
+    }
+
+    #[test]
+    fn pre_cancel_issues_zero_snapshots_and_keeps_not_performed() {
+        // The injected provider panics, proving no authority call is reachable.
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || true;
+        let snapshot = |_: Option<u32>,
+                        _: Option<u32>,
+                        _: Option<&str>,
+                        _: usize|
+         -> Result<ProcessWatchSnapshot, CuError> {
+            calls.set(calls.get() + 1);
+            panic!("a pre-effect cancel must not issue a snapshot")
+        };
+        let error = run_watch_with_snapshot(
+            60_000,
+            50,
+            8,
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &snapshot,
+        )
+        .expect_err("a pre-effect cancel must refuse the watch");
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(calls.get(), 0);
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert!(
+            detail.get("partial_observation").is_none(),
+            "nothing was observed, so no partial payload may be claimed"
+        );
+    }
+
+    #[test]
+    fn a_post_baseline_pause_cancel_reports_partial_evidence_and_stops_the_next_snapshot() {
+        // Round 1 establishes the baseline and leaves the token clear; the token is
+        // then raised from the test thread while the watch sits in a long pause, so
+        // the cancellation lands AFTER the baseline and no round-2 snapshot runs.
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+
+        let token = Arc::new(AtomicBool::new(false));
+        let raised = Arc::clone(&token);
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = Arc::clone(&calls);
+        let trigger = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(25));
+            raised.store(true, Ordering::Release);
+        });
+        let probe = || token.load(Ordering::Acquire);
+        let snapshot = move |_: Option<u32>,
+                             _: Option<u32>,
+                             _: Option<&str>,
+                             _: usize|
+              -> Result<ProcessWatchSnapshot, CuError> {
+            counted.fetch_add(1, Ordering::AcqRel);
+            Ok(watch_snapshot(vec![watched(11, "a")], 0))
+        };
+        let error = run_watch_with_snapshot(
+            60_000,
+            60_000,
+            8,
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &snapshot,
+        )
+        .expect_err("a post-baseline cancel must refuse the watch");
+        trigger.join().expect("cancel trigger");
+
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(
+            calls.load(Ordering::Acquire),
+            1,
+            "the token must stop the second snapshot"
+        );
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        let partial = &detail["partial_observation"];
+        assert_eq!(partial["termination"], "cancelled");
+        assert_eq!(partial["completed"], false);
+        assert_eq!(partial["baseline_count"], 1);
+        assert_eq!(partial["emitted"], 0);
+        assert_eq!(partial["coverage_complete"], true);
+    }
+
+    #[test]
+    fn a_same_round_event_ceiling_win_over_a_token_that_round_flipped() {
+        // Round 2 flips the token AND returns a snapshot that reaches event_max with a
+        // distinguishable `started` event. The normal event-limit result must win.
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let snapshot = |_: Option<u32>,
+                        _: Option<u32>,
+                        _: Option<&str>,
+                        _: usize|
+         -> Result<ProcessWatchSnapshot, CuError> {
+            let n = calls.get() + 1;
+            calls.set(n);
+            let rows = if n == 1 {
+                vec![watched(11, "a")]
+            } else {
+                vec![watched(11, "a"), watched(22, "b")]
+            };
+            if n == 2 {
+                token.set(true);
+            }
+            Ok(watch_snapshot(rows, 0))
+        };
+        let value = run_watch_with_snapshot(
+            60_000,
+            50,
+            1,
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &snapshot,
+        )
+        .expect("the same-round event ceiling must win over the flipped token");
+        assert!(token.get(), "the provider really did flip the token");
+        assert_eq!(calls.get(), 2);
+        let events = value["events"].as_array().expect("events array");
+        assert_eq!(events.len(), 1, "the same-round event must remain present");
+        assert_eq!(events[0]["kind"], "started");
+        // The normal success wire gains NO termination field. Shipped semantics
+        // mark the result truncated while the deadline has not yet passed
+        // (`truncated = Instant::now() < deadline`), so a ceiling stop reports
+        // truncated:true and completed:false even though the event survives.
+        assert!(
+            value.get("termination").is_none(),
+            "the normal payload must not gain a termination field"
+        );
+        assert_eq!(value["truncated"], true);
+        assert_eq!(value["completed"], false);
+    }
+
+    #[test]
+    fn a_same_round_snapshot_error_win_over_a_token_that_round_flipped() {
+        // Round 2 flips the token and then fails. The provider error must surface,
+        // not a cancellation, and the round-2 snapshot must really have been tried.
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let snapshot = |_: Option<u32>,
+                        _: Option<u32>,
+                        _: Option<&str>,
+                        _: usize|
+         -> Result<ProcessWatchSnapshot, CuError> {
+            let n = calls.get() + 1;
+            calls.set(n);
+            if n == 1 {
+                return Ok(watch_snapshot(vec![watched(11, "a")], 0));
+            }
+            token.set(true);
+            Err(CuError::new(
+                "process_watch_fixture_provider_error",
+                "the fixture provider refused the later snapshot",
+            ))
+        };
+        let error = run_watch_with_snapshot(
+            60_000,
+            50,
+            8,
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &snapshot,
+        )
+        .expect_err("the provider error must surface");
+        assert!(token.get());
+        assert_eq!(error.code, "process_watch_fixture_provider_error");
+        assert_eq!(calls.get(), 2);
+    }
+
+    #[test]
+    fn a_cancel_after_an_event_below_the_ceiling_keeps_the_event_in_partial_evidence() {
+        // Round 2 flips the token INSIDE its own snapshot call AND returns the sample
+        // that produces the event. The event is derived before any later cancellation
+        // decision, so it survives; the token is only observed in the NEXT pause,
+        // which is what stops round 3.
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let snapshot = |_: Option<u32>,
+                        _: Option<u32>,
+                        _: Option<&str>,
+                        _: usize|
+         -> Result<ProcessWatchSnapshot, CuError> {
+            let n = calls.get() + 1;
+            calls.set(n);
+            if n == 2 {
+                token.set(true);
+                return Ok(watch_snapshot(vec![watched(11, "a"), watched(22, "b")], 0));
+            }
+            Ok(watch_snapshot(vec![watched(11, "a")], 0))
+        };
+        let error = run_watch_with_snapshot(
+            60_000,
+            50,
+            8,
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &snapshot,
+        )
+        .expect_err("a cancel after an event must return partial evidence");
+        assert_eq!(calls.get(), 2);
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        let partial = &detail["partial_observation"];
+        assert_eq!(partial["termination"], "cancelled");
+        assert_eq!(partial["completed"], false);
+        let events = partial["events"].as_array().expect("events array");
+        assert_eq!(events.len(), 1, "the observed event must be preserved");
+        assert_eq!(events[0]["kind"], "started");
+        assert_eq!(partial["emitted"], 1);
+    }
+
+    #[test]
+    fn a_same_round_deadline_win_over_a_token_that_round_flipped() {
+        // Same-round deadline precedence: round 2 flips the token and burns the
+        // remaining duration INSIDE its own snapshot call. When it returns, the
+        // overall deadline has already passed, so the normal duration result must win
+        // and no partial cancellation may replace it. This mirrors the shipped
+        // `truncated = Instant::now() < deadline` semantics: the deadline has passed,
+        // so the stop is NOT reported as truncation.
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let snapshot = |_: Option<u32>,
+                        _: Option<u32>,
+                        _: Option<&str>,
+                        _: usize|
+         -> Result<ProcessWatchSnapshot, CuError> {
+            let n = calls.get() + 1;
+            calls.set(n);
+            if n == 2 {
+                // Flip the token and consume the whole allowance so the loop exits on
+                // the deadline rather than on cancellation.
+                std::thread::sleep(Duration::from_millis(200));
+                token.set(true);
+                return Ok(watch_snapshot(vec![watched(11, "a"), watched(22, "b")], 0));
+            }
+            Ok(watch_snapshot(vec![watched(11, "a")], 0))
+        };
+        let value = run_watch_with_snapshot(
+            200,
+            20,
+            8,
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &snapshot,
+        )
+        .expect("the reached deadline must win over the token flipped in that round");
+        assert!(token.get(), "the provider really did flip the token");
+        assert_eq!(calls.get(), 2, "round 2 really happened");
+        // The round-2 event was derived before the loop exited, so it is preserved.
+        let events = value["events"].as_array().expect("events array");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["kind"], "started");
+        // A normal result, not a cancellation: no termination, and the deadline
+        // having passed means this stop is not reported as truncation.
+        assert!(value.get("termination").is_none());
+        assert_eq!(value["truncated"], false);
+        assert_eq!(value["completed"], true);
+    }
+
+    #[test]
+    fn an_uncancelled_watch_keeps_its_normal_shape_and_has_no_termination() {
+        let snapshot = |_: Option<u32>,
+                        _: Option<u32>,
+                        _: Option<&str>,
+                        _: usize|
+         -> Result<ProcessWatchSnapshot, CuError> {
+            Ok(watch_snapshot(vec![watched(11, "a")], 0))
+        };
+        let value = run_watch_with_snapshot(
+            60,
+            50,
+            8,
+            crate::execution_control::ExecutionControl::none(),
+            &snapshot,
+        )
+        .expect("an uncancelled watch must succeed");
+        assert_eq!(value["mode"], "bounded-diff");
+        assert_eq!(value["baseline_count"], 1);
+        assert_eq!(value["emitted"], 0);
+        assert_eq!(value["coverage_complete"], true);
+        assert_eq!(value["completed"], true);
+        assert_eq!(value["truncated"], false);
+        assert_eq!(value["verified"], true);
+        assert_eq!(value["duration_ms"], 60);
+        assert_eq!(value["interval_ms"], 50);
+        assert_eq!(value["max_events"], 8);
+        assert_eq!(value["max_processes"], 4);
+        assert_eq!(value["excluded_unidentified"], 0);
+        assert_eq!(value["selector"]["pid"], u32::MAX);
+        assert_eq!(value["selector"]["all"], false);
+        assert!(
+            value.get("termination").is_none(),
+            "the normal payload must not gain a termination field"
         );
     }
 
