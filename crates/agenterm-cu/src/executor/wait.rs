@@ -3,10 +3,31 @@
 //! `--expect` (the `verify` matcher polled).
 
 use super::*;
+use crate::execution_control::ExecutionControl;
+
+/// Slice width for the inter-round pause. Cancellation is observed between these
+/// slices, so the worst-case response to a token set during a pause is one slice
+/// plus the pause remainder -- never the whole 120 s deadline. Same shape as the
+/// shipped terminal-wait pause; no thread, signal or async runtime is added.
+const WAIT_CANCEL_SLICE: Duration = Duration::from_millis(10);
+
+/// The pause between wait rounds, sliced so the borrowed token is observed several
+/// times instead of once. The total pause is unchanged at 50 ms.
+fn wait_pause(control: ExecutionControl<'_>) -> Result<(), CuError> {
+    let pause_deadline = Instant::now() + Duration::from_millis(50);
+    while Instant::now() < pause_deadline {
+        control.check_observe()?;
+        thread::sleep(
+            WAIT_CANCEL_SLICE.min(pause_deadline.saturating_duration_since(Instant::now())),
+        );
+    }
+    control.check_observe()
+}
 
 pub(super) fn wait(
     timeout_ms: u64,
     condition: &WaitCondition,
+    control: ExecutionControl<'_>,
 ) -> Result<serde_json::Value, CuError> {
     match condition {
         WaitCondition::Expect {
@@ -14,13 +35,13 @@ pub(super) fn wait(
             expect,
             absent,
         } => {
-            return wait_expect(timeout_ms, *window, expect, *absent);
+            return wait_expect(timeout_ms, *window, expect, *absent, control);
         }
         WaitCondition::NodeNameContains {
             pattern,
             role,
             window,
-        } => return wait_node(timeout_ms, pattern, role.as_deref(), *window),
+        } => return wait_node(timeout_ms, pattern, role.as_deref(), *window, control),
         WaitCondition::NodeTextEquals {
             expected,
             name,
@@ -34,6 +55,7 @@ pub(super) fn wait(
                 role.as_deref(),
                 *window,
                 NodeTextMatch::Equals,
+                control,
             );
         }
         WaitCondition::NodeTextContains {
@@ -49,31 +71,36 @@ pub(super) fn wait(
                 role.as_deref(),
                 *window,
                 NodeTextMatch::Contains,
+                control,
             );
         }
-        WaitCondition::ReadyPath { path } => return wait_ready_path(timeout_ms, path),
+        WaitCondition::ReadyPath { path } => return wait_ready_path(timeout_ms, path, control),
         _ => {}
     }
     let deadline = Instant::now() + Duration::from_millis(timeout_ms.min(120_000));
-    let poll = Duration::from_millis(50);
     let mut last_observation = serde_json::json!({ "windows": [] });
 
     while Instant::now() < deadline {
+        // PRE-EFFECT CANCEL, before this round's authority call.
+        control.check_observe()?;
         let windows =
             mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
         if matches!(condition, WaitCondition::WindowTitleContains { .. })
             && observe::window_titles_unavailable(&windows)
         {
+            // A typed authority refusal is authoritative: returned before any
+            // cancellation is consulted again, so a late cancel cannot mask it.
             return Err(window_titles_unavailable_error(windows.len()));
         }
         last_observation = serde_json::json!({ "window_count": windows.len(), "windows": windows });
         if condition_met(condition, &windows) {
+            // A matched condition is the authoritative result and wins.
             return Ok(serde_json::json!({
                 "met": true,
                 "observation": last_observation,
             }));
         }
-        thread::sleep(poll);
+        wait_pause(control)?;
     }
 
     Ok(serde_json::json!({
@@ -111,14 +138,16 @@ pub(super) fn wait_node(
     pattern: &str,
     role: Option<&str>,
     window: Option<isize>,
+    control: ExecutionControl<'_>,
 ) -> Result<serde_json::Value, CuError> {
     let deadline = Instant::now() + Duration::from_millis(timeout_ms.min(120_000));
-    let poll = Duration::from_millis(50);
     let mut polls = 0usize;
     let mut last_node_count = 0usize;
     let mut last_error: Option<CuError> = None;
 
     loop {
+        // PRE-EFFECT CANCEL, before this round's tree read.
+        control.check_observe()?;
         polls += 1;
         match mechanism::tree_for_window(window) {
             Ok(tree) => {
@@ -156,7 +185,7 @@ pub(super) fn wait_node(
         if Instant::now() >= deadline {
             break;
         }
-        thread::sleep(poll);
+        wait_pause(control)?;
     }
 
     let detail = match last_error {
@@ -175,13 +204,30 @@ pub(super) fn wait_node(
 /// Polls until `path` carries a schema-1 readiness marker with
 /// `state: "ready"`. Compatible with `observe --ready-path` and any
 /// other atomic publisher; partial JSON keeps polling.
-pub(super) fn wait_ready_path(timeout_ms: u64, path: &str) -> Result<serde_json::Value, CuError> {
+pub(super) fn wait_ready_path(
+    timeout_ms: u64,
+    path: &str,
+    control: ExecutionControl<'_>,
+) -> Result<serde_json::Value, CuError> {
+    wait_ready_path_with_reader(timeout_ms, path, control, |path| {
+        Ok(super::a11y_observe::read_ready_marker(path))
+    })
+}
+
+fn wait_ready_path_with_reader(
+    timeout_ms: u64,
+    path: &str,
+    control: ExecutionControl<'_>,
+    mut read_marker: impl FnMut(&str) -> Result<Option<serde_json::Value>, CuError>,
+) -> Result<serde_json::Value, CuError> {
     let deadline = Instant::now() + Duration::from_millis(timeout_ms.min(120_000));
-    let poll = Duration::from_millis(50);
     let mut polls = 0usize;
     loop {
+        // PRE-EFFECT CANCEL, before this round's read.
+        control.check_observe()?;
         polls += 1;
-        if let Some(marker) = super::a11y_observe::read_ready_marker(path) {
+        if let Some(marker) = read_marker(path)? {
+            // The marker is the authoritative result and wins.
             return Ok(serde_json::json!({
                 "met": true,
                 "addressing": "ready-path",
@@ -192,7 +238,7 @@ pub(super) fn wait_ready_path(timeout_ms: u64, path: &str) -> Result<serde_json:
         if Instant::now() >= deadline {
             break;
         }
-        thread::sleep(poll);
+        wait_pause(control)?;
     }
     Err(CuError::new(
         "timeout",
@@ -245,6 +291,7 @@ pub(super) fn wait_node_text(
     role: Option<&str>,
     window: Option<isize>,
     match_kind: NodeTextMatch,
+    control: ExecutionControl<'_>,
 ) -> Result<serde_json::Value, CuError> {
     if window.is_none() {
         return Err(CuError::new(
@@ -253,13 +300,14 @@ pub(super) fn wait_node_text(
         ));
     }
     let deadline = Instant::now() + Duration::from_millis(timeout_ms.min(120_000));
-    let poll = Duration::from_millis(50);
     let mut polls = 0usize;
     let mut last_node_count = 0usize;
     let mut last_text: Option<String> = None;
     let mut last_error: Option<CuError> = None;
 
     loop {
+        // PRE-EFFECT CANCEL, before this round's tree/text authority calls.
+        control.check_observe()?;
         polls += 1;
         match mechanism::tree_for_window(window) {
             Ok(tree) => {
@@ -298,7 +346,7 @@ pub(super) fn wait_node_text(
         if Instant::now() >= deadline {
             break;
         }
-        thread::sleep(poll);
+        wait_pause(control)?;
     }
 
     Err(CuError::new(
@@ -364,6 +412,7 @@ pub(super) fn wait_expect(
     window: isize,
     expect: &[crate::command::Expectation],
     absent: bool,
+    control: ExecutionControl<'_>,
 ) -> Result<serde_json::Value, CuError> {
     if window == 0 {
         return Err(invalid_input(
@@ -376,11 +425,12 @@ pub(super) fn wait_expect(
         ));
     }
     let deadline = Instant::now() + Duration::from_millis(timeout_ms.min(120_000));
-    let poll = Duration::from_millis(50);
     let mut polls = 0usize;
     let mut last_complete: Option<serde_json::Value> = None;
     let foreground = absent.then(current_foreground_identity).transpose()?;
     loop {
+        // PRE-EFFECT CANCEL, before this round's tree read.
+        control.check_observe()?;
         polls += 1;
         match mechanism::tree_for_window(Some(window)) {
             Ok(tree) => {
@@ -431,7 +481,7 @@ pub(super) fn wait_expect(
         if Instant::now() >= deadline {
             break;
         }
-        thread::sleep(poll);
+        wait_pause(control)?;
     }
     Err(CuError::new(
         "timeout",
@@ -591,6 +641,107 @@ fn foreground_json(identity: &ForegroundIdentity) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn ready_path_pre_cancel_does_no_work() {
+        // PRE-EFFECT: a token already set must stop the verb before its first
+        // read, not after burning the 120 s deadline.
+        let reads = Cell::new(0usize);
+        let probe = || true;
+        let result = wait_ready_path_with_reader(
+            120_000,
+            "unused",
+            ExecutionControl::with_cancel_probe(&probe),
+            |_| {
+                reads.set(reads.get() + 1);
+                Ok(None)
+            },
+        );
+
+        let error = result.expect_err("a pre-effect cancel must refuse the verb");
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(reads.get(), 0, "a pre-cancel must issue no marker read");
+        assert!(
+            error.detail.as_ref().and_then(|d| d.get("effect"))
+                == Some(&serde_json::json!("not_performed")),
+            "pre-effect cancel must report that no effect happened: {:?}",
+            error.detail
+        );
+    }
+
+    #[test]
+    fn ready_path_cancel_after_an_unmatched_round_stops_before_a_second_poll() {
+        // UNMATCHED THEN CANCEL: the first round misses, the token is set during
+        // the sliced pause, and the loop must exit without a second round.
+        let cancelled = Cell::new(false);
+        let probe = || cancelled.get();
+        let reads = Cell::new(0usize);
+        let result = wait_ready_path_with_reader(
+            120_000,
+            "unused",
+            ExecutionControl::with_cancel_probe(&probe),
+            |_| {
+                reads.set(reads.get() + 1);
+                cancelled.set(true);
+                Ok(None)
+            },
+        );
+
+        let error = result.expect_err("a mid-wait cancel must refuse the verb");
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(reads.get(), 1, "cancel must prevent a second marker read");
+    }
+
+    #[test]
+    fn ready_path_returns_a_real_marker_even_if_the_token_is_set_late() {
+        // AUTHORITATIVE RESULT OUTRANKS LATE CANCEL: publish a real marker, then
+        // hand in a probe that reports cancelled from its very first call. The
+        // verb's entry cannot see a token before it is asked, so we instead assert
+        // the production precedence directly: a marker present on the round that
+        // the pre-effect check allowed must be returned as `met`.
+        let cancelled = Cell::new(false);
+        let probe = || cancelled.get();
+        let reads = Cell::new(0usize);
+        let result = wait_ready_path_with_reader(
+            120_000,
+            "unused",
+            ExecutionControl::with_cancel_probe(&probe),
+            |_| {
+                reads.set(reads.get() + 1);
+                cancelled.set(true);
+                Ok(Some(
+                    serde_json::json!({ "schema": 1, "state": "ready", "window": 7 }),
+                ))
+            },
+        );
+
+        let value = result.expect("a matched round must return its result despite a late token");
+        assert_eq!(value.get("met"), Some(&serde_json::json!(true)));
+        assert_eq!(value.get("polls"), Some(&serde_json::json!(1)));
+        assert_eq!(reads.get(), 1);
+    }
+
+    #[test]
+    fn ready_path_authority_error_outranks_a_late_cancel() {
+        let cancelled = Cell::new(false);
+        let probe = || cancelled.get();
+        let error = wait_ready_path_with_reader(
+            120_000,
+            "unused",
+            ExecutionControl::with_cancel_probe(&probe),
+            |_| {
+                cancelled.set(true);
+                Err(CuError::new(
+                    "ready_path_refused",
+                    "injected authority refusal",
+                ))
+            },
+        )
+        .expect_err("the authority refusal must outrank a late cancellation");
+
+        assert_eq!(error.code, "ready_path_refused");
+    }
 
     fn a11y_node(id: &str, name: &str, role: &str, states: &[&str]) -> mechanism::A11yNode {
         mechanism::A11yNode {

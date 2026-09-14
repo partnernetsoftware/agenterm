@@ -2234,7 +2234,7 @@ impl Executor {
                 timeout_ms,
                 condition,
                 ..
-            } => wait(*timeout_ms, condition),
+            } => wait(*timeout_ms, condition, control),
             Command::WindowPlace {
                 action,
                 window,
