@@ -389,6 +389,48 @@ pub(super) fn app_watch_payload(
     max_processes: Option<usize>,
     control: crate::execution_control::ExecutionControl<'_>,
 ) -> Result<Value, CuError> {
+    app_watch_with_providers(
+        AppWatchArgs {
+            selectors,
+            duration_ms,
+            interval_ms,
+            max_events,
+            max_processes,
+        },
+        control,
+        resolve_bindings,
+        app_snapshot,
+        revalidate_bindings,
+    )
+}
+
+struct AppWatchArgs<'a> {
+    selectors: &'a [String],
+    duration_ms: u64,
+    interval_ms: Option<u64>,
+    max_events: Option<usize>,
+    max_processes: Option<usize>,
+}
+
+fn app_watch_with_providers<B, S, R>(
+    args: AppWatchArgs<'_>,
+    control: crate::execution_control::ExecutionControl<'_>,
+    bind: B,
+    snapshot: S,
+    revalidate: R,
+) -> Result<Value, CuError>
+where
+    B: Fn(&[String]) -> Result<Vec<AppBinding>, CuError>,
+    S: Fn(&[AppBinding], usize) -> Result<AppSnapshot, CuError>,
+    R: Fn(&[AppBinding]) -> Result<(), CuError>,
+{
+    let AppWatchArgs {
+        selectors,
+        duration_ms,
+        interval_ms,
+        max_events,
+        max_processes,
+    } = args;
     let interval_ms = interval_ms.unwrap_or(DEFAULT_INTERVAL_MS);
     let max_events = max_events.unwrap_or(DEFAULT_MAX_EVENTS);
     let max_processes = max_processes.unwrap_or(DEFAULT_MAX_PROCESSES);
@@ -411,8 +453,7 @@ pub(super) fn app_watch_payload(
     }
 
     control.check_observe()?;
-    let bindings = resolve_bindings(selectors)?;
-    control.check_observe()?;
+    let bindings = bind(selectors)?;
     // From here on a baseline may exist, so NO direct `check_observe` may escape:
     // a post-sample cancellation is a partial observation, not a pre-effect stop.
     let request = AppWatchRequest {
@@ -421,13 +462,7 @@ pub(super) fn app_watch_payload(
         max_events,
         max_processes,
     };
-    app_watch_with_providers(
-        &bindings,
-        request,
-        control,
-        app_snapshot,
-        revalidate_bindings,
-    )
+    app_watch_bound(&bindings, request, control, snapshot, revalidate)
 }
 
 /// The bounded app-watch request and its bounds, so the loop and the ONE encoder
@@ -460,7 +495,7 @@ struct AppWatchState {
 /// caller's closure may borrow its own locals and the compiler keeps the higher
 /// ranked borrow intact. Production passes the real `app_snapshot` and
 /// `revalidate_bindings`, so the tested loop is the shipped loop.
-fn app_watch_with_providers<S, R>(
+fn app_watch_bound<S, R>(
     bindings: &[AppBinding],
     request: AppWatchRequest,
     control: crate::execution_control::ExecutionControl<'_>,
@@ -658,7 +693,7 @@ mod tests {
 
     // ---- cooperative cancellation: production-driver cases --------------------
 
-    /// Drives the REAL loop (`app_watch_with_providers`) with injected snapshot and
+    /// Drives the REAL loop (`app_watch_bound`) with injected snapshot and
     /// revalidation closures, so these cases cannot pass against a decision the
     /// shipped loop would not take.
     fn run_with_providers<S, R>(
@@ -673,7 +708,7 @@ mod tests {
         S: Fn(&[AppBinding], usize) -> Result<AppSnapshot, CuError>,
         R: Fn(&[AppBinding]) -> Result<(), CuError>,
     {
-        app_watch_with_providers(
+        app_watch_bound(
             &[fixture_binding()],
             AppWatchRequest {
                 duration_ms,
@@ -723,6 +758,80 @@ mod tests {
             calls.set(calls.get() + 1);
             Ok(())
         }
+    }
+
+    #[test]
+    fn a_pre_cancel_stops_before_application_binding_authority() {
+        let binding_calls = std::cell::Cell::new(0usize);
+        let bind = |_: &[String]| -> Result<Vec<AppBinding>, CuError> {
+            binding_calls.set(binding_calls.get() + 1);
+            unreachable!("a pre-effect cancellation must precede application binding")
+        };
+        let error = app_watch_with_providers(
+            AppWatchArgs {
+                selectors: &["fixture".into()],
+                duration_ms: 60_000,
+                interval_ms: Some(60_000),
+                max_events: Some(8),
+                max_processes: Some(8),
+            },
+            crate::execution_control::ExecutionControl::with_cancel_probe(&|| true),
+            bind,
+            |_, _| unreachable!("a pre-effect cancellation must precede snapshots"),
+            |_| unreachable!("a pre-effect cancellation must precede revalidation"),
+        )
+        .expect_err("a pre-effect token cancels before binding");
+
+        assert_eq!(binding_calls.get(), 0);
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("cancellation detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert!(detail.get("partial_observation").is_none());
+    }
+
+    #[test]
+    fn a_token_raised_by_binding_is_not_misreported_as_not_performed() {
+        let token = std::cell::Cell::new(false);
+        let binding_calls = std::cell::Cell::new(0usize);
+        let snapshot_calls = std::cell::Cell::new(0usize);
+        let revalidation_calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let bind = |_: &[String]| -> Result<Vec<AppBinding>, CuError> {
+            binding_calls.set(binding_calls.get() + 1);
+            token.set(true);
+            Ok(vec![fixture_binding()])
+        };
+        let snapshot = |_: &[AppBinding], _: usize| -> Result<AppSnapshot, CuError> {
+            snapshot_calls.set(snapshot_calls.get() + 1);
+            Ok(snapshot_with(vec![instances(&[(10, "a")])]))
+        };
+        let revalidate = |_: &[AppBinding]| -> Result<(), CuError> {
+            revalidation_calls.set(revalidation_calls.get() + 1);
+            Ok(())
+        };
+
+        let error = app_watch_with_providers(
+            AppWatchArgs {
+                selectors: &["fixture".into()],
+                duration_ms: 60_000,
+                interval_ms: Some(60_000),
+                max_events: Some(8),
+                max_processes: Some(8),
+            },
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            bind,
+            snapshot,
+            revalidate,
+        )
+        .expect_err("the pending token must return a truthful partial");
+
+        assert_eq!(binding_calls.get(), 1);
+        assert_eq!(snapshot_calls.get(), 1);
+        assert_eq!(revalidation_calls.get(), 1);
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("cancellation detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["partial_observation"]["baseline"][0]["pid"], 10);
     }
 
     #[test]
