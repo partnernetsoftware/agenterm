@@ -385,6 +385,16 @@ from 289,947 to 160,986 (−128,961 / −44.48%); heap pages moved from 16 to 11
 while all 405 host operations and `server.headless-authority` remained
 unchanged. This third producer is another measured reuse and resource release,
 not a claim that additive production LOC has become a net fold.
+The same bounded projection now covers the fourth producer, `ui-deltas`. The
+server authority journey's one 31 KiB delta batch keeps only the tab-note,
+event-identity, completeness and truncation fields it actually asserts. Three
+matched-budget runs moved median guest steps from 11,309,421 to 10,075,067
+(−1,234,354 / −10.91%) and host bytes from 161,876 to 131,980
+(−29,896 / −18.47%); heap pages moved from 11 to 10. Peak call depth fell from
+23 to 19, while all 405 host operations and `server.headless-authority`
+remained unchanged. Bare `ui-deltas` continues to serialize the full validated
+`UiDeltaBatch`; the selector changes neither journal authority nor event
+ordering.
 
 ## Mermaid flowchart memory palace
 

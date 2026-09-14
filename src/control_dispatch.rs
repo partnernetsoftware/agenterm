@@ -1736,15 +1736,11 @@ pub(crate) fn dispatch_shared_command(
                 Ok(events) => {
                     let position = host.event_journal().position();
                     match ui_delta_batch(host, after, &position, &events) {
-                        Ok(batch) => match serde_json::to_string_pretty(&batch) {
-                            Ok(json) => Some(IpcResponse::success(json)),
-                            Err(error) => Some(IpcResponse::typed_failure(
-                                error.to_string(),
-                                "ui_delta_serialization_failed",
-                                "internal",
-                                false,
-                            )),
-                        },
+                        Ok(batch) => Some(inherent_json_response(
+                            &batch,
+                            args,
+                            "ui_delta_serialization_failed",
+                        )),
                         Err(error) => Some(IpcResponse::typed_failure(
                             error,
                             "ui_delta_unavailable",

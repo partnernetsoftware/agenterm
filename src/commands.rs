@@ -902,8 +902,9 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
             false,
         ),
         "ui-deltas" => (
-            "agenterm cli ui-deltas --epoch EPOCH --after SEQUENCE [--limit 1..64]",
-            &["--epoch", "--after", "--limit"][..],
+            "agenterm cli ui-deltas --epoch EPOCH --after SEQUENCE [--limit 1..64] \
+             [--select PATHS]",
+            &["--epoch", "--after", "--limit", "--select"][..],
             &[][..],
             false,
         ),

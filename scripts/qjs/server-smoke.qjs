@@ -161,6 +161,7 @@ const SERVER_PROTOCOL_FIELDS = "pid,ui_bridge.ownership_mode,ui_bridge.server_ex
 const INTERACTION_BOOTSTRAP_FIELDS = "active_tab_id,position.sequence,tabs[].id,tabs[].screen.rows,tabs[].screen.columns";
 const ACTIVE_BOOTSTRAP_FIELDS = "active_tab_id";
 const NOTE_BOOTSTRAP_FIELDS = "server_pid,tabs[].id,tabs[].note";
+const DELTA_FIELDS = "tab_updates[].id,tab_updates[].note,events[].tab_id,events[].kind,complete,truncated";
 
 function selected_protocol_info_arguments() {
   return ["protocol-info", "--running", "--json", "--select", SERVER_PROTOCOL_FIELDS];
@@ -596,7 +597,8 @@ try {
       "ui-deltas",
       "--epoch", "" + hello.position.server_epoch,
       "--after", "" + hello.position.sequence,
-      "--limit", "64"
+      "--limit", "64",
+      "--select", DELTA_FIELDS
     ],
     0
   );
