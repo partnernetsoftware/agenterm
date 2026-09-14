@@ -1427,6 +1427,12 @@ impl Engine {
         entry: &str,
         args: &[Value],
     ) -> Result<Outcome, QjswasmError> {
+        // These fields describe this call, never merely the last error whose
+        // evidence the caller happened not to drain. Clear them even when the
+        // new call is rejected before entering a slot.
+        self.failed_stdout.clear();
+        self.failed_stdout_truncated = false;
+        self.failed_cost = None;
         if slot.engine != self.id {
             // An id minted by another engine. It used to address the slot at
             // the same index here; see `SlotId`.

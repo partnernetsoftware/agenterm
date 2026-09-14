@@ -163,6 +163,46 @@ fn a_cancel_seen_by_the_bridge_ends_the_call() {
     assert_eq!(cost.host_ops, 1, "{cost:?}");
 }
 
+#[test]
+fn a_successful_call_clears_unread_failure_evidence() {
+    let mut engine = Engine::with_budget(Budget {
+        max_stdout_bytes: 4,
+        ..Budget::default()
+    });
+    let failing = engine
+        .spawn(Guest::Qjs(r#"print("abcdefgh"); throw "boom";"#), None)
+        .expect("failing slot loads");
+    engine
+        .call(failing, "main", &[])
+        .expect_err("first call fails after printing");
+
+    let succeeding = engine
+        .spawn(Guest::Qjs("return 42;"), None)
+        .expect("successful slot loads");
+    engine
+        .call(succeeding, "main", &[])
+        .expect("second call succeeds");
+
+    assert_eq!(engine.take_failed_stdout(), "");
+    assert!(!engine.take_failed_stdout_truncated());
+    assert_eq!(engine.take_failed_cost(), None);
+
+    engine
+        .call(failing, "main", &[])
+        .expect_err("the first slot can fail again");
+    let mut other = Engine::new();
+    let foreign = other
+        .spawn(Guest::Qjs("return 1;"), None)
+        .expect("foreign slot loads");
+    assert!(matches!(
+        engine.call(foreign, "main", &[]),
+        Err(QjswasmError::NoSuchSlot(_))
+    ));
+    assert_eq!(engine.take_failed_stdout(), "");
+    assert!(!engine.take_failed_stdout_truncated());
+    assert_eq!(engine.take_failed_cost(), None);
+}
+
 /// Status 2 is "no bridge is installed in this slot" -- distinguishable from
 /// an error the bridge produced, because a caller can fix one and not the
 /// other.
