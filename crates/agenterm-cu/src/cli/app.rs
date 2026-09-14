@@ -2,7 +2,7 @@
 
 use agenterm_cu::{Command, TargetRef, command::AppAction};
 
-use super::{flag_parsed, flag_text, flag_value, flag_window, take_switch};
+use super::{flag_parsed, flag_text, flag_window, take_switch};
 
 /// `app <action> …`; the MCU spellings `launch PATH`, `quit`, `hide` and
 /// `show` put their own name back as the action.
@@ -20,7 +20,7 @@ pub(crate) fn parse(
         }
         args.insert(0, spelled.to_string());
     }
-    let action_text = flag_value(args, "--action")
+    let action_text = flag_text(args, "--action")?
         .or_else(|| {
             args.first()
                 .cloned()
@@ -61,4 +61,49 @@ pub(crate) fn parse(
         pid,
         path,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(words: &[&str]) -> Vec<String> {
+        words.iter().map(|word| (*word).to_owned()).collect()
+    }
+
+    #[test]
+    fn canonical_app_action_is_consumed_independently_of_flag_order() {
+        for words in [
+            &[
+                "--action",
+                "hide",
+                "--pid",
+                "42",
+                "--snapshot",
+                "--expect",
+                "gone",
+            ][..],
+            &[
+                "--pid",
+                "42",
+                "--snapshot",
+                "--expect",
+                "gone",
+                "--action",
+                "hide",
+            ][..],
+            &["hide", "--pid", "42", "--snapshot", "--expect", "gone"][..],
+        ] {
+            assert!(matches!(
+                parse("app", TargetRef::Current, &mut args(words)).expect("app hide"),
+                Command::App {
+                    action: AppAction::Hide,
+                    pid: Some(42),
+                    snapshot: true,
+                    expect: Some(expect),
+                    ..
+                } if expect == "gone"
+            ));
+        }
+    }
 }

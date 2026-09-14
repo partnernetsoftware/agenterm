@@ -764,6 +764,9 @@ ACU-only cutover
 ├─ [x] node-name waits cannot discard a misspelled role selector
 │  ├─ [x] node name, role, window and timeout use strict typed readers
 │  └─ [x] a rejected role mismatch cannot invert into `met: true` on a different node role
+├─ [x] canonical app actions are independent of option order
+│  ├─ [x] `--action ID` consumes its value wherever the closed flag grammar places it
+│  └─ [x] the positional action and existing application postconditions remain unchanged
 ├─ [x] dynamic repair registry (complete corpus; no unknown fallback)
 │  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green
 │  │  ├─ [x] macOS public qjswasm court: one invocation-owned Cocoa window proves exact
