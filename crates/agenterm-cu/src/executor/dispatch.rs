@@ -696,20 +696,23 @@ impl Executor {
                         *max_visited,
                     )
                 } else {
-                    process_list_payload(ProcessInventoryOptions {
-                        pid: *pid,
-                        parent: *parent,
-                        name: name.as_deref(),
-                        app: app.as_deref(),
-                        command: command.as_deref(),
-                        cpu_above_percent: *cpu_above_percent,
-                        memory_above_mb: *memory_above_mb,
-                        sort: sort.as_deref(),
-                        sample_ms: *sample_ms,
-                        max_visited: *max_visited,
-                        offset: *offset,
-                        max: *max,
-                    })
+                    process_list_payload(
+                        ProcessInventoryOptions {
+                            pid: *pid,
+                            parent: *parent,
+                            name: name.as_deref(),
+                            app: app.as_deref(),
+                            command: command.as_deref(),
+                            cpu_above_percent: *cpu_above_percent,
+                            memory_above_mb: *memory_above_mb,
+                            sort: sort.as_deref(),
+                            sample_ms: *sample_ms,
+                            max_visited: *max_visited,
+                            offset: *offset,
+                            max: *max,
+                        },
+                        control,
+                    )
                 }
             }
             Command::ProcessState { pid, .. } => process_state_payload(*pid),

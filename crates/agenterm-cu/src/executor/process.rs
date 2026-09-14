@@ -2,7 +2,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
-    thread,
     time::{Duration, Instant},
 };
 
@@ -11,6 +10,7 @@ use serde_json::{Value, json};
 use crate::{
     CuError,
     command::{ProcessKillMode, ProcessPolicyAction, ProcessRunState, ProcessSignalKind},
+    execution_control::ExecutionControl,
     receipt::ReceiptLog,
 };
 
@@ -3211,7 +3211,34 @@ pub(super) fn process_tree_payload(
     }))
 }
 
-pub(super) fn process_list_payload(options: ProcessInventoryOptions<'_>) -> Result<Value, CuError> {
+pub(super) fn process_list_payload(
+    options: ProcessInventoryOptions<'_>,
+    control: ExecutionControl<'_>,
+) -> Result<Value, CuError> {
+    let list = || {
+        agenterm_platform::process::list().map_err(|error| {
+            CuError::new("process_inventory_failed", error.to_string()).with_detail(json!({
+                "kind": format!("{:?}", error.kind()),
+            }))
+        })
+    };
+    let identity = |pid| live_start_identity(pid);
+    let metrics = |pid| agenterm_platform::process_metrics::metrics(pid).map_err(|_| ());
+    process_list_with_providers(options, control, &list, &identity, &metrics)
+}
+
+fn process_list_with_providers<L, I, M>(
+    options: ProcessInventoryOptions<'_>,
+    control: ExecutionControl<'_>,
+    list: &L,
+    identity: &I,
+    metrics: &M,
+) -> Result<Value, CuError>
+where
+    L: Fn() -> Result<Vec<agenterm_platform::contract::process::ProcessInfo>, CuError>,
+    I: Fn(u32) -> Result<String, CuError>,
+    M: Fn(u32) -> Result<agenterm_platform::contract::process_metrics::ProcessMetrics, ()>,
+{
     let offset = options.offset.unwrap_or(0);
     let max = options.max.unwrap_or(DEFAULT_MAX);
     if max == 0 || max > MAX_RESULTS {
@@ -3242,12 +3269,17 @@ pub(super) fn process_list_payload(options: ProcessInventoryOptions<'_>) -> Resu
             "ps --sort must be pid|cpu|mem|memory",
         ));
     }
+    let needs_metrics = options.cpu_above_percent.is_some()
+        || options.memory_above_mb.is_some()
+        || matches!(sort, "cpu" | "mem" | "memory");
+    let needs_cpu = options.cpu_above_percent.is_some() || sort == "cpu";
 
-    let mut inventory = agenterm_platform::process::list().map_err(|error| {
-        CuError::new("process_inventory_failed", error.to_string()).with_detail(json!({
-            "kind": format!("{:?}", error.kind()),
-        }))
-    })?;
+    // Only the two-sample CPU path is a bounded wait. Point-in-time process
+    // inventory keeps its shipped one-authority-call behavior.
+    if needs_cpu {
+        control.check_observe()?;
+    }
+    let mut inventory = list()?;
     inventory.sort_by_key(|row| row.id);
     let visited = inventory.len();
     inventory.retain(|row| {
@@ -3262,16 +3294,12 @@ pub(super) fn process_list_payload(options: ProcessInventoryOptions<'_>) -> Resu
     let truncated_scan = inventory.len() > max_visited;
     inventory.truncate(max_visited);
 
-    let needs_metrics = options.cpu_above_percent.is_some()
-        || options.memory_above_mb.is_some()
-        || matches!(sort, "cpu" | "mem" | "memory");
-    let needs_cpu = options.cpu_above_percent.is_some() || sort == "cpu";
     let first_cpu = if needs_cpu {
         inventory
             .iter()
             .filter_map(|row| {
-                let identity = live_start_identity(row.id).ok()?;
-                agenterm_platform::process_metrics::metrics(row.id)
+                let identity = identity(row.id).ok()?;
+                metrics(row.id)
                     .ok()
                     .map(|sample| (row.id, (identity, sample.cpu_time.as_nanos())))
             })
@@ -3280,7 +3308,30 @@ pub(super) fn process_list_payload(options: ProcessInventoryOptions<'_>) -> Resu
         BTreeMap::new()
     };
     if needs_cpu {
-        thread::sleep(Duration::from_millis(sample_ms));
+        let sample_deadline = Instant::now() + Duration::from_millis(sample_ms);
+        if control.sleep_until_cancelled(sample_deadline) {
+            let baseline_samples = first_cpu.len();
+            return Err(CuError::new(
+                "cancelled",
+                "process CPU sampling was cancelled after the baseline",
+            )
+            .with_detail(json!({
+                "effect": "partially_performed",
+                "phase": "observe_wait",
+                "partial_observation": {
+                    "mode": "cpu-sampling",
+                    "visited": visited,
+                    "prefiltered": prefiltered,
+                    "max_visited": max_visited,
+                    "sample_ms": sample_ms,
+                    "baseline_samples": baseline_samples,
+                    "baseline_errors": inventory.len().saturating_sub(baseline_samples),
+                    "truncated_scan": truncated_scan,
+                    "coverage_complete": false,
+                    "cpu_percent_computed": false,
+                },
+            })));
+        }
     }
 
     let mut detail_errors = 0_usize;
@@ -3298,7 +3349,7 @@ pub(super) fn process_list_payload(options: ProcessInventoryOptions<'_>) -> Resu
                         }
                     }
                 } else {
-                    match live_start_identity(base.id) {
+                    match identity(base.id) {
                         Ok(identity) => Some(identity),
                         Err(_) => {
                             detail_errors += 1;
@@ -3325,7 +3376,7 @@ pub(super) fn process_list_payload(options: ProcessInventoryOptions<'_>) -> Resu
                 (None, None)
             };
             let (cpu_percent, resident_bytes) = if needs_metrics {
-                match agenterm_platform::process_metrics::metrics(base.id) {
+                match metrics(base.id) {
                     Ok(sample) => {
                         let cpu = first_cpu.get(&base.id).and_then(|(identity, before)| {
                             debug_assert_eq!(Some(identity), row_identity.as_ref());
@@ -3351,7 +3402,7 @@ pub(super) fn process_list_payload(options: ProcessInventoryOptions<'_>) -> Resu
             } else {
                 (None, None)
             };
-            if needs_detail && live_start_identity(base.id).ok().as_ref() != row_identity.as_ref() {
+            if needs_detail && identity(base.id).ok().as_ref() != row_identity.as_ref() {
                 detail_errors += 1;
                 return None;
             }
@@ -3428,6 +3479,165 @@ pub(super) fn process_list_payload(options: ProcessInventoryOptions<'_>) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- cooperative CPU inventory sampling cancellation ----------------------
+
+    fn inventory_row() -> agenterm_platform::contract::process::ProcessInfo {
+        agenterm_platform::contract::process::ProcessInfo {
+            id: 4242,
+            parent_id: 7,
+            executable_name: "fixture".to_owned(),
+        }
+    }
+
+    fn metrics_sample(cpu_ms: u64) -> agenterm_platform::contract::process_metrics::ProcessMetrics {
+        agenterm_platform::contract::process_metrics::ProcessMetrics {
+            cpu_time: Duration::from_millis(cpu_ms),
+            resident_bytes: 4096,
+            page_faults: agenterm_platform::contract::process_metrics::PageFaultCounters {
+                total: 3,
+                soft: Some(2),
+                hard: Some(1),
+            },
+        }
+    }
+
+    #[test]
+    fn process_inventory_pre_cancel_reaches_no_inventory_authority() {
+        let list = || -> Result<_, CuError> {
+            unreachable!("a pre-effect cancellation must not enumerate processes")
+        };
+        let identity = |_| unreachable!("identity follows inventory");
+        let metrics = |_| unreachable!("metrics follow inventory");
+        let error = process_list_with_providers(
+            ProcessInventoryOptions {
+                sort: Some("cpu"),
+                sample_ms: Some(10_000),
+                ..ProcessInventoryOptions::default()
+            },
+            ExecutionControl::with_cancel_probe(&|| true),
+            &list,
+            &identity,
+            &metrics,
+        )
+        .expect_err("a pre-cancelled inventory must refuse before authority");
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("typed cancellation detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert!(detail.get("partial_observation").is_none());
+    }
+
+    #[test]
+    fn process_inventory_cpu_pause_cancel_preserves_only_computed_baseline_facts() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+
+        let token = Arc::new(AtomicBool::new(false));
+        let raised = Arc::clone(&token);
+        let trigger = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(25));
+            raised.store(true, Ordering::Release);
+        });
+        let probe = || token.load(Ordering::Acquire);
+        let metric_calls = std::cell::Cell::new(0usize);
+        let metrics = |_| {
+            metric_calls.set(metric_calls.get() + 1);
+            Ok(metrics_sample(10))
+        };
+        let error = process_list_with_providers(
+            ProcessInventoryOptions {
+                sort: Some("cpu"),
+                sample_ms: Some(10_000),
+                max_visited: Some(8),
+                ..ProcessInventoryOptions::default()
+            },
+            ExecutionControl::with_cancel_probe(&probe),
+            &|| Ok(vec![inventory_row()]),
+            &|_| Ok("identity-1".to_owned()),
+            &metrics,
+        )
+        .expect_err("the sampling pause must observe cancellation");
+        trigger.join().expect("cancellation trigger");
+        assert_eq!(
+            metric_calls.get(),
+            1,
+            "the second metrics pass must not run"
+        );
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("typed cancellation detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        let partial = &detail["partial_observation"];
+        assert_eq!(partial["visited"], 1);
+        assert_eq!(partial["prefiltered"], 1);
+        assert_eq!(partial["sample_ms"], 10_000);
+        assert_eq!(partial["baseline_samples"], 1);
+        assert_eq!(partial["cpu_percent_computed"], false);
+        assert!(partial.get("processes").is_none());
+        assert!(partial.get("cpu_percent").is_none());
+    }
+
+    #[test]
+    fn uncancelled_cpu_inventory_keeps_the_existing_wire() {
+        let metric_calls = std::cell::Cell::new(0usize);
+        let metrics = |_| {
+            let call = metric_calls.get();
+            metric_calls.set(call + 1);
+            Ok(metrics_sample(if call == 0 { 10 } else { 11 }))
+        };
+        let value = process_list_with_providers(
+            ProcessInventoryOptions {
+                sort: Some("cpu"),
+                sample_ms: Some(10),
+                max_visited: Some(8),
+                max: Some(4),
+                ..ProcessInventoryOptions::default()
+            },
+            ExecutionControl::none(),
+            &|| Ok(vec![inventory_row()]),
+            &|_| Ok("identity-1".to_owned()),
+            &metrics,
+        )
+        .expect("uncancelled CPU inventory");
+        assert_eq!(metric_calls.get(), 2);
+        assert_eq!(value["sample_ms"], 10);
+        assert_eq!(value["processes"][0]["cpu_percent"], 10.0);
+        assert_eq!(value["verified"], true);
+        assert!(value.get("termination").is_none());
+        assert!(value.get("cpu_percent_computed").is_none());
+    }
+
+    #[test]
+    fn non_cpu_inventory_does_not_enter_the_sampling_path() {
+        let metric_calls = std::cell::Cell::new(0usize);
+        let inventory_calls = std::cell::Cell::new(0usize);
+        let metrics = |_| {
+            metric_calls.set(metric_calls.get() + 1);
+            Ok(metrics_sample(10))
+        };
+        let list = || {
+            inventory_calls.set(inventory_calls.get() + 1);
+            Ok(vec![inventory_row()])
+        };
+        let value = process_list_with_providers(
+            ProcessInventoryOptions {
+                sort: Some("pid"),
+                max: Some(4),
+                ..ProcessInventoryOptions::default()
+            },
+            ExecutionControl::with_cancel_probe(&|| true),
+            &list,
+            &|_| Ok("identity-1".to_owned()),
+            &metrics,
+        )
+        .expect("plain inventory");
+        assert_eq!(inventory_calls.get(), 1);
+        assert_eq!(metric_calls.get(), 0);
+        assert!(value["sample_ms"].is_null());
+        assert_eq!(value["processes"][0]["cpu_percent"], Value::Null);
+    }
 
     // ---- cooperative process-usage watch cancellation --------------------------
 
@@ -3938,11 +4148,14 @@ mod tests {
     #[test]
     fn current_process_is_visible_by_exact_pid() {
         let pid = std::process::id();
-        let value = process_list_payload(ProcessInventoryOptions {
-            pid: Some(pid),
-            max: Some(10),
-            ..ProcessInventoryOptions::default()
-        })
+        let value = process_list_payload(
+            ProcessInventoryOptions {
+                pid: Some(pid),
+                max: Some(10),
+                ..ProcessInventoryOptions::default()
+            },
+            ExecutionControl::none(),
+        )
         .expect("list");
         assert_eq!(value["matched"], 1);
         assert_eq!(value["returned"], 1);
@@ -3952,15 +4165,18 @@ mod tests {
     #[test]
     fn rich_inventory_filters_without_returning_command_plaintext() {
         let pid = std::process::id();
-        let value = process_list_payload(ProcessInventoryOptions {
-            pid: Some(pid),
-            command: Some("agenterm"),
-            memory_above_mb: Some(0.0),
-            sort: Some("memory"),
-            max_visited: Some(10_000),
-            max: Some(4),
-            ..ProcessInventoryOptions::default()
-        })
+        let value = process_list_payload(
+            ProcessInventoryOptions {
+                pid: Some(pid),
+                command: Some("agenterm"),
+                memory_above_mb: Some(0.0),
+                sort: Some("memory"),
+                max_visited: Some(10_000),
+                max: Some(4),
+                ..ProcessInventoryOptions::default()
+            },
+            ExecutionControl::none(),
+        )
         .expect("rich list");
         assert_eq!(value["matched"], 1);
         assert_eq!(value["coverage_complete"], true);
@@ -4783,16 +4999,22 @@ mod tests {
 
     #[test]
     fn result_budget_is_closed_before_inventory() {
-        let error = process_list_payload(ProcessInventoryOptions {
-            max: Some(0),
-            ..ProcessInventoryOptions::default()
-        })
+        let error = process_list_payload(
+            ProcessInventoryOptions {
+                max: Some(0),
+                ..ProcessInventoryOptions::default()
+            },
+            ExecutionControl::none(),
+        )
         .expect_err("zero");
         assert_eq!(error.code, "invalid_input");
-        let error = process_list_payload(ProcessInventoryOptions {
-            max: Some(MAX_RESULTS + 1),
-            ..ProcessInventoryOptions::default()
-        })
+        let error = process_list_payload(
+            ProcessInventoryOptions {
+                max: Some(MAX_RESULTS + 1),
+                ..ProcessInventoryOptions::default()
+            },
+            ExecutionControl::none(),
+        )
         .expect_err("too large");
         assert_eq!(error.code, "invalid_input");
     }
