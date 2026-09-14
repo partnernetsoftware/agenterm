@@ -2710,6 +2710,15 @@ successful delivery. Preserve the first delivery failure after cleanup. XTest
 sync proves server acceptance, not toolkit layout completion; verify the
 effect through an independent, short deadline-bounded AT-SPI geometry poll.
 
+On Windows, an absolute `SendInput` gesture must combine
+`MOUSEEVENTF_ABSOLUTE` with `MOUSEEVENTF_VIRTUALDESK` and normalize signed
+screen coordinates against `SM_XVIRTUALSCREEN` / `SM_YVIRTUALSCREEN` and the
+full virtual-screen dimensions. Primary-monitor coordinates silently
+misaddress monitors to its left or above. Keep the bounded
+move-down-dragged-moves-up sequence in one batch; if `SendInput` reports a
+short batch, attempt one extra matching button-up before returning the typed
+failure so a partial injection cannot knowingly leave the button held.
+
 WebKitGTK `Component.GetExtents(Screen)` works as a single-node call
 (snapshot `bounds` stay `0,0,0,0`). `Component.ScrollTo` returns true
 without changing those extents. GetChildren under the embed already

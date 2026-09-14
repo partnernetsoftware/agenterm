@@ -2,20 +2,25 @@
 
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
-    MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
-    MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL,
-    MOUSEINPUT, SendInput, VK_BACK, VK_CONTROL, VK_DELETE, VK_DOWN, VK_ESCAPE, VK_F1, VK_F2, VK_F3,
-    VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9, VK_F10, VK_F11, VK_F12, VK_LEFT, VK_LWIN, VK_MENU,
-    VK_RETURN, VK_RIGHT, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP, mouse_event,
+    MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+    MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN,
+    MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT, SendInput,
+    VK_BACK, VK_CONTROL, VK_DELETE, VK_DOWN, VK_ESCAPE, VK_F1, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6,
+    VK_F7, VK_F8, VK_F9, VK_F10, VK_F11, VK_F12, VK_LEFT, VK_LWIN, VK_MENU, VK_RETURN, VK_RIGHT,
+    VK_SHIFT, VK_SPACE, VK_TAB, VK_UP, mouse_event,
 };
 use windows_sys::Win32::{
     Foundation::POINT,
-    UI::WindowsAndMessaging::{GetCursorPos, SetCursorPos},
+    UI::WindowsAndMessaging::{
+        GetCursorPos, GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+        SM_YVIRTUALSCREEN, SetCursorPos,
+    },
 };
 
 use crate::CapabilityStatus;
 use crate::contract::input_inject::{
-    InputInjectError, PointerButton, PointerPosition, validate_pointer_scroll,
+    InputInjectError, MAX_POINTER_DRAG_STEPS, PointerButton, PointerPosition,
+    validate_pointer_scroll,
 };
 
 /// One Windows wheel detent. `windows-sys` does not expose the WinUser.h
@@ -136,18 +141,135 @@ pub(crate) fn pointer_click(
     Ok(())
 }
 
-/// Not wired: `SendInput` can express a drag (a down, a run of absolute
-/// moves, an up), but that sequence has never been built or measured here,
-/// so the mechanism is reported absent rather than faked.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct VirtualDesktop {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+fn virtual_desktop() -> Result<VirtualDesktop, InputInjectError> {
+    let desktop = VirtualDesktop {
+        x: unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) },
+        y: unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) },
+        width: unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) },
+        height: unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) },
+    };
+    if desktop.width <= 0 || desktop.height <= 0 {
+        return Err(InputInjectError::failed(
+            "virtual_desktop_unavailable",
+            format!(
+                "GetSystemMetrics returned invalid virtual desktop {}x{}",
+                desktop.width, desktop.height
+            ),
+        ));
+    }
+    Ok(desktop)
+}
+
+fn normalize_axis(value: i32, origin: i32, extent: i32) -> i32 {
+    if extent <= 1 {
+        return 0;
+    }
+    let offset = i64::from(value).saturating_sub(i64::from(origin));
+    let last = i64::from(extent - 1);
+    (offset.clamp(0, last) * 65_535 / last) as i32
+}
+
+fn drag_points(from: PointerPosition, to: PointerPosition, steps: u32) -> Vec<PointerPosition> {
+    let steps = i64::from(steps.max(1));
+    let mut points = Vec::with_capacity(steps as usize);
+    for index in 1..=steps {
+        if index == steps {
+            points.push(to);
+            continue;
+        }
+        let interpolate = |start: i32, end: i32| {
+            let (start, end) = (i64::from(start), i64::from(end));
+            (start + (end - start) * index / steps) as i32
+        };
+        points.push(PointerPosition {
+            x: interpolate(from.x, to.x),
+            y: interpolate(from.y, to.y),
+        });
+    }
+    points
+}
+
+fn absolute_mouse_input(position: PointerPosition, desktop: VirtualDesktop, flags: u32) -> INPUT {
+    let mut input: INPUT = unsafe { std::mem::zeroed() };
+    input.r#type = INPUT_MOUSE;
+    input.Anonymous.mi = MOUSEINPUT {
+        dx: normalize_axis(position.x, desktop.x, desktop.width),
+        dy: normalize_axis(position.y, desktop.y, desktop.height),
+        mouseData: 0,
+        dwFlags: flags | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+        time: 0,
+        dwExtraInfo: 0,
+    };
+    input
+}
+
+fn drag_inputs(
+    from: PointerPosition,
+    to: PointerPosition,
+    button: PointerButton,
+    steps: u32,
+    desktop: VirtualDesktop,
+) -> Vec<INPUT> {
+    let (down, up) = match button {
+        PointerButton::Left => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
+        PointerButton::Right => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
+        PointerButton::Middle => (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP),
+    };
+    let mut inputs = Vec::with_capacity(steps as usize + 3);
+    inputs.push(absolute_mouse_input(from, desktop, MOUSEEVENTF_MOVE));
+    inputs.push(absolute_mouse_input(from, desktop, down));
+    for point in drag_points(from, to, steps) {
+        inputs.push(absolute_mouse_input(point, desktop, MOUSEEVENTF_MOVE));
+    }
+    inputs.push(absolute_mouse_input(to, desktop, up));
+    inputs
+}
+
+/// Deliver one bounded global-pointer drag through a single ordered
+/// `SendInput` batch. Absolute coordinates are mapped over the full virtual
+/// desktop, so monitors to the left or above the primary display retain their
+/// signed screen positions.
 pub(crate) fn pointer_drag(
-    _from: PointerPosition,
-    _to: PointerPosition,
-    _button: PointerButton,
-    _steps: u32,
+    from: PointerPosition,
+    to: PointerPosition,
+    button: PointerButton,
+    steps: u32,
 ) -> Result<(), InputInjectError> {
-    Err(InputInjectError::Unsupported {
-        reason: "pointer drag is not wired on Windows yet".into(),
-    })
+    if steps == 0 || steps > MAX_POINTER_DRAG_STEPS {
+        return Err(InputInjectError::failed(
+            "invalid_input",
+            format!("steps must be 1..={MAX_POINTER_DRAG_STEPS}, got {steps}"),
+        ));
+    }
+    let desktop = virtual_desktop()?;
+    let inputs = drag_inputs(from, to, button, steps, desktop);
+    let sent = unsafe {
+        SendInput(
+            inputs.len() as u32,
+            inputs.as_ptr(),
+            std::mem::size_of::<INPUT>() as i32,
+        )
+    };
+    if sent != inputs.len() as u32 {
+        // A short batch may have posted the button-down but not its paired up.
+        // An extra up is harmless if the down was never posted and prevents a
+        // failed injection from leaving the user's button logically held.
+        let release = *inputs.last().expect("drag always includes a release");
+        let _ = unsafe { SendInput(1, &release, std::mem::size_of::<INPUT>() as i32) };
+        return Err(InputInjectError::failed(
+            "send_input_partial",
+            format!("SendInput sent {sent}/{} drag inputs", inputs.len()),
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn type_text(text: &str) -> Result<(), InputInjectError> {
@@ -349,6 +471,70 @@ mod tests {
             i32::from_ne_bytes(mouse.mouseData.to_ne_bytes()),
             -2 * WHEEL_DELTA,
             "portable positive dx means left, while Windows positive means right"
+        );
+    }
+
+    #[test]
+    fn absolute_drag_maps_the_full_signed_virtual_desktop() {
+        let desktop = VirtualDesktop {
+            x: -1920,
+            y: -1080,
+            width: 3840,
+            height: 2160,
+        };
+        assert_eq!(normalize_axis(-1920, desktop.x, desktop.width), 0);
+        assert_eq!(normalize_axis(1919, desktop.x, desktop.width), 65_535);
+        assert_eq!(normalize_axis(-1080, desktop.y, desktop.height), 0);
+        assert_eq!(normalize_axis(1079, desktop.y, desktop.height), 65_535);
+        assert_eq!(normalize_axis(i32::MIN, desktop.x, desktop.width), 0);
+        assert_eq!(normalize_axis(i32::MAX, desktop.x, desktop.width), 65_535);
+    }
+
+    #[test]
+    fn drag_batch_is_one_bounded_move_down_moves_up_sequence() {
+        let desktop = VirtualDesktop {
+            x: -100,
+            y: -50,
+            width: 401,
+            height: 201,
+        };
+        let from = PointerPosition { x: -100, y: -50 };
+        let to = PointerPosition { x: 300, y: 150 };
+        let inputs = drag_inputs(from, to, PointerButton::Left, 4, desktop);
+        assert_eq!(inputs.len(), 7, "move + down + four moves + up");
+        let mice: Vec<MOUSEINPUT> = inputs
+            .iter()
+            .map(|input| unsafe { input.Anonymous.mi })
+            .collect();
+        let absolute = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        assert_eq!(mice[0].dwFlags, absolute | MOUSEEVENTF_MOVE);
+        assert_eq!(mice[1].dwFlags, absolute | MOUSEEVENTF_LEFTDOWN);
+        for mouse in &mice[2..6] {
+            assert_eq!(mouse.dwFlags, absolute | MOUSEEVENTF_MOVE);
+        }
+        assert_eq!(mice[6].dwFlags, absolute | MOUSEEVENTF_LEFTUP);
+        assert_eq!((mice[0].dx, mice[0].dy), (0, 0));
+        assert_eq!((mice[5].dx, mice[5].dy), (65_535, 65_535));
+        assert_eq!((mice[6].dx, mice[6].dy), (65_535, 65_535));
+    }
+
+    #[test]
+    fn drag_points_are_bounded_exact_and_overflow_free() {
+        let from = PointerPosition {
+            x: i32::MIN,
+            y: i32::MAX,
+        };
+        let to = PointerPosition {
+            x: i32::MAX,
+            y: i32::MIN,
+        };
+        let points = drag_points(from, to, MAX_POINTER_DRAG_STEPS);
+        assert_eq!(points.len(), MAX_POINTER_DRAG_STEPS as usize);
+        assert_eq!(points.last(), Some(&to));
+        assert!(
+            points
+                .windows(2)
+                .all(|pair| { pair[0].x <= pair[1].x && pair[0].y >= pair[1].y })
         );
     }
 

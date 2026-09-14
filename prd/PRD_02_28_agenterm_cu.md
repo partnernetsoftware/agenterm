@@ -743,7 +743,14 @@ ACU-only cutover
 │  │     release and cleanup still closed
 │  │  ├─ [x] §10.6 is exhausted; this does not prove background drag impossible, and no
 │  │     replay or new mechanism is allowed without a new explicit precommitment
-│  │  └─ [ ] Linux and Windows exact-window held-button delivery remain real gaps
+│  │  ├─ [~] Windows now implements the separately admitted native
+│  │  │     `drag --degraded` path as one bounded global-pointer `SendInput` batch over
+│  │  │     the signed virtual desktop; a short batch attempts a final button release
+│  │  │     before returning typed failure. Both Windows architectures compile the
+│  │  │     owning pure event-shape tests; Windows runtime execution and a real desktop
+│  │  │     delivery court remain pending
+│  │  └─ [ ] Linux and Windows exact-window held-button delivery remain real gaps; the
+│  │        Windows degraded path does not claim background or exact-window semantics
 │  ├─ [x] acu.dynamic.005 · legacy window-local zoom corners map to native `--local-region`;
 │  │  └─ bounded pure arithmetic preserves the archived 20 percent padding while native
 │  │     clipping uses one observed window bound; explicit output replaces the hidden path
