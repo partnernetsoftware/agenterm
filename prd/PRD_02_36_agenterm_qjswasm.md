@@ -112,6 +112,10 @@ agenterm-qjswasm
 │  │  │  │  └─ dependency is qjswasm → dyn → libc/libloading; dyn never imports
 │  │  │  │     qjswasm NativeType, exposure catalogs or nullability policy
 │  │  │  ├─ tinyvm = no-JIT Wasm executor; no dyn, symbol or CU knowledge
+│  │  │  │  └─ compile-time relation: 66 qjswasm host-binding closure sites instantiate
+│  │  │  │     tinyvm's generic compatibility door; extracting only its post-erasure
+│  │  │  │     scan/install loop measured 0 KiB downstream reduction and was rejected
+│  │  │  │     upstream, so the pin and binding API remain unchanged
 │  │  │  └─ CU = typed product projection through the fixed-sibling provider; no direct dyn dependency
 │  │  ├─ [x] one engine keeps at most 32 loaded libraries, keyed by the declared string, never evicted
 │  │  │  ├─ user problem: a script that calls one library in a loop paid one load and one close per call
