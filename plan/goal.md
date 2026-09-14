@@ -13,6 +13,11 @@
 机会，不为扩大表面能力而进行推测性扩张。保持类型边界与分层所有权，不把产品策略
 下沉到机制层或 Script Runtime。详细的能力状态、依赖、证据与下一步折叠路线，应写入
 对应 PRD 的 Markdown tree-DAG 与 Mermaid memory palace，而不是堆积在本目标中。
+各仓与模块的关系也必须随增量同步到对应 PRD：上游 `tinyvm` 执行核与
+`tinyvm-qjs` 编译器不认识 AgenTerm 产品概念；本仓 `agenterm-qjswasm` 拥有产品适配、
+guest/host 投影与运行证据；`agenterm-dyn` 只拥有 native 机制并经 qjswasm 间接服务
+Script guest；CU 与 Script Runtime 保留产品命令、身份和结果语义。依赖方向、禁止的
+反向依赖以及跨仓 revision pin 都不得只存在于代码注释或交接对话中。
 
 用户拥有并启动的 Pi 工作端，是从 `~/repos/piocgo` 启动的现有 tmux window
 `pi-ocgo`。只允许通过以下命令向它派工：
