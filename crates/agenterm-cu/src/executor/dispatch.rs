@@ -998,7 +998,7 @@ impl Executor {
                 duration_ms,
                 max_events,
                 ..
-            } => file_watch_payload(path, *duration_ms, *max_events),
+            } => file_watch_payload(path, *duration_ms, *max_events, control),
             Command::PtyStart {
                 name,
                 cwd,

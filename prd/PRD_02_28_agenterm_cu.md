@@ -232,7 +232,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │        baseline, including the default one-extra-sample contract, without changing its
   │  │        public `completed` / `truncated` success vocabulary; `process-usage` watch likewise
   │  │        preserves its identity-bound sample series, while deadline completion, sample-ceiling
-  │  │        truncation and same-round identity drift remain authoritative over cancellation
+  │  │        truncation and same-round identity drift remain authoritative over cancellation;
+  │  │        `file-watch` checks before filesystem authority, then samples the same borrowed token
+  │  │        between native FSEvents / inotify / ReadDirectoryChangesW rounds and preserves every
+  │  │        bounded event already returned as a partially performed observation
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
   │  ├─ [x] ten compound compatibility shapes execute through pure qjs projections + the same typed calls
   │  │  └─ native failures bypass projection unchanged, preserving command, count and structured effect/recovery facts;
@@ -2542,7 +2545,13 @@ flowchart LR
   non-recursive scope, bounded truncation and typed failure. The Windows
   ReadDirectoryChangesW provider has landed with the same direct-entry contract
   and a registered public court, but the Windows cell remains pending until that
-  court runs on real Windows guests.
+  court runs on real Windows guests. The call-scoped Script cancellation token
+  now reaches the product-neutral platform watcher as a borrowed boolean probe:
+  request validation and pre-authority cancellation remain CU-owned, each native
+  adapter observes the probe between at-most-100-ms authority rounds, and CU
+  returns a typed `partially_performed` cancellation carrying the same shaped
+  bounded event payload. Platform code publishes only the cancellation fact; it
+  does not own effect vocabulary or product error construction.
   `storage-devices [--max N]` / `storage devices [--max N]` now
   provides the separate physical/block inventory. The platform facade invokes
   only fixed native system providers under one shared deadline and contained

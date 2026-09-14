@@ -205,6 +205,15 @@ pub fn watch_directory(
     duration_ms: u64,
     max_events: usize,
 ) -> Result<FilesystemWatchResult, FilesystemWatchError> {
+    watch_directory_controlled(path, duration_ms, max_events, &|| false)
+}
+
+pub fn watch_directory_controlled(
+    path: &Path,
+    duration_ms: u64,
+    max_events: usize,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<FilesystemWatchResult, FilesystemWatchError> {
     if !(1..=MAX_DURATION_MS).contains(&duration_ms) || max_events == 0 {
         return Err(invalid_input(
             "duration_ms must be in 1..=86400000 and max_events must be positive",
@@ -308,7 +317,12 @@ pub fn watch_directory(
     }
     stream.started = true;
 
+    let mut cancellation_observed = false;
     while Instant::now() < deadline && !state.truncated && state.native_error.is_none() {
+        if cancelled() {
+            cancellation_observed = true;
+            break;
+        }
         let remaining = deadline
             .saturating_duration_since(Instant::now())
             .min(Duration::from_millis(100));
@@ -339,8 +353,9 @@ pub fn watch_directory(
         max_events,
         emitted: state.events.len(),
         events: state.events,
-        completed: !state.truncated,
+        completed: !state.truncated && !cancellation_observed,
         truncated: state.truncated,
+        cancelled: cancellation_observed,
     })
 }
 
@@ -511,6 +526,20 @@ mod tests {
                 .expect("clock")
                 .as_nanos()
         ))
+    }
+
+    #[test]
+    fn cancellation_stops_the_native_loop_without_claiming_completion() {
+        let root = fixture_root("cancel");
+        std::fs::create_dir(&root).expect("fixture dir");
+        let started = Instant::now();
+        let result = watch_directory_controlled(&root, 60_000, 8, &|| true).expect("watch");
+        assert!(result.cancelled);
+        assert!(!result.completed);
+        assert!(!result.truncated);
+        assert!(result.events.is_empty());
+        assert!(started.elapsed() < Duration::from_secs(1));
+        std::fs::remove_dir_all(&root).expect("cleanup");
     }
 
     #[test]

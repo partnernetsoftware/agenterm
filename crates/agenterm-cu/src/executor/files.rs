@@ -10,27 +10,74 @@ pub(super) fn file_watch_payload(
     path: &str,
     duration_ms: u64,
     max_events: Option<usize>,
+    control: crate::execution_control::ExecutionControl<'_>,
 ) -> Result<serde_json::Value, CuError> {
-    const MAX_DURATION_MS: u64 = 86_400_000;
     const DEFAULT_MAX_EVENTS: usize = 256;
-    const MAX_EVENTS: usize = 4_096;
     let max_events = max_events.unwrap_or(DEFAULT_MAX_EVENTS);
+    file_watch_with_provider(
+        path,
+        duration_ms,
+        max_events,
+        control,
+        &|path, duration, max, cancelled| {
+            agenterm_platform::filesystem_watch::watch_directory_controlled(
+                path, duration, max, cancelled,
+            )
+        },
+    )
+}
+
+fn file_watch_with_provider<F>(
+    path: &str,
+    duration_ms: u64,
+    max_events: usize,
+    control: crate::execution_control::ExecutionControl<'_>,
+    watch: &F,
+) -> Result<serde_json::Value, CuError>
+where
+    F: Fn(
+        &Path,
+        u64,
+        usize,
+        &dyn Fn() -> bool,
+    ) -> Result<
+        agenterm_platform::filesystem_watch::FilesystemWatchResult,
+        agenterm_platform::filesystem_watch::FilesystemWatchError,
+    >,
+{
     if path.is_empty()
-        || !(1..=MAX_DURATION_MS).contains(&duration_ms)
-        || !(1..=MAX_EVENTS).contains(&max_events)
+        || !(1..=86_400_000).contains(&duration_ms)
+        || !(1..=4_096).contains(&max_events)
     {
         return Err(CuError::new(
             "invalid_input",
             "file-watch requires one non-empty directory PATH, duration-ms in 1..=86400000 and max-events in 1..=4096",
         ));
     }
-    let result = agenterm_platform::filesystem_watch::watch_directory(
-        Path::new(path),
-        duration_ms,
-        max_events,
-    )
-    .map_err(map_file_watch_error)?;
-    Ok(serde_json::json!({
+    control.check_observe()?;
+    let cancelled = || control.is_cancelled();
+    let result = watch(Path::new(path), duration_ms, max_events, &cancelled)
+        .map_err(map_file_watch_error)?;
+    let cancellation_observed = result.cancelled;
+    let observation = file_watch_value(result);
+    if cancellation_observed {
+        return Err(CuError::new(
+            "cancelled",
+            "file watch was cancelled after native observation began",
+        )
+        .with_detail(serde_json::json!({
+            "effect": "partially_performed",
+            "phase": "observe_wait",
+            "partial_observation": observation,
+        })));
+    }
+    Ok(observation)
+}
+
+fn file_watch_value(
+    result: agenterm_platform::filesystem_watch::FilesystemWatchResult,
+) -> serde_json::Value {
+    serde_json::json!({
         "path": result.path,
         "provider": result.provider,
         "mode": result.mode,
@@ -46,7 +93,7 @@ pub(super) fn file_watch_payload(
         "completed": result.completed,
         "truncated": result.truncated,
         "verified": true,
-    }))
+    })
 }
 
 fn map_file_watch_error(
@@ -467,7 +514,91 @@ fn xattr_state_summary(state: Option<&(usize, String)>) -> serde_json::Value {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use super::*;
+
+    fn watch_result(cancelled: bool) -> agenterm_platform::filesystem_watch::FilesystemWatchResult {
+        agenterm_platform::filesystem_watch::FilesystemWatchResult {
+            provider: "fixture-watch".into(),
+            mode: "native-events".into(),
+            path: "fixture".into(),
+            duration_ms: 60_000,
+            max_events: 8,
+            events: vec![agenterm_platform::filesystem_watch::FilesystemWatchEvent {
+                t_ms: 7,
+                kind: "created".into(),
+                name: "item".into(),
+                mask: vec!["create".into()],
+            }],
+            emitted: 1,
+            completed: !cancelled,
+            truncated: false,
+            cancelled,
+        }
+    }
+
+    #[test]
+    fn file_watch_pre_cancel_reaches_no_filesystem_authority() {
+        let calls = Cell::new(0usize);
+        let error = file_watch_with_provider(
+            "fixture",
+            60_000,
+            8,
+            crate::execution_control::ExecutionControl::with_cancel_probe(&|| true),
+            &|_, _, _, _| {
+                calls.set(calls.get() + 1);
+                unreachable!("pre-cancel must precede the platform watch")
+            },
+        )
+        .expect_err("pre-cancel");
+        assert_eq!(calls.get(), 0);
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("cancel detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert!(detail.get("partial_observation").is_none());
+    }
+
+    #[test]
+    fn file_watch_validation_outranks_a_pre_cancelled_token() {
+        let error = file_watch_with_provider(
+            "",
+            60_000,
+            8,
+            crate::execution_control::ExecutionControl::with_cancel_probe(&|| true),
+            &|_, _, _, _| unreachable!("invalid input must precede platform authority"),
+        )
+        .expect_err("invalid input");
+        assert_eq!(error.code, "invalid_input");
+    }
+
+    #[test]
+    fn file_watch_post_authority_cancel_preserves_the_shaped_partial() {
+        let calls = Cell::new(0usize);
+        let error = file_watch_with_provider(
+            "fixture",
+            60_000,
+            8,
+            crate::execution_control::ExecutionControl::none(),
+            &|_, _, _, cancelled| {
+                calls.set(calls.get() + 1);
+                assert!(!cancelled());
+                Ok(watch_result(true))
+            },
+        )
+        .expect_err("post-authority cancel");
+        assert_eq!(calls.get(), 1);
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("cancel detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        let partial = &detail["partial_observation"];
+        assert_eq!(partial["events"][0]["name"], "item");
+        assert_eq!(partial["emitted"], 1);
+        assert_eq!(partial["completed"], false);
+        assert_eq!(partial["truncated"], false);
+        assert!(partial.get("cancelled").is_none());
+    }
 
     #[test]
     fn regular_file_has_lossless_size_and_stable_identity() {

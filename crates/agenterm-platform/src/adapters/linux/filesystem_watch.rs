@@ -39,6 +39,15 @@ pub fn watch_directory(
     duration_ms: u64,
     max_events: usize,
 ) -> Result<FilesystemWatchResult, FilesystemWatchError> {
+    watch_directory_controlled(path, duration_ms, max_events, &|| false)
+}
+
+pub fn watch_directory_controlled(
+    path: &Path,
+    duration_ms: u64,
+    max_events: usize,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<FilesystemWatchResult, FilesystemWatchError> {
     if duration_ms == 0 || max_events == 0 {
         return Err(FilesystemWatchError {
             kind: FilesystemWatchErrorKind::InvalidInput,
@@ -75,7 +84,12 @@ pub fn watch_directory(
     let mut truncated = false;
     let mut buffer = [0_u8; EVENT_BUF_LEN];
 
+    let mut cancellation_observed = false;
     while Instant::now() < deadline {
+        if cancelled() {
+            cancellation_observed = true;
+            break;
+        }
         if events.len() >= max_events {
             truncated = Instant::now() < deadline;
             break;
@@ -159,8 +173,9 @@ pub fn watch_directory(
         max_events,
         emitted: events.len(),
         events,
-        completed: !truncated,
+        completed: !truncated && !cancellation_observed,
         truncated,
+        cancelled: cancellation_observed,
     })
 }
 

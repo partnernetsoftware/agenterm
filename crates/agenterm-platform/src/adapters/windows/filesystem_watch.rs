@@ -50,6 +50,15 @@ pub fn watch_directory(
     duration_ms: u64,
     max_events: usize,
 ) -> Result<FilesystemWatchResult, FilesystemWatchError> {
+    watch_directory_controlled(path, duration_ms, max_events, &|| false)
+}
+
+pub fn watch_directory_controlled(
+    path: &Path,
+    duration_ms: u64,
+    max_events: usize,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<FilesystemWatchResult, FilesystemWatchError> {
     if !(1..=MAX_DURATION_MS).contains(&duration_ms) || max_events == 0 {
         return Err(invalid_input(
             "duration_ms must be in 1..=86400000 and max_events must be positive",
@@ -96,15 +105,21 @@ pub fn watch_directory(
     let mut events = Vec::with_capacity(max_events.min(64));
     let mut truncated = false;
 
+    let mut cancellation_observed = false;
     while Instant::now() < deadline {
-        let completion = read_changes(
-            handle.as_raw_handle(),
-            &mut buffer,
-            deadline.saturating_duration_since(Instant::now()),
-        )?;
-        let Some(bytes_read) = completion else {
+        if cancelled() {
+            cancellation_observed = true;
             break;
-        };
+        }
+        let bytes_read =
+            match read_changes(handle.as_raw_handle(), &mut buffer, deadline, cancelled)? {
+                ReadChangesOutcome::Data(bytes_read) => bytes_read,
+                ReadChangesOutcome::Deadline => break,
+                ReadChangesOutcome::Cancelled => {
+                    cancellation_observed = true;
+                    break;
+                }
+            };
         if bytes_read == 0 {
             return Err(native_error(
                 "ReadDirectoryChangesW returned an empty notification buffer; directory changes may have been lost",
@@ -151,19 +166,29 @@ pub fn watch_directory(
         max_events,
         emitted: events.len(),
         events,
-        completed: !truncated,
+        completed: !truncated && !cancellation_observed,
         truncated,
+        cancelled: cancellation_observed,
     })
 }
 
-/// Starts one overlapped read and either returns its completed byte count or
-/// `None` after the deadline. On every timeout path the request is cancelled
-/// and drained before the borrowed OVERLAPPED and buffer may be released.
+#[derive(Debug, Eq, PartialEq)]
+enum ReadChangesOutcome {
+    Data(u32),
+    Deadline,
+    Cancelled,
+}
+
+/// Keeps one overlapped read live while polling its event in bounded slices.
+/// The request is cancelled and drained only when the overall deadline or the
+/// borrowed cancellation probe ends the observation, avoiding gaps caused by
+/// repeatedly cancelling and re-arming directory notifications.
 fn read_changes(
     handle: HANDLE,
     buffer: &mut [u32],
-    timeout: Duration,
-) -> Result<Option<u32>, FilesystemWatchError> {
+    deadline: Instant,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<ReadChangesOutcome, FilesystemWatchError> {
     let event = Event::new().map_err(map_io_error)?;
     let mut overlapped = OVERLAPPED {
         hEvent: event.handle,
@@ -190,25 +215,51 @@ fn read_changes(
         }
     }
 
-    match unsafe {
-        // SAFETY: event stays live and is the event installed in overlapped.
-        WaitForSingleObject(event.handle, duration_ms(timeout))
-    } {
-        WAIT_OBJECT_0 => match completed_bytes(handle, &mut overlapped) {
-            Ok(transferred) => Ok(Some(transferred)),
-            Err(completion_error) => {
-                // ERROR_IO_INCOMPLETE would still leave the borrowed buffer
-                // live in the kernel. Cancel and drain defensively before
-                // returning any completion error.
-                let _ = cancel_and_drain(handle, &mut overlapped);
-                Err(completion_error)
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Ok(match cancel_and_drain(handle, &mut overlapped)? {
+                Some(transferred) => ReadChangesOutcome::Data(transferred),
+                None => ReadChangesOutcome::Deadline,
+            });
+        }
+        match unsafe {
+            // SAFETY: event stays live and is the event installed in
+            // overlapped. A timeout leaves that same request pending.
+            WaitForSingleObject(
+                event.handle,
+                duration_ms(remaining.min(Duration::from_millis(100))),
+            )
+        } {
+            WAIT_OBJECT_0 => match completed_bytes(handle, &mut overlapped) {
+                Ok(transferred) => return Ok(ReadChangesOutcome::Data(transferred)),
+                Err(completion_error) => {
+                    // ERROR_IO_INCOMPLETE would still leave the borrowed
+                    // buffer live in the kernel. Cancel and drain defensively
+                    // before returning any completion error.
+                    let _ = cancel_and_drain(handle, &mut overlapped);
+                    return Err(completion_error);
+                }
+            },
+            WAIT_TIMEOUT => {
+                if Instant::now() >= deadline {
+                    return Ok(match cancel_and_drain(handle, &mut overlapped)? {
+                        Some(transferred) => ReadChangesOutcome::Data(transferred),
+                        None => ReadChangesOutcome::Deadline,
+                    });
+                }
+                if cancelled() {
+                    return Ok(match cancel_and_drain(handle, &mut overlapped)? {
+                        Some(transferred) => ReadChangesOutcome::Data(transferred),
+                        None => ReadChangesOutcome::Cancelled,
+                    });
+                }
             }
-        },
-        WAIT_TIMEOUT => cancel_and_drain(handle, &mut overlapped),
-        _ => {
-            let wait_error = io::Error::last_os_error();
-            cancel_and_drain(handle, &mut overlapped)?;
-            Err(map_io_error(wait_error))
+            _ => {
+                let wait_error = io::Error::last_os_error();
+                cancel_and_drain(handle, &mut overlapped)?;
+                return Err(map_io_error(wait_error));
+            }
         }
     }
 }
