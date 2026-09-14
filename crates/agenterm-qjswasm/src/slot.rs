@@ -55,6 +55,7 @@ pub(crate) struct Slot {
     /// face has no room for it, so it waits here for [`Engine::take_failed_stdout`].
     failed_stdout: String,
     failed_stdout_truncated: bool,
+    failed_tool_calls: Vec<String>,
     failed_cost: Option<Cost>,
     heap_start_bytes: Option<usize>,
 }
@@ -93,6 +94,10 @@ impl Slot {
 
     pub(crate) fn take_failed_stdout_truncated(&mut self) -> bool {
         std::mem::take(&mut self.failed_stdout_truncated)
+    }
+
+    pub(crate) fn take_failed_tool_calls(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.failed_tool_calls)
     }
 
     pub(crate) fn take_failed_cost(&mut self) -> Option<Cost> {
@@ -144,6 +149,7 @@ impl Slot {
             convention,
             failed_stdout: String::new(),
             failed_stdout_truncated: false,
+            failed_tool_calls: Vec::new(),
             failed_cost: None,
             heap_start_bytes: None,
         };
@@ -218,9 +224,8 @@ impl Slot {
         // run.
         let (stdout, truncated_stdout) = self.door.take_stdout();
         // Drained on every path for the same reason as stdout: a tool call
-        // made by a call that then trapped must not land on the next call's
-        // receipt. (It is lost on the error path, like stdout, and for the
-        // same stated reason.)
+        // made by a call that then trapped belongs to that failed call's
+        // evidence and must not land on the next call's Outcome.
         let tool_calls = self.door.take_tool_calls();
         let (host_ops, host_bytes, waited_ms) = self.door.take_meter();
 
@@ -231,6 +236,7 @@ impl Slot {
                 // engine to hand out, since the error face cannot carry it.
                 self.failed_stdout = stdout;
                 self.failed_stdout_truncated = truncated_stdout;
+                self.failed_tool_calls = tool_calls;
                 self.failed_cost = Some(Cost {
                     steps,
                     peak_call_depth,

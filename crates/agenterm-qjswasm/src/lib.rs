@@ -1197,6 +1197,8 @@ pub struct Engine {
     failed_stdout: String,
     /// Whether [`Engine::take_failed_stdout`] was truncated by the output budget.
     failed_stdout_truncated: bool,
+    /// Tool operations reached by the call that last failed.
+    failed_tool_calls: Vec<String>,
     /// The bill of the call that last failed, kept for the same reason.
     failed_cost: Option<Cost>,
     budget: Budget,
@@ -1251,6 +1253,7 @@ impl Engine {
             slots: Vec::new(),
             failed_stdout: String::new(),
             failed_stdout_truncated: false,
+            failed_tool_calls: Vec::new(),
             failed_cost: None,
             id: NEXT_ENGINE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             next_index: 0,
@@ -1432,6 +1435,7 @@ impl Engine {
         // new call is rejected before entering a slot.
         self.failed_stdout.clear();
         self.failed_stdout_truncated = false;
+        self.failed_tool_calls.clear();
         self.failed_cost = None;
         if slot.engine != self.id {
             // An id minted by another engine. It used to address the slot at
@@ -1447,6 +1451,7 @@ impl Engine {
         if outcome.is_err() {
             self.failed_stdout = s.take_failed_stdout();
             self.failed_stdout_truncated = s.take_failed_stdout_truncated();
+            self.failed_tool_calls = s.take_failed_tool_calls();
             self.failed_cost = s.take_failed_cost();
         }
         outcome
@@ -1464,6 +1469,12 @@ impl Engine {
     /// read once alongside [`take_failed_stdout`](Self::take_failed_stdout).
     pub fn take_failed_stdout_truncated(&mut self) -> bool {
         std::mem::take(&mut self.failed_stdout_truncated)
+    }
+
+    /// Tool operations reached by the most recent failed call, in call order.
+    /// Empty after success, a pre-entry refusal, or a second take.
+    pub fn take_failed_tool_calls(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.failed_tool_calls)
     }
 
     /// What the call that last failed cost, if it ran at all -- read once,

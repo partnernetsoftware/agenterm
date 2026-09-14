@@ -4371,6 +4371,13 @@ JavaScriptCore and browser executions.
 
 ## Map public script budgets through every engine seam
 
+A fallible engine call must drain every call-scoped evidence channel on both
+success and failure. If stdout, truncation and cost survive through one-shot
+`take_failed_*` accessors, operation names must follow the same lifecycle:
+store them on the failing slot, move them to the engine, clear them before the
+next call, and prove a second take is empty. Do not repurpose an outer broker's
+operation list for an in-process tool door; they describe different seams.
+
 An invocation budget is not effective merely because the CLI and task parser
 accepted it. Every selected engine adapter must translate the relevant public
 field into its native limiter. For qjswasm, a tool result becomes a guest

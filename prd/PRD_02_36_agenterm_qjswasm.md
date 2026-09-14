@@ -261,6 +261,7 @@ agenterm-qjswasm
 │  ├─ [x] steps, pages, table, call-depth and activation-slot limits
 │  ├─ [x] typed load, host, throw and budget failures; failed stdout retained
 │  ├─ [x] unread failed stdout/truncation/cost is call-scoped and cleared by the next success or pre-entry refusal; stale evidence never crosses calls
+│  ├─ [x] failed tool calls remain available once in call order, then clear before the next call; this crate fact is not conflated with the product audit's Fleet-only broker ids
 │  ├─ [x] invocation stdout truncation survives success and failure projections; JSON names `stdout_truncated`, plain CLI warns on stderr, and `--max-output-bytes` reaches the engine
 │  ├─ [x] in-process `pack load` / `qualify` failures preserve their pre-failure stdout and disclose truncation instead of flattening the engine error to text
 │  ├─ [x] the public string-byte ceiling governs both host-door answers and returned guest strings; no accepted override falls back to the engine default

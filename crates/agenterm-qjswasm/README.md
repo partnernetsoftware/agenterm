@@ -291,11 +291,14 @@ PRD 36「A1.1 的答案」定的：`.qjs` 有两种。**沙箱 `.qjs`** 只看�
 | `env_get(n)` / `env_cwd()` | `tool.env.get` / `tool.env.cwd` | status；值或诊断暂存（未设置是 status `1`，不是空串——要空串用 `env_has`） |
 | `tool_result()` | `tool.result_len` + `tool.result` | 与 `fleet_result` 同一套两趟取回；**独立**于 fleet 的暂存区，互不覆盖 |
 
-预算与审计走 fleet 那一套：普通暂存答案受 `max_bridge_result_bytes`（超了是拒绝不是前缀）；
+预算走 fleet 那一套：普通暂存答案受 `max_bridge_result_bytes`（超了是拒绝不是前缀）；
 子进程流是唯一例外，前缀必须同时带逐流 `*_truncated` 真值，且 JSON 转义后仍装进同一上限。
 操作里 panic 报 `QjswasmError::Door`
-不伪装成 status 1。**每次调用都记名**：`Outcome::tool_calls` 按调用顺序列出
-`tool.fs.read_to_string` 这样的全名，沙箱槽永远为空——回执上写的就是它。
+不伪装成 status 1。crate 内的成功 `Outcome::tool_calls` 按调用顺序列出
+`tool.fs.read_to_string` 这样的全名，沙箱槽永远为空；失败调用由一次性的
+`Engine::take_failed_tool_calls` 保留同一事实，绝不归到下一次调用。这里说的是
+in-process engine evidence，不是产品持久化审计；后者的 `broker_operation_ids` 只记录
+Fleet broker 请求，不能冒充 tool door 操作。
 
 嵌套执行一条公开 journey 的诊断探针必须继承该 journey 的 operation court，不能另留一份
 迁移时代的小预算。否则探针可能已经发出全部行为证据，却在 `complete()` 封存

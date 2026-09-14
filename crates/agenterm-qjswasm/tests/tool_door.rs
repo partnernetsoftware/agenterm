@@ -2418,8 +2418,8 @@ fn waiting_is_billed_apart_from_computing() {
     assert!(computed.heap_pages >= 1, "{computed:?}");
 }
 
-/// A call that fails keeps its bill on the engine, beside its stdout: a
-/// failed wait is exactly the run whose bill matters.
+/// A call that fails keeps its bill and reached tool operations on the engine,
+/// beside its stdout: a failed wait is exactly the run whose evidence matters.
 #[test]
 fn a_failed_call_keeps_its_bill() {
     let mut eng = Engine::with_tool_door(Budget::default());
@@ -2439,6 +2439,38 @@ fn a_failed_call_keeps_its_bill() {
     assert!(cost.waited_ms >= 25, "{cost:?}");
     assert!(cost.steps > 0, "{cost:?}");
     assert_eq!(eng.take_failed_cost(), None, "read once, like stdout");
+    assert_eq!(
+        eng.take_failed_tool_calls(),
+        ["tool.time.sleep_ms"],
+        "the failed call still names the operation it reached"
+    );
+    assert!(
+        eng.take_failed_tool_calls().is_empty(),
+        "failed operation evidence is read once"
+    );
+}
+
+#[test]
+fn a_successful_call_clears_unread_failed_tool_calls() {
+    let mut eng = Engine::with_tool_door(Budget::default());
+    let failing = eng
+        .spawn(
+            Guest::Qjs("time_now_ms(); throw \"after the clock\";"),
+            None,
+        )
+        .expect("failing slot loads");
+    eng.call(failing, "main", &[])
+        .expect_err("the first call fails after a tool operation");
+
+    let succeeding = eng
+        .spawn(Guest::Qjs("return 42;"), None)
+        .expect("successful slot loads");
+    eng.call(succeeding, "main", &[])
+        .expect("the second call succeeds");
+    assert!(
+        eng.take_failed_tool_calls().is_empty(),
+        "unread failure evidence must not cross calls"
+    );
 }
 
 /// A cancel set while the guest sleeps ends the call within a slice, as
