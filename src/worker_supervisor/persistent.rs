@@ -581,6 +581,7 @@ mod tests {
             project_root: None,
             invocation_temp_root: None,
             arguments: Vec::new(),
+            wasm_entry_arguments: Vec::new(),
             budgets: ScriptBudgets::default(),
             observation: None,
             fixed_clock_ms: None,

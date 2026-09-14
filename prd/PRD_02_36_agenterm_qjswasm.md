@@ -276,6 +276,9 @@ agenterm-qjswasm
 │  ├─ [x] source, compiled-qjs artifact and plain-wasm result routes share one projection;
 │  │      non-finite numbers and multi-result plain-Wasm exports fail as `qjswasm_result_not_json`
 │  │      while retaining stdout and cost; a single JSON result never silently drops later Wasm values
+│  ├─ [x] hand-authored plain-Wasm entries receive repeatable typed `--wasm-entry-arg`
+│  │      values (`i32`/`i64`/`f32`/`f64`); float bits cross the worker wire unchanged,
+│  │      while trailing `-- ARGS` remain independent strings on `tool.arg(n)`
 │  ├─ [x] the graybox-retired `PersistentReplClient` concurrency facade is deleted after
 │  │      zero production constructors and unconditional CLI/worker refusals; the legacy frame
 │  │      remains typed as `protocol_repl_unavailable` instead of becoming an unknown protocol tag
@@ -651,7 +654,13 @@ integration.
 - [x] active qjswasm runtime executes `.qjs` check/run and expression eval.
 - [x] Public `script run FILE.wasm` carries an explicit artifact convention:
   `compiled-qjs` preserves the packed JS-V1 ABI and `plain` runs a
-  hand-authored module without guessing from its exports. Artifact input is
+  hand-authored module without guessing from its exports. A plain module may
+  receive repeatable typed entry values through `--wasm-entry-arg TYPE:VALUE`,
+  where `TYPE` is exactly `i32`, `i64`, `f32`, or `f64`; these values bind the
+  exported `main` parameters in order. They are deliberately separate from
+  trailing `-- ARGS`, which remain strings exposed through `tool.arg(n)`.
+  Floating-point values cross the framed JSON worker protocol as raw bits so
+  signed zero, infinities, and NaN payloads are not rewritten. Artifact input is
   read only through the smaller of the invocation budget and the 1 MiB
   transport ceiling, then crosses the ordinary framed `WorkerSupervisor`.
   A native-door signature mismatch or blocking call therefore becomes the

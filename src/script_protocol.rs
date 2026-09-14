@@ -76,6 +76,18 @@ pub enum ScriptArtifactEncoding {
     Base64,
 }
 
+/// One typed numeric argument for a hand-authored plain-Wasm entry point.
+/// Float payloads cross the JSON worker wire as raw bits so NaN payloads,
+/// infinities and signed zero are never rewritten by JSON number semantics.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum ScriptWasmValue {
+    I32(i32),
+    I64(i64),
+    F32Bits(u32),
+    F64Bits(u64),
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ScriptArtifact {
     pub convention: ScriptArtifactConvention,
@@ -420,6 +432,10 @@ pub struct ScriptInvocation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub invocation_temp_root: Option<String>,
     pub arguments: Vec<String>,
+    /// Typed `main` arguments for `PlainWasm` artifacts. These are separate
+    /// from `arguments`, which remain string values exposed by `tool.arg(n)`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wasm_entry_arguments: Vec<ScriptWasmValue>,
     pub budgets: ScriptBudgets,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observation: Option<Value>,
@@ -1413,6 +1429,7 @@ mod tests {
             project_root: None,
             invocation_temp_root: None,
             arguments: Vec::new(),
+            wasm_entry_arguments: Vec::new(),
             budgets: ScriptBudgets {
                 source_bytes: SCRIPT_ARTIFACT_MAX_BYTES,
                 ..ScriptBudgets::default()
@@ -1446,6 +1463,25 @@ mod tests {
         assert_eq!(
             serde_json::to_value(explicit_null).expect("result serializes")["value"],
             Value::Null
+        );
+    }
+
+    #[test]
+    fn plain_wasm_float_arguments_cross_json_as_exact_bits() {
+        let mut invocation = artifact_invocation(
+            ScriptArtifact::from_bytes(ScriptArtifactConvention::PlainWasm, &[0, 97, 115, 109])
+                .expect("artifact encodes"),
+        );
+        invocation.wasm_entry_arguments = vec![
+            ScriptWasmValue::F32Bits(0x8000_0000),
+            ScriptWasmValue::F64Bits(0x7ff8_0000_0000_0042),
+        ];
+        let wire = serde_json::to_vec(&invocation).expect("invocation serializes");
+        let decoded: ScriptInvocation =
+            serde_json::from_slice(&wire).expect("invocation deserializes");
+        assert_eq!(
+            decoded.wasm_entry_arguments,
+            invocation.wasm_entry_arguments
         );
     }
 

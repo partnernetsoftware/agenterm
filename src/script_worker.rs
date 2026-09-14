@@ -689,6 +689,20 @@ fn execute_inner(
             "script artifacts are valid only for the run operation",
         ));
     }
+    if !invocation.wasm_entry_arguments.is_empty()
+        && !matches!(
+            invocation
+                .artifact
+                .as_ref()
+                .map(|artifact| artifact.convention),
+            Some(crate::script_protocol::ScriptArtifactConvention::PlainWasm)
+        )
+    {
+        return Err(protocol_error(
+            "protocol_wasm_entry_arguments_invalid",
+            "typed Wasm entry arguments require a plain-Wasm artifact",
+        ));
+    }
     if invocation.artifact.is_none() && invocation.source.len() > invocation.budgets.source_bytes {
         return Err(limit_error(
             "limit_source_bytes",
@@ -731,6 +745,7 @@ fn execute_inner(
                 .flatten()
         },
         arguments: serde_json::to_value(&invocation.arguments).ok(),
+        wasm_entry_arguments: invocation.wasm_entry_arguments.clone(),
         budgets: Some(invocation.budgets.clone()),
         tool_door: invocation.profile == crate::script_protocol::ScriptProfile::Tool,
         // The worker is an independently supervised process. If a caller lies
@@ -1112,6 +1127,7 @@ mod tests {
             project_root: None,
             invocation_temp_root: None,
             arguments: Vec::new(),
+            wasm_entry_arguments: Vec::new(),
             budgets: ScriptBudgets::default(),
             observation: None,
             fixed_clock_ms: None,

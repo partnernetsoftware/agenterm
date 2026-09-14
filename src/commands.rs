@@ -674,6 +674,7 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
              qualify FILE --dir OUT | \
              repl [--fail-fast] [--json] | run [--profile local|tool] [--exit-code-from-value] \
              [--wasm-convention compiled-qjs|plain] FILE|- \
+             [--wasm-entry-arg TYPE:VALUE]... \
              [--cwd DIR] [--project-root DIR] [-- ARGS...] | \
             task list|show|run [TASK] [--manifest FILE] [--json]",
             &[
@@ -691,6 +692,7 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
                 "--env-allow",
                 "--max-source-bytes",
                 "--wasm-convention",
+                "--wasm-entry-arg",
                 "--cwd",
                 "--project-root",
                 "--manifest",

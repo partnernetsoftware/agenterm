@@ -67,6 +67,96 @@ fn run_plain(path: &Path, timeout_ms: u64) -> Output {
         .expect("agenterm CLI runs")
 }
 
+fn run_plain_with_args(
+    path: &Path,
+    timeout_ms: u64,
+    entry_args: &[&str],
+    script_args: &[&str],
+) -> Output {
+    let mut command = Command::new(AGENTERM_BIN);
+    command.args([
+        "cli",
+        "script",
+        "run",
+        "--wasm-convention",
+        "plain",
+        "--profile",
+        "tool",
+        "--timeout-ms",
+        &timeout_ms.to_string(),
+    ]);
+    for argument in entry_args {
+        command.args(["--wasm-entry-arg", argument]);
+    }
+    command.arg(path);
+    if !script_args.is_empty() {
+        command.arg("--").args(script_args);
+    }
+    command
+        .env_remove("AGENTERM_SCRIPT_BACKEND")
+        .output()
+        .expect("agenterm CLI runs")
+}
+
+#[test]
+fn typed_plain_wasm_entry_arguments_cross_the_public_worker_wire() {
+    let root = FixtureRoot::new();
+    let path = root.wasm(
+        "typed-entry-arguments",
+        r#"(module
+            (func (export "main") (param i32 i64 f32 f64) (result i32)
+                local.get 0
+                i32.const -7
+                i32.eq
+                local.get 1
+                i64.const 9000000000
+                i64.eq
+                i32.and
+                local.get 2
+                i32.reinterpret_f32
+                i32.const -2147483648
+                i32.eq
+                i32.and
+                local.get 3
+                local.get 3
+                f64.ne
+                i32.and))"#,
+    );
+    let output = run_plain_with_args(
+        &path,
+        2_000,
+        &["i32:-7", "i64:9000000000", "f32:-0", "f64:NaN"],
+        &[],
+    );
+    assert!(
+        output.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "1");
+}
+
+#[test]
+fn plain_wasm_tool_arguments_remain_a_separate_string_channel() {
+    let root = FixtureRoot::new();
+    let path = root.wasm(
+        "tool-argument-count",
+        r#"(module
+            (import "tool" "arg_count" (func $arg_count (result i32)))
+            (func (export "main") (result i32)
+                call $arg_count))"#,
+    );
+    let output = run_plain_with_args(&path, 2_000, &[], &["7", "8"]);
+    assert!(
+        output.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "2");
+}
+
 #[cfg(unix)]
 fn worker_pid(stderr: &[u8]) -> u32 {
     let stderr = String::from_utf8_lossy(stderr);

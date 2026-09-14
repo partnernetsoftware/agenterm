@@ -46,6 +46,9 @@ pub struct ScriptInvocationOptions {
     /// and every entry beside a `lib/` lost its imports (wave 2, group 7).
     pub entry_dir: Option<PathBuf>,
     pub arguments: Option<Value>,
+    /// Typed numeric values passed to a hand-authored plain-Wasm `main`.
+    /// Ordinary script arguments remain strings on the tool door.
+    pub wasm_entry_arguments: Vec<crate::script_protocol::ScriptWasmValue>,
     pub budgets: Option<ScriptBudgets>,
     /// Whether this invocation may open the `tool.*` door. Set from
     /// `ScriptProfile::Tool` and nothing else; every other engine ignores it,
@@ -1023,13 +1026,14 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         let bridges = qjs_host_bridges(fleet_bridge);
         let mut engine = qjs_execution_engine(options);
         engine.set_tool_args(qjs_arguments(options.arguments.as_ref()));
+        let entry_arguments = qjs_wasm_entry_arguments(&options.wasm_entry_arguments);
         Some(
             engine
                 .run_once_with_bridges(
                     agenterm_qjswasm::Guest::Wasm(artifact),
                     bridges,
                     "main",
-                    &[],
+                    &entry_arguments,
                 )
                 .map_err(|error| {
                     let mut error = qjs_engine_error(error);
@@ -1198,6 +1202,22 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
 
         qjswasm_invocation_result(outcome)
     }
+}
+
+#[cfg(feature = "script-qjswasm")]
+fn qjs_wasm_entry_arguments(
+    arguments: &[crate::script_protocol::ScriptWasmValue],
+) -> Vec<agenterm_qjswasm::Value> {
+    use crate::script_protocol::ScriptWasmValue;
+    arguments
+        .iter()
+        .map(|argument| match argument {
+            ScriptWasmValue::I32(value) => agenterm_qjswasm::Value::I32(*value),
+            ScriptWasmValue::I64(value) => agenterm_qjswasm::Value::I64(*value),
+            ScriptWasmValue::F32Bits(bits) => agenterm_qjswasm::Value::F32(f32::from_bits(*bits)),
+            ScriptWasmValue::F64Bits(bits) => agenterm_qjswasm::Value::F64(f64::from_bits(*bits)),
+        })
+        .collect()
 }
 
 #[cfg(feature = "script-qjswasm")]

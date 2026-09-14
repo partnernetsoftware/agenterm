@@ -31,6 +31,7 @@ fn invocation(id: &str, label: &str, source: &str) -> ScriptInvocation {
         project_root: Some(env!("CARGO_MANIFEST_DIR").into()),
         invocation_temp_root: None,
         arguments: Vec::new(),
+        wasm_entry_arguments: Vec::new(),
         budgets: ScriptBudgets::default(),
         observation: None,
         fixed_clock_ms: None,

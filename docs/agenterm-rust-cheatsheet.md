@@ -909,6 +909,14 @@ file before any of its assertions can be read. Exempt it in
 exemption fail-closed against a stale path, and never enable the native door for
 checking to make the gate green.
 
+Hand-authored Wasm has two argument channels; never overload one as the other.
+Trailing `script run ... -- ARGS` are strings read through `tool.arg(n)`, while
+repeatable `--wasm-entry-arg i32:...|i64:...|f32:...|f64:...` values bind the
+exported `main` parameters in order. Carry floating-point entry arguments across
+the JSON worker protocol as raw IEEE bits so NaN payloads, infinities, and signed
+zero survive exactly; parsing them into a JSON number silently changes or loses
+valid Wasm values.
+
 The same stale-artifact trap applies to `libagenterm`: an `abi-dev` build
 refreshes `target/abi-dev/libagenterm.*`, while an integration-test executable
 may still open `target/debug/libagenterm.*`. If a new export is present in the

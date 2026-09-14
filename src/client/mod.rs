@@ -330,7 +330,8 @@ fn script_help_text() -> &'static str {
          Options: --profile local|tool --timeout-ms N --max-operations N --max-collection-items N \
          --max-string-bytes N --max-output-bytes N --max-source-bytes N \
          --max-host-operations N --fixed-clock-ms N --env-allow NAME \
-         --wasm-convention compiled-qjs|plain --project-root DIR --manifest FILE --json"
+         --wasm-convention compiled-qjs|plain [--wasm-entry-arg TYPE:VALUE]... \
+         --project-root DIR --manifest FILE --json"
 }
 
 fn write_script_stdout(text: &str) -> std::result::Result<(), i32> {
@@ -2200,6 +2201,13 @@ fn run_script_command_with_context(
     } else {
         None
     };
+    let wasm_entry_arguments = match parse_wasm_entry_arguments(arguments) {
+        Ok(arguments) => arguments,
+        Err(message) => {
+            cli_eprintln!("{message}");
+            return 2;
+        }
+    };
     let operand = script_operand(arguments);
     let (source_label, source, artifact) = match operation {
         ScriptOperation::Api => ("api".to_owned(), String::new(), None),
@@ -2377,6 +2385,14 @@ fn run_script_command_with_context(
         cli_eprintln!("script --wasm-convention is available only for script run FILE.wasm");
         return 2;
     }
+    if !wasm_entry_arguments.is_empty()
+        && (artifact_convention != Some(ScriptArtifactConvention::PlainWasm) || artifact.is_none())
+    {
+        cli_eprintln!(
+            "script --wasm-entry-arg is available only for script run --wasm-convention plain FILE.wasm"
+        );
+        return 2;
+    }
     if source.len() > budgets.source_bytes {
         cli_eprintln!(
             "script source exceeds the {} byte limit",
@@ -2473,6 +2489,7 @@ fn run_script_command_with_context(
         project_root: Some(context.project_root.display().to_string()),
         invocation_temp_root: invocation_temp.as_ref().map(OwnedScriptTemp::display),
         arguments: script_arguments,
+        wasm_entry_arguments,
         budgets,
         observation,
         fixed_clock_ms,
@@ -4246,6 +4263,7 @@ fn script_operand(arguments: &[String]) -> Option<&str> {
             | "--max-host-operations"
             | "--max-source-bytes"
             | "--wasm-convention"
+            | "--wasm-entry-arg"
             | "--cwd"
             | "--project-root"
             | "--manifest" => position += 2,
@@ -4254,6 +4272,60 @@ fn script_operand(arguments: &[String]) -> Option<&str> {
         }
     }
     None
+}
+
+fn parse_wasm_entry_arguments(
+    arguments: &[String],
+) -> Result<Vec<crate::script_protocol::ScriptWasmValue>, String> {
+    use crate::script_protocol::ScriptWasmValue;
+    let mut parsed = Vec::new();
+    let mut position = 0;
+    while position < arguments.len() && arguments[position] != "--" {
+        if arguments[position] != "--wasm-entry-arg" {
+            position += 1;
+            continue;
+        }
+        let raw = arguments.get(position + 1).ok_or_else(|| {
+            "script --wasm-entry-arg requires TYPE:VALUE (i32, i64, f32, or f64)".to_owned()
+        })?;
+        if raw == "--" {
+            return Err(
+                "script --wasm-entry-arg requires TYPE:VALUE (i32, i64, f32, or f64)".to_owned(),
+            );
+        }
+        let (kind, value) = raw.split_once(':').ok_or_else(|| {
+            format!(
+                "script --wasm-entry-arg requires TYPE:VALUE (i32, i64, f32, or f64); got {raw:?}"
+            )
+        })?;
+        let value = match kind {
+            "i32" => value
+                .parse::<i32>()
+                .map(ScriptWasmValue::I32)
+                .map_err(|_| ()),
+            "i64" => value
+                .parse::<i64>()
+                .map(ScriptWasmValue::I64)
+                .map_err(|_| ()),
+            "f32" => value
+                .parse::<f32>()
+                .map(|value| ScriptWasmValue::F32Bits(value.to_bits()))
+                .map_err(|_| ()),
+            "f64" => value
+                .parse::<f64>()
+                .map(|value| ScriptWasmValue::F64Bits(value.to_bits()))
+                .map_err(|_| ()),
+            _ => {
+                return Err(format!(
+                    "script --wasm-entry-arg type must be i32, i64, f32, or f64; got {kind:?}"
+                ));
+            }
+        }
+        .map_err(|_| format!("script --wasm-entry-arg has invalid {kind} value {value:?}"))?;
+        parsed.push(value);
+        position += 2;
+    }
+    Ok(parsed)
 }
 
 fn exit_code_from_script_value(
@@ -5094,12 +5166,55 @@ mod tests {
         HostedSubcommand, append_script_run_value, artifact_audit_fingerprint,
         exit_code_from_script_value, hosted_subcommand, non_text_script_hint,
         normalize_script_source, parse_loopback_ipc_address, parse_terminal_grid,
-        read_script_artifact, render_script_value, run_wait_ui, script_worker_executable,
-        validate_fleet_parameters,
+        parse_wasm_entry_arguments, read_script_artifact, render_script_value, run_wait_ui,
+        script_worker_executable, validate_fleet_parameters,
     };
     use crate::script_protocol::{
-        SCRIPT_ARTIFACT_MAX_BYTES, ScriptArtifact, ScriptArtifactConvention,
+        SCRIPT_ARTIFACT_MAX_BYTES, ScriptArtifact, ScriptArtifactConvention, ScriptWasmValue,
     };
+
+    #[test]
+    fn wasm_entry_argument_parser_preserves_numeric_types_and_float_bits() {
+        let arguments = [
+            "run",
+            "--wasm-entry-arg",
+            "i32:-7",
+            "--wasm-entry-arg",
+            "i64:9000000000",
+            "--wasm-entry-arg",
+            "f32:-0",
+            "--wasm-entry-arg",
+            "f64:NaN",
+            "fixture.wasm",
+        ]
+        .map(str::to_owned);
+        let parsed = parse_wasm_entry_arguments(&arguments).expect("typed arguments parse");
+        assert_eq!(
+            parsed,
+            vec![
+                ScriptWasmValue::I32(-7),
+                ScriptWasmValue::I64(9_000_000_000),
+                ScriptWasmValue::F32Bits((-0.0_f32).to_bits()),
+                ScriptWasmValue::F64Bits(f64::NAN.to_bits()),
+            ]
+        );
+    }
+
+    #[test]
+    fn wasm_entry_argument_parser_stops_before_tool_argument_strings() {
+        let arguments =
+            ["run", "fixture.wasm", "--", "--wasm-entry-arg", "i32:7"].map(str::to_owned);
+        assert!(parse_wasm_entry_arguments(&arguments).unwrap().is_empty());
+    }
+
+    #[test]
+    fn wasm_entry_argument_parser_refuses_unknown_or_invalid_types() {
+        for raw in ["u32:7", "i32:overflow", "f64:not-a-number", "i32"] {
+            let arguments = ["run", "--wasm-entry-arg", raw].map(str::to_owned);
+            let error = parse_wasm_entry_arguments(&arguments).unwrap_err();
+            assert!(error.contains(raw.split(':').next().unwrap()), "{error}");
+        }
+    }
 
     #[test]
     fn server_list_selection_preserves_bare_json_and_projects_root_arrays() {
