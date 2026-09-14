@@ -16,7 +16,8 @@
     "`level` is the evidence grade from goal §5.1 and is never inferred: a runner",
     "that emulates must say so, because a receipt that cannot tell native from",
     "emulated is not evidence.",
-    "`expect_file` is a substring the host `file(1)` output must contain. It runs for EVERY cell, blocked ones included: a cell whose runner does not exist yet still has an artifact that can be wrong, and 'we could not run it' is a poor reason to check nothing at all."
+    "`expect_file` is a substring the host `file(1)` output must contain. It runs for EVERY cell, blocked ones included: a cell whose runner does not exist yet still has an artifact that can be wrong, and 'we could not run it' is a poor reason to check nothing at all.",
+    "`expect_cu_file` optionally gives agenterm-cu its own `file(1)` substring. It is required where the product launcher and CU use different executable subsystems; otherwise CU inherits `expect_file`."
   ],
   "cells": [
     {
@@ -59,14 +60,16 @@
       "kind": "blocked",
       "level": "native",
       "reason": "This JSON is the older ssh/host map, not the utm-court caller. Local Windows arm64 execute-only evidence goes through scripts/utm-cu-managed-job-court.sh against win-aarch64-desktop. Do not treat VM presence as this cell becoming kind=host.",
-      "expect_file": "PE32+ executable (GUI) Aarch64"
+      "expect_file": "PE32+ executable (GUI) Aarch64",
+      "expect_cu_file": "PE32+ executable (console) Aarch64"
     },
     {
       "target": "x86_64-pc-windows-msvc",
       "kind": "blocked",
       "level": "emulated=prism",
       "reason": "This JSON is the older ssh/host map, not the utm-court caller. Local Windows x86_64 execute-only evidence goes through scripts/utm-cu-managed-job-court.sh against win-x86_64-desktop. Presence of a VM is not this cell becoming kind=host.",
-      "expect_file": "PE32+ executable (GUI) x86-64"
+      "expect_file": "PE32+ executable (GUI) x86-64",
+      "expect_cu_file": "PE32+ executable (console) x86-64"
     }
   ]
 }

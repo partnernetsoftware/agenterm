@@ -603,7 +603,13 @@ flowchart LR
   own this wiring. The local six-cell baseline now also requires an
   architecture-matched `agenterm-cu` and executes its public bounded
   `storage-devices` observation after the AgenTerm launcher check; macOS arm64
-  and a digest-matched native Linux arm64 qjswasm court are green. This is
+  and a digest-matched native Linux arm64 qjswasm court are green. The local
+  static court now describes the two packaged executables independently:
+  Windows `agenterm` must remain a GUI-subsystem PE while `agenterm-cu` must
+  remain a console-subsystem PE. The former shared expectation made both
+  correctly built Windows cells fail despite matching their ISA; a `dev
+  --no-build` rerun now records both as static PASS and honestly BLOCKED on
+  their separately owned UTM runners. This is
   stronger than archive membership but remains a minimum court: Linux x86_64
   and Windows x86_64 local courts are still open. The formal Candidate path is
   now wired (not yet remotely executed): every one of the six native runtime

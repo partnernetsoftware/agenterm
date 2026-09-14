@@ -27,6 +27,10 @@ static ARTIFACTS: LazyLock<serde_json::Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../scripts/artifacts.json"))
         .expect("scripts/artifacts.json must remain valid JSON")
 });
+static SIX_CELL_RUNNERS: LazyLock<serde_json::Value> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../scripts/six-cell-runners.json"))
+        .expect("scripts/six-cell-runners.json must remain valid JSON")
+});
 static BUILD_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/build.qjs").replace("\r\n", "\n"));
 static CHECK_QJS: LazyLock<String> =
@@ -1240,4 +1244,38 @@ fn six_cell_qjs_orchestrators_use_the_live_script_front_door() {
         assert!(source.contains("\"cli\", \"script\", \"task\", \"run\""));
         assert!(!source.contains("\"rh\", \"task\", \"run\""));
     }
+}
+
+#[test]
+fn six_cell_static_gate_distinguishes_windows_gui_and_cu_console_subsystems() {
+    let cells = SIX_CELL_RUNNERS["cells"]
+        .as_array()
+        .expect("six-cell runner cells must be an array");
+    let windows = cells
+        .iter()
+        .filter(|cell| {
+            cell["target"]
+                .as_str()
+                .is_some_and(|target| target.contains("windows"))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(windows.len(), 2, "both Windows ISA cells must be described");
+    for cell in windows {
+        assert!(
+            cell["expect_file"]
+                .as_str()
+                .is_some_and(|expected| expected.contains("(GUI)")),
+            "the AgenTerm launcher must remain a GUI-subsystem executable"
+        );
+        assert!(
+            cell["expect_cu_file"]
+                .as_str()
+                .is_some_and(|expected| expected.contains("(console)")),
+            "agenterm-cu must be checked as its distinct console-subsystem executable"
+        );
+    }
+
+    let qualify = include_str!("../scripts/qjs/six-cell-qualify.qjs");
+    assert!(qualify.contains("typeof cell.expect_cu_file === \"string\""));
+    assert!(qualify.contains("local_cu_binary,\n      cu_expected,"));
 }
