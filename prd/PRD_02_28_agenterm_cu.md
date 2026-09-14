@@ -1739,9 +1739,13 @@ flowchart LR
   `cu.host-open.windows`: it targets only a self-compiled invocation-owned
   WinForms fixture, preserves CU's `dispatcher-accepted-only` boundary, and
   requires independent process-argv plus UIA target read-back followed by
-  exact process/window/file cleanup. Its native runtime receipt remains open;
-  dispatcher acceptance alone is not evidence. MCU `open` now routes here,
-  reducing the top-level compatibility `STAY` set from 21 to 20.
+  exact process/window/file cleanup. Its native runtime receipt remains open:
+  the 2026-09-14 ARM64 court reached QGA transport readiness, then reported
+  `BLOCKED` because the detached Windows desktop agent did not claim its
+  nonce within the explicit 360-second interactive-session budget. The court
+  never ran the journey, and dispatcher acceptance alone is not evidence.
+  MCU `open` now routes here, reducing the top-level compatibility `STAY` set
+  from 21 to 20.
 - [~] Desktop notification dispatch now follows the same typed boundary as
   host-open: `host-notify TITLE [BODY] [--subtitle TEXT] [--sound] [--action KEY LABEL]...` (alias
   `notify`) sends bounded text as native argv data, never shell or generated
