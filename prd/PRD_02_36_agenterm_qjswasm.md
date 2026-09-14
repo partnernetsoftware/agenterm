@@ -348,6 +348,13 @@ moved from 350,216 to 288,209 (−17.71%), heap pages from 19 to 16, and the 395
 host operations plus `server.headless-authority` evidence remained unchanged.
 This is a second real **consumer** of the first producer, not the still-missing
 second producer needed to turn the additive selection core into a net code fold.
+The second-producer boundary is now frozen as an experiment rather than guessed:
+[`plan/design-ui-snapshot-selection-boundary-experiment.md`](../plan/design-ui-snapshot-selection-boundary-experiment.md)
+will decide whether an opt-in parse/project/serialize adapter clears both the
+guest saving and host-cost bars while preserving cached no-selector bytes. It
+explicitly kills that adapter before any public flag if safety or the measured
+benefit fails; a Value-native UI snapshot refactor is only the named fallback,
+not work hidden inside the experiment.
 
 ## Mermaid flowchart memory palace
 
