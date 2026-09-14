@@ -666,18 +666,20 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
         "save-workspace" => ("agenterm cli save-workspace", &[][..], &[][..], false),
         "script" => (
             "agenterm cli script api [MODULE] [--status shipped|planned|all] [--tree|--json] | \
-             check FILE|- [--project-root DIR] | eval EXPRESSION | \
+             check FILE|- [--profile local|tool] [--project-root DIR] | \
+             eval EXPRESSION [--profile local|tool] | \
              check-many --manifest FILE [--project-root DIR] | \
              corpus-scan [--dir DIR] [--project-root DIR] | hash FILE | version | \
              pack build FILE --dir OUT | pack load ARTIFACT | run-smoke ARTIFACT | \
              qualify FILE --dir OUT | \
-             repl [--fail-fast] [--json] | run [--exit-code-from-value] \
+             repl [--fail-fast] [--json] | run [--profile local|tool] [--exit-code-from-value] \
              [--wasm-convention compiled-qjs|plain] FILE|- \
              [--cwd DIR] [--project-root DIR] [-- ARGS...] | \
             task list|show|run [TASK] [--manifest FILE] [--json]",
             &[
-                // Legacy compatibility label. It is accepted but intentionally
-                // omitted from public usage because it never changes runtime APIs.
+                // Direct invocations use this as compatibility metadata: `tool`
+                // selects the ordinary tool API door, while `local` retains the
+                // default local door. It is not an authorization profile.
                 "--profile",
                 "--timeout-ms",
                 "--max-operations",

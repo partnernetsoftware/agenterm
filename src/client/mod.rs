@@ -327,7 +327,7 @@ fn script_help_text() -> &'static str {
            agenterm cli script task run TASK [--manifest PATH] [OPTIONS] [--] [ARGS...]\n\
          The entry's extension picks the engine (.qjs, .lua, .sql); \
          AGENTERM_SCRIPT_BACKEND overrides it. There is no default engine.\n\
-         Options: --timeout-ms N --max-operations N --max-collection-items N \
+         Options: --profile local|tool --timeout-ms N --max-operations N --max-collection-items N \
          --max-string-bytes N --max-output-bytes N --max-source-bytes N \
          --max-host-operations N --fixed-clock-ms N --env-allow NAME \
          --wasm-convention compiled-qjs|plain --project-root DIR --manifest FILE --json"
@@ -4815,8 +4815,8 @@ Usage:
   agenterm cli set-setting terminal.font-family FAMILY
   agenterm cli set-setting terminal.font-size 8..36
   agenterm cli script api [MODULE] [--status shipped|planned|all] [--tree|--json]
-  agenterm cli script check|run FILE|- [--project-root DIR] [--cwd DIR]
-  agenterm cli script eval EXPRESSION [--cwd DIR]
+  agenterm cli script check|run FILE|- [--profile local|tool] [--project-root DIR] [--cwd DIR]
+  agenterm cli script eval EXPRESSION [--profile local|tool] [--cwd DIR]
   agenterm cli script task list|show|check|run [TASK] [--manifest FILE] [--json] [-- ARGS...]
   agenterm cli send-mouse [-t target] -x col -y row [--button left|middle|right|wheel-up|wheel-down] [--action press|release|move] [--protocol default|utf8|sgr]
   agenterm cli ui-input pointer --x PX --y PX [--button left|middle|right] [--action press|release|move] [--count 1..3] [--mods shift,ctrl,alt,meta]

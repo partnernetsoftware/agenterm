@@ -145,7 +145,7 @@ agenterm qjs pack build <file.js> --dir <out> [--project-root DIR]
 agenterm qjs pack load <dir>
 agenterm qjs qualify <file.js> --dir <out> [--project-root DIR]
 agenterm qjs check-many --manifest <file.json> [--project-root DIR] [--timeout-ms N] [--json]
-agenterm qjs corpus-scan [--dir <dir>]
+agenterm qjs corpus-scan [--dir <dir>] [--project-root DIR]
 agenterm qjs run-smoke <pack-dir>
 agenterm qjs version
 ```
