@@ -498,8 +498,11 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   HUP/INT/USR1/USR2 truthfully report accepted delivery. The caller request
   fingerprint seals every signal, so replay returns the prior outcome without
   delivering it twice. The public qjswasm journey proves one SIGUSR1 effect
-  followed by a no-repeat replay. Resident resource policy remains the last
-  implementation gap in this combined job leaf.
+  followed by a no-repeat replay. Resident resource policy is also implemented:
+  it installs one lease-scoped bounded sampler, enforces stable containment
+  membership, and exposes status/set/clear plus exact request replay. Linux
+  rerun and Windows typed-refusal qualification, rather than missing product
+  code, keep this combined job leaf partial.
 
 ```mermaid
 flowchart LR
@@ -1963,9 +1966,11 @@ flowchart LR
   member identities and every per-member nice value to read back. Any effect
   ambiguity is non-retryable; Windows refuses before mutation because its
   priority classes are not Unix nice values. The macOS public qjswasm journey
-  proves the write, readback and request-id replay contract. Resource policy,
-  Linux rerun and Windows refusal evidence remain in the owning gap. Stored job
-  environment is a separate secret-bearing gap. `job-prune` now closes the
+  proves the write, readback and request-id replay contract. Resource policy is
+  shipped and its platform-neutral public journey owns Unix enforcement/clear/
+  replay plus the Windows typed refusal; Linux rerun and Windows qualification
+  receipts remain in the owning gap. Stored job environment is a separate
+  secret-bearing gap. `job-prune` now closes the
   retention part of the MCU shape without inheriting its daemon: the default
   operation is a zero-write plan over bounded terminal receipts, while
   `--apply` requires request/session identity and recomputes the same selection
