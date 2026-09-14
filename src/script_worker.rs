@@ -1373,6 +1373,26 @@ return descend(20);
         assert!(oversized.len() as u64 > SCRIPT_INVOCATION_MAX_BYTES);
     }
 
+    #[test]
+    fn retired_repl_frames_keep_their_typed_compatibility_refusal() {
+        let frame = ScriptFrame {
+            frame_version: SCRIPT_FRAME_VERSION,
+            frame_id: "retired-repl".to_owned(),
+            payload: ScriptFramePayload::ReplRequest(crate::script_protocol::ReplSessionRequest {
+                session_id: "legacy-session".to_owned(),
+                generation: 1,
+                sequence: 0,
+                command: crate::script_protocol::ReplSessionCommand::Close,
+            }),
+        };
+        let response = process_frame(frame, &mut HashSet::new());
+        assert_eq!(response.frame_id, "retired-repl");
+        let result = frame_result(&response);
+        assert_eq!(result.invocation_id, "legacy-session");
+        assert_eq!(failure_code(result), "protocol_repl_unavailable");
+        assert_eq!(result.exit_class, ScriptExitClass::Protocol);
+    }
+
     // The three `api_scanner_*` tests that were here exercised
     // `agenterm_rh::api_validate::external_function_calls`, an rh source
     // scanner; they left with that crate.
