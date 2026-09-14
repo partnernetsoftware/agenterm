@@ -209,8 +209,11 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │     │  through the sliced inter-round pause; an entry-only check is no longer the owner
   │  │     ├─ a matched terminal reply, authority refusal and finalized PTY exit-status verdict
   │  │     │  remain authoritative after dispatch and are never hidden by a late cancel
-  │  │     └─ public `wait` window/tree/text/ready/expect variants share the same token before
-  │  │        every authority round and through a sliced pause; matched/error replies still win;
+  │  │     └─ public `wait` window/tree/text/ready/expect variants check the same token before
+  │  │        their first authority read and through each sliced inter-round pause; after any
+  │  │        read, cancellation preserves the variant's bounded partial observation instead
+  │  │        of claiming `not_performed`, while a zero-bounded window wait retains its ordinary
+  │  │        no-read result and matched/error/deadline outcomes remain authoritative;
   │  │        external-terminal `term wait` applies the same rule after exact window binding;
   │  │        `device-watch` checks before its first inventory sample and later sample rounds,
   │  │        while post-sample cancellation preserves the shaped bounded partial observation

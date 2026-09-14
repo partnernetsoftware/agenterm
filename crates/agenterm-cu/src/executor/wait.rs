@@ -11,17 +11,44 @@ use crate::execution_control::ExecutionControl;
 /// shipped terminal-wait pause; no thread, signal or async runtime is added.
 const WAIT_CANCEL_SLICE: Duration = Duration::from_millis(10);
 
-/// The pause between wait rounds, sliced so the borrowed token is observed several
-/// times instead of once. The total pause is unchanged at 50 ms.
-fn wait_pause(control: ExecutionControl<'_>) -> Result<(), CuError> {
+/// The inter-round pause, sliced so the borrowed token is observed several times
+/// instead of once. The total pause is unchanged at 50 ms.
+///
+/// It returns a private signal and NEVER builds an error. After the first authority
+/// call of a wait, cancellation is only a request to stop: whether the outcome is
+/// the ordinary timeout or a shaped partial is decided by the loop owner, which is
+/// the only place that knows whether an observation was already accumulated.
+fn wait_pause_cancelled(control: ExecutionControl<'_>) -> bool {
     let pause_deadline = Instant::now() + Duration::from_millis(50);
     while Instant::now() < pause_deadline {
-        control.check_observe()?;
+        if control.is_cancelled() {
+            return true;
+        }
         thread::sleep(
             WAIT_CANCEL_SLICE.min(pause_deadline.saturating_duration_since(Instant::now())),
         );
     }
-    control.check_observe()
+    control.is_cancelled()
+}
+
+/// The post-baseline cancellation outcome: a named `cancelled` failure whose
+/// structured detail carries the bounded partial evidence the verb had already
+/// accumulated.
+///
+/// `effect: partially_performed` is the truthful claim, because reaching any of the
+/// call sites below required at least one authority call. The ONLY place
+/// `effect: not_performed` remains legal is the single hoisted check that runs before
+/// the first authority call of each variant.
+fn wait_cancelled_partial(partial_observation: serde_json::Value) -> CuError {
+    CuError::new(
+        "cancelled",
+        "the wait was cancelled after observation began",
+    )
+    .with_detail(serde_json::json!({
+        "effect": "partially_performed",
+        "phase": "observe_wait",
+        "partial_observation": partial_observation,
+    }))
 }
 
 pub(super) fn wait(
@@ -77,14 +104,54 @@ pub(super) fn wait(
         WaitCondition::ReadyPath { path } => return wait_ready_path(timeout_ms, path, control),
         _ => {}
     }
+    // Production passes the real mechanism; the generic parameter is what lets an
+    // owning test prove that a zero-bounded wait performs NO authority read.
+    fn real_window() -> Result<Vec<WindowInfo>, CuError> {
+        mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)
+    }
+    wait_window_with_reader(timeout_ms, condition, control, real_window)
+}
+
+/// The `wait` window-condition loop, GENERIC over its window reader.
+///
+/// The reader is a generic `Fn` parameter rather than a trait object or a type alias,
+/// so a caller's closure can borrow its own locals without a `'static` bound while
+/// production keeps passing the real mechanism and its exact mapping.
+fn wait_window_with_reader<R>(
+    timeout_ms: u64,
+    condition: &WaitCondition,
+    control: ExecutionControl<'_>,
+    read_windows: R,
+) -> Result<serde_json::Value, CuError>
+where
+    R: Fn() -> Result<Vec<WindowInfo>, CuError>,
+{
     let deadline = Instant::now() + Duration::from_millis(timeout_ms.min(120_000));
     let mut last_observation = serde_json::json!({ "windows": [] });
 
-    while Instant::now() < deadline {
-        // PRE-EFFECT CANCEL, before this round's authority call.
-        control.check_observe()?;
-        let windows =
-            mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    // ZERO-BOUND SEMANTICS PRESERVED. The shipped loop was `while Instant::now() <
+    // deadline`, so a `--timeout-ms 0` wait performed NO authority read and NO
+    // cancellation check and returned the ordinary `met:false` object directly. That
+    // is the public behaviour and it is restored here: an already-reached bound is
+    // decided BEFORE any direct check or authority call, so a pre-set token can never
+    // turn a zero-bounded wait into a `cancelled` reply.
+    if Instant::now() >= deadline {
+        return Ok(serde_json::json!({
+            "met": false,
+            "timeout_ms": timeout_ms,
+            "observation": last_observation,
+        }));
+    }
+
+    // THE ONLY DIRECT CHECK for this variant, and therefore the only place
+    // `effect: not_performed` is legal. It is hoisted OUT of the loop, so it runs
+    // exactly once, strictly before the first window read; every later boundary is a
+    // private signal handled below. From round 2 onward an accumulated
+    // `last_observation` already exists, so a loop-top authority-bearing check there
+    // would have fabricated a `not_performed` claim.
+    control.check_observe()?;
+    loop {
+        let windows = read_windows()?;
         if matches!(condition, WaitCondition::WindowTitleContains { .. })
             && observe::window_titles_unavailable(&windows)
         {
@@ -100,7 +167,21 @@ pub(super) fn wait(
                 "observation": last_observation,
             }));
         }
-        wait_pause(control)?;
+        if Instant::now() >= deadline {
+            break;
+        }
+        // DEADLINE FIRST: a reached bound stays the authoritative outcome even when
+        // the final slice saw the token.
+        if wait_pause_cancelled(control) {
+            if Instant::now() >= deadline {
+                break;
+            }
+            return Err(wait_cancelled_partial(serde_json::json!({
+                "met": false,
+                "timeout_ms": timeout_ms,
+                "observation": last_observation,
+            })));
+        }
     }
 
     Ok(serde_json::json!({
@@ -140,16 +221,42 @@ pub(super) fn wait_node(
     window: Option<isize>,
     control: ExecutionControl<'_>,
 ) -> Result<serde_json::Value, CuError> {
+    // Production passes the real mechanism; the generic parameter is what lets an
+    // owning test drive THIS loop and flip the borrowed token from inside a round.
+    fn real(window: Option<isize>) -> Result<mechanism::A11yTree, CuError> {
+        mechanism::tree_for_window(window).map_err(map_mechanism_err)
+    }
+    wait_node_with_reader(timeout_ms, pattern, role, window, control, real)
+}
+
+/// The `wait_node` loop, GENERIC over its tree reader.
+///
+/// The reader is a generic `Fn` parameter rather than a trait object or a type
+/// alias, so a caller's closure can borrow its own locals without a `'static`
+/// bound and production keeps passing the real mechanism.
+fn wait_node_with_reader<R>(
+    timeout_ms: u64,
+    pattern: &str,
+    role: Option<&str>,
+    window: Option<isize>,
+    control: ExecutionControl<'_>,
+    read_tree: R,
+) -> Result<serde_json::Value, CuError>
+where
+    R: Fn(Option<isize>) -> Result<mechanism::A11yTree, CuError>,
+{
     let deadline = Instant::now() + Duration::from_millis(timeout_ms.min(120_000));
     let mut polls = 0usize;
     let mut last_node_count = 0usize;
     let mut last_error: Option<CuError> = None;
 
+    // THE ONLY DIRECT CHECK for this variant; hoisted so it runs exactly once before
+    // the first tree read. Every later boundary is a private signal, because from
+    // round 2 on this variant already holds `last_node_count` / `last_error`.
+    control.check_observe()?;
     loop {
-        // PRE-EFFECT CANCEL, before this round's tree read.
-        control.check_observe()?;
         polls += 1;
-        match mechanism::tree_for_window(window) {
+        match read_tree(window) {
             Ok(tree) => {
                 last_node_count = tree.nodes.len();
                 last_error.take();
@@ -173,19 +280,36 @@ pub(super) fn wait_node(
             }
             // The tree can be missing outright; that is not something more
             // polling will fix.
-            Err(mechanism::MechanismError::Unsupported { .. }) => {
-                return Err(map_mechanism_err(mechanism::MechanismError::Unsupported {
-                    reason: "accessibility-tree mechanism unavailable".to_owned(),
-                }));
+            Err(error) if error.code == "unsupported" => {
+                // The shipped reader REPLACED the reason here, so the substitution (not
+                // the provider's own text) is the published message. Preserved verbatim
+                // so the refusal wire stays byte-identical.
+                let _ = error;
+                return Err(CuError::new(
+                    "unsupported",
+                    "accessibility-tree mechanism unavailable",
+                ));
             }
             // A scoped window may not have an AT-SPI root yet — keep polling and
             // report the last failure if we run out of time.
-            Err(error) => last_error = Some(map_mechanism_err(error)),
+            Err(error) => last_error = Some(error),
         }
         if Instant::now() >= deadline {
             break;
         }
-        wait_pause(control)?;
+        if wait_pause_cancelled(control) {
+            if Instant::now() >= deadline {
+                break;
+            }
+            // The accumulator is published as DATA here, because the ordinary timeout
+            // path below keeps only a formatted message and DROPS the typed error code.
+            // Nothing on the existing wire changes; this partial is additive.
+            return Err(wait_cancelled_partial(serde_json::json!({
+                "polls": polls,
+                "node_count": last_node_count,
+                "last_error_code": last_error.as_ref().map(|error| error.code.clone()),
+            })));
+        }
     }
 
     let detail = match last_error {
@@ -222,9 +346,11 @@ fn wait_ready_path_with_reader(
 ) -> Result<serde_json::Value, CuError> {
     let deadline = Instant::now() + Duration::from_millis(timeout_ms.min(120_000));
     let mut polls = 0usize;
+    // THE ONLY DIRECT CHECK for this variant; hoisted so it runs exactly once before
+    // the first marker read. Every later boundary is a private signal, because from
+    // round 2 on this variant already holds a poll count.
+    control.check_observe()?;
     loop {
-        // PRE-EFFECT CANCEL, before this round's read.
-        control.check_observe()?;
         polls += 1;
         if let Some(marker) = read_marker(path)? {
             // The marker is the authoritative result and wins.
@@ -238,7 +364,17 @@ fn wait_ready_path_with_reader(
         if Instant::now() >= deadline {
             break;
         }
-        wait_pause(control)?;
+        // A cancellation after at least one marker read is NOT `not_performed`: a real
+        // authority read was issued and answered, and the timeout message below already
+        // publishes the poll count as evidence of that work.
+        if wait_pause_cancelled(control) {
+            if Instant::now() >= deadline {
+                break;
+            }
+            return Err(wait_cancelled_partial(
+                serde_json::json!({ "polls": polls }),
+            ));
+        }
     }
     Err(CuError::new(
         "timeout",
@@ -305,9 +441,11 @@ pub(super) fn wait_node_text(
     let mut last_text: Option<String> = None;
     let mut last_error: Option<CuError> = None;
 
+    // THE ONLY DIRECT CHECK for this variant; hoisted so it runs exactly once before
+    // the first tree/text authority call. Every later boundary is a private signal,
+    // because from round 2 on this variant already holds text and error state.
+    control.check_observe()?;
     loop {
-        // PRE-EFFECT CANCEL, before this round's tree/text authority calls.
-        control.check_observe()?;
         polls += 1;
         match mechanism::tree_for_window(window) {
             Ok(tree) => {
@@ -346,7 +484,17 @@ pub(super) fn wait_node_text(
         if Instant::now() >= deadline {
             break;
         }
-        wait_pause(control)?;
+        if wait_pause_cancelled(control) {
+            if Instant::now() >= deadline {
+                break;
+            }
+            return Err(wait_cancelled_partial(serde_json::json!({
+                "polls": polls,
+                "node_count": last_node_count,
+                "text": last_text,
+                "last_error_code": last_error.as_ref().map(|error| error.code.clone()),
+            })));
+        }
     }
 
     Err(CuError::new(
@@ -414,6 +562,49 @@ pub(super) fn wait_expect(
     absent: bool,
     control: ExecutionControl<'_>,
 ) -> Result<serde_json::Value, CuError> {
+    // Production passes the real readers; the generic parameters are what let an
+    // owning test prove the pre-effect cancel performs NO authority read at all, and
+    // what let it observe the real first-round order instead of inferring it.
+    fn real_foreground() -> Result<ForegroundIdentity, CuError> {
+        current_foreground_identity()
+    }
+    fn real_tree(window: isize) -> Result<mechanism::A11yTree, CuError> {
+        mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)
+    }
+    wait_expect_with_readers(
+        timeout_ms,
+        window,
+        expect,
+        absent,
+        control,
+        real_foreground,
+        real_tree,
+    )
+}
+
+/// The `wait_expect` loop, GENERIC over its foreground-identity reader and its tree
+/// reader.
+///
+/// Both are generic `Fn` parameters rather than trait objects or a type alias, so a
+/// caller's closure can borrow its own locals without a `'static` bound while
+/// production keeps passing the real mechanisms.
+///
+/// The tree adapter must preserve the shipped `MechanismError` mapping and its branch
+/// semantics exactly, including the `denied` pass-through and the absent/positive
+/// split in the trailing arm.
+fn wait_expect_with_readers<G, T>(
+    timeout_ms: u64,
+    window: isize,
+    expect: &[crate::command::Expectation],
+    absent: bool,
+    control: ExecutionControl<'_>,
+    read_foreground: G,
+    read_tree: T,
+) -> Result<serde_json::Value, CuError>
+where
+    G: Fn() -> Result<ForegroundIdentity, CuError>,
+    T: Fn(isize) -> Result<mechanism::A11yTree, CuError>,
+{
     if window == 0 {
         return Err(invalid_input(
             "wait --expect requires --window <handle> (a non-zero handle from `windows`)".into(),
@@ -427,18 +618,30 @@ pub(super) fn wait_expect(
     let deadline = Instant::now() + Duration::from_millis(timeout_ms.min(120_000));
     let mut polls = 0usize;
     let mut last_complete: Option<serde_json::Value> = None;
-    let foreground = absent.then(current_foreground_identity).transpose()?;
+    // THE ONLY DIRECT CHECK for this variant, and therefore the only place
+    // `effect: not_performed` is legal. The local window/expect validation above runs
+    // first so a malformed request keeps its inherent refusal, and the check then runs
+    // BEFORE the foreground read, because `current_foreground_identity` performs REAL
+    // authority observation (it enumerates top-level windows and stacking to resolve
+    // the frontmost app). Claiming `not_performed` after that read would be false.
+    // Every later boundary is a private signal.
+    control.check_observe()?;
+    let foreground = if absent {
+        Some(read_foreground()?)
+    } else {
+        None
+    };
     loop {
-        // PRE-EFFECT CANCEL, before this round's tree read.
-        control.check_observe()?;
         polls += 1;
-        match mechanism::tree_for_window(Some(window)) {
+        match read_tree(window) {
             Ok(tree) => {
                 require_complete_absence_observation(absent, window, tree.visited, tree.truncated)?;
                 let flat = observe::flatten(&tree);
                 let (results, goal_met) = evaluate_expectations(&flat, expect, absent)?;
                 if let Some(before) = foreground.as_ref() {
-                    let after = current_foreground_identity()?;
+                    // The same provider is used for the bracketing revalidation, so a
+                    // test can drive a same-round foreground change through one seam.
+                    let after = read_foreground()?;
                     require_same_foreground(before, &after)?;
                 }
                 let observation = serde_json::json!({
@@ -462,13 +665,19 @@ pub(super) fn wait_expect(
                     }));
                 }
             }
-            Err(mechanism::MechanismError::Unsupported { reason }) => {
-                return Err(map_mechanism_err(mechanism::MechanismError::Unsupported {
-                    reason,
-                }));
+            Err(error) if error.code == "unsupported" => {
+                // The shipped reader mapped an unsupported tree through this exact
+                // substitution, and the refusal is authoritative before any pause.
+                let _ = error;
+                return Err(CuError::new(
+                    "unsupported",
+                    "accessibility-tree mechanism unavailable",
+                ));
             }
             Err(error) => {
-                let error = map_mechanism_err(error);
+                // Unchanged branch semantics: a denial is authoritative at once, while
+                // any other failure keeps polling; a positive wait records it as the
+                // last tree error, while an absence wait retains no incomplete sample.
                 if error.code == "denied" {
                     return Err(error);
                 }
@@ -481,7 +690,15 @@ pub(super) fn wait_expect(
         if Instant::now() >= deadline {
             break;
         }
-        wait_pause(control)?;
+        if wait_pause_cancelled(control) {
+            if Instant::now() >= deadline {
+                break;
+            }
+            return Err(wait_cancelled_partial(serde_json::json!({
+                "absent": absent,
+                "observation": last_complete,
+            })));
+        }
     }
     Err(CuError::new(
         "timeout",
@@ -643,6 +860,192 @@ mod tests {
     use super::*;
     use std::cell::Cell;
 
+    fn empty_tree_with_nodes(count: usize) -> mechanism::A11yTree {
+        mechanism::A11yTree {
+            backend: "fixture".into(),
+            window_handle: Some(7),
+            root_id: "/0".into(),
+            nodes: (0..count)
+                .map(|i| a11y_node(&format!("/{i}"), "elsewhere", "button", &[]))
+                .collect(),
+            truncated: false,
+            visited: count,
+            returned: count,
+        }
+    }
+
+    fn tree_with_showing_node(name: &str) -> mechanism::A11yTree {
+        mechanism::A11yTree {
+            backend: "fixture".into(),
+            window_handle: Some(7),
+            root_id: "/0".into(),
+            nodes: vec![a11y_node("/0", name, "button", &["showing"])],
+            truncated: false,
+            visited: 1,
+            returned: 1,
+        }
+    }
+
+    #[test]
+    fn a_second_round_boundary_token_no_longer_fabricates_not_performed() {
+        // THE REGRESSION FOR THE TWO-SIDED DEFECT. The token is flipped by the reader
+        // at the END of round 2, so it is observed by the boundary that used to be the
+        // loop-top authority-bearing check. By then rounds 1 and 2 have already stored a
+        // node count, so the truthful outcome is a partial, never a `not_performed`.
+        let token = Cell::new(false);
+        let reads = Cell::new(0usize);
+        let probe = || token.get();
+        let error = wait_node_with_reader(
+            30_000,
+            "no-such-node",
+            None,
+            Some(7),
+            ExecutionControl::with_cancel_probe(&probe),
+            |_| {
+                let n = reads.get() + 1;
+                reads.set(n);
+                if n == 2 {
+                    token.set(true);
+                }
+                Ok(empty_tree_with_nodes(3))
+            },
+        )
+        .expect_err("a post-baseline cancel must refuse the wait");
+        assert!(token.get(), "the reader really did flip the token");
+        assert_eq!(reads.get(), 2, "no further tree read may happen");
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        let partial = &detail["partial_observation"];
+        assert_eq!(partial["polls"], 2);
+        assert_eq!(partial["node_count"], 3);
+        assert!(partial["last_error_code"].is_null());
+    }
+
+    #[test]
+    fn a_first_round_token_on_the_node_variant_still_claims_not_performed() {
+        // The single hoisted check is the ONLY place `not_performed` is legal, and it
+        // must still issue no tree read at all.
+        let reads = Cell::new(0usize);
+        let probe = || true;
+        let error = wait_node_with_reader(
+            30_000,
+            "pattern",
+            None,
+            Some(7),
+            ExecutionControl::with_cancel_probe(&probe),
+            |_| {
+                reads.set(reads.get() + 1);
+                unreachable!("a pre-effect cancel must not read the tree")
+            },
+        )
+        .expect_err("a pre-effect cancel must refuse the wait");
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(reads.get(), 0);
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert!(detail.get("partial_observation").is_none());
+    }
+
+    #[test]
+    fn a_node_timeout_wire_is_unchanged_and_has_no_partial() {
+        // The ordinary timeout keeps its exact code and message and must NOT gain a
+        // structured partial, because nothing was cancelled.
+        let error = wait_node_with_reader(
+            1,
+            "no-such-node",
+            None,
+            Some(7),
+            ExecutionControl::none(),
+            |_| Ok(empty_tree_with_nodes(0)),
+        )
+        .expect_err("an unmatched wait must time out");
+        assert_eq!(error.code, "timeout");
+        assert!(
+            error
+                .message
+                .starts_with("no showing accessibility node with"),
+            "unexpected timeout message: {}",
+            error.message
+        );
+        assert!(error.message.contains("last tree read had 0 nodes"));
+        assert!(
+            error.detail.is_none(),
+            "the ordinary timeout wire must not gain a partial"
+        );
+    }
+
+    #[test]
+    fn an_unsupported_tree_still_refuses_with_the_shipped_message() {
+        // The reader adapter must preserve the message substitution the shipped code
+        // made, so the refusal wire does not move.
+        let error = wait_node_with_reader(
+            30_000,
+            "pattern",
+            None,
+            Some(7),
+            ExecutionControl::none(),
+            |_| Err(CuError::new("unsupported", "some provider specific reason")),
+        )
+        .expect_err("an unsupported tree must refuse");
+        assert_eq!(error.code, "unsupported");
+        assert_eq!(error.message, "accessibility-tree mechanism unavailable");
+    }
+
+    #[test]
+    fn a_matched_node_still_wins_over_a_token_flipped_in_that_round() {
+        // Same-round authority precedence: the round both finds the node AND flips the
+        // token, and the match must win.
+        let token = Cell::new(false);
+        let probe = || token.get();
+        let value = wait_node_with_reader(
+            30_000,
+            "target",
+            None,
+            Some(7),
+            ExecutionControl::with_cancel_probe(&probe),
+            |_| {
+                token.set(true);
+                Ok(tree_with_showing_node("target"))
+            },
+        )
+        .expect("the matched node must win");
+        assert!(token.get(), "the reader really did flip the token");
+        assert_eq!(value["met"], true);
+        assert_eq!(value["polls"], 1);
+    }
+
+    #[test]
+    fn ready_path_cancel_after_a_read_is_partially_performed_with_polls() {
+        // A ready-path cancellation is NOT `not_performed`: a real marker read was
+        // issued and answered, and the partial publishes that poll count as data.
+        let token = Cell::new(false);
+        let reads = Cell::new(0usize);
+        let probe = || token.get();
+        let error = wait_ready_path_with_reader(
+            30_000,
+            "unused",
+            ExecutionControl::with_cancel_probe(&probe),
+            |_| {
+                let n = reads.get() + 1;
+                reads.set(n);
+                if n == 2 {
+                    token.set(true);
+                }
+                Ok(None)
+            },
+        )
+        .expect_err("the pending token must surface as a partial");
+        assert!(token.get(), "the reader really did flip the token");
+        assert_eq!(reads.get(), 2);
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        assert_eq!(detail["partial_observation"]["polls"], 2);
+    }
+
     #[test]
     fn ready_path_pre_cancel_does_no_work() {
         // PRE-EFFECT: a token already set must stop the verb before its first
@@ -770,6 +1173,214 @@ mod tests {
             app_name: app_name.into(),
             app: None,
         }
+    }
+
+    fn expectation(identifier: &str, checked: bool) -> crate::command::Expectation {
+        crate::command::Expectation {
+            identifier: Some(identifier.into()),
+            checked: Some(checked),
+            ..crate::command::Expectation::default()
+        }
+    }
+
+    #[test]
+    fn a_zero_bounded_window_wait_keeps_its_ordinary_timeout_and_ignores_a_token() {
+        // THE REWORK-3 REGRESSION. The shipped loop was `while now < deadline`, so
+        // `--timeout-ms 0` performed no authority read and no cancellation check and
+        // returned the ordinary `met:false` object. The window reader PANICS if called,
+        // and a pre-set token must NOT rewrite this into a cancellation.
+        let window_reads = Cell::new(0usize);
+        let probe = || true;
+        let value = wait_window_with_reader(
+            0,
+            &WaitCondition::WindowTitleContains {
+                pattern: "anything".into(),
+            },
+            ExecutionControl::with_cancel_probe(&probe),
+            || {
+                window_reads.set(window_reads.get() + 1);
+                unreachable!("a zero-bounded wait must not read the window inventory")
+            },
+        )
+        .expect("a reached zero bound is the ordinary timeout, not a refusal");
+        assert_eq!(window_reads.get(), 0, "no authority call for a zero bound");
+        assert_eq!(value["met"], false);
+        assert_eq!(value["timeout_ms"], 0);
+        assert_eq!(value["observation"], serde_json::json!({ "windows": [] }));
+        // Field-for-field the shipped object, with no cancellation vocabulary added.
+        assert_eq!(
+            value.as_object().map(|object| {
+                let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+                keys.sort_unstable();
+                keys
+            }),
+            Some(vec!["met", "observation", "timeout_ms"])
+        );
+    }
+
+    #[test]
+    fn a_zero_bounded_window_wait_still_prefers_a_matched_condition_impossible() {
+        // Companion guard: with a zero bound nothing is observed, so the object can only
+        // ever be the unmet one -- even though a matched condition would otherwise win.
+        let value = wait_window_with_reader(
+            0,
+            &WaitCondition::WindowTitleContains {
+                pattern: "anything".into(),
+            },
+            ExecutionControl::none(),
+            || unreachable!("a zero-bounded wait must not read the window inventory"),
+        )
+        .expect("a reached zero bound returns the ordinary timeout");
+        assert_eq!(value["met"], false);
+    }
+
+    #[test]
+    fn an_absent_pre_cancel_reads_neither_foreground_nor_tree() {
+        // THE REWORK REGRESSION. BOTH providers are observed, not inferred:
+        // `current_foreground_identity` enumerates top-level windows and stacking, so
+        // it is real authority observation, and the tree reader is an authority read
+        // too. A pre-set token must stop the verb before EITHER of them.
+        let foreground_reads = Cell::new(0usize);
+        let tree_reads = Cell::new(0usize);
+        let probe = || true;
+        let error = wait_expect_with_readers(
+            30_000,
+            7,
+            &[expectation("fixture-check", true)],
+            true,
+            ExecutionControl::with_cancel_probe(&probe),
+            || {
+                foreground_reads.set(foreground_reads.get() + 1);
+                unreachable!("a pre-effect cancel must not read the foreground identity")
+            },
+            |_| {
+                tree_reads.set(tree_reads.get() + 1);
+                unreachable!("a pre-effect cancel must not read the tree")
+            },
+        )
+        .expect_err("a pre-effect cancel must refuse the wait");
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(foreground_reads.get(), 0, "no foreground authority read");
+        assert_eq!(tree_reads.get(), 0, "no tree authority read");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert!(detail.get("partial_observation").is_none());
+    }
+
+    #[test]
+    fn an_absent_pre_cancel_still_prefers_inherent_validation() {
+        // The local window/expect validation stays AHEAD of the single check, so a
+        // malformed request keeps its own typed refusal instead of reporting cancelled,
+        // and it performs no authority read either.
+        let foreground_reads = Cell::new(0usize);
+        let tree_reads = Cell::new(0usize);
+        let probe = || true;
+        let error = wait_expect_with_readers(
+            30_000,
+            0,
+            &[expectation("fixture-check", true)],
+            true,
+            ExecutionControl::with_cancel_probe(&probe),
+            || {
+                foreground_reads.set(foreground_reads.get() + 1);
+                unreachable!("validation must refuse before any authority read")
+            },
+            |_| {
+                tree_reads.set(tree_reads.get() + 1);
+                unreachable!("validation must refuse before any authority read")
+            },
+        )
+        .expect_err("a zero window must be refused by validation");
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(foreground_reads.get(), 0);
+        assert_eq!(tree_reads.get(), 0);
+    }
+
+    #[test]
+    fn an_absent_round_freezes_foreground_before_the_tree_read() {
+        // The REAL first-round order, recorded from both providers instead of inferred.
+        // The absent condition is satisfied by this fixture, so the round completes and
+        // the recorded order covers the whole round rather than a timeout.
+        let order = std::cell::RefCell::new(Vec::<&'static str>::new());
+        let value = wait_expect_with_readers(
+            30_000,
+            7,
+            &[expectation("fixture-check", true)],
+            true,
+            ExecutionControl::none(),
+            || {
+                order.borrow_mut().push("foreground");
+                Ok(foreground(7, 4242, "app"))
+            },
+            |_| {
+                order.borrow_mut().push("tree");
+                Ok(absent_tree())
+            },
+        )
+        .expect("the absent condition is satisfied by this fixture");
+        // The OBSERVED order. The foreground identity is frozen BEFORE any tree read,
+        // and the revalidation runs after it, as the shipped loop does. This is recorded
+        // from the providers rather than inferred from reading the source.
+        assert_eq!(
+            order.borrow().as_slice(),
+            ["foreground", "tree", "foreground"],
+            "the freeze must precede the tree read, and the revalidation must follow it"
+        );
+        assert_eq!(value["met"], true);
+        assert_eq!(value["absent"], true);
+        assert_eq!(value["foreground_unchanged"], true);
+    }
+
+    fn absent_tree() -> mechanism::A11yTree {
+        // A COMPLETE (untruncated) observation that does not carry the expected
+        // identifier, so `absent` is genuinely satisfied and no ambiguity or
+        // unobservable-state refusal fires.
+        mechanism::A11yTree {
+            backend: "fixture".into(),
+            window_handle: Some(7),
+            root_id: "/0".into(),
+            nodes: vec![a11y_node("/0", "unrelated", "button", &["showing"])],
+            truncated: false,
+            visited: 1,
+            returned: 1,
+        }
+    }
+
+    #[test]
+    fn a_same_round_foreground_change_wins_over_a_pending_cancellation() {
+        // Reuses the SAME foreground seam for both the freeze and the revalidation, so a
+        // same-round identity change is authoritative over a token that round flipped.
+        let token = Cell::new(false);
+        let probe = || token.get();
+        let reads = Cell::new(0usize);
+        let error = wait_expect_with_readers(
+            30_000,
+            7,
+            &[expectation("fixture-check", true)],
+            true,
+            ExecutionControl::with_cancel_probe(&probe),
+            || {
+                let n = reads.get() + 1;
+                reads.set(n);
+                // The freeze reads the original window; the revalidation reads a
+                // DIFFERENT one, i.e. the foreground really changed mid-round.
+                Ok(if n == 1 {
+                    foreground(7, 4242, "app")
+                } else {
+                    foreground(9, 99, "other")
+                })
+            },
+            |_| {
+                token.set(true);
+                Ok(absent_tree())
+            },
+        )
+        .expect_err("foreground drift must win over the pending cancellation");
+        assert!(token.get(), "the tree reader really did flip the token");
+        assert_eq!(reads.get(), 2, "the bracketing pair really ran");
+        assert_eq!(error.code, "foreground_changed");
+        let detail = error.detail.unwrap_or(serde_json::Value::Null);
+        assert_ne!(detail["effect"], "partially_performed");
     }
 
     #[test]
