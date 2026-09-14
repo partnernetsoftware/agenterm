@@ -4,7 +4,6 @@ use std::{
     fmt::Write as _,
     io::Read as _,
     path::Path,
-    thread,
     time::{Duration, Instant},
 };
 
@@ -1393,7 +1392,11 @@ fn drive_terminal_wait(
                 "elapsed_ms": started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
             }));
         }
-        if wait_for_next_terminal_poll(deadline, control) {
+        let pause_deadline = Instant::now()
+            + deadline
+                .saturating_duration_since(Instant::now())
+                .min(Duration::from_millis(50));
+        if control.sleep_until_cancelled(pause_deadline) {
             if Instant::now() >= deadline {
                 return Err(terminal_wait_timeout(tab, condition, timeout_ms));
             }
@@ -1440,29 +1443,6 @@ fn terminal_wait_cancelled(
     }))
 }
 
-/// The pause between wait rounds, sliced so the borrowed cancellation token is
-/// observed several times instead of once. Its total bound and slice width reuse
-/// the same policy the shipped `pty-wait` helper already uses, rather than
-/// inventing a second wait mechanism: no thread, no signal, no async runtime.
-const TERMINAL_WAIT_CANCEL_SLICE: Duration = Duration::from_millis(10);
-
-fn wait_for_next_terminal_poll(deadline: Instant, control: ExecutionControl<'_>) -> bool {
-    let pause_deadline = Instant::now()
-        + deadline
-            .saturating_duration_since(Instant::now())
-            .min(Duration::from_millis(50));
-    while Instant::now() < pause_deadline {
-        if control.is_cancelled() {
-            return true;
-        }
-        thread::sleep(
-            TERMINAL_WAIT_CANCEL_SLICE
-                .min(pause_deadline.saturating_duration_since(Instant::now())),
-        );
-    }
-    control.is_cancelled()
-}
-
 fn terminal_read_with_client(
     client: &ControlClient,
     tab: &str,
@@ -1490,7 +1470,7 @@ fn terminal_read_with_client(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::Cell;
+    use std::{cell::Cell, thread};
 
     #[test]
     fn terminal_wait_pre_cancel_stops_before_the_authority_request() {
