@@ -123,7 +123,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   behaviour, `detach` is refused with the typed `managed_job_detach_retired`
   before any reserve, store, owner or process side effect (a spawned child is the
   managed owner's to clean up, so detached expiry stays retired rather than
-  missing), and any other spelling is a usage rejection. `job-adopt` keeps
+  missing), and any other spelling is a usage rejection. The public catalog
+  names both closed spellings and this pre-effect retirement, so discovery
+  matches the parser's accepted surface. `job-adopt` keeps
   `--expiry detach` as its default and still requires `--force` for
   `--expiry stop`. A detach now publishes a bounded identity observation as
   `detach_liveness` = `live` | `absent` | `unknown`, so a `detached` receipt never
