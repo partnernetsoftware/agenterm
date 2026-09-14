@@ -414,7 +414,71 @@ pub(super) fn app_watch_payload(
     control.check_observe()?;
     let bindings = resolve_bindings(selectors)?;
     control.check_observe()?;
-    let initial = app_snapshot(&bindings, max_processes)?;
+    // From here on a baseline may exist, so NO direct `check_observe` may escape:
+    // a post-sample cancellation is a partial observation, not a pre-effect stop.
+    let request = AppWatchRequest {
+        duration_ms,
+        interval_ms,
+        max_events,
+        max_processes,
+    };
+    app_watch_with_providers(
+        &bindings,
+        request,
+        control,
+        app_snapshot,
+        revalidate_bindings,
+    )
+}
+
+/// The bounded app-watch request and its bounds, so the loop and the ONE encoder
+/// share a description instead of repeating four parameters.
+#[derive(Clone, Copy)]
+struct AppWatchRequest {
+    duration_ms: u64,
+    interval_ms: u64,
+    max_events: usize,
+    max_processes: usize,
+}
+
+/// Everything the encoder needs about ONE bounded observation, normal or
+/// cancelled. Both paths publish through `into_value`, so a cancelled
+/// observation cannot bypass the identity projection or the bounds.
+struct AppWatchState {
+    /// The ORIGINAL baseline rows, captured once. Kept explicitly rather than
+    /// derived from the advancing `previous`, so the published baseline always
+    /// matches the one the caller was promised.
+    baseline: Vec<Value>,
+    excluded_unidentified: usize,
+    events: Vec<Value>,
+    truncated: bool,
+}
+
+/// The bounded app-watch loop, generic over the snapshot and revalidation
+/// providers.
+///
+/// These are GENERIC parameters rather than trait objects or type aliases, so a
+/// caller's closure may borrow its own locals and the compiler keeps the higher
+/// ranked borrow intact. Production passes the real `app_snapshot` and
+/// `revalidate_bindings`, so the tested loop is the shipped loop.
+fn app_watch_with_providers<S, R>(
+    bindings: &[AppBinding],
+    request: AppWatchRequest,
+    control: crate::execution_control::ExecutionControl<'_>,
+    snapshot: S,
+    revalidate: R,
+) -> Result<Value, CuError>
+where
+    S: Fn(&[AppBinding], usize) -> Result<AppSnapshot, CuError>,
+    R: Fn(&[AppBinding]) -> Result<(), CuError>,
+{
+    let AppWatchRequest {
+        duration_ms,
+        interval_ms,
+        max_events,
+        max_processes,
+    } = request;
+    let initial = snapshot(bindings, max_processes)?;
     let mut previous = initial.instances;
     let mut excluded_unidentified = initial.excluded_unidentified;
     let baseline = previous
@@ -437,17 +501,47 @@ pub(super) fn app_watch_payload(
     let mut truncated = false;
 
     while Instant::now() < deadline {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        let sleep_deadline = Instant::now() + Duration::from_millis(interval_ms).min(remaining);
-        while Instant::now() < sleep_deadline {
-            control.check_observe()?;
-            thread::sleep(
-                Duration::from_millis(10)
-                    .min(sleep_deadline.saturating_duration_since(Instant::now())),
+        // POST-BASELINE PAUSE: a valid cancellation POINT, but it may only report a
+        // private signal. It must never build a `not_performed` error, because the
+        // baseline above already ran real work. The deadline is re-checked first so
+        // a bound that has already been reached stays the authoritative outcome.
+        if app_watch_pause(control, interval_ms, deadline) {
+            if Instant::now() >= deadline {
+                break;
+            }
+            return app_watch_cancelled(
+                AppWatchState {
+                    baseline,
+                    excluded_unidentified,
+                    events,
+                    truncated,
+                },
+                bindings,
+                request,
+                &revalidate,
             );
         }
-        control.check_observe()?;
-        let next = app_snapshot(&bindings, max_processes)?;
+        if Instant::now() >= deadline {
+            break;
+        }
+        // LAST-MOMENT CHECK before a later authority call, same private signal shape.
+        if control.is_cancelled() {
+            return app_watch_cancelled(
+                AppWatchState {
+                    baseline,
+                    excluded_unidentified,
+                    events,
+                    truncated,
+                },
+                bindings,
+                request,
+                &revalidate,
+            );
+        }
+        // The snapshot is consumed UNCONDITIONALLY once it returns; there is no
+        // cancellation check between this call and the transition derivation below,
+        // so a token flipped inside the authority call cannot discard the round.
+        let next = snapshot(bindings, max_processes)?;
         excluded_unidentified = excluded_unidentified.max(next.excluded_unidentified);
         let current = next.instances;
         let t_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
@@ -458,25 +552,106 @@ pub(super) fn app_watch_payload(
         }
     }
 
-    control.check_observe()?;
-    revalidate_bindings(&bindings)?;
-    let selector_rows = bindings.iter().map(binding_json).collect::<Vec<_>>();
-    Ok(json!({
-        "selectors": selector_rows,
-        "baseline": baseline,
-        "events": events,
-        "emitted": events.len(),
-        "completed": !truncated,
-        "truncated": truncated,
-        "coverage_complete": excluded_unidentified == 0,
-        "excluded_unidentified": excluded_unidentified,
-        "duration_ms": duration_ms,
-        "interval_ms": interval_ms,
-        "max_events": max_events,
-        "max_processes": max_processes,
-        "identity": "app-selector+canonical-executable+pid+start-identity",
-        "verified": true,
-    }))
+    // FINAL BINDING AUTHORITY: revalidation runs on the normal path too, and its
+    // failure outranks nothing here because nothing is pending. On the cancelled
+    // path it runs BEFORE the cancellation outcome is built, so drift wins.
+    revalidate(bindings)?;
+    AppWatchState {
+        baseline,
+        excluded_unidentified,
+        events,
+        truncated,
+    }
+    .into_value(bindings, request, None)
+}
+
+/// Slice width for the inter-round pause. The token is observed before each slice
+/// and once at the end. Returns `true` when cancelled; it never builds an error.
+const APP_WATCH_CANCEL_SLICE: Duration = Duration::from_millis(10);
+
+fn app_watch_pause(
+    control: crate::execution_control::ExecutionControl<'_>,
+    interval_ms: u64,
+    deadline: Instant,
+) -> bool {
+    let sleep_deadline = Instant::now()
+        + Duration::from_millis(interval_ms)
+            .min(deadline.saturating_duration_since(Instant::now()));
+    while Instant::now() < sleep_deadline {
+        if control.is_cancelled() {
+            return true;
+        }
+        thread::sleep(
+            APP_WATCH_CANCEL_SLICE.min(sleep_deadline.saturating_duration_since(Instant::now())),
+        );
+    }
+    control.is_cancelled()
+}
+
+/// The post-baseline cancellation outcome.
+///
+/// ORDERING IS THE POINT: binding revalidation runs FIRST and its failure wins,
+/// because `app_watch_identity_drift`/unavailable is an authoritative statement
+/// about whether the observation is still attributable to the same applications,
+/// while cancellation is only a request to stop. Only after revalidation succeeds
+/// is the shaped partial observation published.
+fn app_watch_cancelled<R>(
+    state: AppWatchState,
+    bindings: &[AppBinding],
+    request: AppWatchRequest,
+    revalidate: &R,
+) -> Result<Value, CuError>
+where
+    R: Fn(&[AppBinding]) -> Result<(), CuError>,
+{
+    revalidate(bindings)?;
+    let partial = state.into_value(bindings, request, Some("cancelled"))?;
+    Err(CuError::new(
+        "cancelled",
+        "the app watch was cancelled after observation began",
+    )
+    .with_detail(json!({
+        "effect": "partially_performed",
+        "phase": "observe_wait",
+        "partial_observation": partial,
+    })))
+}
+
+impl AppWatchState {
+    /// The ONE encoder for normal and cancelled watches. `termination_override` is
+    /// `None` on the normal path, so that wire shape gains NO new field; the
+    /// cancelled path adds a nested `termination` and forces `completed: false`,
+    /// while `coverage_complete` keeps its existing provider-coverage meaning.
+    fn into_value(
+        self,
+        bindings: &[AppBinding],
+        request: AppWatchRequest,
+        termination_override: Option<&'static str>,
+    ) -> Result<Value, CuError> {
+        let emitted = self.events.len();
+        let cancelled = termination_override.is_some();
+        let selector_rows = bindings.iter().map(binding_json).collect::<Vec<_>>();
+        let mut value = json!({
+            "selectors": selector_rows,
+            "baseline": self.baseline,
+            "events": self.events,
+            "emitted": emitted,
+            "completed": !self.truncated && !cancelled,
+            "truncated": self.truncated,
+            "coverage_complete": self.excluded_unidentified == 0,
+            "excluded_unidentified": self.excluded_unidentified,
+            "duration_ms": request.duration_ms,
+            "interval_ms": request.interval_ms,
+            "max_events": request.max_events,
+            "max_processes": request.max_processes,
+            "identity": "app-selector+canonical-executable+pid+start-identity",
+            "verified": true,
+        });
+        if let Some(termination) = termination_override {
+            value["termination"] = json!(termination);
+        }
+        Ok(value)
+    }
 }
 
 #[cfg(test)]
@@ -498,6 +673,384 @@ mod tests {
                 (process.key(), process)
             })
             .collect()
+    }
+
+    // ---- cooperative cancellation: production-driver cases --------------------
+
+    /// Drives the REAL loop (`app_watch_with_providers`) with injected snapshot and
+    /// revalidation closures, so these cases cannot pass against a decision the
+    /// shipped loop would not take.
+    fn run_with_providers<S, R>(
+        duration_ms: u64,
+        interval_ms: u64,
+        max_events: usize,
+        control: crate::execution_control::ExecutionControl<'_>,
+        snapshot: S,
+        revalidate: R,
+    ) -> Result<Value, CuError>
+    where
+        S: Fn(&[AppBinding], usize) -> Result<AppSnapshot, CuError>,
+        R: Fn(&[AppBinding]) -> Result<(), CuError>,
+    {
+        app_watch_with_providers(
+            &[fixture_binding()],
+            AppWatchRequest {
+                duration_ms,
+                interval_ms,
+                max_events,
+                max_processes: 8,
+            },
+            control,
+            snapshot,
+            revalidate,
+        )
+    }
+
+    /// A binding that never has to resolve a real application, because the seam
+    /// injects both providers.
+    fn fixture_binding() -> AppBinding {
+        AppBinding {
+            index: 0,
+            selector: "fixture".into(),
+            executable_path: PathBuf::from("/fixture/App"),
+            executable_name: "App".into(),
+            identity: AppIdentity {
+                name: Some("Fixture".into()),
+                bundle: None,
+                path: Some("/fixture/App".into()),
+                executable: "App".into(),
+                file: FileIdentity {
+                    length: 1,
+                    modified: None,
+                },
+            },
+        }
+    }
+
+    fn snapshot_with(rows: Vec<Instances>) -> AppSnapshot {
+        AppSnapshot {
+            instances: rows,
+            excluded_unidentified: 0,
+        }
+    }
+
+    /// A revalidation provider that always succeeds and counts its calls.
+    fn ok_revalidate(
+        calls: &std::cell::Cell<usize>,
+    ) -> impl Fn(&[AppBinding]) -> Result<(), CuError> + '_ {
+        move |_| {
+            calls.set(calls.get() + 1);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_post_baseline_pause_cancel_reports_partial_evidence_and_stops_the_next_snapshot() {
+        // Round 1 establishes the baseline and leaves the token clear; the token is
+        // then raised from a test thread while the watch sits in a long pause. So the
+        // cancellation lands AFTER the baseline, no round-2 snapshot runs, and the
+        // outcome must be a truthful partial observation with complete baseline
+        // evidence, not `not_performed`.
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+
+        let token = Arc::new(AtomicBool::new(false));
+        let raised = Arc::clone(&token);
+        let snapshots = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = Arc::clone(&snapshots);
+        let trigger = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(25));
+            raised.store(true, Ordering::Release);
+        });
+        let probe = || token.load(Ordering::Acquire);
+        let revalidations = std::cell::Cell::new(0usize);
+        let snapshot = move |_: &[AppBinding], _: usize| -> Result<AppSnapshot, CuError> {
+            counted.fetch_add(1, Ordering::AcqRel);
+            Ok(snapshot_with(vec![instances(&[(10, "a")])]))
+        };
+        let error = run_with_providers(
+            60_000,
+            60_000,
+            8,
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            snapshot,
+            ok_revalidate(&revalidations),
+        )
+        .expect_err("a post-baseline cancel must refuse the watch");
+        trigger.join().expect("cancel trigger");
+
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(
+            snapshots.load(Ordering::Acquire),
+            1,
+            "the token must stop the second snapshot"
+        );
+        // Revalidation really ran before the cancellation outcome was built.
+        assert_eq!(revalidations.get(), 1);
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        let partial = &detail["partial_observation"];
+        assert_eq!(partial["termination"], "cancelled");
+        assert_eq!(partial["completed"], false);
+        assert_eq!(partial["verified"], true);
+        assert_eq!(
+            partial["identity"],
+            "app-selector+canonical-executable+pid+start-identity"
+        );
+        assert_eq!(partial["coverage_complete"], true);
+        // The complete shaped baseline survives the cancellation.
+        let baseline = partial["baseline"].as_array().expect("baseline array");
+        assert_eq!(baseline.len(), 1);
+        assert_eq!(baseline[0]["pid"], 10);
+        assert_eq!(partial["emitted"], 0);
+        assert_eq!(partial["selectors"][0]["selector"], "fixture");
+    }
+
+    #[test]
+    fn a_same_round_event_ceiling_win_over_a_token_that_round_flipped() {
+        // Round 2 flips the token AND returns a snapshot whose transition reaches the
+        // event ceiling. The normal truncated result must win and the event survive.
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let revalidations = std::cell::Cell::new(0usize);
+        let snapshot = |_: &[AppBinding], _: usize| -> Result<AppSnapshot, CuError> {
+            let n = calls.get() + 1;
+            calls.set(n);
+            let rows = if n == 1 {
+                Instances::new()
+            } else {
+                instances(&[(10, "a")])
+            };
+            if n == 2 {
+                token.set(true);
+            }
+            Ok(snapshot_with(vec![rows]))
+        };
+        let value = run_with_providers(
+            60_000,
+            50,
+            1,
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            snapshot,
+            ok_revalidate(&revalidations),
+        )
+        .expect("the same-round event ceiling must win over the flipped token");
+        assert!(token.get(), "the provider really did flip the token");
+        assert_eq!(calls.get(), 2);
+        let events = value["events"].as_array().expect("events array");
+        assert_eq!(events.len(), 1, "the same-round event must remain present");
+        assert_eq!(events[0]["kind"], "launched");
+        // Shipped ceiling semantics: truncated while the deadline has not passed.
+        assert_eq!(value["truncated"], true);
+        assert_eq!(value["completed"], false);
+        assert!(
+            value.get("termination").is_none(),
+            "the normal payload must not gain a termination field"
+        );
+        assert_eq!(revalidations.get(), 1, "normal path revalidates once");
+    }
+
+    #[test]
+    fn a_same_round_snapshot_error_win_over_a_token_that_round_flipped() {
+        // Round 2 flips the token and then fails. The provider error must surface and
+        // revalidation must not have replaced it.
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let revalidations = std::cell::Cell::new(0usize);
+        let snapshot = |_: &[AppBinding], _: usize| -> Result<AppSnapshot, CuError> {
+            let n = calls.get() + 1;
+            calls.set(n);
+            if n == 1 {
+                return Ok(snapshot_with(vec![Instances::new()]));
+            }
+            token.set(true);
+            Err(CuError::new(
+                "app_watch_fixture_provider_error",
+                "the fixture provider refused the later snapshot",
+            ))
+        };
+        let error = run_with_providers(
+            60_000,
+            50,
+            8,
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            snapshot,
+            ok_revalidate(&revalidations),
+        )
+        .expect_err("the provider error must surface");
+        assert!(token.get());
+        assert_eq!(error.code, "app_watch_fixture_provider_error");
+        assert_eq!(calls.get(), 2);
+        // The authority error returned before any final binding work was attempted.
+        assert_eq!(
+            revalidations.get(),
+            0,
+            "a same-round provider error must not reach revalidation"
+        );
+    }
+
+    #[test]
+    fn a_cancel_after_an_event_below_the_ceiling_keeps_the_event_in_partial_evidence() {
+        // Round 2 flips the token INSIDE its own snapshot and returns one transition,
+        // staying below the ceiling. The token is observed in the NEXT pause, so the
+        // partial evidence must still contain that already-observed event.
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let revalidations = std::cell::Cell::new(0usize);
+        let snapshot = |_: &[AppBinding], _: usize| -> Result<AppSnapshot, CuError> {
+            let n = calls.get() + 1;
+            calls.set(n);
+            if n == 2 {
+                token.set(true);
+                return Ok(snapshot_with(vec![instances(&[(10, "a")])]));
+            }
+            Ok(snapshot_with(vec![Instances::new()]))
+        };
+        let error = run_with_providers(
+            60_000,
+            50,
+            8,
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            snapshot,
+            ok_revalidate(&revalidations),
+        )
+        .expect_err("a cancel after an event must return partial evidence");
+        assert_eq!(calls.get(), 2);
+        assert_eq!(revalidations.get(), 1);
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        let partial = &detail["partial_observation"];
+        assert_eq!(partial["termination"], "cancelled");
+        assert_eq!(partial["completed"], false);
+        let events = partial["events"].as_array().expect("events array");
+        assert_eq!(events.len(), 1, "the observed event must be preserved");
+        assert_eq!(events[0]["kind"], "launched");
+        assert_eq!(partial["emitted"], 1);
+    }
+
+    #[test]
+    fn binding_drift_wins_over_a_pending_cancellation() {
+        // The token becomes pending only AFTER authority began: the initial snapshot
+        // closure sets it while returning the baseline. So this models a real
+        // production late cancellation, which the wrapper prechecks would not have
+        // rejected, and the following pause observes it. Drift must still win.
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let revalidations = std::cell::Cell::new(0usize);
+        let snapshot = |_: &[AppBinding], _: usize| -> Result<AppSnapshot, CuError> {
+            calls.set(calls.get() + 1);
+            token.set(true);
+            Ok(snapshot_with(vec![instances(&[(10, "a")])]))
+        };
+        let drift = |_: &[AppBinding]| -> Result<(), CuError> {
+            revalidations.set(revalidations.get() + 1);
+            Err(CuError::new(
+                "app_watch_identity_drift",
+                "application identity became unavailable during lifecycle watch",
+            ))
+        };
+        let error = run_with_providers(
+            60_000,
+            60_000,
+            8,
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            snapshot,
+            drift,
+        )
+        .expect_err("drift must win over the pending cancellation");
+        assert!(token.get(), "the initial snapshot really did set the token");
+        assert_eq!(error.code, "app_watch_identity_drift");
+        assert_eq!(revalidations.get(), 1, "revalidation runs exactly once");
+        // The baseline snapshot still ran; the point is that no partial cancellation
+        // replaced the drift outcome.
+        assert_eq!(calls.get(), 1);
+        let detail = error.detail.unwrap_or(Value::Null);
+        assert_ne!(detail["effect"], "partially_performed");
+    }
+
+    #[test]
+    fn a_same_round_deadline_win_over_a_token_that_round_flipped() {
+        // Round 2 flips the token AND burns the remaining duration inside its own
+        // snapshot call, so the deadline has passed when it returns. The normal
+        // completion must win, and the token must really have been flipped rather than
+        // the run merely timing out on an unflipped token.
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let revalidations = std::cell::Cell::new(0usize);
+        let snapshot = |_: &[AppBinding], _: usize| -> Result<AppSnapshot, CuError> {
+            let n = calls.get() + 1;
+            calls.set(n);
+            if n == 2 {
+                std::thread::sleep(Duration::from_millis(200));
+                token.set(true);
+                return Ok(snapshot_with(vec![instances(&[(10, "a")])]));
+            }
+            Ok(snapshot_with(vec![Instances::new()]))
+        };
+        let value = run_with_providers(
+            200,
+            20,
+            8,
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            snapshot,
+            ok_revalidate(&revalidations),
+        )
+        .expect("the reached deadline must win over the token flipped in that round");
+        // Proves the token really flipped inside round 2.
+        assert!(token.get(), "the provider really did flip the token");
+        assert_eq!(calls.get(), 2, "round 2 really happened");
+        assert_eq!(revalidations.get(), 1);
+        // A normal result, not a cancellation.
+        assert!(value.get("termination").is_none());
+        assert_eq!(value["completed"], true);
+        let events = value["events"].as_array().expect("events array");
+        assert_eq!(events.len(), 1, "the round-2 event was derived before exit");
+        assert_eq!(events[0]["kind"], "launched");
+    }
+
+    #[test]
+    fn an_uncancelled_watch_keeps_its_normal_shape_and_has_no_termination() {
+        let revalidations = std::cell::Cell::new(0usize);
+        let snapshot = |_: &[AppBinding], _: usize| -> Result<AppSnapshot, CuError> {
+            Ok(snapshot_with(vec![instances(&[(10, "a")])]))
+        };
+        let value = run_with_providers(
+            60,
+            50,
+            8,
+            crate::execution_control::ExecutionControl::none(),
+            snapshot,
+            ok_revalidate(&revalidations),
+        )
+        .expect("an uncancelled watch must succeed");
+        assert_eq!(value["emitted"], 0);
+        assert_eq!(value["truncated"], false);
+        assert_eq!(value["completed"], true);
+        assert_eq!(value["coverage_complete"], true);
+        assert_eq!(value["verified"], true);
+        assert_eq!(
+            value["identity"],
+            "app-selector+canonical-executable+pid+start-identity"
+        );
+        assert_eq!(value["duration_ms"], 60);
+        assert_eq!(value["interval_ms"], 50);
+        assert_eq!(value["max_events"], 8);
+        assert_eq!(value["max_processes"], 8);
+        assert_eq!(value["selectors"][0]["selector"], "fixture");
+        assert_eq!(value["baseline"].as_array().expect("baseline").len(), 1);
+        assert!(
+            value.get("termination").is_none(),
+            "the normal payload must not gain a termination field"
+        );
+        assert_eq!(revalidations.get(), 1);
     }
 
     #[test]
