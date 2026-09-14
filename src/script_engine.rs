@@ -1003,33 +1003,14 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                     "main",
                     &[],
                 )
-                .map(|outcome| ScriptInvocationResult {
-                    stdout: outcome.stdout,
-                    stdout_truncated: outcome.truncated_stdout,
-                    value: outcome.values.first().and_then(qjswasm_value_as_json),
-                    cost: Some(ScriptCost {
-                        steps: outcome.steps,
-                        peak_call_depth: outcome.peak_call_depth,
-                        peak_activation_slots: outcome.peak_activation_slots,
-                        host_ops: outcome.host_ops,
-                        host_bytes: outcome.host_bytes,
-                        waited_ms: outcome.waited_ms,
-                        heap_pages: outcome.heap_pages,
-                        heap_bytes: outcome.heap_bytes,
-                        heap_start_bytes: outcome.heap_start_bytes,
-                        json_parse_bytes: outcome.json_parse_bytes,
-                        json_stringify_bytes: outcome.json_stringify_bytes,
-                        immediate_stringify_host_argument_bytes: outcome
-                            .immediate_stringify_host_argument_bytes,
-                    }),
-                })
                 .map_err(|e| {
                     let mut error = qjs_engine_error(e);
                     error.stdout = engine.take_failed_stdout();
                     error.stdout_truncated = engine.take_failed_stdout_truncated();
                     error.cost = engine.take_failed_cost().map(script_cost);
                     error
-                }),
+                })
+                .and_then(qjswasm_invocation_result),
         )
     }
 
@@ -1050,33 +1031,14 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                     "main",
                     &[],
                 )
-                .map(|outcome| ScriptInvocationResult {
-                    stdout: outcome.stdout,
-                    stdout_truncated: outcome.truncated_stdout,
-                    value: outcome.values.first().and_then(qjswasm_value_as_json),
-                    cost: Some(ScriptCost {
-                        steps: outcome.steps,
-                        peak_call_depth: outcome.peak_call_depth,
-                        peak_activation_slots: outcome.peak_activation_slots,
-                        host_ops: outcome.host_ops,
-                        host_bytes: outcome.host_bytes,
-                        waited_ms: outcome.waited_ms,
-                        heap_pages: outcome.heap_pages,
-                        heap_bytes: outcome.heap_bytes,
-                        heap_start_bytes: outcome.heap_start_bytes,
-                        json_parse_bytes: outcome.json_parse_bytes,
-                        json_stringify_bytes: outcome.json_stringify_bytes,
-                        immediate_stringify_host_argument_bytes: outcome
-                            .immediate_stringify_host_argument_bytes,
-                    }),
-                })
                 .map_err(|error| {
                     let mut error = qjs_engine_error(error);
                     error.stdout = engine.take_failed_stdout();
                     error.stdout_truncated = engine.take_failed_stdout_truncated();
                     error.cost = engine.take_failed_cost().map(script_cost);
                     error
-                }),
+                })
+                .and_then(qjswasm_invocation_result),
         )
     }
 
@@ -1234,26 +1196,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                 error
             })?;
 
-        Ok(ScriptInvocationResult {
-            stdout: outcome.stdout,
-            stdout_truncated: outcome.truncated_stdout,
-            value: outcome.values.first().and_then(qjswasm_value_as_json),
-            cost: Some(ScriptCost {
-                steps: outcome.steps,
-                peak_call_depth: outcome.peak_call_depth,
-                peak_activation_slots: outcome.peak_activation_slots,
-                host_ops: outcome.host_ops,
-                host_bytes: outcome.host_bytes,
-                waited_ms: outcome.waited_ms,
-                heap_pages: outcome.heap_pages,
-                heap_bytes: outcome.heap_bytes,
-                heap_start_bytes: outcome.heap_start_bytes,
-                json_parse_bytes: outcome.json_parse_bytes,
-                json_stringify_bytes: outcome.json_stringify_bytes,
-                immediate_stringify_host_argument_bytes: outcome
-                    .immediate_stringify_host_argument_bytes,
-            }),
-        })
+        qjswasm_invocation_result(outcome)
     }
 }
 
@@ -1293,16 +1236,57 @@ fn qjs_host_bridges(fleet: Option<ScriptFleetBridgeFn>) -> agenterm_qjswasm::Hos
     }
 }
 
+#[cfg(feature = "script-qjswasm")]
+#[allow(
+    clippy::result_large_err,
+    reason = "a projection refusal retains the completed run's bounded stdout and cost inline"
+)]
+fn qjswasm_invocation_result(
+    outcome: agenterm_qjswasm::Outcome,
+) -> Result<ScriptInvocationResult, ScriptEngineError> {
+    let cost = ScriptCost {
+        steps: outcome.steps,
+        peak_call_depth: outcome.peak_call_depth,
+        peak_activation_slots: outcome.peak_activation_slots,
+        host_ops: outcome.host_ops,
+        host_bytes: outcome.host_bytes,
+        waited_ms: outcome.waited_ms,
+        heap_pages: outcome.heap_pages,
+        heap_bytes: outcome.heap_bytes,
+        heap_start_bytes: outcome.heap_start_bytes,
+        json_parse_bytes: outcome.json_parse_bytes,
+        json_stringify_bytes: outcome.json_stringify_bytes,
+        immediate_stringify_host_argument_bytes: outcome.immediate_stringify_host_argument_bytes,
+    };
+    let value = match outcome.values.first().map(qjswasm_value_as_json) {
+        Some(Err(message)) => {
+            return Err(ScriptEngineError {
+                message,
+                category: ScriptFailureCategory::Script,
+                stdout: outcome.stdout,
+                stdout_truncated: outcome.truncated_stdout,
+                cost: Some(cost),
+            });
+        }
+        Some(Ok(value)) => value,
+        None => None,
+    };
+    Ok(ScriptInvocationResult {
+        stdout: outcome.stdout,
+        stdout_truncated: outcome.truncated_stdout,
+        value,
+        cost: Some(cost),
+    })
+}
+
 /// Project one engine value into the JSON shape every backend reports through.
 ///
-/// `None` means "this value has no JSON counterpart", which is a real answer
-/// and not a failure: `undefined` is absent by definition, and JSON numbers
-/// exclude `NaN` and the infinities. Inventing `null` for those would make a
-/// script that returned nothing indistinguishable from one that returned
-/// `null`, and it is the `.qjs` subset that just gained the ability to tell
-/// those apart.
+/// `None` means `undefined`, which is absent by definition. Non-finite numbers
+/// instead fail the invocation: silently treating them as absent would make a
+/// numeric completion indistinguishable from `undefined`, while inventing
+/// `null` would change it into another valid JavaScript value.
 #[cfg(feature = "script-qjswasm")]
-fn qjswasm_value_as_json(value: &agenterm_qjswasm::Value) -> Option<Value> {
+fn qjswasm_value_as_json(value: &agenterm_qjswasm::Value) -> Result<Option<Value>, String> {
     use agenterm_qjswasm::{JsValue, Value as EngineValue};
     match value {
         EngineValue::I32(v) => Some(Value::from(*v)),
@@ -1313,13 +1297,22 @@ fn qjswasm_value_as_json(value: &agenterm_qjswasm::Value) -> Option<Value> {
         EngineValue::Js(JsValue::Bool(b)) => Some(Value::Bool(*b)),
         EngineValue::Js(JsValue::Number(x)) => number_as_json(*x),
         EngineValue::Js(JsValue::Str(text)) => Some(Value::String(text.clone())),
-        EngineValue::Js(JsValue::Undefined) => None,
+        EngineValue::Js(JsValue::Undefined) => return Ok(None),
         // `JsValue` is `#[non_exhaustive]` because the language is still
-        // growing. A kind that did not exist when this was written is reported
-        // as "no JSON counterpart" rather than guessed at; the commit that adds
-        // it upstream is the one that decides what it looks like here.
-        _ => None,
+        // growing. A kind that did not exist when this was written fails
+        // explicitly rather than becoming the same absence as `undefined`;
+        // the commit that adds it upstream decides its truthful projection.
+        _ => {
+            return Err(
+                "qjswasm_result_not_json: completion value has no JSON projection".to_owned(),
+            );
+        }
     }
+    .map(Some)
+    .ok_or_else(|| {
+        "qjswasm_result_not_json: non-finite completion numbers cannot cross the JSON result wire"
+            .to_owned()
+    })
 }
 
 /// One binary64 as JSON, integral where it can be.
@@ -1329,7 +1322,7 @@ fn qjswasm_value_as_json(value: &agenterm_qjswasm::Value) -> Option<Value> {
 /// and a consumer asking for an integer would get nothing. ECMA-262's own
 /// `JSON.stringify` writes `42` for that value, so matching it is the faithful
 /// answer rather than a convenience. `NaN` and the infinities have no JSON
-/// spelling at all and are reported absent.
+/// spelling; the caller turns their `None` here into a typed invocation failure.
 #[cfg(feature = "script-qjswasm")]
 fn number_as_json(x: f64) -> Option<Value> {
     if x.is_finite() && x.fract() == 0.0 && x >= i64::MIN as f64 && x <= i64::MAX as f64 {
@@ -2260,6 +2253,44 @@ return native.call("{library}|sqrt|f64(f64)", [-1]);
             assert_eq!(result.value, want, "{source:?}");
             assert!(result.stdout.is_empty(), "{source:?}");
         }
+
+        let error = engine
+            .execute("print(\"before\"); return 1 / 0;", &options, None)
+            .expect_err("Infinity has no truthful JSON completion value");
+        assert_eq!(error.category, ScriptFailureCategory::Script);
+        assert!(error.message.contains("qjswasm_result_not_json"));
+        assert_eq!(error.stdout, "before\n");
+        assert!(error.cost.is_some(), "the completed run keeps its bill");
+
+        let (artifact, kind) = engine
+            .pack_artifact("return 0 / 0;")
+            .expect("qjswasm owns a packed artifact")
+            .expect("NaN compiles");
+        assert_eq!(kind, "wasm");
+        let artifact_error = engine
+            .execute_artifact(&artifact, &options, None)
+            .expect("qjswasm loads its artifact")
+            .expect_err("a packed NaN must meet the same JSON boundary");
+        assert_eq!(artifact_error.category, ScriptFailureCategory::Script);
+        assert!(artifact_error.message.contains("qjswasm_result_not_json"));
+        assert!(
+            artifact_error.cost.is_some(),
+            "the packed run keeps its bill"
+        );
+
+        let plain_wasm = wat::parse_str(
+            r#"(module
+                (func (export "main") (result f64)
+                    f64.const inf))"#,
+        )
+        .expect("plain wasm fixture");
+        let plain_error = engine
+            .execute_plain_wasm_artifact(&plain_wasm, &options, None)
+            .expect("qjswasm loads plain wasm")
+            .expect_err("plain wasm Infinity meets the same JSON boundary");
+        assert_eq!(plain_error.category, ScriptFailureCategory::Script);
+        assert!(plain_error.message.contains("qjswasm_result_not_json"));
+        assert!(plain_error.cost.is_some(), "the plain run keeps its bill");
     }
 
     #[cfg(feature = "script-acu-embedder")]

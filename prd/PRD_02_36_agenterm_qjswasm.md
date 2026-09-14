@@ -273,6 +273,8 @@ agenterm-qjswasm
 │  ├─ [x] invocation stdout truncation survives success and failure projections; JSON names `stdout_truncated`, plain CLI warns on stderr, and `--max-output-bytes` reaches the engine
 │  ├─ [x] the worker result wire preserves an explicit `null` completion value instead of
 │  │      decoding it as the same absent value used for `undefined`
+│  ├─ [x] source, compiled-qjs artifact and plain-wasm result routes share one projection;
+│  │      non-finite completion numbers fail as `qjswasm_result_not_json` while retaining stdout and cost
 │  ├─ [x] Fleet and ACU bill the final parked result into `host_bytes` on both success and application-error paths; equal-size replies cost equally, while an oversized reply bills the bounded refusal the guest reads
 │  ├─ [x] `native_invoke` checks a cancel that arrived inside its synchronous native frame before parking or billing the JSON result; the failed bill retains only request bytes
 │  ├─ [x] in-process `pack load` / `qualify` failures preserve their pre-failure stdout and disclose truncation instead of flattening the engine error to text
