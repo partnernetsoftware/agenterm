@@ -1988,7 +1988,14 @@ impl Executor {
                 interval_ms,
                 event_max,
                 ..
-            } => device_watch_payload(*selector, *max, *duration_ms, *interval_ms, *event_max),
+            } => device_watch_payload(
+                *selector,
+                *max,
+                *duration_ms,
+                *interval_ms,
+                *event_max,
+                control,
+            ),
             Command::DeviceClaims { offset, max, .. } => device_claims_payload(*offset, *max),
             Command::DeviceClaim {
                 device_id,

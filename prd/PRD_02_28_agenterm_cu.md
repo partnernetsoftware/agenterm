@@ -208,7 +208,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │     │  remain authoritative after dispatch and are never hidden by a late cancel
   │  │     └─ public `wait` window/tree/text/ready/expect variants share the same token before
   │  │        every authority round and through a sliced pause; matched/error replies still win;
-  │  │        external-terminal `term wait` applies the same rule after exact window binding
+  │  │        external-terminal `term wait` applies the same rule after exact window binding;
+  │  │        `device-watch` checks before its first inventory sample and later sample rounds,
+  │  │        while post-sample cancellation preserves the shaped bounded partial observation
+  │  │        in typed error detail instead of falsely claiming that no effect was performed
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
   │  ├─ [x] ten compound compatibility shapes execute through pure qjs projections + the same typed calls
   │  │  └─ native failures bypass projection unchanged, preserving command, count and structured effect/recovery facts;
@@ -2759,7 +2762,12 @@ flowchart LR
   event ceilings, and preserves an overall monotonic deadline. The registered
   `cu.device-watch` qjswasm court is green on macOS arm64; both Windows targets,
   both Linux targets and macOS x86_64 cross-build. Linux and Windows native
-  runtime courts remain open, so this leaf stays `[~]`.
+  runtime courts remain open, so this leaf stays `[~]`. Call-scoped cancellation
+  is checked before the first inventory sample and between later rounds. Once a
+  sample exists, cancellation returns a typed non-success whose structured
+  detail retains the same privacy-shaped, size-bounded partial payload with
+  `termination: cancelled`; it never relabels observed work as `not_performed`
+  or changes the normal `duration|event-limit` success contract.
 - [~] `device-claims`, `device-claim`, `device-status`, `device-read`,
   `device-write`, `device-renew` and `device-release` now form one candidate
   native ownership slice. A public opaque installation-HMAC device id is only
