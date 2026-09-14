@@ -407,6 +407,7 @@ fn qjs_budget(options: &ScriptInvocationOptions) -> agenterm_qjswasm::Budget {
     let mut budget = agenterm_qjswasm::Budget::default();
     if let Some(budgets) = options.budgets.as_ref() {
         budget.limits.max_steps = budgets.operations;
+        budget.limits.max_call_depth = budgets.call_depth;
         budget.max_host_ops = budgets.host_operations;
         budget.max_stdout_bytes = budgets.output_bytes;
         // A tool result becomes a guest string, so the public invocation's
@@ -1697,6 +1698,20 @@ mod tests {
         let mapped = qjs_budget(&options);
         assert_eq!(mapped.max_bridge_result_bytes, 3 * 1024 * 1024);
         assert_eq!(mapped.max_result_string_bytes, 3 * 1024 * 1024);
+    }
+
+    #[test]
+    #[cfg(feature = "script-qjswasm")]
+    fn qjs_budget_maps_the_public_call_depth_instead_of_using_the_core_default() {
+        let invocation_budget = ScriptBudgets {
+            call_depth: 7,
+            ..ScriptBudgets::default()
+        };
+        let options = ScriptInvocationOptions {
+            budgets: Some(invocation_budget),
+            ..ScriptInvocationOptions::default()
+        };
+        assert_eq!(qjs_budget(&options).limits.max_call_depth, 7);
     }
 
     #[test]

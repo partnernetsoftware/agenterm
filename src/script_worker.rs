@@ -1160,6 +1160,33 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn qjswasm_public_call_depth_is_the_enforced_core_limit() {
+        let source = r#"
+function descend(n) {
+    if (n == 0) { return 0; }
+    return 1 + descend(n - 1);
+}
+return descend(20);
+"#;
+        let ordinary = execute(invocation(ScriptOperation::Run, source));
+        assert!(ordinary.ok, "the default budget admits this depth");
+
+        let mut bounded = invocation(ScriptOperation::Run, source);
+        bounded.budgets.call_depth = 8;
+        let bounded = execute(bounded);
+        assert!(!bounded.ok);
+        assert_eq!(bounded.exit_class, ScriptExitClass::Limit);
+        assert_eq!(failure_code(&bounded), "qjswasm_backend");
+        assert!(
+            bounded
+                .failure
+                .as_ref()
+                .is_some_and(|failure| failure.message.contains("max_call_depth"))
+        );
+    }
+
     #[test]
     fn artifact_input_is_explicit_and_bounded_before_engine_dispatch() {
         let artifact = crate::script_protocol::ScriptArtifact::from_bytes(
