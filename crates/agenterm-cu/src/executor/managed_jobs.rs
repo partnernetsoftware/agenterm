@@ -627,21 +627,11 @@ pub(super) fn job_resources_payload(
     requested_interval_ms: Option<u64>,
     requested_max_samples: Option<usize>,
     members_per_sample: bool,
+    control: ExecutionControl<'_>,
 ) -> Result<Value, CuError> {
-    let record = checked_record(job_id, generation)?;
-    let expected = record.process.as_ref().ok_or_else(|| {
-        CuError::new(
-            "managed_job_process_identity_unavailable",
-            "managed-job has no published exact child process identity",
-        )
-        .with_detail(json!({
-            "job_id": job_id,
-            "generation": generation,
-            "state": record.state,
-        }))
-    })?;
     if watch_ms.is_none() {
-        return resource_point_payload(&record, expected);
+        let (record, expected) = job_resource_context(job_id, generation)?;
+        return resource_point_payload(&record, &expected);
     }
 
     let duration_ms = watch_ms.expect("checked above");
@@ -653,13 +643,117 @@ pub(super) fn job_resources_payload(
             duration_ms.div_ceil((max_samples - 1) as u64).max(1)
         }
     });
+    job_resources_watch_with_providers(
+        JobResourcesWatchRequest {
+            job_id,
+            generation,
+            duration_ms,
+            interval_ms,
+            max_samples,
+            members_per_sample,
+        },
+        control,
+        || job_resource_context(job_id, generation),
+        |context| resource_point_payload(&context.0, &context.1),
+    )
+}
+
+fn job_resource_context(
+    job_id: &str,
+    generation: u64,
+) -> Result<
+    (
+        ManagedJobRecord,
+        crate::managed_job_store::ExactProcessIdentity,
+    ),
+    CuError,
+> {
+    let record = checked_record(job_id, generation)?;
+    let expected = record.process.clone().ok_or_else(|| {
+        CuError::new(
+            "managed_job_process_identity_unavailable",
+            "managed-job has no published exact child process identity",
+        )
+        .with_detail(json!({
+            "job_id": job_id,
+            "generation": generation,
+            "state": record.state,
+        }))
+    })?;
+    Ok((record, expected))
+}
+
+#[derive(Clone, Copy)]
+struct JobResourcesWatchRequest<'a> {
+    job_id: &'a str,
+    generation: u64,
+    duration_ms: u64,
+    interval_ms: u64,
+    max_samples: usize,
+    members_per_sample: bool,
+}
+
+struct JobResourcesWatchState {
+    latest: Value,
+    samples: Vec<Value>,
+    member_rows: usize,
+}
+
+impl JobResourcesWatchState {
+    fn into_value(self, request: JobResourcesWatchRequest<'_>, ended_reason: &str) -> Value {
+        let membership_complete = self
+            .samples
+            .iter()
+            .all(|sample| sample["membership_complete"] == Value::Bool(true));
+        json!({
+            "job_id": request.job_id,
+            "generation": request.generation,
+            "scope": "containment-group",
+            "provider": self.latest["provider"],
+            "breakaway_prevented": self.latest["breakaway_prevented"],
+            "membership_complete": membership_complete,
+            "tree_complete": self.latest["tree_complete"],
+            "coherence": "stable-membership-sweep",
+            "mode": "bounded-series",
+            "duration_ms": request.duration_ms,
+            "interval_ms": request.interval_ms,
+            "max_samples": request.max_samples,
+            "members_per_sample": request.members_per_sample,
+            "member_rows": self.member_rows,
+            "max_member_rows": JOB_RESOURCE_MAX_MEMBER_ROWS,
+            "emitted": self.samples.len(),
+            "completed": ended_reason == "duration",
+            "truncated": ended_reason == "max-samples" || ended_reason == "member-rows",
+            "ended_reason": ended_reason,
+            "member_count": self.latest["member_count"],
+            "members": self.latest["members"],
+            "samples": self.samples,
+            "verified": true,
+        })
+    }
+}
+
+fn job_resources_watch_with_providers<C, B, S>(
+    request: JobResourcesWatchRequest<'_>,
+    control: ExecutionControl<'_>,
+    bind: B,
+    sample_point: S,
+) -> Result<Value, CuError>
+where
+    B: FnOnce() -> Result<C, CuError>,
+    S: Fn(&C) -> Result<Value, CuError>,
+{
+    // Watch-only pre-effect boundary. The point form deliberately never reaches
+    // this helper and keeps its existing single authoritative read semantics.
+    control.check_observe()?;
+    let context = bind()?;
     let started = Instant::now();
-    let deadline = started + Duration::from_millis(duration_ms);
-    let mut samples = Vec::with_capacity(max_samples);
+    let deadline = started + Duration::from_millis(request.duration_ms);
+    let mut samples = Vec::with_capacity(request.max_samples);
     let mut latest = None;
     let mut member_rows = 0usize;
     let ended_reason = loop {
-        match resource_point_payload(&record, expected) {
+        match sample_point(&context) {
             Ok(point) => {
                 let point_members = point["members"].as_array().ok_or_else(|| {
                     CuError::new(
@@ -667,7 +761,7 @@ pub(super) fn job_resources_payload(
                         "managed-job resource point omitted its member array",
                     )
                 })?;
-                if members_per_sample
+                if request.members_per_sample
                     && member_rows_would_overflow(member_rows, point_members.len())
                 {
                     break "member-rows";
@@ -682,7 +776,7 @@ pub(super) fn job_resources_payload(
                     "page_faults": point["page_faults"],
                     "membership_complete": point["membership_complete"],
                 });
-                if members_per_sample {
+                if request.members_per_sample {
                     member_rows += point_members.len();
                     sample["members"] = point["members"].clone();
                 }
@@ -694,46 +788,42 @@ pub(super) fn job_resources_payload(
             }
             Err(error) => return Err(error),
         }
-        if samples.len() >= max_samples {
+        if samples.len() >= request.max_samples {
             break "max-samples";
         }
         if Instant::now() >= deadline {
             break "duration";
         }
-        thread::sleep(
-            Duration::from_millis(interval_ms)
-                .min(deadline.saturating_duration_since(Instant::now())),
-        );
+        let pause_deadline = Instant::now()
+            + Duration::from_millis(request.interval_ms)
+                .min(deadline.saturating_duration_since(Instant::now()));
+        if control.sleep_until_cancelled(pause_deadline) {
+            if Instant::now() >= deadline {
+                break "duration";
+            }
+            let partial = JobResourcesWatchState {
+                latest: latest.expect("watch cancellation follows a sample"),
+                samples,
+                member_rows,
+            }
+            .into_value(request, "cancelled");
+            return Err(CuError::new(
+                "cancelled",
+                "managed-job resource watch was cancelled after an observation",
+            )
+            .with_detail(json!({
+                "effect": "partially_performed",
+                "phase": "observe_wait",
+                "partial_observation": partial,
+            })));
+        }
     };
-    let latest = latest.expect("watch always attempts one sample");
-    let membership_complete = samples
-        .iter()
-        .all(|sample| sample["membership_complete"] == Value::Bool(true));
-    Ok(json!({
-        "job_id": job_id,
-        "generation": generation,
-        "scope": "containment-group",
-        "provider": latest["provider"],
-        "breakaway_prevented": latest["breakaway_prevented"],
-        "membership_complete": membership_complete,
-        "tree_complete": latest["tree_complete"],
-        "coherence": "stable-membership-sweep",
-        "mode": "bounded-series",
-        "duration_ms": duration_ms,
-        "interval_ms": interval_ms,
-        "max_samples": max_samples,
-        "members_per_sample": members_per_sample,
-        "member_rows": member_rows,
-        "max_member_rows": JOB_RESOURCE_MAX_MEMBER_ROWS,
-        "emitted": samples.len(),
-        "completed": ended_reason == "duration",
-        "truncated": ended_reason == "max-samples" || ended_reason == "member-rows",
-        "ended_reason": ended_reason,
-        "member_count": latest["member_count"],
-        "members": latest["members"],
-        "samples": samples,
-        "verified": true,
-    }))
+    Ok(JobResourcesWatchState {
+        latest: latest.expect("watch always attempts one sample"),
+        samples,
+        member_rows,
+    }
+    .into_value(request, ended_reason))
 }
 
 pub(super) fn job_policy_payload(
@@ -2087,6 +2177,264 @@ mod tests {
             timeout_ms,
             max_bytes: 4_096,
         }
+    }
+
+    fn resources_watch_request(
+        duration_ms: u64,
+        interval_ms: u64,
+        max_samples: usize,
+    ) -> JobResourcesWatchRequest<'static> {
+        JobResourcesWatchRequest {
+            job_id: "00000000-0000-4000-8000-00000000feed",
+            generation: 7,
+            duration_ms,
+            interval_ms,
+            max_samples,
+            members_per_sample: true,
+        }
+    }
+
+    fn resource_point(pid: u32, cpu_time_ns: &str) -> Value {
+        json!({
+            "provider": "fixture",
+            "breakaway_prevented": true,
+            "membership_complete": true,
+            "tree_complete": true,
+            "member_count": 1,
+            "membership_sha256": "fixture-membership",
+            "cpu_time_ns": cpu_time_ns,
+            "cpu_ms": "1",
+            "rss_bytes": "4096",
+            "page_faults": {"total": 3, "soft": 2, "hard": 1},
+            "members": [{
+                "pid": pid,
+                "start_identity": "fixture-start",
+                "cpu_time_ns": cpu_time_ns,
+                "cpu_ms": "1",
+                "rss_bytes": "4096",
+                "page_faults": {"total": 3, "soft": 2, "hard": 1},
+                "nice": 0,
+                "verified": true,
+            }],
+        })
+    }
+
+    #[test]
+    fn job_resources_watch_pre_cancel_stops_before_record_and_sample_authority() {
+        let binds = std::cell::Cell::new(0usize);
+        let samples = std::cell::Cell::new(0usize);
+        let error = job_resources_watch_with_providers(
+            resources_watch_request(300_000, 60_000, 8),
+            ExecutionControl::with_cancel_probe(&|| true),
+            || -> Result<(), CuError> {
+                binds.set(binds.get() + 1);
+                unreachable!("a pre-effect cancellation must precede record access")
+            },
+            |_| -> Result<Value, CuError> {
+                samples.set(samples.get() + 1);
+                unreachable!("a pre-effect cancellation must precede resource sampling")
+            },
+        )
+        .expect_err("a pre-effect token cancels the resource watch");
+        assert_eq!((binds.get(), samples.get()), (0, 0));
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("cancellation detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert!(detail.get("partial_observation").is_none());
+    }
+
+    #[test]
+    fn job_resources_watch_cancel_after_a_sample_preserves_the_bounded_series() {
+        let token = std::cell::Cell::new(false);
+        let samples = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let error = job_resources_watch_with_providers(
+            resources_watch_request(300_000, 60_000, 8),
+            ExecutionControl::with_cancel_probe(&probe),
+            || Ok(()),
+            |_| {
+                samples.set(samples.get() + 1);
+                token.set(true);
+                Ok(resource_point(41, "1000000"))
+            },
+        )
+        .expect_err("a post-sample token returns partial resource evidence");
+        assert_eq!(samples.get(), 1);
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("cancellation detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        let partial = &detail["partial_observation"];
+        assert_eq!(partial["ended_reason"], "cancelled");
+        assert_eq!(partial["completed"], false);
+        assert_eq!(partial["truncated"], false);
+        assert_eq!(partial["emitted"], 1);
+        assert_eq!(partial["member_rows"], 1);
+        assert_eq!(partial["members"][0]["pid"], 41);
+        assert_eq!(partial["samples"][0]["cpu_time_ns"], "1000000");
+    }
+
+    #[test]
+    fn job_resources_watch_token_raised_by_binding_still_takes_one_sample() {
+        let token = std::cell::Cell::new(false);
+        let binds = std::cell::Cell::new(0usize);
+        let samples = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let error = job_resources_watch_with_providers(
+            resources_watch_request(300_000, 60_000, 8),
+            ExecutionControl::with_cancel_probe(&probe),
+            || {
+                binds.set(binds.get() + 1);
+                token.set(true);
+                Ok(())
+            },
+            |_| {
+                samples.set(samples.get() + 1);
+                Ok(resource_point(41, "1000000"))
+            },
+        )
+        .expect_err("binding authority makes the watch partially performed");
+        assert_eq!((binds.get(), samples.get()), (1, 1));
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(
+            error.detail.expect("detail")["effect"],
+            "partially_performed"
+        );
+    }
+
+    #[test]
+    fn job_resources_watch_sample_ceiling_wins_over_a_token_from_that_round() {
+        let token = std::cell::Cell::new(false);
+        let probe = || token.get();
+        let value = job_resources_watch_with_providers(
+            resources_watch_request(300_000, 60_000, 1),
+            ExecutionControl::with_cancel_probe(&probe),
+            || Ok(()),
+            |_| {
+                token.set(true);
+                Ok(resource_point(41, "1000000"))
+            },
+        )
+        .expect("the sample ceiling is authoritative");
+        assert!(token.get());
+        assert_eq!(value["ended_reason"], "max-samples");
+        assert_eq!(value["completed"], false);
+        assert_eq!(value["truncated"], true);
+        assert_eq!(value["emitted"], 1);
+        let mut keys = value
+            .as_object()
+            .expect("resource watch object")
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "breakaway_prevented",
+                "coherence",
+                "completed",
+                "duration_ms",
+                "emitted",
+                "ended_reason",
+                "generation",
+                "interval_ms",
+                "job_id",
+                "max_member_rows",
+                "max_samples",
+                "member_count",
+                "member_rows",
+                "members",
+                "members_per_sample",
+                "membership_complete",
+                "mode",
+                "provider",
+                "samples",
+                "scope",
+                "tree_complete",
+                "truncated",
+                "verified",
+            ]
+        );
+    }
+
+    #[test]
+    fn job_resources_watch_terminal_verdict_wins_over_a_token_from_that_round() {
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let value = job_resources_watch_with_providers(
+            resources_watch_request(300_000, 1, 8),
+            ExecutionControl::with_cancel_probe(&probe),
+            || Ok(()),
+            |_| {
+                let call = calls.get() + 1;
+                calls.set(call);
+                if call == 2 {
+                    token.set(true);
+                    return Err(CuError::new(
+                        "managed_job_resources_terminal",
+                        "the fixture job reached a terminal state",
+                    ));
+                }
+                Ok(resource_point(41, "1000000"))
+            },
+        )
+        .expect("terminal after a sample is an ordinary bounded-series result");
+        assert!(token.get());
+        assert_eq!(calls.get(), 2);
+        assert_eq!(value["ended_reason"], "job-terminal");
+        assert_eq!(value["completed"], false);
+        assert_eq!(value["truncated"], false);
+    }
+
+    #[test]
+    fn job_resources_watch_provider_error_wins_over_a_token_from_that_round() {
+        let token = std::cell::Cell::new(false);
+        let probe = || token.get();
+        let error = job_resources_watch_with_providers(
+            resources_watch_request(300_000, 60_000, 8),
+            ExecutionControl::with_cancel_probe(&probe),
+            || Ok(()),
+            |_| {
+                token.set(true);
+                Err(CuError::new(
+                    "job_resources_fixture_authority_error",
+                    "the fixture resource authority refused its sample",
+                ))
+            },
+        )
+        .expect_err("the provider error is authoritative");
+        assert!(token.get());
+        assert_eq!(error.code, "job_resources_fixture_authority_error");
+    }
+
+    #[test]
+    fn job_resources_watch_deadline_wins_over_a_token_from_that_round() {
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let value = job_resources_watch_with_providers(
+            resources_watch_request(40, 10, 8),
+            ExecutionControl::with_cancel_probe(&probe),
+            || Ok(()),
+            |_| {
+                let call = calls.get() + 1;
+                calls.set(call);
+                if call == 2 {
+                    std::thread::sleep(Duration::from_millis(50));
+                    token.set(true);
+                }
+                Ok(resource_point(41, "1000000"))
+            },
+        )
+        .expect("the reached duration is authoritative");
+        assert!(token.get());
+        assert_eq!(calls.get(), 2);
+        assert_eq!(value["ended_reason"], "duration");
+        assert_eq!(value["completed"], true);
+        assert_eq!(value["truncated"], false);
+        assert_eq!(value["emitted"], 2);
     }
 
     #[test]

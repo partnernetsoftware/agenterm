@@ -283,8 +283,8 @@ agenterm-qjswasm
 │  │  └─ [x] shipped native observation waits use operation-specific phase/effect semantics;
 │  │         the canonical enumeration, partial-evidence rules and explicit bounded
 │  │         uninterruptible calls live in PRD 02.28 rather than a second list here.
-│  │         `job-events` now joins that set; `job-resources --watch-ms` remains the
-│  │         named in-repo polling gap that keeps this parent branch partial
+│  │         `job-events` and `job-resources --watch-ms` now join that set; the parent
+│  │         remains partial for the explicitly bounded native calls without a probe
 │  ├─ [x] check-many entry + canonical recursive imports share bytes/modules/deadline budgets
 │  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
 ├─ upstream performance frontier

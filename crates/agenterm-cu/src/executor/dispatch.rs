@@ -352,6 +352,7 @@ impl Executor {
                 *interval_ms,
                 *max_samples,
                 *members_per_sample,
+                control,
             ),
             Command::JobPriority {
                 job_id,

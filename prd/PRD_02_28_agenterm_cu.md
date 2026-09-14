@@ -1921,6 +1921,12 @@ flowchart LR
   faults. Windows Job Objects prevent breakaway and therefore report
   `tree_complete=true`; POSIX process groups report complete current
   membership but deliberately do not claim genealogy after breakaway. The
+  point form remains one authoritative read. The watch form checks the
+  invocation token before record/process identity authority and through every
+  sliced inter-sample pause; after its first sample, cancellation preserves the
+  same bounded series with `ended_reason:cancelled`, while provider/identity
+  errors, terminal state, member-row/sample ceilings and duration remain
+  authoritative in their own round. The
   macOS public qjswasm court proves both point and bounded-watch projections;
   Linux and Windows native evidence remain open. The Bun-free compatibility
   entry now resolves legacy `job resources JOB_ID` through typed `job-status`,
