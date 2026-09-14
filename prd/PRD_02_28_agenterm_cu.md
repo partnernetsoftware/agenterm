@@ -221,7 +221,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │        revalidates the focused-window identity before cancellation can outrank attribution;
   │  │        `windows-watch` preserves the same bounded inventory/event projection after its
   │  │        baseline, including the default one-extra-sample contract, without changing its
-  │  │        public `completed` / `truncated` success vocabulary
+  │  │        public `completed` / `truncated` success vocabulary; `process-usage` watch likewise
+  │  │        preserves its identity-bound sample series, while deadline completion, sample-ceiling
+  │  │        truncation and same-round identity drift remain authoritative over cancellation
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
   │  ├─ [x] ten compound compatibility shapes execute through pure qjs projections + the same typed calls
   │  │  └─ native failures bypass projection unchanged, preserving command, count and structured effect/recovery facts;

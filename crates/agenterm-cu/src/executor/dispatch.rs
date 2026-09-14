@@ -809,9 +809,13 @@ impl Executor {
                 max_samples,
                 ..
             } => match watch_ms {
-                Some(duration_ms) => {
-                    process_usage_watch_payload(*pid, *duration_ms, *interval_ms, *max_samples)
-                }
+                Some(duration_ms) => process_usage_watch_payload(
+                    *pid,
+                    *duration_ms,
+                    *interval_ms,
+                    *max_samples,
+                    control,
+                ),
                 None => process_usage_payload(*pid),
             },
             Command::ProcessWait {

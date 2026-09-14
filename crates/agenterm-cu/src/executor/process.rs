@@ -1128,6 +1128,7 @@ pub(super) fn process_usage_watch_payload(
     watch_ms: u64,
     interval_ms: Option<u64>,
     max_samples: Option<usize>,
+    control: crate::execution_control::ExecutionControl<'_>,
 ) -> Result<Value, CuError> {
     let interval_ms = interval_ms.unwrap_or(DEFAULT_USAGE_INTERVAL_MS);
     let max_samples = max_samples.unwrap_or(DEFAULT_USAGE_MAX_SAMPLES);
@@ -1141,64 +1142,198 @@ pub(super) fn process_usage_watch_payload(
             "process-usage watch requires pid > 0, watch-ms in 1..=86400000, interval-ms in 1..=60000 and max-samples in 1..=4096",
         ));
     }
+    // Validation above stays BEFORE the token is ever consulted, so a malformed
+    // request keeps its inherent typed refusal instead of being masked by a
+    // pre-cancelled token.
+    let request = UsageWatchRequest {
+        pid,
+        watch_ms,
+        interval_ms,
+        max_samples,
+    };
+    process_usage_watch_with_sample(request, control, &process_usage_payload)
+}
 
+/// The resolved bounded-series request, so the ordinary path and the cancellation
+/// partial encode from exactly the same values.
+#[derive(Clone, Copy)]
+struct UsageWatchRequest {
+    pid: u32,
+    watch_ms: u64,
+    interval_ms: u64,
+    max_samples: usize,
+}
+
+/// Everything one bounded usage series accumulates, including the frozen identity
+/// that makes every later sample attributable to the same process.
+struct UsageWatchState {
+    samples: Vec<Value>,
+    initial_identity: Option<String>,
+}
+
+/// Width of one cancellation-observation slice.
+const USAGE_WATCH_CANCEL_SLICE: Duration = Duration::from_millis(10);
+
+/// The inter-sample pause, sliced so a long interval does not delay a stop.
+///
+/// It returns a private `bool` and NEVER builds an error: every post-baseline
+/// cancellation is only a signal to the state owner, which alone decides whether
+/// the outcome is the ordinary payload or a shaped partial.
+fn usage_watch_pause(
+    control: crate::execution_control::ExecutionControl<'_>,
+    interval_ms: u64,
+    deadline: Instant,
+) -> bool {
+    let until = Instant::now()
+        + Duration::from_millis(interval_ms)
+            .min(deadline.saturating_duration_since(Instant::now()));
+    while Instant::now() < until {
+        if control.is_cancelled() {
+            return true;
+        }
+        thread::sleep(
+            USAGE_WATCH_CANCEL_SLICE.min(until.saturating_duration_since(Instant::now())),
+        );
+    }
+    control.is_cancelled()
+}
+
+/// The bounded usage-series loop, GENERIC over its sampler.
+///
+/// The sampler is a generic `Fn` reference rather than a trait object or a type
+/// alias, so production passes the real `process_usage_payload` and a test can pass
+/// a counting closure without either side imposing a `'static` bound.
+fn process_usage_watch_with_sample<S>(
+    request: UsageWatchRequest,
+    control: crate::execution_control::ExecutionControl<'_>,
+    sample: &S,
+) -> Result<Value, CuError>
+where
+    S: Fn(u32) -> Result<Value, CuError>,
+{
+    // PRE-FIRST-AUTHORITY: the ONLY direct `check_observe` in this verb, and the only
+    // valid place for an `effect: not_performed` claim. It runs before the first
+    // sample, so a pre-cancelled watch issues zero reads. Every later cancellation is
+    // a private signal handled by the state owner below.
+    control.check_observe()?;
     let started = Instant::now();
-    let deadline = started + Duration::from_millis(watch_ms);
-    let mut samples = Vec::with_capacity(max_samples.min(256));
-    let mut initial_identity = None::<String>;
+    let deadline = started + Duration::from_millis(request.watch_ms);
+    let mut state = UsageWatchState {
+        samples: Vec::with_capacity(request.max_samples.min(256)),
+        initial_identity: None,
+    };
     loop {
-        let full_sample = process_usage_payload(pid)?;
-        let identity = full_sample["start_identity"]
-            .as_str()
-            .ok_or_else(|| {
-                CuError::new(
-                    "process_identity_unavailable",
-                    "process usage sample omitted its start identity",
-                )
-            })?
-            .to_owned();
-        if let Some(expected) = initial_identity.as_deref() {
+        // SAMPLE FIRST, then account for it: the returned sample is authoritative, and
+        // the frozen-identity comparison below is an authoritative statement about
+        // attribution, so both must complete before any cancellation is consulted.
+        let full_sample = sample(request.pid)?;
+        let identity = usage_watch_identity(&full_sample)?;
+        if let Some(expected) = state.initial_identity.as_deref() {
             if expected != identity {
                 return Err(CuError::new(
                     "process_identity_changed",
                     "process start identity changed during usage observation",
                 )
                 .with_detail(json!({
-                    "pid": pid,
+                    "pid": request.pid,
                     "expected_start_identity": expected,
                     "actual_start_identity": identity,
-                    "samples_completed": samples.len(),
+                    "samples_completed": state.samples.len(),
                 })));
             }
         } else {
-            initial_identity = Some(identity);
+            state.initial_identity = Some(identity);
         }
-        samples.push(json!({
+        state.samples.push(json!({
             "t_ms": started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
             "cpu_time_ns": full_sample["cpu_time_ns"].clone(),
             "resident_bytes": full_sample["resident_bytes"].clone(),
             "page_faults": full_sample["page_faults"].clone(),
         }));
 
-        if Instant::now() >= deadline || samples.len() >= max_samples {
-            break;
+        // The deadline and the sample ceiling are both authoritative bounds and stay
+        // ahead of cancellation for this round.
+        if Instant::now() >= deadline || state.samples.len() >= request.max_samples {
+            let completed = Instant::now() >= deadline;
+            return usage_watch_into_value(state, request, completed);
         }
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        std::thread::sleep(Duration::from_millis(interval_ms).min(remaining));
+        if usage_watch_pause(control, request.interval_ms, deadline) {
+            // DEADLINE FIRST: a bound that is already reached stays the authoritative
+            // outcome even when the final slice saw the token.
+            if Instant::now() >= deadline {
+                return usage_watch_into_value(state, request, true);
+            }
+            return usage_watch_cancelled(state, request);
+        }
     }
-    let completed = Instant::now() >= deadline;
+}
+
+/// The frozen `start_identity` of one usage sample, which is what makes the series
+/// attributable to a single process.
+fn usage_watch_identity(full_sample: &Value) -> Result<String, CuError> {
+    full_sample["start_identity"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            CuError::new(
+                "process_identity_unavailable",
+                "process usage sample omitted its start identity",
+            )
+        })
+}
+
+/// The post-baseline cancellation outcome: a named `cancelled` failure whose
+/// structured detail carries the COMPLETE public partial series.
+///
+/// The partial comes from the same `usage_watch_into_value` encoder as an ordinary
+/// watch, so it has passed the same sample projection and keeps the same field set.
+///
+/// COMPLETION TRUTH: this verb does NOT define `completed` as "did not truncate".
+/// It defines it as "the watch ran to its deadline", with `truncated` as its exact
+/// negation. A cancellation ends the watch before the deadline, so the honest derived
+/// pair is `completed: false` and `truncated: true` -- NOT the windows-watch habit of
+/// preserving a false `truncated`, which would be a different verb's convention.
+/// No `termination` field is added: the outer error code is the termination carrier.
+fn usage_watch_cancelled(
+    state: UsageWatchState,
+    request: UsageWatchRequest,
+) -> Result<Value, CuError> {
+    let partial = usage_watch_into_value(state, request, false)?;
+    Err(CuError::new(
+        "cancelled",
+        "the process usage watch was cancelled after observation began",
+    )
+    .with_detail(json!({
+        "effect": "partially_performed",
+        "phase": "observe_wait",
+        "partial_observation": partial,
+    })))
+}
+
+/// The SOLE encoder for this verb: the ordinary return, the deadline return and the
+/// cancellation partial all come from here, so the three paths cannot drift in key
+/// set or in the `emitted`/`samples`/`completed`/`truncated` relationship.
+///
+/// `completed` is the single meaning-dependent input, because it is the one field
+/// whose truth depends on why the watch stopped: it means "the deadline was reached".
+fn usage_watch_into_value(
+    state: UsageWatchState,
+    request: UsageWatchRequest,
+    completed: bool,
+) -> Result<Value, CuError> {
     Ok(json!({
-        "pid": pid,
-        "start_identity": initial_identity,
+        "pid": request.pid,
+        "start_identity": state.initial_identity,
         "mode": "bounded-series",
-        "duration_ms": watch_ms,
-        "interval_ms": interval_ms,
-        "max_samples": max_samples,
-        "emitted": samples.len(),
+        "duration_ms": request.watch_ms,
+        "interval_ms": request.interval_ms,
+        "max_samples": request.max_samples,
+        "emitted": state.samples.len(),
         "completed": completed,
+        // Unchanged relationship: `truncated` is exactly the negation of `completed`.
         "truncated": !completed,
         "verified": true,
-        "samples": samples,
+        "samples": state.samples,
     }))
 }
 
@@ -3340,6 +3475,277 @@ pub(super) fn process_list_payload(options: ProcessInventoryOptions<'_>) -> Resu
 mod tests {
     use super::*;
 
+    // ---- cooperative process-usage watch cancellation --------------------------
+
+    /// A request using only publicly valid bounds: pid > 0, watch-ms 1..=86400000,
+    /// interval-ms 1..=60000, max-samples 1..=4096.
+    const fn usage_request(
+        watch_ms: u64,
+        interval_ms: u64,
+        max_samples: usize,
+    ) -> UsageWatchRequest {
+        UsageWatchRequest {
+            pid: 4242,
+            watch_ms,
+            interval_ms,
+            max_samples,
+        }
+    }
+
+    /// One usage sample shaped like the real `process_usage_payload` projection, so
+    /// the frozen-identity comparison reads exactly the field it reads in production.
+    fn usage_sample(identity: &str, cpu_time_ns: u64) -> Value {
+        json!({
+            "pid": 4242,
+            "start_identity": identity,
+            "cpu_time_ns": cpu_time_ns,
+            "resident_bytes": 1024u64,
+            "page_faults": 3u64,
+        })
+    }
+
+    #[test]
+    fn pre_cancel_issues_zero_samples_and_claims_not_performed() {
+        // The sampler counts and PANICS, proving no authority is reachable and that the
+        // shared pre-effect check really lives inside the loop helper.
+        let calls = std::cell::Cell::new(0usize);
+        let sample = |_: u32| -> Result<Value, CuError> {
+            calls.set(calls.get() + 1);
+            unreachable!("a pre-effect cancel must not take a sample")
+        };
+        let error = process_usage_watch_with_sample(
+            usage_request(30_000, 50, 64),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&|| true),
+            &sample,
+        )
+        .expect_err("a pre-effect cancel must refuse the watch");
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(calls.get(), 0, "no sample on a pre-effect cancel");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert!(
+            detail.get("partial_observation").is_none(),
+            "nothing was observed, so no partial may be claimed"
+        );
+    }
+
+    #[test]
+    fn a_pre_cancel_does_not_mask_an_inherent_validation_refusal() {
+        // The public entry validates before it ever consults the token, so a malformed
+        // request keeps its own typed refusal rather than being reported as cancelled.
+        let error = process_usage_watch_payload(
+            0,
+            30_000,
+            None,
+            None,
+            crate::execution_control::ExecutionControl::with_cancel_probe(&|| true),
+        )
+        .expect_err("pid 0 must be refused by validation");
+        assert_eq!(error.code, "invalid_input");
+    }
+
+    #[test]
+    fn a_post_baseline_pause_cancel_reports_a_shaped_partial() {
+        // The token is raised from a test thread while the watch sits in a long pause,
+        // i.e. AFTER the baseline sample exists. This verb defines `completed` as "the
+        // deadline was reached", so a cancellation must honestly report
+        // completed:false AND truncated:true -- the negation relationship is preserved.
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+
+        let token = Arc::new(AtomicBool::new(false));
+        let raised = Arc::clone(&token);
+        let calls = std::cell::Cell::new(0usize);
+        let trigger = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(25));
+            raised.store(true, Ordering::Release);
+        });
+        let probe = || token.load(Ordering::Acquire);
+        let sample = |_: u32| -> Result<Value, CuError> {
+            let n = calls.get() + 1;
+            calls.set(n);
+            Ok(usage_sample("identity-a", n as u64 * 10))
+        };
+        let error = process_usage_watch_with_sample(
+            usage_request(30_000, 60_000, 64),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &sample,
+        )
+        .expect_err("a post-baseline cancel must refuse the watch");
+        trigger.join().expect("cancel trigger");
+
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(calls.get(), 1, "the token must stop the second sample");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        let partial = &detail["partial_observation"];
+        assert_eq!(partial["pid"], 4242);
+        assert_eq!(partial["mode"], "bounded-series");
+        assert_eq!(partial["duration_ms"], 30_000);
+        assert_eq!(partial["max_samples"], 64);
+        assert_eq!(partial["emitted"], 1);
+        assert_eq!(partial["start_identity"], "identity-a");
+        assert_eq!(partial["verified"], true);
+        // A cancellation ends the watch before its deadline, so the derived pair is
+        // completed:false / truncated:true. Deliberately NOT windows-watch semantics.
+        assert_eq!(partial["completed"], false);
+        assert_eq!(partial["truncated"], true);
+        assert_eq!(partial["samples"].as_array().map(Vec::len), Some(1));
+        assert_eq!(partial["samples"][0]["cpu_time_ns"], 10);
+        // No parallel termination vocabulary was introduced on this verb.
+        assert!(partial.get("termination").is_none());
+    }
+
+    #[test]
+    fn a_same_round_sample_ceiling_win_over_a_token_flipped_that_round() {
+        // Round 1 flips the token AND reaches the sample ceiling in the same round. The
+        // ceiling is authoritative, so the ordinary payload must be returned with the
+        // normal completed/truncated pair and no partial cancellation published.
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let sample = |_: u32| -> Result<Value, CuError> {
+            calls.set(calls.get() + 1);
+            token.set(true);
+            Ok(usage_sample("identity-a", 10))
+        };
+        let value = process_usage_watch_with_sample(
+            usage_request(30_000, 50, 1),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &sample,
+        )
+        .expect("the same-round sample ceiling must win");
+        assert!(token.get(), "the provider really did flip the token");
+        assert_eq!(calls.get(), 1);
+        assert_eq!(value["emitted"], 1);
+        // The ceiling stop is NOT a deadline stop, so this verb reports truncated true.
+        assert_eq!(value["completed"], false);
+        assert_eq!(value["truncated"], true);
+        assert_eq!(value["verified"], true);
+        assert!(value.get("termination").is_none());
+    }
+
+    #[test]
+    fn a_same_round_sample_error_win_over_a_token_flipped_that_round() {
+        // Round 2 flips the token and FAILS. The typed provider error is authoritative
+        // and must not be rewritten as a cancellation.
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let sample = |_: u32| -> Result<Value, CuError> {
+            let n = calls.get() + 1;
+            calls.set(n);
+            if n == 1 {
+                return Ok(usage_sample("identity-a", 10));
+            }
+            token.set(true);
+            Err(CuError::new(
+                "process_usage_fixture_transient",
+                "the fixture usage read failed",
+            ))
+        };
+        let error = process_usage_watch_with_sample(
+            usage_request(30_000, 50, 64),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &sample,
+        )
+        .expect_err("the provider error must win");
+        assert!(token.get(), "the provider really did flip the token");
+        assert_eq!(error.code, "process_usage_fixture_transient");
+        let detail = error.detail.unwrap_or(Value::Null);
+        assert_ne!(detail["effect"], "partially_performed");
+    }
+
+    #[test]
+    fn a_same_round_identity_change_win_over_a_token_flipped_that_round() {
+        // Round 2 flips the token and reports a DIFFERENT start identity. Attribution is
+        // authoritative over a stop request, so the named identity refusal must win and
+        // no partial cancellation may be published for a series that is no longer
+        // attributable to one process.
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let sample = |_: u32| -> Result<Value, CuError> {
+            let n = calls.get() + 1;
+            calls.set(n);
+            if n == 1 {
+                return Ok(usage_sample("identity-a", 10));
+            }
+            token.set(true);
+            Ok(usage_sample("identity-b", 20))
+        };
+        let error = process_usage_watch_with_sample(
+            usage_request(30_000, 50, 64),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &sample,
+        )
+        .expect_err("identity drift must win over the pending cancellation");
+        assert!(token.get(), "the provider really did flip the token");
+        assert_eq!(error.code, "process_identity_changed");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["expected_start_identity"], "identity-a");
+        assert_eq!(detail["actual_start_identity"], "identity-b");
+        assert_eq!(detail["samples_completed"], 1);
+        assert_ne!(detail["effect"], "partially_performed");
+    }
+
+    #[test]
+    fn a_same_round_deadline_win_over_a_token_flipped_that_round() {
+        // Deterministic deadline precedence with publicly valid bounds. The token starts
+        // false. Round 2 sleeps past the remaining duration, THEN flips the token and
+        // returns a valid sample, so the loop must report a COMPLETED watch rather than
+        // publishing a cancellation.
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let sample = |_: u32| -> Result<Value, CuError> {
+            let n = calls.get() + 1;
+            calls.set(n);
+            if n == 2 {
+                std::thread::sleep(Duration::from_millis(220));
+                token.set(true);
+            }
+            Ok(usage_sample("identity-a", 10))
+        };
+        let value = process_usage_watch_with_sample(
+            usage_request(150, 50, 64),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &sample,
+        )
+        .expect("the reached deadline must win over the late token");
+        assert!(token.get(), "the provider really did flip the token");
+        assert_eq!(calls.get(), 2, "round 2 really happened");
+        assert_eq!(value["completed"], true);
+        assert_eq!(value["truncated"], false);
+        assert_eq!(value["emitted"], 2);
+    }
+
+    #[test]
+    fn an_uncancelled_usage_watch_keeps_its_normal_shape_and_has_no_termination() {
+        let sample = |_: u32| -> Result<Value, CuError> { Ok(usage_sample("identity-a", 10)) };
+        let value = process_usage_watch_with_sample(
+            usage_request(120, 50, 2),
+            crate::execution_control::ExecutionControl::none(),
+            &sample,
+        )
+        .expect("an ordinary watch succeeds");
+        assert_eq!(value["pid"], 4242);
+        assert_eq!(value["mode"], "bounded-series");
+        assert_eq!(value["duration_ms"], 120);
+        assert_eq!(value["interval_ms"], 50);
+        assert_eq!(value["max_samples"], 2);
+        assert_eq!(value["emitted"], 2);
+        assert_eq!(value["completed"], false);
+        assert_eq!(value["truncated"], true);
+        assert_eq!(value["verified"], true);
+        assert_eq!(value["start_identity"], "identity-a");
+        assert_eq!(value["samples"].as_array().map(Vec::len), Some(2));
+        assert!(value.get("termination").is_none());
+    }
+
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn exact_process_signal_stops_resumes_and_terminates_one_owned_child() {
@@ -3865,7 +4271,14 @@ mod tests {
     #[test]
     fn process_usage_watch_is_identity_bound_and_stops_at_its_sample_budget() {
         let pid = std::process::id();
-        let value = process_usage_watch_payload(pid, 60_000, Some(10), Some(1)).expect("watch");
+        let value = process_usage_watch_payload(
+            pid,
+            60_000,
+            Some(10),
+            Some(1),
+            crate::execution_control::ExecutionControl::none(),
+        )
+        .expect("watch");
         assert_eq!(value["pid"], pid);
         assert_eq!(value["mode"], "bounded-series");
         assert_eq!(value["emitted"], 1);
@@ -3879,8 +4292,14 @@ mod tests {
 
     #[test]
     fn process_usage_watch_distinguishes_completed_duration_from_truncation() {
-        let value = process_usage_watch_payload(std::process::id(), 1, Some(1), Some(10))
-            .expect("completed watch");
+        let value = process_usage_watch_payload(
+            std::process::id(),
+            1,
+            Some(1),
+            Some(10),
+            crate::execution_control::ExecutionControl::none(),
+        )
+        .expect("completed watch");
         assert_eq!(value["completed"], true);
         assert_eq!(value["truncated"], false);
         assert!(value["emitted"].as_u64().is_some_and(|count| count >= 1));
@@ -3888,14 +4307,21 @@ mod tests {
 
     #[test]
     fn process_usage_watch_rejects_unbounded_remote_wire_values() {
-        let error = process_usage_watch_payload(std::process::id(), 0, Some(1), Some(1))
-            .expect_err("zero duration");
+        let error = process_usage_watch_payload(
+            std::process::id(),
+            0,
+            Some(1),
+            Some(1),
+            crate::execution_control::ExecutionControl::none(),
+        )
+        .expect_err("zero duration");
         assert_eq!(error.code, "invalid_input");
         let error = process_usage_watch_payload(
             std::process::id(),
             1,
             Some(MAX_USAGE_INTERVAL_MS + 1),
             Some(1),
+            crate::execution_control::ExecutionControl::none(),
         )
         .expect_err("large interval");
         assert_eq!(error.code, "invalid_input");
