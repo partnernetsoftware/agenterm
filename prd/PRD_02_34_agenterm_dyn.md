@@ -38,7 +38,7 @@ dyn 仍是独立 crate，自带唯一 loader、独立错误词汇、独立执行
    dyn 负责布局与跳转，**不由 dyn 决定“哪些 ABI 允许”**；
 3. **raw pointer / value 搬运**——整数、浮点、指针位的传参取回；
 4. **必要 ABI 机制**——Unix variadic `ioctl` 特例；
-5. **W^X trampoline 与机器码执行底座**（`src/exec.rs`，写态/执态互斥，永不 RWX）——
+5. **W^X trampoline 与机器码执行底座**（`src/exec.rs`，仅 Unix，写态/执态互斥，永不 RWX）——
    这是**隔离的 future-JIT / host-ISA 槽位**：当前生产调用路径（`invoke_abi` 的五族单态
    trampoline）**不经过 `exec.rs`**，运行时继续 no-JIT；该模块只为将来"把 intern 树折叠
    到宿主 ISA"保留（见 `### Later — not authorized or implemented`）；
@@ -141,11 +141,12 @@ agenterm-dyn
 │   ├── Placeholder | LiveDlcall | LiveOwned | LiveDlcallOwned
 │   └── CU-adjacent facts（发现/兼容元数据，不是授权策略）
 │
-├── D. executable-code boundary                     [保留 · 隔离槽位]
+├── D. executable-code boundary                     [保留 · Unix-only 隔离槽位]
 │   ├── CodeBuffer: W^X，永不 RWX（future-JIT / host-ISA slot）
 │   ├── NameTable: emitted / foreign name
 │   ├── ExecError: 独立 typed error
-│   └── ⚠ 当前生产调用路径不经过本子树：no-JIT 运行时只走 A 的五族单态 trampoline
+│   └── ⚠ Windows 不导出本子树；当前生产调用路径在任何目标都不经过它，
+│       no-JIT 运行时只走 A 的五族单态 trampoline
 │
 └── E. 小 S-expression 解释器                      [已退役]
     ├── parse.rs + eval.rs + sym.rs + value.rs
@@ -154,6 +155,8 @@ agenterm-dyn
 
 共享边（DAG）
 qjswasm ──uses──> A（唯一调用入口 invoke_abi；dyn 不反向决定 exposure）
+qjswasm ──Cargo dependency──> dyn ──mechanism dependency──> libc / libloading
+dyn ──禁止反向依赖──> qjswasm 的 NativeType / exposure catalog / nullability
 qjswasm ──自解码并校验 guest span / nullability / schema──> A
           （dyn 只收到已解码的 host 侧描述：span 越界、pointee 宽度、NUL 由 qjswasm 判定）
 qjswasm ──validated ioctl request──> A.unix_ioctl

@@ -109,6 +109,8 @@ agenterm-qjswasm
 │  │  ├─ layered identity
 │  │  │  ├─ qjswasm = import declaration + lowering + storage/result ownership
 │  │  │  ├─ agenterm-dyn = ABI Importer mechanism; no exposure or caller policy
+│  │  │  │  └─ dependency is qjswasm → dyn → libc/libloading; dyn never imports
+│  │  │  │     qjswasm NativeType, exposure catalogs or nullability policy
 │  │  │  ├─ tinyvm = no-JIT Wasm executor; no dyn, symbol or CU knowledge
 │  │  │  └─ CU = typed product projection through the fixed-sibling provider; no direct dyn dependency
 │  │  ├─ [x] one engine keeps at most 32 loaded libraries, keyed by the declared string, never evicted
