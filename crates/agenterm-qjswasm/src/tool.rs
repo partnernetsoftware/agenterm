@@ -117,9 +117,11 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 55] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 57] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
+    ("fs.read_tail_lossy", 3, 1),
+    ("fs.read_lines_starting_with_lossy", 6, 1),
     ("fs.write", 4, 1),
     ("fs.append", 4, 1),
     ("fs.append_existing_durable", 4, 1),
@@ -202,6 +204,21 @@ pub(crate) fn declarations() -> Vec<HostFn> {
     vec![
         decl("fs.exists", s(), HostResult::I32),
         decl("fs.read_to_string", s(), HostResult::I32),
+        decl(
+            "fs.read_tail_lossy",
+            vec![HostParam::StrPtrLen, HostParam::I32],
+            HostResult::I32,
+        ),
+        decl(
+            "fs.read_lines_starting_with_lossy",
+            vec![
+                HostParam::StrPtrLen,
+                HostParam::StrPtrLen,
+                HostParam::I32,
+                HostParam::I32,
+            ],
+            HostResult::I32,
+        ),
         decl(
             "fs.write",
             vec![HostParam::StrPtrLen, HostParam::StrPtrLen],
@@ -743,6 +760,291 @@ pub(crate) fn install(
                 }
                 std::fs::read_to_string(path)
                     .map_err(|e| format!("fs.read_to_string `{path}`: {e}"))
+            })
+        },
+    )?;
+
+    // `fs.read_tail_lossy(path, max_bytes) -> status`: the last raw
+    // `max_bytes` bytes of the file, projected with `from_utf8_lossy` -- the
+    // same projection `process.command` applies to a captured stream, and the
+    // reason the name says `lossy`: a window that opens in the middle of a
+    // multi-byte character yields U+FFFD instead of refusing the read.
+    //
+    // `max_bytes` counts **raw window bytes** (it is the `tail -c` number),
+    // not the text returned: one bad byte becomes three bytes of U+FFFD. So
+    // the window is read first, then decoded through [`bounded_lossy`], which
+    // refuses before an over-limit `String` is built rather than producing one
+    // and asking `answer` to reject it afterwards.
+    let state = Rc::clone(&shared);
+    let max_result = budget.max_bridge_result_bytes;
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "fs.read_tail_lossy",
+        move |args, memory| {
+            let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            let max_bytes = arg(args, 2)?;
+            answer(&state, "fs.read_tail_lossy", || {
+                let path = utf8(path)?;
+                // A negative length is a bad argument, and it is named as one
+                // before any file is opened or buffer sized: `as usize` would
+                // silently turn `-1` into a colossal value.
+                let max_bytes = checked_usize(max_bytes, "fs.read_tail_lossy max_bytes")?;
+                // Only the ceiling is a refusal. `max_bytes == 0` is a legal
+                // request for an empty tail, so it opens the file (a missing
+                // file is still a file error) and returns nothing.
+                if max_bytes > max_result {
+                    return Err(RESULT_TOO_LARGE.to_string());
+                }
+                let mut file = std::fs::File::open(path)
+                    .map_err(|e| format!("fs.read_tail_lossy `{path}`: {e}"))?;
+                // Length comes from the opened handle, not a second path
+                // lookup: metadata and the bytes must describe one file.
+                let len = file
+                    .metadata()
+                    .map_err(|e| format!("fs.read_tail_lossy `{path}`: {e}"))?
+                    .len();
+                // The window is the smaller of what was asked for and what
+                // exists, and it is read straight into its own allocation --
+                // never the whole file.
+                let window = (max_bytes as u64).min(len) as usize;
+                let start = len - window as u64;
+                use std::io::Seek;
+                file.seek(std::io::SeekFrom::Start(start))
+                    .map_err(|e| format!("fs.read_tail_lossy `{path}`: {e}"))?;
+                let mut bytes = Vec::with_capacity(window);
+                use std::io::Read;
+                let read = file
+                    .take(window as u64)
+                    .read_to_end(&mut bytes)
+                    .map_err(|e| format!("fs.read_tail_lossy `{path}`: {e}"))?;
+                bytes.truncate(read);
+                // Two different ceilings, deliberately not the same number:
+                // `max_bytes` sized the raw window read from the file, while
+                // the decoded string is bounded by the slot's own result cap.
+                // One bad byte becomes three bytes of U+FFFD, so a window of
+                // `n` raw bytes can legitimately decode to more than `n` and
+                // still be a small answer.
+                bounded_lossy(&bytes, max_result)
+            })
+        },
+    )?;
+
+    // `fs.read_lines_starting_with_lossy(path, prefix, max_output_bytes)
+    // -> status`: every line of the file that starts with `prefix`, joined by
+    // newline -- close to the shape `grep` produced, so a consumer keeps
+    // splitting and trimming instead of learning a JSON schema. It is not a
+    // byte-for-byte impersonation of `grep` stdout (the trailing delimiter of
+    // the last line, for one); consumers depend on split and trim only.
+    //
+    // Bounded by construction, not by a check afterwards:
+    //   - a fixed 8 KiB read buffer, so the memory used is independent of how
+    //     long a line -- matched or not -- happens to be;
+    //   - the prefix is matched on the raw line's first bytes as they stream
+    //     past, so a non-matching line is never retained at all;
+    //   - matched raw bytes go into `raw_output` only while
+    //     `raw_output.len() + n <= max_output`; `bounded_lossy` then decodes
+    //     that already-bounded buffer, and refuses if U+FFFD expansion would
+    //     push the text past the ceiling. Nothing over the limit is ever
+    //     allocated, and nothing is returned truncated.
+    let state = Rc::clone(&shared);
+    let max_result = budget.max_bridge_result_bytes;
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "fs.read_lines_starting_with_lossy",
+        move |args, memory| {
+            let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            let prefix = guest_slice(memory, arg(args, 2)?, arg(args, 3)?)?;
+            let max_output = arg(args, 4)?;
+            let max_scan_ms = arg(args, 5)?;
+            answer(&state, "fs.read_lines_starting_with_lossy", || {
+                let path = utf8(path)?;
+                let max_output = checked_usize(
+                    max_output,
+                    "fs.read_lines_starting_with_lossy max_output_bytes",
+                )?;
+                if max_scan_ms < 0 {
+                    return Err(format!(
+                        "tool: fs.read_lines_starting_with_lossy max_scan_ms must not be negative, got {max_scan_ms}"
+                    ));
+                }
+                // A line prefix cannot contain the line delimiter: the
+                // scanner resets at `\n`, so a prefix carrying one could only
+                // ever match by crossing a line boundary, which is not what
+                // "line starts with" means. Refused by name before the file
+                // is opened. An empty prefix stays legal and matches every
+                // line.
+                if prefix.contains(&b'\n') {
+                    return Err(
+                        "tool: fs.read_lines_starting_with_lossy prefix must not contain a newline"
+                            .to_string(),
+                    );
+                }
+                // Checked before the file is opened or any buffer is sized.
+                if max_output > max_result {
+                    return Err(RESULT_TOO_LARGE.to_string());
+                }
+                // The clock starts before the open, so the time the kernel
+                // spends resolving the path is on the same bill as the walk:
+                // the ten seconds this replaced covered the child's own start,
+                // and a scan that consumed its budget getting the file open
+                // has no budget left to read it with.
+                let cancel = state.borrow().cancel.clone();
+                let started = Instant::now();
+                let mut file = std::fs::File::open(path)
+                    .map_err(|e| format!("fs.read_lines_starting_with_lossy `{path}`: {e}"))?;
+                // The open cannot be interrupted once entered, but its cost
+                // must still be accounted for: a cancel or a deadline that
+                // arrived while it ran wins here, before any bytes are read.
+                if cancel
+                    .as_ref()
+                    .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed))
+                {
+                    return Err(CANCELLED_MARK.to_string());
+                }
+                if scan_deadline_exceeded(started, Instant::now(), max_scan_ms) {
+                    return Err(format!(
+                        "tool: fs.read_lines_starting_with_lossy exceeded max_scan_ms {max_scan_ms}"
+                    ));
+                }
+                use std::io::Read;
+                let mut chunk = [0u8; 8192];
+                let mut raw_output: Vec<u8> = Vec::new();
+                // The line scanner is a three-state walk, and the state is
+                // the whole point: a prefix only counts at the start of a
+                // line, so failing to match anywhere else on the line ends
+                // that line's candidacy until the delimiter. Without that,
+                // `abcEVIDENCE x` would be collected on the strength of its
+                // mid-line bytes.
+                //
+                // No candidate byte is ever parked. While the line is still
+                // undecided only the counter moves; the prefix is appended
+                // once, when it completes; a rejected line is scanned past
+                // without being stored, so a long non-matching line costs
+                // nothing no matter how small `max_output` is.
+                //
+                //   `at_start`   -- the next byte is a line's first byte
+                //   `matched`    -- how many prefix bytes this line matched
+                //   `collecting` -- the prefix matched in full: this line is
+                //                   being appended, stop testing
+                let mut at_start = true;
+                let mut matched = 0usize;
+                let mut collecting = false;
+                loop {
+                    // Both checks belong at the chunk boundary, and cancel
+                    // comes first: an embedder that asked to stop should see
+                    // the cancel classification, not a deadline diagnostic
+                    // that raced with it.
+                    if cancel
+                        .as_ref()
+                        .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed))
+                    {
+                        return Err(CANCELLED_MARK.to_string());
+                    }
+                    if scan_deadline_exceeded(started, Instant::now(), max_scan_ms) {
+                        return Err(format!(
+                            "tool: fs.read_lines_starting_with_lossy exceeded max_scan_ms {max_scan_ms}"
+                        ));
+                    }
+                    let read = file
+                        .read(&mut chunk)
+                        .map_err(|e| format!("fs.read_lines_starting_with_lossy `{path}`: {e}"))?;
+                    // Checked after the read as well as before it. The read
+                    // that reaches EOF is the one that cannot be followed by
+                    // another iteration, so a deadline or a cancel crossing
+                    // during it would otherwise be dropped and the scan would
+                    // report success. Same priority as above: cancel first.
+                    if cancel
+                        .as_ref()
+                        .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed))
+                    {
+                        return Err(CANCELLED_MARK.to_string());
+                    }
+                    if scan_deadline_exceeded(started, Instant::now(), max_scan_ms) {
+                        return Err(format!(
+                            "tool: fs.read_lines_starting_with_lossy exceeded max_scan_ms {max_scan_ms}"
+                        ));
+                    }
+                    if read == 0 {
+                        break;
+                    }
+                    let mut index = 0usize;
+                    while index < read {
+                        let byte = chunk[index];
+                        if collecting {
+                            // Inside an accepted line: everything up to and
+                            // including its delimiter belongs to the output.
+                            let newline = chunk[index..read].iter().position(|rest| *rest == b'\n');
+                            let end = match newline {
+                                Some(offset) => index + offset + 1,
+                                None => read,
+                            };
+                            if !push_bounded(&mut raw_output, &chunk[index..end], max_output)? {
+                                return Err(RESULT_TOO_LARGE.to_string());
+                            }
+                            if newline.is_some() {
+                                collecting = false;
+                                at_start = true;
+                                matched = 0;
+                            }
+                            index = end;
+                            continue;
+                        }
+                        if at_start {
+                            // An empty prefix matches every line, including
+                            // an empty file's lack of one; there is nothing to
+                            // compare, so the line is accepted immediately.
+                            if prefix.is_empty() {
+                                collecting = true;
+                                at_start = false;
+                                matched = 0;
+                                continue;
+                            }
+                            if byte == prefix[matched] {
+                                matched += 1;
+                                if matched == prefix.len() {
+                                    // Complete: the line is a match from its
+                                    // first byte, so the prefix is part of
+                                    // the output and is appended here, once.
+                                    if !push_bounded(&mut raw_output, prefix, max_output)? {
+                                        return Err(RESULT_TOO_LARGE.to_string());
+                                    }
+                                    collecting = true;
+                                    at_start = false;
+                                    matched = 0;
+                                    index += 1;
+                                    continue;
+                                }
+                            } else {
+                                // This line cannot match. It stays rejected
+                                // until the delimiter -- unless this byte *is*
+                                // the delimiter, in which case the next byte
+                                // already begins a fresh line. Without that
+                                // check a short line that happened to be a
+                                // true prefix of the target would swallow the
+                                // line after it.
+                                at_start = byte == b'\n';
+                                matched = 0;
+                            }
+                            index += 1;
+                            continue;
+                        }
+                        // The line is known not to match: scan for its end
+                        // without storing anything.
+                        match chunk[index..read].iter().position(|rest| *rest == b'\n') {
+                            Some(offset) => {
+                                index += offset + 1;
+                                at_start = true;
+                                matched = 0;
+                            }
+                            None => index = read,
+                        }
+                    }
+                }
+                bounded_lossy(&raw_output, max_output)
             })
         },
     )?;
@@ -2197,6 +2499,91 @@ fn direct_as(
     }
 }
 
+/// A guest `i32` as a length, refusing a negative one by name.
+///
+/// `as usize` would turn `-1` into a colossal `usize`, which then compares as
+/// "over the ceiling" or sizes an allocation -- right answer, wrong reason, and
+/// a different diagnostic. A negative length is a bad argument, so it is named
+/// as one before any file is opened or buffer sized.
+fn checked_usize(value: i32, what: &str) -> Result<usize, String> {
+    usize::try_from(value).map_err(|_| format!("tool: {what} must not be negative, got {value}"))
+}
+
+/// Append `bytes` to `out` only while the result stays within `max_bytes`.
+/// Returns `Ok(false)` when the append would pass the ceiling, leaving `out`
+/// untouched, so the caller can refuse by name.
+fn push_bounded(out: &mut Vec<u8>, bytes: &[u8], max_bytes: usize) -> Result<bool, String> {
+    let next = out
+        .len()
+        .checked_add(bytes.len())
+        .ok_or_else(|| RESULT_TOO_LARGE.to_string())?;
+    if next > max_bytes {
+        return Ok(false);
+    }
+    out.extend_from_slice(bytes);
+    Ok(true)
+}
+
+/// Whether a scan that started at `started` has outlived `max_scan_ms`.
+///
+/// Split out from the scan loop so the deadline decision is testable without
+/// racing a real clock: the caller passes both instants in.
+fn scan_deadline_exceeded(started: Instant, now: Instant, max_scan_ms: i32) -> bool {
+    if max_scan_ms <= 0 {
+        // Zero means "no local deadline"; cancellation still applies, and it
+        // is observed at the same point in the loop.
+        return false;
+    }
+    now.saturating_duration_since(started) >= Duration::from_millis(max_scan_ms as u64)
+}
+
+/// Decode `bytes` with `from_utf8_lossy`'s replacement policy, refusing to
+/// build a string longer than `max_bytes`.
+///
+/// `String::from_utf8_lossy(..).into_owned()` allocates the whole result before
+/// anyone can object to its size, and one bad byte becomes three bytes of
+/// U+FFFD, so a caller that checked the raw length was checking the wrong
+/// number. This walks the same replacement step by step (`valid_up_to` /
+/// `error_len`) and tests the ceiling **before** each append, so no
+/// over-limit `String` is ever produced.
+fn bounded_lossy(bytes: &[u8], max_bytes: usize) -> Result<String, String> {
+    let mut out = String::new();
+    let mut rest = bytes;
+    loop {
+        match std::str::from_utf8(rest) {
+            Ok(valid) => {
+                let next = out.len().checked_add(valid.len()).ok_or(RESULT_TOO_LARGE)?;
+                if next > max_bytes {
+                    return Err(RESULT_TOO_LARGE.to_string());
+                }
+                out.push_str(valid);
+                return Ok(out);
+            }
+            Err(error) => {
+                // `valid_up_to()` is where the scan stopped, so this prefix is
+                // valid UTF-8 by construction.
+                // Every replacement character is three bytes; charge the
+                // worst case before appending rather than measuring after.
+                let valid = std::str::from_utf8(&rest[..error.valid_up_to()])
+                    .map_err(|e| format!("tool: lossy decode: {e}"))?;
+                let next = out.len().checked_add(valid.len()).ok_or(RESULT_TOO_LARGE)?;
+                let next = next.checked_add(3).ok_or(RESULT_TOO_LARGE)?;
+                if next > max_bytes {
+                    return Err(RESULT_TOO_LARGE.to_string());
+                }
+                out.push_str(valid);
+                out.push('\u{FFFD}');
+                match error.error_len() {
+                    Some(len) => rest = &rest[error.valid_up_to() + len..],
+                    // A truncated multi-byte sequence at the end: one
+                    // replacement character, and then the input is done.
+                    None => return Ok(out),
+                }
+            }
+        }
+    }
+}
+
 fn oversized_result_payload() -> Vec<u8> {
     RESULT_TOO_LARGE.as_bytes().to_vec()
 }
@@ -2805,6 +3192,38 @@ fn truncate_json_string(text: &mut String, encoded_bytes_to_remove: usize, encod
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The deadline decision takes both instants as arguments, so it is tested
+    /// exactly rather than against a real clock.
+    #[test]
+    fn the_scan_deadline_compares_elapsed_against_the_requested_milliseconds() {
+        let started = Instant::now();
+        let before = started + Duration::from_millis(9_999);
+        let at = started + Duration::from_millis(10_000);
+        let after = started + Duration::from_millis(10_001);
+        assert!(!scan_deadline_exceeded(started, before, 10_000));
+        assert!(scan_deadline_exceeded(started, at, 10_000));
+        assert!(scan_deadline_exceeded(started, after, 10_000));
+    }
+
+    /// Zero is "no local deadline", not "fail immediately": the scan still
+    /// runs, and cancellation remains the way to stop it. A negative value is
+    /// refused at the door, so this helper never sees one being honoured.
+    #[test]
+    fn a_zero_scan_deadline_never_expires() {
+        let started = Instant::now();
+        let long_after = started + Duration::from_secs(86_400);
+        assert!(!scan_deadline_exceeded(started, long_after, 0));
+    }
+
+    /// A clock that appears to go backwards must not turn into a panic:
+    /// `duration_since` is the saturating form for exactly this reason.
+    #[test]
+    fn a_backwards_clock_reading_is_not_an_expiry() {
+        let started = Instant::now() + Duration::from_millis(500);
+        let earlier = Instant::now();
+        assert_eq!(scan_deadline_exceeded(started, earlier, 10_000), false);
+    }
 
     #[test]
     fn process_observation_keeps_incomplete_evidence_distinct_from_death() {

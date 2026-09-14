@@ -6491,3 +6491,18 @@ classification with one token, but keep each admission rule explicit: a formula
 stays a formula and an irregular closed set stays declaration data. Do not turn
 the fold into a wider catalog, query lower-layer policy, or erase a distinction
 that still selects a trampoline, storage owner, error vocabulary, or result plan.
+
+## Bound file projections before and while reading
+
+A bounded file door must never read the whole file and truncate afterwards. A
+tail reader seeks on one opened handle and reads only the requested raw-byte
+window; keep that raw window distinct from the serialized-result ceiling,
+because lossy UTF-8 can expand one invalid byte into the three-byte replacement
+character. A whole-file filter needs a fixed read buffer, must discard rejected
+lines as they pass, and must cap accepted output before appending it.
+
+Output bounds do not bound scan time. A whole-file scan must observe the shared
+cancel flag and a real wall-clock deadline at chunk boundaries, before and after
+each potentially blocking read. Do not use the replay clock for elapsed-time
+limits. Account `host_bytes` as arguments plus the parked result crossing the
+door; bytes inspected inside the host are scan work, not bridge traffic.

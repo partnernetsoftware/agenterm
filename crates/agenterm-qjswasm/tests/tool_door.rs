@@ -245,6 +245,363 @@ fn fs_read_over_the_result_cap_is_a_refusal_not_a_prefix() {
 }
 
 // =========================================================================
+// fs.read_tail_lossy / fs.read_lines_starting_with_lossy
+// =========================================================================
+
+/// A prefix only counts at the start of a line. `abcEVIDENCE one` carries the
+/// same bytes as a match would, one column later; collecting it would credit
+/// evidence the child never printed as a marker.
+#[test]
+fn a_prefix_in_the_middle_of_a_line_is_not_a_match() {
+    let dir = Scratch::new("prefix-midline");
+    let file = dir.path("stream.out");
+    std::fs::write(
+        &file,
+        "abcEVIDENCE midline\nEVIDENCE real.one\nxyz EVIDENCE also.midline\n",
+    )
+    .unwrap();
+    let out = run_tool(&format!(
+        r#"
+        if (fs_read_lines_starting_with_lossy({p}, "EVIDENCE ", 65536, 10000) !== 0) {{ return "scan: " + tool_result(); }}
+        return tool_result();
+        "#,
+        p = js(&file)
+    ));
+    assert_eq!(string_of(&out), "EVIDENCE real.one\n");
+}
+
+/// The scanner reads in fixed chunks, so a line whose prefix straddles the
+/// chunk boundary is the case that separates a real byte scanner from one that
+/// re-tests at every chunk start.
+#[test]
+fn a_matching_prefix_split_across_read_chunks_is_still_a_match() {
+    let dir = Scratch::new("prefix-chunk");
+    let file = dir.path("stream.out");
+    // A filler line ends just before the boundary, so the next line's prefix
+    // begins three bytes before byte 8192 and its tail lands in the following
+    // chunk. The prefix itself -- not a mid-line byte -- is what straddles.
+    let mut text = String::from("x".repeat(8188));
+    text.push('\n');
+    text.push_str("EVIDENCE straddles.chunk\n");
+    text.push_str("EVIDENCE after.one\n");
+    std::fs::write(&file, &text).unwrap();
+    let out = run_tool(&format!(
+        r#"
+        if (fs_read_lines_starting_with_lossy({p}, "EVIDENCE ", 65536, 10000) !== 0) {{ return "scan: " + tool_result(); }}
+        return tool_result();
+        "#,
+        p = js(&file)
+    ));
+    let got = string_of(&out);
+    assert!(
+        got.starts_with("EVIDENCE"),
+        "the whole line came back: {got:?}"
+    );
+    assert!(
+        got.contains("straddles.chunk") && got.contains("EVIDENCE after.one"),
+        "both matching lines came back: {got:?}"
+    );
+}
+
+/// A line shorter than the prefix cannot match, and a file that ends on a
+/// partial prefix without a delimiter must not be collected either.
+#[test]
+fn a_line_shorter_than_the_prefix_is_not_a_match() {
+    let dir = Scratch::new("prefix-short");
+    let file = dir.path("stream.out");
+    // The last line is `EVIDENCE` with no delimiter and no marker text: a true
+    // prefix of the target that runs out at EOF, which must not be collected.
+    std::fs::write(&file, "EVIDEN\nEVIDENCE\nEVIDENCE partial\nEVIDENCE").unwrap();
+    let out = run_tool(&format!(
+        r#"
+        if (fs_read_lines_starting_with_lossy({p}, "EVIDENCE ", 65536, 10000) !== 0) {{ return "scan: " + tool_result(); }}
+        return tool_result();
+        "#,
+        p = js(&file)
+    ));
+    assert_eq!(string_of(&out), "EVIDENCE partial\n");
+}
+
+/// A long line that will not match is scanned past without being stored, so a
+/// budget far smaller than the line is not a refusal. This is the property the
+/// tentative-bytes version of the scanner got wrong.
+#[test]
+fn a_long_non_matching_line_is_not_refused_by_a_tiny_budget() {
+    let dir = Scratch::new("prefix-longline");
+    let file = dir.path("stream.out");
+    let mut text = "N".repeat(1_000_000);
+    text.push('\n');
+    text.push_str("EVIDENCE survivor\n");
+    std::fs::write(&file, &text).unwrap();
+    let out = run_tool(&format!(
+        r#"
+        if (fs_read_lines_starting_with_lossy({p}, "EVIDENCE ", 64, 10000) !== 0) {{ return "scan: " + tool_result(); }}
+        return tool_result();
+        "#,
+        p = js(&file)
+    ));
+    assert_eq!(string_of(&out), "EVIDENCE survivor\n");
+}
+
+/// A trailing window that opens inside a multi-byte character decodes with a
+/// replacement character instead of failing -- the same projection
+/// `process.command` applies to a captured stream. The window is a **byte**
+/// count and the decoded text has its own, separate ceiling.
+#[test]
+fn read_tail_lossy_replaces_a_character_cut_by_the_window() {
+    let dir = Scratch::new("tail-window");
+    let file = dir.path("stream.out");
+    // 11 ASCII bytes, then U+4E2D (three bytes: e4 b8 ad), then 12 more. A
+    // 14-byte tail window opens at offset 12, one byte into the character, so
+    // its two continuation bytes decode to two replacement characters: 6 bytes
+    // of text plus 12 `B` is 18. The window stays 14 in both runs below --
+    // only the slot's result cap moves.
+    let mut bytes = vec![b'A'; 11];
+    bytes.extend_from_slice("\u{4E2D}".as_bytes());
+    bytes.extend_from_slice(&[b'B'; 12]);
+    std::fs::write(&file, &bytes).unwrap();
+    let source = format!(
+        r#"
+        if (fs_read_tail_lossy({p}, 14) !== 0) {{ return "tail refused: " + tool_result(); }}
+        return tool_result();
+        "#,
+        p = js(&file)
+    );
+
+    let exact = Engine::with_tool_door(Budget {
+        max_bridge_result_bytes: 18,
+        ..Budget::default()
+    })
+    .run_once(Guest::Qjs(&source), None, "main", &[])
+    .expect("a normal result");
+    let text = string_of(&exact);
+    assert_eq!(
+        text.chars().count(),
+        14,
+        "two replacements then 12 characters of B: {text:?}"
+    );
+    assert_eq!(text.len(), 18, "the decoded text is 18 bytes: {text:?}");
+    assert!(
+        text.starts_with("\u{FFFD}\u{FFFD}"),
+        "lossy, not a refusal: {text:?}"
+    );
+    assert!(
+        text.ends_with(&"B".repeat(12)),
+        "the tail is intact: {text:?}"
+    );
+
+    let tight = Engine::with_tool_door(Budget {
+        max_bridge_result_bytes: 17,
+        ..Budget::default()
+    })
+    .run_once(Guest::Qjs(&source), None, "main", &[])
+    .expect("a refusal is a normal result");
+    // The script itself wraps a status-1 answer, so the diagnostic arrives
+    // with its own "tail refused: " prefix intact.
+    assert_eq!(
+        string_of(&tight),
+        "tail refused: tool: result exceeds the slot's max_bridge_result_bytes",
+        "one byte short of the decoded text is still a refusal"
+    );
+}
+
+/// Both new doors name a bad length instead of turning `-1` into a colossal
+/// `usize`, and refuse a ceiling above the slot budget before allocating.
+#[test]
+fn the_new_read_doors_refuse_negative_and_over_budget_lengths_by_name() {
+    let dir = Scratch::new("tail-args");
+    let file = dir.path("stream.out");
+    std::fs::write(&file, "EVIDENCE one\n").unwrap();
+    let mut engine = Engine::with_tool_door(Budget {
+        max_bridge_result_bytes: 4096,
+        ..Budget::default()
+    });
+    let out = engine
+        .run_once(
+            Guest::Qjs(&format!(
+                r#"
+                if (fs_read_tail_lossy({p}, -1) !== 1) {{ return "negative accepted: " + tool_result(); }}
+                let negative = tool_result();
+                if (fs_read_tail_lossy({p}, 8192) !== 1) {{ return "over budget accepted: " + tool_result(); }}
+                let over = tool_result();
+                if (fs_read_lines_starting_with_lossy({p}, "EVIDENCE ", 8192, 10000) !== 1) {{ return "prefix over budget accepted: " + tool_result(); }}
+                return negative + "|" + over + "|" + tool_result();
+                "#,
+                p = js(&file)
+            )),
+            None,
+            "main",
+            &[],
+        )
+        .expect("refusals are normal results");
+    let got = string_of(&out);
+    assert!(
+        got.contains("fs.read_tail_lossy max_bytes must not be negative, got -1"),
+        "the negative length is named: {got:?}"
+    );
+    assert_eq!(
+        got.matches("tool: result exceeds the slot's max_bridge_result_bytes")
+            .count(),
+        2,
+        "both over-budget ceilings are refusals: {got:?}"
+    );
+}
+
+/// The scan deadline is part of the door's contract: a negative value is
+/// refused by name, zero means "no local deadline", and a positive one that
+/// has already passed stops the walk with a diagnostic naming the bound.
+#[test]
+fn the_scan_deadline_is_refused_ignored_or_honoured_by_name() {
+    let dir = Scratch::new("scan-deadline");
+    let file = dir.path("stream.out");
+    std::fs::write(&file, "EVIDENCE one\n").unwrap();
+    let out = run_tool(&format!(
+        r#"
+        if (fs_read_lines_starting_with_lossy({p}, "EVIDENCE ", 65536, -1) !== 1) {{ return "negative accepted: " + tool_result(); }}
+        let negative = tool_result();
+        if (fs_read_lines_starting_with_lossy({p}, "EVIDENCE ", 65536, 0) !== 0) {{ return "zero refused: " + tool_result(); }}
+        let no_deadline = tool_result();
+        if (fs_read_lines_starting_with_lossy({p}, "EVIDENCE ", 65536, 10000) !== 0) {{ return "ten seconds refused: " + tool_result(); }}
+        return negative + "|" + no_deadline + "|" + tool_result();
+        "#,
+        p = js(&file)
+    ));
+    assert_eq!(
+        string_of(&out),
+        "tool: fs.read_lines_starting_with_lossy max_scan_ms must not be negative, got -1\
+         |EVIDENCE one\n|EVIDENCE one\n"
+    );
+}
+
+/// A deadline that has already elapsed stops the walk. The file is large
+/// enough to need more than one chunk, so the check runs at a boundary rather
+/// than only before the first read.
+#[test]
+fn an_elapsed_scan_deadline_stops_the_walk_at_a_chunk_boundary() {
+    let dir = Scratch::new("scan-deadline-elapsed");
+    let file = dir.path("stream.out");
+    let mut text = "EVIDENCE first\n".to_string();
+    for index in 0..200_000 {
+        text.push_str(&format!("filler {index}\n"));
+    }
+    std::fs::write(&file, &text).unwrap();
+    let out = run_tool(&format!(
+        r#"
+        // 1 ms is below the cost of reading this file, so the second chunk
+        // boundary is past it.
+        if (fs_read_lines_starting_with_lossy({p}, "EVIDENCE ", 65536, 1) !== 1) {{ return "accepted: " + tool_result(); }}
+        return tool_result();
+        "#,
+        p = js(&file)
+    ));
+    assert_eq!(
+        string_of(&out),
+        "tool: fs.read_lines_starting_with_lossy exceeded max_scan_ms 1"
+    );
+}
+
+/// The zero case: an empty tail is a legal request, because only the ceiling
+/// is a refusal -- and a zero output ceiling is legal too, but only while
+/// nothing matches. Once a line does match, that ceiling refuses by name.
+#[test]
+fn a_zero_length_request_is_answered_not_refused() {
+    let dir = Scratch::new("tail-zero");
+    let file = dir.path("stream.out");
+    std::fs::write(&file, "EVIDENCE one\n").unwrap();
+    let out = run_tool(&format!(
+        r#"
+        if (fs_read_tail_lossy({p}, 0) !== 0) {{ return "tail: " + tool_result(); }}
+        let empty = tool_result();
+        if (fs_read_lines_starting_with_lossy({p}, "NOPE ", 0, 10000) !== 0) {{ return "scan: " + tool_result(); }}
+        let nothing_matched = tool_result();
+        if (fs_read_lines_starting_with_lossy({p}, "EVIDENCE ", 0, 10000) !== 1) {{ return "match under a zero ceiling accepted: " + tool_result(); }}
+        return "[" + empty + "][" + nothing_matched + "][" + tool_result() + "]";
+        "#,
+        p = js(&file)
+    ));
+    assert_eq!(
+        string_of(&out),
+        "[][][tool: result exceeds the slot's max_bridge_result_bytes]"
+    );
+}
+
+/// `bounded_lossy` is the only thing standing between a byte window and a
+/// string three times its size, so it has to be reachable: consecutive bad
+/// bytes expand past a ceiling the raw bytes fit inside. Both doors share the
+/// projection, so both refuse -- with the slot's cap as the ceiling, since the
+/// raw window is no longer a text limit.
+#[test]
+fn lossy_expansion_past_the_ceiling_is_refused_for_both_doors() {
+    let dir = Scratch::new("lossy-expansion");
+    let file = dir.path("stream.out");
+    // 16 raw bytes, every one invalid UTF-8: 16 replacement characters, 48
+    // bytes of text. A 32-byte slot cap admits the raw window and refuses the
+    // decoded string.
+    let mut bytes = b"EVIDENCE ".to_vec();
+    bytes.extend_from_slice(&[0xFF; 16]);
+    bytes.push(b'\n');
+    std::fs::write(&file, &bytes).unwrap();
+    let source = format!(
+        r#"
+        if (fs_read_tail_lossy({p}, 25) !== 1) {{ return "tail accepted: " + tool_result(); }}
+        let tail = tool_result();
+        if (fs_read_lines_starting_with_lossy({p}, "EVIDENCE ", 65536, 10000) !== 1) {{ return "scan accepted: " + tool_result(); }}
+        return tail + "|" + tool_result();
+        "#,
+        p = js(&file)
+    );
+    let out = Engine::with_tool_door(Budget {
+        max_bridge_result_bytes: 32,
+        ..Budget::default()
+    })
+    .run_once(Guest::Qjs(&source), None, "main", &[])
+    .expect("refusals are normal results");
+    assert_eq!(
+        string_of(&out),
+        "tool: result exceeds the slot's max_bridge_result_bytes|tool: result exceeds the slot's max_bridge_result_bytes",
+        "both doors refuse on expansion, not on raw length"
+    );
+}
+
+/// A short line that happens to be a true prefix of the target must not
+/// swallow the line after it: the delimiter ends one line's candidacy and
+/// begins the next one's.
+#[test]
+fn a_short_line_that_is_a_true_prefix_does_not_eat_the_next_line() {
+    let dir = Scratch::new("prefix-shorttrue");
+    let file = dir.path("stream.out");
+    std::fs::write(&file, "EVIDENC\nEVIDENCE real\n").unwrap();
+    let out = run_tool(&format!(
+        r#"
+        if (fs_read_lines_starting_with_lossy({p}, "EVIDENCE ", 65536, 10000) !== 0) {{ return "scan: " + tool_result(); }}
+        return tool_result();
+        "#,
+        p = js(&file)
+    ));
+    assert_eq!(string_of(&out), "EVIDENCE real\n");
+}
+
+/// A line prefix carrying the delimiter itself is refused by name: the scanner
+/// resets at newlines, so such a prefix could only match across a line break.
+#[test]
+fn a_prefix_containing_a_newline_is_refused_by_name() {
+    let dir = Scratch::new("prefix-newline");
+    let file = dir.path("stream.out");
+    std::fs::write(&file, "EVIDENCE one\n").unwrap();
+    let out = run_tool(&format!(
+        r#"
+        if (fs_read_lines_starting_with_lossy({p}, "EVIDENCE\n", 65536, 10000) !== 1) {{ return "accepted: " + tool_result(); }}
+        return tool_result();
+        "#,
+        p = js(&file)
+    ));
+    assert_eq!(
+        string_of(&out),
+        "tool: fs.read_lines_starting_with_lossy prefix must not contain a newline"
+    );
+}
+
+// =========================================================================
 // process
 // =========================================================================
 

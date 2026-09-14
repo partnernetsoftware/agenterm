@@ -372,37 +372,60 @@ function compose_execute_stderr(stderr, powershell_violation, observed_powershel
 const WHOLE_STREAM_LIMIT = 524288;
 const STREAM_TAIL_BYTES = 65536;
 
+// The ceiling for the EVIDENCE lines recovered from a stream too long to read
+// whole. Every EVIDENCE line in this repository is a short identifier printed
+// by the child -- the longest source spelling is under 60 bytes, and the files
+// that print them in a loop (acu-mcp-provider-smoke, the browser-session
+// fixture) emit on the order of ten, not thousands. 64 KiB therefore holds
+// more than a thousand markers, which is far past any run's evidence set while
+// still being a bound the scanner can enforce without buffering a transcript.
+// Passing it is a named refusal, not a truncation: silently dropping the
+// evidence a long run earned is the failure this recovery path exists to
+// prevent.
+const EVIDENCE_LINES_MAX_BYTES = 65536;
+
+// The `grep` (or `findstr`) this replaced ran as a child process under a 10
+// second timeout. The scan is in-process now, so the bound has to be asked for
+// explicitly: the same ten seconds, on the same walk.
+const EVIDENCE_LINES_MAX_SCAN_MS = 10000;
+
 // A captured stream from its scratch file: whole when it fits the door's
 // answer cap with room to spare, else its tail with a marker naming what
 // was left in the file.
+//
+// Both branches read through the same lossy tail door, so a transcript means
+// the same thing at every size. Before this, the meaning depended on which
+// side of the whole-read limit the file fell on: under it the read was strict
+// UTF-8, so one bad byte failed the gate, and over it the same bytes came back
+// as replacement characters. `process.command` projects a captured stream with
+// `from_utf8_lossy`, and this now matches it at every size.
+// The tail window is what a caller actually wants from a long log: the end of
+// it, where the failure was reported.
 function read_stream(p) {
   if (!rh.exists(p)) { return { text: "", truncated: false }; }
   const length = rh.int_of(rh.metadata(p).len);
-  if (length <= WHOLE_STREAM_LIMIT) { return { text: rh.read_text(p), truncated: false }; }
-  if (host_is_windows()) {
-    return {
-      text: "<agenterm-check-output-omitted:" + length + " bytes, full text in " + p + ">\n",
-      truncated: true
-    };
+  if (length <= WHOLE_STREAM_LIMIT) {
+    return { text: rh.read_tail_lossy(p, length), truncated: false };
   }
-  const tail = rh.command("tail", ["-c", "" + STREAM_TAIL_BYTES, p], { timeout_ms: 10000 });
+  const tail = rh.read_tail_lossy(p, STREAM_TAIL_BYTES);
   return {
     text: "<agenterm-check-output-head-omitted:" + (length - STREAM_TAIL_BYTES)
-      + " bytes, full text in " + p + ">\n" + tail.stdout,
+      + " bytes, full text in " + p + ">\n" + tail,
     truncated: true
   };
 }
 
 // The EVIDENCE lines of a stream too long to read whole, from the host.
+//
+// This is a whole-file scan, not a tail: `EVIDENCE` lines are printed by the
+// child as it runs, so one can sit anywhere in the transcript including its
+// first bytes. Reading only the last window would silently drop every marker
+// outside it -- exactly when a long run most needs to be credited.
 function evidence_lines_of_file(p) {
-  let out;
-  if (host_is_windows()) {
-    out = rh.command("findstr", ["/B", "/C:EVIDENCE ", p], { timeout_ms: 10000 });
-  } else {
-    out = rh.command("grep", ["^EVIDENCE ", p], { timeout_ms: 10000 });
-  }
+  const text = rh.read_lines_starting_with_lossy(
+    p, "EVIDENCE ", EVIDENCE_LINES_MAX_BYTES, EVIDENCE_LINES_MAX_SCAN_MS);
   const lines = [];
-  for (const line of out.stdout.split("\n")) {
+  for (const line of text.split("\n")) {
     if (line.trim() !== "") { lines.push(line.trim()); }
   }
   return lines;

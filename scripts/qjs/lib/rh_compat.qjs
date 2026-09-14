@@ -76,6 +76,26 @@ export function read_text(p) {
   return door(fs_read_to_string(p), "fs_read_to_string " + p);
 }
 
+// The last `max_bytes` raw bytes of `p`, as lossy text -- the projection
+// `process.command` gives a captured stream, so a transcript read this way
+// means the same thing at every size. A window that opens inside a
+// multi-byte character yields U+FFFD rather than an error.
+export function read_tail_lossy(p, max_bytes) {
+  return door(fs_read_tail_lossy(p, max_bytes), "fs_read_tail_lossy " + p);
+}
+
+// Lines of `p` starting with the byte prefix `prefix`, newline-joined, as
+// lossy text: close to `grep`'s stdout shape, so callers keep splitting and
+// trimming. Over `max_output_bytes` is a named refusal, never a truncated
+// answer. `max_scan_ms` bounds the walk itself -- the whole file is read, so
+// unlike a process timeout this is the only thing stopping a scan that will
+// never finish; 0 means no local deadline (cancellation still applies).
+export function read_lines_starting_with_lossy(p, prefix, max_output_bytes, max_scan_ms) {
+  return door(
+    fs_read_lines_starting_with_lossy(p, prefix, max_output_bytes, max_scan_ms),
+    "fs_read_lines_starting_with_lossy " + p);
+}
+
 export function write_text(p, text) {
   door(fs_write(p, text), "fs_write " + p);
 }
