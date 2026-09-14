@@ -1608,10 +1608,7 @@ fn run_script_artifact_command(arguments: &[String]) -> i32 {
                 }
                 0
             }
-            Some(Err(message)) => {
-                cli_eprintln!("{message}");
-                1
-            }
+            Some(Err(error)) => report_in_process_script_failure(error),
             None => {
                 cli_eprintln!("{}", no_artifact_face(backend.as_str(), "load an artifact"));
                 2
@@ -1670,10 +1667,7 @@ fn run_script_artifact_command(arguments: &[String]) -> i32 {
     let options = crate::script_engine::ScriptInvocationOptions::default();
     let outcome = match engine.execute_artifact(&bytes, &options, None) {
         Some(Ok(result)) => result,
-        Some(Err(message)) => {
-            cli_eprintln!("{message}");
-            return 1;
-        }
+        Some(Err(error)) => return report_in_process_script_failure(error),
         None => {
             cli_eprintln!("{}", no_artifact_face(backend.as_str(), "load an artifact"));
             return 2;
@@ -1731,6 +1725,22 @@ fn render_script_value(value: &serde_json::Value) -> String {
         Some(text) => text.to_owned(),
         None => serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string()),
     }
+}
+
+/// Preserve the same failed-output truth as the supervised worker path for
+/// the two in-process artifact verbs. The retained bytes stay on stdout;
+/// truncation and the typed engine failure stay on stderr.
+fn report_in_process_script_failure(error: crate::script_engine::ScriptEngineError) -> i32 {
+    if !error.stdout.is_empty()
+        && let Err(code) = write_script_stdout(&error.stdout)
+    {
+        return code;
+    }
+    if error.stdout_truncated {
+        cli_eprintln!("agenterm: script stdout was truncated by its output byte budget");
+    }
+    cli_eprintln!("{error}");
+    1
 }
 
 fn append_script_run_value(

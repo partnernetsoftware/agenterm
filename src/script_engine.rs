@@ -1716,6 +1716,31 @@ mod tests {
 
     #[test]
     #[cfg(feature = "script-qjswasm")]
+    fn qjs_compiled_artifact_failure_retains_bounded_stdout_truth() {
+        let source = r#"print("abcdefgh"); throw "boom";"#;
+        let (artifact, extension) = QjswasmEngineBackend
+            .pack_artifact(source)
+            .expect("qjswasm owns artifacts")
+            .expect("source compiles");
+        assert_eq!(extension, "wasm");
+        let options = ScriptInvocationOptions {
+            budgets: Some(ScriptBudgets {
+                output_bytes: 4,
+                ..ScriptBudgets::default()
+            }),
+            ..ScriptInvocationOptions::default()
+        };
+        let error = QjswasmEngineBackend
+            .execute_artifact(&artifact, &options, None)
+            .expect("qjswasm executes compiled artifacts")
+            .expect_err("the script throws");
+        assert_eq!(error.stdout, "abcd");
+        assert!(error.stdout_truncated);
+        assert_eq!(error.category, ScriptFailureCategory::Script);
+    }
+
+    #[test]
+    #[cfg(feature = "script-qjswasm")]
     fn qjs_compiled_artifact_keeps_the_invocation_cancellation_identity() {
         use std::sync::atomic::AtomicBool;
 
