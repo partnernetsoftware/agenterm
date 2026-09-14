@@ -53,6 +53,13 @@ pub fn parse(
             let name = flag_value(args, "--name");
             let role = flag_value(args, "--role");
             let allow_browser_chrome = take_switch(args, "--allow-browser-chrome");
+            if literal_text.is_none()
+                && let Some(option) = args.iter().find(|arg| arg.starts_with('-') && *arg != "-")
+            {
+                return Err(format!(
+                    "send-text does not accept option {option:?}; use -- before text that starts with a dash"
+                ));
+            }
             Ok(Command::SendText {
                 target,
                 text: literal_text.unwrap_or_else(|| args.join(" ")),
@@ -619,6 +626,40 @@ mod tests {
                 clicks: 2,
                 ..
             } if name == "Fixture Press"
+        ));
+    }
+
+    #[test]
+    fn send_text_rejects_unknown_options_but_preserves_literal_dash_text() {
+        let spec = crate::cli::verbs::lookup("send-text").expect("catalog verb");
+        for words in [&["--zzz-bogus"][..], &["--windo", "42", "plain"][..]] {
+            let error = parse(spec, "send-text", TargetRef::Current, &mut args(words))
+                .expect_err("unknown option must fail before actuation");
+            assert!(error.contains(words[0]), "unexpected error: {error}");
+        }
+
+        let literal = parse(
+            spec,
+            "send-text",
+            TargetRef::Current,
+            &mut args(&["--", "--zzz-is-text"]),
+        )
+        .expect("literal dash-leading text");
+        assert!(matches!(
+            literal,
+            Command::SendText { text, .. } if text == "--zzz-is-text"
+        ));
+
+        let plain = parse(
+            spec,
+            "send-text",
+            TargetRef::Current,
+            &mut args(&["plain", "text"]),
+        )
+        .expect("plain text");
+        assert!(matches!(
+            plain,
+            Command::SendText { text, .. } if text == "plain text"
         ));
     }
 }

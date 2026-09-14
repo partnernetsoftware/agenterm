@@ -733,6 +733,10 @@ ACU-only cutover
 │  ├─ [x] every unresolved shape returns `acu_todo` + ALERT + stable gap id
 │  ├─ [x] no adapter branch spawns or recommends the archived MCU runtime
 │  └─ [x] MCU implementation is read-only reference, outside supported entrypoints
+├─ [x] `send-text` keeps option parsing closed before actuation
+│  ├─ [x] an unrecognized dash-leading token returns usage naming that token
+│  ├─ [x] explicit `--` remains the only way to preserve dash-leading literal text
+│  └─ [x] plain text and the existing recognized window/node options are unchanged
 ├─ [x] dynamic repair registry (complete corpus; no unknown fallback)
 │  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green
 │  │  ├─ [x] macOS public qjswasm court: one invocation-owned Cocoa window proves exact

@@ -2457,7 +2457,9 @@ writes the wrong CDP tree (`no writable node named …`). Launch the
 gate Chrome with `SAND_CHROME_REMOTE_DEBUG_PORT` on a free port.
 Their payload argument is positional, so parse
 `--` as the end of flags — otherwise text (or a chord) that starts with a
-dash is eaten as a flag.
+dash is eaten as a flag. For an open text payload, remove the recognized
+options first and reject any remaining dash-leading token before joining the
+payload; only the explicit `--` tail may preserve dash-leading text.
 
 `agenterm-cu paste --name` is the clipboard form of that write. Resolve the unique
 showing node, optionally seed the clipboard with `--text`
