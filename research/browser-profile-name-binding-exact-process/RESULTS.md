@@ -82,20 +82,26 @@ and restoring it yields `SELF_TEST_PASS`.
 
 ## What is NOT proven (the live boundary)
 
-The live macOS court is **not implemented** and fails closed with
-`LIVE_COURT_NOT_IMPLEMENTED`. Specifically, nothing below has been executed:
+The live macOS owned-browser mechanism **is now demonstrated** by the formal task
+`profile-binding-exact-process-browser-baseline`, and the browser-free live court
+is implemented. What remains unproven is the formal closure, not the mechanism:
 
-- No browser was launched and no synthetic HOME or Profile fixture was created.
-- The model self-test made no `process.observe` / `process.parent` /
-  `process.pid` call. The admission-free preflight called all three against its
-  current worker and one owned shell child; it did not observe a browser tree.
-- V3 (real ownership chain), V4 (real termination), V5 (real inventory
-  restoration), D1 (armed alias trap), D2 (real A1 edge) and D3 (real durable
-  store) are **unmeasured** on this host.
-- No rehearsal or decision ordinal has been reserved in any external ledger.
+- A disposable root and a synthetic HOME were used. The **real HOME and the
+  formal research root are unchanged** by these runs.
+- The complete pre-spawn inventory read `0/0`, exactly one live connection was
+  established, the `bridge-host → browser` exact chain was observed, primary
+  cleanup ran, the termination observations were captured, and the final inventory
+  read `0/0` again. The six real red gates are mutations that make the real world
+  wrong; none is a skipped guard or a fake success.
+- Kill criterion 4 is **not** closed, and no `k4` / full `V1–V7` claim is made.
+- `descendants_all_dead_claim` is **false**: the controls prove the owned objects
+  are gone, never that every descendant of every process is.
+- No rehearsal or decision ordinal has been reserved in any external ledger, and
+  no terminal, receipt or design verdict is issued.
 
-Per spec §4 kill criterion 4, a live ordinal must not be reserved until the
-first self-test proves every throw site is preceded by a persisted stage.
+The three cleanup controls — ordinary exception, host-op budget trap, and TERM —
+are proven on the real host; their evidence is recorded under the cleanup-control
+section below.
 
 ## Provenance and non-import
 
@@ -595,12 +601,30 @@ refused by `terminal_criteria_not_implemented`. Closing the whitelist gap did no
 open that path. That blocker is **now fixed** by the kill-terminal leaf described
 at the end of this file.
 
-### Still open: the browser-live mechanism
+### Browser-live evidence now exists; the formal closure does not
 
 Terminal honesty was necessary but not sufficient. **No formal R1 reservation, no kill
-criterion 4 closure and no V1–V7 claim is made here.** The browser-live path is
-still unproven: no owned-browser ordinal has been reserved, and kill criterion 4
-is not closed because the browser-live throw sites are not covered.
+criterion 4 closure and no V1–V7 claim is made here.** What the browser-live leaf
+added is the mechanism itself, demonstrated by the formal task
+`profile-binding-exact-process-browser-baseline` against a disposable root and a
+synthetic HOME: pre-spawn complete inventory `0/0`, exactly one live connection,
+the `bridge-host → browser` exact chain, primary cleanup, the termination
+observations, and a final `0/0`. Six real red gates accompany it.
+
+Three cleanup controls are proven on the real host:
+
+| Control | Decisive evidence |
+|---|---|
+| ordinary exception | court `ok:false` with `browser_control_forced_throw`; primary `false`; compensation all `true` with inventory `0/0` |
+| host-op budget trap | exact token `budget exhausted: max_host_ops`, uncatchable wasm fault, `exit_class=limit` |
+| TERM | direct handler witness 1, EXIT cleanup witness 1, worker exit 143, probe manifest absent, dedicated framed worker 0 |
+
+The TERM control's `0` framed-worker count is a **product** result: the framed
+transport EOF-cancellation fix made an ownerless worker cancel its in-flight
+invocation instead of outliving its owner. Bounds that still hold:
+`descendants_all_dead_claim` is `false` (owned objects gone, not every
+descendant), the in-memory checkpoints are not broker stages, and the real HOME
+and formal research root are untouched.
 
 ## Persisted-stage real-process preflight
 
@@ -720,5 +744,7 @@ specimen remains; those checks were re-pointed at the design-selection gate rath
 than left asserting something that is no longer true.
 
 **This closes the terminal blocker only.** It does not reserve an ordinal, does not
-launch a browser, and does not close kill criterion 4 or any of V1–V7. The
-browser-live mechanism remains open.
+close kill criterion 4 or any of V1–V7, and does not by itself constitute a
+verdict. The browser-live mechanism is demonstrated separately by
+`profile-binding-exact-process-browser-baseline` (see the browser-live section);
+what remains open is the formal closure, not the mechanism.

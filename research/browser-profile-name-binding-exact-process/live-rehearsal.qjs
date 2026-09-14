@@ -993,6 +993,23 @@ function self_test() {
     && death_list(progressed).length === 3
     && death_list(progressed)[0].observation.reason === "process_not_found";
 
+  // 37. A primary teardown that was NEVER ATTEMPTED must not look like success.
+  //
+  // This calls the SAME constructor production uses to initialise its primary
+  // record, so the assertion is connected to the real code path rather than to a
+  // detached literal: if someone reintroduces `ok: true` there, this goes red.
+  // Note what is deliberately NOT tested here: the aggregation inside
+  // `browser_cleanup_attempts` needs real host calls, so no green is faked for it.
+  // The accepted live baseline already proves the real success path, and the
+  // next authorized control run regresses it.
+  const not_attempted = browser_cleanup_not_attempted_record();
+  checks.cleanup_not_attempted_is_not_success =
+    not_attempted.attempted === false
+    && not_attempted.ok === false
+    && not_attempted.complete === false
+    && not_attempted.layer === "primary"
+    && not_attempted.results.length === 0;
+
   // The stage-order verifier reads the CALL-SITE trace and requires every guard
   // row to be acknowledged BEFORE the side effect it guards starts. The trace is
   // produced as events really happen, never reconstructed from the journal, so
@@ -1156,6 +1173,11 @@ function observe_identity_until_dead(identity, deadline_ms, clock, hook) {
   const started = clock.now_ms();
   const observations = [];
   while (clock.now_ms() - started <= deadline_ms) {
+    // SHARED PROTOCOL: this function emits the bare effect name `observe`. Callers
+    // own phase naming, because only the caller knows which phase it is driving --
+    // the staged caller prefixes `termination_`, and the browser caller maps to
+    // its own phase-distinct class. Renaming the event here would double-prefix
+    // the staged trace and break the shared contract.
     note("observe");
     // The observation is routed through the red-gate hook so an unreadable
     // process can be injected. On the real path the hook is a passthrough. The
@@ -1409,6 +1431,7 @@ function never_unknown_as_dead(observations, proved_dead, pid_reused,
 // browser-live throw site.
 
 const MODE_STAGED_PREFLIGHT = "live-staged-preflight";
+
 const STAGED_BROKER_PATH =
   "research/browser-profile-name-binding-exact-process/broker-spine.sh";
 const STAGED_TEMPLATE_PATH =
@@ -2215,6 +2238,1000 @@ function live_staged_preflight() {
   };
 }
 
+
+// --- disposable owned-browser baseline ---------------------------------------
+//
+// This is the FIRST slice that launches a real owned browser. It is deliberately
+// narrow: it proves the mechanical chain (session start -> exact identities ->
+// parent chain -> selector-free cleanup -> inventory restored) and stops. It
+// makes NO kill-criterion, V-criterion or design claim, and it never touches the
+// formal root or reserves a formal ordinal.
+//
+// Identity separation is the whole point, so it is structural here: three
+// DIFFERENT things are read from three different places and must not be
+// conflated.
+//
+//   data.owner             the owning session process
+//   data.browser           the browser the session spawned
+//   inventory connection.process   the BRIDGE HOST, which is the CU binary
+//
+// The bridge host is NOT the browser. Confusing them would make the parent-chain
+// assertion pass for the wrong reason, so the two are compared for inequality as
+// well as each being checked on its own.
+
+const MODE_BROWSER_BASELINE = "live-browser-baseline";
+const BROWSER_ROOT_MARKER = "agenterm-live-browser";
+const BROWSER_SESSION = "agenterm-live-browser-baseline";
+// Dedicated, SHORT termination timebox for the alive_after_stop adversary. Short
+// enough that a genuinely-alive pair is judged well inside the host-operation
+// budget; long enough to be a real observation rather than a single lucky read.
+const BROWSER_ALIVE_TIMEOUT_MS = 1500;
+const BROWSER_BRIDGE_HOST_SCOPE =
+  "connection.process is the CU/native bridge host, not the browser";
+
+// The effects this slice must actually observe. Coverage is checked, not just
+// ordering: an empty trace must fail rather than vacuously pass.
+// The REAL call-site classes this baseline passes through. Each one is recorded
+// at its own call site, so coverage cannot be satisfied by a label the caller
+// pushed. `sleep` is deliberately NOT required: the poll may reach a verdict on
+// its first iteration, so requiring a sleep would demand an effect that a correct
+// run need not produce.
+const BROWSER_REQUIRED_EFFECTS = ["session_start",
+  "inventory_read_pre_spawn", "inventory_read_post_spawn",
+  "inventory_read_post_cleanup", "ownership_observe", "ownership_parent",
+  "session_stop", "session_remove", "termination_observe"];
+
+// RED-GATE MUTATION HOOKS. Each value is set by the red-gate runner and mutates a
+// REAL input or a REAL host call's arguments -- never a guard, never an expected
+// value, and never a check's result. A hook that merely skips a demand would let
+// the suite pass while the world stayed correct, which is not a red gate at all.
+const BROWSER_RED_MODE = browser_env("AGENTERM_BROWSER_RED_MODE") === null
+  ? "off" : browser_env("AGENTERM_BROWSER_RED_MODE");
+
+
+function browser_env(name) {
+  if (env_has(name) !== 1 || env_get(name) !== 0) { return null; }
+  const value = tool_result();
+  return value === "" ? null : value;
+}
+
+// Ask the CU bridge for one command. The reply is a single JSON document; a
+// non-zero status or an unparseable body is a named failure, never a silent
+// `undefined` that a later check would read as "absent".
+// The CU bridge takes ONE JSON object. The `argv` envelope is the direct
+// command-line form, and it is built by hand because `canonical_json` encodes
+// objects only and this engine has no array encoder. Every element is quoted
+// individually, so a value containing a quote or comma cannot break out of its
+// own element.
+function cu_call(args, mutating) {
+  // The CU CLI requires `--target` on every invocation, and a grant for MUTATING
+  // commands (session start/stop/remove). A read-only observe carries no grant:
+  // passing one there would misreport the operation's class.
+  let full = ["--target", "current"];
+  if (mutating === true) { full = ["--target", "current", "--grant", "actuate"]; }
+  else if (mutating === "observe") { full = ["--target", "current", "--grant", "observe"]; }
+  for (let i = 0; i < args.length; i = i + 1) { full[full.length] = args[i]; }
+  const parts = [];
+  for (let i = 0; i < full.length; i = i + 1) {
+    parts[parts.length] = JSON.stringify("" + full[i]);
+  }
+  const command = "{\"acu_request\":1,\"kind\":\"argv\",\"argv\":["
+    + parts.join(",") + "]}";
+  const status = acu_call(command);
+  if (status !== 0) { return {status: status, reply: null}; }
+  const raw = acu_result();
+  if (raw === "") { return {status: 0, reply: null}; }
+  let reply = null;
+  try { reply = JSON.parse(raw); } catch (_) { return {status: 0, reply: null}; }
+  return {status: 0, reply: reply};
+}
+
+// The door reports a pid as a JSON number. A string form is accepted too, but it
+// is parsed by hand because this engine has no `Number`/`isNaN`; an unparseable
+// value becomes -1 so a comparison below fails loudly instead of comparing a
+// string to a number and silently mismatching.
+// A parsed JSON object in this subset: the engine supports Object.keys on real
+// objects, and a null/absent value yields no keys rather than throwing.
+function has_keys(value) {
+  if (value === null || value === undefined) { return false; }
+  return Object.keys(value).length > 0;
+}
+
+function as_pid(value) {
+  if (typeof value === "number") { return value; }
+  if (typeof value !== "string" || value.length === 0) { return -1; }
+  let n = 0;
+  for (let i = 0; i < value.length; i = i + 1) {
+    const c = value.charCodeAt(i);
+    if (c < 48 || c > 57) { return -1; }
+    n = n * 10 + (c - 48);
+  }
+  return n;
+}
+
+// Best-effort cleanup of THIS slice's own session. It is called on EVERY path
+// once a session start has been attempted, because a start that SUCCEEDS and is
+// then followed by any later failure (a shape error, a timeout, an ownership
+// mismatch) would otherwise leave a live owner and browser behind.
+//
+// It is deliberately best-effort: a cleanup failure must be REPORTED and
+// aggregated, never allowed to replace the primary failure, which is what the
+// reader actually needs to see. It is also idempotent enough to run after a
+// successful stop/remove: a second stop on a stopped session and a remove on a
+// missing one are both tolerated and recorded.
+// One inventory read, shape-checked. A reply that is absent or malformed is a
+// NAMED failure rather than a silent empty list, so "no connection" can never be
+// confused with "the read did not work".
+// A digest of an identity string, so a diagnostic can name WHICH identity was
+// seen without ever persisting the raw value. The door exposes only a FILE hash,
+// so the text is written to a disposable file and that file is hashed.
+function identity_digest_of(text) {
+  if (typeof text !== "string" || text.length === 0) { return null; }
+  const path = staged_env("AGENTERM_BROWSER_DIGEST_SCRATCH");
+  if (path === null) { return null; }
+  if (fs_write(path, text) !== 0) { return null; }
+  const digest = rh.sha256_file(path);
+  fs_remove_file(path);
+  return digest;
+}
+
+function browser_inventory_read(phase, trace_fn) {
+  // The trace event is recorded at the REAL call site, and the phase distinguishes
+  // the three reads (pre-spawn baseline, post-spawn live, post-cleanup restored),
+  // so one shared name cannot stand in for a guard it does not belong to.
+  if (trace_fn !== undefined && trace_fn !== null) {
+    trace_fn("inventory_read_" + phase);
+  }
+  const inventory = cu_call(["browser-bridge-connections"], "observe");
+  demand(inventory.reply !== null, "browser_inventory_no_reply");
+  // A non-ok reply must fail by name; reading `data` off it would silently treat
+  // an error payload as an empty inventory.
+  demand(inventory.reply.ok === true,
+    "browser_inventory_not_ok:" + phase + ":"
+      + JSON.stringify(inventory.reply).substring(0, 200));
+  const data = inventory.reply.data;
+  demand(has_keys(data), "browser_inventory_no_data:"
+    + JSON.stringify(inventory.reply).substring(0, 300));
+  const rows = data.connections;
+  demand(rows !== null && rows !== undefined, "browser_inventory_no_rows");
+  // BOUNDED-COVERAGE GUARDS. The inventory is explicitly a bounded, sequential
+  // enumeration: it can stop early and still return `live: 0`. Accepting that
+  // as "empty" would make a truncated read indistinguishable from a genuinely
+  // restored baseline, so a partial enumeration is a named failure, never a
+  // zero. All three reads must be complete for the same reason.
+  demand(data.enumeration_complete === true,
+    "browser_inventory_enumeration_incomplete:" + phase);
+  demand(data.candidates_complete === true,
+    "browser_inventory_candidates_incomplete:" + phase);
+  demand(data.truncated === false,
+    "browser_inventory_truncated:" + phase);
+  return {live: as_pid(data.live), connections: rows,
+    enumeration_complete: data.enumeration_complete === true};
+}
+
+// One cleanup state machine, used by BOTH layers.
+//
+// `mode` distinguishes the two callers:
+//   "primary"  the successful-path teardown, whose FIRST stop/remove replies are
+//              the cleanup EVIDENCE for a green baseline
+//   "compensate" the outer compensation, which only runs when the primary did not
+//              complete -- either because the script failed, or because a run
+//              never reached teardown
+//
+// Idempotence is decided ONLY by an explicit `error.code` of
+// `browser_session_not_found`. Any null/undefined reply, or any other error, is a
+// FAILURE and never treated as success: a missing reply is indistinguishable from
+// a broken call, and treating it as "already gone" is exactly how an orphan would
+// slip through. Failure reasons are APPENDED, never overwritten, so the primary
+// cause stays visible.
+function browser_cleanup_attempts(mode, trace_fn) {
+  const results = [];
+  // MUTATION (selector_leak): a REAL profile id is appended to the PRIMARY stop
+  // argv, so the primary cleanup input genuinely carries a selector and the
+  // verdict must refuse it by name.
+  //
+  // ONLY the primary layer is ever polluted. Compensation is the recovery path:
+  // it must ALWAYS issue the fixed session name with no selector, otherwise the
+  // adversary would disable the very layer that exists to clean up after a
+  // rejected primary -- turning a red gate into a leak.
+  const selector_extra = (BROWSER_RED_MODE === "selector_leak"
+    && mode === "primary") ? ["--profile-id", "profile-0001"] : [];
+  const steps = [
+    {step: "stop", argv: ["browser-session-stop", BROWSER_SESSION,
+      "--expect", "stopped", "--timeout-ms", "20000"]
+      .concat(selector_extra),
+      want_state: "stopped", event: "session_stop"},
+    {step: "remove", argv: ["browser-session-remove", BROWSER_SESSION,
+      "--expect", "stopped"], want_state: "removed", event: "session_remove"}
+  ];
+  // SELECTOR-FREE IS CHECKED, NOT CLAIMED. The cleanup argv is the real input, so
+  // the assertion runs against the actual command that will be issued: any
+  // selector-shaped flag fails by name before the call is made.
+  const SELECTOR_FLAGS = ["--profile-id", "--profile", "--instance", "--pid",
+    "--path", "--window", "--tab"];
+  for (let s = 0; s < steps.length; s = s + 1) {
+    for (let a = 0; a < steps[s].argv.length; a = a + 1) {
+      for (let f = 0; f < SELECTOR_FLAGS.length; f = f + 1) {
+        demand(steps[s].argv[a] !== SELECTOR_FLAGS[f],
+          "browser_cleanup_selector_leak:" + steps[s].step + ":"
+            + SELECTOR_FLAGS[f]);
+      }
+    }
+  }
+  for (let i = 0; i < steps.length; i = i + 1) {
+    const spec = steps[i];
+    // MUTATION (alive_after_stop): skip the REAL stop/remove host calls entirely,
+    // so the browser and its owner genuinely keep running. The world stays wrong
+    // afterwards -- the termination poll must observe them still live and fail on
+    // a real timeout, not on an edited expectation.
+    //
+    // The record must tell the TRUTH about what happened: nothing was stopped and
+    // nothing was removed. Reporting `ok: true` with the expected state would be
+    // the adversary manufacturing its own cleanup evidence -- it would set
+    // cleanupPhase.complete=true and thereby suppress the very compensation that
+    // this mutation is supposed to exercise.
+    //
+    // Only the PRIMARY layer is mutated. Compensation is the recovery path and
+    // must always issue the real, unpolluted fixed-name stop/remove.
+    if (BROWSER_RED_MODE === "alive_after_stop" && mode === "primary") {
+      results[results.length] = {layer: mode, step: spec.step, ok: false,
+        state: null, code: "mutation_primary_cleanup_skipped", idle: false,
+        mutated: "host_call_skipped"};
+      continue;
+    }
+    // The event is recorded at the REAL call site, immediately before the call.
+    // MUTATION (trace_deleted): the real call still happens, but its trace event
+    // is not recorded, so coverage must catch the missing class. Skipping the
+    // record -- not the call -- is precisely the defect coverage exists to find.
+    if (trace_fn !== undefined && trace_fn !== null
+        && BROWSER_RED_MODE !== "trace_deleted") {
+      trace_fn(spec.event);
+    }
+    const call = cu_call(spec.argv, true);
+    const record = {layer: mode, step: spec.step, ok: false, state: null,
+      code: null, idle: false};
+    if (call.reply === null) {
+      record.code = "cleanup_no_reply";
+    } else if (call.reply.ok === true) {
+      const data = call.reply.data;
+      const state = (data === null || data === undefined)
+        ? null : data.state;
+      record.state = state === undefined ? null : state;
+      if (state === spec.want_state) {
+        record.ok = true;
+      } else {
+        // An ok reply that does not carry the expected terminal state is NOT
+        // success: the session may be in a state this slice does not understand.
+        record.code = "cleanup_unexpected_state:" + record.state;
+      }
+    } else {
+      const err = call.reply.error;
+      const code = (err === null || err === undefined) ? null : err.code;
+      record.code = code === undefined ? null : code;
+      if (record.code === "browser_session_not_found") {
+        // The ONLY accepted idempotent case, and only by its explicit code.
+        record.ok = true;
+        record.idle = true;
+      } else if (record.code === null) {
+        record.code = "cleanup_error_without_code";
+      }
+    }
+    results[results.length] = record;
+    // A stop that failed means there is nothing safe to remove; stop here rather
+    // than issue a second failing call whose error would obscure the first.
+    if (record.ok !== true) { break; }
+  }
+  let ok = true;
+  for (let i = 0; i < results.length; i = i + 1) {
+    if (results[i].ok !== true) { ok = false; }
+  }
+  return {layer: mode, results: results, ok: ok, complete: ok
+    && results.length === steps.length};
+}
+
+// The primary teardown on the success path. Its replies are the cleanup evidence.
+// A readable, appended failure summary. Never overwrites an earlier reason.
+function cleanup_failure_text(report) {
+  const parts = [];
+  const rows = report.results;
+  for (let i = 0; i < rows.length; i = i + 1) {
+    const r = rows[i];
+    if (r.ok !== true) {
+      parts[parts.length] = r.layer + "/" + r.step + ":"
+        + (r.code === null ? "unknown" : r.code);
+    }
+  }
+  if (parts.length === 0) { return "incomplete"; }
+  return parts.join(",");
+}
+
+function browser_cleanup_primary(trace_fn) {
+  return browser_cleanup_attempts("primary", trace_fn);
+}
+
+// The record for a primary teardown that was NEVER ATTEMPTED.
+//
+// This owns the "did not run" truth in ONE place, and production initialises its
+// primary record from it. It exists because the previous inline literal came with
+// `ok: true`, which is the opposite of the truth: if the script threw before the
+// primary phase (an ordinary exception, an early failure, a host-op trap), that
+// untouched value reached the envelope and was derived into
+// `primary_cleanup_ok: true` / `cleanup_ok: true` -- claiming a recovery that
+// never happened. Modelling "not attempted" as its own record means it can never
+// be confused with "ran and succeeded"; only a REAL `browser_cleanup_primary`
+// return may report primary success.
+function browser_cleanup_not_attempted_record() {
+  return {layer: "primary", attempted: false, results: [], ok: false,
+    complete: false};
+}
+
+// The compensating teardown. It runs ONLY when the primary did not complete, so a
+// green run never issues a second stop/remove and the success-path evidence stays
+// the authoritative record.
+function browser_cleanup_compensate(trace_fn) {
+  return browser_cleanup_attempts("compensate", trace_fn);
+}
+
+function browser_baseline_preflight() {
+  const checks = {};
+  const clock = host_clock();
+  // IN-MEMORY checkpoints only. These are NOT durable broker stages: nothing here
+  // calls the broker, so no row is published and no receipt exists. The name and
+  // the envelope fields say `checkpoint` precisely so they cannot be read as a
+  // persisted stage sequence.
+  const checkpoint_sequence = [];
+  // Identities are captured as pid + digest only. The raw start_identity is never
+  // emitted and never durably retained: it is written only transiently to a
+  // disposable scratch file so the host's file-based sha256 can hash it, and that
+  // file is removed by cleanup.
+  const ownedIds = {owner_pid: null, owner_digest: null,
+    browser_pid: null, browser_digest: null, bridge_pid: null, bridge_digest: null};
+
+  const trace_events = [];
+  const trace = function (event) { trace_events.push(event); };
+  // Set the instant a start is ATTEMPTED (not when it succeeds): a start that
+  // fails after creating a session would otherwise skip cleanup.
+  const cleanupPhase_state = {started: false, session: BROWSER_SESSION};
+  // NOT-ATTEMPTED, from its single owner (`browser_cleanup_not_attempted_record`).
+  // The green path is unaffected: line ~2812 replaces this wholesale with the
+  // REAL `browser_cleanup_primary` return value, which is the only thing that may
+  // report primary success.
+  let cleanupPhase = browser_cleanup_not_attempted_record();
+
+
+  const state_root = browser_env("AGENTERM_BROWSER_STATE_ROOT");
+  const source_sha = browser_env("AGENTERM_BROWSER_SOURCE");
+  const input_digest = browser_env("AGENTERM_BROWSER_INPUT");
+  const run_id = browser_env("AGENTERM_BROWSER_RUN_ID");
+  const browser_exe = browser_env("AGENTERM_BROWSER_EXE");
+  const home_root = browser_env("AGENTERM_BROWSER_HOME");
+
+  demand(state_root !== null, "browser_state_root_missing");
+  demand(source_sha !== null && source_sha.length >= 40, "browser_source_sha_missing");
+  demand(input_digest !== null && input_digest.length === 64,
+    "browser_input_digest_missing");
+  demand(run_id !== null && run_id.length === 32, "browser_run_id_missing");
+  demand(browser_exe !== null, "browser_exe_missing");
+  demand(home_root !== null, "browser_home_missing");
+  // Every disposable root must be absolute and marked, so a typo cannot point
+  // this court at the formal root. `home_root` is checked the same way because
+  // a browser with a shared profile directory is not isolated at all.
+  demand(state_root.charAt(0) === "/", "browser_state_root_absolute");
+  demand(state_root.indexOf(BROWSER_ROOT_MARKER) >= 0,
+    "browser_state_root_not_marked_disposable");
+  demand(home_root.charAt(0) === "/", "browser_home_absolute");
+  demand(home_root.indexOf(BROWSER_ROOT_MARKER) >= 0,
+    "browser_home_not_marked_disposable");
+  demand(fs_exists(state_root) === 1, "browser_state_root_missing_dir");
+  demand(fs_exists(home_root) === 1, "browser_home_missing_dir");
+  demand(fs_exists(state_root + "/attempt-ledger.jsonl") === 0,
+    "browser_state_root_already_has_ledger");
+
+  let failure = null;
+
+  try {
+    checkpoint_sequence.push({checkpoint: "preflight", code: "PREFLIGHT_OK"});
+
+    // ---- PRE-SPAWN baseline inventory ------------------------------------
+    // This read MUST happen before the first browser spawn, because it is the
+    // baseline the post-spawn delta and the post-cleanup restoration are both
+    // measured against. Reading it after the spawn would make the "restored"
+    // assertion depend on the race that the connection had not yet registered.
+    const baseline_inventory = browser_inventory_read("pre_spawn", trace);
+    // The pre-spawn baseline must be a COMPLETE EMPTY enumeration. If anything is
+    // already connected before this slice spawns, the slice does not own the
+    // inventory it is about to measure, and the later delta is meaningless.
+    demand(baseline_inventory.live === 0,
+      "browser_pre_spawn_inventory_not_empty:live=" + baseline_inventory.live);
+    demand(baseline_inventory.connections.length === 0,
+      "browser_pre_spawn_inventory_rows="
+        + baseline_inventory.connections.length);
+    checks.pre_spawn_inventory_live = baseline_inventory.live;
+    checks.pre_spawn_inventory_rows = baseline_inventory.connections.length;
+
+    // ---- the real session start -------------------------------------------
+    // This is the first side effect of the whole slice: a REAL browser process
+    // is created here. It happens only after the pre-spawn baseline inventory
+    // read and the in-memory preflight CHECKPOINT -- no broker row is published
+    // anywhere in this slice, so nothing durable precedes the spawn.
+    trace("session_start");
+    cleanupPhase_state.started = true;
+    // ATTEMPTED is set BEFORE the host call: if the call is interrupted or the
+    // process dies mid-spawn, an unknown partial creation must still be cleaned up
+    // and must never be reported as "no browser was launched".
+    checks.browser_launch_attempted = true;
+    const started = cu_call(["browser-session-start", BROWSER_SESSION,
+      "--browser", browser_exe, "--bridge",
+      "--ready-timeout-ms", "30000", "--ttl-ms", "300000"], true);
+    // ACCEPTED comes from the reply itself, so `browser_launched` is derived from
+    // evidence rather than asserted.
+    checks.browser_start_accepted = started.reply !== null
+      && started.reply.ok === true;
+    demand(started.reply !== null, "browser_session_start_no_reply");
+    demand(started.reply.ok === true,
+      "browser_session_start_not_ok:" + JSON.stringify(started.reply).substring(0, 400));
+    const data = started.reply.data;
+    demand(has_keys(data), "browser_session_start_no_data");
+
+    // The two identities the session reports. They are read separately and kept
+    // separate; `owner` is the owning process, `browser` is the browser.
+    const owner = data.owner;
+    const browser = data.browser;
+    demand(has_keys(owner), "browser_session_owner_missing");
+    demand(has_keys(browser), "browser_session_browser_missing");
+    demand(as_pid(owner.pid) > 0, "browser_owner_pid");
+    demand(as_pid(browser.pid) > 0, "browser_pid");
+    demand(typeof owner.start_identity === "string"
+      && owner.start_identity.length > 0, "browser_owner_identity");
+    ownedIds.owner_pid = as_pid(owner.pid);
+    ownedIds.owner_digest = identity_digest_of(owner.start_identity);
+    ownedIds.browser_pid = as_pid(browser.pid);
+    ownedIds.browser_digest = identity_digest_of(browser.start_identity);
+    demand(typeof browser.start_identity === "string"
+      && browser.start_identity.length > 0, "browser_browser_identity");
+
+    // ENV-GATED CONTROL. `AGENTERM_BROWSER_FORCE_THROW` forces a failure
+    // immediately after a successful start, which is the only way to exercise the
+    // failure-path cleanup deterministically. It is inert unless the variable is
+    // set, and the runner passes it through empty by default, so a normal run can
+    // never take this branch.
+    if (browser_env("AGENTERM_BROWSER_FORCE_THROW") !== null) {
+      throw "browser_control_forced_throw";
+    }
+
+    // ENV-GATED CONTROL. `AGENTERM_BROWSER_HOST_OP_TRAP` spends the host-operation
+    // budget inside this one exported call, so the engine refuses the next door
+    // operation with `budget exhausted: max_host_ops`.
+    //
+    // That refusal is a WASM fault, NOT a JS exception: `try/catch` upstream can
+    // never see it, which is exactly why this is a distinct failure class from
+    // FORCE_THROW above. The budget is per exported call, so the burn is measured
+    // against the operations this call already spent (the start path) and is
+    // deliberately larger than the declared 4096 ceiling -- the burn therefore
+    // always crosses it rather than depending on how much the start happened to
+    // cost.
+    //
+    // `while` and the arithmetic below are inside the QJS subset; an out-of-subset
+    // construct would be a COMPILE error with a named diagnostic, not a silent
+    // skip. Inert unless the variable is set: the runner passes it through empty
+    // by default, so no ordinary run can take this branch.
+    if (browser_env("AGENTERM_BROWSER_HOST_OP_TRAP") !== null) {
+      let burn = 0;
+      while (burn < 5000) { time_now_ms(); burn = burn + 1; }
+    }
+
+    // ENV-GATED CONTROL. `AGENTERM_BROWSER_TERM_HOLD` parks the script AFTER a
+    // successful start, inside a bounded real sleep loop, so an external TERM can
+    // arrive while the transaction is genuinely armed and a session genuinely
+    // exists. That window is what the TERM cleanup control needs to test.
+    //
+    // The bound exists so a control that never sends its TERM cannot hang
+    // forever: the loop runs out and the runner reports a NAMED failure instead
+    // of blocking. The budget arithmetic is explicit and safe: at most 600
+    // `time.sleep_ms` calls, each charged as a host operation, plus the start
+    // path's own operations stays well below the declared 4096 ceiling, and the
+    // 60s total stays below the 120s task timeout. So this hold cannot
+    // accidentally trip the host-operation budget trap above -- the two controls
+    // stay distinguishable.
+    //
+    // Inert unless the variable is set: the runner passes it through empty by
+    // default, so no ordinary run can take this branch. `while`/`if` and the
+    // arithmetic are inside the QJS subset.
+    if (browser_env("AGENTERM_BROWSER_TERM_HOLD") !== null) {
+      let held = 0;
+      while (held < 600) { time_sleep_ms(100); held = held + 1; }
+      throw "browser_term_hold_not_interrupted";
+    }
+
+    // ---- the bridge host is a THIRD thing --------------------------------
+    // It comes from the connection inventory, and it is the CU binary. It must
+    // not be silently equated with the browser: if it were, the parent-chain
+    // check below would prove nothing.
+    //
+    // The connection registers asynchronously once the browser's CDP endpoint is
+    // up, so the inventory is POLLED to a bounded deadline. The completion
+    // condition is an OWNED LIVE CONNECTION appearing, taken as a delta against
+    // the PRE-SPAWN baseline read -- never a fixed sleep, which would pass for
+    // the wrong reason on a slow host and flake on a fast one.
+    const inv_deadline = clock.now_ms() + STAGED_BROKER_TIMEOUT_MS;
+    let polls = 0;
+    let live_inventory = null;
+    while (clock.now_ms() < inv_deadline) {
+      polls = polls + 1;
+      const polled = browser_inventory_read("post_spawn", trace);
+      if (polled.live === baseline_inventory.live + 1
+          && polled.connections.length === baseline_inventory.connections.length + 1) {
+        live_inventory = polled;
+        break;
+      }
+      time_sleep_ms(250);
+    }
+    demand(live_inventory !== null,
+      "browser_inventory_no_owned_live_connection:polls=" + polls
+        + ":baseline_live=" + baseline_inventory.live);
+
+    // EXACTLY ONE new live row. The pre-spawn baseline was asserted complete and
+    // empty, so a single delta row is this slice's own connection. Taking
+    // `live_conns[0]` after a `>= baseline+1` test would silently pick an
+    // arbitrary row if a foreign connection ever appeared, and the endpoint
+    // identity would then not be evidence of THIS slice's ownership at all.
+    demand(live_inventory.live === 1,
+      "browser_live_inventory_not_unique:live=" + live_inventory.live);
+    demand(live_inventory.connections.length === 1,
+      "browser_live_inventory_rows_not_unique:rows="
+        + live_inventory.connections.length);
+
+    const conn = live_inventory.connections[0];
+    const bridge_host = conn.process;
+    demand(has_keys(bridge_host), "browser_bridge_host_missing");
+    demand(as_pid(bridge_host.pid) > 0, "browser_bridge_host_pid");
+    demand(typeof bridge_host.start_identity === "string"
+      && bridge_host.start_identity.length > 0, "browser_bridge_host_identity");
+    // The structural separation, asserted rather than assumed.
+    demand(!(as_pid(bridge_host.pid) === as_pid(browser.pid)
+      && bridge_host.start_identity === browser.start_identity),
+      "browser_bridge_host_conflated_with_browser");
+    ownedIds.bridge_pid = as_pid(bridge_host.pid);
+    ownedIds.bridge_digest = identity_digest_of(bridge_host.start_identity);
+    const connection_id = conn.connection_id;
+    demand(typeof connection_id === "string" && connection_id.length > 0,
+      "browser_connection_id_missing");
+
+    // ---- prove the ownership chain with exact-key ops ---------------------
+    //
+    // DIRECTION: Native Messaging runs the other way round from a normal spawn.
+    // The BROWSER launches the native host, and the spec's live bridge-host
+    // identity connects to the invocation-owned BROWSER identity. So the subject
+    // (the node whose identity is FROZEN and proved on both sides of the first
+    // bracket) is the BRIDGE HOST, and the terminus is the BROWSER.
+    //
+    // Nothing here is relaxed to make this pass: if the bridge host observes but
+    // the browser terminus does not, that is V3 being unprovable, and the honest
+    // outcome is the mapped NEW_INFORMATION_INSUFFICIENT terminal -- not a
+    // widened bracket and not a manufactured pass.
+    const ownership_source = real_observation_source(function (event) {
+      if (event === "ownership_observe") { trace("ownership_observe"); }
+      else { trace("ownership_parent"); }
+    });
+    // MUTATION (unrelated_chain): replace the SUBJECT with a REAL, live, unrelated
+    // process that is not the browser's parent. The walk then reads a genuine
+    // parent relation that does not lead where the slice claims, so it must fail
+    // on the real relation rather than on a falsified expectation.
+    let red_subject_pid = as_pid(bridge_host.pid);
+    let red_subject_identity = bridge_host.start_identity;
+    let red_unrelated_handle = -1;
+    if (BROWSER_RED_MODE === "unrelated_chain") {
+      red_unrelated_handle = spawn_subject();
+      red_subject_pid = door_direct("process.pid",
+        process_pid(red_unrelated_handle));
+      red_subject_identity = JSON.parse(door_answer("process.identity",
+        process_identity(red_unrelated_handle))).start_identity;
+    }
+    const chain = walk_ownership_chain(ownership_source,
+      red_subject_pid,
+      // MUTATION (identity_misbind): the SUBJECT is presented with the TERMINUS's
+      // identity. This is a real input change to the frozen model: the walk is
+      // asked to prove a process is its own ancestor-relation node while carrying
+      // the wrong start identity, so the brackets must fail on a real mismatch.
+      BROWSER_RED_MODE === "identity_misbind"
+        ? browser.start_identity : red_subject_identity,
+      as_pid(browser.pid), browser.start_identity);
+    // The unrelated process the mutation spawned is a real owned resource: it is
+    // torn down on this path, not left for the outer layer to discover.
+    if (red_unrelated_handle >= 0) { teardown_subject(red_unrelated_handle); }
+    // Per-hop diagnostics: pid/state/reason only. The raw identities are hashed
+    // to a digest before they leave this function, so no durable fact ever
+    // carries a raw identity.
+    //
+    // The walk reports BRACKETS (one per node: an observe before and after the
+    // relation read), not a flat hop list, so the diagnosis is read from those.
+    const hops = [];
+    const brackets = chain.brackets;
+    if (brackets !== null && brackets !== undefined) {
+      for (let i = 0; i < brackets.length; i = i + 1) {
+        const b = brackets[i];
+        hops[hops.length] = {
+          index: i,
+          // The bracket's pid is on the relation record, not the bracket itself.
+          pid: b.parent === null || b.parent === undefined
+            ? null : as_pid(b.parent.child_pid),
+          before_state: b.before === null ? null : b.before.state,
+          before_reason: b.before === null ? null : b.before.reason,
+          after_state: b.after === null ? null : b.after.state,
+          after_reason: b.after === null ? null : b.after.reason,
+          identity_digest: identity_digest_of(b.before === null
+            ? null : b.before.start_identity)
+        };
+      }
+    }
+    checks.chain_ok = chain.ok === true;
+    checks.chain_code = chain.code === undefined ? null : chain.code;
+    checks.chain_reason = chain.reason === undefined ? null : chain.reason;
+    checks.chain_length = chain.chain_length === undefined ? null : chain.chain_length;
+    checks.chain_hops = hops;
+    checks.terminus_parent_state = chain.terminus_parent_state === undefined
+      ? null : chain.terminus_parent_state;
+    if (chain.ok !== true) {
+      // The diagnosis is the RESULT, not a crash: record it and stop this slice
+      // here rather than continuing into cleanup proof for a chain that failed.
+      throw "browser_ownership_unprovable:" + checks.chain_code + ":"
+        + checks.chain_reason;
+    }
+    demand(chain.chain_length === 2, "browser_parent_chain_length");
+
+    checkpoint_sequence.push({checkpoint: "identity-source", code: "IDENTITY_SOURCE_PROVEN"});
+    checkpoint_sequence.push({checkpoint: "ownership", code: "OWNERSHIP_PROVEN"});
+
+    // ---- cleanup input is selector-free -----------------------------------
+    // The stop/remove calls are addressed by the SESSION NAME that this slice
+    // created. No profile id, no instance id, no pid and no path derived from
+    // the browser is used to find what to clean up.
+    //
+    // These FIRST replies are the cleanup evidence for a green baseline, so they
+    // are recorded as such; the outer layer does not repeat them on this path.
+    cleanupPhase = browser_cleanup_primary(trace);
+    // `primary_skipped` is DERIVED from the real records, not asserted: a run in
+    // which every primary step carries the skip code did not clean anything up.
+    cleanupPhase_state.primary_skipped = cleanupPhase.results.length > 0
+      && cleanupPhase.results[0].code === "mutation_primary_cleanup_skipped";
+    // A skipped primary did NOT complete, so compensation must still run. This is
+    // what keeps the adversary honest: it cannot suppress its own recovery layer.
+    cleanupPhase_state.completed = cleanupPhase_state.primary_skipped === true
+      ? false : cleanupPhase.complete;
+    // The primary success demand stays FAIL-CLOSED for every ordinary path. The
+    // ONE exception is the alive_after_stop adversary, which deliberately skips
+    // the real stop/remove: it must be allowed to continue so the REAL
+    // observe-to-dead poll can witness the still-live processes and fail on a
+    // genuine timeout. Even then the recorded truth stays ok=false/complete=false.
+    if (cleanupPhase_state.primary_skipped !== true) {
+      demand(cleanupPhase.ok === true,
+        "browser_primary_cleanup_failed:" + cleanup_failure_text(cleanupPhase));
+    }
+    checkpoint_sequence.push({checkpoint: "stop", code: "STOP_REQUESTED"});
+    checkpoint_sequence.push({checkpoint: "session-removed", code: "SESSION_REMOVED"});
+
+    // ---- observe the frozen identities to death ---------------------------
+    // Both the browser and its owner must be observed dead, by frozen identity.
+    // `unknown` never counts as dead: it keeps polling until the deadline.
+    const browser_identity = {pid: as_pid(browser.pid),
+      start_identity: browser.start_identity};
+    const owner_identity = {pid: as_pid(owner.pid), start_identity: owner.start_identity};
+    // The termination events come from the REAL observe/sleep call sites inside
+    // the poll, not from a label pushed by the caller before the call. The shared
+    // function emits the bare `observe`, so THIS caller maps it to its own
+    // phase-distinct class -- the shared protocol is not changed for one caller.
+    const browser_term_hook = function (event) {
+      trace(event === "observe" ? "termination_observe" : event);
+    };
+    // The alive adversary needs its OWN short, still-REAL timebox. It keeps both
+    // processes genuinely alive, so a full 30s dual poll would multiply the host
+    // operations (observe+sleep per iteration per identity) until it trips the
+    // uncatchable max_host_operations trap -- failing by trap instead of by a
+    // named verdict. The timebox is real (real clock, real sleep, real observe);
+    // only its duration differs, and the deadline must actually be exhausted.
+    const browser_term_timeout = BROWSER_RED_MODE === "alive_after_stop"
+      ? BROWSER_ALIVE_TIMEOUT_MS : STAGED_BROKER_TIMEOUT_MS;
+    // The browser is polled FIRST and judged IMMEDIATELY. If it is still alive the
+    // slice must fail by name right here, without proceeding to the second
+    // identity -- polling both before judging would double the cost for a run
+    // whose outcome the first identity already decided.
+    const browser_dead = observe_identity_until_dead(browser_identity,
+      browser_term_timeout, clock, browser_term_hook);
+    if (browser_dead.ok !== true) {
+      // The deadline claim is DERIVED from the real poll result, never asserted:
+      // at least one real observation happened, and the reason is the deadline
+      // actually expiring (as opposed to an early/edited verdict).
+      checks.termination_deadline_exhausted =
+        browser_dead.reason === "termination_deadline_exhausted";
+      // OBSERVED-LIVE is stronger than "we observed something". An all-`unknown`
+      // sequence (the pid could not be read) also has observations, but it never
+      // shows the process alive. Require at least one observation whose state is
+      // exactly `live` AND whose start identity equals the FROZEN identity
+      // exactly -- otherwise a reused pid could be mistaken for our subject.
+      const frozen = browser_identity.start_identity;
+      let saw_live_identity = false;
+      if (browser_dead.observations !== null
+          && browser_dead.observations !== undefined) {
+        for (let i = 0; i < browser_dead.observations.length; i = i + 1) {
+          const obs = browser_dead.observations[i];
+          if (obs.state === "live" && obs.start_identity === frozen) {
+            saw_live_identity = true;
+          }
+        }
+      }
+      // The terminal poll state must also be `live`: an `unknown` terminal state
+      // means the subject was unreadable at the deadline, not that it was alive.
+      checks.termination_observed_live = saw_live_identity
+        && browser_dead.state === "live";
+      // The failure carries the REAL termination reason so a reader can tell a
+      // genuine liveness timeout from an edited expectation.
+      throw "browser_not_dead:" + (browser_dead.reason === undefined
+        ? "unknown" : browser_dead.reason);
+    }
+    const owner_dead = observe_identity_until_dead(owner_identity,
+      browser_term_timeout, clock, browser_term_hook);
+    if (owner_dead.ok !== true) {
+      throw "browser_owner_not_dead:" + (owner_dead.reason === undefined
+        ? "unknown" : owner_dead.reason);
+    }
+
+    // ---- the inventory must return to its baseline ------------------------
+    // "Restored" means the count went back to the pre-start baseline this slice
+    // itself read, not merely that some number looks small.
+    const final_inv = browser_inventory_read("post_cleanup", trace);
+    // MUTATION (inventory_not_restored): a REAL second session is started before
+    // the final read, so the inventory genuinely does not return to empty. The
+    // world is wrong (a live foreign connection exists), not the expectation.
+    let red_stray_session = null;
+    let red_stray_ok = false;
+    if (BROWSER_RED_MODE === "inventory_not_restored") {
+      // The name must satisfy the CU session-name rule: lowercase, digits and
+      // `-` only, at most 32 bytes. The slice's own name already exceeds that
+      // budget with a suffix, so the stray gets its own short name.
+      red_stray_session = "agenterm-stray";
+      const stray = cu_call(["browser-session-start", red_stray_session,
+        "--browser", browser_exe, "--bridge",
+        "--ready-timeout-ms", "30000", "--ttl-ms", "300000"], true);
+      // The stray must REALLY start. A silently-failed start would leave the
+      // inventory genuinely restored and make this gate pass for the wrong
+      // reason, which is exactly the false-red this check exists to prevent.
+      demand(stray.reply !== null
+        && stray.reply.ok === true,
+        "browser_red_stray_start_failed:"
+          + JSON.stringify(stray.reply).substring(0, 200));
+      red_stray_ok = true;
+      // Wait for the stray's connection to REGISTER before reading, otherwise a
+      // fast read would observe an unchanged inventory and the gate would lie.
+      const stray_deadline = clock.now_ms() + STAGED_BROKER_TIMEOUT_MS;
+      let stray_seen = false;
+      while (clock.now_ms() < stray_deadline) {
+        const probe = browser_inventory_read("post_cleanup", trace);
+        if (probe.live > 0) { stray_seen = true; break; }
+        time_sleep_ms(250);
+      }
+      demand(stray_seen, "browser_red_stray_connection_never_registered");
+    }
+    const final_after_stray = red_stray_session === null
+      ? final_inv : browser_inventory_read("post_cleanup", trace);
+    // The stray is torn down by its own name so no residue survives the mutation.
+    if (red_stray_session !== null) {
+      cu_call(["browser-session-stop", red_stray_session,
+        "--expect", "stopped", "--timeout-ms", "20000"], true);
+      cu_call(["browser-session-remove", red_stray_session,
+        "--expect", "stopped"], true);
+    }
+    if (red_stray_ok === true) {
+      demand(final_after_stray.live === 0,
+        "browser_final_inventory_not_restored:live=" + final_after_stray.live);
+    }
+    demand(final_after_stray.live === 0,
+      "browser_final_inventory_not_restored:live=" + final_after_stray.live);
+    demand(final_after_stray.connections.length === 0,
+      "browser_final_inventory_rows_not_restored:rows="
+        + final_after_stray.connections.length);
+
+    checkpoint_sequence.push({checkpoint: "termination-proof", code: "TERMINATION_PROVEN",
+      dead: [as_pid(browser.pid), as_pid(owner.pid)]});
+    checkpoint_sequence.push({checkpoint: "final-inventory", code: "FINAL_INVENTORY_RESTORED",
+      baseline_row_count: baseline_inventory.connections.length,
+      final_row_count: final_inv.connections.length});
+
+  } catch (e) {
+    failure = "" + e;
+  }
+
+  // COMPENSATION ONLY. The success path already ran the primary teardown and its
+  // replies are the evidence, so it is NOT repeated here. Compensation runs only
+  // when the primary did not COMPLETE -- no start was attempted (nothing to do),
+  // the script threw before teardown, or the primary itself failed partway.
+  //
+  // A compensation failure is appended to any existing failure, never replacing
+  // it: the primary cause is what the reader needs first.
+  if (cleanupPhase_state.started === true
+      && cleanupPhase_state.completed !== true) {
+    // The compensation call gets its OWN local catch. It runs OUTSIDE the main
+    // try, so anything it throws (a refused input, an engine error) would escape
+    // the whole function and destroy the structured envelope -- exactly what the
+    // selector_leak gate exposed. Scope note: this catches ordinary script
+    // exceptions only. A WASM trap is not catchable here and remains covered by
+    // the runner's EXIT trap; this is not a claim of trap containment.
+    let compensate = null;
+    try {
+      // The REAL compensation stop/remove calls are traced too. Coverage is meant
+      // to reflect actual call sites, so a recovery-layer call that runs must
+      // appear in the trace as well -- otherwise a successful compensation would
+      // be invisible to the very coverage check that is supposed to see it.
+      compensate = browser_cleanup_compensate(trace);
+    } catch (e) {
+      const threw = "browser_compensating_cleanup_threw:" + ("" + e);
+      failure = failure === null ? threw : failure + "|" + threw;
+    }
+    if (compensate !== null) {
+      cleanupPhase_state.compensated = true;
+      // The two layers are kept as SEPARATE facts. Overwriting `cleanupPhase`
+      // with the compensation would let a successful compensation masquerade as
+      // a successful PRIMARY cleanup, hiding the fact that the primary never
+      // completed. `cleanupPhase` therefore always stays the PRIMARY record; the
+      // compensation is recorded beside it.
+      cleanupPhase_state.compensate = compensate;
+      if (compensate.ok !== true) {
+        const cleanup_failure = "browser_compensating_cleanup_failed:"
+          + cleanup_failure_text(compensate);
+        failure = failure === null ? cleanup_failure
+          : failure + "|" + cleanup_failure;
+      } else {
+        // The compensation really finished, so the post-cleanup inventory is read
+        // HERE -- the same real read the primary path performs. Without this, a
+        // run that failed before its own final read (alive_after_stop) would have
+        // no recovery-layer evidence that the inventory actually returned to its
+        // baseline. Own local catch: this runs outside the main try, and an
+        // ordinary script exception must append a named failure rather than
+        // escape and destroy the structured envelope.
+        let comp_inv = null;
+        try {
+          comp_inv = browser_inventory_read("post_cleanup", trace);
+        } catch (e) {
+          const threw = "browser_compensation_inventory_threw:" + ("" + e);
+          failure = failure === null ? threw : failure + "|" + threw;
+        }
+        if (comp_inv !== null) {
+          checks.compensation_inventory_live = comp_inv.live;
+          checks.compensation_inventory_rows = comp_inv.connections.length;
+          // The completeness guards live inside `browser_inventory_read` and are
+          // reused unchanged: a partial enumeration is a named failure there, so
+          // a zero count can never be a truncated read mistaken for restored.
+          if (comp_inv.live !== 0 || comp_inv.connections.length !== 0) {
+            const dirty = "browser_compensation_inventory_not_restored:live="
+              + comp_inv.live + ":rows=" + comp_inv.connections.length;
+            failure = failure === null ? dirty : failure + "|" + dirty;
+            checks.compensation_inventory_restored = false;
+          } else {
+            checks.compensation_inventory_restored = true;
+          }
+        } else {
+          checks.compensation_inventory_restored = false;
+        }
+      }
+    }
+  }
+
+  const effects_seen = [];
+  for (let i = 0; i < trace_events.length; i = i + 1) {
+    if (effects_seen.indexOf(trace_events[i]) < 0) { effects_seen.push(trace_events[i]); }
+  }
+  const coverage_missing = [];
+  for (let i = 0; i < BROWSER_REQUIRED_EFFECTS.length; i = i + 1) {
+    const effect = BROWSER_REQUIRED_EFFECTS[i];
+    if (effects_seen.indexOf(effect) < 0) { coverage_missing.push(effect); }
+  }
+  failure = failure === null && coverage_missing.length > 0
+    ? "browser_trace_coverage_missing:" + coverage_missing.join("+") : failure;
+
+  // The envelope reports the state it actually reached. A slice that failed
+  // mid-way must never look like one that completed.
+  const ok = failure === null;
+  const evidence = {
+    schema: "agenterm.profile-binding-exact-process-browser-baseline/v1",
+    ok: ok,
+    failed: ok ? [] : [failure],
+    mode: MODE_BROWSER_BASELINE,
+    checkpoint_sequence: checkpoint_sequence,
+    checkpoint_count: checkpoint_sequence.length,
+    toolhook_trace: trace_events,
+    trace_covered_effects: effects_seen,
+    trace_missing_effects: coverage_missing,
+    // Identity separation is reported field by field, from the real reads.
+    // Identity reporting: pid plus a DIGEST of the frozen start identity. The raw
+    // start_identity is never emitted or durably retained: it is written only
+    // transiently to a disposable scratch file so the host's file-based sha256 can
+    // hash it, and that file is removed by cleanup. No durable record carries the
+    // identity itself.
+    session_owner_pid: ownedIds.owner_pid,
+    session_owner_identity_digest: ownedIds.owner_digest,
+    session_browser_pid: ownedIds.browser_pid,
+    session_browser_identity_digest: ownedIds.browser_digest,
+    bridge_host_pid: ownedIds.bridge_pid,
+    bridge_host_identity_digest: ownedIds.bridge_digest,
+    bridge_host_scope: BROWSER_BRIDGE_HOST_SCOPE,
+    // These are the claims this slice does NOT make.
+    // Three distinct launch facts: `attempted` is set at the call site BEFORE the
+    // host call (so a partial creation is never reported as no-attempt),
+    // `start_accepted` comes from the reply itself, and `launched` is DERIVED from
+    // acceptance -- never hard-coded. Cleanup runs whenever a start was ATTEMPTED.
+    browser_launch_attempted: checks.browser_launch_attempted === true,
+    browser_start_accepted: checks.browser_start_accepted === true,
+    browser_launched: checks.browser_start_accepted === true,
+    ordinal_reserved: false,
+    formal_root_touched: false,
+    design_verdict: false,
+    terminal_staged: false,
+    finish_called: false,
+    receipt_written: false,
+    kill_criterion_4_closed: false,
+    validity_criteria_proven: [],
+    // No broker attempt is reserved at all: this slice never calls `reserve`, so
+    // there is no ledger entry, no terminal and no receipt. "abandon" would name
+    // a lifecycle this slice never entered.
+    close_mechanism:
+      "none (no attempt reserved; no terminal, no receipt, no design fact)",
+    cleanup_input: "session name only; no selector, no pid, no path",
+    chain_ok: checks.chain_ok === undefined ? null : checks.chain_ok,
+    chain_code: checks.chain_code === undefined ? null : checks.chain_code,
+    chain_reason: checks.chain_reason === undefined ? null : checks.chain_reason,
+    chain_length: checks.chain_length === undefined ? null : checks.chain_length,
+    chain_hops: checks.chain_hops === undefined ? [] : checks.chain_hops,
+    terminus_parent_state: checks.terminus_parent_state === undefined
+      ? null : checks.terminus_parent_state,
+    // The PRIMARY teardown's own replies are the cleanup evidence on a green run;
+    // the compensating layer is recorded separately so it cannot be mistaken for
+    // the primary evidence.
+    pre_spawn_inventory_live: checks.pre_spawn_inventory_live === undefined
+      ? null : checks.pre_spawn_inventory_live,
+    pre_spawn_inventory_rows: checks.pre_spawn_inventory_rows === undefined
+      ? null : checks.pre_spawn_inventory_rows,
+    // TWO INDEPENDENT LAYERS, never conflated. `primary_cleanup_*` is what the
+    // success path actually did; `compensation_cleanup_*` is the recovery layer.
+    // A green baseline has primary true and compensation NOT run. A run whose
+    // primary was skipped must never report primary success just because the
+    // compensation later succeeded.
+    primary_cleanup_ok: cleanupPhase.ok === true,
+    primary_cleanup_complete: cleanupPhase.complete === true,
+    primary_cleanup_results: cleanupPhase.results,
+    primary_cleanup_skipped: cleanupPhase_state.primary_skipped === true,
+    // Real-deadline evidence for the termination verdict. `null` on a green run
+    // (not applicable); on a liveness failure they are derived booleans, so the
+    // gate can require them EXACTLY rather than accepting a missing field.
+    termination_deadline_exhausted: checks.termination_deadline_exhausted === undefined
+      ? null : checks.termination_deadline_exhausted === true,
+    termination_observed_live: checks.termination_observed_live === undefined
+      ? null : checks.termination_observed_live === true,
+    compensation_ran: cleanupPhase_state.compensated === true,
+    compensation_cleanup_ok: cleanupPhase_state.compensate === undefined
+      ? null : cleanupPhase_state.compensate.ok === true,
+    compensation_cleanup_complete: cleanupPhase_state.compensate === undefined
+      ? null : cleanupPhase_state.compensate.complete === true,
+    compensation_cleanup_results: cleanupPhase_state.compensate === undefined
+      ? [] : cleanupPhase_state.compensate.results,
+    // Recovery-layer inventory proof: derived from the REAL post-cleanup read that
+    // the compensation path performs. `null` when compensation did not run (green
+    // baseline already has its own primary final read).
+    compensation_inventory_restored: checks.compensation_inventory_restored === undefined
+      ? null : checks.compensation_inventory_restored === true,
+    compensation_inventory_live: checks.compensation_inventory_live === undefined
+      ? null : checks.compensation_inventory_live,
+    compensation_inventory_rows: checks.compensation_inventory_rows === undefined
+      ? null : checks.compensation_inventory_rows,
+    // Retained for compatibility with earlier readers; these reflect the PRIMARY
+    // record only and are never rewritten from the compensation layer.
+    cleanup_attempted: cleanupPhase.results.length > 0,
+    cleanup_ok: cleanupPhase.ok === true,
+    cleanup_results: cleanupPhase.results,
+    cleanup_layer: cleanupPhase.layer,
+    cleanup_complete: cleanupPhase.complete === true
+  };
+  return evidence;
+}
+
 // --- entry -------------------------------------------------------------------
 
 const argv = rh.args();
@@ -2252,6 +3269,17 @@ if (mode === MODE_PROCESS_PREFLIGHT) {
   }
   print("EVIDENCE research.profile-binding-exact-process.live-staged-preflight");
   print("PASS: exact-process live staged preflight");
+} else if (mode === MODE_BROWSER_BASELINE) {
+  // The disposable owned-browser baseline. Fail-closed entry, same discipline as
+  // the other real modes: the envelope is printed first and the tokens only when
+  // it says ok, so a red result can never exit 0 beside a PASS.
+  const evidence = browser_baseline_preflight();
+  print(canonical_json(evidence));
+  if (evidence.ok !== true) {
+    throw "LIVE_BROWSER_BASELINE_FAILED:" + evidence.failed.join("+");
+  }
+  print("EVIDENCE research.profile-binding-exact-process.live-browser-baseline");
+  print("PASS: exact-process live browser baseline");
 } else if (mode !== MODE_SELF_TEST) {
   // Every remaining non-self-test mode is refused here as well as in the runner.
   // Two independent refusals matter: this file is the one that would hold the

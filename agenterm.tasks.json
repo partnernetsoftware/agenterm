@@ -3154,6 +3154,26 @@
         "research.profile-binding-exact-process.live-self-test"
       ]
     },
+    "profile-binding-exact-process-browser-baseline": {
+      "inputs": [
+        "source-tree",
+        "built-agenterm-cu",
+        "browser-executable"
+      ],
+      "outputs": [
+        "exact-process-live-browser-baseline-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 200000000,
+        "max_host_operations": 4096,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "research.profile-binding-exact-process.live-browser-baseline"
+      ]
+    },
     "profile-binding-exact-process-live-preflight": {
       "inputs": [
         "source-tree"
@@ -9180,6 +9200,24 @@
         "macos"
       ],
       "side_effects": []
+    },
+    {
+      "id": "profile-binding-exact-process-browser-baseline",
+      "description": "Run one disposable owned-browser baseline that binds the live bridge host to the exact browser process, verifies primary cleanup and inventory restoration, and leaves formal experiment state untouched.",
+      "entry": "research/browser-profile-name-binding-exact-process/live-rehearsal.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "live-browser-baseline"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
     },
     {
       "id": "profile-binding-exact-process-live-preflight",

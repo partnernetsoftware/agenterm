@@ -409,8 +409,14 @@ passthroughs on the real path.
 court (`LIVE_COURT_NOT_IMPLEMENTED` / `LIVE_COURT_NOT_ENABLED`). Two conditions
 are unmet: no live ordinal may be reserved while the court cannot prove every
 throw site is preceded by a persisted stage (§4 kill criterion 4), and no
-browser may be launched before that proof is reviewed (§2). The live court has
-**no browser-spawn code path at all** in this slice.
+browser may be launched before that proof is reviewed (§2).
+
+**This section is about the browser-free slice's ordinal gate, not about whether
+a browser can be launched.** The browser-live mechanism itself is demonstrated
+separately by `profile-binding-exact-process-browser-baseline`, which runs
+disposable and reserves no ordinal; see the browser-live section above. The gate
+described here is what still blocks a **formal R1 ordinal**, and it is
+unaffected by that demonstration.
 
 The court's stage-publication wiring against the broker is consequently
 **untested live**: the self-test proves the ownership/cleanup classification, not
@@ -484,11 +490,21 @@ bug, and fixing one does not open another:
    can be staged **and finished** with a receipt, so a run that must report a kill
    criterion can now close truthfully.
 
-3. **Browser-live mechanism — STILL OPEN.** Terminal honesty was necessary but not
-   sufficient. The browser-live path is still unproven: no owned-browser ordinal
-   has been reserved, the bridge-host/browser endpoint identities have no
-   browser-live driver yet, and kill criterion 4 is not closed because the
-   browser-live throw sites are not covered. The endpoint identity facts
+3. **Browser-live mechanism — PROVEN with a disposable owned browser.** Terminal
+   honesty was necessary but not sufficient, and the browser-live path is now
+   demonstrated end to end by the formal task
+   `profile-binding-exact-process-browser-baseline`, run against a disposable root
+   and a synthetic HOME (never the real HOME or the formal research root). A
+   complete pre-spawn inventory read `0/0`, exactly one live connection was
+   established, the `bridge-host → browser` exact chain was observed, primary
+   cleanup ran, the termination observations were captured, and the final inventory
+   read `0/0` again. Six real red gates accompany this, each a mutation that makes
+   the real world wrong rather than a skipped guard — none is a fake success. Three
+   cleanup controls are proven on the real host: the ordinary exception, the host-op
+   budget trap, and the TERM path. The TERM control reports a direct handler witness
+   of 1, an EXIT cleanup witness of 1, a worker exit of 143, and the probe manifest
+   absent; after the product EOF-cancellation fix landed, the dedicated framed
+   worker count is 0 as well. The endpoint identity facts
    `browser_identity_digest`, `bridge_host_identity_digest` and
    `connection_identity_digest` live on `ownership` and are persisted as stable
    sha256 digests only — raw pids and paths are refused by the fact type. A
@@ -496,9 +512,19 @@ bug, and fixing one does not open another:
    the digests from the attempt's own journal row and refuses to close or load a
    V3-pass attempt that is missing any of the three.
 
+   The claim stops well short of a verdict. No formal R1 ordinal is reserved, no
+   terminal, receipt or design verdict is issued, and kill criterion 4 is not
+   closed — the `k4` / full `V1–V7` closure is **not** claimed. The in-memory
+   checkpoints are not broker stages. `descendants_all_dead_claim` stays `false`:
+   the controls prove the owned objects are gone, never that every descendant of
+   every process is. The real HOME and the formal research root are unchanged by
+   these runs.
+
 **No formal R1, no kill criterion 4, and no V1–V7 claim is made anywhere in this
 directory.** The browser-free slice still `abandon`s rather than `finish`, because
-it is not a browser-live attempt.
+it is not a browser-live attempt; the browser-live evidence above was produced by
+`profile-binding-exact-process-browser-baseline`, which likewise reserves no
+ordinal.
 
 ## What this directory must never do
 
