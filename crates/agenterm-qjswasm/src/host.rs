@@ -569,6 +569,7 @@ pub(crate) fn install(
             (status, payload)
         };
 
+        meter_for_fleet.borrow_mut().answered(payload.len());
         state.borrow_mut().result = payload;
         Ok(vec![Val::I32(status)])
     })?;
@@ -649,6 +650,7 @@ pub(crate) fn install(
         } else {
             (status, payload)
         };
+        meter_for_acu.borrow_mut().answered(payload.len());
         state.borrow_mut().acu_result = payload;
         Ok(vec![Val::I32(status)])
     })?;
@@ -940,11 +942,6 @@ fn call_bridge(
     // is where a journey's wall clock goes, and it is not a step.
     let mut meter = meter.borrow_mut();
     meter.waited(started.elapsed());
-    if let Ok(answer) = &answer {
-        meter.answered(match answer {
-            Ok(text) | Err(text) => text.len(),
-        });
-    }
     answer
 }
 
@@ -967,11 +964,6 @@ fn call_acu_bridge(
     });
     let mut meter = meter.borrow_mut();
     meter.waited(started.elapsed());
-    if let Ok(answer) = &answer {
-        meter.answered(match answer {
-            Ok(text) | Err(text) => text.len(),
-        });
-    }
     answer.map(|answer| {
         (
             answer,

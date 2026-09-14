@@ -89,6 +89,22 @@ fn success_and_failure_reply_bytes_are_billed_equally() {
         .expect("the attempted call is billed");
     assert_eq!(cost.host_ops, 1);
     assert_eq!(cost.host_bytes, 2, "panic text never crossed as a reply");
+
+    let outcome = Engine::with_budget(Budget {
+        max_bridge_result_bytes: 3,
+        ..Budget::default()
+    })
+    .run_once_with_bridges(
+        Guest::Qjs(r#"acu_call("{}"); return acu_result();"#),
+        bridges(Some(Arc::new(|_, _, _, _| Ok("oversized".to_owned())))),
+        "main",
+        &[],
+    )
+    .expect("an oversized reply becomes a readable bounded refusal");
+    let host_bytes = outcome.host_bytes;
+    let refusal = returned_string(outcome);
+    assert!(refusal.contains("ACU result exceeds"));
+    assert_eq!(host_bytes, 2 + refusal.len() as u64);
 }
 
 #[test]

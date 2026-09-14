@@ -160,6 +160,26 @@ fn success_and_failure_reply_bytes_are_billed_equally() {
         .expect("the attempted call is billed");
     assert_eq!(cost.host_ops, 1);
     assert_eq!(cost.host_bytes, 6, "panic text never crossed as a reply");
+
+    let calls = Arc::new(Calls::default());
+    let outcome = Engine::with_budget(Budget {
+        max_bridge_result_bytes: 3,
+        ..Budget::default()
+    })
+    .run_once(
+        Guest::Qjs(r#"fleet_call("same", "{}"); return fleet_result();"#),
+        Some(bridge(&calls, |_, _| Ok("oversized".to_owned()))),
+        "main",
+        &[],
+    )
+    .expect("an oversized reply becomes a readable bounded refusal");
+    let host_bytes = outcome.host_bytes;
+    let refusal = match outcome.values.as_slice() {
+        [Value::Js(JsValue::Str(value))] => value,
+        other => panic!("wanted one refusal string, got {other:?}"),
+    };
+    assert!(refusal.contains("fleet result exceeds"));
+    assert_eq!(host_bytes, 6 + refusal.len() as u64);
 }
 
 /// A bridge round trip is a wait, so a cancel ends it: a bridge that sees
