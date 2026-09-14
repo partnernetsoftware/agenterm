@@ -761,6 +761,9 @@ ACU-only cutover
 ├─ [x] text waits cannot broaden their node selector after an option typo
 │  ├─ [x] text, name, role, window and timeout consume their canonical and compatibility spellings
 │  └─ [x] residual tokens fail before `met` can invert from a narrowed negative to a broad false positive
+├─ [x] node-name waits cannot discard a misspelled role selector
+│  ├─ [x] node name, role, window and timeout use strict typed readers
+│  └─ [x] a rejected role mismatch cannot invert into `met: true` on a different node role
 ├─ [x] dynamic repair registry (complete corpus; no unknown fallback)
 │  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green
 │  │  ├─ [x] macOS public qjswasm court: one invocation-owned Cocoa window proves exact

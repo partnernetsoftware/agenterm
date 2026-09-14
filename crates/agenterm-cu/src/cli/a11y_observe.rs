@@ -8,8 +8,8 @@ use agenterm_cu::{Command, QueryWatchUntil, TargetRef, WaitCondition};
 use super::verbs::VerbSpec;
 use super::{
     flag_isize, flag_max_nodes, flag_parsed, flag_text, flag_u64, flag_usize, flag_value,
-    flag_window, flag_window_opt, menu, named_node, parse_expectations, parse_optional_window,
-    split_literal_tail, take_switch,
+    flag_window, menu, named_node, parse_expectations, parse_optional_window, split_literal_tail,
+    take_switch,
 };
 
 pub fn parse(
@@ -521,18 +521,23 @@ fn wait(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let text_contains_present = args
         .iter()
         .any(|arg| arg == "--text-contains" || arg == "--node-text-contains");
+    let node_name_present = args.iter().any(|arg| arg == "--node-name-contains");
     let absent = take_switch(args, "--absent");
     if absent && !expect_present {
         return Err("wait --absent requires --expect JSON".into());
     }
     // Closed wait shapes consume their timeout value; older conditions retain
     // the lenient reader until their complete argument contracts are migrated.
-    let timeout_ms =
-        if expect_present || ready_path_present || text_equals_present || text_contains_present {
-            flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(5_000)
-        } else {
-            flag_u64(args, "--timeout-ms").unwrap_or(5_000)
-        };
+    let timeout_ms = if expect_present
+        || ready_path_present
+        || text_equals_present
+        || text_contains_present
+        || node_name_present
+    {
+        flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(5_000)
+    } else {
+        flag_u64(args, "--timeout-ms").unwrap_or(5_000)
+    };
     let condition = if text_equals_present && text_contains_present {
         return Err("wait accepts one of --text-equals or --text-contains, not both".into());
     } else if expect_present {
@@ -617,11 +622,19 @@ fn wait(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
         WaitCondition::WindowTitleContains { pattern }
     } else if let Some(handle) = flag_isize(args, "--focused-handle") {
         WaitCondition::FocusedHandle { handle }
-    } else if let Some(pattern) = flag_value(args, "--node-name-contains") {
+    } else if let Some(pattern) = flag_text(args, "--node-name-contains")? {
+        let role = flag_text(args, "--node-role")?;
+        let window = flag_window(args)?;
+        if !args.is_empty() {
+            return Err(format!(
+                "wait --node-name-contains accepts only --timeout-ms MS --node-name-contains PAT [--node-role ROLE] [--window H]; unexpected {:?}",
+                args[0]
+            ));
+        }
         WaitCondition::NodeNameContains {
             pattern,
-            role: flag_value(args, "--node-role"),
-            window: flag_window_opt(args),
+            role,
+            window,
         }
     } else if let Some(path) = flag_text(args, "--ready-path")? {
         if !args.is_empty() {
@@ -1024,6 +1037,51 @@ mod tests {
                 ..
             } if substring == "--dash-leading text"
         ));
+    }
+
+    #[test]
+    fn node_name_wait_consumes_role_and_rejects_selector_typos() {
+        let spec = verbs::lookup("wait").expect("wait verb");
+        let mut valid = [
+            "--window",
+            "42",
+            "--node-name-contains",
+            "Shell",
+            "--node-role",
+            "button",
+            "--timeout-ms",
+            "600",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        assert!(matches!(
+            parse(spec, "wait", TargetRef::Current, &mut valid).expect("node-name wait"),
+            Command::Wait {
+                timeout_ms: 600,
+                condition: WaitCondition::NodeNameContains {
+                    pattern,
+                    role: Some(role),
+                    window: Some(42),
+                },
+                ..
+            } if pattern == "Shell" && role == "button"
+        ));
+
+        let mut typo = [
+            "--window",
+            "42",
+            "--node-name-contains",
+            "Shell",
+            "--node-rol",
+            "button",
+            "--timeout-ms",
+            "600",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        let error = parse(spec, "wait", TargetRef::Current, &mut typo)
+            .expect_err("role typo must not broaden the node set");
+        assert!(error.contains("--node-rol"), "unexpected error: {error}");
     }
 
     #[test]
