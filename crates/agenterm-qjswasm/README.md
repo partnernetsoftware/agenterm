@@ -304,6 +304,12 @@ deadline 仍负责约束总时长；预算对齐不是取消上限。
 `limit_import_source_bytes` / `limit_import_modules` / `limit_wall_time` 失败。解析器仍只
 允许项目根内的规范路径，失败不会退化成无界读取或把普通 “module not found” 冒充预算错误。
 
+`corpus-scan --dir DIR --project-root ROOT` 是较薄的目录级编译检查：本地 `lib/...`
+先从 `DIR` 解析，`skills/...` 这类仓库限定导入再从显式 `ROOT` 解析。它按普通 tool door
+编译，不猜每个文件的 task；需要 supervised native door 或逐项预算的脚本仍应通过带上下文的
+manifest `check-many` 验证。未知、重复或缺值选项直接拒绝，不能被静默忽略后生成一个含义不同
+的报告。
+
 工具脚本把路径交给外部程序时，还必须服从那个程序自己的命令行语法。Windows 本身通常接受
 `/`，但 `csc.exe` 把它当选项前缀；传入由平台中立 `join` 生成的混合分隔符路径，会让存在的
 源文件被解析成错误位置。共享 path helper 不为一个消费者改语义：只在 `csc.exe` 调用边界把

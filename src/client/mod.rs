@@ -1791,14 +1791,17 @@ fn run_script_corpus_scan(arguments: &[String]) -> i32 {
     // before the driver runs, so there is no placeholder report to invent for
     // the unavailable case -- an empty report would render as "0 scripts ok",
     // which is a green answer to a question that was never asked.
-    let outcome = agenterm_script_common::cli::run_corpus_scan_command(&arguments[2..], |dir| {
-        engine.corpus_scan(dir).unwrap_or_else(|| {
-            Err(format!(
-                "not offered on the {} engine: its corpus is not source text",
-                backend.as_str()
-            ))
-        })
-    });
+    let outcome = agenterm_script_common::cli::run_corpus_scan_command(
+        &arguments[2..],
+        |dir, project_root| {
+            engine.corpus_scan(dir, project_root).unwrap_or_else(|| {
+                Err(format!(
+                    "not offered on the {} engine: its corpus is not source text",
+                    backend.as_str()
+                ))
+            })
+        },
+    );
     match outcome {
         Ok(code) => i32::from(code),
         Err(message) => {
@@ -5591,7 +5594,7 @@ mod tests {
 
         for backend in have {
             let report = crate::script_engine::engine_for(backend)
-                .corpus_scan(empty.path())
+                .corpus_scan(empty.path(), None)
                 .unwrap_or_else(|| panic!("{backend:?} must have a scanner"))
                 .unwrap_or_else(|e| panic!("{backend:?} scanning an empty dir: {e}"));
             assert_eq!(report.total_scripts, 0, "{backend:?} on an empty directory");
@@ -5601,6 +5604,48 @@ mod tests {
         // rh's was a verb of its own dev CLI (`None` here) and wasmcore had
         // no source to scan; both engines have left, so every engine that
         // remains answers this face.
+    }
+
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn qjswasm_corpus_scan_resolves_repository_qualified_imports_from_project_root() {
+        use crate::script_backend::ScriptBackend;
+        use crate::script_engine::ScriptEngineBackend as _;
+
+        let project = tempfile::tempdir().expect("project root");
+        let corpus = project.path().join("skills/acu");
+        let library = corpus.join("lib/value.qjs");
+        let entry = corpus.join("tests/entry.qjs");
+        std::fs::create_dir_all(library.parent().expect("library parent"))
+            .expect("create library directory");
+        std::fs::create_dir_all(entry.parent().expect("entry parent"))
+            .expect("create entry directory");
+        std::fs::write(&library, "export const value = 42;").expect("write library");
+        std::fs::write(
+            &entry,
+            "import * as fixture from \"skills/acu/lib/value\"; return fixture.value;",
+        )
+        .expect("write entry");
+
+        let engine = crate::script_engine::engine_for(ScriptBackend::Qjswasm);
+        let without_root = engine
+            .corpus_scan(&corpus, None)
+            .expect("qjswasm scanner")
+            .expect("scan without root");
+        assert_eq!(without_root.total_scripts, 2);
+        assert_eq!(without_root.failures, 1);
+        assert!(
+            without_root.failed_files[0]
+                .message
+                .contains("skills/acu/lib/value")
+        );
+
+        let with_root = engine
+            .corpus_scan(&corpus, Some(project.path()))
+            .expect("qjswasm scanner")
+            .expect("scan with root");
+        assert_eq!(with_root.total_scripts, 2);
+        assert_eq!(with_root.failures, 0, "{:#?}", with_root.failed_files);
     }
 
     /// Every engine names itself, and the compiler-backed one names its pin.

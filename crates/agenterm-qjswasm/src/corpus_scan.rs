@@ -34,9 +34,11 @@ pub fn scan_directory(dir: &Path) -> Result<CorpusScanReport, String> {
 
 /// [`scan_directory`] for a corpus whose entries `import` libraries and
 /// call the tool door: each file is checked through the tool door's
-/// declarations (a scan asks "does this compile", not "may this run", and
-/// the tool set is the superset) with the embedder's resolver. The product
-/// passes a resolver rooted at `dir`, which is where the libraries sit.
+/// declarations (a scan asks "does this compile", not "may this run") with
+/// the embedder's resolver. The product roots local imports at `dir` and may
+/// add an explicit project root for repository-qualified imports. The
+/// supervised native door is deliberately not part of this generic scan;
+/// manifest-driven `check-many` owns that exact execution context.
 pub fn scan_directory_with(
     dir: &Path,
     resolve: &dyn Fn(&str) -> Option<String>,

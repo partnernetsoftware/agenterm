@@ -597,6 +597,13 @@ integration.
   indented `export` declarations still enter the library check path. Budget
   failures keep the public `limit` exit class; unresolved modules remain ordinary
   script diagnostics.
+- [x] `corpus-scan` no longer silently ignores the module context needed by
+  repository-qualified imports. `--dir` keeps local-library precedence and an
+  explicit `--project-root` supplies the second resolver root; unknown,
+  duplicate and dangling options fail usage instead of changing the report's
+  meaning. This thin scan deliberately declares the ordinary tool door only;
+  supervised-native scripts and exact per-task budgets remain owned by
+  manifest `check-many` rather than being guessed from source.
 - [x] The shared qjswasm task compatibility helper maps `.` to the exact
   current directory and strips only the host-valid leading dot segment from
   `./...` (plus `.\...` on Windows). Native path identity can therefore be

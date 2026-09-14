@@ -668,7 +668,7 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
             "agenterm cli script api [MODULE] [--status shipped|planned|all] [--tree|--json] | \
              check FILE|- [--project-root DIR] | eval EXPRESSION | \
              check-many --manifest FILE [--project-root DIR] | \
-             corpus-scan [--dir DIR] | hash FILE | version | \
+             corpus-scan [--dir DIR] [--project-root DIR] | hash FILE | version | \
              pack build FILE --dir OUT | pack load ARTIFACT | run-smoke ARTIFACT | \
              qualify FILE --dir OUT | \
              repl [--fail-fast] [--json] | run [--exit-code-from-value] \

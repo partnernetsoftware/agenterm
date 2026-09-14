@@ -136,23 +136,44 @@ pub fn run_check_many_command(
     Ok(report.exit_code())
 }
 
-/// `corpus-scan [--dir <dir>]` — resolve the scan root (explicit `--dir`,
-/// else CWD; a dangling `--dir` with no value is a hard error, not a CWD
-/// fallback), scan via the engine-supplied scanner, render, and pick the
-/// exit code (0 all green, 1 any failure).
+/// `corpus-scan [--dir <dir>] [--project-root <dir>]` — resolve the scan root
+/// (explicit `--dir`, else CWD) plus an optional module root, scan via the
+/// engine-supplied scanner, render, and pick the exit code (0 all green, 1 any
+/// failure). Unknown, duplicate, or dangling options are usage errors rather
+/// than silently changing what the report means.
 pub fn run_corpus_scan_command(
     args: &[String],
-    scan_directory: impl FnOnce(&std::path::Path) -> Result<CorpusScanReport, String>,
+    scan_directory: impl FnOnce(
+        &std::path::Path,
+        Option<&std::path::Path>,
+    ) -> Result<CorpusScanReport, String>,
 ) -> Result<u8, String> {
-    let dir = if has_flag(args, "--dir") {
-        // `usage` is unreachable here: `has_flag` already guarantees the
-        // flag is present, so the only way `require_flag_value` can fail
-        // is the "no value follows" branch.
-        PathBuf::from(require_flag_value(args, "--dir", "unreachable")?)
-    } else {
-        std::env::current_dir().map_err(|err| format!("corpus_scan_cwd: {err}"))?
+    let mut dir = None;
+    let mut project_root = None;
+    let mut index = 0;
+    while index < args.len() {
+        let option = &args[index];
+        let slot = match option.as_str() {
+            "--dir" => &mut dir,
+            "--project-root" => &mut project_root,
+            _ => return Err(format!("unknown corpus-scan option: {option}")),
+        };
+        if slot.is_some() {
+            return Err(format!("duplicate corpus-scan option: {option}"));
+        }
+        index += 1;
+        let value = args
+            .get(index)
+            .ok_or_else(|| format!("{option} requires a value"))?;
+        *slot = Some(PathBuf::from(value));
+        index += 1;
+    }
+    let dir = match dir {
+        Some(dir) => dir,
+        None => std::env::current_dir().map_err(|err| format!("corpus_scan_cwd: {err}"))?,
     };
-    let report = scan_directory(&dir).map_err(|err| format!("corpus_scan: {err}"))?;
+    let report = scan_directory(&dir, project_root.as_deref())
+        .map_err(|err| format!("corpus_scan: {err}"))?;
     if report.failures == 0 {
         println!("corpus-scan: {} scripts ok", report.total_scripts);
         Ok(0)
@@ -426,5 +447,57 @@ mod tests {
     fn rejects_flag_missing_its_value() {
         let err = parse(&["--manifest"]).expect_err("dangling flag");
         assert!(err.contains("missing value"), "{err}");
+    }
+
+    #[test]
+    fn corpus_scan_passes_scan_and_project_roots_to_the_engine() {
+        let args = [
+            "--dir".to_owned(),
+            "scripts/qjs".to_owned(),
+            "--project-root".to_owned(),
+            ".".to_owned(),
+        ];
+        let exit = run_corpus_scan_command(&args, |dir, project_root| {
+            assert_eq!(dir, PathBuf::from("scripts/qjs"));
+            assert_eq!(project_root, Some(std::path::Path::new(".")));
+            Ok(CorpusScanReport {
+                total_scripts: 0,
+                failures: 0,
+                duration_ms: 0,
+                failed_files: Vec::new(),
+            })
+        })
+        .expect("parse and scan");
+        assert_eq!(exit, 0);
+    }
+
+    #[test]
+    fn corpus_scan_rejects_unknown_duplicate_and_dangling_options() {
+        let never_scan = |_: &std::path::Path, _: Option<&std::path::Path>| {
+            panic!("invalid argv must not reach the scanner")
+        };
+        assert_eq!(
+            run_corpus_scan_command(&["--nope".to_owned()], never_scan)
+                .expect_err("unknown option"),
+            "unknown corpus-scan option: --nope"
+        );
+        assert_eq!(
+            run_corpus_scan_command(
+                &[
+                    "--dir".to_owned(),
+                    "a".to_owned(),
+                    "--dir".to_owned(),
+                    "b".to_owned(),
+                ],
+                never_scan,
+            )
+            .expect_err("duplicate option"),
+            "duplicate corpus-scan option: --dir"
+        );
+        assert_eq!(
+            run_corpus_scan_command(&["--project-root".to_owned()], never_scan)
+                .expect_err("dangling option"),
+            "--project-root requires a value"
+        );
     }
 }

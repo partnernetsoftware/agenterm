@@ -252,7 +252,8 @@ pub trait ScriptEngineBackend {
     fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>>;
 
     /// Scan a directory recursively for this engine's source files and check
-    /// each, or `None` when this engine has no corpus scanner.
+    /// each, optionally resolving repository-qualified imports from
+    /// `project_root`, or return `None` when this engine has no corpus scanner.
     ///
     /// The `Option` is the same distinction [`Self::eval_entry_source`] makes
     /// and for the same reason: "this engine cannot do that" and "the scan
@@ -262,6 +263,7 @@ pub trait ScriptEngineBackend {
     fn corpus_scan(
         &self,
         dir: &std::path::Path,
+        project_root: Option<&std::path::Path>,
     ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>>;
 
     /// One line naming this engine and the build it is: the `version` verb's
@@ -714,6 +716,7 @@ impl ScriptEngineBackend for LuaEngineBackend {
     fn corpus_scan(
         &self,
         dir: &std::path::Path,
+        _project_root: Option<&std::path::Path>,
     ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>> {
         Some(agenterm_lua::corpus_scan::scan_directory(dir))
     }
@@ -840,6 +843,7 @@ impl ScriptEngineBackend for SqlEngineBackend {
     fn corpus_scan(
         &self,
         dir: &std::path::Path,
+        _project_root: Option<&std::path::Path>,
     ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>> {
         Some(agenterm_sql::corpus_scan::scan_directory(dir))
     }
@@ -1093,10 +1097,16 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
     fn corpus_scan(
         &self,
         dir: &std::path::Path,
+        project_root: Option<&std::path::Path>,
     ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>> {
-        // Rooted at the corpus directory, so `import "lib/x"` resolves the
-        // way `run` resolves it for an entry in that directory.
-        let resolve = qjs_module_resolver(&[dir.to_path_buf()]);
+        // Local corpus libraries keep precedence; an explicit project root
+        // additionally resolves repository-qualified imports such as
+        // `skills/acu/lib/x`, matching single-file check/run resolution.
+        let mut roots = vec![dir.to_path_buf()];
+        if let Some(project_root) = project_root {
+            roots.push(project_root.to_path_buf());
+        }
+        let resolve = qjs_module_resolver(&roots);
         Some(agenterm_qjswasm::corpus_scan::scan_directory_with(
             dir, &resolve,
         ))
@@ -1447,6 +1457,7 @@ impl ScriptEngineBackend for ScriptEngine {
     fn corpus_scan(
         &self,
         dir: &std::path::Path,
+        project_root: Option<&std::path::Path>,
     ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>> {
         match self {
             // With no engine compiled in the enum is empty, `self` is
@@ -1459,11 +1470,11 @@ impl ScriptEngineBackend for ScriptEngine {
             )))]
             _ => match *self {},
             #[cfg(feature = "script-lua")]
-            Self::Lua(backend) => backend.corpus_scan(dir),
+            Self::Lua(backend) => backend.corpus_scan(dir, project_root),
             #[cfg(feature = "script-sql")]
-            Self::Sql(backend) => backend.corpus_scan(dir),
+            Self::Sql(backend) => backend.corpus_scan(dir, project_root),
             #[cfg(feature = "script-qjswasm")]
-            Self::Qjswasm(backend) => backend.corpus_scan(dir),
+            Self::Qjswasm(backend) => backend.corpus_scan(dir, project_root),
         }
     }
 

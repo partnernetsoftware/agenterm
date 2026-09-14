@@ -228,8 +228,10 @@ fn run_check_many_command(args: &[String]) -> Result<u8, SqlError> {
 /// syntax. Command body shared with qjs ("no `--dir`" falls back to CWD; a
 /// dangling `--dir` with no value is a hard error).
 fn run_corpus_scan_command(args: &[String]) -> Result<u8, SqlError> {
-    agenterm_script_common::cli::run_corpus_scan_command(args, crate::scan_directory)
-        .map_err(SqlError::Usage)
+    agenterm_script_common::cli::run_corpus_scan_command(args, |dir, _project_root| {
+        crate::scan_directory(dir)
+    })
+    .map_err(SqlError::Usage)
 }
 
 fn read_source(path: &PathBuf) -> Result<String, SqlError> {
