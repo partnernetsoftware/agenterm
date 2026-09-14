@@ -1337,23 +1337,88 @@ pub(super) fn pty_wait_payload(
     } else {
         PtyWaitMatcher::Contains(contains.expect("condition was validated").as_bytes())
     };
+    pty_wait_with_providers(
+        PtyWaitRun {
+            name,
+            cursor,
+            timeout_ms,
+            max_match_bytes,
+            max_scan_bytes,
+            matcher: &mut matcher,
+        },
+        control,
+        |name| {
+            let client = client_for(name)?;
+            let (inventory, tab) = sole_job(&client, name)?;
+            let tab_id = tab["id"]
+                .as_str()
+                .ok_or_else(|| {
+                    CuError::new("pty_job_state_invalid", "PTY job tab omitted its stable id")
+                })?
+                .to_owned();
+            Ok(PtyWaitBinding {
+                authority: client,
+                inventory,
+                tab_id,
+            })
+        },
+        |client, tab_id, cursor, max_bytes| {
+            terminal_output_with_client(client, tab_id, cursor, max_bytes)
+        },
+        status_with_client,
+    )
+}
+
+struct PtyWaitRun<'a, 'm> {
+    name: &'a str,
+    cursor: &'a str,
+    timeout_ms: u64,
+    max_match_bytes: usize,
+    max_scan_bytes: u64,
+    matcher: &'m mut PtyWaitMatcher<'a>,
+}
+
+struct PtyWaitBinding<C> {
+    authority: C,
+    inventory: Value,
+    tab_id: String,
+}
+
+fn pty_wait_with_providers<C, B, O, S>(
+    run: PtyWaitRun<'_, '_>,
+    control: crate::execution_control::ExecutionControl<'_>,
+    bind: B,
+    output: O,
+    status: S,
+) -> Result<Value, CuError>
+where
+    B: Fn(&str) -> Result<PtyWaitBinding<C>, CuError>,
+    O: Fn(&C, &str, &str, usize) -> Result<Value, CuError>,
+    S: Fn(&C, &str) -> Result<Value, CuError>,
+{
+    let PtyWaitRun {
+        name,
+        cursor,
+        timeout_ms,
+        max_match_bytes,
+        max_scan_bytes,
+        matcher,
+    } = run;
     // Cancellation is a robustness signal, not argument validation. Preserve all
     // typed shape errors above, then refuse before opening the PTY authority or
     // taking the first observable snapshot.
     control.check_observe()?;
-    let client = client_for(name)?;
-    let (inventory, tab) = sole_job(&client, name)?;
-    let tab_id = tab["id"].as_str().ok_or_else(|| {
-        CuError::new("pty_job_state_invalid", "PTY job tab omitted its stable id")
-    })?;
+    let binding = bind(name)?;
+    let client = &binding.authority;
+    let inventory = &binding.inventory;
+    let tab_id = binding.tab_id.as_str();
     let started = Instant::now();
     let deadline = started + Duration::from_millis(timeout_ms);
     let mut next = cursor.to_owned();
     let mut overlap = Vec::new();
     let mut scanned_bytes = 0_u64;
     loop {
-        control.check_observe()?;
-        let regex_scan = matches!(&matcher, PtyWaitMatcher::Regex { .. });
+        let regex_scan = matches!(&*matcher, PtyWaitMatcher::Regex { .. });
         let remaining_scan = max_scan_bytes.saturating_sub(scanned_bytes);
         if regex_scan && remaining_scan == 0 {
             return Err(regex_scan_limit_error(
@@ -1362,11 +1427,11 @@ pub(super) fn pty_wait_payload(
                 max_scan_bytes,
                 next,
                 scanned_bytes,
-                &matcher,
+                matcher,
             ));
         }
-        let page = terminal_output_with_client(
-            &client,
+        let page = output(
+            client,
             tab_id,
             &next,
             if regex_scan {
@@ -1406,7 +1471,7 @@ pub(super) fn pty_wait_payload(
             )
         })?;
         scanned_bytes = scanned_bytes.saturating_add(bytes.len() as u64);
-        let found = match &mut matcher {
+        let found = match &mut *matcher {
             PtyWaitMatcher::Contains(needle) => {
                 scan_exact_page(&mut overlap, &bytes, needle, start_cursor).map(|start_cursor| {
                     PtyWaitMatch {
@@ -1430,7 +1495,7 @@ pub(super) fn pty_wait_payload(
             }
         };
         if let Some(found) = found {
-            if matches!(&matcher, PtyWaitMatcher::Regex { .. }) && found.bytes > max_match_bytes {
+            if matches!(&*matcher, PtyWaitMatcher::Regex { .. }) && found.bytes > max_match_bytes {
                 return Err(CuError::new(
                     "pty_job_wait_match_exceeds_bound",
                     "PTY regex matched more bytes than --max-match-bytes permits",
@@ -1468,32 +1533,40 @@ pub(super) fn pty_wait_payload(
                 max_scan_bytes,
                 next_cursor,
                 scanned_bytes,
-                &matcher,
+                matcher,
             ));
         }
         if next_cursor < current_cursor {
+            // The returned page and its matcher state are authoritative. A token that
+            // became pending during that read may stop before the next page, but it
+            // must preserve the progress already accumulated.
+            if control.is_cancelled() {
+                return Err(pty_wait_cancelled(
+                    name,
+                    tab_id,
+                    timeout_ms,
+                    next_cursor,
+                    scanned_bytes,
+                    matcher,
+                ));
+            }
             continue;
         }
         if Instant::now() >= deadline {
-            let mut detail = json!({
-                "name": name,
-                "tab_id": tab_id,
-                "timeout_ms": timeout_ms,
-                "next_cursor": next_cursor,
-                "scanned_bytes": scanned_bytes,
-                "condition": matcher.condition(),
-            });
-            if let Some(digest) = matcher.pattern_sha256() {
-                detail["pattern_sha256"] = json!(digest);
-            }
             return Err(CuError::new(
                 "pty_job_wait_timeout",
                 "PTY output did not match the requested condition before the deadline",
             )
-            .with_detail(detail));
+            .with_detail(pty_wait_progress_detail(
+                name,
+                tab_id,
+                timeout_ms,
+                next_cursor,
+                scanned_bytes,
+                matcher,
+            )));
         }
-        control.check_observe()?;
-        let status = status_with_client(&client, name)?;
+        let status = status(client, name)?;
         if status["finalized"].as_bool() == Some(true) {
             let mut detail = json!({
                 "name": name,
@@ -1512,25 +1585,112 @@ pub(super) fn pty_wait_payload(
             )
             .with_detail(detail));
         }
-        wait_for_next_pty_poll(deadline, control)?;
+        // STATUS FIRST: a finalized verdict above is authoritative. Only a
+        // non-finalized round may acknowledge the pending stop request.
+        if control.is_cancelled() {
+            return Err(pty_wait_cancelled(
+                name,
+                tab_id,
+                timeout_ms,
+                next_cursor,
+                scanned_bytes,
+                matcher,
+            ));
+        }
+        if wait_for_next_pty_poll(deadline, control) {
+            // DEADLINE FIRST: a pause that consumed the remaining bound retains the
+            // ordinary timeout outcome instead of being rewritten as cancellation.
+            if Instant::now() >= deadline {
+                return Err(CuError::new(
+                    "pty_job_wait_timeout",
+                    "PTY output did not match the requested condition before the deadline",
+                )
+                .with_detail(pty_wait_progress_detail(
+                    name,
+                    tab_id,
+                    timeout_ms,
+                    next_cursor,
+                    scanned_bytes,
+                    matcher,
+                )));
+            }
+            return Err(pty_wait_cancelled(
+                name,
+                tab_id,
+                timeout_ms,
+                next_cursor,
+                scanned_bytes,
+                matcher,
+            ));
+        }
     }
+}
+
+fn pty_wait_progress_detail(
+    name: &str,
+    tab_id: &str,
+    timeout_ms: u64,
+    next_cursor: u64,
+    scanned_bytes: u64,
+    matcher: &PtyWaitMatcher<'_>,
+) -> Value {
+    let mut detail = json!({
+        "name": name,
+        "tab_id": tab_id,
+        "timeout_ms": timeout_ms,
+        "next_cursor": next_cursor,
+        "scanned_bytes": scanned_bytes,
+        "condition": matcher.condition(),
+    });
+    if let Some(digest) = matcher.pattern_sha256() {
+        detail["pattern_sha256"] = json!(digest);
+    }
+    detail
+}
+
+fn pty_wait_cancelled(
+    name: &str,
+    tab_id: &str,
+    timeout_ms: u64,
+    next_cursor: u64,
+    scanned_bytes: u64,
+    matcher: &PtyWaitMatcher<'_>,
+) -> CuError {
+    CuError::new(
+        "cancelled",
+        "the PTY wait was cancelled after output observation began",
+    )
+    .with_detail(json!({
+        "effect": "partially_performed",
+        "phase": "observe_wait",
+        "partial_observation": pty_wait_progress_detail(
+            name,
+            tab_id,
+            timeout_ms,
+            next_cursor,
+            scanned_bytes,
+            matcher,
+        ),
+    }))
 }
 
 fn wait_for_next_pty_poll(
     deadline: Instant,
     control: crate::execution_control::ExecutionControl<'_>,
-) -> Result<(), CuError> {
+) -> bool {
     let pause_deadline = Instant::now()
         + deadline
             .saturating_duration_since(Instant::now())
             .min(PTY_WAIT_POLL_INTERVAL);
     while Instant::now() < pause_deadline {
-        control.check_observe()?;
+        if control.is_cancelled() {
+            return true;
+        }
         thread::sleep(
             PTY_WAIT_CANCEL_SLICE.min(pause_deadline.saturating_duration_since(Instant::now())),
         );
     }
-    control.check_observe()
+    control.is_cancelled()
 }
 
 pub(super) fn pty_wait_exit_payload(
@@ -1772,6 +1932,7 @@ pub(super) fn pty_stop_payload(
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -1844,6 +2005,303 @@ mod tests {
         assert!(!detail.to_string().contains("secret"));
     }
 
+    fn fixture_binding() -> PtyWaitBinding<()> {
+        PtyWaitBinding {
+            authority: (),
+            inventory: json!({ "server_epoch": "fixture-epoch" }),
+            tab_id: "@7".into(),
+        }
+    }
+
+    #[test]
+    fn pty_wait_pre_cancel_reaches_none_of_its_authorities() {
+        let binds = Cell::new(0usize);
+        let outputs = Cell::new(0usize);
+        let statuses = Cell::new(0usize);
+        let mut matcher = PtyWaitMatcher::Contains(b"needle");
+        let error = pty_wait_with_providers(
+            PtyWaitRun {
+                name: "fixture",
+                cursor: "earliest",
+                timeout_ms: 60_000,
+                max_match_bytes: 4_096,
+                max_scan_bytes: 16_777_216,
+                matcher: &mut matcher,
+            },
+            crate::execution_control::ExecutionControl::with_cancel_probe(&|| true),
+            |_| {
+                binds.set(binds.get() + 1);
+                Ok(fixture_binding())
+            },
+            |_, _, _, _| {
+                outputs.set(outputs.get() + 1);
+                unreachable!("a pre-cancelled wait must not read output")
+            },
+            |_, _| {
+                statuses.set(statuses.get() + 1);
+                unreachable!("a pre-cancelled wait must not read status")
+            },
+        )
+        .expect_err("a pre-cancelled wait must refuse before binding");
+
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(error.detail.expect("detail")["effect"], "not_performed");
+        assert_eq!((binds.get(), outputs.get(), statuses.get()), (0, 0, 0));
+    }
+
+    #[test]
+    fn pty_wait_post_output_cancel_preserves_shaped_progress() {
+        let outputs = Cell::new(0usize);
+        let statuses = Cell::new(0usize);
+        let cancelled = Cell::new(false);
+        let probe = || cancelled.get();
+        let mut matcher = PtyWaitMatcher::Contains(b"needle");
+        let error = pty_wait_with_providers(
+            PtyWaitRun {
+                name: "fixture",
+                cursor: "earliest",
+                timeout_ms: 60_000,
+                max_match_bytes: 4_096,
+                max_scan_bytes: 16_777_216,
+                matcher: &mut matcher,
+            },
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            |_| Ok(fixture_binding()),
+            |_, _, _, _| {
+                outputs.set(outputs.get() + 1);
+                Ok(json!({
+                    "start_cursor": 0,
+                    "next_cursor": 5,
+                    "current_cursor": 5,
+                    "data_base64": "aGVsbG8=",
+                }))
+            },
+            |_, _| {
+                statuses.set(statuses.get() + 1);
+                cancelled.set(true);
+                Ok(json!({ "finalized": false, "exit_code": null }))
+            },
+        )
+        .expect_err("a pending token after output and status must return a partial");
+
+        assert_eq!((outputs.get(), statuses.get()), (1, 1));
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        let partial = &detail["partial_observation"];
+        assert_eq!(partial["name"], "fixture");
+        assert_eq!(partial["tab_id"], "@7");
+        assert_eq!(partial["next_cursor"], 5);
+        assert_eq!(partial["scanned_bytes"], 5);
+        assert_eq!(
+            partial["condition"],
+            json!({ "kind": "contains", "bytes": 6 })
+        );
+        assert!(partial.get("termination").is_none());
+    }
+
+    #[test]
+    fn pty_wait_pause_cancel_routes_through_the_state_owner() {
+        let probe_calls = Cell::new(0usize);
+        let probe = || {
+            let next = probe_calls.get() + 1;
+            probe_calls.set(next);
+            // 1 = sole pre-authority check; 2 = post-status boundary; 3 = first
+            // sliced-pause check. This makes the pause point deterministic.
+            next >= 3
+        };
+        let outputs = Cell::new(0usize);
+        let statuses = Cell::new(0usize);
+        let mut matcher = PtyWaitMatcher::Contains(b"needle");
+        let error = pty_wait_with_providers(
+            PtyWaitRun {
+                name: "fixture",
+                cursor: "earliest",
+                timeout_ms: 60_000,
+                max_match_bytes: 4_096,
+                max_scan_bytes: 16_777_216,
+                matcher: &mut matcher,
+            },
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            |_| Ok(fixture_binding()),
+            |_, _, _, _| {
+                outputs.set(outputs.get() + 1);
+                Ok(json!({
+                    "start_cursor": 0,
+                    "next_cursor": 0,
+                    "current_cursor": 0,
+                    "data_base64": "",
+                }))
+            },
+            |_, _| {
+                statuses.set(statuses.get() + 1);
+                Ok(json!({ "finalized": false, "exit_code": null }))
+            },
+        )
+        .expect_err("the pause signal must become a truthful partial");
+
+        assert_eq!((outputs.get(), statuses.get()), (1, 1));
+        assert_eq!(probe_calls.get(), 3);
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["partial_observation"]["scanned_bytes"], 0);
+    }
+
+    #[test]
+    fn pty_wait_finalized_status_wins_over_a_same_round_token() {
+        let cancelled = Cell::new(false);
+        let probe = || cancelled.get();
+        let mut matcher = PtyWaitMatcher::Contains(b"needle");
+        let error = pty_wait_with_providers(
+            PtyWaitRun {
+                name: "fixture",
+                cursor: "earliest",
+                timeout_ms: 60_000,
+                max_match_bytes: 4_096,
+                max_scan_bytes: 16_777_216,
+                matcher: &mut matcher,
+            },
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            |_| Ok(fixture_binding()),
+            |_, _, _, _| {
+                Ok(json!({
+                    "start_cursor": 0,
+                    "next_cursor": 0,
+                    "current_cursor": 0,
+                    "data_base64": "",
+                }))
+            },
+            |_, _| {
+                cancelled.set(true);
+                Ok(json!({ "finalized": true, "exit_code": 7 }))
+            },
+        )
+        .expect_err("the finalized status must remain authoritative");
+
+        assert!(cancelled.get());
+        assert_eq!(error.code, "pty_job_wait_unmatched_after_exit");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["exit_code"], 7);
+        assert!(detail.get("effect").is_none());
+    }
+
+    #[test]
+    fn pty_wait_match_wins_over_a_token_flipped_by_that_output() {
+        let cancelled = Cell::new(false);
+        let statuses = Cell::new(0usize);
+        let probe = || cancelled.get();
+        let mut matcher = PtyWaitMatcher::Contains(b"needle");
+        let value = pty_wait_with_providers(
+            PtyWaitRun {
+                name: "fixture",
+                cursor: "earliest",
+                timeout_ms: 60_000,
+                max_match_bytes: 4_096,
+                max_scan_bytes: 16_777_216,
+                matcher: &mut matcher,
+            },
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            |_| Ok(fixture_binding()),
+            |_, _, _, _| {
+                cancelled.set(true);
+                Ok(json!({
+                    "start_cursor": 10,
+                    "next_cursor": 16,
+                    "current_cursor": 16,
+                    "data_base64": "bmVlZGxl",
+                }))
+            },
+            |_, _| {
+                statuses.set(statuses.get() + 1);
+                unreachable!("a matched page must not read status")
+            },
+        )
+        .expect("the matched output must win over its same-round token");
+
+        assert!(cancelled.get());
+        assert_eq!(statuses.get(), 0);
+        assert_eq!(value["state"], "matched");
+        assert_eq!(value["matched_at_cursor"], 10);
+        assert_eq!(value["scanned_bytes"], 6);
+    }
+
+    #[test]
+    fn pty_wait_output_error_wins_over_a_token_flipped_by_that_call() {
+        let cancelled = Cell::new(false);
+        let probe = || cancelled.get();
+        let mut matcher = PtyWaitMatcher::Contains(b"needle");
+        let error = pty_wait_with_providers(
+            PtyWaitRun {
+                name: "fixture",
+                cursor: "earliest",
+                timeout_ms: 60_000,
+                max_match_bytes: 4_096,
+                max_scan_bytes: 16_777_216,
+                matcher: &mut matcher,
+            },
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            |_| Ok(fixture_binding()),
+            |_, _, _, _| {
+                cancelled.set(true);
+                Err(CuError::new(
+                    "pty_output_fixture_refusal",
+                    "the fixture output authority refused",
+                ))
+            },
+            |_, _| unreachable!("an output refusal must return before status"),
+        )
+        .expect_err("the output authority error must remain the verdict");
+
+        assert!(cancelled.get());
+        assert_eq!(error.code, "pty_output_fixture_refusal");
+    }
+
+    #[test]
+    fn pty_wait_deadline_wins_over_a_token_flipped_by_that_output() {
+        let cancelled = Cell::new(false);
+        let statuses = Cell::new(0usize);
+        let probe = || cancelled.get();
+        let mut matcher = PtyWaitMatcher::Contains(b"needle");
+        let error = pty_wait_with_providers(
+            PtyWaitRun {
+                name: "fixture",
+                cursor: "earliest",
+                timeout_ms: 1,
+                max_match_bytes: 4_096,
+                max_scan_bytes: 16_777_216,
+                matcher: &mut matcher,
+            },
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            |_| Ok(fixture_binding()),
+            |_, _, _, _| {
+                thread::sleep(Duration::from_millis(2));
+                cancelled.set(true);
+                Ok(json!({
+                    "start_cursor": 0,
+                    "next_cursor": 5,
+                    "current_cursor": 5,
+                    "data_base64": "aGVsbG8=",
+                }))
+            },
+            |_, _| {
+                statuses.set(statuses.get() + 1);
+                unreachable!("a reached deadline must return before status")
+            },
+        )
+        .expect_err("the reached deadline must remain authoritative");
+
+        assert!(cancelled.get());
+        assert_eq!(statuses.get(), 0);
+        assert_eq!(error.code, "pty_job_wait_timeout");
+        let detail = error.detail.expect("timeout detail");
+        assert_eq!(detail["next_cursor"], 5);
+        assert_eq!(detail["scanned_bytes"], 5);
+        assert!(detail.get("effect").is_none());
+        assert!(detail.get("partial_observation").is_none());
+    }
+
     #[test]
     fn pty_wait_pre_cancel_exits_before_the_authority_is_consulted() {
         let probe = || true;
@@ -1908,17 +2366,13 @@ mod tests {
         });
         let probe = || cancelled.load(Ordering::Acquire);
         let started = Instant::now();
-        let error = wait_for_next_pty_poll(
+        let cancelled = wait_for_next_pty_poll(
             Instant::now() + Duration::from_secs(60),
             crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
-        )
-        .expect_err("the PTY poll pause must observe cancellation");
+        );
         trigger.join().expect("cancel trigger");
 
-        assert_eq!(error.code, "cancelled");
-        let detail = error.detail.expect("typed cancellation detail");
-        assert_eq!(detail["effect"], "not_performed");
-        assert_eq!(detail["phase"], "observe_wait");
+        assert!(cancelled, "the PTY poll pause must observe cancellation");
         assert!(
             started.elapsed() < Duration::from_millis(100),
             "PTY poll pause did not observe cancellation inside its bounded test window: {:?}",

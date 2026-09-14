@@ -202,8 +202,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │  │      accumulated events as `effect:partially_performed`, while a same-round snapshot,
   │  │  │      provider error, event ceiling or deadline remains authoritative
   │  │  ├─ [x] `pty-wait` polls the same borrowed token before consulting its PTY authority and
-  │  │  │      between output/status rounds; cancellation returns `effect:not_performed` without a receipt,
-  │  │  │      while one in-flight control-plane request retains its existing uninterruptible 5-second bound
+  │  │  │      between output/status rounds; pre-authority cancellation returns `effect:not_performed`,
+  │  │  │      while a later stop preserves the bounded cursor/scan/condition evidence as
+  │  │  │      `effect:partially_performed` and deadline, match, output refusal or finalized status wins;
+  │  │  │      one in-flight control-plane request retains its existing uninterruptible 5-second bound
   │  │  └─ [x] named native observation waits carry phase-aware cancellation evidence
   │  │     ├─ `terminal-wait` / `pty-wait-exit` sample before each bounded authority round and
   │  │     │  through the sliced inter-round pause; an entry-only check is no longer the owner
