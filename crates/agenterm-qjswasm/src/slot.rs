@@ -54,6 +54,7 @@ pub(crate) struct Slot {
     /// What the last failed call printed before it failed. The `Result`
     /// face has no room for it, so it waits here for [`Engine::take_failed_stdout`].
     failed_stdout: String,
+    failed_stdout_truncated: bool,
     failed_cost: Option<Cost>,
     heap_start_bytes: Option<usize>,
 }
@@ -88,6 +89,10 @@ impl Slot {
 
     pub(crate) fn take_failed_stdout(&mut self) -> String {
         std::mem::take(&mut self.failed_stdout)
+    }
+
+    pub(crate) fn take_failed_stdout_truncated(&mut self) -> bool {
+        std::mem::take(&mut self.failed_stdout_truncated)
     }
 
     pub(crate) fn take_failed_cost(&mut self) -> Option<Cost> {
@@ -138,6 +143,7 @@ impl Slot {
             door,
             convention,
             failed_stdout: String::new(),
+            failed_stdout_truncated: false,
             failed_cost: None,
             heap_start_bytes: None,
         };
@@ -224,6 +230,7 @@ impl Slot {
                 // The call failed after the guest printed: keep it for the
                 // engine to hand out, since the error face cannot carry it.
                 self.failed_stdout = stdout;
+                self.failed_stdout_truncated = truncated_stdout;
                 self.failed_cost = Some(Cost {
                     steps,
                     peak_call_depth,

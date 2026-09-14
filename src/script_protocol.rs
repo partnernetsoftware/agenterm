@@ -452,6 +452,9 @@ pub struct ScriptFailure {
     /// already has a place for stdout.
     #[serde(skip)]
     pub stdout: String,
+    /// Whether the skipped stdout carrier contains only a bounded prefix.
+    #[serde(skip)]
+    pub stdout_truncated: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -509,6 +512,9 @@ pub struct ScriptResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<ScriptProfile>,
     pub stdout: String,
+    /// True only when `stdout` is a bounded prefix rather than complete.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stdout_truncated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

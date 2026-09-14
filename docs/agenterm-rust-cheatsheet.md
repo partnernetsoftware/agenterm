@@ -3183,6 +3183,13 @@ bytes occupy far more than N result bytes, so fit the serialized envelope and
 mark any additional cut. A raw-stdout convenience has nowhere to carry that
 metadata and therefore must fail typed when either stream was truncated.
 
+Carry that bit through every product projection, including the error carrier.
+If a structured result omits false for wire compatibility, its plain-text CLI
+must still warn on stderr when true; never append metadata to the retained
+stdout bytes themselves. Test both a successful and a failed over-budget call,
+and test the public budget mapping with a deliberately small limit so an
+accepted-but-ignored option cannot hide behind the engine default.
+
 ## Hold one audit sink across an authorized side effect
 
 Opening an audit path once for the pre-action record and again for the outcome

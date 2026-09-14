@@ -1598,6 +1598,11 @@ fn run_script_artifact_command(arguments: &[String]) -> i32 {
                 if !result.stdout.is_empty() {
                     print!("{}", result.stdout);
                 }
+                if result.stdout_truncated {
+                    cli_eprintln!(
+                        "agenterm: script stdout was truncated by its output byte budget"
+                    );
+                }
                 if let Some(value) = result.value {
                     cli_println!("{}", render_script_value(&value));
                 }
@@ -1674,7 +1679,7 @@ fn run_script_artifact_command(arguments: &[String]) -> i32 {
             return 2;
         }
     };
-    let receipt = serde_json::json!({
+    let mut receipt = serde_json::json!({
         "schema": "agenterm-script-qualification",
         "version": "1",
         "engine": engine.identity(),
@@ -1691,6 +1696,9 @@ fn run_script_artifact_command(arguments: &[String]) -> i32 {
         // would be a measurement nobody took.
         "cost": outcome.cost,
     });
+    if outcome.stdout_truncated {
+        receipt["stdout_truncated"] = serde_json::Value::Bool(true);
+    }
     let receipt_path = dir.join("receipt.json");
     match serde_json::to_string_pretty(&receipt) {
         Ok(encoded) => {
@@ -2567,6 +2575,7 @@ fn run_script_command_with_context(
                     category: ScriptFailureCategory::Script,
                     cost: result.cost.map(Box::new),
                     stdout: String::new(),
+                    stdout_truncated: false,
                 });
                 result.value = None;
                 None
@@ -2665,15 +2674,16 @@ fn run_script_command_with_context(
                 println!();
             }
         }
-        cli_eprintln!(
-            "{}",
-            serde_json::json!({
-                "code": failure.code,
-                "message": failure.message,
-                "invocation_id": result.invocation_id,
-                "exit_class": result.exit_class,
-            })
-        );
+        let mut diagnostic = serde_json::json!({
+            "code": failure.code,
+            "message": failure.message,
+            "invocation_id": result.invocation_id,
+            "exit_class": result.exit_class,
+        });
+        if result.stdout_truncated {
+            diagnostic["stdout_truncated"] = serde_json::Value::Bool(true);
+        }
+        cli_eprintln!("{diagnostic}");
         None
     } else {
         None
@@ -2682,6 +2692,9 @@ fn run_script_command_with_context(
         && let Err(code) = write_script_stdout(&output)
     {
         return code;
+    }
+    if result.ok && result.stdout_truncated && !has_option(arguments, "--json") {
+        cli_eprintln!("agenterm: script stdout was truncated by its output byte budget");
     }
     if result.ok {
         completion_exit_code.map_or(0, i32::from)

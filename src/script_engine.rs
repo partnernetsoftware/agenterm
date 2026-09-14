@@ -74,6 +74,8 @@ pub struct ScriptInvocationOptions {
 #[derive(Debug)]
 pub struct ScriptInvocationResult {
     pub stdout: String,
+    /// The output budget retained only a prefix. False means complete.
+    pub stdout_truncated: bool,
     pub value: Option<Value>,
     /// What the run cost, for engines that count. `None` is not "it was
     /// free" -- it is "this engine does not measure", which is the honest
@@ -107,6 +109,8 @@ pub struct ScriptEngineError {
     /// Reaches the caller as the result's `stdout` next to the failure, so a
     /// gate script's STEP lines are not lost exactly on the runs that matter.
     pub stdout: String,
+    /// Whether the failed run's retained stdout is only a bounded prefix.
+    pub stdout_truncated: bool,
     /// What the failed run cost, when the engine counts: a failed wait is
     /// the run whose bill matters most (A1.12).
     pub cost: Option<ScriptCost>,
@@ -118,6 +122,7 @@ impl From<String> for ScriptEngineError {
             message,
             category: ScriptFailureCategory::Configuration,
             stdout: String::new(),
+            stdout_truncated: false,
             cost: None,
         }
     }
@@ -363,6 +368,7 @@ fn qjs_engine_error(error: agenterm_qjswasm::QjswasmError) -> ScriptEngineError 
         message: error.to_string(),
         category,
         stdout: String::new(),
+        stdout_truncated: false,
         cost: None,
     }
 }
@@ -373,6 +379,7 @@ fn qjs_compile_error(error: agenterm_qjswasm::CompileError) -> ScriptEngineError
         message: error.to_string(),
         category: ScriptFailureCategory::Script,
         stdout: String::new(),
+        stdout_truncated: false,
         cost: None,
     }
 }
@@ -401,6 +408,7 @@ fn qjs_budget(options: &ScriptInvocationOptions) -> agenterm_qjswasm::Budget {
     if let Some(budgets) = options.budgets.as_ref() {
         budget.limits.max_steps = budgets.operations;
         budget.max_host_ops = budgets.host_operations;
+        budget.max_stdout_bytes = budgets.output_bytes;
         // A tool result becomes a guest string, so the public invocation's
         // string ceiling is also the qjswasm door's all-or-nothing result
         // ceiling. Keeping the engine default here used to reject a valid
@@ -773,6 +781,7 @@ impl ScriptEngineBackend for LuaEngineBackend {
 
         Ok(ScriptInvocationResult {
             stdout: result.stdout,
+            stdout_truncated: false,
             value: Some(Value::from(result.value)),
             cost: None,
         })
@@ -893,6 +902,7 @@ impl ScriptEngineBackend for SqlEngineBackend {
 
         Ok(ScriptInvocationResult {
             stdout: outcome.stdout,
+            stdout_truncated: false,
             value: outcome.value,
             cost: None,
         })
@@ -993,6 +1003,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                 )
                 .map(|outcome| ScriptInvocationResult {
                     stdout: outcome.stdout,
+                    stdout_truncated: outcome.truncated_stdout,
                     value: outcome.values.first().and_then(qjswasm_value_as_json),
                     cost: Some(ScriptCost {
                         steps: outcome.steps,
@@ -1013,6 +1024,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                 .map_err(|e| {
                     let mut error = qjs_engine_error(e);
                     error.stdout = engine.take_failed_stdout();
+                    error.stdout_truncated = engine.take_failed_stdout_truncated();
                     error.cost = engine.take_failed_cost().map(script_cost);
                     error
                 }),
@@ -1038,6 +1050,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                 )
                 .map(|outcome| ScriptInvocationResult {
                     stdout: outcome.stdout,
+                    stdout_truncated: outcome.truncated_stdout,
                     value: outcome.values.first().and_then(qjswasm_value_as_json),
                     cost: Some(ScriptCost {
                         steps: outcome.steps,
@@ -1058,6 +1071,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                 .map_err(|error| {
                     let mut error = qjs_engine_error(error);
                     error.stdout = engine.take_failed_stdout();
+                    error.stdout_truncated = engine.take_failed_stdout_truncated();
                     error.cost = engine.take_failed_cost().map(script_cost);
                     error
                 }),
@@ -1213,12 +1227,14 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
             .map_err(|e| {
                 let mut error = qjs_engine_error(e);
                 error.stdout = engine.take_failed_stdout();
+                error.stdout_truncated = engine.take_failed_stdout_truncated();
                 error.cost = engine.take_failed_cost().map(script_cost);
                 error
             })?;
 
         Ok(ScriptInvocationResult {
             stdout: outcome.stdout,
+            stdout_truncated: outcome.truncated_stdout,
             value: outcome.values.first().and_then(qjswasm_value_as_json),
             cost: Some(ScriptCost {
                 steps: outcome.steps,

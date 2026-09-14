@@ -610,6 +610,7 @@ fn execute_with_cancellation_and_broker(
         operation: Some(invocation.operation),
         profile: Some(invocation.profile),
         stdout: String::new(),
+        stdout_truncated: false,
         value: None,
         failure: None,
         cost: None,
@@ -617,10 +618,11 @@ fn execute_with_cancellation_and_broker(
     };
     let execution = execute_inner(&invocation, cancellation, broker);
     match execution {
-        Ok((stdout, value, cost)) => {
+        Ok((stdout, stdout_truncated, value, cost)) => {
             result.ok = true;
             result.exit_class = ScriptExitClass::Success;
             result.stdout = stdout;
+            result.stdout_truncated = stdout_truncated;
             result.value = value;
             result.cost = cost;
         }
@@ -628,6 +630,7 @@ fn execute_with_cancellation_and_broker(
             // Printed before the failure: it belongs to this run's stdout,
             // next to the failure, not lost with it.
             result.stdout = std::mem::take(&mut failure.stdout);
+            result.stdout_truncated = failure.stdout_truncated;
             result.cost = failure.cost.take().map(|cost| *cost);
             result.exit_class = match failure.category {
                 ScriptFailureCategory::Configuration => ScriptExitClass::Configuration,
@@ -650,7 +653,7 @@ fn execute_inner(
     invocation: &ScriptInvocation,
     cancellation: Option<Arc<AtomicBool>>,
     broker: Option<BrokerClient>,
-) -> Result<(String, Option<serde_json::Value>, Option<ScriptCost>), ScriptFailure> {
+) -> Result<(String, bool, Option<serde_json::Value>, Option<ScriptCost>), ScriptFailure> {
     // `invocation_temp_root` used to be installed here as the rh host's
     // per-invocation `rh::runtime::temp_dir`. That host left with the engine
     // on 2026-08-29; the field stays in the protocol for the engines that
@@ -699,7 +702,12 @@ fn execute_inner(
         .transpose()
         .map_err(artifact_error)?;
     if invocation.operation == ScriptOperation::Api {
-        return Ok((String::new(), Some(crate::script_catalog::catalog()), None));
+        return Ok((
+            String::new(),
+            false,
+            Some(crate::script_catalog::catalog()),
+            None,
+        ));
     }
 
     // Shared invocation options + fleet_bridge, built once (Trait-M3: this
@@ -871,7 +879,12 @@ fn execute_inner(
                 }
             };
             return match execution {
-                Some(Ok(result)) => Ok((result.stdout, result.value, result.cost)),
+                Some(Ok(result)) => Ok((
+                    result.stdout,
+                    result.stdout_truncated,
+                    result.value,
+                    result.cost,
+                )),
                 Some(Err(error)) => Err(engine_execution_error("qjswasm_backend", error)),
                 None => Err(configuration_error(
                     "qjswasm_backend",
@@ -927,20 +940,25 @@ fn dispatch_via_engine(
     source: &str,
     options: &crate::script_engine::ScriptInvocationOptions,
     fleet_bridge: Option<crate::script_engine::ScriptFleetBridgeFn>,
-) -> Result<(String, Option<serde_json::Value>, Option<ScriptCost>), ScriptFailure> {
+) -> Result<(String, bool, Option<serde_json::Value>, Option<ScriptCost>), ScriptFailure> {
     let backend_code = format!("{}_backend", engine.backend_id().as_str());
     match operation {
         ScriptOperation::Check => {
             engine
                 .check(source, options)
                 .map_err(|error| configuration_error(backend_code, error))?;
-            Ok((String::new(), None, None))
+            Ok((String::new(), false, None, None))
         }
         ScriptOperation::Run | ScriptOperation::Eval => {
             let result = engine
                 .execute(source, options, fleet_bridge)
                 .map_err(|error| engine_execution_error(&backend_code, error))?;
-            Ok((result.stdout, result.value, result.cost))
+            Ok((
+                result.stdout,
+                result.stdout_truncated,
+                result.value,
+                result.cost,
+            ))
         }
         // Unreachable in practice: `execute_inner` short-circuits
         // `ScriptOperation::Api` before any backend dispatch (see the
@@ -1003,6 +1021,7 @@ fn protocol_failure_for(
         operation: None,
         profile: None,
         stdout: String::new(),
+        stdout_truncated: false,
         value: None,
         failure: Some(protocol_error(code, message)),
         cost: None,
@@ -1033,6 +1052,7 @@ fn engine_execution_error(
     // without this function knowing any engine's wording.
     let mut failed = failure(backend_code, error.message, error.category);
     failed.stdout = error.stdout;
+    failed.stdout_truncated = error.stdout_truncated;
     failed.cost = error.cost.map(Box::new);
     failed
 }
@@ -1062,6 +1082,7 @@ fn failure(
         message: message.into(),
         category,
         stdout: String::new(),
+        stdout_truncated: false,
         cost: None,
     }
 }
@@ -1104,6 +1125,39 @@ mod tests {
             .as_ref()
             .map(|failure| failure.code.as_str())
             .expect("expected failure")
+    }
+
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn qjswasm_stdout_truncation_survives_success_and_failure_envelopes() {
+        let mut success = invocation(ScriptOperation::Run, r#"print("abcdefgh"); return "done";"#);
+        success.budgets.output_bytes = 4;
+        let success = execute(success);
+        assert!(success.ok);
+        assert_eq!(success.stdout, "abcd");
+        assert!(success.stdout_truncated);
+        assert_eq!(
+            serde_json::to_value(&success).expect("serialize success")["stdout_truncated"],
+            true
+        );
+
+        let mut failure = invocation(ScriptOperation::Run, r#"print("abcdefgh"); throw "boom";"#);
+        failure.budgets.output_bytes = 4;
+        let failure = execute(failure);
+        assert!(!failure.ok);
+        assert_eq!(failure.stdout, "abcd");
+        assert!(failure.stdout_truncated);
+        assert_eq!(failure_code(&failure), "qjswasm_backend");
+
+        let ordinary = execute(invocation(ScriptOperation::Run, r#"print("ok");"#));
+        assert!(ordinary.ok);
+        assert!(
+            serde_json::to_value(&ordinary)
+                .expect("serialize ordinary result")
+                .get("stdout_truncated")
+                .is_none(),
+            "ordinary envelopes remain byte-shape compatible"
+        );
     }
 
     #[test]

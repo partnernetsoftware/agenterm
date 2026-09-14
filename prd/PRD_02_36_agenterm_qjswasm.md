@@ -260,6 +260,7 @@ agenterm-qjswasm
 ├─ robustness
 │  ├─ [x] steps, pages, table, call-depth and activation-slot limits
 │  ├─ [x] typed load, host, throw and budget failures; failed stdout retained
+│  ├─ [x] invocation stdout truncation survives success and failure projections; JSON names `stdout_truncated`, plain CLI warns on stderr, and `--max-output-bytes` reaches the engine
 │  ├─ [x] child stdout/stderr truncation is explicit through read/wait/command
 │  ├─ [x] process.spawn refuses a 33rd retained handle before native spawn/drain allocation
 │  ├─ [x] evidence-declaration scans use synchronous commands, so completed probes do not consume retained handles
