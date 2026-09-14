@@ -1091,22 +1091,27 @@ enum WaitOutcome {
     Terminal(JobStatus),
     /// The caller's deadline elapsed without a terminal reply.
     TimedOut(JobStatus),
+    /// The caller stopped after at least one bounded resident round.
+    Cancelled {
+        status: Option<JobStatus>,
+        polls: usize,
+    },
 }
 
 /// Drives the cooperative wait loop.
 ///
 /// Precedence at every boundary is fixed: a complete terminal reply wins, then
-/// an already-formed typed error, then the call-scoped cancellation sample,
-/// then the caller's absolute deadline; only then does the loop continue. The
-/// cancellation check therefore happens strictly after the current round's
-/// request, stream and callback have returned, and it never performs an effect
-/// on the job.
+/// an already-formed typed error, then the caller's absolute deadline, then a
+/// call-scoped cancellation sample; only then does the loop continue. The
+/// cancellation sample therefore never hides authority returned by the current
+/// round or rewrites a reached bound.
 fn drive_wait(
     rounds: &mut impl WaitRounds,
     deadline: Instant,
     control: ExecutionControl<'_>,
 ) -> Result<WaitOutcome, CuError> {
     let mut last: Option<JobStatus> = None;
+    let mut polls = 0usize;
     loop {
         let quantum = deadline
             .saturating_duration_since(Instant::now())
@@ -1117,6 +1122,7 @@ fn drive_wait(
         // block.
         let round_deadline = Instant::now() + (quantum + WAIT_ROUND_MARGIN).min(WAIT_ROUND_BUDGET);
         let request_ms = u64::try_from(quantum.as_millis()).unwrap_or(0);
+        polls += 1;
         match rounds.round(request_ms, round_deadline) {
             WaitRound::Reply(result) => match *result {
                 ManagedJobResult::Wait { completed, status } => {
@@ -1130,7 +1136,6 @@ fn drive_wait(
             WaitRound::Failed(error) => return Err(client_error(error)),
             WaitRound::Inconclusive => {}
         }
-        control.check_observe()?;
         if deadline.saturating_duration_since(Instant::now()).is_zero() {
             let status = last.ok_or_else(|| {
                 CuError::new(
@@ -1140,7 +1145,55 @@ fn drive_wait(
             })?;
             return Ok(WaitOutcome::TimedOut(status));
         }
+        if control.is_cancelled() {
+            return Ok(WaitOutcome::Cancelled {
+                status: last,
+                polls,
+            });
+        }
     }
+}
+
+fn job_wait_value(
+    job_id: &str,
+    generation: u64,
+    completed: bool,
+    status: Option<JobStatus>,
+    polls: Option<usize>,
+) -> Value {
+    let mut value = json!({
+        "job_id": job_id,
+        "generation": generation,
+        "completed": completed,
+        "status": status,
+    });
+    if let Some(polls) = polls {
+        value["polls"] = json!(polls);
+    }
+    value
+}
+
+fn job_wait_cancelled(
+    job_id: &str,
+    generation: u64,
+    status: Option<JobStatus>,
+    polls: usize,
+) -> CuError {
+    CuError::new(
+        "cancelled",
+        "managed-job wait was cancelled after observation began",
+    )
+    .with_detail(json!({
+        "effect": "partially_performed",
+        "phase": "observe_wait",
+        "partial_observation": job_wait_value(
+            job_id,
+            generation,
+            false,
+            status,
+            Some(polls),
+        ),
+    }))
 }
 
 /// Maps a resolver result into the managed-job owner-launch contract.
@@ -1198,14 +1251,18 @@ pub(super) fn job_wait_payload(
     let (completed, status) = match drive_wait(&mut rounds, deadline, control)? {
         WaitOutcome::Terminal(status) => (true, status),
         WaitOutcome::TimedOut(status) => (false, status),
+        WaitOutcome::Cancelled { status, polls } => {
+            return Err(job_wait_cancelled(job_id, generation, status, polls));
+        }
     };
     verify_expected_exit(&status.state, completed, expect_exit)?;
-    Ok(json!({
-        "job_id": job_id,
-        "generation": generation,
-        "completed": completed,
-        "status": status,
-    }))
+    Ok(job_wait_value(
+        job_id,
+        generation,
+        completed,
+        Some(status),
+        None,
+    ))
 }
 
 pub(super) fn job_prune_payload(
@@ -2806,6 +2863,9 @@ mod tests {
             WaitOutcome::TimedOut(_) => {
                 panic!("a terminal reply must not be reported as a timeout")
             }
+            WaitOutcome::Cancelled { .. } => {
+                panic!("a terminal reply must not be reported as cancelled")
+            }
         }
     }
 
@@ -2816,16 +2876,19 @@ mod tests {
         let mut scripted = Scripted::new(vec![Step::Running]).cancelling_after(1);
         let flag = scripted.probe();
         let probe = control(&flag);
-        let error = drive_wait(
+        let outcome = drive_wait(
             &mut scripted,
             Instant::now() + Duration::from_secs(30),
             ExecutionControl::with_cancel_probe(&probe),
         )
-        .expect_err("a cancelled wait must not report an outcome");
-        assert_eq!(error.code, "cancelled");
-        let detail = error.detail.expect("typed cancellation detail");
-        assert_eq!(detail["effect"], "not_performed");
-        assert_eq!(detail["phase"], "observe_wait");
+        .expect("a post-round cancellation must preserve its observation");
+        match outcome {
+            WaitOutcome::Cancelled {
+                status: Some(status),
+                polls: 1,
+            } => assert!(matches!(status.state, JobState::Running)),
+            other => panic!("expected one-round partial cancellation, got {other:?}"),
+        }
         assert_eq!(
             scripted.timeouts.len(),
             1,
@@ -2837,33 +2900,63 @@ mod tests {
     /// never observed, so a cancel can never masquerade as job progress.
     #[test]
     fn wait_cancellation_never_fabricates_a_terminal_claim() {
-        let mut scripted = Scripted::new(vec![Step::Running]).cancelling_after(1);
+        let mut scripted = Scripted::new(vec![Step::Inconclusive]).cancelling_after(1);
         let flag = scripted.probe();
         let probe = control(&flag);
-        let error = drive_wait(
+        let outcome = drive_wait(
             &mut scripted,
             Instant::now() + Duration::from_secs(30),
             ExecutionControl::with_cancel_probe(&probe),
         )
-        .expect_err("a cancelled wait must not report an outcome");
-        assert!(error.detail.is_some());
-        assert_eq!(error.code, "cancelled");
+        .expect("a cancelled wait must report bounded progress");
+        assert!(matches!(
+            outcome,
+            WaitOutcome::Cancelled {
+                status: None,
+                polls: 1
+            }
+        ));
     }
 
-    /// Cancellation outranks an already-expired deadline.
+    /// A reached absolute deadline is authoritative over a late cancellation.
     #[test]
-    fn wait_cancellation_outranks_an_expired_deadline() {
+    fn wait_expired_deadline_outranks_a_pending_cancellation() {
         let mut scripted = Scripted::new(vec![Step::Running]);
         let flag = scripted.probe();
         flag.store(true, Ordering::Relaxed);
         let probe = control(&flag);
-        let error = drive_wait(
+        let outcome = drive_wait(
             &mut scripted,
             Instant::now(),
             ExecutionControl::with_cancel_probe(&probe),
         )
-        .expect_err("cancellation must win the deadline race");
+        .expect("the observed status must reach the ordinary deadline path");
+        assert!(matches!(outcome, WaitOutcome::TimedOut(_)));
+    }
+
+    #[test]
+    fn wait_partial_cancellation_carries_the_last_status_without_changing_normal_keys() {
+        let error = job_wait_cancelled("job-7", 4, Some(running_status()), 2);
         assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("typed cancellation detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        let partial = &detail["partial_observation"];
+        assert_eq!(partial["job_id"], "job-7");
+        assert_eq!(partial["generation"], 4);
+        assert_eq!(partial["completed"], false);
+        assert_eq!(partial["polls"], 2);
+        assert_eq!(partial["status"]["state"]["kind"], "running");
+
+        let normal = job_wait_value("job-7", 4, false, Some(running_status()), None);
+        let mut keys = normal
+            .as_object()
+            .expect("normal wait payload object")
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        keys.sort_unstable();
+        assert_eq!(keys, ["completed", "generation", "job_id", "status"]);
     }
 
     /// A typed transport error that already formed outranks a cancellation
@@ -3029,12 +3122,12 @@ mod tests {
         let probe = move || probe_flag.load(Ordering::Relaxed);
         let started = Instant::now();
         let mut rounds = ResidentWaitRounds { handle: &handle };
-        let error = drive_wait(
+        let outcome = drive_wait(
             &mut rounds,
             Instant::now() + Duration::from_secs(30),
             ExecutionControl::with_cancel_probe(&probe),
         )
-        .expect_err("the cancellation must end the wait");
+        .expect("the cancellation must return bounded partial progress");
         let returned = Instant::now();
         canceller.join().expect("canceller");
         serving.store(false, Ordering::Relaxed);
@@ -3050,7 +3143,13 @@ mod tests {
              wait_elapsed={:?} rounds_in_run={total_rounds}",
             returned.saturating_duration_since(started)
         );
-        assert_eq!(error.code, "cancelled");
+        assert!(matches!(
+            outcome,
+            WaitOutcome::Cancelled {
+                status: Some(_),
+                polls: 1..
+            }
+        ));
         assert!(
             interval < Duration::from_millis(150),
             "cancel -> callback return must stay inside the worker grace, measured {interval:?}"

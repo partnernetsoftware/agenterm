@@ -240,7 +240,11 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │        truncation and same-round identity drift remain authoritative over cancellation;
   │  │        `file-watch` checks before filesystem authority, then samples the same borrowed token
   │  │        between native FSEvents / inotify / ReadDirectoryChangesW rounds and preserves every
-  │  │        bounded event already returned as a partially performed observation
+  │  │        bounded event already returned as a partially performed observation;
+  │  │        managed `job-wait` likewise refuses before opening its durable store, then preserves
+  │  │        the last observed status (or explicit absence after an inconclusive round) and poll
+  │  │        count on later cancellation, while terminal replies, typed errors and the absolute
+  │  │        deadline remain authoritative over a late token
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
   │  ├─ [x] ten compound compatibility shapes execute through pure qjs projections + the same typed calls
   │  │  └─ native failures bypass projection unchanged, preserving command, count and structured effect/recovery facts;

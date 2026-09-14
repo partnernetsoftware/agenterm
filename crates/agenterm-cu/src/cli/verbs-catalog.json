@@ -398,7 +398,7 @@
       ],
       "grant": "observe",
       "family": "system",
-      "summary": "wait boundedly for one managed job and verify exit",
+      "summary": "wait boundedly and cooperatively for one managed job and verify exit",
       "usage": "job-wait JOB_ID GENERATION [--timeout-ms N] [--expect-exit CODE]",
       "args": []
     },
@@ -7429,7 +7429,7 @@
     },
     {
       "name": "job-wait",
-      "text": "agenterm-cu job-wait    (also: job wait)\n  scope: observe    family: Managed jobs\n\nusage: job-wait JOB_ID GENERATION [--timeout-ms N] [--expect-exit CODE]\n\nWaits up to 24 hours through bounded resident requests. --expect-exit turns a different or unfinished result into a typed mismatch.\n"
+      "text": "agenterm-cu job-wait    (also: job wait)\n  scope: observe    family: Managed jobs\n\nusage: job-wait JOB_ID GENERATION [--timeout-ms N] [--expect-exit CODE]\n\nWaits up to 24 hours through bounded resident requests. Cancellation before opening the durable store performs no work; cancellation after a resident round preserves the poll count and last observed status as typed partial evidence. Terminal replies, typed errors and the absolute deadline remain authoritative over a late token. --expect-exit turns a different or unfinished result into a typed mismatch.\n"
     },
     {
       "name": "job-set-state",
