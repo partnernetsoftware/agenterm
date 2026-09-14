@@ -6711,7 +6711,7 @@
       "grant": "actuate",
       "family": "browser",
       "summary": "remove one verified terminal browser automation session",
-      "usage": "browser-session-remove NAME --expect stopped|failed\nbrowser session-remove ...",
+      "usage": "browser-session-remove NAME --expect stopped|failed|orphaned_uncertain\nbrowser session-remove ...",
       "args": [
         {
           "flag": "NAME",
@@ -8157,7 +8157,7 @@
     },
     {
       "name": "browser-session-remove",
-      "text": "agenterm-cu browser-session-remove    (also: browser session-remove)\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-session-remove NAME --expect stopped|failed\n\nRemoves one named browser automation session only when its recorded terminal state exactly matches the caller's literal expectation and both recorded processes are independently verified absent.\n"
+      "text": "agenterm-cu browser-session-remove    (also: browser session-remove)\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-session-remove NAME --expect stopped|failed|orphaned_uncertain\n\nRemoves one named browser automation session only when its recorded terminal state exactly matches the caller's literal expectation and both recorded processes are independently verified absent. The orphaned_uncertain spelling is literal and unbriefened: it reclaims a session whose owner vanished without reaching a terminal state, and is still refused unless both recorded identities are exactly absent.\n"
     },
     {
       "name": "page",

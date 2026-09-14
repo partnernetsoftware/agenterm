@@ -1001,13 +1001,15 @@ fn browser(
             })
         }
         "session-remove" => {
-            let (expect_stopped, expect_failed) = expect_terminal("browser session-remove", args)?;
+            let (expect_stopped, expect_failed, expect_orphaned_uncertain) =
+                expect_terminal("browser session-remove", args)?;
             let name = one_session_name("browser session-remove", args)?;
             Ok(Command::BrowserSessionRemove {
                 target,
                 name,
                 expect_stopped,
                 expect_failed,
+                expect_orphaned_uncertain,
             })
         }
         "bridge" => browser_bridge(target, None, args),
@@ -1459,14 +1461,21 @@ fn expect_stopped(verb: &str, args: &mut Vec<String>) -> Result<bool, String> {
     }
 }
 
-fn expect_terminal(verb: &str, args: &mut Vec<String>) -> Result<(bool, bool), String> {
+fn expect_terminal(verb: &str, args: &mut Vec<String>) -> Result<(bool, bool, bool), String> {
     match flag_text(args, "--expect")?.as_deref() {
-        Some("stopped") => Ok((true, false)),
-        Some("failed") => Ok((false, true)),
+        Some("stopped") => Ok((true, false, false)),
+        Some("failed") => Ok((false, true, false)),
+        // LITERAL only. `orphaned_uncertain` is the one spelling accepted here:
+        // no hyphenated alias, no abbreviation, no case folding. A caller that
+        // means the orphaned state must name it exactly, because this value is
+        // what authorises reclaiming a record whose owner vanished.
+        Some("orphaned_uncertain") => Ok((false, false, true)),
         Some(other) => Err(format!(
-            "{verb} --expect must be the literal 'stopped' or 'failed', got {other:?}"
+            "{verb} --expect must be the literal 'stopped', 'failed' or 'orphaned_uncertain', got {other:?}"
         )),
-        None => Err(format!("{verb} requires --expect stopped|failed")),
+        None => Err(format!(
+            "{verb} requires --expect stopped|failed|orphaned_uncertain"
+        )),
     }
 }
 
@@ -1626,9 +1635,48 @@ mod tests {
                 ref name,
                 expect_stopped: false,
                 expect_failed: true,
+                expect_orphaned_uncertain: false,
                 ..
             }) if name == "research"
         ));
+
+        // The orphaned intent is spelled one way only. Every near miss below must
+        // be refused at PARSE time, so a caller can never reach the removal core
+        // by a spelling that merely looks like the acknowledged state.
+        let mut remove_orphaned = words(&["research", "--expect", "orphaned_uncertain"]);
+        assert!(matches!(
+            browser(
+                TargetRef::Current,
+                Some("session-remove"),
+                &mut remove_orphaned
+            ),
+            Ok(Command::BrowserSessionRemove {
+                ref name,
+                expect_stopped: false,
+                expect_failed: false,
+                expect_orphaned_uncertain: true,
+                ..
+            }) if name == "research"
+        ));
+        for near_miss in [
+            "orphaned",
+            "uncertain",
+            "orphaned-uncertain",
+            "orphaneduncertain",
+            "Orphaned_Uncertain",
+            "ORPHANED_UNCERTAIN",
+            "orphaned_uncertain ",
+        ] {
+            let mut args = words(&["research", "--expect", near_miss]);
+            assert!(
+                browser(TargetRef::Current, Some("session-remove"), &mut args).is_err(),
+                "{near_miss:?} must not parse as the orphaned intent"
+            );
+        }
+        // Exactly one of the three intents is required, and a missing --expect is
+        // not an implicit orphaned reclaim.
+        let mut none = words(&["research"]);
+        assert!(browser(TargetRef::Current, Some("session-remove"), &mut none).is_err());
     }
 
     #[test]

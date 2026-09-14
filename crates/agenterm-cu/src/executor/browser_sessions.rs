@@ -414,11 +414,30 @@ pub(super) fn browser_session_remove_payload(
     name: &str,
     expect_stopped: bool,
     expect_failed: bool,
+    expect_orphaned_uncertain: bool,
 ) -> Result<Value, CuError> {
-    let expected_state = expected_remove_state(expect_stopped, expect_failed)?;
+    let expected_state =
+        expected_remove_state(expect_stopped, expect_failed, expect_orphaned_uncertain)?;
     let root = sessions_root(false).map_err(state_unavailable)?;
-    let _registry_lock = registry_lock(&root)?;
-    let paths = session_paths(&root, name).map_err(|code| CuError::new(code, code))?;
+    browser_session_remove_from_root(&root, name, expected_state)
+}
+
+fn browser_session_remove_from_root(
+    root: &Path,
+    name: &str,
+    expected_state: BrowserSessionState,
+) -> Result<Value, CuError> {
+    browser_session_remove_from_root_with(root, name, expected_state, process_is_absent)
+}
+
+fn browser_session_remove_from_root_with(
+    root: &Path,
+    name: &str,
+    expected_state: BrowserSessionState,
+    is_absent: impl Fn(&ProcessIdentity) -> Result<bool, CuError>,
+) -> Result<Value, CuError> {
+    let _registry_lock = registry_lock(root)?;
+    let paths = session_paths(root, name).map_err(|code| CuError::new(code, code))?;
     let directory = open_existing_path(&paths.directory, ExistingEntryType::Directory)
         .map_err(state_unavailable)?;
     let directory_identity = file_identity(&directory).map_err(state_unavailable)?;
@@ -431,11 +450,16 @@ pub(super) fn browser_session_remove_payload(
         CuError::new(code, error.to_string())
     })?;
     let record = read_record(&paths.registry).map_err(state_unavailable)?;
+    // `unknown` stays a NAMED refusal: `process_is_absent` returns a `Result`, and
+    // its error is propagated here with `?` rather than folded into a bool. Only
+    // after both identities have been classified do the two absences reach the
+    // production predicate below.
     let browser_absent = match record.browser.as_ref() {
-        Some(browser) => process_is_absent(browser)?,
+        Some(browser) => is_absent(browser)?,
         None => true,
     };
-    if record.state != expected_state || !process_is_absent(&record.owner)? || !browser_absent {
+    let owner_absent = is_absent(&record.owner)?;
+    if !removal_is_authorised(expected_state, record.state, owner_absent, browser_absent) {
         return Err(CuError::new(
             "browser_session_remove_unverified",
             "browser session does not match the acknowledged terminal state or its processes are not independently verified absent",
@@ -503,16 +527,42 @@ pub(super) fn browser_session_remove_payload(
     }))
 }
 
+/// The ONE authorization predicate for a verified removal, called by
+/// `browser_session_remove_payload` itself -- not a test-only model.
+///
+/// It is a pure conjunction so its weakening is demonstrable: the state must match
+/// the caller's literal expectation, and BOTH recorded identities must be exactly
+/// absent. Dropping the browser term would admit an orphaned record whose browser
+/// is still live, which is precisely what must keep its directory.
+///
+/// Absence itself is NOT decided here: callers pass the result of
+/// `process_is_absent`, which keeps `unknown` a named refusal rather than a bool.
+fn removal_is_authorised(
+    expected: BrowserSessionState,
+    actual: BrowserSessionState,
+    owner_absent: bool,
+    browser_absent: bool,
+) -> bool {
+    actual == expected && owner_absent && browser_absent
+}
+
 fn expected_remove_state(
     expect_stopped: bool,
     expect_failed: bool,
+    expect_orphaned_uncertain: bool,
 ) -> Result<BrowserSessionState, CuError> {
-    match (expect_stopped, expect_failed) {
-        (true, false) => Ok(BrowserSessionState::Stopped),
-        (false, true) => Ok(BrowserSessionState::Failed),
+    match (expect_stopped, expect_failed, expect_orphaned_uncertain) {
+        (true, false, false) => Ok(BrowserSessionState::Stopped),
+        (false, true, false) => Ok(BrowserSessionState::Failed),
+        // An orphaned record reached no terminal state of its own: its owner
+        // vanished. It is still removable, because the verification below is what
+        // authorises the delete, not the state name alone -- both recorded
+        // processes must be exactly and independently absent, so an orphaned
+        // record whose browser is still live is refused exactly like any other.
+        (false, false, true) => Ok(BrowserSessionState::OrphanedUncertain),
         _ => Err(CuError::new(
             "browser_session_remove_intent_required",
-            "browser-session-remove requires exactly one of --expect stopped or --expect failed",
+            "browser-session-remove requires exactly one of --expect stopped, --expect failed or --expect orphaned_uncertain",
         )),
     }
 }
@@ -653,7 +703,11 @@ fn classify_process(identity: &ProcessIdentity) -> &'static str {
 }
 
 fn process_is_absent(identity: &ProcessIdentity) -> Result<bool, CuError> {
-    match classify_process(identity) {
+    absence_from_classification(classify_process(identity))
+}
+
+fn absence_from_classification(classification: &str) -> Result<bool, CuError> {
+    match classification {
         "dead" | "pid_reused" => Ok(true),
         "live" => Ok(false),
         _ => Err(CuError::new(
@@ -715,6 +769,52 @@ impl From<FileIdentity> for FileObjectIdentity {
 mod tests {
     use super::*;
 
+    fn orphaned_removal_fixture(
+        label: &str,
+        browser: Option<ProcessIdentity>,
+    ) -> (PathBuf, BrowserSessionPaths) {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .unwrap()
+            .join("target/browser-session-tests")
+            .join(format!("orphaned-removal-{label}-{}", new_nonce("test")));
+        let paths = session_paths(&root, "orphaned").unwrap();
+        create_session_directories(&paths).unwrap();
+        write_private_atomic(&paths.profile.join(OWNER_MARKER_FILE), MARKER_BYTES).unwrap();
+        let profile = open_existing_path(&paths.profile, ExistingEntryType::Directory).unwrap();
+        let profile_identity = FileObjectIdentity::from(file_identity(&profile).unwrap());
+        drop(profile);
+        publish_record(
+            &paths.registry,
+            &BrowserSessionRecord {
+                schema_version: crate::browser_session::REGISTRY_SCHEMA_VERSION,
+                generation: 1,
+                name: "orphaned".into(),
+                session_nonce: "0123456789abcdef".into(),
+                state: BrowserSessionState::OrphanedUncertain,
+                owner: ProcessIdentity {
+                    pid: i32::MAX as u32,
+                    start_identity: "absent-owner".into(),
+                },
+                owner_spawn_mode: "fixture".into(),
+                profile_identity,
+                browser,
+                endpoint: None,
+                last_error_code: Some("owner_lost".into()),
+            },
+        )
+        .unwrap();
+        (root, paths)
+    }
+
+    fn clear_removal_fixture(root: &Path) {
+        if root.exists() {
+            remove_tree(root).unwrap();
+        }
+        remove_file_if_present(&root.with_extension("registry.lock")).unwrap();
+    }
+
     #[test]
     fn nonce_is_bounded_hex_and_changes_per_generation_attempt() {
         let first = new_nonce("work");
@@ -727,19 +827,175 @@ mod tests {
     #[test]
     fn removal_requires_one_exact_terminal_state() {
         assert_eq!(
-            expected_remove_state(true, false).unwrap(),
+            expected_remove_state(true, false, false).unwrap(),
             BrowserSessionState::Stopped
         );
         assert_eq!(
-            expected_remove_state(false, true).unwrap(),
+            expected_remove_state(false, true, false).unwrap(),
             BrowserSessionState::Failed
         );
-        for (stopped, failed) in [(false, false), (true, true)] {
+        assert_eq!(
+            expected_remove_state(false, false, true).unwrap(),
+            BrowserSessionState::OrphanedUncertain
+        );
+        // Exactly one intent. The zero case matters most: an absent `--expect` must
+        // never be read as "reclaim the orphan".
+        for (stopped, failed, orphaned) in [
+            (false, false, false),
+            (true, true, false),
+            (true, false, true),
+            (false, true, true),
+            (true, true, true),
+        ] {
             assert_eq!(
-                expected_remove_state(stopped, failed).unwrap_err().code,
-                "browser_session_remove_intent_required"
+                expected_remove_state(stopped, failed, orphaned)
+                    .unwrap_err()
+                    .code,
+                "browser_session_remove_intent_required",
+                "({stopped},{failed},{orphaned}) must not select an intent"
             );
         }
+    }
+
+    /// The red gate for the orphaned leaf, expressed against the PRODUCTION
+    /// predicate: `authorised` below IS `removal_is_authorised`, the same function
+    /// `browser_session_remove_payload` calls. There is no parallel test model, so
+    /// a real weakening of the production conjunction is what this catches.
+    ///
+    /// The weak form is written out only to DEMONSTRATE the difference; no test
+    /// asserts it is used anywhere.
+    #[test]
+    fn removal_is_authorised_only_when_both_identities_are_absent() {
+        fn authorised(
+            expected: BrowserSessionState,
+            actual: BrowserSessionState,
+            owner_absent: bool,
+            browser_absent: bool,
+        ) -> bool {
+            removal_is_authorised(expected, actual, owner_absent, browser_absent)
+        }
+        // What a careless change would ship: state plus owner absence only,
+        // silently dropping the browser term.
+        fn authorised_owner_only(
+            expected: BrowserSessionState,
+            actual: BrowserSessionState,
+            owner_absent: bool,
+        ) -> bool {
+            actual == expected && owner_absent
+        }
+
+        let orphan = BrowserSessionState::OrphanedUncertain;
+        // The one shape that may be removed.
+        assert!(authorised(orphan, orphan, true, true));
+        // An orphaned record whose browser somehow survives is NOT removable: it is
+        // the exact case that must keep its directory and report a named refusal.
+        assert!(!authorised(orphan, orphan, true, false));
+        // ...and this is the red gate: the production predicate refuses exactly the
+        // record the weakened one admits. If the browser term is dropped from
+        // `removal_is_authorised`, the assertion above goes red.
+        assert!(
+            authorised_owner_only(orphan, orphan, true),
+            "the weak form is what admits a live browser"
+        );
+        assert_ne!(
+            authorised(orphan, orphan, true, false),
+            authorised_owner_only(orphan, orphan, true),
+            "dropping the browser term must change the verdict for a live browser"
+        );
+        // A live owner is never removable, whatever the browser says.
+        assert!(!authorised(orphan, orphan, false, true));
+        assert!(!authorised(orphan, orphan, false, false));
+        assert!(!authorised_owner_only(orphan, orphan, false));
+        // The state must still match the caller's literal expectation.
+        assert!(!authorised(
+            BrowserSessionState::Stopped,
+            orphan,
+            true,
+            true
+        ));
+        assert!(!authorised(
+            orphan,
+            BrowserSessionState::Stopped,
+            true,
+            true
+        ));
+        // Stopped and failed keep working through the same conjunction.
+        let stopped = BrowserSessionState::Stopped;
+        assert!(authorised(stopped, stopped, true, true));
+        assert!(!authorised(stopped, stopped, true, false));
+    }
+
+    #[test]
+    fn orphaned_removal_deletes_only_after_both_exact_identities_are_absent() {
+        let dead = ProcessIdentity {
+            pid: i32::MAX as u32,
+            start_identity: "absent-browser".into(),
+        };
+        let (root, paths) = orphaned_removal_fixture("absent", Some(dead));
+
+        let value = browser_session_remove_from_root(
+            &root,
+            "orphaned",
+            BrowserSessionState::OrphanedUncertain,
+        )
+        .unwrap();
+
+        assert_eq!(value["state"], "removed");
+        assert_eq!(value["verified"], true);
+        assert!(!paths.directory.exists());
+        clear_removal_fixture(&root);
+    }
+
+    #[test]
+    fn orphaned_removal_refuses_a_live_browser_and_preserves_evidence() {
+        let browser = ProcessIdentity {
+            pid: std::process::id(),
+            start_identity: start_identity(std::process::id()).unwrap(),
+        };
+        let (root, paths) = orphaned_removal_fixture("live-browser", Some(browser));
+
+        let error = browser_session_remove_from_root(
+            &root,
+            "orphaned",
+            BrowserSessionState::OrphanedUncertain,
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "browser_session_remove_unverified");
+        assert!(paths.directory.is_dir());
+        assert!(paths.registry.is_file());
+        assert_eq!(
+            read_record(&paths.registry).unwrap().state,
+            BrowserSessionState::OrphanedUncertain
+        );
+        clear_removal_fixture(&root);
+    }
+
+    #[test]
+    fn orphaned_removal_refuses_unknown_liveness_and_preserves_evidence() {
+        let (root, paths) = orphaned_removal_fixture("unknown", None);
+
+        let error = browser_session_remove_from_root_with(
+            &root,
+            "orphaned",
+            BrowserSessionState::OrphanedUncertain,
+            |_| {
+                Err(CuError::new(
+                    "browser_session_liveness_unknown",
+                    "exact process liveness is unavailable",
+                ))
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "browser_session_liveness_unknown");
+        assert!(paths.directory.is_dir());
+        assert!(paths.registry.is_file());
+        assert_eq!(
+            read_record(&paths.registry).unwrap().state,
+            BrowserSessionState::OrphanedUncertain
+        );
+        clear_removal_fixture(&root);
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]

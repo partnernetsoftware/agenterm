@@ -1737,8 +1737,14 @@ impl Executor {
                 name,
                 expect_stopped,
                 expect_failed,
+                expect_orphaned_uncertain,
                 ..
-            } => browser_session_remove_payload(name, *expect_stopped, *expect_failed),
+            } => browser_session_remove_payload(
+                name,
+                *expect_stopped,
+                *expect_failed,
+                *expect_orphaned_uncertain,
+            ),
             Command::BrowserBridgeSetup { browsers, .. } => browser_bridge_setup_payload(browsers),
             Command::BrowserBridgeConnections { .. } => browser_bridge_connections_payload(),
             Command::BrowserBridgeStatus { connection_id, .. } => {

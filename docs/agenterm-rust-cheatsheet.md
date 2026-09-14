@@ -4991,6 +4991,16 @@ can re-acquire an identity-bound process reference, report
 readers from observing a torn generation; it does not by itself prove process
 ownership or make recursive deletion safe.
 
+Preservation from automatic stale collection does not require an orphaned
+record to be immortal. An explicit removal command may accept the literal
+`orphaned_uncertain` state only when the existing locked removal transaction
+independently observes both the owner and every recorded child identity absent,
+then revalidates owned directory, profile, marker and entry identities before
+deletion. A matching live or unobservable identity preserves the record with a
+typed refusal; a reused PID proves only that the recorded process instance is
+absent and grants no authority over the replacement. Test the deletion and both preservation outcomes
+against the production predicate; a parallel test-only model is not evidence.
+
 When a detached owner's registry must contain the owner's PID/start identity,
 the launcher cannot publish that identity before spawning it. Avoid a race by
 writing a sealed intent first, spawning the owner, recording the actual detach

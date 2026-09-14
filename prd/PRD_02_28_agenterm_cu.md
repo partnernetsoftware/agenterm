@@ -1279,10 +1279,16 @@ flowchart LR
   The public lifecycle now reaches that owner. Start requires one absolute
   executable and bounded readiness/TTL. Stop requires the literal
   `--expect stopped` postcondition and verifies both identities absent; remove
-  accepts the caller's exact terminal expectation (`stopped` or `failed`),
+  accepts the caller's exact recorded-state expectation (`stopped`, `failed` or
+  the literal `orphaned_uncertain`),
   repeats that proof, locks out the owner, checks the private profile object
   identity plus exact owner marker, refuses unknown entries, and only then
-  removes owned state. A real macOS Chrome court passed ready → inventory →
+  removes owned state. The orphaned-recovery path is explicit, never automatic:
+  it independently proves the recorded owner and browser identities absent;
+  live or unobservable identities preserve the registry and directory with a
+  typed refusal. Its owning filesystem court covers verified removal, a live
+  browser refusal, and unknown-liveness evidence retention. A real macOS Chrome
+  court passed ready → inventory →
   status → stopped → removed without opening a window. The platform crate now
   owns one reusable contained-headless spawn contract. Unix creates the process
   group in the pre-exec child; Windows creates the root suspended, assigns its

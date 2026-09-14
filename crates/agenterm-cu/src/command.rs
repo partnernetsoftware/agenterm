@@ -3906,12 +3906,22 @@ pub enum Command {
     /// Remove one named browser session whose exact terminal state the caller
     /// acknowledges. Failed starts are removable only after both recorded
     /// processes are independently observed absent.
+    ///
+    /// `orphaned_uncertain` is removable through this same core, and only through
+    /// the LITERAL `--expect orphaned_uncertain`: such a record describes an owner
+    /// that vanished without reaching a terminal state, so reclaiming it is the
+    /// only way its directory ever leaves the host. The removal is still gated on
+    /// both recorded processes being independently and exactly absent, so an
+    /// orphaned record whose browser is somehow still live is refused rather than
+    /// reaped.
     BrowserSessionRemove {
         target: TargetRef,
         name: String,
         expect_stopped: bool,
         #[serde(default, skip_serializing_if = "is_false")]
         expect_failed: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        expect_orphaned_uncertain: bool,
     },
     /// Materialize the fixed ACU MV3 bundle and register this exact executable
     /// as its current-user Native Messaging host. Chromium still requires the
@@ -8743,9 +8753,19 @@ mod tests {
             name: "research".into(),
             expect_stopped: true,
             expect_failed: false,
+            expect_orphaned_uncertain: false,
         };
         assert_eq!(remove.verb(), "browser-session-remove");
         assert_eq!(remove.required_grant(), Grant::Actuate);
+        // The new field stays out of the wire shape when false, so an older
+        // payload keeps round-tripping without gaining a key it never knew.
+        assert_eq!(
+            serde_json::to_value(&remove).expect("serialize"),
+            serde_json::json!({
+                "verb": "browser-session-remove", "target": "current",
+                "name": "research", "expect_stopped": true
+            })
+        );
         let back: Command =
             serde_json::from_value(serde_json::to_value(&remove).expect("serialize"))
                 .expect("deserialize");
@@ -8756,7 +8776,23 @@ mod tests {
                 ref name,
                 expect_stopped: true,
                 expect_failed: false,
+                expect_orphaned_uncertain: false,
             } if name == "research"
+        ));
+        // A payload written before this field existed must still deserialize with
+        // the orphaned intent defaulted OFF: absent must never mean "reclaim".
+        let legacy: Command = serde_json::from_value(serde_json::json!({
+            "verb": "browser-session-remove", "target": "current",
+            "name": "research", "expect_stopped": false, "expect_failed": true
+        }))
+        .expect("a pre-existing payload still deserializes");
+        assert!(matches!(
+            legacy,
+            Command::BrowserSessionRemove {
+                expect_failed: true,
+                expect_orphaned_uncertain: false,
+                ..
+            }
         ));
     }
 
