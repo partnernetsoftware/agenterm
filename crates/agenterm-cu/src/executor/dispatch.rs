@@ -656,6 +656,7 @@ impl Executor {
                 *interval_ms,
                 *max_events,
                 *max_windows,
+                control,
             ),
             Command::Apps { all, .. } => apps_payload(*all),
             Command::AppInspect {

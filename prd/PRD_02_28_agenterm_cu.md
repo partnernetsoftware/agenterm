@@ -218,7 +218,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │        `app-watch` does the same after its baseline, but first revalidates every frozen
   │  │        canonical application binding so identity drift remains authoritative over cancel;
   │  │        `query-watch` preserves its shaped poll-diff observation after the baseline and
-  │  │        revalidates the focused-window identity before cancellation can outrank attribution
+  │  │        revalidates the focused-window identity before cancellation can outrank attribution;
+  │  │        `windows-watch` preserves the same bounded inventory/event projection after its
+  │  │        baseline, including the default one-extra-sample contract, without changing its
+  │  │        public `completed` / `truncated` success vocabulary
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
   │  ├─ [x] ten compound compatibility shapes execute through pure qjs projections + the same typed calls
   │  │  └─ native failures bypass projection unchanged, preserving command, count and structured effect/recovery facts;

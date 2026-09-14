@@ -802,7 +802,7 @@ pub(super) fn app_inspect_payload(
     }))
 }
 
-// One argument per `windows-watch` flag the dispatcher already destructured.
+/// One argument per `windows-watch` flag the dispatcher already destructured.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn windows_watch_payload(
     filter: observe::WindowFilter,
@@ -815,43 +815,167 @@ pub(super) fn windows_watch_payload(
     interval_ms: Option<u64>,
     max_events: Option<usize>,
     max_windows: Option<usize>,
+    control: crate::execution_control::ExecutionControl<'_>,
 ) -> Result<serde_json::Value, CuError> {
     validate_windows_watch_bounds(duration_ms, max_events, interval_ms, max_windows)?;
     validate_windows_watch_space_provider(space)?;
-    let max_events = max_events.unwrap_or(observe::DEFAULT_OBSERVE_EVENTS);
-    let max_windows = max_windows.unwrap_or(WINDOWS_WATCH_DEFAULT_MAX_WINDOWS);
-    let interval =
-        Duration::from_millis(observe::windows_watch_interval_ms(duration_ms, interval_ms));
+    let request = WindowsWatchRequest {
+        filter,
+        space,
+        onscreen,
+        occluded,
+        all,
+        event_types,
+        duration_ms,
+        // The bounds above already resolved the interval, so the loop owns the single
+        // resolved value and no later stage re-derives it.
+        interval: Duration::from_millis(observe::windows_watch_interval_ms(
+            duration_ms,
+            interval_ms,
+        )),
+        max_events: max_events.unwrap_or(observe::DEFAULT_OBSERVE_EVENTS),
+        max_windows: max_windows.unwrap_or(WINDOWS_WATCH_DEFAULT_MAX_WINDOWS),
+    };
+    windows_watch_with_sample(request, control, &windows_watch_sample)
+}
+
+/// The immutable per-watch request, resolved once so the normal path and the
+/// cancellation partial encode from exactly the same values.
+struct WindowsWatchRequest<'a> {
+    filter: observe::WindowFilter,
+    space: Option<u64>,
+    onscreen: Option<bool>,
+    occluded: Option<bool>,
+    all: bool,
+    event_types: &'a [WindowWatchEventKind],
+    duration_ms: u64,
+    interval: Duration,
+    max_events: usize,
+    max_windows: usize,
+}
+
+/// Everything a bounded windows watch accumulates. It is moved into the encoder,
+/// so the normal and cancelled paths cannot diverge and no event row is cloned.
+struct WindowsWatchState {
+    previous: Vec<WindowWatchSample>,
+    events: Vec<serde_json::Value>,
+    polls: usize,
+    inventory_count: usize,
+    max_inventory_count: usize,
+    truncated: bool,
+}
+
+/// Width of one cancellation-observation slice.
+const WINDOWS_WATCH_CANCEL_SLICE: Duration = Duration::from_millis(10);
+
+/// The inter-round pause, sliced so a long interval does not delay a stop.
+///
+/// It returns a private `bool` and NEVER builds an error: every post-baseline
+/// cancellation is only a signal to the loop owner, which alone decides whether
+/// the outcome is the ordinary payload or a shaped partial.
+fn windows_watch_pause(
+    control: crate::execution_control::ExecutionControl<'_>,
+    interval: Duration,
+    deadline: Instant,
+) -> bool {
+    let until = Instant::now() + interval.min(deadline.saturating_duration_since(Instant::now()));
+    while Instant::now() < until {
+        if control.is_cancelled() {
+            return true;
+        }
+        thread::sleep(
+            WINDOWS_WATCH_CANCEL_SLICE.min(until.saturating_duration_since(Instant::now())),
+        );
+    }
+    control.is_cancelled()
+}
+
+/// The bounded windows-watch loop, GENERIC over its sample provider.
+///
+/// The provider is a generic `Fn` reference rather than a trait object or a type
+/// alias, so production passes the real `windows_watch_sample` and a test can pass
+/// a counting closure without either side imposing a `'static` bound.
+fn windows_watch_with_sample<S>(
+    request: WindowsWatchRequest<'_>,
+    control: crate::execution_control::ExecutionControl<'_>,
+    sample: &S,
+) -> Result<serde_json::Value, CuError>
+where
+    S: Fn(
+        &observe::WindowFilter,
+        Option<u64>,
+        Option<bool>,
+        Option<bool>,
+        bool,
+        usize,
+    ) -> Result<Vec<WindowWatchSample>, CuError>,
+{
+    let take_sample = || {
+        sample(
+            &request.filter,
+            request.space,
+            request.onscreen,
+            request.occluded,
+            request.all,
+            request.max_windows,
+        )
+    };
+    // PRE-FIRST-AUTHORITY: the ONLY direct `check_observe` in this verb, and the only
+    // valid place for an `effect: not_performed` claim. It runs before the baseline
+    // sample, so a pre-cancelled watch issues zero samples. It does NOT cover the
+    // whole extra-once mode: when `duration_ms == 0` and the interval is non-zero,
+    // the pause after the baseline can still cancel and produce a shaped partial, and
+    // a token flipped inside the single extra sample still ends in the ordinary
+    // payload. Those are two distinct extra-once boundaries with their own tests.
+    // Every later cancellation is a private signal handled by the loop owner below.
+    control.check_observe()?;
     let started = Instant::now();
-    let mut previous = windows_watch_sample(&filter, space, onscreen, occluded, all, max_windows)?;
-    let mut events = Vec::new();
+    let previous = take_sample()?;
+    let mut state = WindowsWatchState {
+        inventory_count: previous.len(),
+        max_inventory_count: previous.len(),
+        previous,
+        events: Vec::new(),
+        polls: 1,
+        truncated: false,
+    };
+    let extra_once = request.duration_ms == 0;
+    let deadline = started + Duration::from_millis(request.duration_ms);
     let mut seq = 0u64;
-    let mut polls = 1usize;
-    let mut inventory_count = previous.len();
-    let mut max_inventory_count = previous.len();
-    let mut truncated = false;
-    let extra_once = duration_ms == 0;
-    let deadline = started + Duration::from_millis(duration_ms);
     loop {
         if extra_once {
-            if !interval.is_zero() {
-                thread::sleep(interval);
+            // This mode has exactly ONE authority call left. A token is therefore
+            // only observable through the sliced pause, and there is no later round
+            // for it to win in: the ordinary payload is still produced below.
+            let pause_deadline = Instant::now() + request.interval;
+            if !request.interval.is_zero()
+                && windows_watch_pause(control, request.interval, pause_deadline)
+            {
+                return windows_watch_cancelled(state, &request);
             }
         } else {
             if Instant::now() >= deadline {
                 break;
             }
-            thread::sleep(interval.min(deadline.saturating_duration_since(Instant::now())));
+            if windows_watch_pause(control, request.interval, deadline) {
+                // DEADLINE FIRST: a bound that is already reached stays the
+                // authoritative outcome even when the final slice saw the token.
+                if Instant::now() >= deadline {
+                    break;
+                }
+                return windows_watch_cancelled(state, &request);
+            }
         }
-        polls += 1;
-        let current = windows_watch_sample(&filter, space, onscreen, occluded, all, max_windows)?;
-        inventory_count = current.len();
-        max_inventory_count = max_inventory_count.max(inventory_count);
-        let batch = diff_windows_watch_samples(&previous, &current);
+        state.polls += 1;
+        let current = take_sample()?;
+        state.inventory_count = current.len();
+        state.max_inventory_count = state.max_inventory_count.max(state.inventory_count);
+        let batch = diff_windows_watch_samples(&state.previous, &current);
         let t_ms = started.elapsed().as_millis() as u64;
         for event in batch {
-            if !event_types.is_empty()
-                && !event_types
+            if !request.event_types.is_empty()
+                && !request
+                    .event_types
                     .iter()
                     .any(|wanted| wanted.as_str() == event.kind)
             {
@@ -860,44 +984,98 @@ pub(super) fn windows_watch_payload(
             // A full buffer is not proof of loss. Keep polling until one
             // more retained event exists; only that max+1 observation makes
             // truncation true.
-            if events.len() == max_events {
-                truncated = true;
+            if state.events.len() == request.max_events {
+                state.truncated = true;
                 break;
             }
             seq += 1;
-            events.push(window_watch_sample_event_json(seq, t_ms, &event));
+            state
+                .events
+                .push(window_watch_sample_event_json(seq, t_ms, &event));
         }
-        previous = current;
-        if truncated || extra_once {
+        state.previous = current;
+        if state.truncated || extra_once {
             break;
         }
     }
+    windows_watch_into_value(state, &request, None)
+}
+
+/// The post-baseline cancellation outcome: a named `cancelled` failure whose
+/// structured detail carries the COMPLETE public partial watch payload.
+///
+/// The payload comes from the same `windows_watch_into_value` encoder as a normal
+/// watch, so the partial has passed the same filter projection, the same
+/// `--max-windows` behavior, the same event ceiling and the same
+/// `emitted == events.length` invariant before it is attached. No raw sample is
+/// ever serialized on this path. `effect` deliberately says an observation was
+/// partially performed, because claiming `not_performed` after a baseline sample
+/// would be false.
+///
+/// A cancellation is neither a timeout nor a completed watch, so the nested payload
+/// reports `completed: false` while `truncated` keeps its real observed value. No
+/// `termination` field is introduced: this verb never had one, two public courts
+/// assert its `completed`/`truncated` pair, and the outer error code is already the
+/// termination carrier.
+fn windows_watch_cancelled(
+    state: WindowsWatchState,
+    request: &WindowsWatchRequest<'_>,
+) -> Result<serde_json::Value, CuError> {
+    let partial = windows_watch_into_value(state, request, Some(false))?;
+    Err(CuError::new(
+        "cancelled",
+        "the windows watch was cancelled after observation began",
+    )
+    .with_detail(serde_json::json!({
+        "effect": "partially_performed",
+        "phase": "observe_wait",
+        "partial_observation": partial,
+    })))
+}
+
+/// The SOLE encoder for this verb: the ordinary return and the cancellation partial
+/// both come from here, so neither path can drift from the other in key set,
+/// filtering, truncation truth or the `emitted`/`events` invariant.
+///
+/// `completed_override` exists because completion is the ONE field whose truth
+/// depends on why the watch stopped: an ordinary watch is completed exactly when the
+/// event ceiling was not proven, while a cancelled watch is not completed even when
+/// `truncated` is false. Passing `None` therefore keeps the ordinary
+/// `completed == !truncated` rule byte-identical, and the cancelled path must pass
+/// `Some(false)`. `truncated` itself is never overridden: it always keeps its real
+/// observed value.
+fn windows_watch_into_value(
+    state: WindowsWatchState,
+    request: &WindowsWatchRequest<'_>,
+    completed_override: Option<bool>,
+) -> Result<serde_json::Value, CuError> {
     let payload = serde_json::json!({
         "mechanism": "libagenterm",
         "mode": "poll-diff",
-        "polls": polls,
-        "emitted": events.len(),
-        "truncated": truncated,
-        "completed": !truncated,
-        "duration_ms": duration_ms,
-        "interval_ms": interval.as_millis() as u64,
-        "max_events": max_events,
-        "max_windows": max_windows,
-        "inventory_count": inventory_count,
-        "max_inventory_count": max_inventory_count,
-        "events": events,
-        "windows": previous.iter().map(window_watch_sample_row_json).collect::<Vec<_>>(),
+        "polls": state.polls,
+        "emitted": state.events.len(),
+        "truncated": state.truncated,
+        // Unchanged ordinary truth unless a non-completion reason was supplied.
+        "completed": completed_override.unwrap_or(!state.truncated),
+        "duration_ms": request.duration_ms,
+        "interval_ms": request.interval.as_millis() as u64,
+        "max_events": request.max_events,
+        "max_windows": request.max_windows,
+        "inventory_count": state.inventory_count,
+        "max_inventory_count": state.max_inventory_count,
+        "events": state.events,
+        "windows": state.previous.iter().map(window_watch_sample_row_json).collect::<Vec<_>>(),
         "filter": {
-            "pid": filter.pid,
-            "app": filter.app,
-            "title": filter.title,
-            "space": space,
-            "focused": filter.focused,
-            "minimized": filter.minimized,
-            "onscreen": onscreen,
-            "occluded": occluded,
-            "all": all,
-            "types": event_types.iter().map(|kind| kind.as_str()).collect::<Vec<_>>(),
+            "pid": request.filter.pid,
+            "app": request.filter.app,
+            "title": request.filter.title,
+            "space": request.space,
+            "focused": request.filter.focused,
+            "minimized": request.filter.minimized,
+            "onscreen": request.onscreen,
+            "occluded": request.occluded,
+            "all": request.all,
+            "types": request.event_types.iter().map(|kind| kind.as_str()).collect::<Vec<_>>(),
         },
     });
     Ok(payload)
@@ -1543,6 +1721,382 @@ pub(super) fn zoom_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- cooperative windows-watch cancellation --------------------------------
+
+    /// A request whose bounds are all publicly valid, so the injected seam is never
+    /// exercised through a shape the public CLI would have refused.
+    fn watch_request<'a>(
+        duration_ms: u64,
+        interval_ms: u64,
+        max_events: usize,
+        event_types: &'a [WindowWatchEventKind],
+    ) -> WindowsWatchRequest<'a> {
+        WindowsWatchRequest {
+            filter: observe::WindowFilter {
+                pid: None,
+                app: None,
+                title: None,
+                focused: None,
+                minimized: None,
+            },
+            space: None,
+            onscreen: None,
+            occluded: None,
+            all: false,
+            event_types,
+            duration_ms,
+            interval: Duration::from_millis(interval_ms),
+            max_events,
+            max_windows: WINDOWS_WATCH_DEFAULT_MAX_WINDOWS,
+        }
+    }
+
+    /// One sample row. `title` is what the differ reads, so varying it is what
+    /// produces a real changed event.
+    fn sample_row(handle: isize, title: &str) -> WindowWatchSample {
+        let mut window = focus_window(handle, 4242, true);
+        window.title = title.into();
+        WindowWatchSample {
+            window,
+            onscreen: true,
+            occluded_percent: None,
+        }
+    }
+
+    fn sample_of(rows: Vec<WindowWatchSample>) -> Result<Vec<WindowWatchSample>, CuError> {
+        Ok(rows)
+    }
+
+    #[test]
+    fn pre_cancel_issues_zero_samples_and_claims_not_performed() {
+        // The provider counts and PANICS, proving no authority is reachable and that
+        // the shared pre-effect check really lives inside the loop helper.
+        let calls = std::cell::Cell::new(0usize);
+        let sample = |_: &observe::WindowFilter,
+                      _: Option<u64>,
+                      _: Option<bool>,
+                      _: Option<bool>,
+                      _: bool,
+                      _: usize|
+         -> Result<Vec<WindowWatchSample>, CuError> {
+            calls.set(calls.get() + 1);
+            unreachable!("a pre-effect cancel must not take a sample")
+        };
+        let error = windows_watch_with_sample(
+            watch_request(30_000, 50, 8, &[]),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&|| true),
+            &sample,
+        )
+        .expect_err("a pre-effect cancel must refuse the watch");
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(calls.get(), 0, "no sample on a pre-effect cancel");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert!(
+            detail.get("partial_observation").is_none(),
+            "nothing was observed, so no partial may be claimed"
+        );
+    }
+
+    #[test]
+    fn a_post_baseline_pause_cancel_reports_a_shaped_partial() {
+        // The token is raised from a test thread while the watch sits in a long
+        // pause, i.e. AFTER the baseline exists. The nested payload must be the same
+        // shape the ordinary path produces, with `completed` false because a
+        // cancellation is not a completed watch.
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+
+        let token = Arc::new(AtomicBool::new(false));
+        let raised = Arc::clone(&token);
+        let calls = std::cell::Cell::new(0usize);
+        let trigger = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(25));
+            raised.store(true, Ordering::Release);
+        });
+        let probe = || token.load(Ordering::Acquire);
+        let sample = |_: &observe::WindowFilter,
+                      _: Option<u64>,
+                      _: Option<bool>,
+                      _: Option<bool>,
+                      _: bool,
+                      _: usize|
+         -> Result<Vec<WindowWatchSample>, CuError> {
+            calls.set(calls.get() + 1);
+            sample_of(vec![sample_row(1, "a")])
+        };
+        let error = windows_watch_with_sample(
+            watch_request(30_000, 2_000, 8, &[]),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &sample,
+        )
+        .expect_err("a post-baseline cancel must refuse the watch");
+        trigger.join().expect("cancel trigger");
+
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(calls.get(), 1, "the token must stop the second sample");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        let partial = &detail["partial_observation"];
+        assert_eq!(partial["mechanism"], "libagenterm");
+        assert_eq!(partial["mode"], "poll-diff");
+        assert_eq!(partial["polls"], 1);
+        assert_eq!(partial["completed"], false);
+        assert_eq!(partial["truncated"], false);
+        assert_eq!(partial["duration_ms"], 30_000);
+        assert_eq!(partial["interval_ms"], 2_000);
+        assert_eq!(partial["max_events"], 8);
+        assert_eq!(partial["emitted"], 0);
+        assert_eq!(partial["inventory_count"], 1);
+        assert_eq!(partial["max_inventory_count"], 1);
+        assert_eq!(partial["events"].as_array().map(Vec::len), Some(0));
+        assert_eq!(partial["windows"].as_array().map(Vec::len), Some(1));
+        // No parallel termination vocabulary was introduced on this verb.
+        assert!(partial.get("termination").is_none());
+    }
+
+    #[test]
+    fn a_same_round_event_ceiling_win_over_a_token_flipped_that_round() {
+        // Round 2 flips the token AND proves the event ceiling. The ceiling is
+        // authoritative, so the ordinary payload must be returned with truncated true
+        // and no partial cancellation published.
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let sample = |_: &observe::WindowFilter,
+                      _: Option<u64>,
+                      _: Option<bool>,
+                      _: Option<bool>,
+                      _: bool,
+                      _: usize|
+         -> Result<Vec<WindowWatchSample>, CuError> {
+            let n = calls.get() + 1;
+            calls.set(n);
+            if n == 1 {
+                return sample_of(vec![sample_row(1, "t1"), sample_row(2, "t1")]);
+            }
+            // Round 2 changes BOTH rows, so two events are retained at once. With a
+            // ceiling of 1 the max+1 event is really observed, which is the only
+            // thing that makes truncation true.
+            token.set(true);
+            sample_of(vec![sample_row(1, "u2"), sample_row(2, "u2")])
+        };
+        let value = windows_watch_with_sample(
+            watch_request(30_000, 50, 1, &[]),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &sample,
+        )
+        .expect("the same-round event ceiling must win");
+        assert!(token.get(), "the provider really did flip the token");
+        assert_eq!(calls.get(), 2);
+        // The ceiling really was proven this round, so truncation is true and the
+        // ordinary payload reports a non-completed watch rather than a cancellation.
+        assert_eq!(value["truncated"], true);
+        assert_eq!(value["completed"], false);
+        assert_eq!(
+            value["emitted"], 1,
+            "only the ceiling-reaching event is retained"
+        );
+        assert_eq!(value["polls"], 2);
+        assert!(value.get("termination").is_none());
+    }
+
+    #[test]
+    fn a_same_round_sample_error_win_over_a_token_flipped_that_round() {
+        // Round 2 flips the token and FAILS. The typed provider error is
+        // authoritative and must not be rewritten as a cancellation.
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let sample = |_: &observe::WindowFilter,
+                      _: Option<u64>,
+                      _: Option<bool>,
+                      _: Option<bool>,
+                      _: bool,
+                      _: usize|
+         -> Result<Vec<WindowWatchSample>, CuError> {
+            let n = calls.get() + 1;
+            calls.set(n);
+            if n == 1 {
+                return sample_of(vec![sample_row(1, "a")]);
+            }
+            token.set(true);
+            Err(CuError::new(
+                "windows_watch_fixture_transient",
+                "the fixture inventory read failed",
+            ))
+        };
+        let error = windows_watch_with_sample(
+            watch_request(30_000, 50, 8, &[]),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &sample,
+        )
+        .expect_err("the provider error must win");
+        assert!(token.get(), "the provider really did flip the token");
+        assert_eq!(error.code, "windows_watch_fixture_transient");
+        let detail = error.detail.unwrap_or(serde_json::Value::Null);
+        assert_ne!(detail["effect"], "partially_performed");
+    }
+
+    #[test]
+    fn a_same_round_deadline_win_over_a_token_flipped_that_round() {
+        // Deterministic deadline precedence with publicly valid bounds. The token
+        // starts false. Round 1 is the baseline. Round 2 sleeps past the remaining
+        // duration, THEN flips the token and returns a valid sample, so the loop must
+        // exit on the reached bound rather than publishing a cancellation.
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let sample = |_: &observe::WindowFilter,
+                      _: Option<u64>,
+                      _: Option<bool>,
+                      _: Option<bool>,
+                      _: bool,
+                      _: usize|
+         -> Result<Vec<WindowWatchSample>, CuError> {
+            let n = calls.get() + 1;
+            calls.set(n);
+            if n == 2 {
+                std::thread::sleep(Duration::from_millis(200));
+                token.set(true);
+            }
+            sample_of(vec![sample_row(1, "a")])
+        };
+        let value = windows_watch_with_sample(
+            watch_request(150, 50, 8, &[]),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &sample,
+        )
+        .expect("the reached deadline must win over the late token");
+        assert!(token.get(), "the provider really did flip the token");
+        assert_eq!(calls.get(), 2, "round 2 really happened");
+        assert_eq!(value["completed"], true);
+        assert_eq!(value["truncated"], false);
+        assert_eq!(value["polls"], 2);
+    }
+
+    #[test]
+    fn an_extra_once_watch_is_not_turned_into_a_multi_round_cancel() {
+        // duration_ms == 0 is the default extra-once mode: baseline plus exactly ONE
+        // extra sample. A token flipped inside that extra sample has no later round to
+        // win in, so the ordinary payload with polls == 2 must be returned.
+        let token = std::cell::Cell::new(false);
+        let calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let sample = |_: &observe::WindowFilter,
+                      _: Option<u64>,
+                      _: Option<bool>,
+                      _: Option<bool>,
+                      _: bool,
+                      _: usize|
+         -> Result<Vec<WindowWatchSample>, CuError> {
+            let n = calls.get() + 1;
+            calls.set(n);
+            if n == 2 {
+                token.set(true);
+            }
+            sample_of(vec![sample_row(1, &format!("t{n}"))])
+        };
+        let value = windows_watch_with_sample(
+            watch_request(0, 20, 8, &[]),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &sample,
+        )
+        .expect("extra-once must still produce its ordinary payload");
+        assert!(token.get(), "the provider really did flip the token");
+        assert_eq!(calls.get(), 2, "baseline plus exactly one extra sample");
+        assert_eq!(value["polls"], 2);
+        assert_eq!(value["duration_ms"], 0);
+        assert_eq!(value["completed"], true);
+        assert_eq!(value["truncated"], false);
+    }
+
+    #[test]
+    fn an_extra_once_pause_cancel_still_produces_a_shaped_partial() {
+        // The distinct extra-once boundary: duration_ms == 0 with a non-zero interval
+        // can still be cancelled in the pause after the baseline, because that pause is
+        // an observation point. The token is raised from a thread while the watch is in
+        // that pause, so the partial provably covers a real baseline and no extra sample.
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+
+        let token = Arc::new(AtomicBool::new(false));
+        let raised = Arc::clone(&token);
+        let calls = std::cell::Cell::new(0usize);
+        let trigger = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(25));
+            raised.store(true, Ordering::Release);
+        });
+        let probe = || token.load(Ordering::Acquire);
+        let sample = |_: &observe::WindowFilter,
+                      _: Option<u64>,
+                      _: Option<bool>,
+                      _: Option<bool>,
+                      _: bool,
+                      _: usize|
+         -> Result<Vec<WindowWatchSample>, CuError> {
+            calls.set(calls.get() + 1);
+            sample_of(vec![sample_row(1, "a")])
+        };
+        let error = windows_watch_with_sample(
+            watch_request(0, 2_000, 8, &[]),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            &sample,
+        )
+        .expect_err("the extra-once pause cancel must refuse the watch");
+        trigger.join().expect("cancel trigger");
+
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(calls.get(), 1, "only the baseline was taken");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        let partial = &detail["partial_observation"];
+        assert_eq!(partial["duration_ms"], 0);
+        assert_eq!(partial["polls"], 1);
+        assert_eq!(partial["completed"], false);
+        assert_eq!(partial["truncated"], false);
+        assert!(partial.get("termination").is_none());
+    }
+
+    #[test]
+    fn an_uncancelled_watch_keeps_its_normal_shape_and_has_no_termination() {
+        // The ordinary field set is unchanged: no termination key, and completed
+        // remains the negation of truncated.
+        let sample = |_: &observe::WindowFilter,
+                      _: Option<u64>,
+                      _: Option<bool>,
+                      _: Option<bool>,
+                      _: bool,
+                      _: usize|
+         -> Result<Vec<WindowWatchSample>, CuError> {
+            sample_of(vec![sample_row(1, "a")])
+        };
+        let value = windows_watch_with_sample(
+            watch_request(120, 50, 8, &[]),
+            crate::execution_control::ExecutionControl::none(),
+            &sample,
+        )
+        .expect("an ordinary watch succeeds");
+        assert_eq!(value["mechanism"], "libagenterm");
+        assert_eq!(value["mode"], "poll-diff");
+        assert_eq!(value["completed"], true);
+        assert_eq!(value["truncated"], false);
+        assert_eq!(value["duration_ms"], 120);
+        assert_eq!(value["interval_ms"], 50);
+        assert_eq!(value["max_events"], 8);
+        assert_eq!(
+            value["emitted"],
+            value["events"].as_array().map(Vec::len).unwrap_or(0)
+        );
+        assert!(value.get("termination").is_none());
+    }
 
     fn focus_window(handle: isize, pid: u32, focused: bool) -> WindowInfo {
         WindowInfo {
