@@ -7,8 +7,7 @@ use agenterm_platform::input_inject::MAX_POINTER_SCROLL_DETENTS;
 
 use super::verbs::VerbSpec;
 use super::{
-    flag_parsed, flag_text, flag_value, flag_window, flag_window_opt, menu, named_node,
-    split_literal_tail, take_switch,
+    flag_parsed, flag_text, flag_window, menu, named_node, split_literal_tail, take_switch,
 };
 
 pub fn parse(
@@ -55,9 +54,9 @@ pub fn parse(
         "send-text" => {
             // `--` ends flag parsing so the text may itself start with a dash.
             let literal_text = split_literal_tail(args, " ");
-            let window = flag_window_opt(args);
-            let name = flag_value(args, "--name");
-            let role = flag_value(args, "--role");
+            let window = flag_window(args)?;
+            let name = flag_text(args, "--name")?;
+            let role = flag_text(args, "--role")?;
             let allow_browser_chrome = take_switch(args, "--allow-browser-chrome");
             if literal_text.is_none()
                 && let Some(option) = args.iter().find(|arg| arg.starts_with('-') && *arg != "-")
@@ -78,10 +77,17 @@ pub fn parse(
         "send-keys" => {
             // `--` ends flag parsing so a chord may itself start with a dash.
             let literal_keys = split_literal_tail(args, "+");
-            let window = flag_window_opt(args);
-            let name = flag_value(args, "--name");
-            let role = flag_value(args, "--role");
+            let window = flag_window(args)?;
+            let name = flag_text(args, "--name")?;
+            let role = flag_text(args, "--role")?;
             let allow_browser_chrome = take_switch(args, "--allow-browser-chrome");
+            if literal_keys.is_none()
+                && let Some(option) = args.iter().find(|arg| arg.starts_with('-') && *arg != "-")
+            {
+                return Err(format!(
+                    "send-keys does not accept option {option:?}; use -- before a chord that starts with a dash"
+                ));
+            }
             Ok(Command::SendKeys {
                 target,
                 keys: literal_keys.unwrap_or_else(|| args.join("+")),
@@ -780,6 +786,59 @@ mod tests {
             plain,
             Command::SendText { text, .. } if text == "plain text"
         ));
+
+        let addressed = parse(
+            spec,
+            "send-text",
+            TargetRef::Current,
+            &mut args(&[
+                "--window", "42", "--name", "Field", "--role", "entry", "plain", "text",
+            ]),
+        )
+        .expect("addressed text without optional separator");
+        assert!(matches!(
+            addressed,
+            Command::SendText {
+                window: Some(42),
+                name: Some(name),
+                role: Some(role),
+                text,
+                ..
+            } if name == "Field" && role == "entry" && text == "plain text"
+        ));
+    }
+
+    #[test]
+    fn send_keys_consumes_addressing_before_building_the_chord() {
+        let spec = crate::cli::verbs::lookup("send-keys").expect("catalog verb");
+        let command = parse(
+            spec,
+            "send-keys",
+            TargetRef::Current,
+            &mut args(&[
+                "--window", "42", "--name", "Field", "--role", "entry", "ctrl", "a",
+            ]),
+        )
+        .expect("addressed chord without optional separator");
+        assert!(matches!(
+            command,
+            Command::SendKeys {
+                window: Some(42),
+                name: Some(name),
+                role: Some(role),
+                keys,
+                ..
+            } if name == "Field" && role == "entry" && keys == "ctrl+a"
+        ));
+
+        let error = parse(
+            spec,
+            "send-keys",
+            TargetRef::Current,
+            &mut args(&["--window", "42", "--bogus"]),
+        )
+        .expect_err("unknown option must fail before key delivery");
+        assert!(error.contains("--bogus"), "unexpected error: {error}");
     }
 
     #[test]

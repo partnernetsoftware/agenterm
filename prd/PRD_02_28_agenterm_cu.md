@@ -736,7 +736,10 @@ ACU-only cutover
 ├─ [x] `send-text` keeps option parsing closed before actuation
 │  ├─ [x] an unrecognized dash-leading token returns usage naming that token
 │  ├─ [x] explicit `--` remains the only way to preserve dash-leading literal text
-│  └─ [x] plain text and the existing recognized window/node options are unchanged
+│  └─ [x] addressing values are consumed before unseparated plain text is joined
+├─ [x] `send-keys` consumes addressing before constructing the key chord
+│  ├─ [x] the optional `--` literal tail and ordinary `ctrl a` form stay equivalent
+│  └─ [x] unknown options fail before key delivery instead of becoming key names
 ├─ [x] clipboard node actuation rejects residual options before side effects
 │  ├─ [x] `copy` / `paste` name the first unexpected token as typed usage
 │  └─ [x] `paste -- TEXT` still preserves a dash-leading clipboard seed exactly
