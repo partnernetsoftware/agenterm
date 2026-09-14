@@ -34,14 +34,12 @@
 //   - Output capture. rh redirected each child's streams to
 //     target/qualification/scratch/command-N.{stdout,stderr} and read the
 //     files back. The door's capture refuses (not truncates) anything over
-//     its 1 MiB slot cap, and a cargo gate can exceed that, so on unix the
-//     child runs through `sh -c 'exec "$@" >OUT 2>ERR'` and the same files
-//     are read back: whole when at most 512 KiB, otherwise the last 64 KiB
-//     via the host's `tail` with the EVIDENCE lines recovered by `grep` so
-//     a long smoke transcript still qualifies. On Windows there is no such
-//     shell here; the door captures directly and a stream over the cap is a
-//     thrown refusal. GAP: the door op for this is a `stdout_path` /
-//     `stderr_path` on process.command.
+//     its 1 MiB slot cap, and a cargo gate can exceed that. `process_spawn`
+//     therefore receives `stdout_path` / `stderr_path` and the contained
+//     launcher writes both streams directly to files on every host. The
+//     driver reads a bounded lossy tail for diagnostics and separately scans
+//     the whole stdout file for bounded EVIDENCE lines, so an early marker in
+//     a long transcript still qualifies without a shell pipeline.
 //   - The `rh-lint` gate (rh source lint) is gone with rh and with the
 //     gate manifest entry; `task-catalog` (`rh task check`) is
 //     `cli script task list --manifest agenterm.tasks.json`, the catalog
