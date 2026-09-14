@@ -39,6 +39,16 @@ return seen;
 }
 
 #[test]
+fn nullish_coalescing_compiles_and_is_not_listed_as_rejected() {
+    compile_qjs("return null ?? 1;")
+        .expect("nullish coalescing compiles through the product entry");
+    assert!(
+        !rejection_section().contains("`??`"),
+        "README must not list nullish coalescing as rejected"
+    );
+}
+
+#[test]
 fn representative_unimplemented_statements_remain_named_rejections() {
     for (name, keyword, source) in [
         ("class", "class", "class Example {} return 0;"),

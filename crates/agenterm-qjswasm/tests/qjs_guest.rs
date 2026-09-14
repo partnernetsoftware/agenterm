@@ -105,6 +105,28 @@ fn every_kind_of_javascript_value_crosses_the_face() {
     assert_eq!(returns("let x = 1;"), JsValue::Undefined);
 }
 
+/// Nullish coalescing is not logical-or: only absence selects the right side.
+///
+/// This lives at the product seam because the README previously kept `??` in
+/// its rejection table after the pinned M1 compiler had implemented it.
+#[test]
+fn nullish_coalescing_keeps_every_non_nullish_left_value() {
+    assert_eq!(
+        returns("return null ?? \"null\";"),
+        JsValue::Str("null".into())
+    );
+    assert_eq!(
+        returns("return undefined ?? \"undefined\";"),
+        JsValue::Str("undefined".into())
+    );
+    assert_eq!(returns("return 0 ?? 7;"), JsValue::Number(0.0));
+    assert_eq!(
+        returns("return \"\" ?? \"fallback\";"),
+        JsValue::Str(String::new())
+    );
+    assert_eq!(returns("return false ?? true;"), JsValue::Bool(false));
+}
+
 /// A returned String is text, read out of the guest's memory before the slot
 /// dies.
 ///

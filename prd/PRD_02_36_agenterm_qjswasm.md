@@ -290,6 +290,8 @@ agenterm-qjswasm
 │  │      compiler: loop-local `break` / `continue` are accepted, loop-external
 │  │      control is rejected by context, and representative `class`, `switch`,
 │  │      `for…in` and `do`/`while` gaps retain named unsupported diagnostics
+│  │  ├─ [x] `??` is measured through the product seam: only `null` / `undefined`
+│  │  │      select the right operand; `0`, empty String and `false` stay left
 │  │  └─ [~] current pin misattributes a missing declaration binding in `for…of`
 │  │         to unsupported `of`; product tripwire records the exact contradiction
 │  │         until the generic parser repair is available at a published revision
