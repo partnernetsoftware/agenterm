@@ -5,7 +5,7 @@
 //! `check`, and then pins the README wording so documentation cannot silently
 //! lag a compiler-pin advance again.
 
-use agenterm_qjswasm::compile_qjs;
+use agenterm_qjswasm::{compile_qjs, compile_qjs_with_modules};
 
 const README: &str = include_str!("../README.md");
 
@@ -45,6 +45,41 @@ fn nullish_coalescing_compiles_and_is_not_listed_as_rejected() {
     assert!(
         !rejection_section().contains("`??`"),
         "README must not list nullish coalescing as rejected"
+    );
+}
+
+#[test]
+fn namespace_imports_compile_and_are_not_disclaimed_as_a_whole() {
+    let resolve = |specifier: &str| match specifier {
+        "lib/value" => Some("export const answer = 42;".to_owned()),
+        _ => None,
+    };
+    compile_qjs_with_modules(
+        "import * as value from \"lib/value\"; return value.answer;",
+        &resolve,
+    )
+    .expect("namespace import compiles through the product module entry");
+    for source in [
+        "import value from \"lib/value\"; return value;",
+        "import { answer } from \"lib/value\"; return answer;",
+        "return import(\"lib/value\");",
+    ] {
+        let error = compile_qjs_with_modules(source, &resolve)
+            .expect_err("the documented import form remains unsupported");
+        assert!(
+            error.to_string().contains("import"),
+            "unsupported import form must name its boundary: {error}"
+        );
+    }
+
+    let documented = rejection_section();
+    assert!(
+        documented.contains("default / named / dynamic"),
+        "README must narrow the import refusal to the forms the compiler lacks"
+    );
+    assert!(
+        documented.contains("`import * as` 已在支持表"),
+        "README must not disclaim the namespace-import form the product resolver uses"
     );
 }
 

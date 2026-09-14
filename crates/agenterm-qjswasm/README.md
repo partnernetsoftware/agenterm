@@ -71,6 +71,8 @@ completion value 投影全程，任何一段掉链子这里都看得见。`e1122
 - **语句**：`let` / `const` / `var`（真作用域 + 文本可判定的 TDZ）、块、`if`/`else`、
   `while`、三段式 `for`、`for...of`、`return`、`throw`、`try`/`catch`/`finally`，以及脚本的
   ECMA-262 completion value（`1 + 2;` → `3`）。
+- **模块**：`import * as ns from "specifier"` 与 `export` 声明在编译期合成一个
+  `.wasm`；文件定位由产品 resolver 提供，编译器本身不读文件系统。
 - **函数**：声明式带参数、递归与互递归、嵌套声明、读模块顶层绑定。
   **函数是值**：`let f = function(a){...}; f(1)` 可以，`return function(){...}` 再调用
   也可以。**捕获外层局部变量的闭包也到了**（`eb9229c`）：捕获按**绑定**不按值——
@@ -149,7 +151,8 @@ completion value 投影全程，任何一段掉链子这里都看得见。`e1122
    默认 / rest / 解构参数（**箭头函数本身也不在这张表上了**，见上）、
    `**`、可选链首个属性访问之后的 continuation、逗号运算符、BigInt、
    `new` / `delete` / `void` / `in` / `instanceof`、展开与 rest、解构、默认参数、
-   `async`/`await`、`import`、带标签的语句。（**捕获闭包已从这张表离开**，见上。）
+   `async`/`await`、`import` 的 default / named / dynamic 形式（namespace
+   `import * as` 已在支持表）、带标签的语句。（**捕获闭包已从这张表离开**，见上。）
    循环体内的 `break` / `continue` 已由当前产品编译入口接受；循环外仍按上下文拒绝，
    因为不存在可跳转的循环目标。
 2. **全局面仍是显式子集，不是完整 JavaScript realm。** 当前 pin 的产品入口已经实测
