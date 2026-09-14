@@ -516,6 +516,7 @@ pub struct ScriptResult {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stdout_truncated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "deserialize_present_json_value")]
     pub value: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure: Option<ScriptFailure>,
@@ -525,6 +526,17 @@ pub struct ScriptResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost: Option<ScriptCost>,
     pub duration_ms: u64,
+}
+
+/// Preserve the wire distinction between an absent completion value and an
+/// explicit JSON `null`. Serde's default `Option<Value>` decoder maps both a
+/// missing field and a present `null` to `None`; `default` handles absence,
+/// while this hook runs only for a present field and retains its JSON value.
+fn deserialize_present_json_value<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Value::deserialize(deserializer).map(Some)
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1409,6 +1421,32 @@ mod tests {
             fixed_clock_ms: None,
             env_allow: Vec::new(),
         }
+    }
+
+    #[test]
+    fn script_result_wire_distinguishes_null_from_an_absent_value() {
+        let base = serde_json::json!({
+            "envelope_version": SCRIPT_ENVELOPE_VERSION,
+            "invocation_id": "null-result",
+            "api_version": SCRIPT_API_VERSION,
+            "ok": true,
+            "exit_class": "success",
+            "stdout": "",
+            "duration_ms": 0
+        });
+
+        let absent: ScriptResult = serde_json::from_value(base.clone()).expect("absent value");
+        assert_eq!(absent.value, None);
+
+        let mut explicit_null = base;
+        explicit_null["value"] = Value::Null;
+        let explicit_null: ScriptResult =
+            serde_json::from_value(explicit_null).expect("explicit null value");
+        assert_eq!(explicit_null.value, Some(Value::Null));
+        assert_eq!(
+            serde_json::to_value(explicit_null).expect("result serializes")["value"],
+            Value::Null
+        );
     }
 
     #[test]
