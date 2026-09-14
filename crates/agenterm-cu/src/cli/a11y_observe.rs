@@ -515,23 +515,24 @@ fn wait(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let literal_text = split_literal_tail(args, " ");
     let expect_present = args.iter().any(|arg| arg == "--expect");
     let ready_path_present = args.iter().any(|arg| arg == "--ready-path");
-    let absent = take_switch(args, "--absent");
-    if absent && !expect_present {
-        return Err("wait --absent requires --expect JSON".into());
-    }
-    // `--expect` and `--ready-path` are closed shapes, so their timeout value
-    // is consumed (the older conditions' lenient `flag_u64` leaves it in place).
-    let timeout_ms = if expect_present || ready_path_present {
-        flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(5_000)
-    } else {
-        flag_u64(args, "--timeout-ms").unwrap_or(5_000)
-    };
     let text_equals_present = args
         .iter()
         .any(|arg| arg == "--text-equals" || arg == "--node-text-equals");
     let text_contains_present = args
         .iter()
         .any(|arg| arg == "--text-contains" || arg == "--node-text-contains");
+    let absent = take_switch(args, "--absent");
+    if absent && !expect_present {
+        return Err("wait --absent requires --expect JSON".into());
+    }
+    // Closed wait shapes consume their timeout value; older conditions retain
+    // the lenient reader until their complete argument contracts are migrated.
+    let timeout_ms =
+        if expect_present || ready_path_present || text_equals_present || text_contains_present {
+            flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(5_000)
+        } else {
+            flag_u64(args, "--timeout-ms").unwrap_or(5_000)
+        };
     let condition = if text_equals_present && text_contains_present {
         return Err("wait accepts one of --text-equals or --text-contains, not both".into());
     } else if expect_present {
@@ -554,48 +555,61 @@ fn wait(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
             absent,
         }
     } else if text_equals_present {
-        let expected = flag_value(args, "--text-equals")
-            .or_else(|| flag_value(args, "--node-text-equals"))
-            .filter(|value| value != "--")
-            .or(literal_text);
+        let expected = wait_text_value(args, "--text-equals", "--node-text-equals", literal_text)?;
         let Some(expected) = expected else {
             return Err(
                 "wait --text-equals / --node-text-equals requires the expected text".into(),
             );
         };
-        let name = flag_value(args, "--name")
-            .or_else(|| flag_value(args, "--node-name-contains"))
+        let name = flag_text_alias(args, "--name", "--node-name-contains")?
             .filter(|value| !value.is_empty());
         let Some(name) = name else {
             return Err("wait --text-equals requires --name <pattern>".into());
         };
+        let role = flag_text_alias(args, "--role", "--node-role")?;
+        let window = flag_window(args)?;
+        if !args.is_empty() {
+            return Err(format!(
+                "wait --text-equals accepts only --timeout-ms MS --window H --name PAT [--role ROLE] --text-equals TEXT; unexpected {:?}",
+                args[0]
+            ));
+        }
         WaitCondition::NodeTextEquals {
             expected,
             name,
-            role: flag_value(args, "--role").or_else(|| flag_value(args, "--node-role")),
-            window: flag_window_opt(args),
+            role,
+            window,
         }
     } else if text_contains_present {
-        let substring = flag_value(args, "--text-contains")
-            .or_else(|| flag_value(args, "--node-text-contains"))
-            .filter(|value| value != "--")
-            .or(literal_text);
+        let substring = wait_text_value(
+            args,
+            "--text-contains",
+            "--node-text-contains",
+            literal_text,
+        )?;
         let Some(substring) = substring else {
             return Err(
                 "wait --text-contains / --node-text-contains requires the substring".into(),
             );
         };
-        let name = flag_value(args, "--name")
-            .or_else(|| flag_value(args, "--node-name-contains"))
+        let name = flag_text_alias(args, "--name", "--node-name-contains")?
             .filter(|value| !value.is_empty());
         let Some(name) = name else {
             return Err("wait --text-contains requires --name <pattern>".into());
         };
+        let role = flag_text_alias(args, "--role", "--node-role")?;
+        let window = flag_window(args)?;
+        if !args.is_empty() {
+            return Err(format!(
+                "wait --text-contains accepts only --timeout-ms MS --window H --name PAT [--role ROLE] --text-contains TEXT; unexpected {:?}",
+                args[0]
+            ));
+        }
         WaitCondition::NodeTextContains {
             substring,
             name,
-            role: flag_value(args, "--role").or_else(|| flag_value(args, "--node-role")),
-            window: flag_window_opt(args),
+            role,
+            window,
         }
     } else if let Some(count) = flag_usize(args, "--window-count-gte") {
         WaitCondition::WindowCountGte { count }
@@ -627,6 +641,44 @@ fn wait(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
         timeout_ms,
         condition,
     })
+}
+
+fn flag_text_alias(
+    args: &mut Vec<String>,
+    primary: &'static str,
+    alias: &'static str,
+) -> Result<Option<String>, String> {
+    if args.iter().any(|arg| arg == primary) {
+        flag_text(args, primary)
+    } else {
+        flag_text(args, alias)
+    }
+}
+
+fn wait_text_value(
+    args: &mut Vec<String>,
+    primary: &'static str,
+    alias: &'static str,
+    literal_text: Option<String>,
+) -> Result<Option<String>, String> {
+    let flag = if args.iter().any(|arg| arg == primary) {
+        primary
+    } else {
+        alias
+    };
+    let Some(index) = args.iter().position(|arg| arg == flag) else {
+        return Ok(literal_text);
+    };
+    if literal_text.is_some()
+        && args
+            .get(index + 1)
+            .is_none_or(|value| value.starts_with("--"))
+    {
+        args.remove(index);
+        Ok(literal_text)
+    } else {
+        flag_text(args, flag)
+    }
 }
 
 fn screenshot(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
@@ -871,6 +923,107 @@ mod tests {
             parse(spec, "wait", TargetRef::Current, &mut absent_only).unwrap_err(),
             "wait --absent requires --expect JSON"
         );
+    }
+
+    #[test]
+    fn text_waits_consume_selectors_keep_aliases_and_reject_residuals() {
+        let spec = verbs::lookup("wait").expect("wait verb");
+        for (text_flag, name_flag, role_flag, contains) in [
+            ("--text-equals", "--name", "--role", false),
+            (
+                "--node-text-equals",
+                "--node-name-contains",
+                "--node-role",
+                false,
+            ),
+            ("--text-contains", "--name", "--role", true),
+            (
+                "--node-text-contains",
+                "--node-name-contains",
+                "--node-role",
+                true,
+            ),
+        ] {
+            let mut valid = [
+                "--window",
+                "42",
+                name_flag,
+                "Shell",
+                role_flag,
+                "button",
+                text_flag,
+                "needle",
+                "--timeout-ms",
+                "600",
+            ]
+            .map(str::to_owned)
+            .to_vec();
+            let command = parse(spec, "wait", TargetRef::Current, &mut valid).expect("text wait");
+            assert!(
+                matches!(
+                    &command,
+                    Command::Wait {
+                        timeout_ms: 600,
+                        condition: WaitCondition::NodeTextContains {
+                            substring,
+                            name,
+                            role: Some(role),
+                            window: Some(42),
+                        },
+                        ..
+                    } if contains && substring == "needle" && name == "Shell" && role == "button"
+                ) || matches!(
+                    &command,
+                    Command::Wait {
+                        timeout_ms: 600,
+                        condition: WaitCondition::NodeTextEquals {
+                            expected,
+                            name,
+                            role: Some(role),
+                            window: Some(42),
+                        },
+                        ..
+                    } if !contains && expected == "needle" && name == "Shell" && role == "button"
+                )
+            );
+        }
+
+        let mut typo = [
+            "--window",
+            "42",
+            "--name",
+            "Shell",
+            "--rle",
+            "button",
+            "--text-contains",
+            "needle",
+            "--timeout-ms",
+            "600",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        let error = parse(spec, "wait", TargetRef::Current, &mut typo)
+            .expect_err("role typo must not broaden the node set");
+        assert!(error.contains("--rle"), "unexpected error: {error}");
+
+        let mut literal = [
+            "--window",
+            "42",
+            "--name",
+            "Shell",
+            "--text-contains",
+            "--",
+            "--dash-leading text",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        assert!(matches!(
+            parse(spec, "wait", TargetRef::Current, &mut literal).expect("literal tail"),
+            Command::Wait {
+                condition: WaitCondition::NodeTextContains { substring, .. },
+                ..
+            } if substring == "--dash-leading text"
+        ));
     }
 
     #[test]

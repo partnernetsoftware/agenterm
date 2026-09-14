@@ -758,6 +758,9 @@ ACU-only cutover
 ├─ [x] canonical `window-place` consumes its closed action and window arguments
 │  ├─ [x] both `--action ID` and the documented positional ID remain supported
 │  └─ [x] residual tokens fail before any placement action moves a window
+├─ [x] text waits cannot broaden their node selector after an option typo
+│  ├─ [x] text, name, role, window and timeout consume their canonical and compatibility spellings
+│  └─ [x] residual tokens fail before `met` can invert from a narrowed negative to a broad false positive
 ├─ [x] dynamic repair registry (complete corpus; no unknown fallback)
 │  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green
 │  │  ├─ [x] macOS public qjswasm court: one invocation-owned Cocoa window proves exact
