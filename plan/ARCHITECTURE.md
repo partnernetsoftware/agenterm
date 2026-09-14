@@ -43,8 +43,8 @@ crates/agenterm-control-client/
 crates/agenterm-dyn/         `publish = false` 的**无策略底层动态 ABI 机制层**：唯一 loader /
                              符号解析、按调用方 ABI 描述执行调用、raw 值/指针搬运、
                              variadic `ioctl` ABI 机制、W^X trampoline、机制错误
-                             intern + S-expr eval + `dlcall`、typed owners 与六格 facts
-                             已删除（历史能力，不是 dyn 当前职责）
+                             已删除：intern + S-expr eval + `dlcall` 语言层、typed
+                             owners 与六格 facts（历史能力，不是 dyn 当前职责）
                              不属于 Script engine family，不接 cu/platform/libagenterm
 
 crates/agenterm-qjswasm/     agenterm 自有脚本引擎的**业务层**：`agenterm.*` 宿主门

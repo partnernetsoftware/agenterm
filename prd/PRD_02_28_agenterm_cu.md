@@ -74,7 +74,9 @@ provided by these native accessibility stacks (see
 Screenshot and coordinate actuation are **degraded fallbacks** with typed
 markers in the command result; they are never silent substitutes for a missing
 control tree. `agenterm-cu` consumes `libagenterm` as its runtime mechanism
-boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
+boundary; it does not open raw OS APIs or fork a fifth screenshot stack. At the
+Cargo layer CU does not depend on qjswasm, tinyvm or agenterm-dyn; those
+mechanisms remain behind the `libagenterm` runtime boundary.
 
 ## Subtree index
 

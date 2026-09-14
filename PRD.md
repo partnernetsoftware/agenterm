@@ -296,6 +296,8 @@ flowchart LR
   FLEET["Fleet authority<br/>tabs · events · waits"]
   CLI["Public control<br/>CLI · mux · MCP"]
   SCRIPT["Script runtime<br/>qjswasm + tinyvm"]
+  DYNABI["agenterm-dyn<br/>无策略动态 ABI 机制层"]
+  DYNDEPS["libc + libloading<br/>native mechanism dependencies"]
   CU["agenterm-cu<br/>typed machine control · agenterm:acu"]
   ACTS["archived acu.ts oracle<br/>frozen migration reference<br/>never runtime"]
   ACUOBJ["agenterm:acu.call/argv<br/>one parser · Executor · receipts"]
@@ -322,6 +324,8 @@ flowchart LR
   CU --> REFRESH
   CU --> BRIDGE --> EVIDENCE
   FLEET --> SCRIPT & CU & CC
+  SCRIPT -->|qjswasm only · invoke_abi<br/>dyn does not choose exposure| DYNABI
+  DYNABI -->|mechanism dependency| DYNDEPS
   SCRIPT --> CU & CC
   CU & SCRIPT --> ACUOBJ
   TERM & CLI & SCRIPT & CU --> EVIDENCE --> RELEASE
