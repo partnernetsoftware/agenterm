@@ -944,7 +944,12 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
             &[][..],
             false,
         ),
-        "ui-snapshot" => ("agenterm cli ui-snapshot", &[][..], &[][..], false),
+        "ui-snapshot" => (
+            "agenterm cli ui-snapshot [--select PATHS]",
+            &["--select"][..],
+            &[][..],
+            false,
+        ),
         "wait-pane" | "expect-pane" => (
             "agenterm cli wait-pane [-t target] \
              (--contains text|--dead|--submit-complete|--finalized) [--timeout-ms ms]",

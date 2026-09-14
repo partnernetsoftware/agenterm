@@ -361,6 +361,19 @@ and locally serialized snapshots already meet at the same text seam. Host
 allocation bytes and the future production LOC remain **未测定**. The verdict
 admits a separate opt-in text-reparse product leaf; it does not invent `--json`,
 change `ui-snapshot`, migrate `wait-ui`, or itself claim a second producer.
+The admitted leaf is now shipped as that second producer: bare `ui-snapshot`
+returns the producer's existing `String` byte for byte, while
+`ui-snapshot --select PATHS` reparses only after the explicit opt-in and applies
+the same grammar, bounds and typed malformed-selector code as `protocol-info`.
+Because `ui-snapshot` has no text mode, it does not invent a `--json`
+precondition. The real headless `server-smoke` consumer now requests only
+`projection,event_position` and keeps its existing authority assertion. Three
+matched-budget runs per side moved the median from 17,768,339 to 16,797,387 guest
+steps (−970,952 / −5.46%); host bytes moved from 301,159 to 290,916
+(−10,243 / −3.40%), heap pages from 17 to 16, and all 405 host operations plus
+`server.headless-authority` evidence remained unchanged. This is measured
+producer reuse and a real consumer saving, not yet a net production-LOC fold;
+product-internal `wait-ui` remains deliberately separate.
 
 ## Mermaid flowchart memory palace
 

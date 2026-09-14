@@ -113,10 +113,28 @@ pub(crate) fn apply_selection_request(
     value: &Value,
     args: &[String],
 ) -> Result<Option<Value>, SelectionRefusal> {
+    apply_selection_request_with_contract(value, args, true)
+}
+
+/// Apply the shared selector grammar to a command whose only output format is
+/// already JSON. Such a command needs no invented `--json` precondition: the
+/// presence of `--select` is the caller's opt-in to projection.
+pub(crate) fn apply_inherent_json_selection_request(
+    value: &Value,
+    args: &[String],
+) -> Result<Option<Value>, SelectionRefusal> {
+    apply_selection_request_with_contract(value, args, false)
+}
+
+fn apply_selection_request_with_contract(
+    value: &Value,
+    args: &[String],
+    requires_json_flag: bool,
+) -> Result<Option<Value>, SelectionRefusal> {
     let Some(text) = option_value(args, SELECT_FLAG) else {
         return Ok(None);
     };
-    if !has_option(args, SELECT_REQUIRES_FLAG) {
+    if requires_json_flag && !has_option(args, SELECT_REQUIRES_FLAG) {
         return Err(SelectionRefusal {
             code: SELECT_REQUIRES_JSON_CODE,
             message: format!(
@@ -782,6 +800,32 @@ mod tests {
             )
             .unwrap_err()
             .code,
+            SELECT_MALFORMED_CODE
+        );
+    }
+
+    #[test]
+    fn inherent_json_selection_needs_no_format_flag_and_keeps_the_same_grammar() {
+        let args = vec![
+            "ui-snapshot".to_owned(),
+            "--select".to_owned(),
+            "event_position".to_owned(),
+        ];
+        let value = json!({"event_position": {"epoch": "e", "sequence": 7}, "tabs": [1]});
+        assert_eq!(
+            apply_inherent_json_selection_request(&value, &args).unwrap(),
+            Some(json!({"event_position": {"epoch": "e", "sequence": 7}}))
+        );
+
+        let malformed = vec![
+            "ui-snapshot".to_owned(),
+            "--select".to_owned(),
+            "tabs.*".to_owned(),
+        ];
+        assert_eq!(
+            apply_inherent_json_selection_request(&value, &malformed)
+                .unwrap_err()
+                .code,
             SELECT_MALFORMED_CODE
         );
     }

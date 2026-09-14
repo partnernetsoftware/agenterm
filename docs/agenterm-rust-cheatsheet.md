@@ -6378,6 +6378,14 @@ measure a real consumer with the same engine pin and budget, and call the work a
 foundation until another producer reuses the core and deletes enough parallel
 filtering or serialization truth to pay back the abstraction.
 
+An always-JSON producer that already owns cached text is a different boundary
+from a producer that still owns a `Value`. Do not invent a `--json` precondition
+for it and do not round-trip the no-selector answer. Branch on the selector
+first, return the stored text unchanged when absent, and only then parse,
+project through the shared grammar, and serialize the smaller document. Keep a
+producer-invalid JSON failure distinct from a malformed selector: one is an
+internal broken authority reply, the other is a caller configuration error.
+
 ## Fold the error mapper with the execution seam
 
 When several FFI call sites build the same mechanism call, do not stop after

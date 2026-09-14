@@ -266,6 +266,16 @@ try {
       && ui_bridge.rollback_proven,
     "server_smoke_process_ownership_boundary"
   );
+  const snapshot = command_json(
+    context, cli,
+    ["ui-snapshot", "--select", "projection,event_position"], 0
+  );
+  harness.require(
+    snapshot.projection === "headless_server"
+      && snapshot.event_position !== undefined
+      && snapshot.event_position.epoch !== undefined,
+    "server_smoke_ui_snapshot_projection"
+  );
 
   print("STEP acquire, renew, conflict, heartbeat, and detach the UI lease");
   const lease_client_id = "server-smoke-ui-" + run_id;

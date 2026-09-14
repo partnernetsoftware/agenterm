@@ -4822,7 +4822,7 @@ Usage:
   agenterm cli ui-input pointer --x PX --y PX [--button left|middle|right] [--action press|release|move] [--count 1..3] [--mods shift,ctrl,alt,meta]
   agenterm cli ui-input wheel --x PX --y PX --delta-y N [--units lines|pixels] [--mods ...]
   agenterm cli ui-input key --key NAME [--mods shift,ctrl,alt,meta]
-  agenterm cli ui-snapshot
+  agenterm cli ui-snapshot [--select PATHS]
   agenterm cli ui-hello --minimum VERSION --maximum VERSION [--client-id ID]
   agenterm cli ui-bootstrap
   agenterm cli ui-deltas --epoch EPOCH --after SEQUENCE [--limit 1..64]

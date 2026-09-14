@@ -1133,6 +1133,54 @@ fn ui_snapshot_response(host: &mut dyn ControlHost) -> IpcResponse {
     }
 }
 
+/// Answer an explicit `ui-snapshot` request, preserving the producer's text
+/// byte for byte unless the caller opts into field selection.
+fn selected_ui_snapshot_response(
+    host: &mut dyn ControlHost,
+    args: &[String],
+) -> Option<IpcResponse> {
+    let json = host.ui_snapshot_json()?;
+    Some(select_ui_snapshot_json(json, args))
+}
+
+fn select_ui_snapshot_json(json: String, args: &[String]) -> IpcResponse {
+    if option_value(args, crate::json_select::SELECT_FLAG).is_none() {
+        return IpcResponse::success(json);
+    }
+    let value = match serde_json::from_str(&json) {
+        Ok(value) => value,
+        Err(error) => {
+            return IpcResponse::typed_failure(
+                format!("ui-snapshot producer returned invalid JSON: {error}"),
+                "ui_snapshot_invalid_json",
+                "internal",
+                false,
+            );
+        }
+    };
+    let projected = match crate::json_select::apply_inherent_json_selection_request(&value, args) {
+        Ok(Some(projected)) => projected,
+        Ok(None) => return IpcResponse::success(json),
+        Err(refusal) => {
+            return IpcResponse::typed_failure(
+                refusal.message,
+                refusal.code,
+                "configuration",
+                false,
+            );
+        }
+    };
+    match serde_json::to_string_pretty(&projected) {
+        Ok(json) => IpcResponse::success(json),
+        Err(error) => IpcResponse::typed_failure(
+            error.to_string(),
+            "ui_snapshot_serialization_failed",
+            "internal",
+            false,
+        ),
+    }
+}
+
 fn send_composer_at_position(host: &mut dyn ControlHost, position: usize) -> IpcResponse {
     if let Some(secret) = host.tabs_mut()[position].sensitive_composer.take() {
         let marker = host.tabs_mut()[position].sensitive_proxy_marker.take();
@@ -2831,7 +2879,7 @@ pub(crate) fn dispatch_shared_command(
                 Err(error) => Some(IpcResponse::failure(error)),
             }
         }
-        "ui-snapshot" => host.ui_snapshot_json().map(IpcResponse::success),
+        "ui-snapshot" => selected_ui_snapshot_response(host, args),
         "show-composer" => {
             host.sync_composer_from_ui();
             let Some(position) =
@@ -2957,6 +3005,60 @@ mod tests {
             .chain(rest.iter().copied())
             .map(str::to_owned)
             .collect()
+    }
+
+    #[test]
+    fn ui_snapshot_without_selection_preserves_the_producer_bytes() {
+        let source = "{\n  \"z\": 1,\n  \"a\": 2\n}\n".to_owned();
+        let response = select_ui_snapshot_json(source.clone(), &["ui-snapshot".to_owned()]);
+        assert!(response.ok);
+        assert_eq!(response.output, source);
+    }
+
+    #[test]
+    fn ui_snapshot_selection_projects_text_without_a_json_flag() {
+        let response = select_ui_snapshot_json(
+            "{\n  \"event_position\": {\"epoch\": \"e\", \"sequence\": 7},\n  \"tabs\": [1]\n}"
+                .to_owned(),
+            &[
+                "ui-snapshot".to_owned(),
+                "--select".to_owned(),
+                "event_position".to_owned(),
+            ],
+        );
+        assert!(response.ok);
+        let selected: serde_json::Value = serde_json::from_str(&response.output).unwrap();
+        assert_eq!(
+            selected,
+            serde_json::json!({"event_position": {"epoch": "e", "sequence": 7}})
+        );
+    }
+
+    #[test]
+    fn ui_snapshot_selection_keeps_typed_request_and_source_failures_distinct() {
+        let malformed = select_ui_snapshot_json(
+            "{}".to_owned(),
+            &[
+                "ui-snapshot".to_owned(),
+                "--select".to_owned(),
+                "tabs.*".to_owned(),
+            ],
+        );
+        assert!(!malformed.ok);
+        assert_eq!(malformed.error_code, "selection_malformed");
+        assert_eq!(malformed.error_category, "configuration");
+
+        let invalid_source = select_ui_snapshot_json(
+            "not-json".to_owned(),
+            &[
+                "ui-snapshot".to_owned(),
+                "--select".to_owned(),
+                "tabs".to_owned(),
+            ],
+        );
+        assert!(!invalid_source.ok);
+        assert_eq!(invalid_source.error_code, "ui_snapshot_invalid_json");
+        assert_eq!(invalid_source.error_category, "internal");
     }
 
     #[test]
