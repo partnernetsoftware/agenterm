@@ -754,6 +754,11 @@ ACU-only cutover
 │  │  │     before returning typed failure. Both Windows architectures compile the
 │  │  │     owning pure event-shape tests; Windows runtime execution and a real desktop
 │  │  │     delivery court remain pending
+│  │  ├─ [x] Linux named addressing is public and independently evidenced:
+│  │  │     `--from-name` / `--to-name` (optionally narrowed by roles) resolve two
+│  │  │     showing AT-SPI nodes, read their screen extents and deliver one bounded
+│  │  │     GenerateMouseEvent gesture between their centers; the catalog/help now
+│  │  │     publishes this shipped form instead of advertising only coordinates
 │  │  └─ [ ] Linux and Windows exact-window held-button delivery remain real gaps; the
 │  │        Windows degraded path does not claim background or exact-window semantics
 │  ├─ [x] acu.dynamic.005 · legacy window-local zoom corners map to native `--local-region`;

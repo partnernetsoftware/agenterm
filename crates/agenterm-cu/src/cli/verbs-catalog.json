@@ -4691,13 +4691,33 @@
       "aliases": [],
       "grant": "actuate",
       "family": "a11y-actuate",
-      "summary": "press, move, release as one gesture (--degraded)",
-      "usage": "drag --window HANDLE --from X,Y --to X,Y [--button left|right|middle] [--steps N] [--degraded]",
+      "summary": "drag between named nodes, or between screen points with --degraded",
+      "usage": "drag --window HANDLE (--from-name PAT --to-name PAT [--from-role ROLE] [--to-role ROLE] | --from X,Y --to X,Y) [--button left|right|middle] [--steps N] [--degraded]",
       "args": [
         {
           "flag": "--window",
           "value": "HANDLE",
           "help": "window handle from `windows` (numeric or App#N)"
+        },
+        {
+          "flag": "--from-name",
+          "value": "PAT",
+          "help": "unique showing source node whose name contains PAT"
+        },
+        {
+          "flag": "--from-role",
+          "value": "ROLE",
+          "help": "narrow --from-name to one role"
+        },
+        {
+          "flag": "--to-name",
+          "value": "PAT",
+          "help": "unique showing target node whose name contains PAT"
+        },
+        {
+          "flag": "--to-role",
+          "value": "ROLE",
+          "help": "narrow --to-name to one role"
         },
         {
           "flag": "--from",
@@ -7958,7 +7978,7 @@
     },
     {
       "name": "drag",
-      "text": "agenterm-cu drag\n  scope: actuate    family: Accessibility: actuate\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  drag --window HANDLE --from X,Y --to X,Y [--button left|right|middle] [--steps N] [--degraded]\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --from X,Y                    screen point of the press; must be inside the window\n  --to X,Y                      screen point of the release\n  --button left|right|middle    pointer button (default left)\n  --steps N                     intermediate moves between press and release (default 12, at most 64)\n  --degraded                    admit the path that moves the user's real pointer\n\nOne press, a bounded series of moves and one release, delivered as one\ngesture. There is no semantic a11y path for a drag, so this is the\npointer, and the reply always says WHICH path ran (`path`) plus whether a\nwindow-local one existed (window_local_available).\n\nmacOS has no window-local pointer injection at all: mouse events posted\nto a pid arrive with no window for AppKit to route them through, so the\nonly working path is the global one that MOVES THE USER'S REAL CURSOR.\nThat makes --degraded a required opt-in there, exactly as for\nclick --coords; without it the verb refuses and names the path it would\nhave taken. Nothing is injected before that refusal.\n\n--from must be inside the window (else typed \"drag_outside_window\",\nnothing performed); --to may leave it, and to_inside_window says so. The\nread-back is where the pointer ended up: the release happened at --to, so\npointer_after must equal it, and the receipt records pointer_before and\npointer_after either way. tree_changed reports whether the window's tree\nmoved, as supporting evidence.\n"
+      "text": "agenterm-cu drag\n  scope: actuate    family: Accessibility: actuate\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  drag --window HANDLE (--from-name PAT --to-name PAT [--from-role ROLE] [--to-role ROLE] | --from X,Y --to X,Y)\n       [--button left|right|middle] [--steps N] [--degraded]\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --from-name PAT               unique showing source node whose name contains PAT\n  --from-role ROLE              narrow --from-name to one role\n  --to-name PAT                 unique showing target node whose name contains PAT\n  --to-role ROLE                narrow --to-name to one role\n  --from X,Y                    screen point of the press; must be inside the window\n  --to X,Y                      screen point of the release\n  --button left|right|middle    pointer button (default left)\n  --steps N                     intermediate moves between press and release (default 12, at most 64)\n  --degraded                    admit the coordinate path that moves the user's real pointer\n\nOne press, a bounded series of moves and one release, delivered as one\ngesture. The named form resolves both unique showing accessibility nodes,\nreads their independent screen extents, and delivers between their centers;\nits reply names `addressing: accessibility-tree` and path\n`named-extents-generate-mouse-drag`. It takes neither coordinates nor\n--degraded. This is accessibility addressing plus pointer delivery, not a\nsemantic accessibility Drag action.\n\nThe coordinate form uses the pointer path, and the reply always says WHICH\npath ran (`path`) plus whether a window-local one existed\n(window_local_available). macOS has no window-local pointer injection at all:\nmouse events posted to a pid arrive with no window for AppKit to route them\nthrough, so the only working coordinate path is the global one that MOVES THE\nUSER'S REAL CURSOR. That makes --degraded a required opt-in there, exactly as\nfor click --coords; without it the verb refuses and names the path it would\nhave taken. Nothing is injected before that refusal.\n\nFor the coordinate form, --from must be inside the window (else typed\n\"drag_outside_window\", nothing performed); --to may leave it, and\nto_inside_window says so. The read-back is where the pointer ended up: the\nrelease happened at --to, so pointer_after must equal it, and the receipt\nrecords pointer_before and pointer_after either way. tree_changed reports\nwhether the window's tree moved, as supporting evidence.\n"
     },
     {
       "name": "focus",
