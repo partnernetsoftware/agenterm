@@ -446,7 +446,8 @@ function observe_window(verb, rest, flags) {
     && (flags["window-count-gte"] !== undefined
       || flags["window-title-contains"] !== undefined
       || flags["focused-handle"] !== undefined
-      || flags["node-name-contains"] !== undefined);
+      || flags["node-name-contains"] !== undefined
+      || flags["ready-path"] !== undefined);
   if (handle === null && !windowless_wait) {
     return usage(verb, verb + " needs HANDLE or --window");
   }

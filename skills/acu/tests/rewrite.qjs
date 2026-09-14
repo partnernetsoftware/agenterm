@@ -91,6 +91,9 @@ exact(rewrite.rewrite(["wait", "--focused-handle", "41"]),
   ["wait", "--focused-handle", "41"], "wait focused handle without window");
 exact(rewrite.rewrite(["wait", "--node-name-contains", "Ready"]),
   ["wait", "--node-name-contains", "Ready"], "wait node name without window");
+exact(rewrite.rewrite(["wait", "--timeout-ms", "200", "--ready-path", "ready.json"]),
+  ["wait", "--timeout-ms", "200", "--ready-path", "ready.json"],
+  "wait ready path without window");
 kind(rewrite.rewrite(["wait", "--expect", "[]"]), "usage", "wait expect still needs window");
 kind(rewrite.rewrite(["wait", "--text-equals", "Ready", "--name", "Status"]),
   "usage", "wait text still needs window");
