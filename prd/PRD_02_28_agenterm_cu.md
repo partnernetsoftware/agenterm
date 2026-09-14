@@ -207,8 +207,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │  │      `effect:partially_performed` and deadline, match, output refusal or finalized status wins;
   │  │  │      one in-flight control-plane request retains its existing uninterruptible 5-second bound
   │  │  └─ [x] named native observation waits carry phase-aware cancellation evidence
-  │  │     ├─ `terminal-wait` / `pty-wait-exit` sample before each bounded authority round and
-  │  │     │  through the sliced inter-round pause; an entry-only check is no longer the owner
+  │  │     ├─ `terminal-wait` checks before its first bounded authority round and through the
+  │  │     │  sliced inter-round pause; after an unmatched reply it preserves the bounded
+  │  │     │  tab/condition/poll evidence as partially performed, while `pty-wait-exit`
+  │  │     │  retains its distinct finalized-wait ordering; an entry-only check is no longer the owner
   │  │     ├─ a matched terminal reply, authority refusal and finalized PTY exit-status verdict
   │  │     │  remain authoritative after dispatch and are never hidden by a late cancel
   │  │     └─ public `wait` window/tree/text/ready/expect variants check the same token before

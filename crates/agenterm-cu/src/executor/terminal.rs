@@ -1357,15 +1357,21 @@ fn drive_terminal_wait(
 ) -> Result<Value, CuError> {
     let started = Instant::now();
     let deadline = started + Duration::from_millis(timeout_ms);
+    let mut polls = 0usize;
+    // THE ONLY DIRECT CHECK for this wait. It runs exactly once before the first
+    // control-plane request; every later boundary is a private signal because an
+    // unmatched authority reply has already been observed by then.
+    control.check_observe()?;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
-            return Err(CuError::new(
-                "terminal_wait_timeout",
-                "terminal condition was not met before the deadline",
-            )
-            .with_detail(
-                json!({ "tab_id": tab, "condition": condition, "timeout_ms": timeout_ms }),
+            return Err(terminal_wait_timeout(tab, condition, timeout_ms));
+        }
+        // From round 2 onward this is a signal-only boundary. The previous round's
+        // real authority request makes a `not_performed` error false.
+        if polls > 0 && control.is_cancelled() {
+            return Err(terminal_wait_cancelled(
+                tab, condition, timeout_ms, polls, started,
             ));
         }
         // The request keeps its existing bounded cap: this is NOT split into
@@ -1374,7 +1380,7 @@ fn drive_terminal_wait(
         // authority. The observation interval is the pause below, which is what
         // makes cancellation cooperative with a bound of one pause plus a round.
         let request_timeout = remaining.min(Duration::from_secs(5));
-        control.check_observe()?;
+        polls += 1;
         let matched = request_round(request_timeout)?;
         if matched {
             // AUTHORITATIVE RESULT WINS. There is deliberately no cancellation
@@ -1387,8 +1393,51 @@ fn drive_terminal_wait(
                 "elapsed_ms": started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
             }));
         }
-        wait_for_next_terminal_poll(deadline, control)?;
+        if wait_for_next_terminal_poll(deadline, control) {
+            if Instant::now() >= deadline {
+                return Err(terminal_wait_timeout(tab, condition, timeout_ms));
+            }
+            return Err(terminal_wait_cancelled(
+                tab, condition, timeout_ms, polls, started,
+            ));
+        }
     }
+}
+
+fn terminal_wait_timeout(tab: &str, condition: &TerminalWaitCondition, timeout_ms: u64) -> CuError {
+    CuError::new(
+        "terminal_wait_timeout",
+        "terminal condition was not met before the deadline",
+    )
+    .with_detail(json!({
+        "tab_id": tab,
+        "condition": condition,
+        "timeout_ms": timeout_ms,
+    }))
+}
+
+fn terminal_wait_cancelled(
+    tab: &str,
+    condition: &TerminalWaitCondition,
+    timeout_ms: u64,
+    polls: usize,
+    started: Instant,
+) -> CuError {
+    CuError::new(
+        "cancelled",
+        "the terminal wait was cancelled after observation began",
+    )
+    .with_detail(json!({
+        "effect": "partially_performed",
+        "phase": "observe_wait",
+        "partial_observation": {
+            "tab_id": tab,
+            "condition": condition,
+            "timeout_ms": timeout_ms,
+            "polls": polls,
+            "elapsed_ms": started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+        },
+    }))
 }
 
 /// The pause between wait rounds, sliced so the borrowed cancellation token is
@@ -1397,22 +1446,21 @@ fn drive_terminal_wait(
 /// inventing a second wait mechanism: no thread, no signal, no async runtime.
 const TERMINAL_WAIT_CANCEL_SLICE: Duration = Duration::from_millis(10);
 
-fn wait_for_next_terminal_poll(
-    deadline: Instant,
-    control: ExecutionControl<'_>,
-) -> Result<(), CuError> {
+fn wait_for_next_terminal_poll(deadline: Instant, control: ExecutionControl<'_>) -> bool {
     let pause_deadline = Instant::now()
         + deadline
             .saturating_duration_since(Instant::now())
             .min(Duration::from_millis(50));
     while Instant::now() < pause_deadline {
-        control.check_observe()?;
+        if control.is_cancelled() {
+            return true;
+        }
         thread::sleep(
             TERMINAL_WAIT_CANCEL_SLICE
                 .min(pause_deadline.saturating_duration_since(Instant::now())),
         );
     }
-    control.check_observe()
+    control.is_cancelled()
 }
 
 fn terminal_read_with_client(
@@ -1461,6 +1509,9 @@ mod tests {
         .expect_err("a pre-cancelled wait must refuse before its first request");
         assert_eq!(error.code, "cancelled");
         assert_eq!(requests.get(), 0);
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert!(detail.get("partial_observation").is_none());
     }
 
     #[test]
@@ -1482,6 +1533,66 @@ mod tests {
         .expect_err("an unmatched round must consult cancellation before continuing");
         assert_eq!(error.code, "cancelled");
         assert_eq!(requests.get(), 1);
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        assert_eq!(detail["partial_observation"]["polls"], 1);
+        assert_eq!(detail["partial_observation"]["tab_id"], "@1");
+        assert!(detail["partial_observation"].get("termination").is_none());
+    }
+
+    #[test]
+    fn terminal_wait_second_round_boundary_keeps_both_observed_polls() {
+        let cancelled = Cell::new(false);
+        let probe = || cancelled.get();
+        let requests = Cell::new(0usize);
+        let error = drive_terminal_wait(
+            "@2",
+            &TerminalWaitCondition::Finalized,
+            1_000,
+            ExecutionControl::with_cancel_probe(&probe),
+            |_| {
+                let next = requests.get() + 1;
+                requests.set(next);
+                if next == 2 {
+                    cancelled.set(true);
+                }
+                Ok(false)
+            },
+        )
+        .expect_err("a round-two token must preserve both authority polls");
+
+        assert_eq!(requests.get(), 2);
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["partial_observation"]["polls"], 2);
+    }
+
+    #[test]
+    fn terminal_wait_deadline_wins_over_a_token_flipped_by_that_round() {
+        let cancelled = Cell::new(false);
+        let probe = || cancelled.get();
+        let error = drive_terminal_wait(
+            "@3",
+            &TerminalWaitCondition::Exited,
+            1,
+            ExecutionControl::with_cancel_probe(&probe),
+            |_| {
+                thread::sleep(Duration::from_millis(2));
+                cancelled.set(true);
+                Ok(false)
+            },
+        )
+        .expect_err("the reached deadline must remain the timeout verdict");
+
+        assert!(cancelled.get());
+        assert_eq!(error.code, "terminal_wait_timeout");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["tab_id"], "@3");
+        assert_eq!(detail["condition"], json!(TerminalWaitCondition::Exited));
+        assert_eq!(detail["timeout_ms"], 1);
+        assert_eq!(detail.as_object().expect("object").len(), 3);
     }
 
     #[test]
