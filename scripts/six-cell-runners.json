@@ -35,24 +35,16 @@
     },
     {
       "target": "aarch64-unknown-linux-gnu",
-      "kind": "ssh",
+      "kind": "blocked",
       "level": "native",
-      "host": "127.0.0.1",
-      "port": 2222,
-      "user": "agent",
-      "identity_from_home": "vm/id_agenterm_vm",
-      "remote_dir": "agenterm",
+      "reason": "The owned Linux runner is the MiniCon-provisioned Lima instance minicon-lnx-aarch64. Lima publishes a dynamic endpoint and owns setup/start through its provisioner; the former fixed-port SSH descriptor never addressed this instance. Keep this cell blocked until the provisioner or a product-neutral court exposes one leased execution entry.",
       "expect_file": "ELF 64-bit LSB pie executable, ARM aarch64"
     },
     {
       "target": "x86_64-unknown-linux-gnu",
-      "kind": "ssh",
+      "kind": "blocked",
       "level": "emulated=tcg",
-      "host": "127.0.0.1",
-      "port": 2223,
-      "user": "agent",
-      "identity_from_home": "vm/id_agenterm_vm",
-      "remote_dir": "agenterm",
+      "reason": "The owned Linux runner is the MiniCon-provisioned Lima instance minicon-lnx-x86_64. Lima publishes a dynamic endpoint and owns setup/start through its provisioner; the former fixed-port SSH descriptor never addressed this instance. Keep this cell blocked until the provisioner or a product-neutral court exposes one leased execution entry.",
       "expect_file": "ELF 64-bit LSB pie executable, x86-64"
     },
     {

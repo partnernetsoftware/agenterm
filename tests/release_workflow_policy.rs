@@ -1279,3 +1279,31 @@ fn six_cell_static_gate_distinguishes_windows_gui_and_cu_console_subsystems() {
     assert!(qualify.contains("typeof cell.expect_cu_file === \"string\""));
     assert!(qualify.contains("local_cu_binary,\n      cu_expected,"));
 }
+
+#[test]
+fn six_cell_registry_does_not_invent_fixed_ssh_endpoints_for_lima_runners() {
+    let cells = SIX_CELL_RUNNERS["cells"]
+        .as_array()
+        .expect("six-cell runner cells must be an array");
+    let linux = cells
+        .iter()
+        .filter(|cell| {
+            cell["target"]
+                .as_str()
+                .is_some_and(|target| target.contains("linux"))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(linux.len(), 2, "both Linux ISA cells must be described");
+    for cell in linux {
+        assert_eq!(cell["kind"], "blocked");
+        assert!(cell.get("host").is_none());
+        assert!(cell.get("port").is_none());
+        assert!(cell.get("identity_from_home").is_none());
+        assert!(
+            cell["reason"]
+                .as_str()
+                .is_some_and(|reason| reason.contains("Lima") && reason.contains("provisioner")),
+            "the blocker must name the real runner family and its owner"
+        );
+    }
+}

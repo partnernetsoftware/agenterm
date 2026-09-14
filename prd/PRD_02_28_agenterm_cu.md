@@ -609,7 +609,11 @@ flowchart LR
   remain a console-subsystem PE. The former shared expectation made both
   correctly built Windows cells fail despite matching their ISA; a `dev
   --no-build` rerun now records both as static PASS and honestly BLOCKED on
-  their separately owned UTM runners. This is
+  their separately owned UTM runners. The two Linux entries also fail closed:
+  their real MiniCon-owned runners are Lima instances with dynamic endpoints,
+  not the retired fixed-port SSH guests the registry previously claimed. They
+  remain static PASS and explicitly BLOCKED until the owned provisioner or a
+  product-neutral court exposes one leased execution entry. This is
   stronger than archive membership but remains a minimum court: Linux x86_64
   and Windows x86_64 local courts are still open. The formal Candidate path is
   now wired (not yet remotely executed): every one of the six native runtime
