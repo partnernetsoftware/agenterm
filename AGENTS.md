@@ -260,7 +260,7 @@ Use PowerShell from the repository root:
 
 Linux/macOS have matching `./build.sh`, `./check.sh`, `./lint.sh`, and
 `./release.sh` aliases over `scripts/bootstrap.sh`. Native Unix `build` emits
-the four client binaries; default Unix `check` is the portable Quick lane, and
+the three client binaries; default Unix `check` is the portable Quick lane, and
 default Unix `release` is validation-only. Stress qualification, Windows
 packaging and exact-byte qualification remain explicit Windows operations.
 Do not add an unmatched `.cmd` or `.bat`: prefer a named QJS task, and when a
@@ -539,7 +539,7 @@ Windows targets with `cargo-xwin` and Wine. Use the toolchain pinned by
 needs rather than making ordinary host builds download the full matrix.
 
 CI covers all six architecture cells `{x86_64,aarch64} × {win,lnx,osx}`. Local
-build commands per cell. `src/bin/` currently holds **four** product binaries
+build commands per cell. `src/bin/` currently holds **three** product binaries
 (`agenterm`, `agenterm-com`, `agenterm-cc`). Mux/MCP are
 **`agenterm cli` subcommands**, not separate PEs. **Prefer building without
 `--bin` filters** so new binaries are covered automatically:

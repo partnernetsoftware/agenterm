@@ -92,6 +92,65 @@ const WINDOWS_SUBSYSTEM_ATTRIBUTE: &str = "#![cfg_attr(windows, windows_subsyste
 const NATIVE_ENTRYPOINT_EXEMPTIONS: &[&str] = &["src/bin/agenterm-com.rs"];
 
 #[test]
+fn product_binary_inventory_matches_manifest_source_tree_and_architecture() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let manifest = fs::read_to_string(root.join("Cargo.toml")).expect("read root manifest");
+    let architecture =
+        fs::read_to_string(root.join("plan/ARCHITECTURE.md")).expect("read architecture SSOT");
+    let executable_entries = architecture
+        .split_once("## 2. 可执行入口（bins）")
+        .expect("architecture has executable-entry section")
+        .1
+        .split_once("\n## ")
+        .expect("architecture executable-entry section is bounded")
+        .0;
+
+    let mut manifest_paths = manifest
+        .lines()
+        .filter_map(|line| {
+            let value = line.trim().strip_prefix("path = \"")?.strip_suffix('"')?;
+            value.starts_with("src/bin/").then(|| value.to_owned())
+        })
+        .collect::<Vec<_>>();
+    manifest_paths.sort();
+
+    let mut source_paths = fs::read_dir(root.join("src/bin"))
+        .expect("read product bin directory")
+        .filter_map(|entry| {
+            let entry = entry.expect("read product bin entry");
+            entry
+                .file_type()
+                .expect("read product bin file type")
+                .is_file()
+                .then(|| format!("src/bin/{}", entry.file_name().to_string_lossy()))
+        })
+        .filter(|path| path.ends_with(".rs"))
+        .collect::<Vec<_>>();
+    source_paths.sort();
+
+    let mut architecture_paths = executable_entries
+        .lines()
+        .filter_map(|line| {
+            let start = line.find("`src/bin/")? + 1;
+            let tail = &line[start..];
+            let end = tail.find('`')?;
+            Some(tail[..end].to_owned())
+        })
+        .collect::<Vec<_>>();
+    architecture_paths.sort();
+    architecture_paths.dedup();
+
+    assert_eq!(
+        manifest_paths, source_paths,
+        "root manifest and src/bin drifted"
+    );
+    assert_eq!(
+        architecture_paths, source_paths,
+        "plan/ARCHITECTURE.md executable-entry table drifted from src/bin"
+    );
+}
+
+#[test]
 fn production_sources_use_platform_crate_as_the_only_native_boundary() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut sources = Vec::new();

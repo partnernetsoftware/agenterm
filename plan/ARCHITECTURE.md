@@ -218,7 +218,7 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
 | L1b | ~~`windows/frontend` 靠 sibling `#[path]`~~ | **已收**：同目录 `windows::{frontend,remote_frontend}` |
 | L2 | Win remote vs Unix embedded 双主机（selection/focus/wheel/scrollbar-drag 已共享；`ui-action` 大 match 与巨石 adapter 仍双写；**interim set-diff gate**: `src/frontend/ui_action_catalog.rs`） | 共享交互语义单点；主机只 present/wake/IME；action 表驱动记版本 plan 讨论叶 |
 | L3 | `platform/mod.rs` 策略过肥（input/paths/control_center/runtime/test_fixtures/workspace 已拆 `policy/`；FrontendHost 与 facade 是剩余薄层）+ `allow(dead_code)` | `policy/*` 全拆收口；禁新顶层 `is_windows_host` 蔓延；半迁移 facade 二选一（全接线或删） |
-| L4 | **结构 SSOT 未机读双向**（本文 prose + 局部 `boundary_tests`；目录树/分层文案漂移靠人） | 见 §8.4；版本 plan **S 组**执行；本文只定契约 |
+| L4 | **结构 SSOT 未机读双向**（本文 prose + 局部 `boundary_tests`；可执行入口已与 Cargo/源码三方互验，目录树其余部分与分层文案仍靠人） | 见 §8.4；版本 plan **S 组**执行；本文只定契约 |
 | D1 | shared_memory 名长 ≤31 | **本机已绿**：unit + `shared_memory_process` 名式 `apm-…` ≤31 |
 | C1 | **进行中**：`perf.rs` 已拥有性能观测，`control_pending.rs` 已拥有 bounded request 生命周期，`raster_surface.rs` 已拥有 clipped XRGB target，`terminal_paint.rs` 已拥有 vt100 cell 与 cursor visibility/overlay paint policy，`composer.rs` 已统一 external-input 状态与编辑不变量，`session_store.rs` 已拥有小规模稳定 TabId 到会话值的存储策略；IME/chrome 组合及 clipboard/PTY authority 仍留宿主，未把旧巨石换成新巨石。精确 unwind profile 基线为 104 单测、23 GUI 黑盒、控制与吞吐门全绿；VT 回调、终端状态机、应用编排与 `PixelWindowApplication` 仍同居 | 下一叶按 PRD 24/25/26 边界继续切工作区/输入编排；每步保持公开 CLI/JSON 字节不变 |
 | C2 | **已迁出**：源码与测试整体移入 minicon 仓；根包边界测试不再扫描 con 源码，其 native 入口豁免也随之移除 | package 物理所有权与 Cargo 所有权一致这一条，现在由 minicon 仓自己保证 |
@@ -707,8 +707,9 @@ boundary_tests.rs        结构红线闸（不是全文 diff 引擎）
 | adapters 同契约 declaration | 三 OS adapter 合同形状一致 |
 | `services/*` 无 orphan 源文件 | 防再长已删的 `services/frontend` 类 |
 | `frontend` `#[path]` 预算 = 0 | L1 债务不回潮 |
+| 根 Cargo bin、`src/bin/*.rs` 与本文 §2 表三方同集 | 可执行入口增删不静默漂移 |
 
-**未覆盖（故会漂）**：§1 目录/分层 prose、§2 bins 表与 `src/bin/*` 一致性、巨石文件行数、Win/Unix `ui-action` 表是否同一 ActionId 集、policy/services 半迁移是否收口、本文债务表 L* 是否过时。
+**未覆盖（故会漂）**：§1 目录/分层 prose、巨石文件行数、Win/Unix `ui-action` 表是否同一 ActionId 集、policy/services 半迁移是否收口、本文债务表 L* 是否过时。
 
 ### 8.3 工具地图（别用错层）
 
