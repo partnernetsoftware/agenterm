@@ -58,6 +58,17 @@ function run(program, arguments, timeout_ms, stdout_path, stderr_path) {
   return output;
 }
 
+// Describe one binary through the `file` oracle and keep its text as
+// evidence. The oracle's stdout is the description and the caller decides
+// the verdict from it, so neither a `tee` nor a `grep` has to be spawned
+// alongside it; the evidence file is still written, atomically.
+function describe_binary(path, path_out) {
+  const probe = rh.command("file", ["-b", path], { timeout_ms: 60000 });
+  const text = typeof probe.stdout === "string" ? probe.stdout : "";
+  rh.atomic_write(path_out, text);
+  return { success: probe.success === true, text: text };
+}
+
 function ssh_base(cell) {
   return [
     "-o", "StrictHostKeyChecking=no",
@@ -171,8 +182,13 @@ for (const cell of runners.cells) {
   // nothing at all. A cross build silently emitting the host's
   // architecture is exactly the failure this catches.
   //
-  // Both the description and the verdict come out of one `sh`: `tee`
-  // keeps the text for the receipt while `grep -qF` sets the exit status.
+  // Both the description and the verdict come out of the `file` oracle
+  // itself: its stdout is the description, and the verdict is a substring
+  // test against the expected architecture. Wrapping that in `sh | tee |
+  // grep` bought nothing -- `tee` only re-materialized a file the script
+  // already writes, and `grep -qF` is a plain substring test. The evidence
+  // file is still produced, through the same atomic write the rest of this
+  // script uses.
   const described_path = rh.join(work_root, target + ".file.txt");
   const cu_described_path = rh.join(work_root, target + ".cu.file.txt");
   const expected = "" + cell.expect_file;
@@ -180,40 +196,19 @@ for (const cell of runners.cells) {
   if (typeof cell.expect_cu_file === "string") {
     cu_expected = "" + cell.expect_cu_file;
   }
-  const matched = rh.command(
-    "sh",
-    [
-      "-c",
-      "file -b \"$1\" | tee \"$3\" | grep -qF \"$2\"",
-      "_",
-      local_binary,
-      expected,
-      described_path
-    ],
-    { timeout_ms: 60000 }
-  );
+  const matched = describe_binary(local_binary, described_path);
   let described = "";
   if (rh.exists(described_path)) {
     described = rh.read_text(described_path).replaceAll("\n", " ");
   }
   let cu_described = "";
   let static_check = "FAIL";
-  const cu_matched = rh.command(
-    "sh",
-    [
-      "-c",
-      "file -b \"$1\" | tee \"$3\" | grep -qF \"$2\"",
-      "_",
-      local_cu_binary,
-      cu_expected,
-      cu_described_path
-    ],
-    { timeout_ms: 60000 }
-  );
+  const cu_matched = describe_binary(local_cu_binary, cu_described_path);
   if (rh.exists(cu_described_path)) {
     cu_described = rh.read_text(cu_described_path).replaceAll("\n", " ");
   }
-  if (matched.success && cu_matched.success) {
+  if (matched.success && matched.text.includes(expected)
+      && cu_matched.success && cu_matched.text.includes(cu_expected)) {
     static_check = "PASS";
   }
   if (static_check === "FAIL") {

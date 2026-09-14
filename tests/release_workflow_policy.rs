@@ -1277,7 +1277,20 @@ fn six_cell_static_gate_distinguishes_windows_gui_and_cu_console_subsystems() {
 
     let qualify = include_str!("../scripts/qjs/six-cell-qualify.qjs");
     assert!(qualify.contains("typeof cell.expect_cu_file === \"string\""));
-    assert!(qualify.contains("local_cu_binary,\n      cu_expected,"));
+    assert!(qualify.contains("describe_binary(local_cu_binary, cu_described_path)"));
+}
+
+#[test]
+fn six_cell_static_gate_keeps_one_file_oracle_without_shell_pipeline_wrappers() {
+    let qualify = include_str!("../scripts/qjs/six-cell-qualify.qjs");
+
+    assert!(qualify.contains("rh.command(\"file\", [\"-b\", path]"));
+    assert!(qualify.contains("probe.success === true"));
+    assert!(qualify.contains("matched.text.includes(expected)"));
+    assert!(qualify.contains("cu_matched.text.includes(cu_expected)"));
+    assert!(qualify.contains("rh.atomic_write(path_out, text)"));
+    assert!(!qualify.contains("rh.command(\n    \"sh\","));
+    assert!(!qualify.contains("\"-c\",\n      \"file -b"));
 }
 
 #[test]
