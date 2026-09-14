@@ -226,6 +226,9 @@ pub enum NativeDoorError {
         index: usize,
         ty: NativeType,
     },
+    /// JSON has no representation for NaN or either infinity. Refuse the
+    /// native value rather than silently serializing it as `null`.
+    ResultNotFinite,
     /// A pointer parameter position arrived without a call-scoped region.
     NativeRegionRequired {
         index: usize,
@@ -301,6 +304,7 @@ impl NativeDoorError {
             Self::ArgumentsMalformed => "native_arguments_malformed",
             Self::ArgumentCountMismatch { .. } => "native_argument_count_mismatch",
             Self::ArgumentValueInvalid { .. } => "native_argument_value_invalid",
+            Self::ResultNotFinite => "native_result_not_finite",
             Self::NativeRegionRequired { .. } => "native_region_required",
             Self::NativeRegionShapeInvalid { .. } => "native_region_shape_invalid",
             Self::NativeRegionTooLarge { .. } => "native_region_too_large",
@@ -410,6 +414,9 @@ impl fmt::Display for NativeDoorError {
             }
             Self::ArgumentValueInvalid { index, ty } => {
                 write!(f, "argument {index} is not an exact JSON value for {ty:?}")
+            }
+            Self::ResultNotFinite => {
+                f.write_str("native f64 result is not finite and cannot be represented in JSON")
             }
             Self::NativeRegionRequired { index } => {
                 write!(
@@ -905,6 +912,7 @@ pub(crate) fn invoke_native_json(
             // SAFETY: native_dispatch admitted this exact or enumerated scalar
             // declaration for the JSON argument encoding above.
             unsafe { invoke_prepared(&spec, &arguments, libraries) }.and_then(|value| {
+                reject_non_finite_json_result(&value)?;
                 abi_json_result(value, spec.result).ok_or_else(|| unsupported_json_spec(&spec))
             })?
         }
@@ -919,6 +927,13 @@ pub(crate) fn invoke_native_json(
         NativeDispatch::UnixIoctl(_) => unreachable!("ioctl JSON calls reject above"),
     };
     Ok(value.to_string())
+}
+
+fn reject_non_finite_json_result(value: &AbiValue) -> Result<(), NativeDoorError> {
+    if matches!(value, AbiValue::F64(bits) if !bits.is_finite()) {
+        return Err(NativeDoorError::ResultNotFinite);
+    }
+    Ok(())
 }
 
 /// One admitted pointer call, with every pointer position backed by a region.
@@ -2279,6 +2294,17 @@ mod json_adapter_tests {
             abi_json_result(agenterm_dyn::AbiValue::Isize(isize::MIN), NativeType::Isize),
             Some(serde_json::json!({"type":"isize","value":isize::MIN.to_string()}))
         );
+    }
+
+    #[test]
+    fn non_finite_float_results_are_refused_before_json_rendering() {
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(
+                reject_non_finite_json_result(&AbiValue::F64(value)),
+                Err(NativeDoorError::ResultNotFinite)
+            );
+        }
+        assert_eq!(reject_non_finite_json_result(&AbiValue::F64(1.5)), Ok(()));
     }
 
     #[test]

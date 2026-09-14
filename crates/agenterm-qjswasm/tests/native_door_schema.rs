@@ -367,6 +367,7 @@ fn native_door_error_word(error: &NativeDoorError) -> &'static str {
         NativeDoorError::ArgumentsMalformed => "arguments-malformed",
         NativeDoorError::ArgumentCountMismatch { .. } => "argument-count-mismatch",
         NativeDoorError::ArgumentValueInvalid { .. } => "argument-value-invalid",
+        NativeDoorError::ResultNotFinite => "result-not-finite",
         NativeDoorError::NativeRegionRequired { .. } => "native-region-required",
         NativeDoorError::NativeRegionShapeInvalid { .. } => "native-region-shape-invalid",
         NativeDoorError::NativeRegionTooLarge { .. } => "native-region-too-large",
@@ -555,6 +556,7 @@ fn every_native_door_error_has_one_stable_distinct_code() {
             },
             "native_argument_value_invalid",
         ),
+        (NativeDoorError::ResultNotFinite, "native_result_not_finite"),
         (
             NativeDoorError::NativeRegionRequired { index: 0 },
             "native_region_required",

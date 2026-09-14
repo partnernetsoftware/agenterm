@@ -1974,7 +1974,10 @@ mod tests {
         assert!(tool.has_tool_door());
     }
 
-    #[cfg(all(feature = "script-qjswasm", unix))]
+    #[cfg(all(
+        feature = "script-qjswasm",
+        any(target_os = "linux", target_os = "macos")
+    ))]
     #[test]
     fn qjs_native_module_and_acu_module_share_one_contained_guest() {
         let source = r#"
@@ -2180,6 +2183,32 @@ return native.call("|uname|i32(ptr)", [null]);
         assert!(
             error.message.contains("native_region_required"),
             "the refusal must carry the stable code: {error:?}"
+        );
+    }
+
+    #[cfg(all(feature = "script-qjswasm", unix))]
+    #[test]
+    fn qjs_native_non_finite_float_is_refused_instead_of_becoming_null() {
+        #[cfg(target_os = "linux")]
+        let library = "libm.so.6";
+        #[cfg(target_os = "macos")]
+        let library = "";
+        let source = format!(
+            r#"
+import * as native from "agenterm:native";
+return native.call("{library}|sqrt|f64(f64)", [-1]);
+"#
+        );
+        let options = ScriptInvocationOptions {
+            native_door_contained: true,
+            ..ScriptInvocationOptions::default()
+        };
+        let error = QjswasmEngineBackend
+            .execute(&source, &options, None)
+            .expect_err("NaN has no JSON value and must not become null");
+        assert!(
+            error.message.contains("native_result_not_finite"),
+            "the refusal keeps its stable code: {error:?}"
         );
     }
 

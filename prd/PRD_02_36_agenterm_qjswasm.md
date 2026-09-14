@@ -190,6 +190,8 @@ agenterm-qjswasm
 │  │  │  ├─ [x] raw scalar and pointer dispatch share one execution/result tail while
 │  │  │  │     retaining separate argument mappers and their distinct typed refusals
 │  │  │  ├─ [x] raw bits, JSON scalars and JSON regions retain distinct result plans
+│  │  │  ├─ [x] JSON scalar results reject non-finite `f64` with
+│  │  │  │     `native_result_not_finite`; NaN and infinities never silently become `null`
 │  │  │  ├─ [x] dedicated UnixIoctl remains a sibling mechanism, not a counterfeit ABI family
 │  │  │  ├─ [x] mechanism-only shapes are derived from dyn and differenced against exposure
 │  │  │  │     instead of being restated as a second mechanism table
