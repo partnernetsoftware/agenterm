@@ -21,6 +21,11 @@ pub struct FilesystemWatchResult {
     pub emitted: usize,
     pub completed: bool,
     pub truncated: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ControlledFilesystemWatchResult {
+    pub observation: FilesystemWatchResult,
     /// The caller's borrowed stop probe became pending between native
     /// observation rounds. This is a mechanism fact, not product policy.
     pub cancelled: bool,
@@ -64,7 +69,7 @@ pub fn watch_directory_controlled(
     duration_ms: u64,
     max_events: usize,
     cancelled: &dyn Fn() -> bool,
-) -> Result<FilesystemWatchResult, FilesystemWatchError> {
+) -> Result<ControlledFilesystemWatchResult, FilesystemWatchError> {
     crate::selected::filesystem_watch::watch_directory_controlled(
         path,
         duration_ms,

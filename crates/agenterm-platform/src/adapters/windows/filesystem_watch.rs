@@ -31,7 +31,8 @@ use windows_sys::Win32::{
 };
 
 use crate::filesystem_watch::{
-    FilesystemWatchError, FilesystemWatchErrorKind, FilesystemWatchEvent, FilesystemWatchResult,
+    ControlledFilesystemWatchResult, FilesystemWatchError, FilesystemWatchErrorKind,
+    FilesystemWatchEvent, FilesystemWatchResult,
 };
 
 const MAX_DURATION_MS: u64 = 86_400_000;
@@ -51,6 +52,7 @@ pub fn watch_directory(
     max_events: usize,
 ) -> Result<FilesystemWatchResult, FilesystemWatchError> {
     watch_directory_controlled(path, duration_ms, max_events, &|| false)
+        .map(|result| result.observation)
 }
 
 pub fn watch_directory_controlled(
@@ -58,7 +60,7 @@ pub fn watch_directory_controlled(
     duration_ms: u64,
     max_events: usize,
     cancelled: &dyn Fn() -> bool,
-) -> Result<FilesystemWatchResult, FilesystemWatchError> {
+) -> Result<ControlledFilesystemWatchResult, FilesystemWatchError> {
     if !(1..=MAX_DURATION_MS).contains(&duration_ms) || max_events == 0 {
         return Err(invalid_input(
             "duration_ms must be in 1..=86400000 and max_events must be positive",
@@ -158,16 +160,18 @@ pub fn watch_directory_controlled(
         }
     }
 
-    Ok(FilesystemWatchResult {
-        provider: "windows-read-directory-changes".into(),
-        mode: "native-events".into(),
-        path: path.to_string_lossy().into_owned(),
-        duration_ms,
-        max_events,
-        emitted: events.len(),
-        events,
-        completed: !truncated && !cancellation_observed,
-        truncated,
+    Ok(ControlledFilesystemWatchResult {
+        observation: FilesystemWatchResult {
+            provider: "windows-read-directory-changes".into(),
+            mode: "native-events".into(),
+            path: path.to_string_lossy().into_owned(),
+            duration_ms,
+            max_events,
+            emitted: events.len(),
+            events,
+            completed: !truncated && !cancellation_observed,
+            truncated,
+        },
         cancelled: cancellation_observed,
     })
 }

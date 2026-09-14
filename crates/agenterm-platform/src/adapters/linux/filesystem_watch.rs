@@ -6,7 +6,8 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::filesystem_watch::{
-    FilesystemWatchError, FilesystemWatchErrorKind, FilesystemWatchEvent, FilesystemWatchResult,
+    ControlledFilesystemWatchResult, FilesystemWatchError, FilesystemWatchErrorKind,
+    FilesystemWatchEvent, FilesystemWatchResult,
 };
 
 const IN_ACCESS: u32 = 0x0000_0001;
@@ -40,6 +41,7 @@ pub fn watch_directory(
     max_events: usize,
 ) -> Result<FilesystemWatchResult, FilesystemWatchError> {
     watch_directory_controlled(path, duration_ms, max_events, &|| false)
+        .map(|result| result.observation)
 }
 
 pub fn watch_directory_controlled(
@@ -47,7 +49,7 @@ pub fn watch_directory_controlled(
     duration_ms: u64,
     max_events: usize,
     cancelled: &dyn Fn() -> bool,
-) -> Result<FilesystemWatchResult, FilesystemWatchError> {
+) -> Result<ControlledFilesystemWatchResult, FilesystemWatchError> {
     if duration_ms == 0 || max_events == 0 {
         return Err(FilesystemWatchError {
             kind: FilesystemWatchErrorKind::InvalidInput,
@@ -165,16 +167,18 @@ pub fn watch_directory_controlled(
         }
     }
 
-    Ok(FilesystemWatchResult {
-        provider: "linux-inotify".into(),
-        mode: "native-events".into(),
-        path: path.to_string_lossy().into_owned(),
-        duration_ms,
-        max_events,
-        emitted: events.len(),
-        events,
-        completed: !truncated && !cancellation_observed,
-        truncated,
+    Ok(ControlledFilesystemWatchResult {
+        observation: FilesystemWatchResult {
+            provider: "linux-inotify".into(),
+            mode: "native-events".into(),
+            path: path.to_string_lossy().into_owned(),
+            duration_ms,
+            max_events,
+            emitted: events.len(),
+            events,
+            completed: !truncated && !cancellation_observed,
+            truncated,
+        },
         cancelled: cancellation_observed,
     })
 }

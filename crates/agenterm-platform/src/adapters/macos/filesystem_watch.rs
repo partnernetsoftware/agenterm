@@ -9,7 +9,8 @@ use std::ptr::NonNull;
 use std::time::{Duration, Instant};
 
 use crate::filesystem_watch::{
-    FilesystemWatchError, FilesystemWatchErrorKind, FilesystemWatchEvent, FilesystemWatchResult,
+    ControlledFilesystemWatchResult, FilesystemWatchError, FilesystemWatchErrorKind,
+    FilesystemWatchEvent, FilesystemWatchResult,
 };
 
 type CfIndex = isize;
@@ -206,6 +207,7 @@ pub fn watch_directory(
     max_events: usize,
 ) -> Result<FilesystemWatchResult, FilesystemWatchError> {
     watch_directory_controlled(path, duration_ms, max_events, &|| false)
+        .map(|result| result.observation)
 }
 
 pub fn watch_directory_controlled(
@@ -213,7 +215,7 @@ pub fn watch_directory_controlled(
     duration_ms: u64,
     max_events: usize,
     cancelled: &dyn Fn() -> bool,
-) -> Result<FilesystemWatchResult, FilesystemWatchError> {
+) -> Result<ControlledFilesystemWatchResult, FilesystemWatchError> {
     if !(1..=MAX_DURATION_MS).contains(&duration_ms) || max_events == 0 {
         return Err(invalid_input(
             "duration_ms must be in 1..=86400000 and max_events must be positive",
@@ -345,16 +347,18 @@ pub fn watch_directory_controlled(
         return Err(native_error(message));
     }
 
-    Ok(FilesystemWatchResult {
-        provider: "macos-fsevents".into(),
-        mode: "native-events".into(),
-        path: path.to_string_lossy().into_owned(),
-        duration_ms,
-        max_events,
-        emitted: state.events.len(),
-        events: state.events,
-        completed: !state.truncated && !cancellation_observed,
-        truncated: state.truncated,
+    Ok(ControlledFilesystemWatchResult {
+        observation: FilesystemWatchResult {
+            provider: "macos-fsevents".into(),
+            mode: "native-events".into(),
+            path: path.to_string_lossy().into_owned(),
+            duration_ms,
+            max_events,
+            emitted: state.events.len(),
+            events: state.events,
+            completed: !state.truncated && !cancellation_observed,
+            truncated: state.truncated,
+        },
         cancelled: cancellation_observed,
     })
 }
@@ -535,9 +539,9 @@ mod tests {
         let started = Instant::now();
         let result = watch_directory_controlled(&root, 60_000, 8, &|| true).expect("watch");
         assert!(result.cancelled);
-        assert!(!result.completed);
-        assert!(!result.truncated);
-        assert!(result.events.is_empty());
+        assert!(!result.observation.completed);
+        assert!(!result.observation.truncated);
+        assert!(result.observation.events.is_empty());
         assert!(started.elapsed() < Duration::from_secs(1));
         std::fs::remove_dir_all(&root).expect("cleanup");
     }

@@ -41,7 +41,7 @@ where
         usize,
         &dyn Fn() -> bool,
     ) -> Result<
-        agenterm_platform::filesystem_watch::FilesystemWatchResult,
+        agenterm_platform::filesystem_watch::ControlledFilesystemWatchResult,
         agenterm_platform::filesystem_watch::FilesystemWatchError,
     >,
 {
@@ -59,7 +59,7 @@ where
     let result = watch(Path::new(path), duration_ms, max_events, &cancelled)
         .map_err(map_file_watch_error)?;
     let cancellation_observed = result.cancelled;
-    let observation = file_watch_value(result);
+    let observation = file_watch_value(result.observation);
     if cancellation_observed {
         return Err(CuError::new(
             "cancelled",
@@ -518,22 +518,26 @@ mod tests {
 
     use super::*;
 
-    fn watch_result(cancelled: bool) -> agenterm_platform::filesystem_watch::FilesystemWatchResult {
-        agenterm_platform::filesystem_watch::FilesystemWatchResult {
-            provider: "fixture-watch".into(),
-            mode: "native-events".into(),
-            path: "fixture".into(),
-            duration_ms: 60_000,
-            max_events: 8,
-            events: vec![agenterm_platform::filesystem_watch::FilesystemWatchEvent {
-                t_ms: 7,
-                kind: "created".into(),
-                name: "item".into(),
-                mask: vec!["create".into()],
-            }],
-            emitted: 1,
-            completed: !cancelled,
-            truncated: false,
+    fn watch_result(
+        cancelled: bool,
+    ) -> agenterm_platform::filesystem_watch::ControlledFilesystemWatchResult {
+        agenterm_platform::filesystem_watch::ControlledFilesystemWatchResult {
+            observation: agenterm_platform::filesystem_watch::FilesystemWatchResult {
+                provider: "fixture-watch".into(),
+                mode: "native-events".into(),
+                path: "fixture".into(),
+                duration_ms: 60_000,
+                max_events: 8,
+                events: vec![agenterm_platform::filesystem_watch::FilesystemWatchEvent {
+                    t_ms: 7,
+                    kind: "created".into(),
+                    name: "item".into(),
+                    mask: vec!["create".into()],
+                }],
+                emitted: 1,
+                completed: !cancelled,
+                truncated: false,
+            },
             cancelled,
         }
     }
