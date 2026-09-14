@@ -42,7 +42,6 @@ pub(crate) use policy::workspace::{WorkspaceLayoutKind, workspace_layout_kind};
 pub(crate) use agenterm_platform::console_interrupt::{
     ConsoleInterruptIgnoreGuard, ConsoleInterruptObserver,
 };
-pub(crate) use agenterm_platform::console_line_editor::ConsoleLineEditor;
 pub use filesystem::{
     is_direct_directory, is_direct_file, metadata_is_link_like, replace_file, sync_parent,
 };
@@ -53,14 +52,6 @@ pub fn install_console_interrupt_ignore_guard() -> anyhow::Result<ConsoleInterru
 
 pub fn install_console_interrupt_observer() -> anyhow::Result<ConsoleInterruptObserver> {
     ConsoleInterruptObserver::install().map_err(|error| anyhow::anyhow!("{error}"))
-}
-
-// Facade staged ahead of its product caller (the console-line-editor wiring
-// is in flight in the platform lane); graybox inventory
-// plan/design-binary-size-and-reuse.md §5.3 holds the delete-by condition.
-#[expect(dead_code, reason = "console-line-editor product wiring in progress")]
-pub fn enter_console_line_editor() -> anyhow::Result<ConsoleLineEditor> {
-    ConsoleLineEditor::enter().map_err(|error| anyhow::anyhow!("{error}"))
 }
 
 // Platform Facade services. Product modules consume these typed services;

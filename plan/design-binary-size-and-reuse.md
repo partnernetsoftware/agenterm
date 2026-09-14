@@ -211,8 +211,8 @@ std_detect owner 可删除，才重开 CPUID/汇编替换，不能以仓库搜�
 | crates/agenterm-rh/transpile.rs:134 | `emit_scope_json_expr` | `#[expect]`(AOT 可能在接线) |
 | src/client/mod.rs:5 | `use BufRead` | 删除 |
 | src/platform/adapters/unix/frontend/mod.rs:51 | `TerminalAppearanceOverride` | 删除 |
-| src/platform/mod.rs:50 | `ConsoleKey`/`LineBuffer`/`LineHistory` 导入 | 删除(facade 收窄为 `ConsoleLineEditor`) |
-| src/platform/mod.rs:64 | `enter_console_line_editor` | `#[expect]`(console-line-editor 产品接线在制) |
+| src/platform/mod.rs（历史） | `ConsoleKey`/`LineBuffer`/`LineHistory` 导入 | 已删除 |
+| src/platform/mod.rs（历史） | `enter_console_line_editor` | TUI 已直接接线 platform contract；无人调用的 staged facade 已删除 |
 | src/script_rh_host.rs:10 | `RhHostEntryValue::{Unit,Value}` | `#[expect]`(typed entry-value 通道待接) |
 | src/script_lua_run.rs:75 | `current_run_context` | `#[expect]`(lua 消费者未接) |
 | src/script_worker.rs | `classify_runtime_error` 死链(含 4 个构造器与其专属测试) | **删除**——retirement 孤儿,hosted 引擎已走类型化失败;token 表在 git 历史 |
