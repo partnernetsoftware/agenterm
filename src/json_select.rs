@@ -60,10 +60,10 @@ use crate::commands::{has_option, option_value};
 
 /// The one flag that enables a selection.
 ///
-/// `protocol-info` has always answered JSON, so `--json` does not change what
-/// the command produces. It is the caller's statement that it wants *machine*
-/// output, and therefore the declared precondition for naming fields: it keeps
-/// `--select` from being attached to a call whose caller still expects text.
+/// For commands with a declared `--json` mode, the flag is the caller's
+/// statement that it wants *machine* output and therefore the precondition for
+/// naming fields. It keeps `--select` from being attached to a call whose
+/// caller still expects text, whether or not the producer also has a text mode.
 pub(crate) const SELECT_FLAG: &str = "--select";
 /// The declared precondition for [`SELECT_FLAG`].
 pub(crate) const SELECT_REQUIRES_FLAG: &str = "--json";
@@ -138,9 +138,8 @@ fn apply_selection_request_with_contract(
         return Err(SelectionRefusal {
             code: SELECT_REQUIRES_JSON_CODE,
             message: format!(
-                "{SELECT_FLAG} requires {SELECT_REQUIRES_FLAG}: this command always answers \
-                 JSON, and the machine-output flag is the contract that says the caller wants \
-                 named fields rather than text"
+                "{SELECT_FLAG} requires {SELECT_REQUIRES_FLAG}: the machine-output flag is the \
+                 contract that says the caller wants named fields rather than text"
             ),
         });
     }
@@ -780,9 +779,8 @@ mod tests {
             Err(SelectionRefusal {
                 code: SELECT_REQUIRES_JSON_CODE,
                 message: format!(
-                    "{SELECT_FLAG} requires {SELECT_REQUIRES_FLAG}: this command always answers \
-                     JSON, and the machine-output flag is the contract that says the caller \
-                     wants named fields rather than text"
+                    "{SELECT_FLAG} requires {SELECT_REQUIRES_FLAG}: the machine-output flag is \
+                     the contract that says the caller wants named fields rather than text"
                 ),
             })
         );

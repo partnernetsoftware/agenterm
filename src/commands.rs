@@ -786,8 +786,8 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
         ),
         "server-kill" => ("agenterm cli server-kill", &[][..], &[][..], false),
         "server-list" => (
-            "agenterm cli server-list [--json] [--prune]",
-            &[][..],
+            "agenterm cli server-list [--json] [--prune] [--select PATHS]",
+            &["--select"][..],
             &["--json", "--prune"][..],
             false,
         ),

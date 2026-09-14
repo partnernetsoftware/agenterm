@@ -395,6 +395,18 @@ matched-budget runs moved median guest steps from 11,309,421 to 10,075,067
 remained unchanged. Bare `ui-deltas` continues to serialize the full validated
 `UiDeltaBatch`; the selector changes neither journal authority nor event
 ordering.
+The client-local `server-list --json` producer now shares the same selector
+grammar instead of forcing `native-ipc-smoke` to parse six complete discovery
+inventories. Its consumer selects the registration, authority, epoch and
+cleanup-receipt fields it already asserted; `--prune` still performs and proves
+the same cleanup, and a bare `server-list --json` still renders the original
+`Vec<Value>` through the same pretty serializer. Three matched-budget runs
+moved median guest steps from 22,362,933 to 16,536,635
+(−5,826,298 / −26.05%) and host bytes from 195,546 to 163,812
+(−31,734 / −16.23%); heap pages moved from 21 to 16 and peak call depth from
+19 to 18. All 341 host operations and `control.native-local-ipc` evidence
+remained unchanged. Selection still requires the command's pre-existing
+`--json`; it adds no authority or field allowlist.
 
 ## Mermaid flowchart memory palace
 

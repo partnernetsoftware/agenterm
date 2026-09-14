@@ -21,6 +21,8 @@ import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 import * as path from "lib/path";
 
+const SERVER_LIST_SELECTION = "[].endpoint,[].schema_version,[].registration_schema_version,[].instance,[].transport,[].server_scope_id,[].status,[].classification,[].owner_state,[].process_start_identity,[].lease_nonce,[].server_epoch,[].event_epoch,[].observed_protocol_pid,[].observed_protocol_endpoint,[].observed_protocol_server_scope_id,[].legacy_client_compatibility,[].cleanup_eligible,[].cleanup_receipt";
+
 // rh cut diagnostics at 512 characters (`sub_string(0, 512)`).
 function bounded_diagnostic(value) {
   const text = "" + value;
@@ -832,7 +834,7 @@ try {
     expected_rows = 3;
   }
   harness.require(schemas.v1 === 1 && schemas.v2 === expected_v2, "native_ipc_mixed_registration_fixture");
-  const rows = invoke_json(context, cli, ["server-list", "--json"], "", "", "", native_workspace);
+  const rows = invoke_json(context, cli, ["server-list", "--json", "--select", SERVER_LIST_SELECTION], "", "", "", native_workspace);
   harness.require(rows.length === expected_rows, "native_ipc_discovery_not_deduplicated");
   if (ci_main_dev !== 0) {
     const dev_row = find_by_endpoint(rows, dev_endpoint, "native_ipc_dev_row_missing");
@@ -903,7 +905,7 @@ try {
       test_fixture: true
     }) + "\n"
   );
-  const stale_rows = invoke_json(context, cli, ["server-list", "--json"], "", "", "", native_workspace);
+  const stale_rows = invoke_json(context, cli, ["server-list", "--json", "--select", SERVER_LIST_SELECTION], "", "", "", native_workspace);
   const stale_row = find_by_nonce(stale_rows, stale_fixture_nonce, "native_ipc_stale_fixture_row_missing");
   harness.require(
     stale_row.classification === "stale-test-fixture"
@@ -911,7 +913,7 @@ try {
       && rh.exists(stale_fixture_path),
     "native_ipc_stale_fixture_implicitly_removed"
   );
-  const pruned_stale_rows = invoke_json(context, cli, ["server-list", "--json", "--prune"], "", "", "", native_workspace);
+  const pruned_stale_rows = invoke_json(context, cli, ["server-list", "--json", "--prune", "--select", SERVER_LIST_SELECTION], "", "", "", native_workspace);
   const pruned_stale = find_by_nonce(
     pruned_stale_rows,
     stale_fixture_nonce,
@@ -941,7 +943,7 @@ try {
       started_at_unix_ms: 2
     }) + "\n"
   );
-  const unknown_owner_rows = invoke_json(context, cli, ["server-list", "--json", "--prune"], "", "", "", native_workspace);
+  const unknown_owner_rows = invoke_json(context, cli, ["server-list", "--json", "--prune", "--select", SERVER_LIST_SELECTION], "", "", "", native_workspace);
   const unknown_owner = find_by_endpoint(unknown_owner_rows, unknown_owner_endpoint, "native_ipc_owner_unknown_row_missing");
   harness.require(
     unknown_owner.classification === "owner-unknown"
@@ -982,7 +984,7 @@ try {
       test_fixture: false
     }) + "\n"
   );
-  const pid_reuse_rows = invoke_json(context, cli, ["server-list", "--json"], "", "", "", native_workspace);
+  const pid_reuse_rows = invoke_json(context, cli, ["server-list", "--json", "--select", SERVER_LIST_SELECTION], "", "", "", native_workspace);
   const pid_reuse = find_by_nonce(pid_reuse_rows, pid_reuse_nonce, "native_ipc_pid_reuse_row_missing");
   harness.require(
     pid_reuse.classification === "stale"
@@ -990,7 +992,7 @@ try {
       && rh.exists(native_registration.path),
     "native_ipc_pid_reuse_not_classified"
   );
-  const pid_reuse_pruned_rows = invoke_json(context, cli, ["server-list", "--json", "--prune"], "", "", "", native_workspace);
+  const pid_reuse_pruned_rows = invoke_json(context, cli, ["server-list", "--json", "--prune", "--select", SERVER_LIST_SELECTION], "", "", "", native_workspace);
   const pid_reuse_pruned = find_by_nonce(pid_reuse_pruned_rows, pid_reuse_nonce, "native_ipc_pid_reuse_receipt_missing");
   harness.require(
     pid_reuse_pruned.cleanup_receipt_result === "deleted"

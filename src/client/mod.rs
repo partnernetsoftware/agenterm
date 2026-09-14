@@ -978,9 +978,34 @@ fn run_agent_tools(arguments: &[String]) -> i32 {
     }
 }
 
+fn render_instance_views_json(
+    views: Vec<serde_json::Value>,
+    arguments: &[String],
+) -> Result<String, crate::json_select::SelectionRefusal> {
+    if !has_option(arguments, "--select") {
+        return Ok(serde_json::to_string_pretty(&views).unwrap_or_else(|_| "[]".to_owned()));
+    }
+    let document = serde_json::Value::Array(views);
+    let projected = crate::json_select::apply_selection_request(&document, arguments)?
+        .expect("--select was present");
+    Ok(serde_json::to_string_pretty(&projected).unwrap_or_else(|_| "[]".to_owned()))
+}
+
 fn run_list_instances(arguments: &[String]) -> i32 {
     let json = arguments.iter().any(|argument| argument == "--json");
     let prune = arguments.iter().any(|argument| argument == "--prune");
+    if has_option(arguments, "--select") {
+        // Validate before discovery because `--prune` may delete a stale
+        // registration while building the reply. A malformed projection must
+        // never perform that effect and only then report that its request was
+        // invalid.
+        if let Err(refusal) =
+            crate::json_select::apply_selection_request(&serde_json::Value::Null, arguments)
+        {
+            cli_eprintln!("{}", refusal.message);
+            return 1;
+        }
+    }
     let instances = match discover_instances() {
         Ok(instances) => instances,
         Err(error) => {
@@ -1118,10 +1143,13 @@ fn run_list_instances(arguments: &[String]) -> i32 {
         }));
     }
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&views).unwrap_or_else(|_| "[]".to_owned())
-        );
+        match render_instance_views_json(views, arguments) {
+            Ok(rendered) => println!("{rendered}"),
+            Err(refusal) => {
+                cli_eprintln!("{}", refusal.message);
+                return 1;
+            }
+        }
     } else if views.is_empty() {
         cli_println!("No registered AgenTerm instances.");
     } else {
@@ -4771,7 +4799,7 @@ Usage:
   agenterm cli mux COMMAND [ARGS...]     (hosts the agenterm-mux frontend)
   agenterm cli mcp COMMAND [ARGS...]     (hosts the agenterm-mcp sidecar)
   agenterm cli list-instances [--json] [--prune]
-  agenterm cli server-list [--json] [--prune]
+  agenterm cli server-list [--json] [--prune] [--select PATHS]
   agenterm cli control-center open|status|snapshot|close [--no-activate]
   agenterm cli new-session [-s name]
   agenterm cli new-window [-d] [-n name] [--parent target] [-F format] [-e NAME=VALUE] [command [args...]]
@@ -5049,6 +5077,39 @@ mod tests {
     use crate::script_protocol::{
         SCRIPT_ARTIFACT_MAX_BYTES, ScriptArtifact, ScriptArtifactConvention,
     };
+
+    #[test]
+    fn server_list_selection_preserves_bare_json_and_projects_root_arrays() {
+        let views = vec![
+            serde_json::json!({"endpoint": "unix:/one", "status": "running", "pid": 1}),
+            serde_json::json!({"endpoint": "unix:/two", "status": "stale", "pid": 2}),
+        ];
+        let bare = super::render_instance_views_json(
+            views.clone(),
+            &["server-list".into(), "--json".into()],
+        )
+        .expect("bare JSON renders");
+        assert_eq!(bare, serde_json::to_string_pretty(&views).unwrap());
+
+        let selected = super::render_instance_views_json(
+            views,
+            &[
+                "server-list".into(),
+                "--json".into(),
+                "--select".into(),
+                "[].endpoint,[].status".into(),
+            ],
+        )
+        .expect("root-array selection renders");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&selected).unwrap(),
+            serde_json::json!([
+                {"endpoint": "unix:/one", "status": "running"},
+                {"endpoint": "unix:/two", "status": "stale"},
+            ])
+        );
+        assert!(selected.len() < bare.len());
+    }
 
     /// The no-selector path renders through the same pretty serializer it always
     /// did, from the same document: splitting the value out of the JSON text
