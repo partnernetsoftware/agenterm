@@ -246,7 +246,14 @@ sub validate_v3_pass_digest_binding {
   my ($rows, $receipt) = @_;
   my $criteria = $receipt->{criteria};
   return 1 unless (($criteria->{V3} // '') eq 'pass');
-  my ($ownership) = grep { $_->{stage} eq 'ownership' } @$rows;
+  # Stage names may repeat (pending/proven publications use that shape elsewhere
+  # in this experiment), so the latest ownership row supersedes earlier ones.
+  # Binding the first match would let stale endpoint evidence survive a later
+  # ownership publication that no longer carries those endpoints.
+  my $ownership;
+  for my $row (@$rows) {
+    $ownership = $row if $row->{stage} eq 'ownership';
+  }
   $ownership or fail('v3_pass_ownership_evidence_missing');
   my $facts = $ownership->{facts} // {};
   for my $key (@V3_PASS_DIGESTS) {

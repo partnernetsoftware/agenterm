@@ -1757,6 +1757,46 @@ v3_case no-browser browser_identity_digest v3_pass_digest_missing:browser_identi
 v3_case no-bridge bridge_host_identity_digest v3_pass_digest_missing:bridge_host_identity_digest
 v3_case no-connection connection_identity_digest v3_pass_digest_missing:connection_identity_digest
 
+# Ownership stage names are repeatable. The latest row is authoritative: a
+# complete earlier row must not satisfy a V3-pass receipt after a newer
+# ownership publication supersedes it without one endpoint digest.
+V3_REPEAT_DIR="$V3_ROOT/repeated-ownership"
+V3_REPEAT_RUN=$(printf 'v3-repeat' | shasum -a 256 | cut -c1-32)
+AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$V3_REPEAT_DIR" \
+  "$SPINE" reserve rehearsal R1 "$V3_REPEAT_RUN" "$SRC" "$IN_DIG" >/dev/null 2>&1 || true
+python3 - "$V3_REPEAT_DIR/ownership-complete.json" "$V3_REPEAT_DIR/ownership-latest.json" <<'REOF'
+import hashlib, json, sys
+base = {"chain_length": 2, "frozen_identity_count": 1}
+digests = {
+  "browser_identity_digest": hashlib.sha256(b"browser-old").hexdigest(),
+  "bridge_host_identity_digest": hashlib.sha256(b"bridge-old").hexdigest(),
+  "connection_identity_digest": hashlib.sha256(b"connection-old").hexdigest(),
+}
+def row(facts):
+  return {"stage": "ownership", "producer": "broker-self-test",
+    "deadline_ms": 1000, "elapsed_ms": 0, "code": "OWNERSHIP_PROVEN",
+    "facts": facts,
+    "criteria": {"V1": "not-run", "V2": "not-run", "V3": "not-run",
+      "V4": "not-run", "V5": "not-run", "V6": "not-run", "V7": "not-run"}}
+json.dump(row({**base, **digests}), open(sys.argv[1], "w"))
+latest = {**base, **digests}
+del latest["connection_identity_digest"]
+json.dump(row(latest), open(sys.argv[2], "w"))
+REOF
+AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$V3_REPEAT_DIR" \
+  "$SPINE" stage rehearsal R1 "$V3_REPEAT_RUN" "$V3_REPEAT_DIR/ownership-complete.json" >/dev/null
+AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$V3_REPEAT_DIR" \
+  "$SPINE" stage rehearsal R1 "$V3_REPEAT_RUN" "$V3_REPEAT_DIR/ownership-latest.json" >/dev/null
+terminal_req "$V3_REPEAT_DIR/terminal.json" INVALID_EVIDENCE \
+  '{"V1":"pass","V2":"pass","V3":"pass","V4":"pass","V5":"pass","V6":"fail","V7":"not-run"}' >/dev/null
+V3_REPEAT_SHA=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$V3_REPEAT_DIR" \
+  "$SPINE" stage rehearsal R1 "$V3_REPEAT_RUN" "$V3_REPEAT_DIR/terminal.json" \
+  | sed 's/.*"receipt_sha256":"\([0-9a-f]*\)".*/\1/')
+expect_fail "the latest repeated ownership row governs V3 endpoint binding" \
+  'v3_pass_digest_missing:connection_identity_digest' \
+  env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$V3_REPEAT_DIR" \
+  "$SPINE" finish rehearsal R1 "$V3_REPEAT_RUN" "$V3_REPEAT_SHA"
+
 # A kill terminal records V3 as `fail`, so it makes no ownership claim and must
 # still be able to close without any endpoint digest.
 V3_FAIL_DIR="$V3_ROOT/kill-terminal"

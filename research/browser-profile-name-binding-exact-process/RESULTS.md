@@ -144,7 +144,7 @@ a facts payload carrying `argv` is refused, a non-whitelisted fact key is
 refused, an in-place byte mutation changes the tree snapshot, and the formal
 root is unchanged).
 
-Last run on this host: `BROKER_SELF_TEST_PASS requests=167 failures=0`, and
+Last run on this host: `BROKER_SELF_TEST_PASS requests=168 failures=0`, and
 `BROKER_SELF_TEST_HARNESS_PASS`.
 
 Source sizes (`wc -l`): `broker-spine.sh` 1216, `broker-self-test.sh` 1548,
@@ -693,7 +693,7 @@ attempt cannot become authoritative by being written to disk first. A terminal
 recording V3 as `fail` (both kill terminals) makes no ownership claim and is not
 required to carry the digests.
 
-**Evidence.** `BROKER_SELF_TEST_PASS requests=167 failures=0`, twenty-seven new
+**Evidence.** `BROKER_SELF_TEST_PASS requests=168 failures=0`, twenty-eight new
 checks over the previous 139: both legal shapes accepted; six one-cell-off shapes
 refused by name; a design selection refused; the legal terminal staged **and
 finished** with a receipt; a sha256 endpoint digest accepted on `ownership`; a raw
@@ -701,6 +701,11 @@ pid, a raw path and a non-sha256 string each refused; a V3-pass close with all
 three digests finished; a V3-pass close missing each digest refused; a V3-fail
 kill terminal closing with no digest required; and — for the load path — a
 **coherent forgery** refused.
+
+Stage names may repeat, so the binding uses the **latest** `ownership` row. A
+regression case publishes a complete row followed by a newer row missing the
+connection digest; the V3-pass finish is refused rather than accepting stale
+endpoint evidence from the first row.
 
 The forgery cases matter because a row that is merely edited is caught earlier by
 the journal chain or the receipt digest, so those checks would not reach the
