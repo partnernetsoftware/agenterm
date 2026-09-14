@@ -194,9 +194,16 @@ function script_run_arguments(repo, entry, timeout_ms, script_arguments) {
     arguments_list.push("--max-host-operations");
     arguments_list.push("16384");
   }
+  // The lint task reads the complete task manifest, whose reviewed contract
+  // carries a 1 MiB string ceiling. Nested gates bypass task-contract
+  // resolution, so preserve that ceiling explicitly instead of falling back
+  // to script run's 256 KiB default.
+  if (entry === "lint") {
+    arguments_list.push("--max-string-bytes");
+    arguments_list.push("1048576");
+  }
   // The Script API catalog is intentionally multi-megabyte and the task
-  // contract already declares an 8 MiB complete-string court. Keep the
-  // generic 1 MiB default everywhere else.
+  // contract already declares an 8 MiB complete-string court.
   if (entry === "script-qjswasm-smoke") {
     arguments_list.push("--max-string-bytes");
     arguments_list.push("8388608");
