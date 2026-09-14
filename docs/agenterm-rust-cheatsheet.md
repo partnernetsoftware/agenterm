@@ -318,6 +318,10 @@ execute at least one real default-feature command that crosses the helper.
 Windows checklist:
 
 - Convert paths/text to bounded NUL-terminated UTF-16 at the adapter edge.
+- A fixed Win32 UTF-16 array is an encoded-unit contract, not a UTF-8 byte
+  contract. Reserve its final unit for NUL and reject an over-capacity value
+  before the first authority call; copying a prefix can split a surrogate pair
+  and turns an accepted receipt into a false claim about the delivered text.
 - A Cargo build script is compiled for the host. Never guard Windows resource
   generation with build-script `#[cfg(windows)]`: Linux/macOS cross-builds then
   silently emit PE files without VERSIONINFO. Branch on

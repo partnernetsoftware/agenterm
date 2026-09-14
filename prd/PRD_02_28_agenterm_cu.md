@@ -1758,6 +1758,10 @@ flowchart LR
   notification-icon provider compile for both ISAs; Linux FDO dispatch and
   action-button pairs are evidenced through dbus-monitor Notify/ActionInvoked
   read-back (not CU self-report); dunst still publishes no AT-SPI action controls.
+  Windows validates title/body in UTF-16 units against the fixed
+  `NOTIFYICONDATAW` fields before creating its message window, so an oversized
+  value fails typed as not performed rather than being silently truncated or
+  split inside a surrogate pair.
   Subtitle and
   sound are macOS-only until another provider can prove equivalent semantics.
   MCU `notify` now routes here, reducing top-level `STAY` from 20 to 19.
