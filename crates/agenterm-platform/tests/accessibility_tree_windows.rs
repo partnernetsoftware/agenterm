@@ -1,4 +1,4 @@
-#![cfg(windows)]
+#![cfg(all(windows, feature = "a11y-tree"))]
 
 use std::ffi::c_void;
 use std::ptr;
