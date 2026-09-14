@@ -165,7 +165,10 @@ The fix has two halves:
 1. **Data**: `scanned_source_count` and `call_count` are added to
    `stage_fact_whitelist` (17 → 18 facts), preserving `identity-source`
    semantics; take no other meaning. `last_completed_stage` is removed from it.
-   No receipt or ledger key is affected.
+   The kill-terminal leaf later adds three more (18 → 21) sha256 facts —
+   `browser_identity_digest`, `bridge_host_identity_digest`,
+   `connection_identity_digest` — **all three owned by `ownership`**, the only
+   stage where every endpoint is known. No receipt or ledger key is affected.
 2. **Guard**: the broker now validates the template **once at startup**, before
    any operation and before any state root is created, with a named code per
    violation:
@@ -452,10 +455,10 @@ to publish evidence cannot be guarded by the row they are themselves
 publishing. Browser-only throw sites remain unexercised, so
 `kill_criterion_4_closed` stays false and no formal ordinal is eligible.
 
-### Two independent blockers were open; one is now fixed
+### Three blockers were open; two are now fixed
 
-The persisted-stage work surfaced **two separate** defects. They are not the same
-bug, and fixing one does not open the other:
+The persisted-stage work surfaced **three separate** defects. They are not the same
+bug, and fixing one does not open another:
 
 1. **Template unsatisfiability — FIXED here.** `identity-source` required two
    facts that were not whitelisted, so no fact set could publish it. The
@@ -463,23 +466,39 @@ bug, and fixing one does not open the other:
    `last_completed_stage` is gone, and the broker validates the template at
    startup with a named code per violation. See "Template consistency is checked
    at startup" above.
-2. **Terminal honesty — STILL OPEN.** There is no legal terminal code for
-   "V6 mechanism proven, browser criteria not-run":
+2. **Terminal honesty — FIXED here.** The kill criteria previously had no legal
+   terminal, because their own codes were unmapped and failed closed with
+   `terminal_criteria_not_implemented`:
 
-   | Terminal | Behaviour |
-   |----------|-----------|
-   | `NEW_INFORMATION_INSUFFICIENT` | refused — `terminal_criteria_not_implemented` |
-   | `CLEANUP_NOT_INDEPENDENT` | refused — `terminal_criteria_not_implemented` |
-   | `INCONCLUSIVE_MECHANISM` | accepted **only** by claiming V1–V7 all pass (unprovable browser-free) |
-   | `INVALID_EVIDENCE` | accepted, but **means V6 failed** and also claims V1–V5 pass |
+   | Terminal | Before | Now |
+   |----------|--------|-----|
+   | `NEW_INFORMATION_INSUFFICIENT` | refused — `terminal_criteria_not_implemented` | one legal shape: V1, V2 `pass`, V3 `fail`, V4–V7 `not-run` |
+   | `CLEANUP_NOT_INDEPENDENT` | refused — `terminal_criteria_not_implemented` | one legal shape: V1–V3 `pass`, V7 `fail`, V4–V6 `not-run` |
+   | `INCONCLUSIVE_MECHANISM` | accepted **only** by claiming V1–V7 all pass | unchanged |
+   | `INVALID_EVIDENCE` | accepted, but **means V6 failed** | unchanged |
 
-   Closing the whitelist gap does not open this path, and resolving this would
-   not have made `identity-source` publishable. Until it is ruled on, no attempt can
-   close truthfully, so a browser-free slice must **`abandon`** rather than
-   `finish` — and reserving a live ordinal requires a truthful close.
+   Both shapes are the plan's ruling, and each is the **only** legal shape for its
+   terminal: any extra `pass`/`fail`/`not-run` in the wrong cell is refused by
+   name. Every non-design terminal now has a mapping; a design selection
+   (`A1_SELECTED`/`B_SELECTED`) is still refused by its own gate. A kill terminal
+   can be staged **and finished** with a receipt, so a run that must report a kill
+   criterion can now close truthfully.
 
-Neither blocker is closed by this leaf. **No R1, no kill criterion 4, and no
-V1–V7 claim is made anywhere in this directory.**
+3. **Browser-live mechanism — STILL OPEN.** Terminal honesty was necessary but not
+   sufficient. The browser-live path is still unproven: no owned-browser ordinal
+   has been reserved, the bridge-host/browser endpoint identities have no
+   browser-live driver yet, and kill criterion 4 is not closed because the
+   browser-live throw sites are not covered. The endpoint identity facts
+   `browser_identity_digest`, `bridge_host_identity_digest` and
+   `connection_identity_digest` live on `ownership` and are persisted as stable
+   sha256 digests only — raw pids and paths are refused by the fact type. A
+   receipt claiming `criteria.V3 = pass` is **bound** to them: the broker reads
+   the digests from the attempt's own journal row and refuses to close or load a
+   V3-pass attempt that is missing any of the three.
+
+**No formal R1, no kill criterion 4, and no V1–V7 claim is made anywhere in this
+directory.** The browser-free slice still `abandon`s rather than `finish`, because
+it is not a browser-live attempt.
 
 ## What this directory must never do
 

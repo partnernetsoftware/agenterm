@@ -157,6 +157,38 @@ my %TERMINAL_CRITERIA = (
   INCONCLUSIVE_MECHANISM => [
     {fail => [], pass => ['V1', 'V2', 'V3', 'V4', 'V5', 'V6', 'V7']},
   ],
+  # Spec section 4 kill criterion 1. Exact-key process ops cannot prove V3 without
+  # a process table: the mechanism is permanently insufficient, which is a
+  # different report from an ordinary `INCONCLUSIVE_OWNERSHIP` observation of a
+  # chain that merely failed. V1/V2 passed, V3 failed, and V4-V7 were never
+  # reached, so they must be `not-run` -- cleanup was not allowed to execute.
+  # The plan fixes this as the ONLY legal shape for this terminal.
+  NEW_INFORMATION_INSUFFICIENT => [
+    {fail => ['V3'], pass => ['V1', 'V2']},
+  ],
+  # Spec section 4 kill criterion 3. The structural selector leak is detected
+  # BEFORE cleanup is allowed to execute, so V7 (selector independence) fails while
+  # V4-V6 remain `not-run` -- they were not reached. Same reasoning as above: the
+  # plan fixes this as the ONLY legal shape.
+  CLEANUP_NOT_INDEPENDENT => [
+    {fail => ['V7'], pass => ['V1', 'V2', 'V3']},
+  ],
+);
+
+# Any receipt claiming `criteria.V3 = pass` asserts that the process ownership
+# chain was PROVEN. That claim is only supported if the attempt's journal carries
+# the three endpoint identities it was proven between -- as stable sha256 digests,
+# never raw pids or paths:
+#
+#   browser_identity_digest       the browser endpoint
+#   bridge_host_identity_digest   the bridge host endpoint
+#   connection_identity_digest    the bridge connection
+#
+# All three live on the `ownership` stage. That is the only stage where all three
+# endpoints are known: `identity-source` runs while the connection may still be
+# PENDING, so it cannot be their owner without inventing a fact it cannot have.
+my @V3_PASS_DIGESTS = qw(
+  browser_identity_digest bridge_host_identity_digest connection_identity_digest
 );
 
 # Terminals that can only be reached by selecting a design. This broker owns no
@@ -201,6 +233,33 @@ sub validate_terminal_criteria {
     return 1 if terminal_criteria_alternative_ok($shape, $criteria);
   }
   fail('terminal_criteria_not_legal');
+}
+
+# A receipt that claims V3 passed must be bound to the endpoint digests that
+# support that claim. The journal on disk is the authority: the digests are read
+# from the `ownership` row, not from the receipt the caller supplied, so a caller
+# cannot assert a V3 pass with no supporting evidence.
+#
+# A terminal that records V3 as anything other than `pass` (the kill terminals)
+# is not required to carry them, because it does not claim ownership was proven.
+sub validate_v3_pass_digest_binding {
+  my ($rows, $receipt) = @_;
+  my $criteria = $receipt->{criteria};
+  return 1 unless (($criteria->{V3} // '') eq 'pass');
+  my ($ownership) = grep { $_->{stage} eq 'ownership' } @$rows;
+  $ownership or fail('v3_pass_ownership_evidence_missing');
+  my $facts = $ownership->{facts} // {};
+  for my $key (@V3_PASS_DIGESTS) {
+    my $value = $facts->{$key};
+    defined $value or fail("v3_pass_digest_missing:$key");
+    # Defense in depth: the declared type is `sha256`, so every journal this
+    # broker writes has already passed the same lowercase-hex rule at stage time
+    # and this branch is unreachable for them. It is kept because the binding
+    # must not depend on that earlier enforcement, and it is NOT exercised by a
+    # self-test mutation for that reason.
+    $value =~ /\A[0-9a-f]{64}\z/ or fail("v3_pass_digest_not_sha256:$key");
+  }
+  return 1;
 }
 
 # A design-selection terminal may not close any attempt yet: the broker holds
@@ -853,6 +912,11 @@ sub validate_authoritative_artifacts {
     $TERMINAL{$code} or fail('authoritative_terminal_code_unknown');
     validate_terminal_kind($code, $entry->{kind});
     validate_terminal_criteria($code, $receipt->{criteria}, $entry->{kind});
+
+    # (6) A V3-pass claim must be bound to the endpoint digests in this attempt's
+    #     own journal. A journal tampered to drop the `ownership` digests, or a
+    #     receipt forged to claim V3 passed, is refused here by name.
+    validate_v3_pass_digest_binding($journal, $receipt);
   }
   return 1;
 }
@@ -1167,6 +1231,7 @@ if ($operation eq 'finish') {
     $receipt->{facts}{terminal_code} eq $code or fail('finish_terminal_code_mismatch');
     validate_terminal_kind($code, $entry->{kind});
     validate_terminal_criteria($code, $receipt->{criteria}, $entry->{kind});
+    validate_v3_pass_digest_binding($rows, $receipt);
     my $finished = {%$entry, status => 'finished',
       receipt_sha256 => $receipt_sha, terminal_code => $code};
     push @$ledger, $finished;

@@ -144,7 +144,7 @@ a facts payload carrying `argv` is refused, a non-whitelisted fact key is
 refused, an in-place byte mutation changes the tree snapshot, and the formal
 root is unchanged).
 
-Last run on this host: `BROKER_SELF_TEST_PASS requests=139 failures=0`, and
+Last run on this host: `BROKER_SELF_TEST_PASS requests=167 failures=0`, and
 `BROKER_SELF_TEST_HARNESS_PASS`.
 
 Source sizes (`wc -l`): `broker-spine.sh` 1216, `broker-self-test.sh` 1548,
@@ -568,8 +568,8 @@ second truth and would drift.
 
 ### Evidence
 
-`BROKER_SELF_TEST_PASS requests=139 failures=0` — nine new checks over the
-previous 130:
+`BROKER_SELF_TEST_PASS requests=139 failures=0` at that leaf — nine new checks
+over the previous 130 (the count rises further with the kill-terminal leaf):
 
 | Check | What it proves |
 |---|---|
@@ -586,18 +586,21 @@ previous 130:
 Each mutation was additionally verified to fire **before any state root is
 created**, so an inconsistent template cannot reserve an ordinal at all.
 
-### Still open after this fix
+### The kill terminals were a separate blocker; a later leaf fixes them
 
-**Terminal honesty is a separate blocker and is NOT fixed here.** There is no
-legal terminal code for "V6 mechanism proven, browser criteria not-run":
-`NEW_INFORMATION_INSUFFICIENT` and `CLEANUP_NOT_INDEPENDENT` are refused by
-`terminal_criteria_not_implemented`, `INCONCLUSIVE_MECHANISM` is accepted only by
-claiming V1–V7 all pass, and `INVALID_EVIDENCE` means V6 **failed**. Closing the
-whitelist gap does not open that path, and resolving it would not have made
-`identity-source` publishable. No attempt can close truthfully until it is ruled
-on, so a browser-free slice must `abandon` rather than `finish`.
+At the time of the template fix, **terminal honesty was a separate blocker**: no
+legal terminal code existed for "V6 mechanism proven, browser criteria not-run",
+because `NEW_INFORMATION_INSUFFICIENT` and `CLEANUP_NOT_INDEPENDENT` were both
+refused by `terminal_criteria_not_implemented`. Closing the whitelist gap did not
+open that path. That blocker is **now fixed** by the kill-terminal leaf described
+at the end of this file.
 
-No R1 reservation, no kill criterion 4 closure and no V1–V7 claim is made here.
+### Still open: the browser-live mechanism
+
+Terminal honesty was necessary but not sufficient. **No formal R1 reservation, no kill
+criterion 4 closure and no V1–V7 claim is made here.** The browser-live path is
+still unproven: no owned-browser ordinal has been reserved, and kill criterion 4
+is not closed because the browser-live throw sites are not covered.
 
 ## Persisted-stage real-process preflight
 
@@ -631,3 +634,86 @@ include the V1-V7 table, D1-D3 measurements, the exact decision-tree trace,
 every deviation from the specification, the consumed ordinal, reproducible
 commands, and an explicit statement that criteria were not changed after seeing
 the result.
+
+## Kill terminals and endpoint identity digests
+
+A following leaf implements the two kill-criterion terminals the plan fixed, so an
+attempt that must report a kill criterion can now close truthfully instead of
+being stuck at `abandon`.
+
+**Each terminal has exactly one legal criteria shape**, and every other shape is
+refused by name:
+
+| Terminal | Legal shape | Meaning |
+|---|---|---|
+| `NEW_INFORMATION_INSUFFICIENT` | V1, V2 `pass`; V3 `fail`; V4–V7 `not-run` | the mechanism could not be shown, and nothing downstream ran |
+| `CLEANUP_NOT_INDEPENDENT` | V1–V3 `pass`; V7 `fail`; V4–V6 `not-run` | ownership was shown, but cleanup was not shown to be independent |
+
+Refusals use `terminal_criteria_not_legal`. The check is a full-shape match, not a
+spot test on one cell: a shape that differs from the legal one in **any** single
+cell is refused, so "V3 is fail" or "V7 is fail" alone is not sufficient to close.
+Every non-design terminal now has a mapping, so `terminal_criteria_not_implemented`
+no longer fires for a kill criterion; a design selection (`A1_SELECTED`,
+`B_SELECTED`) remains refused by its own gate
+(`terminal_design_selection_not_implemented`), because the broker owns no design
+receipt contract.
+
+**Endpoint identities are persisted as stable sha256 digests, never raw pids or
+paths.** Three facts were added to the whitelist (18 → 21), each owned by exactly
+one stage:
+
+| Fact | Stage | Purpose |
+|---|---|---|
+| `browser_identity_digest` | `ownership` (optional) | the browser endpoint |
+| `bridge_host_identity_digest` | `ownership` (optional) | the bridge host endpoint |
+| `connection_identity_digest` | `ownership` (optional) | the bridge connection |
+
+All three are owned by `ownership` — the only stage where every endpoint is
+known, since `identity-source` can run while the connection is still pending.
+One fact, one owner: no digest has two stages that could disagree about it.
+
+Because the declared type is `sha256`, a raw pid (`4242`), a raw filesystem path or
+any non-sha256 string is refused as `stage_fact_type` — the "never persist a raw
+pid or path" rule is enforced by the type itself, not by a separate validator.
+
+**A V3-pass claim must be bound to its evidence.** A receipt recording
+`criteria.V3 = pass` asserts the ownership chain was proven. That claim is only
+supported when the attempt's own journal carries all three endpoint digests, so
+the broker now re-reads them **from the `ownership` journal row** (never from the
+receipt the caller supplied) and refuses, by name, when any is missing:
+
+| Condition | Code |
+|---|---|
+| no `ownership` row at all | `v3_pass_ownership_evidence_missing` |
+| a digest key absent from the row | `v3_pass_digest_missing:<fact>` |
+| a digest present but not sha256 | `v3_pass_digest_not_sha256:<fact>` (defense in depth; the `sha256` type already rejects it at stage time, so no self-test mutation reaches it) |
+
+The same check runs on `finish` **and** on the authoritative load, so a forged
+attempt cannot become authoritative by being written to disk first. A terminal
+recording V3 as `fail` (both kill terminals) makes no ownership claim and is not
+required to carry the digests.
+
+**Evidence.** `BROKER_SELF_TEST_PASS requests=167 failures=0`, twenty-seven new
+checks over the previous 139: both legal shapes accepted; six one-cell-off shapes
+refused by name; a design selection refused; the legal terminal staged **and
+finished** with a receipt; a sha256 endpoint digest accepted on `ownership`; a raw
+pid, a raw path and a non-sha256 string each refused; a V3-pass close with all
+three digests finished; a V3-pass close missing each digest refused; a V3-fail
+kill terminal closing with no digest required; and — for the load path — a
+**coherent forgery** refused.
+
+The forgery cases matter because a row that is merely edited is caught earlier by
+the journal chain or the receipt digest, so those checks would not reach the
+binding. The forgery cases instead drop a digest key and repair the journal chain,
+the receipt's journal claims and the ledger's receipt digest, so the journal and
+receipt are mutually consistent. Only the digest binding refuses them, each with
+its specific `v3_pass_digest_missing:<fact>` code.
+
+Two older checks used `NEW_INFORMATION_INSUFFICIENT` as their specimen of an
+*unmapped* terminal. Since every non-design terminal is now mapped, no such
+specimen remains; those checks were re-pointed at the design-selection gate rather
+than left asserting something that is no longer true.
+
+**This closes the terminal blocker only.** It does not reserve an ordinal, does not
+launch a browser, and does not close kill criterion 4 or any of V1–V7. The
+browser-live mechanism remains open.

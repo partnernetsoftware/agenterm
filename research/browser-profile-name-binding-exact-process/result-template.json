@@ -29,7 +29,10 @@
     "cleanup_status",
     "terminal_code",
     "scanned_source_count",
-    "call_count"
+    "call_count",
+    "browser_identity_digest",
+    "bridge_host_identity_digest",
+    "connection_identity_digest"
   ],
   "stage_forbidden_keys": [
     "argv",
@@ -125,7 +128,11 @@
         "chain_length": "safe_integer",
         "frozen_identity_count": "safe_integer"
       },
-      "optional": {}
+      "optional": {
+        "browser_identity_digest": "sha256",
+        "bridge_host_identity_digest": "sha256",
+        "connection_identity_digest": "sha256"
+      }
     },
     "stop": {
       "required": {

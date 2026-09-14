@@ -565,21 +565,22 @@ for sel in A1_SELECTED B_SELECTED; do
   fi
 done
 
-# A terminal present in the template vocabulary but not implemented by this
-# broker may not close an attempt. This exercises the second gate after the
-# vocabulary check; using a non-terminal token here would only test the first.
-UNMAPPED_ROOT="$ROOT/unmapped-state"
-AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$UNMAPPED_ROOT" \
+# Every non-design terminal now has a mapping, so the class that this broker still
+# refuses to close is the DESIGN SELECTION one. It must be refused by its own named
+# gate, never silently accepted as a close, and never confusable with the
+# criteria-shape gate.
+DESIGN_ROOT="$ROOT/design-selection-state"
+AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$DESIGN_ROOT" \
   "$SPINE" reserve rehearsal R1 "$RUN_ID" "$SRC" "$IN_DIG" >/dev/null
-UNMAPPED_REQ="$ROOT/unmapped.json"
-terminal_req "$UNMAPPED_REQ" NEW_INFORMATION_INSUFFICIENT \
+DESIGN_REQ="$ROOT/design-selection.json"
+terminal_req "$DESIGN_REQ" A1_SELECTED \
   '{"V1":"pass","V2":"pass","V3":"pass","V4":"pass","V5":"pass","V6":"pass","V7":"pass"}' >/dev/null
-UNMAPPED_OUT=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$UNMAPPED_ROOT" \
-  "$SPINE" stage rehearsal R1 "$RUN_ID" "$UNMAPPED_REQ" 2>&1 || true)
-case "$UNMAPPED_OUT" in
-  *terminal_criteria_not_implemented*)
-    ok "an unmapped terminal is not silently accepted as a close" ;;
-  *) bad "an unmapped terminal is not silently accepted as a close (got: $UNMAPPED_OUT)" ;;
+DESIGN_OUT=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$DESIGN_ROOT" \
+  "$SPINE" stage rehearsal R1 "$RUN_ID" "$DESIGN_REQ" 2>&1 || true)
+case "$DESIGN_OUT" in
+  *terminal_design_selection_not_implemented*)
+    ok "a design selection terminal is refused by its own gate, not the criteria gate" ;;
+  *) bad "a design selection terminal is refused by its own gate, not the criteria gate (got: $DESIGN_OUT)" ;;
 esac
 
 # -- 8e. an authoritative read must re-derive every finished artifact --------
@@ -897,15 +898,15 @@ expect_authoritative_refusal \
   "a consistent artifact set naming a design selection is refused by the kind gate" \
   "$KIND_ROOT" terminal_design_selection_not_implemented
 
-# 5c-quater. The same construction with a code in the vocabulary but unmapped by
-#            this slice reaches the criteria gate instead.
-UNMAPPED_AUTH_ROOT="$ROOT/unmapped-auth-state"
-finish_a_rehearsal "$UNMAPPED_AUTH_ROOT"
+# 5c-quater. A design selection remains the unimplemented terminal class, and the
+#            authoritative read must refuse it by the design gate.
+DESIGN_AUTH_ROOT="$ROOT/design-auth-state"
+finish_a_rehearsal "$DESIGN_AUTH_ROOT"
 python3 "$AUTH_HELPER" reselect_terminal \
-  "$UNMAPPED_AUTH_ROOT" "$IN_DIG" NEW_INFORMATION_INSUFFICIENT
+  "$DESIGN_AUTH_ROOT" "$IN_DIG" A1_SELECTED
 expect_authoritative_refusal \
-  "a consistent artifact set naming an unmapped terminal is refused by the criteria gate" \
-  "$UNMAPPED_AUTH_ROOT" terminal_criteria_not_implemented
+  "a consistent artifact set naming a design selection is refused by the design gate" \
+  "$DESIGN_AUTH_ROOT" terminal_design_selection_not_implemented
 
 # 5d. Only the terminal row's `code` changes, leaving its facts intact, so the
 #     facts comparison cannot substitute for the code comparison.
@@ -1515,6 +1516,436 @@ expect_fail "a fact outside this stage's shape is still refused by name" \
   'stage_fact_not_in_stage_shape' \
   env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$IS_ROOT" \
   "$SPINE" stage rehearsal R1 "$RUN_ID" "$EXTRA_BAD"
+
+# -- 13. kill-criterion terminals and endpoint identity digests -------------
+#
+# The plan fixes ONE legal criteria shape per kill terminal. These cases prove the
+# terminal can be reached and CLOSED (stage terminal + finish), that every
+# off-by-one-cell shape is refused, and that a design selection stays refused.
+# They also pin the endpoint identity facts: a sha256 digest is accepted, while a
+# raw pid, a raw filesystem path or any non-sha256 string is refused -- the plan
+# requires stable digests precisely so no raw pid/path is ever persisted.
+
+TERM_ROOT="$ROOT/state-terminals"
+term_case() {
+  # $1 label, $2 terminal code, $3 criteria JSON, $4 expected ('ok' or a code)
+  local label=$1 code=$2 criteria=$3 expected=$4
+  local dir="$TERM_ROOT/$(printf '%s' "$label" | tr -c 'a-z0-9' '-')"
+  local run_id
+  run_id=$(printf 'term-%s' "$label" | shasum -a 256 | cut -c1-32)
+  env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+    "$SPINE" reserve rehearsal R1 "$run_id" "$SRC" "$IN_DIG" >/dev/null 2>&1 || true
+  local req="$dir/terminal.json"
+  cat >"$req" <<EOF
+{"stage":"terminal","producer":"broker-self-test","deadline_ms":1000,"elapsed_ms":0,
+ "code":"$code",
+ "facts":{"primary_cause":"broker-self-test","cleanup_status":"self-test",
+   "terminal_code":"$code"},
+ "criteria":$criteria}
+EOF
+  if [ "$expected" = "ok" ]; then
+    expect_ok "$label" env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+      "$SPINE" stage rehearsal R1 "$run_id" "$req" >/dev/null
+  else
+    expect_fail "$label" "$expected" \
+      env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+      "$SPINE" stage rehearsal R1 "$run_id" "$req"
+  fi
+}
+
+term_case "NEW_INFORMATION_INSUFFICIENT accepts its one legal shape" \
+  NEW_INFORMATION_INSUFFICIENT \
+  '{"V1":"pass","V2":"pass","V3":"fail","V4":"not-run","V5":"not-run","V6":"not-run","V7":"not-run"}' \
+  ok
+term_case "CLEANUP_NOT_INDEPENDENT accepts its one legal shape" \
+  CLEANUP_NOT_INDEPENDENT \
+  '{"V1":"pass","V2":"pass","V3":"pass","V4":"not-run","V5":"not-run","V6":"not-run","V7":"fail"}' \
+  ok
+# Each of these differs from a legal shape in exactly ONE cell, so a guard that
+# only checked "V3 is fail" or "V7 is fail" would wrongly accept them.
+term_case "NEW_INFORMATION_INSUFFICIENT rejects V4 recorded as fail" \
+  NEW_INFORMATION_INSUFFICIENT \
+  '{"V1":"pass","V2":"pass","V3":"fail","V4":"fail","V5":"not-run","V6":"not-run","V7":"not-run"}' \
+  terminal_criteria_not_legal
+term_case "NEW_INFORMATION_INSUFFICIENT rejects V4 recorded as pass" \
+  NEW_INFORMATION_INSUFFICIENT \
+  '{"V1":"pass","V2":"pass","V3":"fail","V4":"pass","V5":"not-run","V6":"not-run","V7":"not-run"}' \
+  terminal_criteria_not_legal
+term_case "NEW_INFORMATION_INSUFFICIENT rejects V3 recorded as pass" \
+  NEW_INFORMATION_INSUFFICIENT \
+  '{"V1":"pass","V2":"pass","V3":"pass","V4":"not-run","V5":"not-run","V6":"not-run","V7":"not-run"}' \
+  terminal_criteria_not_legal
+term_case "CLEANUP_NOT_INDEPENDENT rejects V7 recorded as pass" \
+  CLEANUP_NOT_INDEPENDENT \
+  '{"V1":"pass","V2":"pass","V3":"pass","V4":"not-run","V5":"not-run","V6":"not-run","V7":"pass"}' \
+  terminal_criteria_not_legal
+term_case "CLEANUP_NOT_INDEPENDENT rejects V3 recorded as fail" \
+  CLEANUP_NOT_INDEPENDENT \
+  '{"V1":"pass","V2":"pass","V3":"fail","V4":"not-run","V5":"not-run","V6":"not-run","V7":"fail"}' \
+  terminal_criteria_not_legal
+term_case "CLEANUP_NOT_INDEPENDENT rejects V4 recorded as fail" \
+  CLEANUP_NOT_INDEPENDENT \
+  '{"V1":"pass","V2":"pass","V3":"pass","V4":"fail","V5":"not-run","V6":"not-run","V7":"fail"}' \
+  terminal_criteria_not_legal
+# A design selection is still refused for every kind: the broker owns no design
+# receipt contract, so `A1_SELECTED` must not become reachable through this change.
+term_case "a design selection terminal is still refused" \
+  A1_SELECTED \
+  '{"V1":"pass","V2":"pass","V3":"pass","V4":"pass","V5":"pass","V6":"pass","V7":"pass"}' \
+  terminal_design_selection_not_implemented
+
+# The legal terminal must be closable: stage `terminal` then `finish` and receive
+# a receipt. A terminal that stages but cannot finish would be a dead end.
+TERM_FINISH_DIR="$TERM_ROOT/finish-path"
+TERM_FINISH_RUN=$(printf 'term-finish' | shasum -a 256 | cut -c1-32)
+env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$TERM_FINISH_DIR" \
+  "$SPINE" reserve rehearsal R1 "$TERM_FINISH_RUN" "$SRC" "$IN_DIG" >/dev/null 2>&1 || true
+cat >"$TERM_FINISH_DIR/terminal.json" <<'TEOF'
+{"stage":"terminal","producer":"broker-self-test","deadline_ms":1000,"elapsed_ms":0,
+ "code":"NEW_INFORMATION_INSUFFICIENT",
+ "facts":{"primary_cause":"broker-self-test","cleanup_status":"self-test",
+   "terminal_code":"NEW_INFORMATION_INSUFFICIENT"},
+ "criteria":{"V1":"pass","V2":"pass","V3":"fail","V4":"not-run","V5":"not-run","V6":"not-run","V7":"not-run"}}
+TEOF
+TERM_STAGED=$(env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$TERM_FINISH_DIR" \
+  "$SPINE" stage rehearsal R1 "$TERM_FINISH_RUN" "$TERM_FINISH_DIR/terminal.json" 2>&1) || true
+if printf '%s' "$TERM_STAGED" | grep -q '"accepted":true'; then
+  ok "the legal kill terminal stages"
+else
+  bad "the legal kill terminal stages (got: $(printf '%s' "$TERM_STAGED" | head -1))"
+fi
+TERM_RECEIPT=$(printf '%s' "$TERM_STAGED" | sed -n 's/.*"receipt_sha256":"\([0-9a-f]*\)".*/\1/p')
+if [ -n "$TERM_RECEIPT" ]; then
+  expect_ok "the legal kill terminal can be finished with a receipt" \
+    env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$TERM_FINISH_DIR" \
+    "$SPINE" finish rehearsal R1 "$TERM_FINISH_RUN" "$TERM_RECEIPT" >/dev/null
+else
+  bad "the legal kill terminal can be finished with a receipt (no receipt returned)"
+fi
+
+# Endpoint identity digests: accepted as sha256, refused as anything raw.
+EP_ROOT="$ROOT/state-endpoints"
+ep_case() {
+  local label=$1 pyexpr=$2 expected=$3
+  local dir="$EP_ROOT/$(printf '%s' "$label" | tr -c 'a-z0-9' '-')"
+  local run_id
+  run_id=$(printf 'ep-%s' "$label" | shasum -a 256 | cut -c1-32)
+  env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+    "$SPINE" reserve rehearsal R1 "$run_id" "$SRC" "$IN_DIG" >/dev/null 2>&1 || true
+  python3 - "$dir/ownership.json" "$pyexpr" <<'PEOF'
+import hashlib, json, sys
+path, expr = sys.argv[1], sys.argv[2]
+facts = {"chain_length": 2, "frozen_identity_count": 1}
+# No eval of shell-supplied text: the digest is computed here from a fixed label,
+# and the malformed cases are supplied as literal Python values.
+if expr == "DIGEST":
+    facts["browser_identity_digest"] = hashlib.sha256(b"endpoint").hexdigest()
+elif expr == "SHORT":
+    facts["browser_identity_digest"] = "deadbeef"
+elif expr == "PID":
+    facts["browser_identity_digest"] = 4242
+elif expr == "PATH":
+    facts["browser_identity_digest"] = "~/synthetic/profile/Default"
+else:
+    facts["browser_identity_digest"] = expr
+json.dump({"stage": "ownership", "producer": "broker-self-test",
+  "deadline_ms": 1000, "elapsed_ms": 0, "code": "OWNERSHIP_PROVEN",
+  "facts": facts,
+  "criteria": {"V1": "not-run", "V2": "not-run", "V3": "not-run",
+    "V4": "not-run", "V5": "not-run", "V6": "not-run", "V7": "not-run"}},
+  open(path, "w"))
+PEOF
+  if [ "$expected" = "ok" ]; then
+    expect_ok "$label" env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+      "$SPINE" stage rehearsal R1 "$run_id" "$dir/ownership.json" >/dev/null
+  else
+    expect_fail "$label" "$expected" \
+      env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+      "$SPINE" stage rehearsal R1 "$run_id" "$dir/ownership.json"
+  fi
+}
+ep_case "an endpoint sha256 digest is accepted" 'DIGEST' ok
+ep_case "a raw pid is refused as an endpoint identity" 'PID' stage_fact_type
+ep_case "a raw filesystem path is refused as an endpoint identity" \
+  'PATH' stage_fact_type
+ep_case "a non-sha256 string is refused as an endpoint identity" \
+  'SHORT' stage_fact_type
+
+# The connection identity belongs to `ownership`, and must be accepted there too
+# so the three V3 endpoints all have a home without duplicating a fact.
+CONN_DIR="$EP_ROOT/connection"
+CONN_RUN=$(printf 'conn' | shasum -a 256 | cut -c1-32)
+env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$CONN_DIR" \
+  "$SPINE" reserve rehearsal R1 "$CONN_RUN" "$SRC" "$IN_DIG" >/dev/null 2>&1 || true
+python3 - "$CONN_DIR/ownership.json" <<'QEOF'
+import hashlib, json, sys
+json.dump({"stage": "ownership", "producer": "broker-self-test",
+  "deadline_ms": 1000, "elapsed_ms": 0, "code": "OWNERSHIP_PROVEN",
+  "facts": {"chain_length": 2, "frozen_identity_count": 1,
+    "connection_identity_digest": hashlib.sha256(b"connection").hexdigest()},
+  "criteria": {"V1": "not-run", "V2": "not-run", "V3": "not-run",
+    "V4": "not-run", "V5": "not-run", "V6": "not-run", "V7": "not-run"}},
+  open(sys.argv[1], "w"))
+QEOF
+expect_ok "the connection identity digest is accepted on ownership" \
+  env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$CONN_DIR" \
+  "$SPINE" stage rehearsal R1 "$CONN_RUN" "$CONN_DIR/ownership.json" >/dev/null
+
+# -- 14. a V3-pass receipt must be bound to three endpoint digests ----------
+#
+# `criteria.V3 = pass` claims the ownership chain was proven. That claim is only
+# supported when the attempt's own journal carries the three endpoint identities
+# it was proven between, as sha256 digests. The digests are read from the
+# `ownership` JOURNAL ROW, never from the receipt the caller supplied, so a
+# caller cannot assert a V3 pass without evidence. A terminal recording V3 as
+# `fail` (the kill terminals) makes no such claim and is not required to carry
+# them.
+
+V3_ROOT="$ROOT/state-v3-binding"
+
+# Build a rehearsal whose terminal claims V3 pass, optionally omitting one or
+# more of the endpoint digests from the ownership row.
+v3_case() {
+  local sub=$1 omit=$2 expected=$3
+  local dir="$V3_ROOT/$sub"
+  local run
+  run=$(printf 'v3-%s' "$sub" | shasum -a 256 | cut -c1-32)
+  AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+    "$SPINE" reserve rehearsal R1 "$run" "$SRC" "$IN_DIG" >/dev/null 2>&1 || true
+  python3 - "$dir/ownership.json" "$omit" <<'PEOF'
+import hashlib, json, sys
+path, omit = sys.argv[1], sys.argv[2]
+facts = {"chain_length": 2, "frozen_identity_count": 1}
+for name, label in (("browser_identity_digest", b"browser"),
+                    ("bridge_host_identity_digest", b"bridge"),
+                    ("connection_identity_digest", b"connection")):
+    if name != omit:
+        facts[name] = hashlib.sha256(label).hexdigest()
+json.dump({"stage": "ownership", "producer": "broker-self-test",
+  "deadline_ms": 1000, "elapsed_ms": 0, "code": "OWNERSHIP_PROVEN",
+  "facts": facts,
+  "criteria": {"V1": "not-run", "V2": "not-run", "V3": "not-run",
+    "V4": "not-run", "V5": "not-run", "V6": "not-run", "V7": "not-run"}},
+  open(path, "w"))
+PEOF
+  local sha
+  sha=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+    "$SPINE" stage rehearsal R1 "$run" "$dir/ownership.json" \
+    | sed 's/.*"receipt_sha256":"\([0-9a-f]*\)".*/\1/')
+  local req="$dir/terminal.json"
+  # V1-V5 pass is a legal INVALID_EVIDENCE shape (V6 fails), so the criteria
+  # gate is satisfied and only the digest binding can refuse the close.
+  terminal_req "$req" INVALID_EVIDENCE \
+    '{"V1":"pass","V2":"pass","V3":"pass","V4":"pass","V5":"pass","V6":"fail","V7":"not-run"}' >/dev/null
+  local tsha
+  tsha=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+    "$SPINE" stage rehearsal R1 "$run" "$req" \
+    | sed 's/.*"receipt_sha256":"\([0-9a-f]*\)".*/\1/')
+  if [ "$expected" = "ok" ]; then
+    expect_ok "$expected: V3 pass with all three endpoint digests finishes" \
+      env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+      "$SPINE" finish rehearsal R1 "$run" "$tsha" >/dev/null
+  else
+    expect_fail "V3 pass without $omit cannot finish" "$expected" \
+      env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+      "$SPINE" finish rehearsal R1 "$run" "$tsha"
+  fi
+}
+
+v3_case all-present none ok
+v3_case no-browser browser_identity_digest v3_pass_digest_missing:browser_identity_digest
+v3_case no-bridge bridge_host_identity_digest v3_pass_digest_missing:bridge_host_identity_digest
+v3_case no-connection connection_identity_digest v3_pass_digest_missing:connection_identity_digest
+
+# A kill terminal records V3 as `fail`, so it makes no ownership claim and must
+# still be able to close without any endpoint digest.
+V3_FAIL_DIR="$V3_ROOT/kill-terminal"
+V3_FAIL_RUN=$(printf 'v3-kill' | shasum -a 256 | cut -c1-32)
+AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$V3_FAIL_DIR" \
+  "$SPINE" reserve rehearsal R1 "$V3_FAIL_RUN" "$SRC" "$IN_DIG" >/dev/null 2>&1 || true
+cat >"$V3_FAIL_DIR/terminal.json" <<'VEOF'
+{"stage":"terminal","producer":"broker-self-test","deadline_ms":1000,"elapsed_ms":0,
+ "code":"NEW_INFORMATION_INSUFFICIENT",
+ "facts":{"primary_cause":"broker-self-test","cleanup_status":"self-test",
+   "terminal_code":"NEW_INFORMATION_INSUFFICIENT"},
+ "criteria":{"V1":"pass","V2":"pass","V3":"fail","V4":"not-run","V5":"not-run","V6":"not-run","V7":"not-run"}}
+VEOF
+V3_FAIL_SHA=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$V3_FAIL_DIR" \
+  "$SPINE" stage rehearsal R1 "$V3_FAIL_RUN" "$V3_FAIL_DIR/terminal.json" \
+  | sed 's/.*"receipt_sha256":"\([0-9a-f]*\)".*/\1/')
+expect_ok "a V3-fail kill terminal closes with no endpoint digest required" \
+  env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$V3_FAIL_DIR" \
+  "$SPINE" finish rehearsal R1 "$V3_FAIL_RUN" "$V3_FAIL_SHA" >/dev/null
+
+# The load path can only be exercised on a FINISHED attempt, so the adversarial
+# mutation is: close a legitimate V3-pass attempt, then tamper the ownership row
+# on disk to drop an endpoint digest. `inspect` must refuse the tampered journal.
+#
+# Each digest is removed INDIVIDUALLY (rewriting the row and repairing both the
+# row and journal digests is not possible without the broker, so the tamper is
+# detected by the digest binding itself rather than by shape).
+v3_tamper_case() {
+  local omit=$1 expected=$2
+  local dir="$V3_ROOT/tamper-$omit"
+  local run
+  run=$(printf 'v3-tamper-%s' "$omit" | shasum -a 256 | cut -c1-32)
+  AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+    "$SPINE" reserve rehearsal R1 "$run" "$SRC" "$IN_DIG" >/dev/null 2>&1 || true
+  python3 - "$dir/ownership.json" "$omit" <<'TEOF'
+import hashlib, json, sys
+path, omit = sys.argv[1], sys.argv[2]
+facts = {"chain_length": 2, "frozen_identity_count": 1}
+for name, label in (("browser_identity_digest", b"browser"),
+                    ("bridge_host_identity_digest", b"bridge"),
+                    ("connection_identity_digest", b"connection")):
+    if name != omit:
+        facts[name] = hashlib.sha256(label).hexdigest()
+json.dump({"stage": "ownership", "producer": "broker-self-test",
+  "deadline_ms": 1000, "elapsed_ms": 0, "code": "OWNERSHIP_PROVEN",
+  "facts": facts,
+  "criteria": {"V1": "not-run", "V2": "not-run", "V3": "not-run",
+    "V4": "not-run", "V5": "not-run", "V6": "not-run", "V7": "not-run"}},
+  open(path, "w"))
+TEOF
+  # Stage the ownership row only if it is acceptable; a missing digest on the
+  # ownership shape is optional, so it still stages. Then close with V3 pass and
+  # confirm the broker refuses -- the forgery must not reach a `finished` row.
+  local own_stage
+  own_stage=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+    "$SPINE" stage rehearsal R1 "$run" "$dir/ownership.json" 2>&1) || true
+  if ! printf '%s' "$own_stage" | grep -q '"accepted":true'; then
+    # Refused at stage time, which is even earlier than finish. That is a pass.
+    ok "$expected: an ownership row without $omit is refused before it is written" >&3
+    return
+  fi
+  local req="$dir/terminal.json"
+  terminal_req "$req" INVALID_EVIDENCE \
+    '{"V1":"pass","V2":"pass","V3":"pass","V4":"pass","V5":"pass","V6":"fail","V7":"not-run"}' >/dev/null
+  local tsha
+  tsha=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+    "$SPINE" stage rehearsal R1 "$run" "$req" \
+    | sed 's/.*"receipt_sha256":"\([0-9a-f]*\)".*/\1/')
+  set +e
+  local out rc
+  out=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+    "$SPINE" finish rehearsal R1 "$run" "$tsha" 2>&1)
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "$expected"; then
+    ok "$expected: a V3-pass close without $omit is refused" >&3
+  else
+    bad "$expected: a V3-pass close without $omit is refused (rc=$rc, got: $(printf '%s' "$out" | head -1))" >&3
+  fi
+}
+# A V3-pass close with NO ownership row at all is refused by its own code: the
+# attempt claims the chain was proven while the journal holds no such evidence.
+V3_NOOWN_DIR="$V3_ROOT/no-ownership-row"
+V3_NOOWN_RUN=$(printf 'v3-noown' | shasum -a 256 | cut -c1-32)
+AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$V3_NOOWN_DIR" \
+  "$SPINE" reserve rehearsal R1 "$V3_NOOWN_RUN" "$SRC" "$IN_DIG" >/dev/null 2>&1 || true
+terminal_req "$V3_NOOWN_DIR/terminal.json" INVALID_EVIDENCE \
+  '{"V1":"pass","V2":"pass","V3":"pass","V4":"pass","V5":"pass","V6":"fail","V7":"not-run"}' >/dev/null
+V3_NOOWN_SHA=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$V3_NOOWN_DIR" \
+  "$SPINE" stage rehearsal R1 "$V3_NOOWN_RUN" "$V3_NOOWN_DIR/terminal.json" \
+  | sed 's/.*"receipt_sha256":"\([0-9a-f]*\)".*/\1/')
+expect_fail "a V3-pass close with no ownership evidence is refused" \
+  'v3_pass_ownership_evidence_missing' \
+  env AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$V3_NOOWN_DIR" \
+  "$SPINE" finish rehearsal R1 "$V3_NOOWN_RUN" "$V3_NOOWN_SHA"
+
+v3_tamper_case browser_identity_digest v3_pass_digest_missing:browser_identity_digest
+v3_tamper_case bridge_host_identity_digest v3_pass_digest_missing:bridge_host_identity_digest
+v3_tamper_case connection_identity_digest v3_pass_digest_missing:connection_identity_digest
+
+# The LOAD path only runs on a `finished` row, and a row that is merely edited
+# is caught earlier by the journal chain or the receipt digest. So the adversary
+# that actually reaches the binding is a COHERENT forgery: close the attempt
+# legitimately, then drop a digest key AND repair the journal chain, the receipt's
+# journal claims and the ledger's receipt digest so every weaker check agrees.
+# Only the digest binding can refuse it -- which is what makes this a real gate.
+v3_coherent_forgery_case() {
+  local omit=$1 expected=$2
+  local dir="$V3_ROOT/coherent-$omit"
+  local run
+  run=$(printf 'v3-coherent-%s' "$omit" | shasum -a 256 | cut -c1-32)
+  AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+    "$SPINE" reserve rehearsal R1 "$run" "$SRC" "$IN_DIG" >/dev/null 2>&1 || true
+  python3 - "$dir" <<'UEOF'
+import hashlib, json, sys
+dir = sys.argv[1]
+def sha(b): return hashlib.sha256(b).hexdigest()
+own = {"stage": "ownership", "producer": "broker-self-test", "deadline_ms": 1000,
+  "elapsed_ms": 0, "code": "OWNERSHIP_PROVEN",
+  "facts": {"chain_length": 2, "frozen_identity_count": 1,
+    "browser_identity_digest": sha(b"browser"),
+    "bridge_host_identity_digest": sha(b"bridge"),
+    "connection_identity_digest": sha(b"connection")},
+  "criteria": {"V1": "not-run", "V2": "not-run", "V3": "not-run",
+    "V4": "not-run", "V5": "not-run", "V6": "not-run", "V7": "not-run"}}
+term = {"stage": "terminal", "producer": "broker-self-test", "deadline_ms": 1000,
+  "elapsed_ms": 0, "code": "INVALID_EVIDENCE",
+  "facts": {"primary_cause": "broker-self-test", "cleanup_status": "self-test",
+    "terminal_code": "INVALID_EVIDENCE"},
+  "criteria": {"V1": "pass", "V2": "pass", "V3": "pass", "V4": "pass",
+    "V5": "pass", "V6": "fail", "V7": "not-run"}}
+json.dump(own, open(dir + "/ownership.json", "w"))
+json.dump(term, open(dir + "/terminal.json", "w"))
+UEOF
+  AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+    "$SPINE" stage rehearsal R1 "$run" "$dir/ownership.json" >/dev/null 2>&1 || true
+  local tsha
+  tsha=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+    "$SPINE" stage rehearsal R1 "$run" "$dir/terminal.json" \
+    | sed 's/.*"receipt_sha256":"\([0-9a-f]*\)".*/\1/')
+  AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" \
+    "$SPINE" finish rehearsal R1 "$run" "$tsha" >/dev/null 2>&1 || true
+  python3 - "$dir" "$omit" <<'VEOF'
+import hashlib, json, sys
+dir, omit = sys.argv[1], sys.argv[2]
+jp = dir + "/stage-journal/rehearsal-1.jsonl"
+rows = [json.loads(l) for l in open(jp) if l.strip()]
+for r in rows:
+    if r["stage"] == "ownership":
+        r["facts"].pop(omit, None)
+zero = hashlib.sha256(
+    b"agenterm-cu/profile-binding-exact-process/input/v1.journal-zero/v1\x00"
+).hexdigest()
+out, prev, seq = [], zero, 0
+for r in rows:
+    seq += 1
+    r["seq"], r["prev_sha256"] = seq, prev
+    prev = hashlib.sha256(
+        json.dumps(r, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    out.append(json.dumps(r, separators=(",", ":")))
+open(jp, "w").write("\n".join(out) + "\n")
+rp = dir + "/rehearsal-1-receipt.json"
+rec = json.load(open(rp))
+rec["journal_final_seq"], rec["journal_final_sha256"] = seq, prev
+open(rp, "w").write(json.dumps(rec, sort_keys=True, separators=(",", ":")))
+sha = hashlib.sha256(open(rp, "rb").read()).hexdigest()
+lp = dir + "/attempt-ledger.jsonl"
+led = [json.loads(l) for l in open(lp) if l.strip()]
+for e in led:
+    if e.get("status") == "finished":
+        e["receipt_sha256"] = sha
+open(lp, "w").write(
+    "\n".join(json.dumps(e, separators=(",", ":")) for e in led) + "\n")
+VEOF
+  # `inspect` must reach the digest binding: every weaker check now agrees.
+  local out rc
+  set +e
+  out=$(AGENTERM_PROFILE_BINDING_EXACT_STATE_ROOT="$dir" "$SPINE" inspect 2>&1)
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "$expected"; then
+    ok "a coherent V3-pass forgery without $omit is refused on load ($expected)" >&3
+  else
+    bad "a coherent V3-pass forgery without $omit is refused on load (rc=$rc, got: $(printf '%s' "$out" | head -1))" >&3
+  fi
+}
+v3_coherent_forgery_case browser_identity_digest v3_pass_digest_missing:browser_identity_digest
+v3_coherent_forgery_case bridge_host_identity_digest v3_pass_digest_missing:bridge_host_identity_digest
+v3_coherent_forgery_case connection_identity_digest v3_pass_digest_missing:connection_identity_digest
 
 # -- 11. the formal state root was never touched ----------------------------
 if [ -d "$DIR/../browser-profile-name-binding-exact-process/.state" ]; then

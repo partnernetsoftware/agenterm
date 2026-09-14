@@ -164,9 +164,10 @@ Validity criteria run before any design criterion and cannot be outweighed.
 | D3 | Boolean · B model | Explicit binding passes create/use/rename/duplicate/stale-generation/crash-recovery cases with typed refusal and independent cleanup | Select B if A1 is ineligible and every B arm passes |
 
 Every receipt records exact source/input/executable digests, browser family and
-version, ordinal, wall deadline, process-chain length, stage sequence, stable
-digests of the frozen browser, bridge-host and connection identities, and the
-boolean result for V1-V7. Raw PIDs and paths are not durable stage facts. No
+version, ordinal, wall deadline, process-chain length, stage sequence and the
+boolean result for V1-V7. Every receipt that records V3 `pass` also records
+stable digests of the frozen browser, bridge-host and connection identities.
+Raw PIDs and paths are not durable stage facts. No
 performance or size claim is made; therefore no cross-experiment byte or timing
 ratio is permitted.
 
