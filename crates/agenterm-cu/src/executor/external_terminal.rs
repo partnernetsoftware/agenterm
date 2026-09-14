@@ -677,7 +677,7 @@ pub(super) fn term_wait_payload(
         interval_ms,
         max_bytes,
         control,
-        &read_buffer,
+        read_buffer,
     )
 }
 
@@ -686,18 +686,79 @@ pub(super) fn term_wait_payload(
 /// The reader is a borrowed function rather than a trait object so the real
 /// `read_buffer` remains the only production path; the seam exists so the
 /// cancellation cases can be driven against the ACTUAL loop instead of a copy.
-fn term_wait_with_reader(
+fn term_wait_with_reader<R>(
     window: isize,
     pattern: &str,
     timeout_ms: u64,
     interval_ms: u64,
     max_bytes: usize,
     control: ExecutionControl<'_>,
-    reader: &dyn Fn(&ExternalWindowIdentity) -> Result<TerminalBuffer, CuError>,
-) -> Result<serde_json::Value, CuError> {
-    // Validation and identity binding complete BEFORE the token is consulted, so
-    // those inherent refusals are never masked. The first buffer read is the first
-    // cancellable observation and is therefore guarded inside `term_wait_bound`.
+    reader: R,
+) -> Result<serde_json::Value, CuError>
+where
+    R: Fn(&ExternalWindowIdentity) -> Result<TerminalBuffer, CuError>,
+{
+    // Production passes the real binder; the generic parameter is what lets an owning
+    // test OBSERVE that a pre-cancel performs no desktop authority at all.
+    fn real_binder(window: isize) -> Result<ExternalWindowIdentity, CuError> {
+        bind_window(window)
+    }
+    term_wait_with_providers(
+        TermWaitRequest {
+            window,
+            pattern,
+            timeout_ms,
+            interval_ms,
+            max_bytes,
+        },
+        control,
+        real_binder,
+        reader,
+    )
+}
+/// The request fields every `term-wait` entry shares, resolved once so the binder and
+/// the polling loop cannot disagree about them and the provider seam stays small
+/// without a lint suppression.
+struct TermWaitRequest<'a> {
+    window: isize,
+    pattern: &'a str,
+    timeout_ms: u64,
+    interval_ms: u64,
+    max_bytes: usize,
+}
+
+/// The `term-wait` entry, GENERIC over its two authority providers: the window BINDER
+/// and the buffer READER.
+///
+/// Both are generically borrowed `Fn` parameters rather than trait objects or a type
+/// alias, so a caller's closure can borrow its own locals without a `'static` bound
+/// while production keeps passing the real binder and the real reader.
+///
+/// `bind_window` is NOT validation: it enumerates the live top-level window inventory
+/// and observes the owning process's start identity, so it is real desktop authority.
+/// That is why the single direct cancellation check sits BETWEEN the in-process
+/// request validation and the binder, and why `term_wait_bound` contains no direct
+/// check at all.
+fn term_wait_with_providers<B, R>(
+    request: TermWaitRequest<'_>,
+    control: ExecutionControl<'_>,
+    bind: B,
+    reader: R,
+) -> Result<serde_json::Value, CuError>
+where
+    B: Fn(isize) -> Result<ExternalWindowIdentity, CuError>,
+    R: Fn(&ExternalWindowIdentity) -> Result<TerminalBuffer, CuError>,
+{
+    let TermWaitRequest {
+        window,
+        pattern,
+        timeout_ms,
+        interval_ms,
+        max_bytes,
+    } = request;
+    // PRECEDENCE. The in-process request validation stays FIRST, because those
+    // refusals describe a malformed request and must never be rewritten as a
+    // cancellation. Everything below this block is observation.
     validate_read_bounds(None, max_bytes)?;
     if pattern.is_empty() || pattern.len() > MAX_PATTERN_BYTES {
         return Err(invalid_input(
@@ -716,7 +777,13 @@ fn term_wait_with_reader(
         )
         .with_detail(serde_json::json!({ "pattern_bytes": pattern.len() }))
     })?;
-    let identity = bind_window(window)?;
+    // THE ONLY DIRECT CHECK for this verb, and therefore the only place
+    // `effect: not_performed` is legal. It runs after the in-process request
+    // validation and BEFORE the window binder, because binding is desktop authority
+    // (live window inventory plus process-start identity) and claiming that no effect
+    // happened after it would be false. Every later boundary is a private signal.
+    control.check_observe()?;
+    let identity = bind(window)?;
     term_wait_bound(
         &identity,
         pattern,
@@ -725,7 +792,7 @@ fn term_wait_with_reader(
         interval_ms,
         max_bytes,
         control,
-        reader,
+        &reader,
     )
 }
 
@@ -733,7 +800,7 @@ fn term_wait_with_reader(
 /// cancellation cases can drive the REAL loop with an injected identity; the only
 /// production caller is `term_wait_with_reader` above.
 #[allow(clippy::too_many_arguments)]
-fn term_wait_bound(
+fn term_wait_bound<R>(
     identity: &ExternalWindowIdentity,
     pattern: &str,
     expression: &Regex,
@@ -741,16 +808,19 @@ fn term_wait_bound(
     interval_ms: u64,
     max_bytes: usize,
     control: ExecutionControl<'_>,
-    reader: &dyn Fn(&ExternalWindowIdentity) -> Result<TerminalBuffer, CuError>,
-) -> Result<serde_json::Value, CuError> {
+    reader: &R,
+) -> Result<serde_json::Value, CuError>
+where
+    R: Fn(&ExternalWindowIdentity) -> Result<TerminalBuffer, CuError>,
+{
     let mut buffer_node: Option<String> = None;
     let started = Instant::now();
     let deadline = started + Duration::from_millis(timeout_ms);
     let mut polls = 0usize;
+    // NO DIRECT CHECK HERE. The sole direct `check_observe` for this verb already ran
+    // before the window binder, so every boundary in this loop is a private signal and
+    // this function may assume the precheck and the binding have both completed.
     loop {
-        // PRE-EFFECT CANCEL: no buffer authority is consulted for this round when
-        // the invocation has already been cancelled.
-        control.check_observe()?;
         polls += 1;
         let buffer = reader(identity)?;
         let expected_node = buffer_node.get_or_insert_with(|| buffer.node.clone());
@@ -765,8 +835,6 @@ fn term_wait_bound(
                 "observed_node_sha256": super::clipboard::clipboard_sha256_hex(buffer.node.as_bytes()),
             })));
         }
-        let last_bytes = buffer.text.len();
-        let last_sha256 = super::clipboard::clipboard_sha256_hex(buffer.text.as_bytes());
         if let Some(hit) = expression.find(&buffer.text) {
             let matched = &buffer.text[hit.start()..hit.end()];
             let (matched, match_truncated) = utf8_suffix(matched, max_bytes);
@@ -782,51 +850,128 @@ fn term_wait_bound(
                 "elapsed_ms": started.elapsed().as_millis(),
             }));
         }
+        // The deadline is authoritative and is decided BEFORE any cancellation, so a
+        // reached bound can never be rewritten as a stop request.
         if Instant::now() >= deadline {
-            let complete = source_complete(&buffer.backend);
-            return Err(CuError::new(
-                if complete { "terminal_wait_timeout" } else { "terminal_wait_inconclusive" },
-                if complete {
-                    "external terminal buffer did not match before the bounded deadline"
-                } else {
-                    "the bounded terminal provider exposed no match, but does not prove complete-buffer absence"
-                },
-            )
-            .with_detail(serde_json::json!({
-                "window_identity": identity.json(),
-                "pattern_sha256": super::clipboard::clipboard_sha256_hex(pattern.as_bytes()),
-                "pattern_bytes": pattern.len(),
-                "last_buffer_sha256": last_sha256,
-                "last_buffer_bytes": last_bytes,
-                "polls": polls,
-                "elapsed_ms": started.elapsed().as_millis(),
-                "source_complete": complete,
-                "content_disclosed": false,
-            })));
+            return Err(term_wait_unmatched(
+                &buffer, identity, pattern, polls, started,
+            ));
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
-        term_wait_pause(control, remaining.min(Duration::from_millis(interval_ms)))?;
+        if term_wait_pause(control, remaining.min(Duration::from_millis(interval_ms))) {
+            // DEADLINE FIRST, again: the final slice may have consumed the remainder.
+            if Instant::now() >= deadline {
+                return Err(term_wait_unmatched(
+                    &buffer, identity, pattern, polls, started,
+                ));
+            }
+            return Err(term_wait_cancelled(
+                &buffer, identity, pattern, polls, started,
+            ));
+        }
     }
+}
+
+/// The SOLE builder for the unmatched observation, shared by the ordinary
+/// `terminal_wait_timeout` / `terminal_wait_inconclusive` errors and by the
+/// cancellation partial, so the three paths cannot drift in the evidence they publish.
+fn term_wait_observation(
+    buffer: &TerminalBuffer,
+    identity: &ExternalWindowIdentity,
+    pattern: &str,
+    polls: usize,
+    started: Instant,
+) -> serde_json::Value {
+    let complete = source_complete(&buffer.backend);
+    serde_json::json!({
+        "window_identity": identity.json(),
+        "pattern_sha256": super::clipboard::clipboard_sha256_hex(pattern.as_bytes()),
+        "pattern_bytes": pattern.len(),
+        "last_buffer_sha256": super::clipboard::clipboard_sha256_hex(buffer.text.as_bytes()),
+        "last_buffer_bytes": buffer.text.len(),
+        "polls": polls,
+        "elapsed_ms": started.elapsed().as_millis(),
+        "source_complete": complete,
+        "content_disclosed": false,
+    })
+}
+
+/// The ordinary unmatched-deadline outcome. Its code, message and detail are
+/// byte-identical to the shipped wire, because the partial below reuses the same
+/// evidence builder instead of replacing this path.
+fn term_wait_unmatched(
+    buffer: &TerminalBuffer,
+    identity: &ExternalWindowIdentity,
+    pattern: &str,
+    polls: usize,
+    started: Instant,
+) -> CuError {
+    let complete = source_complete(&buffer.backend);
+    CuError::new(
+        if complete {
+            "terminal_wait_timeout"
+        } else {
+            "terminal_wait_inconclusive"
+        },
+        if complete {
+            "external terminal buffer did not match before the bounded deadline"
+        } else {
+            "the bounded terminal provider exposed no match, but does not prove complete-buffer absence"
+        },
+    )
+    .with_detail(term_wait_observation(buffer, identity, pattern, polls, started))
+}
+
+/// The post-baseline cancellation outcome: a named `cancelled` failure whose
+/// structured detail carries the bounded evidence the verb had already observed.
+///
+/// `effect: partially_performed` is the truthful claim, because a buffer was really
+/// read. No `termination` field is added: this verb has no termination vocabulary and
+/// the outer error code is the carrier.
+fn term_wait_cancelled(
+    buffer: &TerminalBuffer,
+    identity: &ExternalWindowIdentity,
+    pattern: &str,
+    polls: usize,
+    started: Instant,
+) -> CuError {
+    CuError::new(
+        "cancelled",
+        "the terminal wait was cancelled after observation began",
+    )
+    .with_detail(serde_json::json!({
+        "effect": "partially_performed",
+        "phase": "observe_wait",
+        "partial_observation": term_wait_observation(buffer, identity, pattern, polls, started),
+    }))
 }
 
 /// Slice width for the inter-round pause, matching the shared wait policy. The
 /// token is observed before each slice and once at the end.
 const TERM_WAIT_CANCEL_SLICE: Duration = Duration::from_millis(10);
 
-fn term_wait_pause(control: ExecutionControl<'_>, pause: Duration) -> Result<(), CuError> {
+/// The inter-round pause, sliced so a long interval does not delay a stop.
+///
+/// It returns a private `bool` and NEVER builds an error: after the first buffer read
+/// a cancellation is only a request to stop, and only the loop owner knows whether the
+/// evidence already observed is publishable.
+fn term_wait_pause(control: ExecutionControl<'_>, pause: Duration) -> bool {
     let pause_deadline = Instant::now() + pause;
     while Instant::now() < pause_deadline {
-        control.check_observe()?;
+        if control.is_cancelled() {
+            return true;
+        }
         thread::sleep(
             TERM_WAIT_CANCEL_SLICE.min(pause_deadline.saturating_duration_since(Instant::now())),
         );
     }
-    control.check_observe()
+    control.is_cancelled()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     fn cancel_control(probe: &dyn Fn() -> bool) -> ExecutionControl<'_> {
         ExecutionControl::with_cancel_probe(probe)
@@ -848,14 +993,17 @@ mod tests {
     /// and reader. The production `term_wait_payload` reaches the same function
     /// after `bind_window`, so these cases cannot pass against a decision the real
     /// loop would not take.
-    fn run_bound_wait(
+    fn run_bound_wait<R>(
         pattern: &str,
         timeout_ms: u64,
         interval_ms: u64,
         max_bytes: usize,
         control: ExecutionControl<'_>,
-        reader: &dyn Fn(&ExternalWindowIdentity) -> Result<TerminalBuffer, CuError>,
-    ) -> Result<serde_json::Value, CuError> {
+        reader: &R,
+    ) -> Result<serde_json::Value, CuError>
+    where
+        R: Fn(&ExternalWindowIdentity) -> Result<TerminalBuffer, CuError>,
+    {
         let expression = Regex::new(pattern).expect("fixture pattern compiles");
         let identity = fixture_identity(7);
         term_wait_bound(
@@ -870,16 +1018,150 @@ mod tests {
         )
     }
 
+    /// Drives the FULL production entry with BOTH authority providers injected, so a
+    /// test can OBSERVE the binder call count instead of inferring it. `bind_window`
+    /// itself is real desktop authority (live window inventory plus process-start
+    /// identity), which is exactly why the single check must precede it.
+    fn run_with_providers<B, R>(
+        pattern: &str,
+        timeout_ms: u64,
+        interval_ms: u64,
+        max_bytes: usize,
+        control: ExecutionControl<'_>,
+        bind: B,
+        reader: R,
+    ) -> Result<serde_json::Value, CuError>
+    where
+        B: Fn(isize) -> Result<ExternalWindowIdentity, CuError>,
+        R: Fn(&ExternalWindowIdentity) -> Result<TerminalBuffer, CuError>,
+    {
+        term_wait_with_providers(
+            TermWaitRequest {
+                window: 7,
+                pattern,
+                timeout_ms,
+                interval_ms,
+                max_bytes,
+            },
+            control,
+            bind,
+            reader,
+        )
+    }
+
+    /// A binder that panics if reached, for proving zero desktop authority.
+    fn forbidden_binder() -> impl Fn(isize) -> Result<ExternalWindowIdentity, CuError> {
+        |_| panic!("desktop authority must not be reached")
+    }
+
+    /// A buffer reader that panics if reached.
+    fn forbidden_reader() -> impl Fn(&ExternalWindowIdentity) -> Result<TerminalBuffer, CuError> {
+        |_| panic!("the buffer authority must not be reached")
+    }
+
     /// Validation-only cases go through the production entry point, where they
     /// must fail before `bind_window` and therefore before any reader call.
-    fn run_unbound_wait(
+    fn run_unbound_wait<R>(
         pattern: &str,
         timeout_ms: u64,
         interval_ms: u64,
         control: ExecutionControl<'_>,
-        reader: &dyn Fn(&ExternalWindowIdentity) -> Result<TerminalBuffer, CuError>,
-    ) -> Result<serde_json::Value, CuError> {
+        reader: &R,
+    ) -> Result<serde_json::Value, CuError>
+    where
+        R: Fn(&ExternalWindowIdentity) -> Result<TerminalBuffer, CuError>,
+    {
         term_wait_with_reader(0, pattern, timeout_ms, interval_ms, 4096, control, reader)
+    }
+
+    #[test]
+    fn a_pre_cancel_reaches_neither_the_binder_nor_the_reader() {
+        // THE P0 REGRESSION. bind_window enumerates the live top-level inventory and
+        // observes the owning process's start identity, so it is real desktop
+        // authority. A pre-set token must therefore stop the verb BEFORE binding, and
+        // the claim `not_performed` is only truthful because of that ordering. Both
+        // providers panic if reached, so the counts are observed, not inferred.
+        let binder_calls = Cell::new(0usize);
+        let error = run_with_providers(
+            "fine",
+            30_000,
+            50,
+            4096,
+            cancel_control(&|| true),
+            |_| {
+                binder_calls.set(binder_calls.get() + 1);
+                panic!("a pre-effect cancel must not bind a window")
+            },
+            forbidden_reader(),
+        )
+        .expect_err("a pre-effect cancel must refuse the wait");
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(binder_calls.get(), 0, "no binder authority on a pre-cancel");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert!(detail.get("partial_observation").is_none());
+    }
+
+    #[test]
+    fn validation_still_outranks_the_check_with_a_pre_set_token() {
+        // The in-process request validation stays FIRST, so a malformed request keeps
+        // its own typed refusal and performs no desktop authority at all.
+        let binder_calls = Cell::new(0usize);
+        let binder = |_: isize| -> Result<ExternalWindowIdentity, CuError> {
+            binder_calls.set(binder_calls.get() + 1);
+            panic!("validation must refuse before the binder")
+        };
+        let error = run_with_providers(
+            "private([",
+            30_000,
+            50,
+            4096,
+            cancel_control(&|| true),
+            binder,
+            forbidden_reader(),
+        )
+        .expect_err("an invalid pattern must be refused");
+        assert_eq!(error.code, "terminal_pattern_invalid");
+        assert_eq!(binder_calls.get(), 0);
+
+        // Out-of-range bounds are likewise refused before any authority.
+        let error = run_with_providers(
+            "fine",
+            0,
+            50,
+            4096,
+            cancel_control(&|| true),
+            forbidden_binder(),
+            forbidden_reader(),
+        )
+        .expect_err("a zero timeout must be refused");
+        assert_eq!(error.code, "invalid_input");
+    }
+
+    #[test]
+    fn an_already_set_token_stops_before_the_binding_authority() {
+        // ORDER: validation -> the sole direct check -> binding. A token that is set
+        // BEFORE the call therefore prevents the binder from ever running, which is the
+        // whole point of moving the check ahead of bind_window: a pre-cancel must not
+        // perform desktop authority. This test pins the consequence that a binder
+        // failure can NOT cover a pre-set token.
+        let binder_calls = Cell::new(0usize);
+        let error = run_with_providers(
+            "fine",
+            30_000,
+            50,
+            4096,
+            cancel_control(&|| true),
+            |_| {
+                binder_calls.set(binder_calls.get() + 1);
+                Err(CuError::new("terminal_window_gone", "window 7 is gone"))
+            },
+            forbidden_reader(),
+        )
+        .expect_err("a pre-set token must stop the verb");
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(binder_calls.get(), 0, "the binder must never run");
+        assert_eq!(error.detail.expect("detail")["effect"], "not_performed");
     }
 
     #[test]
@@ -899,25 +1181,42 @@ mod tests {
             .expect_err("an empty pattern must be refused");
         assert_eq!(error.code, "invalid_input");
 
-        // A valid request with an unbound window reports the bind failure, not the
-        // token, and still never reads.
+        // A valid request with an ALREADY SET token stops at the check, which now sits
+        // BEFORE the binder, so no bind authority is performed either.
         let control = cancel_control(&|| true);
         let error = run_unbound_wait("fine", 1_000, 50, control, &reader)
-            .expect_err("an unbindable window must be refused");
-        assert_ne!(error.code, "cancelled");
+            .expect_err("a pre-cancelled valid request must refuse");
+        assert_eq!(error.code, "cancelled");
     }
 
     #[test]
-    fn pre_cancel_after_binding_stops_before_the_first_buffer_read() {
-        let reads = std::cell::Cell::new(0usize);
+    fn a_pre_cancel_stops_the_loop_before_the_first_buffer_read() {
+        // The provider-seam half of the same contract: a token pending before binding
+        // must stop the full entry before either authority provider. The bound loop no
+        // longer contains a direct check, so this is proven through the production
+        // entry rather than by calling that inner loop in isolation.
+        let reads = Cell::new(0usize);
         let reader = |_: &ExternalWindowIdentity| -> Result<TerminalBuffer, CuError> {
             reads.set(reads.get() + 1);
             panic!("a pre-cancelled wait must not read the buffer")
         };
-        let error = run_bound_wait("ready", 60_000, 50, 4096, cancel_control(&|| true), &reader)
-            .expect_err("a pre-cancelled bound wait must refuse");
+        let binder_calls = Cell::new(0usize);
+        let error = run_with_providers(
+            "ready",
+            60_000,
+            50,
+            4096,
+            cancel_control(&|| true),
+            |_| {
+                binder_calls.set(binder_calls.get() + 1);
+                Ok(fixture_identity(7))
+            },
+            reader,
+        )
+        .expect_err("a pre-cancelled wait must refuse");
         assert_eq!(error.code, "cancelled");
-        assert_eq!(reads.get(), 0);
+        assert_eq!(reads.get(), 0, "no buffer authority on a pre-cancel");
+        assert_eq!(binder_calls.get(), 0, "no bind authority on a pre-cancel");
     }
 
     #[test]
@@ -941,10 +1240,11 @@ mod tests {
 
     #[test]
     fn unmatched_first_buffer_plus_a_token_stops_before_a_second_read() {
-        // First buffer does not match; the token is set during the sliced pause, so
-        // the loop must exit without a second authority read.
-        let reads = std::cell::Cell::new(0usize);
-        let cancelled = std::cell::Cell::new(false);
+        // The FIRST buffer does not match and the token is set during that same read,
+        // so it is first visible at the sliced pause. The loop must exit without a
+        // second authority read, and must publish the partial it really observed.
+        let reads = Cell::new(0usize);
+        let cancelled = Cell::new(false);
         let probe = || cancelled.get();
         let reader = |identity: &ExternalWindowIdentity| -> Result<TerminalBuffer, CuError> {
             reads.set(reads.get() + 1);
@@ -952,7 +1252,7 @@ mod tests {
             Ok(TerminalBuffer {
                 node: identity.json().to_string(),
                 role: "text-area".into(),
-                backend: "fixture-complete".into(),
+                backend: "ax".into(),
                 text: "hello world".into(),
             })
         };
@@ -965,10 +1265,157 @@ mod tests {
             1,
             "the token must stop the second authority read"
         );
+        // The cancellation now carries the bounded evidence the round really observed,
+        // instead of falsely claiming that no effect was performed.
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        let partial = &detail["partial_observation"];
+        assert_eq!(partial["polls"], 1);
+        assert_eq!(partial["last_buffer_bytes"], "hello world".len());
+        assert!(partial["last_buffer_sha256"].as_str().is_some());
+        assert_eq!(partial["source_complete"], true);
+        assert_eq!(partial["content_disclosed"], false);
+        assert_eq!(partial["window_identity"]["handle"], 7);
+        // No parallel termination vocabulary was introduced on this verb.
+        assert!(partial.get("termination").is_none());
         assert!(
             started.elapsed() < Duration::from_secs(2),
             "the cancel must not wait for the 60 s deadline"
         );
+    }
+
+    #[test]
+    fn a_second_round_boundary_token_no_longer_fabricates_not_performed() {
+        // THE TWO-SIDED REGRESSION. The token is flipped by the reader at the END of
+        // round 2, so it is first visible at the boundary that used to be the loop-top
+        // authority-bearing check. By then round 2 has stored a buffer, so the truthful
+        // outcome is a partial and never `not_performed`.
+        let reads = Cell::new(0usize);
+        let cancelled = Cell::new(false);
+        let probe = || cancelled.get();
+        let reader = |identity: &ExternalWindowIdentity| -> Result<TerminalBuffer, CuError> {
+            let n = reads.get() + 1;
+            reads.set(n);
+            if n == 2 {
+                cancelled.set(true);
+            }
+            Ok(TerminalBuffer {
+                node: identity.json().to_string(),
+                role: "text-area".into(),
+                backend: "ax".into(),
+                text: "no match here".into(),
+            })
+        };
+        let error = run_bound_wait(
+            "absent-pattern",
+            60_000,
+            50,
+            4096,
+            cancel_control(&probe),
+            &reader,
+        )
+        .expect_err("a post-baseline boundary token must refuse the verb");
+        assert!(cancelled.get(), "the reader really did flip the token");
+        assert_eq!(reads.get(), 2, "no third authority read may happen");
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["partial_observation"]["polls"], 2);
+    }
+
+    #[test]
+    fn a_same_round_buffer_identity_change_beats_a_token_and_never_binds_again() {
+        // Identity drift is an authoritative statement about attribution, so it wins
+        // over a same-round token, and the identity is re-derived from the BUFFER node
+        // rather than by binding the window again.
+        let binder_calls = Cell::new(0usize);
+        let reads = Cell::new(0usize);
+        let cancelled = Cell::new(false);
+        let probe = || cancelled.get();
+        let reader = |identity: &ExternalWindowIdentity| -> Result<TerminalBuffer, CuError> {
+            let n = reads.get() + 1;
+            reads.set(n);
+            if n == 2 {
+                // The token becomes pending in the SAME round that the node changes, so
+                // the drift and the boundary signal are genuinely concurrent.
+                cancelled.set(true);
+            }
+            Ok(TerminalBuffer {
+                // Round 1 freezes the node; round 2 reports a different one.
+                node: if n == 1 {
+                    identity.json().to_string()
+                } else {
+                    "a-different-node".into()
+                },
+                role: "text-area".into(),
+                backend: "ax".into(),
+                text: "no match here".into(),
+            })
+        };
+        let error = run_with_providers(
+            "absent-pattern",
+            60_000,
+            50,
+            4096,
+            cancel_control(&probe),
+            |_| {
+                binder_calls.set(binder_calls.get() + 1);
+                Ok(fixture_identity(7))
+            },
+            reader,
+        )
+        .expect_err("identity drift must win over the pending token");
+        assert!(
+            cancelled.get(),
+            "the token really did become pending in round 2"
+        );
+        assert_eq!(binder_calls.get(), 1, "binding happens exactly once");
+        assert_eq!(
+            reads.get(),
+            2,
+            "round 2 really did read and detect the drift"
+        );
+        assert_eq!(error.code, "terminal_buffer_identity_changed");
+        let detail = error.detail.expect("detail");
+        assert_ne!(detail["effect"], "partially_performed");
+    }
+
+    #[test]
+    fn an_uncancelled_unmatched_wait_keeps_its_shipped_timeout_detail() {
+        // The ordinary wire must not move: the same code, message and detail fields the
+        // verb published before the repair, with no cancellation vocabulary added.
+        let reader = |identity: &ExternalWindowIdentity| -> Result<TerminalBuffer, CuError> {
+            Ok(TerminalBuffer {
+                node: identity.json().to_string(),
+                role: "text-area".into(),
+                backend: "ax".into(),
+                text: "no match here".into(),
+            })
+        };
+        let error = run_bound_wait(
+            "absent-pattern",
+            1,
+            50,
+            4096,
+            ExecutionControl::none(),
+            &reader,
+        )
+        .expect_err("an unmatched wait must time out");
+        assert_eq!(error.code, "terminal_wait_timeout");
+        assert_eq!(
+            error.message,
+            "external terminal buffer did not match before the bounded deadline"
+        );
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["source_complete"], true);
+        assert_eq!(detail["content_disclosed"], false);
+        assert_eq!(detail["last_buffer_bytes"], "no match here".len());
+        assert!(detail["pattern_sha256"].as_str().is_some());
+        assert_eq!(detail["pattern_bytes"], "absent-pattern".len());
+        assert!(detail["polls"].as_u64().is_some_and(|polls| polls >= 1));
+        assert!(detail.get("effect").is_none());
+        assert!(detail.get("termination").is_none());
     }
 
     #[test]

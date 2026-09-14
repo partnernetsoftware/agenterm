@@ -214,7 +214,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │        read, cancellation preserves the variant's bounded partial observation instead
   │  │        of claiming `not_performed`, while a zero-bounded window wait retains its ordinary
   │  │        no-read result and matched/error/deadline outcomes remain authoritative;
-  │  │        external-terminal `term wait` applies the same rule after exact window binding;
+  │  │        external-terminal `term wait` checks before exact window binding (itself live
+  │  │        desktop/process authority), then preserves the identity-bound buffer digest/size
+  │  │        observation on post-read cancellation while match, drift, refusal and deadline win;
   │  │        `device-watch` checks before its first inventory sample and later sample rounds,
   │  │        while post-sample cancellation preserves the shaped bounded partial observation
   │  │        in typed error detail instead of falsely claiming that no effect was performed;
