@@ -255,6 +255,22 @@ pub enum NativeDoorError {
         index: usize,
         native_status: i32,
     },
+    /// A known fixed-width `uname` pointee was handed a region smaller than
+    /// `sizeof(struct utsname)` on this target.
+    ///
+    /// `uname` is the one admitted symbol this door has a known fixed width
+    /// for, so that width is a fact about the target rather than something the
+    /// caller can state in the call. It is not the only admitted pointer shape
+    /// without a length argument; it is the only one whose written width this
+    /// target reports as a compile-time fact. Everything outside this
+    /// refinement keeps the caller-owned pointee contract: an unknown symbol
+    /// with the same signature is never refused by this rule.
+    NativeRegionBelowKnownMinimum {
+        index: usize,
+        requested: usize,
+        minimum: usize,
+        symbol: &'static str,
+    },
     LibraryLoad {
         library: String,
         message: String,
@@ -310,6 +326,7 @@ impl NativeDoorError {
             Self::NativeRegionTooLarge { .. } => "native_region_too_large",
             Self::NativeRegionUnterminated { .. } => "native_region_unterminated",
             Self::NativeRegionNotUtf8 { .. } => "native_region_not_utf8",
+            Self::NativeRegionBelowKnownMinimum { .. } => "native_region_below_known_minimum",
             Self::LibraryLoad { .. } => "native_library_load_failed",
             Self::SymbolLoad { .. } => "native_symbol_load_failed",
         }
@@ -449,6 +466,17 @@ impl fmt::Display for NativeDoorError {
                 write!(
                     f,
                     "argument {index} region output is not UTF-8 though output is \"text\"; native status was {native_status}"
+                )
+            }
+            Self::NativeRegionBelowKnownMinimum {
+                index,
+                requested,
+                minimum,
+                symbol,
+            } => {
+                write!(
+                    f,
+                    "argument {index} region capacity {requested} is below the {minimum} byte minimum for `{symbol}` on this target, which takes no length argument"
                 )
             }
             Self::LibraryLoad { library, message } => {
@@ -974,6 +1002,7 @@ fn invoke_pointer_json(
     }
 
     preflight_region_plans(&plans, max_region_bytes)?;
+    check_known_region_minimum(spec, &plans)?;
     let mut regions: Vec<NativeRegion> = plans.into_iter().map(RegionPlan::materialize).collect();
 
     let mut arguments: Vec<agenterm_dyn::AbiValue> = Vec::with_capacity(layout.len());
@@ -1397,6 +1426,70 @@ fn preflight_region_plans(plans: &[RegionPlan], maximum: usize) -> Result<(), Na
         return Err(NativeDoorError::NativeRegionTooLarge {
             requested: encoded,
             maximum,
+        });
+    }
+    Ok(())
+}
+
+/// The one admitted symbol this door has a known fixed width for.
+///
+/// `uname` writes a whole `struct utsname`, and its C prototype offers the
+/// caller no argument to bound that write. It is not the only admitted
+/// pointer shape without a length argument - six of the ten served shapes have
+/// none - but it is the only one whose written width this target reports as a
+/// compile-time fact, so for the other five the caller-owned pointee contract
+/// is the whole answer and this refinement says nothing about them.
+const KNOWN_MINIMUM_SYMBOL: &str = "uname";
+
+/// `sizeof(struct utsname)` on the current Unix target.
+///
+/// `None` where the symbol does not exist, which is every non-Unix target:
+/// there is no `uname` to call, so there is no minimum to enforce and the
+/// caller-owned contract continues unchanged.
+#[cfg(unix)]
+const fn known_region_minimum() -> Option<usize> {
+    Some(std::mem::size_of::<libc::utsname>())
+}
+
+#[cfg(not(unix))]
+const fn known_region_minimum() -> Option<usize> {
+    None
+}
+
+/// Refuse a region that cannot hold a symbol whose width this target knows.
+///
+/// This is a refinement of the open world, not an allowlist: it matches one
+/// symbol name, and every other symbol - including the ones sharing this exact
+/// `i32(ptr)` signature - reaches the foreign call under the unchanged
+/// caller-owned pointee contract. It runs before any pointee is allocated and
+/// before the loader is asked for anything.
+fn check_known_region_minimum(
+    spec: &NativeSpec,
+    plans: &[RegionPlan],
+) -> Result<(), NativeDoorError> {
+    // Only the current process library, only the one name, and only the exact
+    // signature that makes the first parameter the whole pointee. A library
+    // that merely re-exports a symbol called `uname` is a different contract
+    // in a different image, so it keeps the caller-owned rule.
+    if !spec.library.is_empty()
+        || spec.symbol != KNOWN_MINIMUM_SYMBOL
+        || spec.result != NativeType::I32
+        || spec.parameters.as_slice() != [NativeType::Pointer]
+    {
+        return Ok(());
+    }
+    let Some(minimum) = known_region_minimum() else {
+        return Ok(());
+    };
+    let Some(plan) = plans.first() else {
+        return Ok(());
+    };
+    if plan.capacity < minimum {
+        return Err(NativeDoorError::NativeRegionBelowKnownMinimum {
+            index: 0,
+            requested: plan.capacity,
+            minimum,
+            symbol: KNOWN_MINIMUM_SYMBOL,
         });
     }
     Ok(())
@@ -2438,9 +2531,9 @@ mod json_adapter_tests {
                 .expect("uname -s emits UTF-8 text")
                 .to_owned();
         // `uname` takes no length argument, so the region must be at least
-        // `sizeof(struct utsname)` -- 1280 bytes on Darwin, 390 on Linux. 4096
-        // covers both repository Unix hosts; an under-sized region here would
-        // be a real C overflow, which is the caller's contract, not the door's.
+        // `sizeof(struct utsname)`; the door knows that minimum for this one
+        // symbol and refuses below it before the call. 4096 clears it on both
+        // repository Unix hosts, so an adequate caller sees no change.
         let answer = invoke_native_json(
             b"|uname|i32(ptr)",
             br#"[{"region":{"capacity":4096,"termination":"nul","output":"text"}}]"#,
@@ -2740,6 +2833,119 @@ mod json_adapter_tests {
     }
 
     /// The JSON pointer adapter admits the `i32` results and nothing else.
+    /// The one symbol whose width this target knows is refused below its own
+    /// `sizeof(struct utsname)`, before the loader is asked for anything.
+    ///
+    /// This is the deterministic replacement for the probabilistic crash loop:
+    /// the refusal is a typed code and a specific message, and it names the
+    /// index, both sizes and the symbol.
+    #[cfg(unix)]
+    #[test]
+    fn a_known_width_symbol_is_refused_below_its_target_minimum() {
+        let libraries = NativeLibraryCache::new();
+        let minimum = std::mem::size_of::<libc::utsname>();
+        // One byte under the target's own fact, so the court cannot drift from
+        // the platform it runs on.
+        let arguments = format!(
+            r#"[{{"region":{{"capacity":{},"termination":"nul","output":"bytes"}}}}]"#,
+            minimum - 1
+        );
+        let error = invoke_native_json(
+            b"|uname|i32(ptr)",
+            arguments.as_bytes(),
+            &libraries,
+            region_bound(),
+        )
+        .expect_err("a region below the target minimum is refused");
+        assert_eq!(error.code(), "native_region_below_known_minimum");
+        assert_eq!(
+            error,
+            NativeDoorError::NativeRegionBelowKnownMinimum {
+                index: 0,
+                requested: minimum - 1,
+                minimum,
+                symbol: "uname",
+            }
+        );
+        let message = error.to_string();
+        for needle in [
+            "argument 0",
+            &(minimum - 1).to_string(),
+            &minimum.to_string(),
+            "uname",
+        ] {
+            assert!(message.contains(needle), "{message} lacks {needle}");
+        }
+        assert_eq!(
+            libraries.len(),
+            0,
+            "the minimum is checked before the loader is asked"
+        );
+    }
+
+    /// Exactly at the target minimum the same call proceeds, so the refinement
+    /// rejects the under-sized region and not the symbol.
+    #[cfg(unix)]
+    #[test]
+    fn a_known_width_symbol_at_its_target_minimum_passes_the_bound() {
+        let minimum = std::mem::size_of::<libc::utsname>();
+        let arguments = format!(
+            r#"[{{"region":{{"capacity":{minimum},"termination":"nul","output":"bytes"}}}}]"#
+        );
+        let answer = invoke_native_json(
+            b"|uname|i32(ptr)",
+            arguments.as_bytes(),
+            &NativeLibraryCache::new(),
+            region_bound(),
+        )
+        .expect("the minimum itself is enough room for the struct");
+        let answer: serde_json::Value = serde_json::from_str(&answer).expect("result JSON");
+        assert_eq!(answer["value"], serde_json::json!(0));
+        assert_eq!(answer["type"], serde_json::json!("i32"));
+    }
+
+    /// The refinement is a fact about one symbol, not a rule about a shape.
+    ///
+    /// An unknown symbol carrying the identical `i32(ptr)` signature keeps the
+    /// caller-owned pointee contract: the door knows nothing about its width,
+    /// so it must not refuse it on width grounds.
+    #[cfg(unix)]
+    #[test]
+    fn an_unknown_symbol_with_the_same_signature_keeps_the_caller_owned_contract() {
+        let error = invoke_native_json(
+            b"|getpid_agenterm_unknown|i32(ptr)",
+            br#"[{"region":{"capacity":1,"termination":"nul","output":"bytes"}}]"#,
+            &NativeLibraryCache::new(),
+            region_bound(),
+        )
+        .expect_err("an unresolvable symbol still fails");
+        assert_ne!(
+            error.code(),
+            "native_region_below_known_minimum",
+            "a width rule must not become a symbol allowlist: {error:?}"
+        );
+        assert_eq!(error.code(), "native_symbol_load_failed");
+    }
+
+    /// A caller that names a foreign library is a different contract in a
+    /// different image, even when the symbol name matches.
+    #[cfg(unix)]
+    #[test]
+    fn the_same_symbol_in_a_named_library_is_not_bounded_by_the_known_minimum() {
+        let error = invoke_native_json(
+            b"no_such_library_agenterm_h7b|uname|i32(ptr)",
+            br#"[{"region":{"capacity":1,"termination":"nul","output":"bytes"}}]"#,
+            &NativeLibraryCache::new(),
+            region_bound(),
+        )
+        .expect_err("the named library does not load");
+        assert_eq!(
+            error.code(),
+            "native_library_load_failed",
+            "the minimum belongs to this process image only; got {error:?}"
+        );
+    }
+
     #[test]
     fn only_the_i32_pointer_prototypes_are_admitted_by_the_json_adapter() {
         assert_eq!(

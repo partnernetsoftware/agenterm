@@ -211,6 +211,9 @@ agenterm-qjswasm
 │  │  │  ├─ raw GuestSpan proves only that the caller-declared range lies in guest memory;
 │  │  │  │     it does not prove the foreign callee stays within that range, and a false ABI/pointee
 │  │  │  │     assertion remains contained-worker failure just like a false function signature
+│  │  │  ├─ open-world known-contract refinement: the current-process standard `uname|i32(ptr)`
+│  │  │  │     has a target-provided fixed minimum (`sizeof(struct utsname)`), so a smaller JSON
+│  │  │  │     region refuses before allocation/load/call; unmatched symbols remain fully admitted
 │  │  │  ├─ rejected hardening: a `(target,library,symbol,signature)` pointee table would validate
 │  │  │  │     only a closed known-symbol set and refuse every other import, turning robustness into
 │  │  │  │     a symbol allowlist; arbitrary native-call containment belongs at the worker boundary
@@ -228,9 +231,10 @@ agenterm-qjswasm
 │  │  │  │     materialize → the same `invoke_abi` core through the Engine's loaded-handle
 │  │  │  │     cache → post-call snapshot readback; a refusal precedes the loader
 │  │  │  └─ evidence: `native::json_adapter_tests` (10 admitted `i32` pointer prototypes, POSIX
-│  │  │        `uname` oracle, 5 stable codes, malformed-shape table, alignment, preflight
-│  │  │        before load) + `tests/native_door.rs` WAT court + the product run in
-│  │  │        `src/script_engine.rs` (built-in `agenterm:native` module from `.qjs`)
+│  │  │        `uname` oracle, 6 stable region codes, malformed-shape table, alignment, preflight
+│  │  │        before load) + `tests/native_door.rs` WAT court +
+│  │  │        `tests/script_native_artifact_supervisor.rs` public small-region refusal + the
+│  │  │        product run in `src/script_engine.rs` (built-in `agenterm:native` module from `.qjs`)
 │  │  └─ non-goal: no agenterm-cu → agenterm-dyn dependency, second loader/door, or typed CU effect in dyn
 │  ├─ [~] embedder `agenterm:acu` object: same typed schema/Executor/errors/receipts as CLI and MCP
 │  │  ├─ [x] raw bounded door + non-shadowable qjs module + shared Command/Executor/CuReply adapter
@@ -470,7 +474,7 @@ flowchart LR
   NATIVEPOLICY["Native Importer declaration schema<br/>nullability · guest-span checks"]
   DECL["import lowering plan<br/>target · ABI values · storage · result"]
   INVOKE["invoke_prepared<br/>one NativeCall construction seam"]
-  JSONREGION["JSON pointer call<br/>one call-scoped host region per ptr<br/>16-byte aligned · zero-filled<br/>snapshot readback · no address published"]
+  JSONREGION["JSON pointer call<br/>one call-scoped host region per ptr<br/>16-byte aligned · zero-filled<br/>known fixed minimum preflight<br/>snapshot readback · no address published"]
   DYNABI["agenterm-dyn ABI Importer mechanism<br/>loader · symbol · trampoline · invoke_abi"]
   ENCODERS["transport encoders<br/>raw bits · JSON scalar · region answer"]
   CUCALLER["CU typed product projection<br/>fixed-sibling provider"]
@@ -902,20 +906,25 @@ integration.
   require a region here, because a JSON caller owns no guest address that `null`
   could stand for; the raw block door keeps admitting `null` at a `ptr?`
   position, and both nullable prototypes stay in this crate's catalog while dyn
-  receives the single machine-level pointer.
-- Five stable codes are the whole region refusal surface:
+  receives the single machine-level pointer. The open-world exception is the
+  current-process standard `uname|i32(ptr)`: this target provides
+  `sizeof(struct utsname)`, so a smaller region is refused before allocation,
+  loading or invocation. This known fact does not gate unknown symbols or any
+  other admitted shape; their pointee width remains caller-owned.
+- Six stable codes are the whole region refusal surface:
   `native_region_required`, `native_region_shape_invalid`,
   `native_region_too_large`, `native_region_unterminated` and
-  `native_region_not_utf8`. The `termination`/`output` pair is one choice of
+  `native_region_not_utf8`, plus `native_region_below_known_minimum` for that
+  target-provided `uname` fact. The `termination`/`output` pair is one choice of
   three admitted combinations rather than two independent fields, so the fourth
   (`raw` + `text`) is unrepresentable and the readback cannot run in a state the
   decoder never validated. Readback failures retain the native status inside the
   typed error, because refusing an encoding contract must not erase the C result,
   and the readback runs whether the callee reported success or failure.
-- Those five codes are one subset of the native door's 40-word machine-readable
+- Those six codes are one subset of the native door's 41-word machine-readable
   error algebra. The owning `native_door_schema` court constructs every variant,
   pins every spelling, requires every code to be distinct, and uses a second
-  exhaustive match with no wildcard so adding a 41st word is a compile-time
+  exhaustive match with no wildcard so adding a 42nd word is a compile-time
   compatibility event rather than an unreviewed diagnostic change.
 - Region storage is budgeted before it exists. The call's capacity total and its
   worst-case encoded JSON answer bound (`\u00XX` escaping as six bytes per byte

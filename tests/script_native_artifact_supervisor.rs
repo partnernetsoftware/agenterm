@@ -478,6 +478,57 @@ fn wasm_convention_is_a_closed_value_option() {
 
 #[cfg(unix)]
 #[test]
+fn a_known_width_symbol_refuses_a_small_region_before_the_foreign_call() {
+    // The door knows one symbol's minimum width as a fact about this target.
+    // Below it the public answer must be a typed refusal rather than a worker
+    // that dies in the foreign call, and the message must state the minimum it
+    // used. The value is derived from `libc` rather than written down here, so
+    // this court follows the platform instead of pinning one.
+    let minimum = std::mem::size_of::<libc::utsname>();
+    let root = FixtureRoot::new();
+    let path = root.qjs(
+        "small-uname-region",
+        &format!(
+            r#"import * as native from "agenterm:native";
+const r = native.call("|uname|i32(ptr)", [{{ region: {{ capacity: {}, termination: "nul", output: "bytes" }} }}]);
+return "value=" + r.value;
+"#,
+            minimum - 1
+        ),
+    );
+    let output = std::process::Command::new(AGENTERM_BIN)
+        .args(["cli", "script", "run", "--profile", "tool"])
+        .arg(&path)
+        .env_remove("AGENTERM_SCRIPT_BACKEND")
+        .output()
+        .expect("agenterm CLI runs");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("host_worker_crash"),
+        "an under-sized known-width region must be refused, not crash the worker: {stderr}"
+    );
+    assert!(stderr.contains("\"code\":\"qjswasm_backend\""), "{stderr}");
+    assert!(
+        stderr.contains("\"exit_class\":\"configuration\""),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("native_region_below_known_minimum"),
+        "{stderr}"
+    );
+    // The minimum the door actually used, not a transcribed constant.
+    assert!(
+        stderr.contains(&minimum.to_string()),
+        "the refusal must name the {minimum} byte minimum it enforced: {stderr}"
+    );
+    assert!(
+        stderr.contains("uname"),
+        "the refusal must name the symbol: {stderr}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn a_crashing_native_declaration_becomes_a_typed_worker_crash() {
     let root = FixtureRoot::new();
     let path = root.wasm(

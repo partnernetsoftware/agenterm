@@ -6370,6 +6370,16 @@ caller owns the width, the termination contract and a pointee large enough for
 the symbol it selected, because an opaque `ptr` argument still does not tell the
 door how many bytes the selected C symbol writes.
 
+Keep that default open-world contract while still using target facts the
+compiler can actually prove. If the current-process image has one standard
+symbol with a fixed target type, an exact `(library identity, symbol,
+signature)` match may refine only that call: derive the minimum with
+`size_of::<the target type>()` and refuse a smaller region before allocation,
+loading or invocation. A miss must continue through the ordinary caller-owned
+path; do not turn the fact table into an admission list, do not infer output
+width from an unrelated scalar argument, and do not transcribe per-target byte
+constants when the platform crate already owns the type.
+
 Put the alignment in the **allocation**, not only in a struct field: a `Vec<u8>`
 is byte-aligned however its own fields are declared, so wrap the storage in a
 `#[repr(align(16))]` unit (`max_align_t` / `long double` on the repository's SysV

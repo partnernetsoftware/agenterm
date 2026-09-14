@@ -373,6 +373,9 @@ fn native_door_error_word(error: &NativeDoorError) -> &'static str {
         NativeDoorError::NativeRegionTooLarge { .. } => "native-region-too-large",
         NativeDoorError::NativeRegionUnterminated { .. } => "native-region-unterminated",
         NativeDoorError::NativeRegionNotUtf8 { .. } => "native-region-not-utf8",
+        NativeDoorError::NativeRegionBelowKnownMinimum { .. } => {
+            "native-region-below-known-minimum"
+        }
         NativeDoorError::LibraryLoad { .. } => "library-load",
         NativeDoorError::SymbolLoad { .. } => "symbol-load",
     }
@@ -588,6 +591,15 @@ fn every_native_door_error_has_one_stable_distinct_code() {
                 native_status: 0,
             },
             "native_region_not_utf8",
+        ),
+        (
+            NativeDoorError::NativeRegionBelowKnownMinimum {
+                index: 0,
+                requested: 1,
+                minimum: 2,
+                symbol: "fixture",
+            },
+            "native_region_below_known_minimum",
         ),
         (
             NativeDoorError::LibraryLoad {

@@ -45,6 +45,14 @@ tinyvm-qjs = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "9ac2
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+[target.'cfg(unix)'.dependencies]
+# `sizeof(struct utsname)`: the minimum region width for the one symbol this
+# door has a known fixed width for, so the width is a fact about the target
+# rather than something the call states. Other admitted pointer shapes without
+# a length argument keep the caller-owned pointee contract. `agenterm-dyn`
+# declares `libc` the same way for the same reason.
+libc = "0.2"
+
 [dev-dependencies]
 # The shared corpus-scan contract: the scenarios every engine's scanner has to
 # satisfy, so this crate's wrapper is held to the same ones lua's and qjs's are.
