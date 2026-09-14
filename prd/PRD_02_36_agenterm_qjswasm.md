@@ -280,11 +280,11 @@ agenterm-qjswasm
 │  │  │      `setsid` ownership boundary while still terminating same-session descendants
 │  │  ├─ [x] pass the same token through the fixed-sibling provider into the observe-only
 │  │  │      `process-watch` wait without storing the callback or spawning a helper thread
-│  │  └─ [x] named native observation waits use operation-specific phase/effect semantics:
-│  │         `pty-wait`, shared `terminal-wait` and `pty-wait-exit` sample the same borrowed
-│  │         token between bounded authority rounds while same-round terminal/error replies win;
-│  │         public `wait` window/tree/text/ready/expect and external-terminal `term wait`
-│  │         now follow the same ordering after their own validation/identity binding
+│  │  └─ [x] shipped native observation waits use operation-specific phase/effect semantics;
+│  │         the canonical enumeration, partial-evidence rules and explicit bounded
+│  │         uninterruptible calls live in PRD 02.28 rather than a second list here.
+│  │         `job-events` now joins that set; `job-resources --watch-ms` remains the
+│  │         named in-repo polling gap that keeps this parent branch partial
 │  ├─ [x] check-many entry + canonical recursive imports share bytes/modules/deadline budgets
 │  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
 ├─ upstream performance frontier

@@ -326,7 +326,7 @@
       ],
       "grant": "observe",
       "family": "system",
-      "summary": "read lossless cursor-based stdout and stderr pages",
+      "summary": "read or cooperatively long-poll lossless cursor-based stdout and stderr pages",
       "usage": "job-events JOB_ID GENERATION [--stdout-cursor N] [--stderr-cursor N] [--timeout-ms N] [--max-bytes N]",
       "args": []
     },
@@ -7405,7 +7405,7 @@
     },
     {
       "name": "job-events",
-      "text": "agenterm-cu job-events    (also: job events)\n  scope: observe    family: Managed jobs\n\nusage: job-events JOB_ID GENERATION [--stdout-cursor N] [--stderr-cursor N] [--timeout-ms N] [--max-bytes N]\n\nReads independent bounded stdout/stderr rings. Cursors are canonical decimal byte positions; truncation and native read failures stay explicit.\n"
+      "text": "agenterm-cu job-events    (also: job events)\n  scope: observe    family: Managed jobs\n\nusage: job-events JOB_ID GENERATION [--stdout-cursor N] [--stderr-cursor N] [--timeout-ms N] [--max-bytes N]\n\nReads independent bounded stdout/stderr rings. Cursors are canonical decimal byte positions; truncation and native read failures stay explicit. A long poll observes call-scoped cancellation before record authority and between rounds; cancellation after a sample preserves both cursor projections and the last status as typed partial evidence.\n"
     },
     {
       "name": "job-resources",

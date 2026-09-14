@@ -1380,39 +1380,133 @@ pub(super) fn job_events_payload(
     stderr_cursor: &JobOutputCursor,
     timeout_ms: u64,
     max_bytes: usize,
+    control: ExecutionControl<'_>,
 ) -> Result<Value, CuError> {
-    let record = checked_record(job_id, generation)?;
-    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
-    let stdout_budget = max_bytes.div_ceil(2);
-    let stderr_budget = max_bytes / 2;
+    job_events_with_providers(
+        JobEventsRequest {
+            job_id,
+            generation,
+            stdout_cursor: stdout_cursor.value(),
+            stderr_cursor: stderr_cursor.value(),
+            timeout_ms,
+            max_bytes,
+        },
+        control,
+        || checked_record(job_id, generation),
+        |record, stdout_cursor, stderr_cursor, stdout_budget, stderr_budget| {
+            Ok(JobEventsSample {
+                stdout: collect_output(record, OutputStream::Stdout, stdout_cursor, stdout_budget)?,
+                stderr: collect_output(record, OutputStream::Stderr, stderr_cursor, stderr_budget)?,
+                status: live_status(record)?,
+            })
+        },
+    )
+}
+
+#[derive(Clone, Copy)]
+struct JobEventsRequest<'a> {
+    job_id: &'a str,
+    generation: u64,
+    stdout_cursor: u64,
+    stderr_cursor: u64,
+    timeout_ms: u64,
+    max_bytes: usize,
+}
+
+struct JobEventsSample {
+    stdout: Value,
+    stderr: Value,
+    status: JobStatus,
+}
+
+impl JobEventsSample {
+    fn changed(&self) -> bool {
+        self.stdout["next_cursor"] != self.stdout["cursor"]
+            || self.stderr["next_cursor"] != self.stderr["cursor"]
+    }
+
+    fn terminal(&self) -> bool {
+        !matches!(self.status.state, JobState::Running)
+    }
+
+    fn into_value(
+        self,
+        request: JobEventsRequest<'_>,
+        timed_out: bool,
+        polls: Option<usize>,
+    ) -> Value {
+        let mut value = json!({
+            "job_id": request.job_id,
+            "generation": request.generation,
+            "stdout": self.stdout,
+            "stderr": self.stderr,
+            "status": self.status,
+            "timed_out": timed_out,
+        });
+        if let Some(polls) = polls {
+            value
+                .as_object_mut()
+                .expect("job-events payload is an object")
+                .insert("polls".into(), polls.into());
+        }
+        value
+    }
+}
+
+fn job_events_with_providers<C, B, S>(
+    request: JobEventsRequest<'_>,
+    control: ExecutionControl<'_>,
+    bind: B,
+    sample: S,
+) -> Result<Value, CuError>
+where
+    B: FnOnce() -> Result<C, CuError>,
+    S: Fn(&C, u64, u64, usize, usize) -> Result<JobEventsSample, CuError>,
+{
+    // PRE-FIRST-AUTHORITY: opening the durable record and every output/status
+    // request are real authority. Only this point may report `not_performed`.
+    control.check_observe()?;
+    let context = bind()?;
+    let deadline = Instant::now() + Duration::from_millis(request.timeout_ms);
+    let stdout_budget = request.max_bytes.div_ceil(2);
+    let stderr_budget = request.max_bytes / 2;
+    let mut polls = 0usize;
     loop {
-        let stdout = collect_output(
-            &record,
-            OutputStream::Stdout,
-            stdout_cursor.value(),
+        polls += 1;
+        let observation = sample(
+            &context,
+            request.stdout_cursor,
+            request.stderr_cursor,
             stdout_budget,
-        )?;
-        let stderr = collect_output(
-            &record,
-            OutputStream::Stderr,
-            stderr_cursor.value(),
             stderr_budget,
         )?;
-        let status = live_status(&record)?;
-        let changed =
-            stdout["next_cursor"] != stdout["cursor"] || stderr["next_cursor"] != stderr["cursor"];
-        let terminal = !matches!(status.state, JobState::Running);
-        if changed || terminal || Instant::now() >= deadline {
-            return Ok(json!({
-                "job_id": job_id,
-                "generation": generation,
-                "stdout": stdout,
-                "stderr": stderr,
-                "status": status,
-                "timed_out": !changed && !terminal && Instant::now() >= deadline,
-            }));
+        let changed = observation.changed();
+        let terminal = observation.terminal();
+        let deadline_reached = Instant::now() >= deadline;
+        if changed || terminal || deadline_reached {
+            return Ok(observation.into_value(
+                request,
+                !changed && !terminal && deadline_reached,
+                None,
+            ));
         }
-        thread::sleep(START_POLL.min(deadline.saturating_duration_since(Instant::now())));
+        let pause_deadline =
+            Instant::now() + START_POLL.min(deadline.saturating_duration_since(Instant::now()));
+        if control.sleep_until_cancelled(pause_deadline) {
+            if Instant::now() >= deadline {
+                return Ok(observation.into_value(request, true, None));
+            }
+            let partial = observation.into_value(request, false, Some(polls));
+            return Err(CuError::new(
+                "cancelled",
+                "managed-job event polling was cancelled after an observation",
+            )
+            .with_detail(json!({
+                "effect": "partially_performed",
+                "phase": "observe_wait",
+                "partial_observation": partial,
+            })));
+        }
     }
 }
 
@@ -1970,6 +2064,226 @@ mod tests {
             state: JobState::Exited { exit_code },
             ..running_status()
         }
+    }
+
+    fn events_output(cursor: u64, next_cursor: u64) -> Value {
+        json!({
+            "cursor": cursor.to_string(),
+            "next_cursor": next_cursor.to_string(),
+            "current_cursor": next_cursor.to_string(),
+            "data_base64": "",
+            "bytes": 0,
+            "finalized": false,
+            "read_error": null,
+        })
+    }
+
+    fn events_request(timeout_ms: u64) -> JobEventsRequest<'static> {
+        JobEventsRequest {
+            job_id: "00000000-0000-4000-8000-00000000feed",
+            generation: 7,
+            stdout_cursor: 4,
+            stderr_cursor: 9,
+            timeout_ms,
+            max_bytes: 4_096,
+        }
+    }
+
+    #[test]
+    fn job_events_pre_cancel_stops_before_record_and_output_authority() {
+        let binds = std::cell::Cell::new(0usize);
+        let samples = std::cell::Cell::new(0usize);
+        let error = job_events_with_providers(
+            events_request(30_000),
+            ExecutionControl::with_cancel_probe(&|| true),
+            || -> Result<(), CuError> {
+                binds.set(binds.get() + 1);
+                unreachable!("a pre-effect cancellation must precede record access")
+            },
+            |_, _, _, _, _| -> Result<JobEventsSample, CuError> {
+                samples.set(samples.get() + 1);
+                unreachable!("a pre-effect cancellation must precede output access")
+            },
+        )
+        .expect_err("a pre-effect token cancels job-events");
+        assert_eq!((binds.get(), samples.get()), (0, 0));
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("cancellation detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert!(detail.get("partial_observation").is_none());
+    }
+
+    #[test]
+    fn job_events_cancel_after_a_sample_preserves_both_cursors_and_status() {
+        let token = std::cell::Cell::new(false);
+        let samples = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let error = job_events_with_providers(
+            events_request(30_000),
+            ExecutionControl::with_cancel_probe(&probe),
+            || Ok(()),
+            |_, stdout_cursor, stderr_cursor, _, _| {
+                samples.set(samples.get() + 1);
+                token.set(true);
+                Ok(JobEventsSample {
+                    stdout: events_output(stdout_cursor, stdout_cursor),
+                    stderr: events_output(stderr_cursor, stderr_cursor),
+                    status: running_status(),
+                })
+            },
+        )
+        .expect_err("a pending token after one sample returns partial evidence");
+        assert_eq!(samples.get(), 1, "no second sample may begin");
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("cancellation detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        let partial = &detail["partial_observation"];
+        assert_eq!(partial["stdout"]["cursor"], "4");
+        assert_eq!(partial["stderr"]["cursor"], "9");
+        assert_eq!(partial["polls"], 1);
+        assert_eq!(partial["timed_out"], false);
+        assert_eq!(partial["status"]["state"]["kind"], "running");
+    }
+
+    #[test]
+    fn job_events_token_raised_by_record_binding_still_takes_one_authoritative_sample() {
+        let token = std::cell::Cell::new(false);
+        let binds = std::cell::Cell::new(0usize);
+        let samples = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let error = job_events_with_providers(
+            events_request(30_000),
+            ExecutionControl::with_cancel_probe(&probe),
+            || {
+                binds.set(binds.get() + 1);
+                token.set(true);
+                Ok(())
+            },
+            |_, stdout_cursor, stderr_cursor, _, _| {
+                samples.set(samples.get() + 1);
+                Ok(JobEventsSample {
+                    stdout: events_output(stdout_cursor, stdout_cursor),
+                    stderr: events_output(stderr_cursor, stderr_cursor),
+                    status: running_status(),
+                })
+            },
+        )
+        .expect_err("binding work makes the cancellation partially performed");
+        assert_eq!((binds.get(), samples.get()), (1, 1));
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(
+            error.detail.expect("detail")["effect"],
+            "partially_performed"
+        );
+    }
+
+    #[test]
+    fn job_events_sample_error_wins_over_a_token_from_that_round() {
+        let token = std::cell::Cell::new(false);
+        let probe = || token.get();
+        let error = job_events_with_providers(
+            events_request(30_000),
+            ExecutionControl::with_cancel_probe(&probe),
+            || Ok(()),
+            |_, _, _, _, _| {
+                token.set(true);
+                Err(CuError::new(
+                    "job_events_fixture_authority_error",
+                    "the fixture authority refused its sample",
+                ))
+            },
+        )
+        .expect_err("the sample error is authoritative");
+        assert!(token.get());
+        assert_eq!(error.code, "job_events_fixture_authority_error");
+    }
+
+    #[test]
+    fn job_events_changed_output_wins_over_a_token_from_that_round() {
+        let token = std::cell::Cell::new(false);
+        let probe = || token.get();
+        let value = job_events_with_providers(
+            events_request(30_000),
+            ExecutionControl::with_cancel_probe(&probe),
+            || Ok(()),
+            |_, stdout_cursor, stderr_cursor, _, _| {
+                token.set(true);
+                Ok(JobEventsSample {
+                    stdout: events_output(stdout_cursor, stdout_cursor + 1),
+                    stderr: events_output(stderr_cursor, stderr_cursor),
+                    status: running_status(),
+                })
+            },
+        )
+        .expect("changed output is authoritative");
+        assert!(token.get());
+        assert_eq!(value["stdout"]["next_cursor"], "5");
+        assert_eq!(value["timed_out"], false);
+        assert!(value.get("polls").is_none());
+    }
+
+    #[test]
+    fn job_events_terminal_status_wins_over_a_token_from_that_round() {
+        let token = std::cell::Cell::new(false);
+        let probe = || token.get();
+        let value = job_events_with_providers(
+            events_request(30_000),
+            ExecutionControl::with_cancel_probe(&probe),
+            || Ok(()),
+            |_, stdout_cursor, stderr_cursor, _, _| {
+                token.set(true);
+                Ok(JobEventsSample {
+                    stdout: events_output(stdout_cursor, stdout_cursor),
+                    stderr: events_output(stderr_cursor, stderr_cursor),
+                    status: exited_status(17),
+                })
+            },
+        )
+        .expect("terminal status is authoritative");
+        assert!(token.get());
+        assert_eq!(value["status"]["state"]["exit_code"], 17);
+        assert_eq!(value["timed_out"], false);
+        assert!(value.get("polls").is_none());
+    }
+
+    #[test]
+    fn job_events_zero_timeout_keeps_its_single_sample_wire() {
+        let samples = std::cell::Cell::new(0usize);
+        let value = job_events_with_providers(
+            events_request(0),
+            ExecutionControl::none(),
+            || Ok(()),
+            |_, stdout_cursor, stderr_cursor, _, _| {
+                samples.set(samples.get() + 1);
+                Ok(JobEventsSample {
+                    stdout: events_output(stdout_cursor, stdout_cursor),
+                    stderr: events_output(stderr_cursor, stderr_cursor),
+                    status: running_status(),
+                })
+            },
+        )
+        .expect("zero timeout still returns one immediate sample");
+        assert_eq!(samples.get(), 1);
+        assert_eq!(value["timed_out"], true);
+        let mut keys = value
+            .as_object()
+            .expect("job-events object")
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "generation",
+                "job_id",
+                "status",
+                "stderr",
+                "stdout",
+                "timed_out",
+            ]
+        );
     }
 
     /// One scripted round outcome.

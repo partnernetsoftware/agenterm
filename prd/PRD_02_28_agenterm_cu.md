@@ -1890,7 +1890,13 @@ flowchart LR
   the private owner nonce in a public reply. Mutating spawn/write/renew/stop
   require request identity; replay of an exact successful spawn returns the
   same `{job_id,generation}` and does not create another process. Delivery
-  uncertainty remains typed and is never retried automatically. A macOS
+  uncertainty remains typed and is never retried automatically. The
+  `job-events` long poll now observes the invocation token before opening its
+  durable record and through each sliced inter-round pause. Once output/status
+  authority has been consulted, cancellation preserves both bounded cursor
+  projections and the last status as `effect:partially_performed`; changed
+  output, terminal status, a typed authority error and the deadline remain
+  authoritative in their own round. A macOS
   public qjswasm court has proved exact replay, binary stdin plus EOF, both
   output streams with independently advancing cursors, the single-stream
   `job-output` byte-for-byte projection, exit verification,

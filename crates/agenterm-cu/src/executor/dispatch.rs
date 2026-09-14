@@ -397,6 +397,7 @@ impl Executor {
                 stderr_cursor,
                 *timeout_ms,
                 *max_bytes,
+                control,
             ),
             Command::JobOutput {
                 job_id,
