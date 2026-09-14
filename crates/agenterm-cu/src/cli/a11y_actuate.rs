@@ -7,8 +7,8 @@ use agenterm_platform::input_inject::MAX_POINTER_SCROLL_DETENTS;
 
 use super::verbs::VerbSpec;
 use super::{
-    flag_coords, flag_i32, flag_parsed, flag_text, flag_u32, flag_value, flag_window,
-    flag_window_opt, menu, named_node, split_literal_tail, take_switch,
+    flag_parsed, flag_text, flag_value, flag_window, flag_window_opt, menu, named_node,
+    split_literal_tail, take_switch,
 };
 
 pub fn parse(
@@ -27,16 +27,22 @@ pub fn parse(
         "click" => click(spelled, target, args),
         "drag" => drag(target, args),
         "focus" => {
-            let window = flag_window_opt(args);
-            let node = flag_value(args, "--node");
-            let name = flag_value(args, "--name");
-            let role = flag_value(args, "--role");
+            let window = flag_window(args)?;
+            let node = flag_text(args, "--node")?;
+            let name = flag_text(args, "--name")?;
+            let role = flag_text(args, "--role")?;
             if node.as_ref().is_none_or(|value| value.is_empty())
                 && name.as_ref().is_none_or(|value| value.is_empty())
             {
                 return Err(
                     "focus requires --node <path-id> or --window <handle> --name <pattern>".into(),
                 );
+            }
+            if !args.is_empty() {
+                return Err(format!(
+                    "focus accepts only --window HANDLE (--node PATH | --name PAT [--role ROLE]); unexpected {:?}",
+                    args[0]
+                ));
             }
             Ok(Command::Focus {
                 target,
@@ -132,11 +138,11 @@ pub fn parse(
             })
         }
         "select" => {
-            let window = flag_window_opt(args);
-            let name = flag_value(args, "--name");
-            let role = flag_value(args, "--role");
-            let start = flag_i32(args, "--start");
-            let end = flag_i32(args, "--end");
+            let window = flag_window(args)?;
+            let name = flag_text(args, "--name")?;
+            let role = flag_text(args, "--role")?;
+            let start = flag_parsed::<i32>(args, "--start")?;
+            let end = flag_parsed::<i32>(args, "--end")?;
             if name.as_ref().is_none_or(|value| value.is_empty())
                 || start.is_none()
                 || end.is_none()
@@ -144,6 +150,12 @@ pub fn parse(
                 return Err(
                     "select requires --window <handle> --name <pattern> --start N --end M".into(),
                 );
+            }
+            if !args.is_empty() {
+                return Err(format!(
+                    "select accepts only --window HANDLE --name PAT [--role ROLE] --start N --end M; unexpected {:?}",
+                    args[0]
+                ));
             }
             Ok(Command::Select {
                 target,
@@ -155,14 +167,20 @@ pub fn parse(
             })
         }
         "set-caret" => {
-            let window = flag_window_opt(args);
-            let name = flag_value(args, "--name");
-            let role = flag_value(args, "--role");
-            let offset = flag_i32(args, "--offset");
+            let window = flag_window(args)?;
+            let name = flag_text(args, "--name")?;
+            let role = flag_text(args, "--role")?;
+            let offset = flag_parsed::<i32>(args, "--offset")?;
             if name.as_ref().is_none_or(|value| value.is_empty()) || offset.is_none() {
                 return Err(
                     "set-caret requires --window <handle> --name <pattern> --offset N".into(),
                 );
+            }
+            if !args.is_empty() {
+                return Err(format!(
+                    "set-caret accepts only --window HANDLE --name PAT [--role ROLE] --offset N; unexpected {:?}",
+                    args[0]
+                ));
             }
             Ok(Command::SetCaret {
                 target,
@@ -375,7 +393,7 @@ fn drag(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
 }
 
 fn click(spelled: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let mut window = flag_window_opt(args);
+    let mut window = flag_window(args)?;
     match flag_text(args, "--to")? {
         Some(to) if to == "desktop" => {
             return Err(
@@ -393,16 +411,18 @@ fn click(spelled: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Com
         }
         None => {}
     }
-    let node = flag_value(args, "--node");
-    let name = flag_value(args, "--name");
-    let role = flag_value(args, "--role");
-    let coords = flag_coords(args, "--coords");
+    let node = flag_text(args, "--node")?;
+    let name = flag_text(args, "--name")?;
+    let role = flag_text(args, "--role")?;
+    let coords = flag_text(args, "--coords")?
+        .map(|raw| parse_click_coords(&raw))
+        .transpose()?;
     let degraded = take_switch(args, "--degraded");
     let clicks = if spelled == "dclick" {
         2
     } else {
-        flag_u32(args, "--clicks")
-            .or_else(|| flag_u32(args, "--count"))
+        flag_parsed::<u32>(args, "--clicks")?
+            .or(flag_parsed::<u32>(args, "--count")?)
             .unwrap_or(1)
     };
     if !(1..=3).contains(&clicks) {
@@ -411,12 +431,23 @@ fn click(spelled: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Com
     let button = if spelled == "rclick" {
         PointerButton::Right
     } else {
-        match flag_value(args, "--button").as_deref() {
+        match flag_text(args, "--button")?.as_deref() {
+            None | Some("left") => PointerButton::Left,
             Some("right") => PointerButton::Right,
             Some("middle") => PointerButton::Middle,
-            _ => PointerButton::Left,
+            Some(other) => {
+                return Err(format!(
+                    "click --button must be left, right or middle; got {other:?}"
+                ));
+            }
         }
     };
+    if !args.is_empty() {
+        return Err(format!(
+            "click received unexpected argument {:?}; use --node, --name, or --coords --degraded for addressing",
+            args[0]
+        ));
+    }
     Ok(Command::Click {
         target,
         window,
@@ -428,6 +459,22 @@ fn click(spelled: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Com
         clicks,
         button,
     })
+}
+
+fn parse_click_coords(raw: &str) -> Result<[i32; 2], String> {
+    let mut parts = raw.split(',');
+    let x = parts
+        .next()
+        .and_then(|value| value.trim().parse().ok())
+        .ok_or_else(|| format!("click --coords must be X,Y; got {raw:?}"))?;
+    let y = parts
+        .next()
+        .and_then(|value| value.trim().parse().ok())
+        .ok_or_else(|| format!("click --coords must be X,Y; got {raw:?}"))?;
+    if parts.next().is_some() {
+        return Err(format!("click --coords must be X,Y; got {raw:?}"));
+    }
+    Ok([x, y])
 }
 
 fn pointer_move(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
@@ -630,6 +677,78 @@ mod tests {
     }
 
     #[test]
+    fn click_rejects_residuals_before_coordinate_fallback() {
+        for words in [
+            &[
+                "--window",
+                "42",
+                "--coords",
+                "10,20",
+                "--degraded",
+                "--bogus",
+            ][..],
+            &[
+                "--window",
+                "42",
+                "--nme",
+                "Field",
+                "--coords",
+                "10,20",
+                "--degraded",
+            ][..],
+        ] {
+            let error = click("click", TargetRef::Current, &mut args(words))
+                .expect_err("residual option must fail before click");
+            assert!(error.contains(words[words.len() - 1]) || error.contains("--nme"));
+        }
+
+        let command = click(
+            "rclick",
+            TargetRef::Current,
+            &mut args(&[
+                "--window",
+                "42",
+                "--name",
+                "Field",
+                "--role",
+                "button",
+                "--coords",
+                "10,20",
+                "--degraded",
+            ]),
+        )
+        .expect("closed named right click");
+        assert!(matches!(
+            command,
+            Command::Click {
+                window: Some(42),
+                name: Some(name),
+                role: Some(role),
+                coords: Some([10, 20]),
+                button: PointerButton::Right,
+                ..
+            } if name == "Field" && role == "button"
+        ));
+
+        assert!(
+            click(
+                "click",
+                TargetRef::Current,
+                &mut args(&["--coords", "10,20,30", "--degraded"]),
+            )
+            .is_err()
+        );
+        assert!(
+            click(
+                "click",
+                TargetRef::Current,
+                &mut args(&["--coords", "10,20", "--degraded", "--button", "side"]),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn send_text_rejects_unknown_options_but_preserves_literal_dash_text() {
         let spec = crate::cli::verbs::lookup("send-text").expect("catalog verb");
         for words in [&["--zzz-bogus"][..], &["--windo", "42", "plain"][..]] {
@@ -660,6 +779,56 @@ mod tests {
         assert!(matches!(
             plain,
             Command::SendText { text, .. } if text == "plain text"
+        ));
+    }
+
+    #[test]
+    fn addressed_focus_selection_and_caret_reject_residuals() {
+        for (verb, words) in [
+            (
+                "focus",
+                &["--window", "42", "--name", "Field", "--bogus"][..],
+            ),
+            (
+                "select",
+                &[
+                    "--window", "42", "--name", "Field", "--start", "0", "--end", "2", "--bogus",
+                ][..],
+            ),
+            (
+                "set-caret",
+                &[
+                    "--window", "42", "--name", "Field", "--offset", "1", "--bogus",
+                ][..],
+            ),
+        ] {
+            let spec = crate::cli::verbs::lookup(verb).expect("catalog verb");
+            let error = parse(spec, verb, TargetRef::Current, &mut args(words))
+                .expect_err("residual option must fail before actuation");
+            assert!(error.contains("--bogus"), "unexpected error: {error}");
+        }
+
+        let spec = crate::cli::verbs::lookup("select").expect("select verb");
+        let command = parse(
+            spec,
+            "select",
+            TargetRef::Current,
+            &mut args(&[
+                "--window", "42", "--name", "Field", "--role", "entry", "--start", "0", "--end",
+                "2",
+            ]),
+        )
+        .expect("closed selection");
+        assert!(matches!(
+            command,
+            Command::Select {
+                window: Some(42),
+                name: Some(name),
+                role: Some(role),
+                start: 0,
+                end: 2,
+                ..
+            } if name == "Field" && role == "entry"
         ));
     }
 }

@@ -743,6 +743,12 @@ ACU-only cutover
 ├─ [x] the shared named-node parser consumes one closed addressing shape
 │  ├─ [x] `scroll` / `hover` and get-extents / selection / caret share strict flags
 │  └─ [x] residual tokens fail before a tree read or node actuation
+├─ [x] custom addressed actuation parsers are closed before effects
+│  ├─ [x] `focus` / `select` / `set-caret` consume typed window, node and range flags
+│  └─ [x] each names a residual token as usage instead of ignoring it
+├─ [x] `click` cannot fall from a misspelled node option into coordinate actuation
+│  ├─ [x] its window, node, coordinates, count and button options are consumed and typed
+│  └─ [x] any residual fails before the accessibility or degraded pointer provider runs
 ├─ [x] dynamic repair registry (complete corpus; no unknown fallback)
 │  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green
 │  │  ├─ [x] macOS public qjswasm court: one invocation-owned Cocoa window proves exact
