@@ -18,8 +18,10 @@ pub use host::{
     RequestLedger, list_live_connections, run_native_host, send_to_connection,
     send_to_connection_with_timeout,
 };
+#[cfg(windows)]
+pub(crate) use installer::install_for_current_user_host;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-pub use installer::materialize_for_owned_profile;
+pub(crate) use installer::materialize_for_owned_profile_host;
 pub use installer::{
     BrowserBridgeInstall, BrowserBridgeInstallError, BrowserBridgeInstallPaths,
     BrowserRegistrationOutcome, BrowserRegistrationPlan, BrowserRegistrationReceipt,

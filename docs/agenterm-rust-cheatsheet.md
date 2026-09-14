@@ -750,7 +750,10 @@ cannot prove code hidden behind another target's `cfg`.
   executable suffix, final component not a symlink and regular, Unix execute bit
   (Windows has no execute bit to check) — and let every owner launcher
   (managed job, browser session, device lease) start *that* program with its one
-  internal argument. Keep the refusals typed and distinct: absence, a
+  internal argument. The same rule owns any resident protocol registration:
+  a Native Messaging manifest must name the resolved sibling `agenterm-cu`, not
+  the embedding product's `current_exe()`, because only the sibling dispatches
+  the native-host invocation. Keep the refusals typed and distinct: absence, a
   non-regular shape, and an inspection failure are three facts, so never collapse
   a permission or I/O failure into "missing". Do not call the refusal a
   zero-effect failure either — the durable start intent or claim already exists

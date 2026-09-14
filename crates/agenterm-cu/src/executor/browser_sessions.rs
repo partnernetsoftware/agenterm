@@ -37,9 +37,9 @@ use crate::{
 };
 
 #[cfg(windows)]
-use crate::browser_bridge::install_for_current_user;
+use crate::browser_bridge::install_for_current_user_host;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-use crate::browser_bridge::{ACU_NATIVE_HOST_NAME, materialize_for_owned_profile};
+use crate::browser_bridge::{ACU_NATIVE_HOST_NAME, materialize_for_owned_profile_host};
 use crate::browser_bridge::{BrowserBridgeInstall, BrowserBridgeInstallError, BrowserSetupEffect};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use agenterm_platform::filesystem::protect_private_directory;
@@ -72,16 +72,22 @@ pub(super) fn browser_session_start_payload(
     }
     let browser = canonical_browser(browser)?;
     let bridge_install = if bridge {
-        let current_executable = std::env::current_exe().map_err(|_| {
+        let native_host = crate::owner_executable::resolve_current().map_err(|error| {
             CuError::new(
-                "browser_bridge_current_executable_unavailable",
-                "current browser bridge executable is unavailable",
+                "browser_bridge_native_host_unavailable",
+                "the sibling agenterm-cu browser bridge host is unavailable",
             )
+            .with_detail(json!({
+                "reason": error.reason(),
+                "io_kind": error.kind().map(|kind| format!("{kind:?}")),
+                "resolution": "current_exe_sibling",
+                "session_state_created": false,
+            }))
         })?;
         #[cfg(any(target_os = "linux", target_os = "macos"))]
-        let install = materialize_for_owned_profile(&current_executable);
+        let install = materialize_for_owned_profile_host(&native_host);
         #[cfg(windows)]
-        let install = install_for_current_user(&current_executable);
+        let install = install_for_current_user_host(&native_host);
         Some(install.map_err(bridge_install_error)?)
     } else {
         None

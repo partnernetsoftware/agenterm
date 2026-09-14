@@ -229,6 +229,18 @@ pub fn install_for_current_user(
     )
 }
 
+#[cfg(windows)]
+pub(crate) fn install_for_current_user_host(
+    native_host: &Path,
+) -> Result<BrowserBridgeInstall, BrowserBridgeInstallError> {
+    validate_owned_profile_host(native_host)?;
+    install_at(
+        native_host,
+        BrowserBridgeInstallPaths::for_current_user()?,
+        true,
+    )
+}
+
 pub fn install_for_current_user_selected(
     executable: &Path,
     requested: &[BrowserSetupBrowser],
@@ -244,14 +256,23 @@ pub fn install_for_current_user_selected(
 /// Publish the fixed extension and native-host manifest for an isolated owned
 /// profile without requiring or mutating any default browser profile.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-pub fn materialize_for_owned_profile(
-    executable: &Path,
+pub(crate) fn materialize_for_owned_profile_host(
+    native_host: &Path,
 ) -> Result<BrowserBridgeInstall, BrowserBridgeInstallError> {
-    validate_current_executable(executable)?;
+    validate_owned_profile_host(native_host)?;
     let mut paths = BrowserBridgeInstallPaths::for_current_user()?;
     paths.targets.clear();
     paths.skipped_registrations.clear();
-    install_at(executable, paths, false)
+    install_at(native_host, paths, false)
+}
+
+fn validate_owned_profile_host(native_host: &Path) -> Result<(), BrowserBridgeInstallError> {
+    if !native_host.is_absolute() {
+        return Err(error("browser_bridge_executable_invalid"));
+    }
+    open_existing_path(native_host, ExistingEntryType::File)
+        .map_err(|_| error("browser_bridge_executable_invalid"))?;
+    Ok(())
 }
 
 fn validate_current_executable(executable: &Path) -> Result<(), BrowserBridgeInstallError> {
@@ -911,6 +932,20 @@ mod tests {
         assert!(receipt.registrations.is_empty());
         assert!(receipt.extension.is_dir());
         assert!(receipt.native_manifest_file.is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn owned_profile_host_is_not_required_to_be_the_embedding_executable() {
+        let root = fixture("owned-native-host");
+        let native_host = root.join("agenterm-cu");
+        fs::write(&native_host, b"fixture").unwrap();
+
+        validate_owned_profile_host(&native_host).unwrap();
+        assert_eq!(
+            validate_current_executable(&native_host).unwrap_err().code,
+            "browser_bridge_executable_identity_mismatch"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
