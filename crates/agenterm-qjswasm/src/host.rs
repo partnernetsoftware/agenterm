@@ -721,11 +721,11 @@ pub(crate) fn install(
             } else {
                 (STATUS_OK, result.into_bytes())
             };
-            meter_for_native.borrow_mut().answered(payload.len());
             meter_for_native
                 .borrow_mut()
                 .check_cancel()
                 .map_err(WasmError::Trap)?;
+            meter_for_native.borrow_mut().answered(payload.len());
             state.borrow_mut().native_result = payload;
             Ok(vec![Val::I32(status)])
         })?;

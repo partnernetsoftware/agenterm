@@ -1905,3 +1905,38 @@ fn native_calls_share_the_host_operation_budget_and_cancel_source() {
     .expect_err("the shared cancellation flag refuses before dlsym");
     assert!(matches!(error, QjswasmError::Cancelled));
 }
+
+#[cfg(unix)]
+#[test]
+fn a_cancel_during_native_invoke_does_not_bill_an_unparked_result() {
+    let source = r#"(module
+      (import "agenterm" "native_invoke"
+        (func $native_invoke (param i32 i32 i32 i32) (result i32)))
+      (memory 1)
+      (data (i32.const 0) "|sleep|u32(u32)")
+      (data (i32.const 32) "[1]")
+      (func (export "main") (result i64)
+        (i64.extend_i32_s
+          (call $native_invoke (i32.const 0) (i32.const 15) (i32.const 32) (i32.const 3)))))"#;
+    let wasm = wat::parse_str(source).expect("native-invoke cancellation fixture is valid WAT");
+    let cancel = Arc::new(AtomicBool::new(false));
+    let setter = Arc::clone(&cancel);
+    let setter = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        setter.store(true, std::sync::atomic::Ordering::Release);
+    });
+    let mut engine = Engine::with_native_door(Budget {
+        cancel: Some(cancel),
+        ..Budget::default()
+    });
+    let error = engine
+        .run_once(Guest::Wasm(&wasm), None, "main", &[])
+        .expect_err("the post-native cancellation ends the call before parking JSON");
+    setter.join().expect("cancel setter exits");
+    assert!(matches!(error, QjswasmError::Cancelled), "{error:?}");
+    let cost = engine
+        .take_failed_cost()
+        .expect("the native call is billed");
+    assert_eq!(cost.host_ops, 1);
+    assert_eq!(cost.host_bytes, 15 + 3, "only the sent request crossed");
+}

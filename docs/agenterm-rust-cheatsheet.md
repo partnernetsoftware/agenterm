@@ -5349,7 +5349,11 @@ Meter the same parked bytes regardless of whether the bridge labels them
 success or application error. Both strings cross the same host-to-guest seam,
 occupy the same bounded slot and are readable through the same result call; a
 status bit must not make an equal-size failure disappear from `host_bytes`.
-Use equal-length success/error replies as the discriminating court.
+Use equal-length success/error replies as the discriminating court. If a
+synchronous call checks cancellation after returning from foreign code, do that
+before parking and billing its result; otherwise a cancelled call charges bytes
+the guest never received. Raw calls that already wrote result bits into guest
+memory before the check are a different transport fact and keep that bill.
 
 ## Count native inventory scans across the whole snapshot
 

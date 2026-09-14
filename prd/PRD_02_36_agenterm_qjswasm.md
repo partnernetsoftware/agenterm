@@ -270,6 +270,7 @@ agenterm-qjswasm
 │  ├─ [x] failed tool calls remain available once in call order, then clear before the next call; this crate fact is not conflated with the product audit's Fleet-only broker ids
 │  ├─ [x] invocation stdout truncation survives success and failure projections; JSON names `stdout_truncated`, plain CLI warns on stderr, and `--max-output-bytes` reaches the engine
 │  ├─ [x] Fleet and ACU bill the final parked result into `host_bytes` on both success and application-error paths; equal-size replies cost equally, while an oversized reply bills the bounded refusal the guest reads
+│  ├─ [x] `native_invoke` checks a cancel that arrived inside its synchronous native frame before parking or billing the JSON result; the failed bill retains only request bytes
 │  ├─ [x] in-process `pack load` / `qualify` failures preserve their pre-failure stdout and disclose truncation instead of flattening the engine error to text
 │  ├─ [x] the public string-byte ceiling governs both host-door answers and returned guest strings; no accepted override falls back to the engine default
 │  ├─ [x] the published invocation call-depth ceiling replaces tinyvm's independent default and is the limit the guest actually runs under
