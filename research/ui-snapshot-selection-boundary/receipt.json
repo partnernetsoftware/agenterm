@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "kind": "ui-snapshot-selection-boundary",
+  "source_sha": "d249df8bf472f69529b8dafeade618446d68c882",
+  "result": "passed",
+  "decision": "text-reparse-admitted",
+  "criteria": {"S0": true, "W0": true, "H0": true},
+  "allocation_bytes": "未测定",
+  "production_files_changed": 0,
+  "future_production_loc": "未测定",
+  "evidence": ["qjswasm.ui-snapshot-selection-boundary"]
+}

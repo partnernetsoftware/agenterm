@@ -348,13 +348,19 @@ moved from 350,216 to 288,209 (−17.71%), heap pages from 19 to 16, and the 395
 host operations plus `server.headless-authority` evidence remained unchanged.
 This is a second real **consumer** of the first producer, not the still-missing
 second producer needed to turn the additive selection core into a net code fold.
-The second-producer boundary is now frozen as an experiment rather than guessed:
+The second-producer boundary was frozen and has now been decided by measurement:
 [`plan/design-ui-snapshot-selection-boundary-experiment.md`](../plan/design-ui-snapshot-selection-boundary-experiment.md)
-will decide whether an opt-in parse/project/serialize adapter clears both the
-guest saving and host-cost bars while preserving cached no-selector bytes. It
-explicitly kills that adapter before any public flag if safety or the measured
-benefit fails; a Value-native UI snapshot refactor is only the named fallback,
-not work hidden inside the experiment.
+and
+[`research/ui-snapshot-selection-boundary/RESULTS.md`](../research/ui-snapshot-selection-boundary/RESULTS.md)
+record `S0 yes → W0 yes → H0 yes → T admitted`. Two real rendered snapshots
+projected to 0.681% and 3.768% of their original bytes; the worst of eighteen
+recorded p95 samples was 0.388416 ms against the frozen 1 ms ceiling. The
+no-selector prototype borrowed the original text unchanged, all twelve selector
+semantic/refusal controls stayed green, and source audit confirmed both cached
+and locally serialized snapshots already meet at the same text seam. Host
+allocation bytes and the future production LOC remain **未测定**. The verdict
+admits a separate opt-in text-reparse product leaf; it does not invent `--json`,
+change `ui-snapshot`, migrate `wait-ui`, or itself claim a second producer.
 
 ## Mermaid flowchart memory palace
 

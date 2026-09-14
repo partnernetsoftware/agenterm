@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "documents": [
+    {
+      "name": "rendered-one-tab",
+      "envelope": "research/qjswasm-host-reply-wire-cost/replies/workbench-smoke/env-0000.txt",
+      "envelope_sha256": "9262ec7f5a56a5a93ae49f2d616572b08791feafa5d0288a0a809939eaeca7d8",
+      "document_bytes": 13075,
+      "document_sha256": "952a2b9c7a6aece910aea3d5856f243038b9665bad128e049a7c9a68eef77cc9",
+      "selector": "event_position"
+    },
+    {
+      "name": "rendered-three-tabs",
+      "envelope": "research/qjswasm-host-reply-wire-cost/replies/workbench-smoke/env-0009.txt",
+      "envelope_sha256": "20e4f19ff63973119707345931dc9b64e8c917df2a4557932c69f7c1b9dcfed6",
+      "document_bytes": 18310,
+      "document_sha256": "50a9aa50f4412dc7eb04f5ea6e537108065a971e13750127f21b7939aae2685b",
+      "selector": "tabs[].id,tabs[].render.text"
+    }
+  ]
+}

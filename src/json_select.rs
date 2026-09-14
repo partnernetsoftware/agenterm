@@ -388,6 +388,7 @@ fn project_node(value: &Value, node: &Node) -> Value {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::borrow::Cow;
 
     fn at<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
         let mut current = value;
@@ -424,6 +425,105 @@ mod tests {
             ],
             "optional_gap": { "present": 1 }
         })
+    }
+
+    /// Research reporter for
+    /// `plan/design-ui-snapshot-selection-boundary-experiment.md`.
+    ///
+    /// Ignored by default because elapsed time is evidence to record, never a
+    /// unit-test assertion. The semantic and bound assertions remain hard so a
+    /// timing sample cannot be emitted for the wrong projection.
+    #[test]
+    #[ignore = "explicit ui-snapshot selection boundary measurement"]
+    fn measure_ui_snapshot_text_reparse_boundary() {
+        const ONE_TAB_ENVELOPE: &str = include_str!(
+            "../research/qjswasm-host-reply-wire-cost/replies/workbench-smoke/env-0000.txt"
+        );
+        const THREE_TAB_ENVELOPE: &str = include_str!(
+            "../research/qjswasm-host-reply-wire-cost/replies/workbench-smoke/env-0009.txt"
+        );
+        const WARMUPS: usize = 100;
+        const ITERATIONS: usize = 1_000;
+
+        fn stdout_document(envelope: &str) -> String {
+            let envelope: Value = serde_json::from_str(envelope).expect("frozen envelope JSON");
+            envelope["stdout"]
+                .as_str()
+                .expect("frozen envelope stdout")
+                .to_owned()
+        }
+
+        fn project_optional<'a>(source: &'a str, selector: Option<&Selector>) -> Cow<'a, str> {
+            let Some(selector) = selector else {
+                return Cow::Borrowed(source);
+            };
+            let value: Value = serde_json::from_str(source).expect("snapshot JSON");
+            Cow::Owned(
+                serde_json::to_string_pretty(&selector.project(&value))
+                    .expect("selected snapshot JSON"),
+            )
+        }
+
+        fn percentile(values: &mut [u128], numerator: usize, denominator: usize) -> u128 {
+            values.sort_unstable();
+            let index = (values.len() * numerator).div_ceil(denominator) - 1;
+            values[index]
+        }
+
+        fn measure(name: &str, source: &str, selector_text: &str) -> Value {
+            let selector = Selector::parse(selector_text).expect("frozen selector");
+            assert!(matches!(project_optional(source, None), Cow::Borrowed(_)));
+            assert_eq!(project_optional(source, None).as_ref(), source);
+
+            let original: Value = serde_json::from_str(source).expect("snapshot JSON");
+            let projected = selector.project(&original);
+            let expected = serde_json::to_string_pretty(&projected).unwrap();
+            assert_eq!(project_optional(source, Some(&selector)).as_ref(), expected);
+            assert!(expected.len() <= source.len());
+
+            for _ in 0..WARMUPS {
+                std::hint::black_box(project_optional(source, Some(&selector)));
+            }
+            let mut samples = Vec::with_capacity(3);
+            for _ in 0..3 {
+                let mut nanos = Vec::with_capacity(ITERATIONS);
+                for _ in 0..ITERATIONS {
+                    let started = std::time::Instant::now();
+                    std::hint::black_box(project_optional(source, Some(&selector)));
+                    nanos.push(started.elapsed().as_nanos());
+                }
+                let mut median_values = nanos.clone();
+                let median_ns = percentile(&mut median_values, 1, 2);
+                let p95_ns = percentile(&mut nanos, 95, 100);
+                samples.push(json!({"median_ns": median_ns, "p95_ns": p95_ns}));
+            }
+            json!({
+                "name": name,
+                "selector": selector_text,
+                "full_bytes": source.len(),
+                "selected_bytes": expected.len(),
+                "selected_ratio": expected.len() as f64 / source.len() as f64,
+                "samples": samples,
+            })
+        }
+
+        let one_tab = stdout_document(ONE_TAB_ENVELOPE);
+        let three_tabs = stdout_document(THREE_TAB_ENVELOPE);
+        let report = json!({
+            "schema_version": 1,
+            "warmups": WARMUPS,
+            "iterations_per_sample": ITERATIONS,
+            "allocation_bytes": "未测定",
+            "documents": [
+                measure("rendered-one-tab", &one_tab, "event_position"),
+                measure(
+                    "rendered-three-tabs",
+                    &three_tabs,
+                    "tabs[].id,tabs[].render.text",
+                ),
+            ],
+        });
+        eprintln!("UI_SNAPSHOT_SELECTION_MEASUREMENT={report}");
     }
 
     #[test]

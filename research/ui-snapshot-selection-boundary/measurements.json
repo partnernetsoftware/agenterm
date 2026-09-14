@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "warmups": 100,
+  "iterations_per_sample": 1000,
+  "complete_runs": 3,
+  "allocation_bytes": "未测定",
+  "documents": [
+    {
+      "name": "rendered-one-tab",
+      "full_bytes": 13075,
+      "selected_bytes": 89,
+      "selected_ratio": 0.006806883365200765,
+      "runs": [
+        [{"median_ns":248041,"p95_ns":277625},{"median_ns":248291,"p95_ns":262375},{"median_ns":248458,"p95_ns":261708}],
+        [{"median_ns":247167,"p95_ns":260125},{"median_ns":247416,"p95_ns":261167},{"median_ns":245917,"p95_ns":259750}],
+        [{"median_ns":247792,"p95_ns":263667},{"median_ns":248000,"p95_ns":263916},{"median_ns":247291,"p95_ns":261083}]
+      ]
+    },
+    {
+      "name": "rendered-three-tabs",
+      "full_bytes": 18310,
+      "selected_bytes": 690,
+      "selected_ratio": 0.037684325505188423,
+      "runs": [
+        [{"median_ns":365917,"p95_ns":383583},{"median_ns":366250,"p95_ns":387958},{"median_ns":367542,"p95_ns":382750}],
+        [{"median_ns":366625,"p95_ns":384250},{"median_ns":365833,"p95_ns":385417},{"median_ns":368500,"p95_ns":388416}],
+        [{"median_ns":366667,"p95_ns":387041},{"median_ns":367584,"p95_ns":384750},{"median_ns":365458,"p95_ns":386875}]
+      ]
+    }
+  ]
+}

@@ -1,6 +1,12 @@
 # ui-snapshot field-selection boundary experiment
 
-Status: **SPEC FROZEN · not started · no capability-state change · not must-ship**.
+Status: **COMPLETE · T admitted · no capability-state change · not must-ship**.
+
+Pre-run correction (no measurement existed): the prior reply set contains real
+rendered snapshots at multiple sizes but no headless `ui-snapshot`. The cost
+axis is therefore frozen as two rendered documents (about 15 and 21 KiB), while
+the locally serialized versus cached-text ownership distinction remains an S0
+source audit. Inventing a synthetic headless document would be weaker evidence.
 
 This experiment decides whether the measured `ui-snapshot` field-selection
 opportunity can ship through an opt-in text-reparse adapter, or whether the
@@ -54,8 +60,10 @@ grow V until it passes by construction.
 
 ### 1.1 Same document and read sequence
 
-- Freeze one real headless snapshot and one real rendered snapshot, including
-  their exact bytes and SHA-256 digests.
+- Freeze two real rendered snapshots from the existing workbench capture, one
+  with one tab and one with three tabs, including their exact bytes and SHA-256
+  digests. They are two points on the byte-cost axis rather than two copies of
+  one size.
 - Use exactly two selectors derived before timing:
   `event_position` for the narrow product polling shape, and
   `tabs[].id,tabs[].render.text` for the workbench rendered-tab shape.
@@ -90,8 +98,8 @@ not work it may absorb. Record it and stop.
 
 | dimension | selected content | why |
 |---|---|---|
-| documents | one headless and one rendered snapshot | covers locally serialized and cached/forwarded ownership |
-| implementation | one temporary in-module measurement harness calling the production `json_select::Selector`; remove it after recording the result | measures T without adding a public flag or copying the grammar |
+| documents | real one-tab and three-tab rendered snapshots from the frozen workbench capture | measures two byte sizes without inventing a headless fixture |
+| implementation | one default-ignored in-module measurement reporter calling the production `json_select::Selector`; retain it for third-party reruns | measures T without adding a public flag or copying the grammar |
 | consumers | frozen workbench success-only shape plus one rendered-tab read | one keeps only `event_position`; one proves nested-array semantics |
 | controls | the same frozen full document bytes | isolates reparse/project/serialize cost |
 | repetitions | 100 warm-ups plus 1,000 measured iterations per document; repeat the complete sample three times | exposes distribution and run spread |
@@ -109,7 +117,7 @@ iterations after 100 warm-ups; report median and p95 separately for each size.
 
 | id | nature | criterion |
 |---|---|---|
-| S0 | Boolean safety | the prototype's absent-selector branch returns the exact input bytes without parsing; selected values equal the source paths; every existing selector refusal remains unchanged |
+| S0 | Boolean safety | the prototype's absent-selector branch returns the exact input bytes without parsing; selected values equal the source paths; every existing selector refusal remains unchanged; source audit confirms both local and cached producers reach the same unchanged absent branch |
 | W0 | Boolean wire gate | each selected document is at most 25% of its own full serialized byte count; compare bytes from this run only |
 | H0 | Boolean opposing-cost gate | T's p95 parse+project+serialize latency is at most 1.0 ms for each frozen document |
 | M0 | list | full/selected bytes and ratio, host median/p95 latency, and host allocation count/bytes or 未测定 |
@@ -141,8 +149,8 @@ Ordering is safety, product benefit, then the opposing host cost. M0 and C0 are
 reported on every exit and are not later tie-breakers. Every Boolean
 combination has an exit.
 
-Kill immediately if S0 or W0 fails, if fewer than two real snapshot ownership
-shapes can be frozen, if the existing selector cannot serve T without a second
+Kill immediately if S0 or W0 fails, if fewer than two real snapshot sizes can
+be frozen, if the existing selector cannot serve T without a second
 grammar, or if any disease-detector item is required. If W0 passes but H0
 fails, reject T and name V as required; do not implement V inside this run. If
 T passes, the later product leaf must independently run a successful public
@@ -157,10 +165,7 @@ No production flag or refactor is allowed before that result is written.
 ```text
 research/ui-snapshot-selection-boundary/
 ├── README.md
-├── snapshots/
-│   ├── headless.json
-│   ├── rendered.json
-│   └── manifest.json
+├── snapshot-manifest.json
 ├── measurements.json
 ├── receipt.json
 └── RESULTS.md
@@ -199,5 +204,15 @@ executes a Rust in-module harness, not a guest binary.
 
 ## 8. Result
 
-Not run. A result is valid only with `research/ui-snapshot-selection-boundary/RESULTS.md`
-containing the §4 decision trace and third-party rerun commands.
+Complete at `d249df8bf472f69529b8dafeade618446d68c882`. S0, W0 and
+H0 all passed, so the decision tree admits T to a separate product
+implementation leaf. The experiment did not add a public option or change a
+capability state. Exact inputs, raw samples, deviations, commands and the
+decision trace are in `research/ui-snapshot-selection-boundary/RESULTS.md`.
+
+The evidence reuses the immutable envelope files already owned by
+`research/qjswasm-host-reply-wire-cost/` and freezes both envelope and extracted
+document digests in `snapshot-manifest.json`; copying the documents would add a
+second evidence owner without adding information. Host allocation bytes remain
+**未测定**. C0 is also **未测定** because the experiment intentionally contains
+no production implementation; it cannot honestly count a future leaf.
