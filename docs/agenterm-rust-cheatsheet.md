@@ -923,7 +923,15 @@ module, while `script hash FILE.wasm` hashes the exact file bytes that the
 loader consumes. Never route an artifact through `read_to_string`: ordinary
 modules fail UTF-8 decoding, and text-looking bytes can be recompiled into a
 different program. A qualification receipt's `artifact_sha256` is the black-box
-oracle for the artifact path.
+oracle for the artifact path. Source hashing is still a real compilation: carry
+the entry directory, project root, and requested local/tool door into the same
+resolver/compiler used by `check`; a context-free hash rejects an import-bearing
+program that the runtime can load and fingerprints no runnable artifact.
+Identity inspection is not exempt from input budgets. Hash and artifact-load
+verbs must reuse the run path's take-limited readers, reading at most the
+effective source/artifact ceiling plus one byte before a typed refusal. A bare
+`std::fs::read` allocates in proportion to an attacker-controlled or sparse file
+before it can decide that the runtime would never admit those bytes.
 
 The same stale-artifact trap applies to `libagenterm`: an `abi-dev` build
 refreshes `target/abi-dev/libagenterm.*`, while an integration-test executable

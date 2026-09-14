@@ -281,6 +281,8 @@ agenterm-qjswasm
 │  │      while trailing `-- ARGS` remain independent strings on `tool.arg(n)`
 │  ├─ [x] `script hash FILE.wasm` fingerprints the exact loaded bytes and matches
 │  │      qualification `artifact_sha256`; `.qjs` retains compile-then-hash semantics
+│  │      with the requested profile plus the same entry/project module roots as check
+│  │      and hash/pack-load reads stop at the shared source/transport ceiling plus one byte
 │  ├─ [x] the graybox-retired `PersistentReplClient` concurrency facade is deleted after
 │  │      zero production constructors and unconditional CLI/worker refusals; the legacy frame
 │  │      remains typed as `protocol_repl_unavailable` instead of becoming an unknown protocol tag
@@ -672,10 +674,17 @@ integration.
   evidence and does not retire or replace `agenterm-dyn`.
 - [x] Public `script hash` distinguishes source from artifact input. For `.qjs`
   it compiles first and hashes the reproducible module, so whitespace-only
-  source differences retain one program identity. For `.wasm` it hashes the
+  source differences retain one program identity. Import-bearing sources use
+  the same entry/project roots as single-file check and honor explicit
+  `--profile local|tool`, so a working tool script is not refused by the
+  provenance path for a missing resolver or host declaration. For `.wasm` it hashes the
   exact bytes that `run`/`pack load` consume, including hand-authored modules;
   that digest equals qualification receipt `artifact_sha256`. Binary artifacts
   are never decoded as UTF-8 source or sent back through the qjs compiler.
+  Hash and pack-load input use the same bounded readers as run: the default
+  256 KiB source budget is adjustable with `--max-source-bytes`, the 1 MiB
+  artifact transport ceiling remains absolute, and refusal needs at most one
+  byte beyond the effective limit rather than allocation proportional to the file.
 - [x] `script api [MODULE] [--status shipped|planned|all] [--tree|--json]` renders one deterministic hierarchical object tree with reviewed Node.js/Bun analogues and returns the same filtered versioned catalog with explicit view and comparison metadata.
 - [x] qjswasm computation budget fails closed with the public limit exit class.
 - [x] syntax/compiler refusals and unsupported source methods use the same

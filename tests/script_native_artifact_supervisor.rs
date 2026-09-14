@@ -232,6 +232,96 @@ fn script_hash_matches_qualification_receipts_and_plain_wasm_bytes() {
     );
 }
 
+#[test]
+fn script_hash_compiles_imports_with_the_requested_profile_and_entry_root() {
+    let root = FixtureRoot::new();
+    let library_dir = root.0.join("lib");
+    std::fs::create_dir(&library_dir).expect("create library directory");
+    std::fs::write(
+        library_dir.join("value.qjs"),
+        "export function answer() { return 42; }\n",
+    )
+    .expect("write imported library");
+    let source = root.qjs(
+        "importing-tool",
+        "import * as value from \"lib/value\"; return arg_count() + value.answer();\n",
+    );
+
+    let hash = Command::new(AGENTERM_BIN)
+        .args(["cli", "script", "hash", "--profile", "tool"])
+        .arg(&source)
+        .env_remove("AGENTERM_SCRIPT_BACKEND")
+        .output()
+        .expect("source hash runs");
+    assert!(
+        hash.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&hash.stdout),
+        String::from_utf8_lossy(&hash.stderr)
+    );
+    let rendered = String::from_utf8_lossy(&hash.stdout);
+    let (digest, suffix) = rendered.trim().split_once("  ").expect("digest label");
+    assert_eq!(digest.len(), 64, "{rendered}");
+    assert_eq!(suffix, format!("wasm  {}", source.display()));
+
+    let local = Command::new(AGENTERM_BIN)
+        .args(["cli", "script", "hash"])
+        .arg(&source)
+        .env_remove("AGENTERM_SCRIPT_BACKEND")
+        .output()
+        .expect("local source hash runs");
+    assert_eq!(local.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&local.stderr).contains("arg_count"),
+        "{}",
+        String::from_utf8_lossy(&local.stderr)
+    );
+}
+
+#[test]
+fn artifact_hash_and_pack_load_refuse_before_reading_past_the_default_budget() {
+    let root = FixtureRoot::new();
+    let artifact = root.0.join("oversized.wasm");
+    std::fs::write(&artifact, vec![0_u8; 256 * 1024 + 1]).expect("write bounded oversized file");
+
+    for arguments in [["hash", ""], ["pack", "load"]] {
+        let mut command = Command::new(AGENTERM_BIN);
+        command.args(["cli", "script", arguments[0]]);
+        if !arguments[1].is_empty() {
+            command.arg(arguments[1]);
+        }
+        let output = command
+            .arg(&artifact)
+            .env_remove("AGENTERM_SCRIPT_BACKEND")
+            .output()
+            .expect("bounded artifact command runs");
+        assert_eq!(output.status.code(), Some(3));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("exceeds the 262144 byte invocation budget"),
+            "arguments={arguments:?} stderr={stderr}"
+        );
+    }
+
+    let source = root.0.join("oversized.qjs");
+    let mut source_bytes = b"//".to_vec();
+    source_bytes.resize(256 * 1024 + 1, b'x');
+    std::fs::write(&source, source_bytes).expect("write bounded oversized source");
+    let output = Command::new(AGENTERM_BIN)
+        .args(["cli", "script", "hash"])
+        .arg(&source)
+        .env_remove("AGENTERM_SCRIPT_BACKEND")
+        .output()
+        .expect("bounded source hash runs");
+    assert_eq!(output.status.code(), Some(3));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("script source exceeds the 262144 byte limit"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[cfg(unix)]
 fn worker_pid(stderr: &[u8]) -> u32 {
     let stderr = String::from_utf8_lossy(stderr);

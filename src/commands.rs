@@ -669,8 +669,10 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
              check FILE|- [--profile local|tool] [--project-root DIR] | \
              eval EXPRESSION [--profile local|tool] | \
              check-many --manifest FILE [--project-root DIR] | \
-             corpus-scan [--dir DIR] [--project-root DIR] | hash FILE | version | \
-             pack build FILE --dir OUT | pack load ARTIFACT | run-smoke ARTIFACT | \
+             corpus-scan [--dir DIR] [--project-root DIR] | \
+             hash FILE [--profile local|tool] [--project-root DIR] | version | \
+             pack build FILE --dir OUT | pack load ARTIFACT [--max-source-bytes N] | \
+             run-smoke ARTIFACT [--max-source-bytes N] | \
              qualify FILE --dir OUT | \
              repl [--fail-fast] [--json] | run [--profile local|tool] [--exit-code-from-value] \
              [--wasm-convention compiled-qjs|plain] FILE|- \

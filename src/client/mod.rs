@@ -1586,11 +1586,25 @@ fn run_script_artifact_command(arguments: &[String]) -> i32 {
     let engine = crate::script_engine::engine_for(backend);
 
     if action == "load" {
-        let bytes = match std::fs::read(path) {
-            Ok(bytes) => bytes,
+        let source_byte_limit = match script_source_byte_limit(arguments) {
+            Ok(limit) => limit,
+            Err(message) => {
+                cli_eprintln!("{message}");
+                return 2;
+            }
+        };
+        let file = match std::fs::File::open(path) {
+            Ok(file) => file,
             Err(error) => {
                 cli_eprintln!("failed to read artifact {path}: {error}");
                 return 1;
+            }
+        };
+        let bytes = match read_script_artifact(file, source_byte_limit) {
+            Ok(bytes) => bytes,
+            Err((code, message)) => {
+                cli_eprintln!("{message}");
+                return code;
             }
         };
         let options = crate::script_engine::ScriptInvocationOptions::default();
@@ -1791,24 +1805,67 @@ fn run_script_hash(arguments: &[String]) -> i32 {
         Ok(backend) => backend,
         Err(code) => return code,
     };
-    let bytes = match std::fs::read(path) {
-        Ok(bytes) => bytes,
+    let source_byte_limit = match script_source_byte_limit(arguments) {
+        Ok(limit) => limit,
+        Err(message) => {
+            cli_eprintln!("{message}");
+            return 2;
+        }
+    };
+    let file = match std::fs::File::open(path) {
+        Ok(file) => file,
         Err(error) => {
             cli_eprintln!("failed to read {path}: {error}");
             return 2;
         }
     };
+    let artifact_bytes;
+    let source_text;
+    let hash_options;
     let input = if path.ends_with(".wasm") {
-        crate::script_engine::ScriptHashInput::Artifact(&bytes)
+        artifact_bytes = match read_script_artifact(file, source_byte_limit) {
+            Ok(bytes) => bytes,
+            Err((code, message)) => {
+                cli_eprintln!("{message}");
+                return code;
+            }
+        };
+        crate::script_engine::ScriptHashInput::Artifact(&artifact_bytes)
     } else {
-        let source = match std::str::from_utf8(&bytes) {
+        source_text = match read_script_source(file, source_byte_limit) {
             Ok(source) => source,
-            Err(error) => {
-                cli_eprintln!("failed to read {path} as UTF-8 script source: {error}");
+            Err((code, message)) => {
+                cli_eprintln!("{message}");
+                return code;
+            }
+        };
+        let tool_door = match option_value(arguments, "--profile").unwrap_or("local") {
+            "pure" | "observe" | "local" => false,
+            "tool" => true,
+            other => {
+                cli_eprintln!("unknown script profile: {other}");
                 return 2;
             }
         };
-        crate::script_engine::ScriptHashInput::Source(source)
+        let context = match direct_script_context(arguments, path) {
+            Ok(context) => context,
+            Err(message) => {
+                cli_eprintln!("{message}");
+                return 2;
+            }
+        };
+        hash_options = crate::script_engine::ScriptInvocationOptions {
+            project_root: Some(context.project_root),
+            entry_dir: std::path::Path::new(path)
+                .parent()
+                .map(std::path::Path::to_path_buf),
+            tool_door,
+            ..crate::script_engine::ScriptInvocationOptions::default()
+        };
+        crate::script_engine::ScriptHashInput::Source {
+            source: &source_text,
+            options: &hash_options,
+        }
     };
     match crate::script_engine::engine_for(backend).artifact_hash(input) {
         Some(Ok((digest, what))) => {
@@ -2183,17 +2240,13 @@ fn run_script_command_with_context(
             }
         }
     }
-    if let Some(value) = option_value(arguments, "--max-source-bytes") {
-        match value.parse::<usize>() {
-            Ok(value) if (1..=hard_limits.source_bytes).contains(&value) => {
-                budgets.source_bytes = value;
-            }
-            _ => {
-                cli_eprintln!("script --max-source-bytes must be from 1 to 16777216");
-                return 2;
-            }
+    budgets.source_bytes = match script_source_byte_limit(arguments) {
+        Ok(limit) => limit,
+        Err(message) => {
+            cli_eprintln!("{message}");
+            return 2;
         }
-    }
+    };
 
     let artifact_convention = if has_option(arguments, "--wasm-convention") {
         match option_value(arguments, "--wasm-convention") {
@@ -4286,6 +4339,19 @@ fn script_operand(arguments: &[String]) -> Option<&str> {
     None
 }
 
+fn script_source_byte_limit(arguments: &[String]) -> Result<usize, String> {
+    let defaults = ScriptBudgets::default();
+    let hard_limits = ScriptBudgets::hard_limits();
+    match option_value(arguments, "--max-source-bytes") {
+        None => Ok(defaults.source_bytes),
+        Some(value) => value
+            .parse::<usize>()
+            .ok()
+            .filter(|value| (1..=hard_limits.source_bytes).contains(value))
+            .ok_or_else(|| "script --max-source-bytes must be from 1 to 16777216".to_owned()),
+    }
+}
+
 fn parse_wasm_entry_arguments(
     arguments: &[String],
 ) -> Result<Vec<crate::script_protocol::ScriptWasmValue>, String> {
@@ -5734,11 +5800,17 @@ mod tests {
 
         let engine = crate::script_engine::engine_for(ScriptBackend::Qjswasm);
         let (a, what_a) = engine
-            .artifact_hash(crate::script_engine::ScriptHashInput::Source(plain))
+            .artifact_hash(crate::script_engine::ScriptHashInput::Source {
+                source: plain,
+                options: &crate::script_engine::ScriptInvocationOptions::default(),
+            })
             .expect("qjswasm hashes something")
             .expect("this source builds");
         let (b, what_b) = engine
-            .artifact_hash(crate::script_engine::ScriptHashInput::Source(dressed))
+            .artifact_hash(crate::script_engine::ScriptHashInput::Source {
+                source: dressed,
+                options: &crate::script_engine::ScriptInvocationOptions::default(),
+            })
             .expect("qjswasm hashes something")
             .expect("this source builds");
 
@@ -5766,9 +5838,10 @@ mod tests {
         // language bump will not overtake: a hole is not an `undefined` and
         // this engine cannot tell them apart.
         let refused = engine
-            .artifact_hash(crate::script_engine::ScriptHashInput::Source(
-                "return [1, , 2];",
-            ))
+            .artifact_hash(crate::script_engine::ScriptHashInput::Source {
+                source: "return [1, , 2];",
+                options: &crate::script_engine::ScriptInvocationOptions::default(),
+            })
             .expect("qjswasm hashes something")
             .expect_err("an array elision does not build");
         assert!(

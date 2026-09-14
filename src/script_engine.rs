@@ -76,7 +76,10 @@ pub struct ScriptInvocationOptions {
 /// sequence whose identity the caller is asking about.
 #[derive(Clone, Copy)]
 pub enum ScriptHashInput<'a> {
-    Source(&'a str),
+    Source {
+        source: &'a str,
+        options: &'a ScriptInvocationOptions,
+    },
     Artifact(&'a [u8]),
 }
 
@@ -736,7 +739,7 @@ impl ScriptEngineBackend for LuaEngineBackend {
         &self,
         input: ScriptHashInput<'_>,
     ) -> Option<Result<(String, &'static str), String>> {
-        let ScriptHashInput::Source(source) = input else {
+        let ScriptHashInput::Source { source, .. } = input else {
             return None;
         };
         Some(Ok((
@@ -870,7 +873,7 @@ impl ScriptEngineBackend for SqlEngineBackend {
         &self,
         input: ScriptHashInput<'_>,
     ) -> Option<Result<(String, &'static str), String>> {
-        let ScriptHashInput::Source(source) = input else {
+        let ScriptHashInput::Source { source, .. } = input else {
             return None;
         };
         Some(Ok((
@@ -1098,9 +1101,12 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         input: ScriptHashInput<'_>,
     ) -> Option<Result<(String, &'static str), String>> {
         Some(match input {
-            ScriptHashInput::Source(source) => agenterm_qjswasm::compile_qjs(source)
-                .map(|wasm| (agenterm_script_common::hex::sha256_hex(&wasm), "wasm"))
-                .map_err(|error| error.to_string()),
+            ScriptHashInput::Source { source, options } => {
+                let resolve = qjs_module_resolver(&qjs_roots(options));
+                compile_qjs_for(options, source, &resolve, false)
+                    .map(|wasm| (agenterm_script_common::hex::sha256_hex(&wasm), "wasm"))
+                    .map_err(|error| error.to_string())
+            }
             ScriptHashInput::Artifact(wasm) => {
                 Ok((agenterm_script_common::hex::sha256_hex(wasm), "wasm"))
             }
