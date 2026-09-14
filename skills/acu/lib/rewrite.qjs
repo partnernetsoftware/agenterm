@@ -439,7 +439,17 @@ function observe_window(verb, rest, flags) {
   }
   const handle = flags.window !== undefined ? "" + flags.window : take_handle(rest);
   flags.window = undefined;
-  if (handle === null) { return usage(verb, verb + " needs HANDLE or --window"); }
+  const windowless_wait = verb === "wait"
+    && flags.expect === undefined
+    && flags["text-equals"] === undefined
+    && flags["text-contains"] === undefined
+    && (flags["window-count-gte"] !== undefined
+      || flags["window-title-contains"] !== undefined
+      || flags["focused-handle"] !== undefined
+      || flags["node-name-contains"] !== undefined);
+  if (handle === null && !windowless_wait) {
+    return usage(verb, verb + " needs HANDLE or --window");
+  }
   if (has_filters) {
     if (flags["duration-ms"] === undefined) { flags["duration-ms"] = "5000"; }
     if (flags.depth === undefined) { flags.depth = "4"; }
@@ -502,7 +512,11 @@ function observe_window(verb, rest, flags) {
     return { kind: "observe-filters", command: verb, filters: filters,
       argv: joined([verb, "--window", handle], flags, rest) };
   }
-  return exec(joined([verb, "--window", handle], flags, rest));
+  return exec(joined(
+    handle === null ? [verb] : [verb, "--window", handle],
+    flags,
+    rest
+  ));
 }
 
 function legacy_kill(rest, flags) {

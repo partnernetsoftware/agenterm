@@ -83,6 +83,17 @@ kind(rewrite.rewrite(["verify", "41", "--expect", "{\"present\":[]}"]),
   "usage", "verify empty envelope");
 exact(rewrite.rewrite(["wait", "41", "--expect", "[{\"role\":\"Button\"}]"]),
   ["wait", "--window", "41", "--expect", "[{\"role\":\"Button\"}]"], "wait");
+exact(rewrite.rewrite(["wait", "--window-count-gte", "1"]),
+  ["wait", "--window-count-gte", "1"], "wait window count without window");
+exact(rewrite.rewrite(["wait", "--window-title-contains", "Editor"]),
+  ["wait", "--window-title-contains", "Editor"], "wait window title without window");
+exact(rewrite.rewrite(["wait", "--focused-handle", "41"]),
+  ["wait", "--focused-handle", "41"], "wait focused handle without window");
+exact(rewrite.rewrite(["wait", "--node-name-contains", "Ready"]),
+  ["wait", "--node-name-contains", "Ready"], "wait node name without window");
+kind(rewrite.rewrite(["wait", "--expect", "[]"]), "usage", "wait expect still needs window");
+kind(rewrite.rewrite(["wait", "--text-equals", "Ready", "--name", "Status"]),
+  "usage", "wait text still needs window");
 exact(rewrite.rewrite(["observe", "41", "--duration", "1.5"]),
   ["observe", "--window", "41", "--duration-ms", "1500"], "observe");
 exact(rewrite.rewrite(["focused", "--window", "41"]),

@@ -249,6 +249,8 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │        cancellation during that interval preserves inventory/baseline counts and explicitly
   │  │        reports CPU percentage as uncomputed, while a begun second sample completes normally
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
+  │  │  └─ documented windowless `wait` conditions pass through unchanged: window count/title,
+  │  │     focused handle and node name no longer inherit the window-bound observe guard
   │  ├─ [x] ten compound compatibility shapes execute through pure qjs projections + the same typed calls
   │  │  └─ native failures bypass projection unchanged, preserving command, count and structured effect/recovery facts;
   │  │     the reply command names the exact native verb that failed
