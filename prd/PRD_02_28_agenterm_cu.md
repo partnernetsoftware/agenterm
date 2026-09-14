@@ -216,7 +216,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │        while post-sample cancellation preserves the shaped bounded partial observation
   │  │        in typed error detail instead of falsely claiming that no effect was performed;
   │  │        `app-watch` does the same after its baseline, but first revalidates every frozen
-  │  │        canonical application binding so identity drift remains authoritative over cancel
+  │  │        canonical application binding so identity drift remains authoritative over cancel;
+  │  │        `query-watch` preserves its shaped poll-diff observation after the baseline and
+  │  │        revalidates the focused-window identity before cancellation can outrank attribution
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
   │  ├─ [x] ten compound compatibility shapes execute through pure qjs projections + the same typed calls
   │  │  └─ native failures bypass projection unchanged, preserving command, count and structured effect/recovery facts;

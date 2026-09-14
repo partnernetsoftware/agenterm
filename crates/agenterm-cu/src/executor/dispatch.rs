@@ -1263,6 +1263,7 @@ impl Executor {
                 *until,
                 *interval_ms,
                 *max_events,
+                control,
             ),
             Command::Invoke {
                 window,

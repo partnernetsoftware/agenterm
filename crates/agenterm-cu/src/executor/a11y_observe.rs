@@ -496,38 +496,135 @@ pub(super) fn query_payload(
     until: Option<QueryWatchUntil>,
     interval_ms: Option<u64>,
     max_events: Option<usize>,
+    control: crate::execution_control::ExecutionControl<'_>,
 ) -> Result<serde_json::Value, CuError> {
     filter.validate().map_err(invalid_input)?;
     let watch = query_watch_bounds(watch_ms, until, interval_ms, max_events)?;
-    let focus_before = if watch.is_some() {
-        Some(super::pointer::focused_window_identity()?.ok_or_else(|| {
-            CuError::new(
-                "focused_window_unavailable",
-                "query watch requires one uniquely resolved focused top-level window",
-            )
-        })?)
-    } else {
-        None
-    };
-    let mut sample = query_once_payload(
-        window,
-        depth,
-        max_nodes,
-        filter.clone(),
-        text_and_text_exact,
-        offset,
-        max,
-        selector,
-    )?;
+    // The one-shot path is unchanged: no cancellation point is introduced when
+    // there is no watch, and nothing below the watch branch is consulted.
     let Some((watch_ms, interval_ms, max_events)) = watch else {
-        return Ok(sample);
+        return query_once_payload(
+            window,
+            depth,
+            max_nodes,
+            filter,
+            text_and_text_exact,
+            offset,
+            max,
+            selector,
+        );
     };
-    let Some(focus_before) = focus_before else {
-        return Err(CuError::new(
-            "query_watch_internal",
-            "query watch did not retain its foreground baseline",
-        ));
-    };
+    // The pre-effect check lives INSIDE `query_watch_with_providers`, before its
+    // first authority call, so production and the injected test seam share the exact
+    // same decision and a pre-cancelled watch issues zero focus reads and zero
+    // samples.
+    query_watch_with_providers(
+        QueryWatchArgs {
+            window,
+            depth,
+            max_nodes,
+            filter,
+            text_and_text_exact,
+            offset,
+            max,
+            selector,
+            watch_ms,
+            interval_ms,
+            max_events,
+            until,
+        },
+        control,
+        super::pointer::focused_window_identity,
+        &|args| {
+            query_once_payload(
+                args.window,
+                args.depth,
+                args.max_nodes,
+                args.filter.clone(),
+                args.text_and_text_exact,
+                args.offset,
+                args.max,
+                args.selector,
+            )
+        },
+    )
+}
+
+/// The bounded watch request, so the loop and its provider closure can share one
+/// description instead of repeating eight acquisition parameters.
+struct QueryWatchArgs<'a> {
+    window: isize,
+    depth: Option<u32>,
+    max_nodes: Option<usize>,
+    filter: observe::NodeFilter,
+    text_and_text_exact: bool,
+    offset: Option<usize>,
+    max: Option<usize>,
+    selector: Option<&'a str>,
+    watch_ms: u64,
+    interval_ms: u64,
+    max_events: usize,
+    until: Option<QueryWatchUntil>,
+}
+
+/// Everything the observation builder needs about ONE bounded watch, whether it
+/// ended normally, on its deadline, or was cancelled. All three paths publish
+/// through `build_observation`, so a cancelled watch cannot bypass the same field
+/// set or invent a different one.
+struct QueryWatchState {
+    polls: usize,
+    missing_samples: usize,
+    dropped_events: usize,
+    events: Vec<serde_json::Value>,
+    condition_satisfied: bool,
+    final_sample: serde_json::Value,
+}
+
+/// The bounded query-watch loop, GENERIC over its two providers and its identity.
+///
+/// The identity parameter `I` is what makes the bracketing rule testable without
+/// exposing a native handle type: production infers the real private pointer
+/// identity, while a test can inject a plain tuple, and equality of the bracketing
+/// pair is the only operation the loop performs on it.
+///
+/// These are generic `Fn` parameters rather than trait objects or a type alias, so
+/// a caller's closure can borrow its own locals and the higher-ranked borrow stays
+/// intact. Production passes the real `focused_window_identity` and the real
+/// `query_once_payload` acquisition, so the tested loop is the shipped loop.
+fn query_watch_with_providers<F, S, I>(
+    args: QueryWatchArgs<'_>,
+    control: crate::execution_control::ExecutionControl<'_>,
+    focus: F,
+    acquire: &S,
+) -> Result<serde_json::Value, CuError>
+where
+    F: Fn() -> Result<Option<I>, CuError>,
+    S: Fn(&QueryWatchArgs<'_>) -> Result<serde_json::Value, CuError>,
+    I: PartialEq,
+{
+    // PRE-FIRST-AUTHORITY: the ONLY direct `check_observe` in this verb, and the only
+    // valid place for an `effect: not_performed` claim. It precedes the foreground
+    // comparison and the baseline sample, so a pre-cancelled watch issues zero focus
+    // reads and zero samples. Every later cancellation is a private signal handled
+    // by the loop owner below.
+    control.check_observe()?;
+    let QueryWatchArgs {
+        watch_ms,
+        interval_ms,
+        max_events,
+        until,
+        ..
+    } = args;
+    // The foreground identity is bracketed around the WHOLE observation, so a
+    // cancelled observation can only claim `foreground_unchanged: true` after the
+    // same revalidation a normal one performs.
+    let focus_before = focus()?.ok_or_else(|| {
+        CuError::new(
+            "focused_window_unavailable",
+            "query watch requires one uniquely resolved focused top-level window",
+        )
+    })?;
+    let mut sample = (*acquire)(&args)?;
     let started = Instant::now();
     let deadline = started + Duration::from_millis(watch_ms);
     let mut events = Vec::new();
@@ -536,28 +633,65 @@ pub(super) fn query_payload(
     let mut missing_samples = 0usize;
     let mut polls = 1usize;
     let mut condition_satisfied = query_watch_satisfied(until, &sample, false);
+
     while !condition_satisfied && Instant::now() < deadline {
-        thread::sleep(
-            Duration::from_millis(interval_ms)
-                .min(deadline.saturating_duration_since(Instant::now())),
-        );
+        // POST-BASELINE PAUSE: a valid cancellation POINT, but only a private
+        // signal. The deadline is re-checked first, so a bound already reached stays
+        // the authoritative outcome, and the pause is sliced so a long interval does
+        // not delay the observation.
+        if query_watch_pause(control, interval_ms, deadline) {
+            if Instant::now() >= deadline {
+                break;
+            }
+            return query_watch_cancelled(
+                QueryWatchState {
+                    polls,
+                    missing_samples,
+                    dropped_events,
+                    events,
+                    condition_satisfied,
+                    final_sample: sample,
+                },
+                &args,
+                focus_before,
+                &focus,
+            );
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        // LAST-MOMENT CHECK before the next authority call, same private signal.
+        if control.is_cancelled() {
+            return query_watch_cancelled(
+                QueryWatchState {
+                    polls,
+                    missing_samples,
+                    dropped_events,
+                    events,
+                    condition_satisfied,
+                    final_sample: sample,
+                },
+                &args,
+                focus_before,
+                &focus,
+            );
+        }
         polls += 1;
-        let next = match query_once_payload(
-            window,
-            depth,
-            max_nodes,
-            filter.clone(),
-            text_and_text_exact,
-            offset,
-            max,
-            selector,
-        ) {
+        let next = match (*acquire)(&args) {
             Ok(next) => next,
+            // Unchanged policy: a transient later acquisition failure is COUNTED,
+            // never turned into an empty sample nor promoted to a hard error. The
+            // cancellation check sits at the loop boundary, not here, so a miss stays
+            // indistinguishable from any other miss regardless of token timing.
             Err(_) => {
                 missing_samples += 1;
                 continue;
             }
         };
+        // The sample is consumed UNCONDITIONALLY once it returns: this round's diff,
+        // events, overflow count and condition update all happen before any later
+        // token is consulted, so a token flipped inside the authority call cannot
+        // discard the round.
         let batch = diff_query_nodes(&sample, &next);
         for event in &batch {
             event_seq += 1;
@@ -573,7 +707,61 @@ pub(super) fn query_payload(
         sample = next;
         condition_satisfied = query_watch_satisfied(until, &sample, !batch.is_empty());
     }
-    let focus_after = super::pointer::focused_window_identity()?.ok_or_else(|| {
+
+    // FINAL FOREGROUND AUTHORITY: runs on the normal and timeout paths too, so its
+    // failure outranks nothing here. On the cancelled path it runs BEFORE the
+    // cancellation outcome is built, where it does outrank cancellation.
+    query_watch_focus_after(focus_before, &focus)?;
+    let observation = QueryWatchState {
+        polls,
+        missing_samples,
+        dropped_events,
+        events,
+        condition_satisfied,
+        final_sample: sample,
+    }
+    .build_observation(&args, false);
+    if until.is_some() && !condition_satisfied {
+        return Err(CuError::new(
+            "query_watch_timeout",
+            "query watch exhausted its deadline before the requested condition",
+        )
+        .with_detail(observation));
+    }
+    Ok(observation)
+}
+
+/// Slice width for the inter-round pause. The token is observed before each slice
+/// and once at the end. Returns `true` when cancelled; it never builds an error.
+const QUERY_WATCH_CANCEL_SLICE: Duration = Duration::from_millis(10);
+
+fn query_watch_pause(
+    control: crate::execution_control::ExecutionControl<'_>,
+    interval_ms: u64,
+    deadline: Instant,
+) -> bool {
+    let sleep_deadline = Instant::now()
+        + Duration::from_millis(interval_ms)
+            .min(deadline.saturating_duration_since(Instant::now()));
+    while Instant::now() < sleep_deadline {
+        if control.is_cancelled() {
+            return true;
+        }
+        thread::sleep(
+            QUERY_WATCH_CANCEL_SLICE.min(sleep_deadline.saturating_duration_since(Instant::now())),
+        );
+    }
+    control.is_cancelled()
+}
+
+/// The post-baseline foreground revalidation, shared by the normal and cancelled
+/// paths so both apply the same two named refusals.
+fn query_watch_focus_after<F, I>(focus_before: I, focus: &F) -> Result<(), CuError>
+where
+    F: Fn() -> Result<Option<I>, CuError>,
+    I: PartialEq,
+{
+    let focus_after = focus()?.ok_or_else(|| {
         CuError::new(
             "focused_window_unavailable",
             "query watch could not re-read one focused top-level window",
@@ -585,30 +773,67 @@ pub(super) fn query_payload(
             "desktop foreground identity changed while query watch was observing",
         ));
     }
-    let observation = serde_json::json!({
-        "mode": "poll-diff",
-        "duration_ms": watch_ms,
-        "interval_ms": interval_ms,
-        "polls": polls,
-        "missing_samples": missing_samples,
-        "until": until,
-        "condition_satisfied": condition_satisfied,
-        "timed_out": until.is_some() && !condition_satisfied,
-        "event_count": events.len(),
-        "dropped_event_count": dropped_events,
-        "truncated_events": dropped_events > 0,
-        "foreground_unchanged": true,
-        "events": events,
-        "final": sample,
-    });
-    if until.is_some() && !condition_satisfied {
-        return Err(CuError::new(
-            "query_watch_timeout",
-            "query watch exhausted its deadline before the requested condition",
-        )
-        .with_detail(observation));
+    Ok(())
+}
+
+/// The post-baseline cancellation outcome.
+///
+/// ORDERING IS THE POINT: the foreground comparison runs FIRST and its named
+/// refusals win, because they are authoritative statements about whether the
+/// observation is still attributable to one unchanged window, while cancellation
+/// is only a request to stop. Publishing `foreground_unchanged: true` without that
+/// revalidation would be a false attribution. Only afterwards is the SAME
+/// observation object built and attached as structured detail.
+fn query_watch_cancelled<F, I>(
+    state: QueryWatchState,
+    args: &QueryWatchArgs<'_>,
+    focus_before: I,
+    focus: &F,
+) -> Result<serde_json::Value, CuError>
+where
+    F: Fn() -> Result<Option<I>, CuError>,
+    I: PartialEq,
+{
+    query_watch_focus_after(focus_before, focus)?;
+    let partial = state.build_observation(args, true);
+    Err(CuError::new(
+        "cancelled",
+        "the query watch was cancelled after observation began",
+    )
+    .with_detail(serde_json::json!({
+        "effect": "partially_performed",
+        "phase": "observe_wait",
+        "partial_observation": partial,
+    })))
+}
+
+impl QueryWatchState {
+    /// The ONE observation builder for the normal, timeout and cancelled paths.
+    ///
+    /// `cancelled` selects only the field whose truth depends on why the watch
+    /// stopped: `timed_out` must be false for a cancellation, because a cancellation
+    /// is not a timeout. Every other field keeps its existing name and meaning, and
+    /// no new field is added, because the outer error code is already the
+    /// termination carrier. `foreground_unchanged` is hardcoded true because every
+    /// caller has already completed the foreground revalidation successfully.
+    fn build_observation(self, args: &QueryWatchArgs<'_>, cancelled: bool) -> serde_json::Value {
+        serde_json::json!({
+            "mode": "poll-diff",
+            "duration_ms": args.watch_ms,
+            "interval_ms": args.interval_ms,
+            "polls": self.polls,
+            "missing_samples": self.missing_samples,
+            "until": args.until,
+            "condition_satisfied": self.condition_satisfied,
+            "timed_out": !cancelled && args.until.is_some() && !self.condition_satisfied,
+            "event_count": self.events.len(),
+            "dropped_event_count": self.dropped_events,
+            "truncated_events": self.dropped_events > 0,
+            "foreground_unchanged": true,
+            "events": self.events,
+            "final": self.final_sample,
+        })
     }
-    Ok(observation)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1312,6 +1537,353 @@ pub(super) fn verify_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- cooperative query-watch cancellation ---------------------------------
+
+    /// A synthetic focused-window identity. The loop is generic over the identity
+    /// type, so the test injects a plain tuple and never touches the private native
+    /// type.
+    type TestFocus = (isize, u32);
+
+    const fn focus_id(handle: isize, process_id: u32) -> TestFocus {
+        (handle, process_id)
+    }
+
+    fn watch_args(
+        watch_ms: u64,
+        interval_ms: u64,
+        until: Option<QueryWatchUntil>,
+    ) -> QueryWatchArgs<'static> {
+        QueryWatchArgs {
+            window: 7,
+            depth: None,
+            max_nodes: None,
+            filter: observe::NodeFilter::from_parts(&[], None, None, None, false, None),
+            text_and_text_exact: false,
+            offset: None,
+            max: None,
+            selector: None,
+            watch_ms,
+            interval_ms,
+            max_events: 8,
+            until,
+        }
+    }
+
+    /// An acquisition row shaped like the real filtered sample: `matched` drives
+    /// `until: Present/Absent`, and an extra field drives diff detection.
+    fn sample_json(matched: u64, marker: u64) -> serde_json::Value {
+        serde_json::json!({
+            "matched": matched,
+            "scan_truncated": false,
+            "nodes": [{ "id": "/0", "name": format!("n{marker}") }],
+        })
+    }
+
+    #[test]
+    fn pre_cancel_reads_no_focus_and_takes_no_sample() {
+        // The injected providers count and PANIC, proving no authority is reachable
+        // and that the shared pre-effect check lives inside the loop helper.
+        let focus_calls = std::cell::Cell::new(0usize);
+        let sample_calls = std::cell::Cell::new(0usize);
+        let focus = || -> Result<Option<TestFocus>, CuError> {
+            focus_calls.set(focus_calls.get() + 1);
+            unreachable!("a pre-effect cancel must not read the foreground identity")
+        };
+        let acquire = |_: &QueryWatchArgs<'_>| -> Result<serde_json::Value, CuError> {
+            sample_calls.set(sample_calls.get() + 1);
+            unreachable!("a pre-effect cancel must not take a sample")
+        };
+        let error = query_watch_with_providers(
+            watch_args(30_000, 50, Some(QueryWatchUntil::Present)),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&|| true),
+            focus,
+            &acquire,
+        )
+        .expect_err("a pre-effect cancel must refuse the watch");
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(focus_calls.get(), 0, "no focus read on a pre-effect cancel");
+        assert_eq!(sample_calls.get(), 0, "no sample on a pre-effect cancel");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert!(
+            detail.get("partial_observation").is_none(),
+            "nothing was observed, so no partial may be claimed"
+        );
+    }
+
+    #[test]
+    fn a_post_baseline_pause_cancel_returns_a_truthful_partial_and_takes_no_second_sample() {
+        // The token is raised from a test thread while the watch sits in a long
+        // pause, i.e. AFTER the baseline exists. The outcome must be a partial
+        // observation whose `timed_out` is false, because a cancellation is not a
+        // timeout.
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+
+        let token = Arc::new(AtomicBool::new(false));
+        let raised = Arc::clone(&token);
+        let focus_calls = std::cell::Cell::new(0usize);
+        let samples = std::cell::Cell::new(0usize);
+        let trigger = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(25));
+            raised.store(true, Ordering::Release);
+        });
+        let probe = || token.load(Ordering::Acquire);
+        let focus = || {
+            focus_calls.set(focus_calls.get() + 1);
+            Ok(Some(focus_id(7, 42)))
+        };
+        let acquire = |_: &QueryWatchArgs<'_>| -> Result<serde_json::Value, CuError> {
+            samples.set(samples.get() + 1);
+            Ok(sample_json(0, 1))
+        };
+        let error = query_watch_with_providers(
+            watch_args(30_000, 2_000, Some(QueryWatchUntil::Present)),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            focus,
+            &acquire,
+        )
+        .expect_err("a post-baseline cancel must refuse the watch");
+        trigger.join().expect("cancel trigger");
+
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(samples.get(), 1, "the token must stop the second sample");
+        // Two focus reads: the bracketing pair a publishable observation requires.
+        assert_eq!(focus_calls.get(), 2, "focus must be bracketed");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        let partial = &detail["partial_observation"];
+        assert_eq!(partial["mode"], "poll-diff");
+        assert_eq!(partial["polls"], 1);
+        assert_eq!(partial["missing_samples"], 0);
+        assert_eq!(partial["event_count"], 0);
+        assert_eq!(partial["dropped_event_count"], 0);
+        assert_eq!(partial["truncated_events"], false);
+        // A cancellation is NOT a timeout.
+        assert_eq!(partial["timed_out"], false);
+        assert_eq!(partial["condition_satisfied"], false);
+        // Only true after the revalidation that just ran.
+        assert_eq!(partial["foreground_unchanged"], true);
+        assert_eq!(partial["duration_ms"], 30_000);
+        assert_eq!(partial["interval_ms"], 2_000);
+        // No parallel termination/completed vocabulary was introduced.
+        assert!(partial.get("termination").is_none());
+        assert!(partial.get("completed").is_none());
+    }
+
+    #[test]
+    fn a_same_round_satisfied_condition_win_over_a_token_that_round_flipped() {
+        // Round 2 flips the token AND returns a sample satisfying `until: Present`.
+        // The normal matched result must win, with its events intact.
+        let token = std::cell::Cell::new(false);
+        let samples = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let focus = || Ok(Some(focus_id(7, 42)));
+        let acquire = |_: &QueryWatchArgs<'_>| -> Result<serde_json::Value, CuError> {
+            let n = samples.get() + 1;
+            samples.set(n);
+            let value = sample_json(if n == 1 { 0 } else { 1 }, n as u64);
+            if n == 2 {
+                token.set(true);
+            }
+            Ok(value)
+        };
+        let value = query_watch_with_providers(
+            watch_args(30_000, 50, Some(QueryWatchUntil::Present)),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            focus,
+            &acquire,
+        )
+        .expect("the same-round satisfied condition must win");
+        assert!(token.get(), "the provider really did flip the token");
+        assert_eq!(samples.get(), 2);
+        assert_eq!(value["condition_satisfied"], true);
+        assert_eq!(value["timed_out"], false);
+        assert_eq!(value["foreground_unchanged"], true);
+        assert!(
+            value["event_count"].as_u64().unwrap_or(0) >= 1,
+            "the same-round diff must be reported"
+        );
+        assert!(value.get("termination").is_none());
+    }
+
+    #[test]
+    fn a_swallowed_sample_error_stays_swallowed_and_is_then_reported_as_a_partial() {
+        // Round 2 flips the token and FAILS. Current policy counts the miss, never
+        // promoting it to a provider failure; the token is then observed in the
+        // following pause and surfaces as a partial cancellation.
+        let token = std::cell::Cell::new(false);
+        let samples = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let focus = || Ok(Some(focus_id(7, 42)));
+        let acquire = |_: &QueryWatchArgs<'_>| -> Result<serde_json::Value, CuError> {
+            let n = samples.get() + 1;
+            samples.set(n);
+            if n == 1 {
+                return Ok(sample_json(0, 1));
+            }
+            token.set(true);
+            Err(CuError::new(
+                "query_watch_fixture_transient",
+                "the fixture acquisition failed transiently",
+            ))
+        };
+        let error = query_watch_with_providers(
+            watch_args(30_000, 50, Some(QueryWatchUntil::Present)),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            focus,
+            &acquire,
+        )
+        .expect_err("the pending token must surface as a partial cancellation");
+        // NOT the fixture provider error: the miss stayed swallowed.
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(samples.get(), 2);
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["effect"], "partially_performed");
+        let partial = &detail["partial_observation"];
+        // The miss was COUNTED, not turned into an empty sample or a hard error.
+        assert_eq!(partial["missing_samples"], 1);
+        assert_eq!(partial["timed_out"], false);
+        assert_eq!(partial["polls"], 2);
+    }
+
+    #[test]
+    fn foreground_drift_wins_over_a_pending_cancellation() {
+        // The token becomes pending after the baseline, but the foreground identity
+        // changed. Drift is authoritative about attribution, so it must win and no
+        // partial cancellation may be published.
+        let token = std::cell::Cell::new(false);
+        let focus_calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let focus = || {
+            let n = focus_calls.get() + 1;
+            focus_calls.set(n);
+            if n == 1 {
+                Ok(Some(focus_id(7, 42)))
+            } else {
+                // A different window took the foreground.
+                Ok(Some(focus_id(9, 99)))
+            }
+        };
+        let acquire = |_: &QueryWatchArgs<'_>| -> Result<serde_json::Value, CuError> {
+            token.set(true);
+            Ok(sample_json(0, 1))
+        };
+        let error = query_watch_with_providers(
+            watch_args(30_000, 2_000, Some(QueryWatchUntil::Present)),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            focus,
+            &acquire,
+        )
+        .expect_err("drift must win over the pending cancellation");
+        assert!(token.get(), "the token really did become pending");
+        assert_eq!(error.code, "focused_window_changed");
+        assert_eq!(focus_calls.get(), 2, "the bracketing pair really ran");
+        let detail = error.detail.unwrap_or(serde_json::Value::Null);
+        assert_ne!(detail["effect"], "partially_performed");
+    }
+
+    #[test]
+    fn an_uncancelled_watch_returns_the_existing_success_shape() {
+        // The normal field set is unchanged: no termination, no completed.
+        let focus = || Ok(Some(focus_id(7, 42)));
+        let acquire = |_: &QueryWatchArgs<'_>| -> Result<serde_json::Value, CuError> {
+            Ok(sample_json(1, 1))
+        };
+        let value = query_watch_with_providers(
+            watch_args(30_000, 50, Some(QueryWatchUntil::Present)),
+            crate::execution_control::ExecutionControl::none(),
+            focus,
+            &acquire,
+        )
+        .expect("a satisfied condition succeeds immediately");
+        assert_eq!(value["mode"], "poll-diff");
+        assert_eq!(value["polls"], 1);
+        assert_eq!(value["condition_satisfied"], true);
+        assert_eq!(value["timed_out"], false);
+        assert_eq!(value["foreground_unchanged"], true);
+        assert_eq!(value["missing_samples"], 0);
+        assert_eq!(value["event_count"], 0);
+        assert_eq!(value["dropped_event_count"], 0);
+        assert_eq!(value["truncated_events"], false);
+        assert!(value.get("termination").is_none());
+        assert!(value.get("completed").is_none());
+        assert!(value["final"].is_object());
+    }
+
+    #[test]
+    fn a_same_round_deadline_win_over_a_token_that_round_flipped() {
+        // Deterministic deadline precedence, using only publicly valid bounds (watch
+        // at least 100ms, interval 50..=2000ms). The token starts false. Round 1 is
+        // the baseline. Round 2 sleeps past the remaining watch deadline, THEN sets
+        // the token and returns an unmatched but valid sample. The loop therefore
+        // exits on the deadline, not on the token, and the ordinary timeout outcome
+        // must win with `timed_out: true`.
+        let token = std::cell::Cell::new(false);
+        let samples = std::cell::Cell::new(0usize);
+        let focus_calls = std::cell::Cell::new(0usize);
+        let probe = || token.get();
+        let focus = || {
+            focus_calls.set(focus_calls.get() + 1);
+            Ok(Some(focus_id(7, 42)))
+        };
+        let acquire = |_: &QueryWatchArgs<'_>| -> Result<serde_json::Value, CuError> {
+            let n = samples.get() + 1;
+            samples.set(n);
+            if n == 2 {
+                // Burn past the whole 150ms watch inside the authority call.
+                std::thread::sleep(Duration::from_millis(200));
+                token.set(true);
+            }
+            Ok(sample_json(0, n as u64))
+        };
+        let error = query_watch_with_providers(
+            watch_args(150, 50, Some(QueryWatchUntil::Present)),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            focus,
+            &acquire,
+        )
+        .expect_err("an unsatisfied condition must time out");
+        assert!(token.get(), "the provider really did flip the token");
+        assert_eq!(samples.get(), 2, "round 2 really happened");
+        assert_eq!(focus_calls.get(), 2, "focus was bracketed");
+        assert_eq!(
+            error.code, "query_watch_timeout",
+            "the reached deadline must win over the token flipped in that round"
+        );
+        let detail = error.detail.expect("the timeout carries the observation");
+        assert_eq!(detail["timed_out"], true);
+        assert_eq!(detail["condition_satisfied"], false);
+    }
+
+    #[test]
+    fn an_uncancelled_timeout_keeps_the_existing_error_detail_shape() {
+        // The pre-existing timeout carrier is unchanged, and `timed_out` is true
+        // there because it really is a timeout. Bounds are publicly valid.
+        let focus = || Ok(Some(focus_id(7, 42)));
+        let acquire = |_: &QueryWatchArgs<'_>| -> Result<serde_json::Value, CuError> {
+            Ok(sample_json(0, 1))
+        };
+        let error = query_watch_with_providers(
+            watch_args(120, 50, Some(QueryWatchUntil::Present)),
+            crate::execution_control::ExecutionControl::none(),
+            focus,
+            &acquire,
+        )
+        .expect_err("an unsatisfied condition must time out");
+        assert_eq!(error.code, "query_watch_timeout");
+        let detail = error.detail.expect("the timeout carries the observation");
+        assert_eq!(detail["timed_out"], true);
+        assert_eq!(detail["condition_satisfied"], false);
+        assert_eq!(detail["mode"], "poll-diff");
+        assert_eq!(detail["foreground_unchanged"], true);
+        assert!(detail.get("termination").is_none());
+        assert!(detail.get("completed").is_none());
+    }
 
     fn selector_tree() -> mechanism::A11yTree {
         let node =
