@@ -694,7 +694,9 @@ integration.
   duplicate and dangling options fail usage instead of changing the report's
   meaning. This thin scan deliberately declares the ordinary tool door only;
   supervised-native scripts and exact per-task budgets remain owned by
-  manifest `check-many` rather than being guessed from source.
+  manifest `check-many` rather than being guessed from source. Top-level
+  exports remain libraries when indented, matching the engine and `check-many`
+  instead of turning formatting into a false corpus failure.
 - [x] The shared qjswasm task compatibility helper maps `.` to the exact
   current directory and strips only the host-valid leading dot segment from
   `./...` (plus `.\...` on Windows). Native path identity can therefore be

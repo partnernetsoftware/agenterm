@@ -54,7 +54,9 @@ pub fn scan_directory_with(
             .ok()
             .map(|rel| rel.with_extension(""))
             .map(|rel| rel.to_string_lossy().replace('\\', "/"));
-        let is_library = source.lines().any(|line| line.starts_with("export "));
+        let is_library = source
+            .lines()
+            .any(|line| line.trim_start().starts_with("export "));
         let checked = match (is_library, specifier) {
             (true, Some(specifier)) => {
                 let importer = format!("import * as lib from \"{specifier}\"; return typeof lib;");
@@ -113,5 +115,30 @@ mod tests {
     #[test]
     fn scan_recurses_into_subdirectories() {
         CONTRACT.assert_recurses_into_subdirectories(&scan_directory);
+    }
+
+    #[test]
+    fn scan_with_modules_accepts_indented_exports_and_keeps_real_failures() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("indented.qjs"),
+            "  export function answer() { return 42; }",
+        )
+        .expect("write library");
+        std::fs::write(
+            dir.path().join("use.qjs"),
+            "import * as dep from \"indented\"; return dep.answer();",
+        )
+        .expect("write importer");
+        std::fs::write(dir.path().join("bad.qjs"), "return [1, , 2];")
+            .expect("write negative control");
+        let resolve = |specifier: &str| {
+            std::fs::read_to_string(dir.path().join(format!("{specifier}.qjs"))).ok()
+        };
+
+        let report = scan_directory_with(dir.path(), &resolve).expect("scan");
+        assert_eq!(report.total_scripts, 3);
+        assert_eq!(report.failures, 1, "{report:?}");
+        assert!(report.failed_files[0].path.ends_with("bad.qjs"));
     }
 }
