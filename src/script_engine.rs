@@ -415,6 +415,7 @@ fn qjs_budget(options: &ScriptInvocationOptions) -> agenterm_qjswasm::Budget {
         // 3.5 MiB `fs_read_to_string` in the supply-chain task even though
         // that task explicitly requested the reviewed 8 MiB string budget.
         budget.max_bridge_result_bytes = budgets.string_bytes;
+        budget.max_result_string_bytes = budgets.string_bytes;
     }
     budget.cancel = options.cancellation.clone();
     budget.fixed_clock_ms = options.fixed_clock_ms;
@@ -1673,12 +1674,16 @@ mod tests {
 
     #[test]
     #[cfg(feature = "script-qjswasm")]
-    fn qjs_budget_maps_the_public_string_ceiling_to_bridge_results() {
+    fn qjs_budget_maps_the_public_string_ceiling_to_bridge_and_return_results() {
         let defaults = agenterm_qjswasm::Budget::default();
         let without_override = qjs_budget(&ScriptInvocationOptions::default());
         assert_eq!(
             without_override.max_bridge_result_bytes,
             defaults.max_bridge_result_bytes
+        );
+        assert_eq!(
+            without_override.max_result_string_bytes,
+            defaults.max_result_string_bytes
         );
 
         let invocation_budget = ScriptBudgets {
@@ -1689,10 +1694,9 @@ mod tests {
             budgets: Some(invocation_budget),
             ..ScriptInvocationOptions::default()
         };
-        assert_eq!(
-            qjs_budget(&options).max_bridge_result_bytes,
-            3 * 1024 * 1024
-        );
+        let mapped = qjs_budget(&options);
+        assert_eq!(mapped.max_bridge_result_bytes, 3 * 1024 * 1024);
+        assert_eq!(mapped.max_result_string_bytes, 3 * 1024 * 1024);
     }
 
     #[test]
