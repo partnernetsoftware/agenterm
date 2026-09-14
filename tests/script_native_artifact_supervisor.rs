@@ -120,6 +120,28 @@ fn a_plain_native_artifact_runs_through_the_public_supervised_cli() {
 }
 
 #[test]
+fn a_multi_result_plain_artifact_is_refused_instead_of_silently_truncated() {
+    let root = FixtureRoot::new();
+    let path = root.wasm(
+        "multi-result",
+        r#"(module
+            (func (export "main") (result i32 i64)
+                i32.const 7
+                i64.const 9000000000))"#,
+    );
+    let output = run_plain(&path, 2_000);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        output.stdout.is_empty(),
+        "stdout={}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("qjswasm_result_not_json"), "{stderr}");
+    assert!(stderr.contains("2 completion values"), "{stderr}");
+}
+
+#[test]
 fn the_default_wasm_convention_preserves_compiled_qjs_artifacts() {
     let root = FixtureRoot::new();
     let path = root.0.join("compiled-qjs.wasm");

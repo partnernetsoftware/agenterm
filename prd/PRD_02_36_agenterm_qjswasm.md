@@ -274,7 +274,8 @@ agenterm-qjswasm
 │  ├─ [x] the worker result wire preserves an explicit `null` completion value instead of
 │  │      decoding it as the same absent value used for `undefined`
 │  ├─ [x] source, compiled-qjs artifact and plain-wasm result routes share one projection;
-│  │      non-finite completion numbers fail as `qjswasm_result_not_json` while retaining stdout and cost
+│  │      non-finite numbers and multi-result plain-Wasm exports fail as `qjswasm_result_not_json`
+│  │      while retaining stdout and cost; a single JSON result never silently drops later Wasm values
 │  ├─ [x] the graybox-retired `PersistentReplClient` concurrency facade is deleted after
 │  │      zero production constructors and unconditional CLI/worker refusals; the legacy frame
 │  │      remains typed as `protocol_repl_unavailable` instead of becoming an unknown protocol tag

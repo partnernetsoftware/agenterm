@@ -1258,6 +1258,18 @@ fn qjswasm_invocation_result(
         json_stringify_bytes: outcome.json_stringify_bytes,
         immediate_stringify_host_argument_bytes: outcome.immediate_stringify_host_argument_bytes,
     };
+    if outcome.values.len() > 1 {
+        return Err(ScriptEngineError {
+            message: format!(
+                "qjswasm_result_not_json: {} completion values cannot cross the single JSON result wire",
+                outcome.values.len()
+            ),
+            category: ScriptFailureCategory::Script,
+            stdout: outcome.stdout,
+            stdout_truncated: outcome.truncated_stdout,
+            cost: Some(cost),
+        });
+    }
     let value = match outcome.values.first().map(qjswasm_value_as_json) {
         Some(Err(message)) => {
             return Err(ScriptEngineError {
@@ -2291,6 +2303,25 @@ return native.call("{library}|sqrt|f64(f64)", [-1]);
         assert_eq!(plain_error.category, ScriptFailureCategory::Script);
         assert!(plain_error.message.contains("qjswasm_result_not_json"));
         assert!(plain_error.cost.is_some(), "the plain run keeps its bill");
+
+        let multi_result_wasm = wat::parse_str(
+            r#"(module
+                (func (export "main") (result i32 i64)
+                    i32.const 7
+                    i64.const 9000000000))"#,
+        )
+        .expect("multi-result plain wasm fixture");
+        let multi_error = engine
+            .execute_plain_wasm_artifact(&multi_result_wasm, &options, None)
+            .expect("qjswasm loads multi-result plain wasm")
+            .expect_err("a single JSON value wire must not discard later wasm results");
+        assert_eq!(multi_error.category, ScriptFailureCategory::Script);
+        assert!(multi_error.message.contains("qjswasm_result_not_json"));
+        assert!(multi_error.message.contains("2 completion values"));
+        assert!(
+            multi_error.cost.is_some(),
+            "the multi-result run keeps its bill"
+        );
     }
 
     #[cfg(feature = "script-acu-embedder")]
