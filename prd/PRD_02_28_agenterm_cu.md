@@ -1725,8 +1725,10 @@ flowchart LR
   `host-open PATH_OR_URL [--app APPLICATION] [--background]` (alias `open`)
   crosses a typed `agenterm-platform` facade and never invokes a shell. macOS
   uses the system LaunchServices launcher, Linux uses a system `xdg-open`, and
-  Windows uses `ShellExecuteW`; target/application values are bounded and
-  option-like or NUL-containing values are rejected before native dispatch.
+  Windows uses `ShellExecuteW`, including explicit application selection with
+  the target encoded as one Windows argument; target/application values are
+  bounded and option-like or NUL-containing values are rejected before native
+  dispatch.
   The durable receipt stores byte lengths and SHA-256, not plaintext. A native
   acceptance is only `performed=true, accepted=true, verified=false`, never a
   fabricated claim that the handler rendered or consumed the target. The

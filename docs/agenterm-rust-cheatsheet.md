@@ -5438,6 +5438,12 @@ read failure may happen after dispatch, so report its effect as `unknown`
 rather than `not_performed`. Store only target/application length and digest in
 receipts unless the caller explicitly requested disclosure.
 
+On Windows, `ShellExecuteW.lpParameters` is still a raw command line, not an
+argv array. When `lpFile` names an explicit application, encode the target with
+the shared `process_conventions::windows_command_line` helper so spaces, quotes
+and trailing backslashes survive as exactly one argument. Do not hand-quote or
+concatenate caller text.
+
 Desktop notifications have the same boundary: a provider can prove that its
 dispatcher accepted bounded title/body data, but not that the operating system
 presented it or that a person noticed it. Keep notification text out of durable
