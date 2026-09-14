@@ -613,7 +613,8 @@ court remains missing.
 Wasmtime-class replacement ladder
 ├─ H0 [x] AgenTerm-owned .qjs automation: bounded interpreter + typed host door
 ├─ H1 [ ] Core Wasm: proposal inventory, spec tests, malformed modules, differential fuzz
-├─ H2 [ ] Runtime: stable embedder API, multi-instance lifecycle, cancellation, diagnostics
+├─ H2 [~] Runtime: stable embedder API, multi-instance lifecycle, cancellation, diagnostics
+│  └─ [x] two live slots retain distinct parked tool answers across interleaved calls
 ├─ H3 [ ] Performance: cold start, resident size, throughput and concurrency by workload
 ├─ H4 [ ] Compatibility: optional WASI/Component adapters in generic tinyvm
 └─ H5 [ ] Adoption: replace an existing Wasmtime workload only after its frozen court passes

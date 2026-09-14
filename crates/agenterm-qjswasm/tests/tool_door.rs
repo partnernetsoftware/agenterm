@@ -2473,6 +2473,51 @@ fn a_successful_call_clears_unread_failed_tool_calls() {
     );
 }
 
+#[test]
+fn two_slots_keep_distinct_parked_tool_answers_when_calls_interleave() {
+    let dir = Scratch::new("two-slot-pending");
+    let first_path = dir.path("first.txt");
+    let second_path = dir.path("second.txt");
+    std::fs::write(&first_path, "answer from slot one").expect("write first fixture");
+    std::fs::write(&second_path, "answer from slot two").expect("write second fixture");
+
+    let source = |path: &Path| {
+        format!(
+            r#"
+            if ($0 === 0) {{ return fs_read_to_string({path}); }}
+            return tool_result();
+            "#,
+            path = js(path)
+        )
+    };
+    let mut eng = Engine::with_tool_door(Budget::default());
+    let first = eng
+        .spawn(Guest::Qjs(&source(&first_path)), None)
+        .expect("first slot loads");
+    let second = eng
+        .spawn(Guest::Qjs(&source(&second_path)), None)
+        .expect("second slot loads");
+    let park = [Value::Js(JsValue::Number(0.0))];
+    let collect = [Value::Js(JsValue::Number(1.0))];
+
+    assert_eq!(
+        number_of(&eng.call(first, "main", &park).expect("park first")),
+        0.0
+    );
+    assert_eq!(
+        number_of(&eng.call(second, "main", &park).expect("park second")),
+        0.0
+    );
+    assert_eq!(
+        string_of(&eng.call(first, "main", &collect).expect("collect first")),
+        "answer from slot one"
+    );
+    assert_eq!(
+        string_of(&eng.call(second, "main", &collect).expect("collect second")),
+        "answer from slot two"
+    );
+}
+
 /// A cancel set while the guest sleeps ends the call within a slice, as
 /// `Cancelled` -- its own class, neither the script's doing nor a budget --
 /// and the bill still says how long it actually waited.
