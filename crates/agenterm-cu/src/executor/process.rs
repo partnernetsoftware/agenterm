@@ -1171,33 +1171,6 @@ struct UsageWatchState {
     initial_identity: Option<String>,
 }
 
-/// Width of one cancellation-observation slice.
-const USAGE_WATCH_CANCEL_SLICE: Duration = Duration::from_millis(10);
-
-/// The inter-sample pause, sliced so a long interval does not delay a stop.
-///
-/// It returns a private `bool` and NEVER builds an error: every post-baseline
-/// cancellation is only a signal to the state owner, which alone decides whether
-/// the outcome is the ordinary payload or a shaped partial.
-fn usage_watch_pause(
-    control: crate::execution_control::ExecutionControl<'_>,
-    interval_ms: u64,
-    deadline: Instant,
-) -> bool {
-    let until = Instant::now()
-        + Duration::from_millis(interval_ms)
-            .min(deadline.saturating_duration_since(Instant::now()));
-    while Instant::now() < until {
-        if control.is_cancelled() {
-            return true;
-        }
-        thread::sleep(
-            USAGE_WATCH_CANCEL_SLICE.min(until.saturating_duration_since(Instant::now())),
-        );
-    }
-    control.is_cancelled()
-}
-
 /// The bounded usage-series loop, GENERIC over its sampler.
 ///
 /// The sampler is a generic `Fn` reference rather than a trait object or a type
@@ -1257,7 +1230,10 @@ where
             let completed = Instant::now() >= deadline;
             return usage_watch_into_value(state, request, completed);
         }
-        if usage_watch_pause(control, request.interval_ms, deadline) {
+        let pause_deadline = Instant::now()
+            + Duration::from_millis(request.interval_ms)
+                .min(deadline.saturating_duration_since(Instant::now()));
+        if control.sleep_until_cancelled(pause_deadline) {
             // DEADLINE FIRST: a bound that is already reached stays the authoritative
             // outcome even when the final slice saw the token.
             if Instant::now() >= deadline {
@@ -2914,7 +2890,10 @@ where
         // POST-BASELINE PAUSE: a valid cancellation POINT, but it may only report a
         // private signal. It must never construct a `not_performed` error, because
         // the baseline above and every prior round already ran real inventory.
-        if process_watch_pause(control, interval_ms, deadline) {
+        let pause_deadline = Instant::now()
+            + Duration::from_millis(interval_ms)
+                .min(deadline.saturating_duration_since(Instant::now()));
+        if control.sleep_until_cancelled(pause_deadline) {
             return process_watch_cancelled(
                 ProcessWatchState {
                     baseline,
@@ -2981,31 +2960,6 @@ where
         truncated,
     }
     .into_value(request, None)
-}
-
-/// Slice width for the inter-round pause, matching the shared cancellation
-/// policy. The token is observed before each slice and once at the end. Returns
-/// `true` when the watch was cancelled; it never builds an error.
-const PROCESS_WATCH_CANCEL_SLICE: Duration = Duration::from_millis(10);
-
-fn process_watch_pause(
-    control: crate::execution_control::ExecutionControl<'_>,
-    interval_ms: u64,
-    deadline: Instant,
-) -> bool {
-    let sleep_deadline = Instant::now()
-        + Duration::from_millis(interval_ms)
-            .min(deadline.saturating_duration_since(Instant::now()));
-    while Instant::now() < sleep_deadline {
-        if control.is_cancelled() {
-            return true;
-        }
-        std::thread::sleep(
-            PROCESS_WATCH_CANCEL_SLICE
-                .min(sleep_deadline.saturating_duration_since(Instant::now())),
-        );
-    }
-    control.is_cancelled()
 }
 
 /// The post-baseline cancellation outcome: a named `cancelled` failure whose

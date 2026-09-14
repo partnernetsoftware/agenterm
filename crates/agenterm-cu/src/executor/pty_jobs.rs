@@ -42,7 +42,6 @@ const MAX_PTY_WAIT_PATTERN_BYTES: usize = 4_096;
 const MAX_PTY_WAIT_MATCH_BYTES: usize = 65_536;
 const MAX_PTY_WAIT_SCAN_BYTES: u64 = 67_108_864;
 const PTY_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(50);
-const PTY_WAIT_CANCEL_SLICE: Duration = Duration::from_millis(10);
 
 enum PtyWaitMatcher<'a> {
     Contains(&'a [u8]),
@@ -1597,7 +1596,11 @@ where
                 matcher,
             ));
         }
-        if wait_for_next_pty_poll(deadline, control) {
+        let pause_deadline = Instant::now()
+            + deadline
+                .saturating_duration_since(Instant::now())
+                .min(PTY_WAIT_POLL_INTERVAL);
+        if control.sleep_until_cancelled(pause_deadline) {
             // DEADLINE FIRST: a pause that consumed the remaining bound retains the
             // ordinary timeout outcome instead of being rewritten as cancellation.
             if Instant::now() >= deadline {
@@ -1672,25 +1675,6 @@ fn pty_wait_cancelled(
             matcher,
         ),
     }))
-}
-
-fn wait_for_next_pty_poll(
-    deadline: Instant,
-    control: crate::execution_control::ExecutionControl<'_>,
-) -> bool {
-    let pause_deadline = Instant::now()
-        + deadline
-            .saturating_duration_since(Instant::now())
-            .min(PTY_WAIT_POLL_INTERVAL);
-    while Instant::now() < pause_deadline {
-        if control.is_cancelled() {
-            return true;
-        }
-        thread::sleep(
-            PTY_WAIT_CANCEL_SLICE.min(pause_deadline.saturating_duration_since(Instant::now())),
-        );
-    }
-    control.is_cancelled()
 }
 
 pub(super) fn pty_wait_exit_payload(
@@ -2355,7 +2339,7 @@ mod tests {
     #[test]
     fn pty_wait_poll_pause_observes_cancellation_inside_the_interval() {
         assert!(
-            PTY_WAIT_CANCEL_SLICE < PTY_WAIT_POLL_INTERVAL,
+            crate::execution_control::OBSERVE_CANCEL_SLICE < PTY_WAIT_POLL_INTERVAL,
             "the cancellation slice must stay shorter than one PTY poll interval"
         );
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -2366,10 +2350,8 @@ mod tests {
         });
         let probe = || cancelled.load(Ordering::Acquire);
         let started = Instant::now();
-        let cancelled = wait_for_next_pty_poll(
-            Instant::now() + Duration::from_secs(60),
-            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
-        );
+        let cancelled = crate::execution_control::ExecutionControl::with_cancel_probe(&probe)
+            .sleep_until_cancelled(Instant::now() + Duration::from_secs(60));
         trigger.join().expect("cancel trigger");
 
         assert!(cancelled, "the PTY poll pause must observe cancellation");

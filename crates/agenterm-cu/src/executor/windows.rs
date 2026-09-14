@@ -865,31 +865,6 @@ struct WindowsWatchState {
     truncated: bool,
 }
 
-/// Width of one cancellation-observation slice.
-const WINDOWS_WATCH_CANCEL_SLICE: Duration = Duration::from_millis(10);
-
-/// The inter-round pause, sliced so a long interval does not delay a stop.
-///
-/// It returns a private `bool` and NEVER builds an error: every post-baseline
-/// cancellation is only a signal to the loop owner, which alone decides whether
-/// the outcome is the ordinary payload or a shaped partial.
-fn windows_watch_pause(
-    control: crate::execution_control::ExecutionControl<'_>,
-    interval: Duration,
-    deadline: Instant,
-) -> bool {
-    let until = Instant::now() + interval.min(deadline.saturating_duration_since(Instant::now()));
-    while Instant::now() < until {
-        if control.is_cancelled() {
-            return true;
-        }
-        thread::sleep(
-            WINDOWS_WATCH_CANCEL_SLICE.min(until.saturating_duration_since(Instant::now())),
-        );
-    }
-    control.is_cancelled()
-}
-
 /// The bounded windows-watch loop, GENERIC over its sample provider.
 ///
 /// The provider is a generic `Fn` reference rather than a trait object or a type
@@ -948,16 +923,18 @@ where
             // only observable through the sliced pause, and there is no later round
             // for it to win in: the ordinary payload is still produced below.
             let pause_deadline = Instant::now() + request.interval;
-            if !request.interval.is_zero()
-                && windows_watch_pause(control, request.interval, pause_deadline)
-            {
+            if !request.interval.is_zero() && control.sleep_until_cancelled(pause_deadline) {
                 return windows_watch_cancelled(state, &request);
             }
         } else {
             if Instant::now() >= deadline {
                 break;
             }
-            if windows_watch_pause(control, request.interval, deadline) {
+            let pause_deadline = Instant::now()
+                + request
+                    .interval
+                    .min(deadline.saturating_duration_since(Instant::now()));
+            if control.sleep_until_cancelled(pause_deadline) {
                 // DEADLINE FIRST: a bound that is already reached stays the
                 // authoritative outcome even when the final slice saw the token.
                 if Instant::now() >= deadline {
