@@ -5345,6 +5345,12 @@ numeric return shape is not evidence that the host-to-guest text path is free.
 Regression-test the smallest configured budget against an error containing a
 path or other caller-controlled detail.
 
+Meter the same parked bytes regardless of whether the bridge labels them
+success or application error. Both strings cross the same host-to-guest seam,
+occupy the same bounded slot and are readable through the same result call; a
+status bit must not make an equal-size failure disappear from `host_bytes`.
+Use equal-length success/error replies as the discriminating court.
+
 ## Count native inventory scans across the whole snapshot
 
 A native linked-list inventory ceiling applies to the complete snapshot, not

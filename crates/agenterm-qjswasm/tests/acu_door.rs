@@ -55,6 +55,43 @@ fn command_and_complete_reply_round_trip() {
 }
 
 #[test]
+fn success_and_failure_reply_bytes_are_billed_equally() {
+    fn cost_for(answer: Result<String, String>) -> (u64, u64) {
+        let outcome = run(
+            r#"acu_call("{}"); return acu_result();"#,
+            Some(Arc::new(move |_, _, _, _| answer.clone())),
+        )
+        .expect("the bridge reply remains guest-readable");
+        (outcome.host_ops, outcome.host_bytes)
+    }
+
+    let success = cost_for(Ok("same".to_owned()));
+    let failure = cost_for(Err("same".to_owned()));
+    assert_eq!(success.0, 1);
+    assert_eq!(failure.0, 1);
+    assert_eq!(success.1, 2 + 4, "request plus reply bytes");
+    assert_eq!(success.1, failure.1);
+
+    let mut engine = Engine::new();
+    let error = engine
+        .run_once_with_bridges(
+            Guest::Qjs(r#"acu_call("{}"); return acu_result();"#),
+            bridges(Some(Arc::new(|_, _, _, _| -> Result<String, String> {
+                panic!("not a bridge reply")
+            }))),
+            "main",
+            &[],
+        )
+        .expect_err("a bridge panic remains a door fault");
+    assert!(matches!(error, QjswasmError::Door(_)));
+    let cost = engine
+        .take_failed_cost()
+        .expect("the attempted call is billed");
+    assert_eq!(cost.host_ops, 1);
+    assert_eq!(cost.host_bytes, 2, "panic text never crossed as a reply");
+}
+
+#[test]
 fn bad_guest_bytes_are_status_1_and_oob_traps_before_dispatch() {
     let calls = Arc::new(AtomicUsize::new(0));
     let calls_for_bridge = Arc::clone(&calls);

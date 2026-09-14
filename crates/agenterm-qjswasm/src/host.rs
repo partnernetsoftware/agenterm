@@ -940,8 +940,10 @@ fn call_bridge(
     // is where a journey's wall clock goes, and it is not a step.
     let mut meter = meter.borrow_mut();
     meter.waited(started.elapsed());
-    if let Ok(Ok(text)) = &answer {
-        meter.answered(text.len());
+    if let Ok(answer) = &answer {
+        meter.answered(match answer {
+            Ok(text) | Err(text) => text.len(),
+        });
     }
     answer
 }
@@ -965,8 +967,10 @@ fn call_acu_bridge(
     });
     let mut meter = meter.borrow_mut();
     meter.waited(started.elapsed());
-    if let Ok(Ok(text)) = &answer {
-        meter.answered(text.len());
+    if let Ok(answer) = &answer {
+        meter.answered(match answer {
+            Ok(text) | Err(text) => text.len(),
+        });
     }
     answer.map(|answer| {
         (

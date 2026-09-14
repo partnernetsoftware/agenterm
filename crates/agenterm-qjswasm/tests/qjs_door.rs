@@ -123,6 +123,45 @@ fn an_application_error_is_status_one_and_its_message_is_readable() {
     assert_eq!(got, "err:broker_invalid_arguments");
 }
 
+#[test]
+fn success_and_failure_reply_bytes_are_billed_equally() {
+    fn cost_for(answer: Result<String, String>) -> (u64, u64) {
+        let calls = Arc::new(Calls::default());
+        let outcome = run(
+            r#"fleet_call("same", "{}"); return fleet_result();"#,
+            Some(bridge(&calls, move |_, _| answer.clone())),
+        )
+        .expect("the bridge reply remains guest-readable");
+        (outcome.host_ops, outcome.host_bytes)
+    }
+
+    let success = cost_for(Ok("same".to_owned()));
+    let failure = cost_for(Err("same".to_owned()));
+    assert_eq!(success.0, 1);
+    assert_eq!(failure.0, 1);
+    assert_eq!(success.1, 4 + 2 + 4, "arguments plus reply bytes");
+    assert_eq!(success.1, failure.1);
+
+    let calls = Arc::new(Calls::default());
+    let mut engine = Engine::new();
+    let error = engine
+        .run_once(
+            Guest::Qjs(r#"fleet_call("same", "{}"); return fleet_result();"#),
+            Some(bridge(&calls, |_, _| -> Result<String, String> {
+                panic!("not a bridge reply")
+            })),
+            "main",
+            &[],
+        )
+        .expect_err("a bridge panic remains a door fault");
+    assert!(matches!(error, QjswasmError::Door(_)));
+    let cost = engine
+        .take_failed_cost()
+        .expect("the attempted call is billed");
+    assert_eq!(cost.host_ops, 1);
+    assert_eq!(cost.host_bytes, 6, "panic text never crossed as a reply");
+}
+
 /// A bridge round trip is a wait, so a cancel ends it: a bridge that sees
 /// the flag and returns early -- with any answer at all -- ends the call as
 /// `Cancelled`, not as a status the script could catch, and the bill still
