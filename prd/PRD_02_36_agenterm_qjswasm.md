@@ -286,6 +286,10 @@ agenterm-qjswasm
 │  │         `job-events` and `job-resources --watch-ms` now join that set; the parent
 │  │         remains partial for the explicitly bounded native calls without a probe
 │  ├─ [x] check-many entry + canonical recursive imports share bytes/modules/deadline budgets
+│  ├─ [x] the README syntax-honesty boundary is executable through the product
+│  │      compiler: loop-local `break` / `continue` are accepted, loop-external
+│  │      control is rejected by context, and representative `class`, `switch`,
+│  │      `for…in` and `do`/`while` gaps retain named unsupported diagnostics
 │  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
 ├─ upstream performance frontier
 │  ├─ [x] host-op and string/JSON cost measured before changing limits

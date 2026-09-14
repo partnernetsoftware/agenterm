@@ -143,12 +143,14 @@ completion value 投影全程，任何一段掉链子这里都看得见。`e1122
 
 1. **语法认得，能力还没有**——诊断形如「this engine does not support X yet」：
    数组 elision（`[1, , 2]`——hole 不是 `undefined`，引擎没法分辨，所以按名字拒绝
-   而不是二选一）、`class`、`switch`、`break`/`continue`、`for…in`、`do`/`while`、
+   而不是二选一）、`class`、`switch`、`for…in`、`do`/`while`、
    带标签的模板（`` t`a` ``——**普通模板已经不在这张表上了**，见上）、
    默认 / rest / 解构参数（**箭头函数本身也不在这张表上了**，见上）、
    `**`、`??`、可选链、逗号运算符、BigInt、
    `new` / `delete` / `void` / `in` / `instanceof`、展开与 rest、解构、默认参数、
    `async`/`await`、`import`、带标签的语句。（**捕获闭包已从这张表离开**，见上。）
+   循环体内的 `break` / `continue` 已由当前产品编译入口接受；循环外仍按上下文拒绝，
+   因为不存在可跳转的循环目标。
 2. **全局面仍是显式子集，不是完整 JavaScript realm。** 当前 pin 的产品入口已经实测
    `Math.trunc/floor/ceil/round/abs/sqrt/sign/pow/min/max`、`Number(...)`、`parseInt(...)`、
    `Object.keys(...)` 与 `JSON`；它们不再能被写成“没有这个名字”。`String(...)` 与全局
