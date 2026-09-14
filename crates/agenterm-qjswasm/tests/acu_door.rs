@@ -40,7 +40,7 @@ fn absent_bridge_is_status_2_without_a_fallback() {
 
 #[test]
 fn command_and_complete_reply_round_trip() {
-    let acu: AcuBridgeFn = Arc::new(|command, _, _| {
+    let acu: AcuBridgeFn = Arc::new(|command, _, _, _| {
         assert_eq!(command, r#"{"verb":"capabilities","target":"current"}"#);
         Ok(r#"{"ok":false,"target":"current","command":"capabilities","error":{"code":"refused","message":"no"}}"#.to_owned())
     });
@@ -58,7 +58,7 @@ fn command_and_complete_reply_round_trip() {
 fn bad_guest_bytes_are_status_1_and_oob_traps_before_dispatch() {
     let calls = Arc::new(AtomicUsize::new(0));
     let calls_for_bridge = Arc::clone(&calls);
-    let acu: AcuBridgeFn = Arc::new(move |_, _, _| {
+    let acu: AcuBridgeFn = Arc::new(move |_, _, _, _| {
         calls_for_bridge.fetch_add(1, Ordering::Relaxed);
         Ok("{}".to_owned())
     });
@@ -99,7 +99,7 @@ fn oversize_host_op_cancel_and_panic_are_contained() {
         max_bridge_result_bytes: 3,
         ..Budget::default()
     };
-    let acu: AcuBridgeFn = Arc::new(|_, _, _| Ok("1234".to_owned()));
+    let acu: AcuBridgeFn = Arc::new(|_, _, _, _| Ok("1234".to_owned()));
     let answer = returned_string(
         Engine::with_budget(budget)
             .run_once_with_bridges(
@@ -119,7 +119,7 @@ fn oversize_host_op_cancel_and_panic_are_contained() {
     let error = Engine::with_budget(budget)
         .run_once_with_bridges(
             Guest::Qjs(r#"return acu_call("{}");"#),
-            bridges(Some(Arc::new(|_, _, _| Ok("{}".to_owned())))),
+            bridges(Some(Arc::new(|_, _, _, _| Ok("{}".to_owned())))),
             "main",
             &[],
         )
@@ -134,7 +134,7 @@ fn oversize_host_op_cancel_and_panic_are_contained() {
     let error = Engine::with_budget(budget)
         .run_once_with_bridges(
             Guest::Qjs(r#"return acu_call("{}");"#),
-            bridges(Some(Arc::new(|_, _, _| Ok("{}".to_owned())))),
+            bridges(Some(Arc::new(|_, _, _, _| Ok("{}".to_owned())))),
             "main",
             &[],
         )
@@ -143,7 +143,7 @@ fn oversize_host_op_cancel_and_panic_are_contained() {
 
     let error = run(
         r#"return acu_call("{}");"#,
-        Some(Arc::new(|_, _, _| -> Result<String, String> {
+        Some(Arc::new(|_, _, _, _| -> Result<String, String> {
             panic!("boom")
         })),
     )
@@ -158,15 +158,16 @@ fn only_a_cooperatively_acknowledged_acu_cancel_discards_the_reply() {
     let cancelled = Arc::new(AtomicBool::new(false));
     let raised = Arc::clone(&cancelled);
     let budget = Budget {
-        cancel: Some(cancelled),
+        cancel: Some(Arc::clone(&cancelled)),
         ..Budget::default()
     };
     let error = Engine::with_budget(budget)
         .run_once_with_bridges(
             Guest::Qjs(r#"acu_call("{}"); return acu_result();"#),
-            bridges(Some(Arc::new(move |_, token, acknowledged| {
+            bridges(Some(Arc::new(move |_, token, observed, acknowledged| {
                 assert!(token.is_some());
                 raised.store(true, Ordering::Release);
+                observed.store(true, Ordering::Release);
                 acknowledged.store(true, Ordering::Release);
                 Ok("cancelled observe reply".to_owned())
             }))),
@@ -175,6 +176,10 @@ fn only_a_cooperatively_acknowledged_acu_cancel_discards_the_reply() {
         )
         .expect_err("an acknowledged pre-effect cancellation is not script-catchable data");
     assert!(matches!(error, QjswasmError::Cancelled));
+    assert!(
+        cancelled.load(Ordering::Acquire),
+        "an acknowledged cancellation remains raised rather than entering the authoritative arm"
+    );
 }
 
 #[test]
@@ -182,14 +187,23 @@ fn a_late_cancel_does_not_hide_an_authoritative_acu_reply() {
     let cancelled = Arc::new(AtomicBool::new(false));
     let raised = Arc::clone(&cancelled);
     let budget = Budget {
-        cancel: Some(cancelled),
+        cancel: Some(Arc::clone(&cancelled)),
         ..Budget::default()
     };
     let outcome = Engine::with_budget(budget)
         .run_once_with_bridges(
-            Guest::Qjs(r#"acu_call("{}"); return acu_result();"#),
-            bridges(Some(Arc::new(move |_, _, _| {
+            Guest::Qjs(
+                r#"
+acu_call("{}");
+const answer = acu_result();
+let i = 0;
+while (i < 4096) { i = i + 1; }
+return answer;
+"#,
+            ),
+            bridges(Some(Arc::new(move |_, _, observed, _| {
                 raised.store(true, Ordering::Release);
+                observed.store(true, Ordering::Release);
                 Ok("authoritative reply".to_owned())
             }))),
             "main",
@@ -197,6 +211,46 @@ fn a_late_cancel_does_not_hide_an_authoritative_acu_reply() {
         )
         .expect("an unacknowledged late cancel preserves the bridge reply");
     assert_eq!(returned_string(outcome), "authoritative reply");
+    assert!(
+        !cancelled.load(Ordering::Acquire),
+        "the authoritative round consumes its late one-shot cancellation"
+    );
+}
+
+#[test]
+fn an_unobserved_new_cancel_is_not_consumed_with_the_reply() {
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let raised = Arc::clone(&cancelled);
+    let budget = Budget {
+        cancel: Some(Arc::clone(&cancelled)),
+        ..Budget::default()
+    };
+    let error = Engine::with_budget(budget)
+        .run_once_with_bridges(
+            Guest::Qjs(
+                r#"
+acu_call("{}");
+const answer = acu_result();
+let i = 0;
+while (i < 4096) { i = i + 1; }
+return answer;
+"#,
+            ),
+            bridges(Some(Arc::new(move |_, _, _observed, _acknowledged| {
+                // Models a worker Cancel/owner-loss store after the provider's
+                // final cancellation probe: the round did not observe it.
+                raised.store(true, Ordering::Release);
+                Ok("completed reply".to_owned())
+            }))),
+            "main",
+            &[],
+        )
+        .expect_err("the unobserved new request remains live for the VM poll");
+    assert!(matches!(error, QjswasmError::Cancelled));
+    assert!(
+        cancelled.load(Ordering::Acquire),
+        "a concurrent new cancel or owner-loss signal must not be cleared"
+    );
 }
 
 #[test]
@@ -206,13 +260,13 @@ fn slots_keep_bridges_and_results_isolated() {
     let first = engine
         .spawn_with_bridges(
             Guest::CompiledQjs(&bytes),
-            bridges(Some(Arc::new(|_, _, _| Ok("first".to_owned())))),
+            bridges(Some(Arc::new(|_, _, _, _| Ok("first".to_owned())))),
         )
         .expect("first slot");
     let second = engine
         .spawn_with_bridges(
             Guest::CompiledQjs(&bytes),
-            bridges(Some(Arc::new(|_, _, _| Ok("second".to_owned())))),
+            bridges(Some(Arc::new(|_, _, _, _| Ok("second".to_owned())))),
         )
         .expect("second slot");
     assert_eq!(
@@ -235,7 +289,7 @@ fn check_execute_share_bytes_and_unused_acu_costs_zero_guest_bytes() {
 
     let source = r#"acu_call("{}"); return acu_result();"#;
     let bytes = compile_qjs(source).expect("check compile");
-    let acu: AcuBridgeFn = Arc::new(|_, _, _| Ok("same".to_owned()));
+    let acu: AcuBridgeFn = Arc::new(|_, _, _, _| Ok("same".to_owned()));
     let direct = returned_string(run(source, Some(Arc::clone(&acu))).expect("source"));
     let artifact = returned_string(
         Engine::new()

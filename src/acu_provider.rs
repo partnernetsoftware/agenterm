@@ -101,9 +101,11 @@ static PROVIDER: OnceLock<Result<Provider, String>> = OnceLock::new();
 
 #[cfg(all(feature = "script-qjswasm", not(feature = "script-acu-embedder")))]
 pub(crate) fn bridge() -> AcuBridgeFn {
-    Arc::new(|request, cancel, acknowledged| {
+    Arc::new(|request, cancel, observed, acknowledged| {
         let reply = call_controlled(request, cancel)?;
-        if reply_is_cooperative_cancel(&reply) {
+        let (did_observe, did_acknowledge) = reply_cancellation(&reply);
+        observed.store(did_observe, Ordering::Release);
+        if did_acknowledge {
             acknowledged.store(true, Ordering::Release);
         }
         Ok(reply)
@@ -281,18 +283,20 @@ fn validate_reply(encoded: &str) -> Result<(), String> {
 }
 
 #[cfg(all(feature = "script-qjswasm", not(feature = "script-acu-embedder")))]
-fn reply_is_cooperative_cancel(reply: &str) -> bool {
+fn reply_cancellation(reply: &str) -> (bool, bool) {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(reply) else {
-        return false;
+        return (false, false);
     };
-    value
+    let observed = value
         .pointer("/error/code")
         .and_then(serde_json::Value::as_str)
-        == Some("cancelled")
+        == Some("cancelled");
+    let acknowledged = observed
         && value
             .pointer("/error/detail/effect")
             .and_then(serde_json::Value::as_str)
-            == Some("not_performed")
+            == Some("not_performed");
+    (observed, acknowledged)
 }
 
 fn provider_file_name() -> String {
@@ -360,15 +364,24 @@ mod tests {
     #[test]
     #[cfg(all(feature = "script-qjswasm", not(feature = "script-acu-embedder")))]
     fn only_pre_effect_typed_cancellation_is_acknowledged() {
-        assert!(reply_is_cooperative_cancel(
-            r#"{"ok":false,"target":"current","command":"wait","error":{"code":"cancelled","message":"cancelled","detail":{"effect":"not_performed"}}}"#
-        ));
-        assert!(!reply_is_cooperative_cancel(
-            r#"{"ok":false,"target":"current","command":"wait","error":{"code":"cancelled","message":"cancelled","detail":{"effect":"unknown"}}}"#
-        ));
-        assert!(!reply_is_cooperative_cancel(
-            r#"{"ok":true,"target":"current","command":"wait","data":{"effect":"committed"}}"#
-        ));
+        assert_eq!(
+            reply_cancellation(
+                r#"{"ok":false,"target":"current","command":"wait","error":{"code":"cancelled","message":"cancelled","detail":{"effect":"not_performed"}}}"#
+            ),
+            (true, true)
+        );
+        assert_eq!(
+            reply_cancellation(
+                r#"{"ok":false,"target":"current","command":"wait","error":{"code":"cancelled","message":"cancelled","detail":{"effect":"partially_performed"}}}"#
+            ),
+            (true, false)
+        );
+        assert_eq!(
+            reply_cancellation(
+                r#"{"ok":true,"target":"current","command":"wait","data":{"effect":"committed"}}"#
+            ),
+            (false, false)
+        );
     }
 
     #[test]

@@ -1432,7 +1432,7 @@ return descend(20);
     fn framed_worker_exposes_the_typed_agenterm_acu_module() {
         let source = r#"
 import * as acu from "agenterm:acu";
-const reply = acu.call({verb:"not-a-command"});
+const reply = acu.argv(["--target", "current", "not-a-command"]);
 return reply.ok + ":" + reply.command + ":" + reply.error.code;
 "#;
         let mut output = Vec::new();
@@ -1448,10 +1448,7 @@ return reply.ok + ":" + reply.command + ":" + reply.error.code;
         let frames = decoded_frames(&output);
         let result = frame_result(frames.first().expect("result frame"));
         assert!(result.ok, "{result:?}");
-        assert_eq!(
-            result.value,
-            Some(serde_json::json!("false:acu.call:invalid_command"))
-        );
+        assert_eq!(result.value, Some(serde_json::json!("false:usage:usage")));
     }
 
     /// A cancel frame that names a running invocation ends it at its next

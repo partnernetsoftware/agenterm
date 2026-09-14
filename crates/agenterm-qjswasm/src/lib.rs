@@ -815,14 +815,20 @@ pub type FleetBridgeFn = Arc<dyn Fn(&str, &str) -> Result<String, String> + Send
 ///
 /// This crate only transports one JSON command and one JSON reply. It does not
 /// depend on `agenterm-cu`, interpret commands, or own machine-control policy.
-/// The second argument borrows the invocation cancel flag. The third is an
-/// acknowledgement bit: the bridge sets it only when product execution proves
-/// cancellation happened before any effect. A merely raised flag must not hide
-/// an authoritative reply that completed after effect dispatch.
+/// The second argument borrows the invocation cancel flag. The third says the
+/// bridge observed that request during this authority round; the fourth is the
+/// narrower acknowledgement that execution stopped before any effect. A merely
+/// raised flag must not hide an authoritative reply that completed after effect
+/// dispatch: only an observed-but-unacknowledged request is consumed before
+/// resuming the guest, so tinyvm's periodic pure-computation poll cannot discard
+/// the reply based on adapter instruction count. A newer request the bridge did
+/// not observe remains raised, and a flag already set before dispatch is still
+/// refused by the door's ordinary pre-call cancellation check.
 pub type AcuBridgeFn = Arc<
     dyn Fn(
             &str,
             Option<&std::sync::atomic::AtomicBool>,
+            &std::sync::atomic::AtomicBool,
             &std::sync::atomic::AtomicBool,
         ) -> Result<String, String>
         + Send

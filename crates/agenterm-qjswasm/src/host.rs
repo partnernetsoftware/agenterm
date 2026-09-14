@@ -620,15 +620,23 @@ pub(crate) fn install(
                     command,
                     cancel_for_acu.as_deref(),
                 ) {
-                    Ok((_, true)) => {
+                    Ok((_, _, true)) => {
                         meter_for_acu
                             .borrow_mut()
                             .check_cancel()
                             .map_err(WasmError::Trap)?;
                         return Err(WasmError::Trap(ACU_CANCEL_ACK_WITHOUT_SIGNAL));
                     }
-                    Ok((Ok(answer), false)) => (STATUS_OK, answer.into_bytes()),
-                    Ok((Err(message), false)) => (STATUS_ERR, message.into_bytes()),
+                    Ok((Ok(answer), true, false)) => {
+                        consume_late_acu_cancel(cancel_for_acu.as_deref());
+                        (STATUS_OK, answer.into_bytes())
+                    }
+                    Ok((Err(message), true, false)) => {
+                        consume_late_acu_cancel(cancel_for_acu.as_deref());
+                        (STATUS_ERR, message.into_bytes())
+                    }
+                    Ok((Ok(answer), false, false)) => (STATUS_OK, answer.into_bytes()),
+                    Ok((Err(message), false, false)) => (STATUS_ERR, message.into_bytes()),
                     Err(panic) => {
                         state.borrow_mut().fault = Some(panic);
                         return Err(WasmError::Trap(ACU_BRIDGE_PANICKED));
@@ -943,11 +951,17 @@ fn call_acu_bridge(
     bridge: &AcuBridgeFn,
     command: &str,
     cancel: Option<&std::sync::atomic::AtomicBool>,
-) -> Result<(Result<String, String>, bool), String> {
+) -> Result<(Result<String, String>, bool, bool), String> {
     let started = Instant::now();
+    let cancellation_observed = std::sync::atomic::AtomicBool::new(false);
     let cancellation_acknowledged = std::sync::atomic::AtomicBool::new(false);
     let answer = contain("the ACU bridge panicked while serving a command", || {
-        bridge(command, cancel, &cancellation_acknowledged)
+        bridge(
+            command,
+            cancel,
+            &cancellation_observed,
+            &cancellation_acknowledged,
+        )
     });
     let mut meter = meter.borrow_mut();
     meter.waited(started.elapsed());
@@ -957,9 +971,33 @@ fn call_acu_bridge(
     answer.map(|answer| {
         (
             answer,
+            cancellation_observed.load(std::sync::atomic::Ordering::Acquire),
             cancellation_acknowledged.load(std::sync::atomic::Ordering::Acquire),
         )
     })
+}
+
+/// Let one authoritative ACU answer outrank a cancellation that arrived while
+/// that synchronous authority round was already in flight.
+///
+/// [`Meter::charge`] sampled the same bit immediately before dispatch. The
+/// bridge additionally proved that it observed this request and returned an
+/// authoritative answer rather than acknowledging a pre-effect stop; leaving
+/// the bit set would let tinyvm's next periodic interrupt poll discard that
+/// answer based only on how many guest instructions its adapter needs to decode
+/// it. Consume this one-shot request before returning to the guest. A request
+/// the bridge did not observe remains raised, so a concurrent new cancel or
+/// owner loss cannot be swallowed here. An acknowledged cancellation takes the
+/// separate arm above and remains uncatchable.
+fn consume_late_acu_cancel(cancel: Option<&std::sync::atomic::AtomicBool>) {
+    if let Some(cancel) = cancel {
+        let _ = cancel.compare_exchange(
+            true,
+            false,
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+        );
+    }
 }
 
 fn result_len(result: &[u8]) -> Result<i32, WasmError> {

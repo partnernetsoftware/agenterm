@@ -1260,23 +1260,31 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
 #[cfg(feature = "script-qjswasm")]
 fn qjs_host_bridges(fleet: Option<ScriptFleetBridgeFn>) -> agenterm_qjswasm::HostBridges {
     #[cfg(feature = "script-acu-embedder")]
-    let acu: agenterm_qjswasm::AcuBridgeFn = Arc::new(|request_json, cancel, acknowledged| {
-        let probe = || cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire));
-        let reply = agenterm_cu::embedder::execute_request_from_environment_controlled(
-            request_json,
-            agenterm_cu::execution_control::ExecutionControl::with_cancel_probe(&probe),
-        );
-        if reply.error.as_ref().is_some_and(|error| {
-            error.code == "cancelled"
-                && error.detail.as_ref().is_some_and(|detail| {
-                    detail.get("effect").and_then(serde_json::Value::as_str)
-                        == Some("not_performed")
-                })
-        }) {
-            acknowledged.store(true, std::sync::atomic::Ordering::Release);
-        }
-        serde_json::to_string(&reply).map_err(|error| format!("serializing ACU reply: {error}"))
-    });
+    let acu: agenterm_qjswasm::AcuBridgeFn =
+        Arc::new(|request_json, cancel, observed, acknowledged| {
+            let probe =
+                || cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire));
+            let reply = agenterm_cu::embedder::execute_request_from_environment_controlled(
+                request_json,
+                agenterm_cu::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            );
+            if reply
+                .error
+                .as_ref()
+                .is_some_and(|error| error.code == "cancelled")
+            {
+                observed.store(true, std::sync::atomic::Ordering::Release);
+                if reply.error.as_ref().is_some_and(|error| {
+                    error.detail.as_ref().is_some_and(|detail| {
+                        detail.get("effect").and_then(serde_json::Value::as_str)
+                            == Some("not_performed")
+                    })
+                }) {
+                    acknowledged.store(true, std::sync::atomic::Ordering::Release);
+                }
+            }
+            serde_json::to_string(&reply).map_err(|error| format!("serializing ACU reply: {error}"))
+        });
     #[cfg(not(feature = "script-acu-embedder"))]
     let acu = crate::acu_provider::bridge();
     agenterm_qjswasm::HostBridges {
@@ -1984,7 +1992,7 @@ return reply.value + ":" + pid.type + ":" + pid.value + ":" + magnitude.value;
         let resolve = qjs_module_resolver(&[]);
         let wasm = compile_qjs_for(&options, source, &resolve, true)
             .expect("both product modules compile against the contained door");
-        let acu: agenterm_qjswasm::AcuBridgeFn = Arc::new(|request, _, _| {
+        let acu: agenterm_qjswasm::AcuBridgeFn = Arc::new(|request, _, _, _| {
             assert!(request.contains("\"verb\":\"probe\""), "{request}");
             Ok(r#"{"ok":true,"value":"acu"}"#.to_owned())
         });
@@ -2006,6 +2014,57 @@ return reply.value + ":" + pid.type + ":" + pid.value + ":" + magnitude.value;
             Some(&agenterm_qjswasm::Value::Js(
                 agenterm_qjswasm::JsValue::Str(expected)
             ))
+        );
+    }
+
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn qjs_acu_module_returns_an_authoritative_reply_after_a_late_cancel() {
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let raised = Arc::clone(&cancel);
+        let source = r#"
+import * as acu from "agenterm:acu";
+const reply = acu.call({verb:"probe"});
+let i = 0;
+while (i < 4096) { i = i + 1; }
+return reply.value;
+"#;
+        let options = ScriptInvocationOptions {
+            cancellation: Some(Arc::clone(&cancel)),
+            ..ScriptInvocationOptions::default()
+        };
+        let wasm = compile_qjs_for(&options, source, &qjs_module_resolver(&[]), false)
+            .expect("the product ACU module compiles");
+        let acu: agenterm_qjswasm::AcuBridgeFn = Arc::new(move |_, _, observed, acknowledged| {
+            raised.store(true, std::sync::atomic::Ordering::Release);
+            observed.store(true, std::sync::atomic::Ordering::Release);
+            assert!(
+                !acknowledged.load(std::sync::atomic::Ordering::Acquire),
+                "an authoritative reply is not a pre-effect cancellation acknowledgement"
+            );
+            Ok(r#"{"ok":true,"value":"authoritative"}"#.to_owned())
+        });
+        let mut engine = agenterm_qjswasm::Engine::with_budget(qjs_budget(&options));
+        let outcome = engine
+            .run_once_with_bridges(
+                agenterm_qjswasm::Guest::CompiledQjs(&wasm),
+                agenterm_qjswasm::HostBridges {
+                    fleet: None,
+                    acu: Some(acu),
+                },
+                "main",
+                &[],
+            )
+            .expect("the already-produced ACU reply outranks its late cancellation");
+        assert_eq!(
+            outcome.values.first(),
+            Some(&agenterm_qjswasm::Value::Js(
+                agenterm_qjswasm::JsValue::Str("authoritative".to_owned())
+            ))
+        );
+        assert!(
+            !cancel.load(std::sync::atomic::Ordering::Acquire),
+            "the late one-shot request was consumed"
         );
     }
 
@@ -2335,9 +2394,9 @@ return reply.ok + ":" + reply.command;
             argv: &[String],
             cancel: Arc<AtomicBool>,
             bridge: agenterm_qjswasm::AcuBridgeFn,
-        ) -> agenterm_qjswasm::QjswasmError {
+        ) -> Result<agenterm_qjswasm::Outcome, agenterm_qjswasm::QjswasmError> {
             let source = format!(
-                "import * as acu from \"agenterm:acu\"; return acu.argv({});",
+                "import * as acu from \"agenterm:acu\"; return JSON.stringify(acu.argv({}));",
                 serde_json::to_string(argv).expect("encode argv")
             );
             let options = ScriptInvocationOptions {
@@ -2350,17 +2409,15 @@ return reply.ok + ":" + reply.command;
             let mut budget = qjs_budget(&options);
             budget.cancel = Some(cancel);
             let mut engine = agenterm_qjswasm::Engine::with_tool_door(budget);
-            engine
-                .run_once_with_bridges(
-                    agenterm_qjswasm::Guest::CompiledQjs(&wasm),
-                    agenterm_qjswasm::HostBridges {
-                        fleet: None,
-                        acu: Some(bridge),
-                    },
-                    "main",
-                    &[],
-                )
-                .expect_err("the shared cancellation flag ends the script")
+            engine.run_once_with_bridges(
+                agenterm_qjswasm::Guest::CompiledQjs(&wasm),
+                agenterm_qjswasm::HostBridges {
+                    fleet: None,
+                    acu: Some(bridge),
+                },
+                "main",
+                &[],
+            )
         }
 
         fn run_child(root: &std::path::Path, executable: &std::path::Path) -> serde_json::Value {
@@ -2454,7 +2511,7 @@ return reply.ok + ":" + reply.command;
                 let returned = Arc::clone(&returned);
                 let cancel_at = Arc::clone(&cancel_at);
                 let returned_at = Arc::clone(&returned_at);
-                Arc::new(move |request, signal, acknowledged| {
+                Arc::new(move |request, signal, observed, acknowledged| {
                     entered.store(true, Ordering::SeqCst);
                     let probe = || {
                         let call = calls.fetch_add(1, Ordering::SeqCst) + 1;
@@ -2474,6 +2531,9 @@ return reply.ok + ":" + reply.command;
                         agenterm_cu::execution_control::ExecutionControl::with_cancel_probe(&probe),
                     );
                     if reply.error.as_ref().is_some_and(|error| {
+                        if error.code == "cancelled" {
+                            observed.store(true, Ordering::Release);
+                        }
                         error.code == "cancelled"
                             && error
                                 .detail
@@ -2489,8 +2549,17 @@ return reply.ok + ":" + reply.command;
                     serde_json::to_string(&reply).map_err(|error| error.to_string())
                 })
             };
-            let error = run_engine(&wait_argv, Arc::clone(&cancel), bridge);
-            assert!(matches!(error, agenterm_qjswasm::QjswasmError::Cancelled));
+            let outcome = run_engine(&wait_argv, Arc::clone(&cancel), bridge)
+                .expect("the post-observation cancellation keeps its partial authoritative reply");
+            let reply = match outcome.values.first() {
+                Some(agenterm_qjswasm::Value::Js(agenterm_qjswasm::JsValue::Str(reply))) => {
+                    serde_json::from_str::<serde_json::Value>(reply)
+                        .expect("decode partial CuReply")
+                }
+                other => panic!("expected encoded partial CuReply, got {other:?}"),
+            };
+            assert_eq!(reply["error"]["code"], "cancelled");
+            assert_eq!(reply["error"]["detail"]["effect"], "partially_performed");
             let tail = returned_at
                 .lock()
                 .expect("return timestamp")
@@ -2521,7 +2590,7 @@ return reply.ok + ":" + reply.command;
             let negative_ack = Arc::new(AtomicBool::new(false));
             let negative_bridge: agenterm_qjswasm::AcuBridgeFn = {
                 let negative_ack = Arc::clone(&negative_ack);
-                Arc::new(move |_request, signal, acknowledged| {
+                Arc::new(move |_request, signal, _observed, acknowledged| {
                     signal
                         .expect("negative Budget.cancel reaches bridge")
                         .store(true, Ordering::Release);
@@ -2529,7 +2598,8 @@ return reply.ok + ":" + reply.command;
                     Ok(r#"{"ok":false,"target":"current","command":"job-wait","error":{"code":"fixture_noncooperative","message":"negative control"}}"#.into())
                 })
             };
-            let negative_error = run_engine(&wait_argv, negative_cancel, negative_bridge);
+            let negative_error = run_engine(&wait_argv, negative_cancel, negative_bridge)
+                .expect_err("an unobserved new cancellation remains raised for the VM");
             assert!(matches!(
                 negative_error,
                 agenterm_qjswasm::QjswasmError::Cancelled
@@ -2576,13 +2646,14 @@ return reply.ok + ":" + reply.command;
                 "entered": entered.load(Ordering::SeqCst),
                 "probe_calls": calls.load(Ordering::SeqCst),
                 "rounds_completed_before_cancel": 1,
-                "cancel_set": cancel.load(Ordering::Acquire),
+                "cancel_consumed": !cancel.load(Ordering::Acquire),
                 "ack_seen": ack_seen.load(Ordering::SeqCst),
                 "returned": returned.load(Ordering::SeqCst),
                 "tail_micros": tail.as_micros(),
                 "job_status_available": true,
                 "owner_and_job_not_cancelled": status["state"] == "running",
                 "negative_ack_seen": negative_ack.load(Ordering::Acquire),
+                "partial_authoritative_reply_preserved": true,
                 "negative_engine_cancelled": true,
             })
         }
@@ -2653,11 +2724,11 @@ return reply.ok + ":" + reply.command;
             .expect("parse child report");
             for key in [
                 "entered",
-                "cancel_set",
-                "ack_seen",
+                "cancel_consumed",
                 "returned",
                 "job_status_available",
                 "owner_and_job_not_cancelled",
+                "partial_authoritative_reply_preserved",
                 "negative_engine_cancelled",
             ] {
                 assert_eq!(report[key], true, "{key}: {report}");
@@ -2674,6 +2745,7 @@ return reply.ok + ":" + reply.command;
                     .is_some_and(|micros| micros < 150_000)
             );
             assert_eq!(report["negative_ack_seen"], false);
+            assert_eq!(report["ack_seen"], false);
             println!("JW1 causal composite evidence: {report}");
             std::fs::remove_dir_all(&root).expect("clean exact owned JW1 root");
             assert!(!root.exists(), "owned JW1 root is gone");

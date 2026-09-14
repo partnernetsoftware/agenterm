@@ -18,8 +18,13 @@ wait path or the Script worker's hard process-containment deadline.
 The `agenterm:acu` door passes that same borrowed identity into the product
 provider and distinguishes a cancellation request from an acknowledged
 pre-effect cancellation. Only the acknowledgement becomes an uncatchable
-`QjswasmError::Cancelled`; a late request without acknowledgement preserves the
-authoritative ACU reply. PRD 28 owns which Executor operations can acknowledge.
+`QjswasmError::Cancelled`; a request the bridge observed but did not acknowledge
+preserves the authoritative ACU reply and consumes that one-shot request before
+guest execution resumes, so the result does not depend on tinyvm's 1024-step
+interrupt poll landing inside the JSON adapter. A request already present before
+dispatch still fails closed, while a new cancel or owner loss the bridge did not
+observe stays raised for the VM. PRD 28 owns which Executor operations can
+acknowledge.
 
 Detailed invention, rejected alternatives, historical pass counts and earlier
 pins are preserved in
@@ -227,6 +232,7 @@ agenterm-qjswasm
 │  │  └─ non-goal: no agenterm-cu → agenterm-dyn dependency, second loader/door, or typed CU effect in dyn
 │  ├─ [~] embedder `agenterm:acu` object: same typed schema/Executor/errors/receipts as CLI and MCP
 │  │  ├─ [x] raw bounded door + non-shadowable qjs module + shared Command/Executor/CuReply adapter
+│  │  ├─ [x] pre-dispatch cancellation fails closed; acknowledged pre-effect cancellation is uncatchable; an observed-but-unacknowledged request is consumed only after its authoritative reply is parked, while an unobserved concurrent cancel remains raised; the product module still returns the authoritative reply after more than one core interrupt-poll interval
 │  │  ├─ [x] versioned `command|argv` envelope; library-owned argv parser; qjs→CU has no child process, while public CLI keeps common Script Worker isolation
 │  │  ├─ [x] fixed-sibling dynamic provider; Windows exact release PE 3,738,112 B ≤ 4 MiB
 │  │  │  ├─ separate ABI-versioned artifact; Win/macOS packaging and signing fail closed if absent
