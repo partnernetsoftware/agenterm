@@ -154,6 +154,15 @@ function command_json(context, cli, arguments, expected_failure) {
   return JSON.parse(combined_text(invoke(context, cli, arguments, expected_failure)));
 }
 
+// `protocol-info` is about 61 KB, while this journey binds the server process
+// through only these eight facts. Keep the selection at the producer boundary:
+// the guest receives neither the unread catalogs nor a shell-filtered copy.
+const SERVER_PROTOCOL_FIELDS = "pid,ui_bridge.ownership_mode,ui_bridge.server_executable,ui_bridge.replaceable_ui,ui_bridge.interactive_lease,ui_bridge.reconnect,ui_bridge.rollback_proven";
+
+function selected_protocol_info_arguments() {
+  return ["protocol-info", "--running", "--json", "--select", SERVER_PROTOCOL_FIELDS];
+}
+
 function count_tab_events(events, tab_id, kind) {
   const tab_id_text = "" + tab_id;
   const kind_text = "" + kind;
@@ -166,16 +175,19 @@ function count_tab_events(events, tab_id, kind) {
   return count;
 }
 
-// Answers the probe that succeeded: rh asked `protocol-info --running` again
-// for the facts, and the second 61 KB answer is two more whole-answer passes.
+// Answers the probe that succeeded through the same producer-side projection.
 function wait_for_server(context, cli, server, waited) {
   for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
     // A journal-free probe first: a journaled `run` costs about a million
     // steps, and how many polls the server needs depends on the machine.
     // Only the answer that succeeds is run again through the journal.
-    const probe = harness.configured_cli_spec(context, cli, ["--address", "" + context.address, "protocol-info", "--running"]);
+    const probe_arguments = ["--address", "" + context.address];
+    for (const argument of selected_protocol_info_arguments()) {
+      probe_arguments.push(argument);
+    }
+    const probe = harness.configured_cli_spec(context, cli, probe_arguments);
     if (process_status(JSON.stringify(probe)) === 0) {
-      return run(context, cli, ["protocol-info", "--running"], 0);
+      return run(context, cli, selected_protocol_info_arguments(), 0);
     }
     if (harness.state(server) === "exited") {
       const output = harness.drain(server, 2000, waited);

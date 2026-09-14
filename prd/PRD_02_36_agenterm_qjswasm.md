@@ -339,6 +339,15 @@ budget are unchanged. This is intentionally recorded as a **first-producer
 foundation**, not a completed fold: its production core is still net additive,
 and the economic payback requires a second real producer to reuse it while
 deleting parallel filtering or serialization code.
+The same producer projection now also serves `server-smoke`'s startup binding:
+that journey asks for only `pid` and the seven `ui_bridge` facts it verifies,
+instead of parsing the approximately 61 KiB catalog twice. Three current-HEAD
+runs per side with the same binary and budget moved the median from 19,619,210
+steps (spread 28) to 16,602,651 (spread 0), −3,016,559 / −15.38%; host bytes
+moved from 350,216 to 288,209 (−17.71%), heap pages from 19 to 16, and the 395
+host operations plus `server.headless-authority` evidence remained unchanged.
+This is a second real **consumer** of the first producer, not the still-missing
+second producer needed to turn the additive selection core into a net code fold.
 
 ## Mermaid flowchart memory palace
 
