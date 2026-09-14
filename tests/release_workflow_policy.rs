@@ -346,8 +346,8 @@ fn windows_release_smokes_have_no_live_qjs_migration_gap() {
     assert!(CU_WINDOWS_SMOKE_QJS.contains("args: [\"-n\", \"3\", \"127.0.0.1\"]"));
     assert!(CU_WINDOWS_SMOKE_QJS.contains("if (short_child >= 0 && !short_reaped)"));
     assert!(CU_WINDOWS_FIXTURE_CS.contains("[STAThread]"));
-    assert!(CU_WINDOWS_FIXTURE_CS.contains("public static void Main()"));
-    assert!(CU_WINDOWS_FIXTURE_CS.contains("Run();"));
+    assert!(CU_WINDOWS_FIXTURE_CS.contains("public static void Main(string[] args)"));
+    assert!(CU_WINDOWS_FIXTURE_CS.contains("Run(args.Length == 1 ? args[0] : null);"));
 }
 
 #[test]
