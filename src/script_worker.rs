@@ -169,7 +169,27 @@ fn process_concurrent_framed_worker<R: Read>(
     let mut workers = Vec::new();
     loop {
         let frame = match read_script_frame(&mut input)? {
-            ScriptFrameRead::Eof => break,
+            ScriptFrameRead::Eof => {
+                // OWNER LOSS. EOF here means the process that owns this worker -- the
+                // supervisor, or the task process above it -- is gone, so no Cancel
+                // frame can ever arrive for whatever invocation is in flight. Without
+                // this, the active invocation keeps running to its own deadline and the
+                // engine worker outlives its owner (observed as an orphaned
+                // `--framed-worker` reparented to launchd that waited out TERM_HOLD).
+                //
+                // The flag is the SAME cancellation protocol a Cancel frame uses, so
+                // there is one cancellation meaning rather than a second mechanism.
+                // Signalling it before the join below is the entire fix: the join is
+                // what previously blocked until the invocation finished on its own.
+                if let Some((_, cancellation)) = active
+                    .lock()
+                    .expect("active invocation lock poisoned")
+                    .as_ref()
+                {
+                    cancellation.store(true, Ordering::Relaxed);
+                }
+                break;
+            }
             ScriptFrameRead::Frame(frame) => *frame,
             ScriptFrameRead::Rejected(rejection) => {
                 let recoverable = rejection.recoverable;
@@ -1538,6 +1558,146 @@ return reply.ok + ":" + reply.command + ":" + reply.error.code;
             .expect("a cancelled call keeps its bill");
         assert_eq!(cost.host_ops, 1, "{cost:?}");
         assert!(cost.waited_ms < 4000, "{cost:?}");
+    }
+
+    /// OWNER LOSS IS A CANCEL. When the supervisor (or the task process above it)
+    /// dies, this worker sees stdin EOF and no Cancel frame can ever arrive. The
+    /// EOF branch used to `break` straight into the join, so an in-flight invocation
+    /// ran to its own deadline and the engine worker outlived its owner -- observed
+    /// in the real host as an orphaned `--framed-worker` reparented to launchd that
+    /// waited out the guest's hold loop.
+    ///
+    /// No Cancel frame is sent here, which is the whole point: EOF alone must set the
+    /// SAME cancellation flag a Cancel frame sets. On the old branch this test cannot
+    /// finish early, because nothing shortens the 8 s wait.
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn framed_worker_cancels_an_active_invocation_when_stdin_eofs() {
+        let mut blocked = invocation(
+            ScriptOperation::Eval,
+            r#"let s = fleet_call("noop", "{}"); return "caught:" + s;"#,
+        );
+        blocked.invocation_id = "orphaned".to_owned();
+        // Longer than the assertion below, so the broker's own timeout cannot be
+        // what ends the wait.
+        blocked.budgets.wait_time_ms = 8_000;
+        let invoke = ScriptFrame {
+            frame_version: SCRIPT_FRAME_VERSION,
+            frame_id: "invoke".to_owned(),
+            payload: ScriptFramePayload::Invoke(blocked),
+        };
+        #[derive(Clone)]
+        struct Sink(Arc<Mutex<Vec<u8>>>);
+        impl Write for Sink {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("sink").extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        // The reader hands over the invoke frame and then, INSTEAD of a cancel
+        // frame, waits until the worker has written the broker request -- proving the
+        // invocation is genuinely inside the wait -- and only then reports EOF.
+        //
+        // The arming must happen AFTER the whole invoke frame has been consumed, not
+        // on the first read: `read_script_frame` performs several `read` calls per
+        // frame, so arming on entry would block before the frame was delivered and
+        // the guest would never reach the door. `pending` emptying is that signal.
+        struct EofAfterBroker {
+            pending: Vec<u8>,
+            armed: bool,
+            sink: Sink,
+        }
+        impl Read for EofAfterBroker {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                if !self.pending.is_empty() {
+                    let n = buf.len().min(self.pending.len());
+                    buf[..n].copy_from_slice(&self.pending[..n]);
+                    self.pending.drain(..n);
+                    return Ok(n);
+                }
+                if !self.armed {
+                    let waited = std::time::Instant::now();
+                    loop {
+                        let output = self.sink.0.lock().expect("sink").clone();
+                        if decoded_frames(&output)
+                            .iter()
+                            .any(|f| matches!(f.payload, ScriptFramePayload::BrokerRequest { .. }))
+                        {
+                            break;
+                        }
+                        assert!(
+                            waited.elapsed() < std::time::Duration::from_secs(5),
+                            "the script never reached the broker"
+                        );
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                    self.armed = true;
+                }
+                Ok(0)
+            }
+        }
+        let sink = Sink(Arc::new(Mutex::new(Vec::new())));
+        let input = EofAfterBroker {
+            pending: encoded_frame(&invoke),
+            armed: false,
+            sink: sink.clone(),
+        };
+        let started = std::time::Instant::now();
+        process_concurrent_framed_worker(input, sink.clone()).expect("framed stream");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(4),
+            "EOF must cut the 8 s broker wait short, not run to the deadline: {:?}",
+            started.elapsed()
+        );
+        let output = sink.0.lock().expect("sink").clone();
+        let frames = decoded_frames(&output);
+        assert!(
+            frames
+                .iter()
+                .any(|f| matches!(f.payload, ScriptFramePayload::BrokerRequest { .. })),
+            "the script reached the broker, so the wait was real: {frames:?}"
+        );
+        let result = frames
+            .iter()
+            .find(|f| f.frame_id == "invoke")
+            .map(frame_result)
+            .expect("the invocation answers");
+        assert_eq!(result.exit_class, ScriptExitClass::Cancelled, "{result:?}");
+        // The bill proves the wait was entered rather than skipped: one host op
+        // (the bridge call), and its wall clock -- but well under the 8 s budget.
+        let cost = result
+            .cost
+            .as_ref()
+            .expect("a cancelled call keeps its bill");
+        assert_eq!(cost.host_ops, 1, "{cost:?}");
+        assert!(cost.waited_ms < 4000, "{cost:?}");
+    }
+
+    /// A clean EOF with nothing in flight must stay clean: the fix must not invent
+    /// a cancellation where there is no invocation to cancel.
+    #[test]
+    fn framed_worker_treats_eof_with_no_active_invocation_as_a_clean_stop() {
+        #[derive(Clone)]
+        struct Sink(Arc<Mutex<Vec<u8>>>);
+        impl Write for Sink {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("sink").extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let sink = Sink(Arc::new(Mutex::new(Vec::new())));
+        process_concurrent_framed_worker(std::io::Cursor::new(Vec::new()), sink.clone())
+            .expect("immediate EOF is an ordinary stop");
+        assert!(
+            sink.0.lock().expect("sink").is_empty(),
+            "a clean stop writes nothing"
+        );
     }
 
     #[cfg(feature = "script-qjswasm")]

@@ -5133,6 +5133,19 @@ end in the explicit handle list—the parent writer must stay non-inheritable—
 EOF can never arrive. Stop and expiry terminate/reap containment first, then
 join the writer and both output drains.
 
+Framed transport EOF is owner loss, not a clean shutdown. When a worker's stdin
+reaches EOF, the process that owned it -- supervisor or the task process above it
+-- is gone, so no cancel frame can ever arrive. An EOF branch that breaks straight
+into the join therefore lets an in-flight invocation run to its own deadline while
+the worker outlives its owner; measured in the real host as an orphaned framed
+engine worker reparented to launchd that waited out a guest hold loop. Set the
+same active-invocation cancellation flag a cancel frame sets before the join, and
+never invent a second cancellation mechanism or an OS-specific watchdog for this.
+Prove it with a reader that delivers the invoke frame, waits until the worker has
+written its broker request, and only then reports EOF: on the old branch the test
+runs the full wait budget (measured 8.0 s) instead of finishing early (0.05 s).
+Distinguish clean EOF with nothing in flight, which stays an ordinary stop.
+
 An accessibility wait can prove absence only from a complete, non-truncated
 acquisition in which every closed expectation is known not to match. A missing
 node is explicit absence; ambiguity, an unobservable state, a failed tree read
