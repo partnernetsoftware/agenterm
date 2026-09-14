@@ -265,6 +265,16 @@ agenterm-qjswasm
 │  ├─ [x] in-process `pack load` / `qualify` failures preserve their pre-failure stdout and disclose truncation instead of flattening the engine error to text
 │  ├─ [x] the public string-byte ceiling governs both host-door answers and returned guest strings; no accepted override falls back to the engine default
 │  ├─ [x] the published invocation call-depth ceiling replaces tinyvm's independent default and is the limit the guest actually runs under
+│  ├─ [~] remaining public budget truth requires generic qjs runtime mechanisms
+│  │  ├─ [ ] `collection_items` is accepted by CLI/task manifests and published in audit receipts,
+│  │  │      but qjswasm does not yet enforce it; the mechanism must cover literals, push,
+│  │  │      sparse indexed growth, concat/map and JSON parse under the same per-invocation
+│  │  │      ceiling for source execution and reusable packed artifacts
+│  │  ├─ [ ] `expression_depth` is likewise published without a qjswasm owner; do not map it
+│  │  │      to call depth, activation slots or compile-time nesting because those are different facts
+│  │  ├─ safe failure: an accepted effective budget must be enforced or named as unenforced;
+│  │  │      requested/effective audit copies are not evidence that an engine consumed the field
+│  │  └─ non-goal: no AgenTerm-specific host import, memory-page approximation or source-only limit
 │  ├─ [x] child stdout/stderr truncation is explicit through read/wait/command
 │  ├─ [x] process.spawn refuses a 33rd retained handle before native spawn/drain allocation
 │  ├─ [x] evidence-declaration scans use synchronous commands, so completed probes do not consume retained handles

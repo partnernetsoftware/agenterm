@@ -332,11 +332,11 @@ fn _assert_object_safe(_backend: &dyn ScriptEngineBackend) {}
 // ---------------------------------------------------------------------
 
 #[cfg(feature = "script-qjswasm")]
-/// The engine budget for one invocation. `--max-operations` is the only CLI
-/// budget the core enforces itself (as the step ceiling per top-level call);
-/// `--timeout-ms` is the worker's deadline and never reaches the guest.
-/// Without this the CLI accepted the flag and the guest ran under the
-/// 16M default anyway.
+/// The qjswasm-owned subset of one invocation budget. Operations and call depth
+/// map into tinyvm limits; host operations, stdout and returned strings map into
+/// qjswasm's door/result limits. `--timeout-ms` remains the worker's deadline.
+/// Collection-item and expression-depth ceilings still need generic qjs runtime
+/// mechanisms: do not treat their presence in `ScriptBudgets` as enforcement.
 /// The one seam where a qjswasm failure keeps its class. `Budget` is the
 /// engine refusing to spend more (steps, pages, depth): a `Limit`, and the
 /// fix is a `--max-*` flag. An uncaught `throw` or a guest trap is the
