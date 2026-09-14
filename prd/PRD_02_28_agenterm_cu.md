@@ -207,7 +207,8 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │     ├─ a matched terminal reply, authority refusal and finalized PTY exit-status verdict
   │  │     │  remain authoritative after dispatch and are never hidden by a late cancel
   │  │     └─ public `wait` window/tree/text/ready/expect variants share the same token before
-  │  │        every authority round and through a sliced pause; matched/error replies still win
+  │  │        every authority round and through a sliced pause; matched/error replies still win;
+  │  │        external-terminal `term wait` applies the same rule after exact window binding
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
   │  ├─ [x] ten compound compatibility shapes execute through pure qjs projections + the same typed calls
   │  │  └─ native failures bypass projection unchanged, preserving command, count and structured effect/recovery facts;

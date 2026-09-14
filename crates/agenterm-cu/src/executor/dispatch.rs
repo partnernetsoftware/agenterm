@@ -1181,7 +1181,14 @@ impl Executor {
                 interval_ms,
                 max_bytes,
                 ..
-            } => term_wait_payload(*window, pattern, *timeout_ms, *interval_ms, *max_bytes),
+            } => term_wait_payload(
+                *window,
+                pattern,
+                *timeout_ms,
+                *interval_ms,
+                *max_bytes,
+                control,
+            ),
             Command::Tree {
                 window,
                 depth,

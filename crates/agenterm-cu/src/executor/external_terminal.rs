@@ -5,6 +5,7 @@
 //! top-level window and its owning process, revalidated around every tree read.
 
 use super::*;
+use crate::execution_control::ExecutionControl;
 
 use regex::Regex;
 
@@ -667,7 +668,36 @@ pub(super) fn term_wait_payload(
     timeout_ms: u64,
     interval_ms: u64,
     max_bytes: usize,
+    control: ExecutionControl<'_>,
 ) -> Result<serde_json::Value, CuError> {
+    term_wait_with_reader(
+        window,
+        pattern,
+        timeout_ms,
+        interval_ms,
+        max_bytes,
+        control,
+        &read_buffer,
+    )
+}
+
+/// The `term-wait` polling loop, parameterized over the buffer reader.
+///
+/// The reader is a borrowed function rather than a trait object so the real
+/// `read_buffer` remains the only production path; the seam exists so the
+/// cancellation cases can be driven against the ACTUAL loop instead of a copy.
+fn term_wait_with_reader(
+    window: isize,
+    pattern: &str,
+    timeout_ms: u64,
+    interval_ms: u64,
+    max_bytes: usize,
+    control: ExecutionControl<'_>,
+    reader: &dyn Fn(&ExternalWindowIdentity) -> Result<TerminalBuffer, CuError>,
+) -> Result<serde_json::Value, CuError> {
+    // Validation and identity binding complete BEFORE the token is consulted, so
+    // those inherent refusals are never masked. The first buffer read is the first
+    // cancellable observation and is therefore guarded inside `term_wait_bound`.
     validate_read_bounds(None, max_bytes)?;
     if pattern.is_empty() || pattern.len() > MAX_PATTERN_BYTES {
         return Err(invalid_input(
@@ -687,26 +717,51 @@ pub(super) fn term_wait_payload(
         .with_detail(serde_json::json!({ "pattern_bytes": pattern.len() }))
     })?;
     let identity = bind_window(window)?;
-    let first = read_buffer(&identity)?;
-    let buffer_node = first.node.clone();
+    term_wait_bound(
+        &identity,
+        pattern,
+        &expression,
+        timeout_ms,
+        interval_ms,
+        max_bytes,
+        control,
+        reader,
+    )
+}
+
+/// The polling loop once the window identity is bound. Split out so the
+/// cancellation cases can drive the REAL loop with an injected identity; the only
+/// production caller is `term_wait_with_reader` above.
+#[allow(clippy::too_many_arguments)]
+fn term_wait_bound(
+    identity: &ExternalWindowIdentity,
+    pattern: &str,
+    expression: &Regex,
+    timeout_ms: u64,
+    interval_ms: u64,
+    max_bytes: usize,
+    control: ExecutionControl<'_>,
+    reader: &dyn Fn(&ExternalWindowIdentity) -> Result<TerminalBuffer, CuError>,
+) -> Result<serde_json::Value, CuError> {
+    let mut buffer_node: Option<String> = None;
     let started = Instant::now();
     let deadline = started + Duration::from_millis(timeout_ms);
     let mut polls = 0usize;
     loop {
+        // PRE-EFFECT CANCEL: no buffer authority is consulted for this round when
+        // the invocation has already been cancelled.
+        control.check_observe()?;
         polls += 1;
-        let buffer = if polls == 1 {
-            first.clone()
-        } else {
-            read_buffer(&identity)?
-        };
-        if buffer.node != buffer_node {
+        let buffer = reader(identity)?;
+        let expected_node = buffer_node.get_or_insert_with(|| buffer.node.clone());
+        if buffer.node != *expected_node {
             return Err(CuError::new(
                 "terminal_buffer_identity_changed",
                 "the selected terminal buffer changed while the wait was in flight",
             )
             .with_detail(serde_json::json!({
                 "window_identity": identity.json(),
-                "expected_node_sha256": super::clipboard::clipboard_sha256_hex(buffer_node.as_bytes()),
+                "expected_node_sha256": super::clipboard::clipboard_sha256_hex(expected_node.as_bytes()),
                 "observed_node_sha256": super::clipboard::clipboard_sha256_hex(buffer.node.as_bytes()),
             })));
         }
@@ -750,13 +805,229 @@ pub(super) fn term_wait_payload(
             })));
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
-        thread::sleep(remaining.min(Duration::from_millis(interval_ms)));
+        term_wait_pause(control, remaining.min(Duration::from_millis(interval_ms)))?;
     }
+}
+
+/// Slice width for the inter-round pause, matching the shared wait policy. The
+/// token is observed before each slice and once at the end.
+const TERM_WAIT_CANCEL_SLICE: Duration = Duration::from_millis(10);
+
+fn term_wait_pause(control: ExecutionControl<'_>, pause: Duration) -> Result<(), CuError> {
+    let pause_deadline = Instant::now() + pause;
+    while Instant::now() < pause_deadline {
+        control.check_observe()?;
+        thread::sleep(
+            TERM_WAIT_CANCEL_SLICE.min(pause_deadline.saturating_duration_since(Instant::now())),
+        );
+    }
+    control.check_observe()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn cancel_control(probe: &dyn Fn() -> bool) -> ExecutionControl<'_> {
+        ExecutionControl::with_cancel_probe(probe)
+    }
+
+    /// A synthetic, already-bound window identity. Binding itself is proven by its
+    /// own tests; these cases exercise the polling loop, which needs a bound
+    /// identity but no real window.
+    fn fixture_identity(handle: isize) -> ExternalWindowIdentity {
+        ExternalWindowIdentity {
+            handle,
+            pid: 4_242,
+            start_identity: "fixture-start-identity".into(),
+            app: "Fixture Terminal".into(),
+        }
+    }
+
+    /// Drives the REAL polling loop (`term_wait_bound`) with an injected identity
+    /// and reader. The production `term_wait_payload` reaches the same function
+    /// after `bind_window`, so these cases cannot pass against a decision the real
+    /// loop would not take.
+    fn run_bound_wait(
+        pattern: &str,
+        timeout_ms: u64,
+        interval_ms: u64,
+        max_bytes: usize,
+        control: ExecutionControl<'_>,
+        reader: &dyn Fn(&ExternalWindowIdentity) -> Result<TerminalBuffer, CuError>,
+    ) -> Result<serde_json::Value, CuError> {
+        let expression = Regex::new(pattern).expect("fixture pattern compiles");
+        let identity = fixture_identity(7);
+        term_wait_bound(
+            &identity,
+            pattern,
+            &expression,
+            timeout_ms,
+            interval_ms,
+            max_bytes,
+            control,
+            reader,
+        )
+    }
+
+    /// Validation-only cases go through the production entry point, where they
+    /// must fail before `bind_window` and therefore before any reader call.
+    fn run_unbound_wait(
+        pattern: &str,
+        timeout_ms: u64,
+        interval_ms: u64,
+        control: ExecutionControl<'_>,
+        reader: &dyn Fn(&ExternalWindowIdentity) -> Result<TerminalBuffer, CuError>,
+    ) -> Result<serde_json::Value, CuError> {
+        term_wait_with_reader(0, pattern, timeout_ms, interval_ms, 4096, control, reader)
+    }
+
+    #[test]
+    fn invalid_request_is_not_masked_by_a_pre_cancel() {
+        // VALIDATION BEFORE CANCEL: a malformed request is reported as itself.
+        let control = cancel_control(&|| true);
+        let reader = |_: &ExternalWindowIdentity| -> Result<TerminalBuffer, CuError> {
+            panic!("validation must complete before any authority read")
+        };
+        let error = run_unbound_wait("fine", 0, 50, control, &reader)
+            .expect_err("an invalid timeout must be refused");
+        assert_eq!(error.code, "invalid_input");
+
+        // An invalid PATTERN is likewise its own typed error before any read.
+        let control = cancel_control(&|| true);
+        let error = run_unbound_wait("", 1_000, 50, control, &reader)
+            .expect_err("an empty pattern must be refused");
+        assert_eq!(error.code, "invalid_input");
+
+        // A valid request with an unbound window reports the bind failure, not the
+        // token, and still never reads.
+        let control = cancel_control(&|| true);
+        let error = run_unbound_wait("fine", 1_000, 50, control, &reader)
+            .expect_err("an unbindable window must be refused");
+        assert_ne!(error.code, "cancelled");
+    }
+
+    #[test]
+    fn pre_cancel_after_binding_stops_before_the_first_buffer_read() {
+        let reads = std::cell::Cell::new(0usize);
+        let reader = |_: &ExternalWindowIdentity| -> Result<TerminalBuffer, CuError> {
+            reads.set(reads.get() + 1);
+            panic!("a pre-cancelled wait must not read the buffer")
+        };
+        let error = run_bound_wait("ready", 60_000, 50, 4096, cancel_control(&|| true), &reader)
+            .expect_err("a pre-cancelled bound wait must refuse");
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(reads.get(), 0);
+    }
+
+    #[test]
+    fn first_buffer_match_wins_over_a_cancel_set_by_that_read() {
+        let cancelled = std::cell::Cell::new(false);
+        let probe = || cancelled.get();
+        let reader = |identity: &ExternalWindowIdentity| -> Result<TerminalBuffer, CuError> {
+            cancelled.set(true);
+            Ok(TerminalBuffer {
+                node: identity.json().to_string(),
+                role: "text-area".into(),
+                backend: "fixture-complete".into(),
+                text: "hello world".into(),
+            })
+        };
+        let value = run_bound_wait("wor", 1_000, 50, 4096, cancel_control(&probe), &reader)
+            .expect("a matched first buffer must be returned despite a set token");
+        assert_eq!(value.get("matched"), Some(&serde_json::json!("wor")));
+        assert_eq!(value.get("polls"), Some(&serde_json::json!(1)));
+    }
+
+    #[test]
+    fn unmatched_first_buffer_plus_a_token_stops_before_a_second_read() {
+        // First buffer does not match; the token is set during the sliced pause, so
+        // the loop must exit without a second authority read.
+        let reads = std::cell::Cell::new(0usize);
+        let cancelled = std::cell::Cell::new(false);
+        let probe = || cancelled.get();
+        let reader = |identity: &ExternalWindowIdentity| -> Result<TerminalBuffer, CuError> {
+            reads.set(reads.get() + 1);
+            cancelled.set(true);
+            Ok(TerminalBuffer {
+                node: identity.json().to_string(),
+                role: "text-area".into(),
+                backend: "fixture-complete".into(),
+                text: "hello world".into(),
+            })
+        };
+        let started = Instant::now();
+        let error = run_bound_wait("nope", 60_000, 50, 4096, cancel_control(&probe), &reader)
+            .expect_err("an unmatched round plus a token must refuse the verb");
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(
+            reads.get(),
+            1,
+            "the token must stop the second authority read"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "the cancel must not wait for the 60 s deadline"
+        );
+    }
+
+    #[test]
+    fn a_later_round_result_is_authoritative_over_a_late_token() {
+        // The FIRST later round's reader flips the token and still returns a
+        // buffer: that round's result must win, not the token it just set.
+        let reads = std::cell::Cell::new(0usize);
+        let cancelled = std::cell::Cell::new(false);
+        let probe = || cancelled.get();
+        let reader = |identity: &ExternalWindowIdentity| -> Result<TerminalBuffer, CuError> {
+            reads.set(reads.get() + 1);
+            if reads.get() == 2 {
+                cancelled.set(true);
+            }
+            Ok(TerminalBuffer {
+                node: identity.json().to_string(),
+                role: "text-area".into(),
+                backend: "fixture-complete".into(),
+                // The first read misses; every later read matches.
+                text: if reads.get() == 1 {
+                    "nothing yet".into()
+                } else {
+                    "now it is ready".into()
+                },
+            })
+        };
+        let value = run_bound_wait("ready", 60_000, 50, 4096, cancel_control(&probe), &reader)
+            .expect("a matched later round must return its result");
+        assert_eq!(value.get("matched"), Some(&serde_json::json!("ready")));
+        assert_eq!(value.get("polls"), Some(&serde_json::json!(2)));
+    }
+
+    #[test]
+    fn a_later_round_reader_error_is_authoritative_over_a_late_token() {
+        // A later round's reader failure must surface as itself rather than being
+        // replaced by the token the same round set.
+        let reads = std::cell::Cell::new(0usize);
+        let cancelled = std::cell::Cell::new(false);
+        let probe = || cancelled.get();
+        let reader = |identity: &ExternalWindowIdentity| -> Result<TerminalBuffer, CuError> {
+            reads.set(reads.get() + 1);
+            if reads.get() == 1 {
+                return Ok(TerminalBuffer {
+                    node: identity.json().to_string(),
+                    role: "text-area".into(),
+                    backend: "fixture-complete".into(),
+                    text: "nothing yet".into(),
+                });
+            }
+            cancelled.set(true);
+            Err(CuError::new(
+                "terminal_reader_fixture_refusal",
+                "the fixture reader refused the second round",
+            ))
+        };
+        let error = run_bound_wait("ready", 60_000, 50, 4096, cancel_control(&probe), &reader)
+            .expect_err("a reader refusal must surface");
+        assert_eq!(error.code, "terminal_reader_fixture_refusal");
+    }
 
     fn candidate(node: &str, role: &str, text: &str) -> TerminalBuffer {
         TerminalBuffer {

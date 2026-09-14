@@ -283,7 +283,8 @@ agenterm-qjswasm
 │  │  └─ [x] named native observation waits use operation-specific phase/effect semantics:
 │  │         `pty-wait`, shared `terminal-wait` and `pty-wait-exit` sample the same borrowed
 │  │         token between bounded authority rounds while same-round terminal/error replies win;
-│  │         public `wait` window/tree/text/ready/expect variants now follow the same ordering
+│  │         public `wait` window/tree/text/ready/expect and external-terminal `term wait`
+│  │         now follow the same ordering after their own validation/identity binding
 │  ├─ [x] check-many entry + canonical recursive imports share bytes/modules/deadline budgets
 │  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
 ├─ upstream performance frontier
