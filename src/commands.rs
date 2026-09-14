@@ -854,7 +854,12 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
             &["--stdin"][..],
             false,
         ),
-        "ui-bootstrap" => ("agenterm cli ui-bootstrap", &[][..], &[][..], false),
+        "ui-bootstrap" => (
+            "agenterm cli ui-bootstrap [--select PATHS]",
+            &["--select"][..],
+            &[][..],
+            false,
+        ),
         "ui-input" => (
             "agenterm cli ui-input pointer --x PX --y PX \
              [--button left|right|middle] [--action press|release|move] \

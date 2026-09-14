@@ -158,6 +158,9 @@ function command_json(context, cli, arguments, expected_failure) {
 // through only these eight facts. Keep the selection at the producer boundary:
 // the guest receives neither the unread catalogs nor a shell-filtered copy.
 const SERVER_PROTOCOL_FIELDS = "pid,ui_bridge.ownership_mode,ui_bridge.server_executable,ui_bridge.replaceable_ui,ui_bridge.interactive_lease,ui_bridge.reconnect,ui_bridge.rollback_proven";
+const INTERACTION_BOOTSTRAP_FIELDS = "active_tab_id,position.sequence,tabs[].id,tabs[].screen.rows,tabs[].screen.columns";
+const ACTIVE_BOOTSTRAP_FIELDS = "active_tab_id";
+const NOTE_BOOTSTRAP_FIELDS = "server_pid,tabs[].id,tabs[].note";
 
 function selected_protocol_info_arguments() {
   return ["protocol-info", "--running", "--json", "--select", SERVER_PROTOCOL_FIELDS];
@@ -398,7 +401,10 @@ try {
       "--timeout-ms", "30000"
     ]
   );
-  const interaction_bootstrap = command_json(context, cli, ["ui-bootstrap"], 0);
+  const interaction_bootstrap = command_json(
+    context, cli,
+    ["ui-bootstrap", "--select", INTERACTION_BOOTSTRAP_FIELDS], 0
+  );
   let interaction_rows = 0;
   let interaction_columns = 0;
   const interaction_tab_state = find_tab(interaction_bootstrap.tabs, interaction_tab);
@@ -538,7 +544,10 @@ try {
       && conflict_receipt.error.code === "request_id_conflict",
     "server_smoke_receipt_replay"
   );
-  let bootstrap = command_json(context, cli, ["ui-bootstrap"], 0);
+  let bootstrap = command_json(
+    context, cli,
+    ["ui-bootstrap", "--select", ACTIVE_BOOTSTRAP_FIELDS], 0
+  );
   const interactive_tab = bootstrap.active_tab_id;
   const submission_marker = "AGENTERM_SERVER_RECEIPT_" + run_id;
   command_text(
@@ -577,7 +586,10 @@ try {
   print("STEP follow server-owned events into terminal post-state");
   const note = "server-note-" + run_id;
   command_text(context, cli, ["set-tab-note", "-t", tab_id, note]);
-  bootstrap = command_json(context, cli, ["ui-bootstrap"], 0);
+  bootstrap = command_json(
+    context, cli,
+    ["ui-bootstrap", "--select", NOTE_BOOTSTRAP_FIELDS], 0
+  );
   const deltas = command_json(
     context, cli,
     [

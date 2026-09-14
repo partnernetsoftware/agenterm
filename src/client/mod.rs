@@ -4824,7 +4824,7 @@ Usage:
   agenterm cli ui-input key --key NAME [--mods shift,ctrl,alt,meta]
   agenterm cli ui-snapshot [--select PATHS]
   agenterm cli ui-hello --minimum VERSION --maximum VERSION [--client-id ID]
-  agenterm cli ui-bootstrap
+  agenterm cli ui-bootstrap [--select PATHS]
   agenterm cli ui-deltas --epoch EPOCH --after SEQUENCE [--limit 1..64]
   agenterm cli ui-action new-tab|new-child|edit-tab|toggle-tree|tabs-show|tabs-hide|tabs-toggle|toggle-tabs|tabs-set-width|window-activate|terminal-paste|select-tab|close-tab|close-window|keep-server-running|stop-server-and-exit|confirm|cancel|composer-send|copy-selection|open-settings|open-control-center|settings-theme-dark|settings-theme-light|settings-apply|open-cwd-editor|cwd-prepare|cwd-prepare-append|cwd-prepare-replace|cwd-send-now|open-instance-picker|instance-picker-next|instance-picker-prev|instance-picker-select|instance-picker-confirm|instance-picker-cancel|open-instance
   agenterm cli ui-action tabs-set-width --width 180..480

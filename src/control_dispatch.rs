@@ -1181,6 +1181,50 @@ fn select_ui_snapshot_json(json: String, args: &[String]) -> IpcResponse {
     }
 }
 
+fn inherent_json_response<T: Serialize>(
+    value: &T,
+    args: &[String],
+    serialization_code: &'static str,
+) -> IpcResponse {
+    if option_value(args, crate::json_select::SELECT_FLAG).is_none() {
+        return match serde_json::to_string_pretty(value) {
+            Ok(json) => IpcResponse::success(json),
+            Err(error) => {
+                IpcResponse::typed_failure(error.to_string(), serialization_code, "internal", false)
+            }
+        };
+    }
+    let value = match serde_json::to_value(value) {
+        Ok(value) => value,
+        Err(error) => {
+            return IpcResponse::typed_failure(
+                error.to_string(),
+                serialization_code,
+                "internal",
+                false,
+            );
+        }
+    };
+    let projected = match crate::json_select::apply_inherent_json_selection_request(&value, args) {
+        Ok(Some(projected)) => projected,
+        Ok(None) => value,
+        Err(refusal) => {
+            return IpcResponse::typed_failure(
+                refusal.message,
+                refusal.code,
+                "configuration",
+                false,
+            );
+        }
+    };
+    match serde_json::to_string_pretty(&projected) {
+        Ok(json) => IpcResponse::success(json),
+        Err(error) => {
+            IpcResponse::typed_failure(error.to_string(), serialization_code, "internal", false)
+        }
+    }
+}
+
 fn send_composer_at_position(host: &mut dyn ControlHost, position: usize) -> IpcResponse {
     if let Some(secret) = host.tabs_mut()[position].sensitive_composer.take() {
         let marker = host.tabs_mut()[position].sensitive_proxy_marker.take();
@@ -1643,15 +1687,11 @@ pub(crate) fn dispatch_shared_command(
             }
         }
         "ui-bootstrap" => match ui_bootstrap_snapshot(host) {
-            Ok(snapshot) => match serde_json::to_string_pretty(&snapshot) {
-                Ok(json) => Some(IpcResponse::success(json)),
-                Err(error) => Some(IpcResponse::typed_failure(
-                    error.to_string(),
-                    "ui_bootstrap_serialization_failed",
-                    "internal",
-                    false,
-                )),
-            },
+            Ok(snapshot) => Some(inherent_json_response(
+                &snapshot,
+                args,
+                "ui_bootstrap_serialization_failed",
+            )),
             Err(error) => Some(IpcResponse::typed_failure(
                 error,
                 "ui_bootstrap_unavailable",
@@ -3059,6 +3099,56 @@ mod tests {
         assert!(!invalid_source.ok);
         assert_eq!(invalid_source.error_code, "ui_snapshot_invalid_json");
         assert_eq!(invalid_source.error_category, "internal");
+    }
+
+    #[test]
+    fn inherent_json_response_preserves_full_rendering_and_projects_on_request() {
+        let value = serde_json::json!({
+            "server_pid": 42,
+            "active_tab_id": "@1",
+            "tabs": [{"id": "@1", "screen": {"rows": 24, "runs": [1, 2, 3]}}]
+        });
+        let full = inherent_json_response(
+            &value,
+            &["ui-bootstrap".to_owned()],
+            "ui_bootstrap_serialization_failed",
+        );
+        assert!(full.ok);
+        assert_eq!(full.output, serde_json::to_string_pretty(&value).unwrap());
+
+        let selected = inherent_json_response(
+            &value,
+            &[
+                "ui-bootstrap".to_owned(),
+                "--select".to_owned(),
+                "active_tab_id,tabs[].id,tabs[].screen.rows".to_owned(),
+            ],
+            "ui_bootstrap_serialization_failed",
+        );
+        assert!(selected.ok);
+        let selected_value: serde_json::Value =
+            serde_json::from_str(&selected.output).expect("selected JSON");
+        assert_eq!(
+            selected_value,
+            serde_json::json!({
+                "active_tab_id": "@1",
+                "tabs": [{"id": "@1", "screen": {"rows": 24}}]
+            })
+        );
+        assert!(selected.output.len() < full.output.len());
+
+        let malformed = inherent_json_response(
+            &value,
+            &[
+                "ui-bootstrap".to_owned(),
+                "--select".to_owned(),
+                "tabs.*".to_owned(),
+            ],
+            "ui_bootstrap_serialization_failed",
+        );
+        assert!(!malformed.ok);
+        assert_eq!(malformed.error_code, "selection_malformed");
+        assert_eq!(malformed.error_category, "configuration");
     }
 
     #[test]

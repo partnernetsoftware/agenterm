@@ -374,6 +374,17 @@ steps (−970,952 / −5.46%); host bytes moved from 301,159 to 290,916
 `server.headless-authority` evidence remained unchanged. This is measured
 producer reuse and a real consumer saving, not yet a net production-LOC fold;
 product-internal `wait-ui` remains deliberately separate.
+The next typed producer now reuses the same inherent-JSON path:
+`ui-bootstrap --select PATHS` projects its validated `UiBootstrapSnapshot`
+before serialization, while a bare call still runs the previous
+`to_string_pretty(&snapshot)` path exactly. The same `server-smoke` journey
+selects the complete fields read at its interaction, active-tab and note
+boundaries; no assertion was removed. Three matched-budget runs moved median
+guest steps from 16,763,299 to 11,280,969 (−5,482,330 / −32.70%) and host bytes
+from 289,947 to 160,986 (−128,961 / −44.48%); heap pages moved from 16 to 11,
+while all 405 host operations and `server.headless-authority` remained
+unchanged. This third producer is another measured reuse and resource release,
+not a claim that additive production LOC has become a net fold.
 
 ## Mermaid flowchart memory palace
 
