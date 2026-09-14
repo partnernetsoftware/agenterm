@@ -1735,8 +1735,13 @@ flowchart LR
   background no-window macOS qjswasm fixture is green as
   `cu.host-open.macos`; Linux `--app` desktop-entry and PATH dispatch is green
   through `cu.host-open.linux` with independent windows/ps/get-text read-back
-  (not CU self-report). Windows native court remains open. MCU `open` now
-  routes here, reducing the top-level compatibility `STAY` set from 21 to 20.
+  (not CU self-report). The Windows court is registered as
+  `cu.host-open.windows`: it targets only a self-compiled invocation-owned
+  WinForms fixture, preserves CU's `dispatcher-accepted-only` boundary, and
+  requires independent process-argv plus UIA target read-back followed by
+  exact process/window/file cleanup. Its native runtime receipt remains open;
+  dispatcher acceptance alone is not evidence. MCU `open` now routes here,
+  reducing the top-level compatibility `STAY` set from 21 to 20.
 - [~] Desktop notification dispatch now follows the same typed boundary as
   host-open: `host-notify TITLE [BODY] [--subtitle TEXT] [--sound] [--action KEY LABEL]...` (alias
   `notify`) sends bounded text as native argv data, never shell or generated

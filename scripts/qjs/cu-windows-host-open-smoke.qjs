@@ -1,0 +1,276 @@
+// Prove Windows host-open explicit-application dispatch with an invocation-owned
+// WinForms fixture. ShellExecute acceptance remains dispatcher evidence only;
+// process argv and UI Automation independently prove the target reached the
+// selected application as exactly one argument.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.host-open.windows"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_of(value) {
+  if (value === undefined || value === null) { return ""; }
+  return "" + value;
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) { current = rh.field(current, key); }
+  return current;
+}
+
+function text_at(value, dotted) { return text_of(at(value, dotted)); }
+function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function csc_path(value) { return ("" + value).replaceAll("/", "\\"); }
+
+function remove_directory_bounded(path) {
+  if (!rh.exists(path)) { return true; }
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    rh.try_remove_dir_all(path);
+    if (!rh.exists(path)) { return true; }
+    harness.sleep_ms(50);
+  }
+  return false;
+}
+
+function framework_csc() {
+  const windows = rh.env_or("WINDIR", "C:/Windows");
+  const candidates = [
+    rh.join(windows, "Microsoft.NET/Framework64/v4.0.30319/csc.exe"),
+    rh.join(windows, "Microsoft.NET/Framework/v4.0.30319/csc.exe")
+  ];
+  for (const candidate of candidates) {
+    if (rh.is_direct_file(candidate)) { return candidate; }
+  }
+  throw "cu_windows_host_open_csc_missing";
+}
+
+function cu_env(run_directory) {
+  return { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") };
+}
+
+function run_cu_reply(run_directory, executable, arguments) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: cu_env(run_directory),
+    timeout_ms: 60000
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_windows_host_open_cli_empty:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu_json(run_directory, executable, arguments) {
+  const document = run_cu_reply(run_directory, executable, arguments);
+  ensure(flag_at(document, "ok"), "cu_windows_host_open_cli:" + JSON.stringify(document));
+  return document;
+}
+
+function process_state(run_directory, executable, pid) {
+  return run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process-state", "--pid", "" + pid
+  ]);
+}
+
+function process_is_live(run_directory, executable, pid) {
+  const reply = process_state(run_directory, executable, pid);
+  if (flag_at(reply, "ok") && text_at(reply, "data.state") === "live") { return true; }
+  if (flag_at(reply, "ok") && text_at(reply, "data.state") === "dead") { return false; }
+  if (text_at(reply, "error.code") === "process_not_found") { return false; }
+  throw "cu_windows_host_open_process_probe:" + JSON.stringify(reply);
+}
+
+function window_row(run_directory, executable, pid, title) {
+  const reply = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "windows", "--pid", "" + pid
+  ]);
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+function target_label(run_directory, executable, handle) {
+  const reply = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "tree",
+    "--window", "" + handle, "--max-depth", "4", "--max-nodes", "64"
+  ]);
+  for (const node of reply.data.nodes) {
+    if (text_at(node, "name").startsWith("host-open-target=")) {
+      return text_at(node, "name");
+    }
+  }
+  return "";
+}
+
+function receipt_pid(receipt_path, target) {
+  if (!rh.exists(receipt_path)) { return 0; }
+  const lines = rh.read_text(receipt_path).split("\n");
+  if (lines.length !== 2 || lines[1] !== target) { return -1; }
+  return rh.int_of(lines[0]);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(rh.is_direct_file(executable), "cu_windows_host_open_executable_missing");
+ensure(rh.is_direct_file(rh.join(rh.parent(executable), "agenterm.dll")),
+  "cu_windows_host_open_library_missing");
+
+const context = harness.new_context(repo, "cu-windows-host-open");
+const run_directory = rh.join(repo, "target/cu-windows-host-open-smoke-run");
+ensure(remove_directory_bounded(run_directory), "cu_windows_host_open_stale_run");
+rh.create_dir_all(run_directory);
+
+const fixture_template = rh.join(repo, "examples/csharp/agenterm_uia_fixture.cs");
+const fixture_executable = rh.join(run_directory, "agenterm-uia-fixture.exe");
+const target = rh.join(run_directory, "host open target with spaces.txt");
+const received = target + ".received";
+let launched = false;
+let fixture_pid = 0;
+let fixture_identity = "";
+let fixture_stopped = false;
+let succeeded = false;
+let failure = "";
+
+try {
+  ensure(rh.is_direct_file(fixture_template), "cu_windows_host_open_fixture_missing");
+  const compile = rh.command(framework_csc(), [
+    "/nologo", "/target:winexe", "/out:" + csc_path(fixture_executable),
+    "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll",
+    csc_path(fixture_template)
+  ], { cwd: run_directory, timeout_ms: 60000 });
+  ensure(compile.success === true && rh.is_direct_file(fixture_executable),
+    "cu_windows_host_open_fixture_compile:" + compile.stdout + compile.stderr);
+  rh.write_text(target, "owned host-open target");
+
+  print("STEP explicit Windows application dispatch remains accepted-only in its own reply");
+  const opened = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "host-open", target,
+    "--app", fixture_executable, "--background"
+  ]);
+  launched = true;
+  ensure(
+    flag_at(opened, "data.accepted")
+      && flag_at(opened, "data.performed")
+      && !flag_at(opened, "data.verified")
+      && text_at(opened, "data.verification") === "dispatcher-accepted-only"
+      && text_at(opened, "data.provider") === "windows-shell-execute",
+    "cu_windows_host_open_acceptance_boundary:" + JSON.stringify(opened.data)
+  );
+
+  print("STEP the owned handler publishes its pid and exact received argument");
+  for (let attempt = 0; attempt < 400 && fixture_pid === 0; attempt = attempt + 1) {
+    fixture_pid = receipt_pid(received, target);
+    ensure(fixture_pid >= 0, "cu_windows_host_open_received_shape");
+    if (fixture_pid === 0) { harness.sleep_ms(25); }
+  }
+  ensure(fixture_pid > 0, "cu_windows_host_open_received_timeout");
+  const state = process_state(run_directory, executable, fixture_pid);
+  fixture_identity = text_at(state, "data.start_identity");
+  ensure(
+    flag_at(state, "ok")
+      && text_at(state, "data.state") === "live"
+      && fixture_identity !== "",
+    "cu_windows_host_open_process_state:" + JSON.stringify(state)
+  );
+
+  print("STEP process argv independently proves TARGET stayed one argument");
+  const argv = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process-argv",
+    "--pid", "" + fixture_pid, "--limit", "2", "--values"
+  ]);
+  ensure(
+    text_at(argv, "data.start_identity") === fixture_identity
+      && argv.data.arguments.length === 2
+      && text_of(argv.data.arguments[1].value) === target,
+    "cu_windows_host_open_argv:" + JSON.stringify(argv.data)
+  );
+
+  print("STEP windows and UIA independently read the handler-owned target");
+  const fixture_title = "agenterm-win-host-open-" + fixture_pid;
+  let row = null;
+  for (let attempt = 0; attempt < 400 && row === null; attempt = attempt + 1) {
+    row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    if (row === null) { harness.sleep_ms(25); }
+  }
+  ensure(row !== null, "cu_windows_host_open_window_timeout");
+  const handle = int_at(row, "handle");
+  ensure(handle > 0, "cu_windows_host_open_window_handle");
+  ensure(
+    target_label(run_directory, executable, handle) === "host-open-target=" + target,
+    "cu_windows_host_open_uia_target"
+  );
+
+  print("STEP terminate only the exact owned handler and prove process, window and files clean");
+  const killed = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "process-kill",
+    "--pid", "" + fixture_pid, "--start-identity", fixture_identity,
+    "--mode", "forceful", "--timeout-ms", "10000", "--expect", "exited"
+  ]);
+  ensure(flag_at(killed, "data.verified") && text_at(killed, "data.state") === "exited",
+    "cu_windows_host_open_kill:" + JSON.stringify(killed.data));
+  fixture_stopped = true;
+  ensure(!process_is_live(run_directory, executable, fixture_pid),
+    "cu_windows_host_open_process_orphan");
+  ensure(window_row(run_directory, executable, fixture_pid, fixture_title) === null,
+    "cu_windows_host_open_window_orphan");
+  succeeded = true;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (launched && fixture_pid === 0) {
+  for (let attempt = 0; attempt < 200 && fixture_pid === 0; attempt = attempt + 1) {
+    fixture_pid = receipt_pid(received, target);
+    if (fixture_pid === 0) { harness.sleep_ms(25); }
+  }
+}
+if (fixture_pid > 0 && !fixture_stopped) {
+  try {
+    const state = process_state(run_directory, executable, fixture_pid);
+    const identity = text_at(state, "data.start_identity");
+    if (flag_at(state, "ok") && text_at(state, "data.state") === "live" && identity !== "") {
+      const cleanup = run_cu_reply(run_directory, executable, [
+        "--target", "current", "--grant", "observe,actuate", "process-kill",
+        "--pid", "" + fixture_pid, "--start-identity", identity,
+        "--mode", "forceful", "--timeout-ms", "10000", "--expect", "exited"
+      ]);
+      ensure(flag_at(cleanup, "ok"), "cu_windows_host_open_cleanup_kill");
+    }
+    fixture_stopped = !process_is_live(run_directory, executable, fixture_pid);
+  } catch (cleanup_error) {
+    failure = failure + ":cleanup:" + cleanup_error;
+  }
+}
+if (fixture_pid > 0 && !fixture_stopped) {
+  succeeded = false;
+  failure = failure + ":cu_windows_host_open_cleanup_orphan";
+}
+if (!remove_directory_bounded(run_directory)) {
+  succeeded = false;
+  failure = failure + ":cu_windows_host_open_cleanup_locked";
+}
+if (!succeeded) {
+  harness.remove_run(context);
+  throw failure;
+}
+
+harness.emit_evidence(context, declared_evidence, "cu.host-open.windows");
+harness.remove_run(context);
+print("PASS: Windows host-open explicit application preserves one target argument with independent process argv and UIA read-back plus exact cleanup");
+return;

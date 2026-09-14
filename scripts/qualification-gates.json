@@ -1037,6 +1037,12 @@
       ]
     },
     {
+      "id": "cu-windows-host-open-smoke",
+      "evidence": [
+        "cu.host-open.windows"
+      ]
+    },
+    {
       "id": "cu-permissions-open-smoke",
       "evidence": [
         "cu.permissions-open.contract"

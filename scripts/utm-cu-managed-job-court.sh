@@ -107,7 +107,9 @@ if [ "$TASK" = cu-linux-smoke ] || [ "$TASK" = cu-linux-external-terminal-send-s
     cp "$REPO_ROOT/scripts/qjs/cu-linux-smoke.qjs" "$PAYLOAD/scripts/qjs/"
   fi
 fi
-if [ "$TASK" = cu-windows-smoke ] || [ "$TASK" = cu-windows-external-terminal-send-smoke ]; then
+if [ "$TASK" = cu-windows-smoke ] ||
+  [ "$TASK" = cu-windows-external-terminal-send-smoke ] ||
+  [ "$TASK" = cu-windows-host-open-smoke ]; then
   mkdir -p "$PAYLOAD/examples/csharp"
   cp "$REPO_ROOT/examples/csharp/agenterm_uia_fixture.cs" "$PAYLOAD/examples/csharp/"
   if [ "$TASK" = cu-windows-external-terminal-send-smoke ]; then

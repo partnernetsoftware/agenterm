@@ -4137,6 +4137,25 @@
         "task.cu-host-open-smoke"
       ]
     },
+    "cu-windows-host-open-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "desktop-session"
+      ],
+      "outputs": [
+        "cu-windows-host-open-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 500000000,
+        "max_output_bytes": 524288
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-windows-host-open-smoke"
+      ]
+    },
     "cu-permissions-open-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -10337,6 +10356,26 @@
       "side_effects": [
         "artifact_write",
         "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-windows-host-open-smoke",
+      "description": "Prove Windows host-open selects one invocation-owned application and preserves TARGET as one argument through independent process-argv and UIA read-back, then removes the exact process, windows and run files.",
+      "entry": "scripts/qjs/cu-windows-host-open-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu.exe"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
       ]
     },
     {

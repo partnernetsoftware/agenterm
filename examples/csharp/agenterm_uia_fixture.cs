@@ -6,6 +6,9 @@
 using System;
 using System.Diagnostics;
 using System.Drawing;
+using System.Globalization;
+using System.IO;
+using System.Text;
 using System.Windows.Forms;
 
 public static class AgentermUiaFixture
@@ -14,18 +17,30 @@ public static class AgentermUiaFixture
     private static int things;
 
     [STAThread]
-    public static void Main()
+    public static void Main(string[] args)
     {
-        Run();
+        if (args.Length > 1) {
+            throw new ArgumentException("expected zero or one target argument");
+        }
+        Run(args.Length == 1 ? args[0] : null);
     }
 
-    public static void Run()
+    public static void Run(string launchTarget)
     {
         Application.EnableVisualStyles();
 
         int pid = Process.GetCurrentProcess().Id;
+        if (launchTarget != null) {
+            File.WriteAllText(
+                launchTarget + ".received",
+                pid.ToString(CultureInfo.InvariantCulture) + "\n" + launchTarget,
+                new UTF8Encoding(false)
+            );
+        }
         var main = new Form {
-            Text = "agenterm-win-fixture-" + pid,
+            Text = launchTarget == null
+                ? "agenterm-win-fixture-" + pid
+                : "agenterm-win-host-open-" + pid,
             Size = new Size(420, 320),
             StartPosition = FormStartPosition.Manual,
             Location = new Point(80, 80)
@@ -62,6 +77,15 @@ public static class AgentermUiaFixture
             Text = "Fixture Press", AccessibleName = "Fixture Press",
             Location = new Point(20, 155), Size = new Size(160, 30)
         };
+
+        if (launchTarget != null) {
+            main.Controls.Add(new Label {
+                Text = "host-open-target=" + launchTarget,
+                AccessibleName = "Host Open Target",
+                Location = new Point(20, 195),
+                AutoSize = true
+            });
+        }
 
         button.Click += delegate {
             presses += 1;

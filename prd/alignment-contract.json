@@ -521,6 +521,7 @@
         "cu.power-action-plan",
         "cu.host-open.macos",
         "cu.host-open.linux",
+        "cu.host-open.windows",
         "cu.linux-app-launch",
         "cu.permissions-open.contract",
         "cu.host-notify.macos",
