@@ -34,6 +34,7 @@ const WATCH_MASK: u32 = IN_CREATE
     | IN_MOVE_SELF;
 
 const EVENT_BUF_LEN: usize = 16 * (std::mem::size_of::<libc::inotify_event>() + 256);
+const MAX_DURATION_MS: u64 = 86_400_000;
 
 pub fn watch_directory(
     path: &Path,
@@ -50,11 +51,10 @@ pub fn watch_directory_controlled(
     max_events: usize,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<ControlledFilesystemWatchResult, FilesystemWatchError> {
-    if duration_ms == 0 || max_events == 0 {
-        return Err(FilesystemWatchError {
-            kind: FilesystemWatchErrorKind::InvalidInput,
-            message: "duration_ms and max_events must be positive".into(),
-        });
+    if !(1..=MAX_DURATION_MS).contains(&duration_ms) || max_events == 0 {
+        return Err(invalid_input(
+            "duration_ms must be in 1..=86400000 and max_events must be positive",
+        ));
     }
     let metadata = std::fs::metadata(path).map_err(map_io_error)?;
     if !metadata.is_dir() {
@@ -81,7 +81,11 @@ pub fn watch_directory_controlled(
     }
 
     let started = Instant::now();
-    let deadline = started + Duration::from_millis(duration_ms);
+    let Some(deadline) = started.checked_add(Duration::from_millis(duration_ms)) else {
+        return Err(invalid_input(
+            "duration_ms is too large for a monotonic wait",
+        ));
+    };
     let mut events = Vec::with_capacity(max_events.min(64));
     let mut truncated = false;
     let mut buffer = [0_u8; EVENT_BUF_LEN];
@@ -315,5 +319,27 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn invalid_public_bounds_fail_before_native_access() {
+        assert_eq!(
+            watch_directory(Path::new("."), 0, 1)
+                .expect_err("zero duration")
+                .kind,
+            FilesystemWatchErrorKind::InvalidInput
+        );
+        assert_eq!(
+            watch_directory(Path::new("."), MAX_DURATION_MS + 1, 1)
+                .expect_err("long duration")
+                .kind,
+            FilesystemWatchErrorKind::InvalidInput
+        );
+        assert_eq!(
+            watch_directory(Path::new("."), 1, 0)
+                .expect_err("zero event cap")
+                .kind,
+            FilesystemWatchErrorKind::InvalidInput
+        );
     }
 }
