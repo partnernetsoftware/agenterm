@@ -166,10 +166,12 @@ completion value 投影全程，任何一段掉链子这里都看得见。`e1122
 3. **解析就没过**——正则字面量 `/a/`（「needs an operand here, and found a `/`」）、
    生成器 `function*`（「needs a name for the function declared here」）。
 
-**诊断的诚实度**：上一版记的两条缺口修掉了一条。带标签的语句现在正确报
-「does not support labelled statements yet」（曾经错报成三目运算符）。仍然错的一条：
-**`for (const x of y)`** 报的是「needs a value for the `const` binding `x`」而不是 `of`
-（同一句写成 `let` 或 `var` 就正确报 `of`）。
+**诊断的诚实度**：带标签的语句现在正确报「does not support labelled
+statements yet」（曾经错报成三目运算符）；正常的 `for (const x of y)`
+也已经编译，旧版记录的 `const` / `let` 诊断差异已作废。当前 pin 仍有一条
+更窄的上游误报：`for (const of values) { }` 缺少绑定名，却报
+「this engine does not support the `of` keyword yet」。有效 `for…of` 在同一产品
+编译入口能通过，所以这是结构诊断的已知误归因，不是语言能力缺口。
 
 **运行期缺口，2026-08-25 复核后的准确说法**（上一版这里写「本层两条」，**两条都记错了，
 下面是订正**）：

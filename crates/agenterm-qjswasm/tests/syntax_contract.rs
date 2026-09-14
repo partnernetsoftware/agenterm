@@ -86,3 +86,21 @@ fn loop_control_outside_a_loop_is_still_rejected_by_context() {
         );
     }
 }
+
+#[test]
+fn the_current_pin_records_the_missing_for_of_binding_misreport() {
+    compile_qjs("for (const value of [1, 2]) { print(value); }")
+        .expect("the product compiler supports declaration-form for-of");
+
+    let error = compile_qjs("for (const of values) { }")
+        .expect_err("a declaration-form for-of header needs a binding name");
+    assert_eq!(
+        error.to_string(),
+        "this engine does not support the `of` keyword yet (at byte 11)",
+        "when the upstream diagnostic is repaired, retire this known-misreport pin and update README"
+    );
+    assert!(
+        rejection_section().contains("`for (const of values) { }`"),
+        "README must disclose the current pin's false capability attribution"
+    );
+}

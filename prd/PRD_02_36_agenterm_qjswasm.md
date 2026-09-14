@@ -290,6 +290,9 @@ agenterm-qjswasm
 │  │      compiler: loop-local `break` / `continue` are accepted, loop-external
 │  │      control is rejected by context, and representative `class`, `switch`,
 │  │      `for…in` and `do`/`while` gaps retain named unsupported diagnostics
+│  │  └─ [~] current pin misattributes a missing declaration binding in `for…of`
+│  │         to unsupported `of`; product tripwire records the exact contradiction
+│  │         until the generic parser repair is available at a published revision
 │  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
 ├─ upstream performance frontier
 │  ├─ [x] host-op and string/JSON cost measured before changing limits
