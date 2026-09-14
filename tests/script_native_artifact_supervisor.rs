@@ -279,7 +279,7 @@ fn script_hash_compiles_imports_with_the_requested_profile_and_entry_root() {
 }
 
 #[test]
-fn artifact_hash_and_pack_load_refuse_before_reading_past_the_default_budget() {
+fn artifact_commands_refuse_before_reading_past_the_default_budget() {
     let root = FixtureRoot::new();
     let artifact = root.0.join("oversized.wasm");
     std::fs::write(&artifact, vec![0_u8; 256 * 1024 + 1]).expect("write bounded oversized file");
@@ -304,22 +304,52 @@ fn artifact_hash_and_pack_load_refuse_before_reading_past_the_default_budget() {
     }
 
     let source = root.0.join("oversized.qjs");
-    let mut source_bytes = b"//".to_vec();
+    let mut source_bytes = b"return 1;\n//".to_vec();
     source_bytes.resize(256 * 1024 + 1, b'x');
     std::fs::write(&source, source_bytes).expect("write bounded oversized source");
+    for (arguments, output_name) in [
+        (vec!["hash"], None),
+        (vec!["pack", "build"], Some("build-out")),
+        (vec!["qualify"], Some("qualify-out")),
+    ] {
+        let mut command = Command::new(AGENTERM_BIN);
+        command
+            .args(["cli", "script"])
+            .args(&arguments)
+            .arg(&source);
+        if let Some(output_name) = output_name {
+            command.args(["--dir"]).arg(root.0.join(output_name));
+        }
+        let output = command
+            .env_remove("AGENTERM_SCRIPT_BACKEND")
+            .output()
+            .expect("bounded source command runs");
+        assert_eq!(output.status.code(), Some(3));
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("script source exceeds the 262144 byte limit"),
+            "arguments={arguments:?} stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let override_dir = root.0.join("override-out");
     let output = Command::new(AGENTERM_BIN)
-        .args(["cli", "script", "hash"])
+        .args(["cli", "script", "pack", "build"])
         .arg(&source)
+        .args(["--dir"])
+        .arg(&override_dir)
+        .args(["--max-source-bytes", "300000"])
         .env_remove("AGENTERM_SCRIPT_BACKEND")
         .output()
-        .expect("bounded source hash runs");
-    assert_eq!(output.status.code(), Some(3));
+        .expect("source override build runs");
     assert!(
-        String::from_utf8_lossy(&output.stderr)
-            .contains("script source exceeds the 262144 byte limit"),
-        "{}",
+        output.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    assert!(override_dir.join("oversized.wasm").is_file());
 }
 
 #[cfg(unix)]

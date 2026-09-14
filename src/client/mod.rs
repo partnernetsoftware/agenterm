@@ -1584,15 +1584,15 @@ fn run_script_artifact_command(arguments: &[String]) -> i32 {
         Err(code) => return code,
     };
     let engine = crate::script_engine::engine_for(backend);
+    let source_byte_limit = match script_source_byte_limit(arguments) {
+        Ok(limit) => limit,
+        Err(message) => {
+            cli_eprintln!("{message}");
+            return 2;
+        }
+    };
 
     if action == "load" {
-        let source_byte_limit = match script_source_byte_limit(arguments) {
-            Ok(limit) => limit,
-            Err(message) => {
-                cli_eprintln!("{message}");
-                return 2;
-            }
-        };
         let file = match std::fs::File::open(path) {
             Ok(file) => file,
             Err(error) => {
@@ -1632,11 +1632,18 @@ fn run_script_artifact_command(arguments: &[String]) -> i32 {
     }
 
     // `pack build` and `qualify` both start from source.
-    let source = match std::fs::read_to_string(path) {
-        Ok(source) => source,
+    let file = match std::fs::File::open(path) {
+        Ok(file) => file,
         Err(error) => {
             cli_eprintln!("failed to read {path}: {error}");
             return 1;
+        }
+    };
+    let source = match read_script_source(file, source_byte_limit) {
+        Ok(source) => source,
+        Err((code, message)) => {
+            cli_eprintln!("{message}");
+            return code;
         }
     };
     let Some(built) = engine.pack_artifact(&source) else {

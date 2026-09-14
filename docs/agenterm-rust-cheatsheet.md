@@ -927,9 +927,10 @@ oracle for the artifact path. Source hashing is still a real compilation: carry
 the entry directory, project root, and requested local/tool door into the same
 resolver/compiler used by `check`; a context-free hash rejects an import-bearing
 program that the runtime can load and fingerprints no runnable artifact.
-Identity inspection is not exempt from input budgets. Hash and artifact-load
-verbs must reuse the run path's take-limited readers, reading at most the
-effective source/artifact ceiling plus one byte before a typed refusal. A bare
+Identity inspection and artifact production are not exempt from input budgets.
+Hash, pack build/load, smoke and qualification verbs must reuse the run path's
+take-limited readers, reading at most the effective source/artifact ceiling plus
+one byte before a typed refusal. A bare
 `std::fs::read` allocates in proportion to an attacker-controlled or sparse file
 before it can decide that the runtime would never admit those bytes.
 

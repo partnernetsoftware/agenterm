@@ -671,9 +671,10 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
              check-many --manifest FILE [--project-root DIR] | \
              corpus-scan [--dir DIR] [--project-root DIR] | \
              hash FILE [--profile local|tool] [--project-root DIR] | version | \
-             pack build FILE --dir OUT | pack load ARTIFACT [--max-source-bytes N] | \
+             pack build FILE --dir OUT [--max-source-bytes N] | \
+             pack load ARTIFACT [--max-source-bytes N] | \
              run-smoke ARTIFACT [--max-source-bytes N] | \
-             qualify FILE --dir OUT | \
+             qualify FILE --dir OUT [--max-source-bytes N] | \
              repl [--fail-fast] [--json] | run [--profile local|tool] [--exit-code-from-value] \
              [--wasm-convention compiled-qjs|plain] FILE|- \
              [--wasm-entry-arg TYPE:VALUE]... \

@@ -282,7 +282,7 @@ agenterm-qjswasm
 │  ├─ [x] `script hash FILE.wasm` fingerprints the exact loaded bytes and matches
 │  │      qualification `artifact_sha256`; `.qjs` retains compile-then-hash semantics
 │  │      with the requested profile plus the same entry/project module roots as check
-│  │      and hash/pack-load reads stop at the shared source/transport ceiling plus one byte
+│  │      and every hash/pack/qualify read stops at the shared effective ceiling plus one byte
 │  ├─ [x] the graybox-retired `PersistentReplClient` concurrency facade is deleted after
 │  │      zero production constructors and unconditional CLI/worker refusals; the legacy frame
 │  │      remains typed as `protocol_repl_unavailable` instead of becoming an unknown protocol tag
@@ -681,7 +681,7 @@ integration.
   exact bytes that `run`/`pack load` consume, including hand-authored modules;
   that digest equals qualification receipt `artifact_sha256`. Binary artifacts
   are never decoded as UTF-8 source or sent back through the qjs compiler.
-  Hash and pack-load input use the same bounded readers as run: the default
+  Hash, pack build/load, run-smoke and qualify use the same bounded readers as run: the default
   256 KiB source budget is adjustable with `--max-source-bytes`, the 1 MiB
   artifact transport ceiling remains absolute, and refusal needs at most one
   byte beyond the effective limit rather than allocation proportional to the file.
