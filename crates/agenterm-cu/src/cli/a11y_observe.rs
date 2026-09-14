@@ -182,11 +182,17 @@ pub fn parse(
         "menu-inspect" => menu::parse_inspect(target, args),
         "app-menu-inspect" => menu::parse_app_inspect(target, args),
         "get-text" => {
-            let window = flag_window_opt(args);
-            let name = flag_value(args, "--name");
-            let role = flag_value(args, "--role");
+            let window = flag_window(args)?;
+            let name = flag_text(args, "--name")?;
+            let role = flag_text(args, "--role")?;
             if window.is_none() && name.as_ref().is_none_or(|value| value.is_empty()) {
                 return Err("get-text requires --window <handle> [--name <pattern>]".into());
+            }
+            if !args.is_empty() {
+                return Err(format!(
+                    "get-text accepts only --window HANDLE [--name PAT [--role ROLE]]; unexpected {:?}",
+                    args[0]
+                ));
             }
             Ok(Command::GetText {
                 target,
@@ -865,5 +871,29 @@ mod tests {
             parse(spec, "wait", TargetRef::Current, &mut absent_only).unwrap_err(),
             "wait --absent requires --expect JSON"
         );
+    }
+
+    #[test]
+    fn get_text_consumes_selector_flags_and_rejects_residuals() {
+        let spec = verbs::lookup("get-text").expect("get-text verb");
+        let mut valid = ["--window", "42", "--name", "Field", "--role", "entry"]
+            .map(str::to_owned)
+            .to_vec();
+        assert!(matches!(
+            parse(spec, "get-text", TargetRef::Current, &mut valid).expect("closed get-text"),
+            Command::GetText {
+                window: Some(42),
+                name: Some(name),
+                role: Some(role),
+                ..
+            } if name == "Field" && role == "entry"
+        ));
+
+        let mut typo = ["--window", "42", "--nme", "Field"]
+            .map(str::to_owned)
+            .to_vec();
+        let error = parse(spec, "get-text", TargetRef::Current, &mut typo)
+            .expect_err("selector typo must fail before reading another node");
+        assert!(error.contains("--nme"), "unexpected error: {error}");
     }
 }

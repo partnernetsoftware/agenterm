@@ -752,6 +752,9 @@ ACU-only cutover
 ├─ [x] `click` cannot fall from a misspelled node option into coordinate actuation
 │  ├─ [x] its window, node, coordinates, count and button options are consumed and typed
 │  └─ [x] any residual fails before the accessibility or degraded pointer provider runs
+├─ [x] `get-text` cannot drop a misspelled selector and read another focused node
+│  ├─ [x] window, name and role use the same strict typed readers as sibling get verbs
+│  └─ [x] residual tokens fail before the independent text provider runs
 ├─ [x] dynamic repair registry (complete corpus; no unknown fallback)
 │  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green
 │  │  ├─ [x] macOS public qjswasm court: one invocation-owned Cocoa window proves exact
