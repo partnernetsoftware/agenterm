@@ -7,7 +7,7 @@ use agenterm_cu::{
 };
 
 use super::verbs::VerbSpec;
-use super::{flag_parsed, flag_text, flag_value, flag_window_opt, split_literal_tail, take_switch};
+use super::{flag_parsed, flag_text, flag_window, split_literal_tail, take_switch};
 
 pub fn parse(
     spec: &VerbSpec,
@@ -61,9 +61,9 @@ pub fn parse(
             "clipboard-write-file" => write_file(target, args),
             "clipboard-clear" => clear(target, args),
             "copy" => {
-                let window = flag_window_opt(args);
-                let name = flag_value(args, "--name");
-                let role = flag_value(args, "--role");
+                let window = flag_window(args)?;
+                let name = flag_text(args, "--name")?;
+                let role = flag_text(args, "--role")?;
                 if window.is_none() {
                     return Err("copy requires --window <handle> [--name <pattern>]".into());
                 }
@@ -71,6 +71,12 @@ pub fn parse(
                     && role.as_ref().is_some_and(|value| !value.is_empty())
                 {
                     return Err("copy --role requires --name <pattern>".into());
+                }
+                if !args.is_empty() {
+                    return Err(format!(
+                        "copy accepts only --window HANDLE [--name PAT [--role ROLE]]; unexpected {:?}",
+                        args[0]
+                    ));
                 }
                 Ok(Command::Copy {
                     target,
@@ -82,10 +88,10 @@ pub fn parse(
             "paste" => {
                 // `--` ends flag parsing so --text may itself start with a dash.
                 let literal_text = split_literal_tail(args, " ");
-                let window = flag_window_opt(args);
-                let name = flag_value(args, "--name");
-                let role = flag_value(args, "--role");
-                let text = flag_value(args, "--text").or(literal_text);
+                let window = flag_window(args)?;
+                let name = flag_text(args, "--name")?;
+                let role = flag_text(args, "--role")?;
+                let text = flag_text(args, "--text")?.or(literal_text);
                 let allow_browser_chrome = take_switch(args, "--allow-browser-chrome");
                 if window.is_none() {
                     return Err(
@@ -96,6 +102,12 @@ pub fn parse(
                     && role.as_ref().is_some_and(|value| !value.is_empty())
                 {
                     return Err("paste --role requires --name <pattern>".into());
+                }
+                if !args.is_empty() {
+                    return Err(format!(
+                        "paste accepts only --window HANDLE [--name PAT [--role ROLE]] [--allow-browser-chrome] [--text TEXT] [-- TEXT]; unexpected {:?}",
+                        args[0]
+                    ));
                 }
                 Ok(Command::Paste {
                     target,
@@ -286,5 +298,46 @@ mod tests {
             "clipboard-write --path and --text are mutually exclusive"
         );
         assert!(!error.contains("private"));
+    }
+
+    #[test]
+    fn copy_and_paste_reject_residual_options_before_actuation() {
+        for verb in ["copy", "paste"] {
+            let spec = resolve(verb, None).expect("catalog verb");
+            let mut argv = ["--window", "42", "--bogus"].map(str::to_owned).to_vec();
+            let error = parse(spec, verb, TargetRef::Current, &mut argv)
+                .expect_err("residual option must fail before actuation");
+            assert!(error.contains("--bogus"), "unexpected error: {error}");
+        }
+    }
+
+    #[test]
+    fn paste_literal_tail_still_preserves_dash_leading_text() {
+        let spec = resolve("paste", None).expect("paste spec");
+        let mut argv = [
+            "--window",
+            "42",
+            "--name",
+            "Field",
+            "--role",
+            "entry",
+            "--allow-browser-chrome",
+            "--",
+            "--literal",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        let command = parse(spec, "paste", TargetRef::Current, &mut argv).expect("parse paste");
+        assert!(matches!(
+            command,
+            Command::Paste {
+                window: Some(42),
+                name: Some(name),
+                role: Some(role),
+                text: Some(text),
+                allow_browser_chrome: true,
+                ..
+            } if name == "Field" && role == "entry" && text == "--literal"
+        ));
     }
 }

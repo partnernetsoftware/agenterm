@@ -2460,6 +2460,9 @@ Their payload argument is positional, so parse
 dash is eaten as a flag. For an open text payload, remove the recognized
 options first and reject any remaining dash-leading token before joining the
 payload; only the explicit `--` tail may preserve dash-leading text.
+For a closed command shape, use the consuming `flag_text` / `flag_window`
+readers before the residual check; the legacy `flag_value` / `flag_window_opt`
+readers intentionally leave option values in `args` and cannot prove closure.
 
 `agenterm-cu paste --name` is the clipboard form of that write. Resolve the unique
 showing node, optionally seed the clipboard with `--text`

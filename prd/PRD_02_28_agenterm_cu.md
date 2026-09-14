@@ -737,6 +737,9 @@ ACU-only cutover
 │  ├─ [x] an unrecognized dash-leading token returns usage naming that token
 │  ├─ [x] explicit `--` remains the only way to preserve dash-leading literal text
 │  └─ [x] plain text and the existing recognized window/node options are unchanged
+├─ [x] clipboard node actuation rejects residual options before side effects
+│  ├─ [x] `copy` / `paste` name the first unexpected token as typed usage
+│  └─ [x] `paste -- TEXT` still preserves a dash-leading clipboard seed exactly
 ├─ [x] dynamic repair registry (complete corpus; no unknown fallback)
 │  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green
 │  │  ├─ [x] macOS public qjswasm court: one invocation-owned Cocoa window proves exact
