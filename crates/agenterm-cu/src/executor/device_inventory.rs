@@ -6,7 +6,6 @@ use agenterm_platform::device_inventory::{
 };
 use std::{
     collections::BTreeMap,
-    thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -118,7 +117,7 @@ fn device_watch_with_sampler(
         // cancellation. Only a watch still inside its normal bound may cancel.
         // (This branch is a defence in depth: the same-round case, where a sample
         // returns at the deadline, is the one covered by an owning test.)
-        let paused_cancelled = device_watch_pause(control, sleep_for);
+        let paused_cancelled = control.sleep_until_cancelled(Instant::now() + sleep_for);
         if Instant::now() >= deadline {
             break;
         }
@@ -177,24 +176,6 @@ fn cancelled_after_samples(
         "phase": "observe_wait",
         "partial_observation": partial,
     })))
-}
-
-/// Slice width for the inter-round pause, matching the shared cancellation
-/// policy used by the other observes. The token is observed before each slice
-/// and once at the end. Returns `true` when the watch was cancelled.
-const DEVICE_WATCH_CANCEL_SLICE: Duration = Duration::from_millis(10);
-
-fn device_watch_pause(control: ExecutionControl<'_>, pause: Duration) -> bool {
-    let pause_deadline = Instant::now() + pause;
-    while Instant::now() < pause_deadline {
-        if control.is_cancelled() {
-            return true;
-        }
-        thread::sleep(
-            DEVICE_WATCH_CANCEL_SLICE.min(pause_deadline.saturating_duration_since(Instant::now())),
-        );
-    }
-    control.is_cancelled()
 }
 
 fn remaining(deadline: Instant) -> Result<Duration, CuError> {

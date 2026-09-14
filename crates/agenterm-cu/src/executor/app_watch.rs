@@ -9,7 +9,6 @@ use std::{
     collections::BTreeMap,
     io::Write,
     path::{Path, PathBuf},
-    thread,
     time::{Duration, Instant, SystemTime},
 };
 
@@ -505,7 +504,10 @@ where
         // private signal. It must never build a `not_performed` error, because the
         // baseline above already ran real work. The deadline is re-checked first so
         // a bound that has already been reached stays the authoritative outcome.
-        if app_watch_pause(control, interval_ms, deadline) {
+        let pause_deadline = Instant::now()
+            + Duration::from_millis(interval_ms)
+                .min(deadline.saturating_duration_since(Instant::now()));
+        if control.sleep_until_cancelled(pause_deadline) {
             if Instant::now() >= deadline {
                 break;
             }
@@ -567,27 +569,6 @@ where
 
 /// Slice width for the inter-round pause. The token is observed before each slice
 /// and once at the end. Returns `true` when cancelled; it never builds an error.
-const APP_WATCH_CANCEL_SLICE: Duration = Duration::from_millis(10);
-
-fn app_watch_pause(
-    control: crate::execution_control::ExecutionControl<'_>,
-    interval_ms: u64,
-    deadline: Instant,
-) -> bool {
-    let sleep_deadline = Instant::now()
-        + Duration::from_millis(interval_ms)
-            .min(deadline.saturating_duration_since(Instant::now()));
-    while Instant::now() < sleep_deadline {
-        if control.is_cancelled() {
-            return true;
-        }
-        thread::sleep(
-            APP_WATCH_CANCEL_SLICE.min(sleep_deadline.saturating_duration_since(Instant::now())),
-        );
-    }
-    control.is_cancelled()
-}
-
 /// The post-baseline cancellation outcome.
 ///
 /// ORDERING IS THE POINT: binding revalidation runs FIRST and its failure wins,

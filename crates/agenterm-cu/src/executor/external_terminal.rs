@@ -858,7 +858,9 @@ where
             ));
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
-        if term_wait_pause(control, remaining.min(Duration::from_millis(interval_ms))) {
+        if control.sleep_until_cancelled(
+            Instant::now() + remaining.min(Duration::from_millis(interval_ms)),
+        ) {
             // DEADLINE FIRST, again: the final slice may have consumed the remainder.
             if Instant::now() >= deadline {
                 return Err(term_wait_unmatched(
@@ -944,28 +946,6 @@ fn term_wait_cancelled(
         "phase": "observe_wait",
         "partial_observation": term_wait_observation(buffer, identity, pattern, polls, started),
     }))
-}
-
-/// Slice width for the inter-round pause, matching the shared wait policy. The
-/// token is observed before each slice and once at the end.
-const TERM_WAIT_CANCEL_SLICE: Duration = Duration::from_millis(10);
-
-/// The inter-round pause, sliced so a long interval does not delay a stop.
-///
-/// It returns a private `bool` and NEVER builds an error: after the first buffer read
-/// a cancellation is only a request to stop, and only the loop owner knows whether the
-/// evidence already observed is publishable.
-fn term_wait_pause(control: ExecutionControl<'_>, pause: Duration) -> bool {
-    let pause_deadline = Instant::now() + pause;
-    while Instant::now() < pause_deadline {
-        if control.is_cancelled() {
-            return true;
-        }
-        thread::sleep(
-            TERM_WAIT_CANCEL_SLICE.min(pause_deadline.saturating_duration_since(Instant::now())),
-        );
-    }
-    control.is_cancelled()
 }
 
 #[cfg(test)]

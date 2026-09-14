@@ -5,32 +5,6 @@
 use super::*;
 use crate::execution_control::ExecutionControl;
 
-/// Slice width for the inter-round pause. Cancellation is observed between these
-/// slices, so the worst-case response to a token set during a pause is one slice
-/// plus the pause remainder -- never the whole 120 s deadline. Same shape as the
-/// shipped terminal-wait pause; no thread, signal or async runtime is added.
-const WAIT_CANCEL_SLICE: Duration = Duration::from_millis(10);
-
-/// The inter-round pause, sliced so the borrowed token is observed several times
-/// instead of once. The total pause is unchanged at 50 ms.
-///
-/// It returns a private signal and NEVER builds an error. After the first authority
-/// call of a wait, cancellation is only a request to stop: whether the outcome is
-/// the ordinary timeout or a shaped partial is decided by the loop owner, which is
-/// the only place that knows whether an observation was already accumulated.
-fn wait_pause_cancelled(control: ExecutionControl<'_>) -> bool {
-    let pause_deadline = Instant::now() + Duration::from_millis(50);
-    while Instant::now() < pause_deadline {
-        if control.is_cancelled() {
-            return true;
-        }
-        thread::sleep(
-            WAIT_CANCEL_SLICE.min(pause_deadline.saturating_duration_since(Instant::now())),
-        );
-    }
-    control.is_cancelled()
-}
-
 /// The post-baseline cancellation outcome: a named `cancelled` failure whose
 /// structured detail carries the bounded partial evidence the verb had already
 /// accumulated.
@@ -172,7 +146,7 @@ where
         }
         // DEADLINE FIRST: a reached bound stays the authoritative outcome even when
         // the final slice saw the token.
-        if wait_pause_cancelled(control) {
+        if control.sleep_until_cancelled(Instant::now() + Duration::from_millis(50)) {
             if Instant::now() >= deadline {
                 break;
             }
@@ -297,7 +271,7 @@ where
         if Instant::now() >= deadline {
             break;
         }
-        if wait_pause_cancelled(control) {
+        if control.sleep_until_cancelled(Instant::now() + Duration::from_millis(50)) {
             if Instant::now() >= deadline {
                 break;
             }
@@ -367,7 +341,7 @@ fn wait_ready_path_with_reader(
         // A cancellation after at least one marker read is NOT `not_performed`: a real
         // authority read was issued and answered, and the timeout message below already
         // publishes the poll count as evidence of that work.
-        if wait_pause_cancelled(control) {
+        if control.sleep_until_cancelled(Instant::now() + Duration::from_millis(50)) {
             if Instant::now() >= deadline {
                 break;
             }
@@ -484,7 +458,7 @@ pub(super) fn wait_node_text(
         if Instant::now() >= deadline {
             break;
         }
-        if wait_pause_cancelled(control) {
+        if control.sleep_until_cancelled(Instant::now() + Duration::from_millis(50)) {
             if Instant::now() >= deadline {
                 break;
             }
@@ -690,7 +664,7 @@ where
         if Instant::now() >= deadline {
             break;
         }
-        if wait_pause_cancelled(control) {
+        if control.sleep_until_cancelled(Instant::now() + Duration::from_millis(50)) {
             if Instant::now() >= deadline {
                 break;
             }

@@ -639,7 +639,10 @@ where
         // signal. The deadline is re-checked first, so a bound already reached stays
         // the authoritative outcome, and the pause is sliced so a long interval does
         // not delay the observation.
-        if query_watch_pause(control, interval_ms, deadline) {
+        let pause_deadline = Instant::now()
+            + Duration::from_millis(interval_ms)
+                .min(deadline.saturating_duration_since(Instant::now()));
+        if control.sleep_until_cancelled(pause_deadline) {
             if Instant::now() >= deadline {
                 break;
             }
@@ -729,29 +732,6 @@ where
         .with_detail(observation));
     }
     Ok(observation)
-}
-
-/// Slice width for the inter-round pause. The token is observed before each slice
-/// and once at the end. Returns `true` when cancelled; it never builds an error.
-const QUERY_WATCH_CANCEL_SLICE: Duration = Duration::from_millis(10);
-
-fn query_watch_pause(
-    control: crate::execution_control::ExecutionControl<'_>,
-    interval_ms: u64,
-    deadline: Instant,
-) -> bool {
-    let sleep_deadline = Instant::now()
-        + Duration::from_millis(interval_ms)
-            .min(deadline.saturating_duration_since(Instant::now()));
-    while Instant::now() < sleep_deadline {
-        if control.is_cancelled() {
-            return true;
-        }
-        thread::sleep(
-            QUERY_WATCH_CANCEL_SLICE.min(sleep_deadline.saturating_duration_since(Instant::now())),
-        );
-    }
-    control.is_cancelled()
 }
 
 /// The post-baseline foreground revalidation, shared by the normal and cancelled
