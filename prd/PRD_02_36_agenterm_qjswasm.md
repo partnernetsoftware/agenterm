@@ -279,6 +279,8 @@ agenterm-qjswasm
 │  ├─ [x] hand-authored plain-Wasm entries receive repeatable typed `--wasm-entry-arg`
 │  │      values (`i32`/`i64`/`f32`/`f64`); float bits cross the worker wire unchanged,
 │  │      while trailing `-- ARGS` remain independent strings on `tool.arg(n)`
+│  ├─ [x] `script hash FILE.wasm` fingerprints the exact loaded bytes and matches
+│  │      qualification `artifact_sha256`; `.qjs` retains compile-then-hash semantics
 │  ├─ [x] the graybox-retired `PersistentReplClient` concurrency facade is deleted after
 │  │      zero production constructors and unconditional CLI/worker refusals; the legacy frame
 │  │      remains typed as `protocol_repl_unavailable` instead of becoming an unknown protocol tag
@@ -668,6 +670,12 @@ integration.
   of sharing the CLI process's fate. The public black-box court is
   `tests/script_native_artifact_supervisor.rs`; this is qjswasm/Script Runtime
   evidence and does not retire or replace `agenterm-dyn`.
+- [x] Public `script hash` distinguishes source from artifact input. For `.qjs`
+  it compiles first and hashes the reproducible module, so whitespace-only
+  source differences retain one program identity. For `.wasm` it hashes the
+  exact bytes that `run`/`pack load` consume, including hand-authored modules;
+  that digest equals qualification receipt `artifact_sha256`. Binary artifacts
+  are never decoded as UTF-8 source or sent back through the qjs compiler.
 - [x] `script api [MODULE] [--status shipped|planned|all] [--tree|--json]` renders one deterministic hierarchical object tree with reviewed Node.js/Bun analogues and returns the same filtered versioned catalog with explicit view and comparison metadata.
 - [x] qjswasm computation budget fails closed with the public limit exit class.
 - [x] syntax/compiler refusals and unsupported source methods use the same

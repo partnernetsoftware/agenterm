@@ -1783,21 +1783,34 @@ fn run_script_hash(arguments: &[String]) -> i32 {
         cli_eprintln!("script hash requires a file path");
         return 2;
     };
-    let source = match std::fs::read_to_string(path) {
-        Ok(source) => source,
+    // Resolve before interpreting the file. A `.wasm` is already the exact
+    // artifact whose identity was requested; decoding it as source either
+    // rejects ordinary binary modules as UTF-8 or compiles text-looking bytes
+    // into a different artifact.
+    let backend = match resolved_backend_or_refuse(path) {
+        Ok(backend) => backend,
+        Err(code) => return code,
+    };
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
         Err(error) => {
             cli_eprintln!("failed to read {path}: {error}");
             return 2;
         }
     };
-    // The entry file decides, as it does for `run` -- `resolve` keeps an
-    // explicit `AGENTERM_SCRIPT_BACKEND` winning. Hashing is the verb where
-    // getting this wrong is quietest: the wrong engine still prints a digest.
-    let backend = match resolved_backend_or_refuse(path) {
-        Ok(backend) => backend,
-        Err(code) => return code,
+    let input = if path.ends_with(".wasm") {
+        crate::script_engine::ScriptHashInput::Artifact(&bytes)
+    } else {
+        let source = match std::str::from_utf8(&bytes) {
+            Ok(source) => source,
+            Err(error) => {
+                cli_eprintln!("failed to read {path} as UTF-8 script source: {error}");
+                return 2;
+            }
+        };
+        crate::script_engine::ScriptHashInput::Source(source)
     };
-    match crate::script_engine::engine_for(backend).artifact_hash(&source) {
+    match crate::script_engine::engine_for(backend).artifact_hash(input) {
         Some(Ok((digest, what))) => {
             cli_println!("{digest}  {what}  {path}");
             0
@@ -1811,8 +1824,7 @@ fn run_script_hash(arguments: &[String]) -> i32 {
         }
         None => {
             cli_eprintln!(
-                "script hash is not offered on the {} engine: its input is already the \
-                 artifact, so the answer would be a digest of the file you just named",
+                "script hash is not offered for this input on the {} engine",
                 backend.as_str()
             );
             2
@@ -5722,11 +5734,11 @@ mod tests {
 
         let engine = crate::script_engine::engine_for(ScriptBackend::Qjswasm);
         let (a, what_a) = engine
-            .artifact_hash(plain)
+            .artifact_hash(crate::script_engine::ScriptHashInput::Source(plain))
             .expect("qjswasm hashes something")
             .expect("this source builds");
         let (b, what_b) = engine
-            .artifact_hash(dressed)
+            .artifact_hash(crate::script_engine::ScriptHashInput::Source(dressed))
             .expect("qjswasm hashes something")
             .expect("this source builds");
 
@@ -5754,7 +5766,9 @@ mod tests {
         // language bump will not overtake: a hole is not an `undefined` and
         // this engine cannot tell them apart.
         let refused = engine
-            .artifact_hash("return [1, , 2];")
+            .artifact_hash(crate::script_engine::ScriptHashInput::Source(
+                "return [1, , 2];",
+            ))
             .expect("qjswasm hashes something")
             .expect_err("an array elision does not build");
         assert!(

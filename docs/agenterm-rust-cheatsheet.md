@@ -917,6 +917,14 @@ the JSON worker protocol as raw IEEE bits so NaN payloads, infinities, and signe
 zero survive exactly; parsing them into a JSON number silently changes or loses
 valid Wasm values.
 
+Artifact provenance also has two input identities; make the distinction typed
+before reading. `script hash FILE.qjs` compiles source and hashes the resulting
+module, while `script hash FILE.wasm` hashes the exact file bytes that the
+loader consumes. Never route an artifact through `read_to_string`: ordinary
+modules fail UTF-8 decoding, and text-looking bytes can be recompiled into a
+different program. A qualification receipt's `artifact_sha256` is the black-box
+oracle for the artifact path.
+
 The same stale-artifact trap applies to `libagenterm`: an `abi-dev` build
 refreshes `target/abi-dev/libagenterm.*`, while an integration-test executable
 may still open `target/debug/libagenterm.*`. If a new export is present in the

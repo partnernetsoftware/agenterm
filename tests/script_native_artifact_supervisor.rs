@@ -42,6 +42,12 @@ impl FixtureRoot {
         .expect("write fixture wasm");
         path
     }
+
+    fn qjs(&self, name: &str, source: &str) -> PathBuf {
+        let path = self.0.join(format!("{name}.qjs"));
+        std::fs::write(&path, source).expect("write fixture qjs");
+        path
+    }
 }
 
 impl Drop for FixtureRoot {
@@ -155,6 +161,75 @@ fn plain_wasm_tool_arguments_remain_a_separate_string_channel() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "2");
+}
+
+#[test]
+fn script_hash_matches_qualification_receipts_and_plain_wasm_bytes() {
+    let root = FixtureRoot::new();
+    let source = root.qjs("qualified-hash", "return 42;");
+    let output_dir = root.0.join("qualified");
+    let qualify = Command::new(AGENTERM_BIN)
+        .args(["cli", "script", "qualify"])
+        .arg(&source)
+        .args(["--dir"])
+        .arg(&output_dir)
+        .env_remove("AGENTERM_SCRIPT_BACKEND")
+        .output()
+        .expect("qualification runs");
+    assert!(
+        qualify.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&qualify.stdout),
+        String::from_utf8_lossy(&qualify.stderr)
+    );
+
+    let receipt: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(output_dir.join("receipt.json")).expect("read receipt"),
+    )
+    .expect("receipt is JSON");
+    let artifact = output_dir.join("qualified-hash.wasm");
+    let digest = receipt["artifact_sha256"]
+        .as_str()
+        .expect("receipt carries artifact digest");
+    let hash = Command::new(AGENTERM_BIN)
+        .args(["cli", "script", "hash"])
+        .arg(&artifact)
+        .env_remove("AGENTERM_SCRIPT_BACKEND")
+        .output()
+        .expect("artifact hash runs");
+    assert!(
+        hash.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&hash.stdout),
+        String::from_utf8_lossy(&hash.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&hash.stdout).trim(),
+        format!("{digest}  wasm  {}", artifact.display())
+    );
+
+    let plain = root.wasm(
+        "plain-hash",
+        r#"(module (func (export "main") (result i32) i32.const 7))"#,
+    );
+    let plain_bytes = std::fs::read(&plain).expect("read plain wasm");
+    let plain_digest = agenterm_script_common::hex::sha256_hex(&plain_bytes);
+    let hash = Command::new(AGENTERM_BIN)
+        .args(["cli", "script", "hash"])
+        .arg(&plain)
+        .env_remove("AGENTERM_SCRIPT_BACKEND")
+        .output()
+        .expect("plain artifact hash runs");
+    assert!(
+        hash.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&hash.stdout),
+        String::from_utf8_lossy(&hash.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&hash.stdout).trim(),
+        format!("{plain_digest}  wasm  {}", plain.display())
+    );
 }
 
 #[cfg(unix)]

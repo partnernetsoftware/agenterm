@@ -71,6 +71,15 @@ pub struct ScriptInvocationOptions {
     pub env_allow: Vec<String>,
 }
 
+/// The two different inputs accepted by the public `script hash` verb.
+/// Source is compiled before hashing; an artifact is already the exact byte
+/// sequence whose identity the caller is asking about.
+#[derive(Clone, Copy)]
+pub enum ScriptHashInput<'a> {
+    Source(&'a str),
+    Artifact(&'a [u8]),
+}
+
 /// Unified invocation result. `value` is `Option<serde_json::Value>` for
 /// all three engines — lua's native `i64` is widened via
 /// `serde_json::Value::from` in `LuaEngineBackend::execute`.
@@ -255,9 +264,13 @@ pub trait ScriptEngineBackend {
     /// and `Module::write` embeds it. A reader who cannot see what was hashed
     /// cannot see that either.
     ///
-    /// `None` when this engine has nothing to hash beyond bytes the caller
-    /// already has.
-    fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>>;
+    /// `None` when this engine does not own a truthful hash for that input
+    /// kind. Source and already-built artifact bytes are distinct identities;
+    /// an implementation must never silently reinterpret one as the other.
+    fn artifact_hash(
+        &self,
+        input: ScriptHashInput<'_>,
+    ) -> Option<Result<(String, &'static str), String>>;
 
     /// Scan a directory recursively for this engine's source files and check
     /// each, optionally resolving repository-qualified imports from
@@ -719,7 +732,13 @@ impl ScriptEngineBackend for LuaEngineBackend {
         false
     }
 
-    fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>> {
+    fn artifact_hash(
+        &self,
+        input: ScriptHashInput<'_>,
+    ) -> Option<Result<(String, &'static str), String>> {
+        let ScriptHashInput::Source(source) = input else {
+            return None;
+        };
         Some(Ok((
             agenterm_script_common::hex::sha256_hex(source.as_bytes()),
             "source",
@@ -847,7 +866,13 @@ impl ScriptEngineBackend for SqlEngineBackend {
         false
     }
 
-    fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>> {
+    fn artifact_hash(
+        &self,
+        input: ScriptHashInput<'_>,
+    ) -> Option<Result<(String, &'static str), String>> {
+        let ScriptHashInput::Source(source) = input else {
+            return None;
+        };
         Some(Ok((
             agenterm_script_common::hex::sha256_hex(source.as_bytes()),
             "source",
@@ -1068,12 +1093,18 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
     /// with the compiler's own diagnostic rather than falling back to hashing
     /// the text -- a digest of a program that cannot be built is a fingerprint
     /// of nothing.
-    fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>> {
-        Some(
-            agenterm_qjswasm::compile_qjs(source)
+    fn artifact_hash(
+        &self,
+        input: ScriptHashInput<'_>,
+    ) -> Option<Result<(String, &'static str), String>> {
+        Some(match input {
+            ScriptHashInput::Source(source) => agenterm_qjswasm::compile_qjs(source)
                 .map(|wasm| (agenterm_script_common::hex::sha256_hex(&wasm), "wasm"))
-                .map_err(|e| e.to_string()),
-        )
+                .map_err(|error| error.to_string()),
+            ScriptHashInput::Artifact(wasm) => {
+                Ok((agenterm_script_common::hex::sha256_hex(wasm), "wasm"))
+            }
+        })
     }
 
     fn corpus_scan(
@@ -1529,7 +1560,10 @@ impl ScriptEngineBackend for ScriptEngine {
         }
     }
 
-    fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>> {
+    fn artifact_hash(
+        &self,
+        input: ScriptHashInput<'_>,
+    ) -> Option<Result<(String, &'static str), String>> {
         match self {
             // With no engine compiled in the enum is empty, `self` is
             // uninhabited, and this arm is the proof: it can only be reached
@@ -1541,11 +1575,11 @@ impl ScriptEngineBackend for ScriptEngine {
             )))]
             _ => match *self {},
             #[cfg(feature = "script-lua")]
-            Self::Lua(backend) => backend.artifact_hash(source),
+            Self::Lua(backend) => backend.artifact_hash(input),
             #[cfg(feature = "script-sql")]
-            Self::Sql(backend) => backend.artifact_hash(source),
+            Self::Sql(backend) => backend.artifact_hash(input),
             #[cfg(feature = "script-qjswasm")]
-            Self::Qjswasm(backend) => backend.artifact_hash(source),
+            Self::Qjswasm(backend) => backend.artifact_hash(input),
         }
     }
 
