@@ -214,7 +214,7 @@ std_detect owner 可删除，才重开 CPUID/汇编替换，不能以仓库搜�
 | src/platform/mod.rs（历史） | `ConsoleKey`/`LineBuffer`/`LineHistory` 导入 | 已删除 |
 | src/platform/mod.rs（历史） | `enter_console_line_editor` | TUI 已直接接线 platform contract；无人调用的 staged facade 已删除 |
 | src/script_rh_host.rs:10 | `RhHostEntryValue::{Unit,Value}` | `#[expect]`(typed entry-value 通道待接) |
-| src/script_lua_run.rs:75 | `current_run_context` | `#[expect]`(lua 消费者未接) |
+| src/script_lua_run.rs（历史） | `current_run_context` | 已删除——五周无生产消费者或在制接线；公开 Lua context API 不变 |
 | src/script_worker.rs | `classify_runtime_error` 死链(含 4 个构造器与其专属测试) | **删除**——retirement 孤儿,hosted 引擎已走类型化失败;token 表在 git 历史 |
 | src/frontend/server_strip_ui.rs:37 | `StripRect::width` | `#[cfg_attr(not(test), expect)]`(仅测试消费) |
 | src/script_rh_host.rs:229(顺带) | `host_process_request` 复杂返回元组 | 命名为 `type ProcessRequest`(clippy type_complexity) |

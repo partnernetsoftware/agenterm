@@ -99,6 +99,9 @@ flowchart LR
   the obsolete task is explicitly retired.
 - [~] Lua retains its explicit surface; SQL remains optional/default-off. Their
   existence does not make them fallback engines for `.qjs`.
+- [x] Lua's five-week-old staged `current_run_context` accessor had no production
+  consumer or in-flight wiring and is deleted; the public optional Lua context
+  surface remains unchanged.
 
 ## Acceptance and safe failure
 
