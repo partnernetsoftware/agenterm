@@ -304,11 +304,43 @@ pub type NamedNode = (Option<isize>, Option<String>, Option<String>);
 /// Named-node shape shared by the AT-SPI text verbs: `--window H --name PAT
 /// [--role ROLE]`, with `--name` required.
 pub fn named_node(args: &mut Vec<String>, missing: &str) -> Result<NamedNode, String> {
-    let window = flag_window_opt(args);
-    let name = flag_value(args, "--name");
-    let role = flag_value(args, "--role");
+    let window = flag_window(args)?;
+    let name = flag_text(args, "--name")?;
+    let role = flag_text(args, "--role")?;
     if name.as_ref().is_none_or(|value| value.is_empty()) {
         return Err(missing.to_owned());
     }
+    if !args.is_empty() {
+        return Err(format!("{missing}; unexpected {:?}", args[0]));
+    }
     Ok((window, name, role))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(words: &[&str]) -> Vec<String> {
+        words.iter().map(|word| (*word).to_owned()).collect()
+    }
+
+    #[test]
+    fn named_node_consumes_its_closed_shape_and_rejects_residuals() {
+        let parsed = named_node(
+            &mut args(&["--window", "42", "--name", "Field", "--role", "entry"]),
+            "verb requires a named node",
+        )
+        .expect("closed named node");
+        assert_eq!(
+            parsed,
+            (Some(42), Some("Field".into()), Some("entry".into()))
+        );
+
+        let error = named_node(
+            &mut args(&["--window", "42", "--name", "Field", "--bogus"]),
+            "verb requires a named node",
+        )
+        .expect_err("residual option must fail before observation or actuation");
+        assert!(error.contains("--bogus"), "unexpected error: {error}");
+    }
 }

@@ -740,6 +740,9 @@ ACU-only cutover
 ├─ [x] clipboard node actuation rejects residual options before side effects
 │  ├─ [x] `copy` / `paste` name the first unexpected token as typed usage
 │  └─ [x] `paste -- TEXT` still preserves a dash-leading clipboard seed exactly
+├─ [x] the shared named-node parser consumes one closed addressing shape
+│  ├─ [x] `scroll` / `hover` and get-extents / selection / caret share strict flags
+│  └─ [x] residual tokens fail before a tree read or node actuation
 ├─ [x] dynamic repair registry (complete corpus; no unknown fallback)
 │  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green
 │  │  ├─ [x] macOS public qjswasm court: one invocation-owned Cocoa window proves exact
