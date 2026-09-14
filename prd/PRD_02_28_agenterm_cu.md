@@ -755,6 +755,9 @@ ACU-only cutover
 ├─ [x] `get-text` cannot drop a misspelled selector and read another focused node
 │  ├─ [x] window, name and role use the same strict typed readers as sibling get verbs
 │  └─ [x] residual tokens fail before the independent text provider runs
+├─ [x] canonical `window-place` consumes its closed action and window arguments
+│  ├─ [x] both `--action ID` and the documented positional ID remain supported
+│  └─ [x] residual tokens fail before any placement action moves a window
 ├─ [x] dynamic repair registry (complete corpus; no unknown fallback)
 │  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green
 │  │  ├─ [x] macOS public qjswasm court: one invocation-owned Cocoa window proves exact

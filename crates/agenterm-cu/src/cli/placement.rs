@@ -3,7 +3,7 @@
 
 use super::parse_optional_window;
 use super::verbs::VerbSpec;
-use super::{flag_handle, flag_parsed, flag_text, flag_value, flag_window, flag_window_opt};
+use super::{flag_handle, flag_parsed, flag_text, flag_window};
 use agenterm_cu::{Command, OrderRelation, TargetRef};
 
 pub fn parse(
@@ -22,13 +22,20 @@ pub fn parse(
 }
 
 fn window_place(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let action = flag_value(args, "--action")
-        .or_else(|| args.first().cloned())
+    let action = flag_text(args, "--action")?
+        .or_else(|| {
+            args.first()
+                .cloned()
+                .filter(|first| !first.starts_with('-'))
+                .inspect(|_| {
+                    args.remove(0);
+                })
+        })
         .unwrap_or_default();
     if action.is_empty() {
         return Err("window-place requires --action <id>".into());
     }
-    let window = flag_window_opt(args);
+    let window = flag_window(args)?;
     let mut rect = [None; 4];
     for (slot, flag) in ["--x", "--y", "--width", "--height"]
         .into_iter()
@@ -48,6 +55,12 @@ fn window_place(target: TargetRef, args: &mut Vec<String>) -> Result<Command, St
     if action == "frame" && frame.is_none() {
         return Err("window-place --action frame requires --x X --y Y --width W --height H".into());
     }
+    if !args.is_empty() {
+        return Err(format!(
+            "window-place accepts only --action ID [--window HANDLE] [--x X --y Y --width W --height H]; unexpected {:?}",
+            args[0]
+        ));
+    }
     Ok(Command::WindowPlace {
         target,
         action,
@@ -55,6 +68,40 @@ fn window_place(target: TargetRef, args: &mut Vec<String>) -> Result<Command, St
         frame,
         expect_geometry: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(words: &[&str]) -> Vec<String> {
+        words.iter().map(|word| (*word).to_owned()).collect()
+    }
+
+    #[test]
+    fn window_place_consumes_canonical_and_positional_actions_and_rejects_residuals() {
+        for words in [
+            &["--action", "center", "--window", "42"][..],
+            &["center", "--window", "42"][..],
+        ] {
+            assert!(matches!(
+                window_place(TargetRef::Current, &mut args(words)).expect("window-place"),
+                Command::WindowPlace {
+                    action,
+                    window: Some(42),
+                    frame: None,
+                    ..
+                } if action == "center"
+            ));
+        }
+
+        let error = window_place(
+            TargetRef::Current,
+            &mut args(&["--action", "center", "--window", "42", "--bogus"]),
+        )
+        .expect_err("residual option must fail before placement");
+        assert!(error.contains("--bogus"), "unexpected error: {error}");
+    }
 }
 
 fn parse_expect_geometry(raw: &str) -> Result<[i32; 2], String> {
