@@ -22,6 +22,13 @@ function last_piece(path) {
   return name;
 }
 
+function require_sccache_counter(value, sample_tag, name) {
+  rh.require(
+    Number.isInteger(value) && value >= 0,
+    "performance_summary_sccache_counter:" + sample_tag + ":" + name
+  );
+}
+
 const args = rh.args();
 if (args.length !== 9) { throw "performance_summary_arguments"; }
 
@@ -142,8 +149,8 @@ for (let index = 0; index < 3; index = index + 1) {
     // `.stats`; a counter is either a bare integer or a per-language map.
     const bucket = stats.stats;
     const compile_requests = bucket.compile_requests;
-    let cache_hits = 0;
-    let cache_misses = 0;
+    let cache_hits = -1;
+    let cache_misses = -1;
     let cache_errors = 0;
     if (typeof bucket.cache_hits === "number") {
       cache_hits = bucket.cache_hits;
@@ -157,6 +164,10 @@ for (let index = 0; index < 3; index = index + 1) {
     }
     cache_errors = cache_errors + bucket.cache_read_errors;
     cache_errors = cache_errors + bucket.cache_write_errors;
+    require_sccache_counter(compile_requests, sample_tag, "compile_requests");
+    require_sccache_counter(cache_hits, sample_tag, "cache_hits");
+    require_sccache_counter(cache_misses, sample_tag, "cache_misses");
+    require_sccache_counter(cache_errors, sample_tag, "cache_errors");
 
     sccache_samples.push({
       ordinal: index + 1,

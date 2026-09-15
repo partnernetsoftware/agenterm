@@ -56,8 +56,8 @@ fn write_timing(path: &Path, run_id: &str, completed_at_utc: &str, wall_ms: u64)
     .expect("write timing fixture");
 }
 
-fn write_stats(path: &Path) {
-    let stats = serde_json::json!({
+fn number_stats() -> serde_json::Value {
+    serde_json::json!({
         "stats": {
             "compile_requests": 1,
             "cache_hits": 0,
@@ -65,12 +65,15 @@ fn write_stats(path: &Path) {
             "cache_read_errors": 0,
             "cache_write_errors": 0
         }
-    });
+    })
+}
+
+fn write_stats(path: &Path, stats: &serde_json::Value) {
     fs::write(
         path,
         format!(
             "{}\n",
-            serde_json::to_string_pretty(&stats).expect("serialize stats")
+            serde_json::to_string_pretty(stats).expect("serialize stats")
         ),
     )
     .expect("write stats fixture");
@@ -140,7 +143,7 @@ fn performance_summary_accepts_one_run_and_rejects_misattributed_samples() {
         );
     }
     for path in &stats {
-        write_stats(path);
+        write_stats(path, &number_stats());
     }
 
     let valid = run_summary(
@@ -181,4 +184,86 @@ fn performance_summary_accepts_one_run_and_rejects_misattributed_samples() {
     );
     assert!(!duplicate_stats.status.success());
     assert!(diagnostic(&duplicate_stats).contains("performance_summary_sccache_path_duplicate:"));
+
+    let map_stats = serde_json::json!({
+        "stats": {
+            "compile_requests": 1,
+            "cache_hits": { "Rust": 0 },
+            "cache_misses": { "Rust": 1 },
+            "cache_read_errors": 0,
+            "cache_write_errors": 0
+        }
+    });
+    write_stats(&stats[2], &map_stats);
+    let valid_sccache = run_summary(
+        &root.0.join("valid-sccache.json"),
+        "sccache",
+        [&timings[0], &timings[1], &timings[2]],
+        [&stats[0], &stats[1], &stats[2]],
+    );
+    assert!(
+        valid_sccache.status.success(),
+        "{}",
+        diagnostic(&valid_sccache)
+    );
+
+    let missing_errors = serde_json::json!({
+        "stats": { "compile_requests": 1, "cache_hits": 0, "cache_misses": 1 }
+    });
+    write_stats(&stats[0], &missing_errors);
+    let missing_errors_result = run_summary(
+        &root.0.join("missing-errors.json"),
+        "sccache",
+        [&timings[0], &timings[1], &timings[2]],
+        [&stats[0], &stats[1], &stats[2]],
+    );
+    assert!(!missing_errors_result.status.success());
+    assert!(
+        diagnostic(&missing_errors_result)
+            .contains("performance_summary_sccache_counter:1:cache_errors")
+    );
+
+    let string_hits = serde_json::json!({
+        "stats": {
+            "compile_requests": 1,
+            "cache_hits": "5",
+            "cache_misses": 1,
+            "cache_read_errors": 0,
+            "cache_write_errors": 0
+        }
+    });
+    write_stats(&stats[0], &string_hits);
+    let string_hits_result = run_summary(
+        &root.0.join("string-hits.json"),
+        "sccache",
+        [&timings[0], &timings[1], &timings[2]],
+        [&stats[0], &stats[1], &stats[2]],
+    );
+    assert!(!string_hits_result.status.success());
+    assert!(
+        diagnostic(&string_hits_result)
+            .contains("performance_summary_sccache_counter:1:cache_hits")
+    );
+
+    let missing_rust = serde_json::json!({
+        "stats": {
+            "compile_requests": 1,
+            "cache_hits": { "C": 1 },
+            "cache_misses": 1,
+            "cache_read_errors": 0,
+            "cache_write_errors": 0
+        }
+    });
+    write_stats(&stats[0], &missing_rust);
+    let missing_rust_result = run_summary(
+        &root.0.join("missing-rust.json"),
+        "sccache",
+        [&timings[0], &timings[1], &timings[2]],
+        [&stats[0], &stats[1], &stats[2]],
+    );
+    assert!(!missing_rust_result.status.success());
+    assert!(
+        diagnostic(&missing_rust_result)
+            .contains("performance_summary_sccache_counter:1:cache_hits")
+    );
 }
