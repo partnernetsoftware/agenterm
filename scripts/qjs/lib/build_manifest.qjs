@@ -313,11 +313,8 @@ export function write(repo_value, arch, signing_json, output_logical_path) {
 
 // ---- validation ---------------------------------------------------------
 
-// This engine has no `slice`: copy then sort.
 function sorted_copy(values) {
-  const out = [];
-  for (let i = 0; i < values.length; i = i + 1) { out.push(values[i]); }
-  return out.sort();
+  return [].concat(values).sort();
 }
 
 function exact_keys(object, keys, what) {
