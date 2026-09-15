@@ -5500,6 +5500,11 @@ fresh read fails. An explicit user action must re-read and propagate that
 failure instead of converting it to an empty inventory or acting through a
 cached endpoint; display continuity is not fresh execution authority.
 
+For a UI action whose `Result` is also a public control reply, never mutate the
+live config before its durable save. Prepare a clone, persist it, then publish
+the in-memory value, event, and layout together. A returned failure must not
+carry a snapshot containing the value it claims was rejected.
+
 ## Refresh future activation without restarting resident owners
 
 A compatibility command called “runtime refresh” must follow the replacement

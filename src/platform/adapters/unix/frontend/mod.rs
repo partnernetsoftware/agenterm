@@ -2268,7 +2268,9 @@ impl UnixApp {
             .tabs_recovery
             .is_some_and(|segment| segment.contains(x, y))
         {
-            let _ = self.set_tabs_visible(true, "status-bar", UI_TABS_SHOW);
+            if let Err(error) = self.set_tabs_visible(true, "status-bar", UI_TABS_SHOW) {
+                self.set_status_message(format!("Tabs visibility save failed: {error}"));
+            }
             return true;
         }
         if layout.status_segments.cwd.contains(x, y) {
@@ -3397,8 +3399,11 @@ impl UnixApp {
             }
             action::TOGGLE_TABS => {
                 let visible = !self.config.tabs_visible;
-                let _ =
-                    self.set_tabs_visible(visible, "toolbar", crate::operations::UI_TABS_TOGGLE);
+                if let Err(error) =
+                    self.set_tabs_visible(visible, "toolbar", crate::operations::UI_TABS_TOGGLE)
+                {
+                    self.set_status_message(format!("Tabs visibility save failed: {error}"));
+                }
             }
             action::OPEN_CONTROL_CENTER => {
                 match crate::control_center::open_control_center(
@@ -5782,8 +5787,10 @@ impl ControlHost for UnixApp {
         if !visible && self.tab_editor_dialog.is_open() {
             self.complete_tab_editor(false)?;
         }
-        self.config.tabs_visible = visible;
-        save_config(&self.config).map_err(|error| format!("{error:#}"))?;
+        let mut next = self.config.clone();
+        next.tabs_visible = visible;
+        save_config(&next).map_err(|error| format!("{error:#}"))?;
+        self.config = next;
         self.event_journal_mut().commit(
             EventKind::LayoutTabsVisibility,
             None,
@@ -5806,8 +5813,10 @@ impl ControlHost for UnixApp {
         cause: &str,
         operation_id: &str,
     ) -> Result<(), String> {
-        self.config.tabs_width = width;
-        save_config(&self.config).map_err(|error| format!("{error:#}"))?;
+        let mut next = self.config.clone();
+        next.tabs_width = width;
+        save_config(&next).map_err(|error| format!("{error:#}"))?;
+        self.config = next;
         let configured_width = self.config.tabs_width;
         let effective_width = self.layout().effective_tabs_width;
         self.event_journal_mut().commit(
