@@ -456,7 +456,7 @@ fn a_tool_script_reaches_the_machine_only_under_the_tool_profile() {
 /// through the tool door -- `arg_count()` / `arg(0)` -- because the engine
 /// face cannot carry a string into a guest, and validates the real
 /// `scripts/artifacts.json`. The count it returns is the manifest's: four
-/// executables and one library.
+/// executables and two libraries.
 ///
 /// A manifest with a bad name must fail by that name. The check that catches
 /// it is written without character access, because this engine has neither
@@ -478,8 +478,8 @@ fn the_first_migrated_task_script_validates_the_real_manifest() {
     let out = ok.output().expect("the CLI binary runs");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        out.status.success() && stdout.trim() == "5",
-        "the real manifest has 4 executables + 1 library; stdout={stdout} stderr={}",
+        out.status.success() && stdout.trim() == "6",
+        "the real manifest has 4 executables + 2 libraries; stdout={stdout} stderr={}",
         String::from_utf8_lossy(&out.stderr)
     );
 
