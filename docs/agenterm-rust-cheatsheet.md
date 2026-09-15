@@ -6514,6 +6514,11 @@ library, path, or provider name means a named logical target, every mechanism
 family must publish the same logical spelling; do not let a private trampoline
 leak the raw sentinel while a sibling reports the normalized identity.
 
+Do not end a typed-error-to-public-category match with a catch-all default.
+An added lower-layer error is a new classification decision, not automatically
+configuration failure; list the current default-category variants explicitly
+so enum growth fails compilation until that decision is reviewed.
+
 For a large Rust file, make this change with unique-text patches and inspect the
 whole diff against `HEAD`. Do not delete line-number slices with a rewrite
 script: an offset can remove a function body while leaving a plausible doc

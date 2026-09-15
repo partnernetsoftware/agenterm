@@ -387,7 +387,13 @@ fn qjs_engine_error(error: agenterm_qjswasm::QjswasmError) -> ScriptEngineError 
         // `slice`, a String property it lacks) is still the script's to rewrite
         // around -- the sentence says how -- not an invocation set up wrong.
         | E::CapabilityBoundary(_) => ScriptFailureCategory::Script,
-        _ => ScriptFailureCategory::Configuration,
+        E::Load(_)
+        | E::LoadInFunction { .. }
+        | E::Door(_)
+        | E::NoSuchSlot(_)
+        | E::NoSuchExport(_)
+        | E::Signature(_)
+        | E::UnsupportedValue(_) => ScriptFailureCategory::Configuration,
     };
     ScriptEngineError {
         code: None,

@@ -790,8 +790,11 @@ integration.
   public `script` failure class through single-file check, direct run, task run,
   and check-many; the shared worker dispatch preserves the engine's typed class
   instead of flattening check failures to `configuration`. Loader, signature,
-  and host-door setup failures remain `configuration`; the public parity owner
-  is `tests/script_check_run_failure_class.rs`.
+  and host-door setup failures remain `configuration`. The qjswasm-to-product
+  category match is exhaustive rather than using a configuration fallback, so
+  adding an engine error requires an explicit public-category decision at
+  compile time; the public parity owner is
+  `tests/script_check_run_failure_class.rs`.
 - [x] qjswasm tool profile executes bounded child processes with typed failures.
 - [x] Synchronous `process.command`, `process.command_stdout` and
   `process.status` calls apply the documented 60-second deadline when the spec
