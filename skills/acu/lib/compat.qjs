@@ -15,15 +15,6 @@ export const LEGACY_TOP_LEVEL = [
   "resource"
 ];
 
-// Stable ids for argument-sensitive legacy shapes that are still meaningful
-// but cannot be forwarded to a same-named native command without changing
-// their contract. The compatibility-corpus test locks these ids to the frozen
-// archive; unknown spellings are deliberately absent and continue to native
-// usage handling.
-export const LEGACY_TODO_GAP_IDS = [
-  "acu.dynamic.004", "acu.dynamic.075",
-];
-
 function append(out, values) {
   for (let i = 0; i < values.length; i = i + 1) { out.push(values[i]); }
 }

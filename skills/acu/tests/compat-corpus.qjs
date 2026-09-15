@@ -26,20 +26,6 @@ require(corpus.schema === "agenterm.acu.compat-corpus.v1", "compat corpus schema
 require(corpus.dynamic_rows.length === 95, "dynamic corpus count");
 require(corpus.positive_rows.length === 42, "positive corpus count");
 
-const corpus_gap_ids = [];
-for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
-  corpus_gap_ids.push(corpus.dynamic_rows[i].gap_id);
-}
-require(compat.LEGACY_TODO_GAP_IDS.length === 2,
-  "legacy TODO catalog count drifted from the reviewed archive");
-for (let i = 0; i < compat.LEGACY_TODO_GAP_IDS.length; i = i + 1) {
-  const gap_id = compat.LEGACY_TODO_GAP_IDS[i];
-  require(corpus_gap_ids.includes(gap_id),
-    "legacy TODO catalog id is absent from frozen corpus: " + gap_id);
-  require(compat.LEGACY_TODO_GAP_IDS.indexOf(gap_id) === i,
-    "legacy TODO catalog id is duplicated: " + gap_id);
-}
-
 let executable = 0;
 let explicit_todo = 0;
 for (let i = 0; i < corpus.positive_rows.length; i = i + 1) {
