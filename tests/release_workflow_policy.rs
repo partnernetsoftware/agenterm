@@ -402,6 +402,15 @@ fn qjswasm_slot_contract_tests_are_an_explicit_full_gate_subcourt() {
 }
 
 #[test]
+fn vnc_pure_contract_tests_are_an_explicit_full_gate_subcourt() {
+    assert!(CHECK_QJS.contains("function cargo_unit_vnc_pure_contracts_spec(environment)"));
+    assert!(
+        CHECK_QJS.contains("\"--test\", \"ard\", \"--test\", \"des\", \"--test\", \"framebuffer\"")
+    );
+    assert!(CHECK_QJS.contains("cargo_unit_vnc_pure_contracts_spec(build_environment)"));
+}
+
+#[test]
 fn grouped_gates_refuse_an_empty_command_set() {
     assert!(CHECK_QJS.contains("command_specs.length > 0"));
     assert!(CHECK_QJS.contains("qualification_gate_specs_empty:"));
