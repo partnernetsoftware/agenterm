@@ -488,6 +488,7 @@
         "cu.file-xattr-inspect.macos",
         "cu.windows-file-attributes-unsupported",
         "cu.file-mode.macos",
+        "cu.windows-file-mode-unsupported",
         "cu.file-xattr-mutation.macos",
         "cu.windows-file-xattr-mutation-unsupported",
         "cu.runtime-request-idempotency.current",

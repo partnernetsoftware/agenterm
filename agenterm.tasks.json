@@ -9163,7 +9163,7 @@
     },
     {
       "id": "cu-windows-file-attributes-unsupported-smoke",
-      "description": "Prove Windows returns the typed Unix-xattr platform results for inspection, planning and apply spellings after valid regular-file checks and without changing the fixture; this court refuses to run off Windows.",
+      "description": "Prove Windows returns the typed Unix-xattr and Unix-mode platform results for inspection, planning and apply spellings after valid regular-file checks and without changing the fixture; this court refuses to run off Windows.",
       "entry": "scripts/qjs/cu-windows-file-attributes-unsupported-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

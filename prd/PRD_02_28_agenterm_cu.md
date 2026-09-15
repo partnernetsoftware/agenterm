@@ -2641,9 +2641,9 @@ flowchart LR
   mechanism but still needs its public court; Windows returns typed unsupported
   because alternate data streams and ACLs are not equivalent to Unix xattrs.
   The Windows-only `cu-windows-file-attributes-unsupported-smoke` court is now
-  registered for both inspection and mutation spellings, including plan and
-  apply forms, but those ledger cells remain pending until the court runs on a
-  Windows host.
+  registered for inspection, xattr mutation and Unix-mode mutation spellings,
+  including plan and apply forms, but those ledger cells remain pending until
+  the court runs on a Windows host.
   Mode and xattr mutation are separate identity-bound plan/apply leaves and are
   not implied by this observer. The mode leaf is now public as `file-mode
   PATH OCTAL [--apply]` / `file chmod`: default preview is zero-write, apply

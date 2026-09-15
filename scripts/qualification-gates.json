@@ -1037,7 +1037,8 @@
       "id": "cu-windows-file-attributes-unsupported-smoke",
       "evidence": [
         "cu.windows-file-attributes-unsupported",
-        "cu.windows-file-xattr-mutation-unsupported"
+        "cu.windows-file-xattr-mutation-unsupported",
+        "cu.windows-file-mode-unsupported"
       ]
     },
     {

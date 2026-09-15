@@ -1,4 +1,5 @@
-// Windows public court for the Unix-xattr inspection and mutation spellings.
+// Windows public court for Unix-xattr inspection/mutation and Unix mode
+// mutation spellings.
 // A regular fixture lets every call pass path validation before the typed
 // platform result. macOS and Linux own the native read-back courts.
 // Args: REPO AGENTERM_CU_EXE
@@ -8,7 +9,8 @@ import * as harness from "lib/test_harness";
 
 const declared_evidence = [
   "cu.windows-file-attributes-unsupported",
-  "cu.windows-file-xattr-mutation-unsupported"
+  "cu.windows-file-xattr-mutation-unsupported",
+  "cu.windows-file-mode-unsupported"
 ];
 
 function ensure(condition, message) {
@@ -26,6 +28,11 @@ function is_shape_code(code) {
     "file_xattr_not_regular",
     "file_xattr_identity_changed",
     "file_xattr_name_invalid",
+    "file_mode_open_failed",
+    "file_mode_not_regular",
+    "file_mode_identity_changed",
+    "file_mode_invalid",
+    "file_mode_precondition_changed",
     "refused",
     "usage"
   ];
@@ -129,6 +136,15 @@ try {
     "--target", "current", "--grant", "actuate", "file-xattr-remove", fixture,
     valid_name, "--apply"
   ], "file_xattr_unsupported", "file-xattr-remove", fixture);
+
+  print("STEP Unix mode plan and apply spellings return the typed Windows result");
+  repeat_refusal(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "file-mode", fixture, "644"
+  ], "file_mode_unsupported", "file-mode", fixture);
+  repeat_refusal(context.run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "file-mode", fixture, "644",
+    "--apply"
+  ], "file_mode_unsupported", "file-mode", fixture);
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
@@ -142,8 +158,10 @@ if (succeeded !== 0 && completion_failure === "") {
                         "cu.windows-file-attributes-unsupported");
   harness.emit_evidence(context, declared_evidence,
                         "cu.windows-file-xattr-mutation-unsupported");
+  harness.emit_evidence(context, declared_evidence,
+                        "cu.windows-file-mode-unsupported");
   harness.remove_run(context);
-  print("PASS: Windows returns typed Unix-xattr results without changing the fixture");
+  print("PASS: Windows returns typed Unix file metadata results without changing the fixture");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
