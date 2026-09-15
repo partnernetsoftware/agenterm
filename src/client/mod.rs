@@ -1919,15 +1919,7 @@ fn run_script_hash(arguments: &[String]) -> i32 {
             if !has_specific_code {
                 return 2;
             }
-            match error.category {
-                ScriptFailureCategory::Script => 1,
-                ScriptFailureCategory::Limit => 3,
-                ScriptFailureCategory::Child => 4,
-                ScriptFailureCategory::Cancelled => 5,
-                ScriptFailureCategory::Fleet => 6,
-                ScriptFailureCategory::Configuration => 2,
-                ScriptFailureCategory::Protocol | ScriptFailureCategory::Host => 1,
-            }
+            ScriptExitClass::from(error.category).process_exit_code()
         }
         None => {
             cli_eprintln!(
@@ -2838,14 +2830,7 @@ fn run_script_command_with_context(
     if result.ok {
         completion_exit_code.map_or(0, i32::from)
     } else {
-        match result.exit_class.as_str() {
-            "configuration" => 2,
-            "limit" => 3,
-            "child" => 4,
-            "cancelled" => 5,
-            "fleet" => 6,
-            _ => 1,
-        }
+        result.exit_class.process_exit_code()
     }
 }
 
@@ -3262,18 +3247,16 @@ fn run_resolved_script_task(arguments: &[String], task: ResolvedScriptTask) -> i
 }
 
 fn report_supervisor_error(error: SupervisorError) -> i32 {
-    let (code, message, exit_class, exit_code) = match error {
+    let (code, message, exit_class) = match error {
         SupervisorError::ConcurrencyLimit => (
             "host_concurrency_limit",
             "script worker concurrency limit reached".to_owned(),
-            "configuration",
-            2,
+            ScriptExitClass::Configuration,
         ),
         SupervisorError::HardTimeout { worker_pid } => (
             "host_hard_timeout",
             format!("script worker {worker_pid} exceeded the host deadline and was terminated"),
-            "limit",
-            3,
+            ScriptExitClass::Limit,
         ),
         SupervisorError::WorkerCrash {
             worker_pid,
@@ -3281,22 +3264,25 @@ fn report_supervisor_error(error: SupervisorError) -> i32 {
         } => (
             "host_worker_crash",
             format!("script worker {worker_pid} exited before a valid result ({worker_exit:?})"),
-            "host",
-            1,
+            ScriptExitClass::Host,
         ),
-        SupervisorError::Spawn(message) => ("host_worker_spawn", message, "host", 1),
-        SupervisorError::Transport(message) => ("host_worker_transport", message, "host", 1),
-        SupervisorError::Protocol(message) => ("host_worker_protocol", message, "host", 1),
+        SupervisorError::Spawn(message) => ("host_worker_spawn", message, ScriptExitClass::Host),
+        SupervisorError::Transport(message) => {
+            ("host_worker_transport", message, ScriptExitClass::Host)
+        }
+        SupervisorError::Protocol(message) => {
+            ("host_worker_protocol", message, ScriptExitClass::Host)
+        }
     };
     cli_eprintln!(
         "{}",
         serde_json::json!({
             "code": code,
             "message": message,
-            "exit_class": exit_class,
+            "exit_class": exit_class.as_str(),
         })
     );
-    exit_code
+    exit_class.process_exit_code()
 }
 
 fn script_broker_error(code: &str, message: impl Into<String>) -> ScriptBrokerResponse {

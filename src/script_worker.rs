@@ -1299,11 +1299,25 @@ return descend(20);
             catalog["limits"]["invocation_bytes"],
             SCRIPT_INVOCATION_MAX_BYTES
         );
-        assert_eq!(catalog["exit_classes"]["configuration"], 2);
-        assert_eq!(catalog["exit_classes"]["limit"], 3);
-        assert_eq!(catalog["exit_classes"]["child"], 4);
-        assert_eq!(catalog["exit_classes"]["cancelled"], 5);
-        assert_eq!(catalog["exit_classes"]["fleet"], 6);
+        let exit_classes = catalog["exit_classes"].as_object().expect("exit classes");
+        let expected = [
+            ScriptExitClass::Success,
+            ScriptExitClass::Script,
+            ScriptExitClass::Protocol,
+            ScriptExitClass::Host,
+            ScriptExitClass::Configuration,
+            ScriptExitClass::Limit,
+            ScriptExitClass::Child,
+            ScriptExitClass::Cancelled,
+            ScriptExitClass::Fleet,
+        ];
+        assert_eq!(exit_classes.len(), expected.len());
+        for exit_class in expected {
+            assert_eq!(
+                exit_classes[exit_class.as_str()],
+                exit_class.process_exit_code()
+            );
+        }
         assert_eq!(
             catalog["typed_error"]["catchable_slices"]
                 .as_array()

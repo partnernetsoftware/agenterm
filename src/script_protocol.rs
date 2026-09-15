@@ -529,6 +529,18 @@ impl ScriptExitClass {
             Self::Host => "host",
         }
     }
+
+    pub const fn process_exit_code(self) -> i32 {
+        match self {
+            Self::Success => 0,
+            Self::Script | Self::Protocol | Self::Host => 1,
+            Self::Configuration => 2,
+            Self::Limit => 3,
+            Self::Child => 4,
+            Self::Cancelled => 5,
+            Self::Fleet => 6,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1461,18 +1473,29 @@ mod tests {
             (
                 ScriptFailureCategory::Configuration,
                 ScriptExitClass::Configuration,
+                2,
             ),
-            (ScriptFailureCategory::Limit, ScriptExitClass::Limit),
-            (ScriptFailureCategory::Script, ScriptExitClass::Script),
-            (ScriptFailureCategory::Child, ScriptExitClass::Child),
-            (ScriptFailureCategory::Cancelled, ScriptExitClass::Cancelled),
-            (ScriptFailureCategory::Fleet, ScriptExitClass::Fleet),
-            (ScriptFailureCategory::Protocol, ScriptExitClass::Protocol),
-            (ScriptFailureCategory::Host, ScriptExitClass::Host),
+            (ScriptFailureCategory::Limit, ScriptExitClass::Limit, 3),
+            (ScriptFailureCategory::Script, ScriptExitClass::Script, 1),
+            (ScriptFailureCategory::Child, ScriptExitClass::Child, 4),
+            (
+                ScriptFailureCategory::Cancelled,
+                ScriptExitClass::Cancelled,
+                5,
+            ),
+            (ScriptFailureCategory::Fleet, ScriptExitClass::Fleet, 6),
+            (
+                ScriptFailureCategory::Protocol,
+                ScriptExitClass::Protocol,
+                1,
+            ),
+            (ScriptFailureCategory::Host, ScriptExitClass::Host, 1),
         ];
-        for (category, expected) in cases {
+        for (category, expected, exit_code) in cases {
             assert_eq!(ScriptExitClass::from(category), expected);
+            assert_eq!(expected.process_exit_code(), exit_code);
         }
+        assert_eq!(ScriptExitClass::Success.process_exit_code(), 0);
     }
 
     #[test]

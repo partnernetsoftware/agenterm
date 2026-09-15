@@ -7,7 +7,7 @@ use crate::{
     operations::{OPERATION_CATALOG, OperationClass, OperationSpec},
     script_protocol::{
         SCRIPT_API_VERSION, SCRIPT_FRAME_MAX_BYTES, SCRIPT_FRAME_VERSION,
-        SCRIPT_INVOCATION_MAX_BYTES, ScriptBudgets,
+        SCRIPT_INVOCATION_MAX_BYTES, ScriptBudgets, ScriptExitClass,
     },
 };
 
@@ -1565,15 +1565,15 @@ pub fn catalog() -> Value {
             "configuration", "limit", "script", "child", "cancelled", "fleet", "protocol", "host"
         ],
         "exit_classes": {
-            "success": 0,
-            "script": 1,
-            "protocol": 1,
-            "host": 1,
-            "configuration": 2,
-            "limit": 3,
-            "child": 4,
-            "cancelled": 5,
-            "fleet": 6,
+            "success": ScriptExitClass::Success.process_exit_code(),
+            "script": ScriptExitClass::Script.process_exit_code(),
+            "protocol": ScriptExitClass::Protocol.process_exit_code(),
+            "host": ScriptExitClass::Host.process_exit_code(),
+            "configuration": ScriptExitClass::Configuration.process_exit_code(),
+            "limit": ScriptExitClass::Limit.process_exit_code(),
+            "child": ScriptExitClass::Child.process_exit_code(),
+            "cancelled": ScriptExitClass::Cancelled.process_exit_code(),
+            "fleet": ScriptExitClass::Fleet.process_exit_code(),
         },
     })
 }
