@@ -34,9 +34,9 @@ open. Their presence in this directory does not assign them to a version.
   [`archive/goal-agenterm-dyn-macos.md`](archive/goal-agenterm-dyn-macos.md),
   while current dyn product truth lives in PRD 02.34.
 - [`design-qjswasm-native-door-experiment.md`](design-qjswasm-native-door-experiment.md) —
-  active strategic slope experiment for a fixed guest-to-native door; successful
-  evidence immediately opens migration from the duplicated dyn language layer.
-  The delivered M0 work order is retained at
+  active qualification follow-up for the fixed guest-to-native door. The B
+  implementation and consumer migration have landed; cross-runtime and
+  release-size evidence remain open. The delivered M0 work order is retained at
   [`archive/goal-agenterm-qjswasm.md`](archive/goal-agenterm-qjswasm.md).
 - [`design-guest-runtime-placement-experiment.md`](design-guest-runtime-placement-experiment.md) —
   follow-on A/B court for CU static linkage versus a versioned provider ABI; both
