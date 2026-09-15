@@ -2156,8 +2156,8 @@
             }
           },
           "evidence": ["cu.service-system-observe"],
-          "note": "The macOS public qjswasm court uses observe authority and proves a non-empty system-scope inventory bounded to eight returned rows, visited coverage of that result, and exact name/scope identity continuity from list to status. Its Windows branch proves only service_unsupported and is not treated as native observation.",
-          "next": "run the same bounded read-only system inventory/status court on native Linux and an exact typed-refusal court on Windows"
+          "note": "The macOS public qjswasm court uses observe authority and proves a non-empty system-scope inventory bounded to eight returned rows, visited coverage of that result, and exact name/scope identity continuity from list to status. Its Windows branch calls both system-list and system-status and requires the exact service_unsupported refusal without effect; no Windows qualification is claimed until that branch runs on Windows.",
+          "next": "run cu-linux-service-smoke on native Linux and retain its full two-scope positive-path result, not an unsupported or mixed PASS; then run the complete typed-refusal branch of cu-service-smoke on Windows"
         },
         {
           "id": "service.system.lifecycle.mutate",

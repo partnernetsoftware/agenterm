@@ -117,6 +117,13 @@ try {
     ensure(harness.host_is_windows(), "cu_service_system_inventory_failed:" + system_inventory.stdout);
     ensure(system_inventory.output.success !== true, "cu_service_system_unsupported_false_success");
     ensure(system_inventory.reply.error.code === "service_unsupported", "cu_service_system_unsupported_code");
+    const system_status = invoke(executable, context.run_directory, audit_path, "observe", [
+      "system-status", "agenterm-system-service-court"
+    ]);
+    ensure(system_status.output.success !== true && system_status.reply.ok !== true,
+      "cu_service_system_status_unsupported_false_success");
+    ensure(system_status.reply.error.code === "service_unsupported",
+      "cu_service_system_status_unsupported_code");
   } else {
     ensure(system_inventory.output.success === true, "cu_service_system_inventory_exit");
     const system_data = system_inventory.reply.data;
