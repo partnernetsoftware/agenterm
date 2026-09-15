@@ -740,27 +740,49 @@ pub(super) enum ConfirmCloseHit {
     Cancel,
 }
 
-#[derive(Clone, Debug)]
-pub(super) struct ConfirmCloseView {
-    pub(super) tab_id: u64,
+#[derive(Clone, Copy, Debug)]
+pub(super) enum ConfirmCloseSubject<'a> {
+    Tab(u64),
+    Server(&'a str),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ConfirmCloseView<'a> {
+    pub(super) subject: ConfirmCloseSubject<'a>,
     pub(super) bounds: (u32, u32, u32, u32),
     pub(super) confirm_button: (u32, u32, u32, u32),
     pub(super) cancel_button: (u32, u32, u32, u32),
 }
 
-impl ConfirmCloseView {
-    pub(super) fn for_client(client_width: u32, client_height: u32, tab_id: u64) -> Self {
+impl<'a> ConfirmCloseView<'a> {
+    fn for_client(client_width: u32, client_height: u32, subject: ConfirmCloseSubject<'a>) -> Self {
         let width = 360u32;
         let height = 140u32;
         let left = client_width.saturating_sub(width) / 2;
         let top = client_height.saturating_sub(height) / 2;
         let button_y = top + 90;
         Self {
-            tab_id,
+            subject,
             bounds: (left, top, width, height),
             confirm_button: (left + 40, button_y, 120, 28),
             cancel_button: (left + 200, button_y, 120, 28),
         }
+    }
+
+    pub(super) fn for_tab(client_width: u32, client_height: u32, tab_id: u64) -> Self {
+        Self::for_client(
+            client_width,
+            client_height,
+            ConfirmCloseSubject::Tab(tab_id),
+        )
+    }
+
+    pub(super) fn for_server(client_width: u32, client_height: u32, server: &'a str) -> Self {
+        Self::for_client(
+            client_width,
+            client_height,
+            ConfirmCloseSubject::Server(server),
+        )
     }
 
     pub(super) fn hit_test(&self, x: f64, y: f64) -> Option<ConfirmCloseHit> {
@@ -862,7 +884,7 @@ pub(super) struct FrameContent<'a> {
     pub(super) sidebar_scrollbar: Option<ScrollbarView>,
     pub(super) settings: Option<SettingsModalView>,
     pub(super) new_terminal: Option<NewTerminalModalView<'a>>,
-    pub(super) confirm_close: Option<ConfirmCloseView>,
+    pub(super) confirm_close: Option<ConfirmCloseView<'a>>,
     pub(super) instance_picker: Option<InstancePickerView>,
     pub(super) window_close: Option<WindowCloseView>,
     pub(super) status: Option<StatusBarView<'a>>,
@@ -2296,7 +2318,7 @@ fn render_confirm_close(
     width: u32,
     height: u32,
     palette: &ThemePalette,
-    confirm: ConfirmCloseView,
+    confirm: ConfirmCloseView<'_>,
 ) {
     for y in 0..height {
         for x in 0..width {
@@ -2317,6 +2339,16 @@ fn render_confirm_close(
         2,
         rgb_to_pixel(palette.focus_ring),
     );
+    let (title, detail) = match confirm.subject {
+        ConfirmCloseSubject::Tab(tab_id) => (
+            format!("Close live tab @{tab_id}?"),
+            "Process is still running.".to_owned(),
+        ),
+        ConfirmCloseSubject::Server(server) => (
+            format!("Close server {server}?"),
+            "Every session owned by it will stop.".to_owned(),
+        ),
+    };
     draw_text(
         buffer,
         stride,
@@ -2324,7 +2356,7 @@ fn render_confirm_close(
         height,
         mx + 16,
         my + 20,
-        &format!("Close live tab @{}?", confirm.tab_id),
+        &title,
         palette.text,
     );
     draw_text(
@@ -2334,7 +2366,7 @@ fn render_confirm_close(
         height,
         mx + 16,
         my + 48,
-        "Process is still running.",
+        &detail,
         palette.text,
     );
     for (rect, label) in [

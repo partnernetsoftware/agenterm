@@ -1032,6 +1032,7 @@ impl UnixApp {
 
     fn commit_ime_text(&mut self, raw: &str) {
         if self.window_close_dialog.is_open()
+            || self.pending_server_close.is_some()
             || self.close_confirmation.is_open()
             || self.settings_dialog.is_open()
         {
@@ -1546,15 +1547,8 @@ impl UnixApp {
 
     /// Closes the server behind a chip.
     ///
-    /// Windows stages this behind its own confirm modal. Unix has no
-    /// `ServerClose` modal surface yet, and wiring a pending state with no way
-    /// to confirm or cancel would strand the user, so this acts directly and
-    /// relies on `shutdown_server_instance` to refuse the two dangerous cases
-    /// (a stale row, and this window's own server).
-    ///
-    /// TODO(macos): add the confirm modal for parity once Unix grows a
-    /// `ModalSurface::ServerClose`, so an accidental click on a *live* peer is
-    /// recoverable rather than immediate.
+    /// A live peer owns sessions that disappear with it, so stage the target
+    /// behind the same explicit confirm/cancel boundary used on Windows.
     fn open_server_close_confirm(&mut self, menu: ServerTabContextMenu) {
         if !menu.can_attach {
             // A stale registration has no live owner to shut down; saying so
@@ -1565,36 +1559,41 @@ impl UnixApp {
             ));
             return;
         }
+        if self
+            .focus_gate()
+            .modal_entry_blocked(ModalSurface::ServerClose)
+        {
+            self.set_status_message("Another modal is already open");
+            return;
+        }
         self.pending_server_close = Some(ServerCloseConfirm {
             instance: menu.instance,
             endpoint: menu.endpoint,
             can_attach: menu.can_attach,
         });
-        if let Err(error) = self.finish_server_close_confirm(true) {
-            self.set_status_message(error);
-        }
+        self.dismiss_server_tab_context_menu();
+        self.request_redraw();
     }
 
     fn finish_server_close_confirm(&mut self, confirm: bool) -> Result<(), String> {
-        let Some(pending) = self.pending_server_close.take() else {
+        let Some(pending) = self.pending_server_close.clone() else {
             return Ok(());
         };
         if !confirm {
+            self.pending_server_close = None;
             self.request_redraw();
             return Ok(());
         }
         let instance = pending.instance.clone();
-        let result = self.shutdown_server_instance(&pending);
-        self.server_tabs = collect_instance_picker_rows().unwrap_or_default();
-        self.server_tabs_refresh_after = Instant::now() + SERVER_TABS_REFRESH;
-        self.request_redraw();
-        match result {
-            Ok(()) => {
-                self.set_status_message(format!("Server `{instance}` closed"));
-                Ok(())
-            }
-            Err(error) => Err(error),
+        self.shutdown_server_instance(&pending)?;
+        self.pending_server_close = None;
+        if let Ok(rows) = collect_instance_picker_rows() {
+            self.server_tabs = rows;
         }
+        self.server_tabs_refresh_after = Instant::now();
+        self.set_status_message(format!("Server `{instance}` closed"));
+        self.request_redraw();
+        Ok(())
     }
 
     /// Opens the chip menu on a right-click inside the strip.
@@ -1736,7 +1735,7 @@ impl UnixApp {
             cwd_editor_open: self.cwd_editor_dialog.is_open(),
             instance_picker_open: self.instance_picker_dialog.is_open(),
             server_new_open: false,
-            server_close_pending: false,
+            server_close_pending: self.pending_server_close.is_some(),
         }
     }
 
@@ -2134,6 +2133,10 @@ impl UnixApp {
     fn request_window_close(&mut self) {
         match window_close_request(self.focus_gate()) {
             WindowCloseRequest::AlreadyOpen => return,
+            WindowCloseRequest::CancelServerClose => {
+                let _ = self.finish_server_close_confirm(false);
+                return;
+            }
             WindowCloseRequest::CancelLiveClose => {
                 self.finish_close_confirmation(false);
                 return;
@@ -3092,9 +3095,13 @@ impl UnixApp {
                 ModalSurface::CwdEditor => self.cwd_editor_dialog.snapshot_modal(),
                 ModalSurface::TabClose => self.close_confirmation.snapshot_modal(),
                 ModalSurface::InstancePicker => self.instance_picker_dialog.snapshot_modal(),
-                ModalSurface::ServerNew | ModalSurface::ServerClose => serde_json::json!({
+                ModalSurface::ServerNew => serde_json::json!({
                     "kind": "server-strip",
                     "error": "server strip dialogs are Windows-first in this build",
+                }),
+                ModalSurface::ServerClose => serde_json::json!({
+                    "kind": "confirm-close-server",
+                    "instance": self.pending_server_close.as_ref().map(|pending| pending.instance.as_str()).unwrap_or(""),
                 }),
             }),
             "system_menu": system_menu_json(
@@ -3244,6 +3251,26 @@ impl UnixApp {
     fn handle_sidebar_click(&mut self, x: f64, y: f64) {
         let previous_text_click = self.recent_sidebar_text_click.take();
         if self.handle_window_close_click(x, y) {
+            return;
+        }
+        if let Some(instance) = self
+            .pending_server_close
+            .as_ref()
+            .map(|pending| pending.instance.clone())
+        {
+            let (width, height) = self.client_size();
+            let hit = ConfirmCloseView::for_server(width, height, &instance).hit_test(x, y);
+            match hit {
+                Some(ConfirmCloseHit::Confirm) => {
+                    if let Err(error) = self.finish_server_close_confirm(true) {
+                        self.set_status_message(error);
+                    }
+                }
+                Some(ConfirmCloseHit::Cancel) => {
+                    let _ = self.finish_server_close_confirm(false);
+                }
+                None => {}
+            }
             return;
         }
         let layout = self.layout();
@@ -3430,7 +3457,7 @@ impl UnixApp {
         if self.close_confirmation.is_open() {
             let (width, height) = self.client_size();
             if let Some(id) = self.close_confirmation_target_id() {
-                let modal = ConfirmCloseView::for_client(width, height, id);
+                let modal = ConfirmCloseView::for_tab(width, height, id);
                 match modal.hit_test(x, y) {
                     Some(ConfirmCloseHit::Confirm) => self.finish_close_confirmation(true),
                     Some(ConfirmCloseHit::Cancel) => self.finish_close_confirmation(false),
@@ -4168,6 +4195,7 @@ impl UnixApp {
 
     fn ime_anchor(&self) -> Option<(u32, u32, u32, u32)> {
         if self.window_close_dialog.is_open()
+            || self.pending_server_close.is_some()
             || self.close_confirmation.is_open()
             || self.settings_dialog.is_open()
         {
@@ -5142,9 +5170,16 @@ impl UnixApp {
         let terminal_selection = self
             .terminal_selection
             .filter(|selection| self.active == Some(selection.tab_id));
-        let confirm_close = self
-            .close_confirmation_target_id()
-            .map(|id| ConfirmCloseView::for_client(logical_width, logical_height, id));
+        let confirm_close = if let Some(pending) = self.pending_server_close.as_ref() {
+            Some(ConfirmCloseView::for_server(
+                logical_width,
+                logical_height,
+                &pending.instance,
+            ))
+        } else {
+            self.close_confirmation_target_id()
+                .map(|id| ConfirmCloseView::for_tab(logical_width, logical_height, id))
+        };
         let window_close = self
             .window_close_dialog
             .is_open()
@@ -5951,6 +5986,10 @@ impl ControlHost for UnixApp {
                 self.finish_window_close(WindowCloseChoice::Cancel);
                 return Ok(true);
             }
+            CancelTarget::ServerClose => {
+                self.finish_server_close_confirm(false)?;
+                return Ok(true);
+            }
             CancelTarget::LiveTabClose => {
                 self.finish_close_confirmation(false);
                 return Ok(true);
@@ -5987,6 +6026,10 @@ impl ControlHost for UnixApp {
         match confirm_target(self.focus_gate()) {
             ConfirmTarget::WindowClose => {
                 self.finish_window_close(WindowCloseChoice::KeepServerRunning);
+                Ok(true)
+            }
+            ConfirmTarget::ServerClose => {
+                self.finish_server_close_confirm(true)?;
                 Ok(true)
             }
             ConfirmTarget::LiveTabClose => {
@@ -6435,6 +6478,16 @@ impl UnixApp {
                         self.finish_window_close(WindowCloseChoice::Cancel);
                     } else if matches!(event.logical, Key::Named(NamedKey::Enter)) {
                         self.finish_window_close(WindowCloseChoice::KeepServerRunning);
+                    }
+                    return;
+                }
+                if self.pending_server_close.is_some() {
+                    if let Key::Named(NamedKey::Escape) = event.logical {
+                        let _ = self.finish_server_close_confirm(false);
+                    } else if matches!(event.logical, Key::Named(NamedKey::Enter))
+                        && let Err(error) = self.finish_server_close_confirm(true)
+                    {
+                        self.set_status_message(error);
                     }
                     return;
                 }

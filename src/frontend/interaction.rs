@@ -193,6 +193,7 @@ pub(crate) fn modal_surface_from_gate(gate: FocusTransitionGate) -> Option<Modal
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WindowCloseRequest {
     AlreadyOpen,
+    CancelServerClose,
     CancelLiveClose,
     Prepare,
 }
@@ -200,6 +201,8 @@ pub(crate) enum WindowCloseRequest {
 pub(crate) const fn window_close_request(gate: FocusTransitionGate) -> WindowCloseRequest {
     if gate.window_close_pending {
         WindowCloseRequest::AlreadyOpen
+    } else if gate.server_close_pending {
+        WindowCloseRequest::CancelServerClose
     } else if gate.close_confirmation_open {
         WindowCloseRequest::CancelLiveClose
     } else {
@@ -210,6 +213,7 @@ pub(crate) const fn window_close_request(gate: FocusTransitionGate) -> WindowClo
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CancelTarget {
     WindowClose,
+    ServerClose,
     LiveTabClose,
     Settings,
     NewTerminal,
@@ -222,6 +226,8 @@ pub(crate) enum CancelTarget {
 pub(crate) const fn cancel_target(gate: FocusTransitionGate) -> CancelTarget {
     if gate.window_close_pending {
         CancelTarget::WindowClose
+    } else if gate.server_close_pending {
+        CancelTarget::ServerClose
     } else if gate.instance_picker_open {
         CancelTarget::InstancePicker
     } else if gate.close_confirmation_open {
@@ -242,6 +248,7 @@ pub(crate) const fn cancel_target(gate: FocusTransitionGate) -> CancelTarget {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ConfirmTarget {
     WindowClose,
+    ServerClose,
     LiveTabClose,
     InstancePicker,
     None,
@@ -250,6 +257,8 @@ pub(crate) enum ConfirmTarget {
 pub(crate) const fn confirm_target(gate: FocusTransitionGate) -> ConfirmTarget {
     if gate.window_close_pending {
         ConfirmTarget::WindowClose
+    } else if gate.server_close_pending {
+        ConfirmTarget::ServerClose
     } else if gate.instance_picker_open {
         ConfirmTarget::InstancePicker
     } else if gate.close_confirmation_open {
@@ -711,6 +720,14 @@ mod tests {
         );
         assert_eq!(
             cancel_target(FocusTransitionGate {
+                server_close_pending: true,
+                close_confirmation_open: true,
+                ..idle
+            }),
+            CancelTarget::ServerClose
+        );
+        assert_eq!(
+            cancel_target(FocusTransitionGate {
                 close_confirmation_open: true,
                 settings_open: true,
                 new_terminal_open: true,
@@ -766,6 +783,14 @@ mod tests {
         );
         assert_eq!(
             confirm_target(FocusTransitionGate {
+                server_close_pending: true,
+                close_confirmation_open: true,
+                ..idle
+            }),
+            ConfirmTarget::ServerClose
+        );
+        assert_eq!(
+            confirm_target(FocusTransitionGate {
                 close_confirmation_open: true,
                 settings_open: true,
                 ..idle
@@ -784,6 +809,13 @@ mod tests {
                 ..idle
             }),
             WindowCloseRequest::AlreadyOpen
+        );
+        assert_eq!(
+            window_close_request(FocusTransitionGate {
+                server_close_pending: true,
+                ..idle
+            }),
+            WindowCloseRequest::CancelServerClose
         );
         assert_eq!(
             window_close_request(FocusTransitionGate {

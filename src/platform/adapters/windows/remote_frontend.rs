@@ -1561,6 +1561,7 @@ impl RemoteWindowState {
                 ConfirmTarget::WindowClose => {
                     self.relay_close_after_completion = Some(WindowCloseChoice::KeepServerRunning);
                 }
+                ConfirmTarget::ServerClose => self.finish_server_close_confirm(true),
                 ConfirmTarget::LiveTabClose => {
                     self.finish_close_tab(true);
                 }
@@ -1569,6 +1570,7 @@ impl RemoteWindowState {
             },
             "cancel" => match cancel_target(self.focus_gate()) {
                 CancelTarget::WindowClose => self.finish_window_close(WindowCloseChoice::Cancel),
+                CancelTarget::ServerClose => self.finish_server_close_confirm(false),
                 CancelTarget::LiveTabClose => self.finish_close_tab(false),
                 CancelTarget::Settings => self.finish_settings(false),
                 CancelTarget::NewTerminal => self.finish_new_terminal(false),
@@ -5059,6 +5061,10 @@ impl RemoteWindowState {
                 self.ensure_window_close_dialog_presented();
                 return;
             }
+            WindowCloseRequest::CancelServerClose => {
+                self.finish_server_close_confirm(false);
+                return;
+            }
             WindowCloseRequest::CancelLiveClose => {
                 self.finish_close_tab(false);
                 return;
@@ -7338,11 +7344,19 @@ impl RemoteWindowState {
     }
 
     fn handle_window_keydown(&mut self, key: u32, modifiers: input::ModifierState) -> bool {
-        if self.window_close_dialog.is_open() || self.close_confirmation.is_open() {
+        if self.window_close_dialog.is_open()
+            || self.pending_server_close.is_some()
+            || self.close_confirmation.is_open()
+        {
             match confirm_target(self.focus_gate()) {
                 ConfirmTarget::WindowClose => match key {
                     0x0d => self.finish_window_close(WindowCloseChoice::KeepServerRunning),
                     0x1b => self.finish_window_close(WindowCloseChoice::Cancel),
+                    _ => {}
+                },
+                ConfirmTarget::ServerClose => match key {
+                    0x0d => self.finish_server_close_confirm(true),
+                    0x1b => self.finish_server_close_confirm(false),
                     _ => {}
                 },
                 ConfirmTarget::LiveTabClose => match key {
@@ -7358,14 +7372,6 @@ impl RemoteWindowState {
                     _ => {}
                 },
                 ConfirmTarget::None => {}
-            }
-            return true;
-        }
-        if self.pending_server_close.is_some() {
-            match key {
-                0x0d => self.finish_server_close_confirm(true),
-                0x1b => self.finish_server_close_confirm(false),
-                _ => {}
             }
             return true;
         }
