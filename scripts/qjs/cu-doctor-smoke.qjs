@@ -50,6 +50,19 @@ function invoke(run_directory, executable, arguments) {
   return result.reply.data;
 }
 
+function normalized_capabilities(payload) {
+  // These are live observations, not declaration fields. Keep the public court
+  // aligned with the Rust owner while comparing every canonical declaration.
+  const normalized = JSON.parse(JSON.stringify(payload));
+  ensure(normalized.host_clock !== undefined, "cu_capabilities_host_clock_missing");
+  normalized.host_clock = { normalized: true };
+  if (normalized.host_boot_identity !== undefined
+      && normalized.host_boot_identity.uptime_milliseconds !== undefined) {
+    normalized.host_boot_identity.uptime_milliseconds = 0;
+  }
+  return normalized;
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (let i = 0; i < declared_evidence.length; i = i + 1) { print(declared_evidence[i]); }
@@ -122,7 +135,8 @@ try {
   ensure(doctor.action.performed === false, "cu_doctor_mutated");
   ensure(JSON.stringify(doctor.permissions) === JSON.stringify(permissions.permissions),
          "cu_doctor_permission_drift");
-  ensure(JSON.stringify(doctor.capabilities) === JSON.stringify(capabilities),
+  ensure(JSON.stringify(normalized_capabilities(doctor.capabilities))
+           === JSON.stringify(normalized_capabilities(capabilities)),
          "cu_doctor_capability_drift");
   const expected_status = doctor.checks.windows.status === "available"
     && doctor.checks.displays.status === "available"
