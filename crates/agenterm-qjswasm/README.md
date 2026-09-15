@@ -150,7 +150,8 @@ completion value 投影全程，任何一段掉链子这里都看得见。`e1122
 
 1. **语法认得，能力还没有**——诊断形如「this engine does not support X yet」：
    数组 elision（`[1, , 2]`——hole 不是 `undefined`，引擎没法分辨，所以按名字拒绝
-   而不是二选一）、`class`、`switch`、`for…in`（`9ac2598` 产品入口复测仍拒绝）、`do`/`while`、
+   而不是二选一）、数字分隔符（`1_000`）、`class`、`switch`、
+   `for…in`（`9ac2598` 产品入口复测仍拒绝）、`do`/`while`、
    带标签的模板（`` t`a` ``——**普通模板已经不在这张表上了**，见上）、
    默认 / rest / 解构参数（**箭头函数本身也不在这张表上了**，见上）、
    `**`、可选链首个属性访问之后的 continuation、逗号运算符、BigInt、

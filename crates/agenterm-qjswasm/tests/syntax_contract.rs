@@ -49,6 +49,20 @@ fn nullish_coalescing_compiles_and_is_not_listed_as_rejected() {
 }
 
 #[test]
+fn numeric_separators_remain_a_named_and_documented_rejection() {
+    let error = compile_qjs("return 1_000;")
+        .expect_err("numeric separators remain outside the current product subset");
+    assert!(
+        error.to_string().contains("numeric separators"),
+        "the compile refusal must name the unsupported literal form: {error}"
+    );
+    assert!(
+        rejection_section().contains("数字分隔符（`1_000`）"),
+        "README explicit rejection summary must include the rejected separator form"
+    );
+}
+
+#[test]
 fn namespace_imports_compile_and_are_not_disclaimed_as_a_whole() {
     let resolve = |specifier: &str| match specifier {
         "lib/value" => Some("export const answer = 42;".to_owned()),
