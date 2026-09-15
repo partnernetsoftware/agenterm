@@ -774,6 +774,9 @@ fn arithmetic_is_binary64_so_division_by_zero_is_infinity() {
         returns("return 2147483647 + 1;"),
         JsValue::Number(2147483648.0)
     );
+    assert_eq!(returns("return 0x10;"), JsValue::Number(16.0));
+    assert_eq!(returns("return 0o17;"), JsValue::Number(15.0));
+    assert_eq!(returns("return 0b101;"), JsValue::Number(5.0));
     // `-x` keeps the sign of a zero, which an integer engine cannot express.
     assert_eq!(
         returns("let z = 0; return 1 / -z;"),

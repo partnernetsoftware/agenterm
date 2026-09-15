@@ -393,6 +393,8 @@ agenterm-qjswasm
 │  │      `for…in` and `do`/`while` gaps retain named unsupported diagnostics
 │  │  ├─ [x] `??` is measured through the product seam: only `null` / `undefined`
 │  │  │      select the right operand; `0`, empty String and `false` stay left
+│  │  ├─ [x] hexadecimal, octal and binary number literals execute through the
+│  │  │      product seam; numeric separators retain their named compile refusal
 │  │  ├─ [x] namespace `import * as` is accepted through the product resolver;
 │  │  │      only default, named and dynamic import forms remain in the refusal list
 │  │  ├─ [x] `for…of` over arrays is executable, while String iteration retains a
