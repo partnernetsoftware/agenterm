@@ -21,8 +21,8 @@
 //                  `.` is kept when it is all that is left: `parent("/a")` is
 //                  `"/"`, `parent("./a")` is `"."`.
 //
-// Written against the qjswasm subset: `split`, `startsWith`, `endsWith`,
-// array indexing and `.length` -- no `slice`, no string indexing.
+// Written against the qjswasm String/Array subset; it preserves path-component
+// semantics instead of normalizing through a host-specific path library.
 //
 // Windows separators are not handled. The corpus runs its gates on Unix and
 // the Windows scripts are `.ps1`, so a `\` here would be an assumption rather

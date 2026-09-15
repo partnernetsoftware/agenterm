@@ -180,8 +180,7 @@ function invoke_activate(context, program, registry, endpoint, backend, args) {
   harness.require(output.success, "activate_command_failed:" + output.stdout + output.stderr);
 }
 
-// rh's `bounded_record_text(text, 2048)` for a diagnostic file. The harness
-// version slices (an engine wall); this keeps whole lines up to the limit.
+// Keep diagnostic records readable by truncating only at whole-line boundaries.
 function bounded_lines(text, limit) {
   if (text.length <= limit) { return text; }
   let kept = "";

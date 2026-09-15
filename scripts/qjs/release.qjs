@@ -73,8 +73,7 @@ function valid_version(value) {
   return true;
 }
 
-// The last `limit` characters of `text`, rounded down to whole lines: no
-// `slice` in this engine, so trailing lines are kept while they fit. A last
+// The last `limit` characters of `text`, rounded down to whole lines. A last
 // line that alone exceeds the limit is kept whole rather than dropped.
 function tail_text(text, limit) {
   if (text.length <= limit) { return text; }
