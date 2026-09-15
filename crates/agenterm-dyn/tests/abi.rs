@@ -1046,67 +1046,110 @@ fn the_signature_query_agrees_with_validate_abi_without_needing_arguments() {
     );
 }
 
-/// The reusable handle must return exactly what the one-shot entry returns.
+/// Compare both public entries for one symbol whose ABI contract the caller knows.
+///
+/// # Safety
+///
+/// `signature` and `arguments` must describe `symbol`'s real C ABI, including
+/// every pointer's validity for both calls.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+unsafe fn assert_entry_parity(
+    handle: &LibraryHandle,
+    symbol: &str,
+    signature: AbiSignature<'_>,
+    arguments: &[AbiValue],
+) {
+    let call = NativeCall {
+        library: LIB,
+        symbol,
+        signature,
+        arguments,
+    };
+    // SAFETY: forwarded from this helper's caller.
+    let one_shot = unsafe { invoke_abi(&call) }.expect("one-shot entry accepts the declared ABI");
+    // SAFETY: forwarded from this helper's caller; `handle` names `LIB`.
+    let reused = unsafe { invoke_abi_with_handle(handle, &call) }
+        .expect("handle entry accepts the declared ABI");
+    assert_eq!(one_shot, reused, "{symbol} must agree across entries");
+}
+
+/// The reusable handle must return exactly what the one-shot entry returns for
+/// one representative of every mechanism family.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn the_handle_entry_and_the_one_shot_entry_agree_bit_for_bit() {
     let handle = LibraryHandle::open(LIB).expect("open one reusing handle");
     assert_eq!(handle.library_name(), LIB);
+
     // exact family: `getpid()` is `i32()`.
-    let exact = AbiSignature {
-        result: AbiType::I32,
-        params: &[],
-    };
-    let one_shot = unsafe {
-        invoke_abi(&NativeCall {
-            library: LIB,
-            symbol: "getpid",
-            signature: exact,
-            arguments: &[],
-        })
-    }
-    .expect("one-shot getpid");
-    let reused = unsafe {
-        invoke_abi_with_handle(
+    unsafe {
+        assert_entry_parity(
             &handle,
-            &NativeCall {
-                library: LIB,
-                symbol: "getpid",
-                signature: exact,
-                arguments: &[],
+            "getpid",
+            AbiSignature {
+                result: AbiType::I32,
+                params: &[],
             },
-        )
+            &[],
+        );
     }
-    .expect("getpid through the handle");
-    assert_eq!(one_shot, reused);
+
     // Non-exact family: `void(ptr)` direct-scalar, `free(NULL)`.
-    let void_pointer = AbiSignature {
-        result: AbiType::Void,
-        params: &[AbiType::Pointer],
-    };
-    let arguments = [AbiValue::Pointer(std::ptr::null_mut())];
-    let one_shot = unsafe {
-        invoke_abi(&NativeCall {
-            library: LIB,
-            symbol: "free",
-            signature: void_pointer,
-            arguments: &arguments,
-        })
-    }
-    .expect("one-shot free(NULL)");
-    let reused = unsafe {
-        invoke_abi_with_handle(
+    unsafe {
+        assert_entry_parity(
             &handle,
-            &NativeCall {
-                library: LIB,
-                symbol: "free",
-                signature: void_pointer,
-                arguments: &arguments,
+            "free",
+            AbiSignature {
+                result: AbiType::Void,
+                params: &[AbiType::Pointer],
             },
-        )
+            &[AbiValue::Pointer(std::ptr::null_mut())],
+        );
     }
-    .expect("free(NULL) through the handle");
-    assert_eq!(one_shot, reused);
+
+    // Fixed family: `sysconf(i32) -> isize`.
+    unsafe {
+        assert_entry_parity(
+            &handle,
+            "sysconf",
+            AbiSignature {
+                result: AbiType::Isize,
+                params: &[AbiType::I32],
+            },
+            &[AbiValue::I32(libc::_SC_PAGESIZE)],
+        );
+    }
+
+    // Fixed-pointer family: `uname(void *) -> i32`.
+    let mut name = std::mem::MaybeUninit::<libc::utsname>::zeroed();
+    unsafe {
+        assert_entry_parity(
+            &handle,
+            "uname",
+            AbiSignature {
+                result: AbiType::I32,
+                params: &[AbiType::Pointer],
+            },
+            &[AbiValue::Pointer(name.as_mut_ptr().cast())],
+        );
+    }
+
+    // Pointer-result family: `getcwd(void *, usize) -> void *`.
+    let mut directory = [0_u8; 4096];
+    unsafe {
+        assert_entry_parity(
+            &handle,
+            "getcwd",
+            AbiSignature {
+                result: AbiType::Pointer,
+                params: &[AbiType::Pointer, AbiType::Usize],
+            },
+            &[
+                AbiValue::Pointer(directory.as_mut_ptr().cast()),
+                AbiValue::Usize(directory.len()),
+            ],
+        );
+    }
 }
 
 /// One handle serves repeated calls, including a pointer-result shape.

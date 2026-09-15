@@ -906,7 +906,9 @@ integration.
   table and count are its own. That count is what falsifies "resolved a handle,
   then ran the one-shot entry anyway", which no behavioral assertion can see; the
   matching dyn-side proof is a `cfg(test)` loader-entry delta (N one-shot calls →
-  +N entries; one handle open plus N handle calls → +1). **An OS-level load count
+  +N entries; one handle open plus N handle calls → +1), plus exact/fixed/
+  fixed-pointer/direct-scalar/pointer-result representatives that compare both
+  entries value-for-value. **An OS-level load count
   is still not claimed here**: an already-loaded system library does not move any
   cheap oracle, so proving fewer `dlopen` calls needs its own fixture library in
   its own leaf.

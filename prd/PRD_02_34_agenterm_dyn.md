@@ -420,7 +420,9 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
   载入入口计数按**差值**证明两条路径的相对关系——N 次一次性 `invoke_abi` 使入口计数增长 N，
   一次 `LibraryHandle::open` 加 N 次 `invoke_abi_with_handle` 只增长 1。计数器、访问器与断言全部
   在 `cfg(test)` 内，无 public API、无 feature、发布字节 0。它证明的是**机制载入入口**被进入的
-  次数，**不是** OS 级 `dlopen` 次数（后者仍需独立 fixture library，见 PRD 02.36）。
+  次数，**不是** OS 级 `dlopen` 次数（后者仍需独立 fixture library，见 PRD 02.36）。同一
+  integration court 还让 exact、fixed、fixed-pointer、direct-scalar 与 pointer-result 五族各取
+  一个真实系统符号，逐值证明一次性入口与复用句柄入口回答一致；满表回退不再只靠共享实现推断。
 
 **验收证据（建议口径）**
 
