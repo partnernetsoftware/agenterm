@@ -1799,19 +1799,35 @@ impl UnixApp {
         let result = self.new_terminal_dialog.finish(create);
         match result {
             Ok(Some(params)) => {
-                if let Ok(index) = self.create_tab(
+                let created = self.create_tab(
                     None,
                     params.command_line,
                     params.tab_environment,
                     true,
                     None,
-                ) && let Some(id) = self
-                    .tabs
-                    .iter()
-                    .find(|tab| tab.index == index)
-                    .map(|tab| tab.id)
-                {
-                    self.after_create_tab(id, None);
+                );
+                match created {
+                    Ok(index) => {
+                        self.new_terminal_dialog.complete_create();
+                        if let Some(id) = self
+                            .tabs
+                            .iter()
+                            .find(|tab| tab.index == index)
+                            .map(|tab| tab.id)
+                        {
+                            self.after_create_tab(id, None);
+                        } else {
+                            let error = "New terminal was created without a matching tab";
+                            self.set_status_message(error);
+                        }
+                    }
+                    Err(error) => {
+                        self.new_terminal_dialog
+                            .report_create_failure(error.clone());
+                        self.set_status_message(format!(
+                            "New terminal could not be created: {error}"
+                        ));
+                    }
                 }
             }
             Ok(None) => {}
@@ -4759,21 +4775,38 @@ impl UnixApp {
                                                 text,
                                             ) {
                                                 Ok(Some(params)) => {
-                                                    if let Ok(index) = self.create_tab(
+                                                    let created = self.create_tab(
                                                         None,
                                                         params.command_line,
                                                         params.tab_environment,
                                                         true,
                                                         None,
-                                                    ) && let Some(id) = self
-                                                        .tabs
-                                                        .iter()
-                                                        .find(|tab| tab.index == index)
-                                                        .map(|tab| tab.id)
-                                                    {
-                                                        self.after_create_tab(id, None);
+                                                    );
+                                                    match created {
+                                                        Ok(index) => {
+                                                            self.new_terminal_dialog
+                                                                .complete_create();
+                                                            if let Some(id) = self
+                                                                .tabs
+                                                                .iter()
+                                                                .find(|tab| tab.index == index)
+                                                                .map(|tab| tab.id)
+                                                            {
+                                                                self.after_create_tab(id, None);
+                                                            } else {
+                                                                let error = "New terminal was created without a matching tab";
+                                                                self.set_status_message(error);
+                                                            }
+                                                            None
+                                                        }
+                                                        Err(error) => {
+                                                            self.new_terminal_dialog
+                                                                .report_create_failure(
+                                                                    error.clone(),
+                                                                );
+                                                            Some(IpcResponse::failure(error))
+                                                        }
                                                     }
-                                                    None
                                                 }
                                                 Ok(None) => self
                                                     .new_terminal_dialog

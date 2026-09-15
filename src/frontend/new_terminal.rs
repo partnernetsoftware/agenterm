@@ -145,11 +145,24 @@ impl NewTerminalDialog {
         //     }
         // }
 
-        self.close_without_create();
         Ok(Some(CreateParams {
             command_line,
             tab_environment,
         }))
+    }
+
+    pub(crate) fn complete_create(&mut self) -> bool {
+        if !self.open {
+            return false;
+        }
+        self.close_without_create();
+        true
+    }
+
+    pub(crate) fn report_create_failure(&mut self, message: String) {
+        if self.open {
+            self.last_error = Some(message);
+        }
     }
 
     pub(crate) fn choose_shell(&mut self, choice: NewShellChoice) {
@@ -334,6 +347,8 @@ mod tests {
         let params = dialog.finish(true).unwrap().expect("create params");
         assert!(params.command_line.is_empty());
         assert!(params.tab_environment.is_empty());
+        assert!(dialog.is_open());
+        assert!(dialog.complete_create());
         assert!(!dialog.is_open());
     }
 
@@ -426,7 +441,23 @@ mod tests {
             .expect("create")
             .expect("params");
         assert_eq!(params.command_line[0], primary_shell().program);
+        assert!(dialog.is_open());
+        assert!(dialog.complete_create());
         assert!(!dialog.is_open());
+    }
+
+    #[test]
+    fn downstream_create_failure_preserves_the_dialog_and_drafts() {
+        let mut dialog = NewTerminalDialog::new();
+        dialog.open();
+        dialog.set_initial_command_draft("echo retry".to_owned());
+
+        let _ = dialog.finish(true).unwrap().expect("create params");
+        dialog.report_create_failure("terminal launch failed".to_owned());
+
+        assert!(dialog.is_open());
+        assert_eq!(dialog.initial_command_draft(), "echo retry");
+        assert_eq!(dialog.last_error(), Some("terminal launch failed"));
     }
 
     #[test]

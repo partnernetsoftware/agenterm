@@ -4407,10 +4407,16 @@ impl RemoteWindowState {
                     Ok(())
                 },
             );
-            if result.is_err() {
-                self.last_error =
-                    Some("New terminal could not be created; check its configuration".to_owned());
+            if let Err(error) = result {
+                let message = format!("New terminal could not be created: {error:#}");
+                self.new_terminal_dialog
+                    .report_create_failure(message.clone());
+                self.last_error = Some(message);
+                self.layout();
+                self.window.request_redraw();
+                return;
             }
+            self.new_terminal_dialog.complete_create();
         }
         self.show_new_terminal_controls(false);
         self.show_workspace_controls(true);
