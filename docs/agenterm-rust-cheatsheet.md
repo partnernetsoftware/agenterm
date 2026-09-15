@@ -5495,6 +5495,11 @@ the confirmation and commit the lifecycle effect only after persistence
 succeeds; on failure, retain the user's current surface and make the existing
 diagnostic visible so retry remains possible.
 
+A periodic discovery refresh may retain its last visible snapshot when a
+fresh read fails. An explicit user action must re-read and propagate that
+failure instead of converting it to an empty inventory or acting through a
+cached endpoint; display continuity is not fresh execution authority.
+
 ## Refresh future activation without restarting resident owners
 
 A compatibility command called “runtime refresh” must follow the replacement

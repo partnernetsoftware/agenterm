@@ -5204,8 +5204,11 @@ impl RemoteWindowState {
 
     fn select_server_tab(&mut self, instance: &str) -> Result<()> {
         // Always re-read the live registry on an explicit select — a 2s cache
-        // made clicks look dead after a just-started second server.
-        self.force_refresh_server_tabs();
+        // made clicks look dead after a just-started second server. Periodic
+        // refresh may retain stale chips on a transient read failure, but an
+        // explicit action must not use one of those stale endpoints.
+        self.server_tabs = collect_instance_picker_rows().map_err(anyhow::Error::msg)?;
+        self.server_tabs_refresh_after = Instant::now() + SERVER_TABS_REFRESH;
         // Match bare names and custom: prefixes.
         let row = self
             .server_tabs

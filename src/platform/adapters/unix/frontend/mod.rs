@@ -5887,8 +5887,10 @@ impl ControlHost for UnixApp {
 
     fn select_server_tab(&mut self, instance: &str) -> Result<(), String> {
         // Always re-read on an explicit select: the 2s cache otherwise makes a
-        // click look dead right after a second server starts.
-        self.server_tabs = collect_instance_picker_rows().unwrap_or_default();
+        // click look dead right after a second server starts. Unlike the
+        // periodic refresh, an explicit action must not turn a registry read
+        // failure into an empty list and report the target as merely absent.
+        self.server_tabs = collect_instance_picker_rows()?;
         self.server_tabs_refresh_after = Instant::now() + SERVER_TABS_REFRESH;
         self.select_server_tab_by_instance(instance)?;
         self.request_redraw();
