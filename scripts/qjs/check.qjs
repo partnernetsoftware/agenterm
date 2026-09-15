@@ -341,6 +341,13 @@ function cargo_unit_qjswasm_tool_door_spec(environment) {
   ], 300000, environment, 0);
 }
 
+function cargo_unit_qjswasm_guest_spec(environment) {
+  return spec("cargo", [
+    "test", "--quiet", "--locked",
+    "-p", "agenterm-qjswasm", "--test", "qjs_guest"
+  ], 300000, environment, 0);
+}
+
 function cargo_unit_sql_spec(environment) {
   return spec("cargo", [
     "test", "--quiet", "--locked", "-p", "agenterm-sql"
@@ -661,6 +668,7 @@ function run_gate_retryable_first(context, timing, id, label, command_spec, repo
 }
 
 function run_gate_specs(context, timing, id, label, command_specs, repo, scratch, sequence) {
+  rh.require(command_specs.length > 0, "qualification_gate_specs_empty:" + id);
   print("\n==> " + label);
   const started = rh.now_ms();
   const all_output = [];
@@ -1248,6 +1256,7 @@ gate = run_gate_specs(
     cargo_unit_powershell_compat_spec(build_environment),
     cargo_unit_qjswasm_adversarial_spec(build_environment),
     cargo_unit_qjswasm_tool_door_spec(build_environment),
+    cargo_unit_qjswasm_guest_spec(build_environment),
     cargo_unit_sql_spec(build_environment),
     cargo_unit_lua_spec(build_environment)
   ],
