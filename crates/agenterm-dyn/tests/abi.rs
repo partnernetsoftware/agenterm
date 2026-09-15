@@ -1073,6 +1073,40 @@ unsafe fn assert_entry_parity(
     assert_eq!(one_shot, reused, "{symbol} must agree across entries");
 }
 
+/// Compare the typed refusal from both public entries after a call reaches the
+/// shared library-backed mechanism.
+///
+/// # Safety
+///
+/// If `symbol` resolves and `signature` is supported, `signature` and
+/// `arguments` must describe its real C ABI. The current callers deliberately
+/// refuse before native execution: one names an absent symbol and one declares
+/// an unsupported signature.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+unsafe fn assert_entry_error_parity(
+    handle: &LibraryHandle,
+    symbol: &str,
+    signature: AbiSignature<'_>,
+    arguments: &[AbiValue],
+) -> AbiError {
+    let call = NativeCall {
+        library: LIB,
+        symbol,
+        signature,
+        arguments,
+    };
+    // SAFETY: forwarded from this helper's caller.
+    let one_shot = unsafe { invoke_abi(&call) }.expect_err("one-shot entry must refuse");
+    // SAFETY: forwarded from this helper's caller; `handle` names `LIB`.
+    let reused =
+        unsafe { invoke_abi_with_handle(handle, &call) }.expect_err("handle entry must refuse");
+    assert_eq!(
+        one_shot, reused,
+        "{symbol} refusal must agree across entries"
+    );
+    one_shot
+}
+
 /// The reusable handle must return exactly what the one-shot entry returns for
 /// one representative of every mechanism family.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -1223,18 +1257,8 @@ fn the_handle_keeps_the_mechanism_error_vocabulary() {
         result: AbiType::I32,
         params: &[],
     };
-    let error = unsafe {
-        invoke_abi_with_handle(
-            &handle,
-            &NativeCall {
-                library: LIB,
-                symbol: "agenterm_dyn_absent_symbol",
-                signature: exact,
-                arguments: &[],
-            },
-        )
-    }
-    .expect_err("an absent symbol is refused");
+    let error =
+        unsafe { assert_entry_error_parity(&handle, "agenterm_dyn_absent_symbol", exact, &[]) };
     assert!(
         matches!(error, AbiError::SymbolLookup { .. }),
         "expected SymbolLookup, got {error:?}"
@@ -1259,18 +1283,8 @@ fn the_handle_keeps_the_mechanism_error_vocabulary() {
         result: AbiType::Pointer,
         params: &[AbiType::I32],
     };
-    let error = unsafe {
-        invoke_abi_with_handle(
-            &handle,
-            &NativeCall {
-                library: LIB,
-                symbol: "getpid",
-                signature: unsupported,
-                arguments: &[AbiValue::I32(1)],
-            },
-        )
-    }
-    .expect_err("a shape outside the matrix is refused");
+    let error =
+        unsafe { assert_entry_error_parity(&handle, "getpid", unsupported, &[AbiValue::I32(1)]) };
     assert!(
         matches!(error, AbiError::SignatureUnsupported { .. }),
         "expected SignatureUnsupported, got {error:?}"

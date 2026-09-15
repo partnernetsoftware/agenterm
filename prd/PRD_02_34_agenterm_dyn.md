@@ -424,7 +424,8 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
   initializer replay 语义，不是本复用机制的跨平台产品不变量；PRD 02.36 明确将其排除出
   当前验收，除非出现要求该 OS 事实的具名消费者。同一
   integration court 还让 exact、fixed、fixed-pointer、direct-scalar 与 pointer-result 五族各取
-  一个真实系统符号，逐值证明一次性入口与复用句柄入口回答一致；满表回退不再只靠共享实现推断。
+  一个真实系统符号，逐值证明一次性入口与复用句柄入口回答一致，并对共享层产生的
+  `SymbolLookup` 与 `SignatureUnsupported` 逐错误证明两入口一致；满表回退不再只靠共享实现推断。
 
 **验收证据（建议口径）**
 
