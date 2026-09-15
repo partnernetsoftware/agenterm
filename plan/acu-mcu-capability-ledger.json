@@ -2022,22 +2022,40 @@
       "owner": "agenterm-platform service/session mechanisms plus an ACU durable runtime coordinator",
       "capabilities": [
         {
-          "id": "service.user.lifecycle",
-          "mcu_shape": "service user list|status|bootstrap|start|restart|stop|bootout",
-          "acu_shape": "service list|status; service plan/apply; request/session-bound service bootstrap PLIST|start|restart|stop NAME|bootout NAME --force",
+          "id": "service.user.lifecycle.plan",
+          "mcu_shape": "service user list|status",
+          "acu_shape": "service list|status; service plan OPERATION NAME with an expiring approval bound to exact provider identity and before state",
           "state": "platform-limited",
-          "platforms": {"macos": "native-plan-court-green", "linux": "native-implementation-unqualified", "windows": "typed-unsupported"},
+          "platforms": {"macos": "native-public-mutation-free-plan", "linux": "native-implementation-unqualified", "windows": "typed-unsupported"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-service-smoke", "evidence": ["cu.service-plan"]},
+              "windows": {"result": "pending", "blocker_code": "typed-refusal-court-not-run"}
+            }
+          },
+          "evidence": ["cu.service-plan"],
+          "note": "The macOS public qjswasm court runs with observe authority and proves bounded provider-qualified inventory, exact status and a versioned lifecycle plan. The plan binds complete before state and native incarnation, carries a 60-second approval, reports mutation_performed=false, reserves no request identity and leaves the service state unchanged.",
+          "next": "run the same public inventory, status and mutation-free plan court on native Linux; qualify Windows only with an exact typed-refusal court"
+        },
+        {
+          "id": "service.user.lifecycle.mutate",
+          "mcu_shape": "service user bootstrap|start|restart|stop|bootout",
+          "acu_shape": "service apply; request/session-bound service bootstrap PLIST|start|restart|stop NAME|bootout NAME --force",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-implementation-real-effect-unqualified", "linux": "native-implementation-real-effect-unqualified", "windows": "typed-unsupported"},
           "qualification": {
             "schema": 2,
             "platforms": {
               "linux": {"result": "pending", "blocker_code": "real-service-mutation-court-not-run"},
               "macos": {"result": "pending", "blocker_code": "real-service-mutation-court-not-run"},
-              "windows": {"result": "pending", "blocker_code": "real-service-mutation-court-not-run"}
+              "windows": {"result": "pending", "blocker_code": "typed-refusal-court-not-run"}
             }
           },
-          "evidence": ["cu.service-plan", "cu.service-transaction", "agenterm-cu service transaction state-machine suite", "agenterm-platform service adapter suite"],
-          "note": "Provider-qualified inventory and status plus user-domain plan/apply are native. Plans bind complete state and incarnation; launchd bootstrap also binds the canonical current-user-owned plist, declared Label, size and digest. The one-call compatibility transaction requires caller request/session identity, holds the exact service target lock and is closed by the outer replay ledger before entering plan/apply. Public qjswasm proves no-effect failure, exact retry refusal and lock release; it deliberately does not mutate a real service.",
-          "next": "run explicit apply/readback/rollback on macOS and Linux plus Windows typed-refusal courts; definition-file authoring, registration and caller-supplied KeepAlive or Restart crash-recovery policy remain owned here after runtime.login-service retirement, while Linux enable/disable remains typed-unavailable"
+          "evidence": ["cu.service-transaction"],
+          "note": "Plans bind complete state and incarnation; launchd bootstrap also binds the canonical current-user-owned plist, declared Label, size and digest. The one-call transaction requires caller request/session identity, holds the exact service target lock and is closed by the outer replay ledger before entering plan/apply. Registered public evidence proves only no-effect failure, exact retry refusal and lock release; it deliberately does not qualify a real service mutation.",
+          "next": "run explicit apply/readback/rollback on macOS and Linux plus a Windows typed-refusal court; definition-file authoring, registration and caller-supplied KeepAlive or Restart crash-recovery policy remain owned here after runtime.login-service retirement, while Linux enable/disable remains typed-unavailable"
         },
         {
           "id": "service.system.lifecycle",
