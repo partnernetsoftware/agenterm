@@ -3297,19 +3297,31 @@ impl UnixApp {
                     };
                     let parent_id = self.tabs[position].id;
                     self.sync_composer_buffer_to_tab();
-                    if let Ok(index) = self.create_tab(
+                    let created = self.create_tab(
                         Some("New child".to_owned()),
                         Vec::new(),
                         Vec::new(),
                         true,
                         Some(parent_id),
-                    ) && let Some(id) = self
-                        .tabs
-                        .iter()
-                        .find(|tab| tab.index == index)
-                        .map(|tab| tab.id)
-                    {
-                        self.after_create_tab(id, Some(parent_id));
+                    );
+                    match created {
+                        Ok(index) => {
+                            if let Some(id) = self
+                                .tabs
+                                .iter()
+                                .find(|tab| tab.index == index)
+                                .map(|tab| tab.id)
+                            {
+                                self.after_create_tab(id, Some(parent_id));
+                            } else {
+                                self.set_status_message(
+                                    "Child terminal was created without a matching tab",
+                                );
+                            }
+                        }
+                        Err(error) => {
+                            self.set_status_message(format!("Add child failed: {error}"));
+                        }
                     }
                 }
                 SidebarTabAction::Close => {

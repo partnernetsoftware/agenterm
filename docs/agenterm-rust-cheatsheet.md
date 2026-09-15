@@ -5481,6 +5481,15 @@ the output lease expires; owner teardown needs a distinct internal stop-and-
 release operation so both the child tree and its IPC owner disappear before the
 cleanup receipt becomes green.
 
+## Keep equivalent frontend action failures equally visible
+
+When Windows and Unix expose the same product action through different
+mechanisms, compare the complete success and failure branches, not only the
+resulting state. Never use `if let Ok(...)` for an interactive effect when the
+peer frontend reports its error: project the failure into that frontend's
+existing visible diagnostic surface. Also report a broken post-effect lookup
+without retrying an effect that may already have committed.
+
 ## Refresh future activation without restarting resident owners
 
 A compatibility command called “runtime refresh” must follow the replacement
