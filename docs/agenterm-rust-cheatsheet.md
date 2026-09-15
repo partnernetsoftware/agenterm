@@ -5483,6 +5483,12 @@ cleanup receipt becomes green.
 
 ## Keep equivalent frontend action failures equally visible
 
+Terminal Shift+Click is one shared selection contract even though Unix and
+Windows store different point widths. Keep the farther endpoint of an existing
+completed same-tab selection, move the near endpoint to the click, and bypass
+application mouse reporting. Put the endpoint decision in shared pure logic;
+host adapters own pointer capture, clipboard projection, and focus only.
+
 When Windows and Unix expose the same product action through different
 mechanisms, compare the complete success and failure branches, not only the
 resulting state. Never use `if let Ok(...)` for an interactive effect when the

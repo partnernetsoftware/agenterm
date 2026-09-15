@@ -46,8 +46,8 @@ use crate::{
         },
         selection::{
             AutoScrollDirection, AutoScrollStep, RemotePoint, RemoteSelectionGesture,
-            SelectionGesturePhase, autoscroll_step, remote_visible_row_selection,
-            remote_word_selection,
+            SelectionGesturePhase, ShiftExtensionAnchor, autoscroll_step,
+            remote_visible_row_selection, remote_word_selection, shift_extension_anchor,
         },
         server_strip_ui::{
             SERVER_ADD_WIDTH, SERVER_TAB_STRIP_INSET, SERVER_TABS_REFRESH, ServerCloseConfirm,
@@ -6242,6 +6242,32 @@ impl RemoteWindowState {
         };
         self.set_focus_surface_unchecked(RemoteFocusSurface::Terminal);
         self.window.focus();
+        let extension = self.terminal_selection.as_ref().and_then(|selection| {
+            if !self.pointer_modifiers.shift
+                || selection.tab_id != tab_id
+                || selection.phase() != SelectionGesturePhase::Completed
+            {
+                return None;
+            }
+            let (start, end) = selection.bounds();
+            let anchor = match shift_extension_anchor(
+                (start.row, start.column),
+                (end.row, end.column),
+                (point.row, point.column),
+            ) {
+                ShiftExtensionAnchor::Start => start,
+                ShiftExtensionAnchor::End => end,
+            };
+            Some((anchor, selection.rows, selection.columns))
+        });
+        if let Some((anchor, rows, columns)) = extension {
+            self.set_completed_terminal_selection(tab_id, rows, columns, anchor, point);
+            self.terminal_click_chain.clear();
+            if let Err(error) = self.copy_terminal_selection() {
+                self.last_error = Some(format!("Copy failed: {error:#}"));
+            }
+            return true;
+        }
         if let Err(error) = self.window.set_pointer_capture(true) {
             self.terminal_selection = None;
             self.last_error = Some(format!("Selection failed: {error}"));

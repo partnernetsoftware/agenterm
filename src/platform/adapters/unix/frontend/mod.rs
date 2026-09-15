@@ -92,8 +92,9 @@ use crate::frontend::pointer_input::{
     KeyRequest, PointerActionKind, PointerButtonKind, PointerRequest, RequestedModifiers,
 };
 use crate::frontend::selection::{
-    AutoScrollDirection, AutoScrollStep, SelectionGesture, TerminalPoint, TerminalSelection,
-    autoscroll_step, terminal_selection_text, visible_row_selection, word_selection,
+    AutoScrollDirection, AutoScrollStep, SelectionGesture, ShiftExtensionAnchor, TerminalPoint,
+    TerminalSelection, autoscroll_step, shift_extension_anchor, terminal_selection_text,
+    visible_row_selection, word_selection,
 };
 use crate::frontend::server_strip_ui::{
     SERVER_TABS_REFRESH, ServerCloseConfirm, ServerContextAction, ServerContextMenuRects,
@@ -211,24 +212,6 @@ struct RenderBuffers {
     logical_hash: u64,
     captured: Option<(u32, u32, Vec<u32>)>,
     capture_next: bool,
-}
-
-/// Picks the anchor for a shift-click selection extension: the xterm
-/// convention is to keep whichever endpoint of the existing selection is
-/// farther from the new click, so the click always grows/shrinks the near
-/// edge rather than flipping the whole selection around.
-fn shift_extend_anchor(selection: TerminalSelection, click: TerminalPoint) -> TerminalPoint {
-    let (start, end) = selection.bounds();
-    // Selections are line-major (row, then col), so distance is compared the
-    // same way: row difference dominates, column difference only breaks ties
-    // on the same row.
-    let dist = |point: TerminalPoint| -> (u32, u32) {
-        (
-            u32::from(point.row).abs_diff(u32::from(click.row)),
-            u32::from(point.col).abs_diff(u32::from(click.col)),
-        )
-    };
-    if dist(start) >= dist(end) { start } else { end }
 }
 
 /// FNV-1a over the logical frame outside `exclude` (the terminal viewport,
@@ -3569,7 +3552,15 @@ impl UnixApp {
             && let Some(selection) = self.terminal_selection
             && selection.tab_id == tab_id
         {
-            let anchor = shift_extend_anchor(selection, point);
+            let (start, end) = selection.bounds();
+            let anchor = match shift_extension_anchor(
+                (u32::from(start.row), u32::from(start.col)),
+                (u32::from(end.row), u32::from(end.col)),
+                (u32::from(point.row), u32::from(point.col)),
+            ) {
+                ShiftExtensionAnchor::Start => start,
+                ShiftExtensionAnchor::End => end,
+            };
             if self.set_completed_terminal_selection(tab_id, anchor, point, rows, cols) {
                 self.terminal_click_chain.clear();
                 if let Err(error) = self.copy_terminal_selection() {
@@ -7034,12 +7025,11 @@ mod system_menu_tests {
         GuiLaunchResult, RecentSidebarTextClick, RenderBuffers, ScreenshotTargetDecision,
         TerminalPasteFailure, UNIX_GUI_LAUNCH_POLICY, UNIX_GUI_USAGE, UnixFocusSurface,
         compact_cwd_for_status, gui_help_result, parse_gui_launch_target, scale_frame_nearest,
-        scale_rect_to_frame, screenshot_target_decision, shift_extend_anchor, terminal_paste_bytes,
+        scale_rect_to_frame, screenshot_target_decision, terminal_paste_bytes,
         terminal_paste_target_is_current, workspace_toolbar_snapshot_json,
     };
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     use super::{ToolbarHit, platform_toolbar_action_id};
-    use crate::frontend::selection::{TerminalPoint, TerminalSelection};
     use std::{
         path::Path,
         time::{Duration, Instant},
@@ -7366,65 +7356,6 @@ mod system_menu_tests {
         assert_eq!(
             terminal_paste_bytes("a\rb", true),
             b"\x1b[200~a\rb\x1b[201~"
-        );
-    }
-
-    fn selection(anchor: TerminalPoint, focus: TerminalPoint) -> TerminalSelection {
-        TerminalSelection {
-            tab_id: 1,
-            anchor,
-            focus,
-            dragging: false,
-            moved: true,
-        }
-    }
-
-    #[test]
-    fn shift_extend_anchor_keeps_the_far_endpoint_when_click_is_below_selection() {
-        // Selection spans rows 1..3; a shift-click further down (row 5)
-        // should keep the top of the selection (row 1) as the anchor so the
-        // selection grows downward, xterm-style.
-        let sel = selection(
-            TerminalPoint { row: 1, col: 0 },
-            TerminalPoint { row: 3, col: 4 },
-        );
-        let click = TerminalPoint { row: 5, col: 0 };
-        assert_eq!(
-            shift_extend_anchor(sel, click),
-            TerminalPoint { row: 1, col: 0 }
-        );
-    }
-
-    #[test]
-    fn shift_extend_anchor_flips_when_click_is_above_selection() {
-        // A shift-click above the existing selection is closer to its start,
-        // so the anchor flips to the bottom endpoint (row 3) and the
-        // selection now grows upward from there.
-        let sel = selection(
-            TerminalPoint { row: 1, col: 0 },
-            TerminalPoint { row: 3, col: 4 },
-        );
-        let click = TerminalPoint { row: 0, col: 0 };
-        assert_eq!(
-            shift_extend_anchor(sel, click),
-            TerminalPoint { row: 3, col: 4 }
-        );
-    }
-
-    #[test]
-    fn shift_extend_anchor_breaks_ties_on_same_row_by_column_distance() {
-        // Click lands exactly between start and end rows... use same-row
-        // selection so the tie-break falls to column distance.
-        let sel = selection(
-            TerminalPoint { row: 2, col: 2 },
-            TerminalPoint { row: 2, col: 8 },
-        );
-        // Click closer to the end (col 7) than the start (col 2) keeps start
-        // as the anchor.
-        let click = TerminalPoint { row: 2, col: 7 };
-        assert_eq!(
-            shift_extend_anchor(sel, click),
-            TerminalPoint { row: 2, col: 2 }
         );
     }
 

@@ -107,6 +107,27 @@ pub(crate) struct TerminalSelection {
     pub(crate) moved: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ShiftExtensionAnchor {
+    Start,
+    End,
+}
+
+/// Picks the endpoint retained by an xterm-style shift-click extension.
+/// Rows dominate the distance comparison; columns break same-row ties.
+pub(crate) fn shift_extension_anchor(
+    start: (u32, u32),
+    end: (u32, u32),
+    click: (u32, u32),
+) -> ShiftExtensionAnchor {
+    let distance = |point: (u32, u32)| (point.0.abs_diff(click.0), point.1.abs_diff(click.1));
+    if distance(start) >= distance(end) {
+        ShiftExtensionAnchor::Start
+    } else {
+        ShiftExtensionAnchor::End
+    }
+}
+
 impl TerminalSelection {
     pub(crate) fn bounds(self) -> (TerminalPoint, TerminalPoint) {
         normalize_endpoints(self.anchor, self.focus)
@@ -567,6 +588,22 @@ pub(crate) fn terminal_selection_text(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shift_extension_retains_the_far_endpoint() {
+        assert_eq!(
+            shift_extension_anchor((1, 0), (3, 4), (5, 0)),
+            ShiftExtensionAnchor::Start
+        );
+        assert_eq!(
+            shift_extension_anchor((1, 0), (3, 4), (0, 0)),
+            ShiftExtensionAnchor::End
+        );
+        assert_eq!(
+            shift_extension_anchor((2, 2), (2, 8), (2, 7)),
+            ShiftExtensionAnchor::Start
+        );
+    }
 
     #[test]
     fn click_chain_walks_single_double_triple_and_respects_the_os_hint() {
