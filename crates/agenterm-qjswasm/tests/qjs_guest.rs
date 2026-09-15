@@ -431,7 +431,7 @@ fn the_array_claims_in_this_crates_own_copy() {
     );
 }
 
-/// The five methods this crate's copy claims, executed.
+/// The representative methods this crate's copy claims directly, executed.
 ///
 /// These arrived by a **measured** decision rather than a chosen one: upstream
 /// `research/method-binding/` built three ways of getting the receiver to a
@@ -464,6 +464,16 @@ fn the_method_claims_in_this_crates_own_copy() {
     assert_eq!(
         returns("return \"caf\u{e9}x\".indexOf(\"x\");"),
         JsValue::Number(4.0)
+    );
+    assert_eq!(
+        returns("return \"ab\".padEnd(4, \"x\");"),
+        JsValue::Str("abxx".into())
+    );
+
+    // "数字：toFixed"
+    assert_eq!(
+        returns("return (1.5).toFixed(2);"),
+        JsValue::Str("1.50".into())
     );
 
     // "数组：push、pop、map"
