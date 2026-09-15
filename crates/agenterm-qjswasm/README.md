@@ -162,9 +162,12 @@ completion value 投影全程，任何一段掉链子这里都看得见。`e1122
    因为不存在可跳转的循环目标。
 2. **全局面仍是显式子集，不是完整 JavaScript realm。** 当前 pin 的产品入口已经实测
    `Math.trunc/floor/ceil/round/abs/sqrt/sign/pow/min/max`、`Number(...)`、`parseInt(...)`、
-   `Object.keys(...)` 与 `JSON`；它们不再能被写成“没有这个名字”。`String(...)` 与全局
+   `Number.isInteger(...)`、`Number.isNaN(...)`、`Array.isArray(...)`、`Object.keys(...)`
+   与 `JSON`；它们不再能被写成“没有这个名字”。`Number.isNaN` 不做全局 `isNaN` 的
+   强制转换：字符串不是 NaN。`String(...)` 与全局
    `isNaN(...)` 仍撞具名的 host-function diagnostic，不能因为相邻全局到了就推断整个标准库存在。
-   `Math.*`、`Number`、`parseInt` 和 `Object.keys` 仍是调用点内建，不是可取出的一等值；
+   `Math.*`、`Number`、`Number.isInteger`、`Number.isNaN`、`Array.isArray`、`parseInt`
+   和 `Object.keys` 仍是调用点内建，不是可取出的一等值；
    `JSON` 则是可取值的对象，它的 `parse` / `stringify` 也可作为函数值传递。
    内建属性只有**一个**（`4f6af7c`）：`"ab".length` 现在给正确答案，
    且数的是 **UTF-16 码元**不是 UTF-8 字节——`"café".length` 是 4，`"😀".length` 是 2。

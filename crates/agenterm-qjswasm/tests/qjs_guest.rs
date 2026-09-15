@@ -334,6 +334,16 @@ fn the_capability_claims_in_this_crates_own_copy() {
         returns("let a = 1\nlet b = 2\nreturn a + b"),
         JsValue::Number(3.0)
     );
+    // The explicitly supported global subset used by production QJS courts.
+    assert_eq!(returns("return Array.isArray([]);"), JsValue::Bool(true));
+    assert_eq!(returns("return Array.isArray({});"), JsValue::Bool(false));
+    assert_eq!(returns("return Number.isInteger(3);"), JsValue::Bool(true));
+    assert_eq!(
+        returns("return Number.isInteger(3.5);"),
+        JsValue::Bool(false)
+    );
+    assert_eq!(returns("return Number.isNaN(0 / 0);"), JsValue::Bool(true));
+    assert_eq!(returns("return Number.isNaN('x');"), JsValue::Bool(false));
 }
 
 /// The array half of the same lock, added when the README grew an array
