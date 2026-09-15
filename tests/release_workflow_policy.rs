@@ -393,6 +393,15 @@ fn qjswasm_syntax_contract_tests_are_an_explicit_full_gate_subcourt() {
 }
 
 #[test]
+fn qjswasm_slot_contract_tests_are_an_explicit_full_gate_subcourt() {
+    assert!(CHECK_QJS.contains("function cargo_unit_qjswasm_slot_contracts_spec(environment)"));
+    assert!(CHECK_QJS.contains(
+        "\"--test\", \"allocation_probe\", \"--test\", \"isolation\", \"--test\", \"wasm_slot\""
+    ));
+    assert!(CHECK_QJS.contains("cargo_unit_qjswasm_slot_contracts_spec(build_environment)"));
+}
+
+#[test]
 fn grouped_gates_refuse_an_empty_command_set() {
     assert!(CHECK_QJS.contains("command_specs.length > 0"));
     assert!(CHECK_QJS.contains("qualification_gate_specs_empty:"));
