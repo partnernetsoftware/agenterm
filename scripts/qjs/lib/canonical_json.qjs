@@ -17,13 +17,13 @@
 // accepts any finite number (JCS spells non-integer doubles too) and rejects
 // every non-finite one. `-0` is finite and serializes as `0`, as JCS requires.
 //
-// The engine has no `isFinite`, no `Math`, no `slice` and no
-// `getOwnPropertyNames`; NaN is detected by `x !== x`, infinities by equality
-// against `1/0` and `-1/0`, and `Object.keys` is the whole reflection surface.
+// The engine has no `Number.isFinite` or `Object.getOwnPropertyNames`.
+// `Number.isNaN` handles NaN without coercion, infinities are compared with
+// `1/0` and `-1/0`, and `Object.keys` is the whole reflection surface.
 
 function out_of_domain(value) {
   return value === undefined ||
-    value !== value ||          // NaN
+    Number.isNaN(value) ||      // NaN, without coercion
     value === 1 / 0 ||          // +Infinity
     value === -1 / 0;           // -Infinity
 }
