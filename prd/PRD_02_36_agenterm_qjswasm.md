@@ -395,6 +395,9 @@ agenterm-qjswasm
 │  │  │      select the right operand; `0`, empty String and `false` stay left
 │  │  ├─ [x] namespace `import * as` is accepted through the product resolver;
 │  │  │      only default, named and dynamic import forms remain in the refusal list
+│  │  ├─ [x] `for…of` over arrays is executable, while String iteration retains a
+│  │  │      product-seam runtime tripwire: UTF-16 code-unit indexing cannot impersonate
+│  │  │      the ECMA-262 code-point iterator, so production character tables stay arrays
 │  │  └─ [~] current pin has two parser-owned loop-header misattributions: a missing
 │  │         declaration binding in `for…of` reports unsupported `of`, while valid
 │  │         `const` `for…in` reports a missing initializer before its real unsupported

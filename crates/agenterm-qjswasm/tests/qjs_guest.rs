@@ -1074,6 +1074,32 @@ fn an_uncaught_throw_is_reported_as_a_throw_and_not_as_a_trap() {
     );
 }
 
+#[test]
+fn string_for_of_keeps_its_named_runtime_boundary() {
+    let mut eng = engine();
+    let err = eng
+        .run_once(
+            Guest::Qjs(
+                "let out = ''; for (const character of 'ab') { out = out + character; } return out;",
+            ),
+            None,
+            "main",
+            &[],
+        )
+        .expect_err("for-of over a String remains a named runtime boundary");
+    assert!(
+        matches!(err, QjswasmError::UncaughtThrow(_)),
+        "the runtime boundary must remain a script exception, got {err:?}"
+    );
+    let diagnostic = err.to_string();
+    assert!(
+        diagnostic.contains("for-of over a string is not supported")
+            && diagnostic.contains("UTF-16 code units")
+            && diagnostic.contains("code points ECMA-262 iterates"),
+        "the refusal must preserve the reason String iteration cannot be approximated: {diagnostic}"
+    );
+}
+
 /// A caught `throw` is not a failure at all, and leaves nothing behind that
 /// makes the *next* call look like one.
 ///

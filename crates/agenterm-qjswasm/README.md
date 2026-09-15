@@ -187,6 +187,10 @@ unsupported `in`。因此拒绝表结论仍成立；这条 tripwire 只冻结错
 **运行期缺口，2026-08-25 复核后的准确说法**（上一版这里写「本层两条」，**两条都记错了，
 下面是订正**）：
 
+- **`for…of` 当前只迭代数组，不迭代 String。** `9ac2598` 的产品入口复测
+  `for (const character of "ab")`，得到具名的未捕获异常：String 索引给 UTF-16 码元，
+  而 ECMA-262 String iterator 给 code point，引擎拒绝拿前者冒充后者。生产脚本需要字符表时
+  继续使用数组；这不是 `for…of` 语法缺口，也不能从数组正路径外推 String 已可迭代。
 - **未捕获的 `throw` 曾经报成裸 trap——已修。** 现在报
   `the script threw a value and nothing caught it`，`QjswasmError::UncaughtThrow`
   自成一类，不再是 `Trap`。做法就是上游一直准备好的那条：`explain()` 读
