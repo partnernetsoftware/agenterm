@@ -341,6 +341,17 @@ agenterm-qjswasm
 │  │  │        `collection_items` in `unenforced_budgets`
 │  │  ├─ [ ] `expression_depth` is likewise published without a qjswasm owner; do not map it
 │  │  │      to call depth, activation slots or compile-time nesting because those are different facts
+│  │  │  ├─ semantics: the ceiling bounds the simultaneously active, not-yet-completed expression
+│  │  │  │     evaluation chain during one invocation; function call frames, VM activation slots and
+│  │  │  │     expressions in dead or short-circuited source branches are not charged to this counter
+│  │  │  ├─ ownership: tinyvm-qjs must preserve enough generic compiler/runtime information to enforce
+│  │  │  │     that runtime boundary for both source and reusable packed execution and expose a distinct
+│  │  │  │     exhausted fault; agenterm-qjswasm only supplies the effective value and projects that
+│  │  │  │     fault as `Budget("expression_depth")`
+│  │  │  └─ evidence: exact-limit success and limit-plus-one refusal must cover a deeply evaluated
+│  │  │        expression with shallow call/slot use, deep calls with shallow expressions, and an
+│  │  │        unevaluated deeply nested branch, plus the same refusal from a reusable packed artifact;
+│  │  │        partial or source-only coverage leaves `expression_depth` in `unenforced_budgets`
 │  │  ├─ safe failure: an accepted effective budget must be enforced or named as unenforced;
 │  │  │      requested/effective audit copies are not evidence that an engine consumed the field
 │  │  └─ non-goal: no AgenTerm-specific host import, memory-page approximation or source-only limit
