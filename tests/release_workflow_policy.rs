@@ -1453,6 +1453,18 @@ fn six_cell_orchestrators_reject_surplus_arguments_instead_of_widening_scope() {
 }
 
 #[test]
+fn six_cell_qualify_refuses_contradictory_run_selection_instead_of_last_one_wins() {
+    assert!(SIX_CELL_QUALIFY_QJS.contains("qualify_build_flag_conflict"));
+    assert!(SIX_CELL_QUALIFY_QJS.contains("qualify_runners_duplicate"));
+    assert!(SIX_CELL_QUALIFY_QJS.contains("qualify_profile_duplicate"));
+    assert!(SIX_CELL_QUALIFY_QJS.contains("build_selector"));
+    assert!(SIX_CELL_QUALIFY_QJS.contains("value === \"--no-build\""));
+    assert!(SIX_CELL_QUALIFY_QJS.contains("value === \"--runners\""));
+    assert!(SIX_CELL_QUALIFY_QJS.contains("build: build_state,"));
+    assert!(SIX_CELL_QUALIFY_QJS.contains("runners: runners_path,"));
+}
+
+#[test]
 fn six_cell_delivery_documents_the_profile_directory_it_reads() {
     assert!(!PACKAGE_SIX_CELL_QJS.contains("target/qualification/six-cell/<triple>"));
     assert!(PACKAGE_SIX_CELL_QJS.contains("target/<triple>/<leaf>/"));
