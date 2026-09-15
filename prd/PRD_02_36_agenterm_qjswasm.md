@@ -311,6 +311,10 @@ agenterm-qjswasm
 │  ├─ [x] the public string-byte ceiling governs both host-door answers and returned guest strings; no accepted override falls back to the engine default
 │  ├─ [x] the published invocation call-depth ceiling replaces tinyvm's independent default and is the limit the guest actually runs under
 │  ├─ [~] remaining public budget truth requires generic qjs runtime mechanisms
+│  │  ├─ [x] audit schema 2 preserves requested/effective numeric values and adds the
+│  │  │      backend-specific `unenforced_budgets` list; qjswasm names
+│  │  │      `expression_depth` and `collection_items`, and the public JSONL court proves
+│  │  │      an accepted collection ceiling can coexist only with that explicit disclosure
 │  │  ├─ [ ] `collection_items` is accepted by CLI/task manifests and published in audit receipts,
 │  │  │      but qjswasm does not yet enforce it; the mechanism must cover literals, push,
 │  │  │      sparse indexed growth, concat/map and JSON parse under the same per-invocation
@@ -486,6 +490,7 @@ flowchart LR
   WASM["standard .wasm bytes"]
   LOAD{"tinyvm validate<br/>Limits accepted?"}
   SLOT["persistent bounded slot"]
+  BUDGETAUDIT["audit schema 2<br/>requested · effective · unenforced by backend"]
   DOOR["versioned Script host door"]
   NATIVEPOLICY["Native Importer declaration schema<br/>nullability · guest-span checks"]
   DECL["import lowering plan<br/>target · ABI values · storage · result"]
@@ -556,6 +561,7 @@ flowchart LR
   SINGLE -. bytes · modules · deadline · cancel<br/>canonical read/charge cache .-> COMP
   UP -. exact git rev .-> COMP & LOAD
   LOAD -->|yes| SLOT --> DOOR --> EXPLICIT --> PRODUCT --> RECEIPT
+  SLOT -. execution evidence .-> BUDGETAUDIT --> RECEIPT
   DOOR --> NATIVEPOLICY --> DYNABI --> RECEIPT
   NATIVEPOLICY -. JSON caller has no guest span · one host region per ptr .-> JSONREGION --> DYNABI
   CUCALLER -->|typed command / reply| SCRIPTRUNTIME --> DOOR

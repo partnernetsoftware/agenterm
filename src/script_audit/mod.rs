@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use crate::platform::services::supervisor_audit as platform;
 
-const AUDIT_SCHEMA_VERSION: u32 = 1;
+const AUDIT_SCHEMA_VERSION: u32 = 2;
 const MAX_RECORD_BYTES: usize = 16 * 1024;
 const MAX_ACTIVE_BYTES: u64 = 4 * 1024 * 1024;
 static PROCESS_AUDIT_LOCK: Mutex<()> = Mutex::new(());
@@ -31,6 +31,7 @@ pub(crate) struct AuditBudgets {
     pub(crate) capture_bytes: usize,
     pub(crate) event_items: usize,
     pub(crate) wait_time_ms: u64,
+    pub(crate) host_operations: usize,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -56,6 +57,7 @@ pub(crate) struct AuditInvocation {
     pub(crate) effective_capabilities: Vec<String>,
     pub(crate) requested_budgets: AuditBudgets,
     pub(crate) effective_budgets: AuditBudgets,
+    pub(crate) unenforced_budgets: Vec<&'static str>,
     pub(crate) broker_operation_ids: Vec<String>,
 }
 
@@ -85,6 +87,7 @@ struct AuditRecord<'a> {
     effective_capabilities: &'a [String],
     requested_budgets: &'a AuditBudgets,
     effective_budgets: &'a AuditBudgets,
+    unenforced_budgets: &'a [&'static str],
     broker_operation_ids: &'a [String],
     duration_ms: u64,
     result_class: &'a str,
@@ -145,6 +148,7 @@ impl ScriptAuditSink {
             effective_capabilities: &invocation.effective_capabilities,
             requested_budgets: &invocation.requested_budgets,
             effective_budgets: &invocation.effective_budgets,
+            unenforced_budgets: &invocation.unenforced_budgets,
             broker_operation_ids: &invocation.broker_operation_ids,
             duration_ms: outcome.duration_ms,
             result_class: &outcome.result_class,
@@ -243,6 +247,7 @@ mod tests {
             capture_bytes: 1024,
             event_items: 16,
             wait_time_ms: 100,
+            host_operations: 16,
         };
         AuditInvocation {
             invocation_id: "audit-unit".to_owned(),
@@ -256,6 +261,7 @@ mod tests {
             effective_capabilities: vec!["unrestricted_local".to_owned()],
             requested_budgets: budgets.clone(),
             effective_budgets: budgets,
+            unenforced_budgets: vec!["expression_depth", "collection_items"],
             broker_operation_ids: Vec::new(),
         }
     }
@@ -290,6 +296,7 @@ mod tests {
             effective_capabilities: &invocation.effective_capabilities,
             requested_budgets: &invocation.requested_budgets,
             effective_budgets: &invocation.effective_budgets,
+            unenforced_budgets: &invocation.unenforced_budgets,
             broker_operation_ids: &invocation.broker_operation_ids,
             duration_ms: 12,
             result_class: "success",
@@ -314,6 +321,9 @@ mod tests {
             assert!(!json.contains(forbidden), "{forbidden} leaked");
         }
         assert!(json.contains("\"source_fingerprint\""));
+        assert!(
+            json.contains("\"unenforced_budgets\":[\"expression_depth\",\"collection_items\"]")
+        );
     }
 
     #[test]

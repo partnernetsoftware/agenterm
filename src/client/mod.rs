@@ -2562,6 +2562,7 @@ fn run_script_command_with_context(
         effective_capabilities: capabilities,
         requested_budgets: audit_budgets(&budgets),
         effective_budgets: audit_budgets(&budgets),
+        unenforced_budgets: audit_unenforced_budgets(operation, &source_label),
         broker_operation_ids: Vec::new(),
     };
     let audit_sink = match ScriptAuditSink::discover() {
@@ -4163,7 +4164,27 @@ fn audit_budgets(budgets: &ScriptBudgets) -> AuditBudgets {
         capture_bytes: budgets.capture_bytes,
         event_items: budgets.event_items,
         wait_time_ms: budgets.wait_time_ms,
+        host_operations: budgets.host_operations,
     }
+}
+
+const NO_ENGINE_BUDGET_NAMES: &[&str] = &[
+    "operations",
+    "call_depth",
+    "expression_depth",
+    "collection_items",
+    "string_bytes",
+    "output_bytes",
+    "host_operations",
+];
+
+fn audit_unenforced_budgets(operation: ScriptOperation, source_label: &str) -> Vec<&'static str> {
+    if operation == ScriptOperation::Api {
+        return NO_ENGINE_BUDGET_NAMES.to_vec();
+    }
+    crate::script_backend::ScriptBackend::resolve(source_label)
+        .map(|backend| backend.unenforced_budget_names().to_vec())
+        .unwrap_or_else(|_| NO_ENGINE_BUDGET_NAMES.to_vec())
 }
 
 fn audit_duration_ms(started: Instant) -> u64 {

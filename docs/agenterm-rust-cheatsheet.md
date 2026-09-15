@@ -4437,6 +4437,15 @@ file read still fails at the engine's 1 MiB default. Pin both cases in a unit
 test: no override preserves the engine default, while an explicit bounded
 override reaches the native limiter exactly.
 
+An audit copy of a numeric budget is likewise not proof that the invocation
+path enforced it. Keep accepted numbers in the requested/effective objects for
+wire compatibility, and publish a stable backend-specific
+`unenforced_budgets` list for every field that no layer consumes. Define that
+list across the whole invocation path: worker, supervisor, broker and engine
+ceilings count as enforcement, while parser range validation does not. When an
+engine uses one observable ceiling for two fields, document that representative
+mapping at the adapter instead of claiming either field disappeared.
+
 Cancellation must cover construction-time guest execution as well as exported
 calls. A Wasm start section runs while a slot is being instantiated, before
 the caller can receive or cancel a published handle, so borrow the same

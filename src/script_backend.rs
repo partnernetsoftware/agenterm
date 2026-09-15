@@ -111,6 +111,37 @@ impl std::fmt::Display for BackendRefusal {
 }
 
 impl ScriptBackend {
+    /// Public budget fields accepted by the invocation contract but not
+    /// consumed anywhere along this backend's execution path.
+    ///
+    /// This is deliberately about the whole invocation path, not merely the
+    /// engine adapter. Common worker, supervisor, and broker ceilings therefore
+    /// do not appear here. Keep the order aligned with `ScriptBudgets` so audit
+    /// records remain stable and easy to compare.
+    pub(crate) const fn unenforced_budget_names(self) -> &'static [&'static str] {
+        match self {
+            #[cfg(feature = "script-lua")]
+            Self::Lua => &[
+                "operations",
+                "call_depth",
+                "expression_depth",
+                "collection_items",
+                "string_bytes",
+                "output_bytes",
+                "host_operations",
+            ],
+            #[cfg(feature = "script-sql")]
+            Self::Sql => &[
+                "operations",
+                "call_depth",
+                "expression_depth",
+                "host_operations",
+            ],
+            #[cfg(feature = "script-qjswasm")]
+            Self::Qjswasm => &["expression_depth", "collection_items"],
+        }
+    }
+
     /// Every backend name the product still accepts, independent of which
     /// ones this build compiled in. `from_name`'s arms are `#[cfg]`-gated, so
     /// without this list a name belonging to an absent backend is
@@ -371,6 +402,46 @@ mod tests {
                 "{backend:?} is servable and must be listed"
             );
         }
+    }
+
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn qjswasm_names_only_the_two_public_budgets_it_does_not_enforce() {
+        assert_eq!(
+            ScriptBackend::Qjswasm.unenforced_budget_names(),
+            ["expression_depth", "collection_items"]
+        );
+    }
+
+    #[cfg(feature = "script-lua")]
+    #[test]
+    fn lua_names_every_engine_layer_budget_it_does_not_receive() {
+        assert_eq!(
+            ScriptBackend::Lua.unenforced_budget_names(),
+            [
+                "operations",
+                "call_depth",
+                "expression_depth",
+                "collection_items",
+                "string_bytes",
+                "output_bytes",
+                "host_operations",
+            ]
+        );
+    }
+
+    #[cfg(feature = "script-sql")]
+    #[test]
+    fn sql_credits_its_documented_shared_output_and_string_ceiling() {
+        assert_eq!(
+            ScriptBackend::Sql.unenforced_budget_names(),
+            [
+                "operations",
+                "call_depth",
+                "expression_depth",
+                "host_operations",
+            ]
+        );
     }
 
     /// **There is no default.** Absent and blank are refusals that say so,
