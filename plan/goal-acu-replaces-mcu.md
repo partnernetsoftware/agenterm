@@ -1077,16 +1077,17 @@ cancellation must preserve an authoritative reply, and every remaining native
 wait stays under the Script worker's hard-containment boundary until it owns
 phase-aware cancellation evidence.
 
-The latest report contains 67 blockers: zero capability gaps, 11 available
-leaves without registered evidence and 56 incomplete schema-2 platform
-qualifications. The count rose because the old composite
+The current blocker count is owned by the generated `acu-retirement-readiness`
+report rather than copied into this living goal. The queue now includes
+explicit capability gaps, available leaves without registered evidence and
+incomplete schema-2 platform qualifications. It grew when the old composite
 `browser.profile.inventory-open` row was split into separately falsifiable
 inventory and actuation leaves; the synthetic-HOME inventory court cannot
 qualify browser launch, focus or live-window read-back. In particular,
-`process.signal.privileged` already has a public typed plan/apply surface and
-Linux/macOS protected-provider implementations; its missing public apply courts,
-release-size evidence and Windows provider are platform qualification debt.
-Plan-only evidence and ordinary unprivileged signal evidence cannot qualify it.
+`process.signal.privileged.plan` is independently qualified by its public
+mutation-free court, while `process.signal.privileged.apply` retains the public
+apply-court, release-size and Windows-provider qualification debt. Plan-only
+evidence and ordinary unprivileged signal evidence never qualify the apply leaf.
 The new `cu.device-screenshot-inventory` court closes only the bounded
 host-camera/usbmux/source-list evidence alert: zero devices is a valid observed
 inventory, Linux/Windows must refuse with `device_capture_unsupported`, and PNG
