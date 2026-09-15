@@ -571,7 +571,7 @@ JSON 调用者**没有客人线性内存**可指，所以指针参数位置收�
 | 谁 | 拥有什么 |
 |----|----------|
 | 宿主（门） | 地址、对齐、零填充、生命周期。容量向上取整到 16 字节单元（`long double` / `max_align_t` 在两套仓库 ABI 上都够），**对齐在分配本身**而不只在结构体上；输入拷到前部，调用返回即丢弃 |
-| 调用者 | 宽度与终止契约（`capacity` 必填正整数且 ≥ `bytes.len()`、`termination`、`output`），以及**够大的 pointee**——默认情况下门不知道被选中的 C 符号会写多少字节；当前进程的标准 `uname`（以及 macOS 上已证明等价的 `libSystem.B.dylib` 镜像）是例外，目标平台能用 `sizeof(struct utsname)` 证明其固定下限 |
+| 调用者 | 宽度与终止契约（`capacity` 必填正整数且 ≥ `bytes.len()`、`termination`、`output`），以及**够大的 pointee**——默认情况下门不知道被选中的 C 符号会写多少字节；精确已知的系统契约是例外：`uname` 使用 `sizeof(struct utsname)`，当前进程的 `getrusage` 使用 `sizeof(struct rusage)` |
 
 - **没有任何东西活过一次调用**：答案里没有地址、handle、registry、digest 或客人偏移，
   也**没有跨调用生命周期**；每个指针位置各要一条自己的 region。
@@ -584,8 +584,7 @@ JSON 调用者**没有客人线性内存**可指，所以指针参数位置收�
   读回失败时 **native status 保留在错误里**：拒绝一个编码契约不该抹掉 C 的结果。
 - 六个稳定码：`native_region_required` · `native_region_shape_invalid` · `native_region_too_large`
   · `native_region_unterminated` · `native_region_not_utf8` ·
-  `native_region_below_known_minimum`。最后一个只细化当前进程的标准
-  `uname|i32(ptr)`：当前进程声明以及 macOS 的 `libSystem.B.dylib` 镜像声明若小于本目标 `sizeof(struct utsname)`，均在装载或调用前拒绝；
+  `native_region_below_known_minimum`。最后一个只细化两个精确系统契约：当前进程声明以及 macOS 的 `libSystem.B.dylib` 镜像声明的 `uname|i32(ptr)` 使用本目标 `sizeof(struct utsname)`；当前进程的 `getrusage|i32(i32,ptr)` 使用 `sizeof(struct rusage)`。小于对应宽度的 region 均在装载或调用前拒绝；
   未知符号与其它已接纳形状仍按调用者声明的 pointee 契约执行，不构成符号白名单。
 - **物化之前先按最坏编码预算**：整次调用的 capacity 总和与「JSON 最坏编码上界」（`nul`+`text`
   每字节 ≤ 6 字节的 `\u00XX`、字节数组每字节 ≤ 4，加固定信封余量）在一趟 preflight 里对照

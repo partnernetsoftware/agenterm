@@ -255,16 +255,14 @@ pub enum NativeDoorError {
         index: usize,
         native_status: i32,
     },
-    /// A known fixed-width `uname` pointee was handed a region smaller than
-    /// `sizeof(struct utsname)` on this target.
+    /// A known fixed-width pointee was handed a region smaller than the
+    /// corresponding target type.
     ///
-    /// `uname` is the one admitted symbol this door has a known fixed width
-    /// for, so that width is a fact about the target rather than something the
-    /// caller can state in the call. It is not the only admitted pointer shape
-    /// without a length argument; it is the only one whose written width this
-    /// target reports as a compile-time fact. Everything outside this
-    /// refinement keeps the caller-owned pointee contract: an unknown symbol
-    /// with the same signature is never refused by this rule.
+    /// Each admitted entry is an exact symbol, signature and proved image
+    /// spelling whose written width this target reports as a compile-time
+    /// fact. Everything outside that refinement keeps the caller-owned pointee
+    /// contract: an unknown symbol with the same signature is never refused by
+    /// this rule.
     NativeRegionBelowKnownMinimum {
         index: usize,
         requested: usize,
@@ -476,7 +474,7 @@ impl fmt::Display for NativeDoorError {
             } => {
                 write!(
                     f,
-                    "argument {index} region capacity {requested} is below the {minimum} byte minimum for `{symbol}` on this target, which takes no length argument"
+                    "argument {index} region capacity {requested} is below the {minimum} byte minimum for `{symbol}` on this target"
                 )
             }
             Self::LibraryLoad { library, message } => {
@@ -1431,15 +1429,8 @@ fn preflight_region_plans(plans: &[RegionPlan], maximum: usize) -> Result<(), Na
     Ok(())
 }
 
-/// The one admitted symbol this door has a known fixed width for.
-///
-/// `uname` writes a whole `struct utsname`, and its C prototype offers the
-/// caller no argument to bound that write. It is not the only admitted
-/// pointer shape without a length argument - six of the ten served shapes have
-/// none - but it is the only one whose written width this target reports as a
-/// compile-time fact, so for the other five the caller-owned pointee contract
-/// is the whole answer and this refinement says nothing about them.
-const KNOWN_MINIMUM_SYMBOL: &str = "uname";
+const UNAME_SYMBOL: &str = "uname";
+const GETRUSAGE_SYMBOL: &str = "getrusage";
 
 /// Whether this declaration names an image whose `uname` contract is known.
 ///
@@ -1447,22 +1438,46 @@ const KNOWN_MINIMUM_SYMBOL: &str = "uname";
 /// is the platform image used by this crate's native fixtures for the same
 /// system C surface. Other named libraries remain open-world declarations: a
 /// matching symbol spelling does not prove that they use `struct utsname`.
-fn is_known_minimum_library(library: &str) -> bool {
+fn is_known_uname_library(library: &str) -> bool {
     library.is_empty() || (cfg!(target_os = "macos") && library == "libSystem.B.dylib")
 }
 
-/// `sizeof(struct utsname)` on the current Unix target.
-///
-/// `None` where the symbol does not exist, which is every non-Unix target:
-/// there is no `uname` to call, so there is no minimum to enforce and the
-/// caller-owned contract continues unchanged.
+struct KnownRegionMinimum {
+    plan_index: usize,
+    argument_index: usize,
+    minimum: usize,
+    symbol: &'static str,
+}
+
+/// One exact callee contract whose pointee width the current target defines.
 #[cfg(unix)]
-const fn known_region_minimum() -> Option<usize> {
-    Some(std::mem::size_of::<libc::utsname>())
+fn known_region_minimum(spec: &NativeSpec) -> Option<KnownRegionMinimum> {
+    if spec.result != NativeType::I32 {
+        return None;
+    }
+    match (spec.symbol.as_str(), spec.parameters.as_slice()) {
+        (UNAME_SYMBOL, [NativeType::Pointer]) if is_known_uname_library(&spec.library) => {
+            Some(KnownRegionMinimum {
+                plan_index: 0,
+                argument_index: 0,
+                minimum: std::mem::size_of::<libc::utsname>(),
+                symbol: UNAME_SYMBOL,
+            })
+        }
+        (GETRUSAGE_SYMBOL, [NativeType::I32, NativeType::Pointer]) if spec.library.is_empty() => {
+            Some(KnownRegionMinimum {
+                plan_index: 0,
+                argument_index: 1,
+                minimum: std::mem::size_of::<libc::rusage>(),
+                symbol: GETRUSAGE_SYMBOL,
+            })
+        }
+        _ => None,
+    }
 }
 
 #[cfg(not(unix))]
-const fn known_region_minimum() -> Option<usize> {
+fn known_region_minimum(_spec: &NativeSpec) -> Option<KnownRegionMinimum> {
     None
 }
 
@@ -1477,29 +1492,18 @@ fn check_known_region_minimum(
     spec: &NativeSpec,
     plans: &[RegionPlan],
 ) -> Result<(), NativeDoorError> {
-    // Only a proved platform image, only the one name, and only the exact
-    // signature that makes the first parameter the whole pointee. An arbitrary
-    // library that exports a symbol called `uname` is a different contract, so
-    // it keeps the caller-owned rule.
-    if !is_known_minimum_library(&spec.library)
-        || spec.symbol != KNOWN_MINIMUM_SYMBOL
-        || spec.result != NativeType::I32
-        || spec.parameters.as_slice() != [NativeType::Pointer]
-    {
-        return Ok(());
-    }
-    let Some(minimum) = known_region_minimum() else {
+    let Some(known) = known_region_minimum(spec) else {
         return Ok(());
     };
-    let Some(plan) = plans.first() else {
+    let Some(plan) = plans.get(known.plan_index) else {
         return Ok(());
     };
-    if plan.capacity < minimum {
+    if plan.capacity < known.minimum {
         return Err(NativeDoorError::NativeRegionBelowKnownMinimum {
-            index: 0,
+            index: known.argument_index,
             requested: plan.capacity,
-            minimum,
-            symbol: KNOWN_MINIMUM_SYMBOL,
+            minimum: known.minimum,
+            symbol: known.symbol,
         });
     }
     Ok(())
@@ -3039,6 +3043,62 @@ mod json_adapter_tests {
         let answer: serde_json::Value = serde_json::from_str(&answer).expect("result JSON");
         assert_eq!(answer["value"], serde_json::json!(0));
         assert_eq!(answer["type"], serde_json::json!("i32"));
+    }
+
+    /// `getrusage` writes one target-defined `struct rusage`. The selector is
+    /// not a byte count, so the exact callee contract owns this bound rather
+    /// than a rule inferred from the shared `i32(i32,ptr)` ABI shape.
+    #[cfg(unix)]
+    #[test]
+    fn getrusage_is_refused_below_its_target_struct_width() {
+        let minimum = std::mem::size_of::<libc::rusage>();
+        let spec =
+            parse_native_spec(b"|getrusage|i32(i32,ptr)").expect("the platform declaration parses");
+        let plan = RegionPlan::from_json(
+            1,
+            &serde_json::json!({
+                "region": {
+                    "capacity": minimum - 1,
+                    "termination": "raw",
+                    "output": "bytes"
+                }
+            }),
+        )
+        .expect("the region plan is otherwise valid");
+        assert_eq!(
+            check_known_region_minimum(&spec, std::slice::from_ref(&plan)),
+            Err(NativeDoorError::NativeRegionBelowKnownMinimum {
+                index: 1,
+                requested: minimum - 1,
+                minimum,
+                symbol: "getrusage",
+            })
+        );
+    }
+
+    /// A same-spelled export in an arbitrary image does not inherit the
+    /// current process's `struct rusage` contract.
+    #[cfg(unix)]
+    #[test]
+    fn getrusage_in_an_unknown_library_keeps_the_caller_owned_contract() {
+        let minimum = std::mem::size_of::<libc::rusage>();
+        let spec = parse_native_spec(b"other-image|getrusage|i32(i32,ptr)")
+            .expect("the arbitrary declaration parses");
+        let plan = RegionPlan::from_json(
+            1,
+            &serde_json::json!({
+                "region": {
+                    "capacity": minimum - 1,
+                    "termination": "raw",
+                    "output": "bytes"
+                }
+            }),
+        )
+        .expect("the region plan is otherwise valid");
+        assert_eq!(
+            check_known_region_minimum(&spec, std::slice::from_ref(&plan)),
+            Ok(())
+        );
     }
 
     /// The refinement is a fact about one symbol, not a rule about a shape.

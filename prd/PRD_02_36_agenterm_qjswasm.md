@@ -231,6 +231,9 @@ agenterm-qjswasm
 │  │  │  │     minimum (`sizeof(struct utsname)`), so a smaller JSON region refuses before
 │  │  │  │     allocation/load/call; arbitrary same-spelled symbols in other named libraries remain
 │  │  │  │     caller-owned and every other unmatched symbol remains fully admitted
+│  │  │  ├─ the same exact-contract refinement covers current-process
+│  │  │  │     `getrusage|i32(i32,ptr)` with `sizeof(struct rusage)`; its selector is not treated as
+│  │  │  │     a length, and the shared ABI shape gains no general width rule
 │  │  │  ├─ rejected hardening: a `(target,library,symbol,signature)` pointee table would validate
 │  │  │  │     only a closed known-symbol set and refuse every other import, turning robustness into
 │  │  │  │     a symbol allowlist; arbitrary native-call containment belongs at the worker boundary
@@ -1025,10 +1028,12 @@ integration.
   position, and both nullable prototypes stay in this crate's catalog while dyn
   receives the single machine-level pointer. The open-world exception is the
   current-process standard `uname|i32(ptr)` and, on macOS, its proved
-  `libSystem.B.dylib` mirror: this target provides
-  `sizeof(struct utsname)`, so a smaller region is refused before allocation,
-  loading or invocation. This known fact does not gate unknown symbols or any
-  other admitted shape; their pointee width remains caller-owned.
+  `libSystem.B.dylib` mirror: this target provides `sizeof(struct utsname)`.
+  The second exact contract is current-process `getrusage|i32(i32,ptr)`, whose
+  pointee uses `sizeof(struct rusage)`; the selector is not interpreted as a
+  byte count. A smaller region is refused before allocation, loading or
+  invocation. These known facts do not gate unknown symbols or any other
+  admitted shape; their pointee width remains caller-owned.
 - Six stable codes are the whole region refusal surface:
   `native_region_required`, `native_region_shape_invalid`,
   `native_region_too_large`, `native_region_unterminated` and
