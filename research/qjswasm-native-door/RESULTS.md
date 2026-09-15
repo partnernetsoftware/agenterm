@@ -84,7 +84,7 @@ rg -n 'NativeType::(I32|U32|I64|U64|Isize|Usize|F64)|invoke_[0-6]' crates/agente
 
 | 层 | 状态 |
 |---|---|
-| **L1** | **未测定** |
+| **L1** | **本节未测定；后续 release 测量见 §F12–§F15** |
 | **L2** | **未测定** |
 | **L3** | **未测定** |
 
@@ -289,6 +289,10 @@ find target/native-door-size/build-before/release/deps -maxdepth 1 \
   -type f -name 'libagenterm_qjswasm-*.rlib' -print
 find target/native-door-size/build-after/release/deps -maxdepth 1 \
   -type f -name 'libagenterm_qjswasm-*.rlib' -print
+test "$(find target/native-door-size/build-before/release/deps -maxdepth 1 \
+  -type f -name 'libagenterm_qjswasm-*.rlib' | wc -l)" -eq 1
+test "$(find target/native-door-size/build-after/release/deps -maxdepth 1 \
+  -type f -name 'libagenterm_qjswasm-*.rlib' | wc -l)" -eq 1
 stat -f '%z %N' target/native-door-size/build-{before,after}/release/deps/libagenterm_qjswasm-*.rlib
 shasum -a 256 target/native-door-size/build-{before,after}/release/deps/libagenterm_qjswasm-*.rlib
 ```
