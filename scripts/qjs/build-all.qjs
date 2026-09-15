@@ -111,13 +111,18 @@ rh.require(args.length >= 1, "expected: REPO [PROFILE]");
 const repo = rh.absolute(args[0]);
 
 let profile = "release-fast";
-if (args.length >= 2) {
-  const requested = "" + args[1];
-  rh.require(
-    requested === "release" || requested === "release-fast" || requested === "dev",
-    "build_all_profile:" + requested
-  );
-  profile = requested;
+let profile_set = 0;
+let index = 1;
+while (index < args.length) {
+  const value = "" + args[index];
+  if (value === "release" || value === "release-fast" || value === "dev") {
+    rh.require(profile_set === 0, "build_all_profile_duplicate");
+    profile = value;
+    profile_set = 1;
+  } else {
+    throw "build_all_unknown_argument:" + value;
+  }
+  index = index + 1;
 }
 
 rh.require(env_has("AGENTERM_BOOTSTRAP_WORKER") === 1, "build_all_bootstrap_worker_missing");

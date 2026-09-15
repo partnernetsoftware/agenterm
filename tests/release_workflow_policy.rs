@@ -1429,6 +1429,30 @@ fn build_qjs_marks_bounded_child_captures_as_incomplete() {
 }
 
 #[test]
+fn six_cell_orchestrators_reject_surplus_arguments_instead_of_widening_scope() {
+    assert!(BUILD_ALL_QJS.contains("build_all_unknown_argument:"));
+    assert!(BUILD_ALL_QJS.contains("build_all_profile_duplicate"));
+    assert!(!BUILD_ALL_QJS.contains("if (args.length >= 2)"));
+    assert!(BUILD_QJS.contains("build_unknown_argument:"));
+    assert!(SIX_CELL_QUALIFY_QJS.contains("qualify_unknown_argument:"));
+    assert!(SIX_CELL_QUALIFY_QJS.contains("qualify_profile_duplicate"));
+
+    for task_id in ["client-build-all", "six-cell-qualify"] {
+        let task = TASKS["tasks"]
+            .as_array()
+            .expect("task list must be an array")
+            .iter()
+            .find(|task| task["id"].as_str() == Some(task_id))
+            .unwrap_or_else(|| panic!("missing task {task_id}"));
+        assert_eq!(
+            task["args"],
+            serde_json::json!(["."]),
+            "{task_id} must declare only the repository argument"
+        );
+    }
+}
+
+#[test]
 fn six_cell_delivery_documents_the_profile_directory_it_reads() {
     assert!(!PACKAGE_SIX_CELL_QJS.contains("target/qualification/six-cell/<triple>"));
     assert!(PACKAGE_SIX_CELL_QJS.contains("target/<triple>/<leaf>/"));
