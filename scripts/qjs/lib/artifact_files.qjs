@@ -107,6 +107,15 @@ export function unlock_output(directory_value, name_value) {
   return 1;
 }
 
+// Shipped names and Cargo profile names differ only for the Windows console
+// forwarder. Readers of Cargo profile directories must use this mapping;
+// staging keeps the shipped name as the destination.
+export function cargo_file_name(name) {
+  const value = "" + name;
+  if (value === "agenterm.com") { return "agenterm-com.exe"; }
+  return value;
+}
+
 export function stage(source_directory_value, destination_directory_value, name_value) {
   const source_directory = rh.absolute("" + source_directory_value);
   const destination_directory = rh.absolute("" + destination_directory_value);
@@ -127,10 +136,7 @@ export function stage(source_directory_value, destination_directory_value, name_
   );
   rh.create_dir_all(destination_directory);
 
-  let source_name = name;
-  if (name === "agenterm.com") {
-    source_name = "agenterm-com.exe";
-  }
+  const source_name = cargo_file_name(name);
   const source = rh.join(source_directory, source_name);
   const destination = rh.join(destination_directory, name);
   rh.require(rh.exists(source), "stage_artifact_source_missing:" + source);

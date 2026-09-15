@@ -3,7 +3,7 @@
 // Args: REPO [release-fast|release|dev] [--no-ape]
 //
 // Expects `client-build-all` (or `six-cell-qualify --build`) to have populated
-// `target/qualification/six-cell/<triple>/<profile>/` with product binaries.
+// `target/<triple>/<leaf>/` with product binaries (`dev` uses the `debug` leaf).
 // Each archive gets a `.sha256` sidecar via `package-client-release`.
 import * as rh from "lib/rh_compat";
 

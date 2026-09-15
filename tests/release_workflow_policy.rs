@@ -33,6 +33,13 @@ static SIX_CELL_RUNNERS: LazyLock<serde_json::Value> = LazyLock::new(|| {
 });
 static BUILD_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/build.qjs").replace("\r\n", "\n"));
+static BUILD_ALL_QJS: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/qjs/build-all.qjs").replace("\r\n", "\n"));
+static ARTIFACT_FILES_QJS: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/qjs/lib/artifact_files.qjs").replace("\r\n", "\n"));
+static PACKAGE_SIX_CELL_QJS: LazyLock<String> = LazyLock::new(|| {
+    include_str!("../scripts/qjs/package-six-cell-delivery.qjs").replace("\r\n", "\n")
+});
 static CHECK_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/check.qjs").replace("\r\n", "\n"));
 static NATIVE_IPC_SMOKE_QJS: LazyLock<String> =
@@ -1244,6 +1251,122 @@ fn six_cell_qjs_orchestrators_use_the_live_script_front_door() {
         assert!(source.contains("\"cli\", \"script\", \"task\", \"run\""));
         assert!(!source.contains("\"rh\", \"task\", \"run\""));
     }
+}
+
+#[test]
+fn six_cell_build_listing_names_cargo_files_and_requires_every_listed_artifact() {
+    assert!(ARTIFACT_FILES_QJS.contains("export function cargo_file_name(name)"));
+    assert!(ARTIFACT_FILES_QJS.contains("const source_name = cargo_file_name(name);"));
+    assert!(
+        ARTIFACT_FILES_QJS.contains("const destination = rh.join(destination_directory, name);")
+    );
+    assert!(
+        !ARTIFACT_FILES_QJS
+            .contains("const destination = rh.join(destination_directory, source_name);")
+    );
+    assert!(BUILD_QJS.contains("artifact_files.cargo_file_name(\"\" + executable.name)"));
+    assert!(BUILD_QJS.contains("\"Built client artifacts [\""));
+    assert!(!BUILD_QJS.contains("rh.join(profile_directory, executable.name)"));
+    assert!(BUILD_ALL_QJS.contains("build_all_listed_artifact_missing:"));
+    assert!(!BUILD_ALL_QJS.contains("if (rh.exists(artifact_path))"));
+    assert!(BUILD_ALL_QJS.contains("startsWith(\"Built client artifacts [\")"));
+    assert!(BUILD_ALL_QJS.contains("rh.is_absolute(path)"));
+    assert!(!BUILD_ALL_QJS.contains("startsWith(\"  /\")"));
+
+    fn cargo_file_name(name: &str) -> &str {
+        match name {
+            "agenterm.com" => "agenterm-com.exe",
+            other => other,
+        }
+    }
+    let mut divergences = Vec::new();
+    for platform in ARTIFACTS["platforms"]
+        .as_array()
+        .expect("platform list must be an array")
+    {
+        let os = platform["os"].as_str().expect("platform os must be text");
+        for executable in platform["executables"]
+            .as_array()
+            .expect("executables must be an array")
+        {
+            let name = executable["name"]
+                .as_str()
+                .expect("executable name must be text");
+            if cargo_file_name(name) != name {
+                divergences.push((os, name));
+            }
+        }
+        for library in platform["libraries"]
+            .as_array()
+            .expect("libraries must be an array")
+        {
+            let name = library["name"].as_str().expect("library name must be text");
+            assert_eq!(cargo_file_name(name), name, "library name drifted: {name}");
+        }
+    }
+    assert!(
+        divergences
+            .iter()
+            .all(|&(os, name)| os == "windows" && name == "agenterm.com")
+    );
+    assert_eq!(
+        divergences.len(),
+        ARTIFACTS["platforms"]
+            .as_array()
+            .expect("platform list must be an array")
+            .iter()
+            .filter(|platform| platform["os"].as_str() == Some("windows"))
+            .count(),
+        "each Windows architecture has exactly one staged/Cargo name divergence"
+    );
+}
+
+#[test]
+fn six_cell_build_all_covers_every_declared_artifact_platform() {
+    let start = BUILD_ALL_QJS
+        .find("const cells = [")
+        .expect("cells literal");
+    let end = start
+        + BUILD_ALL_QJS[start..]
+            .find("];")
+            .expect("cells literal end");
+    let mut targets = Vec::new();
+    let mut rest = &BUILD_ALL_QJS[start..end];
+    while let Some(offset) = rest.find("target: \"") {
+        rest = &rest[offset + "target: \"".len()..];
+        let close = rest.find('"').expect("target triple terminator");
+        targets.push(rest[..close].to_owned());
+        rest = &rest[close..];
+    }
+
+    let platforms = ARTIFACTS["platforms"]
+        .as_array()
+        .expect("platform list must be an array");
+    assert_eq!(targets.len(), platforms.len(), "one cell per platform");
+    let distinct: std::collections::BTreeSet<&str> = targets.iter().map(String::as_str).collect();
+    assert_eq!(distinct.len(), targets.len(), "duplicate build-all cell");
+    for platform in platforms {
+        let os = platform["os"].as_str().expect("platform os must be text");
+        let arch = platform["arch"]
+            .as_str()
+            .expect("platform arch must be text");
+        let token = if os == "macos" { "apple" } else { os };
+        assert!(
+            targets
+                .iter()
+                .any(|target| target.starts_with(arch) && target.contains(token)),
+            "build-all must include the {os}/{arch} cell"
+        );
+    }
+}
+
+#[test]
+fn six_cell_delivery_documents_the_profile_directory_it_reads() {
+    assert!(!PACKAGE_SIX_CELL_QJS.contains("target/qualification/six-cell/<triple>"));
+    assert!(PACKAGE_SIX_CELL_QJS.contains("target/<triple>/<leaf>/"));
+    assert!(
+        PACKAGE_SIX_CELL_QJS.contains("rh.join(rh.join(rh.join(repo, \"target\"), target), leaf)")
+    );
 }
 
 #[test]

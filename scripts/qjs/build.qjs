@@ -652,7 +652,10 @@ if (cross_client !== 0 || unix_bootstrap !== 0) {
   print("");
   print("Built client artifacts [" + profile + ", " + os_name + "-" + arch + "]:");
   for (const executable of executable_entries) {
-    print("  " + rh.join(profile_directory, executable.name));
+    print("  " + rh.join(
+      profile_directory,
+      artifact_files.cargo_file_name("" + executable.name)
+    ));
   }
   for (const library of library_entries) {
     print("  " + rh.join(profile_directory, library.name));
