@@ -1452,6 +1452,15 @@ fn check_qjs_refuses_a_repeated_quick_target_instead_of_silently_changing_scope(
 }
 
 #[test]
+fn check_qjs_refuses_a_repeated_timing_path_instead_of_redirecting_evidence() {
+    assert!(CHECK_QJS.contains("check_option_duplicate:"));
+    assert!(CHECK_QJS.contains("timing_set"));
+    assert!(CHECK_QJS.contains("check_timing_value_missing"));
+    assert!(CHECK_QJS.contains("try_remove_file(timing_path)"));
+    assert!(CHECK_QJS.contains("check_unknown_argument:"));
+}
+
+#[test]
 fn six_cell_orchestrators_reject_surplus_arguments_instead_of_widening_scope() {
     assert!(BUILD_ALL_QJS.contains("build_all_unknown_argument:"));
     assert!(BUILD_ALL_QJS.contains("build_all_profile_duplicate"));

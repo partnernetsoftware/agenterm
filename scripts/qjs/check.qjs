@@ -903,6 +903,7 @@ let quick_target_set = 0;
 let only_gates = [];
 let receipt_path = path.join(repo, "target/qualification/receipt.json");
 let timing_path = path.join(repo, "target/qualification/timing.json");
+let timing_set = 0;
 while (arg_index < args.length) {
   const value = args[arg_index];
   if (value === "--quick") {
@@ -931,7 +932,9 @@ while (arg_index < args.length) {
     arg_index = arg_index + 1;
   } else if (value === "--timing") {
     require(arg_index + 1 < args.length, "check_timing_value_missing");
+    require(timing_set === 0, "check_option_duplicate:" + value);
     timing_path = rh.absolute(args[arg_index + 1]);
+    timing_set = 1;
     arg_index = arg_index + 1;
   } else if (value === "--only") {
     require(arg_index + 1 < args.length, "check_only_value_missing");
