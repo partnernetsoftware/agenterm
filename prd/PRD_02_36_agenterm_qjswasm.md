@@ -332,7 +332,7 @@ agenterm-qjswasm
 │  ├─ [x] bare declared-host values fail by name; no implicit zero-argument effect
 │  ├─ [x] every child entry uses the shared first-instruction contained launcher
 │  ├─ [x] invocation-owned process-tree cleanup; no cross-run global backend state
-│  ├─ [~] ACU cancellation ownership
+│  ├─ [x] ACU cancellation ownership for the shipped observation-wait set
 │  │  ├─ [x] detached helper rejected: it returns while callback and provider lock remain live
 │  │  ├─ [x] Script worker process remains the hard-containment boundary for blocked native calls
 │  │  ├─ [x] pure qjs/wasm computation observes the invocation's borrowed cancel token

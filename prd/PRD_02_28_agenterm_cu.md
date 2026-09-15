@@ -197,8 +197,8 @@ mechanisms remain behind the `libagenterm` runtime boundary.
   │  ├─ [x] the compatibility pipeline states TODO records and suffix-array copies once in
   │  │      `rewrite.qjs`; `compat.qjs` reuses that existing module edge while every gap id,
   │  │      typed refusal and resulting argv remains frozen
-  │  ├─ [~] the Script invocation's call-scoped cancel token reaches ACU without crossing the
-  │  │      provider ABI as a Rust layout
+  │  ├─ [x] the Script invocation's call-scoped cancel token reaches the shipped ACU
+  │  │      observation-wait set without crossing the provider ABI as a Rust layout
   │  │  ├─ [x] pure qjs/wasm computation observes the token without a host callback
   │  │  ├─ [x] observe-only `process-watch` acknowledges pre-effect cancellation through the
   │  │  │      additive provider-v2 callback descriptor and returns within the worker grace;
