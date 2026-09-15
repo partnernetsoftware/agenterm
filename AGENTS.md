@@ -128,7 +128,7 @@ read `skills/agenterm-release/SKILL.md` and its required references. The stable
 shape is exact-SHA Candidate qualification followed by byte-preserving human-
 approved Promotion. Never reconstruct release procedure from this summary.
 
-### UI, terminal, and platform work
+### Platform crate vs product UI — shared-first
 
 - Source layout and ownership: `plan/ARCHITECTURE.md`
 - Platform encapsulation gaps: `plan/plan-platform-encapsulation-gap.md`
