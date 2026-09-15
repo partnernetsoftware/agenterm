@@ -1,8 +1,11 @@
 # qjswasm native door：动态能力斜率判决实验
 
-Status: **active strategic experiment; bounded prototype implementation authorized**  
+Status: **active qualification follow-up; B implementation and consumer migration
+landed, while the precommitted cross-runtime and release-size evidence remains open**
 Owner: `prd/PRD_02_34_agenterm_dyn.md`  
-Product posture: important bottom-layer work; evidence decides its product landing
+Product posture: the native door is the live product path; this document now owns
+only the remaining experiment evidence and does not authorize restoring the retired
+dyn language/catalog path
 
 ## 0. 要裁决的问题
 
@@ -13,7 +16,11 @@ Product posture: important bottom-layer work; evidence decides its product landi
 本实验先裁决这条增长曲线。它不是搁置理由：S1–S5 的原型、测试和六格证据现在可以主动推进；
 删除现有语言层与新增 CU verb 分别在斜率证据和 runtime-placement 法庭后紧接实施，避免先落一个不可达的表面。
 
-## 1. 已知事实与证据等级
+## 1. 实验开启时的基线事实与证据等级（历史）
+
+本节记录 A/B 判决开始时的输入，不是当前源码地图。当前 dyn 已删除旧语言、host
+catalog 与 typed-owner side APIs；现行边界以 PRD 02.34、PRD 02.36 和
+`plan/ARCHITECTURE.md` 为准。
 
 - **仓库内已证**：qjswasm/tinyvm 已提供 guest 执行与线性内存；`agenterm-dyn/src/hosts.rs` 持有六格
   OS×ISA host facts；当时保留的 `agenterm-dyn/src/exec.rs` 实验已于 2026-09-15 撤回，核心产品仍 no-JIT。
@@ -25,7 +32,7 @@ Product posture: important bottom-layer work; evidence decides its product landi
   `agenterm.native_call(spec_ptr, spec_len, block_ptr, block_len) -> i32` 原型，并以新增 `.wat`、零 Rust
   改动运行 `getpid`。原型与 worktree 已不存在，所有结论必须从当前树复验。
 
-## 2. 候选方案
+## 2. 候选方案（历史判决输入）
 
 ### A — 保持现有 dyn 语言扩展
 
@@ -94,9 +101,10 @@ S1  签名 grammar + 参数块 schema + independent validator
 - 变异验证至少覆盖：边界 span、签名 kind、符号名、第四能力 Rust 零增量守卫。变异必须原地可逆并证明前后哈希一致。
 - 会失败的进程/资源夹具必须由 `Drop` 自清理，并以一次故意红跑检查残留。
 
-## 7. 后续迁移门（本实验不实施）
+## 7. 后续迁移门（历史清单；迁移现已实施）
 
-B 获资格后立即开迁移叶：
+以下是实验原先要求 B 获资格后执行的迁移清单。当前源码已经完成旧 dyn
+语言/catalog 删除和 qjswasm consumer 迁移；本节只保留审计来路，不能再被当作待执行命令。
 
 只读消费者审计已确认：仓内没有其它 crate、binary 或 task 链接 `agenterm-dyn`，但它的自身证据面很大，
 所以迁移风险可控而绝非“四文件删除”。
