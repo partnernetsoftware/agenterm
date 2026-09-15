@@ -1998,9 +1998,42 @@
           "next": "retain the platform-limited state until the separate explicit audible mutation court proves apply and guarded rollback on macOS"
         },
         {
+          "id": "audio.default-output.plan",
+          "mcu_shape": "audio plan volume|muted with an exact before/after proposal and rollback request",
+          "acu_shape": "agenterm-cu audio plan volume|muted [--ttl-seconds N]",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-public-mutation-free-plan", "linux": "typed-unsupported", "windows": "typed-unsupported"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "not-applicable",
+                "gate": "cu-audio-smoke",
+                "evidence": ["cu.audio-plan"],
+                "error_code": "audio_unsupported",
+                "rationale": "No Linux default-output backend is shipped; the public court refuses planning without mutation or a durable request."
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-audio-smoke",
+                "evidence": ["cu.audio-plan"]
+              },
+              "windows": {
+                "result": "not-applicable",
+                "gate": "cu-audio-smoke",
+                "evidence": ["cu.audio-plan"],
+                "error_code": "audio_unsupported",
+                "rationale": "No Windows default-output backend is shipped; the public court refuses planning without mutation or a durable request."
+              }
+            }
+          },
+          "evidence": ["cu.audio-plan"],
+          "note": "The public court runs with observe authority and proves a versioned plan bound to the exact default-output identity, before state, requested state and 60-second approval. It includes a sealed same-device reverse plan, reserves no durable request, reports mutation_performed=false and leaves device, volume and mute state unchanged."
+        },
+        {
           "id": "audio.default-output.mutate",
-          "mcu_shape": "audio plan volume|muted then apply request+digest, exact before/after readback and rollback request",
-          "acu_shape": "agenterm-cu audio plan volume|muted [--ttl-seconds N]; audio apply --request R --approve H",
+          "mcu_shape": "audio apply request+digest with exact before/after readback and rollback request",
+          "acu_shape": "agenterm-cu audio apply --request R --approve H",
           "state": "platform-limited",
           "platforms": {"macos": "native-coreaudio-mechanism-fixture-tested", "linux": "typed-unsupported", "windows": "typed-unsupported"},
           "qualification": {
@@ -2011,8 +2044,8 @@
               "windows": {"result": "pending", "blocker_code": "audible-mutation-and-rollback-court-not-run"}
             }
           },
-          "evidence": ["cu.audio-plan", "agenterm-cu audio transaction state-machine suite"],
-          "note": "Plan binds the exact default-output identity, before state, requested state and approval TTL. Apply reserves durably before effect, is at-most-once across replay, revalidates the same device, reads back the post-state and emits a same-device guarded rollback request. The public qjswasm court deliberately never applies it.",
+          "evidence": ["cu.audio-plan"],
+          "note": "Apply reserves durably before effect, is at-most-once across replay, revalidates the same device, reads back the post-state and emits a same-device guarded rollback request. The registered evidence proves only the separate mutation-free plan boundary; it deliberately never applies an audible change and does not qualify this mutation.",
           "next": "run an explicit macOS audible mutation court that verifies apply, readback and rollback on the same device; do not promote from platform-limited on mechanism tests alone"
         }
       ]

@@ -2899,7 +2899,7 @@ flowchart LR
   effect, is at-most-once on replay, revalidates the same output device, reads
   back the result and permits rollback only against that device and expected
   state. A separate explicit audible apply/readback/rollback court remains
-  pending, so the mutation leaf stays incompletely qualified and both leaves
+  pending, so the apply leaf stays incompletely qualified and all three leaves
   remain truthfully `platform-limited` at product level.
 - [~] `device-list` / `device list` now owns the bounded native peripheral
   inventory leaf for USB, Bluetooth, audio, camera and GPU. It is not a raw
