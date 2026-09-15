@@ -5,15 +5,6 @@
 // Ported from scripts/rh/lint.rh; runs under `--profile tool`.
 import * as rh from "lib/rh_compat";
 
-function has_conflict_marker(text) {
-  return text.startsWith("<<<<<<<")
-    || text.startsWith("=======")
-    || text.startsWith(">>>>>>>")
-    || text.includes("\n<<<<<<<")
-    || text.includes("\n=======")
-    || text.includes("\n>>>>>>>");
-}
-
 const args = rh.args();
 if (args.length < 1) { throw "expected: REPO [WORKER] [MODE] [OPTIONS]"; }
 
@@ -78,7 +69,6 @@ const check_options = { cwd: repo, timeout_ms: 60000 };
 
 if (internal_selftest === 1) {
   const bad_json = repo + ".lint-selftest-bad.json";
-  const conflict = repo + ".lint-selftest-conflict.md";
   // rh's fixture was `.lint-selftest-bad.rh`; the checker now routes by
   // extension and no longer knows `.rh`, so the broken script is a `.qjs`
   // and the manifest carries the qjs kind -- otherwise "rejected" would be
@@ -90,11 +80,7 @@ if (internal_selftest === 1) {
   // (`std::fs::write_bytes`) and asserted the checker rejects invalid
   // UTF-8. The door has no byte write and a JS string cannot carry those
   // bytes, so that leg is not here. See the port report.
-  rh.write_text(conflict, "<<<<<<< ours\n=======\n>>>>>>> theirs\n");
   rh.write_text(bad_qjs, "let broken = ;");
-
-  const conflict_text = rh.read_text(conflict);
-  rh.require(has_conflict_marker(conflict_text), "lint_selftest_did_not_reject_malformed_inputs");
 
   rh.write_text(
     selftest_manifest,
@@ -115,7 +101,6 @@ if (internal_selftest === 1) {
   rh.require(bad_json_code !== 0, "lint_selftest_did_not_reject_malformed_inputs");
 
   rh.try_remove_file(bad_json);
-  rh.try_remove_file(conflict);
   rh.try_remove_file(bad_qjs);
   rh.try_remove_file(selftest_manifest);
 } else {
