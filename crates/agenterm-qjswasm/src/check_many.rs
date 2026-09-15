@@ -117,7 +117,7 @@ pub fn run_check_many_with_builtins(
 
 /// The shared ledger's refusal in the report's own failure shape.
 fn check_failure(failure: ResolverFailure) -> CheckFailure {
-    CheckFailure::new(failure.code, failure.message, failure.category)
+    CheckFailure::new(failure.code, failure.message, failure.category.as_str())
 }
 
 pub fn parse_check_many_cli<I>(args: I) -> Result<ParsedCheckManyCli, String>

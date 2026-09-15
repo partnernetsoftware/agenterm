@@ -511,11 +511,11 @@ fn compile_qjs_for(
 fn qjs_resolver_error(
     failure: agenterm_qjswasm::module_resolver::ResolverFailure,
 ) -> ScriptEngineError {
+    use agenterm_qjswasm::module_resolver::ResolverFailureCategory as C;
     let category = match failure.category {
-        "limit" => ScriptFailureCategory::Limit,
-        "cancelled" => ScriptFailureCategory::Cancelled,
-        "host" => ScriptFailureCategory::Host,
-        _ => ScriptFailureCategory::Configuration,
+        C::Limit => ScriptFailureCategory::Limit,
+        C::Cancelled => ScriptFailureCategory::Cancelled,
+        C::Host => ScriptFailureCategory::Host,
     };
     ScriptEngineError {
         code: Some(failure.code),

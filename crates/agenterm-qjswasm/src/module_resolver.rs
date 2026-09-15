@@ -56,6 +56,28 @@ pub const IMPORT_MODULES_MAX: usize = 1_024;
 /// and it is charged like any other module.
 pub type BuiltinModuleResolver = fn(&str) -> Option<&'static str>;
 
+/// Which public failure class owns a resolver refusal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResolverFailureCategory {
+    /// A declared source, module-count, or wall-time ceiling was exhausted.
+    Limit,
+    /// The invocation's cancellation identity was set during resolution.
+    Cancelled,
+    /// The host could not inspect or read an otherwise resolved module.
+    Host,
+}
+
+impl ResolverFailureCategory {
+    /// The existing public wire spelling used by check-many reports.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Limit => "limit",
+            Self::Cancelled => "cancelled",
+            Self::Host => "host",
+        }
+    }
+}
+
 /// A typed refusal raised while resolving a module specifier.
 ///
 /// `code` and `category` are fixed sets the callers map onto their own public
@@ -66,7 +88,7 @@ pub type BuiltinModuleResolver = fn(&str) -> Option<&'static str>;
 pub struct ResolverFailure {
     pub code: &'static str,
     pub message: String,
-    pub category: &'static str,
+    pub category: ResolverFailureCategory,
 }
 
 /// How one ledger is bounded, and where it starts.
@@ -162,7 +184,7 @@ impl ResolverState {
         &mut self,
         code: &'static str,
         message: String,
-        category: &'static str,
+        category: ResolverFailureCategory,
     ) -> Option<String> {
         self.failure = Some(ResolverFailure {
             code,
@@ -226,7 +248,7 @@ impl ResolverLedger {
                     "entry and imported source exceeds aggregate limit of {} bytes",
                     state.aggregate_source_max
                 ),
-                category: "limit",
+                category: ResolverFailureCategory::Limit,
             });
         }
         Ok(())
@@ -275,7 +297,7 @@ impl ResolverLedger {
                 return state.borrow_mut().refuse(
                     "host_cancelled",
                     "the invocation was cancelled while resolving imports".to_owned(),
-                    "cancelled",
+                    ResolverFailureCategory::Cancelled,
                 );
             }
             if Instant::now() >= state.borrow().deadline {
@@ -285,7 +307,7 @@ impl ResolverLedger {
                     format!(
                         "{label} reached its aggregate wall-time budget while resolving imports"
                     ),
-                    "limit",
+                    ResolverFailureCategory::Limit,
                 );
             }
             if let Some(source) = builtin(specifier) {
@@ -298,7 +320,7 @@ impl ResolverLedger {
                         return budget.refuse(
                             "limit_import_source_bytes",
                             format!("built-in module {specifier:?} exceeds the source budget"),
-                            "limit",
+                            ResolverFailureCategory::Limit,
                         );
                     }
                     if budget.imported_modules >= budget.modules_max {
@@ -306,7 +328,7 @@ impl ResolverLedger {
                         return budget.refuse(
                             "limit_import_modules",
                             format!("recursive imports exceed {modules_max} resolved modules"),
-                            "limit",
+                            ResolverFailureCategory::Limit,
                         );
                     }
                     budget.compile_source_bytes =
@@ -341,7 +363,7 @@ impl ResolverLedger {
                         return state.borrow_mut().refuse(
                             "host_import_read",
                             format!("cannot inspect imported module {specifier:?}: {error}"),
-                            "host",
+                            ResolverFailureCategory::Host,
                         );
                     }
                 };
@@ -354,7 +376,7 @@ impl ResolverLedger {
                         format!(
                             "imported module {specifier:?} exceeds per-source limit of {per_source_max} bytes"
                         ),
-                        "limit",
+                        ResolverFailureCategory::Limit,
                     );
                 }
                 if budget.imported_modules >= budget.modules_max {
@@ -362,7 +384,7 @@ impl ResolverLedger {
                     return budget.refuse(
                         "limit_import_modules",
                         format!("recursive imports exceed {modules_max} resolved modules"),
-                        "limit",
+                        ResolverFailureCategory::Limit,
                     );
                 }
                 let next_total = budget.compile_source_bytes.saturating_add(source_len);
@@ -373,7 +395,7 @@ impl ResolverLedger {
                         format!(
                             "entry and imported source exceeds aggregate limit of {aggregate_source_max} bytes"
                         ),
-                        "limit",
+                        ResolverFailureCategory::Limit,
                     );
                 }
                 drop(budget);
@@ -390,7 +412,7 @@ impl ResolverLedger {
                         return state.borrow_mut().refuse(
                             "host_import_read",
                             format!("cannot read imported module {specifier:?}: {error}"),
-                            "host",
+                            ResolverFailureCategory::Host,
                         );
                     }
                 };
@@ -402,7 +424,7 @@ impl ResolverLedger {
                     return state.borrow_mut().refuse(
                         "host_import_read",
                         format!("cannot read imported module {specifier:?}: {error}"),
-                        "host",
+                        ResolverFailureCategory::Host,
                     );
                 }
                 // The read is the step that costs time, so the two conditions
@@ -413,7 +435,7 @@ impl ResolverLedger {
                     return state.borrow_mut().refuse(
                         "host_cancelled",
                         "the invocation was cancelled while resolving imports".to_owned(),
-                        "cancelled",
+                        ResolverFailureCategory::Cancelled,
                     );
                 }
                 if Instant::now() >= state.borrow().deadline {
@@ -423,7 +445,7 @@ impl ResolverLedger {
                         format!(
                             "{label} reached its aggregate wall-time budget while resolving imports"
                         ),
-                        "limit",
+                        ResolverFailureCategory::Limit,
                     );
                 }
                 let mut budget = state.borrow_mut();
@@ -439,7 +461,7 @@ impl ResolverLedger {
                         format!(
                             "imported module {specifier:?} changed while reading and exceeds the source budget"
                         ),
-                        "limit",
+                        ResolverFailureCategory::Limit,
                     );
                 }
                 budget.compile_source_bytes =
@@ -573,7 +595,7 @@ mod tests {
         assert_eq!(resolve("two"), None);
         let failure = ledger.failure().expect("typed limit");
         assert_eq!(failure.code, "limit_import_modules");
-        assert_eq!(failure.category, "limit");
+        assert_eq!(failure.category, ResolverFailureCategory::Limit);
         assert!(failure.message.contains("1024"), "{failure:?}");
     }
 
@@ -614,7 +636,7 @@ mod tests {
         assert_eq!(resolve("large"), None);
         let failure = ledger.failure().expect("typed per-source limit");
         assert_eq!(failure.code, "limit_import_source_bytes");
-        assert_eq!(failure.category, "limit");
+        assert_eq!(failure.category, ResolverFailureCategory::Limit);
         assert!(
             failure.message.contains("per-source limit of 16"),
             "{failure:?}"
@@ -650,7 +672,7 @@ mod tests {
         // resolved: this is the charge `check-many` makes before compiling.
         let failure = ledger.charge_entry_bytes(40).expect_err("aggregate limit");
         assert_eq!(failure.code, "limit_import_source_bytes");
-        assert_eq!(failure.category, "limit");
+        assert_eq!(failure.category, ResolverFailureCategory::Limit);
         // A refusal returned by the charge is not recorded, so it cannot be
         // misread as the next entry's reason.
         assert_eq!(ledger.failure(), None);
@@ -671,7 +693,7 @@ mod tests {
         assert_eq!(resolve("late"), None);
         let failure = ledger.failure().expect("typed deadline");
         assert_eq!(failure.code, "limit_wall_time");
-        assert_eq!(failure.category, "limit");
+        assert_eq!(failure.category, ResolverFailureCategory::Limit);
         assert!(
             failure.message.starts_with(
                 "test door reached its aggregate wall-time budget while resolving imports"
@@ -699,7 +721,7 @@ mod tests {
         assert_eq!(resolve("value"), None);
         let failure = ledger.failure().expect("typed cancellation");
         assert_eq!(failure.code, "host_cancelled");
-        assert_eq!(failure.category, "cancelled");
+        assert_eq!(failure.category, ResolverFailureCategory::Cancelled);
     }
 
     #[test]

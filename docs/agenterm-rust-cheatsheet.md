@@ -6519,6 +6519,12 @@ An added lower-layer error is a new classification decision, not automatically
 configuration failure; list the current default-category variants explicitly
 so enum growth fails compilation until that decision is reviewed.
 
+Keep a closed inter-crate failure class typed until the final wire projection.
+Passing `"limit"`, `"cancelled"`, or `"host"` as an unconstrained string makes
+the receiver add a fallback and lets a producer typo become a valid but wrong
+category. An enum with an exhaustive `as_str` at the wire edge preserves the
+same bytes while making both producer and consumer growth explicit.
+
 For a large Rust file, make this change with unique-text patches and inspect the
 whole diff against `HEAD`. Do not delete line-number slices with a rewrite
 script: an offset can remove a function body while leaving a plausible doc

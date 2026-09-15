@@ -776,8 +776,11 @@ integration.
   then deadline and cancellation are sampled again before their bytes enter the
   ledger. Refusals retain `limit_import_source_bytes`, `limit_import_modules`,
   `limit_wall_time`, `host_import_read`, or `host_cancelled` through the public
-  result; the black-box per-source owner is
-  `tests/script_module_resolution_budget.rs`.
+  result. The shared ledger carries its only three possible classes as the typed
+  `ResolverFailureCategory::{Limit, Cancelled, Host}` algebra; check-many and
+  the product engine each exhaustively project it to their existing wire shape,
+  so a new resolver class cannot silently default to configuration. The
+  black-box per-source owner is `tests/script_module_resolution_budget.rs`.
   This cache owns filesystem identity for accounting only. The pinned compiler
   callback accepts a specifier and returns source text without an identity
   channel, so two spellings of one canonical file are still two upstream module
