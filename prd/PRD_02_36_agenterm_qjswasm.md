@@ -905,7 +905,11 @@ integration.
   adopts (table length 0 → 1), every call takes that arm, and a second engine's
   table and count are its own. That count is what falsifies "resolved a handle,
   then ran the one-shot entry anyway", which no behavioral assertion can see; the
-  matching dyn-side proof is a `cfg(test)` loader-entry delta (N one-shot calls →
+  complementary full-table court occupies all 32 slots, executes a real
+  `getpid` / `GetCurrentProcessId` declaration, and requires the correct PID with
+  no eviction (and, on Unix, no cached hit), proving `AtCapacity` is a one-shot
+  fallback rather than a refusal.
+  The matching dyn-side proof is a `cfg(test)` loader-entry delta (N one-shot calls →
   +N entries; one handle open plus N handle calls → +1), plus exact/fixed/
   fixed-pointer/direct-scalar/pointer-result representatives that compare both
   entries value-for-value. **An OS-level load count

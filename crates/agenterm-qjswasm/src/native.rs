@@ -2302,7 +2302,10 @@ fn abi_parameters_for_spec(
 
 #[cfg(test)]
 mod json_adapter_tests {
+    use std::rc::Rc;
+
     use super::*;
+    use crate::native_cache::MAX_CACHED_LIBRARIES;
 
     /// One declared library is one adopted handle: the door's first call adopts it,
     /// the next calls run through the adopted handle, and a second engine's table
@@ -2357,6 +2360,46 @@ mod json_adapter_tests {
             other.cached_hits(),
             0,
             "and the second engine's count is its own"
+        );
+    }
+
+    /// Capacity ends reuse, not execution: the next declaration takes dyn's
+    /// one-shot entry without evicting an adopted handle or pretending to hit
+    /// one of them.
+    #[test]
+    fn a_full_library_table_falls_back_to_the_one_shot_entry() {
+        let engine = NativeLibraryCache::new();
+        for index in 0..MAX_CACHED_LIBRARIES {
+            let handle = Rc::new(
+                agenterm_dyn::LibraryHandle::open("").expect("this process is always loadable"),
+            );
+            assert!(
+                engine.admit_for_test(&format!("occupied-{index}"), handle),
+                "slot {index} is inside the cache bound"
+            );
+        }
+
+        #[cfg(unix)]
+        let spec = b"|getpid|i32()".as_slice();
+        #[cfg(windows)]
+        let spec = b"kernel32.dll|GetCurrentProcessId|u32()".as_slice();
+        let answer = invoke_native_json(spec, b"[]", &engine, region_bound())
+            .expect("a full cache falls back instead of refusing the call");
+        let answer: serde_json::Value = serde_json::from_str(&answer).expect("result JSON");
+        #[cfg(unix)]
+        assert_eq!(answer["type"], "i32");
+        #[cfg(windows)]
+        assert_eq!(answer["type"], "u32");
+        assert_eq!(
+            answer["value"].as_i64().map(|value| value as u64),
+            Some(u64::from(std::process::id()))
+        );
+        assert_eq!(engine.len(), MAX_CACHED_LIBRARIES);
+        #[cfg(unix)]
+        assert_eq!(
+            engine.cached_hits(),
+            0,
+            "the uncached declaration must take the one-shot branch"
         );
     }
 
