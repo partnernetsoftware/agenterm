@@ -18,9 +18,10 @@
 //   - `std::process::list()` / `std::process::kill(pid)`: the tool door owns
 //     both operations directly, without task-side process-table commands.
 //   - `stdin_bytes`, `bytes.get`, `bytes.slice`, `to_text`: the door carries
-//     text, and this engine cannot turn a string into its bytes (no
-//     `charCodeAt`, no `s[i]`). The binary framing helpers that need that
-//     are gaps: they throw a named `script_smoke_gap:` rather than pretend.
+//     text, and this engine has no general UTF-8 encoder/decoder. Character
+//     access exists, but hand-encoding arbitrary JS Strings would duplicate
+//     engine semantics. The binary framing helpers that need it remain named
+//     `script_smoke_gap:` failures rather than pretend.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
@@ -296,12 +297,10 @@ export function u32_header(length) {
 }
 
 export function payload_frame(payload) {
-  const stream = u32_header(payload.length);
-  for (const b of payload) { stream.push(b); }
-  return stream;
+  return u32_header(payload.length).concat(payload);
 }
 
-// GAP: text -> bytes needs a per-character read this engine does not have.
+// GAP: arbitrary JS String -> UTF-8 bytes needs an engine-owned encoder.
 export function json_frame(frame) {
   throw "script_smoke_gap:json_frame:no text-to-bytes in this engine:" + JSON.stringify(frame).length;
 }
@@ -334,7 +333,7 @@ export function framed_invocation(frame_id, invocation_id, source, version) {
   };
 }
 
-// GAP: bytes -> text needs a byte-to-character read this engine does not have.
+// GAP: UTF-8 bytes -> JS String needs an engine-owned decoder.
 export function parse_frames(bytes) {
   throw "script_smoke_gap:parse_frames:no bytes-to-text in this engine:" + bytes.length;
 }
