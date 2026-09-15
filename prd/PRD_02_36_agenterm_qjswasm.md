@@ -316,6 +316,7 @@ agenterm-qjswasm
 │  │      zero production constructors and unconditional CLI/worker refusals; the legacy frame
 │  │      remains typed as `protocol_repl_unavailable` instead of becoming an unknown protocol tag
 │  ├─ [x] Fleet and ACU bill the final parked result into `host_bytes` on both success and application-error paths; equal-size replies cost equally, while an oversized reply bills the bounded refusal the guest reads
+│  ├─ [x] Fleet, ACU and native two-pass result buffers share one length/copy implementation and invalidate the preceding answer before a new operation can cancel, refuse or panic; a persistent-slot court proves success → cancelled operation → read cannot recover stale Fleet bytes
 │  ├─ [x] `native_invoke` checks a cancel that arrived inside its synchronous native frame before parking or billing the JSON result; the failed bill retains only request bytes
 │  ├─ [x] in-process `pack load` / `qualify` failures preserve their pre-failure stdout and disclose truncation instead of flattening the engine error to text
 │  ├─ [x] the public string-byte ceiling governs both host-door answers and returned guest strings; no accepted override falls back to the engine default

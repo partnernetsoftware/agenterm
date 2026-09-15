@@ -529,6 +529,9 @@ pub(crate) fn install(
         // pointer must not reach the bridge, let alone read host memory.
         let op = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
         let params = guest_slice(memory, arg(args, 2)?, arg(args, 3)?)?;
+        // A new operation invalidates the previous two-pass answer even when
+        // this one is later refused, cancelled, or panics.
+        state.borrow_mut().result.clear();
         // On the bill before the bridge is asked, and refused past the cap.
         meter_for_fleet
             .borrow_mut()
@@ -576,25 +579,12 @@ pub(crate) fn install(
 
     let state = Rc::clone(&pending);
     bind(module, DOOR, "fleet_result_len", move |_args, _memory| {
-        Ok(vec![Val::I32(pending_len(&state)?)])
+        Ok(vec![Val::I32(result_len(&state.borrow().result)?)])
     })?;
 
     let state = Rc::clone(&pending);
     bind(module, DOOR, "fleet_result", move |args, memory| {
-        let dst_ptr = arg(args, 0)?;
-        let dst_len = arg(args, 1)?;
-        // Check the destination the guest *declared*, not the part that happens
-        // to be used: a buffer outside linear memory is a broken guest whether
-        // or not the pending bytes would have fitted in it.
-        let dst = guest_slice_mut(memory, dst_ptr, dst_len)?;
-        let needed = pending_len(&state)?;
-        if (needed as usize) > dst.len() {
-            // Nothing is written. The negated requirement tells the guest how
-            // much room to find, which is the only useful thing to say here.
-            return Ok(vec![Val::I32(-needed)]);
-        }
-        dst[..needed as usize].copy_from_slice(&state.borrow().result);
-        Ok(vec![Val::I32(needed)])
+        copy_result(&state.borrow().result, args, memory)
     })?;
 
     let state = Rc::clone(&pending);
@@ -996,12 +986,17 @@ fn consume_late_acu_cancel(cancel: Option<&std::sync::atomic::AtomicBool>) {
     }
 }
 
+/// The two-pass ABI can describe only `i32::MAX` pending bytes even when an
+/// embedder configures a larger host-side result ceiling.
 fn result_len(result: &[u8]) -> Result<i32, WasmError> {
     i32::try_from(result.len())
         .map_err(|_| WasmError::Trap("agenterm door: pending result exceeds i32"))
 }
 
 fn copy_result(result: &[u8], args: &[Val], memory: &mut [u8]) -> Result<Vec<Val>, WasmError> {
+    // Validate the complete destination the guest declared, not only the
+    // prefix the current answer needs. An out-of-range span is still a broken
+    // guest when the parked answer happens to be short.
     let dst = guest_slice_mut(memory, arg(args, 0)?, arg(args, 1)?)?;
     let needed = result_len(result)?;
     if needed as usize > dst.len() {
@@ -1025,17 +1020,6 @@ pub(crate) fn contain<T>(what: &str, f: impl FnOnce() -> T) -> Result<T, String>
             None => format!("{what} (its payload is not a string, so there is nothing to quote)"),
         }
     })
-}
-
-/// The pending answer's length as an `i32`.
-///
-/// `max_bridge_result_bytes` is a `usize`, so a host that sets it above 2 GiB
-/// could park an answer this ABI cannot describe. That is a host
-/// misconfiguration, not a guest fault, but the guest is the one who would see
-/// a nonsense length, so it traps instead.
-fn pending_len(state: &Rc<RefCell<Pending>>) -> Result<i32, WasmError> {
-    i32::try_from(state.borrow().result.len())
-        .map_err(|_| WasmError::Trap("agenterm door: pending result exceeds i32"))
 }
 
 /// One declared argument. The core already verified arity and types before

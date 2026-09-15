@@ -9,7 +9,7 @@
 //! slot's alone.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use agenterm_qjswasm::{Budget, Engine, FleetBridgeFn, Guest, QjswasmError, Value};
 
@@ -40,6 +40,20 @@ fn ping_guest() -> Vec<u8> {
             (call $print (i32.const 256)
                 (call $fleet_result (i32.const 256) (call $fleet_result_len)))
             (local.get $status))
+        "#,
+    )
+}
+
+fn persistent_result_guest() -> Vec<u8> {
+    guest(
+        r#"
+        (memory 1)
+        (data (i32.const 0) "fleet.ping")
+        (func (export "write") (result i32)
+            (call $fleet_call
+                (i32.const 0) (i32.const 10) (i32.const 0) (i32.const 0)))
+        (func (export "read_len") (result i32)
+            (call $fleet_result_len))
         "#,
     )
 }
@@ -219,6 +233,54 @@ fn the_pending_buffer_and_the_bridge_are_per_slot() {
         "slot a keeps its own pending buffer"
     );
     assert_eq!(a_calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_new_fleet_operation_invalidates_the_previous_answer_before_cancellation() {
+    let cancel = Arc::new(AtomicBool::new(false));
+    let mut engine = Engine::with_budget(Budget {
+        cancel: Some(Arc::clone(&cancel)),
+        ..Budget::default()
+    });
+    let wasm = persistent_result_guest();
+    let slot = engine
+        .spawn(
+            Guest::Wasm(&wasm),
+            Some(bridge_answering(Ok("pong".to_owned()))),
+        )
+        .expect("the persistent slot loads");
+
+    let first = engine
+        .call(slot, "write", &[])
+        .expect("the first call runs");
+    assert_eq!(status_of(&first.values), 0);
+    assert_eq!(
+        status_of(
+            &engine
+                .call(slot, "read_len", &[])
+                .expect("the parked answer is readable")
+                .values
+        ),
+        4
+    );
+
+    cancel.store(true, Ordering::SeqCst);
+    assert!(matches!(
+        engine.call(slot, "write", &[]),
+        Err(QjswasmError::Cancelled)
+    ));
+    cancel.store(false, Ordering::SeqCst);
+
+    assert_eq!(
+        status_of(
+            &engine
+                .call(slot, "read_len", &[])
+                .expect("the slot remains reusable after cancellation")
+                .values
+        ),
+        0,
+        "the cancelled operation must not expose the preceding answer"
+    );
 }
 
 /// A guest that never talks to the fleet still loads: the door binds only the
