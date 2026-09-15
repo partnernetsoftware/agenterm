@@ -2943,6 +2943,23 @@
         "task.cu-file-attributes-smoke"
       ]
     },
+    "cu-windows-file-attributes-unsupported-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-windows-file-attributes-unsupported-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-windows-file-attributes-unsupported-smoke"
+      ]
+    },
     "cu-file-mode-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -9138,6 +9155,25 @@
       "dependencies": [],
       "platforms": [
         "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-windows-file-attributes-unsupported-smoke",
+      "description": "Prove Windows returns the typed Unix-xattr platform results for inspection, planning and apply spellings after valid regular-file checks and without changing the fixture; this court refuses to run off Windows.",
+      "entry": "scripts/qjs/cu-windows-file-attributes-unsupported-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu.exe"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
       ],
       "side_effects": [
         "artifact_write",

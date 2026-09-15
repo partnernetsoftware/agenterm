@@ -1,0 +1,150 @@
+// Windows public court for the Unix-xattr inspection and mutation spellings.
+// A regular fixture lets every call pass path validation before the typed
+// platform result. macOS and Linux own the native read-back courts.
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.windows-file-attributes-unsupported",
+  "cu.windows-file-xattr-mutation-unsupported"
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function is_shape_code(code) {
+  const codes = [
+    "file_attributes_open_failed",
+    "file_attributes_not_regular",
+    "file_attributes_identity_changed",
+    "file_attributes_invalid_name",
+    "file_attributes_invalid_mode",
+    "file_xattr_open_failed",
+    "file_xattr_not_regular",
+    "file_xattr_identity_changed",
+    "file_xattr_name_invalid",
+    "refused",
+    "usage"
+  ];
+  for (const candidate of codes) {
+    if (candidate === code) { return true; }
+  }
+  return false;
+}
+
+function isolated_env(run_directory) {
+  return {
+    HOME: run_directory,
+    USERPROFILE: run_directory,
+    APPDATA: rh.join(run_directory, "config"),
+    LOCALAPPDATA: rh.join(run_directory, "data"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json")
+  };
+}
+
+function refusal(run_directory, executable, verb_arguments, expected_code,
+                 expected_command, fixture) {
+  const before = rh.read_text(fixture);
+  const output = rh.command(executable, verb_arguments, {
+    cwd: run_directory,
+    env: isolated_env(run_directory),
+    timeout_ms: 30000
+  });
+  const stdout = output.stdout.trim();
+  ensure(stdout !== "", "cu_windows_file_attributes_empty:" + output.stderr);
+  const reply = JSON.parse(stdout);
+  ensure(reply.command === expected_command && reply.target === "current",
+         "cu_windows_file_attributes_identity:" + stdout);
+  ensure(output.success !== true && reply.ok !== true,
+         "cu_windows_file_attributes_false_success:" + stdout);
+  ensure(reply.data === undefined,
+         "cu_windows_file_attributes_data:" + stdout);
+  ensure(reply.error !== undefined && reply.error.code === expected_code,
+         "cu_windows_file_attributes_code:" + stdout);
+  ensure(!is_shape_code(reply.error.code),
+         "cu_windows_file_attributes_shape_error_leaked:" + stdout);
+  ensure(rh.read_text(fixture) === before,
+         "cu_windows_file_attributes_fixture_changed");
+}
+
+function repeat_refusal(run_directory, executable, verb_arguments, expected_code,
+                        expected_command, fixture) {
+  for (let attempt = 0; attempt < 2; attempt = attempt + 1) {
+    refusal(run_directory, executable, verb_arguments, expected_code,
+            expected_command, fixture);
+  }
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+harness.require(harness.host_is_windows(),
+                "the Unix-xattr platform result is a Windows court");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(rh.is_direct_file(executable),
+       "cu_windows_file_attributes_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-windows-file-attributes-unsupported");
+const fixture = rh.join(context.run_directory, "regular-fixture.bin");
+const valid_name = "com.partnernetsoftware.agenterm.cu.fixture";
+let succeeded = 0;
+let failure = "";
+try {
+  rh.write_text(fixture, "file-body-must-not-be-returned");
+  print("STEP default and explicit inspection return the typed Windows result");
+  repeat_refusal(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "file-attributes", fixture
+  ], "file_attributes_unsupported", "file-attributes", fixture);
+  repeat_refusal(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "file-attributes", fixture,
+    "--include-values"
+  ], "file_attributes_unsupported", "file-attributes", fixture);
+
+  print("STEP mutation plans return the typed Windows result without changing the file");
+  repeat_refusal(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "file-xattr-set", fixture,
+    valid_name, "--value-hex", "00"
+  ], "file_xattr_unsupported", "file-xattr-set", fixture);
+  repeat_refusal(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "file-xattr-remove", fixture,
+    valid_name
+  ], "file_xattr_unsupported", "file-xattr-remove", fixture);
+
+  print("STEP apply spellings stop at the same platform result before mutation");
+  repeat_refusal(context.run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "file-xattr-set", fixture,
+    valid_name, "--value-hex", "00", "--apply"
+  ], "file_xattr_unsupported", "file-xattr-set", fixture);
+  repeat_refusal(context.run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "file-xattr-remove", fixture,
+    valid_name, "--apply"
+  ], "file_xattr_unsupported", "file-xattr-remove", fixture);
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence,
+                        "cu.windows-file-attributes-unsupported");
+  harness.emit_evidence(context, declared_evidence,
+                        "cu.windows-file-xattr-mutation-unsupported");
+  harness.remove_run(context);
+  print("PASS: Windows returns typed Unix-xattr results without changing the fixture");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
