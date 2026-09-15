@@ -123,7 +123,7 @@ completion value 投影全程，任何一段掉链子这里都看得见。`e1122
 - **方法**（`130e929` 之后持续扩展）：字符串 `trim` / `indexOf` / `startsWith` / `endsWith` /
   `includes` / `split` / `slice` / `substring` / `charAt` / `charCodeAt` / `toLowerCase` /
   `toUpperCase` / `padStart` / `padEnd` / `repeat` / `replace` / `replaceAll`，数组
-  `push` / `pop` / `map` / `includes` / `slice` / `sort` / `join` / `concat`，以及数字
+  `push` / `pop` / `map` / `includes` / `sort` / `join` / `concat`，以及数字
   `toFixed` / `toString(radix)` 已由当前产品入口或生产 corpus 实际执行。
   `map` 的回调可以是箭头、具名函数，能捕获外层绑定，`map` 可链。
   `trim` 认的是**整个** ECMA-262 12.2 WhiteSpace + 12.3 LineTerminator
