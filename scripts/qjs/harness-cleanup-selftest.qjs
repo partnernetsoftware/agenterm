@@ -61,8 +61,8 @@ if (failure === "") {
   if (!verbose.success) {
     failure = "harness_verbose_fixture";
   } else {
-    // The harness's own `append_command_record` bounds with `slice`, which
-    // this engine refuses; the word-bounded sibling writes the same record.
+    // Use the word-bounded record contract so the long diagnostic remains
+    // readable without cutting a token.
     harness.append_command_record_bounded(context, ["verbose-diagnostic-fixture"], verbose, 0, []);
     harness.append_command_record_bounded(context, ["second-record"], verbose, 1, []);
     const live_records = JSON.parse(rh.read_text(context.command_log_path));
