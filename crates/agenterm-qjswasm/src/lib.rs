@@ -2,7 +2,8 @@
 //! executed on [`tinyvm`] with no JIT.
 //!
 //! Product truth: `prd/PRD_02_36_agenterm_qjswasm.md`. Implementation design:
-//! `plan/design-agenterm-qjswasm.md`. Execution goal: `plan/goal-agenterm-qjswasm.md`.
+//! `plan/design-agenterm-qjswasm.md`. Historical M0 goal:
+//! `plan/archive/goal-agenterm-qjswasm.md`.
 //!
 //! ```text
 //! .qjs source

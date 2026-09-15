@@ -225,7 +225,8 @@ fn a_bridge_bound_to_one_slot_is_unreachable_from_another() {
     let out = eng
         .call(b, "ring", &[])
         .expect("slot B rings its own bridge");
-    // 0 = Ok, per the four-item door ABI in plan/goal-agenterm-qjswasm.md.
+    // 0 = Ok, per the historical four-item door ABI in
+    // plan/archive/goal-agenterm-qjswasm.md.
     assert_eq!(out.values, vec![Value::I32(0)]);
     assert_eq!(
         a_calls.load(Ordering::SeqCst),

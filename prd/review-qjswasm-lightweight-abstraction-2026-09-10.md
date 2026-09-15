@@ -14,7 +14,7 @@ Mac Mini owns live write gates.
 | **Upstream pin** | `b4883be` — both `tinyvm` and `tinyvm-qjs` (`crates/agenterm-qjswasm/Cargo.toml`, `UPSTREAM_TINYVM_REV` in `lib.rs`) |
 | **Crate version** | `agenterm-qjswasm 0.1.16` |
 | **Product truth** | `prd/PRD_02_36_agenterm_qjswasm.md` |
-| **Design / goal** | `plan/design-agenterm-qjswasm.md`, `plan/goal-agenterm-qjswasm.md` (historical M0 goal; compiler-upstream decision recorded there) |
+| **Design / goal** | `plan/design-agenterm-qjswasm.md`, `plan/archive/goal-agenterm-qjswasm.md` (historical M0 goal; compiler-upstream decision recorded there) |
 | **Smoke courts** | `scripts/qjs/script-qjswasm-smoke.qjs` (public runtime/tool/budget/audit), `scripts/qjs/workbench-court.qjs` (isolated GUI phases via `process_command`) |
 | **Line budget (owned Rust)** | `lib.rs` 1443 · `host.rs` 1626 · `tool.rs` 2622 · `slot.rs` 751 · `check_many.rs` 547 · `corpus_scan.rs` 115 |
 
