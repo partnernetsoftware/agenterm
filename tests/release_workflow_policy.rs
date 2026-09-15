@@ -428,6 +428,19 @@ fn script_common_tests_are_an_explicit_full_gate_subcourt() {
 }
 
 #[test]
+fn chassis_default_feature_tests_are_an_explicit_full_gate_subcourt() {
+    let spec = CHECK_QJS
+        .split_once("function cargo_unit_chassis_spec(environment) {")
+        .and_then(|(_, tail)| tail.split_once("\n}"))
+        .map(|(body, _)| body)
+        .expect("chassis unit spec");
+    assert!(spec.contains("\"-p\", \"agenterm-chassis\""));
+    assert!(!spec.contains("--all-features"));
+    assert!(!spec.contains("--features"));
+    assert!(CHECK_QJS.contains("cargo_unit_chassis_spec(build_environment)"));
+}
+
+#[test]
 fn grouped_gates_refuse_an_empty_command_set() {
     assert!(CHECK_QJS.contains("command_specs.length > 0"));
     assert!(CHECK_QJS.contains("qualification_gate_specs_empty:"));

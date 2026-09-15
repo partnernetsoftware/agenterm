@@ -416,6 +416,12 @@ function cargo_unit_script_common_spec(environment) {
   ], 300000, environment, 0);
 }
 
+function cargo_unit_chassis_spec(environment) {
+  return spec("cargo", [
+    "test", "--quiet", "--locked", "-p", "agenterm-chassis"
+  ], 300000, environment, 0);
+}
+
 function cargo_unit_sql_spec(environment) {
   return spec("cargo", [
     "test", "--quiet", "--locked", "-p", "agenterm-sql"
@@ -1335,6 +1341,7 @@ gate = run_gate_specs(
     cargo_unit_vnc_pure_contracts_spec(build_environment),
     cargo_unit_cu_provider_spec(build_environment),
     cargo_unit_script_common_spec(build_environment),
+    cargo_unit_chassis_spec(build_environment),
     cargo_unit_sql_spec(build_environment),
     cargo_unit_lua_spec(build_environment)
   ],
