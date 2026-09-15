@@ -2205,6 +2205,19 @@ mod tests {
     }
 
     #[test]
+    fn static_lint_covers_qjs_text_hygiene() {
+        let script = include_str!("../scripts/qjs/lint.qjs");
+        let pathspecs = script
+            .split_once("const text_pathspecs = [")
+            .and_then(|(_, tail)| tail.split_once("];").map(|(array, _)| array))
+            .expect("text_pathspecs array");
+        assert!(
+            pathspecs.contains("\"*.qjs\""),
+            "text_pathspecs must cover tracked QJS scripts"
+        );
+    }
+
+    #[test]
     fn catalog_publishes_one_reviewed_node_and_bun_comparison_per_entry() {
         let catalog = catalog();
         assert_eq!(catalog["schema_version"], SCRIPT_CATALOG_SCHEMA_VERSION);
