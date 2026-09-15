@@ -2279,14 +2279,19 @@ fn abi_json_result(
 /// gave.
 fn map_abi_error(spec: &NativeSpec, error: agenterm_dyn::AbiError) -> NativeDoorError {
     match error {
-        agenterm_dyn::AbiError::SignatureUnsupported { .. }
-        | agenterm_dyn::AbiError::ArgumentShape { .. } => unsupported_json_spec(spec),
+        agenterm_dyn::AbiError::SignatureUnsupported { .. } => unsupported_json_spec(spec),
         agenterm_dyn::AbiError::ArgumentCount { expected, actual } => {
             NativeDoorError::ArgumentCountMismatch {
                 declared: expected,
                 actual,
             }
         }
+        agenterm_dyn::AbiError::ArgumentShape { index, .. } => spec
+            .parameters
+            .get(index)
+            .copied()
+            .map(|ty| NativeDoorError::ArgumentValueInvalid { index, ty })
+            .unwrap_or_else(|| unsupported_json_spec(spec)),
         agenterm_dyn::AbiError::LibraryLoad { library, message } => {
             NativeDoorError::LibraryLoad { library, message }
         }
@@ -2331,6 +2336,30 @@ mod json_adapter_tests {
             NativeDoorError::ArgumentCountMismatch {
                 declared: 2,
                 actual: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn dyn_argument_shape_keeps_the_door_argument_error_identity() {
+        let spec = NativeSpec {
+            library: String::new(),
+            symbol: "probe".to_owned(),
+            result: NativeType::I32,
+            parameters: vec![NativeType::I32, NativeType::U64],
+        };
+        assert_eq!(
+            map_abi_error(
+                &spec,
+                agenterm_dyn::AbiError::ArgumentShape {
+                    index: 1,
+                    expected: agenterm_dyn::AbiType::U64,
+                    actual: agenterm_dyn::AbiType::I32,
+                },
+            ),
+            NativeDoorError::ArgumentValueInvalid {
+                index: 1,
+                ty: NativeType::U64,
             }
         );
     }
