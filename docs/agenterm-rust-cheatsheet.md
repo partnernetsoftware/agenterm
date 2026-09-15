@@ -5505,6 +5505,12 @@ live config before its durable save. Prepare a clone, persist it, then publish
 the in-memory value, event, and layout together. A returned failure must not
 carry a snapshot containing the value it claims was rejected.
 
+Do not apply this rule mechanically to a deliberately live preview such as a
+font button or resize drag: that contract may keep the visible session change
+while reporting that persistence failed. The dividing line is whether the
+entry returns a public success/failure receipt that callers use as effect
+truth.
+
 ## Refresh future activation without restarting resident owners
 
 A compatibility command called “runtime refresh” must follow the replacement

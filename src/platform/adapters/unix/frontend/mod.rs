@@ -2347,21 +2347,23 @@ impl UnixApp {
         if apply {
             self.settings_dialog.capture()?;
             let changes = self.settings_dialog.changes();
-            self.config.terminal_font_family = changes.default_appearance.terminal_font_family;
-            self.config.terminal_font_size = changes.default_appearance.terminal_font_size;
-            self.config.appearance_preset = changes.default_appearance.appearance_preset;
+            let mut next = self.config.clone();
+            next.terminal_font_family = changes.default_appearance.terminal_font_family;
+            next.terminal_font_size = changes.default_appearance.terminal_font_size;
+            next.appearance_preset = changes.default_appearance.appearance_preset;
             // Persist the per-terminal override too. Applying only the default
             // appearance silently discarded everything the Current Terminal
             // scope had just edited, so the scope switch would appear to work
             // and then lose the user's change on apply.
             if let Some(tab_id) = changes.target_tab_id.as_deref() {
-                self.config.set_terminal_override(
+                next.set_terminal_override(
                     &crate::client::ipc_address(),
                     tab_id,
                     changes.override_draft.clone(),
                 );
             }
-            save_config(&self.config).map_err(|error| format!("{error:#}"))?;
+            save_config(&next).map_err(|error| format!("{error:#}"))?;
+            self.config = next;
             self.refresh_window_title();
         }
         self.settings_dialog.close_without_apply();
@@ -5716,9 +5718,10 @@ impl ControlHost for UnixApp {
     }
 
     fn apply_setting(&mut self, key: &str, value: &str) -> Result<(), String> {
+        let mut next = self.config.clone();
         match key {
             "terminal.font-family" if !value.trim().is_empty() => {
-                self.config.terminal_font_family = value.to_owned();
+                next.terminal_font_family = value.to_owned();
             }
             "terminal.font-size" => {
                 let Ok(size) = value.parse::<u16>() else {
@@ -5727,12 +5730,13 @@ impl ControlHost for UnixApp {
                 if !(8..=36).contains(&size) {
                     return Err("font size must be from 8 to 36".to_owned());
                 }
-                self.config.terminal_font_size = size;
+                next.terminal_font_size = size;
             }
             "terminal.font-family" => return Err("font family cannot be empty".to_owned()),
             other => return Err(format!("unknown setting: {other}")),
         }
-        save_config(&self.config).map_err(|error| format!("{error:#}"))?;
+        save_config(&next).map_err(|error| format!("{error:#}"))?;
+        self.config = next;
         self.relayout_after_config_change();
         Ok(())
     }

@@ -1380,8 +1380,10 @@ impl RemoteWindowState {
                 let width = option_value(&command.args, "--width")
                     .and_then(|value| value.parse::<i32>().ok())
                     .context("tabs-set-width requires numeric --width")?;
-                self.config.tabs_width = clamp_tabs_width(width);
-                save_config(&self.config).context("could not save Tabs width")?;
+                let mut next = self.config.clone();
+                next.tabs_width = clamp_tabs_width(width);
+                save_config(&next).context("could not save Tabs width")?;
+                self.config = next;
                 self.layout();
                 self.resize_active_terminal();
             }
