@@ -13,7 +13,7 @@ use agenterm_script_common::check_many::{self, CheckFailure};
 use crate::module_resolver::{ResolverFailure, ResolverLedger, ResolverLedgerConfig};
 
 pub use agenterm_script_common::check_many::{
-    CheckManyManifest, CheckManyOptions, CheckManyReport, ParsedCheckManyCli,
+    CheckExitClass, CheckManyManifest, CheckManyOptions, CheckManyReport, ParsedCheckManyCli,
 };
 // The resolver and its ledger moved to their own module so every door that
 // resolves modules shares one implementation instead of a lookalike. Both
@@ -107,17 +107,25 @@ pub fn run_check_many_with_builtins(
                 return Err(CheckFailure::new(
                     "limit_wall_time",
                     "check-many reached its aggregate wall-time budget while compiling imports",
-                    "limit",
+                    CheckExitClass::Limit,
                 ));
             }
-            checked.map_err(|error| CheckFailure::new("qjs_check", error.to_string(), "script"))
+            checked.map_err(|error| {
+                CheckFailure::new("qjs_check", error.to_string(), CheckExitClass::Script)
+            })
         },
     )
 }
 
 /// The shared ledger's refusal in the report's own failure shape.
 fn check_failure(failure: ResolverFailure) -> CheckFailure {
-    CheckFailure::new(failure.code, failure.message, failure.category.as_str())
+    use crate::module_resolver::ResolverFailureCategory as C;
+    let exit_class = match failure.category {
+        C::Limit => CheckExitClass::Limit,
+        C::Cancelled => CheckExitClass::Cancelled,
+        C::Host => CheckExitClass::Host,
+    };
+    CheckFailure::new(failure.code, failure.message, exit_class)
 }
 
 pub fn parse_check_many_cli<I>(args: I) -> Result<ParsedCheckManyCli, String>
@@ -234,7 +242,7 @@ mod tests {
         );
         assert!(!report.ok);
         assert_eq!(report.failures[0].code, "limit_import_source_bytes");
-        assert_eq!(report.failures[0].exit_class, "limit");
+        assert_eq!(report.failures[0].exit_class, CheckExitClass::Limit);
     }
 
     #[test]

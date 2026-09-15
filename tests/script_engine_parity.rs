@@ -39,7 +39,9 @@
 use std::fs;
 use std::path::Path;
 
-use agenterm_script_common::check_many::{CheckManyManifest, CheckManyOptions, CheckManyReport};
+use agenterm_script_common::check_many::{
+    CheckExitClass, CheckManyManifest, CheckManyOptions, CheckManyReport,
+};
 
 /// One engine's fixed facts needed to drive it through an identical
 /// structural scenario: its manifest `kind`, its source file extension, a
@@ -172,7 +174,12 @@ fn syntax_error_in_one_file() {
         // Engine-specific syntax-failure codes (rh_subset/rh_check vs
         // lua_check vs qjs_parse) intentionally NOT compared here — only
         // the engine-neutral exit_class/exit_code contract is shared.
-        assert_eq!(report.failures[0].exit_class, "script", "{}", engine.name);
+        assert_eq!(
+            report.failures[0].exit_class,
+            CheckExitClass::Script,
+            "{}",
+            engine.name
+        );
         assert_eq!(report.exit_code(), 1, "{}", engine.name);
     }
 }
@@ -205,7 +212,8 @@ fn manifest_path_escapes_root() {
             engine.name
         );
         assert_eq!(
-            report.failures[0].exit_class, "configuration",
+            report.failures[0].exit_class,
+            CheckExitClass::Configuration,
             "{}",
             engine.name
         );
@@ -234,7 +242,8 @@ fn absolute_path_rejected() {
             engine.name
         );
         assert_eq!(
-            report.failures[0].exit_class, "configuration",
+            report.failures[0].exit_class,
+            CheckExitClass::Configuration,
             "{}",
             engine.name
         );
@@ -262,7 +271,8 @@ fn duplicate_resolved_path() {
             engine.name
         );
         assert_eq!(
-            report.failures[0].exit_class, "configuration",
+            report.failures[0].exit_class,
+            CheckExitClass::Configuration,
             "{}",
             engine.name
         );
@@ -289,7 +299,12 @@ fn zero_wall_time() {
             "{}",
             engine.name
         );
-        assert_eq!(report.failures[0].exit_class, "limit", "{}", engine.name);
+        assert_eq!(
+            report.failures[0].exit_class,
+            CheckExitClass::Limit,
+            "{}",
+            engine.name
+        );
         assert_eq!(report.exit_code(), 3, "{}", engine.name);
     }
 }
@@ -318,7 +333,12 @@ fn per_file_source_budget() {
             "{}",
             engine.name
         );
-        assert_eq!(report.failures[0].exit_class, "limit", "{}", engine.name);
+        assert_eq!(
+            report.failures[0].exit_class,
+            CheckExitClass::Limit,
+            "{}",
+            engine.name
+        );
         assert_eq!(report.exit_code(), 3, "{}", engine.name);
     }
 }

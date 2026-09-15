@@ -82,7 +82,11 @@ flowchart LR
 - [x] the default product build includes the qjswasm engine needed to run the
   repository's own `.qjs` qualification surface.
 - [x] `check-many` is bounded, gives each file a fresh engine/result and avoids
-  one process per source file.
+  one process per source file. Its shared QJS/Lua/SQL driver carries the closed
+  failure taxonomy as `CheckExitClass`, derives process status exhaustively
+  from that enum and converts it to the existing snake-case string only at the
+  JSON boundary. Engine adapters cannot inject an unregistered class or let a
+  new class inherit exit status 1 through a string wildcard.
 - [x] the public `prd-alignment` task and its `check.qjs` caller use the same
   1,000,000,000-operation hard cap. The former 100,000,000 task contract
   exhausted before producing a verdict even though the check wrapper was

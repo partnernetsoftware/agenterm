@@ -18,9 +18,9 @@ use std::path::Path;
 use agenterm_script_common::check_many::{self, CheckFailure};
 
 pub use agenterm_script_common::check_many::{
-    CheckManyFailure, CheckManyManifest, CheckManyOptions, CheckManyReport, DEFAULT_SOURCE_BYTES,
-    DEFAULT_WALL_TIME_MS, FILES_MAX, MANIFEST_MAX_BYTES, PATH_MAX_BYTES, ParsedCheckManyCli,
-    TOTAL_SOURCE_MAX_BYTES,
+    CheckExitClass, CheckManyFailure, CheckManyManifest, CheckManyOptions, CheckManyReport,
+    DEFAULT_SOURCE_BYTES, DEFAULT_WALL_TIME_MS, FILES_MAX, MANIFEST_MAX_BYTES, PATH_MAX_BYTES,
+    ParsedCheckManyCli, TOTAL_SOURCE_MAX_BYTES,
 };
 
 use crate::{check::check, error::SqlError};
@@ -47,13 +47,15 @@ pub fn run_check_many(manifest: CheckManyManifest, options: CheckManyOptions) ->
 
 fn sql_check_failure(error: SqlError) -> CheckFailure {
     match error {
-        SqlError::Parse(message) => CheckFailure::new("sql_parse", message, "script"),
-        SqlError::Check(message) => CheckFailure::new("sql_check", message, "script"),
+        SqlError::Parse(message) => CheckFailure::new("sql_parse", message, CheckExitClass::Script),
+        SqlError::Check(message) => CheckFailure::new("sql_check", message, CheckExitClass::Script),
         // Not reachable today: `check()` (the only thing this closure calls)
         // never constructs `SqlError::Usage`. Matched for exhaustiveness,
         // classified under the same `"configuration"` `exit_class` the
         // shared driver uses for its own usage-level failures.
-        SqlError::Usage(message) => CheckFailure::new("sql_usage", message, "configuration"),
+        SqlError::Usage(message) => {
+            CheckFailure::new("sql_usage", message, CheckExitClass::Configuration)
+        }
     }
 }
 

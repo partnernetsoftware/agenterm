@@ -17,9 +17,9 @@ use std::path::Path;
 use agenterm_script_common::check_many::{self, CheckFailure};
 
 pub use agenterm_script_common::check_many::{
-    CheckManyFailure, CheckManyManifest, CheckManyOptions, CheckManyReport, DEFAULT_SOURCE_BYTES,
-    DEFAULT_WALL_TIME_MS, FILES_MAX, MANIFEST_MAX_BYTES, PATH_MAX_BYTES, ParsedCheckManyCli,
-    TOTAL_SOURCE_MAX_BYTES,
+    CheckExitClass, CheckManyFailure, CheckManyManifest, CheckManyOptions, CheckManyReport,
+    DEFAULT_SOURCE_BYTES, DEFAULT_WALL_TIME_MS, FILES_MAX, MANIFEST_MAX_BYTES, PATH_MAX_BYTES,
+    ParsedCheckManyCli, TOTAL_SOURCE_MAX_BYTES,
 };
 
 use crate::LuaEngine;
@@ -49,7 +49,7 @@ pub fn run_check_many(manifest: CheckManyManifest, options: CheckManyOptions) ->
                     code: "lua_engine_init".into(),
                     message: err.to_string(),
                     invocation_id: "check-many-0".into(),
-                    exit_class: "host",
+                    exit_class: CheckExitClass::Host,
                 }],
             };
         }
@@ -59,9 +59,9 @@ pub fn run_check_many(manifest: CheckManyManifest, options: CheckManyOptions) ->
         options,
         LUA_CHECK_MANIFEST_KIND,
         |source, _path, _root| {
-            engine
-                .check(source)
-                .map_err(|err| CheckFailure::new("lua_check", err.to_string(), "script"))
+            engine.check(source).map_err(|err| {
+                CheckFailure::new("lua_check", err.to_string(), CheckExitClass::Script)
+            })
         },
     )
 }
@@ -147,7 +147,7 @@ mod tests {
         assert_eq!(report.checked_files, 2);
         assert_eq!(report.failures.len(), 1);
         assert!(report.failures[0].path.contains("bad.lua"));
-        assert_eq!(report.failures[0].exit_class, "script");
+        assert_eq!(report.failures[0].exit_class, CheckExitClass::Script);
     }
 
     #[test]

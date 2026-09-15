@@ -50,6 +50,32 @@ pub const TOTAL_SOURCE_MAX_BYTES: usize = 8 * 1024 * 1024;
 pub const DEFAULT_WALL_TIME_MS: u64 = 10_000;
 pub const DEFAULT_SOURCE_BYTES: usize = 512 * 1024;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckExitClass {
+    Configuration,
+    Limit,
+    Script,
+    Child,
+    Cancelled,
+    Fleet,
+    Protocol,
+    Host,
+}
+
+impl CheckExitClass {
+    pub const fn process_exit_code(self) -> u8 {
+        match self {
+            Self::Script | Self::Protocol | Self::Host => 1,
+            Self::Configuration => 2,
+            Self::Limit => 3,
+            Self::Child => 4,
+            Self::Cancelled => 5,
+            Self::Fleet => 6,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ParsedCheckManyCli {
     pub manifest_path: PathBuf,
@@ -71,7 +97,7 @@ pub struct CheckManyFailure {
     pub code: String,
     pub message: String,
     pub invocation_id: String,
-    pub exit_class: &'static str,
+    pub exit_class: CheckExitClass,
 }
 
 #[derive(Debug, Serialize)]
@@ -92,14 +118,7 @@ impl CheckManyReport {
     pub fn exit_code(&self) -> u8 {
         self.failures
             .first()
-            .map_or(0, |failure| match failure.exit_class {
-                "configuration" => 2,
-                "limit" => 3,
-                "child" => 4,
-                "cancelled" => 5,
-                "fleet" => 6,
-                _ => 1,
-            })
+            .map_or(0, |failure| failure.exit_class.process_exit_code())
     }
 }
 
@@ -127,14 +146,14 @@ impl Default for CheckManyOptions {
 pub struct CheckFailure {
     pub code: String,
     pub message: String,
-    pub exit_class: &'static str,
+    pub exit_class: CheckExitClass,
 }
 
 impl CheckFailure {
     pub fn new(
         code: impl Into<String>,
         message: impl Into<String>,
-        exit_class: &'static str,
+        exit_class: CheckExitClass,
     ) -> Self {
         Self {
             code: code.into(),
@@ -203,7 +222,7 @@ where
                     "check_many_project_root",
                     "project root is not a directory".to_owned(),
                     0,
-                    "configuration",
+                    CheckExitClass::Configuration,
                 )],
             );
         }
@@ -218,7 +237,7 @@ where
                     "check_many_project_root",
                     error.to_string(),
                     0,
-                    "configuration",
+                    CheckExitClass::Configuration,
                 )],
             );
         }
@@ -236,7 +255,7 @@ where
                 "limit_wall_time",
                 "check-many reached its aggregate wall-time budget".to_owned(),
                 ordinal,
-                "limit",
+                CheckExitClass::Limit,
             ));
             continue;
         }
@@ -246,7 +265,7 @@ where
                 "check_many_path",
                 "path label is empty or exceeds byte limit".to_owned(),
                 ordinal,
-                "configuration",
+                CheckExitClass::Configuration,
             ));
             continue;
         }
@@ -259,7 +278,7 @@ where
                     "check_many_path",
                     "manifest path escapes the project root".to_owned(),
                     ordinal,
-                    "configuration",
+                    CheckExitClass::Configuration,
                 ));
                 continue;
             }
@@ -269,7 +288,7 @@ where
                     "host_source_read",
                     "script source is not a file".to_owned(),
                     ordinal,
-                    "host",
+                    CheckExitClass::Host,
                 ));
                 continue;
             }
@@ -279,7 +298,7 @@ where
                     "host_source_resolve",
                     error.to_string(),
                     ordinal,
-                    "host",
+                    CheckExitClass::Host,
                 ));
                 continue;
             }
@@ -290,7 +309,7 @@ where
                 "check_many_duplicate",
                 "manifest resolves the same file more than once".to_owned(),
                 ordinal,
-                "configuration",
+                CheckExitClass::Configuration,
             ));
             continue;
         }
@@ -302,12 +321,18 @@ where
                     "limit_source_bytes",
                     message,
                     ordinal,
-                    "limit",
+                    CheckExitClass::Limit,
                 ));
                 continue;
             }
             Err(SourceReadFailure::Host(message)) => {
-                failures.push(failure(label, "host_source_read", message, ordinal, "host"));
+                failures.push(failure(
+                    label,
+                    "host_source_read",
+                    message,
+                    ordinal,
+                    CheckExitClass::Host,
+                ));
                 continue;
             }
         };
@@ -318,7 +343,7 @@ where
                 "check_many_total_source_bytes",
                 format!("aggregate source exceeds {TOTAL_SOURCE_MAX_BYTES} bytes"),
                 ordinal,
-                "limit",
+                CheckExitClass::Limit,
             ));
             continue;
         }
@@ -365,7 +390,7 @@ fn failure(
     code: impl Into<String>,
     message: String,
     ordinal: usize,
-    exit_class: &'static str,
+    exit_class: CheckExitClass,
 ) -> CheckManyFailure {
     CheckManyFailure {
         path,
@@ -401,6 +426,24 @@ mod tests {
 
     const KIND: &str = "agenterm-test-check-manifest";
 
+    #[test]
+    fn exit_classes_keep_their_wire_names_and_process_codes() {
+        let cases = [
+            (CheckExitClass::Configuration, "\"configuration\"", 2),
+            (CheckExitClass::Limit, "\"limit\"", 3),
+            (CheckExitClass::Script, "\"script\"", 1),
+            (CheckExitClass::Child, "\"child\"", 4),
+            (CheckExitClass::Cancelled, "\"cancelled\"", 5),
+            (CheckExitClass::Fleet, "\"fleet\"", 6),
+            (CheckExitClass::Protocol, "\"protocol\"", 1),
+            (CheckExitClass::Host, "\"host\"", 1),
+        ];
+        for (exit_class, wire, process_code) in cases {
+            assert_eq!(serde_json::to_string(&exit_class).unwrap(), wire);
+            assert_eq!(exit_class.process_exit_code(), process_code);
+        }
+    }
+
     fn write_manifest(dir: &TempDir, files: &[&str]) -> PathBuf {
         let path = dir.path().join("manifest.json");
         let manifest = serde_json::json!({
@@ -414,7 +457,11 @@ mod tests {
 
     fn ok_unless_bad(source: &str, _path: &Path, _root: &Path) -> Result<(), CheckFailure> {
         if source.contains("BAD") {
-            Err(CheckFailure::new("test_bad", "contains BAD", "script"))
+            Err(CheckFailure::new(
+                "test_bad",
+                "contains BAD",
+                CheckExitClass::Script,
+            ))
         } else {
             Ok(())
         }
@@ -481,7 +528,7 @@ mod tests {
         assert_eq!(report.checked_files, 2);
         assert_eq!(report.failures.len(), 1);
         assert!(report.failures[0].path.contains("bad.txt"));
-        assert_eq!(report.failures[0].exit_class, "script");
+        assert_eq!(report.failures[0].exit_class, CheckExitClass::Script);
         assert_eq!(report.exit_code(), 1);
     }
 
@@ -502,7 +549,7 @@ mod tests {
         let report = run_check_many(manifest, options, KIND, ok_unless_bad);
         assert!(!report.ok);
         assert_eq!(report.failures[0].code, "check_many_path");
-        assert_eq!(report.failures[0].exit_class, "configuration");
+        assert_eq!(report.failures[0].exit_class, CheckExitClass::Configuration);
         assert_eq!(report.exit_code(), 2);
     }
 
