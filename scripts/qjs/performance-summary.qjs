@@ -33,6 +33,12 @@ const args = rh.args();
 if (args.length !== 9) { throw "performance_summary_arguments"; }
 
 const output = rh.absolute(args[0]);
+const summary_value = rh.env_or("GITHUB_STEP_SUMMARY", "");
+const step_summary = summary_value === "" ? "" : rh.absolute(summary_value);
+rh.require(
+  step_summary === "" || output !== step_summary,
+  "performance_summary_output_is_step_summary"
+);
 const runner_class = args[1];
 const cache_strategy = args[2];
 rh.require(
@@ -59,6 +65,10 @@ for (let index = 0; index < 3; index = index + 1) {
   const sample_tag = "" + (index + 1);
 
   const path = rh.absolute(args[index + 3]);
+  rh.require(
+    path !== output,
+    "performance_summary_output_timing_collision:" + sample_tag
+  );
   rh.require(
     !rh.array_has(sample_paths, path),
     "performance_summary_sample_path_duplicate:" + sample_tag
@@ -152,6 +162,10 @@ for (let index = 0; index < 3; index = index + 1) {
 
   if (cache_strategy === "sccache") {
     const stats_path = rh.absolute(args[index + 6]);
+    rh.require(
+      stats_path !== output,
+      "performance_summary_output_sccache_collision:" + sample_tag
+    );
     rh.require(
       !rh.array_has(sccache_paths, stats_path),
       "performance_summary_sccache_path_duplicate:" + sample_tag
@@ -273,16 +287,14 @@ const markdown =
   "- Sample model: `" + sample_model + "`\n\n" +
   "Runner-purchase decisions also require real Candidate release/stress " +
   "timing evidence.\n";
-const summary_value = rh.env_or("GITHUB_STEP_SUMMARY", "");
-if (summary_value !== "") {
-  const summary_path = rh.absolute(summary_value);
+if (step_summary !== "") {
   let previous = "";
-  if (rh.exists(summary_path)) {
-    const summary_meta = rh.symlink_metadata(summary_path);
+  if (rh.exists(step_summary)) {
+    const summary_meta = rh.symlink_metadata(step_summary);
     rh.require(summary_meta.len <= 1048576, "performance_summary_previous_too_large");
-    previous = rh.read_text(summary_path);
+    previous = rh.read_text(step_summary);
   }
-  rh.atomic_write(summary_path, previous + markdown);
+  rh.atomic_write(step_summary, previous + markdown);
 } else {
   print(markdown);
 }

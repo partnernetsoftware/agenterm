@@ -110,6 +110,16 @@ fn run_summary(
     timings: [&Path; 3],
     stats: [&Path; 3],
 ) -> Output {
+    run_summary_with_step_summary(output_path, strategy, timings, stats, None)
+}
+
+fn run_summary_with_step_summary(
+    output_path: &Path,
+    strategy: &str,
+    timings: [&Path; 3],
+    stats: [&Path; 3],
+    step_summary: Option<&Path>,
+) -> Output {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("agenterm.tasks.json");
     let mut command = Command::new(env!("CARGO_BIN_EXE_agenterm"));
     command
@@ -132,10 +142,12 @@ fn run_summary(
     for sample_stats in stats {
         command.arg(sample_stats);
     }
-    command
-        .env_remove("GITHUB_STEP_SUMMARY")
-        .output()
-        .expect("run performance-summary task")
+    if let Some(path) = step_summary {
+        command.env("GITHUB_STEP_SUMMARY", path);
+    } else {
+        command.env_remove("GITHUB_STEP_SUMMARY");
+    }
+    command.output().expect("run performance-summary task")
 }
 
 fn diagnostic(output: &Output) -> String {
@@ -420,4 +432,51 @@ fn performance_summary_accepts_one_run_and_rejects_misattributed_samples() {
         "{}",
         diagnostic(&mixed_states)
     );
+
+    let timing_before = fs::read_to_string(&timings[1]).expect("read timing before collision");
+    let timing_collision = run_summary(
+        &timings[1],
+        "target",
+        [&timings[0], &timings[1], &timings[2]],
+        [&stats[0], &stats[1], &stats[2]],
+    );
+    assert!(!timing_collision.status.success());
+    assert!(
+        diagnostic(&timing_collision).contains("performance_summary_output_timing_collision:2")
+    );
+    assert_eq!(
+        fs::read_to_string(&timings[1]).expect("read timing after collision"),
+        timing_before
+    );
+
+    for path in &stats {
+        write_stats(path, &number_stats());
+    }
+    let stats_before = fs::read_to_string(&stats[0]).expect("read stats before collision");
+    let stats_collision = run_summary(
+        &stats[0],
+        "sccache",
+        [&timings[0], &timings[1], &timings[2]],
+        [&stats[0], &stats[1], &stats[2]],
+    );
+    assert!(!stats_collision.status.success());
+    assert!(
+        diagnostic(&stats_collision).contains("performance_summary_output_sccache_collision:1")
+    );
+    assert_eq!(
+        fs::read_to_string(&stats[0]).expect("read stats after collision"),
+        stats_before
+    );
+
+    let step_summary = root.0.join("step-summary.md");
+    let step_collision = run_summary_with_step_summary(
+        &step_summary,
+        "target",
+        [&timings[0], &timings[1], &timings[2]],
+        [&stats[0], &stats[1], &stats[2]],
+        Some(&step_summary),
+    );
+    assert!(!step_collision.status.success());
+    assert!(diagnostic(&step_collision).contains("performance_summary_output_is_step_summary"));
+    assert!(!step_summary.exists());
 }

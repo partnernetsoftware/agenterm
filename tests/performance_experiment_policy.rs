@@ -113,6 +113,11 @@ fn summary_requires_one_ordered_experiment_run() {
     assert!(SUMMARY.contains("Number.isInteger(report.bootstrap.setup_ms)"));
     assert!(SUMMARY.contains("report.wall_time.accounted_ms === report.total_wall_ms"));
     assert!(SUMMARY.contains("=== report.total_wall_ms + report.bootstrap.setup_ms"));
+    assert!(SUMMARY.contains("performance_summary_output_timing_collision:"));
+    assert!(SUMMARY.contains("performance_summary_output_sccache_collision:"));
+    assert!(SUMMARY.contains("performance_summary_output_is_step_summary"));
+    assert!(SUMMARY.contains("path !== output"));
+    assert!(SUMMARY.contains("stats_path !== output"));
     assert!(SUMMARY.contains("previous_completed <= completed"));
     assert!(SUMMARY.contains("experiment_run_id: experiment_run_id"));
     assert!(WORKFLOW.contains("@if errorlevel 1 exit /b 1"));
