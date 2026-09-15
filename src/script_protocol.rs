@@ -473,17 +473,49 @@ pub struct ScriptFailure {
     pub stdout_truncated: bool,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ScriptFailureCategory {
-    Configuration,
-    Limit,
-    Script,
-    Child,
-    Cancelled,
-    Fleet,
-    Protocol,
-    Host,
+macro_rules! script_failure_categories {
+    ($( $variant:ident => $wire:literal ),+ $(,)?) => {
+        #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+        #[serde(rename_all = "snake_case")]
+        pub enum ScriptFailureCategory {
+            $( $variant, )+
+        }
+
+        impl ScriptFailureCategory {
+            pub const ALL: [Self; script_failure_categories!(@count $( $variant )+)] = [
+                $( Self::$variant, )+
+            ];
+
+            pub const fn as_str(self) -> &'static str {
+                match self {
+                    $( Self::$variant => $wire, )+
+                }
+            }
+        }
+
+        impl From<ScriptFailureCategory> for ScriptExitClass {
+            fn from(category: ScriptFailureCategory) -> Self {
+                match category {
+                    $( ScriptFailureCategory::$variant => Self::$variant, )+
+                }
+            }
+        }
+    };
+    (@count $( $variant:ident )+) => {
+        <[()]>::len(&[$( script_failure_categories!(@unit $variant) ),+])
+    };
+    (@unit $variant:ident) => { () };
+}
+
+script_failure_categories! {
+    Configuration => "configuration",
+    Limit => "limit",
+    Script => "script",
+    Child => "child",
+    Cancelled => "cancelled",
+    Fleet => "fleet",
+    Protocol => "protocol",
+    Host => "host",
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -498,21 +530,6 @@ pub enum ScriptExitClass {
     Fleet,
     Protocol,
     Host,
-}
-
-impl From<ScriptFailureCategory> for ScriptExitClass {
-    fn from(category: ScriptFailureCategory) -> Self {
-        match category {
-            ScriptFailureCategory::Configuration => Self::Configuration,
-            ScriptFailureCategory::Limit => Self::Limit,
-            ScriptFailureCategory::Script => Self::Script,
-            ScriptFailureCategory::Child => Self::Child,
-            ScriptFailureCategory::Cancelled => Self::Cancelled,
-            ScriptFailureCategory::Fleet => Self::Fleet,
-            ScriptFailureCategory::Protocol => Self::Protocol,
-            ScriptFailureCategory::Host => Self::Host,
-        }
-    }
 }
 
 impl ScriptExitClass {
@@ -1493,6 +1510,7 @@ mod tests {
         ];
         for (category, expected, exit_code) in cases {
             assert_eq!(ScriptExitClass::from(category), expected);
+            assert_eq!(category.as_str(), expected.as_str());
             assert_eq!(expected.process_exit_code(), exit_code);
         }
         assert_eq!(ScriptExitClass::Success.process_exit_code(), 0);

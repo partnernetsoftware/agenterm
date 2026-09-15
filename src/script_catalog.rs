@@ -7,7 +7,7 @@ use crate::{
     operations::{OPERATION_CATALOG, OperationClass, OperationSpec},
     script_protocol::{
         SCRIPT_API_VERSION, SCRIPT_FRAME_MAX_BYTES, SCRIPT_FRAME_VERSION,
-        SCRIPT_INVOCATION_MAX_BYTES, ScriptBudgets, ScriptExitClass,
+        SCRIPT_INVOCATION_MAX_BYTES, ScriptBudgets, ScriptExitClass, ScriptFailureCategory,
     },
 };
 
@@ -1561,9 +1561,7 @@ pub fn catalog() -> Value {
             ],
             "catchable_slices": [],
         },
-        "failure_categories": [
-            "configuration", "limit", "script", "child", "cancelled", "fleet", "protocol", "host"
-        ],
+        "failure_categories": ScriptFailureCategory::ALL.map(ScriptFailureCategory::as_str),
         "exit_classes": {
             "success": ScriptExitClass::Success.process_exit_code(),
             "script": ScriptExitClass::Script.process_exit_code(),

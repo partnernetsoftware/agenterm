@@ -1319,6 +1319,10 @@ return descend(20);
             );
         }
         assert_eq!(
+            catalog["failure_categories"],
+            serde_json::json!(ScriptFailureCategory::ALL.map(ScriptFailureCategory::as_str))
+        );
+        assert_eq!(
             catalog["typed_error"]["catchable_slices"]
                 .as_array()
                 .map(Vec::len),
