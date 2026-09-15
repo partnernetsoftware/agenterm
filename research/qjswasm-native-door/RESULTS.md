@@ -303,3 +303,31 @@ shasum -a 256 target/native-door-size/build-{before,after}/release/deps/libagent
 - 未声称 rlib 增量等于 dead-strip 后的产品贡献；
 - 未声称 macOS L1 数字可外推到 Windows 或 Linux；
 - 未声称任何新 runtime 资格；本节只构建并量取 release archive。
+
+---
+
+# 追加：follow-up 4 — 当前 HEAD 的 macOS arm64 runtime 回归
+
+本节只刷新已经拥有 runner 的 `aarch64-apple-darwin` 格；不把本机结果外推到
+Rosetta、Windows 或 Linux。
+
+## F16. Source identity、命令与结果
+
+| 项 | 值 |
+|---|---|
+| source identity | `fd797b6f15b4fa293bb6b78b8539a59ac3f6a1e5` |
+| host / evidence grade | `aarch64-apple-darwin` / **native** |
+| schema command | `cargo test -p agenterm-qjswasm --test native_door_schema` |
+| schema result | **8 passed; 0 failed** |
+| runtime command | `cargo test -p agenterm-qjswasm --test native_door` |
+| runtime result | **51 passed; 0 failed** |
+
+两条命令均在同一 source identity、同一宿主上 rc=0。runtime 包含隔离子进程中的
+`alarm(0)` 与 `umask` 恢复用例；它们通过不改变本节的证据等级。
+
+## F17. 本节未声称项
+
+- 未声称 `x86_64-apple-darwin` runtime；该格仍受 Rosetta runner blocker 约束；
+- 未声称任何 Windows/Linux runtime；既有跨目标记录仍只有编译证据；
+- 未刷新 L1 bytes，也未补 L2/L3；
+- 测试数是本次实际发现并执行的当前集合，不是未来固定数量。
