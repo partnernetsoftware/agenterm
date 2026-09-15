@@ -86,7 +86,7 @@ rg -n 'NativeType::(I32|U32|I64|U64|Isize|Usize|F64)|invoke_[0-6]' crates/agente
 |---|---|
 | **L1** | **本节未测定；后续 release 测量见 §F12–§F15** |
 | **L2** | **未测定** |
-| **L3** | **未测定** |
+| **L3** | **未测定**；需要 Windows stress-inclusive qualification receipt 与 Windows-only `package-release-qualified`，macOS 的 six-cell receipt 不是替代输入 |
 
 上表 §2/§3 的全部数据都来自 **debug**（`dev` profile）构建；**不得**用 debug 结果替代 release 结论。
 本片未运行任何 release 构建或 release 资格。

@@ -219,6 +219,11 @@ cargo test --test script_native_artifact_supervisor
    §F12–§F15 已在 before/after 两端各取得唯一候选并记录 bytes、SHA-256 与 source identity。
 2. L2 的 OS 接缝不单独 materialize；只报告整个最终链接体的 before/after 差值，不制造接缝子文件。
 3. L3 已有 provenance 字段可绑定 source commit 与 artifact manifest；仍须为 before/after 各自产生 receipt。
+   当前这条路径具有明确的 Windows authority 前置：正式 qualification receipt 只有完整 smoke 且显式
+   `--include-stress` 时才写出，承载该 stress 的 `fleet-smoke` 与消费 receipt 的
+   `package-release-qualified` 都只在 Windows 注册。macOS 的 `six-cell-qualify` 产出另一份
+   `target/qualification/six-cell/qualify.json`，不能替代此 receipt；因此当前 macOS 静态审计不能把
+   L3 从“未测定”改成“已测定”。
 4. `aedfdf96` 提供 target 与 dist 的 repo-local 单层 lane，但尚未完成 L2 的真实隔离双变体 build；
    在该黑盒门通过前，L2/L3 继续标**未测定**。
 
