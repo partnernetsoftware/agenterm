@@ -1441,6 +1441,16 @@ fn preflight_region_plans(plans: &[RegionPlan], maximum: usize) -> Result<(), Na
 /// is the whole answer and this refinement says nothing about them.
 const KNOWN_MINIMUM_SYMBOL: &str = "uname";
 
+/// Whether this declaration names an image whose `uname` contract is known.
+///
+/// The empty name selects the current process. On macOS, `libSystem.B.dylib`
+/// is the platform image used by this crate's native fixtures for the same
+/// system C surface. Other named libraries remain open-world declarations: a
+/// matching symbol spelling does not prove that they use `struct utsname`.
+fn is_known_minimum_library(library: &str) -> bool {
+    library.is_empty() || (cfg!(target_os = "macos") && library == "libSystem.B.dylib")
+}
+
 /// `sizeof(struct utsname)` on the current Unix target.
 ///
 /// `None` where the symbol does not exist, which is every non-Unix target:
@@ -1467,11 +1477,11 @@ fn check_known_region_minimum(
     spec: &NativeSpec,
     plans: &[RegionPlan],
 ) -> Result<(), NativeDoorError> {
-    // Only the current process library, only the one name, and only the exact
-    // signature that makes the first parameter the whole pointee. A library
-    // that merely re-exports a symbol called `uname` is a different contract
-    // in a different image, so it keeps the caller-owned rule.
-    if !spec.library.is_empty()
+    // Only a proved platform image, only the one name, and only the exact
+    // signature that makes the first parameter the whole pointee. An arbitrary
+    // library that exports a symbol called `uname` is a different contract, so
+    // it keeps the caller-owned rule.
+    if !is_known_minimum_library(&spec.library)
         || spec.symbol != KNOWN_MINIMUM_SYMBOL
         || spec.result != NativeType::I32
         || spec.parameters.as_slice() != [NativeType::Pointer]
@@ -3054,11 +3064,11 @@ mod json_adapter_tests {
         assert_eq!(error.code(), "native_symbol_load_failed");
     }
 
-    /// A caller that names a foreign library is a different contract in a
-    /// different image, even when the symbol name matches.
+    /// An arbitrary named library is a different contract even when the symbol
+    /// name matches. This fixture deliberately is not a proved platform image.
     #[cfg(unix)]
     #[test]
-    fn the_same_symbol_in_a_named_library_is_not_bounded_by_the_known_minimum() {
+    fn the_same_symbol_in_an_unknown_library_keeps_the_caller_owned_contract() {
         let error = invoke_native_json(
             b"no_such_library_agenterm_h7b|uname|i32(ptr)",
             br#"[{"region":{"capacity":1,"termination":"nul","output":"bytes"}}]"#,
@@ -3069,8 +3079,33 @@ mod json_adapter_tests {
         assert_eq!(
             error.code(),
             "native_library_load_failed",
-            "the minimum belongs to this process image only; got {error:?}"
+            "an unknown image must not inherit a contract by symbol spelling; got {error:?}"
         );
+    }
+
+    /// The macOS system-library spelling used by the native fixtures names the
+    /// same platform contract as the current-process lookup. Its width check
+    /// therefore cannot depend on which of those two spellings the guest uses.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_macos_system_image_keeps_the_known_uname_minimum() {
+        let minimum = std::mem::size_of::<libc::utsname>();
+        let spec = parse_native_spec(b"libSystem.B.dylib|uname|i32(ptr)")
+            .expect("the platform declaration parses");
+        let plan = RegionPlan::from_json(
+            0,
+            &serde_json::json!({
+                "region": {
+                    "capacity": minimum - 1,
+                    "termination": "nul",
+                    "output": "bytes"
+                }
+            }),
+        )
+        .expect("the region plan is otherwise valid");
+        let error = check_known_region_minimum(&spec, std::slice::from_ref(&plan))
+            .expect_err("a proved image spelling must retain the target minimum");
+        assert_eq!(error.code(), "native_region_below_known_minimum");
     }
 
     #[test]

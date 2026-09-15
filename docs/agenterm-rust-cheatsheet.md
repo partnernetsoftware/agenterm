@@ -6357,6 +6357,14 @@ alignment, dynamic-length relationships and terminators, with pre-load typed
 rejection tests. A symbol allowlist is not a substitute for an unimplemented
 general capability and must not be smuggled in as permission policy.
 
+Key such a callee contract by every identity fact it actually proves. A bare
+symbol spelling is too broad because an arbitrary library may export the same
+name with a different pointee contract; current-process lookup is too narrow
+when a platform has a separately spelled, proved mirror of that same system
+image. Admit only the exact image spellings backed by platform evidence, and
+test the pre-load predicate directly so a regression cannot reach the foreign
+call.
+
 ## Rebase native pointer results onto declared guest spans
 
 A native function may return the same pointer that a Wasm guest supplied as a

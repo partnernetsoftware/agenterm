@@ -227,8 +227,10 @@ agenterm-qjswasm
 │  │  │  │     it does not prove the foreign callee stays within that range, and a false ABI/pointee
 │  │  │  │     assertion remains contained-worker failure just like a false function signature
 │  │  │  ├─ open-world known-contract refinement: the current-process standard `uname|i32(ptr)`
-│  │  │  │     has a target-provided fixed minimum (`sizeof(struct utsname)`), so a smaller JSON
-│  │  │  │     region refuses before allocation/load/call; unmatched symbols remain fully admitted
+│  │  │  │     and the proved macOS `libSystem.B.dylib` mirror share the target-provided fixed
+│  │  │  │     minimum (`sizeof(struct utsname)`), so a smaller JSON region refuses before
+│  │  │  │     allocation/load/call; arbitrary same-spelled symbols in other named libraries remain
+│  │  │  │     caller-owned and every other unmatched symbol remains fully admitted
 │  │  │  ├─ rejected hardening: a `(target,library,symbol,signature)` pointee table would validate
 │  │  │  │     only a closed known-symbol set and refuse every other import, turning robustness into
 │  │  │  │     a symbol allowlist; arbitrary native-call containment belongs at the worker boundary
@@ -1022,7 +1024,8 @@ integration.
   could stand for; the raw block door keeps admitting `null` at a `ptr?`
   position, and both nullable prototypes stay in this crate's catalog while dyn
   receives the single machine-level pointer. The open-world exception is the
-  current-process standard `uname|i32(ptr)`: this target provides
+  current-process standard `uname|i32(ptr)` and, on macOS, its proved
+  `libSystem.B.dylib` mirror: this target provides
   `sizeof(struct utsname)`, so a smaller region is refused before allocation,
   loading or invocation. This known fact does not gate unknown symbols or any
   other admitted shape; their pointee width remains caller-owned.
