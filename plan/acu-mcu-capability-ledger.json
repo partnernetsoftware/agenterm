@@ -180,9 +180,44 @@
           "note": "TERM/KILL verify exact exit, STOP/CONT verify scheduler state, and HUP/INT/USR1/USR2 report accepted delivery without fabricating application acknowledgement. Unix tree mode freezes until two bounded snapshots agree, retains every native process object, delivers deepest-first, and restores only members that it found running. Windows arbitrary trees remain typed unsupported, matching the absence of an MCU Job Object provider."
         },
         {
-          "id": "process.signal.privileged",
+          "id": "process.signal.privileged.plan",
           "mcu_shape": "signal --sudo|--broker",
-          "acu_shape": "privilege plan process.signal PID SIGNAL [--tree --max N] [--force] [--timeout-ms N] freezes exact process identity, parent edges, scheduler state, bounded scope and expiring digests without mutation; the Bun-free legacy spelling reaches this same typed planner without acu.dynamic.058",
+          "acu_shape": "privilege plan process.signal PID SIGNAL [--tree --max N] [--force] [--timeout-ms N] [--ttl-seconds N] freezes exact process identity, parent edges, scheduler state, a scope of at most 128 descendants and expiring digests without mutation; the Bun-free legacy spelling reaches this same typed planner without acu.dynamic.058",
+          "state": "platform-limited",
+          "platforms": {
+            "linux": "native-public-mutation-free-plan",
+            "macos": "native-public-mutation-free-plan",
+            "windows": "typed-posix-scheduler-semantics-unsupported"
+          },
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "native-qualified",
+                "gate": "cu-privileged-signal-plan-smoke",
+                "evidence": ["cu.privileged-signal-plan"]
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-privileged-signal-plan-smoke",
+                "evidence": ["cu.privileged-signal-plan"]
+              },
+              "windows": {
+                "result": "typed-intentional-retirement",
+                "gate": "cu-privileged-signal-plan-smoke",
+                "evidence": ["cu.privileged-signal-plan"],
+                "error_code": "privilege_operation_unsupported",
+                "rationale": "POSIX signal and scheduler semantics have no Windows equivalent; the public court proves typed refusal before consent and leaves the exact target running."
+              }
+            }
+          },
+          "evidence": ["cu.privileged-signal-plan"],
+          "note": "The public court runs with observe authority, requests no consent and performs no mutation. On Linux and macOS it freezes one exact process or a bounded tree with start identities, parent edges, scheduler state, closed signal intent, timeout and expiring contract/approval digests; malformed KILL intent fails before observation or effect. Windows proves the intentional typed boundary before consent and leaves the exact target running."
+        },
+        {
+          "id": "process.signal.privileged.apply",
+          "mcu_shape": "signal --sudo|--broker",
+          "acu_shape": "privilege apply --request PLAN --approve DIGEST [--provider-timeout-ms N] when PLAN encodes process.signal",
           "state": "platform-limited",
           "platforms": {
             "linux": "protected-provider-implemented-public-apply-qualification-pending",
@@ -206,9 +241,8 @@
               }
             }
           },
-          "evidence": ["cu.privileged-signal-plan"],
           "next": "execute the Linux caller-death and remaining failure courts on x86_64/aarch64, recover the 4 MiB Linux launcher budget, qualify the signed macOS provider, and implement the protected Windows provider",
-          "note": "Planning is public and read-only; it is not elevation, and cu.privileged-signal-plan must never be cited as apply evidence. Linux now routes apply through a fixed systemd socket broker that derives SO_PEERCRED plus process start identity, retains pidfd authority, checks the root-only replay ledger before polkit consent and executes through retained exact process objects. The old pkexec/PKEXEC_UID route is removed. A real x86_64 desktop experiment proved typed cancellation with no effect, approved completed+verified signal delivery and immutable terminal replay; a guest-local warm replay measured 0.13 seconds. Broker-owned counters prove finalized replay, request conflict and a simultaneous duplicate race use exactly one consent/effect. B5 now selects the one in-flight polkit request against retained pidfd liveness, cancels the same authorization id on caller death and retains the final exact-peer recheck; deterministic seams and Linux cross-build are green, while public apply qualification remains open. Still open: retained-unknown, deny/no-agent, installed rejection/upgrade cuts, aarch64 execution, the 20-run latency court and a public apply evidence token. At source 9837cf81 the stripped Linux x86_64 agenterm-cu measured 10,188,952 bytes against its unchanged 4,194,304-byte budget; plan/design-acu-thin-launcher-experiment.md owns the no-pruning recovery decision. macOS has a protected launchd plus Authorization Services implementation but lacks metrics and signed live delivery evidence; Windows still lacks a protected provider. This is therefore platform-limited qualification debt, not an absent ACU API."
+          "note": "No registered public evidence currently qualifies this apply boundary; cu.privileged-signal-plan must never be cited as apply evidence. Linux routes apply through a fixed systemd socket broker that derives SO_PEERCRED plus process start identity, retains pidfd authority, checks the root-only replay ledger before polkit consent and executes through retained exact process objects. The old pkexec/PKEXEC_UID route is removed. A real x86_64 desktop experiment proved typed cancellation with no effect, approved completed+verified signal delivery and immutable terminal replay; a guest-local warm replay measured 0.13 seconds. Broker-owned counters prove finalized replay, request conflict and a simultaneous duplicate race use exactly one consent/effect. B5 now selects the one in-flight polkit request against retained pidfd liveness, cancels the same authorization id on caller death and retains the final exact-peer recheck; deterministic seams and Linux cross-build are green, while public apply qualification remains open. Still open: retained-unknown, deny/no-agent, installed rejection/upgrade cuts, aarch64 execution, the 20-run latency court and a public apply evidence token. At source 9837cf81 the stripped Linux x86_64 agenterm-cu measured 10,188,952 bytes against its unchanged 4,194,304-byte budget; plan/design-acu-thin-launcher-experiment.md owns the no-pruning recovery decision. macOS has a protected launchd plus Authorization Services implementation but lacks metrics and signed live delivery evidence; Windows still lacks a protected provider. This is therefore platform-limited qualification debt, not an absent ACU API."
         },
         {
           "id": "process.cwd",

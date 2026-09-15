@@ -2252,7 +2252,8 @@ flowchart LR
     E --> D["durable terminal replay"]
   ```
 
-- [~] The same read-only boundary now covers `privilege plan process.signal`.
+- [~] The privileged signal surface is accounted as separate plan and apply
+  leaves. The read-only leaf covers `privilege plan process.signal`.
   It freezes one exact process or a tree of at most 128 descendants, including
   every start identity, parent edge, depth and observed scheduler state. KILL
   requires explicit force, the effect timeout and plan lifetime are bounded,
@@ -2268,9 +2269,12 @@ flowchart LR
   fixed Linux broker now reaches that effect core, so this is no longer an API
   capability gap. The Bun-free legacy entry forwards this exact plan shape to
   the same parser and Executor instead of retaining the stale
-  `acu.dynamic.058` TODO. Its platform qualification remains open until the public
-  apply court, remaining caller-death/failure cases, both Linux ISAs and the
-  release-size court are green. macOS already has a launchd + Authorization
+  `acu.dynamic.058` TODO. The Linux and macOS plan cells are qualified by that
+  mutation-free public court; Windows still needs complete closed-signal plan
+  coverage beyond its typed POSIX-scheduler refusal. The separate apply leaf
+  remains open until the public apply court, remaining caller-death/failure
+  cases, both Linux ISAs and the release-size court are green. macOS already has
+  a launchd + Authorization
   Services protected transport, but still lacks broker-owned metrics and a
   signed/notarized/root-installed live apply court. Windows still lacks its
   protected provider transport. A result from one OS cannot qualify another.
