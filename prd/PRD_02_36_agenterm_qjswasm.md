@@ -912,10 +912,14 @@ integration.
   The matching dyn-side proof is a `cfg(test)` loader-entry delta (N one-shot calls →
   +N entries; one handle open plus N handle calls → +1), plus exact/fixed/
   fixed-pointer/direct-scalar/pointer-result representatives that compare both
-  entries value-for-value. **An OS-level load count
-  is still not claimed here**: an already-loaded system library does not move any
-  cheap oracle, so proving fewer `dlopen` calls needs its own fixture library in
-  its own leaf.
+  entries value-for-value. **An OS-level `dlopen` / `LoadLibrary` count is
+  intentionally not claimed and is not a remaining acceptance leaf**. Dropping a
+  handle calls the platform close primitive, but image unloading and initializer
+  replay are loader policy rather than a cross-platform product invariant; an
+  already-loaded system library also moves no reliable cheap oracle. A fixture
+  would therefore measure one host loader's retention policy, not whether the
+  engine reused its only loading entry. Reopen that investigation only for a
+  named consumer that requires an OS-level fact.
 - The exposure catalog is pinned inside dyn's mechanism matrix by an owning gate
   (`native::mechanism_compatibility`): the 69 exposed declarations (49 exact + 6
   fixed + 14 pointer, which name 66 distinct ABI shapes because `ptr` and `ptr?`
