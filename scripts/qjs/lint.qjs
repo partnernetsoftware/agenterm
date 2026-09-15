@@ -155,11 +155,8 @@ if (internal_selftest === 1) {
       "*.rs", "*.toml", "*.rh", "*.rhai", "*.json", "*.md", "*.html",
       "*.yml", "*.yaml", "*.sh", "*.bat", "*.cmd"
     ];
-    // (`Array.prototype.concat` is not one of this engine's methods yet --
-    // a call on it is an unnamed trap, 2026-08-30 -- so the argument lists
-    // are built by hand.)
-    const nul_args = ["-C", repo, "grep", "-I", "-L", "-e", "", "--"];
-    for (const spec of text_pathspecs) { nul_args.push(spec); }
+    const nul_args = ["-C", repo, "grep", "-I", "-L", "-e", "", "--"]
+      .concat(text_pathspecs);
     const nul_code = rh.command_stdout_file(
       "git",
       nul_args,
@@ -176,8 +173,9 @@ if (internal_selftest === 1) {
       }
       throw errors;
     }
-    const marker_args = ["-C", repo, "grep", "-I", "-n", "-E", "-e", "^(<<<<<<<|=======|>>>>>>>)", "--"];
-    for (const spec of text_pathspecs) { marker_args.push(spec); }
+    const marker_args = [
+      "-C", repo, "grep", "-I", "-n", "-E", "-e", "^(<<<<<<<|=======|>>>>>>>)", "--"
+    ].concat(text_pathspecs);
     const marker_code = rh.command_stdout_file(
       "git",
       marker_args,
