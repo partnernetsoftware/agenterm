@@ -187,14 +187,7 @@ function platform_libraries(repo, os_name, target_arch_name) {
 function cargo_binary(name) {
   if (name === "agenterm.com") { return "agenterm-com"; }
   if (name.endsWith(".exe")) {
-    // rh's `sub_string(0, len - 4)`; no `slice` on strings in this engine, so
-    // drop the last dot-separated piece and rebuild the rest.
-    const parts = name.split(".");
-    let stem = "";
-    for (let i = 0; i < parts.length - 1; i = i + 1) {
-      stem = i === 0 ? parts[i] : stem + "." + parts[i];
-    }
-    return stem;
+    return name.slice(0, name.length - 4);
   }
   return name;
 }
