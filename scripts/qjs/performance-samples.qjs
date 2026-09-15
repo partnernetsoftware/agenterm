@@ -30,11 +30,20 @@ for (let sample = 1; sample < 4; sample = sample + 1) {
   }
 
   const timing = rh.join(evidence, "performance-" + sample_tag + ".json");
+  // This script clears Cargo output, while the bootstrap worker cache lives
+  // outside it. Give every sample a fresh cache root so a host-level cache hit
+  // cannot skip the rebuild that restores Quick's target/debug CLI probe.
+  const bootstrap_cache = rh.absolute(
+    "target/qualification/performance-bootstrap-cache-" + sample_tag
+  );
   const quick_cmdline = "check.cmd --quick --timing \"" + timing + "\"";
   const quick_code = rh.command(
     "cmd.exe",
     ["/d", "/s", "/c", quick_cmdline],
-    { timeout_ms: 900000 }
+    {
+      timeout_ms: 900000,
+      env: { AGENTERM_BOOTSTRAP_CACHE_ROOT: bootstrap_cache }
+    }
   ).exit_code;
   rh.require(quick_code === 0, "performance_samples_quick:" + sample_tag);
 

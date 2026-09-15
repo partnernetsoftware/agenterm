@@ -3,11 +3,8 @@ use std::sync::LazyLock;
 static WORKFLOW: LazyLock<String> = LazyLock::new(|| {
     include_str!("../.github/workflows/performance-experiment.yml").replace("\r\n", "\n")
 });
-// `SAMPLES` used to be `scripts/rh/performance-samples.rh`, and
-// `TASK_MANIFEST` was asserted to carry the two experiment tasks. The script
-// left with the rh engine on 2026-08-29 (partnernetsoftware/rh) and the tasks
-// are dark until their .qjs ports land; the assertions on the script's body
-// go with it, and the workflow-side assertions below are what remain.
+static SAMPLES: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/qjs/performance-samples.qjs").replace("\r\n", "\n"));
 
 #[test]
 fn experiment_is_manual_read_only_and_exact_source_bound() {
@@ -62,6 +59,18 @@ fn cache_strategies_are_isolated_fail_safe_and_observable() {
     assert!(!WORKFLOW.contains("uses: actions/cache/"));
     assert!(WORKFLOW.contains("task run performance-summary"));
     assert!(WORKFLOW.contains("performance-summary.json"));
+}
+
+#[test]
+fn samples_own_the_cold_tree_they_create() {
+    assert!(SAMPLES.contains("AGENTERM_BOOTSTRAP_CACHE_ROOT"));
+    assert!(SAMPLES.contains("target/qualification/performance-bootstrap-cache-"));
+    assert!(SAMPLES.contains("\"cargo\", [\"clean\"]"));
+    assert!(!SAMPLES.contains("rh.join(evidence, \"bootstrap-cache-"));
+
+    let check = include_str!("../scripts/qjs/check.qjs");
+    assert!(check.contains("path.join(quick_native_bin_root, \"agenterm\")"));
+    assert!(check.contains("if (unix_bootstrap !== 0)"));
 }
 
 #[test]
