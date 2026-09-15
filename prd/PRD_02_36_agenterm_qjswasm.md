@@ -354,6 +354,9 @@ agenterm-qjswasm
 │  │  │        partial or source-only coverage leaves `expression_depth` in `unenforced_budgets`
 │  │  ├─ safe failure: an accepted effective budget must be enforced or named as unenforced;
 │  │  │      requested/effective audit copies are not evidence that an engine consumed the field
+│  │  │  └─ new public override options land only with a complete engine consumer and its boundary
+│  │  │        evidence; `expression_depth` therefore remains a fixed protocol default while it is
+│  │  │        named as unenforced, rather than advertising a CLI/task value that cannot take effect
 │  │  └─ non-goal: no AgenTerm-specific host import, memory-page approximation or source-only limit
 │  ├─ [x] child stdout/stderr truncation is explicit through read/wait/command
 │  ├─ [x] process.spawn refuses a 33rd retained handle before native spawn/drain allocation
