@@ -4940,6 +4940,14 @@ one unique repo-local `target/<test-lane>/` directory, exercise the same ancestr
 checks as production, and remove the lane after the owning test. Do not weaken
 production link rejection merely to accommodate the host temp-directory alias.
 
+When a product-owned registry can fall back beneath a shared temporary root,
+protect the final product directory rather than the temporary root itself.
+Run the same private-directory check before reads, writes, and cleanup; a write
+path may create the final directory first, but it must reject a pre-planted
+symlink before publishing or removing any child. A read path must distinguish a
+missing directory from an unsafe existing entry with `symlink_metadata` rather
+than treating both as an empty registry.
+
 For approval-bound at-most-once effects, separate request integrity from fresh
 admission. Recompute the canonical fingerprint first, then look up a surviving
 durable receipt before checking the short approval TTL or calling a live

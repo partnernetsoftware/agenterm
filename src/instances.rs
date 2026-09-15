@@ -279,7 +279,7 @@ pub(crate) fn register_typed_instance(
     let process_start_identity = current_process_start_identity()
         .context("failed to determine AgenTerm server process start identity")?;
     let lease_nonce = new_lease_nonce();
-    remove_intentional_shutdown_markers(&instances_dir(), &address, Some(&server_scope_id));
+    remove_intentional_shutdown_markers(&instances_dir(), &address, Some(&server_scope_id))?;
     register_instance_in(
         &instances_dir(),
         InstanceRecord {
@@ -337,7 +337,11 @@ pub(crate) fn intentional_shutdown_matches(address: &str, pid: u32) -> bool {
         .and_then(|value| value.parse::<LogicalInstance>().ok())
         .unwrap_or_default();
     let scope = ServerScopeId::current(&logical_instance).ok();
-    shutdown_marker_paths(&instances_dir(), address, scope.as_ref())
+    let directory = instances_dir();
+    if !private_instance_directory_exists(&directory).unwrap_or(false) {
+        return false;
+    }
+    shutdown_marker_paths(&directory, address, scope.as_ref())
         .into_iter()
         .any(|path| {
             fs::read(path)
@@ -360,8 +364,7 @@ fn mark_intentional_shutdown_in(
     server_scope_id: Option<ServerScopeId>,
     pid: u32,
 ) -> Result<()> {
-    fs::create_dir_all(directory)
-        .with_context(|| format!("failed to create {}", directory.display()))?;
+    prepare_private_instance_directory(directory)?;
     let path = server_scope_id
         .as_ref()
         .map(|scope| intentional_shutdown_scope_path(directory, scope))
@@ -382,10 +385,12 @@ fn remove_intentional_shutdown_markers(
     directory: &Path,
     address: &str,
     server_scope_id: Option<&ServerScopeId>,
-) {
+) -> Result<()> {
+    prepare_private_instance_directory(directory)?;
     for path in shutdown_marker_paths(directory, address, server_scope_id) {
         let _ = fs::remove_file(path);
     }
+    Ok(())
 }
 
 fn shutdown_marker_paths(
@@ -671,7 +676,7 @@ pub(crate) fn cleanup_instance(instance: &DiscoveredInstance) -> InstanceCleanup
 
     receipt.legacy_alias_result = cleanup_matching_legacy_alias(instance);
     if let Some(directory) = instance.path.parent() {
-        remove_intentional_shutdown_markers(
+        let _ = remove_intentional_shutdown_markers(
             directory,
             &instance.record.address,
             instance.record.server_scope_id.as_ref(),
@@ -770,8 +775,7 @@ fn instances_dir() -> PathBuf {
 }
 
 fn register_instance_in(directory: &Path, record: InstanceRecord) -> Result<InstanceRegistration> {
-    fs::create_dir_all(directory)
-        .with_context(|| format!("failed to create {}", directory.display()))?;
+    prepare_private_instance_directory(directory)?;
     prune_replaced_stale_registrations(directory, &record)?;
     let path = registration_path(directory, &record);
     let temporary = directory.join(format!(
@@ -865,7 +869,7 @@ fn prune_replaced_stale_registrations(directory: &Path, incoming: &InstanceRecor
 }
 
 fn discover_instances_in(directory: &Path) -> Result<Vec<DiscoveredInstance>> {
-    if !directory.exists() {
+    if !private_instance_directory_exists(directory)? {
         return Ok(Vec::new());
     }
     let mut instances: Vec<DiscoveredInstance> = Vec::new();
@@ -917,6 +921,28 @@ fn discover_instances_in(directory: &Path) -> Result<Vec<DiscoveredInstance>> {
     Ok(instances)
 }
 
+fn prepare_private_instance_directory(directory: &Path) -> Result<()> {
+    fs::create_dir_all(directory)
+        .with_context(|| format!("failed to create {}", directory.display()))?;
+    agenterm_platform::filesystem::protect_private_directory(directory)
+        .with_context(|| format!("refused unsafe instance registry {}", directory.display()))
+}
+
+fn private_instance_directory_exists(directory: &Path) -> Result<bool> {
+    match fs::symlink_metadata(directory) {
+        Ok(_) => {
+            agenterm_platform::filesystem::protect_private_directory(directory).with_context(
+                || format!("refused unsafe instance registry {}", directory.display()),
+            )?;
+            Ok(true)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => {
+            Err(error).with_context(|| format!("failed to inspect {}", directory.display()))
+        }
+    }
+}
+
 fn same_registered_authority(left: &InstanceRecord, right: &InstanceRecord) -> bool {
     if let (Some(left_nonce), Some(right_nonce)) = (&left.lease_nonce, &right.lease_nonce) {
         return left.pid == right.pid
@@ -938,6 +964,40 @@ fn same_registered_authority(left: &InstanceRecord, right: &InstanceRecord) -> b
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_directory(name: String) -> PathBuf {
+        env::current_dir()
+            .expect("repository root")
+            .join("target")
+            .join("instances-tests")
+            .join(name)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn instance_registry_refuses_a_preplanted_directory_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = test_directory(format!(
+            "agenterm-instance-symlink-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let planted = root.join("planted");
+        let registry = root.join("instances");
+        fs::create_dir_all(&planted).unwrap();
+        symlink(&planted, &registry).unwrap();
+
+        assert!(discover_instances_in(&registry).is_err());
+        assert!(mark_intentional_shutdown_in(&registry, "fixture", None, None, 42).is_err());
+        assert!(fs::read_dir(&planted).unwrap().next().is_none());
+
+        fs::remove_file(registry).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn schema_v2_without_new_identity_fields_remains_readable() {
@@ -965,7 +1025,7 @@ mod tests {
 
     #[test]
     fn cleanup_refuses_a_registration_generation_changed_after_discovery() {
-        let directory = env::temp_dir().join(format!(
+        let directory = test_directory(format!(
             "agenterm-instance-cleanup-race-test-{}-{}",
             std::process::id(),
             SystemTime::now()
@@ -1007,7 +1067,7 @@ mod tests {
 
     #[test]
     fn registration_is_discoverable_and_removed_on_drop() {
-        let directory = env::temp_dir().join(format!(
+        let directory = test_directory(format!(
             "agenterm-instance-test-{}-{}",
             std::process::id(),
             SystemTime::now()
@@ -1046,7 +1106,7 @@ mod tests {
 
     #[test]
     fn pruning_a_typed_tcp_registration_removes_its_matching_legacy_alias() {
-        let directory = env::temp_dir().join(format!(
+        let directory = test_directory(format!(
             "agenterm-instance-prune-alias-test-{}-{}",
             std::process::id(),
             SystemTime::now()
@@ -1097,7 +1157,7 @@ mod tests {
 
     #[test]
     fn registration_replaces_only_a_dead_typed_record_for_the_same_authority() {
-        let directory = env::temp_dir().join(format!(
+        let directory = test_directory(format!(
             "agenterm-instance-takeover-test-{}-{}",
             std::process::id(),
             SystemTime::now()
@@ -1182,7 +1242,7 @@ mod tests {
 
     #[test]
     fn live_logical_instance_lookup_skips_dead_registrations() {
-        let directory = env::temp_dir().join(format!(
+        let directory = test_directory(format!(
             "agenterm-live-peer-test-{}-{}",
             std::process::id(),
             SystemTime::now()
@@ -1227,7 +1287,7 @@ mod tests {
 
     #[test]
     fn intentional_shutdown_marker_is_address_and_pid_scoped() {
-        let directory = env::temp_dir().join(format!(
+        let directory = test_directory(format!(
             "agenterm-shutdown-marker-test-{}-{}",
             std::process::id(),
             SystemTime::now()
@@ -1252,7 +1312,7 @@ mod tests {
 
     #[test]
     fn discovery_reads_legacy_and_typed_records_in_one_pass() {
-        let directory = env::temp_dir().join(format!(
+        let directory = test_directory(format!(
             "agenterm-mixed-instance-test-{}-{}",
             std::process::id(),
             SystemTime::now()
@@ -1332,7 +1392,7 @@ mod tests {
 
     #[test]
     fn scope_marker_survives_endpoint_text_migration() {
-        let directory = env::temp_dir().join(format!(
+        let directory = test_directory(format!(
             "agenterm-scope-marker-test-{}-{}",
             std::process::id(),
             SystemTime::now()
@@ -1365,7 +1425,7 @@ mod tests {
     fn implicit_main_migration_reuses_only_a_live_v1_default_authority() {
         use std::io::{BufRead as _, BufReader, Write as _};
 
-        let directory = env::temp_dir().join(format!(
+        let directory = test_directory(format!(
             "agenterm-v1-migration-test-{}-{}",
             std::process::id(),
             SystemTime::now()
