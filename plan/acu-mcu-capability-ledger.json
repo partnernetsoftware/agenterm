@@ -2246,11 +2246,45 @@
           "note": "MCU never shipped this planned surface. Audit is immutable evidence, not a command queue. Exact retries belong to the request-id state machine, and uncertain or non-idempotent effects are never replayed from audit rows."
         },
         {
-          "id": "login-session.inventory-lock",
-          "mcu_shape": "login-session status|lock with console identity, short approval, anti-replay reservation and locked-state readback",
-          "acu_shape": "login-session status | plan lock [--ttl-seconds N] | apply --request R --approve H",
+          "id": "login-session.status",
+          "mcu_shape": "login-session status with exact console identity and locked-state readback",
+          "acu_shape": "login-session status",
           "state": "platform-limited",
-          "platforms": {"macos": "native-read-only-qjswasm-and-effect-fixture", "linux": "typed-unsupported", "windows": "typed-unsupported"},
+          "platforms": {"macos": "native-public-read-only-status", "linux": "typed-unsupported", "windows": "typed-unsupported"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "not-applicable", "gate": "cu-login-session-smoke", "evidence": ["cu.login-session-plan"], "error_code": "login_session_unsupported", "rationale": "MCU's console-session promise is macOS-only; the public court must refuse status without mutation on Linux."},
+              "macos": {"result": "native-qualified", "gate": "cu-login-session-smoke", "evidence": ["cu.login-session-plan"]},
+              "windows": {"result": "not-applicable", "gate": "cu-login-session-smoke", "evidence": ["cu.login-session-plan"], "error_code": "login_session_unsupported", "rationale": "MCU's console-session promise is macOS-only; the public court must refuse status without mutation on Windows."}
+            }
+          },
+          "evidence": ["cu.login-session-plan"],
+          "note": "The public mutation-free court proves a bounded macOS IOKit console inventory, one exact completed on-console session, its opaque identity and locked state. It runs with observe authority and proves typed login_session_unsupported without a durable request on Linux and Windows."
+        },
+        {
+          "id": "login-session.lock-plan",
+          "mcu_shape": "login-session lock plan with exact console identity and short approval",
+          "acu_shape": "login-session plan lock [--ttl-seconds N]",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-public-mutation-free-plan", "linux": "typed-unsupported", "windows": "typed-unsupported"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "not-applicable", "gate": "cu-login-session-smoke", "evidence": ["cu.login-session-plan"], "error_code": "login_session_unsupported", "rationale": "MCU's console-session lock promise is macOS-only; the public court must refuse planning without mutation or a durable request on Linux."},
+              "macos": {"result": "native-qualified", "gate": "cu-login-session-smoke", "evidence": ["cu.login-session-plan"]},
+              "windows": {"result": "not-applicable", "gate": "cu-login-session-smoke", "evidence": ["cu.login-session-plan"], "error_code": "login_session_unsupported", "rationale": "MCU's console-session lock promise is macOS-only; the public court must refuse planning without mutation or a durable request on Windows."}
+            }
+          },
+          "evidence": ["cu.login-session-plan"],
+          "note": "The public court runs with observe authority and proves a versioned 60-second plan bound to the exact console-session identity, before locked state and intended locked state. It reports mutation_performed=false, reserves no durable request and leaves both session identity and locked state unchanged."
+        },
+        {
+          "id": "login-session.lock-apply",
+          "mcu_shape": "login-session lock with anti-replay reservation and locked-state readback",
+          "acu_shape": "login-session apply --request R --approve H with exact-session revalidation, reserve-before-delivery and locked-state readback",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-effect-mechanism-fixture-tested", "linux": "typed-unsupported", "windows": "typed-unsupported"},
           "qualification": {
             "schema": 2,
             "platforms": {
@@ -2259,9 +2293,9 @@
               "windows": {"result": "pending", "blocker_code": "visible-lock-effect-court-not-run"}
             }
           },
-          "evidence": ["cu.login-session-plan", "agenterm-cu login_session state-machine suite including expired provider-free replay"],
+          "evidence": ["cu.login-session-plan"],
           "next": "run the opt-in visible macOS lock court and verify the exact session becomes locked; unlocking remains human credential/biometric territory",
-          "note": "The platform facade reads a bounded IOKit console inventory and uses the standard lock-screen chord only after native input preflight. Product policy requires the current uid, binds the exact session identity, emits a short canonical plan with separate contract/approval digests, reserves before delivery and never repeats an uncertain effect. Routine qualification is observation/plan only and never locks the host."
+          "note": "Apply reserves before native lock delivery, never repeats an uncertain effect and reads back the same session until it reports locked or the outcome becomes durably unknown. The registered evidence proves only the separate status and mutation-free plan boundaries; it deliberately never locks the host and does not qualify this visible effect. Locking has no automated rollback: unlocking remains human credential/biometric territory."
         }
       ]
     },

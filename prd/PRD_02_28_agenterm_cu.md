@@ -3130,7 +3130,10 @@ flowchart LR
 - [~] retire the next reachable MCU fallback without broadening its platform
   promise. MCU implements `login-session` only on macOS, so ACU must provide
   the exact macOS console-session status/lock contract while Linux and Windows
-  return a truthful typed unsupported result for this version.
+  return a truthful typed unsupported result for this version. The capability
+  ledger keeps status, mutation-free lock planning and visible lock application
+  as three independently accounted qualification leaves; plan evidence never
+  qualifies the visible effect.
   - [x] `agenterm-platform` owns a bounded neutral inventory contract and a
     macOS IOKit/CoreFoundation adapter. Missing or changed `IOConsoleUsers` /
     `IOConsoleLocked` shapes fail typed; product code does not run `ioreg`,
