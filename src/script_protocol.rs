@@ -500,6 +500,21 @@ pub enum ScriptExitClass {
     Host,
 }
 
+impl From<ScriptFailureCategory> for ScriptExitClass {
+    fn from(category: ScriptFailureCategory) -> Self {
+        match category {
+            ScriptFailureCategory::Configuration => Self::Configuration,
+            ScriptFailureCategory::Limit => Self::Limit,
+            ScriptFailureCategory::Script => Self::Script,
+            ScriptFailureCategory::Child => Self::Child,
+            ScriptFailureCategory::Cancelled => Self::Cancelled,
+            ScriptFailureCategory::Fleet => Self::Fleet,
+            ScriptFailureCategory::Protocol => Self::Protocol,
+            ScriptFailureCategory::Host => Self::Host,
+        }
+    }
+}
+
 impl ScriptExitClass {
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -1437,6 +1452,26 @@ mod tests {
             observation: None,
             fixed_clock_ms: None,
             env_allow: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn every_failure_category_has_the_same_named_exit_class() {
+        let cases = [
+            (
+                ScriptFailureCategory::Configuration,
+                ScriptExitClass::Configuration,
+            ),
+            (ScriptFailureCategory::Limit, ScriptExitClass::Limit),
+            (ScriptFailureCategory::Script, ScriptExitClass::Script),
+            (ScriptFailureCategory::Child, ScriptExitClass::Child),
+            (ScriptFailureCategory::Cancelled, ScriptExitClass::Cancelled),
+            (ScriptFailureCategory::Fleet, ScriptExitClass::Fleet),
+            (ScriptFailureCategory::Protocol, ScriptExitClass::Protocol),
+            (ScriptFailureCategory::Host, ScriptExitClass::Host),
+        ];
+        for (category, expected) in cases {
+            assert_eq!(ScriptExitClass::from(category), expected);
         }
     }
 

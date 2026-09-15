@@ -632,16 +632,7 @@ fn execute_with_cancellation_and_broker(
             result.stdout = std::mem::take(&mut failure.stdout);
             result.stdout_truncated = failure.stdout_truncated;
             result.cost = failure.cost.take().map(|cost| *cost);
-            result.exit_class = match failure.category {
-                ScriptFailureCategory::Configuration => ScriptExitClass::Configuration,
-                ScriptFailureCategory::Limit => ScriptExitClass::Limit,
-                ScriptFailureCategory::Script => ScriptExitClass::Script,
-                ScriptFailureCategory::Child => ScriptExitClass::Child,
-                ScriptFailureCategory::Cancelled => ScriptExitClass::Cancelled,
-                ScriptFailureCategory::Fleet => ScriptExitClass::Fleet,
-                ScriptFailureCategory::Protocol => ScriptExitClass::Protocol,
-                ScriptFailureCategory::Host => ScriptExitClass::Host,
-            };
+            result.exit_class = failure.category.into();
             result.failure = Some(failure);
         }
     }
