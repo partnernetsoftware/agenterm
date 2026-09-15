@@ -4788,6 +4788,13 @@ module the product does not execute. Let the generic engine accept an
 embedder-supplied built-in resolver, account each resolved source against the
 same bytes/module/deadline ledger, and resolve it before filesystem modules.
 
+An exported module listed in a `check-many` manifest may live outside the
+conventional `scripts/qjs` tree. When synthesizing its importer, derive the
+specifier relative to that script root first and then relative to the declared
+project root; the resolver must search the same roots. Falling back to compiling
+the library source as an entry produces a misleading top-level `export`
+diagnostic and leaves repository-qualified skill modules unchecked.
+
 A repository-wide bounded manifest needs capacity headroom above the owned
 corpus, not a limit equal to yesterday's file count. Keep a finite entry cap,
 an inclusive boundary test and independent byte/deadline budgets; when normal

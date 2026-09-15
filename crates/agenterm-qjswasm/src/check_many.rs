@@ -79,6 +79,7 @@ pub fn run_check_many_with_builtins(
                 .any(|line| line.trim_start().starts_with("export "));
             let importer = path
                 .strip_prefix(&module_root)
+                .or_else(|_| path.strip_prefix(root))
                 .ok()
                 .map(|relative| relative.with_extension(""))
                 .map(|relative| relative.to_string_lossy().replace('\\', "/"))
@@ -157,6 +158,40 @@ mod tests {
         assert_eq!(report.failures.len(), 1);
         assert_eq!(report.failures[0].path, "bad.qjs");
         assert_eq!(report.failures[0].code, "qjs_check");
+    }
+
+    #[test]
+    fn checks_project_root_library_outside_script_root() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(dir.path().join("scripts/qjs")).unwrap();
+        std::fs::create_dir_all(dir.path().join("skills/acu/lib")).unwrap();
+        std::fs::create_dir_all(dir.path().join("skills/acu/tests")).unwrap();
+        std::fs::write(
+            dir.path().join("skills/acu/lib/value.qjs"),
+            "export const value = 42;",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("skills/acu/tests/parity.qjs"),
+            "import * as dep from \"skills/acu/lib/value\";\nexport const value = dep.value;",
+        )
+        .unwrap();
+
+        let report = run_check_many(
+            CheckManyManifest {
+                schema_version: 1,
+                kind: QJS_CHECK_MANIFEST_KIND.to_owned(),
+                files: vec!["skills/acu/tests/parity.qjs".to_owned()],
+            },
+            CheckManyOptions {
+                project_root: dir.path().to_path_buf(),
+                ..Default::default()
+            },
+        );
+
+        assert!(report.ok, "{report:?}");
+        assert_eq!(report.checked_files, 1);
+        assert!(report.failures.is_empty());
     }
 
     #[test]
