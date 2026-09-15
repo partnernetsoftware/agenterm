@@ -11,7 +11,7 @@ if [[ ${#paths[@]} -eq 0 ]]; then
   while IFS= read -r -d '' path; do
     paths+=("$path")
   done < <(git ls-files -z -- \
-    '*.md' '*.html' '*.yml' '*.yaml' '*.sh' '*.bat' '*.cmd' '*.js' '*.json')
+    '*.md' '*.html' '*.yml' '*.yaml' '*.sh' '*.bat' '*.cmd' '*.js' '*.json' '*.qjs')
 fi
 
 if [[ ${#paths[@]} -eq 0 ]]; then

@@ -44,6 +44,8 @@ static PACKAGE_SIX_CELL_QJS: LazyLock<String> = LazyLock::new(|| {
 });
 static CHECK_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/check.qjs").replace("\r\n", "\n"));
+static DOC_REDACT_CHECK: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/doc-redact-check.sh").replace("\r\n", "\n"));
 static NATIVE_IPC_SMOKE_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/native-ipc-smoke.qjs").replace("\r\n", "\n"));
 static SCRIPT_SMOKE_HELPERS_QJS: LazyLock<String> = LazyLock::new(|| {
@@ -675,6 +677,7 @@ fn candidate_scans_the_full_tracked_public_text_before_building() {
         .expect("one preflight job before build");
     assert!(preflight.contains("name: Scan tracked public text for disclosures"));
     assert!(preflight.contains("run: ./scripts/doc-redact-check.sh"));
+    assert!(DOC_REDACT_CHECK.contains("'*.js' '*.json' '*.qjs')"));
 }
 
 #[test]
