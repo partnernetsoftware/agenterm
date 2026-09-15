@@ -86,6 +86,7 @@ pub fn identity() -> String {
 
 pub mod check_many;
 pub mod corpus_scan;
+pub mod module_resolver;
 
 use std::rc::Rc;
 use std::sync::Arc;

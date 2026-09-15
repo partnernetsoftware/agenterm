@@ -24,6 +24,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
@@ -118,6 +119,10 @@ pub use crate::script_protocol::ScriptCost;
 /// (configuration), so an engine opts into a finer class one seam at a time.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScriptEngineError {
+    /// A more specific public code than the backend-wide fallback, when the
+    /// engine owns one. Resolver budgets need this so a refused import does
+    /// not collapse back to `qjswasm_backend` after compilation returns.
+    pub code: Option<&'static str>,
     pub message: String,
     pub category: ScriptFailureCategory,
     /// What the script printed before it failed, when the engine can say.
@@ -134,6 +139,7 @@ pub struct ScriptEngineError {
 impl From<String> for ScriptEngineError {
     fn from(message: String) -> Self {
         Self {
+            code: None,
             message,
             category: ScriptFailureCategory::Configuration,
             stdout: String::new(),
@@ -273,7 +279,7 @@ pub trait ScriptEngineBackend {
     fn artifact_hash(
         &self,
         input: ScriptHashInput<'_>,
-    ) -> Option<Result<(String, &'static str), String>>;
+    ) -> Option<Result<(String, &'static str), ScriptEngineError>>;
 
     /// Scan a directory recursively for this engine's source files and check
     /// each, optionally resolving repository-qualified imports from
@@ -384,6 +390,7 @@ fn qjs_engine_error(error: agenterm_qjswasm::QjswasmError) -> ScriptEngineError 
         _ => ScriptFailureCategory::Configuration,
     };
     ScriptEngineError {
+        code: None,
         message: error.to_string(),
         category,
         stdout: String::new(),
@@ -395,6 +402,7 @@ fn qjs_engine_error(error: agenterm_qjswasm::QjswasmError) -> ScriptEngineError 
 #[cfg(feature = "script-qjswasm")]
 fn qjs_compile_error(error: agenterm_qjswasm::CompileError) -> ScriptEngineError {
     ScriptEngineError {
+        code: None,
         message: error.to_string(),
         category: ScriptFailureCategory::Script,
         stdout: String::new(),
@@ -491,6 +499,58 @@ fn compile_qjs_for(
     } else {
         agenterm_qjswasm::compile_qjs_with_modules(source, resolve)
     }
+}
+
+#[cfg(feature = "script-qjswasm")]
+fn qjs_resolver_error(
+    failure: agenterm_qjswasm::module_resolver::ResolverFailure,
+) -> ScriptEngineError {
+    let category = match failure.category {
+        "limit" => ScriptFailureCategory::Limit,
+        "cancelled" => ScriptFailureCategory::Cancelled,
+        "host" => ScriptFailureCategory::Host,
+        _ => ScriptFailureCategory::Configuration,
+    };
+    ScriptEngineError {
+        code: Some(failure.code),
+        message: failure.message,
+        category,
+        stdout: String::new(),
+        stdout_truncated: false,
+        cost: None,
+    }
+}
+
+#[cfg(feature = "script-qjswasm")]
+#[allow(
+    clippy::result_large_err,
+    reason = "compile refusals retain the same typed stdout/cost-capable engine error as execution"
+)]
+fn compile_qjs_with_ledger(
+    options: &ScriptInvocationOptions,
+    source: &str,
+    execution: bool,
+) -> Result<Vec<u8>, ScriptEngineError> {
+    let defaults = ScriptBudgets::default();
+    let budgets = options.budgets.as_ref().unwrap_or(&defaults);
+    let ledger = agenterm_qjswasm::module_resolver::ResolverLedger::new(
+        agenterm_qjswasm::module_resolver::ResolverLedgerConfig::new(
+            "single-file script",
+            Instant::now() + Duration::from_millis(budgets.wall_time_ms),
+            budgets.source_bytes,
+            agenterm_script_common::check_many::TOTAL_SOURCE_MAX_BYTES,
+        )
+        .cancellation(options.cancellation.clone()),
+    );
+    ledger
+        .charge_entry_bytes(source.len())
+        .map_err(qjs_resolver_error)?;
+    let resolve = ledger.resolver(&qjs_roots(options), qjs_builtin_module_source);
+    let compiled = compile_qjs_for(options, source, &resolve, execution);
+    if let Some(failure) = ledger.take_failure() {
+        return Err(qjs_resolver_error(failure));
+    }
+    compiled.map_err(qjs_compile_error)
 }
 
 #[cfg(feature = "script-qjswasm")]
@@ -597,7 +657,7 @@ pub(crate) fn qjs_builtin_module_source(specifier: &str) -> Option<&'static str>
     }
 }
 
-fn qjs_module_resolver(roots: &[PathBuf]) -> impl Fn(&str) -> Option<String> + use<> {
+fn qjs_unmetered_module_resolver(roots: &[PathBuf]) -> impl Fn(&str) -> Option<String> + use<> {
     // Roots in order of preference, each confined to itself; the first that
     // has the file answers. Duplicates (the usual case: the entry's directory
     // *is* the project root) collapse.
@@ -738,7 +798,7 @@ impl ScriptEngineBackend for LuaEngineBackend {
     fn artifact_hash(
         &self,
         input: ScriptHashInput<'_>,
-    ) -> Option<Result<(String, &'static str), String>> {
+    ) -> Option<Result<(String, &'static str), ScriptEngineError>> {
         let ScriptHashInput::Source { source, .. } = input else {
             return None;
         };
@@ -872,7 +932,7 @@ impl ScriptEngineBackend for SqlEngineBackend {
     fn artifact_hash(
         &self,
         input: ScriptHashInput<'_>,
-    ) -> Option<Result<(String, &'static str), String>> {
+    ) -> Option<Result<(String, &'static str), ScriptEngineError>> {
         let ScriptHashInput::Source { source, .. } = input else {
             return None;
         };
@@ -1099,13 +1159,11 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
     fn artifact_hash(
         &self,
         input: ScriptHashInput<'_>,
-    ) -> Option<Result<(String, &'static str), String>> {
+    ) -> Option<Result<(String, &'static str), ScriptEngineError>> {
         Some(match input {
             ScriptHashInput::Source { source, options } => {
-                let resolve = qjs_module_resolver(&qjs_roots(options));
-                compile_qjs_for(options, source, &resolve, false)
+                compile_qjs_with_ledger(options, source, false)
                     .map(|wasm| (agenterm_script_common::hex::sha256_hex(&wasm), "wasm"))
-                    .map_err(|error| error.to_string())
             }
             ScriptHashInput::Artifact(wasm) => {
                 Ok((agenterm_script_common::hex::sha256_hex(wasm), "wasm"))
@@ -1125,7 +1183,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         if let Some(project_root) = project_root {
             roots.push(project_root.to_path_buf());
         }
-        let resolve = qjs_module_resolver(&roots);
+        let resolve = qjs_unmetered_module_resolver(&roots);
         Some(agenterm_qjswasm::corpus_scan::scan_directory_with(
             dir, &resolve,
         ))
@@ -1154,8 +1212,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // The same resolver `execute` uses. A `check` that could not follow an
         // `import` would refuse working scripts, which is the failure the door
         // declaration comment above this impl already records for host names.
-        let resolve = qjs_module_resolver(&qjs_roots(_options));
-        let wasm = compile_qjs_for(_options, source, &resolve, false).map_err(qjs_compile_error)?;
+        let wasm = compile_qjs_with_ledger(_options, source, false)?;
         // The validator has to know the door too, or `check` refuses bytes
         // `execute` would run: a tool script's `tool.*` imports are exactly
         // what a sandbox validator exists to reject.
@@ -1203,8 +1260,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // `import` and the resolver is this product's policy rather than the
         // engine's. A script with no `import` never calls it and compiles to
         // the same bytes either way.
-        let resolve = qjs_module_resolver(&qjs_roots(options));
-        let wasm = compile_qjs_for(options, source, &resolve, true).map_err(qjs_compile_error)?;
+        let wasm = compile_qjs_with_ledger(options, source, true)?;
         // Built after both ordinary door selection and the supervised native
         // containment boundary are known.
         let mut engine = qjs_execution_engine(options);
@@ -1317,6 +1373,7 @@ fn qjswasm_invocation_result(
     };
     if outcome.values.len() > 1 {
         return Err(ScriptEngineError {
+            code: None,
             message: format!(
                 "qjswasm_result_not_json: {} completion values cannot cross the single JSON result wire",
                 outcome.values.len()
@@ -1330,6 +1387,7 @@ fn qjswasm_invocation_result(
     let value = match outcome.values.first().map(qjswasm_value_as_json) {
         Some(Err(message)) => {
             return Err(ScriptEngineError {
+                code: None,
                 message,
                 category: ScriptFailureCategory::Script,
                 stdout: outcome.stdout,
@@ -1569,7 +1627,7 @@ impl ScriptEngineBackend for ScriptEngine {
     fn artifact_hash(
         &self,
         input: ScriptHashInput<'_>,
-    ) -> Option<Result<(String, &'static str), String>> {
+    ) -> Option<Result<(String, &'static str), ScriptEngineError>> {
         match self {
             // With no engine compiled in the enum is empty, `self` is
             // uninhabited, and this arm is the proof: it can only be reached
@@ -2057,7 +2115,7 @@ return reply.value + ":" + pid.type + ":" + pid.value + ":" + magnitude.value;
             native_door_contained: true,
             ..ScriptInvocationOptions::default()
         };
-        let resolve = qjs_module_resolver(&[]);
+        let resolve = qjs_unmetered_module_resolver(&[]);
         let wasm = compile_qjs_for(&options, source, &resolve, true)
             .expect("both product modules compile against the contained door");
         let acu: agenterm_qjswasm::AcuBridgeFn = Arc::new(|request, _, _, _| {
@@ -2101,7 +2159,7 @@ return reply.value;
             cancellation: Some(Arc::clone(&cancel)),
             ..ScriptInvocationOptions::default()
         };
-        let wasm = compile_qjs_for(&options, source, &qjs_module_resolver(&[]), false)
+        let wasm = compile_qjs_for(&options, source, &qjs_unmetered_module_resolver(&[]), false)
             .expect("the product ACU module compiles");
         let acu: agenterm_qjswasm::AcuBridgeFn = Arc::new(move |_, _, observed, acknowledged| {
             raised.store(true, std::sync::atomic::Ordering::Release);
@@ -2147,7 +2205,7 @@ return native.call("|getpid|ptr()", []);
             native_door_contained: true,
             ..ScriptInvocationOptions::default()
         };
-        let resolve = qjs_module_resolver(&[]);
+        let resolve = qjs_unmetered_module_resolver(&[]);
         let wasm = compile_qjs_for(&options, source, &resolve, true)
             .expect("the language adapter compiles");
         let mut engine = agenterm_qjswasm::Engine::with_native_door(qjs_budget(&options));
@@ -2435,7 +2493,7 @@ return reply.ok + ":" + reply.command;
             "this is not valid qjs",
         )
         .expect("write shadow candidate");
-        let resolve = qjs_module_resolver(&[root.path().to_path_buf()]);
+        let resolve = qjs_unmetered_module_resolver(&[root.path().to_path_buf()]);
         let built_in = resolve("agenterm:acu").expect("built-in");
         assert!(built_in.contains("acu_call"));
         assert!(built_in.contains("export function argv"));
@@ -2483,7 +2541,7 @@ return reply.ok + ":" + reply.command;
             tool_door: true,
             ..ScriptInvocationOptions::default()
         };
-        let resolve = qjs_module_resolver(&[]);
+        let resolve = qjs_unmetered_module_resolver(&[]);
         let wasm = compile_qjs_for(&options, AGENTERM_ACU_ENTRY_SOURCE, &resolve, false)
             .expect("production ACU closure compiles");
         assert_eq!(
@@ -2555,8 +2613,13 @@ return reply.ok + ":" + reply.command;
                 cancellation: Some(Arc::clone(&cancel)),
                 ..ScriptInvocationOptions::default()
             };
-            let wasm = compile_qjs_for(&options, &source, &qjs_module_resolver(&[]), false)
-                .expect("compile recording fixture");
+            let wasm = compile_qjs_for(
+                &options,
+                &source,
+                &qjs_unmetered_module_resolver(&[]),
+                false,
+            )
+            .expect("compile recording fixture");
             let mut budget = qjs_budget(&options);
             budget.cancel = Some(cancel);
             let mut engine = agenterm_qjswasm::Engine::with_tool_door(budget);

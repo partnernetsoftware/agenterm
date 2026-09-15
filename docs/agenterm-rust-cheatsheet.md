@@ -937,6 +937,17 @@ one byte before a typed refusal. A bare
 `std::fs::read` allocates in proportion to an attacker-controlled or sparse file
 before it can decide that the runtime would never admit those bytes.
 
+A module resolver's canonical cache and the compiler's module identity are two
+different contracts. The pinned qjs compiler callback accepts only a specifier
+and returns source text, so a canonical `PathBuf` cache can deduplicate reads,
+byte charges, and module-count charges but cannot tell the compiler that
+`lib/x` and `lib/x.qjs` are one evaluation identity. Do not claim single
+evaluation without an identity-bearing upstream interface, and do not recreate
+the import/export system locally to simulate it. For imported files, metadata
+is only an early refusal: perform a source-ceiling-plus-one bounded read and
+sample cancellation and deadline again after that read before accepting or
+charging the bytes.
+
 When an engine adapter returns a typed failure category, preserve it through
 every operation arm in the shared dispatcher. Rewrapping the check arm with a
 default configuration constructor while the run arm projects the typed error

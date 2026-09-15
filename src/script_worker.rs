@@ -1065,7 +1065,8 @@ fn engine_execution_error(
     // 2026-08-29; the engines that remain say their class in the type, so
     // a step-budget exhaustion is `limit` and an uncaught throw is `script`
     // without this function knowing any engine's wording.
-    let mut failed = failure(backend_code, error.message, error.category);
+    let code = error.code.unwrap_or(backend_code);
+    let mut failed = failure(code, error.message, error.category);
     failed.stdout = error.stdout;
     failed.stdout_truncated = error.stdout_truncated;
     failed.cost = error.cost.map(Box::new);

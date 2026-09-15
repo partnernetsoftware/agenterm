@@ -481,6 +481,7 @@ remained unchanged. Selection still requires the command's pre-existing
 flowchart LR
   SRC[".qjs source"]
   MANY["check-many manifest<br/>entry + canonical import ledger"]
+  SINGLE["single-file check · run · source hash<br/>shared bounded import ledger"]
   COMP["tinyvm-qjs<br/>parse · lower · encode"]
   WASM["standard .wasm bytes"]
   LOAD{"tinyvm validate<br/>Limits accepted?"}
@@ -550,7 +551,9 @@ flowchart LR
   STANDARD["WASI / Component compatibility<br/>in generic tinyvm layer"]
 
   MANY --> SRC --> COMP --> WASM --> LOAD
+  SINGLE --> SRC
   MANY -. bytes · modules · deadline .-> COMP
+  SINGLE -. bytes · modules · deadline · cancel<br/>canonical read/charge cache .-> COMP
   UP -. exact git rev .-> COMP & LOAD
   LOAD -->|yes| SLOT --> DOOR --> EXPLICIT --> PRODUCT --> RECEIPT
   DOOR --> NATIVEPOLICY --> DYNABI --> RECEIPT
@@ -711,6 +714,23 @@ integration.
   256 KiB source budget is adjustable with `--max-source-bytes`, the 1 MiB
   artifact transport ceiling remains absolute, and refusal needs at most one
   byte beyond the effective limit rather than allocation proportional to the file.
+- [x] Single-file `check`, `run`, and source `hash` share the recursive-module
+  ledger that `check-many` established: every imported source obeys the entry's
+  per-source ceiling, entry plus imports share the 8 MiB aggregate ceiling,
+  distinct resolved modules stop at 1024, resolution samples the invocation's
+  wall deadline and cancellation, and a canonical-path cache prevents repeated
+  reads and charges. Imported files are read through a ceiling-plus-one reader,
+  then deadline and cancellation are sampled again before their bytes enter the
+  ledger. Refusals retain `limit_import_source_bytes`, `limit_import_modules`,
+  `limit_wall_time`, `host_import_read`, or `host_cancelled` through the public
+  result; the black-box per-source owner is
+  `tests/script_module_resolution_budget.rs`.
+  This cache owns filesystem identity for accounting only. The pinned compiler
+  callback accepts a specifier and returns source text without an identity
+  channel, so two spellings of one canonical file are still two upstream module
+  identities and may be evaluated twice. Canonical single evaluation remains an
+  upstream-interface dependency; this repository does not reimplement or
+  approximate the module system.
 - [x] `script api [MODULE] [--status shipped|planned|all] [--tree|--json]` renders one deterministic hierarchical object tree with reviewed Node.js/Bun analogues and returns the same filtered versioned catalog with explicit view and comparison metadata.
 - [x] qjswasm computation budget fails closed with the public limit exit class.
 - [x] syntax/compiler refusals and unsupported source methods use the same

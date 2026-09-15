@@ -1877,9 +1877,22 @@ fn run_script_hash(arguments: &[String]) -> i32 {
                 return 2;
             }
         };
+        let wall_time_ms = match script_wall_time_limit(arguments) {
+            Ok(limit) => limit,
+            Err(message) => {
+                cli_eprintln!("{message}");
+                return 2;
+            }
+        };
+        let budgets = ScriptBudgets {
+            source_bytes: source_byte_limit,
+            wall_time_ms,
+            ..ScriptBudgets::default()
+        };
         hash_options = crate::script_engine::ScriptInvocationOptions {
             project_root: Some(context.project_root),
             entry_dir: canonical_entry.parent().map(std::path::Path::to_path_buf),
+            budgets: Some(budgets),
             tool_door,
             ..crate::script_engine::ScriptInvocationOptions::default()
         };
@@ -1893,12 +1906,28 @@ fn run_script_hash(arguments: &[String]) -> i32 {
             cli_println!("{digest}  {what}  {path}");
             0
         }
-        Some(Err(message)) => {
+        Some(Err(error)) => {
             // A source that will not build has no artifact to fingerprint, and
             // hashing its text instead would answer a different question in
             // the same shape.
-            cli_eprintln!("{message}");
-            2
+            let has_specific_code = error.code.is_some();
+            if let Some(code) = error.code {
+                cli_eprintln!("{code}: {}", error.message);
+            } else {
+                cli_eprintln!("{}", error.message);
+            }
+            if !has_specific_code {
+                return 2;
+            }
+            match error.category {
+                ScriptFailureCategory::Script => 1,
+                ScriptFailureCategory::Limit => 3,
+                ScriptFailureCategory::Child => 4,
+                ScriptFailureCategory::Cancelled => 5,
+                ScriptFailureCategory::Fleet => 6,
+                ScriptFailureCategory::Configuration => 2,
+                ScriptFailureCategory::Protocol | ScriptFailureCategory::Host => 1,
+            }
         }
         None => {
             cli_eprintln!(
@@ -2165,17 +2194,13 @@ fn run_script_command_with_context(
     };
     let mut budgets = ScriptBudgets::default();
     let hard_limits = ScriptBudgets::hard_limits();
-    if let Some(value) = option_value(arguments, "--timeout-ms") {
-        match value.parse::<u64>() {
-            Ok(value) if (1..=hard_limits.wall_time_ms).contains(&value) => {
-                budgets.wall_time_ms = value;
-            }
-            _ => {
-                cli_eprintln!("script --timeout-ms must be from 1 to 3600000");
-                return 2;
-            }
+    budgets.wall_time_ms = match script_wall_time_limit(arguments) {
+        Ok(limit) => limit,
+        Err(message) => {
+            cli_eprintln!("{message}");
+            return 2;
         }
-    }
+    };
     if let Some(value) = option_value(arguments, "--max-operations") {
         match value.parse::<u64>() {
             Ok(value) if (1..=hard_limits.operations).contains(&value) => {
@@ -4373,6 +4398,19 @@ fn script_source_byte_limit(arguments: &[String]) -> Result<usize, String> {
     }
 }
 
+fn script_wall_time_limit(arguments: &[String]) -> Result<u64, String> {
+    let defaults = ScriptBudgets::default();
+    let hard_limits = ScriptBudgets::hard_limits();
+    match option_value(arguments, "--timeout-ms") {
+        None => Ok(defaults.wall_time_ms),
+        Some(value) => value
+            .parse::<u64>()
+            .ok()
+            .filter(|value| (1..=hard_limits.wall_time_ms).contains(value))
+            .ok_or_else(|| "script --timeout-ms must be from 1 to 3600000".to_owned()),
+    }
+}
+
 fn parse_wasm_entry_arguments(
     arguments: &[String],
 ) -> Result<Vec<crate::script_protocol::ScriptWasmValue>, String> {
@@ -5866,7 +5904,7 @@ mod tests {
             .expect("qjswasm hashes something")
             .expect_err("an array elision does not build");
         assert!(
-            refused.contains("elisions in an array literal"),
+            refused.message.contains("elisions in an array literal"),
             "want the compiler's diagnostic, got {refused:?}"
         );
     }
