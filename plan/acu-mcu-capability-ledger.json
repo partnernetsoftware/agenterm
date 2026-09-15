@@ -740,17 +740,33 @@
         {
           "id": "desktop.session-lock-audit",
           "mcu_shape": "session/lock/audit plus crash-persistent effect receipts",
-          "acu_shape": "durable public session and target-lock lifecycle, bounded audit query/retention, grant/grant-id and crash-persistent at-most-once effect receipts",
+          "acu_shape": "durable public session and target-lock lifecycle, bounded audit query/retention and crash-persistent at-most-once effect receipts",
           "state": "platform-limited",
           "qualification": {
             "schema": 2,
             "platforms": {
               "linux": {"result": "pending", "blocker_code": "composite-evidence-set-incomplete"},
-              "macos": {"result": "pending", "blocker_code": "composite-evidence-set-incomplete"},
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-managed-job-smoke",
+                "evidence": [
+                  "cu.managed-job-lifecycle",
+                  "cu.audit-retention",
+                  "cu.target-lock-lifecycle",
+                  "cu.managed-job-expiry-idempotency",
+                  "cu.managed-job-detach-fixture-cleanup"
+                ]
+              },
               "windows": {"result": "pending", "blocker_code": "composite-evidence-set-incomplete"}
             }
           },
-          "evidence": ["cu.managed-job-lifecycle", "cu.audit-retention"],
+          "evidence": [
+            "cu.managed-job-lifecycle",
+            "cu.audit-retention",
+            "cu.target-lock-lifecycle",
+            "cu.managed-job-expiry-idempotency",
+            "cu.managed-job-detach-fixture-cleanup"
+          ],
           "next": "prove the same facade on the remaining native target courts"
         },
         {
