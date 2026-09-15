@@ -2280,8 +2280,13 @@ fn abi_json_result(
 fn map_abi_error(spec: &NativeSpec, error: agenterm_dyn::AbiError) -> NativeDoorError {
     match error {
         agenterm_dyn::AbiError::SignatureUnsupported { .. }
-        | agenterm_dyn::AbiError::ArgumentCount { .. }
         | agenterm_dyn::AbiError::ArgumentShape { .. } => unsupported_json_spec(spec),
+        agenterm_dyn::AbiError::ArgumentCount { expected, actual } => {
+            NativeDoorError::ArgumentCountMismatch {
+                declared: expected,
+                actual,
+            }
+        }
         agenterm_dyn::AbiError::LibraryLoad { library, message } => {
             NativeDoorError::LibraryLoad { library, message }
         }
@@ -2306,6 +2311,29 @@ mod json_adapter_tests {
 
     use super::*;
     use crate::native_cache::MAX_CACHED_LIBRARIES;
+
+    #[test]
+    fn dyn_argument_count_keeps_the_door_argument_error_identity() {
+        let spec = NativeSpec {
+            library: String::new(),
+            symbol: "probe".to_owned(),
+            result: NativeType::I32,
+            parameters: vec![NativeType::I32, NativeType::I32],
+        };
+        assert_eq!(
+            map_abi_error(
+                &spec,
+                agenterm_dyn::AbiError::ArgumentCount {
+                    expected: 2,
+                    actual: 3,
+                },
+            ),
+            NativeDoorError::ArgumentCountMismatch {
+                declared: 2,
+                actual: 3,
+            }
+        );
+    }
 
     /// One declared library is one adopted handle: the door's first call adopts it,
     /// the next calls run through the adopted handle, and a second engine's table

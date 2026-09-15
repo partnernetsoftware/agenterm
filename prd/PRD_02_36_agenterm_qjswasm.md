@@ -917,8 +917,8 @@ integration.
   `RefCell` borrow alive and adopts the handle; a full table takes the one-shot
   `invoke_abi`, which is exactly this crate's behaviour before the table existed.
   A load that **fails** is attempted once per call and is never retried:
-  `resolve` returns dyn's own `AbiError`, the existing `map_abi_error` /
-  `map_abi_error_for_spec` mapping reports it, and the slot stays unoccupied,
+  `resolve` returns dyn's own `AbiError`, the single `map_abi_error` mapping
+  reports it, and the slot stays unoccupied,
   because opening a library runs its initialisers and a second attempt would run
   them twice for one call. The reuse entry was added to dyn for this caller
   (`prd/PRD_02_34_agenterm_dyn.md`: the handle belongs to the caller, `Drop`

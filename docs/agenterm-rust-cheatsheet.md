@@ -6502,6 +6502,13 @@ parallel truth and makes the preservation test explicit: if either old mapper
 read a field unavailable on the spec, the fold is not byte-preserving and must
 remain split.
 
+Test the mapper with constructed lower-layer errors even when normal preflight
+makes them unreachable today. A later refactor may remove that preflight while
+everything still compiles; mapping an argument-count failure to “signature
+unsupported” then blames engine capability instead of the caller. Reuse an
+existing equally precise outer error when one exists, and pin its fields in the
+mapper test rather than fossilizing the lossy fallback.
+
 For a large Rust file, make this change with unique-text patches and inspect the
 whole diff against `HEAD`. Do not delete line-number slices with a rewrite
 script: an offset can remove a function body while leaving a plausible doc
