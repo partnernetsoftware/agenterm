@@ -279,7 +279,7 @@ agenterm-qjswasm
 │  │  │  ├─ Candidate runs the embedded argv, legacy-argument and rewrite sources through
 │  │  │  │  their pure boundary courts; host-argv fixture injection stays outside parity evidence
 │  │  │  ├─ both dynamic-TODO rows retain their exact gap id; two permanent-scope rows reject locally
-│  │  │  ├─ 32 resolved rows: 18 exec · 9 compound · 5 usage · 0 TODO
+│  │  │  ├─ 34 resolved rows: 20 exec · 10 compound · 4 usage · 0 TODO
 │  │  │  │  └─ `job resources JOB_ID`: typed status→generation→resource point or bounded watch; top/max project complete membership without partial aggregates
 │  │  │  ├─ `agenterm cli acu` runs the compiled-in source through the normal worker/budget/audit path
 │  │  │  └─ no Bun, executable discovery, CU child process, repository cwd or MCU fallback
