@@ -326,6 +326,14 @@ function cargo_unit_powershell_compat_spec(environment) {
   ], 120000, environment, 2);
 }
 
+function cargo_unit_qjswasm_adversarial_spec(environment) {
+  return spec("cargo", [
+    "test", "--quiet", "--locked",
+    "-p", "agenterm-qjswasm",
+    "--test", "door_attack", "--test", "seam_attack"
+  ], 300000, environment, 0);
+}
+
 function build_artifact_timeout_ms(release) {
   return release !== 0 ? 600000 : 300000;
 }
@@ -639,6 +647,20 @@ function run_gate_two(context, timing, id, label, first_spec, second_spec, repo,
   const all_output = [];
   let step = run_gate_step(context, timing, id, label, first_spec, repo, scratch, sequence, started, all_output, 1);
   step = run_gate_step(context, timing, id, label, second_spec, repo, scratch, step.sequence, started, all_output, 1);
+  const duration = rh.now_ms() - started;
+  qualification.add_result(context, id, "passed", duration, all_output);
+  qualification.timing_set_gate(timing, id, "passed", duration, 0, false);
+  print("PASS: " + label + " (" + duration + " ms)");
+  return { context: context, timing: timing, sequence: step.sequence };
+}
+
+function run_gate_three(context, timing, id, label, first_spec, second_spec, third_spec, repo, scratch, sequence) {
+  print("\n==> " + label);
+  const started = rh.now_ms();
+  const all_output = [];
+  let step = run_gate_step(context, timing, id, label, first_spec, repo, scratch, sequence, started, all_output, 1);
+  step = run_gate_step(context, timing, id, label, second_spec, repo, scratch, step.sequence, started, all_output, 1);
+  step = run_gate_step(context, timing, id, label, third_spec, repo, scratch, step.sequence, started, all_output, 1);
   const duration = rh.now_ms() - started;
   qualification.add_result(context, id, "passed", duration, all_output);
   qualification.timing_set_gate(timing, id, "passed", duration, 0, false);
@@ -1206,10 +1228,11 @@ gate = run_gate(
   repo, scratch, sequence
 );
 sequence = gate.sequence;
-gate = run_gate_two(
+gate = run_gate_three(
   context, timing, "unit-tests", "unit tests",
   cargo_unit_primary_spec(build_environment),
   cargo_unit_powershell_compat_spec(build_environment),
+  cargo_unit_qjswasm_adversarial_spec(build_environment),
   repo, scratch, sequence
 );
 sequence = gate.sequence;

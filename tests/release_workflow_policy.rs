@@ -323,6 +323,15 @@ fn powershell_launcher_test_is_an_explicit_terminal_compatibility_subcourt() {
 }
 
 #[test]
+fn qjswasm_adversarial_tests_are_an_explicit_full_gate_subcourt() {
+    assert!(CHECK_QJS.contains("function cargo_unit_qjswasm_adversarial_spec(environment)"));
+    assert!(CHECK_QJS.contains("\"-p\", \"agenterm-qjswasm\""));
+    assert!(CHECK_QJS.contains("\"--test\", \"door_attack\", \"--test\", \"seam_attack\""));
+    assert!(CHECK_QJS.contains("cargo_unit_qjswasm_adversarial_spec(build_environment)"));
+    assert!(CHECK_QJS.contains("gate = run_gate_three(\n  context, timing, \"unit-tests\""));
+}
+
+#[test]
 fn windows_release_smokes_have_no_live_qjs_migration_gap() {
     for (name, source) in WINDOWS_RELEASE_SMOKES {
         for gap in [
