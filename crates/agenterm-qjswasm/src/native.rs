@@ -1378,7 +1378,12 @@ impl RegionPlan {
 
     fn materialize(self) -> NativeRegion {
         let mut region = NativeRegion {
-            words: vec![RegionWord::ZEROED; self.capacity.div_ceil(REGION_ALIGNMENT)],
+            // Keep one zero byte after the declared region even when capacity
+            // is already alignment-sized. Raw binary input may fill every
+            // declared byte, while an open-world callee may read the same
+            // pointer as a C string. The sentinel makes that read independent
+            // of allocator adjacency without changing readback or billing.
+            words: vec![RegionWord::ZEROED; self.capacity / REGION_ALIGNMENT + 1],
             capacity: self.capacity,
             contract: self.contract,
         };
@@ -1483,11 +1488,11 @@ fn known_region_minimum(_spec: &NativeSpec) -> Option<KnownRegionMinimum> {
 
 /// Refuse a region that cannot hold a symbol whose width this target knows.
 ///
-/// This is a refinement of the open world, not an allowlist: it matches one
-/// symbol name, and every other symbol - including the ones sharing this exact
-/// `i32(ptr)` signature - reaches the foreign call under the unchanged
-/// caller-owned pointee contract. It runs before any pointee is allocated and
-/// before the loader is asked for anything.
+/// This is a refinement of the open world, not an allowlist: each entry matches
+/// one exact symbol, signature and proved library spelling. Every other
+/// declaration, including ones sharing either admitted ABI shape, reaches the
+/// foreign call under the unchanged caller-owned pointee contract. It runs
+/// before any pointee is allocated and before the loader is asked for anything.
 fn check_known_region_minimum(
     spec: &NativeSpec,
     plans: &[RegionPlan],
@@ -2675,26 +2680,36 @@ mod json_adapter_tests {
         // `sizeof(struct utsname)`; the door knows that minimum for this one
         // symbol and refuses below it before the call. 4096 clears it on both
         // repository Unix hosts, so an adequate caller sees no change.
-        let answer = invoke_native_json(
-            b"|uname|i32(ptr)",
-            br#"[{"region":{"capacity":4096,"termination":"nul","output":"text"}}]"#,
-            &NativeLibraryCache::new(),
-            region_bound(),
-        )
-        .expect("uname runs through one call-scoped region");
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&answer).expect("result JSON"),
-            serde_json::json!({
-                "type": "i32",
-                "value": 0,
-                "regions": [{
-                    "index": 0,
-                    "output": "text",
-                    "termination": "nul",
-                    "value": expected,
-                }],
-            })
-        );
+        let expected_answer = serde_json::json!({
+            "type": "i32",
+            "value": 0,
+            "regions": [{
+                "index": 0,
+                "output": "text",
+                "termination": "nul",
+                "value": expected,
+            }],
+        });
+        let specs: &[&[u8]] = if cfg!(target_os = "macos") {
+            &[b"|uname|i32(ptr)", b"libSystem.B.dylib|uname|i32(ptr)"]
+        } else {
+            &[b"|uname|i32(ptr)"]
+        };
+        for spec in specs {
+            let answer = invoke_native_json(
+                spec,
+                br#"[{"region":{"capacity":4096,"termination":"nul","output":"text"}}]"#,
+                &NativeLibraryCache::new(),
+                region_bound(),
+            )
+            .expect("uname runs through one call-scoped region");
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&answer).expect("result JSON"),
+                expected_answer,
+                "{}",
+                String::from_utf8_lossy(spec)
+            );
+        }
     }
 
     /// Byte output is the exact bytes, in both termination modes.
@@ -3234,6 +3249,38 @@ mod json_adapter_tests {
             0,
             "every region starts at the alignment a C pointee may require"
         );
+    }
+
+    /// Raw input may occupy every declared byte. The host allocation still
+    /// keeps one zero sentinel outside that declared/read-back range, including
+    /// capacities that are exact alignment multiples.
+    #[test]
+    fn every_region_reserves_a_zero_byte_after_its_capacity() {
+        for capacity in [1_usize, 8, 15, 16, 17, 31, 32, 33, 64] {
+            let plan = RegionPlan::from_json(
+                0,
+                &serde_json::json!({
+                    "region": {
+                        "capacity": capacity,
+                        "bytes": vec![b'A'; capacity],
+                        "termination": "raw",
+                        "output": "bytes"
+                    }
+                }),
+            )
+            .expect("a capacity-filled raw region is valid");
+            let region = plan.materialize();
+            let allocation_bytes = region.words.len() * REGION_ALIGNMENT;
+            assert!(
+                allocation_bytes > capacity,
+                "capacity {capacity} must leave one allocated sentinel byte"
+            );
+            assert_eq!(
+                region.words[capacity / REGION_ALIGNMENT].0[capacity % REGION_ALIGNMENT],
+                0,
+                "the first byte outside capacity {capacity} must stay zero"
+            );
+        }
     }
 
     #[cfg(unix)]

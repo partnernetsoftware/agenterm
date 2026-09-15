@@ -6365,6 +6365,14 @@ image. Admit only the exact image spellings backed by platform evidence, and
 test the pre-load predicate directly so a regression cannot reach the foreign
 call.
 
+For a host-owned opaque buffer, alignment padding is not a terminator contract:
+when the declared capacity is already alignment-sized, there may be no padding
+at all. If the open-world call surface may hand that buffer to a C-string
+reader, reserve one zero byte beyond the declared capacity on every allocation,
+including exact alignment multiples. Keep that sentinel outside readback and
+billing so binary `raw` semantics remain unchanged; test both sides of each
+alignment boundary without invoking the callee.
+
 ## Rebase native pointer results onto declared guest spans
 
 A native function may return the same pointer that a Wasm guest supplied as a

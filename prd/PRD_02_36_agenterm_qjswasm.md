@@ -242,16 +242,19 @@ agenterm-qjswasm
 │  │  │  ├─ user problem: a JSON caller has no guest linear memory to point into, so every
 │  │  │  │     pointer prototype answered `native_invocation_signature_unsupported`
 │  │  │  ├─ invariant: for exactly one synchronous call the host owns the storage's address,
-│  │  │  │     16-byte alignment, zero fill and lifetime, while the caller owns capacity,
+│  │  │  │     16-byte alignment, zero fill, one zero byte beyond declared capacity and lifetime,
+│  │  │  │     while the caller owns capacity,
 │  │  │  │     termination and output; no address, handle, digest or guest offset is
 │  │  │  │     published and there is no cross-call lifetime; catalog, nullability and
 │  │  │  │     admission remain this crate's policy
 │  │  │  ├─ mechanism: decode every argument into a plan without allocating a pointee →
 │  │  │  │     preflight the call's capacity total and its worst-case encoded answer bound →
-│  │  │  │     materialize → the same `invoke_abi` core through the Engine's loaded-handle
+│  │  │  │     materialize with an unbilled/unpublished zero sentinel beyond capacity →
+│  │  │  │     the same `invoke_abi` core through the Engine's loaded-handle
 │  │  │  │     cache → post-call snapshot readback; a refusal precedes the loader
 │  │  │  └─ evidence: `native::json_adapter_tests` (10 admitted `i32` pointer prototypes, POSIX
-│  │  │        `uname` oracle, 6 stable region codes, malformed-shape table, alignment, preflight
+│  │  │        `uname` oracle, 6 stable region codes, malformed-shape table, alignment, zero-tail,
+│  │  │        preflight
 │  │  │        before load) + `tests/native_door.rs` WAT court +
 │  │  │        `tests/script_native_artifact_supervisor.rs` public small-region refusal + the
 │  │  │        product run in `src/script_engine.rs` (built-in `agenterm:native` module from `.qjs`)
