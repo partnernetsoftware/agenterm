@@ -19,16 +19,16 @@ guest/host 投影与运行证据；`agenterm-dyn` 只拥有 native 机制并经 
 Script guest；CU 与 Script Runtime 保留产品命令、身份和结果语义。依赖方向、禁止的
 反向依赖以及跨仓 revision pin 都不得只存在于代码注释或交接对话中。
 
-用户拥有并启动的 Pi 工作端，是从 `~/repos/piocgo` 启动的现有 tmux window
-`pi-ocgo`。只允许通过以下命令向它派工：
+用户拥有并启动的当前工作端是现有 tmux window `bdy-ds4flash`；先前的
+`pi-ocgo` 已因用量不足按用户指令暂停。只允许通过以下命令向当前工作端派工：
 
 ```text
-mux envelope 0:pi-ocgo "<标题>" "<正文>"
+mux envelope 0:bdy-ds4flash "<标题>" "<正文>"
 ```
 
-该窗口不是 Codex subagent。不得创建内部 agent 冒充或替代它；除非用户明确要求，
-不得另行启动 Pi 进程。主代理负责审查它返回的证据、完成集成、运行最终门禁，并以
-小而完整的增量提交；除非用户明确要求，不得 push。
+该窗口不是 Codex subagent。不得创建内部 agent 冒充或替代它；除非用户再次明确
+要求，不得恢复 `pi-ocgo` 或另行启动工作进程。主代理负责审查工作端返回的证据、
+完成集成、运行最终门禁，并以小而完整的增量提交；除非用户明确要求，不得 push。
 
 这是持续性的开发目标。完成一次审计、一个叶或一个提交，都不代表目标完成；应继续
 选择下一项有证据支撑的改进并推进落地。
