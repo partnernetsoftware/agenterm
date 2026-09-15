@@ -40,6 +40,7 @@ rh.require(
 const samples = [];
 const sccache_samples = [];
 const sample_paths = [];
+const sccache_paths = [];
 let cold_total = 0;
 let warm_one = 0;
 let warm_two = 0;
@@ -126,6 +127,11 @@ for (let index = 0; index < 3; index = index + 1) {
 
   if (cache_strategy === "sccache") {
     const stats_path = rh.absolute(args[index + 6]);
+    rh.require(
+      !rh.array_has(sccache_paths, stats_path),
+      "performance_summary_sccache_path_duplicate:" + sample_tag
+    );
+    sccache_paths.push(stats_path);
     rh.require(
       rh.exists(stats_path) && rh.symlink_metadata(stats_path).is_file,
       "performance_summary_sccache_missing:" + sample_tag
