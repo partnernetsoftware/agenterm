@@ -355,6 +355,13 @@ function cargo_unit_qjswasm_door_spec(environment) {
   ], 300000, environment, 0);
 }
 
+function cargo_unit_qjswasm_host_door_spec(environment) {
+  return spec("cargo", [
+    "test", "--quiet", "--locked",
+    "-p", "agenterm-qjswasm", "--test", "host_door"
+  ], 300000, environment, 0);
+}
+
 function cargo_unit_sql_spec(environment) {
   return spec("cargo", [
     "test", "--quiet", "--locked", "-p", "agenterm-sql"
@@ -1265,6 +1272,7 @@ gate = run_gate_specs(
     cargo_unit_qjswasm_tool_door_spec(build_environment),
     cargo_unit_qjswasm_guest_spec(build_environment),
     cargo_unit_qjswasm_door_spec(build_environment),
+    cargo_unit_qjswasm_host_door_spec(build_environment),
     cargo_unit_sql_spec(build_environment),
     cargo_unit_lua_spec(build_environment)
   ],
