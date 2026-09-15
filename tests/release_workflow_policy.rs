@@ -379,6 +379,13 @@ fn qjswasm_native_door_schema_tests_are_an_explicit_full_gate_subcourt() {
 }
 
 #[test]
+fn qjswasm_acu_door_tests_are_an_explicit_full_gate_subcourt() {
+    assert!(CHECK_QJS.contains("function cargo_unit_qjswasm_acu_door_spec(environment)"));
+    assert!(CHECK_QJS.contains("\"-p\", \"agenterm-qjswasm\", \"--test\", \"acu_door\""));
+    assert!(CHECK_QJS.contains("cargo_unit_qjswasm_acu_door_spec(build_environment)"));
+}
+
+#[test]
 fn grouped_gates_refuse_an_empty_command_set() {
     assert!(CHECK_QJS.contains("command_specs.length > 0"));
     assert!(CHECK_QJS.contains("qualification_gate_specs_empty:"));
