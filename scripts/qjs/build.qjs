@@ -276,6 +276,11 @@ let os_name = "";
 let arch = "";
 let clients_only = 0;
 let action = "build";
+const seen_options = {};
+function claim_option(value) {
+  require(seen_options[value] === undefined, "build_option_duplicate:" + value);
+  seen_options[value] = 1;
+}
 let index = 1;
 while (index < args.length) {
   const value = "" + args[index];
@@ -285,26 +290,32 @@ while (index < args.length) {
     profile_set = 1;
   } else if (value === "--target") {
     require(index + 1 < args.length, "build_option_value_missing:" + value);
+    claim_option(value);
     target = args[index + 1];
     index = index + 1;
   } else if (value === "--glibc") {
     require(index + 1 < args.length, "build_option_value_missing:" + value);
+    claim_option(value);
     glibc = args[index + 1];
     index = index + 1;
   } else if (value === "--driver") {
     require(index + 1 < args.length, "build_option_value_missing:" + value);
+    claim_option(value);
     driver = args[index + 1];
     index = index + 1;
   } else if (value === "--os") {
     require(index + 1 < args.length, "build_option_value_missing:" + value);
+    claim_option(value);
     os_name = args[index + 1];
     index = index + 1;
   } else if (value === "--arch") {
     require(index + 1 < args.length, "build_option_value_missing:" + value);
+    claim_option(value);
     arch = args[index + 1];
     index = index + 1;
   } else if (value === "--action") {
     require(index + 1 < args.length, "build_option_value_missing:" + value);
+    claim_option(value);
     action = args[index + 1];
     index = index + 1;
   } else if (value === "--clients-only") {

@@ -1429,6 +1429,20 @@ fn build_qjs_marks_bounded_child_captures_as_incomplete() {
 }
 
 #[test]
+fn build_qjs_refuses_a_repeated_value_option_instead_of_last_one_wins() {
+    assert!(BUILD_QJS.contains("function claim_option(value)"));
+    assert!(BUILD_QJS.contains("build_option_duplicate:"));
+    assert_eq!(
+        BUILD_QJS.matches("claim_option(value);").count(),
+        6,
+        "one claim per value option: target, glibc, driver, os, arch and action"
+    );
+    assert!(BUILD_QJS.contains("build_profile_duplicate"));
+    assert!(BUILD_QJS.contains("build_unknown_argument:"));
+    assert!(BUILD_QJS.contains("build_option_value_missing:"));
+}
+
+#[test]
 fn six_cell_orchestrators_reject_surplus_arguments_instead_of_widening_scope() {
     assert!(BUILD_ALL_QJS.contains("build_all_unknown_argument:"));
     assert!(BUILD_ALL_QJS.contains("build_all_profile_duplicate"));
