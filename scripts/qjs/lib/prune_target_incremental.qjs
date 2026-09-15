@@ -56,15 +56,10 @@ export const require = rh.require;
 
 // Alphabets are arrays: `only_chars` walks its alphabet with for-of, and the
 // engine refuses for-of over a string.
-function concat_all(lists) {
-  const out = [];
-  for (const list of lists) { for (const item of list) { out.push(item); } }
-  return out;
-}
 const UPPER = ["A","B","C","D","E","F","G","H","I","J","K","L","M",
                "N","O","P","Q","R","S","T","U","V","W","X","Y","Z"];
-const BASE36 = concat_all([rh.DIGITS, rh.LOWER]);
-const INVOCATION_ALPHABET = concat_all([rh.LOWER, UPPER, rh.DIGITS, [".", "_", "-"]]);
+const BASE36 = rh.DIGITS.concat(rh.LOWER);
+const INVOCATION_ALPHABET = rh.LOWER.concat(UPPER, rh.DIGITS).concat([".", "_", "-"]);
 
 const LOCK_TIMEOUT_MS = 10000;
 const REMOVE_TIMEOUT_MS = 600000;
