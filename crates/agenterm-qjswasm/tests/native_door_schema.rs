@@ -629,6 +629,11 @@ fn every_native_door_error_has_one_stable_distinct_code() {
             native_door_error_word(error)
         );
     }
+    assert_eq!(
+        errors.len(),
+        42,
+        "the table must list every NativeDoorError variant before its codes are treated as distinct",
+    );
     assert_eq!(words.len(), errors.len());
     assert_eq!(codes.len(), errors.len());
 }
