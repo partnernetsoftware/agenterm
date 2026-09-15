@@ -94,9 +94,12 @@ flowchart LR
   ceiling. Tasks that read the manifest inside the guest declare a
   separate 1-MiB string budget; raising the Rust parser ceiling does not raise
   qjswasm bridge-result limits implicitly.
-- [~] release-critical task migration is still audited by v0.1.18 G4. A task
-  whose Rh entry disappeared is dark until a real `.qjs` equivalent lands or
-  the obsolete task is explicitly retired.
+- [~] release-critical task migration is still audited by v0.1.18 G4. The
+  Candidate manifest and `check.qjs` execution set are now exact peers, every
+  evidence-bearing suite has a live `.qjs` declaration owner, and a task whose
+  Rh entry disappeared remains dark until a real `.qjs` equivalent lands or the
+  obsolete task is explicitly retired. Full Candidate execution remains the
+  completion evidence; declaration probes do not replace it.
 - [~] Lua retains its explicit surface; SQL remains optional/default-off. Their
   existence does not make them fallback engines for `.qjs`.
 - [x] Lua's five-week-old staged `current_run_context` accessor had no production

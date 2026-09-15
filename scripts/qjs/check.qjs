@@ -839,7 +839,8 @@ function smoke_gate_ids() {
     "native-ipc-smoke", "native-ipc-compat-smoke", "remote-ui-smoke",
     "remote-ui-upgrade-smoke", "fleet-smoke", "script-smoke", "theme-smoke",
     "working-context-smoke", "workbench-smoke", "control-center-smoke",
-    "cu-windows-smoke"
+    "cu-windows-smoke", "acu-provider-job-wait-cancel-smoke",
+    "cu-browser-session-fixture-smoke"
   ];
 }
 
@@ -859,8 +860,18 @@ function qualification_execution_gate_ids() {
     "native-ipc-smoke", "native-ipc-compat-smoke", "remote-ui-smoke",
     "remote-ui-upgrade-smoke", "fleet-smoke", "script-smoke", "theme-smoke",
     "working-context-smoke", "workbench-smoke", "control-center-smoke",
-    "cu-windows-smoke"
+    "cu-windows-smoke", "acu-provider-job-wait-cancel-smoke",
+    "cu-browser-session-fixture-smoke"
   ];
+}
+
+function assert_required_execution_set(manifest) {
+  const required_gate_ids = [];
+  for (const gate of manifest.required_gates) { required_gate_ids.push("" + gate.id); }
+  require(
+    qualification.exact_values(required_gate_ids, qualification_execution_gate_ids()) !== 0,
+    "qualification_required_gate_execution_set_mismatch"
+  );
 }
 
 function copy_release_fast_fixture(repo, upgrade_fixture) {
@@ -967,6 +978,7 @@ let sequence = 1;
 
 if (check_evidence !== 0) {
   const manifest = qualification.read_manifest(gate_manifest_path);
+  assert_required_execution_set(manifest);
   const checked = assert_declarations(bootstrap_worker, repo, scratch, sequence, manifest, true);
   print("PASS: evidence declarations (" + (checked - sequence) + " suites)");
   return;
@@ -1110,12 +1122,7 @@ if (release !== 0 && include_stress !== 0) {
 const timing_kind = release !== 0 ? "candidate" : "ordinary";
 const smoke_included = skip_smoke !== 0 ? 0 : 1;
 const gate_manifest = context.manifest;
-const required_gate_ids = [];
-for (const gate of gate_manifest.required_gates) { required_gate_ids.push("" + gate.id); }
-require(
-  qualification.exact_values(required_gate_ids, qualification_execution_gate_ids()) !== 0,
-  "qualification_required_gate_execution_set_mismatch"
-);
+assert_required_execution_set(gate_manifest);
 const timing_gate_ids = [];
 for (const gate of gate_manifest.required_gates) { timing_gate_ids.push("" + gate.id); }
 let timing = qualification.new_timing(

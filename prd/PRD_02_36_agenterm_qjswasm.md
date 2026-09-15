@@ -283,7 +283,11 @@ agenterm-qjswasm
 │  │  ├─ MCU-absent black-box parity precedes switching the default entry
 │  │  └─ generic tinyvm remains free of AgenTerm machine-control authority
 │  ├─ [~] tool.* and release-task coverage grows by product need
-│  └─ [ ] every v0.1.18 release-critical journey has live .qjs evidence
+│  └─ [~] every v0.1.18 release-critical journey has live .qjs evidence
+│     ├─ [x] Candidate required-gate declarations and the independent `check.qjs`
+│     │      execution set are exact peers; the cheap evidence check owns that invariant
+│     └─ [ ] a complete Candidate run still owns real execution of the full set; declaration
+│            probes and current-host runs do not substitute for its cross-cell receipts
 ├─ robustness
 │  ├─ [x] steps, pages, table, call-depth and activation-slot limits
 │  ├─ [x] typed load, host, throw and budget failures; failed stdout retained
@@ -344,6 +348,9 @@ agenterm-qjswasm
 │  │  │      `setsid` ownership boundary while still terminating same-session descendants
 │  │  ├─ [x] pass the same token through the fixed-sibling provider into the observe-only
 │  │  │      `process-watch` wait without storing the callback or spawning a helper thread
+│  │  ├─ [x] the public managed-job court completes setup before its cancellation window;
+│  │  │      a provider that observes the borrowed token first returns typed `cancelled`,
+│  │  │      while the audit retains `cancelled=true` and parent-owned terminal cleanup
 │  │  └─ [x] shipped native observation waits use operation-specific phase/effect semantics;
 │  │         the canonical enumeration, partial-evidence rules and explicit bounded
 │  │         uninterruptible calls live in PRD 02.28 rather than a second list here.

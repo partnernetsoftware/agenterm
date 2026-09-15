@@ -1,7 +1,7 @@
 // Public supervisor proof for cooperative cancellation of embedded
-// agenterm:acu job-wait. This court intentionally does not claim provider ACK
-// visibility or the pre-cancel no-state-root property; their frozen owners are
-// Rust tests at the runner and provider layers.
+// agenterm:acu job-wait. The child observes the provider's typed cancellation
+// reply; lower-level ACK ordering and the pre-cancel no-state-root property
+// remain owned by frozen Rust courts at the runner and provider layers.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
@@ -93,24 +93,14 @@ function read_json_lines(path) {
   return values;
 }
 
-function snapshot_from_stdout(stdout) {
+function wait_cancelled_from_stdout(stdout) {
   for (const line of stdout.split("\n")) {
     if (!line.startsWith("{")) { continue; }
     const value = JSON.parse(line);
-    if (value.schema_version === 1 && value.kind === "job"
-        && typeof value.job_id === "string") { return value; }
+    if (value.schema_version === 1 && value.kind === "wait-cancelled"
+        && value.code === "cancelled") { return true; }
   }
-  return null;
-}
-
-function session_from_stdout(stdout) {
-  for (const line of stdout.split("\n")) {
-    if (!line.startsWith("{")) { continue; }
-    const value = JSON.parse(line);
-    if (value.schema_version === 1 && value.kind === "session"
-        && typeof value.session_id === "string") { return value; }
-  }
-  return null;
+  return false;
 }
 
 function exact_process_absent(pid, start_identity) {
@@ -199,6 +189,56 @@ let failure = "";
 let terminal = null;
 
 try {
+  const session = call([
+    "--target", "current", "--grant", "actuate",
+    "session-start", "--label", "job-wait-cancel-smoke", "--ttl-seconds", "60"
+  ], "session-start");
+  require(typeof session.session_id === "string" && session.session_id !== "", "session_id_missing");
+  require(typeof session.lease === "string" && session.lease !== "", "session_lease_missing");
+  session_handoff = session;
+  const spawn_args = [
+    "--target", "current", "--grant", "actuate",
+    "--request-id", request_root + "-spawn",
+    "--session", session.session_id,
+    "--session-lease", session.lease
+  ];
+  append_all(spawn_args, [
+    "job-spawn", "--ttl-seconds", "60", "--",
+    agenterm, "cli", "script", "run", child_qjs,
+    "--profile", "tool", "--timeout-ms", "60000", "--", "--sleeper"
+  ]);
+  const spawned = call(spawn_args, "job-spawn");
+  require(typeof spawned.job_id === "string" && spawned.job_id !== "", "job_id_missing");
+  require(typeof spawned.generation === "number" && spawned.generation > 0, "job_generation_missing");
+  const status = call([
+    "--target", "current", "--grant", "observe", "job-status", spawned.job_id
+  ], "job-status");
+  require(status.state === "running", "job_not_running");
+  require(typeof status.owner_pid === "number" && status.owner_pid > 0, "owner_pid_missing");
+  require(typeof status.process_pid === "number" && status.process_pid > 0, "process_pid_missing");
+  require(status.live !== null && status.live.state.kind === "running", "job_live_missing");
+  const owner = call([
+    "--target", "current", "--grant", "observe",
+    "process-state", "--pid", "" + status.owner_pid
+  ], "process-state");
+  const child = call([
+    "--target", "current", "--grant", "observe",
+    "process-state", "--pid", "" + status.process_pid
+  ], "process-state");
+  require(owner.state === "live" && typeof owner.start_identity === "string", "owner_identity_missing");
+  require(child.state === "live" && typeof child.start_identity === "string", "child_identity_missing");
+  snapshot = {
+    session_id: session.session_id,
+    session_lease: session.lease,
+    job_id: spawned.job_id,
+    generation: spawned.generation,
+    owner_pid: status.owner_pid,
+    owner_start_identity: owner.start_identity,
+    child_pid: status.process_pid,
+    child_start_identity: child.start_identity,
+    lease_remaining_ms: status.live.lease_remaining_ms
+  };
+
   print("STEP run the real embedded 60-second wait until the host supervisor requests Cancel");
   const child_args = [
     "cli", "script", "run", child_qjs,
@@ -212,32 +252,34 @@ try {
     child_args.push(name);
   }
   child_args.push("--");
-  child_args.push(agenterm);
-  child_args.push(request_root);
-  child_args.push(child_qjs);
+  child_args.push(snapshot.job_id);
+  child_args.push("" + snapshot.generation);
   const started_at = now_ms();
   const cancelled = rh.command(agenterm, child_args, {
     env: environment,
     timeout_ms: invocation_deadline_ms + 5000
   });
   const external_wall_ms = now_ms() - started_at;
-  session_handoff = session_from_stdout(cancelled.stdout);
-  snapshot = snapshot_from_stdout(cancelled.stdout);
-  require(snapshot !== null, "cancelled_wait_setup_snapshot_missing");
-  require(cancelled.success !== true, "cancelled_wait_unexpected_success");
+  require(cancelled.success === true, "cancelled_wait_child_failed:" + cancelled.stderr);
+  require(wait_cancelled_from_stdout(cancelled.stdout), "cancelled_wait_reply_missing");
   require(cancelled.stderr.indexOf("host_hard_timeout") < 0, "cancelled_wait_hard_timeout");
-  require(cancelled.stderr.indexOf("\"code\":\"qjswasm_backend\"") >= 0
-      && cancelled.stderr.indexOf("\"exit_class\":\"cancelled\"") >= 0,
-    "cancelled_wait_terminal_code");
   require(external_wall_ms < invocation_deadline_ms + 150,
     "cancelled_wait_external_wall:" + external_wall_ms);
 
   const audits = read_json_lines(script_audit);
-  require(audits.length === 1, "cancelled_wait_audit_count:" + audits.length);
-  const audit = audits[0];
+  const child_audits = [];
+  for (const entry of audits) {
+    if (entry.source_kind === "file"
+        && entry.requested_budgets.wall_time_ms === invocation_deadline_ms) {
+      child_audits.push(entry);
+    }
+  }
+  require(child_audits.length === 1,
+    "cancelled_wait_audit_count:" + child_audits.length + ":" + audits.length);
+  const audit = child_audits[0];
   require(audit.cancelled === true && audit.crashed === false,
-    "cancelled_wait_audit_cancelled");
-  require(audit.failure_code === "qjswasm_backend" && audit.result_class === "cancelled",
+    "cancelled_wait_audit_shape");
+  require(audit.failure_code === undefined && audit.result_class === "success",
     "cancelled_wait_audit_terminal");
   require(audit.duration_ms < invocation_deadline_ms + 150,
     "cancelled_wait_audit_wall:" + audit.duration_ms);
@@ -358,13 +400,12 @@ if (!succeeded && snapshot === null && session_handoff !== null) {
     call([
       "--target", "current", "--grant", "actuate",
       "session-end", session_handoff.session_id,
-      "--lease", session_handoff.session_lease, "--confirm"
+      "--lease", session_handoff.lease, "--confirm"
     ], "session-end");
   } catch (error) {
     failure = failure + ";cleanup_partial_session:" + error;
   }
 }
-
 if (snapshot !== null) {
   for (let poll = 0; poll < 350; poll = poll + 1) {
     if (exact_process_absent(snapshot.owner_pid, snapshot.owner_start_identity)
