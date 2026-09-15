@@ -108,6 +108,11 @@ fn summary_requires_one_ordered_experiment_run() {
     assert!(SUMMARY.contains("Number.isInteger(value) && value >= 0"));
     assert!(SUMMARY.contains("Number.isInteger(report.total_wall_ms)"));
     assert!(SUMMARY.contains("Number.isInteger(report.wall_time.accounted_ms)"));
+    assert!(SUMMARY.contains("performance_summary_sample_bootstrap:"));
+    assert!(SUMMARY.contains("performance_summary_sample_wall_time:"));
+    assert!(SUMMARY.contains("Number.isInteger(report.bootstrap.setup_ms)"));
+    assert!(SUMMARY.contains("report.wall_time.accounted_ms === report.total_wall_ms"));
+    assert!(SUMMARY.contains("=== report.total_wall_ms + report.bootstrap.setup_ms"));
     assert!(SUMMARY.contains("previous_completed <= completed"));
     assert!(SUMMARY.contains("experiment_run_id: experiment_run_id"));
     assert!(WORKFLOW.contains("@if errorlevel 1 exit /b 1"));

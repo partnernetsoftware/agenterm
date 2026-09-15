@@ -83,6 +83,22 @@ for (let index = 0; index < 3; index = index + 1) {
       && report.wall_time.accounted_ms >= report.total_wall_ms,
     "performance_summary_sample_schema:" + sample_tag
   );
+  const bootstrap_valid = report.wall_time.state !== "partial"
+    || (rh.is_map(report.bootstrap)
+      && Number.isInteger(report.bootstrap.setup_ms)
+      && report.bootstrap.setup_ms >= 0);
+  rh.require(
+    bootstrap_valid,
+    "performance_summary_sample_bootstrap:" + sample_tag
+  );
+  const wall_time_consistent = report.wall_time.state === "unavailable"
+    ? report.wall_time.accounted_ms === report.total_wall_ms
+    : report.wall_time.accounted_ms
+      === report.total_wall_ms + report.bootstrap.setup_ms;
+  rh.require(
+    wall_time_consistent,
+    "performance_summary_sample_wall_time:" + sample_tag
+  );
   if (source_commit === "") {
     source_commit = "" + report.source.commit;
     workload_fingerprint = "" + report.workload.fingerprint;

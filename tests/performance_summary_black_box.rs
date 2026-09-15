@@ -59,6 +59,13 @@ fn write_timing_values(
             "task_ms": task_ms,
             "accounted_ms": accounted_ms
         },
+        "bootstrap": {
+            "schema_version": 1,
+            "kind": "agenterm-bootstrap-timing",
+            "state": "measured",
+            "reason": null,
+            "setup_ms": 0
+        },
         "source": { "commit": "0123456789012345678901234567890123456789" },
         "workload": { "fingerprint": "fixture-workload" },
         "experiment_run_id": run_id,
@@ -329,4 +336,88 @@ fn performance_summary_accepts_one_run_and_rejects_misattributed_samples() {
         serde_json::from_str(&fs::read_to_string(zero_path).expect("read zero summary"))
             .expect("parse zero summary");
     assert_eq!(zero_report["warm_speedup_percent"], 0);
+
+    let mut missing_bootstrap: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(&timings[0]).expect("read timing without bootstrap fixture"),
+    )
+    .expect("parse timing without bootstrap fixture");
+    missing_bootstrap
+        .as_object_mut()
+        .expect("timing object")
+        .remove("bootstrap");
+    fs::write(
+        &timings[0],
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&missing_bootstrap)
+                .expect("serialize timing without bootstrap")
+        ),
+    )
+    .expect("write timing without bootstrap fixture");
+    let missing_bootstrap_result = run_summary(
+        &root.0.join("missing-bootstrap.json"),
+        "target",
+        [&timings[0], &timings[1], &timings[2]],
+        [&stats[0], &stats[1], &stats[2]],
+    );
+    assert!(!missing_bootstrap_result.status.success());
+    assert!(
+        diagnostic(&missing_bootstrap_result).contains("performance_summary_sample_bootstrap:1")
+    );
+
+    write_timing(&timings[0], "perf-fixture-A", "2026-09-16T00:00:00Z", 0);
+    let mut inconsistent: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(&timings[0]).expect("read inconsistent timing fixture"),
+    )
+    .expect("parse inconsistent timing fixture");
+    inconsistent["bootstrap"]["setup_ms"] = serde_json::Value::from(50);
+    fs::write(
+        &timings[0],
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&inconsistent).expect("serialize inconsistent timing")
+        ),
+    )
+    .expect("write inconsistent timing fixture");
+    let inconsistent_result = run_summary(
+        &root.0.join("inconsistent-wall-time.json"),
+        "target",
+        [&timings[0], &timings[1], &timings[2]],
+        [&stats[0], &stats[1], &stats[2]],
+    );
+    assert!(!inconsistent_result.status.success());
+    assert!(diagnostic(&inconsistent_result).contains("performance_summary_sample_wall_time:1"));
+
+    write_timing(&timings[0], "perf-fixture-A", "2026-09-16T00:00:00Z", 0);
+    for path in [&timings[1], &timings[2]] {
+        let mut unavailable: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(path).expect("read unavailable timing fixture"),
+        )
+        .expect("parse unavailable timing fixture");
+        unavailable["wall_time"]["state"] = serde_json::Value::from("unavailable");
+        unavailable["bootstrap"] = serde_json::json!({
+            "state": "unavailable",
+            "reason": "direct_worker_invocation",
+            "setup_ms": null
+        });
+        fs::write(
+            path,
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&unavailable).expect("serialize unavailable timing")
+            ),
+        )
+        .expect("write unavailable timing fixture");
+    }
+    let mixed_states = run_summary(
+        &root.0.join("mixed-bootstrap-states.json"),
+        "target",
+        [&timings[0], &timings[1], &timings[2]],
+        [&stats[0], &stats[1], &stats[2]],
+    );
+    assert!(
+        mixed_states.status.success(),
+        "{}",
+        diagnostic(&mixed_states)
+    );
 }
