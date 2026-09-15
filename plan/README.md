@@ -29,8 +29,10 @@ open. Their presence in this directory does not assign them to a version.
   input; no current-version authority.
 - `plan-mobile.md` — product scope belongs to PRD 33; no version commitment.
 - `research-decentralized-network.md` — research only.
-- `design-dynacore-*`, `goal-agenterm-dyn-macos.md` — isolated internal
-  mechanism research; not a release theme.
+- `design-dynacore-*` — isolated internal mechanism research; not a release
+  theme. The completed Darwin catalog campaign is retained as
+  [`archive/goal-agenterm-dyn-macos.md`](archive/goal-agenterm-dyn-macos.md),
+  while current dyn product truth lives in PRD 02.34.
 - [`design-qjswasm-native-door-experiment.md`](design-qjswasm-native-door-experiment.md) —
   active strategic slope experiment for a fixed guest-to-native door; successful
   evidence immediately opens migration from the duplicated dyn language layer.

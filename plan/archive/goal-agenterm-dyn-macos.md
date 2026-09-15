@@ -1,7 +1,9 @@
-# Goal: first-class `agenterm-dyn` on macOS
+# Archived goal: first-class `agenterm-dyn` on macOS
 
-Status: **active** — user re-authorized continuing past Wave 9
-Execution: Wave 10 shipped (catalog 85); next leak-free candidates below.
+Status: **archived 2026-09-15 — Wave 10 shipped; the catalog/S-expression
+surface was subsequently retired after its consumers migrated.**
+Current product truth: [`prd/PRD_02_34_agenterm_dyn.md`](../../prd/PRD_02_34_agenterm_dyn.md).
+The candidate list below is historical and grants no current execution authority.
 Paths: repository-relative or `~/...` only.
 
 ## Outcome

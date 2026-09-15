@@ -109,7 +109,7 @@ B 获资格后立即开迁移叶：
 3. 保留 Unix `ioctl` variadic ABI、`mach_host_self` ownership refusal 与六格 host facts；语言测试减少必须由
    新门等价证据解释，不能靠 pass-count 下降冒充简化成功。
 4. 删除旧门时同步处理 `libloading` 依赖归属、`crates/agenterm-dyn/README.md`、根 README、parked CI、
-   `plan/goal-agenterm-dyn-macos.md` 与 reviews 的历史状态。
+   `plan/archive/goal-agenterm-dyn-macos.md` 与 reviews 的历史状态。
 5. `plan/chassis-l1-surface.json` 当前点名 `crates/agenterm-dyn/src/native.rs`；先给边界测试增加 exact-path-exists
    断言，再迁到新门真实路径，防止清单假绿。
 6. 同批更新 `prd/PRD_02_34_agenterm_dyn.md` 与 `plan/ARCHITECTURE.md`，不得留下两个 living native doors。
