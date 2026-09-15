@@ -44,6 +44,9 @@ static PACKAGE_SIX_CELL_QJS: LazyLock<String> = LazyLock::new(|| {
 });
 static CHECK_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/check.qjs").replace("\r\n", "\n"));
+static PLATFORM_THREADING_RS: LazyLock<String> = LazyLock::new(|| {
+    include_str!("../crates/agenterm-platform/src/threading.rs").replace("\r\n", "\n")
+});
 static DOC_REDACT_CHECK: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/doc-redact-check.sh").replace("\r\n", "\n"));
 static NATIVE_IPC_SMOKE_QJS: LazyLock<String> =
@@ -438,6 +441,17 @@ fn chassis_default_feature_tests_are_an_explicit_full_gate_subcourt() {
     assert!(!spec.contains("--all-features"));
     assert!(!spec.contains("--features"));
     assert!(CHECK_QJS.contains("cargo_unit_chassis_spec(build_environment)"));
+}
+
+#[test]
+fn platform_unconditional_tests_are_an_explicit_full_gate_subcourt() {
+    assert!(CHECK_QJS.contains("function cargo_unit_platform_unconditional_spec(environment)"));
+    assert!(CHECK_QJS.contains(
+        "\"-p\", \"agenterm-platform\", \"--lib\",\n    \"--\", \"--skip\", \"threading::\""
+    ));
+    assert!(CHECK_QJS.contains("cargo_unit_platform_unconditional_spec(build_environment)"));
+    assert!(PLATFORM_THREADING_RS.contains("fn detached_task_runs_with_the_requested_os_name"));
+    assert!(PLATFORM_THREADING_RS.contains("fn panic_is_contained_and_unwinds_the_detached_task"));
 }
 
 #[test]
