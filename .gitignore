@@ -26,6 +26,11 @@ crates/agenterm-cu/src/executor/target/
 # definitions and exact source/court verdicts belong in the tracked PRD.
 /evidence/cu/*.json
 
+# Performance experiments upload these local measurements after the task. They
+# must not make later build identities or qualification receipts source-dirty.
+/performance-evidence/
+/sccache-*.json
+
 # Decisive-experiment budgets and reviewed receipt copies outlive disposable
 # Cargo lanes but remain local evidence rather than tracked product input.
 /.agenterm-research-state/

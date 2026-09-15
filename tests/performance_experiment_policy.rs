@@ -74,6 +74,13 @@ fn samples_own_the_cold_tree_they_create() {
 }
 
 #[test]
+fn experiment_outputs_never_mark_the_tree_dirty() {
+    let ignore = include_str!("../.gitignore");
+    assert!(ignore.contains("/performance-evidence/"));
+    assert!(ignore.contains("/sccache-*.json"));
+}
+
+#[test]
 fn experiment_runs_quick_only_and_cannot_publish_or_claim_qualification() {
     for forbidden in [
         "--release",
