@@ -219,6 +219,10 @@ cargo test --test script_native_artifact_supervisor
 1. L1 没有稳定文件名或独立预算，只能在空 lane 中要求 pattern **唯一命中**；`RESULTS.md`
    §F12–§F15 已在 before/after 两端各取得唯一候选并记录 bytes、SHA-256 与 source identity。
 2. L2 的 OS 接缝不单独 materialize；只报告整个最终链接体的 before/after 差值，不制造接缝子文件。
+   当前同一 source identity 下没有 native-door 级的真实链接变体：根 feature 只能移除整个
+   `agenterm-qjswasm` 引擎，`agenterm-qjswasm` 到 `agenterm-dyn` 的依赖无条件存在，而 Engine 的
+   native-door opt-in 只改变运行期暴露、不会把代码移出最终链接体。因此历史 source pair 与
+   `script-qjswasm` 整体 on/off 都不是 L2 baseline，也不得为测量专造一个产品并不交付的 feature。
 3. L3 已有 provenance 字段可绑定 source commit 与 artifact manifest；仍须为 before/after 各自产生 receipt。
    当前这条路径具有明确的 Windows authority 前置：正式 qualification receipt 只有完整 smoke 且显式
    `--include-stress` 时才写出，承载该 stress 的 `fleet-smoke` 与消费 receipt 的
