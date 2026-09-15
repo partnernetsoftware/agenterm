@@ -926,13 +926,23 @@ different program. A qualification receipt's `artifact_sha256` is the black-box
 oracle for the artifact path. Source hashing is still a real compilation: carry
 the entry directory, project root, and requested local/tool door into the same
 resolver/compiler used by `check`; a context-free hash rejects an import-bearing
-program that the runtime can load and fingerprints no runnable artifact.
+program that the runtime can load and fingerprints no runnable artifact. Normalize
+the entry identity before deriving either resolver root: a bare filename has an
+empty `Path::parent`, so deriving roots from the raw CLI spelling can erase the
+entire import search path even though `./name.qjs` names the same file.
 Identity inspection and artifact production are not exempt from input budgets.
 Hash, pack build/load, smoke and qualification verbs must reuse the run path's
 take-limited readers, reading at most the effective source/artifact ceiling plus
 one byte before a typed refusal. A bare
 `std::fs::read` allocates in proportion to an attacker-controlled or sparse file
 before it can decide that the runtime would never admit those bytes.
+
+When an engine adapter returns a typed failure category, preserve it through
+every operation arm in the shared dispatcher. Rewrapping the check arm with a
+default configuration constructor while the run arm projects the typed error
+creates two public `exit_class` values for the same compile failure. A shared
+dispatcher should own transport spelling and backend code, not overwrite the
+engine's diagnosis.
 
 The same stale-artifact trap applies to `libagenterm`: an `abi-dev` build
 refreshes `target/abi-dev/libagenterm.*`, while an integration-test executable

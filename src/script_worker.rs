@@ -961,7 +961,7 @@ fn dispatch_via_engine(
         ScriptOperation::Check => {
             engine
                 .check(source, options)
-                .map_err(|error| configuration_error(backend_code, error))?;
+                .map_err(|error| engine_execution_error(&backend_code, error))?;
             Ok((String::new(), false, None, None))
         }
         ScriptOperation::Run | ScriptOperation::Eval => {

@@ -1846,6 +1846,22 @@ fn run_script_hash(arguments: &[String]) -> i32 {
                 return code;
             }
         };
+        // Canonicalize the entry once, then let the *same* path feed both
+        // `direct_script_context` and `entry_dir`. `Path::parent` of a bare
+        // relative filename answers an empty path rather than `None`, and an
+        // empty root cannot be canonicalized, so `hash main.qjs` resolved no
+        // imports at all while `check main.qjs` and `run main.qjs` accepted
+        // the same program. `check`/`run` canonicalize their entry for this
+        // same reason; this makes `hash` reach the identical roots instead of
+        // a lookalike pair.
+        let canonical_entry = match std::fs::canonicalize(path) {
+            Ok(canonical) => canonical,
+            Err(error) => {
+                cli_eprintln!("failed to resolve script {path}: {error}");
+                return 1;
+            }
+        };
+        let canonical_label = canonical_entry.display().to_string();
         let tool_door = match option_value(arguments, "--profile").unwrap_or("local") {
             "pure" | "observe" | "local" => false,
             "tool" => true,
@@ -1854,7 +1870,7 @@ fn run_script_hash(arguments: &[String]) -> i32 {
                 return 2;
             }
         };
-        let context = match direct_script_context(arguments, path) {
+        let context = match direct_script_context(arguments, &canonical_label) {
             Ok(context) => context,
             Err(message) => {
                 cli_eprintln!("{message}");
@@ -1863,9 +1879,7 @@ fn run_script_hash(arguments: &[String]) -> i32 {
         };
         hash_options = crate::script_engine::ScriptInvocationOptions {
             project_root: Some(context.project_root),
-            entry_dir: std::path::Path::new(path)
-                .parent()
-                .map(std::path::Path::to_path_buf),
+            entry_dir: canonical_entry.parent().map(std::path::Path::to_path_buf),
             tool_door,
             ..crate::script_engine::ScriptInvocationOptions::default()
         };

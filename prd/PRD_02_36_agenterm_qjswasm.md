@@ -700,7 +700,10 @@ integration.
   source differences retain one program identity. Import-bearing sources use
   the same entry/project roots as single-file check and honor explicit
   `--profile local|tool`, so a working tool script is not refused by the
-  provenance path for a missing resolver or host declaration. For `.wasm` it hashes the
+  provenance path for a missing resolver or host declaration. Bare, explicitly
+  relative, and absolute spellings of the same entry are canonicalized before
+  those roots are derived and therefore produce one digest; the public owner is
+  `tests/script_hash_import_roots.rs`. For `.wasm` it hashes the
   exact bytes that `run`/`pack load` consume, including hand-authored modules;
   that digest equals qualification receipt `artifact_sha256`. Binary artifacts
   are never decoded as UTF-8 source or sent back through the qjs compiler.
@@ -711,8 +714,11 @@ integration.
 - [x] `script api [MODULE] [--status shipped|planned|all] [--tree|--json]` renders one deterministic hierarchical object tree with reviewed Node.js/Bun analogues and returns the same filtered versioned catalog with explicit view and comparison metadata.
 - [x] qjswasm computation budget fails closed with the public limit exit class.
 - [x] syntax/compiler refusals and unsupported source methods use the same
-  public `script` failure class through direct run, task run, and check-many;
-  loader, signature, and host-door setup failures remain `configuration`.
+  public `script` failure class through single-file check, direct run, task run,
+  and check-many; the shared worker dispatch preserves the engine's typed class
+  instead of flattening check failures to `configuration`. Loader, signature,
+  and host-door setup failures remain `configuration`; the public parity owner
+  is `tests/script_check_run_failure_class.rs`.
 - [x] qjswasm tool profile executes bounded child processes with typed failures.
 - [x] Synchronous `process.command`, `process.command_stdout` and
   `process.status` calls apply the documented 60-second deadline when the spec
