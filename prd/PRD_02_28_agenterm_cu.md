@@ -2327,6 +2327,11 @@ flowchart LR
   remain typed fallbacks rather than being silently weakened. The controlled
   lifecycle court has not been run, so this row remains pending rather than
   claiming native qualification.
+  The `cu-simulator-not-applicable-smoke` court is now registered for Linux and
+  Windows with separate inventory and lifecycle evidence ids. It exercises
+  fully valid public spellings twice and requires `simulator_unsupported`
+  before any provider-effect receipt. Those four platform cells remain pending
+  until the registered court has actually run on each owning host.
   No existing court has yet booted a device or launched/terminated an app.
   App lifecycle mutation courts, deployment, guest foreground and guest
   screenshot remain open.

@@ -482,6 +482,8 @@
         "cu.terminal-viewport-image.macos",
         "cu.simulator-readonly",
         "cu.simulator-lifecycle.macos",
+        "cu.simulator-inventory-not-applicable",
+        "cu.simulator-lifecycle-not-applicable",
         "cu.file-copy-transaction",
         "cu.file-xattr-inspect.macos",
         "cu.file-mode.macos",

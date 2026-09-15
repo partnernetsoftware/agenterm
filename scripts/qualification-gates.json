@@ -1002,6 +1002,13 @@
       ]
     },
     {
+      "id": "cu-simulator-not-applicable-smoke",
+      "evidence": [
+        "cu.simulator-inventory-not-applicable",
+        "cu.simulator-lifecycle-not-applicable"
+      ]
+    },
+    {
       "id": "cu-file-transaction-smoke",
       "evidence": [
         "cu.file-copy-transaction",

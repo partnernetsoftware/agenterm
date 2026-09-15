@@ -3404,6 +3404,23 @@
         "task.cu-simulator-lifecycle-smoke"
       ]
     },
+    "cu-simulator-not-applicable-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-simulator-not-applicable-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-simulator-not-applicable-smoke"
+      ]
+    },
     "cu-resource-status-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -9573,6 +9590,26 @@
       "dependencies": [],
       "platforms": [
         "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-simulator-not-applicable-smoke",
+      "description": "Prove Linux and Windows return simulator_unsupported for valid CoreSimulator inventory and lifecycle spellings before any provider effect or effect receipt; this court refuses to run on macOS.",
+      "entry": "scripts/qjs/cu-simulator-not-applicable-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux"
       ],
       "side_effects": [
         "artifact_write",
