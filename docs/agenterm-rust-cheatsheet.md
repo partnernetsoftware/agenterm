@@ -6509,6 +6509,11 @@ unsupported” then blames engine capability instead of the caller. Reuse an
 existing equally precise outer error when one exists, and pin its fields in the
 mapper test rather than fossilizing the lossy fallback.
 
+Normalize sentinel identities at the shared public-error boundary. If an empty
+library, path, or provider name means a named logical target, every mechanism
+family must publish the same logical spelling; do not let a private trampoline
+leak the raw sentinel while a sibling reports the normalized identity.
+
 For a large Rust file, make this change with unique-text patches and inspect the
 whole diff against `HEAD`. Do not delete line-number slices with a rewrite
 script: an offset can remove a function body while leaving a plausible doc

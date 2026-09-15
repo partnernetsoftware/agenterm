@@ -112,6 +112,7 @@ agenterm-dyn
 │   │   └── 只暂存 invoke_abi 选择的单态 trampoline；不再公开
 │   ├── open_library                                [唯一 loader（libloading）]
 │   ├── resolve_symbol<T>                           [分类后唯一 typed lookup/error projection]
+│   │   └── 空库名在所有 trampoline family 的公开错误中统一为 <current-process>
 │   └── unix_ioctl
 │       ├── variadic 调用机制 (i32, i32|u64, ptr) -> i32  [保留]
 │       └── UnixIoctlRequest 的“允许签名”          [**策略 → 上层**]
@@ -438,6 +439,9 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
 - **错误代数扫全**：dyn 侧 `tests/abi.rs` 用一个无 wildcard 的 match 穷举
   `SignatureUnsupported / LibraryLoad / SymbolLookup / ArgumentCount / ArgumentShape`；
   增删改变体必须先显式更新这条兼容性账，不能被零散的 `matches!(..)` 静默漏过；
+- **错误身份跨 family 一致**：空库名是当前进程的机制输入；exact、fixed、fixed-pointer、
+  pointer-result 与 direct-scalar 的公开 `SymbolLookup.library` 必须都规范化为
+  `<current-process>`，不得因私有 trampoline 的错误路径不同而泄露两种身份拼法；
 - **exposure ⊆ mechanism**：qjswasm 侧 `native::mechanism_compatibility` 用同一张 dispatch
   表枚举曝光形状（69）逐一问 dyn，并记录“机制有、曝光无”的形状与 `ioctl` 自成一径（u64 请求
   没有 ABI trampoline）；删一个机制形状或伪造一个曝光形状都会具名变红；

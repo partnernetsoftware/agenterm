@@ -544,7 +544,7 @@ fn mechanism_error(
 ) -> AbiError {
     match error {
         MechanismError::SymbolLoad { symbol, message } => AbiError::SymbolLookup {
-            library: call.library.to_owned(),
+            library: display_library(call.library),
             symbol,
             message,
         },

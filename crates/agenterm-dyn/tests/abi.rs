@@ -840,10 +840,34 @@ fn a_missing_pointer_result_symbol_keeps_the_shared_lookup_error() {
     };
     let error = unsafe { invoke_abi(&call) }.expect_err("the symbol must not exist");
     assert_missing_symbol(error, "<current-process>", call.symbol);
+
+    let call = NativeCall {
+        library: "",
+        symbol: "agenterm_no_such_direct_scalar_symbol_xyz",
+        signature: AbiSignature {
+            result: AbiType::Void,
+            params: &[AbiType::Pointer],
+        },
+        arguments: &[AbiValue::Pointer(std::ptr::null_mut())],
+    };
+    let error = unsafe { invoke_abi(&call) }.expect_err("the symbol must not exist");
+    assert_missing_symbol(error, "<current-process>", call.symbol);
 }
 
 #[test]
-fn a_missing_fixed_scalar_symbol_keeps_the_mechanism_error_boundary() {
+fn every_symbol_lookup_normalizes_the_current_process_identity() {
+    let exact = NativeCall {
+        library: "",
+        symbol: "agenterm_no_such_exact_symbol_xyz",
+        signature: AbiSignature {
+            result: AbiType::I32,
+            params: &[],
+        },
+        arguments: &[],
+    };
+    let error = unsafe { invoke_abi(&exact) }.expect_err("the symbol must not exist");
+    assert_missing_symbol(error, "<current-process>", exact.symbol);
+
     let call = NativeCall {
         library: "",
         symbol: "agenterm_no_such_fixed_scalar_symbol_xyz",
@@ -854,11 +878,8 @@ fn a_missing_fixed_scalar_symbol_keeps_the_mechanism_error_boundary() {
         arguments: &[AbiValue::I32(0)],
     };
     let error = unsafe { invoke_abi(&call) }.expect_err("the symbol must not exist");
-    assert_missing_symbol(error, "", call.symbol);
-}
+    assert_missing_symbol(error, "<current-process>", call.symbol);
 
-#[test]
-fn a_missing_fixed_pointer_symbol_keeps_the_mechanism_error_boundary() {
     let call = NativeCall {
         library: "",
         symbol: "agenterm_no_such_fixed_pointer_symbol_xyz",
@@ -869,7 +890,7 @@ fn a_missing_fixed_pointer_symbol_keeps_the_mechanism_error_boundary() {
         arguments: &[AbiValue::Pointer(std::ptr::null_mut())],
     };
     let error = unsafe { invoke_abi(&call) }.expect_err("the symbol must not exist");
-    assert_missing_symbol(error, "", call.symbol);
+    assert_missing_symbol(error, "<current-process>", call.symbol);
 }
 
 /// Every shape the mechanism matrix admits, as `(result, params)`.
