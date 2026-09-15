@@ -326,6 +326,55 @@ fn powershell_launcher_test_is_an_explicit_terminal_compatibility_subcourt() {
 }
 
 #[test]
+fn primary_unit_spec_keeps_both_packages_and_the_explicit_skip_set() {
+    let spec = CHECK_QJS
+        .split_once("function cargo_unit_primary_spec(environment) {")
+        .and_then(|(_, tail)| tail.split_once("\n}"))
+        .map(|(body, _)| body)
+        .expect("primary unit spec");
+    assert!(spec.contains("\"-p\", \"agenterm\", \"-p\", \"agenterm-ui-core\""));
+    let skipped = [
+        "preflight_task_is_fail_closed_and_writes_reports_for_real_git_fixtures",
+        "preflight_benchmark_task_measures_clean_public_worker_runs",
+        "prd_alignment_task_matches_public_catalogs_and_fails_closed",
+        "supply_chain_task_is_deterministic_and_covers_the_resolved_lock_graph",
+        "rhai_working_context_smoke_is_private_ephemeral_and_orphan_free",
+        "rhai_server_smoke_preserves_headless_authority_and_cleanup",
+        "rhai_wake_smoke_preserves_concurrent_ipc_pty_and_expired_mutation",
+        "rhai_startup_smoke_preserves_first_window_and_async_terminal_contract",
+        "rhai_cli_smoke_preserves_public_control_ui_bridge_and_pty_contract",
+        "rhai_fleet_smoke_preserves_discovery_event_launch_and_mux_contract",
+        "rhai_remote_ui_smoke_preserves_replaceable_client_and_reconnect_contract",
+        "rhai_script_smoke_preserves_unrestricted_runtime_and_supervisor_contract",
+        "rhai_theme_smoke_preserves_native_rendering_pty_and_restart_contract",
+        "rhai_workbench_smoke_preserves_physical_editing_and_compact_tree_contract",
+        "rhai_diagnostic_bundles_are_bounded_private_and_orphan_free",
+        "rhai_harness_cleanup_owns_only_registered_children",
+        "migration_audit_rejects_operational_references_to_deleted_scripts",
+        "rhai_qualification_contract_fails_closed_and_cleans_owned_scratch",
+        "rhai_qualified_package_accepts_only_the_exact_receipt_bytes",
+        "uses_bundled_pack",
+        "uses_native_bundled_pack",
+        "powershell_waits_for_explicit_agenterm_exe",
+        "pack_builds",
+        "native_pack_",
+        "source_cache_is_stable_for_same_source",
+        "script_engine_exec_parity_",
+        "native_for_fixtures_qualify_with_expected_entry_values",
+        "_executes_natively_without_interpreter",
+        "native_pack_executes_without_interpreter",
+    ];
+    assert_eq!(spec.matches("\"--skip\"").count(), skipped.len());
+    for name in skipped {
+        assert!(
+            spec.contains(&format!("\"--skip\", \"{name}\"")),
+            "primary unit spec lost the explicit skip for {name}"
+        );
+    }
+    assert!(CHECK_QJS.contains("cargo_unit_primary_spec(build_environment)"));
+}
+
+#[test]
 fn qjswasm_adversarial_tests_are_an_explicit_full_gate_subcourt() {
     assert!(CHECK_QJS.contains("function cargo_unit_qjswasm_adversarial_spec(environment)"));
     assert!(CHECK_QJS.contains("\"-p\", \"agenterm-qjswasm\""));
