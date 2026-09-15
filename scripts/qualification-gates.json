@@ -1005,7 +1005,8 @@
       "id": "cu-simulator-not-applicable-smoke",
       "evidence": [
         "cu.simulator-inventory-not-applicable",
-        "cu.simulator-lifecycle-not-applicable"
+        "cu.simulator-lifecycle-not-applicable",
+        "cu.simulator-app-lifecycle-not-applicable"
       ]
     },
     {

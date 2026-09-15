@@ -1,6 +1,7 @@
-// Public non-macOS court for the CoreSimulator inventory and lifecycle
-// spellings. Both calls must reach the typed platform result before any
-// provider effect. macOS owns the native courts for these capabilities.
+// Public non-macOS court for the CoreSimulator device inventory, device
+// lifecycle, app inventory and app lifecycle spellings. Every call must reach
+// the typed platform result before any provider effect. macOS owns the native
+// courts for these capabilities.
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
 import * as rh from "lib/rh_compat";
@@ -8,7 +9,8 @@ import * as harness from "lib/test_harness";
 
 const declared_evidence = [
   "cu.simulator-inventory-not-applicable",
-  "cu.simulator-lifecycle-not-applicable"
+  "cu.simulator-lifecycle-not-applicable",
+  "cu.simulator-app-lifecycle-not-applicable"
 ];
 
 function ensure(condition, message) {
@@ -81,6 +83,7 @@ ensure(rh.is_direct_file(executable),
        "cu_simulator_not_applicable_executable_missing:" + executable);
 
 const udid = "11111111-1111-1111-1111-111111111111";
+const bundle_id = "com.partnernetsoftware.agenterm.fixture";
 const context = harness.new_context(repo, "cu-simulator-not-applicable");
 let succeeded = 0;
 let failure = "";
@@ -101,6 +104,26 @@ try {
       "simulator-boot", udid, "--expect", "booted", "--timeout-ms", "1"
     ], "simulator-boot");
   }
+  print("STEP app inventory spelling returns the typed non-macOS result");
+  for (let attempt = 0; attempt < 2; attempt = attempt + 1) {
+    refusal(context.run_directory, executable, [
+      "--target", "current", "--grant", "observe",
+      "simulator-apps", udid, "--max", "1"
+    ], "simulator-apps");
+  }
+  print("STEP app launch and terminate spellings return the typed non-macOS result");
+  for (let attempt = 0; attempt < 2; attempt = attempt + 1) {
+    refusal(context.run_directory, executable, [
+      "--target", "current", "--grant", "actuate",
+      "simulator-launch", udid, bundle_id, "--expect", "accepted",
+      "--timeout-ms", "1"
+    ], "simulator-launch");
+    refusal(context.run_directory, executable, [
+      "--target", "current", "--grant", "actuate",
+      "simulator-terminate", udid, bundle_id, "--expect", "accepted",
+      "--timeout-ms", "1"
+    ], "simulator-terminate");
+  }
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
@@ -114,6 +137,8 @@ if (succeeded !== 0 && completion_failure === "") {
                         "cu.simulator-inventory-not-applicable");
   harness.emit_evidence(context, declared_evidence,
                         "cu.simulator-lifecycle-not-applicable");
+  harness.emit_evidence(context, declared_evidence,
+                        "cu.simulator-app-lifecycle-not-applicable");
   harness.remove_run(context);
   print("PASS: CoreSimulator spellings return typed non-macOS results without provider effect");
 }

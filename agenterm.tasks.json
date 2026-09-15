@@ -9634,7 +9634,7 @@
     },
     {
       "id": "cu-simulator-not-applicable-smoke",
-      "description": "Prove Linux and Windows return simulator_unsupported for valid CoreSimulator inventory and lifecycle spellings before any provider effect or effect receipt; this court refuses to run on macOS.",
+      "description": "Prove Linux and Windows return simulator_unsupported for valid CoreSimulator device/app inventory and device/app lifecycle spellings before any provider effect or effect receipt; this court refuses to run on macOS.",
       "entry": "scripts/qjs/cu-simulator-not-applicable-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

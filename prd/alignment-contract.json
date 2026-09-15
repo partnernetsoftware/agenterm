@@ -484,6 +484,7 @@
         "cu.simulator-lifecycle.macos",
         "cu.simulator-inventory-not-applicable",
         "cu.simulator-lifecycle-not-applicable",
+        "cu.simulator-app-lifecycle-not-applicable",
         "cu.file-copy-transaction",
         "cu.file-xattr-inspect.macos",
         "cu.windows-file-attributes-unsupported",
