@@ -138,7 +138,7 @@ completion value 投影全程，任何一段掉链子这里都看得见。`e1122
   写好**的语料把三种都跑过，再按边际成本比。调用点特化胜出，
   另外两种连同它们的 feature 一起删掉了。判决 trace 与数字在那边的 `RESULTS.md`。
 
-  仍然没有的：其它字符串方法（`trim` / `trimStart` 之类）与数字方法
+  仍然没有的：其它字符串方法（`trimStart` / `trimEnd` 之类）与数字方法
   （`(1).toPrecision`）——**读就 trap**；数组上没落地的方法（`filter` / `splice`）
   **读出来是 `undefined`，调用才 trap**。两种接收者规矩不同是上游刻意保留的，
   理由见「内建属性」那条。
