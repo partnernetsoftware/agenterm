@@ -2033,7 +2033,7 @@
         {
           "id": "audio.default-output.mutate",
           "mcu_shape": "audio apply request+digest with exact before/after readback and rollback request",
-          "acu_shape": "agenterm-cu audio apply --request R --approve H",
+          "acu_shape": "agenterm-cu audio apply --request R --approve H with exact-device revalidation, post-state readback and a same-device guarded rollback request",
           "state": "platform-limited",
           "platforms": {"macos": "native-coreaudio-mechanism-fixture-tested", "linux": "typed-unsupported", "windows": "typed-unsupported"},
           "qualification": {
