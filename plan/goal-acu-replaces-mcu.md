@@ -317,7 +317,7 @@ MCU retirement blockers
 │     ├─ [x] read-only live device and installed-app inventory
 │     ├─ [x] exact MCU boot/shutdown shapes route to ACU's verified settled-state read-back
 │     └─ [ ] run registered lifecycle court; deployment/foreground/screenshot remain open
-├─ [ ] classify and remove every remaining argument-shape fallback
+├─ [~] all 57 frozen typed-rejection shapes have an explicit native/local classification owner; remove any remaining production fallback
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
 

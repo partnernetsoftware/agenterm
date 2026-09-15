@@ -70,12 +70,14 @@ require(explicit_todo === 0, "positive compatibility corpus must expose no TODO 
 
 let dynamic_stays = 0;
 let permanent_rejections = 0;
+let typed_rejections = 0;
 const resolved_exec = ["acu.dynamic.003", "acu.dynamic.021", "acu.dynamic.050", "acu.dynamic.051", "acu.dynamic.057",
   "acu.dynamic.066", "acu.dynamic.067", "acu.dynamic.075", "acu.dynamic.079", "acu.dynamic.082", "acu.dynamic.091", "acu.dynamic.092",
   "acu.dynamic.072", "acu.dynamic.076", "acu.dynamic.077", "acu.dynamic.084", "acu.dynamic.085", "acu.dynamic.086", "acu.dynamic.087", "acu.dynamic.096"];
 const resolved_todo = [];
 const resolved_usage = ["acu.dynamic.058", "acu.dynamic.083",
   "acu.dynamic.088", "acu.dynamic.094"];
+const typed_rejection_usage = ["acu.dynamic.045", "acu.dynamic.049"];
 const resolved_compound = {
   "acu.dynamic.005": "zoom-legacy-rect",
   "acu.dynamic.018": "job-resources-projection",
@@ -98,6 +100,15 @@ for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
     require(mapped.kind === "todo", row.gap_id + " must remain a typed TODO");
     require(mapped.gap_id === row.gap_id, row.gap_id + " stable dynamic id");
     dynamic_stays = dynamic_stays + 1;
+  } else if (row.classification === "typed-rejection") {
+    if (typed_rejection_usage.includes(row.gap_id)) {
+      require(mapped.kind === "usage",
+        row.gap_id + " typed rejection must remain local usage");
+    } else {
+      require(mapped.kind === "exec",
+        row.gap_id + " typed rejection must reach the native parser");
+    }
+    typed_rejections = typed_rejections + 1;
   } else if (row.classification === "permanent-scope-rejection") {
     require(mapped.kind === "usage",
       row.gap_id + " permanent rejection must remain local");
@@ -160,6 +171,7 @@ for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
   }
 }
 require(dynamic_stays === 2, "dynamic stay corpus count");
+require(typed_rejections === 57, "typed rejection corpus count");
 require(permanent_rejections === 2, "permanent rejection corpus count");
 require(resolved_checked === 34, "resolved dynamic corpus count");
 

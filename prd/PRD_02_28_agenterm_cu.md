@@ -279,9 +279,11 @@ mechanisms remain behind the `libagenterm` runtime boundary.
   ```
 
   The frozen corpus records source digests and normalized, redacted argv; its
-  qjswasm court currently proves exactly `42 positive exec / 0 positive TODO`, plus all
-  `2 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
-  rejections. The 34 resolved witnesses now have an executable disposition:
+  qjswasm court currently proves exactly `42 positive exec / 0 positive TODO`; all
+  `57 typed-rejection` rows have an explicit classification owner, with 55 routed to the
+  native parser and two retained as local usage; all `2 dynamic-stay` rows remain their exact
+  typed TODO; and two permanent-scope rows remain local rejections. The 34 resolved
+  witnesses now have an executable disposition:
   20 direct exec, 10 Bun-free compound projections, and 4 local usage refusals; no resolved
   row remains TODO. All 95 dynamic witnesses remain frozen, and the 2 remaining
   dynamic-stay witness rows keep their stable repair identities. A public black-box
