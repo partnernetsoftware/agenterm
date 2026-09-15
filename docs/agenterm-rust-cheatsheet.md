@@ -95,6 +95,12 @@ Rules:
   normal graph separately when size or isolation matters.
 - `cargo test FILTER` reporting `0 tests` is not success. List tests or correct
   the feature/filter until the owning tests actually run.
+- Cross-platform process tests must select the host shell and its argument and
+  environment-expansion syntax together; a hard-coded `cmd /c` is not a Unix
+  test. Do not hide the mismatch with a host `cfg` skip.
+- When product code shells out to enumerate host state, check the child's exit
+  status before parsing stdout. A failed `ps`, `tasklist`, or equivalent command
+  must become a typed failure, never a valid empty inventory.
 
 Package boundaries improve cold-build isolation and make feature leakage
 visible. They do not by themselves reduce linked size; the linker may already

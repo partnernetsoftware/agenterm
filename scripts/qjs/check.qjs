@@ -340,6 +340,12 @@ function cargo_unit_sql_spec(environment) {
   ], 300000, environment, 0);
 }
 
+function cargo_unit_lua_spec(environment) {
+  return spec("cargo", [
+    "test", "--quiet", "--locked", "-p", "agenterm-lua"
+  ], 300000, environment, 0);
+}
+
 function build_artifact_timeout_ms(release) {
   return release !== 0 ? 600000 : 300000;
 }
@@ -660,7 +666,7 @@ function run_gate_two(context, timing, id, label, first_spec, second_spec, repo,
   return { context: context, timing: timing, sequence: step.sequence };
 }
 
-function run_gate_four(context, timing, id, label, first_spec, second_spec, third_spec, fourth_spec, repo, scratch, sequence) {
+function run_gate_five(context, timing, id, label, first_spec, second_spec, third_spec, fourth_spec, fifth_spec, repo, scratch, sequence) {
   print("\n==> " + label);
   const started = rh.now_ms();
   const all_output = [];
@@ -668,6 +674,7 @@ function run_gate_four(context, timing, id, label, first_spec, second_spec, thir
   step = run_gate_step(context, timing, id, label, second_spec, repo, scratch, step.sequence, started, all_output, 1);
   step = run_gate_step(context, timing, id, label, third_spec, repo, scratch, step.sequence, started, all_output, 1);
   step = run_gate_step(context, timing, id, label, fourth_spec, repo, scratch, step.sequence, started, all_output, 1);
+  step = run_gate_step(context, timing, id, label, fifth_spec, repo, scratch, step.sequence, started, all_output, 1);
   const duration = rh.now_ms() - started;
   qualification.add_result(context, id, "passed", duration, all_output);
   qualification.timing_set_gate(timing, id, "passed", duration, 0, false);
@@ -1235,12 +1242,13 @@ gate = run_gate(
   repo, scratch, sequence
 );
 sequence = gate.sequence;
-gate = run_gate_four(
+gate = run_gate_five(
   context, timing, "unit-tests", "unit tests",
   cargo_unit_primary_spec(build_environment),
   cargo_unit_powershell_compat_spec(build_environment),
   cargo_unit_qjswasm_adversarial_spec(build_environment),
   cargo_unit_sql_spec(build_environment),
+  cargo_unit_lua_spec(build_environment),
   repo, scratch, sequence
 );
 sequence = gate.sequence;

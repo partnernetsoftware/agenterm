@@ -328,7 +328,7 @@ fn qjswasm_adversarial_tests_are_an_explicit_full_gate_subcourt() {
     assert!(CHECK_QJS.contains("\"-p\", \"agenterm-qjswasm\""));
     assert!(CHECK_QJS.contains("\"--test\", \"door_attack\", \"--test\", \"seam_attack\""));
     assert!(CHECK_QJS.contains("cargo_unit_qjswasm_adversarial_spec(build_environment)"));
-    assert!(CHECK_QJS.contains("gate = run_gate_four(\n  context, timing, \"unit-tests\""));
+    assert!(CHECK_QJS.contains("gate = run_gate_five(\n  context, timing, \"unit-tests\""));
 }
 
 #[test]
@@ -336,7 +336,15 @@ fn sql_engine_tests_are_an_explicit_full_gate_subcourt() {
     assert!(CHECK_QJS.contains("function cargo_unit_sql_spec(environment)"));
     assert!(CHECK_QJS.contains("\"test\", \"--quiet\", \"--locked\", \"-p\", \"agenterm-sql\""));
     assert!(CHECK_QJS.contains("cargo_unit_sql_spec(build_environment)"));
-    assert!(CHECK_QJS.contains("gate = run_gate_four(\n  context, timing, \"unit-tests\""));
+    assert!(CHECK_QJS.contains("gate = run_gate_five(\n  context, timing, \"unit-tests\""));
+}
+
+#[test]
+fn lua_engine_tests_are_an_explicit_full_gate_subcourt() {
+    assert!(CHECK_QJS.contains("function cargo_unit_lua_spec(environment)"));
+    assert!(CHECK_QJS.contains("\"test\", \"--quiet\", \"--locked\", \"-p\", \"agenterm-lua\""));
+    assert!(CHECK_QJS.contains("cargo_unit_lua_spec(build_environment)"));
+    assert!(CHECK_QJS.contains("gate = run_gate_five(\n  context, timing, \"unit-tests\""));
 }
 
 #[test]

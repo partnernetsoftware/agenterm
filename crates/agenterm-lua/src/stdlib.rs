@@ -601,19 +601,19 @@ fn build_process(lua: &Lua) -> Result<Table, mlua::Error> {
                     vec!["/FO".to_string(), "CSV".to_string(), "/NH".to_string()],
                 )
             } else {
-                (
-                    "ps",
-                    vec![
-                        "-eo".to_string(),
-                        "comm,pid".to_string(),
-                        "--no-headers".to_string(),
-                    ],
-                )
+                ("ps", vec!["-eo".to_string(), "comm=,pid=".to_string()])
             };
             let output = std::process::Command::new(prog)
                 .args(&args)
                 .output()
                 .map_err(|e| mlua::Error::runtime(format!("process_list: {e}")))?;
+            if !output.status.success() {
+                return Err(mlua::Error::runtime(format!(
+                    "process_list: exit {}: {}",
+                    output.status.code().unwrap_or(-1),
+                    String::from_utf8_lossy(&output.stderr).trim()
+                )));
+            }
             let text = String::from_utf8_lossy(&output.stdout);
             let mut entries = Vec::new();
             for line in text.lines() {
@@ -1147,12 +1147,24 @@ mod tests {
 
     // ── std.process ─────────────────────────────────────────────────
 
+    fn shell_command_args(windows_script: &str, unix_script: &str) -> String {
+        let (program, flag, script) = if cfg!(windows) {
+            ("cmd", "/c", windows_script)
+        } else {
+            ("sh", "-c", unix_script)
+        };
+        format!("[[{program}]], {{[[{flag}]], [[{script}]]}}")
+    }
+
     #[test]
     fn process_command_echo() {
         let e = engine();
         let r = e
             .eval(
-                "local out = std.process.command('cmd', {'/c', 'echo', 'hello'}, 5000); print(out.stdout); return out.exit_code",
+                &format!(
+                    "local out = std.process.command({}, 5000); print(out.stdout); return out.exit_code",
+                    shell_command_args("echo hello", "echo hello")
+                ),
                 &host(),
             )
             .expect("eval");
@@ -1165,7 +1177,10 @@ mod tests {
         let e = engine();
         let r = e
             .eval(
-                "local out = std.process.command('cmd', {'/c', 'exit', '0'}, 5000); return out.exit_code",
+                &format!(
+                    "local out = std.process.command({}, 5000); return out.exit_code",
+                    shell_command_args("exit 0", "exit 0")
+                ),
                 &host(),
             )
             .expect("eval");
@@ -1177,7 +1192,10 @@ mod tests {
         let e = engine();
         let r = e
             .eval(
-                "local out = std.process.status('cmd', {'/c', 'echo', 'ok'}, 5000); return out.success and 1 or 0",
+                &format!(
+                    "local out = std.process.status({}, 5000); return out.success and 1 or 0",
+                    shell_command_args("echo ok", "echo ok")
+                ),
                 &host(),
             )
             .expect("eval");
@@ -1191,7 +1209,8 @@ mod tests {
         let e = engine();
         e.eval(
             &format!(
-                "local r = std.process.stdout_file('cmd', {{'/c', 'echo', 'saved'}}, [[{}]], 5000); return r.exit_code",
+                "local r = std.process.stdout_file({}, [[{}]], 5000); return r.exit_code",
+                shell_command_args("echo saved", "echo saved"),
                 out_file.display()
             ),
             &host(),
@@ -1864,10 +1883,18 @@ mod tests {
     #[test]
     fn command_ext_with_env() {
         let e = engine();
-        let r = e.eval(
-            "local out = std.process.command_ext('cmd', {'/c', 'echo', '%AGENTERM_LUA_TEST%'}, 5000, {env = {AGENTERM_LUA_TEST = 'hello_marker'}}); print(out.stdout); return out.exit_code",
-            &host(),
-        ).expect("command_ext with env");
+        let r = e
+            .eval(
+                &format!(
+                    "local out = std.process.command_ext({}, 5000, {{env = {{AGENTERM_LUA_TEST = 'hello_marker'}}}}); print(out.stdout); return out.exit_code",
+                    shell_command_args(
+                        "echo %AGENTERM_LUA_TEST%",
+                        "echo \"$AGENTERM_LUA_TEST\""
+                    )
+                ),
+                &host(),
+            )
+            .expect("command_ext with env");
         assert_eq!(r.value, 0);
         assert!(r.stdout.contains("hello_marker"), "stdout: {}", r.stdout);
     }
@@ -1875,20 +1902,33 @@ mod tests {
     #[test]
     fn command_ext_with_env_remove() {
         let e = engine();
-        let r = e.eval(
-            "local out = std.process.command_ext('cmd', {'/c', 'echo', '%AGENTERM_LUA_REMOVE_TEST%'}, 5000, {env_remove = {'AGENTERM_LUA_REMOVE_TEST'}}); return out.exit_code",
-            &host(),
-        ).expect("command_ext with env_remove");
+        let r = e
+            .eval(
+                &format!(
+                    "local out = std.process.command_ext({}, 5000, {{env_remove = {{'AGENTERM_LUA_REMOVE_TEST'}}}}); return out.exit_code",
+                    shell_command_args(
+                        "echo %AGENTERM_LUA_REMOVE_TEST%",
+                        "echo \"$AGENTERM_LUA_REMOVE_TEST\""
+                    )
+                ),
+                &host(),
+            )
+            .expect("command_ext with env_remove");
         assert_eq!(r.value, 0);
     }
 
     #[test]
     fn command_ext_no_options_same_as_command() {
         let e = engine();
-        let r = e.eval(
-            "local out = std.process.command_ext('cmd', {'/c', 'echo', 'ok'}, 5000, nil); return out.exit_code",
-            &host(),
-        ).expect("command_ext no options");
+        let r = e
+            .eval(
+                &format!(
+                    "local out = std.process.command_ext({}, 5000, nil); return out.exit_code",
+                    shell_command_args("echo ok", "echo ok")
+                ),
+                &host(),
+            )
+            .expect("command_ext no options");
         assert_eq!(r.value, 0);
     }
 
