@@ -845,15 +845,10 @@ pub struct HostBridges {
     pub acu: Option<AcuBridgeFn>,
 }
 
-/// Ten distinguishable failure classes. A caller must be able to tell "this
-/// syntax is not supported yet" from "the guest ran out of budget" from "the
-/// script threw" without matching on strings.
-///
-/// The count has been wrong here before -- it said five while nine were
-/// listed -- so it is worth saying why it is worth keeping right: this is the
-/// enum a caller matches on, and a doc that undercounts it reads as a promise
-/// that the remaining arms are variations on the listed ones rather than
-/// separate answers.
+/// Distinguishable failure classes. A caller must be able to tell "this syntax
+/// is not supported yet" from "the guest ran out of budget" from "the script
+/// threw" without matching on strings. The enum is the exhaustive account;
+/// repeating its changing variant count in prose would create a second truth.
 ///
 /// `Debug` is hand-written rather than derived: tinyvm is deliberately
 /// fmt-free (it is a `no_std`, sub-100 KiB core), so `WasmError` implements no
