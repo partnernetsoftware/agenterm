@@ -2106,21 +2106,40 @@
           "note": "Same-owner reacquisition preserves lock identity and renews expiry; another session fails typed. Session end/expiry releases the lock."
         },
         {
-          "id": "runtime.request-idempotency",
-          "mcu_shape": "--request-id reserve then completed|failed|uncertain receipt across mutations",
-          "acu_shape": "current, SSH and VNC mutations accept one all-or-none request-id/session/session-lease envelope; remote identity travels only in a bounded versioned stdin envelope and is admitted by the effect-owning worker",
+          "id": "runtime.request-idempotency.current",
+          "mcu_shape": "--request-id reserve then completed|failed|uncertain receipt across current-target mutations",
+          "acu_shape": "current-target mutations accept one all-or-none request-id/session/session-lease envelope and replay a completed request without repeating its effect",
           "state": "platform-limited",
-          "platforms": {"macos": "native-current", "linux": "native-current", "windows": "native-current", "ssh": "native-worker-wire-public-journey-pending", "vnc": "native-worker-wire-public-journey-pending", "rdp": "gap"},
+          "platforms": {"macos": "native-public-qjswasm", "linux": "native-public-court-pending", "windows": "native-public-court-pending"},
           "qualification": {
             "schema": 2,
             "platforms": {
-              "linux": {"result": "pending", "blocker_code": "remote-public-journeys-and-evidence-pending"},
-              "macos": {"result": "pending", "blocker_code": "remote-public-journeys-and-evidence-pending"},
-              "windows": {"result": "pending", "blocker_code": "remote-public-journeys-and-evidence-pending"}
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-file-transaction-smoke", "evidence": ["cu.runtime-request-idempotency.current"]},
+              "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
             }
           },
-          "evidence": ["cu.runtime-request-idempotency.current", "agenterm-cu effect-worker process-boundary replay/scope-conflict test", "agenterm-cu SSH/VNC stdin-envelope projection tests"],
-          "next": "derive exact target locks for migrated consumer cohorts, then prove one non-destructive mutation and exact replay through public SSH and VNC courts on all applicable hosts"
+          "evidence": ["cu.runtime-request-idempotency.current"],
+          "note": "The macOS public file-transaction court binds one request id to a durable session lease, proves completed replay reports not_repeated and idempotent without changing the destination again, and proves a conflicting reuse is refused while the completed bytes remain unchanged.",
+          "next": "run the same public completed-replay and conflict-without-mutation court on native Linux and Windows hosts"
+        },
+        {
+          "id": "runtime.request-idempotency.remote",
+          "mcu_shape": "--request-id reserve then completed|failed|uncertain receipt across SSH and VNC mutations",
+          "acu_shape": "SSH and VNC mutations carry one all-or-none request-id/session/session-lease identity in a bounded versioned stdin envelope admitted by the effect-owning worker",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-worker-wire-public-journey-pending", "linux": "native-worker-wire-public-journey-pending", "windows": "native-worker-wire-public-journey-pending", "ssh": "native-worker-wire-public-journey-pending", "vnc": "native-worker-wire-public-journey-pending", "rdp": "gap"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "remote-public-journey-needs-external-host"},
+              "macos": {"result": "pending", "blocker_code": "remote-public-journey-needs-external-host"},
+              "windows": {"result": "pending", "blocker_code": "remote-public-journey-needs-external-host"}
+            }
+          },
+          "evidence": ["cu.runtime-request-idempotency.current"],
+          "note": "The registered current-target evidence proves the shared request-idempotency state machine only; it does not qualify SSH or VNC transport. Process-boundary replay/scope-conflict and stdin-envelope projection unit suites cover mechanism seams but are deliberately not represented as registered public evidence.",
+          "next": "derive exact target locks for migrated consumer cohorts, then prove one non-destructive mutation and exact replay through public SSH and VNC courts on every applicable native host"
         },
         {
           "id": "runtime.desktop-delivery",
