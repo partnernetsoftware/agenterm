@@ -455,6 +455,31 @@ fn platform_unconditional_tests_are_an_explicit_full_gate_subcourt() {
 }
 
 #[test]
+fn abi_pure_contracts_are_an_explicit_full_gate_subcourt() {
+    let spec = CHECK_QJS
+        .split_once("function cargo_unit_abi_pure_contracts_spec(environment) {")
+        .and_then(|(_, tail)| tail.split_once("\n}"))
+        .map(|(body, _)| body)
+        .expect("ABI pure-contract unit spec");
+    assert!(spec.contains("\"-p\", \"agenterm-abi\", \"--features\", \"allow-abort-profile\""));
+    assert!(spec.contains(
+        "\"--lib\", \"--test\", \"exports_set\", \"--test\", \"capability_enum_gate\", \"--test\", \"pkgconfig_libs\""
+    ));
+    for forbidden in [
+        "dylib_load",
+        "null_sweep",
+        "c_consumer",
+        "desktop_host_contract",
+    ] {
+        assert!(
+            !spec.contains(forbidden),
+            "ABI pure spec selected {forbidden}"
+        );
+    }
+    assert!(CHECK_QJS.contains("cargo_unit_abi_pure_contracts_spec(build_environment)"));
+}
+
+#[test]
 fn grouped_gates_refuse_an_empty_command_set() {
     assert!(CHECK_QJS.contains("command_specs.length > 0"));
     assert!(CHECK_QJS.contains("qualification_gate_specs_empty:"));
