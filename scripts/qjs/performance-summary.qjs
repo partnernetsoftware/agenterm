@@ -75,9 +75,11 @@ for (let index = 0; index < 3; index = index + 1) {
       && report.lane === "quick"
       && report.profile === "quick"
       && report.status === "passed"
+      && Number.isInteger(report.total_wall_ms)
       && report.total_wall_ms >= 0
       && (report.wall_time.state === "partial" || report.wall_time.state === "unavailable")
       && report.wall_time.task_ms === report.total_wall_ms
+      && Number.isInteger(report.wall_time.accounted_ms)
       && report.wall_time.accounted_ms >= report.total_wall_ms,
     "performance_summary_sample_schema:" + sample_tag
   );

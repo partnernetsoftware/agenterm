@@ -29,17 +29,35 @@ impl Drop for FixtureRoot {
 }
 
 fn write_timing(path: &Path, run_id: &str, completed_at_utc: &str, wall_ms: u64) {
+    write_timing_values(
+        path,
+        run_id,
+        completed_at_utc,
+        serde_json::Value::from(wall_ms),
+        serde_json::Value::from(wall_ms),
+        serde_json::Value::from(wall_ms),
+    );
+}
+
+fn write_timing_values(
+    path: &Path,
+    run_id: &str,
+    completed_at_utc: &str,
+    total_wall_ms: serde_json::Value,
+    task_ms: serde_json::Value,
+    accounted_ms: serde_json::Value,
+) {
     let record = serde_json::json!({
         "schema_version": 2,
         "kind": "agenterm-quality-timing",
         "lane": "quick",
         "profile": "quick",
         "status": "passed",
-        "total_wall_ms": wall_ms,
+        "total_wall_ms": total_wall_ms,
         "wall_time": {
             "state": "partial",
-            "task_ms": wall_ms,
-            "accounted_ms": wall_ms
+            "task_ms": task_ms,
+            "accounted_ms": accounted_ms
         },
         "source": { "commit": "0123456789012345678901234567890123456789" },
         "workload": { "fingerprint": "fixture-workload" },
@@ -266,4 +284,49 @@ fn performance_summary_accepts_one_run_and_rejects_misattributed_samples() {
         diagnostic(&missing_rust_result)
             .contains("performance_summary_sccache_counter:1:cache_hits")
     );
+
+    for (index, path) in timings.iter().enumerate() {
+        let text = format!("{}", 100 + index);
+        write_timing_values(
+            path,
+            "perf-fixture-A",
+            &format!("2026-09-16T00:00:0{index}Z"),
+            serde_json::Value::from(text.clone()),
+            serde_json::Value::from(text.clone()),
+            serde_json::Value::from(text),
+        );
+    }
+    let string_durations = run_summary(
+        &root.0.join("string-durations.json"),
+        "target",
+        [&timings[0], &timings[1], &timings[2]],
+        [&stats[0], &stats[1], &stats[2]],
+    );
+    assert!(!string_durations.status.success());
+    assert!(diagnostic(&string_durations).contains("performance_summary_sample_schema:1"));
+
+    for (index, path) in timings.iter().enumerate() {
+        write_timing(
+            path,
+            "perf-fixture-A",
+            &format!("2026-09-16T00:00:0{index}Z"),
+            0,
+        );
+    }
+    let zero_path = root.0.join("zero-durations.json");
+    let zero_durations = run_summary(
+        &zero_path,
+        "target",
+        [&timings[0], &timings[1], &timings[2]],
+        [&stats[0], &stats[1], &stats[2]],
+    );
+    assert!(
+        zero_durations.status.success(),
+        "{}",
+        diagnostic(&zero_durations)
+    );
+    let zero_report: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(zero_path).expect("read zero summary"))
+            .expect("parse zero summary");
+    assert_eq!(zero_report["warm_speedup_percent"], 0);
 }
