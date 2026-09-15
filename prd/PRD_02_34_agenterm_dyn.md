@@ -2,8 +2,8 @@
 
 Status: active product node — dyn is the **面向宿主硬件与操作系统的无策略 Native Importer 机制微核**；
 当前成熟 family 是 ABI Importer mechanism，另有专用 `ioctl` sibling。它拥有动态链接与
-符号解析、按调用方 ABI 描述执行调用、raw value/pointer 搬运、variadic `ioctl` ABI、
-隔离的 future-JIT/host-ISA 槽位与机制错误，并由 qjswasm 消费。
+符号解析、按调用方 ABI 描述执行调用、raw value/pointer 搬运、variadic `ioctl` ABI
+与机制错误，并由 qjswasm 消费。零消费者的 W^X 实验底座已于 2026-09-15 撤回到设计态。
 The former S-expression surface, typed-owner side APIs, and six-cell product catalog have
 been removed from dyn after consumer and evidence migration.
 Owner: 政委定方向；主会话按独占文件域推进。
@@ -38,13 +38,9 @@ dyn 仍是独立 crate，自带唯一 loader、独立错误词汇、独立执行
    dyn 负责布局与跳转，**不由 dyn 决定“哪些 ABI 允许”**；
 3. **raw pointer / value 搬运**——整数、浮点、指针位的传参取回；
 4. **必要 ABI 机制**——Unix variadic `ioctl` 特例；
-5. **W^X trampoline 与机器码执行底座**（`src/exec.rs`，仅 Unix，写态/执态互斥，永不 RWX）——
-   这是**隔离的 future-JIT / host-ISA 槽位**：当前生产调用路径（`invoke_abi` 的五族单态
-   trampoline）**不经过 `exec.rs`**，运行时继续 no-JIT；该模块只为将来"把 intern 树折叠
-   到宿主 ISA"保留（见 `### Later — not authorized or implemented`）；
-6. **机制错误传播**——真实词汇是 `AbiError::{SignatureUnsupported, LibraryLoad,
-   SymbolLookup, ArgumentCount, ArgumentShape}`，加上 exec 槽位的 `ExecError` 与
-   `unix_ioctl` 的 `UnixIoctlError`。dyn **不**产生缓冲区/pointee/NUL/对齐错误：guest span
+5. **机制错误传播**——真实词汇是 `AbiError::{SignatureUnsupported, LibraryLoad,
+   SymbolLookup, ArgumentCount, ArgumentShape}` 与 `unix_ioctl` 的 `UnixIoctlError`。
+   dyn **不**产生缓冲区/pointee/NUL/对齐错误：guest span
    宽度、pointee 的最小读写宽度、NUL 终止与 host ABI 对齐由调用方与 qjswasm 判定。
 
 **上层拥有（策略）**
@@ -74,7 +70,7 @@ dyn 仍是独立 crate，自带唯一 loader、独立错误词汇、独立执行
 - **目标态**：继续**扩大或参数化 ABI 机制覆盖**（更多参数类/返回类/调用形状）；"是不是 libffi 的
   完整超集"只能由 dyn 的实际支持矩阵回答，不能靠上层策略宣称，也不是上层的"能力"。
 
-**机制正确性留在 dyn，权限语义不在 dyn**：unsafe 契约、错误传播、W^X、以及收到
+**机制正确性留在 dyn，权限语义不在 dyn**：unsafe 契约、错误传播，以及收到
 **host 侧 ABI/value/pointer 描述后**的调用布局与执行错误，都是 dyn 的机制职责；
 而“哪个 symbol 可用、允许哪种 pointer contract、给谁授权”是**上层策略**。
 **guest-memory / schema 校验属 qjswasm door，不属 dyn**：guest span 解码（含
@@ -141,12 +137,10 @@ agenterm-dyn
 │   ├── Placeholder | LiveDlcall | LiveOwned | LiveDlcallOwned
 │   └── CU-adjacent facts（发现/兼容元数据，不是授权策略）
 │
-├── D. executable-code boundary                     [保留 · Unix-only 隔离槽位]
-│   ├── CodeBuffer: W^X，永不 RWX（future-JIT / host-ISA slot）
-│   ├── NameTable: emitted / foreign name
-│   ├── ExecError: 独立 typed error
-│   └── ⚠ Windows 不导出本子树；当前生产调用路径在任何目标都不经过它，
-│       no-JIT 运行时只走 A 的五族单态 trampoline
+├── D. executable-code boundary                     [已撤回到设计态]
+│   ├── 旧 exec.rs / exec_error.rs 与自测已删除
+│   ├── 原因：零生产消费者、零下游依赖，且 emitted address 未绑定 allocation 生命周期
+│   └── 重入门：真实消费者 + 生命周期设计 + 六目标边界 + public court
 │
 └── E. 小 S-expression 解释器                      [已退役]
     ├── parse.rs + eval.rs + sym.rs + value.rs
@@ -164,7 +158,7 @@ Script Runtime / CU ──agenterm:native──> qjswasm ──> A
 qjswasm ──compile .qjs → .wasm / execute no-JIT──> tinyvm（tinyvm 不依赖 dyn）
 B ──historical contracts now belong above dyn──> agenterm-platform / adapters
 E ──claims moved to raw ABI or WAT courts──> qjswasm ──> A
-D ──isolated slot, 当前无生产调用方──> future JIT / host-ISA folding
+D ──retracted; consumer-gated re-entry only──> future JIT / host-ISA folding
 
 上层折叠边（已落地边界，不改变所有权）
 qjswasm raw block ─┐
@@ -226,8 +220,8 @@ dyn atom
 │   ├── ABI Importer                                      [x]
 │   ├── Unix ioctl                                        [x]
 │   └── syscall / direct host entry / future families     [ ] consumer-gated
-└── isolated experimental slot
-    └── exec.rs W^X host-ISA substrate                    [~] no production edge
+└── retracted experimental slot
+    └── W^X host-ISA substrate                            [撤回] no source / no production edge
 ```
 
 原子性由四类可破坏条件定义，而不是靠“代码很少”的印象定义：
@@ -240,9 +234,9 @@ dyn atom
 扩展协议固定为：先给出真实非测试消费者与需要删除的上层平行流程；再命名 family
 的最小输入/输出代数、独立错误边界和六格证据；最后接入 qjswasm 的同一
 declaration → lowering → mechanism → typed-result 管线。若新增代码不能带来新消费者，
-也不能净删一份上层机制，它只是候选研究，不进入 stable nucleus。`exec.rs` 即使当前是
-公开 Rust 面，也不因可调用而自动成为 Native Importer 的稳定产品能力；只有生产边、
-兼容性 court 与交付证据三者同时落地，才能从隔离槽晋级。
+也不能净删一份上层机制，它只是候选研究，不进入 stable nucleus。旧 `exec.rs` 正因只有
+公开 Rust 面与自测、没有生产边而被撤回；future-JIT / host-ISA 只有在真实消费者、allocation
+生命周期绑定、六目标边界与 public court 同时落地后才可重新进入源码。
 
 决定性实验 [`plan/design-dyn-typed-symbol-fold-experiment.md`](../plan/design-dyn-typed-symbol-fold-experiment.md)
 已用两个真实 `libsystemd` adapter 作出裁决：通用 dyn typed-symbol seam 在 V0 即被
@@ -327,13 +321,13 @@ flowchart LR
         Abi[按调用方传入的 ABI 描述执行调用]
         Raw[raw pointer / value 搬运]
         Ioctl[Unix ioctl variadic ABI 机制]
-        WX[isolated experimental slot<br/>W^X exec.rs · 当前调用路径不经此处]
+        WX[retracted design intent<br/>W^X host-ISA · no source]
         Matrix[stable nucleus<br/>五族 75-shape ABI matrix · five-word AbiError]
         Abi --> Matrix
         Matrix --> Loader
         Raw --> Loader
         Ioctl --> Loader
-        WX -. future JIT / host-ISA，无生产调用方 .-> Loader
+        WX -. consumer-gated re-entry only .-> Loader
     end
 
     subgraph Policy[上层机房 · policy（qjswasm / Script Runtime）]
@@ -389,8 +383,8 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
 | `unix_groups.rs` / `unix_path.rs` | **removed** | 无生产消费者；调用方使用 owning platform/filesystem contract |
 | `exact_native.rs` / `fixed_native.rs` / `fixed_pointer.rs` | **internal** | 不再公开；只暂存 `invoke_abi` 按五族矩阵选择的单态 trampoline（49 + 4 + 8），未被选中的形状一律 `SignatureUnsupported`；后续可折叠进统一机制表 |
 | `unix_ioctl.rs` | **split** | variadic 调用机制留；“允许签名”判据迁上层 |
-| `exec.rs` + `exec_error.rs` | **keep · 隔离槽位** | W^X trampoline 与机器码执行底座（机制正确性，不是权限限制）；**当前生产调用路径不经过它**，只为 future JIT / host-ISA 折叠保留（no-JIT 运行时只走 `abi` 的五族单态 trampoline） |
-| `error.rs` | **removed** | 旧语言错误；ABI/exec/ioctl 机制保留各自 typed error |
+| `exec.rs` + `exec_error.rs` | **retracted · 2026-09-15** | 零生产消费者、零下游依赖；`NameTable` 保存的 emitted 绝对地址也未与 `CodeBuffer` allocation 生命周期绑定。实现、公开导出与自测一并删除，future-JIT / host-ISA 保留为 consumer-gated design intent |
+| `error.rs` | **removed** | 旧语言错误；当前 ABI/ioctl 机制保留各自 typed error |
 | `native.rs`（旧 `dlcall` 入口） | **removed** | textual language entrance retired after court migration |
 | `parse.rs` / `eval.rs` / `sym.rs` / `value.rs` | **removed** | language layer retired after equivalent evidence landed |
 | `lib.rs` 公开面 | **rewritten** | owner/facts/language exports removed; mechanism exports remain |
@@ -410,7 +404,7 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
   **只有一处**；`crates/agenterm-qjswasm/src` 内仍为 **1（注释）**；新入口是“参数化调用”，
   不是新 loader；
 - **策略在上层**：dyn 不得持有允许集合、授权语义、budget/cancel 或 typed owner 的事实；
-- **机制正确性**：unsafe 契约、错误传播、W^X（永不 RWX）由 dyn 保持不变。
+- **机制正确性**：当前 ABI/ioctl 的 unsafe 契约与错误传播由 dyn 保持；未来 W^X 实现不得仅凭自测或公开类型重入。
 - **机制支持可查询**：`validate_abi_signature(signature)` 只凭调用方的 ABI 描述回答
   “这个形状有没有真实 trampoline”，**不需要构造任何参数值**（`validate_abi(call)` 继续负责
   argument count/shape）。该查询不接受、也不拥有 symbol allowlist、nullability、guest span
@@ -459,9 +453,9 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
 
 ## Exec base (dyn.1, 2026-08-16) — 身份补充 (historical record)
 
-本节是第一刀交付时的记录。**它描述的是当时的执行底座，不是当前调用路径**：今天
-`exec.rs` 是隔离的 future-JIT / host-ISA 槽位，`invoke_abi` 的五族单态 trampoline
-不经过它（见上面的 tree-DAG 与 keep/move/delete 表）。
+本节是第一刀交付时的历史记录，**不描述当前源码**。该实验于 2026-09-15 撤回：它没有
+生产消费者或下游依赖，且 emitted 绝对地址未绑定 allocation 生命周期。`invoke_abi` 的五族
+单态 trampoline 从未经过它；重新进入必须满足上面的 consumer-gated 门槛。
 
 第一刀落地进程内活代码缓冲（`src/exec.rs`，unix-gated）。身份分界：**摆字节安全，
 跳入 unsafe**。`CodeBuffer` 从第一天走 W^X（写态/执态互斥，永不 RWX）；`NameTable`
@@ -815,8 +809,8 @@ WAT evidence, and no production consumer outside this crate used the language AP
   public-consumer migration. The 86-page per-probe S-expression/owner example
   catalog was replaced by eight curated examples of the current raw ABI,
   pointer, cleanup, error, and Unix `ioctl` mechanisms. `hosts.rs` and the
-  typed-owner modules were subsequently removed; `exec.rs` remains the
-  separately bounded future-JIT mechanism.
+  typed-owner modules were subsequently removed. The unused `exec.rs` experiment was
+  later retracted to a consumer-gated design intent.
 - Current court migration has moved the scalar, clock-pointer, Darwin output-pointer,
   Mach-clock, and duplicate Darwin `ioctl` claims to qjswasm `.wat` or typed-owner
   evidence. The two-required-pointer `i32(ptr,ptr)` family now carries the
@@ -860,9 +854,9 @@ oracles: Mach timebase, CPU count and monotonic clock assertions compare
 against independent direct platform calls. Repository-wide consumer checks
 therefore allowed the unused dyn owner exports and self-tests to be removed.
 
-In particular, the heterogeneous integer/pointer ABI mechanism, Unix variadic
-`ioctl` exception and future-JIT boundary in `exec.rs` remain independently owned by
-dyn. The six-cell `hosts.rs` facts, typed owners, and the `Dyn` / `Value` /
+In particular, the heterogeneous integer/pointer ABI mechanism and Unix variadic
+`ioctl` exception remain independently owned by dyn. Future-JIT work is a re-entry
+candidate, not a retained source boundary. The six-cell `hosts.rs` facts, typed owners, and the `Dyn` / `Value` /
 `Symbol` language component were removed after their evidence migration completed.
 
 ## Non-goals until 政委 orders otherwise

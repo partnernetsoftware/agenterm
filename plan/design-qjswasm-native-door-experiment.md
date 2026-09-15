@@ -16,7 +16,7 @@ Product posture: important bottom-layer work; evidence decides its product landi
 ## 1. 已知事实与证据等级
 
 - **仓库内已证**：qjswasm/tinyvm 已提供 guest 执行与线性内存；`agenterm-dyn/src/hosts.rs` 持有六格
-  OS×ISA host facts；`agenterm-dyn/src/exec.rs` 按已批准决定保留给未来 JIT 工具，核心产品仍 no-JIT。
+  OS×ISA host facts；当时保留的 `agenterm-dyn/src/exec.rs` 实验已于 2026-09-15 撤回，核心产品仍 no-JIT。
 - **仓库内已证**：现有 dyn 语言层约由 `eval.rs`、`parse.rs`、`sym.rs`、`value.rs` 组成，并被
   `Dyn` public API、native trampoline、集成测试和示例消费；它不是当前可直接删除的孤立代码。
 - **真机实验转述，待本实验复验**：Apple arm64 上同一 `ioctl` request 经 variadic 声明成功、定参声明失败。
@@ -104,9 +104,9 @@ B 获资格后立即开迁移叶：
 1. 为旧面建立 keep / port / archive 表：`Dyn`/`Value`/`Symbol` public API、`native.rs`、约 190 个
    integration tests、22 个 module tests，以及 84 个含 S-expression/`dlcall` 的 examples；新门必须先接住仍成立的
    ABI refusal、Darwin probe、catalog/document、resource ownership 证据。
-2. `hosts.rs` 当前完全独立，继续作为 OS×ISA 数据 owner；`exec.rs` 只依赖 `DynError::Exec`，按已定方向保留。
-   迁移前明确是暂留 `DynError::Exec` 还是拆出 `ExecError`，不得顺手破坏 `CodeBuffer` API。
-3. 保留 Unix `ioctl` variadic ABI、`mach_host_self` ownership refusal、exec W^X 与六格 host facts；语言测试减少必须由
+2. `hosts.rs` 当前完全独立，继续作为 OS×ISA 数据 owner。此处原先要求保留的 `exec.rs` / `CodeBuffer`
+   实验后来因零生产消费者与未绑定 allocation 生命周期于 2026-09-15 撤回；该约束已失效。
+3. 保留 Unix `ioctl` variadic ABI、`mach_host_self` ownership refusal 与六格 host facts；语言测试减少必须由
    新门等价证据解释，不能靠 pass-count 下降冒充简化成功。
 4. 删除旧门时同步处理 `libloading` 依赖归属、`crates/agenterm-dyn/README.md`、根 README、parked CI、
    `plan/goal-agenterm-dyn-macos.md` 与 reviews 的历史状态。

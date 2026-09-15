@@ -14,8 +14,7 @@ dyn owns only mechanism:
 - `AbiSignature`, `AbiValue`, validation against the real trampoline matrix,
   and `unsafe invoke_abi`;
 - raw scalar and pointer transport;
-- the Unix variadic `ioctl` ABI exception;
-- the separate W^X executable-buffer mechanism and its errors.
+- the Unix variadic `ioctl` ABI exception.
 
 The caller owns the asserted native signature, pointer validity, alignment,
 aliasing, lifetimes, library/thread requirements, cleanup, and side effects.
@@ -80,6 +79,14 @@ The former S-expression evaluator (`Dyn`, `Value`, `Symbol`, and textual
 or qjswasm WAT courts. Its host catalog and typed-owner side APIs were removed
 separately once repository-wide consumer checks proved that dyn was their only
 owner and user.
+
+The W^X executable-buffer experiment (`CodeBuffer`, `NameTable`, and their
+typed errors) was withdrawn on 2026-09-15. It was an isolated future-JIT slot
+with no production consumer: the live call path never passed through it, and
+dyn emits no machine code today. Its mechanism is therefore retired back to a
+design intent rather than described here as a shipped capability. The W^X
+discipline and its invariants belong to the owning product contract, not to
+this crate.
 
 The owning product contract, including the required Markdown tree-DAG and
 Mermaid memory-palace view, is

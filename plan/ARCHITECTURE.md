@@ -42,7 +42,7 @@ crates/agenterm-control-client/
 
 crates/agenterm-dyn/         `publish = false` 的**无策略底层动态 ABI 机制层**：唯一 loader /
                              符号解析、按调用方 ABI 描述执行调用、raw 值/指针搬运、
-                             variadic `ioctl` ABI 机制、W^X trampoline、机制错误
+                             variadic `ioctl` ABI 机制、机制错误
                              已删除：intern + S-expr eval + `dlcall` 语言层、typed
                              owners 与六格 facts（历史能力，不是 dyn 当前职责）
                              不属于 Script engine family，不接 cu/platform/libagenterm
@@ -109,7 +109,8 @@ src/platform/adapters/       主机实现（物理目录）
 **不妥当**：分叉停在「点了 Tab 算不算选中」——产品规则只应有一份。
 
 `crates/agenterm-dyn` 只拥有**机制**：唯一 loader/符号解析、按调用方 ABI 描述执行、
-raw 值/指针搬运、variadic `ioctl` ABI、W^X。**策略不在这里**：schema、
+raw 值/指针搬运、variadic `ioctl` ABI。零消费者的 W^X 实验已撤回到设计态。
+**策略不在这里**：schema、
 prototype/catalog/validator、budget/cancel/监管归 qjswasm/Script Runtime；typed OS
 contracts 与六格 facts/catalog/evidence 已从 dyn 删除，需要这些产品语义时由
 `agenterm-platform`、上层 adapter 或产品/测试层拥有。它的 public 证据是 package integration tests 与 CI native/cross cells，不是
@@ -709,8 +710,9 @@ boundary_tests.rs        结构红线闸（不是全文 diff 引擎）
 The public `.wasm` route belongs to Script Runtime/qjswasm: callers name the
 `plain` or `compiled-qjs` convention, input is bounded, and native-door crash
 or timeout is contained by `WorkerSupervisor`. `agenterm-dyn` is the **无策略**
-mechanism layer (caller-provided ABI description, Unix `ioctl` ABI exception,
-W^X/`exec.rs` future-JIT boundary). The former six-cell host facts and typed
+mechanism layer (caller-provided ABI description and Unix `ioctl` ABI exception).
+The zero-consumer W^X experiment was retracted to a consumer-gated design intent.
+The former six-cell host facts and typed
 owners have been removed from dyn; any future product equivalents belong to the
 product/test layer and upper adapters. Neither surface is evidence that the
 other may be deleted.
