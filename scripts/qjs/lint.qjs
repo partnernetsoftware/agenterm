@@ -138,7 +138,7 @@ if (internal_selftest === 1) {
     // pattern over the same pathspecs.
     const text_pathspecs = [
       "*.rs", "*.toml", "*.rh", "*.rhai", "*.json", "*.md", "*.html",
-      "*.yml", "*.yaml", "*.sh", "*.bat", "*.cmd", "*.qjs"
+      "*.yml", "*.yaml", "*.sh", "*.bat", "*.cmd", "*.qjs", "*.js"
     ];
     const nul_args = ["-C", repo, "grep", "-I", "-L", "-e", "", "--"]
       .concat(text_pathspecs);

@@ -2205,7 +2205,7 @@ mod tests {
     }
 
     #[test]
-    fn static_lint_covers_qjs_text_hygiene() {
+    fn static_lint_covers_script_text_hygiene() {
         let script = include_str!("../scripts/qjs/lint.qjs");
         let pathspecs = script
             .split_once("const text_pathspecs = [")
@@ -2214,6 +2214,10 @@ mod tests {
         assert!(
             pathspecs.contains("\"*.qjs\""),
             "text_pathspecs must cover tracked QJS scripts"
+        );
+        assert!(
+            pathspecs.contains("\"*.js\""),
+            "text_pathspecs must cover tracked JavaScript"
         );
     }
 
