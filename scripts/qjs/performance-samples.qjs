@@ -49,23 +49,20 @@ for (let sample = 1; sample < 4; sample = sample + 1) {
 
   if (cache === "sccache") {
     const stats_path = rh.absolute("sccache-" + sample_tag + ".json");
-    const stderr_path = rh.absolute("sccache-" + sample_tag + ".stderr");
-    const stats_code = rh.command_stdout_file(
+    const stats = rh.command(
       "sccache",
       ["--show-stats", "--stats-format", "json"],
-      stats_path,
       { timeout_ms: 30000 }
     );
-    if (rh.exists(stderr_path)) {
-      const stderr = rh.read_text(stderr_path);
-      if (stderr !== "") {
-        print(stderr);
-      }
-      rh.try_remove_file(stderr_path);
+    if (stats.success === true && stats.stdout !== "") {
+      rh.atomic_write(stats_path, stats.stdout);
+    }
+    if (stats.success !== true && stats.stderr !== "") {
+      print(stats.stderr);
     }
     rh.require(
-      stats_code === 0 && rh.exists(stats_path),
-      "performance_samples_sccache_stats:" + sample_tag
+      stats.success === true && rh.exists(stats_path),
+      "performance_samples_sccache_stats:" + sample_tag + ":" + stats.stderr.trim()
     );
   }
 }

@@ -81,6 +81,16 @@ fn experiment_outputs_never_mark_the_tree_dirty() {
 }
 
 #[test]
+fn sccache_stats_failures_keep_their_diagnostic() {
+    assert!(!SAMPLES.contains("\"sccache-\" + sample_tag + \".stderr\""));
+    assert!(!SAMPLES.contains("command_stdout_file(\n      \"sccache\""));
+    assert!(SAMPLES.contains("\"--show-stats\", \"--stats-format\", \"json\""));
+    assert!(SAMPLES.contains("performance_samples_sccache_stats:"));
+    assert!(SAMPLES.contains("rh.atomic_write(stats_path, stats.stdout)"));
+    assert!(SAMPLES.contains("stats.stderr.trim()"));
+}
+
+#[test]
 fn experiment_runs_quick_only_and_cannot_publish_or_claim_qualification() {
     for forbidden in [
         "--release",
