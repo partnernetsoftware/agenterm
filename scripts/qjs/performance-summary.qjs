@@ -44,6 +44,8 @@ let warm_one = 0;
 let warm_two = 0;
 let source_commit = "";
 let workload_fingerprint = "";
+let experiment_run_id = "";
+let previous_completed = "";
 for (let index = 0; index < 3; index = index + 1) {
   const sample_tag = "" + (index + 1);
 
@@ -75,6 +77,28 @@ for (let index = 0; index < 3; index = index + 1) {
       "performance_summary_identity:" + sample_tag
     );
   }
+  const run_id = "" + report.experiment_run_id;
+  rh.require(run_id !== "", "performance_summary_run_identity:" + sample_tag);
+  if (experiment_run_id === "") {
+    experiment_run_id = run_id;
+  } else {
+    rh.require(
+      experiment_run_id === run_id,
+      "performance_summary_run_identity:" + sample_tag
+    );
+  }
+  const completed = "" + report.completed_at_utc;
+  rh.require(
+    completed.length === 20 && completed.endsWith("Z"),
+    "performance_summary_sample_clock:" + sample_tag
+  );
+  if (previous_completed !== "") {
+    rh.require(
+      previous_completed <= completed,
+      "performance_summary_sample_order:" + sample_tag
+    );
+  }
+  previous_completed = completed;
 
   const timing_path = last_piece(path);
   const accounted_ms = report.wall_time.accounted_ms;
@@ -86,6 +110,8 @@ for (let index = 0; index < 3; index = index + 1) {
     total_wall_ms: accounted_ms,
     task_wall_ms: task_wall_ms,
     bootstrap: report.bootstrap,
+    experiment_run_id: run_id,
+    completed_at_utc: completed,
     timing_path: timing_path
   });
   if (index === 0) { cold_total = accounted_ms; }
@@ -178,6 +204,7 @@ const summary = {
   workload_scope: "quick",
   runner_class: runner_class,
   cache_strategy: cache_strategy,
+  experiment_run_id: experiment_run_id,
   source_commit: source_commit,
   workload_fingerprint: workload_fingerprint,
   cache_namespace_scope: cache_namespace_scope,

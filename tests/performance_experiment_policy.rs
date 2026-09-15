@@ -5,6 +5,8 @@ static WORKFLOW: LazyLock<String> = LazyLock::new(|| {
 });
 static SAMPLES: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/performance-samples.qjs").replace("\r\n", "\n"));
+static SUMMARY: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/qjs/performance-summary.qjs").replace("\r\n", "\n"));
 
 #[test]
 fn experiment_is_manual_read_only_and_exact_source_bound() {
@@ -88,6 +90,20 @@ fn sccache_stats_failures_keep_their_diagnostic() {
     assert!(SAMPLES.contains("performance_samples_sccache_stats:"));
     assert!(SAMPLES.contains("rh.atomic_write(stats_path, stats.stdout)"));
     assert!(SAMPLES.contains("stats.stderr.trim()"));
+}
+
+#[test]
+fn summary_requires_one_ordered_experiment_run() {
+    assert!(SAMPLES.contains("timing_record.experiment_run_id = run_id"));
+    assert!(SAMPLES.contains("rh.atomic_write(timing,"));
+    assert!(SUMMARY.contains("performance_summary_run_identity:"));
+    assert!(SUMMARY.contains("experiment_run_id === run_id"));
+    assert!(SUMMARY.contains("performance_summary_sample_clock:"));
+    assert!(SUMMARY.contains("performance_summary_sample_order:"));
+    assert!(SUMMARY.contains("previous_completed <= completed"));
+    assert!(SUMMARY.contains("experiment_run_id: experiment_run_id"));
+    assert!(WORKFLOW.contains("@if errorlevel 1 exit /b 1"));
+    assert!(WORKFLOW.contains("cli script task run performance-summary"));
 }
 
 #[test]

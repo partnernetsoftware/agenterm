@@ -16,6 +16,7 @@ rh.require(
 );
 const evidence = rh.absolute(args[1]);
 rh.create_dir_all(evidence);
+const run_id = "perf-" + rh.pid() + "-" + rh.now_ms();
 
 for (let sample = 1; sample < 4; sample = sample + 1) {
   const sample_tag = "" + sample;
@@ -46,6 +47,13 @@ for (let sample = 1; sample < 4; sample = sample + 1) {
     }
   ).exit_code;
   rh.require(quick_code === 0, "performance_samples_quick:" + sample_tag);
+  rh.require(
+    rh.exists(timing) && rh.symlink_metadata(timing).is_file,
+    "performance_samples_timing_missing:" + sample_tag
+  );
+  const timing_record = JSON.parse(rh.read_text(timing));
+  timing_record.experiment_run_id = run_id;
+  rh.atomic_write(timing, rh.stringify_pretty(timing_record) + "\n");
 
   if (cache === "sccache") {
     const stats_path = rh.absolute("sccache-" + sample_tag + ".json");
