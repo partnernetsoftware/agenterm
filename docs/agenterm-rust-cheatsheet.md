@@ -5490,6 +5490,11 @@ peer frontend reports its error: project the failure into that frontend's
 existing visible diagnostic surface. Also report a broken post-effect lookup
 without retrying an effect that may already have committed.
 
+Treat persistence before hide, detach, or shutdown as a precondition. Close
+the confirmation and commit the lifecycle effect only after persistence
+succeeds; on failure, retain the user's current surface and make the existing
+diagnostic visible so retry remains possible.
+
 ## Refresh future activation without restarting resident owners
 
 A compatibility command called “runtime refresh” must follow the replacement

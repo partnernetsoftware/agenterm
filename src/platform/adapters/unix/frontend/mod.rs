@@ -2179,10 +2179,14 @@ impl UnixApp {
         if !self.window_close_dialog.is_open() {
             return;
         }
-        self.window_close_dialog.close();
-        if !matches!(choice, WindowCloseChoice::Cancel) {
-            let _ = self.persist_workspace();
+        if !matches!(choice, WindowCloseChoice::Cancel)
+            && let Err(error) = self.persist_workspace()
+        {
+            self.set_status_message(format!("Could not save workspace: {error:#}"));
+            self.request_redraw();
+            return;
         }
+        self.window_close_dialog.close();
         match choice {
             WindowCloseChoice::KeepServerRunning => {
                 if let Some(window) = self.window.as_ref() {
