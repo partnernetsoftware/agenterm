@@ -1,611 +1,206 @@
 # AgenTerm agent guide
 
-This is the operational source of truth for coding agents. Start product and
-repository orientation at `PRD.md`, then follow its links to the owning
-`prd/PRD_*.md` module. Machine alignment lives in
-`prd/alignment-contract.json`, and public version execution plans live in
-`plan/`. Current source layout SSOT is [`plan/ARCHITECTURE.md`](plan/ARCHITECTURE.md);
-do not invent a second living file map in prompts or version plans.
+This file contains repository-wide operating rules only. Start product work at
+`PRD.md`, follow its link to the owning `prd/PRD_*.md`, and use
+`plan/ARCHITECTURE.md` as the only living source-layout map. Execution plans
+belong in `plan/`; machine alignment belongs in `prd/alignment-contract.json`.
+Do not copy detailed module contracts into this guide.
 
-Writing or editing a script? Start at
-[Script engines](#script-engines--read-the-condensed-manual-before-writing-a-script).
-Writing or editing Rust? Start at
-[Rust engineering](#rust-engineering--read-the-condensed-manual-before-editing-rust).
+## Non-negotiable rules
 
-## Document redaction (hard rule · never re-offend)
+### Redact every written artifact
 
-**Incident (2026-08-08):** a handoff goal under `plan/` shipped host home absolute
-paths. That leaks identity. **Never** paste `pwd` / conversation CWD into the tree.
+Never write a host home path, expanded repository path, real credential, email,
+phone number, IP, MAC address, or personal hostname into the repository,
+commit messages, screenshots, prompts, or handoffs.
 
-Applies to **every** write: `plan/**`, `prd/**`, `docs/**`, `README*`, examples,
-tests/fixtures, commit messages, screenshots, prompts, and goal/handoff markdown
-for other agents. Same bar as credentials.
+- Use repository-relative paths for files in this clone.
+- Use `~/...` for paths under any user home, with `/` separators on every OS.
+- Use RFC 2606 addresses and placeholders such as `<TOKEN>`, `<IP>`, and
+  `<HOST>` for sensitive examples.
+- Only path-parser unit tests may use fixed synthetic absolute paths without a
+  real account name.
+- After every documentation, fixture, prompt, or handoff write, run:
 
-### Path policy (all OS / ISA — one vocabulary)
-
-**Target form is only two kinds:**
-
-1. **Repo-relative** — files inside the clone: `plan/...`, `src/...`, `./check.sh`
-2. **`~/...`** — anything under the user home (product data, config, caches)
-
-Never paste `pwd` / expanded CWD. Prefer “from repository root” over `cd` + absolute.
-
-#### Home conversion table (mandatory — memorize this)
-
-Strip the host home root (and the account segment) and rewrite with `~/`.
-Use `/` after `~/` even on Windows. Real names and `<name>` placeholders both convert.
-
-| Host form (do not leave in tree) | Write as |
-|----------------------------------|----------|
-| Darwin home root + account + `/...` | `~/...` |
-| Linux home root + account + `/...` | `~/...` |
-| Windows user-profile environment expansion + `\...` | `~/...` |
-| Windows drive + user-profile root + account + `\...` | `~/...` |
-| Shell home-variable expansion + `/...` in documentation | prefer `~/...` |
-
-Examples:
-
-| Before | After |
-|--------|--------|
-| Darwin/Linux home + `/.local/share/agenterm` | `~/.local/share/agenterm` |
-| Darwin/Linux home + `/.config/agenterm` | `~/.config/agenterm` |
-| Windows user profile + `\AppData\Local\agenterm` | `~/AppData/Local/agenterm` |
-| Windows user profile + `\.local\share\agenterm` | `~/.local/share/agenterm` |
-| absolute path *into this clone* | repo-relative (`src/...`), not `~/...` |
-
-| Class | Action |
-|-------|--------|
-| Absolute path inside the clone | → repo-relative |
-| Absolute path under user home (any row above) | → `~/...` |
-| Product data already under home | → `~/...` only |
-
-**Also never write:** real email / phone / token / API key / SMTP pass → RFC 2606 /
-`<AUTH_CODE>` / `<API_KEY>` / `<TOKEN>`; real IP / MAC / personal hostname →
-`<IP>` / `<HOST>` / generic `station`.
-
-**Exception (code only):** unit tests that assert path *parsers* may use fixed
-synthetic absolute strings without a real account name. Docs, PRD, plan, goals,
-and handoff prompts **never** get that exception.
-
-**Mandatory pre-commit / post-write self-check:**
-
-```bash
-# From repository root; any hit = rewrite (repo-relative or ~/)
+```sh
 ./scripts/doc-redact-check.sh path/to/file
 ```
 
-- Path hit → apply the conversion table above
-- Credential-like values → placeholders only
-- Handoff prompts for other agents: same scrub; “internal plan” is not exempt
+Any hit must be rewritten before commit. Internal planning is not exempt.
 
-## Planning and decomposition method
+### Work in the shared checkout
 
-Every material product plan uses two linked projections:
+- All agents use the same `main` checkout. Do not create worktrees, task
+  branches, stashes, hidden planning copies, or use checkout/reset to discard
+  another agent's state.
+- Inspect `git status` before editing. Existing changes belong to their owner.
+- Give delegated work an exclusive file list and bounded evidence request.
+  Subagents return changes unstaged and report changed files, tests, findings,
+  and assumptions.
+- Never edit the same hot file concurrently (`AGENTS.md`, `PRD.md`, manifests,
+  build scripts, shared roots). Serialize overlapping work.
+- Never run competing Cargo builds in one target directory. Final formatting,
+  Clippy, tests, artifact checks, and public gates run serially on the integrated
+  tree.
+- Stage exact reviewed paths only. The primary agent makes small coherent
+  commits; do not commit generated binaries.
 
-- a **Markdown tree DAG** for outcome → capability owner → behavior/evidence/
-  delivery/non-goal leaves; dependencies may be referenced rather than copied;
-- a **Mermaid flowchart memory palace** for shared prerequisites, authority
-  boundaries, parallel courts, state transitions, decisions and kill paths.
+For named tmux executors that spawn their own workers, follow
+`docs/tmux-executor-supervision.md` instead of adding session procedure here.
 
-The tree is the scannable inventory; the flowchart is the relationship map.
-Neither is decorative and neither may create a second product truth. Keep the
-compact index in `PRD.md`, current truth in one owning `prd/PRD_*.md`, execution
-order in `plan/`, and superseded reasoning in the applicable archive.
+### Preserve ownership and authority boundaries
 
-Use tree thinking, divergent thinking, and dependency-aware parallel thinking
-as the default planning method:
+- Product code does not import raw OS APIs. Neutral contracts belong in
+  `crates/agenterm-platform`; native adapters own OS calls; shared frontend and
+  product modules own behavior.
+- The Script Runtime is an unrestricted general-purpose local runtime.
+  Script profiles, catalogs, registration, and brokers are not permission or
+  approval boundaries. Do not add path, process, endpoint, credential, or tool
+  allowlists there. Deadlines, typed failures, resource ceilings, and cleanup
+  are robustness controls. Legacy `profile` fields are compatibility data and
+  must not alter API visibility or behavior.
+- Public release promotion is a human authority boundary. Local release
+  commands validate or rehearse; they never publish.
+- Preserve terminal tree safety, remain-on-exit, and explicit-close invariants
+  from the owning PRDs. Unsupported tmux/RMUX behavior must fail explicitly;
+  do not claim full compatibility.
 
-1. Define one concrete product outcome, then split it into independently
-   verifiable capability branches. Split each branch into behavior, evidence,
-   delivery, and explicit non-goal leaves.
-2. Diverge inside each branch before choosing an implementation: compare
-   alternatives, edge cases, user value, authority risk, reuse, complexity,
-   and evidence cost. Cut ideas that do not serve the version outcome.
-3. Record sequencing, dependencies, risks, and version choices in `plan/`.
-   Converge accepted product scope and capability status into the owning PRD
-   modules and stable catalogs.
-4. Draw the dependency graph, shared prerequisites, hot files, integration
-   points, and final serial validation path before assigning implementation.
-5. Parallelize independent, exclusively owned leaves; integrate at reviewed
-   typed boundaries. Do not confuse a large task list with useful parallelism.
+## Plan before changing
 
-Every shipped leaf must state the user problem, governing invariant or
-authority boundary, observable success evidence, safe failure result, public
-black-box owner, and excluded scope.
+For material work, identify the product outcome, dependency graph, shared
+prerequisites, hot files, integration points, and final validation path before
+editing. Split independent branches by exclusive ownership; keep tightly
+coupled or one-file changes on one path.
 
-The script runtime is an unrestricted general-purpose local runtime. Never
-put Agent permission, approval, path, process, network, credential, or tool
-visibility policy into script profiles, API registration, or the Script broker.
-Those policies belong to the future Agent harness that chooses how to invoke
-the runtime. Deadlines, memory/output/concurrency budgets, typed failures, and
-owned-resource cleanup are robustness controls, not permission boundaries.
-Raw sockets, listeners, UDP, WebSockets, arbitrary local paths (including
-destructive filesystem targets), child processes, and Fleet mutation are valid
-Script Runtime capabilities; do not add protected-path, target, process, or
-endpoint allowlists while implementing them. In Script Runtime documentation
-and catalogs, `capability` means API discovery and compatibility metadata only;
-it must never be interpreted as an authorization grant, denial, or sandbox.
-An API that has not shipped is a product gap, never permission policy: keep it
-truthfully discoverable as planned or unavailable instead of substituting a
-loopback-only, safe-path, approved-process, or other policy-reduced variant.
-Do not use `safe`, `pure`, `observe`, profiles, or capability tiers as
-euphemisms for a reduced Script API. Name robustness limits, native product
-data-integrity invariants, and upper-layer caller policy explicitly so they
-cannot be mistaken for Rhai authorization.
-Legacy task `profile` fields are inert compatibility data and must not change
-API registration, visibility, arguments, targets, or execution behavior.
+Each shipped capability leaf records:
 
-## Parallel execution discipline
+- user problem and owning module;
+- governing invariant or authority boundary;
+- observable success evidence and safe failure result;
+- public black-box owner;
+- explicit non-goals.
 
-Before editing, sketch the task's dependency graph: identify independent work,
-shared prerequisites, integration points, and the final validation path. Use
-subagents by default for genuinely independent branches such as:
+Keep the compact capability index in `PRD.md`, current truth in one owning PRD,
+relationships in its Mermaid graph, execution order in `plan/`, and superseded
+reasoning in an archive. Do not create a second living roadmap or file map.
 
-- changes whose owned file sets do not overlap;
-- read-only code or reference audits that can inform an implementation;
-- isolated black-box test investigations with distinct IPC and workspace paths;
-- documentation or test work that does not depend on an unfinished interface.
+## Read the owning manual before editing
 
-Give every subagent a bounded deliverable, an explicit file-owner list, and the
-evidence it must return. Ownership is exclusive while the task is active. The
-subagent must report changed files, tests run, findings, and any assumptions,
-then hand control of those files back to the primary agent. The primary agent
-owns cross-cutting decisions, reviews every handoff, resolves integration
-issues, and commits only small coherent increments.
+### Rust, FFI, platform, and build work
 
-Subagents leave handoff files **unstaged** in the shared checkout. The primary
-agent stages exact reviewed paths immediately before committing; early or broad
-staging can accidentally include another active agent's unfinished work.
+Read `docs/agenterm-rust-cheatsheet.md` before changing Rust, Cargo manifests,
+build profiles, FFI, `unsafe`, SIMD, PTY, IPC, filesystem publication, or
+rendering hot paths.
 
-All agents share one checkout and see edits immediately. Never concurrently
-edit a hot/shared file such as `src/lib.rs`, `PRD.md`, `Cargo.toml`, build
-scripts, or this guide. Split work at stable file boundaries where possible; if
-two tasks must touch the same file, serialize them under one owner. Do not run
-competing Cargo builds against the same target directory, and do not let a test
-agent rebuild or replace an artifact another agent is actively validating.
+At minimum:
 
-Parallelism is a latency tool, not a goal. Keep tightly coupled changes,
-one-file refactors, quick inspections, and tasks dominated by a shared
-prerequisite on the primary path. After parallel work returns, integrate and
-review it before validation. Run the final formatting, Clippy, unit-test,
-artifact, and full public-interface gates serially on the integrated tree so the
-result represents one reproducible source state.
+- Validate narrow feature graphs in isolation; all-features builds can hide
+  undeclared dependencies through unification.
+- Every `unsafe` or ISA kernel needs a bounded safe caller, scalar truth, exact
+  parity tests, target compile evidence, and emitted-code inspection.
+- Dedicated Cargo lanes must be repository-local under `target/<lane>/`, never
+  session scratch directories, and must be removed after their owning evidence.
+- After Rust work, add a recurring proven lesson to the cheatsheet only when
+  one genuinely emerged; do not add speculative filler.
 
-When a **supervisor** session drives a **named tmux executor** that must itself
-spawn background subagents, follow the settled playbook
-[`docs/tmux-executor-supervision.md`](docs/tmux-executor-supervision.md)
-(short pane nudges, NOT-DONE boxes, worker refill, redacted session log). Do
-not paste host-home paths or mail into that file or into handoff prompts.
+### QJS scripts
 
-## Rust engineering — read the condensed manual before editing Rust
+Current AgenTerm scripts use `.qjs` and the compiler/runtime documented in
+`crates/agenterm-qjswasm/README.md`. There is no default engine: the entry
+extension selects it, and `AGENTERM_SCRIPT_BACKEND` is an explicit override.
+An unsupported construct must fail with the named compiler diagnostic; do not
+work around the subset.
 
-Repository Rust work repeatedly crosses feature graphs, six target cells,
-native handle ownership, GUI thread affinity, bounded concurrency, and ISA
-dispatch. General Rust knowledge is not enough to recover those local
-contracts. Read [`docs/agenterm-rust-cheatsheet.md`](docs/agenterm-rust-cheatsheet.md)
-before changing `.rs`, `Cargo.toml`, build profiles, FFI, `unsafe`, SIMD, PTY,
-IPC, filesystem publication, or rendering hot paths. Add newly proven recurring
-lessons there; do not let them survive only in a conversation or version plan.
-Before closing every Rust task, explicitly audit whether the work produced a
-reusable rule, failure mode, target caveat, evidence technique, or rejected
-optimization. If it did, update the condensed manual in the same coherent
-increment. If it did not, do not add speculative filler. Review and handoff are
-not substitutes for this repository write-back.
+The old Rhai and rquickjs documents are history only:
 
-The highest-yield rules are:
+- `docs/agenterm-rh-cheatsheet.md`
+- `docs/agenterm-rh-runtime.md`
+- `docs/agenterm-qjs-cheatsheet.md`
 
-- Product code does not import raw OS APIs. Put neutral types/contracts in
-  `agenterm-platform`, native calls in selected adapters, and product meaning in
-  shared frontend/product modules.
-- Every `unsafe` or ISA kernel needs a safe bounded caller, a scalar truth
-  implementation, exact parity tests, target compile evidence, and emitted-code
-  inspection. Do not specialize branch-heavy policy or compiler/runtime
-  primitives without measured evidence.
-- Validate the feature in isolation with `--no-default-features --features ...`;
-  a full build can hide undeclared dependencies through feature unification.
-- Isolated Cargo work may use a dedicated `CARGO_TARGET_DIR`, but it must stay
-  **repo-local** (`target/<lane>/`, same as the rust cheatsheet). Never point it
-  at a chat/session scratchpad (`/tmp/claude-*`, `/tmp/codex-*`,
-  `**/scratchpad/tgt-*`, or any tool-provided session directory). Those paths
-  are for tiny drafts, not multi-gigabyte `target/` trees. Clean the lane after
-  the owning evidence. Never run competing Cargo builds in one target directory.
+Repository-wide validation uses the engine's bounded `check-many --manifest`
+path. Keep direct single-file `check` as the diagnostic and black-box parity
+baseline.
 
-## Script engines — read the condensed manual before writing a script
+### Release work
 
-Scripts are written in **`.qjs`** (`scripts/qjs/**.qjs`, AgenTerm's own
-engine: a growing JavaScript subset compiled to wasm and run on tinyvm --
-[`crates/agenterm-qjswasm/README.md`](crates/agenterm-qjswasm/README.md)).
-**rh left this repository on 2026-08-29** for `partnernetsoftware/rh`; every
-`.rh` gate and task is dark until its `.qjs` port lands (see
-`prd/PRD_02_10_rhai_scripting.md` § What went dark). There is **no default
-engine**: the entry's extension picks one, `AGENTERM_SCRIPT_BACKEND`
-overrides it, and anything else is refused by name.
+Before Candidate dispatch, Promotion, release authentication, or monitoring,
+read `skills/agenterm-release/SKILL.md` and its required references. The stable
+shape is exact-SHA Candidate qualification followed by byte-preserving human-
+approved Promotion. Never reconstruct release procedure from this summary.
 
-| Manual | Use for |
-|--------|---------|
-| [`docs/agenterm-rh-cheatsheet.md`](docs/agenterm-rh-cheatsheet.md) | **history** — rh moved out 2026-08-29; kept for reading the archived scripts |
-| [`docs/agenterm-qjs-cheatsheet.md`](docs/agenterm-qjs-cheatsheet.md) | **archived 2026-08-28** — the engine it documents was removed. Kept as history; for writing scripts today see [`crates/agenterm-qjswasm/README.md`](crates/agenterm-qjswasm/README.md) |
-| [`docs/agenterm-rh-runtime.md`](docs/agenterm-rh-runtime.md) | **history** — the rh-era interface specification; the `std.*`/`rh.*` catalog ids it names are still the cross-engine capability names |
+### UI, terminal, and platform work
 
-The highest-yield rule: a `.qjs` script that uses something outside the
-subset fails **at compile time with a named capability diagnostic**; read that
-diagnostic, do not work around it.
+- Source layout and ownership: `plan/ARCHITECTURE.md`
+- Platform encapsulation gaps: `plan/plan-platform-encapsulation-gap.md`
+- Executable platform goal: `plan/goal-crate-platform.md`
+- Cross-host UX evidence: `plan/platform-ux-parity-evidence-matrix.md`
+- Six-cell execution: `plan/goal-local-six-cell.md`
 
-## Local UTM courts
+Shared product semantics land before host adapters. Add a product gesture to
+`src/frontend/ui_action_catalog.rs`, wire both hosts in one coherent change, or
+record a real host-only `parity-gap:`. Keep parsing, protocol, settings, and
+geometry out of native UI state machines and cover them with unit tests.
 
-Local UTM/Lima lifecycle lives in sibling `utm-court`
-(`partnernetsoftware/utm-court`). AgenTerm only calls
-`scripts/utm-cu-managed-job-court.sh`. Do not copy `utmctl`, guest agents,
-or a second court service into this repo. Guest Windows paths come from
-`utm-court windows-root`. Caller map: `~/repos/utm-court/CALLERS.md`.
+PuTTY commit `61574e2e98f7d262dea4ff6380e167541518aedf` is a behavioral
+terminal reference, not a source for blind copying. Preserve its notice if a
+substantial portion is copied.
 
-## Development loop
+Local UTM/Lima courts live in sibling `utm-court`; AgenTerm calls only
+`scripts/utm-cu-managed-job-court.sh`. Do not duplicate its service or guest
+agents here. Its caller map is `~/repos/utm-court/CALLERS.md`.
 
-Use PowerShell from the repository root:
+## Development and validation
 
-```powershell
-.\lint.cmd              # fast fail: Rust, JSON, text hygiene, and production QJS
-.\build.bat              # default: release-fast -> .\dist\ (optimized, incremental)
-.\build.bat release-fast # same as default; explicit alias
-.\build.bat dev          # debug PE -> .\dist\ (also lands in target/debug/)
-.\build.bat release      # size-optimized distributable -> .\dist\ (+ target-release/)
-.\check.cmd --quick      # static/PRD/fmt + all-target Clippy + lib tests
-.\check.cmd --skip-smoke # CI-grade fmt, all-target Clippy/tests, staged artifact
-.\check.cmd              # full public-interface regression
-.\check.cmd --release    # local release gate; skips event-journal load stress
-.\check.cmd --release --include-stress # exact qualification + receipt
-.\dist\agenterm.exe cli script task run package-qualified --manifest .\agenterm.tasks.json
-.\release.cmd --rehearse # read-only release validation/rehearsal
-```
+Use the host-matching root aliases:
 
-Linux/macOS have matching `./build.sh`, `./check.sh`, `./lint.sh`, and
-`./release.sh` aliases over `scripts/bootstrap.sh`. Native Unix `build` emits
-the three client binaries; default Unix `check` is the portable Quick lane, and
-default Unix `release` is validation-only. Stress qualification, Windows
-packaging and exact-byte qualification remain explicit Windows operations.
-Do not add an unmatched `.cmd` or `.bat`: prefer a named QJS task, and when a
-Windows bootstrap remains necessary, add the equivalent `.sh` entry and cover
-the pair in the cross-platform automation audit and Linux/macOS CI.
+| Purpose | Windows | Linux/macOS |
+|---|---|---|
+| Lint | `./lint.cmd` | `./lint.sh` |
+| Build | `./build.bat` | `./build.sh` |
+| Quick gate | `./check.cmd --quick` | `./check.sh --quick` |
+| CI-grade gate | `./check.cmd --skip-smoke` | `./check.sh --skip-smoke` |
+| Full public regression | `./check.cmd` | `./check.sh` |
+| Release rehearsal | `./release.cmd --rehearse` | `./release.sh --rehearse` |
 
-Formal delivery is an exact-SHA two-stage GitHub Actions contract.
-Before Candidate, Promotion, release authentication, dispatch, or monitoring,
-read [`skills/agenterm-release/SKILL.md`](skills/agenterm-release/SKILL.md) and
-the references it requires. The stable contract is:
+Use a validation ladder:
 
-- `Release Candidate` is self-contained because the ordinary push workflows
-  are parked as `.disabled`: it qualifies the exact current `main` SHA,
-  including the single stress-inclusive Windows gate, then builds, executes on
-  six native OS/ISA runners, and seals all six platform artifacts before any
-  tag exists. Dispatch is allowed only after an explicit exact-SHA Candidate
-  request.
-- `Release` promotes one exact successful Candidate without rebuilding its
-  bytes. It requires explicit human approval for the version and
-  `publish-vX.Y.Z` confirmation, creates only the exact tag, and preserves
-  no-overwrite and integrity guarantees.
-- `release.cmd` and `release.sh` validate or rehearse only; they never publish.
+1. Run cheap formatting, lint, JSON/catalog, and script checks while iterating.
+2. After a coherent implementation, run Quick plus the directly owning unit
+   and public black-box courts.
+3. Before integrated delivery, run the applicable build and CI-grade gate.
+4. Reserve stress, packaging, and exact-byte qualification for their named
+   release boundary.
 
-Public Promotion is always the human release-authority boundary. Keep changing
-operational procedure, authentication routing, and diagnostic steps in the
-release skill rather than duplicating them here.
+Do not add unmatched `.cmd`/`.bat` behavior. Root aliases stay thin; product
+build, test, packaging, and release rules belong to named QJS tasks. Do not
+restore a global Cargo job limit or delete `.cargo/config.toml`; it carries a
+required cross-linker setting. Build profiles, ABI unwind requirements, binary
+budgets, six-target commands, and runner availability are owned by the Rust
+cheatsheet, build scripts, release skill, and `plan/goal-local-six-cell.md`.
 
-## GitHub Actions observation
+All smoke tests must honor `AGENTERM_NO_ACTIVATE=1`. GUI, network, stress,
+packaging, and release behavior must stay in accurately named owning gates, not
+hidden in a lane that claims to skip them.
 
-Actions observation is bounded and read-only. Resolve a run once, retain its
-`run_id` and `run_attempt`, and assign one observer; never fan polling out
-across agents. Prefer an authenticated GitHub connector or existing `gh`
-session, use public REST only as a bounded fallback, back off while state is
-unchanged, honor rate-limit responses, and fetch logs or artifacts only when
-their owning job reaches a relevant state. Observation loss is not workflow
-failure.
+## Runtime and external observation
 
-Git transport and GitHub API authentication are separate authorities. Never
-extract, print, copy, or repurpose credentials to manufacture API access. If an
-authorized mutation is unavailable, stop and give the human the immutable run
-identity, required fields, and expected effect. The release skill owns detailed
-monitoring cadence, fallback order, authentication, and failure diagnosis.
+Discover the current CLI instead of copying a command catalog:
 
-Use a validation ladder instead of running the largest gate after every edit:
-run `check.cmd --quick` once after a coherent implementation, then `build.bat`
-plus only the directly owning smoke suite, and reserve `check.cmd --skip-smoke`
-or full qualification for the integrated pre-push/release boundary. Search all
-geometry/protocol consumers before the first black-box run so old assertions
-are migrated in the same patch.
-
-The four root Windows batch files and four matching Unix shell files are thin
-human aliases. Their shared platform bootstraps perform only generic stage-0
-Script worker build/copy/forward/cleanup. Build profiles, testing,
-qualification, packaging, cleanup and release policy belong to named QJS
-tasks; do not add task-specific branches or product rules to entry files.
-
-Treat build and test latency as a continuously measured product constraint.
-When parallel delegation is authorized, a read-only background observer may
-profile the active development loop while the primary agent keeps shipping; it
-must not edit feature files, contend for the Cargo lock, or launch foreground
-GUI tests. Record cold build, hot incremental build, Quick, SkipSmoke, owning
-smoke, and release timings separately. Accept an optimization only when
-before/after evidence proves the gain and coverage remains owned elsewhere.
-
-Run cheap lint, formatting, JSON/catalog checks, and QJS `check` before
-expensive compilation or black-box journeys so deterministic mistakes fail
-early and consume less developer time and agent context. Every expensive
-behavior has one authoritative gate: broad test lanes skip wrappers already
-owned by a dedicated smoke or qualification gate. Do not hide GUI, network,
-stress, packaging, or release work inside a lane whose name says it skips that
-work.
-
-For repository-wide script validation, use an engine's bounded `check-many
---manifest` path (`agenterm lua check-many`, `agenterm sql check-many`)
-rather than spawning one Script process per file. It retains a fresh Engine
-and typed result for each input, while bounding the manifest, file count,
-source bytes, and aggregate deadline. Keep the direct single-file `check`
-command as the diagnostic and black-box parity baseline.
-
-`.cargo/config.toml` once forced `jobs = 1` and made clean builds much
-slower; that setting was removed. Do not restore a global job limit. The file
-itself still exists and is load-bearing — it carries the
-`aarch64-unknown-linux-gnu` linker setting the `lnx × aarch64` cell below
-depends on. Do not delete it. Default `build.bat` stages **release-fast** into
-`dist/` (optimized, no LTO, parallel codegen, incremental under
-`target/release-fast/`).
-Pure debug PE remains `target/debug/` via ordinary
-`cargo build` or explicit `build.bat dev`. A final `release` build uses the
-dedicated repo-local `target-release/` scratch directory, stages all
-distributable files in `dist/`, and then reclaims both `target-release/` and
-development `target/`. The reusable bootstrap worker is stored outside Cargo
-output so this is safe on Windows. Dev and `release-fast` loops retain target
-output for incremental feedback. Release-only LTO belongs in `[profile.release]`.
-The staging path is one named QJS task; do not split it
-back into one interpreter startup per artifact.
-`agenterm-con` was the deliberate panic-strategy exception here until
-2026-08-23, when it left for the `minicon` repository; the `con-*` profiles and
-its `build-std` subprocess went with it. `agenterm-abi` keeps the same shape for
-the same reason — the libagenterm cdylib wraps every export in `catch_unwind`,
-so it compiles under `abi-dev` / `abi-release` (`panic = "unwind"`) and merges
-its dynamic library into the ordinary profile directory before the single
-staging task. Never qualify or distribute a direct `dev` / `release-fast` /
-`release` abi artifact; those workspace profiles abort and cannot satisfy the
-native callback containment contract. The pinned toolchain includes `rust-src`,
-and that explicit target is still required even for native builds.
-Build-identity freezing first reuses an existing compatible Script worker and
-falls back to bootstrapping one only when it is absent or incompatible. Do not
-restore an unconditional pre-identity worker build: compile-time
-`AGENTERM_BUILD_*` values otherwise alternate Cargo fingerprints and add a
-redundant shared-library rebuild to warm loops.
-All smoke tests inherit `AGENTERM_NO_ACTIVATE=1`; GUI launches and CLI
-autostarts must honor it without taking foreground focus. Routine local release
-checks may skip the bounded-journal saturation load. A candidate-bound
-qualification receipt requires `check.cmd --release --include-stress`; packaging
-must consume that exact receipt and must not rebuild.
-The release gate enforces explicit budgets of 4 MiB for `agenterm.exe` and
-`agenterm-cc.exe`, plus 512 KiB for `agenterm.com` (the synchronous CUI/TUI
-forwarder); investigate dependency or feature growth
-instead of raising them casually.
-
-## Runtime control and observation
-
-Discover the live interface instead of duplicating a long command manual:
-
-```powershell
-.\dist\agenterm cli --help
-.\dist\agenterm cli list-commands
-.\dist\agenterm cli protocol-info
-.\dist\agenterm cli ui-snapshot
-.\dist\agenterm cli list-windows -F '#{window_id}:#{window_name}'
+```sh
+./dist/agenterm cli --help
+./dist/agenterm cli list-commands
+./dist/agenterm cli protocol-info
+./dist/agenterm cli ui-snapshot
 ```
 
 Use distinct `AGENTERM_IPC_ADDRESS` and `AGENTERM_WORKSPACE_PATH` values for
-isolated tests. Prefer stable tab IDs
-(`@N`) over mutable indexes or titles. Use `wait-pane` and `wait-ui`; do not add
-fixed sleeps. Rendering investigations should capture both structured state and
-PNG evidence.
+isolated tests, stable tab IDs instead of mutable indexes, and public wait
+operations instead of fixed sleeps. Rendering investigations capture both
+structured state and PNG evidence.
 
-The GUI must expose its native window before starting the initial ConPTY.
-The startup-smoke gate (dark since rh moved out; see PRD 02.10) guards a
-one-second local first-window budget and then waits through public state
-until the asynchronous terminal becomes ready.
-
-## Terminal interaction engineering
-
-PuTTY is the professional-terminal reference implementation. The reviewed
-baseline is upstream commit `61574e2e98f7d262dea4ff6380e167541518aedf`.
-Use it to check
-interaction invariants and edge cases, not as a source for blind code copying.
-Its permissive licence still requires preserving its notice with any substantial
-copied portion; prefer independent Rust implementations based on observed
-behavior.
-
-- Treat mouse input as an explicit arbitration between local selection and
-  application-requested raw mouse reporting. A selection gesture must keep
-  ownership through release; a future raw-mouse path should support a documented
-  Shift override for local selection and must never send an unmatched release.
-- Keep selection states distinct: button-down/about-to-select, dragging, and
-  completed. A click that never becomes a drag must retain its terminal/RMUX
-  click behavior. Capture loss, modal menus, tab changes, and shutdown must
-  cancel an unfinished drag instead of leaving input or rendering suspended.
-- Store and compare selection endpoints as terminal-cell positions. Normalize
-  forward/reverse selections, skip wide-cell continuations when copying, use
-  Windows CRLF in clipboard text, and test CJK plus wrapped/multiline content.
-  Dragging beyond the viewport should eventually auto-scroll without inventing
-  out-of-range cells.
-- Accumulate high-resolution wheel deltas until `WHEEL_DELTA`; do not discard
-  partial input. Wheel events go to scrollback unless an application raw-mouse
-  mode owns them. Scrollbar thumb positions need full-width arithmetic and the
-  viewport, capture, screenshots, and structured snapshot must agree.
-- Respect Win32 clipboard ownership: allocate movable NUL-terminated UTF-16,
-  transfer ownership only after `SetClipboardData` succeeds, and free on every
-  pre-transfer failure. Clipboard reads for future terminal paste must not block
-  the GUI thread; normalize newlines, filter unsafe control characters, and
-  honor bracketed-paste framing.
-- Minimize must not resize the PTY to the iconic client rectangle. Resize,
-  maximize/restore, font metrics, DPI changes, scrollbar geometry, and terminal
-  rows/columns form one contract and need state plus PNG evidence.
-
-## Change rules
-
-- All agents and subagents work in one shared checkout on `main` (the
-  repository root wherever it is cloned — Windows, macOS, and Linux hosts are
-  all in active use; never hard-code a personal home path in docs). Do not
-  create Git worktrees, task branches, or hidden
-  planning copies. Material planning progress must be written incrementally to
-  the applicable `PRD.md`/`prd/PRD_*.md` product node so it is immediately
-  visible in the repository; the primary agent reviews, commits, and pushes
-  small coherent increments.
-- Preserve the remain-on-exit and explicit-close invariants in the PRD.
-- Preserve tree safety: parent cycles are rejected and closing a parent promotes
-  its direct children instead of terminating them.
-- Keep pure parsing, protocol, and settings logic outside the Win32 state
-  machine and cover it with unit tests.
-- Exercise behavior through the public CLI in black-box tests.
-- Update the PRD tree when capability state changes.
-- Keep README human-facing and brief; keep this file agent-facing.
-- Do not commit generated binaries. Local artifacts belong in ignored `dist/`;
-  downloadable binaries are published only by exact-Candidate Promotion.
-- Keep `agenterm.exe` as a Windows-subsystem GUI and keep `agenterm.com` as a
-  minimal Console-subsystem forwarder with no business logic. Extensionless
-  **`agenterm cli <command>`** / **`agenterm tui`** resolves to `.com`, which
-  inherits stdio, synchronously invokes the sibling `agenterm.exe`, and
-  propagates its exit code. The GUI PE then attaches the caller's console
-  (`AttachConsole(ATTACH_PARENT_PROCESS)`), duplicates the real
-  stdin/stdout/stderr via `GetStdHandle` + `DuplicateHandle`, and spawns
-  itself as a hidden `__agenterm-internal-cli` worker with those explicit
-  handles, waiting and forwarding the exit code. Explorer and explicit
-  `agenterm.exe` launches remain no-flash GUI entry points. The CLI
-  includes **`agenterm cli mux`** / **`agenterm cli mcp`**; the standalone
-  `agenterm-cli`, `agenterm-mux`, and `agenterm-mcp` PEs are removed.
-  Preferred headless authority entry is `agenterm server` (separate process
-  of the same PE; the old `agenterm-server.exe` binary is removed). All
-  entry points must reuse the library.
-- Do not claim full tmux/RMUX compatibility. One AgenTerm tab is currently one
- pane, and unsupported commands must fail explicitly.
-
-### Platform crate vs product UI
-
-`crates/agenterm-platform` is the **cross-platform encapsulation library** for
-agenterm, wbox, and other embedding apps:
-
-| Layer | Owns | Must not own |
-|-------|------|--------------|
-| **platform crate** | Typed OS contracts (window, input, clipboard, process, IPC, PTY, …) | Product UI state, Fleet, `ui-action` workbench scripts, server-strip policy, AgenTerm binary names |
-| **`src/frontend/*` + `ui_*`** | Product gesture meaning, dialogs, geometry, action ids | Raw `windows_sys` / winit / x11 (boundary tests forbid this) |
-| **host adapters** | Present, wake, IME, native controls, IPC wiring | New product policy that only one host implements without catalog/`parity-gap` |
-
-- **Encapsulation success** = OS differences stop in the crate; consumers call
-  facades with feature flags (`path` for agenterm; `git`+full SHA for wbox).
-- **UX parity success** = shared product semantics + both host adapters wired.
-  Platform does **not** “own all UX alignment” by itself.
-- Do **not** ship product behavior only in the Windows remote adapter and leave
-  “Unix agent later” as the plan unless the action is host-only in
-  `ui_action_catalog` with an explicit `parity-gap:`.
-- Mechanism leak inventory: `plan/plan-platform-encapsulation-gap.md`.
-  Executable goal: `plan/goal-crate-platform.md`.
-
-### Cross-platform UI: shared-first (Win / OSX / Lnx)
-
-Three-host UX parity fails when product semantics land only in the Windows
-remote frontend and OSX/Lnx agents re-implement later. Default path:
-
-1. **Product meaning first** in `src/frontend/*`, `src/ui_geometry.rs`, and
-   other shared modules (layout math, dialog state, action ids, focus gates,
-   snapshot fields). Host adapters (`windows/remote_frontend`,
-   `unix/frontend`) present, wake, IME, and native IPC only.
-2. **`ui-action` set gate**: `src/frontend/ui_action_catalog.rs` lists
-   `SHARED_UI_ACTIONS` plus intentional `WINDOWS_ONLY_*` / `UNIX_ONLY_*`
-   allowlists. Unit tests require host inventories to match after allowlists
-   and that catalog string literals still appear in the adapter sources.
-   Adding a one-host action without updating the catalog/allowlist fails
-   `cargo test --lib ui_action_catalog`.
-3. **Same change when possible**: for a product gesture both hosts must
-   expose, add the id to `SHARED_UI_ACTIONS` and wire both adapters in one
-   coherent increment. Do not ship Windows-only product behavior and leave
-   "Unix agent later" as the plan unless the entry is explicitly
-   host-only with a `parity-gap:` reason in the catalog comment.
-4. **Intentional host-only** is allowed for true platform surfaces (e.g.
-   current server-strip / instance-picker depth on Windows, Unix new-terminal
-   shell verb set). Document in the allowlist; promote to SHARED when the
-   peer host gains the surface.
-5. Do not grow dual-write match arms for new product policy when a shared
-   helper already exists (`new_terminal::dispatch_ui_action`, geometry,
-   interaction gates). ARCHITECTURE debt L2 tracks the remaining table-driven
-   migration; this catalog is the interim set-diff gate, not the final
-   ActionId enum.
-
-## Cross-platform build and test contract
-
-The native Windows GUI/runtime (`windows-sys`, ConPTY, MSVC target) and its
-orchestration (`build.bat`, `check.cmd`, and `release.cmd`) require Windows for
-authoritative runtime qualification. Linux can build, lint, and unit-test the
-Windows targets with `cargo-xwin` and Wine. Use the toolchain pinned by
-`rust-toolchain.toml`; each owning build or CI job installs the cross target it
-needs rather than making ordinary host builds download the full matrix.
-
-CI covers all six architecture cells `{x86_64,aarch64} × {win,lnx,osx}`. Local
-build commands per cell. `src/bin/` currently holds **three** product binaries
-(`agenterm`, `agenterm-com`, `agenterm-cc`). Mux/MCP are
-**`agenterm cli` subcommands**, not separate PEs. **Prefer building without
-`--bin` filters** so new binaries are covered automatically:
-
-| Cell | Host | Build |
-|------|------|-------|
-| **win × x86_64** | Linux **or macOS** + `cargo-xwin` | `cargo xwin build --target x86_64-pc-windows-msvc` (all four bins) |
-| **win × aarch64** | Linux **or macOS** + `cargo-xwin` | `cargo xwin build --target aarch64-pc-windows-msvc` (all four bins) |
-| **lnx × x86_64** | Linux native, **or any host + `cargo-zigbuild`** | `cargo build --target x86_64-unknown-linux-gnu` (all bins; no `--bin` filter) |
-| **lnx × aarch64** | Linux + `gcc-aarch64-linux-gnu`, **or any host + `cargo-zigbuild`** | `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc cargo build --target aarch64-unknown-linux-gnu` |
-| **osx × aarch64** | macOS | `cargo build --target aarch64-apple-darwin` |
-| **osx × x86_64** | macOS | `cargo build --target x86_64-apple-darwin` |
-
-**All six cells from one macOS host.** `cargo-xwin` is not Linux-only and
-`cargo-zigbuild` supplies linker and libc for both `linux-gnu` targets, so an
-Apple Silicon machine builds the whole matrix without CI. Measured 2026-08-25;
-`winresource` needed no resource compiler on the `PATH`. One command:
-
-```
-AGENTERM_BOOTSTRAP_TASK=client-build-all ./scripts/bootstrap.sh dev
-AGENTERM_BOOTSTRAP_TASK=six-cell-qualify ./scripts/bootstrap.sh dev   # + runtime smokes
-```
-
-`scripts/six-cell-runners.json` says where each cell's runtime smoke executes;
-a cell with no runner is reported BLOCKED with a reason, never skipped. Plan and
-receipts: `plan/goal-local-six-cell.md`. CI still covers all six as the backstop
-and remains authoritative for real x86_64 silicon and for Windows runtime.
-
-Clippy: append `-- -D warnings` to the matching `cargo clippy` or
-`cargo xwin clippy` invocation with the same `--target`. Use
-`--all-targets` rather than repeating `--bin` filters, so every binary and
-test target is linted. On Linux, `cargo fmt --check` runs natively.
-
-**Windows x86_64 on Linux**:
-
-- Lint: `cargo clippy --target x86_64-pc-windows-msvc --all-targets -- -D warnings`
-- Build: `cargo xwin build --target x86_64-pc-windows-msvc` →
-  `target/x86_64-pc-windows-msvc/debug/`
-- Unit tests: `cargo xwin test --target x86_64-pc-windows-msvc` compiles for
-  Windows and runs the test exes under Wine. Do not treat any pass count as an
-  expected value — the suite grows; read the command's own output.
-  Set `WINEPREFIX=~/.wine-agenterm WINEDEBUG=-all` to keep Wine quiet.
-- Smoke: `wine target/x86_64-pc-windows-msvc/debug/agenterm-com.exe cli --help`.
-
-**Linux clients**:
-
-- x86_64: `./scripts/build-linux-clients.sh` (or set `AGENTERM_BUILD_PROFILE=release`)
-- aarch64: install `gcc-aarch64-linux-gnu`, then
-  `./scripts/build-linux-aarch64-clients.sh` (or the `lnx × aarch64` cargo line above).
-  Smoke under QEMU: `qemu-aarch64-static target/aarch64-unknown-linux-gnu/debug/agenterm cli --help`
-- Native GUI packages needed for `agenterm` / `agenterm-cc` on X11 (see README):
-  `libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 libx11-6 libxcb1 libxcb-xkb1`.
-  Missing `libxkbcommon-x11-0` panics in `xkbcommon-dl` at window open.
-- Native desktop smoke on a real X11 display or CI Xvfb:
-  `AGENTERM_NO_ACTIVATE=1 AGENTERM_BOOTSTRAP_TASK=control-center-linux-smoke ./scripts/bootstrap.sh --backend x11`
-  and `...=unix-frontend-linux-smoke ./scripts/bootstrap.sh <gui> <cli> --platform linux`.
-
-**Wine / ConPTY limits**: Wine cannot sustain an interactive ConPTY shell — a
-tab's `cmd.exe` starts and immediately exits `dead`, so live terminal I/O,
-`capture-pane` output, and the GUI smoke suites (dark since rh moved out)
-cannot pass on Linux.
-Interactive-terminal and rendering work must be validated on a real Windows host
-(that is what CI on `windows-latest` covers). Treat Linux Wine as a fast
-Windows-target lint/build/unit-test and control-plane sanity loop; native Linux
-GUI/PTY smokes use a real display or CI Xvfb instead.
-
-Rhai REPL and `agenterm cli script repl` were removed with Phase C Wave 4.5 —
-use `agenterm cli script` for check, eval, task, and run. Instance discovery uses
-`~/.local/share/agenterm/instances/` (override with `AGENTERM_INSTANCE_DIR`).
+GitHub Actions observation is bounded and read-only: resolve one run and
+attempt, assign one observer, back off while state is unchanged, and fetch logs
+or artifacts only when the owning job reaches a relevant state. Git transport
+and GitHub API authentication are separate authorities; never extract or
+repurpose credentials. If an authorized mutation is unavailable, stop and give
+the human the immutable run identity and required action.
