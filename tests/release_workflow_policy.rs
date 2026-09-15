@@ -1461,6 +1461,17 @@ fn check_qjs_refuses_a_repeated_timing_path_instead_of_redirecting_evidence() {
 }
 
 #[test]
+fn check_quick_probes_the_binary_the_target_asks_for() {
+    assert!(CHECK_QJS.contains("path.join(quick_native_bin_root, \"agenterm\")"));
+    assert!(!CHECK_QJS.contains(
+        "return task(bootstrap_worker, repo, \"prd-alignment\", 120000, [], empty_environment(), 0);"
+    ));
+    assert!(
+        include_str!("../scripts/qjs/prd-alignment.qjs").contains("prd_alignment_input_missing:")
+    );
+}
+
+#[test]
 fn six_cell_orchestrators_reject_surplus_arguments_instead_of_widening_scope() {
     assert!(BUILD_ALL_QJS.contains("build_all_unknown_argument:"));
     assert!(BUILD_ALL_QJS.contains("build_all_profile_duplicate"));

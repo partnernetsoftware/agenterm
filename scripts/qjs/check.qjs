@@ -729,15 +729,12 @@ function resolve_artifact_verification_mode(release) {
 
 // prd-alignment measures ~21 s on this engine (2026-08-30, its scans on the
 // host); rh gave it 10 s. 120 s below, twice the room.
-function quick_prd_alignment_spec(unix_bootstrap, bootstrap_worker, repo, quick_native_bin_root) {
-  if (unix_bootstrap !== 0) {
-    return direct_task(
-      bootstrap_worker, repo, "prd-alignment", 120000,
-      [repo, path.join(quick_native_bin_root, "agenterm")],
-      empty_environment(), 0
-    );
-  }
-  return task(bootstrap_worker, repo, "prd-alignment", 120000, [], empty_environment(), 0);
+function quick_prd_alignment_spec(_unix_bootstrap, bootstrap_worker, repo, quick_native_bin_root) {
+  return direct_task(
+    bootstrap_worker, repo, "prd-alignment", 120000,
+    [repo, path.join(quick_native_bin_root, "agenterm")],
+    empty_environment(), 0
+  );
 }
 
 // ---- evidence declarations -----------------------------------------------
