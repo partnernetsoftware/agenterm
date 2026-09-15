@@ -815,11 +815,12 @@ Q2 fast delegated facades
    │  ├─ [x] pid/start identity + membership bytes + opened directory identity are bracketed
    │  ├─ [x] public qjswasm macOS typed-not-applicable court; no false process-group equivalence
    │  └─ [ ] Linux x86_64/aarch64 native courts + Windows typed-not-applicable court
-   ├─ [~] process policy is an exact observation + fail-closed platform contract
+   ├─ [~] process policy is split into exact observation and fail-closed mutation contracts
    │  ├─ [x] rejected bare-PID `taskpolicy` plus before/after identity as mutation authority
    │  ├─ [x] rejected Linux per-thread scheduling and Windows current-process mode as false parity
    │  ├─ [x] decisive probe: ordinary macOS process cannot obtain a Mach task port even for its owned child
-   │  ├─ [x] public command observes exact Darwin flags; mutation verifies identity then refuses before effect
+   │  ├─ [x] macOS observe is native-qualified on exact Darwin flags and stable process identity
+   │  ├─ [x] macOS mutation is intentionally retired: identity is verified, then the effect is refused before dispatch
    │  └─ [ ] Linux + Windows public typed-not-applicable reruns; owned-child pre-exec policy is a separate future shape
    └─ [ ] privileged mutation and inspection watch/diff remain
 Q2b host/boot identity

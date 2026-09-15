@@ -366,30 +366,56 @@
           "note": "One-shot socket rows are joined to one process fd and bracketed by matching start identities. Native descriptor scan truncation and caller result pagination remain separate. Darwin uses build-linked libproc; Linux joins procfs socket inodes to the process network namespace without lsof. Unix-domain endpoint bytes remain lossless. Windows refuses undocumented arbitrary-process socket tables by type.",
           "next": "Linux native and Windows typed-refusal courts; bounded watch/diff remains an explicit gap"
         },
-    {
-      "id": "process.policy",
-      "mcu_shape": "process policy PID status|background|normal",
-      "acu_shape": "process-policy --pid N status; process-policy --pid N --start-identity ID background|normal",
-      "state": "platform-limited",
-      "platforms": {
-        "macos": "exact-proc-pidinfo-observation; typed exact-authority refusal before mutation",
-        "linux": "typed-not-applicable",
-        "windows": "typed-not-applicable"
-      },
-      "qualification": {
-        "schema": 2,
-        "platforms": {
-          "linux": {"result": "pending", "blocker_code": "mixed-observe-and-unavailable-mutation-needs-split"},
-          "macos": {"result": "pending", "blocker_code": "mixed-observe-and-unavailable-mutation-needs-split"},
-          "windows": {"result": "pending", "blocker_code": "mixed-observe-and-unavailable-mutation-needs-split"}
-        }
-      },
-      "evidence": [
-        "cu.process-policy"
-      ],
-      "note": "ACU brackets the public Darwin background flags with one stable process start identity. A precommitted native probe proved task_for_pid unavailable to a normal process even for its owned child, so background/normal verify caller identity and then refuse before effect instead of inheriting MCU's bare-PID taskpolicy race. Linux scheduling and Windows power/priority models remain explicitly non-equivalent.",
-      "next": "rerun the registered public qjswasm court on Linux and Windows; revisit mutation only for an ACU-owned child whose retained spawn authority can consume a policy before exec"
-    },
+        {
+          "id": "process.policy.observe",
+          "mcu_shape": "process policy PID status",
+          "acu_shape": "process-policy --pid N status",
+          "state": "platform-limited",
+          "platforms": {
+            "macos": "exact-proc-pidinfo-observation with one stable process start identity",
+            "linux": "typed-not-applicable",
+            "windows": "typed-not-applicable"
+          },
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "typed-not-applicable-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-process-policy-smoke", "evidence": ["cu.process-policy"]},
+              "windows": {"result": "pending", "blocker_code": "typed-not-applicable-court-not-run"}
+            }
+          },
+          "evidence": ["cu.process-policy"],
+          "note": "The macOS provider brackets the public Darwin background flags with one stable process start identity and proves background equals the union of Darwin and external background state. Linux and Windows retain their distinct process-policy models instead of borrowing this Darwin observation.",
+          "next": "run the registered typed not-applicable court on Linux and Windows"
+        },
+        {
+          "id": "process.policy.mutate",
+          "mcu_shape": "process policy PID background|normal",
+          "acu_shape": "process-policy --pid N --start-identity ID background|normal",
+          "state": "platform-limited",
+          "platforms": {
+            "macos": "typed exact-authority refusal before mutation",
+            "linux": "typed-not-applicable",
+            "windows": "typed-not-applicable"
+          },
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "typed-not-applicable-court-not-run"},
+              "macos": {
+                "result": "typed-intentional-retirement",
+                "gate": "cu-process-policy-smoke",
+                "evidence": ["cu.process-policy"],
+                "error_code": "process_policy_exact_authority_unavailable",
+                "rationale": "A normal process cannot retain the Mach task authority required for an exact policy mutation, so ACU rejects before effect instead of inheriting MCU's bare-PID race."
+              },
+              "windows": {"result": "pending", "blocker_code": "typed-not-applicable-court-not-run"}
+            }
+          },
+          "evidence": ["cu.process-policy"],
+          "note": "The macOS command verifies the supplied process start identity and then refuses before effect because the required retained Mach task port is unavailable. The observe qualification is owned independently by process.policy.observe; Linux scheduling and Windows power or priority models remain explicitly non-equivalent.",
+          "next": "run the registered typed not-applicable court on Linux and Windows; revisit macOS mutation only for an ACU-owned child whose retained spawn authority can consume a policy before its first user instruction"
+        },
         {
           "id": "process.cgroup",
           "mcu_shape": "process cgroup PID",

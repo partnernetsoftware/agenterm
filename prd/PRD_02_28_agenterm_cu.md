@@ -1623,17 +1623,19 @@ flowchart LR
   `process_cgroup_not_applicable` result. Linux x86_64/aarch64 native courts and
   the Windows typed-not-applicable court remain before this leaf is complete.
 
-- [~] `process policy ... status|background|normal` is now one explicit
-  platform-limited contract rather than a weaker PID-racy port. Status brackets
-  one public macOS `proc_pidinfo` flag read with equal start identities. A
+- [~] `process policy ... status|background|normal` is now two explicit
+  platform-limited contracts rather than one mixed or weaker PID-racy port.
+  `process.policy.observe` brackets one public macOS `proc_pidinfo` flag read
+  with equal start identities and is native-qualified on macOS. A
   precommitted native experiment then proved that a normal macOS process cannot
   obtain the Mach task port required for an exact effect, even for its direct
-  child. Therefore `background|normal` verify caller intent and return
+  child. Therefore `process.policy.mutate` verifies caller intent and returns
   `process_policy_exact_authority_unavailable` with `effect=not_performed`;
-  they never invoke `taskpolicy -p PID`. Linux and Windows return typed
-  not-applicable results instead of translating unrelated scheduling, priority
-  or power semantics. The public qjswasm court is registered; Linux and Windows
-  native reruns remain.
+  it is intentionally retired on macOS and never invokes `taskpolicy -p PID`.
+  Linux and Windows retain pending typed-not-applicable reruns instead of
+  translating unrelated scheduling, priority or power semantics. The same
+  registered public qjswasm court independently proves the observation and
+  pre-effect-refusal branches.
 
 ```mermaid
 flowchart LR
