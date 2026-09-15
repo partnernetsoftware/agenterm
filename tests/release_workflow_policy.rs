@@ -328,7 +328,15 @@ fn qjswasm_adversarial_tests_are_an_explicit_full_gate_subcourt() {
     assert!(CHECK_QJS.contains("\"-p\", \"agenterm-qjswasm\""));
     assert!(CHECK_QJS.contains("\"--test\", \"door_attack\", \"--test\", \"seam_attack\""));
     assert!(CHECK_QJS.contains("cargo_unit_qjswasm_adversarial_spec(build_environment)"));
-    assert!(CHECK_QJS.contains("gate = run_gate_five(\n  context, timing, \"unit-tests\""));
+    assert!(CHECK_QJS.contains("gate = run_gate_specs(\n  context, timing, \"unit-tests\""));
+}
+
+#[test]
+fn qjswasm_tool_door_tests_are_an_explicit_full_gate_subcourt() {
+    assert!(CHECK_QJS.contains("function cargo_unit_qjswasm_tool_door_spec(environment)"));
+    assert!(CHECK_QJS.contains("\"-p\", \"agenterm-qjswasm\", \"--test\", \"tool_door\""));
+    assert!(CHECK_QJS.contains("cargo_unit_qjswasm_tool_door_spec(build_environment)"));
+    assert!(CHECK_QJS.contains("gate = run_gate_specs(\n  context, timing, \"unit-tests\""));
 }
 
 #[test]
@@ -336,7 +344,7 @@ fn sql_engine_tests_are_an_explicit_full_gate_subcourt() {
     assert!(CHECK_QJS.contains("function cargo_unit_sql_spec(environment)"));
     assert!(CHECK_QJS.contains("\"test\", \"--quiet\", \"--locked\", \"-p\", \"agenterm-sql\""));
     assert!(CHECK_QJS.contains("cargo_unit_sql_spec(build_environment)"));
-    assert!(CHECK_QJS.contains("gate = run_gate_five(\n  context, timing, \"unit-tests\""));
+    assert!(CHECK_QJS.contains("gate = run_gate_specs(\n  context, timing, \"unit-tests\""));
 }
 
 #[test]
@@ -344,7 +352,7 @@ fn lua_engine_tests_are_an_explicit_full_gate_subcourt() {
     assert!(CHECK_QJS.contains("function cargo_unit_lua_spec(environment)"));
     assert!(CHECK_QJS.contains("\"test\", \"--quiet\", \"--locked\", \"-p\", \"agenterm-lua\""));
     assert!(CHECK_QJS.contains("cargo_unit_lua_spec(build_environment)"));
-    assert!(CHECK_QJS.contains("gate = run_gate_five(\n  context, timing, \"unit-tests\""));
+    assert!(CHECK_QJS.contains("gate = run_gate_specs(\n  context, timing, \"unit-tests\""));
 }
 
 #[test]
@@ -763,7 +771,7 @@ fn qualification_recreates_owned_scratch_after_a_gate_cleans_target() {
 fn retryable_smoke_finalizes_its_canonical_timing_state_once() {
     let first_attempt = CHECK_QJS
         .split_once("function run_gate_retryable_first(")
-        .and_then(|(_, tail)| tail.split_once("\nfunction run_gate_two("))
+        .and_then(|(_, tail)| tail.split_once("\nfunction run_gate_specs("))
         .map(|(body, _)| body)
         .expect("retryable first-attempt helper");
     assert!(first_attempt.contains("all_output, 0)"));

@@ -334,6 +334,13 @@ function cargo_unit_qjswasm_adversarial_spec(environment) {
   ], 300000, environment, 0);
 }
 
+function cargo_unit_qjswasm_tool_door_spec(environment) {
+  return spec("cargo", [
+    "test", "--quiet", "--locked",
+    "-p", "agenterm-qjswasm", "--test", "tool_door"
+  ], 300000, environment, 0);
+}
+
 function cargo_unit_sql_spec(environment) {
   return spec("cargo", [
     "test", "--quiet", "--locked", "-p", "agenterm-sql"
@@ -653,33 +660,23 @@ function run_gate_retryable_first(context, timing, id, label, command_spec, repo
   return { context: context, timing: timing, sequence: step.sequence };
 }
 
-function run_gate_two(context, timing, id, label, first_spec, second_spec, repo, scratch, sequence) {
+function run_gate_specs(context, timing, id, label, command_specs, repo, scratch, sequence) {
   print("\n==> " + label);
   const started = rh.now_ms();
   const all_output = [];
-  let step = run_gate_step(context, timing, id, label, first_spec, repo, scratch, sequence, started, all_output, 1);
-  step = run_gate_step(context, timing, id, label, second_spec, repo, scratch, step.sequence, started, all_output, 1);
+  let next_sequence = sequence;
+  for (const command_spec of command_specs) {
+    const step = run_gate_step(
+      context, timing, id, label, command_spec,
+      repo, scratch, next_sequence, started, all_output, 1
+    );
+    next_sequence = step.sequence;
+  }
   const duration = rh.now_ms() - started;
   qualification.add_result(context, id, "passed", duration, all_output);
   qualification.timing_set_gate(timing, id, "passed", duration, 0, false);
   print("PASS: " + label + " (" + duration + " ms)");
-  return { context: context, timing: timing, sequence: step.sequence };
-}
-
-function run_gate_five(context, timing, id, label, first_spec, second_spec, third_spec, fourth_spec, fifth_spec, repo, scratch, sequence) {
-  print("\n==> " + label);
-  const started = rh.now_ms();
-  const all_output = [];
-  let step = run_gate_step(context, timing, id, label, first_spec, repo, scratch, sequence, started, all_output, 1);
-  step = run_gate_step(context, timing, id, label, second_spec, repo, scratch, step.sequence, started, all_output, 1);
-  step = run_gate_step(context, timing, id, label, third_spec, repo, scratch, step.sequence, started, all_output, 1);
-  step = run_gate_step(context, timing, id, label, fourth_spec, repo, scratch, step.sequence, started, all_output, 1);
-  step = run_gate_step(context, timing, id, label, fifth_spec, repo, scratch, step.sequence, started, all_output, 1);
-  const duration = rh.now_ms() - started;
-  qualification.add_result(context, id, "passed", duration, all_output);
-  qualification.timing_set_gate(timing, id, "passed", duration, 0, false);
-  print("PASS: " + label + " (" + duration + " ms)");
-  return { context: context, timing: timing, sequence: step.sequence };
+  return { context: context, timing: timing, sequence: next_sequence };
 }
 
 function run_quick_gate(timing, id, label, command_spec, repo, scratch, sequence) {
@@ -1209,10 +1206,12 @@ if (release !== 0) {
   sequence = gate.sequence;
 }
 
-let lint_gate = run_gate_two(
+let lint_gate = run_gate_specs(
   context, timing, "repo-lint", "repository static lint",
-  task(bootstrap_worker, repo, "lint", 300000, [lint_worker, "--self-test"], empty_environment(), 0),
-  task(bootstrap_worker, repo, "lint", 300000, [lint_worker, "static"], empty_environment(), 0),
+  [
+    task(bootstrap_worker, repo, "lint", 300000, [lint_worker, "--self-test"], empty_environment(), 0),
+    task(bootstrap_worker, repo, "lint", 300000, [lint_worker, "static"], empty_environment(), 0)
+  ],
   repo, scratch, sequence
 );
 sequence = lint_gate.sequence;
@@ -1242,13 +1241,16 @@ gate = run_gate(
   repo, scratch, sequence
 );
 sequence = gate.sequence;
-gate = run_gate_five(
+gate = run_gate_specs(
   context, timing, "unit-tests", "unit tests",
-  cargo_unit_primary_spec(build_environment),
-  cargo_unit_powershell_compat_spec(build_environment),
-  cargo_unit_qjswasm_adversarial_spec(build_environment),
-  cargo_unit_sql_spec(build_environment),
-  cargo_unit_lua_spec(build_environment),
+  [
+    cargo_unit_primary_spec(build_environment),
+    cargo_unit_powershell_compat_spec(build_environment),
+    cargo_unit_qjswasm_adversarial_spec(build_environment),
+    cargo_unit_qjswasm_tool_door_spec(build_environment),
+    cargo_unit_sql_spec(build_environment),
+    cargo_unit_lua_spec(build_environment)
+  ],
   repo, scratch, sequence
 );
 sequence = gate.sequence;
