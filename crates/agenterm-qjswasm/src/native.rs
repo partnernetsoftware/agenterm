@@ -2286,10 +2286,13 @@ fn map_abi_error(spec: &NativeSpec, error: agenterm_dyn::AbiError) -> NativeDoor
                 actual,
             }
         }
-        agenterm_dyn::AbiError::ArgumentShape { index, .. } => spec
+        agenterm_dyn::AbiError::ArgumentShape {
+            index, expected, ..
+        } => spec
             .parameters
             .get(index)
             .copied()
+            .filter(|ty| abi_type(*ty) == Some(expected))
             .map(|ty| NativeDoorError::ArgumentValueInvalid { index, ty })
             .unwrap_or_else(|| unsupported_json_spec(spec)),
         agenterm_dyn::AbiError::LibraryLoad { library, message } => {
@@ -2360,6 +2363,30 @@ mod json_adapter_tests {
             NativeDoorError::ArgumentValueInvalid {
                 index: 1,
                 ty: NativeType::U64,
+            }
+        );
+    }
+
+    #[test]
+    fn dyn_argument_shape_refuses_a_disagreement_with_the_original_spec() {
+        let spec = NativeSpec {
+            library: String::new(),
+            symbol: "probe".to_owned(),
+            result: NativeType::I32,
+            parameters: vec![NativeType::I32],
+        };
+        assert_eq!(
+            map_abi_error(
+                &spec,
+                agenterm_dyn::AbiError::ArgumentShape {
+                    index: 0,
+                    expected: agenterm_dyn::AbiType::U64,
+                    actual: agenterm_dyn::AbiType::I32,
+                },
+            ),
+            NativeDoorError::InvocationSignatureUnsupported {
+                result: NativeType::I32,
+                parameters: vec![NativeType::I32],
             }
         );
     }
