@@ -3049,9 +3049,9 @@ flowchart LR
   C -->|macOS + Linux green| M["platform-limited"]
   C -->|Windows also green| V["native device leaf"]
 ```
-- [~] `device-screenshot` is now an integrated current-target leaf, with live
-  promotion still waiting on a non-sensitive PNG capture court from the fixed
-  installed identity. Its classifier must
+- [~] `device-screenshot` is now accounted as separate inventory and capture
+  leaves. The inventory leaf is qualified; live capture still waits on a
+  non-sensitive PNG court from the fixed installed identity. Its classifier must
   never infer a phone
   trust/lock fault from an empty host capture inventory. Preflight separates
   host Camera TCC, usbmux availability/pairing, DAL source publication and
