@@ -3222,7 +3222,7 @@ mod tests {
     fn a_backwards_clock_reading_is_not_an_expiry() {
         let started = Instant::now() + Duration::from_millis(500);
         let earlier = Instant::now();
-        assert_eq!(scan_deadline_exceeded(started, earlier, 10_000), false);
+        assert!(!scan_deadline_exceeded(started, earlier, 10_000));
     }
 
     #[test]

@@ -280,7 +280,7 @@ fn a_matching_prefix_split_across_read_chunks_is_still_a_match() {
     // A filler line ends just before the boundary, so the next line's prefix
     // begins three bytes before byte 8192 and its tail lands in the following
     // chunk. The prefix itself -- not a mid-line byte -- is what straddles.
-    let mut text = String::from("x".repeat(8188));
+    let mut text = "x".repeat(8188);
     text.push('\n');
     text.push_str("EVIDENCE straddles.chunk\n");
     text.push_str("EVIDENCE after.one\n");
