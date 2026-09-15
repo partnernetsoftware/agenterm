@@ -20,6 +20,7 @@
 // whole matrix instead of stopping at the first red. A failure is never silent:
 // the summary marks it FAIL and the task throws at the end.
 import * as rh from "lib/rh_compat";
+import * as artifact_files from "lib/artifact_files";
 
 // The glibc floor is measured, not chosen for roundness. 2.17 -- the usual
 // "oldest thing anyone still runs" number -- does not link: this tree calls
@@ -67,6 +68,44 @@ function artifact_paths(stdout_text) {
   return paths;
 }
 
+function basename_of(value) {
+  const pieces = ("" + value).replaceAll("\\", "/").split("/");
+  return "" + pieces[pieces.length - 1];
+}
+
+function declared_names(platform) {
+  const names = [];
+  for (const executable of platform.executables) {
+    names.push(artifact_files.cargo_file_name("" + executable.name));
+  }
+  for (const library of platform.libraries) {
+    names.push(artifact_files.cargo_file_name("" + library.name));
+  }
+  return names;
+}
+
+function same_names(left, right) {
+  if (left.length !== right.length) { return false; }
+  for (const value of left) {
+    if (!rh.array_has(right, value)) { return false; }
+  }
+  return true;
+}
+
+// Architecture is not encoded in artifact names, so the two cells for one OS
+// legitimately share a set. No distinct declared set may be a proper subset of
+// another; the Quick policy test owns that premise.
+function require_declared_set(manifest, collected, target) {
+  let matches = 0;
+  for (const platform of manifest.platforms) {
+    if (same_names(declared_names(platform), collected)) { matches = matches + 1; }
+  }
+  rh.require(
+    matches > 0,
+    "build_all_artifact_set_unmatched:" + target + ":collected=" + collected.length
+  );
+}
+
 const args = rh.args();
 rh.require(args.length >= 1, "expected: REPO [PROFILE]");
 const repo = rh.absolute(args[0]);
@@ -84,6 +123,7 @@ if (args.length >= 2) {
 rh.require(env_has("AGENTERM_BOOTSTRAP_WORKER") === 1, "build_all_bootstrap_worker_missing");
 const worker = rh.absolute(rh.env_or("AGENTERM_BOOTSTRAP_WORKER", ""));
 const task_manifest = rh.join(repo, "agenterm.tasks.json");
+const artifact_manifest = rh.parse_file(rh.join(repo, "scripts/artifacts.json"));
 
 const output_root = rh.join(repo, "target/qualification/six-cell");
 rh.create_dir_all(output_root);
@@ -129,15 +169,19 @@ for (const cell of cells) {
     results.push({ target: target, driver: driver, state: "FAIL", artifacts: [] });
   } else {
     const hashed = [];
+    const collected = [];
     for (const path of artifact_paths(stdout_text)) {
       const artifact_path = "" + path;
       rh.require(
         rh.exists(artifact_path),
         "build_all_listed_artifact_missing:" + target + ":" + artifact_path
       );
+      collected.push(basename_of(artifact_path));
       hashed.push({ path: artifact_path, sha256: rh.sha256_file(artifact_path) });
     }
+    rh.require(output.stdout_truncated !== true, "build_all_capture_truncated:" + target);
     rh.require(hashed.length > 0, "build_all_no_artifacts:" + target);
+    require_declared_set(artifact_manifest, collected, target);
     print("six-cell: PASS " + target + " (" + hashed.length + " artifacts)");
     results.push({ target: target, driver: driver, state: "PASS", artifacts: hashed });
   }

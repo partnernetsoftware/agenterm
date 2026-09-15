@@ -31,6 +31,8 @@ static SIX_CELL_RUNNERS: LazyLock<serde_json::Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../scripts/six-cell-runners.json"))
         .expect("scripts/six-cell-runners.json must remain valid JSON")
 });
+static SIX_CELL_QUALIFY_QJS: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/qjs/six-cell-qualify.qjs").replace("\r\n", "\n"));
 static BUILD_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/build.qjs").replace("\r\n", "\n"));
 static BUILD_ALL_QJS: LazyLock<String> =
@@ -1268,6 +1270,10 @@ fn six_cell_build_listing_names_cargo_files_and_requires_every_listed_artifact()
     assert!(BUILD_QJS.contains("\"Built client artifacts [\""));
     assert!(!BUILD_QJS.contains("rh.join(profile_directory, executable.name)"));
     assert!(BUILD_ALL_QJS.contains("build_all_listed_artifact_missing:"));
+    assert!(BUILD_ALL_QJS.contains("build_all_artifact_set_unmatched:"));
+    assert!(BUILD_ALL_QJS.contains("artifact_files.cargo_file_name"));
+    assert!(BUILD_ALL_QJS.contains("output.stdout_truncated"));
+    assert!(!BUILD_ALL_QJS.contains("matches === 1"));
     assert!(!BUILD_ALL_QJS.contains("if (rh.exists(artifact_path))"));
     assert!(BUILD_ALL_QJS.contains("startsWith(\"Built client artifacts [\")"));
     assert!(BUILD_ALL_QJS.contains("rh.is_absolute(path)"));
@@ -1322,6 +1328,58 @@ fn six_cell_build_listing_names_cargo_files_and_requires_every_listed_artifact()
 }
 
 #[test]
+fn six_cell_declared_artifact_sets_reject_partial_listings() {
+    let platforms = ARTIFACTS["platforms"]
+        .as_array()
+        .expect("platform list must be an array");
+    let mut declared = Vec::new();
+    for platform in platforms {
+        let label = format!(
+            "{}-{}",
+            platform["os"].as_str().expect("platform os must be text"),
+            platform["arch"]
+                .as_str()
+                .expect("platform arch must be text")
+        );
+        let mut names = Vec::new();
+        for key in ["executables", "libraries"] {
+            for entry in platform[key]
+                .as_array()
+                .expect("declared artifacts must be an array")
+            {
+                let name = entry["name"].as_str().expect("artifact name must be text");
+                names.push(match name {
+                    "agenterm.com" => "agenterm-com.exe".to_owned(),
+                    other => other.to_owned(),
+                });
+            }
+        }
+        declared.push((label, names));
+    }
+
+    for (label, names) in &declared {
+        let distinct: std::collections::BTreeSet<&String> = names.iter().collect();
+        assert_eq!(distinct.len(), names.len(), "{label} declares a duplicate");
+    }
+    for (outer, outer_names) in &declared {
+        let outer_set: std::collections::BTreeSet<&String> = outer_names.iter().collect();
+        for (inner, inner_names) in &declared {
+            if outer == inner {
+                continue;
+            }
+            let inner_set: std::collections::BTreeSet<&String> = inner_names.iter().collect();
+            if outer_set == inner_set {
+                continue;
+            }
+            assert!(
+                !outer_set.is_subset(&inner_set),
+                "{outer} is a proper subset of {inner}; a partial listing could match it"
+            );
+        }
+    }
+}
+
+#[test]
 fn six_cell_build_all_covers_every_declared_artifact_platform() {
     let start = BUILD_ALL_QJS
         .find("const cells = [")
@@ -1367,6 +1425,12 @@ fn six_cell_delivery_documents_the_profile_directory_it_reads() {
     assert!(
         PACKAGE_SIX_CELL_QJS.contains("rh.join(rh.join(rh.join(repo, \"target\"), target), leaf)")
     );
+    assert!(SIX_CELL_QUALIFY_QJS.contains("let leaf = profile;"));
+    assert!(SIX_CELL_QUALIFY_QJS.contains("if (profile === \"dev\") { leaf = \"debug\"; }"));
+    assert!(!SIX_CELL_QUALIFY_QJS.contains("profile === \"release-fast\""));
+    assert!(PACKAGE_SIX_CELL_QJS.contains("if (profile === \"dev\") { return \"debug\"; }"));
+    assert!(PACKAGE_SIX_CELL_QJS.contains("return profile;"));
+    assert!(!PACKAGE_SIX_CELL_QJS.contains("profile === \"release-fast\""));
 }
 
 #[test]
