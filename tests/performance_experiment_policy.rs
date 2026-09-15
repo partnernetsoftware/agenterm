@@ -125,6 +125,14 @@ fn summary_requires_one_ordered_experiment_run() {
     assert!(SUMMARY.contains("experiment_run_id: experiment_run_id"));
     assert!(WORKFLOW.contains("@if errorlevel 1 exit /b 1"));
     assert!(WORKFLOW.contains("cli script task run performance-summary"));
+    assert!(SUMMARY.contains("PERFORMANCE_SUMMARY \" + experiment_run_id"));
+    let write_at = SUMMARY
+        .find("rh.atomic_write(output,")
+        .expect("output write");
+    let receipt_at = SUMMARY
+        .find("PERFORMANCE_SUMMARY")
+        .expect("performance summary receipt");
+    assert!(receipt_at > write_at, "the receipt must follow the write");
 }
 
 #[test]

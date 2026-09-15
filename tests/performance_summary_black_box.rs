@@ -183,14 +183,18 @@ fn performance_summary_accepts_one_run_and_rejects_misattributed_samples() {
         write_stats(path, &number_stats());
     }
 
+    let valid_path = root.0.join("valid.json");
     let valid = run_summary(
-        &root.0.join("valid.json"),
+        &valid_path,
         "target",
         [&timings[0], &timings[1], &timings[2]],
         [&stats[0], &stats[1], &stats[2]],
     );
     assert!(valid.status.success(), "{}", diagnostic(&valid));
-    assert!(root.0.join("valid.json").is_file());
+    assert!(valid_path.is_file());
+    let receipt = String::from_utf8_lossy(&valid.stdout);
+    assert!(receipt.contains("PERFORMANCE_SUMMARY "));
+    assert!(receipt.contains(&valid_path.display().to_string()));
 
     write_timing(&timings[1], "perf-fixture-B", "2026-09-16T00:00:01Z", 101);
     let mixed = run_summary(

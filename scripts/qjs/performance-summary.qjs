@@ -304,5 +304,6 @@ if (step_summary !== "") {
 } else {
   print(markdown);
 }
+print("PERFORMANCE_SUMMARY " + experiment_run_id + " " + output);
 
 return;
