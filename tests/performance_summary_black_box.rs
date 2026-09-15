@@ -480,3 +480,56 @@ fn performance_summary_accepts_one_run_and_rejects_misattributed_samples() {
     assert!(diagnostic(&step_collision).contains("performance_summary_output_is_step_summary"));
     assert!(!step_summary.exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn performance_summary_refuses_a_symlinked_output_without_mutating_it() {
+    use std::os::unix::fs::symlink;
+
+    let root = FixtureRoot::new();
+    let timings = [
+        root.0.join("timing-1.json"),
+        root.0.join("timing-2.json"),
+        root.0.join("timing-3.json"),
+    ];
+    let stats = [
+        root.0.join("stats-1.json"),
+        root.0.join("stats-2.json"),
+        root.0.join("stats-3.json"),
+    ];
+    for (index, path) in timings.iter().enumerate() {
+        write_timing(
+            path,
+            "perf-fixture-symlink",
+            &format!("2026-09-16T00:00:0{index}Z"),
+            100 + index as u64,
+        );
+    }
+    for path in &stats {
+        write_stats(path, &number_stats());
+    }
+
+    let target = root.0.join("real-output.json");
+    let link = root.0.join("output-link.json");
+    fs::write(&target, "sentinel\n").expect("write symlink target");
+    symlink(&target, &link).expect("create output symlink");
+
+    let output = run_summary(
+        &link,
+        "target",
+        [&timings[0], &timings[1], &timings[2]],
+        [&stats[0], &stats[1], &stats[2]],
+    );
+    assert!(!output.status.success());
+    assert!(diagnostic(&output).contains("performance_summary_output_not_direct_file:"));
+    assert_eq!(
+        fs::read_to_string(&target).expect("read symlink target"),
+        "sentinel\n"
+    );
+    assert!(
+        fs::symlink_metadata(&link)
+            .expect("read output symlink")
+            .file_type()
+            .is_symlink()
+    );
+}

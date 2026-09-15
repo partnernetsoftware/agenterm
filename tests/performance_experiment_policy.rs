@@ -118,6 +118,9 @@ fn summary_requires_one_ordered_experiment_run() {
     assert!(SUMMARY.contains("performance_summary_output_is_step_summary"));
     assert!(SUMMARY.contains("path !== output"));
     assert!(SUMMARY.contains("stats_path !== output"));
+    assert!(SUMMARY.contains("performance_summary_output_not_direct_file:"));
+    assert!(SUMMARY.contains("rh.is_direct_file(output)"));
+    assert!(SUMMARY.contains("if (rh.exists(output))"));
     assert!(SUMMARY.contains("previous_completed <= completed"));
     assert!(SUMMARY.contains("experiment_run_id: experiment_run_id"));
     assert!(WORKFLOW.contains("@if errorlevel 1 exit /b 1"));

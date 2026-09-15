@@ -274,6 +274,12 @@ const summary = {
   warm_speedup_percent: warm_speedup_percent,
   sccache: sccache_block
 };
+if (rh.exists(output)) {
+  rh.require(
+    rh.is_direct_file(output),
+    "performance_summary_output_not_direct_file:" + output
+  );
+}
 rh.atomic_write(output, rh.stringify_pretty(summary) + "\n");
 
 const markdown =
