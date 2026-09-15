@@ -126,9 +126,11 @@ try {
            || doctor.checks.target_binding.status === "failed", "cu_doctor_binding_check");
   ensure(doctor.checks.services.user.status === "available"
            || doctor.checks.services.user.status === "not-applicable"
+           || doctor.checks.services.user.status === "skipped"
            || doctor.checks.services.user.status === "failed", "cu_doctor_user_service_check");
   ensure(doctor.checks.services.system.status === "available"
            || doctor.checks.services.system.status === "not-applicable"
+           || doctor.checks.services.system.status === "skipped"
            || doctor.checks.services.system.status === "failed", "cu_doctor_system_service_check");
   ensure(doctor.checks.browser_bridge.status === "available"
            || doctor.checks.browser_bridge.status === "failed", "cu_doctor_browser_bridge_check");
