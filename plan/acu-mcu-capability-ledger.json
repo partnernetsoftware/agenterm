@@ -2397,7 +2397,7 @@
           "acu_shape": "permissions returns the current platform permission model, gated verbs and repair guidance; capabilities embeds the identical declaration",
           "state": "delegated",
           "qualification": "direct-cli-contract-present-host-journeys-partial",
-          "evidence": ["cu.permissions-open.contract", "agenterm-cu permissions unit and local public CLI"],
+          "evidence": ["cu.permissions-status.contract", "agenterm-cu permissions unit and local public CLI"],
           "next": "prove every affected verb and required/optional classification on macOS, Linux and Windows"
         },
         {
@@ -2415,7 +2415,7 @@
             }
           },
           "evidence": ["cu.permissions-open.contract", "agenterm-platform permission-settings feature tests"],
-          "note": "Default-next orders required Accessibility before optional Screen Capture and refuses unknown status instead of guessing. An already-granted macOS permission is a verified no-op, while a missing permission follows the same command into one exact visible pane; these are state-dependent outcomes rather than independently selectable capabilities. On a macOS host with neither inspected permission already granted, the no-visible-UI court explicitly skips the open call, so its evidence proves only read-only status there and never qualifies visible dispatch. Opening System Settings proves dispatcher acceptance only; it does not grant, bypass or verify user consent. Linux and Windows public journeys directly call open and prove their distinct typed boundaries without visible dispatch.",
+          "note": "Default-next orders required Accessibility before optional Screen Capture and refuses unknown status instead of guessing. An already-granted macOS permission is a verified no-op, while a missing permission follows the same command into one exact visible pane; these are state-dependent outcomes rather than independently selectable capabilities. On a macOS host with neither inspected permission already granted, the no-visible-UI court emits only cu.permissions-status.contract and withholds cu.permissions-open.contract because it skipped the open call; the status token does not qualify visible dispatch. Opening System Settings proves dispatcher acceptance only; it does not grant, bypass or verify user consent. Linux and Windows public journeys directly call open and prove their distinct typed boundaries without visible dispatch.",
           "next": "prove a denied macOS permission opens the exact pane under an explicit native court"
         },
         {

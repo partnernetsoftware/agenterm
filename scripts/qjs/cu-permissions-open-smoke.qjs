@@ -5,7 +5,10 @@
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
-const declared_evidence = ["cu.permissions-open.contract"];
+const declared_evidence = [
+  "cu.permissions-status.contract",
+  "cu.permissions-open.contract",
+];
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -41,6 +44,7 @@ const context = harness.new_context(repo, "cu-permissions-open");
 const run_directory = context.run_directory;
 let succeeded = 0;
 let failure = "";
+let open_contract_proven = 0;
 
 try {
   print("STEP status is read-only and names the platform permission model");
@@ -67,6 +71,7 @@ try {
         "cu_permissions_noop_performed");
       ensure(opened.reply.data.already_granted === true && opened.reply.data.verified === true,
         "cu_permissions_noop_not_verified");
+      open_contract_proven = 1;
     }
   } else {
     print("STEP non-macOS does not invent a generic consent pane");
@@ -83,6 +88,7 @@ try {
     } else {
       throw "cu_permissions_unknown_platform:" + platform;
     }
+    open_contract_proven = 1;
   }
   succeeded = 1;
 } catch (error) {
@@ -93,9 +99,16 @@ let completion_failure = "";
 try { harness.complete_children(context, [], succeeded !== 0, failure); }
 catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
-  harness.emit_evidence(context, declared_evidence, "cu.permissions-open.contract");
+  harness.emit_evidence(context, declared_evidence, "cu.permissions-status.contract");
+  if (open_contract_proven !== 0) {
+    harness.emit_evidence(context, declared_evidence, "cu.permissions-open.contract");
+  }
   harness.remove_run(context);
-  print("PASS: permission status and no-UI settings-dispatch contract");
+  if (open_contract_proven !== 0) {
+    print("PASS: permission status and no-UI settings-dispatch contract");
+  } else {
+    print("PASS: permission status contract; open contract not emitted because no already-granted macOS permission was available for the no-UI branch");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

@@ -1105,6 +1105,7 @@
     {
       "id": "cu-permissions-open-smoke",
       "evidence": [
+        "cu.permissions-status.contract",
         "cu.permissions-open.contract"
       ]
     },

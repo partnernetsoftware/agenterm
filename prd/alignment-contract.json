@@ -529,6 +529,7 @@
         "cu.host-open.linux",
         "cu.host-open.windows",
         "cu.linux-app-launch",
+        "cu.permissions-status.contract",
         "cu.permissions-open.contract",
         "cu.host-notify.macos",
         "cu.host-notify.linux",
