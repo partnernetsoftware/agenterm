@@ -289,7 +289,8 @@ mechanisms remain behind the `libagenterm` runtime boundary.
   dynamic-stay witness rows keep their stable repair identities. A public black-box
   compatibility court additionally proves 2 known argument-sensitive legacy shapes
   return `ACU_CAPABILITY_TODO` with their exact `gap_id` instead of falling through to
-  naked native `usage`; the archived raw-path device lifecycle instead returns one
+  naked native `usage`; an unknown direct rewrite verb remains local usage rather than
+  inventing an unassigned capability gap. The archived raw-path device lifecycle instead returns one
   explicit typed retirement with its opaque-id and explicit-session migration, while
   unknown verbs and misspelled subcommands deliberately remain
   ordinary usage errors. The `.050` witness now

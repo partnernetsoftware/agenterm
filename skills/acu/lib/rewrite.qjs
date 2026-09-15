@@ -817,5 +817,5 @@ export function rewrite(input) {
     if (handle === null) { return usage("tree", "tree needs HANDLE or --window"); }
     return exec(joined(["tree", "--window", handle], flags, rest));
   }
-  return todo("acu.rewrite.unassigned", verb, "legacy shape is not in the first rewrite wave");
+  return usage(verb, "unknown legacy command");
 }
