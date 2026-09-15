@@ -535,6 +535,7 @@
         "cu.runtime-status",
         "cu.device-inventory",
         "cu.device-screenshot-inventory",
+        "cu.device-screenshot-capture-refusal",
         "cu.device-watch",
         "cu.device-lease",
         "cu.device-serial-preserve",

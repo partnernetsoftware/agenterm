@@ -1146,6 +1146,12 @@
       ]
     },
     {
+      "id": "cu-device-screenshot-capture-refusal-smoke",
+      "evidence": [
+        "cu.device-screenshot-capture-refusal"
+      ]
+    },
+    {
       "id": "cu-device-watch-smoke",
       "evidence": [
         "cu.device-watch"

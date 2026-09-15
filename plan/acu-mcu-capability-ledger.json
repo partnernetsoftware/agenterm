@@ -2011,8 +2011,9 @@
               "windows": {"result": "pending", "blocker_code": "typed-not-applicable-capture-court-not-run"}
             }
           },
-          "next": "run one non-sensitive public-CLI PNG capture court from the fixed installed app identity, then qualify the macOS cell; separately prove exact pre-filesystem refusal on Linux and Windows",
-          "note": "No registered public evidence currently qualifies PNG capture. The inventory evidence deliberately calls only --list and must not be cited as capture evidence. Host Camera TCC belongs to the fixed signed application identity; usbmux pairing, DAL source publication and stream/frame delivery remain distinct typed stages, and only an enumerated target plus direct evidence may produce a device-specific failure. The macOS adapter never requests consent, frame timeout remains generic, PNG bytes are capped at 64 MiB and are atomically published without overwrite or stdout disclosure. Worktree binaries are development-only; the daily automation identity must be fixed-path, promoted and signed."
+          "evidence": ["cu.device-screenshot-capture-refusal"],
+          "next": "run the dedicated --out refusal court on Linux and Windows, then record each exact typed boundary; separately run one non-sensitive public-CLI PNG capture court from the fixed installed app identity and qualify the macOS cell",
+          "note": "The dedicated Linux/Windows refusal court calls --out directly and requires device_capture_unsupported before destination or effect-receipt publication; it does not reuse the inventory evidence. Its two platform cells remain pending until that court runs on each native host. No registered public evidence currently qualifies PNG capture on macOS. Host Camera TCC belongs to the fixed signed application identity; usbmux pairing, DAL source publication and stream/frame delivery remain distinct typed stages, and only an enumerated target plus direct evidence may produce a device-specific failure. The macOS adapter never requests consent, frame timeout remains generic, PNG bytes are capped at 64 MiB and are atomically published without overwrite or stdout disclosure. Worktree binaries are development-only; the daily automation identity must be fixed-path, promoted and signed."
         },
         {
           "id": "audio.default-output.observe",

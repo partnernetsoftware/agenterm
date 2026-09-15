@@ -1,0 +1,111 @@
+// Public non-macOS court for the `device-screenshot --out` refusal contract.
+// It calls the capture shape directly and proves refusal precedes filesystem
+// publication. macOS live capture belongs to its fixed-identity court.
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.device-screenshot-capture-refusal"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function host_platform() {
+  if (harness.host_is_windows()) { return "windows"; }
+  const uname = rh.command("uname", ["-s"], { timeout_ms: 10000 });
+  ensure(uname.success === true, "cu_device_screenshot_capture_refusal_uname_failed");
+  if (uname.stdout.trim() === "Darwin") { return "macos"; }
+  ensure(uname.stdout.trim() === "Linux",
+         "cu_device_screenshot_capture_refusal_host_unsupported");
+  return "linux";
+}
+
+function isolated_env(run_directory, receipt_path) {
+  return {
+    HOME: run_directory,
+    USERPROFILE: run_directory,
+    APPDATA: rh.join(run_directory, "config"),
+    LOCALAPPDATA: rh.join(run_directory, "data"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: receipt_path,
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json")
+  };
+}
+
+function invoke(run_directory, executable, destination, receipt_path) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+    "device-screenshot", "--out", destination, "--timeout-ms", "1000"
+  ], {
+    cwd: run_directory,
+    env: isolated_env(run_directory, receipt_path),
+    timeout_ms: 30000
+  });
+  const stdout = output.stdout.trim();
+  ensure(stdout !== "", "cu_device_screenshot_capture_refusal_empty:" + output.stderr);
+  const reply = JSON.parse(stdout);
+  ensure(reply.command === "device-screenshot" && reply.target === "current",
+         "cu_device_screenshot_capture_refusal_identity");
+  ensure(output.success !== true && reply.ok !== true,
+         "cu_device_screenshot_capture_refusal_false_success:" + stdout);
+  ensure(reply.data === undefined,
+         "cu_device_screenshot_capture_refusal_data");
+  ensure(reply.error !== undefined
+         && reply.error.code === "device_capture_unsupported",
+         "cu_device_screenshot_capture_refusal_code:" + stdout);
+  ensure(!rh.exists(destination),
+         "cu_device_screenshot_capture_refusal_destination_created");
+  ensure(!rh.exists(receipt_path) || rh.read_text(receipt_path).trim() === "",
+         "cu_device_screenshot_capture_refusal_effect_receipt_created");
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+harness.require(host_platform() !== "macos",
+                "capture refusal court is registered only for Linux and Windows");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.is_direct_file(executable) && harness.host_is_windows()) {
+  executable = executable + ".exe";
+}
+ensure(rh.is_direct_file(executable),
+       "cu_device_screenshot_capture_refusal_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-device-screenshot-capture-refusal");
+let succeeded = 0;
+let failure = "";
+try {
+  const destination = rh.join(context.run_directory, "must-not-exist.png");
+  const receipt_path = rh.join(context.run_directory, "cu-receipts.jsonl");
+  ensure(!rh.exists(destination),
+         "cu_device_screenshot_capture_refusal_destination_preexists");
+  print("STEP capture shape refuses before destination or receipt publication");
+  invoke(context.run_directory, executable, destination, receipt_path);
+  print("STEP repeated capture refusal preserves the same typed no-effect boundary");
+  invoke(context.run_directory, executable, destination, receipt_path);
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence,
+                        "cu.device-screenshot-capture-refusal");
+  harness.remove_run(context);
+  print("PASS: device screenshot capture refuses without filesystem effect");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

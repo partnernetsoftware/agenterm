@@ -3736,6 +3736,23 @@
         "task.cu-device-screenshot-inventory-smoke"
       ]
     },
+    "cu-device-screenshot-capture-refusal-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-device-screenshot-capture-refusal-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-device-screenshot-capture-refusal-smoke"
+      ]
+    },
     "cu-device-watch-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -9849,6 +9866,26 @@
         "windows",
         "linux",
         "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-device-screenshot-capture-refusal-smoke",
+      "description": "Prove Linux and Windows refuse device-screenshot --out with the exact typed boundary before creating the destination or an effect receipt; this court refuses to run on macOS.",
+      "entry": "scripts/qjs/cu-device-screenshot-capture-refusal-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux"
       ],
       "side_effects": [
         "artifact_write",
