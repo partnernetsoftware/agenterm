@@ -1,6 +1,17 @@
 import * as rewrite from "skills/acu/lib/rewrite";
 
 function require(condition, message) { if (!condition) { throw message; } }
+
+export const EVIDENCE_ID = "acu.rewrite.classification-boundaries";
+const declared_evidence = [EVIDENCE_ID];
+if (arg_count() === 1) {
+  require(arg(0) === 0, "rewrite parity argument read");
+  require(tool_result() === "--list-evidence", "rewrite parity unexpected argument");
+  print(declared_evidence[0]);
+  return;
+}
+require(arg_count() === 0, "rewrite parity takes no arguments");
+
 function exact(actual, expected, message) {
   require(actual.kind === "exec", message + " kind=" + actual.kind);
   require(actual.argv.length === expected.length, message + " length");
@@ -118,4 +129,6 @@ exact(rewrite.rewrite(["resource", "top"]),
 exact(rewrite.rewrite(["resource", "top", "--sort", "mem", "--limit", "7"]),
   ["ps", "--sort", "memory", "--max", "7"], "resource top memory");
 
-"rewrite.qjs PASS";
+print("EVIDENCE " + declared_evidence[0]);
+print("PASS: production rewrite preserves execution, TODO and usage classifications");
+return;

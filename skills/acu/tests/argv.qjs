@@ -4,6 +4,16 @@ function require(condition, message) {
   if (!condition) { throw message; }
 }
 
+export const EVIDENCE_ID = "acu.argv.typed-boundaries";
+const declared_evidence = [EVIDENCE_ID];
+if (arg_count() === 1) {
+  require(arg(0) === 0, "argv parity argument read");
+  require(tool_result() === "--list-evidence", "argv parity unexpected argument");
+  print(declared_evidence[0]);
+  return;
+}
+require(arg_count() === 0, "argv parity takes no arguments");
+
 function must_throw(code, action) {
   let caught = "";
   try { action(); } catch (error) { caught = "" + error; }
@@ -49,4 +59,6 @@ require(argv.parse_bool("TRUE", "enabled") === true, "true bool");
 require(argv.bool_flag(["--enabled", "off"], "--enabled").value === false, "false bool");
 must_throw("acu_argv_bool", function() { argv.parse_bool("maybe", "enabled"); });
 
-"argv.qjs PASS";
+print("EVIDENCE " + declared_evidence[0]);
+print("PASS: production argv helpers preserve typed parsing boundaries");
+return;

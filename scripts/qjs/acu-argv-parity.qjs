@@ -1,0 +1,7 @@
+// Candidate entry for the production ACU argv helper contract.
+import * as argv_test from "skills/acu/tests/argv";
+
+const EVIDENCE_ID = "acu.argv.typed-boundaries";
+if (argv_test.EVIDENCE_ID !== EVIDENCE_ID) { throw "acu argv evidence drift"; }
+
+EVIDENCE_ID;

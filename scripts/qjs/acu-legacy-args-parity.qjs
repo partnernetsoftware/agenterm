@@ -1,0 +1,7 @@
+// Candidate entry for the production ACU legacy-argument contract.
+import * as legacy_test from "skills/acu/tests/legacy_args";
+
+const EVIDENCE_ID = "acu.legacy-args.typed-rejections";
+if (legacy_test.EVIDENCE_ID !== EVIDENCE_ID) { throw "acu legacy args evidence drift"; }
+
+EVIDENCE_ID;

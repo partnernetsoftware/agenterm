@@ -1,0 +1,7 @@
+// Candidate entry for the production ACU rewrite-classification contract.
+import * as rewrite_test from "skills/acu/tests/rewrite";
+
+const EVIDENCE_ID = "acu.rewrite.classification-boundaries";
+if (rewrite_test.EVIDENCE_ID !== EVIDENCE_ID) { throw "acu rewrite evidence drift"; }
+
+EVIDENCE_ID;

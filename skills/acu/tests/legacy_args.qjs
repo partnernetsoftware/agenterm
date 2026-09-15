@@ -4,6 +4,16 @@ function require(condition, message) {
   if (!condition) { throw message; }
 }
 
+export const EVIDENCE_ID = "acu.legacy-args.typed-rejections";
+const declared_evidence = [EVIDENCE_ID];
+if (arg_count() === 1) {
+  require(arg(0) === 0, "legacy args parity argument read");
+  require(tool_result() === "--list-evidence", "legacy args parity unexpected argument");
+  print(declared_evidence[0]);
+  return;
+}
+require(arg_count() === 0, "legacy args parity takes no arguments");
+
 function exact(actual, expected, message) {
   require(actual.length === expected.length, message + " length");
   for (let i = 0; i < expected.length; i = i + 1) {
@@ -114,4 +124,6 @@ mustThrow("acu_legacy_argv_value:index=1", function() {
   legacy.extractGlobals(["doctor", 1]);
 });
 
-"legacy_args.qjs PASS";
+print("EVIDENCE " + declared_evidence[0]);
+print("PASS: production legacy arguments preserve typed refusals and exact values");
+return;

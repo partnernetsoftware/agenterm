@@ -188,6 +188,8 @@ mechanisms remain behind the `libagenterm` runtime boundary.
   │  │      Candidate executes every row against the production `compat.qjs`, not only the frozen JSON identity
   │  ├─ [x] Candidate executes the production compound projection contract and preserves typed failures,
   │  │      exact identities, bounded paging, tri-state filters and unavailable facts
+  │  ├─ [x] Candidate executes production argv, legacy-global and rewrite boundaries: exact values,
+  │  │      typed refusals and exec/TODO/usage/identity-kill classifications
   │  ├─ [x] 42/42 positive probes map to in-process typed calls; 8 are one call and legacy kill keeps the
   │  │      two-call identity bracket (process-state → process-kill with the exact start identity)
   │  ├─ [x] `agenterm cli acu` executes the compiled-in entry from any cwd; PATH needs no Bun or repository
@@ -408,6 +410,11 @@ mechanisms remain behind the `libagenterm` runtime boundary.
   The sibling required `acu-compound-projection` gate executes the production
   compound projection contract, so its typed-result and identity mappings cannot drift unseen;
   its owning evidence is `acu.compound-projection.production-parity`.
+  Three adjacent required gates execute the same bytes embedded as production
+  `agenterm:acu/argv`, `agenterm:acu/legacy-args` and `agenterm:acu/rewrite` modules.
+  They emit `acu.argv.typed-boundaries`, `acu.legacy-args.typed-rejections` and
+  `acu.rewrite.classification-boundaries`; the host-argv fixture remains a local
+  transport test rather than Candidate evidence.
   Report mode succeeds only as an audit and emits
   `cu.retirement-readiness`; live capability totals belong exclusively to
   `plan/acu-mcu-capability-ledger.json`, while the argument-sensitive corpus

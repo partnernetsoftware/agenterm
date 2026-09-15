@@ -841,7 +841,8 @@ function smoke_gate_ids() {
     "working-context-smoke", "workbench-smoke", "control-center-smoke",
     "cu-windows-smoke", "acu-provider-job-wait-cancel-smoke",
     "cu-browser-session-fixture-smoke", "acu-compat-corpus",
-    "acu-compound-projection"
+    "acu-compound-projection", "acu-argv-parity", "acu-legacy-args-parity",
+    "acu-rewrite-parity"
   ];
 }
 
@@ -863,7 +864,8 @@ function qualification_execution_gate_ids() {
     "working-context-smoke", "workbench-smoke", "control-center-smoke",
     "cu-windows-smoke", "acu-provider-job-wait-cancel-smoke",
     "cu-browser-session-fixture-smoke", "acu-compat-corpus",
-    "acu-compound-projection"
+    "acu-compound-projection", "acu-argv-parity", "acu-legacy-args-parity",
+    "acu-rewrite-parity"
   ];
 }
 

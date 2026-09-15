@@ -288,6 +288,24 @@
       "evidence": [
         "acu.compound-projection.production-parity"
       ]
+    },
+    {
+      "id": "acu-argv-parity",
+      "evidence": [
+        "acu.argv.typed-boundaries"
+      ]
+    },
+    {
+      "id": "acu-legacy-args-parity",
+      "evidence": [
+        "acu.legacy-args.typed-rejections"
+      ]
+    },
+    {
+      "id": "acu-rewrite-parity",
+      "evidence": [
+        "acu.rewrite.classification-boundaries"
+      ]
     }
   ],
   "registered_gates": [
@@ -316,6 +334,24 @@
       "id": "acu-compound-projection",
       "evidence": [
         "acu.compound-projection.production-parity"
+      ]
+    },
+    {
+      "id": "acu-argv-parity",
+      "evidence": [
+        "acu.argv.typed-boundaries"
+      ]
+    },
+    {
+      "id": "acu-legacy-args-parity",
+      "evidence": [
+        "acu.legacy-args.typed-rejections"
+      ]
+    },
+    {
+      "id": "acu-rewrite-parity",
+      "evidence": [
+        "acu.rewrite.classification-boundaries"
       ]
     },
     {

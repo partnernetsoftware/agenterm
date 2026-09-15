@@ -5628,6 +5628,57 @@
         "task.acu-resource-volumes-compat-smoke"
       ]
     },
+    "acu-argv-parity": {
+      "inputs": [
+        "acu-argv-fixtures"
+      ],
+      "outputs": [
+        "acu-argv-parity-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 30000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.acu-argv-parity"
+      ]
+    },
+    "acu-legacy-args-parity": {
+      "inputs": [
+        "acu-legacy-args-fixtures"
+      ],
+      "outputs": [
+        "acu-legacy-args-parity-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 30000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.acu-legacy-args-parity"
+      ]
+    },
+    "acu-rewrite-parity": {
+      "inputs": [
+        "acu-rewrite-fixtures"
+      ],
+      "outputs": [
+        "acu-rewrite-parity-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 30000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.acu-rewrite-parity"
+      ]
+    },
     "acu-compound-projection": {
       "inputs": [
         "acu-compound-fixtures"
@@ -12062,6 +12113,51 @@
       "side_effects": [
         "artifact_write"
       ]
+    },
+    {
+      "id": "acu-argv-parity",
+      "description": "Prove the production ACU argv helpers preserve exact values, separators, numeric and boolean bounds, and typed refusals without host effects.",
+      "entry": "scripts/qjs/acu-argv-parity.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": []
+    },
+    {
+      "id": "acu-legacy-args-parity",
+      "description": "Prove the production ACU legacy argument parser preserves exact globals and typed conflict or malformed-input refusals without host effects.",
+      "entry": "scripts/qjs/acu-legacy-args-parity.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": []
+    },
+    {
+      "id": "acu-rewrite-parity",
+      "description": "Prove the production ACU rewrite layer preserves executable, TODO, usage and identity-kill classifications without host effects.",
+      "entry": "scripts/qjs/acu-rewrite-parity.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": []
     },
     {
       "id": "acu-compound-projection",
