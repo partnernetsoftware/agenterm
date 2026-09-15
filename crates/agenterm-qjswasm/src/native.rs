@@ -1448,7 +1448,6 @@ fn is_known_uname_library(library: &str) -> bool {
 }
 
 struct KnownRegionMinimum {
-    plan_index: usize,
     argument_index: usize,
     minimum: usize,
     symbol: &'static str,
@@ -1463,7 +1462,6 @@ fn known_region_minimum(spec: &NativeSpec) -> Option<KnownRegionMinimum> {
     match (spec.symbol.as_str(), spec.parameters.as_slice()) {
         (UNAME_SYMBOL, [NativeType::Pointer]) if is_known_uname_library(&spec.library) => {
             Some(KnownRegionMinimum {
-                plan_index: 0,
                 argument_index: 0,
                 minimum: std::mem::size_of::<libc::utsname>(),
                 symbol: UNAME_SYMBOL,
@@ -1471,7 +1469,6 @@ fn known_region_minimum(spec: &NativeSpec) -> Option<KnownRegionMinimum> {
         }
         (GETRUSAGE_SYMBOL, [NativeType::I32, NativeType::Pointer]) if spec.library.is_empty() => {
             Some(KnownRegionMinimum {
-                plan_index: 0,
                 argument_index: 1,
                 minimum: std::mem::size_of::<libc::rusage>(),
                 symbol: GETRUSAGE_SYMBOL,
@@ -1500,9 +1497,13 @@ fn check_known_region_minimum(
     let Some(known) = known_region_minimum(spec) else {
         return Ok(());
     };
-    let Some(plan) = plans.get(known.plan_index) else {
-        return Ok(());
-    };
+    let plan_index = spec.parameters[..known.argument_index]
+        .iter()
+        .filter(|ty| ty.is_pointer())
+        .count();
+    let plan = plans
+        .get(plan_index)
+        .expect("a known region contract must name one decoded pointer argument");
     if plan.capacity < known.minimum {
         return Err(NativeDoorError::NativeRegionBelowKnownMinimum {
             index: known.argument_index,
@@ -1530,11 +1531,11 @@ struct NativeRegion {
 impl NativeRegion {
     /// The region's first `capacity` bytes, zero-filled except for the input.
     fn bytes(&self) -> &[u8] {
-        // SAFETY: `capacity.div_ceil(REGION_ALIGNMENT)` units were allocated, so
-        // `words.len() * REGION_ALIGNMENT >= capacity`; every byte of every unit
-        // was initialised by `RegionWord::ZEROED`. The cast reinterprets `[u8; N]`
-        // storage as `u8` storage, which changes neither alignment nor validity,
-        // and the slice starts at the wrapper's own first unit.
+        // SAFETY: `capacity / REGION_ALIGNMENT + 1` units were allocated, so
+        // `words.len() * REGION_ALIGNMENT > capacity`; every byte of every unit
+        // was initialised by `RegionWord::ZEROED`. The cast reinterprets
+        // `[u8; N]` storage as `u8` storage, which changes neither alignment nor
+        // validity, and the slice starts at the wrapper's own first unit.
         unsafe { std::slice::from_raw_parts(self.words[0].bytes().as_ptr(), self.capacity) }
     }
 
