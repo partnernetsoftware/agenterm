@@ -2402,20 +2402,20 @@
         {
           "id": "permissions.open-next",
           "mcu_shape": "permissions open or setup opens only the next missing system settings surface",
-          "acu_shape": "permissions open [accessibility|screen-capture] reads native state, returns a verified no-op when already granted, or dispatches one exact macOS settings pane without claiming consent",
+          "acu_shape": "permissions open [accessibility|screen-capture] re-reads native state internally, then either returns a verified no-op when the selected grant is already held or dispatches only that grant's exact macOS System Settings pane without claiming consent",
           "state": "platform-limited",
           "platforms": {"macos": "native-noop-public-court-denied-pane-court-pending", "linux": "typed-not-applicable", "windows": "typed-provider-specific"},
           "qualification": {
             "schema": 2,
             "platforms": {
-              "linux": {"result": "pending", "blocker_code": "visible-settings-dispatch-not-proven"},
+              "linux": {"result": "not-applicable", "gate": "cu-permissions-open-smoke", "evidence": ["cu.permissions-open.contract"], "error_code": "permission_open_not_applicable", "rationale": "Linux has no equivalent per-application system consent pane; the public court proves typed refusal before any visible dispatch."},
               "macos": {"result": "pending", "blocker_code": "visible-settings-dispatch-not-proven"},
-              "windows": {"result": "pending", "blocker_code": "visible-settings-dispatch-not-proven"}
+              "windows": {"result": "typed-intentional-retirement", "gate": "cu-permissions-open-smoke", "evidence": ["cu.permissions-open.contract"], "error_code": "permission_open_provider_specific", "rationale": "Windows permission repair is provider-specific rather than one generic consent pane; the public court proves typed refusal before any visible dispatch."}
             }
           },
           "evidence": ["cu.permissions-open.contract", "agenterm-platform permission-settings feature tests"],
-          "note": "Default-next orders required Accessibility before optional Screen Capture and refuses unknown status instead of guessing. Opening System Settings proves dispatcher acceptance only; it does not grant, bypass or verify user consent.",
-          "next": "prove a denied macOS permission opens the exact pane under an explicit native court, then run typed Linux and Windows public journeys"
+          "note": "Default-next orders required Accessibility before optional Screen Capture and refuses unknown status instead of guessing. An already-granted macOS permission is a verified no-op, while a missing permission follows the same command into one exact visible pane; these are state-dependent outcomes rather than independently selectable capabilities. On a macOS host with neither inspected permission already granted, the no-visible-UI court explicitly skips the open call, so its evidence proves only read-only status there and never qualifies visible dispatch. Opening System Settings proves dispatcher acceptance only; it does not grant, bypass or verify user consent. Linux and Windows public journeys directly call open and prove their distinct typed boundaries without visible dispatch.",
+          "next": "prove a denied macOS permission opens the exact pane under an explicit native court"
         },
         {
           "id": "host.open",
