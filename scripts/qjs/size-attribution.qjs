@@ -21,9 +21,9 @@
 // does not clear it. Unix hosts are unaffected.
 import * as rh from "lib/rh_compat";
 
-// Integer division without Math.floor: exact for non-negative integers.
+// Integer division for non-negative operands.
 function int_div(a, b) {
-  return (a - a % b) / b;
+  return Math.floor(a / b);
 }
 
 const args = [];

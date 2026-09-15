@@ -97,7 +97,7 @@ for (let offset = 0; offset < iterations; offset = offset + 1) {
   });
 }
 
-// rh's integer `/`: int_div, since there is no `Math.*` here.
+// rh's integer `/` truncates, so keep the compatibility helper explicit.
 const p95_index = rh.int_div(95 * iterations + 99, 100) - 1;
 let p95 = 0;
 let target_met = 0;

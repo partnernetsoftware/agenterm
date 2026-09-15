@@ -292,9 +292,9 @@ export function is_map(v) {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-// rh's integer `/` (truncating toward zero) without `Math.*`.
+// rh's integer `/` truncates toward zero.
 export function int_div(a, b) {
-  return (a - (a % b)) / b;
+  return Math.trunc(a / b);
 }
 
 // rh's `arr.contains(v)` for arrays: `includes` (tinyvm `12cfdfe`).
@@ -488,11 +488,9 @@ export function parse_int(text) {
   return Number(trimmed);
 }
 
-// Floor division for the calendar arithmetic below (int_div truncates).
+// Floor division for the calendar arithmetic below.
 export function floor_div(a, b) {
-  const q = int_div(a, b);
-  if (a - q * b < 0) { return q - 1; }
-  return q;
+  return Math.floor(a / b);
 }
 
 export function pad_left(value, width) {

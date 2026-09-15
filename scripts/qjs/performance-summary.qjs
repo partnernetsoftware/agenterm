@@ -140,7 +140,7 @@ let warm_min = warm_one;
 if (warm_two < warm_min) { warm_min = warm_two; }
 let warm_max = warm_one;
 if (warm_two > warm_max) { warm_max = warm_two; }
-// rh's `/` on integers truncates; no `Math.*` here, so int_div.
+// rh's `/` on integers truncates, so keep the compatibility helper explicit.
 const warm_median = rh.int_div(warm_one + warm_two, 2);
 
 let all_min = cold_total;
