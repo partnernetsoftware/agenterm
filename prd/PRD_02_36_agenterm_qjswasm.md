@@ -395,9 +395,11 @@ agenterm-qjswasm
 │  │  │      select the right operand; `0`, empty String and `false` stay left
 │  │  ├─ [x] namespace `import * as` is accepted through the product resolver;
 │  │  │      only default, named and dynamic import forms remain in the refusal list
-│  │  └─ [~] current pin misattributes a missing declaration binding in `for…of`
-│  │         to unsupported `of`; product tripwire records the exact contradiction
-│  │         until the generic parser repair is available at a published revision
+│  │  └─ [~] current pin has two parser-owned loop-header misattributions: a missing
+│  │         declaration binding in `for…of` reports unsupported `of`, while valid
+│  │         `const` `for…in` reports a missing initializer before its real unsupported
+│  │         `in` boundary; product tripwires retain both exact contradictions until
+│  │         the generic parser repairs are available at a published revision
 │  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
 ├─ upstream performance frontier
 │  ├─ [x] host-op and string/JSON cost measured before changing limits

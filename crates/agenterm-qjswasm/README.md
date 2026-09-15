@@ -148,7 +148,7 @@ completion value 投影全程，任何一段掉链子这里都看得见。`e1122
 
 1. **语法认得，能力还没有**——诊断形如「this engine does not support X yet」：
    数组 elision（`[1, , 2]`——hole 不是 `undefined`，引擎没法分辨，所以按名字拒绝
-   而不是二选一）、`class`、`switch`、`for…in`、`do`/`while`、
+   而不是二选一）、`class`、`switch`、`for…in`（`9ac2598` 产品入口复测仍拒绝）、`do`/`while`、
    带标签的模板（`` t`a` ``——**普通模板已经不在这张表上了**，见上）、
    默认 / rest / 解构参数（**箭头函数本身也不在这张表上了**，见上）、
    `**`、可选链首个属性访问之后的 continuation、逗号运算符、BigInt、
@@ -180,6 +180,9 @@ statements yet」（曾经错报成三目运算符）；正常的 `for (const x 
 更窄的上游误报：`for (const of values) { }` 缺少绑定名，却报
 「this engine does not support the `of` keyword yet」。有效 `for…of` 在同一产品
 编译入口能通过，所以这是结构诊断的已知误归因，不是语言能力缺口。
+同一 pin 的 `for…in` 仍不支持，但诊断也有一条窄误归因：有效的
+`for (const key in object) { }` 先报 `const` binding 缺 initializer，而 `let` 形式才报
+unsupported `in`。因此拒绝表结论仍成立；这条 tripwire 只冻结错误归因，不能冒充支持证据。
 
 **运行期缺口，2026-08-25 复核后的准确说法**（上一版这里写「本层两条」，**两条都记错了，
 下面是订正**）：

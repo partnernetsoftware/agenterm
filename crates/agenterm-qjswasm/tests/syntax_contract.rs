@@ -149,3 +149,19 @@ fn the_current_pin_records_the_missing_for_of_binding_misreport() {
         "README must disclose the current pin's false capability attribution"
     );
 }
+
+#[test]
+fn the_current_pin_records_the_const_for_in_initializer_misreport() {
+    let error = compile_qjs("for (const key in {alpha: 1}) { print(key); }")
+        .expect_err("for-in remains unsupported at the current pin");
+    assert_eq!(
+        error.to_string(),
+        "this engine needs a value for the `const` binding `key`; a `const` can never be assigned one later (at byte 11)",
+        "when the upstream diagnostic reaches the unsupported in keyword, retire this misreport pin and update README"
+    );
+    let documented = rejection_section();
+    assert!(
+        documented.contains("`for…in`") && documented.contains("`9ac2598` 产品入口复测仍拒绝"),
+        "README must bind the current for-in refusal to the revision actually exercised"
+    );
+}
