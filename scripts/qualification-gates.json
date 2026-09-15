@@ -468,6 +468,12 @@
       ]
     },
     {
+      "id": "cu-linux-file-xattr-mutation-smoke",
+      "evidence": [
+        "cu.linux-file-xattr-mutation"
+      ]
+    },
+    {
       "id": "cu-linux-file-copy-smoke",
       "evidence": [
         "cu.linux-file-copy-readback"
