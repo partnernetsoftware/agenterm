@@ -477,6 +477,28 @@ mod tests {
     }
 
     #[test]
+    fn manifest_byte_limit_is_inclusive() {
+        let dir = TempDir::new().unwrap();
+        let path = write_manifest(&dir, &["test.txt"]);
+        let mut bytes = std::fs::read(&path).unwrap();
+        bytes.resize(MANIFEST_MAX_BYTES, b' ');
+        std::fs::write(&path, &bytes).unwrap();
+
+        let manifest = read_manifest(&path, &[KIND]).expect("manifest limit is inclusive");
+        assert_eq!(manifest.files, ["test.txt"]);
+
+        bytes.push(b' ');
+        std::fs::write(&path, bytes).unwrap();
+        let error = read_manifest(&path, &[KIND]).expect_err("one byte over must be refused");
+        assert_eq!(
+            error,
+            format!(
+                "check_many_manifest_size: manifest must be a file of at most {MANIFEST_MAX_BYTES} bytes"
+            )
+        );
+    }
+
+    #[test]
     fn read_manifest_rejects_wrong_kind() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("manifest.json");
@@ -585,6 +607,48 @@ mod tests {
     }
 
     #[test]
+    fn path_label_byte_limit_rejects_only_above_the_limit() {
+        let dir = TempDir::new().unwrap();
+        let at_limit = "a/".repeat(PATH_MAX_BYTES / 2);
+        assert_eq!(at_limit.len(), PATH_MAX_BYTES);
+        let over_limit = format!("{at_limit}x");
+
+        let report = run_check_many(
+            CheckManyManifest {
+                schema_version: 1,
+                kind: KIND.to_owned(),
+                files: vec![over_limit],
+            },
+            CheckManyOptions {
+                project_root: dir.path().to_path_buf(),
+                ..Default::default()
+            },
+            KIND,
+            ok_unless_bad,
+        );
+        assert_eq!(report.failures[0].code, "check_many_path");
+        assert!(report.failures[0].message.contains("exceeds byte limit"));
+        assert_eq!(report.failures[0].exit_class, CheckExitClass::Configuration);
+        assert_eq!(report.exit_code(), 2);
+
+        let report = run_check_many(
+            CheckManyManifest {
+                schema_version: 1,
+                kind: KIND.to_owned(),
+                files: vec![at_limit],
+            },
+            CheckManyOptions {
+                project_root: dir.path().to_path_buf(),
+                ..Default::default()
+            },
+            KIND,
+            ok_unless_bad,
+        );
+        assert_eq!(report.failures[0].code, "host_source_resolve");
+        assert_eq!(report.failures[0].exit_class, CheckExitClass::Host);
+    }
+
+    #[test]
     fn check_many_rejects_duplicate_resolved_paths() {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("dup.txt"), "fine").unwrap();
@@ -642,5 +706,58 @@ mod tests {
         let manifest_path = write_manifest(&dir, &refs);
         let manifest = read_manifest(&manifest_path, &[KIND]).expect("file limit is inclusive");
         assert_eq!(manifest.files.len(), FILES_MAX);
+    }
+
+    #[test]
+    fn aggregate_source_byte_limit_is_inclusive() {
+        let dir = TempDir::new().unwrap();
+        let source = vec![b'a'; DEFAULT_SOURCE_BYTES];
+        let mut files = Vec::new();
+        for index in 0..(TOTAL_SOURCE_MAX_BYTES / DEFAULT_SOURCE_BYTES) {
+            let label = format!("f{index:02}.txt");
+            std::fs::write(dir.path().join(&label), &source).unwrap();
+            files.push(label);
+        }
+        assert_eq!(files.len() * DEFAULT_SOURCE_BYTES, TOTAL_SOURCE_MAX_BYTES);
+
+        let options = CheckManyOptions {
+            project_root: dir.path().to_path_buf(),
+            ..Default::default()
+        };
+        let report = run_check_many(
+            CheckManyManifest {
+                schema_version: 1,
+                kind: KIND.to_owned(),
+                files: files.clone(),
+            },
+            options.clone(),
+            KIND,
+            ok_unless_bad,
+        );
+        assert!(report.ok, "{report:?}");
+        assert_eq!(report.checked_files, files.len());
+        assert_eq!(report.total_source_bytes, TOTAL_SOURCE_MAX_BYTES);
+        assert_eq!(report.exit_code(), 0);
+
+        let extra = "f16.txt";
+        std::fs::write(dir.path().join(extra), "x").unwrap();
+        files.push(extra.to_owned());
+        let report = run_check_many(
+            CheckManyManifest {
+                schema_version: 1,
+                kind: KIND.to_owned(),
+                files,
+            },
+            options,
+            KIND,
+            ok_unless_bad,
+        );
+        assert_eq!(report.failures.len(), 1);
+        assert_eq!(report.failures[0].code, "check_many_total_source_bytes");
+        assert_eq!(report.failures[0].path, extra);
+        assert_eq!(report.failures[0].exit_class, CheckExitClass::Limit);
+        assert_eq!(report.exit_code(), 3);
+        assert_eq!(report.checked_files, 16);
+        assert_eq!(report.total_source_bytes, TOTAL_SOURCE_MAX_BYTES);
     }
 }
