@@ -4,8 +4,9 @@
 // agenterm-cu from an independently reachable org.freedesktop.systemd1 manager,
 // or return typed service_unsupported host-limit with linux systemd alternatives
 // (never fake running units). A missing system bus socket or unreachable systemd
-// manager is a typed skip/limit, not a positive-path pass; systemctl inventory
-// alone must not promote a scope. Typed service usage must reject AT-SPI --name
+// manager is a typed skip/limit, not a positive-path pass and does not emit the
+// full read-back evidence; systemctl inventory alone must not promote a scope.
+// Typed service usage must reject AT-SPI --name
 // and other unexpected arguments; typed get-extents --name usage/host-limit
 // paths must hold before any list/system-status path. Observe-only; no lifecycle
 // mutation. AT-SPI/--name only; no --coords.
@@ -832,15 +833,17 @@ for (let scope_index = 0; scope_index < scope_names.length; scope_index = scope_
   }
 }
 
-harness.emit_evidence(context, declared_evidence, "cu.linux-service-readback");
+if (positive_count === 2) {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-service-readback");
+}
 harness.remove_run(context);
 if (positive_count === 0) {
-  print("PASS: Linux service typed unsupported with independent probe absence read-back and "
+  print("PASS: Linux service typed unsupported with independent probe absence read-back; full service read-back evidence not emitted; "
     + extents_note);
 } else if (positive_count === 2) {
   print("PASS: Linux service list/system-status with independent systemd probe read-back and "
     + extents_note);
 } else {
-  print("PASS: Linux service mixed inventory/host-limit with independent systemd manager read-back and "
+  print("PASS: Linux service mixed inventory/host-limit with independent systemd manager read-back; full service read-back evidence not emitted; "
     + extents_note);
 }
