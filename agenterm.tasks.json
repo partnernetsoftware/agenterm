@@ -3334,6 +3334,25 @@
         "task.cu-runtime-capability-desktop-macos-smoke"
       ]
     },
+    "cu-runtime-capability-macos-smoke": {
+      "inputs": [
+        "built-agenterm",
+        "built-agenterm-cu",
+        "desktop-session"
+      ],
+      "outputs": [
+        "cu-runtime-capability-macos-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 360000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-runtime-capability-macos-smoke"
+      ]
+    },
     "cu-browser-bridge-contract-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -9402,6 +9421,26 @@
       "args": [
         ".",
         "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-runtime-capability-macos-smoke",
+      "description": "Run the macOS runtime-capability core, owned-process and owned-desktop public courts in one invocation and issue aggregate evidence only after all three pass.",
+      "entry": "scripts/qjs/cu-runtime-capability-macos-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm"
       ],
       "dependencies": [],
       "platforms": [

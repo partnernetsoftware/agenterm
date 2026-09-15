@@ -2247,12 +2247,12 @@
             "schema": 2,
             "platforms": {
               "linux": {"result": "pending", "blocker_code": "aggregate-gate-evidence-missing"},
-              "macos": {"result": "pending", "blocker_code": "aggregate-gate-evidence-missing"},
+              "macos": {"result": "native-qualified", "gate": "cu-runtime-capability-macos-smoke", "evidence": ["cu.runtime-capability.aggregate.macos"]},
               "windows": {"result": "pending", "blocker_code": "aggregate-gate-evidence-missing"}
             }
           },
-          "evidence": ["cu.runtime-capability-core.macos", "cu.runtime-capability-core.linux", "cu.runtime-capability-core.windows", "cu.runtime-capability-process.macos", "cu.runtime-capability-desktop.macos"],
-          "note": "One shared qjswasm core has thin macOS/Linux/Windows evidence entry points for exact host binding, live display geometry, clipboard metadata without payload bytes, and bounded shell-child cleanup. macOS is green locally, Windows is green on the real win-aarch64 UTM desktop at source e0a2ab54, and Linux arm64 is green on a real Wayland desktop at source d5548024. The same-source Linux x86_64 X11 court then passed its 33-evidence full process, terminal, file, network, AT-SPI, screenshot, window and cleanup journey. The macOS process and owned-desktop components cover the same broad vocabulary without touching foreign processes or windows. Windows still needs the full-scope same-source rerun, so this is platform-limited rather than cross-platform native. The emulated Windows x86_64 court separately failed before product execution because QGA did not become ready within 600 seconds; utm-court now marks that local court non-ready.",
+          "evidence": ["cu.runtime-capability-core.macos", "cu.runtime-capability-core.linux", "cu.runtime-capability-core.windows", "cu.runtime-capability-process.macos", "cu.runtime-capability-desktop.macos", "cu.runtime-capability.aggregate.macos"],
+          "note": "One shared qjswasm core has thin macOS/Linux/Windows evidence entry points for exact host binding, live display geometry, clipboard metadata without payload bytes, and bounded shell-child cleanup. The macOS aggregate gate now runs its core, owned-process and owned-desktop components in one invocation and emits qualification evidence only after all three pass. Windows is green on the real win-aarch64 UTM desktop at source e0a2ab54, and Linux arm64 is green on a real Wayland desktop at source d5548024. The same-source Linux x86_64 X11 court then passed its 33-evidence full process, terminal, file, network, AT-SPI, screenshot, window and cleanup journey. Windows still needs the full-scope same-source rerun, so this is platform-limited rather than cross-platform native. The emulated Windows x86_64 court separately failed before product execution because QGA did not become ready within 600 seconds; utm-court now marks that local court non-ready.",
           "next": "run the full-scope Windows journey against one sealed same-source runtime/CU/ABI bundle; repair the separate Windows x86_64 QGA image before six-cell rehearsal"
         }
       ]

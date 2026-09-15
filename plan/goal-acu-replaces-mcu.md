@@ -773,6 +773,7 @@ Q2 fast delegated facades
 │  ├─ [~] doctor desktop baseline: public qjswasm macOS green; Linux/Windows pending
 │  ├─ [~] doctor system readiness: macOS public qjswasm green; Linux/Windows native courts pending
 │  ├─ [~] capability declaration counts: local invariant green; cross-mechanism live probe pending
+│  ├─ [~] runtime capability probe: macOS core + owned-process + owned-desktop aggregate green; Linux/Windows aggregates pending
 │  ├─ [~] setup launcher: native zero-write check + atomic apply; macOS arm64 and Rosetta x86_64 qjswasm courts green; Candidate six-cell execution wired but not yet run
 │  └─ [~] setup runtime refresh: stable admission fence; exact managed-job owner survives locally; native device-claim inventory participates, fresh missing state is zero-write empty; six-cell execution pending
 ├─ [~] open/notify/state and terminal adoption
@@ -1228,7 +1229,9 @@ UTM desktop are green at source `e0a2ab54`. Its second
 component covers owned-process inventory, identity, plaintext-free argv/env
 metadata, cwd, usage, fd/map/thread and socket attribution; a third owned Cocoa
 fixture proves the remaining window/tree/query/read/screenshot vocabulary
-without foreground change. Linux ARM64 then passed the shared core on a real
+without foreground change. The macOS aggregate gate now executes all three
+components in one invocation and issues its own evidence only after their exact
+completion markers are present. Linux ARM64 then passed the shared core on a real
 Wayland desktop at source `d5548024`; the same-source Linux x86_64/X11 court
 passed all 33 evidence lines in the broader process, terminal, file, network,
 AT-SPI, screenshot, window and cleanup journey. This moves the row from `gap`

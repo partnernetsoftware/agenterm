@@ -446,7 +446,10 @@ mechanisms remain behind the `libagenterm` runtime boundary.
   qjswasm core is live on macOS, Windows ARM64 and Linux ARM64; a same-source
   Linux x86_64/X11 court additionally passed all 33 declared process,
   terminal, file, network, AT-SPI, screenshot, window and cleanup evidence
-  lines. Windows still needs the full-scope same-source rerun, so the row is
+  lines. One macOS aggregate gate now runs the core, owned-process and
+  owned-desktop components in one invocation and emits qualification evidence
+  only after all three pass. Linux and Windows still need equivalent aggregate
+  gates, and Windows needs the full-scope same-source rerun, so the row is
   deliberately `platform-limited`, not yet cross-platform native. Linux also
   proved a reusable boundary rule: screen geometry may come from an
   authenticated XWayland root even when Wayland client-window enumeration is
