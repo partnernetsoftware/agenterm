@@ -317,7 +317,7 @@ MCU retirement blockers
 │     ├─ [x] read-only live device and installed-app inventory
 │     ├─ [x] exact MCU boot/shutdown shapes route to ACU's verified settled-state read-back
 │     └─ [ ] run registered lifecycle court; deployment/foreground/screenshot remain open
-├─ [~] all 57 frozen typed-rejection shapes have an explicit native/local classification owner; remove any remaining production fallback
+├─ [x] all argument shapes classified: grammar stays `usage`/exit 2; post-parse product refusals retain named codes
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
 
@@ -357,6 +357,14 @@ mechanisms. This is not the remaining capability count: group verbs contain
 multiple independently gated shapes. The machine-readable ledger, not the
 top-level number, decides retirement.
 
+Argument-shape ownership is now closed at the parser/product boundary. Missing,
+empty, duplicate, malformed or unknown CLI syntax remains `code=usage` with
+exit 2; that is the grammar contract, not a capability fallback. Once parsing
+selects a product operation, executor failures retain named codes, with the
+executor courts explicitly rejecting a collapse back to `usage`. The frozen
+compatibility corpus independently binds all 57 historical typed-rejection
+rows to either the native parser or an intentional local usage refusal.
+
 The service replacement is now a real typed frontier rather than a catalog
 placeholder: `agenterm-platform` owns bounded launchd/systemd inventory,
 provider-qualified identity and user-domain lifecycle mechanics, while
@@ -370,7 +378,7 @@ old one-call lifecycle now requires caller request/session identity, acquires
 the exact service target lock and enters the same plan/apply state machine, so
 an interrupted request cannot be automatically repeated. This clears the final
 static STAY without claiming retirement: system mutation still needs the
-privilege provider, dynamic argument-shape gaps remain, and Linux,
+privilege provider, independently named capability gaps remain, and Linux,
 Windows-refusal plus explicit mutation/rollback courts are not yet green.
 
 ACU now owns `job-resources JOB_ID GENERATION [--watch-ms N --interval-ms N
