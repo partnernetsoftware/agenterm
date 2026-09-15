@@ -100,6 +100,8 @@ fn summary_requires_one_ordered_experiment_run() {
     assert!(SUMMARY.contains("experiment_run_id === run_id"));
     assert!(SUMMARY.contains("performance_summary_sample_clock:"));
     assert!(SUMMARY.contains("performance_summary_sample_order:"));
+    assert!(SUMMARY.contains("performance_summary_sample_path_duplicate:"));
+    assert!(SUMMARY.contains("rh.array_has(sample_paths, path)"));
     assert!(SUMMARY.contains("previous_completed <= completed"));
     assert!(SUMMARY.contains("experiment_run_id: experiment_run_id"));
     assert!(WORKFLOW.contains("@if errorlevel 1 exit /b 1"));
