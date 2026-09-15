@@ -46,6 +46,25 @@ must_throw("acu_argv_not_array", function() {
   argv.from_array({ length: 0 });
 });
 
+const count_ceiling = [];
+for (let i = 0; i < argv.MAX_ARGV_COUNT; i = i + 1) { count_ceiling.push(""); }
+require(argv.from_array(count_ceiling).length === argv.MAX_ARGV_COUNT,
+  "argv count ceiling accepted");
+count_ceiling.push("");
+must_throw("acu_argv_count:maximum=4096", function() {
+  argv.from_array(count_ceiling);
+});
+
+const size_ceiling = [];
+const size_chunk = "x".repeat(255);
+for (let i = 0; i < argv.MAX_ARGV_COUNT; i = i + 1) { size_ceiling.push(size_chunk); }
+require(argv.from_array(size_ceiling).length === argv.MAX_ARGV_COUNT,
+  "argv size ceiling accepted");
+size_ceiling[size_ceiling.length - 1] = "x".repeat(256);
+must_throw("acu_argv_size:maximum=1048576", function() {
+  argv.from_array(size_ceiling);
+});
+
 require(argv.parse_decimal("-12.5", -20, 20, "amount") === -12.5, "decimal");
 require(argv.decimal_flag(["--limit=64"], "--limit", 1, 64).value === 64, "decimal flag");
 must_throw("acu_argv_decimal_range", function() {
