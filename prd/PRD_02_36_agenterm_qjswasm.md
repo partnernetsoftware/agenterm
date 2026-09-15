@@ -272,6 +272,10 @@ agenterm-qjswasm
 │  │  │  ├─ 42/42 positive legacy probes execute in-process; kill preserves its two-call identity bracket
 │  │  │  ├─ 95 dynamic witnesses remain frozen with source digests and redacted argv as the
 │  │  │  │  explicit gap/typed-rejection queue; no MCU fallback exists
+│  │  │  ├─ Candidate runs the frozen 95 + 42 rows through production `compat.qjs` and
+│  │  │  │  emits one parity evidence only after every disposition matches
+│  │  │  ├─ Candidate runs production compound projections and emits parity evidence only
+│  │  │  │  after typed failures, identities, paging and unavailable facts match
 │  │  │  ├─ both dynamic-TODO rows retain their exact gap id; two permanent-scope rows reject locally
 │  │  │  ├─ 32 resolved rows: 18 exec · 9 compound · 5 usage · 0 TODO
 │  │  │  │  └─ `job resources JOB_ID`: typed status→generation→resource point or bounded watch; top/max project complete membership without partial aggregates

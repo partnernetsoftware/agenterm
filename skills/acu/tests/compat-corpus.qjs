@@ -2,6 +2,16 @@ import * as compat from "skills/acu/lib/compat";
 
 function require(condition, message) { if (!condition) { throw message; } }
 
+export const EVIDENCE_ID = "acu.compat-corpus.production-parity";
+const declared_evidence = [EVIDENCE_ID];
+if (arg_count() === 1) {
+  require(arg(0) === 0, "compat corpus argument read");
+  require(tool_result() === "--list-evidence", "compat corpus unexpected argument");
+  print(declared_evidence[0]);
+  return;
+}
+require(arg_count() === 0, "compat corpus takes no arguments");
+
 function same_argv(actual, expected, label) {
   require(actual.length === expected.length, label + " length");
   for (let i = 0; i < expected.length; i = i + 1) {
@@ -745,4 +755,6 @@ require(required_observe.kind === "observe-filters"
 require(compat.canonicalize(["windows", "--space", "7"]).kind === "exec",
   "resolved windows Space projection must remain direct");
 
-"compat-corpus.qjs PASS frozen corpus + legacy TODO boundary coverage";
+print("EVIDENCE " + declared_evidence[0]);
+print("PASS: frozen corpus matches the production compatibility adapter");
+return;

@@ -184,7 +184,10 @@ mechanisms remain behind the `libagenterm` runtime boundary.
   ├─ [~] acu.qjs = Bun-free syntax adapter
   │  ├─ [x] bounded host argv + global normalization + direct native spelling → agenterm:acu.argv
   │  ├─ [x] no Bun / binary lookup / CU child process / MCU fallback; public CLI still uses the common Script Worker isolation process
-  │  ├─ [x] freeze the engine-neutral compatibility oracle: 42 positive probes + 95 dynamic witnesses
+  │  ├─ [x] freeze the engine-neutral compatibility oracle: 42 positive probes + 95 dynamic witnesses;
+  │  │      Candidate executes every row against the production `compat.qjs`, not only the frozen JSON identity
+  │  ├─ [x] Candidate executes the production compound projection contract and preserves typed failures,
+  │  │      exact identities, bounded paging, tri-state filters and unavailable facts
   │  ├─ [x] 42/42 positive probes map to in-process typed calls; 8 are one call and legacy kill keeps the
   │  │      two-call identity bracket (process-state → process-kill with the exact start identity)
   │  ├─ [x] `agenterm cli acu` executes the compiled-in entry from any cwd; PATH needs no Bun or repository
@@ -398,7 +401,13 @@ mechanisms remain behind the `libagenterm` runtime boundary.
   Rust owner from Cargo metadata, rejects any repo-local path dependency that
   is not an equally covered workspace member, scans production automation for
   Bun/MCU dependencies, and verifies the frozen compatibility corpus's
-  whole-file digest, fixed counts and historical source blobs.
+  whole-file digest, fixed counts and historical source blobs. The independent
+  required `acu-compat-corpus` gate executes all 95 dynamic and 42 positive rows
+  against the production adapter, so JSON self-consistency cannot hide mapping drift;
+  it emits `acu.compat-corpus.production-parity` only after all rows match.
+  The sibling required `acu-compound-projection` gate executes the production
+  compound projection contract, so its typed-result and identity mappings cannot drift unseen;
+  its owning evidence is `acu.compound-projection.production-parity`.
   Report mode succeeds only as an audit and emits
   `cu.retirement-readiness`; live capability totals belong exclusively to
   `plan/acu-mcu-capability-ledger.json`, while the argument-sensitive corpus

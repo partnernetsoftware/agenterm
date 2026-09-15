@@ -840,7 +840,8 @@ function smoke_gate_ids() {
     "remote-ui-upgrade-smoke", "fleet-smoke", "script-smoke", "theme-smoke",
     "working-context-smoke", "workbench-smoke", "control-center-smoke",
     "cu-windows-smoke", "acu-provider-job-wait-cancel-smoke",
-    "cu-browser-session-fixture-smoke"
+    "cu-browser-session-fixture-smoke", "acu-compat-corpus",
+    "acu-compound-projection"
   ];
 }
 
@@ -861,7 +862,8 @@ function qualification_execution_gate_ids() {
     "remote-ui-upgrade-smoke", "fleet-smoke", "script-smoke", "theme-smoke",
     "working-context-smoke", "workbench-smoke", "control-center-smoke",
     "cu-windows-smoke", "acu-provider-job-wait-cancel-smoke",
-    "cu-browser-session-fixture-smoke"
+    "cu-browser-session-fixture-smoke", "acu-compat-corpus",
+    "acu-compound-projection"
   ];
 }
 

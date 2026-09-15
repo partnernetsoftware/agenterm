@@ -4,6 +4,16 @@ function require(condition, message) {
   if (!condition) { throw message; }
 }
 
+export const EVIDENCE_ID = "acu.compound-projection.production-parity";
+const declared_evidence = [EVIDENCE_ID];
+if (arg_count() === 1) {
+  require(arg(0) === 0, "compound projection argument read");
+  require(tool_result() === "--list-evidence", "compound projection unexpected argument");
+  print(declared_evidence[0]);
+  return;
+}
+require(arg_count() === 0, "compound projection takes no arguments");
+
 function ok(result, message) {
   require(result.ok === true, message + ": " + result.code + " " + result.message);
   return result.value;
@@ -258,4 +268,6 @@ fails(compound.apps_page({ ok: false, error: {
 fails(compound.single_node_id({ ok: false, error: null }),
   "acu_compound_reply_invalid", "untyped CuReply failure");
 
-"compound.qjs PASS";
+print("EVIDENCE " + declared_evidence[0]);
+print("PASS: production compound projections preserve typed results and identities");
+return;

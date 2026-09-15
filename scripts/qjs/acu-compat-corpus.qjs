@@ -1,0 +1,9 @@
+// Candidate entry for the frozen ACU compatibility corpus. The imported
+// module owns every assertion and the evidence declaration; this wrapper only
+// gives release orchestration its conventional scripts/qjs gate path.
+import * as corpus from "skills/acu/tests/compat-corpus";
+
+const EVIDENCE_ID = "acu.compat-corpus.production-parity";
+if (corpus.EVIDENCE_ID !== EVIDENCE_ID) { throw "acu compat corpus evidence drift"; }
+
+EVIDENCE_ID;

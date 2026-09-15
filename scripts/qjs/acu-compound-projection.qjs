@@ -1,0 +1,9 @@
+// Candidate entry for the ACU compound projection contract. The imported
+// module owns every assertion and the evidence declaration; this wrapper only
+// gives release orchestration its conventional scripts/qjs gate path.
+import * as compound_test from "skills/acu/tests/compound";
+
+const EVIDENCE_ID = "acu.compound-projection.production-parity";
+if (compound_test.EVIDENCE_ID !== EVIDENCE_ID) { throw "acu compound projection evidence drift"; }
+
+EVIDENCE_ID;

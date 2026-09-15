@@ -276,6 +276,18 @@
         "cu.browser-session-fixture.lifecycle.synthetic",
         "cu.browser-session-fixture.typed-failures.synthetic"
       ]
+    },
+    {
+      "id": "acu-compat-corpus",
+      "evidence": [
+        "acu.compat-corpus.production-parity"
+      ]
+    },
+    {
+      "id": "acu-compound-projection",
+      "evidence": [
+        "acu.compound-projection.production-parity"
+      ]
     }
   ],
   "registered_gates": [
@@ -292,6 +304,18 @@
       "evidence": [
         "cu.browser-session-fixture.lifecycle.synthetic",
         "cu.browser-session-fixture.typed-failures.synthetic"
+      ]
+    },
+    {
+      "id": "acu-compat-corpus",
+      "evidence": [
+        "acu.compat-corpus.production-parity"
+      ]
+    },
+    {
+      "id": "acu-compound-projection",
+      "evidence": [
+        "acu.compound-projection.production-parity"
       ]
     },
     {

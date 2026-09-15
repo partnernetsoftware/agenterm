@@ -103,6 +103,8 @@ ACU replaces MCU
    ├─ [x] no production fallback executes MCU
    ├─ [x] Bun and `acu.ts` are absent from production ACU execution
    ├─ [~] every known stay is an explicit TODO, repaired dynamically
+   │  └─ [x] Candidate executes all 95 dynamic + 42 positive frozen rows against production `compat.qjs`
+   │     └─ [x] Candidate also executes the production compound projection contract
    └─ [~] qjswasm object door + size-compliant provider + acu.qjs are live; six-cell provider court is wired,
       first exact-SHA remote execution and MCP mutation design remain
 ```

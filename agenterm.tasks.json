@@ -11875,7 +11875,7 @@
     {
       "id": "acu-compat-corpus",
       "description": "Freeze every legacy ACU compatibility disposition: executable mappings, compound projections, stable acu_todo gap ids and permanent local refusals.",
-      "entry": "skills/acu/tests/compat-corpus.qjs",
+      "entry": "scripts/qjs/acu-compat-corpus.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [],
@@ -12066,7 +12066,7 @@
     {
       "id": "acu-compound-projection",
       "description": "Prove Bun-free compound ACU projections preserve complete native typed failures including effect and recovery facts, exact identities, bounded matched-event paging, tri-state observe filters and unavailable facts without host effects.",
-      "entry": "skills/acu/tests/compound.qjs",
+      "entry": "scripts/qjs/acu-compound-projection.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [],

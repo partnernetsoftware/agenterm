@@ -490,6 +490,8 @@
         "cu.file-move-transaction",
         "cu.managed-job-lifecycle",
         "cu.managed-job-resources",
+        "acu.compat-corpus.production-parity",
+        "acu.compound-projection.production-parity",
         "acu.compat-job-resources",
         "acu.compat-job-resources-projection",
         "acu.compat-zoom-legacy-rect",
