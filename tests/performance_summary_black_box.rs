@@ -483,6 +483,37 @@ fn performance_summary_accepts_one_run_and_rejects_misattributed_samples() {
     assert!(!step_collision.status.success());
     assert!(diagnostic(&step_collision).contains("performance_summary_output_is_step_summary"));
     assert!(!step_summary.exists());
+
+    let large_step_summary = root.0.join("large-step-summary.md");
+    fs::write(&large_step_summary, vec![b'x'; 1_048_577]).expect("write oversized step summary");
+    let unpublished = root.0.join("unpublished.json");
+    let oversized = run_summary_with_step_summary(
+        &unpublished,
+        "target",
+        [&timings[0], &timings[1], &timings[2]],
+        [&stats[0], &stats[1], &stats[2]],
+        Some(&large_step_summary),
+    );
+    assert!(!oversized.status.success());
+    assert!(diagnostic(&oversized).contains("performance_summary_previous_too_large"));
+    assert!(!unpublished.exists());
+
+    let ordinary_step_summary = root.0.join("ordinary-step-summary.md");
+    fs::write(&ordinary_step_summary, "previous\n").expect("write previous step summary");
+    let with_step_path = root.0.join("with-step-summary.json");
+    let with_step = run_summary_with_step_summary(
+        &with_step_path,
+        "target",
+        [&timings[0], &timings[1], &timings[2]],
+        [&stats[0], &stats[1], &stats[2]],
+        Some(&ordinary_step_summary),
+    );
+    assert!(with_step.status.success(), "{}", diagnostic(&with_step));
+    assert!(with_step_path.is_file());
+    let appended = fs::read_to_string(ordinary_step_summary).expect("read appended step summary");
+    assert!(appended.starts_with("previous\n"));
+    assert!(appended.contains("## AgenTerm CI performance experiment"));
+    assert!(String::from_utf8_lossy(&with_step.stdout).contains("PERFORMANCE_SUMMARY "));
 }
 
 #[cfg(unix)]

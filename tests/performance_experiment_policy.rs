@@ -133,6 +133,32 @@ fn summary_requires_one_ordered_experiment_run() {
         .find("PERFORMANCE_SUMMARY")
         .expect("performance summary receipt");
     assert!(receipt_at > write_at, "the receipt must follow the write");
+    let size_at = SUMMARY
+        .find("performance_summary_previous_too_large")
+        .expect("step summary size guard");
+    let previous_at = SUMMARY
+        .find("previous_step_summary = rh.read_text(step_summary)")
+        .expect("previous step summary read");
+    let markdown_at = SUMMARY
+        .find("rh.atomic_write(step_summary,")
+        .expect("step summary append");
+    assert!(
+        size_at < write_at,
+        "the size guard must precede JSON publish"
+    );
+    assert!(
+        previous_at < write_at,
+        "the previous summary read must precede JSON publish"
+    );
+    assert!(
+        write_at < markdown_at,
+        "JSON must be published before markdown"
+    );
+    assert!(
+        markdown_at < receipt_at,
+        "the receipt must follow every write"
+    );
+    assert!(SUMMARY.contains("performance_summary_step_summary_not_direct_file:"));
 }
 
 #[test]

@@ -280,6 +280,16 @@ if (rh.exists(output)) {
     "performance_summary_output_not_direct_file:" + output
   );
 }
+let previous_step_summary = "";
+if (step_summary !== "" && rh.exists(step_summary)) {
+  rh.require(
+    rh.is_direct_file(step_summary),
+    "performance_summary_step_summary_not_direct_file:" + step_summary
+  );
+  const summary_meta = rh.symlink_metadata(step_summary);
+  rh.require(summary_meta.len <= 1048576, "performance_summary_previous_too_large");
+  previous_step_summary = rh.read_text(step_summary);
+}
 rh.atomic_write(output, rh.stringify_pretty(summary) + "\n");
 
 const markdown =
@@ -294,16 +304,9 @@ const markdown =
   "Runner-purchase decisions also require real Candidate release/stress " +
   "timing evidence.\n";
 if (step_summary !== "") {
-  let previous = "";
-  if (rh.exists(step_summary)) {
-    const summary_meta = rh.symlink_metadata(step_summary);
-    rh.require(summary_meta.len <= 1048576, "performance_summary_previous_too_large");
-    previous = rh.read_text(step_summary);
-  }
-  rh.atomic_write(step_summary, previous + markdown);
-} else {
-  print(markdown);
+  rh.atomic_write(step_summary, previous_step_summary + markdown);
 }
 print("PERFORMANCE_SUMMARY " + experiment_run_id + " " + output);
+if (step_summary === "") { print(markdown); }
 
 return;
