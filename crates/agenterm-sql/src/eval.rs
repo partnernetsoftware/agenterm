@@ -77,10 +77,10 @@ use crate::error::SqlError;
 /// converts `ScriptBudgets` into this shape before calling
 /// [`execute_entry`].
 ///
-/// Deliberately NOT covering `ScriptBudgets`'s other ten fields
+/// Deliberately NOT covering `ScriptBudgets`'s other eleven fields
 /// (`source_bytes`/`operations`/`call_depth`/`expression_depth`/
 /// `broker_requests`/`broker_return_bytes`/`capture_bytes`/`event_items`/
-/// `wait_time_ms`, and `string_bytes` is folded into `output_bytes` below,
+/// `wait_time_ms`/`host_operations`, and `string_bytes` is folded into `output_bytes` below,
 /// not separately enforced) — deferred to M3 per the design doc's M1
 /// scope, recorded here rather than silently ignored.
 #[derive(Clone, Copy, Debug, Default)]
