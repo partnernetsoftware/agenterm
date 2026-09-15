@@ -59,12 +59,26 @@ function cleanup_incremental_state(path) {
   return 0;
 }
 
+// `process.command` bounds each child stream and marks a cut. Preserve that
+// fact whenever this task speaks for a child; otherwise a bounded prefix looks
+// like the whole build log even though compiler failures are usually at its end.
+function truncation_note(output) {
+  const out_cut = output.stdout_truncated === true;
+  const err_cut = output.stderr_truncated === true;
+  if (out_cut && err_cut) { return ":(stdout and stderr truncated by the tool door)"; }
+  if (out_cut) { return ":(stdout truncated by the tool door)"; }
+  if (err_cut) { return ":(stderr truncated by the tool door)"; }
+  return "";
+}
+
 // Print what a finished command wrote, stdout then stderr, when non-empty.
 function replay(output) {
   const out = output.stdout.trim();
   if (out !== "") { print(out); }
   const err = output.stderr.trim();
   if (err !== "") { print(err); }
+  const note = truncation_note(output);
+  if (note !== "") { print("WARNING" + note); }
 }
 
 function cargo_invocation_args(common, selection, action_name) {
@@ -87,7 +101,7 @@ function run_cargo_selection(program, common, selection, action_name, repo, envi
     const failure_stdout = result.stdout.trim();
     if (failure_stdout !== "") { print(failure_stdout); }
     const failure_detail = result.stderr.trim();
-    throw label + ":exit=" + code + ":" + failure_detail;
+    throw label + ":exit=" + code + ":" + failure_detail + truncation_note(result);
   }
   replay(result);
   return 0;
@@ -673,9 +687,14 @@ const stage_stdout = stage_result.stdout;
 const stage_stderr = stage_result.stderr;
 if (stage_stdout !== "") { print(stage_stdout); }
 if (stage_stderr !== "") { print(stage_stderr); }
+const stage_truncation_note = truncation_note(stage_result);
+if (stage_truncation_note !== "") { print("WARNING" + stage_truncation_note); }
 if (stage_code !== 0) {
   if (incremental_producer !== 0) { cleanup_incremental_state(incremental_state); }
-  require(stage_code === 0, "build_stage:" + stage_stdout + stage_stderr);
+  require(
+    stage_code === 0,
+    "build_stage:" + stage_stdout + stage_stderr + stage_truncation_note
+  );
 }
 
 if (profile === "dev" && external_target === 0) {

@@ -1419,6 +1419,16 @@ fn six_cell_build_all_covers_every_declared_artifact_platform() {
 }
 
 #[test]
+fn build_qjs_marks_bounded_child_captures_as_incomplete() {
+    assert!(BUILD_QJS.contains("function truncation_note(output)"));
+    assert!(BUILD_QJS.contains("output.stdout_truncated === true"));
+    assert!(BUILD_QJS.contains("output.stderr_truncated === true"));
+    assert!(BUILD_QJS.contains("+ truncation_note(result)"));
+    assert!(BUILD_QJS.contains("truncation_note(output)"));
+    assert!(BUILD_QJS.contains("+ stage_truncation_note"));
+}
+
+#[test]
 fn six_cell_delivery_documents_the_profile_directory_it_reads() {
     assert!(!PACKAGE_SIX_CELL_QJS.contains("target/qualification/six-cell/<triple>"));
     assert!(PACKAGE_SIX_CELL_QJS.contains("target/<triple>/<leaf>/"));
