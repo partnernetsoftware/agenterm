@@ -329,6 +329,16 @@ agenterm-qjswasm
 │  │  │      but qjswasm does not yet enforce it; the mechanism must cover literals, push,
 │  │  │      sparse indexed growth, concat/map and JSON parse under the same per-invocation
 │  │  │      ceiling for source execution and reusable packed artifacts
+│  │  │  ├─ semantics: the ceiling is the cardinality of each individual collection, matching
+│  │  │  │     SQL's existing "any single result set" contract; it resets for every invocation
+│  │  │  │     and is not a cumulative allocation counter across otherwise bounded collections
+│  │  │  ├─ ownership: tinyvm-qjs must enforce the ceiling at its shared collection create/grow
+│  │  │  │     boundary and expose a generic runtime limit plus a distinct exhausted fault;
+│  │  │  │     agenterm-qjswasm only supplies the effective value and projects that fault as
+│  │  │  │     `Budget("collection_items")`
+│  │  │  └─ evidence: exact-limit success and limit-plus-one refusal for every construction path,
+│  │  │        plus the same refusal from a reusable packed artifact; partial path coverage leaves
+│  │  │        `collection_items` in `unenforced_budgets`
 │  │  ├─ [ ] `expression_depth` is likewise published without a qjswasm owner; do not map it
 │  │  │      to call depth, activation slots or compile-time nesting because those are different facts
 │  │  ├─ safe failure: an accepted effective budget must be enforced or named as unenforced;
