@@ -22,7 +22,7 @@ function host_platform() {
   return "linux";
 }
 
-function isolated_env(run_directory, receipt_path) {
+function isolated_env(run_directory) {
   return {
     HOME: run_directory,
     USERPROFILE: run_directory,
@@ -31,19 +31,18 @@ function isolated_env(run_directory, receipt_path) {
     XDG_CONFIG_HOME: rh.join(run_directory, "config"),
     XDG_DATA_HOME: rh.join(run_directory, "data"),
     AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
-    AGENTERM_CU_RECEIPT_PATH: receipt_path,
     AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
     AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json")
   };
 }
 
-function invoke(run_directory, executable, destination, receipt_path) {
+function invoke(run_directory, executable, destination, receipt_file) {
   const output = rh.command(executable, [
     "--target", "current", "--grant", "observe",
     "device-screenshot", "--out", destination, "--timeout-ms", "1000"
   ], {
     cwd: run_directory,
-    env: isolated_env(run_directory, receipt_path),
+    env: isolated_env(run_directory),
     timeout_ms: 30000
   });
   const stdout = output.stdout.trim();
@@ -60,7 +59,7 @@ function invoke(run_directory, executable, destination, receipt_path) {
          "cu_device_screenshot_capture_refusal_code:" + stdout);
   ensure(!rh.exists(destination),
          "cu_device_screenshot_capture_refusal_destination_created");
-  ensure(!rh.exists(receipt_path) || rh.read_text(receipt_path).trim() === "",
+  ensure(!rh.exists(receipt_file),
          "cu_device_screenshot_capture_refusal_effect_receipt_created");
 }
 
@@ -85,13 +84,13 @@ let succeeded = 0;
 let failure = "";
 try {
   const destination = rh.join(context.run_directory, "must-not-exist.png");
-  const receipt_path = rh.join(context.run_directory, "cu-receipts.jsonl");
+  const receipt_file = rh.join(context.run_directory, "cu-receipts/current.jsonl");
   ensure(!rh.exists(destination),
          "cu_device_screenshot_capture_refusal_destination_preexists");
   print("STEP capture shape refuses before destination or receipt publication");
-  invoke(context.run_directory, executable, destination, receipt_path);
+  invoke(context.run_directory, executable, destination, receipt_file);
   print("STEP repeated capture refusal preserves the same typed no-effect boundary");
-  invoke(context.run_directory, executable, destination, receipt_path);
+  invoke(context.run_directory, executable, destination, receipt_file);
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
