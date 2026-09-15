@@ -1443,6 +1443,15 @@ fn build_qjs_refuses_a_repeated_value_option_instead_of_last_one_wins() {
 }
 
 #[test]
+fn check_qjs_refuses_a_repeated_quick_target_instead_of_silently_changing_scope() {
+    assert!(CHECK_QJS.contains("check_option_duplicate:"));
+    assert!(CHECK_QJS.contains("quick_target_set"));
+    assert!(CHECK_QJS.contains("check_target_value_missing"));
+    assert!(CHECK_QJS.contains("check_target_only_for_quick"));
+    assert!(CHECK_QJS.contains("only_gates.push(gate_id)"));
+}
+
+#[test]
 fn six_cell_orchestrators_reject_surplus_arguments_instead_of_widening_scope() {
     assert!(BUILD_ALL_QJS.contains("build_all_unknown_argument:"));
     assert!(BUILD_ALL_QJS.contains("build_all_profile_duplicate"));
