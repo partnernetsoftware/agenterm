@@ -233,3 +233,69 @@ cargo zigbuild   --target x86_64-unknown-linux-gnu -p agenterm-qjswasm --all-tar
 - 未声称 Linux 一格"零警告"（未加 `-D warnings`，且 warning 来自依赖）；
 - 未声称 §3 的旧命令/旧 SHA 证据可沿用到本节（本节 SHA 为 `2158fffb…`）；
 - 未声称 release 三层任何结论。
+
+---
+
+# 追加：follow-up 3 — release L1 机制边界
+
+本节只补判据 7 的 **L1 crate archive**。L2 最终链接体与 L3 交付包仍未测定；
+不得用本节的 rlib 增量替代它们。
+
+## F12. 可比 source pair 与边界
+
+| 项 | 值 |
+|---|---|
+| **before source identity** | `613136437ca2fa508357529b9f611c1e2af50ba8`（`b7ff748e` 的父提交，native-door schema 落地前） |
+| **after source identity** | `35098c2808b072e576d08065db30e7d5fa1750ef`（S2 fixed door、schema 与首组 fixtures 落地） |
+| **boundary** | `target/native-door-size/build-{before,after}/release/deps/libagenterm_qjswasm-<cargo-hash>.rlib` |
+| **toolchain** | `rustc 1.97.0 (2d8144b78 2026-07-07)`；`cargo 1.97.0 (c980f4866 2026-06-30)` |
+| **build / target** | `cargo build -p agenterm-qjswasm --release --locked`；`aarch64-apple-darwin` |
+| **execution state** | **仅字节测量**；两个 rlib 均未作为目标产物单独执行 |
+
+这对 identity 覆盖 S1 与 S2。两者之间虽有仓级脚本和产品文档提交，但在本 L1
+边界内，生产输入差异只来自 `b7ff748e` 与 `35098c28`：
+`crates/agenterm-qjswasm/src`、该 crate 的 `Cargo.toml` 以及相应 `Cargo.lock`
+依赖接线。它因此可用于 **qjswasm crate archive** 的 before/after，不可用于 L2
+根产品相减；L2 必须另做同一 source state 的可分离双变体，避免把中间仓级变化
+混入结果。
+
+## F13. L1 release bytes
+
+| variant | 唯一 artifact | bytes | SHA-256 | 状态 |
+|---|---|---:|---|---|
+| before | `libagenterm_qjswasm-abaa52ffadb860b9.rlib` | **3,847,456** | `75f0ef5f869c38566d395810d5998adac36f525594bfcb79968e88ee7b5429b4` | **仅字节测量** |
+| after | `libagenterm_qjswasm-558f436a971ced81.rlib` | **4,975,184** | `0e03eed804dad711aada614191c5c4c9b7fa757a829319d461c7440ed03a7b69` | **仅字节测量** |
+| delta | after − before | **+1,127,728** | n/a | **+29.3110%**（分母为 before） |
+
+两端的唯一 glob 都恰好命中一个文件；零个或多个候选会使本测量无效，本次未触发。
+rlib 是 Rust archive，不是 dead-strip 后最终链接体；本数字包含 crate metadata，不能
+归因到某个函数，也不能当成产品或安装包大小。
+
+## F14. 第三方复跑命令
+
+```sh
+# From repository root. The generated source/build lanes remain under target/.
+test ! -e target/native-door-size
+mkdir -p target/native-door-size/src-before target/native-door-size/src-after
+git archive 613136437ca2fa508357529b9f611c1e2af50ba8 | tar -x -C target/native-door-size/src-before
+git archive 35098c2808b072e576d08065db30e7d5fa1750ef | tar -x -C target/native-door-size/src-after
+
+(cd target/native-door-size/src-before && \
+  CARGO_TARGET_DIR=../build-before cargo build -p agenterm-qjswasm --release --locked)
+(cd target/native-door-size/src-after && \
+  CARGO_TARGET_DIR=../build-after cargo build -p agenterm-qjswasm --release --locked)
+
+find target/native-door-size/build-before/release/deps -maxdepth 1 \
+  -type f -name 'libagenterm_qjswasm-*.rlib' -print
+find target/native-door-size/build-after/release/deps -maxdepth 1 \
+  -type f -name 'libagenterm_qjswasm-*.rlib' -print
+stat -f '%z %N' target/native-door-size/build-{before,after}/release/deps/libagenterm_qjswasm-*.rlib
+shasum -a 256 target/native-door-size/build-{before,after}/release/deps/libagenterm_qjswasm-*.rlib
+```
+
+## F15. 本节未声称项
+
+- 未声称 L2 最终链接体或 L3 交付包的增量；
+- 未声称 rlib 增量等于 dead-strip 后的产品贡献；
+- 未声称 macOS L1 数字可外推到 Windows 或 Linux；
+- 未声称任何新 runtime 资格；本节只构建并量取 release archive。

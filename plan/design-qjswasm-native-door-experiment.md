@@ -164,7 +164,7 @@ before/after diff。因此 `edc59a29` 以 `getegid.wat` 建立了新的可比边
 | 4 有限桩表 | **部分通过** | 参数类 2、返回类 3、arity `0..=6`，独立枚举为 `3 × Σ(2^0..2^6) = 381`；`22b79c0f` 让生产与测试共用唯一 exact-family admission，单测独立遍历 `7 × 7 = 49` 并钉住拒绝矩阵。实现以宏列出 0–6 arity，尚无规格所说的生成器结果文件。[结构审计；本机独立枚举测试通过] |
 | 5 no-JIT / cross | **部分通过（编译面已补齐，运行面未齐）** | 代码使用固定 Rust `extern C` stubs + `libloading`，未见 executable allocation、机器码生成、汇编或 C build；**双 MSVC clippy 与 Linux x86_64 zigbuild 的仅编译账已在当前 follow-up source state 复验**（`RESULTS.md` §F7–§F11，测于 `2158fffb`：x64/aarch64 rc=0 且 qjswasm 零诊断，Linux rc=0 且仅依赖有 warning），本机 macOS 有 runtime；**Windows/Linux runtime 未取得**。[结构审计 + `RESULTS.md` 实测（仅编译）] |
 | 6 资源边界 | **当前通过 schema 审计** | spec 1024 B、library 512 B、symbol 255 B、arity 6、block exact-size；span/addition/narrowing 有 typed checked paths 和测试。[结构审计；本机专属测试通过] |
-| 7 体积账 | **未完成** | L1/L2/L3 均未测定；没有同 boundary/tool/build/target-execution 四元口径的 release before/after bytes。 |
+| 7 体积账 | **部分完成** | L1 release crate archive 已按固定 source pair、同 toolchain/profile/target 与独立空 lane 测定：`3,847,456 B → 4,975,184 B`，增量 `1,127,728 B`（29.3110%，仅字节测量）；L2/L3 仍未测定，且不得从 rlib 外推。 |
 
 ### 8.4 与规格不符及不能外推之处
 
@@ -175,7 +175,7 @@ before/after diff。因此 `edc59a29` 以 `getegid.wat` 建立了新的可比边
 4. `3afbdc1d script: supervise native wasm artifacts` 增加 public `.wasm` 的 explicit convention、bounded
    protocol 与 `WorkerSupervisor` crash/timeout 隔离。它是 Script Runtime 的投递/监督证据，不是 S1/S3
    的替代品，也不补齐 native door 的 target runtime、斜率或 release-size 判据。
-5. `research/qjswasm-native-door/RESULTS.md` 已建立，但 release L1/L2/L3 仍未测定；按判决性实验纪律不得标“已判决”。
+5. `research/qjswasm-native-door/RESULTS.md` 已建立，且 §F12–§F15 补齐了 release L1；L2/L3 仍未测定，按判决性实验纪律不得标“已判决”。
 
 诚实条款：本次没有为了让 B 看起来胜出而改判据或把结构推断改写成真机实测。当前结果有且只有一种
 合规读法：**实现已前进，资格实验仍 active；没有证据支持删除/弱化 dyn。**
@@ -197,13 +197,13 @@ cargo test --test script_native_artifact_supervisor
    至少用 `windows_get_current_process_id.wat`，Unix 用 owning fixtures；不得用 public artifact 协议测试代跑。
    **当前进度**：`x86_64-pc-windows-msvc`、`aarch64-pc-windows-msvc` 与 Linux `x86_64` 的 **compile 面已记录**
    （`RESULTS.md` §F7–§F11：精确 SHA `2158fffb` + 工具链 + 命令 + rc/warning，均标仅编译），本机 Unix runtime 已记录；
-   **仍未完成**：这三个非宿主 cell 的 **native fixture 运行**（runner 存在与否须逐 cell 说明），以及 release 体积账。
-2. 补 release before/after 账：分别报告 L1 机制、L2 机制+OS 接缝、L3 整个投递足迹；每个数字附
-   boundary/tool/build/target-execution 四元口径。缺可比 baseline 时写“未测定”，不得跨 profile 相减。
+   **仍未完成**：这三个非宿主 cell 的 **native fixture 运行**（runner 存在与否须逐 cell 说明），以及 release L2/L3 体积账。
+2. 补 release before/after 账：L1 已在 `RESULTS.md` §F12–§F15 按固定 source pair 与四元口径测定；
+   仍须报告 L2 机制+OS 接缝与 L3 整个投递足迹。缺可比 baseline 时写“未测定”，不得跨 profile 相减。
 3. 写入独立 `research/.../RESULTS.md`，包含 exact SHA、工具链、门面计数、49/381 独立复算、runtime
    attribution、release bytes、偏差和复跑命令；完成前 §7 迁移门保持关闭。
 
-### 8.6 判据 7 的 artifact boundary 表（可执行测量口径；**不改变判据权重，release 仍未测定**）
+### 8.6 判据 7 的 artifact boundary 表（可执行测量口径；**不改变判据权重，L2/L3 仍未测定**）
 
 以下每一行都对应可由仓库构建入口重建的 artifact。字节工具沿用 `scripts/qjs/stage-build.qjs`
 的 `rh.metadata(path).len` 与 package 链的 `rh.sha256_file`，不把工作区里来源不明的旧 `dist/` 文件当基线。
@@ -215,14 +215,16 @@ cargo test --test script_native_artifact_supervisor
 | **L3 交付包** | 隔离 staging 下的 `agenterm-<version>-<target>-unsigned-preview.zip`、provenance、SHA-256 与 SBOM | Candidate 使用的同一 profile / target | `package-release-qualified` 的非发布资格路径 | archive bytes + SHA-256 + receipt | before/after 各留 exact source identity 与 artifact-manifest receipt | 实际交付足迹及其源码绑定 | 机制归因 |
 
 **逐层缺口（不得伪造文件）**
-1. L1 没有稳定文件名或独立预算，只能在空 lane 中要求 pattern **唯一命中**；零个或多个候选都使测量无效。
+1. L1 没有稳定文件名或独立预算，只能在空 lane 中要求 pattern **唯一命中**；`RESULTS.md`
+   §F12–§F15 已在 before/after 两端各取得唯一候选并记录 bytes、SHA-256 与 source identity。
 2. L2 的 OS 接缝不单独 materialize；只报告整个最终链接体的 before/after 差值，不制造接缝子文件。
 3. L3 已有 provenance 字段可绑定 source commit 与 artifact manifest；仍须为 before/after 各自产生 receipt。
-4. `aedfdf96` 提供 target 与 dist 的 repo-local 单层 lane，但尚未完成真实隔离 build；在该黑盒门通过前，三层继续标**未测定**。
+4. `aedfdf96` 提供 target 与 dist 的 repo-local 单层 lane，但尚未完成 L2 的真实隔离双变体 build；
+   在该黑盒门通过前，L2/L3 继续标**未测定**。
 
 **四元口径怎么填（每行都一样）**：`boundary` = 上表该层 artifact；`tool` = `rustc -V`/`cargo -V`（+`cargo xwin`/`zig` 版本）；`build` = 该行"构建入口"逐字命令；`target-execution` = 该 artifact 是否在目标上**运行过**（未运行一律标**仅编译**）。
 
-**不得外推**：本表只命名**测量口径**。L1/L2/L3 的 release 数字**仍未测定**；任何"包/可执行大小"的数字在未按本表取得前**不得**写进任何判决。
+**不得外推**：L1 的 rlib archive 数字只属于该机制边界。L2/L3 的 release 数字**仍未测定**；任何"包/可执行大小"的数字在未按本表取得前**不得**写进任何判决。
 
 ## 9. 明确非目标
 
