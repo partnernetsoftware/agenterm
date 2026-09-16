@@ -82,6 +82,8 @@ workload-by-workload Wasmtime-class replacement horizon.
 `goal-agenterm-osx.md` preserves the completed v0.1.15-era macOS campaign;
 current platform work and release qualification are owned by the platform goal,
 active version plan and release skill.
+`plan-ape-thin-shell-dynamic-packages.md` preserves the superseded APE/thin-shell
+draft; the active fast-change boundary is the v0.1.19 Chassis plan.
 
 ## Restored decision records
 

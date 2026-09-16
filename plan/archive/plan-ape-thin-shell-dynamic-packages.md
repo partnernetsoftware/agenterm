@@ -1,3 +1,6 @@
+> **已归档 2026-09-16 — 架构草案被取代。** 本文依赖的 APE、`agenterm-con`、rh、qjs 与 wasmcore 产品形态均未成为当前执行架构；v0.1.19 的快速变更边界由 Chassis 路线接管。
+> 现行权威：`plan/plan-v0.1.19.md`、`plan/goal-chassis-l1-l2-l3.md` 与 `plan/ARCHITECTURE.md`。
+
 # ape + thin shells + dynamic packages: 架构与落地计划
 
 状态：draft（2026-08-10，2026-08-10 全量 src/ 文件审计后更新）

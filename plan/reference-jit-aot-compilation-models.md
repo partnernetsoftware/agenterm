@@ -99,7 +99,7 @@ JIT 的产出是**真正的机器码**，和 AOT 产出的没有区别。
 
 ## 与架构的关系
 
-本 repo 的 `plan/plan-ape-thin-shell-dynamic-packages.md` 中，
+本 repo 的历史草案 `plan/archive/plan-ape-thin-shell-dynamic-packages.md` 中，
 "动态包"（`.dll`/`.so` 插件）和 AOT/JIT 是**正交概念**：
 
 - 动态包解决的是**链接时机**（编译期 static-link vs 运行期 LoadLibrary）
