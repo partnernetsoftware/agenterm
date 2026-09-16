@@ -44,11 +44,14 @@ cp "$BIN_DIR/agenterm-cu-provider.dylib" \
   "$NEXT/Contents/MacOS/agenterm-cu-provider.dylib"
 cp "$BIN_DIR/agenterm-cu" \
   "$NEXT/Contents/Resources/com.partnernetsoftware.agenterm.cu.privilege"
+cp "$BIN_DIR/agenterm-cu-provider.dylib" \
+  "$NEXT/Contents/Resources/agenterm-cu-provider.dylib"
 chmod 0755 "$NEXT/Contents/MacOS/agenterm" "$NEXT/Contents/MacOS/agenterm-cc" \
   "$NEXT/Contents/MacOS/agenterm-cu" \
   "$NEXT/Contents/Resources/com.partnernetsoftware.agenterm.cu.privilege"
 chmod 0644 "$NEXT/Contents/MacOS/libagenterm.dylib" \
   "$NEXT/Contents/MacOS/agenterm-cu-provider.dylib" "$NEXT/Contents/Info.plist" \
+  "$NEXT/Contents/Resources/agenterm-cu-provider.dylib" \
   "$NEXT/Contents/Library/LaunchDaemons/com.partnernetsoftware.agenterm.cu.privilege.plist" \
   "$NEXT/Contents/Resources/authorization-right.plist" \
   "$NEXT/Contents/Resources/privilege-deployment.json"

@@ -254,6 +254,7 @@ required = {
     "AgenTerm.app",
     "AgenTerm.app/Contents/Info.plist",
     "AgenTerm.app/Contents/Resources/com.partnernetsoftware.agenterm.cu.privilege",
+    "AgenTerm.app/Contents/Resources/agenterm-cu-provider.dylib",
 }
 if not required.issubset(set(normalized)):
     raise SystemExit("installer_bom_required_payload_missing")

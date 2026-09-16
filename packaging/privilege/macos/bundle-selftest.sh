@@ -14,6 +14,17 @@ chmod 0755 "$TMP/bin/agenterm" "$TMP/bin/agenterm-cc" "$TMP/bin/agenterm-cu"
 test "$(stat -f '%Lp' "$TMP/AgenTerm.app/Contents/MacOS/agenterm-cu-provider.dylib")" = 644
 cmp -s "$TMP/bin/agenterm-cu-provider.dylib" \
   "$TMP/AgenTerm.app/Contents/MacOS/agenterm-cu-provider.dylib"
+test "$(stat -f '%Lp' "$TMP/AgenTerm.app/Contents/Resources/agenterm-cu-provider.dylib")" = 644
+cmp -s "$TMP/bin/agenterm-cu-provider.dylib" \
+  "$TMP/AgenTerm.app/Contents/Resources/agenterm-cu-provider.dylib"
+mv "$TMP/AgenTerm.app/Contents/Resources/agenterm-cu-provider.dylib" \
+  "$TMP/AgenTerm.app/Contents/Resources/agenterm-cu-provider.dylib.missing"
+if "$ROOT/packaging/privilege/macos/validate-app-bundle.sh" --layout "$TMP/AgenTerm.app" >/dev/null 2>&1; then
+  echo "bundle without helper-sibling dynamic provider was accepted" >&2
+  exit 1
+fi
+mv "$TMP/AgenTerm.app/Contents/Resources/agenterm-cu-provider.dylib.missing" \
+  "$TMP/AgenTerm.app/Contents/Resources/agenterm-cu-provider.dylib"
 mv "$TMP/AgenTerm.app/Contents/MacOS/agenterm-cu-provider.dylib" \
   "$TMP/AgenTerm.app/Contents/MacOS/agenterm-cu-provider.dylib.missing"
 if "$ROOT/packaging/privilege/macos/validate-app-bundle.sh" --layout "$TMP/AgenTerm.app" >/dev/null 2>&1; then
@@ -33,6 +44,7 @@ codesign --force --sign - --identifier com.partnernetsoftware.agenterm.cu.privil
   "$TMP/AgenTerm.app/Contents/Resources/com.partnernetsoftware.agenterm.cu.privilege" >/dev/null
 codesign --force --sign - "$TMP/AgenTerm.app/Contents/MacOS/libagenterm.dylib" >/dev/null
 codesign --force --sign - "$TMP/AgenTerm.app/Contents/MacOS/agenterm-cu-provider.dylib" >/dev/null
+codesign --force --sign - "$TMP/AgenTerm.app/Contents/Resources/agenterm-cu-provider.dylib" >/dev/null
 codesign --force --sign - "$TMP/AgenTerm.app/Contents/MacOS/agenterm-cu" >/dev/null
 codesign --force --sign - "$TMP/AgenTerm.app/Contents/MacOS/agenterm-cc" >/dev/null
 codesign --force --sign - --identifier com.partnernetsoftware.agenterm \

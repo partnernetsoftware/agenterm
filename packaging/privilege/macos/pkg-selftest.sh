@@ -22,6 +22,7 @@ mkdir -p "$TOOLS" "$BUNDLE/Contents/Resources"
 cp "$ROOT/packaging/privilege/macos/Info.plist.in" "$BUNDLE/Contents/Info.plist"
 sed -i '' 's/@AGENTERM_VERSION@/0.0.0-test/g' "$BUNDLE/Contents/Info.plist"
 printf 'fixture helper\n' > "$BUNDLE/Contents/Resources/com.partnernetsoftware.agenterm.cu.privilege"
+printf 'fixture provider\n' > "$BUNDLE/Contents/Resources/agenterm-cu-provider.dylib"
 touch "$BUNDLE/.fixture-signed" "$BUNDLE/.fixture-stapled"
 
 cat > "$TOOLS/validate-app-bundle" <<'SH'
@@ -107,6 +108,7 @@ case "$1" in
   -s)
     printf '.\n./AgenTerm.app\n./AgenTerm.app/Contents/Info.plist\n'
     printf './AgenTerm.app/Contents/Resources/com.partnernetsoftware.agenterm.cu.privilege\n'
+    printf './AgenTerm.app/Contents/Resources/agenterm-cu-provider.dylib\n'
     ;;
   -p)
     [[ "$2" == fmug ]]
@@ -116,6 +118,7 @@ case "$1" in
     printf './AgenTerm.app\t%s\t0\t0\n' "$mode"
     printf './AgenTerm.app/Contents/Info.plist\t100644\t0\t0\n'
     printf './AgenTerm.app/Contents/Resources/com.partnernetsoftware.agenterm.cu.privilege\t100755\t0\t0\n'
+    printf './AgenTerm.app/Contents/Resources/agenterm-cu-provider.dylib\t100644\t0\t0\n'
     ;;
   *) exit 2 ;;
 esac
