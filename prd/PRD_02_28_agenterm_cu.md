@@ -2199,7 +2199,11 @@ flowchart LR
   `verbs` text, JSON and typed-usage outputs now retain exact bytes and exits
   through the bounded ABI buffer. The X11 clipboard owner now shares one
   stdin/environment adapter between monolith and provider and retains zero ABI
-  output. The other three binary-entry families still fail closed instead of
+  output. The `host` / `hotkeys` desktop-host entry now retains direct process
+  ownership of its event loop, stdout/stderr and product exit status, including
+  its bounded self-test argv; no public court currently drives that entry, and
+  the macOS LaunchAgent must eventually stage the provider as a fixed sibling.
+  The other two binary-entry families still fail closed instead of
   preserving framing/lifetime/cleanup parity. The browser-session result is a macOS native
   public court, not Candidate evidence: that court is platform-limited and
   registered rather than Windows Candidate-required. The staged device-lease

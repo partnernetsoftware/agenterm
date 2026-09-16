@@ -26,6 +26,7 @@ const ENTRY_MANAGED_JOB_OWNER: u32 = 4;
 const ENTRY_DEVICE_LEASE_OWNER: u32 = 5;
 const ENTRY_DEVICE_IO_FIXTURE: u32 = 7;
 const ENTRY_NETWORK_PROBE_FIXTURE: u32 = 8;
+const ENTRY_HOTKEY_HOST: u32 = 9;
 const ENTRY_VERBS_TEXT: u32 = 10;
 const ENTRY_X11_CLIPBOARD_OWNER: u32 = 11;
 const ENTRY_VERSION_TEXT: u32 = 12;
@@ -36,6 +37,8 @@ const MANAGED_JOB_OWNER_ARG: &[u8] = b"--agenterm-cu-internal-managed-job-owner"
 const DEVICE_LEASE_OWNER_ARG: &[u8] = b"--agenterm-cu-internal-device-lease-owner";
 const DEVICE_IO_FIXTURE_ARG: &[u8] = b"--agenterm-cu-internal-device-io-fixture";
 const NETWORK_PROBE_FIXTURE_ARG: &[u8] = b"--agenterm-cu-internal-network-probe-fixture";
+const HOTKEY_HOST_ARG: &[u8] = b"host";
+const HOTKEY_HOST_ALIAS: &[u8] = b"hotkeys";
 const VERBS_ARG: &[u8] = b"verbs";
 const X11_CLIPBOARD_OWNER_ARG: &[u8] = b"__agenterm-internal-x11-clipboard-own";
 
@@ -243,6 +246,9 @@ fn expected_entry_mode(argv: &[Vec<u8>]) -> u32 {
         ENTRY_DEVICE_IO_FIXTURE
     } else if matches!(argv, [first, ..] if first.as_slice() == NETWORK_PROBE_FIXTURE_ARG) {
         ENTRY_NETWORK_PROBE_FIXTURE
+    } else if matches!(argv, [first, ..] if matches!(first.as_slice(), HOTKEY_HOST_ARG | HOTKEY_HOST_ALIAS))
+    {
+        ENTRY_HOTKEY_HOST
     } else if matches!(argv, [first, ..] if first.as_slice() == VERBS_ARG) {
         ENTRY_VERBS_TEXT
     } else if matches!(argv, [first, ..] if first.as_slice() == X11_CLIPBOARD_OWNER_ARG) {
@@ -263,6 +269,7 @@ fn validate_output(entry_mode: u32, stdout: &[u8], stderr: &[u8]) -> Result<(), 
         | ENTRY_DEVICE_LEASE_OWNER
         | ENTRY_DEVICE_IO_FIXTURE
         | ENTRY_NETWORK_PROBE_FIXTURE
+        | ENTRY_HOTKEY_HOST
         | ENTRY_X11_CLIPBOARD_OWNER => {
             if stdout.is_empty() && stderr.is_empty() {
                 Ok(())
@@ -285,6 +292,7 @@ fn entry_mode_owns_stdio(entry_mode: u32) -> bool {
             | ENTRY_DEVICE_LEASE_OWNER
             | ENTRY_DEVICE_IO_FIXTURE
             | ENTRY_NETWORK_PROBE_FIXTURE
+            | ENTRY_HOTKEY_HOST
             | ENTRY_X11_CLIPBOARD_OWNER
     )
 }
@@ -437,6 +445,24 @@ mod tests {
             "provider_verbs_stderr_invalid"
         );
         assert!(!entry_mode_owns_stdio(ENTRY_VERBS_TEXT));
+    }
+
+    #[test]
+    fn hotkey_host_alias_and_self_test_retain_direct_process_ownership() {
+        for argv in [
+            vec![HOTKEY_HOST_ARG.to_vec()],
+            vec![HOTKEY_HOST_ARG.to_vec(), b"--self-test".to_vec()],
+            vec![HOTKEY_HOST_ALIAS.to_vec()],
+            vec![HOTKEY_HOST_ALIAS.to_vec(), b"--self-test".to_vec()],
+        ] {
+            assert_eq!(expected_entry_mode(&argv), ENTRY_HOTKEY_HOST);
+        }
+        assert!(entry_mode_owns_stdio(ENTRY_HOTKEY_HOST));
+        assert!(validate_output(ENTRY_HOTKEY_HOST, b"", b"").is_ok());
+        assert_eq!(
+            validate_output(ENTRY_HOTKEY_HOST, b"unexpected", b"").unwrap_err(),
+            "provider_direct_stdio_buffer_invalid"
+        );
     }
 
     #[test]

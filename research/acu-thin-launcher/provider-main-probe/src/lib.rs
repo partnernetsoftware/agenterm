@@ -217,6 +217,7 @@ unsafe fn process_main_inner(
         ENTRY_NETWORK_PROBE_FIXTURE => {
             Some(agenterm_cu::network_probe::run_loopback_fixture(&argv[1..]))
         }
+        ENTRY_HOTKEY_HOST => Some(agenterm_cu::hotkeys::run()),
         ENTRY_X11_CLIPBOARD_OWNER => Some(agenterm_cu::run_x11_clipboard_owner()),
         _ => None,
     };
@@ -408,6 +409,7 @@ mod tests {
                 ENTRY_NETWORK_PROBE_FIXTURE,
             ),
             (&["host"][..], ENTRY_HOTKEY_HOST),
+            (&["hotkeys", "--self-test"][..], ENTRY_HOTKEY_HOST),
             (&["verbs"][..], ENTRY_VERBS_TEXT),
             (
                 &[agenterm_cu::mechanism::clipboard::X11_CLIPBOARD_OWNER_ARG][..],

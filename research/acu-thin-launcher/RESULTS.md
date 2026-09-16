@@ -2,7 +2,7 @@
 
 Status: **ordinary seam and Linux L1 pass; G1 is red.** The prototype proves a
 small fixed-sibling launcher can execute ordinary ACU argv without owning the
-command schema. Three binary-only entry families remain unimplemented, so it does
+command schema. Two binary-only entry families remain unimplemented, so it does
 not accept B or establish the product topology.
 
 ## Source and tool identity
@@ -74,7 +74,7 @@ repository target tree.
 | gate | result | evidence / missing work |
 |---|---|---|
 | G0 safety/authority | partial green | one parser/Executor owner, fixed sibling, bounded ABI, release panic latch, missing/wrong ABI and malformed-result refusals; not all raw failures on three native OSes |
-| G1 behavior parity | **red** | ordinary help/capabilities/refusal, exact version and verbs text, network-probe and device-I/O fixtures, and managed-job, browser-session, device-lease and X11 clipboard owners run; the other three binary-entry families remain explicitly unimplemented; no complete paired monolith stdout/stderr corpus |
+| G1 behavior parity | **red** | ordinary help/capabilities/refusal, exact version and verbs text, network-probe and device-I/O fixtures, and managed-job, browser-session, device-lease, hotkey and X11 clipboard owners run; the other two binary-entry families remain explicitly unimplemented; no complete paired monolith stdout/stderr corpus |
 | G2 launcher budgets | partial green | Linux x86_64 L1 is 389,096 bytes; Windows L1 and same-source paired monolith are unmeasured |
 | G3 six-cell/native | red | only Linux x86_64 cross-build plus macOS arm64 native ordinary execution |
 | G4 footprint | partial | macOS L1/L2/L3 complete; Linux L2/L3 and other cells unmeasured |
@@ -187,6 +187,24 @@ refusals: an empty MIME environment value and non-UTF-8 text stdin both returned
 exit 1 with empty stdout/stderr. The X11 selection lifetime remains evidenced
 only by registered Linux courts requiring `DISPLAY`; it was not rerun here.
 G1 remains red and topology B is not promoted.
+
+### Incremental G1 hotkey-host slice
+
+Entry mode 9 now sends both the canonical `host` spelling and compatibility
+alias `hotkeys` to the existing library-owned desktop host. The provider call
+owns the real process event loop and standard streams directly, so resident
+host lifetime, platform diagnostics, Windows JSON self-test output and product
+exit codes are not copied into ABI buffers. The launcher predicts the same
+first-argument shapes and keeps all trailing process arguments intact, including
+`--self-test` and `--json`.
+
+The research unit boundary covers both spellings, trailing self-test arguments,
+zero ABI-buffer publication and direct process ownership. A native host
+self-test was deliberately not run in this increment because macOS self-test
+may perform a real window-placement action when Accessibility is trusted. No
+public court currently drives this entry, and the macOS LaunchAgent delivery
+still needs the provider staged beside the launcher before topology B could be
+promoted. G1 therefore remains red.
 
 ## Commands used for the recorded result
 

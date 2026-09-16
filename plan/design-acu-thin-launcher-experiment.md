@@ -170,7 +170,10 @@ court is green through the staged topology. Entry mode 10 now preserves the
 library-owned `verbs` text, JSON and typed-usage bytes through the bounded ABI
 buffer. Entry mode 11 now shares the X11 clipboard stdin/environment adapter
 between monolith and provider and retains zero ABI output. The tree still stops
-at G1 red: the other three binary-entry families remain
+at G1 red. Entry mode 9 now preserves the `host`/`hotkeys` first-argument
+surface by running the existing platform desktop host as a direct process owner;
+its event loop, diagnostics, self-test output and exit status never pass through
+ABI buffers. The other two binary-entry families remain
 `provider_entry_mode_unimplemented`; their framing, resident lifetime, cleanup
 and exact exit parity are not implemented. The browser-session result is native
 court evidence, not Candidate evidence: its existing qjs court is a registered

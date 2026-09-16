@@ -101,8 +101,9 @@ Unix PTY fixture also retains its direct stdout and bounded lifetime contract.
 The library-owned `verbs` surface retains its text, JSON and typed-usage output
 through the bounded ABI buffer. The X11 clipboard owner now shares one library
 entry between monolith and provider, preserving its inherited stdin and
-zero-output process contract. The
-other three families return the typed boundary status
+zero-output process contract. The hotkey host now retains direct ownership of
+the process event loop and real stdout/stderr, including the `hotkeys` alias and
+bounded `--self-test` argv. The other two families return the typed boundary status
 `provider_entry_mode_unimplemented`. Their stdin/stdout framing, resident
 lifetime, cleanup and exact exit behavior are not implemented or tested here.
 Consequently G1 remains red; these completed slices are not binary-entry parity.
