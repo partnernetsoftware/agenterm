@@ -1,9 +1,21 @@
 # agenterm-cu-provider
 
 This independently built `cdylib` is the versioned native delivery boundary
-for qjs `agenterm:acu`. It accepts one bounded opaque Command JSON value and
-returns one bounded opaque `CuReply` JSON value. Product meaning remains in
-`agenterm-cu`.
+for qjs `agenterm:acu`, MCP, and the thin CU process launcher. Product meaning
+remains in `agenterm-cu`.
+
+The artifact exports two independently versioned, additive ABI families:
+
+- `agenterm_cu_provider_*` accepts one bounded opaque Command JSON value and
+  returns one bounded opaque `CuReply` JSON value for embedded callers;
+- `agenterm_cu_process_main_*` accepts bounded raw argv, uses the shared product
+  process-entry table, and returns buffered presentation plus product exit
+  status. Resident and framed child modes retain direct ownership of their real
+  process stdio and lifetime.
+
+Both families share one panic latch and one call lock. A panic through either
+entry permanently closes the complete loaded provider; callers never fall back
+to a different implementation.
 
 Build it from repository root with its required unwind profile and an isolated
 repo-local target directory:

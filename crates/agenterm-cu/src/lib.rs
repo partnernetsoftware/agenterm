@@ -46,6 +46,7 @@ pub(crate) mod managed_job_ipc;
 pub(crate) mod managed_job_owner;
 pub(crate) mod managed_job_store;
 pub(crate) mod owner_executable;
+pub mod process_entry;
 pub mod screen_reader_observe;
 
 #[doc(hidden)]

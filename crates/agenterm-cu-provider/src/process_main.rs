@@ -1,9 +1,9 @@
-//! Measurement-only process-main provider for the ACU thin-launcher court.
+//! Versioned process-main ABI for the fixed-sibling ACU provider.
 //!
-//! Raw argv crosses one versioned C ABI. This provider alone classifies
-//! binary entry modes and owns ordinary argv parsing, execution, presentation,
-//! and product exit status. Entry modes whose streaming/lifetime contracts are
-//! not implemented by this prototype fail explicitly at the provider boundary.
+//! Raw argv crosses one versioned C ABI. The linked `agenterm-cu` library owns
+//! the authoritative entry classification and direct process-mode execution;
+//! this module owns ABI validation, buffered presentation and product exit
+//! status publication.
 
 #[cfg(panic = "abort")]
 compile_error!("the process-main provider must be built with panic=unwind");
@@ -12,11 +12,10 @@ use std::{
     mem,
     panic::{AssertUnwindSafe, catch_unwind},
     ptr, slice, str,
-    sync::{
-        Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::atomic::Ordering,
 };
+
+use super::{PROVIDER_CALL_LOCK, PROVIDER_FAILED};
 
 pub const ABI_VERSION: u32 = 1;
 pub const MAX_ARGV_COUNT: usize = 4_096;
@@ -34,19 +33,42 @@ pub const STATUS_SERIALIZE_FAILED: i32 = 6;
 pub const STATUS_PROVIDER_PANICKED: i32 = 7;
 pub const STATUS_ENTRY_MODE_UNIMPLEMENTED: i32 = 8;
 
-pub const ENTRY_ORDINARY_ARGV: u32 = 0;
-pub const ENTRY_NATIVE_MESSAGING_HOST: u32 = 1;
-pub const ENTRY_NETWORK_PROBE_WORKER: u32 = 2;
-pub const ENTRY_BROWSER_SESSION_OWNER: u32 = 3;
-pub const ENTRY_MANAGED_JOB_OWNER: u32 = 4;
-pub const ENTRY_DEVICE_LEASE_OWNER: u32 = 5;
-pub const ENTRY_PRIVILEGE_BROKER: u32 = 6;
-pub const ENTRY_DEVICE_IO_FIXTURE: u32 = 7;
-pub const ENTRY_NETWORK_PROBE_FIXTURE: u32 = 8;
-pub const ENTRY_HOTKEY_HOST: u32 = 9;
-pub const ENTRY_VERBS_TEXT: u32 = 10;
-pub const ENTRY_X11_CLIPBOARD_OWNER: u32 = 11;
-pub const ENTRY_VERSION_TEXT: u32 = 12;
+pub const ENTRY_ORDINARY_ARGV: u32 =
+    agenterm_cu::process_entry::ProcessEntryMode::OrdinaryArgv as u32;
+#[cfg(test)]
+pub const ENTRY_NATIVE_MESSAGING_HOST: u32 =
+    agenterm_cu::process_entry::ProcessEntryMode::NativeMessagingHost as u32;
+#[cfg(test)]
+pub const ENTRY_NETWORK_PROBE_WORKER: u32 =
+    agenterm_cu::process_entry::ProcessEntryMode::NetworkProbeWorker as u32;
+#[cfg(test)]
+pub const ENTRY_BROWSER_SESSION_OWNER: u32 =
+    agenterm_cu::process_entry::ProcessEntryMode::BrowserSessionOwner as u32;
+#[cfg(test)]
+pub const ENTRY_MANAGED_JOB_OWNER: u32 =
+    agenterm_cu::process_entry::ProcessEntryMode::ManagedJobOwner as u32;
+#[cfg(test)]
+pub const ENTRY_DEVICE_LEASE_OWNER: u32 =
+    agenterm_cu::process_entry::ProcessEntryMode::DeviceLeaseOwner as u32;
+#[cfg(test)]
+pub const ENTRY_PRIVILEGE_BROKER: u32 =
+    agenterm_cu::process_entry::ProcessEntryMode::PrivilegeBroker as u32;
+#[cfg(test)]
+pub const ENTRY_DEVICE_IO_FIXTURE: u32 =
+    agenterm_cu::process_entry::ProcessEntryMode::DeviceIoFixture as u32;
+#[cfg(test)]
+pub const ENTRY_NETWORK_PROBE_FIXTURE: u32 =
+    agenterm_cu::process_entry::ProcessEntryMode::NetworkProbeFixture as u32;
+#[cfg(test)]
+pub const ENTRY_HOTKEY_HOST: u32 = agenterm_cu::process_entry::ProcessEntryMode::HotkeyHost as u32;
+#[cfg(test)]
+pub const ENTRY_VERBS_TEXT: u32 = agenterm_cu::process_entry::ProcessEntryMode::VerbsText as u32;
+#[cfg(test)]
+pub const ENTRY_X11_CLIPBOARD_OWNER: u32 =
+    agenterm_cu::process_entry::ProcessEntryMode::X11ClipboardOwner as u32;
+#[cfg(test)]
+pub const ENTRY_VERSION_TEXT: u32 =
+    agenterm_cu::process_entry::ProcessEntryMode::VersionText as u32;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -72,9 +94,6 @@ pub struct ProcessMainResultV1 {
     pub stdout_len: usize,
     pub stderr_len: usize,
 }
-
-static PROVIDER_FAILED: AtomicBool = AtomicBool::new(false);
-static PROVIDER_CALL_LOCK: Mutex<()> = Mutex::new(());
 
 #[unsafe(no_mangle)]
 pub extern "C" fn agenterm_cu_process_main_abi_version() -> u32 {
@@ -149,7 +168,7 @@ unsafe fn process_main_inner(
         return STATUS_INVALID_POINTER;
     }
     if stdout_capacity > MAX_STDOUT_BYTES || stderr_capacity > MAX_STDERR_BYTES {
-        return STATUS_OUTPUT_TOO_LARGE;
+        return STATUS_BAD_REQUEST;
     }
     // SAFETY: request was checked non-null and is readable for one request.
     let request = unsafe { &*request };
@@ -203,28 +222,10 @@ unsafe fn process_main_inner(
         panic!("test-only provider panic");
     }
 
-    let mode = classify_entry(&argv);
+    let mode = agenterm_cu::process_entry::classify(&argv);
     // SAFETY: result is a valid writable ABI result.
-    unsafe { (*result).entry_mode = mode };
-    let direct_exit = match mode {
-        ENTRY_NATIVE_MESSAGING_HOST => {
-            Some(agenterm_cu::browser_bridge::run_native_host_entry(&argv))
-        }
-        ENTRY_NETWORK_PROBE_WORKER => Some(agenterm_cu::network_probe::run_worker_stdio()),
-        ENTRY_BROWSER_SESSION_OWNER => {
-            Some(agenterm_cu::browser_session_owner::run_owner(&argv[1..]))
-        }
-        ENTRY_MANAGED_JOB_OWNER => Some(agenterm_cu::run_managed_job_owner()),
-        ENTRY_DEVICE_LEASE_OWNER => Some(agenterm_cu::run_device_lease_owner()),
-        ENTRY_PRIVILEGE_BROKER => Some(agenterm_cu::run_privilege_broker()),
-        ENTRY_DEVICE_IO_FIXTURE => Some(agenterm_cu::run_device_io_test_fixture(&argv[1..])),
-        ENTRY_NETWORK_PROBE_FIXTURE => {
-            Some(agenterm_cu::network_probe::run_loopback_fixture(&argv[1..]))
-        }
-        ENTRY_HOTKEY_HOST => Some(agenterm_cu::hotkeys::run()),
-        ENTRY_X11_CLIPBOARD_OWNER => Some(agenterm_cu::run_x11_clipboard_owner()),
-        _ => None,
-    };
+    unsafe { (*result).entry_mode = mode as u32 };
+    let direct_exit = agenterm_cu::process_entry::run_direct(mode, &argv);
     if let Some(exit_code) = direct_exit {
         // These isolated child modes own process fd 0/1 directly. Their parent
         // bounds and validates the protocol after observing this process exit;
@@ -235,34 +236,39 @@ unsafe fn process_main_inner(
         return STATUS_OK;
     }
     let (encoded, diagnostic, exit_code) = match mode {
-        ENTRY_ORDINARY_ARGV => {
+        agenterm_cu::process_entry::ProcessEntryMode::OrdinaryArgv => {
             let reply = agenterm_cu::argv::execute_argv_from_environment(argv.clone());
-            let encoded = match serde_json::to_vec(&reply) {
-                Ok(mut encoded) => {
-                    encoded.push(b'\n');
-                    encoded
-                }
-                Err(_) => return STATUS_SERIALIZE_FAILED,
-            };
+            let (encoded, exit_code) = agenterm_cu::reply::process_line(&reply);
             let diagnostic = agenterm_cu::argv::human_diagnostic(&argv, &reply).unwrap_or_default();
-            (encoded, diagnostic, reply_exit_code(&reply))
+            (encoded.into_bytes(), diagnostic, exit_code)
         }
-        ENTRY_VERSION_TEXT => (agenterm_cu::version_text().into_bytes(), String::new(), 0),
-        ENTRY_VERBS_TEXT => match agenterm_cu::cli::help::run_verbs(&argv[1..]) {
-            Ok(text) => (text.into_bytes(), String::new(), 0),
-            Err(reply) => {
-                let exit_code = reply_exit_code(&reply);
-                let encoded = match serde_json::to_vec(&*reply) {
-                    Ok(mut encoded) => {
-                        encoded.push(b'\n');
-                        encoded
-                    }
-                    Err(_) => return STATUS_SERIALIZE_FAILED,
-                };
-                (encoded, String::new(), exit_code)
+        agenterm_cu::process_entry::ProcessEntryMode::VersionText => {
+            (agenterm_cu::version_text().into_bytes(), String::new(), 0)
+        }
+        agenterm_cu::process_entry::ProcessEntryMode::VerbsText => {
+            match agenterm_cu::cli::help::run_verbs(&argv[1..]) {
+                Ok(text) => (text.into_bytes(), String::new(), 0),
+                Err(reply) => {
+                    let (encoded, exit_code) = agenterm_cu::reply::process_line(&reply);
+                    (encoded.into_bytes(), String::new(), exit_code)
+                }
             }
-        },
-        _ => return STATUS_ENTRY_MODE_UNIMPLEMENTED,
+        }
+        agenterm_cu::process_entry::ProcessEntryMode::NativeMessagingHost
+        | agenterm_cu::process_entry::ProcessEntryMode::NetworkProbeWorker
+        | agenterm_cu::process_entry::ProcessEntryMode::BrowserSessionOwner
+        | agenterm_cu::process_entry::ProcessEntryMode::ManagedJobOwner
+        | agenterm_cu::process_entry::ProcessEntryMode::DeviceLeaseOwner
+        | agenterm_cu::process_entry::ProcessEntryMode::PrivilegeBroker
+        | agenterm_cu::process_entry::ProcessEntryMode::DeviceIoFixture
+        | agenterm_cu::process_entry::ProcessEntryMode::NetworkProbeFixture
+        | agenterm_cu::process_entry::ProcessEntryMode::HotkeyHost
+        | agenterm_cu::process_entry::ProcessEntryMode::X11ClipboardOwner => {
+            // `run_direct` owns these modes. Keep an explicit exhaustive arm
+            // so adding a future enum variant cannot silently fall into this
+            // boundary refusal without a compile-time decision here.
+            return STATUS_ENTRY_MODE_UNIMPLEMENTED;
+        }
     };
     if encoded.len() > stdout_capacity
         || encoded.len() > MAX_STDOUT_BYTES
@@ -306,51 +312,9 @@ unsafe fn reset_result(result: *mut ProcessMainResultV1) {
     }
 }
 
+#[cfg(test)]
 fn classify_entry(args: &[String]) -> u32 {
-    let Some(first) = args.first().map(String::as_str) else {
-        return ENTRY_ORDINARY_ARGV;
-    };
-    if first.starts_with("chrome-extension://") {
-        ENTRY_NATIVE_MESSAGING_HOST
-    } else if matches!(args, [arg] if arg == agenterm_cu::network_probe::WORKER_ARG) {
-        ENTRY_NETWORK_PROBE_WORKER
-    } else if first == agenterm_cu::browser_session_owner::OWNER_ARG {
-        ENTRY_BROWSER_SESSION_OWNER
-    } else if matches!(args, [arg] if arg == agenterm_cu::MANAGED_JOB_OWNER_ARG) {
-        ENTRY_MANAGED_JOB_OWNER
-    } else if matches!(args, [arg] if arg == agenterm_cu::DEVICE_LEASE_OWNER_ARG) {
-        ENTRY_DEVICE_LEASE_OWNER
-    } else if matches!(args, [arg] if arg == agenterm_cu::PRIVILEGE_BROKER_ARG) {
-        ENTRY_PRIVILEGE_BROKER
-    } else if first == agenterm_cu::DEVICE_IO_FIXTURE_ARG {
-        ENTRY_DEVICE_IO_FIXTURE
-    } else if first == agenterm_cu::network_probe::FIXTURE_ARG {
-        ENTRY_NETWORK_PROBE_FIXTURE
-    } else if agenterm_cu::cli::verbs::lookup(first).map(|spec| spec.name) == Some("host") {
-        ENTRY_HOTKEY_HOST
-    } else if agenterm_cu::cli::verbs::lookup(first).map(|spec| spec.name) == Some("verbs") {
-        ENTRY_VERBS_TEXT
-    } else if first == agenterm_cu::mechanism::clipboard::X11_CLIPBOARD_OWNER_ARG {
-        ENTRY_X11_CLIPBOARD_OWNER
-    } else if matches!(args, [arg] if matches!(arg.as_str(), "--version" | "-V")) {
-        ENTRY_VERSION_TEXT
-    } else {
-        ENTRY_ORDINARY_ARGV
-    }
-}
-
-fn reply_exit_code(reply: &agenterm_cu::CuReply) -> i32 {
-    if reply.ok {
-        0
-    } else if reply
-        .error
-        .as_ref()
-        .is_some_and(|error| error.code == "usage")
-    {
-        2
-    } else {
-        1
-    }
+    agenterm_cu::process_entry::classify(args) as u32
 }
 
 #[cfg(test)]
@@ -358,8 +322,6 @@ mod tests {
     use std::ptr::NonNull;
 
     use super::*;
-
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn strings(words: &[&str]) -> Vec<String> {
         words.iter().map(|word| (*word).to_owned()).collect()
@@ -393,20 +355,8 @@ mod tests {
                 ENTRY_DEVICE_IO_FIXTURE,
             ),
             (
-                &[agenterm_cu::browser_session_owner::OWNER_ARG, "session"][..],
-                ENTRY_BROWSER_SESSION_OWNER,
-            ),
-            (
-                &[agenterm_cu::DEVICE_LEASE_OWNER_ARG][..],
-                ENTRY_DEVICE_LEASE_OWNER,
-            ),
-            (
                 &[agenterm_cu::PRIVILEGE_BROKER_ARG][..],
                 ENTRY_PRIVILEGE_BROKER,
-            ),
-            (
-                &[agenterm_cu::DEVICE_IO_FIXTURE_ARG, "tail"][..],
-                ENTRY_DEVICE_IO_FIXTURE,
             ),
             (
                 &[agenterm_cu::network_probe::FIXTURE_ARG, "tail"][..],
@@ -415,10 +365,6 @@ mod tests {
             (&["host"][..], ENTRY_HOTKEY_HOST),
             (&["hotkeys", "--self-test"][..], ENTRY_HOTKEY_HOST),
             (&["verbs"][..], ENTRY_VERBS_TEXT),
-            (
-                &[agenterm_cu::mechanism::clipboard::X11_CLIPBOARD_OWNER_ARG][..],
-                ENTRY_X11_CLIPBOARD_OWNER,
-            ),
             (&["--version"][..], ENTRY_VERSION_TEXT),
             (&["verbs", "--json"][..], ENTRY_VERBS_TEXT),
             (
@@ -491,7 +437,7 @@ mod tests {
             let reply = agenterm_cu::argv::execute_argv_from_environment(argv.clone());
             let stdout = serde_json::to_vec(&reply).expect("CuReply JSON");
             let stderr = agenterm_cu::argv::human_diagnostic(&argv, &reply).unwrap_or_default();
-            assert_eq!(reply_exit_code(&reply), expected_exit);
+            assert_eq!(reply.exit_code(), expected_exit);
             assert_eq!(reply.command, expected_command);
             assert_eq!(!stderr.is_empty(), stderr_nonempty);
             assert!(!stdout.is_empty());
@@ -507,7 +453,7 @@ mod tests {
 
     #[test]
     fn public_abi_presents_the_library_owned_version_text() {
-        let _guard = TEST_LOCK.lock().expect("test lock");
+        let _guard = crate::TEST_LOCK.lock().expect("test lock");
         PROVIDER_FAILED.store(false, Ordering::Release);
 
         let argv = strings(&["--version"]);
@@ -554,7 +500,7 @@ mod tests {
 
     #[test]
     fn public_abi_executes_ordinary_argv_and_fails_closed() {
-        let _guard = TEST_LOCK.lock().expect("test lock");
+        let _guard = crate::TEST_LOCK.lock().expect("test lock");
         PROVIDER_FAILED.store(false, Ordering::Release);
 
         let argv = strings(&["--target", "current", "--grant", "observe", "capabilities"]);
@@ -659,5 +605,21 @@ mod tests {
         };
         assert_eq!(status, STATUS_PROVIDER_PANICKED);
         assert_eq!(result.stdout_len, 0);
+
+        let embedded_request = b"{}";
+        let mut embedded_reply_len = usize::MAX;
+        // SAFETY: the shared failed latch must reject before reading the valid
+        // request or the zero-capacity null reply buffer.
+        let embedded_status = unsafe {
+            crate::agenterm_cu_provider_call(
+                embedded_request.as_ptr(),
+                embedded_request.len(),
+                ptr::null_mut(),
+                0,
+                &mut embedded_reply_len,
+            )
+        };
+        assert_eq!(embedded_status, crate::STATUS_PROVIDER_PANICKED);
+        assert_eq!(embedded_reply_len, 0);
     }
 }

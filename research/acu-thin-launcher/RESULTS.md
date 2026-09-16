@@ -22,7 +22,7 @@ Core source SHA-256:
 
 | file | SHA-256 |
 |---|---|
-| `provider-main-probe/src/lib.rs` | `168fa7be9f6e67a6dc12334e4420f5bad0dca8323abd959acd5a92afdc74c6f4` |
+| historical `provider-main-probe/src/lib.rs` at the recorded measurement revision | `168fa7be9f6e67a6dc12334e4420f5bad0dca8323abd959acd5a92afdc74c6f4` |
 | `launcher-probe/src/main.rs` | `4d7094747dc1968aba250aaa620df3afe71edea21ae71f74c1537168690210cb` |
 | `fixtures/bad-abi-provider/src/lib.rs` | `7e18830734df58bfe24c04b778afc1b218cfcbb5f3da8698dc936dacef063cfc` |
 
@@ -71,6 +71,33 @@ sibling derivation, entry classification and status/exit separation.
 No fallback was observed or implemented. The missing-sibling run failed even
 though the ordinary monolithic `agenterm-cu` artifact existed elsewhere in the
 repository target tree.
+
+## Production dual-ABI provider rerun
+
+An incremental native macOS arm64 rerun used the uncommitted source state atop
+`8fa3b5136fbd163f026fe81321293874b833248b`. The research-only process-main
+provider was removed. Its ABI is now additive in the production
+`agenterm-cu-provider` artifact beside the pre-existing embedded call ABI, and
+both the monolith and provider call the authoritative
+`agenterm_cu::process_entry` classifier.
+
+Source SHA-256 for this rerun:
+
+| file | SHA-256 |
+|---|---|
+| `crates/agenterm-cu-provider/src/process_main.rs` | `b50dbb9be81ba0a21f329adbb96535379970fdcbea38d5ebfe1119223639f364` |
+| `crates/agenterm-cu/src/process_entry.rs` | `78bb67e1ff311c6aca147e0b9c9b1e237b1b2deb27199fe49d4277f3c7ed765b` |
+| `launcher-probe/src/main.rs` | `4d7094747dc1968aba250aaa620df3afe71edea21ae71f74c1537168690210cb` |
+
+The ABI-release production provider was 8,178,784 bytes and the release
+launcher was 365,376 bytes. These are whole-file native artifacts, not a new
+L1/L2 comparison with the earlier revision. All twelve bounded paired cases
+passed with exact exit/stdout/stderr parity, and the staged bad-ABI control
+still diverged with boundary exit 70. Provider tests also passed 18 unit cases
+plus two export/header contract cases, proving that one fixed sibling exports
+both ABI families. This removes the single-file dual-ABI blocker for a later
+Windows Candidate staging attempt; it does not itself run that Windows journey
+or promote topology B.
 
 ## Gate ledger
 
@@ -292,14 +319,16 @@ CARGO_TARGET_DIR=target cargo clippy \
   --workspace --all-targets -- -D warnings
 CARGO_TARGET_DIR=target cargo build \
   --manifest-path research/acu-thin-launcher/Cargo.toml --release \
-  -p acu-thin-launcher -p acu-provider-main-probe -p acu-bad-abi-provider
+  -p acu-thin-launcher -p acu-bad-abi-provider
+cargo build --locked --profile abi-release -p agenterm-cu-provider
 CARGO_TARGET_DIR=target cargo zigbuild \
   --manifest-path research/acu-thin-launcher/Cargo.toml --release \
   --target x86_64-unknown-linux-gnu -p acu-thin-launcher
 stat -f '%N %z' \
   target/x86_64-unknown-linux-gnu/release/acu-thin-launcher \
   target/release/acu-thin-launcher \
-  target/release/libagenterm_cu_provider.dylib
+  target/abi-release/libagenterm.dylib \
+  target/abi-release/libagenterm_cu_provider.dylib
 ```
 
 ## Required next court

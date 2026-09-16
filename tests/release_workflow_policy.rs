@@ -471,7 +471,7 @@ fn cu_provider_abi_tests_are_an_explicit_full_gate_subcourt() {
     assert!(CHECK_QJS.contains("function cargo_unit_cu_provider_spec(environment)"));
     assert!(
         CHECK_QJS
-            .contains("\"--profile\", \"abi-dev\", \"-p\", \"agenterm-cu-provider\", \"--lib\"")
+            .contains("\"--profile\", \"abi-dev\", \"-p\", \"agenterm-cu-provider\", \"--lib\",\n    \"--test\", \"exports_set\"")
     );
     assert!(CHECK_QJS.contains("cargo_unit_cu_provider_spec(build_environment)"));
 }

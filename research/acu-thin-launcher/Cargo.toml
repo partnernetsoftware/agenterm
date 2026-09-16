@@ -1,6 +1,5 @@
 [workspace]
 members = [
-  "provider-main-probe",
   "launcher-probe",
   "parity-court",
   "fixtures/bad-abi-provider",

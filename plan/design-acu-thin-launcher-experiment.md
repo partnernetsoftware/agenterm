@@ -125,7 +125,8 @@ Do not optimize provider internals inside this experiment.
 research/acu-thin-launcher/
 ├─ README.md
 ├─ RESULTS.md
-├─ provider-main-probe/
+├─ parity-court/
+├─ fixtures/bad-abi-provider/
 └─ launcher-probe/
 ```
 
@@ -188,6 +189,14 @@ parity for twelve non-mutating presentation and refusal cases, with absolute
 product anchors plus a bad-ABI negative control. All twelve entry routes
 therefore exist, but G1 stays red until the remaining native lifecycle,
 installed activation and Linux/Windows paired parity courts are complete.
+The process-main ABI has since moved into the production fixed-sibling provider
+as an additive symbol family beside the embedded-call ABI. Both paths share one
+panic latch and one library-owned entry classifier, and an export-set court
+requires all five public symbols in the same artifact. A native macOS rerun of
+the twelve paired cases plus the bad-ABI control stayed green with that
+production provider. This removes the single-file dual-ABI blocker for the
+Windows required journey; it is a prerequisite result, not the Windows G1
+verdict.
 The browser-session result is native court evidence, not Candidate evidence:
 its existing qjs court is a registered macOS court rather than a Windows
 Candidate gate. The device-lease lifecycle result is likewise native macOS

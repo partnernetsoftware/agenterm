@@ -95,3 +95,24 @@ impl CuReply {
         }
     }
 }
+
+/// Serializes one process-facing JSON line and its authoritative exit code.
+///
+/// Binary wrappers and dynamic process-main providers share this presentation
+/// so even the serialization fallback cannot drift across entry paths.
+pub fn process_line(reply: &CuReply) -> (String, i32) {
+    match serde_json::to_string(reply) {
+        Ok(mut json) => {
+            json.push('\n');
+            (json, reply.exit_code())
+        }
+        Err(_) => (
+            concat!(
+                r#"{"ok":false,"target":"","command":"","error":{"code":"serialize","message":"reply serialization failed"}}"#,
+                "\n"
+            )
+            .to_owned(),
+            1,
+        ),
+    }
+}

@@ -10,13 +10,12 @@ product integration and not evidence that G1 passes.
   exactly one sibling library path from its own executable directory, checks
   ABI version 1 before resolving the call symbol, and keeps provider-boundary
   status separate from the product exit code.
-- `provider-main-probe` owns entry classification and ordinary process
-  presentation. Ordinary argv calls the existing
-  `agenterm_cu::argv::execute_argv_from_environment`; it does not copy the
-  `Command` schema or create a second dispatcher. The first explicit
-  binary-entry slices present the library-owned version text and preserve the
-  network-probe worker/fixture process boundary plus the detached managed-job
-  and browser-session owner boundaries.
+- The production `agenterm-cu-provider` artifact carries both the existing
+  embedded-call ABI and the additive process-main ABI. Both the monolith and
+  process-main path use `agenterm_cu::process_entry` as the authoritative entry
+  classifier; the launcher retains only a boundary prediction mirror. Ordinary
+  argv still calls the existing library executor, so neither side copies the
+  `Command` schema or creates a second dispatcher.
 - `fixtures/bad-abi-provider` exports only a deliberately wrong ABI version for
   a fail-closed launcher court.
 - `parity-court` runs one bounded argv table against a same-source monolith and
@@ -56,6 +55,7 @@ CARGO_TARGET_DIR=target/acu-thin-launcher cargo clippy \
   --workspace --all-targets -- -D warnings
 CARGO_TARGET_DIR=target/acu-thin-launcher cargo build \
   --manifest-path research/acu-thin-launcher/Cargo.toml --release
+cargo build --locked --profile abi-release -p agenterm-cu-provider
 CARGO_TARGET_DIR=target/acu-thin-launcher cargo zigbuild \
   --manifest-path research/acu-thin-launcher/Cargo.toml --release \
   --target x86_64-unknown-linux-gnu -p acu-thin-launcher
@@ -69,7 +69,7 @@ reaped on timeout:
 target/acu-thin-launcher/release/acu-thin-launcher-parity-court \
   --monolith target/release/agenterm-cu \
   --launcher target/acu-thin-launcher-stage/acu-thin-launcher \
-  --abi-library target/release/libagenterm.dylib \
+  --abi-library target/abi-release/libagenterm.dylib \
   --bad-abi \
     target/acu-thin-launcher/release/libagenterm_cu_bad_abi_provider.dylib
 ```
@@ -94,7 +94,7 @@ run the launcher directly:
 mkdir -p target/acu-thin-launcher-stage
 cp target/acu-thin-launcher/release/acu-thin-launcher \
   target/acu-thin-launcher-stage/acu-thin-launcher
-cp target/acu-thin-launcher/release/libagenterm_cu_provider.dylib \
+cp target/abi-release/libagenterm_cu_provider.dylib \
   target/acu-thin-launcher-stage/agenterm-cu-provider.dylib
 target/acu-thin-launcher-stage/acu-thin-launcher --help
 target/acu-thin-launcher-stage/acu-thin-launcher \

@@ -1318,6 +1318,13 @@ different arm's code and require the owner court to fail by name.
 - Do not wrap every native callback helper in its own `catch_unwind`. Keep one mandatory boundary around each `extern "system"` callback and one around independently drained deferred work, restore phase/lifecycle state deliberately, and convert panic to typed fail-closed state there. Repeated nested catches add x64 unwind metadata and duplicate branches; accept consolidation only when callback panic cannot cross FFI and a same-profile final PE proves the size gain.
 - `catch_unwind` is not a delivery invariant when the artifact profile uses `panic = "abort"`; test-profile success can hide that mismatch completely. Any product promising panic containment needs an unwind profile for its complete dependency graph and a test executed under that exact profile. Cargo package overrides cannot change panic strategy, so isolate the product with a named profile and merge its final bytes at staging rather than silently changing sibling products.
 - When an in-process capability graph breaks a fixed main-executable size court, isolate it as a versioned fixed-name sibling `cdylib` rather than searching `PATH`, accepting an environment override, or falling back to a child process. Check ABI before resolving the call symbol, retain the library for every copied function pointer, bound request and reply independently, validate the returned protocol before exposing it, and make absence a typed failure. A panic-latching public ABI must serialize the failed-state check and execution inside the provider itself; a mutex in one consumer does not protect other callers. Build the complete provider dependency graph under an unwind profile, stage it in every platform package, and sign/validate it as its own artifact. This pattern kept the integrated Windows main PE at 3,738,112 bytes under its unchanged 4 MiB court; static linkage measured 8,865,792 bytes and was rejected.
+- If one fixed-name sibling must serve multiple ABI consumers, add independently
+  versioned symbol families to that single artifact instead of inventing a
+  second filename or lookup rule. Keep each family's status namespace distinct,
+  make the exported symbol set a tested contract, and share one serialized
+  panic latch across every entry point so a panic through one ABI permanently
+  closes the others. Put product classification behind one library-owned table;
+  a launcher's prediction mirror is a boundary check, not another authority.
 
 ### A borrowed dynamic symbol does not lend its lifetime to a copied function pointer
 

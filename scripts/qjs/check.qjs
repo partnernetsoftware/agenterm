@@ -427,7 +427,8 @@ function cargo_unit_vnc_pure_contracts_spec(environment) {
 function cargo_unit_cu_provider_spec(environment) {
   return spec("cargo", [
     "test", "--quiet", "--locked",
-    "--profile", "abi-dev", "-p", "agenterm-cu-provider", "--lib"
+    "--profile", "abi-dev", "-p", "agenterm-cu-provider", "--lib",
+    "--test", "exports_set"
   ], 900000, environment, 0);
 }
 

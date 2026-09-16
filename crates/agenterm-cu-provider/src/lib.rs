@@ -18,6 +18,23 @@ use std::{
     },
 };
 
+mod process_main;
+
+pub use process_main::{
+    ABI_VERSION as PROCESS_MAIN_ABI_VERSION, ByteSpanV1, MAX_ARGV_BYTES, MAX_ARGV_COUNT,
+    MAX_STDERR_BYTES, MAX_STDOUT_BYTES, ProcessMainRequestV1, ProcessMainResultV1,
+    STATUS_ARGV_NOT_UTF8 as PROCESS_MAIN_STATUS_ARGV_NOT_UTF8,
+    STATUS_ARGV_TOO_LARGE as PROCESS_MAIN_STATUS_ARGV_TOO_LARGE,
+    STATUS_BAD_REQUEST as PROCESS_MAIN_STATUS_BAD_REQUEST,
+    STATUS_ENTRY_MODE_UNIMPLEMENTED as PROCESS_MAIN_STATUS_ENTRY_MODE_UNIMPLEMENTED,
+    STATUS_INVALID_POINTER as PROCESS_MAIN_STATUS_INVALID_POINTER,
+    STATUS_OK as PROCESS_MAIN_STATUS_OK,
+    STATUS_OUTPUT_TOO_LARGE as PROCESS_MAIN_STATUS_OUTPUT_TOO_LARGE,
+    STATUS_PROVIDER_PANICKED as PROCESS_MAIN_STATUS_PROVIDER_PANICKED,
+    STATUS_SERIALIZE_FAILED as PROCESS_MAIN_STATUS_SERIALIZE_FAILED,
+    agenterm_cu_process_main_abi_version, agenterm_cu_process_main_v1,
+};
+
 /// Native provider ABI implemented by this artifact.
 pub const ABI_VERSION: u32 = 1;
 /// Maximum opaque request JSON accepted at the native boundary.
@@ -57,7 +74,11 @@ static PROVIDER_FAILED: AtomicBool = AtomicBool::new(false);
 // The public ABI is synchronous and process-global. Serialize the complete
 // failed-latch check and execution so a second caller can never cross a panic
 // before the first caller publishes the permanent failure state.
+// ABI bodies must not call another exported entry while holding this
+// non-reentrant lock; shared product helpers live below both ABI wrappers.
 static PROVIDER_CALL_LOCK: Mutex<()> = Mutex::new(());
+#[cfg(test)]
+static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 /// Return the native ABI version without executing ACU product code.
 #[unsafe(no_mangle)]
@@ -254,17 +275,12 @@ unsafe fn call_inner(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        ptr::{self, NonNull},
-        sync::Mutex,
-    };
+    use std::ptr::{self, NonNull};
 
     use super::*;
 
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
-
     fn isolate() -> std::sync::MutexGuard<'static, ()> {
-        let guard = TEST_LOCK.lock().expect("test lock");
+        let guard = crate::TEST_LOCK.lock().expect("test lock");
         PROVIDER_FAILED.store(false, Ordering::Release);
         guard
     }

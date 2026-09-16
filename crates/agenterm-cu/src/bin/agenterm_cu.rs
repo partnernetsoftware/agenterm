@@ -6,64 +6,30 @@
 
 #[cfg(test)]
 use agenterm_cu::Command;
-use agenterm_cu::{CuReply, cli, cli::verbs};
+#[cfg(test)]
+use agenterm_cu::cli::verbs;
+use agenterm_cu::{CuReply, cli, process_entry::ProcessEntryMode};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    // Chromium owns stdout in Native Messaging mode. Detect its origin argv
-    // before version/help/usage can emit ordinary text or JSON into the framed
-    // channel. An untrusted extension-shaped invocation is intercepted too,
-    // then rejected without writing stdout.
-    if args
-        .first()
-        .is_some_and(|origin| origin.starts_with("chrome-extension://"))
-    {
-        std::process::exit(agenterm_cu::browser_bridge::run_native_host_entry(&args));
+    let mode = agenterm_cu::process_entry::classify(&args);
+    if let Some(exit_code) = agenterm_cu::process_entry::run_direct(mode, &args) {
+        std::process::exit(exit_code);
     }
-    if matches!(args.as_slice(), [arg] if arg == "--version" || arg == "-V") {
-        print!("{}", agenterm_cu::version_text());
-        return;
-    }
-    if matches!(args.as_slice(), [arg] if arg == agenterm_cu::network_probe::WORKER_ARG) {
-        std::process::exit(agenterm_cu::network_probe::run_worker_stdio());
-    }
-    if args.first().map(String::as_str) == Some(agenterm_cu::browser_session_owner::OWNER_ARG) {
-        std::process::exit(agenterm_cu::browser_session_owner::run_owner(&args[1..]));
-    }
-    if matches!(args.as_slice(), [arg] if arg == agenterm_cu::MANAGED_JOB_OWNER_ARG) {
-        std::process::exit(agenterm_cu::run_managed_job_owner());
-    }
-    if matches!(args.as_slice(), [arg] if arg == agenterm_cu::DEVICE_LEASE_OWNER_ARG) {
-        std::process::exit(agenterm_cu::run_device_lease_owner());
-    }
-    if matches!(args.as_slice(), [arg] if arg == agenterm_cu::PRIVILEGE_BROKER_ARG) {
-        std::process::exit(agenterm_cu::run_privilege_broker());
-    }
-    if args.first().map(String::as_str) == Some(agenterm_cu::DEVICE_IO_FIXTURE_ARG) {
-        std::process::exit(agenterm_cu::run_device_io_test_fixture(&args[1..]));
-    }
-    if args.first().map(String::as_str) == Some(agenterm_cu::network_probe::FIXTURE_ARG) {
-        std::process::exit(agenterm_cu::network_probe::run_loopback_fixture(&args[1..]));
-    }
-    match args
-        .first()
-        .and_then(|first| verbs::lookup(first))
-        .map(|spec| spec.name)
-    {
-        Some("host") => std::process::exit(agenterm_cu::hotkeys::run()),
-        Some("verbs") => {
+    match mode {
+        ProcessEntryMode::VersionText => {
+            print!("{}", agenterm_cu::version_text());
+            return;
+        }
+        ProcessEntryMode::VerbsText => {
             match cli::help::run_verbs(&args[1..]) {
                 Ok(text) => print!("{text}"),
                 Err(reply) => std::process::exit(print_reply(&reply)),
             }
             return;
         }
-        _ => {}
-    }
-    if args.first().map(String::as_str)
-        == Some(agenterm_cu::mechanism::clipboard::X11_CLIPBOARD_OWNER_ARG)
-    {
-        std::process::exit(agenterm_cu::run_x11_clipboard_owner());
+        ProcessEntryMode::OrdinaryArgv => {}
+        _ => unreachable!("direct process modes returned an exit code"),
     }
     let reply = dispatch(args.clone());
     if let Some(diagnostic) = agenterm_cu::argv::human_diagnostic(&args, &reply) {
@@ -73,18 +39,9 @@ fn main() {
 }
 
 fn print_reply(reply: &CuReply) -> i32 {
-    match serde_json::to_string(reply) {
-        Ok(json) => {
-            println!("{json}");
-            reply.exit_code()
-        }
-        Err(_) => {
-            println!(
-                r#"{{"ok":false,"target":"","command":"","error":{{"code":"serialize","message":"reply serialization failed"}}}}"#
-            );
-            1
-        }
-    }
+    let (line, exit_code) = agenterm_cu::reply::process_line(reply);
+    print!("{line}");
+    exit_code
 }
 
 fn dispatch(args: Vec<String>) -> CuReply {
