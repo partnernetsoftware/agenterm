@@ -426,6 +426,9 @@ function cargo_unit_vnc_pure_contracts_spec(environment) {
 }
 
 function cargo_unit_dyn_spec(environment) {
+  // Keep this as the whole crate. Candidate executes the tests selected by
+  // its target cfg; narrowing to a library-only or named-target selection
+  // would silently drop current or future mechanism courts.
   return spec("cargo", [
     "test", "--quiet", "--locked", "-p", "agenterm-dyn"
   ], 300000, environment, 0);

@@ -482,6 +482,8 @@ fn dyn_mechanism_contracts_are_an_explicit_full_gate_subcourt() {
     assert!(spec.contains("\"-p\", \"agenterm-dyn\""));
     assert!(!spec.contains("--all-features"));
     assert!(!spec.contains("--features"));
+    assert!(!spec.contains("--lib"));
+    assert!(!spec.contains("--test"));
     assert!(CHECK_QJS.contains("cargo_unit_dyn_spec(build_environment)"));
 }
 
