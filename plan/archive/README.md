@@ -65,6 +65,8 @@ playbook; current execution ownership is declared only in `plan/goal.md`.
 `design-script-process-witness-experiment.md` preserves the completed A/B
 decision that moved Script process inventory onto the shipped `process.list`
 door; PRD 02.36 and the current smoke helper own the delivered behavior.
+`precision-audit.md` preserves the closed 92-item narrow audit ledger; every
+finding is fixed, adjudicated, or bounded by an explicitly named owner.
 
 ## Restored decision records
 

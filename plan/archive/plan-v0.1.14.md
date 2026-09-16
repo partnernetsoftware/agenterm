@@ -59,7 +59,7 @@ v0.1.14  Identity correctness & trust tail
 ├─ B. precision-audit 决策项收口（继承占位稿 §三，机制已明、待拍板）
 │  ├─ [ ] item 22：script_protocol/agenterm-rhai 三个 dedup HashSet 在
 │  │     persistent worker 中只增不减；需人工拍板上限/淘汰策略后落地，
-│  │     回填 plan/precision-audit.md
+│  │     回填 plan/archive/precision-audit.md
 │  └─ [ ] item 16 剩余：Linux/macOS 无 HOME/XDG 时 instances 目录静默退化
 │        共享 /tmp，未做符号链接/祖先加固；决定是否复用
 │        protect_private_directory / metadata_is_real_directory
@@ -358,6 +358,6 @@ commit 的 `Cargo.lock`/`Cargo.toml`/`scripts/artifacts.json` 哈希，**完全�
 | `prd/PRD_02_17_delivery_quality.md` §Release-chain operating requirements | 发布链坑清单权威处（v0.1.13 §10.2.1 + 本轮八个缺陷，已合并去重为版本无关要求） |
 | `plan/archive/plan-v0.1.13.md` | 上一版执行记录（叙事原文；要求已提炼至上行） |
 | `prd/PRD_02_18_roadmap.md` M12 | 大重构去向（原 plan-v0.2.0.md 已并入） |
-| `plan/precision-audit.md` | 持续审查权威记录；B 组决策后回写该文件 |
+| `plan/archive/precision-audit.md` | 持续审查权威记录；B 组决策后回写该文件 |
 | `prd/PRD_02_17_delivery_quality.md` | Candidate/Promotion 合同 |
 | `prd/PRD_02_18_roadmap.md` | 里程碑权威；0.1.13/0.1.14 为 M11→M12 间信任收口迭代 |

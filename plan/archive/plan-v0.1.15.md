@@ -1018,7 +1018,7 @@ L′. v0.1.14 carry-forward
 - [ ] **L2 precision-audit item 22**
   - **来源**：script_protocol / agenterm-rhai 三个 dedup `HashSet` 在 persistent worker
     中只增不减
-  - **验收**：人工拍板上限/淘汰策略后落地；回填 `plan/precision-audit.md`
+  - **验收**：人工拍板上限/淘汰策略后落地；回填 `plan/archive/precision-audit.md`
   - **成本**：中（需拍板）；**依赖**：策略拍板
 - [ ] **L3 precision-audit item 16 剩余**
   - **来源**：Linux/macOS 无 HOME/XDG 时 instances 目录静默退到共享 `/tmp`，未做
@@ -1408,7 +1408,7 @@ click tab row
 | `prd/PRD_02_21_control_center.md` | Control Center 边界与能力树 |
 | `prd/PRD_02_22_decentralized_network.md` | agenterm-net 成熟度门（N0→N4） |
 | `prd/PRD_02_20_native_platform.md` | Platform Facade 收口证据（§5 前置判断） |
-| `plan/precision-audit.md` | C 组竞态根因复核的记录处 |
+| `plan/archive/precision-audit.md` | C 组竞态根因复核的记录处 |
 | `install.sh` | 安装/更新实现 SSOT；§8 / G 组改进入口 |
 | `plan/plan-v0.1.15.md` §1 **O** + **§11** | macOS 本机 agent 作业规格（ImeStatus / 粘贴 T0 / install UX） |
 

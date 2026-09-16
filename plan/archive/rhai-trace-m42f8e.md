@@ -117,7 +117,7 @@
 - `plan/plan-v0.1.15.md` (4) [docs]
 - `plan/plan-v0.1.16.md` (5) [docs]
 - `plan/platform-ux-parity-evidence-matrix.md` (9) [docs]
-- `plan/precision-audit.md` (4) [docs]
+- `plan/archive/precision-audit.md` (4) [docs]
 - `plan/research-rhai-kernel-depth.md` (3) [docs]
 - `prd/PRD_02_02_executable_family.md` (5) [docs]
 - `prd/PRD_02_04_optional_components.md` (1) [docs]
@@ -366,7 +366,7 @@ M42f8: compat-delegating = migration diagnostic only; Phase C removes Engine/com
 30. `prd/PRD_02_02_executable_family.md` (5) — Phase B doc sweep
 31. `tests/rh_standalone_cli.rs` (5) — Phase B/C test guard updates
 32. `docs/index.html` (4) — Phase B doc sweep
-33. `plan/precision-audit.md` (4) — Phase B doc sweep
+33. `plan/archive/precision-audit.md` (4) — Phase B doc sweep
 34. `plan/design-release-base-vs-apps.md` (4) — Phase B doc sweep
 35. `plan/design-rh-aot.md` (4) — Phase B doc sweep
 36. `research/agenterm-webview/evidence/windows-x86_64.md` (4) — Phase B doc sweep

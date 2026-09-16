@@ -201,7 +201,7 @@ L1 模块 **不得** 在 Rhai 中重写或「策略插件化」到 per-byte/per-
 
 Rhai 触达 Fleet/终端/产品面的 **唯一** 合法路径是 Script API catalog 已登记条目（`docs/agenterm-rh-runtime.md` + `script api --json`）。
 
-**可证明：** `script_catalog` 与 `register_*` 漂移检测（见 `plan/precision-audit.md`）；未登记 = 不存在。
+**可证明：** `script_catalog` 与 `register_*` 漂移检测（见 `plan/archive/precision-audit.md`）；未登记 = 不存在。
 
 ### B3 — 粗粒度
 
