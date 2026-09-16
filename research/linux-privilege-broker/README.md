@@ -18,22 +18,23 @@ ordinary graphical user
          └─ retained exact process effect + verified receipt
 ```
 
-The Linux package consists of exactly four sealed artifacts under
-`packaging/privilege/linux/`: the `agenterm-cu` provider binary, polkit policy,
-socket unit and service unit. `install-provider.sh` publishes and rolls back
-those four artifacts as one recoverable generation.
+The Linux package consists of exactly five sealed artifacts: the `agenterm-cu`
+launcher, its fixed-sibling `agenterm-cu-provider.so`, the polkit policy, socket
+unit and service unit. `install-provider.sh` publishes and rolls back all five
+artifacts as one recoverable generation.
 
 ## Reproduction shape
 
 From repository root, build the exact Linux artifact, lease one declared court,
-install the four sealed artifacts through QGA root authority, and execute the
+install the five sealed artifacts through QGA root authority, and execute the
 public client through the court's graphical-session bridge:
 
 ```text
-cargo zigbuild -p agenterm-cu --release --target <LINUX_TARGET>
+cargo zigbuild -p agenterm-cu -p agenterm-cu-provider --profile abi-release --target <LINUX_TARGET>
 ../utm-court/bin/utm-court lease <LINUX_COURT>
 ../utm-court/bin/utm-court interactive-ready <LINUX_COURT> 300
-../utm-court/bin/utm-court push <LINUX_COURT> <ARTIFACT> <GUEST_STAGE>
+../utm-court/bin/utm-court push <LINUX_COURT> <LAUNCHER> <GUEST_STAGE>
+../utm-court/bin/utm-court push <LINUX_COURT> <PROVIDER_LIBRARY> <GUEST_STAGE>
 ../utm-court/bin/utm-court exec <LINUX_COURT> -- <INSTALLER> install <SEALED_DIGESTS>
 ../utm-court/bin/utm-court interactive-exec <LINUX_COURT> -- \
   <INSTALLED_AGENTERM_CU> --target current --grant observe privilege plan \

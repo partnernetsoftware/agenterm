@@ -17,8 +17,8 @@ test_service_source=${AGENTERM_INSTALL_PROVIDER_TEST_SERVICE_SOURCE:-}
 
 fail() { echo "install-provider: $*" >&2; exit 2; }
 case "$test_mode" in 0|1) ;; *) fail "invalid test mode" ;; esac
-case "$test_fail_after" in ""|provider|policy|socket|service|systemctl) ;; *) fail "invalid failure cut" ;; esac
-case "$test_interrupt_after" in ""|provider|policy|socket|service|systemctl) ;; *) fail "invalid interruption cut" ;; esac
+case "$test_fail_after" in ""|provider|provider_library|policy|socket|service|systemctl) ;; *) fail "invalid failure cut" ;; esac
+case "$test_interrupt_after" in ""|provider|provider_library|policy|socket|service|systemctl) ;; *) fail "invalid interruption cut" ;; esac
 
 if test "$test_mode" -eq 0; then
   test -z "$test_root$test_fail_after$test_interrupt_after$test_systemctl$test_policy_source$test_socket_source$test_service_source" || fail "test controls require explicit test mode"
@@ -39,6 +39,7 @@ policy_dir=$prefix/usr/share/polkit-1/actions
 unit_dir=$prefix/usr/lib/systemd/system
 state_dir=$prefix/var/lib/agenterm/cu-privilege
 provider_path=$provider_dir/agenterm-cu
+provider_library_path=$provider_dir/agenterm-cu-provider.so
 policy_path=$policy_dir/$policy_name
 socket_path=$unit_dir/$socket_name
 service_path=$unit_dir/$service_name
@@ -68,6 +69,7 @@ make_dir() {
 artifact_source() {
   case "$1" in
     provider) printf '%s\n' "$source_path" ;;
+    provider_library) printf '%s\n' "$provider_library_source_path" ;;
     policy) printf '%s\n' "${test_policy_source:-$script_dir/$policy_name}" ;;
     socket) printf '%s\n' "${test_socket_source:-$script_dir/$socket_name}" ;;
     service) printf '%s\n' "${test_service_source:-$script_dir/$service_name}" ;;
@@ -76,13 +78,14 @@ artifact_source() {
 artifact_path() {
   case "$1" in
     provider) printf '%s\n' "$provider_path" ;;
+    provider_library) printf '%s\n' "$provider_library_path" ;;
     policy) printf '%s\n' "$policy_path" ;;
     socket) printf '%s\n' "$socket_path" ;;
     service) printf '%s\n' "$service_path" ;;
   esac
 }
 artifact_dir() {
-  case "$1" in provider) printf '%s\n' "$provider_dir" ;; policy) printf '%s\n' "$policy_dir" ;; *) printf '%s\n' "$unit_dir" ;; esac
+  case "$1" in provider|provider_library) printf '%s\n' "$provider_dir" ;; policy) printf '%s\n' "$policy_dir" ;; *) printf '%s\n' "$unit_dir" ;; esac
 }
 artifact_mode() { case "$1" in provider) printf '0755\n' ;; *) printf '0644\n' ;; esac; }
 backup_path() { printf '%s/%s.backup\n' "$state_dir" "$1"; }
@@ -104,8 +107,13 @@ restore_one() {
 
 recover_transaction() {
   test -f "$marker" && test ! -L "$marker" || return 1
-  test "$(sed -n '1p' "$marker")" = agenterm-cu-provider-install-v2 || return 1
-  for name in provider policy socket service; do
+  marker_version=$(sed -n '1p' "$marker")
+  case "$marker_version" in
+    agenterm-cu-provider-install-v2) recovery_artifacts="provider policy socket service" ;;
+    agenterm-cu-provider-install-v3) recovery_artifacts="provider provider_library policy socket service" ;;
+    *) return 1 ;;
+  esac
+  for name in $recovery_artifacts; do
     prior=$(sed -n "s/^$name=//p" "$marker")
     case "$prior" in present|absent) ;; *) return 1 ;; esac
     restore_one "$name" "$prior" || return 1
@@ -162,18 +170,20 @@ test "$test_mode" -eq 1 || test "$(id -u)" -eq 0 || fail "run through the system
 action=${1-}; shift || true
 case "$action" in
   install)
-    test "$#" -eq 10 || fail "expected install --source FILE --sha256 DIGEST --policy-sha256 DIGEST --socket-sha256 DIGEST --service-sha256 DIGEST"
+    test "$#" -eq 14 || fail "expected install --source FILE --sha256 DIGEST --provider-library-source FILE --provider-library-sha256 DIGEST --policy-sha256 DIGEST --socket-sha256 DIGEST --service-sha256 DIGEST"
     test "${1-}" = --source || fail "expected --source"; source_path=${2-}
     test "${3-}" = --sha256 || fail "expected --sha256"; provider_expected=${4-}
-    test "${5-}" = --policy-sha256 || fail "expected --policy-sha256"; policy_expected=${6-}
-    test "${7-}" = --socket-sha256 || fail "expected --socket-sha256"; socket_expected=${8-}
-    test "${9-}" = --service-sha256 || fail "expected --service-sha256"; service_expected=${10-}
-    for digest in "$provider_expected" "$policy_expected" "$socket_expected" "$service_expected"; do
+    test "${5-}" = --provider-library-source || fail "expected --provider-library-source"; provider_library_source_path=${6-}
+    test "${7-}" = --provider-library-sha256 || fail "expected --provider-library-sha256"; provider_library_expected=${8-}
+    test "${9-}" = --policy-sha256 || fail "expected --policy-sha256"; policy_expected=${10-}
+    test "${11-}" = --socket-sha256 || fail "expected --socket-sha256"; socket_expected=${12-}
+    test "${13-}" = --service-sha256 || fail "expected --service-sha256"; service_expected=${14-}
+    for digest in "$provider_expected" "$provider_library_expected" "$policy_expected" "$socket_expected" "$service_expected"; do
       is_sha256 "$digest" || fail "artifact digest must be lowercase SHA-256"
     done
     test -f "$source_path" && test ! -L "$source_path" || fail "source must be a regular non-symlink file"
     script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
-    for name in provider policy socket service; do
+    for name in provider provider_library policy socket service; do
       source=$(artifact_source "$name")
       test -f "$source" && test ! -L "$source" || fail "$name source is missing or linked"
       eval "expected=\${${name}_expected}"
@@ -197,7 +207,7 @@ case "$action" in
     }
     trap cleanup 0; trap 'exit 129' 1; trap 'exit 130' 2; trap 'exit 143' 15
 
-    for name in provider policy socket service; do
+    for name in provider provider_library policy socket service; do
       source=$(artifact_source "$name"); directory=$(artifact_dir "$name"); mode=$(artifact_mode "$name")
       stage=$directory/.agenterm-cu.install.$name.$$
       stages="$stages $stage"
@@ -211,15 +221,17 @@ case "$action" in
     manifest_stage=$state_dir/.install-manifest.$$
     stages="$stages $marker_stage $manifest_stage"
     {
-      echo agenterm-cu-provider-manifest-v2
+      # Readers must branch on this version: v2 has no provider_library_sha256.
+      echo agenterm-cu-provider-manifest-v3
       echo "provider_sha256=$provider_expected"
+      echo "provider_library_sha256=$provider_library_expected"
       echo "policy_sha256=$policy_expected"
       echo "socket_sha256=$socket_expected"
       echo "service_sha256=$service_expected"
     } >"$manifest_stage"
     chmod 0600 "$manifest_stage"; sync_path "$manifest_stage"
 
-    for name in provider policy socket service; do
+    for name in provider provider_library policy socket service; do
       destination=$(artifact_path "$name"); backup=$(backup_path "$name"); mode=$(artifact_mode "$name")
       eval "prior_$name=absent"
       if test -e "$destination" || test -L "$destination"; then
@@ -240,8 +252,9 @@ case "$action" in
     if "$systemctl_bin" is-active "$service_name" >/dev/null 2>&1; then prior_service_active=active; fi
     sync_path "$state_dir"
     {
-      echo agenterm-cu-provider-install-v2
+      echo agenterm-cu-provider-install-v3
       echo "provider=$prior_provider"
+      echo "provider_library=$prior_provider_library"
       echo "policy=$prior_policy"
       echo "socket=$prior_socket"
       echo "service=$prior_service"
@@ -254,11 +267,11 @@ case "$action" in
     transaction_active=1
 
     # Quiesce the old generation only after the durable recovery marker is
-    # published. No old broker may execute while the four new files appear.
+    # published. No old broker may execute while the five new files appear.
     "$systemctl_bin" stop "$socket_name" >/dev/null 2>&1 || true
     "$systemctl_bin" stop "$service_name" >/dev/null 2>&1 || true
 
-    for name in provider policy socket service; do
+    for name in provider provider_library policy socket service; do
       directory=$(artifact_dir "$name"); destination=$(artifact_path "$name"); stage=$directory/.agenterm-cu.install.$name.$$
       mv -f "$stage" "$destination"; sync_path "$directory"; inject_cut "$name"
     done
@@ -273,7 +286,7 @@ case "$action" in
     fi
     if test "$test_mode" -eq 1 && test "$test_fail_after" = systemctl; then fail "injected failure after systemctl"; fi
 
-    for name in provider policy socket service; do
+    for name in provider provider_library policy socket service; do
       destination=$(artifact_path "$name"); eval "expected=\${${name}_expected}"
       test "$(sha256_file "$destination")" = "$expected" || fail "installed $name digest changed"
     done
@@ -291,7 +304,7 @@ case "$action" in
     fi
     "$systemctl_bin" stop "$service_name" >/dev/null 2>&1 || true
     "$systemctl_bin" disable --now "$socket_name"
-    rm -f "$policy_path" "$provider_path" "$socket_path" "$service_path"
+    rm -f "$policy_path" "$provider_path" "$provider_library_path" "$socket_path" "$service_path"
     "$systemctl_bin" daemon-reload
     if test "$purge_state" -eq 1; then rm -rf "$state_dir"; fi
     echo "removed socket-activated AgenTerm privilege broker"
