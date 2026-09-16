@@ -424,6 +424,12 @@ function cargo_unit_vnc_pure_contracts_spec(environment) {
   ], 300000, environment, 0);
 }
 
+function cargo_unit_dyn_spec(environment) {
+  return spec("cargo", [
+    "test", "--quiet", "--locked", "-p", "agenterm-dyn"
+  ], 300000, environment, 0);
+}
+
 function cargo_unit_cu_provider_spec(environment) {
   return spec("cargo", [
     "test", "--quiet", "--locked",
@@ -1387,6 +1393,7 @@ gate = run_gate_specs(
     cargo_unit_qjswasm_syntax_contract_spec(build_environment),
     cargo_unit_qjswasm_slot_contracts_spec(build_environment),
     cargo_unit_vnc_pure_contracts_spec(build_environment),
+    cargo_unit_dyn_spec(build_environment),
     cargo_unit_cu_provider_spec(build_environment),
     cargo_unit_script_common_spec(build_environment),
     cargo_unit_chassis_spec(build_environment),

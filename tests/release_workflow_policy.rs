@@ -467,6 +467,19 @@ fn vnc_pure_contract_tests_are_an_explicit_full_gate_subcourt() {
 }
 
 #[test]
+fn dyn_mechanism_contracts_are_an_explicit_full_gate_subcourt() {
+    let spec = CHECK_QJS
+        .split_once("function cargo_unit_dyn_spec(environment) {")
+        .and_then(|(_, tail)| tail.split_once("\n}"))
+        .map(|(body, _)| body)
+        .expect("dyn unit spec");
+    assert!(spec.contains("\"-p\", \"agenterm-dyn\""));
+    assert!(!spec.contains("--all-features"));
+    assert!(!spec.contains("--features"));
+    assert!(CHECK_QJS.contains("cargo_unit_dyn_spec(build_environment)"));
+}
+
+#[test]
 fn cu_provider_abi_tests_are_an_explicit_full_gate_subcourt() {
     assert!(CHECK_QJS.contains("function cargo_unit_cu_provider_spec(environment)"));
     assert!(

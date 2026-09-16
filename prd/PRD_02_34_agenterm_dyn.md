@@ -249,7 +249,10 @@ declaration → lowering → mechanism → typed-result 管线。若新增代码
 当前机器证据覆盖 75-shape 矩阵、exposure ⊆ mechanism、唯一 loader、句柄复用，
 以及五词 `AbiError` 的无 wildcard 穷举兼容性 court。该 court 只冻结机制错误的身份，
 不新增错误码或运行时代码；增加第六变体并同步生产 `Display` 后，integration target
-会在穷举 match 处以 `E0004` 具名失败。
+会在穷举 match 处以 `E0004` 具名失败。`check.qjs` 的活跃 `unit-tests` 门现在显式运行
+`cargo test --locked -p agenterm-dyn`；这不是用 Clippy 代替执行，而是在每个原生门宿主
+运行其 cfg 对应的 ABI、句柄、错误代数与 ioctl contracts。release-workflow policy 同时
+钉住该 subcourt 的定义、默认 feature 形状与执行集引用，防止机制证据再次静默掉出门外。
 
 ### dyn 之上的分层折叠路线（已收敛）
 
