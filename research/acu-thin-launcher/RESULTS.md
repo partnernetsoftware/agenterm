@@ -109,11 +109,12 @@ This is build evidence only. The x86_64 artifacts and required journey still
 need a native Windows run.
 
 An incremental native Windows arm64 run at source revision `945ab8ec` then
-staged real files in an isolated payload, without touching `dist/`. The release
-launcher was 167,424 bytes, the parity court 288,768 bytes, the bad-ABI fixture
-99,328 bytes and the ABI-release production provider 12,024,832 bytes. The
-provider exported all five symbols: three embedded-call symbols and two
-process-main symbols. The Windows court passed these nine closed cases:
+staged real files in an isolated payload, without touching `dist/`. From that
+isolated ARM staging lane, the release launcher was 167,424 bytes, the parity
+court 288,768 bytes, the bad-ABI fixture 99,328 bytes and the ABI-release
+production provider 12,024,832 bytes. The provider exported all five symbols:
+three embedded-call symbols and two process-main symbols. The Windows court
+passed these nine closed cases:
 
 - version, capabilities and ordinary refusal absolute anchors;
 - the version, network-worker, managed-job-owner, device-lease-owner and
@@ -139,10 +140,15 @@ This is native Windows arm64 paired evidence, not a Candidate receipt; the
 release-quality receipt remains owned by the Windows x86_64 lane. The same
 guest's `acu-provider-job-wait-cancel-smoke` stopped at `job_not_running` with
 the launcher owner. A control rerun replaced only that owner with the
-same-source monolith and failed at the identical assertion, with orphan-free
-cleanup in both runs. The required owner journey is therefore blocked by its
-Windows arm64 baseline in this lane; that result neither clears G1 nor assigns
-the failure to the thin launcher. The x86_64 Candidate journey remains open.
+same-source monolith and failed at the identical assertion. Both failures also
+reported the product code `runtime_session_cleanup_uncertain`; this is an
+accompanying inability to prove session cleanup, not a second successful
+observation. The launcher's machine-written failure bundle separately reported
+`cleanup.orphan_free == true`; the monolith control's cleanup bundle was not
+recovered, so no equivalent claim is made for it. The required owner journey is
+therefore blocked by its Windows arm64 baseline in this lane; that result
+neither clears G1 nor assigns the failure to the thin launcher. The x86_64
+Candidate journey remains open.
 
 ## Gate ledger
 
