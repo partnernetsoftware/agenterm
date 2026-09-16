@@ -107,6 +107,29 @@ Remove or replace the staged sibling with the bad-ABI fixture to reproduce the
 typed `provider_missing` and `provider_abi_version_mismatch` exits. The exact
 observed commands, bytes and verdict are recorded in `RESULTS.md`.
 
+## Halted research mode: `--lifetime-parity`
+
+`parity-court` also carries a `--lifetime-parity` mode that sequences a whole
+managed-job resident-owner lifetime against both sides. **It is halted research,
+not a gate and not acceptance evidence.** Its experiment
+(`plan/design-acu-managed-job-lifetime-parity-experiment.md`) ran three authorised
+times and every run was `harness-invalid`, because the monolith side failed before
+the launcher side ever started. The mode has therefore produced **no parity
+verdict and no A baseline**, G1 stays red, and none of its runs may be quoted as a
+product pass, a product failure or an undecidable timeout. The full record is in
+`RESULTS.md`.
+
+It must not be treated as a reliable cleanup tool either, since two defects are
+known and unfixed:
+
+- a byte-level failure in the `C3`/`C4`/`C5` assertions reports only its step
+  name, so its text cannot distinguish "wrong bytes" from "missing field";
+- its teardown reuses **one** request id for every job, so a second job's
+  `job-stop` is deduplicated by the idempotency store instead of executed.
+
+Resuming the question needs a new precommitted follow-up with its own criteria and
+its own diagnostics — not a re-run of this mode under its current ones.
+
 ## Deliberately incomplete entry modes
 
 The provider classifies every current binary-only family before ordinary argv:

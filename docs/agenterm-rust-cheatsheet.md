@@ -6758,3 +6758,41 @@ ceiling or decoding again under a larger one, both of which spend work the
 ceiling exists to prevent. Keep the refusal typed to the exact configurable
 field, preserve its static message, and describe any reported count as a lower
 bound; do not label it `used` or recommend it as the next safe ceiling.
+
+## A stateful parity court proves the baseline before it pairs anything
+
+A paired court that drives a **sequence** rather than a single argv has to be built
+in that order: first prove one side's sequence end-to-end against the product's own
+courts, then add the second side. A sequence harness that pairs both sides from the
+start cannot tell "the second implementation diverges" from "my sequence is wrong on
+either side" — the first failure stops the run before the second side is ever
+started, so several consecutive runs can produce **zero** parity data while each one
+looks like a fresh attempt. Same-family corollary: when the sequence borrows a
+product helper, borrow its **budget** too, not just its predicate. A harness that
+copies the product's "poll until X" rule but reads once instead of polling will fail
+on a legal intermediate state.
+
+Three more rules this sequence earned:
+
+- **A create verb must never carry the identity it is about to create.** Passing a
+  session, lease or token to the verb that mints it makes the product answer
+  `…_not_found` for a correctly formed request, and the harness then reads its own
+  violation as a product refusal. Read the minted identity back from the reply and
+  use it only on effect verbs.
+- **An asynchronous release reuses the product's bounded wait, and that wait sits on
+  the side that owns the transition.** "The stop returned" is not "the resource is
+  released": the owner may keep answering for a short while afterwards (measured
+  ~160 ms), so a single read catches a legal intermediate state and reports it as a
+  failure. Poll the product's own field with the product's own bound. In the other
+  direction, cleanup must not inherit a budget the sequence has already spent — give
+  teardown its own fixed, bounded deadline, or a late failure turns into an
+  unreported residual.
+- **Cleanup request ids must be unique per resource.** A teardown loop that reuses
+  one request id for `N` resources has its second and later calls deduplicated by the
+  idempotency store, so they never execute — silently, and visible only in the audit
+  rows that are missing. Derive the id from the resource, not from the verb.
+
+When such a sequence fails, its failure fact has to carry the observation it judged
+(field values, not just a step name). A bare step name, plus an `observe`-class verb
+that writes no audit row, leaves a failure that cannot be diagnosed at all from what
+was left behind.

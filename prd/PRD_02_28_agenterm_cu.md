@@ -765,7 +765,7 @@ binary without its matching dylib is inert.
 - [x] **Verification** (recorded in [`docs/cu-gaps-analysis.md`](../docs/cu-gaps-analysis.md)):
   `nm -gU target/abi-release/libagenterm.dylib | grep agt_` shows 88 `agt_*`
   exports including all four foundation symbols; with
-  `AGENTERM_ABI_LIB=<repo>/target/abi-release/libagenterm.dylib` and
+  `AGENTERM_ABI_LIB=target/abi-release/libagenterm.dylib` and
   `target/release/agenterm-cu --target current`, `capabilities` reports every
   group `available` (`input=Available`, `windows=Available`,
   `input_degraded: "none — shared agenterm.dll (milestone 46)"`), `tree`
@@ -2240,7 +2240,11 @@ flowchart LR
   library adapter for extension-origin / platform-argv validation and preserves
   Chromium-owned framed stdio directly. All twelve entry routes therefore exist,
   while positive browser framing, native lifecycle, fixed-sibling delivery and
-  paired parity courts remain open; G1 is still red. The browser-session result is a macOS native
+  paired parity courts remain open; G1 is still red. The mode-4 managed-job
+  lifetime sequence did not close it either: that experiment is halted with **no
+  A baseline established and zero launcher-side data**, so it can be read as
+  neither a pass, a product failure nor an undecidable timeout, and G1 cannot be
+  closed on it. The browser-session result is a macOS native
   public court, not Candidate evidence: that court is platform-limited and
   registered rather than Windows Candidate-required. The staged device-lease
   pair passed its registered Unix public court on native macOS and emitted both

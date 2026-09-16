@@ -360,6 +360,80 @@ Accessibility-trusted host may perform a real window placement. Successful
 resident lifecycles, installed service activation, Linux paired execution and
 Candidate ownership remain open.
 
+### Incremental G1 managed-job lifetime sub-experiment (halted, no verdict)
+
+`plan/design-acu-managed-job-lifetime-parity-experiment.md` specified a
+twelve-step paired sequence to carry the managed-job resident owner's **lifetime**
+across the same argv on both sides — the dimension the non-mutating table above
+cannot express. Three authorised runs were made, and all three are
+**harness-invalid**: the monolith side failed first every time, so the launcher
+side (B) never started. The sub-experiment therefore produced **no parity verdict
+of any kind** and **no A baseline**. Anyone reading this must not turn it into a
+product PASS, a product FAIL or an `undecidable` timeout — it is none of those,
+and G1 stays **red** on the strength of the unfinished courts listed below, not
+on the strength of this sequence.
+
+All three runs used the same fixed four inputs, built 14:06–14:35 on 2026-09-16
+and byte-identical across the runs; only the court binary was rebuilt each time.
+Monolith `target/release/agenterm-cu` sha256 `5a45a921…`, staged launcher
+`target/acu-thin-launcher-stage/acu-thin-launcher` `e9562d1c…`, ABI library
+`target/abi-release/libagenterm.dylib` `820cdb5e…`, bad-ABI fixture
+`target/acu-thin-launcher/release/libagenterm_cu_bad_abi_provider.dylib`
+`950b3960…`.
+
+```bash
+CARGO_TARGET_DIR=target/acu-thin-launcher cargo build \
+  --manifest-path research/acu-thin-launcher/Cargo.toml --release --workspace
+target/acu-thin-launcher/release/acu-thin-launcher-parity-court \
+  --monolith target/release/agenterm-cu \
+  --launcher target/acu-thin-launcher-stage/acu-thin-launcher \
+  --abi-library target/abi-release/libagenterm.dylib \
+  --bad-abi target/acu-thin-launcher/release/libagenterm_cu_bad_abi_provider.dylib \
+  --lifetime-parity
+```
+
+Decision-tree trace. Every row stopped the sequence at its first failing step;
+none reached the comparison surface:
+
+| run | first failing step | exit / wall | category | cause |
+|---|---|---:|---|---|
+| 1 | L1 `session-start` | 1 / 1 s | harness-invalid | the harness sent the effect-verb prefix (`--session` / `--session-lease`) to the verb that *creates* the session, so the product correctly answered `runtime_session_not_found` |
+| 2 | L6 `job-status` | 1 / 1.5 s | harness-invalid | L6 read once and caught a legal intermediate state (`io_available: true` with a `Some(exited)` `live`); the smoke proves the same absent state with a bounded poll |
+| 3 | C3 `job-events` | 1 / 21.5 s | harness-invalid | the reply was positive but its bytes were not the expected fixed strings; **root cause not determined** — see below |
+
+What the third run did establish, recorded so the positives are not lost with the
+stop:
+
+- **L1–L7 all passed**, including the bounded L6 convergence written after run 2:
+  the sequence crossed L6 for the first time.
+- **C1 `job-spawn` and C2 `job-write` passed.** Audit recorded
+  `accepted_bytes: 5`, `delivery: "complete"`, `stdin_closed: true`.
+- **Teardown converged.** Audit shows teardown's `job-stop` failing with
+  `managed_job_owner_unavailable` (the owner was already unreachable), while the
+  run still reported `residuals[none]` — "the stop could not be issued" no longer
+  means "a residual was left behind".
+- Both job records reached `state {kind: "exited", exit_code: 7}` — one with
+  `terminal_trigger: "explicit_stop"`, one with `root_exit`.
+
+The unresolved part. C3's byte assertion reports only its step name, so the
+failure text carries **no** returned projection, and `observe`-class verbs do not
+write the audit log (run 3's audit holds only `session-start`, `job-spawn` ×2,
+`job-stop` and `job-write`); the run root records no job IO buffers either. So the
+failure is provably *not* a product refusal (the call itself answered `exit 0` /
+`ok: true`) and provably not an expectation typo (`base64("OUT:ping\n")` and
+`base64("ERR:ping\n")` match the constants, and the child is copied verbatim from
+the smoke), yet "wrong bytes" and "missing field" cannot be told apart from the
+artifacts left behind.
+
+Run roots were left in place under `target/acu-thin-launcher/lifetime-parity/` —
+`98858-…` from the earlier implementation run, `43253-…`, `85264-…` and
+`16622-…` for the three authorised ones — and no process survived any of them.
+The sub-experiment is **halted at its time box**. Reopening it requires a new
+precommitted follow-up with its own criteria and its own diagnostic requirement,
+not a re-run of this one: the harness also carries a known teardown defect, since
+its cleanup request id is the same fixed string for every job, so a second job's
+stop is deduplicated by the idempotency store instead of being executed.
+
 ## Commands used for the recorded result
 
 The recorded run reused `target/`; replace it with the isolated lane from the
