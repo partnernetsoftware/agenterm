@@ -32,23 +32,37 @@ fn local_build_installs_a_dock_safe_app_bundle() {
     let applications = root.join("applications");
     fs::create_dir_all(&binaries).expect("create fixture build");
 
-    // `agenterm` is the one required executable; the fixture used to fake an
-    // `agenterm-rh` beside it, which the installer never required.
     write_executable(
         &binaries.join("agenterm"),
         &format!("#!/bin/sh\necho 'agenterm cli {CURRENT_VERSION}'\n"),
     );
+    write_executable(
+        &binaries.join("agenterm-cu"),
+        r#"#!/bin/sh
+printf '%s\n' '{"ok":true,"data":{"checks":{"abi":{"status":"available","detail":{"major":1,"minor":0,"required_major":1,"required_minor":0,"required_symbols":1}}}}}'
+"#,
+    );
+    fs::write(binaries.join("libagenterm.dylib"), b"fixture ABI")
+        .expect("write fixture ABI library");
+    fs::write(
+        binaries.join("agenterm-cu-provider.dylib"),
+        b"fixture CU provider",
+    )
+    .expect("write fixture CU provider");
 
-    let output = Command::new("bash")
-        .arg("install.sh")
-        .arg("--local-build")
-        .arg(&binaries)
-        .env("AGENTERM_INSTALL_DIR", &install)
-        .env("AGENTERM_BIN_DIR", &bin)
-        .env("AGENTERM_APPLICATIONS_DIR", &applications)
-        .env("AGENTERM_NO_LAUNCH", "1")
-        .output()
-        .expect("run local installer");
+    let install_once = || {
+        Command::new("bash")
+            .arg("install.sh")
+            .arg("--local-build")
+            .arg(&binaries)
+            .env("AGENTERM_INSTALL_DIR", &install)
+            .env("AGENTERM_BIN_DIR", &bin)
+            .env("AGENTERM_APPLICATIONS_DIR", &applications)
+            .env("AGENTERM_NO_LAUNCH", "1")
+            .output()
+            .expect("run local installer")
+    };
+    let output = install_once();
     assert!(
         output.status.success(),
         "local installer failed:\nstdout={}\nstderr={}",
@@ -82,6 +96,41 @@ fn local_build_installs_a_dock_safe_app_bundle() {
         "app icon is not declared"
     );
     assert!(bin.join("agenterm").exists(), "agenterm link is missing");
+    let cu_metadata =
+        fs::symlink_metadata(bin.join("agenterm-cu")).expect("installed agenterm-cu metadata");
+    assert!(
+        cu_metadata.file_type().is_file() && !cu_metadata.file_type().is_symlink(),
+        "agenterm-cu must be a regular PATH executable"
+    );
+    assert!(
+        bin.join("agenterm-cu-provider.dylib").exists(),
+        "CU provider sibling is missing"
+    );
+    let reinstall = install_once();
+    assert!(
+        reinstall.status.success(),
+        "installer must replace its own regular CU copy:\nstdout={}\nstderr={}",
+        String::from_utf8_lossy(&reinstall.stdout),
+        String::from_utf8_lossy(&reinstall.stderr)
+    );
+    assert!(
+        fs::symlink_metadata(bin.join("agenterm-cu"))
+            .expect("reinstalled agenterm-cu metadata")
+            .file_type()
+            .is_file(),
+        "a reinstall must retain the regular executable layout"
+    );
+
+    write_executable(&bin.join("agenterm-cu"), "#!/bin/sh\nexit 9\n");
+    let unmanaged = install_once();
+    assert!(
+        !unmanaged.status.success()
+            && String::from_utf8_lossy(&unmanaged.stderr)
+                .contains("refusing to replace an unmanaged agenterm-cu file"),
+        "installer must not overwrite an unmanaged regular file:\nstdout={}\nstderr={}",
+        String::from_utf8_lossy(&unmanaged.stdout),
+        String::from_utf8_lossy(&unmanaged.stderr)
+    );
     assert!(install.join("current").exists(), "current link is missing");
     let installed: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(install.join("current/installed.json")).expect("read installed.json"),

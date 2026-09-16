@@ -203,6 +203,51 @@ replace_symlink() {
   fi
 }
 
+is_managed_cu_file() {
+  local path="$1"
+  local candidate
+  for candidate in "$INSTALL_ROOT"/releases/*/agenterm-cu; do
+    [[ -f "$candidate" && ! -L "$candidate" ]] || continue
+    if cmp -s "$path" "$candidate"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# `agenterm-cu` resolves fixed-name owner executables beside `current_exe()`.
+# On macOS, `current_exe()` preserves the path of the symlink used to launch
+# it, so the PATH entry itself must be a regular file. Publish a byte-identical
+# copy atomically; only a legacy installer symlink or a copy matching one of
+# this install root's release payloads may be replaced.
+validate_cu_destination() {
+  local destination="$1"
+  if [[ -e "$destination" && ! -L "$destination" ]]; then
+    [[ -f "$destination" && -x "$destination" ]] ||
+      fail "refusing to replace a non-executable path: $destination"
+    is_managed_cu_file "$destination" ||
+      fail "refusing to replace an unmanaged agenterm-cu file: $destination"
+  fi
+}
+
+replace_cu_executable() {
+  local source="$1"
+  local destination="$2"
+  local next="${destination}.next.$$"
+  # Repeat the preflight immediately before publication so a concurrent
+  # replacement cannot bypass the earlier transaction-wide check.
+  validate_cu_destination "$destination"
+  [[ ! -e "$next" && ! -L "$next" ]] ||
+    fail "refusing to overwrite temporary install path: $next"
+  cp "$source" "$next"
+  chmod 0755 "$next"
+  if [[ "$OS" == "macos" ]]; then
+    mv -fh "$next" "$destination"
+  else
+    mv -Tf "$next" "$destination"
+  fi
+}
+
 resolve_version() {
   local effective_url
   if [[ -n "${AGENTERM_VERSION:-}" ]]; then
@@ -253,19 +298,22 @@ if [[ -n "$LOCAL_BUILD_DIR" ]]; then
   RELEASES_DIR="$INSTALL_ROOT/releases"
   RELEASE_DIR="$RELEASES_DIR/$RELEASE_VERSION-local-$OS-$ARCH"
   mkdir -p "$RELEASES_DIR" "$BIN_DIR"
+  validate_cu_destination "$BIN_DIR/agenterm-cu"
   if [[ -e "$RELEASE_DIR" || -L "$RELEASE_DIR" ]]; then
     rm -rf "$RELEASE_DIR"
   fi
   mv "$STAGING_DIR" "$RELEASE_DIR"
   CURRENT_LINK="$INSTALL_ROOT/current"
   replace_symlink "$RELEASE_DIR" "$CURRENT_LINK"
-  for executable in "${REQUIRED_EXECUTABLES[@]}"; do
-    replace_symlink "$CURRENT_LINK/$executable" "$BIN_DIR/$executable"
-  done
+  replace_symlink "$CURRENT_LINK/agenterm" "$BIN_DIR/agenterm"
   replace_symlink "$CURRENT_LINK/$REQUIRED_LIBRARY" "$BIN_DIR/$REQUIRED_LIBRARY"
   replace_symlink "$CURRENT_LINK/$PROVIDER_LIBRARY" "$BIN_DIR/$PROVIDER_LIBRARY"
+  replace_cu_executable "$CURRENT_LINK/agenterm-cu" "$BIN_DIR/agenterm-cu"
+  [[ -f "$BIN_DIR/agenterm-cu" && ! -L "$BIN_DIR/agenterm-cu" && -x "$BIN_DIR/agenterm-cu" ]] ||
+    fail "installed agenterm-cu is not a regular executable: $BIN_DIR/agenterm-cu"
   [[ -f "$BIN_DIR/$PROVIDER_LIBRARY" && -s "$BIN_DIR/$PROVIDER_LIBRARY" ]] ||
     fail "installed ACU provider symlink is unavailable: $BIN_DIR/$PROVIDER_LIBRARY"
+  verify_cu_abi "$BIN_DIR/agenterm-cu" "$BIN_DIR/$REQUIRED_LIBRARY"
 
   APP_DIR="$APPLICATIONS_DIR/AgenTerm.app"
   APP_CONTENTS="$APP_DIR/Contents"
@@ -514,6 +562,7 @@ verify_cu_abi "$STAGING_DIR/agenterm-cu" "$STAGING_DIR/$REQUIRED_LIBRARY"
 RELEASES_DIR="$INSTALL_ROOT/releases"
 RELEASE_DIR="$RELEASES_DIR/$RELEASE_VERSION-$OS-$ARCH"
 mkdir -p "$RELEASES_DIR" "$BIN_DIR"
+validate_cu_destination "$BIN_DIR/agenterm-cu"
 if [[ -e "$RELEASE_DIR" || -L "$RELEASE_DIR" ]]; then
   rm -rf "$RELEASE_DIR"
 fi
@@ -522,14 +571,19 @@ mv "$STAGING_DIR" "$RELEASE_DIR"
 CURRENT_LINK="$INSTALL_ROOT/current"
 replace_symlink "$RELEASE_DIR" "$CURRENT_LINK"
 
-for executable in "${REQUIRED_EXECUTABLES[@]}"; do
-  LINK_PATH="$BIN_DIR/$executable"
-  replace_symlink "$CURRENT_LINK/$executable" "$LINK_PATH"
-done
+replace_symlink "$CURRENT_LINK/agenterm" "$BIN_DIR/agenterm"
 replace_symlink "$CURRENT_LINK/$REQUIRED_LIBRARY" "$BIN_DIR/$REQUIRED_LIBRARY"
 replace_symlink "$CURRENT_LINK/$PROVIDER_LIBRARY" "$BIN_DIR/$PROVIDER_LIBRARY"
+replace_cu_executable "$CURRENT_LINK/agenterm-cu" "$BIN_DIR/agenterm-cu"
+[[ -f "$BIN_DIR/agenterm-cu" && ! -L "$BIN_DIR/agenterm-cu" && -x "$BIN_DIR/agenterm-cu" ]] ||
+  fail "installed agenterm-cu is not a regular executable: $BIN_DIR/agenterm-cu"
+if [[ "$OS" == "macos" && "$USE_UNSIGNED_PREVIEW" != "1" ]]; then
+  codesign --verify --strict "$BIN_DIR/agenterm-cu" >/dev/null 2>&1 ||
+    fail "Apple code-signature verification failed for installed agenterm-cu"
+fi
 [[ -f "$BIN_DIR/$PROVIDER_LIBRARY" && -s "$BIN_DIR/$PROVIDER_LIBRARY" ]] ||
   fail "installed ACU provider symlink is unavailable: $BIN_DIR/$PROVIDER_LIBRARY"
+verify_cu_abi "$BIN_DIR/agenterm-cu" "$BIN_DIR/$REQUIRED_LIBRARY"
 
 # G2: remove broken BIN symlinks that still point under this install root
 # (e.g. renamed agenterm-script → agenterm-rh left a dangling link).

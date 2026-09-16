@@ -1879,6 +1879,44 @@ fn user_installer_keeps_the_fixed_sibling_acu_provider_with_every_cu_symlink() {
 }
 
 #[test]
+fn user_installer_publishes_cu_as_a_regular_path_executable() {
+    assert!(INSTALL_SH.contains("replace_cu_executable()"));
+    assert_eq!(
+        INSTALL_SH
+            .matches("validate_cu_destination \"$BIN_DIR/agenterm-cu\"")
+            .count(),
+        2,
+        "both paths must reject an unmanaged destination before changing the release"
+    );
+    assert_eq!(
+        INSTALL_SH
+            .matches("replace_cu_executable \"$CURRENT_LINK/agenterm-cu\" \"$BIN_DIR/agenterm-cu\"")
+            .count(),
+        2,
+        "local-build and release installs must both publish a regular CU executable"
+    );
+    assert_eq!(
+        INSTALL_SH
+            .matches("installed agenterm-cu is not a regular executable:")
+            .count(),
+        2
+    );
+    assert!(INSTALL_SH.contains("chmod 0755 \"$next\""));
+    assert!(INSTALL_SH.contains("codesign --verify --strict \"$BIN_DIR/agenterm-cu\""));
+    assert_eq!(
+        INSTALL_SH
+            .matches("verify_cu_abi \"$BIN_DIR/agenterm-cu\" \"$BIN_DIR/$REQUIRED_LIBRARY\"")
+            .count(),
+        2,
+        "both installer paths must verify CU through the published PATH layout"
+    );
+    assert!(
+        !INSTALL_SH
+            .contains("replace_symlink \"$CURRENT_LINK/agenterm-cu\" \"$BIN_DIR/agenterm-cu\"")
+    );
+}
+
+#[test]
 fn hotkey_installer_keeps_the_provider_beside_both_cu_copies() {
     assert!(INSTALL_CU_HOTKEYS_SH.contains("-p agenterm-cu-provider"));
     assert!(
