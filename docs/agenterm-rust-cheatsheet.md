@@ -3010,6 +3010,13 @@ default. Platform adapters also cannot read `AGENTERM_*` environment names
 Use `PLATFORM_*` (already used for IME). Product launchers and LD_PRELOAD
 helpers must read and export that same `PLATFORM_*` name, not `AGENTERM_*`.
 
+When a platform-independent adapter helper has exactly one target-specific
+production consumer but should retain cross-host unit tests, expose its module
+with `#[cfg(any(target_os = "...", test))]`. Compiling it in every ordinary
+off-target library build creates a second, consumer-free product surface and
+`--all-targets -D warnings` correctly rejects its items as dead code. Keep the
+algorithm neutral and testable; narrow only the module's production presence.
+
 Do not make a narrower cross-platform action depend on an unrelated state a
 host cannot observe. For example, an operation whose public contract is
 "un-minimize" may read a separate maximize/zoom bit on hosts that expose it,
