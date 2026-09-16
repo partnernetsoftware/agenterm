@@ -1189,6 +1189,10 @@ flowchart LR
   `inspect` / `find` / `read` result meanings. The next query tranche therefore
   starts with a correctness gate: align explicit budgets and geometry, and
   keep aliases typed as migration gaps where their meaning cannot be preserved.
+  The first fail-closed edge is now explicit: legacy `inspect` / `find` / `read`
+  reject `--within` instead of silently reading MCU's `x1,y1,x2,y2`
+  center-in-rectangle spelling as ACU's `x,y,w,h` rectangle intersection.
+  Canonical `query --within` retains its published ACU geometry.
   Only then may pure filters land; subrole/help/description/placeholder,
   required state and lossless long-value evidence require a platform/ABI
   extension rather than CLI-side invention.

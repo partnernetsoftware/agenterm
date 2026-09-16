@@ -315,6 +315,11 @@ fn parse_rect(raw: &str, flag: &str) -> Result<[i32; 4], String> {
 /// spelling (`query`, `inspect`, `find`, `read`) because the MCU forms take
 /// their needle / selector positionally.
 fn query(target: TargetRef, verb: &str, args: &mut Vec<String>) -> Result<Command, String> {
+    if verb != "query" && args.iter().any(|arg| arg == "--within") {
+        return Err(format!(
+            "{verb} --within remains a typed migration gap: MCU spells x1,y1,x2,y2 and tests the node center, while query --within spells x,y,w,h and tests rectangle intersection"
+        ));
+    }
     if verb == "inspect" && args.iter().any(|arg| arg == "--app") {
         return super::windows::app_inspect(target, args);
     }
@@ -904,6 +909,43 @@ mod tests {
             "unknown".into(),
         ];
         assert!(parse(spec, "query", TargetRef::Current, &mut invalid_bool).is_err());
+    }
+
+    #[test]
+    fn legacy_query_aliases_refuse_the_incompatible_within_geometry() {
+        let rect = ["--within", "10,20,30,40"];
+        for (verb, prefix) in [
+            ("inspect", vec!["Fixture#7"]),
+            ("find", vec!["Fixture#7", "Save"]),
+            ("read", vec!["Fixture#7", "Button[0]"]),
+        ] {
+            let spec = verbs::lookup(verb).expect("query alias");
+            let mut args = prefix
+                .into_iter()
+                .chain(rect)
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            let error = parse(spec, verb, TargetRef::Current, &mut args)
+                .expect_err("legacy geometry must not be silently reinterpreted");
+            assert!(error.contains("typed migration gap"), "{verb}: {error}");
+            assert!(error.contains("x1,y1,x2,y2"), "{verb}: {error}");
+            assert!(error.contains("x,y,w,h"), "{verb}: {error}");
+        }
+
+        let spec = verbs::lookup("query").expect("query verb");
+        let mut args = vec![
+            "--window".into(),
+            "7".into(),
+            "--within".into(),
+            "10,20,30,40".into(),
+        ];
+        assert!(matches!(
+            parse(spec, "query", TargetRef::Current, &mut args).expect("native query geometry"),
+            Command::Query {
+                within: Some([10, 20, 30, 40]),
+                ..
+            }
+        ));
     }
 
     #[test]
