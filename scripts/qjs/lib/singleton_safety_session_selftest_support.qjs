@@ -1,0 +1,279 @@
+// Test-only support for the browser-session -> ownership selftest shards.
+//
+// This module is fixture, not product code and not a gate. It carries the SINGLE
+// copy of the fake executor / fake adapter / options / latest-state builders, the
+// fixture constants, `context`/`replies`/`session_data`/`reply`, the per-piece
+// root helpers and the two frozen identity goldens, so the three entry shards
+// (`singleton-safety-session-selftest.qjs` = B, `-identity.qjs` = A,
+// `-terminal.qjs` = C) do not each re-declare them.
+//
+// Import graph: `rh`, `cj`, `session`. It must NOT import
+// `lib/singleton_safety_runner` directly -- `session` already imports the runner
+// (`lib/singleton_safety_browser_session.qjs:24`), and an `import` here is
+// compile-time inclusion, not a link, so a direct import would reach the runner
+// TWICE inside one closure. Everything runner-side therefore arrives through
+// `session`.
+//
+// Owned roots: `target/singleton-safety-session-selftest-<piece>`, one per piece,
+// each piece removing its own. Removed on success and failure.
+import * as rh from "lib/rh_compat";
+import * as cj from "lib/canonical_json";
+import * as session from "lib/singleton_safety_browser_session";
+
+const TEMPLATE_LOGICAL = "research/browser-profile-open-singleton-safety/result-template.json";
+const ROOT_LOGICAL_PREFIX = "target/singleton-safety-session-selftest";
+const SENTINEL = "session_selftest_cleanup_sentinel";
+
+function require(condition, message) { if (!condition) { throw message; } }
+
+// ---- pure delegations: none of these reaches a module the shard does not
+// already reach through `session` ------------------------------------------
+export function join(a, b) { return rh.join(a, b); }
+export function has_item(value, needle) { return rh.has_item(value, needle); }
+export function canonical(value) { return cj.canonical(value); }
+export function create_dir_all(p) { rh.create_dir_all(p); }
+export function exists(p) { return rh.exists(p); }
+export function session_to_ownership(execute, adapter, template, context, options) {
+  return session.session_to_ownership(execute, adapter, template, context, options);
+}
+
+// ---- per-piece root, template and cleanup --------------------------------
+export function piece_root(piece) { return rh.join(rh.cwd(), ROOT_LOGICAL_PREFIX + "-" + piece); }
+export function piece_path(piece, name) { return rh.join(piece_root(piece), name); }
+export function remove_piece_root(piece) {
+  try { rh.try_remove_dir_all(piece_root(piece)); } catch (e) { print("session_selftest_cleanup: " + e); }
+}
+export function with_piece_cleanup(piece, fn) { try { return fn(); } finally { remove_piece_root(piece); } }
+// The same tracked template shard A hands to the runner for validation, read here
+// so the fixture has an object to drive the orchestration with. This read does
+// NOT claim the runner's validation -- shard A keeps that.
+export function template_path() { return rh.join(rh.cwd(), TEMPLATE_LOGICAL); }
+export function load_template() { return rh.parse_file(template_path()); }
+
+export function expect_throw(fn, label) {
+  let threw = false;
+  try { fn(); } catch (e) { threw = true; }
+  require(threw, "negative_did_not_throw:" + label);
+}
+// The exact number of times `item` occurs in `arr` (for no-double-count claims).
+export function count_item(arr, item) {
+  let n = 0;
+  for (let i = 0; i < arr.length; i = i + 1) { if (arr[i] === item) { n = n + 1; } }
+  return n;
+}
+
+// ---- the two frozen identity goldens -------------------------------------
+// sha256(domain || 0x00 || rfc8785[pid,start_sec,start_usec]) for the two fixed
+// identities below, derived OFFLINE -- the runner's scratch path is only a
+// container and never enters the hash, so this is a pure function of the four
+// numbers. Shard A checks these constants against the runner's own answer; shards
+// B and C use them as the expected browser-root digest. Neither side proves
+// itself.
+const IDENTITY_DOMAIN = "agenterm.singleton-safety.v1.process-identity";
+export const BROWSER_DIGEST = "1b51aed230ce7d94a8c7b067e4292eaac26dc13dc0466ac43825ee2bde94a7b5";
+export const SAME_DIGEST = "ae1f5c3dc6678bedf38cd6c71190c09a0b486db963d2334086103f7a8e207245";
+
+// ---- the fixed identities and the fake session slice ---------------------
+export const subject = "browser-a";
+export const owner_pid = 900;
+export const owner_identity = "macos-start-time:1700000000.500000";
+export const browser_pid = 901;
+export const browser_identity = "macos-start-time:1700000001.250000";
+export function session_data(state, owner_obs, browser) {
+  const d = { schema_version: 1, generation: 1, name: subject, session_nonce: "0123456789abcdef",
+    state: state, owner: { pid: owner_pid, start_identity: owner_identity }, owner_spawn_mode: "detached",
+    profile_identity: { device: 1, inode: 2 }, owner_observation: owner_obs, owned: true };
+  if (browser !== null) { d.browser = browser; }
+  return d;
+}
+export function reply(command, data) {
+  return { exit_code: 0, stdout: cj.canonical({ ok: true, target: "current", command: command, data: data }) };
+}
+export const browser_obj = { pid: browser_pid, start_identity: browser_identity };
+const session_reply = reply("browser-session-start", session_data("ready", "live", browser_obj));
+const status_reply = reply("browser-session-status", session_data("ready", "live", browser_obj));
+const window_row = { handle: 42, ref: "App#1", title: "t", process_id: browser_pid, app_name: "a",
+  bounds: { x: 0, y: 0, width: 1, height: 1 }, focused: true, minimized: false, maximized: false,
+  fullscreen: false, above: false, browser_profile: null };
+const windows_reply = reply("windows", { mechanism: "libagenterm", focus: {}, stacking: {}, filter: {},
+  visited: 1, matched: 1, returned: 1, offset: 0, truncated: false, windows: [window_row] });
+const process_reply = reply("process-state", { pid: browser_pid, state: "live", start_identity: browser_identity, reason: null, verified: true });
+const stop_reply = reply("browser-session-stop", session_data("stopped", "dead", null));
+const remove_reply = reply("browser-session-remove", session_data("stopped", "dead", null));
+export function replies(over) {
+  const o = over || {};
+  return { start: o.start === undefined ? session_reply : o.start,
+           status: o.status === undefined ? status_reply : o.status,
+           windows: o.windows === undefined ? windows_reply : o.windows,
+           "process-state": o.process === undefined ? process_reply : o.process,
+           stop: o.stop === undefined ? stop_reply : o.stop,
+           remove: o.remove === undefined ? remove_reply : o.remove };
+}
+
+// A recording fake executor for the session slice: returns canned typed replies
+// keyed by the command verb. It also lets a verb be made to fail.
+export function session_executor(replies, fail_verb) {
+  const seen = [];
+  let removed = false;
+  return {
+    seen: seen,
+    run: function (argv, timeout_ms) {
+      seen.push({ argv: argv, timeout_ms: timeout_ms });
+      let verb = "";
+      for (let i = 0; i < argv.length; i = i + 1) {
+        if (argv[i] === "browser-session-start") { verb = "start"; }
+        else if (argv[i] === "browser-session-status") { verb = "status"; }
+        else if (argv[i] === "browser-session-stop") { verb = "stop"; }
+        else if (argv[i] === "browser-session-remove") { verb = "remove"; }
+        else if (argv[i] === "windows") { verb = "windows"; }
+        else if (argv[i] === "process-state") { verb = "process-state"; }
+      }
+      if (verb === fail_verb) { return { exit_code: 1, stdout: "", stderr: "boom" }; }
+      // After a successful remove, the registry is gone: a later status lookup must
+      // fail typed, so a post-remove status proves the removal.
+      if (verb === "status" && removed) {
+        return { exit_code: 1, stdout: cj.canonical({ ok: false, target: "current",
+          command: "browser-session-status", error: { code: "browser_session_not_found", message: "gone" } }) };
+      }
+      const out = replies[verb];
+      if (verb === "remove") { removed = true; }
+      return out;
+    }
+  };
+}
+
+export function session_options(root, over) {
+  const o = over || {};
+  return {
+    platform: o.platform === undefined ? "macos" : o.platform,
+    session_name: o.session_name === undefined ? "browser-a" : o.session_name,
+    browser: o.browser === undefined ? "/b/chromium" : o.browser,
+    ready_timeout_ms: o.ready_timeout_ms === undefined ? 15000 : o.ready_timeout_ms,
+    stop_timeout_ms: o.stop_timeout_ms === undefined ? 15000 : o.stop_timeout_ms,
+    ttl_ms: o.ttl_ms === undefined ? 3600000 : o.ttl_ms,
+    url: o.url === undefined ? null : o.url,
+    phase_budget_ms: o.phase_budget_ms === undefined ? 5000 : o.phase_budget_ms
+  };
+}
+
+// A fake adapter for the session slice: files, a boundary-aware latest-state,
+// a clock and append recording. No real process or file is touched. The
+// latest-state publication reflects whether the browser-root and ownership-boundary
+// controls were appended, so the ack/ownership polls advance exactly as the real
+// probe would.
+export function session_adapter(opts) {
+  const o = opts || {};
+  const files = {};
+  const appends = [];
+  let clock = 0;
+  let boundary_appended = false;
+  let latest_reads = 0;
+  // When armed (an integer), the NEXT that many `now_ms` calls return normally and
+  // the one after them throws -- so a test can make the clock fail exactly at the
+  // cleanup-deadline construction (rel 0) or at the first cleanup poll (rel 1).
+  let arm_relative = null;
+  return {
+    files: files, appends: appends,
+    arm_now_throw: function (rel) { arm_relative = rel; },
+    now_ms: function () {
+      clock = clock + (o.step_ms === undefined ? 1 : o.step_ms);
+      if (arm_relative !== null) {
+        if (arm_relative === 0) { throw "clock_failed"; }
+        arm_relative = arm_relative - 1;
+      }
+      return clock;
+    },
+    file_exists: function (p) {
+      if (p.indexOf("latest-state") !== -1) { return appends.length > 0 || o.publish_always === true; }
+      return files[p] !== undefined;
+    },
+    read_text: function (p) {
+      if (p.indexOf("latest-state") !== -1) {
+        const root_status = o.root_status === undefined ? "observed" : o.root_status;
+        let seq = o.ownership_sequence === undefined ? null : o.ownership_sequence;
+        if (boundary_appended && o.new_ownership_sequence !== undefined) { seq = o.new_ownership_sequence; }
+        let count = o.force_control_count === undefined ? appends.length : o.force_control_count;
+        // The FIRST frame can report count 0 even while the row is observed (a
+        // normal stale snapshot); later frames report the true count.
+        latest_reads = latest_reads + 1;
+        if (o.count_first_zero === true && latest_reads === 1) { count = 0; }
+        return latest_state_text(root_status, seq, count, o.expected_root_digest,
+          o.browser_pid, root_status === "observed", o.roots_extra === true);
+      }
+      return files[p];
+    },
+    sleep_ms: function () {},
+    append_durable: function (p, text) {
+      appends.push({ path: p, text: text });
+      files[p] = (files[p] === undefined ? "" : files[p]) + text;
+      if (text.indexOf('"role":"ownership-boundary"') !== -1) { boundary_appended = true; }
+      if (o.append_throws) { throw "append_durable_failed"; }
+    }
+  };
+}
+
+export function latest_state_text(browser_root_status, ownership_sequence, control_record_count, observed_digest, observed_pid, observed, roots_extra) {
+  // The browser-root row's identity_digest reports the digest the scanner observed;
+  // the default mirrors the expected one so the happy path binds. The pid is only
+  // informational here -- the digest is the binding.
+  const roots = {
+      "browser-root": { status: browser_root_status,
+        identity_digest: observed ? (observed_digest === undefined ? null : observed_digest) : null,
+        first_observed_sample: observed ? 0 : null, first_absent_sample: null },
+      "direct-open-root": { status: "not-controlled", identity_digest: null, first_observed_sample: null, first_absent_sample: null }
+  };
+  if (roots_extra === true) { roots.extra = { status: "not-controlled", identity_digest: null, first_observed_sample: null, first_absent_sample: null }; }
+  return cj.canonical({
+    schema: "agenterm.singleton-safety.process-probe-state/v1", status: "scanning",
+    failure_reasons: [], control_record_count: control_record_count, sample_count: 0,
+    scan_start_mono_ns: 1, sentinel_start_mono_ns: null,
+    ownership_sample_sequence: ownership_sequence,
+    final_inventory_control_sequence: null, frozen_group_id: null,
+    root_observations: roots,
+    early_scanner_stop: false, max_start_interval_ns: null, max_enumeration_ns: null,
+    resolution_ns: null, maximum_process_row_count: 0, maximum_group_member_count: 0,
+    samples: [], identities: [], edges: [], executables: [], relevant_events: []
+  });
+}
+
+// The native-side context the orchestration drives: an upstream cleanup failure
+// blocks root removal and a `finish` with any failure becomes a throw; an `abort`
+// always throws structured, merging the upstream failures and any native ones.
+export function context(root, opts) {
+  // The run root exists in production (native_ready claims it); create it here
+  // so the digest scratch has a directory to live in.
+  rh.create_dir_all(root);
+  const o = opts || {};
+  const state = { aborted: false, abort_reason: null, finished: 0, root_removed: false };
+  // Emulate the real native conclude: an upstream cleanup failure blocks root
+  // removal and a `finish` with any failure becomes a throw; an `abort` always
+  // throws structured, merging the upstream failures and any native ones.
+  const ctx = { checkpoint: "native-ready-in-process", run_root: root, handles: { probe: 0, primary: 1, secondary: 2 },
+           control_sequence: 0, state: state,
+           finish: function (upstream) {
+             const failures = upstream === undefined ? [] : upstream;
+             if (failures.length > 0) {
+               throw { primary: "native_finish_cleanup_failed", cleanup_failures: failures };
+             }
+             state.finished = state.finished + 1; state.root_removed = true;
+             return { checkpoint: "native-finished" };
+           },
+           abort: function (reason, upstream) {
+             state.aborted = true; state.abort_reason = "" + reason;
+             const failures = upstream === undefined ? [] : upstream;
+             for (let i = 0; i < o.native_abort_failures_count; i = i + 1) { failures.push("native_abort:" + i); }
+             throw { primary: "" + reason, cleanup_failures: failures };
+           } };
+  return ctx;
+}
+
+// Run the happy path and return the context, asserting success.
+export function session_to_ownership_ok(execute, adapter, template, ctx) {
+  return session.session_to_ownership(execute.run, adapter, template, ctx, session_options(ctx.run_root));
+}
+
+// The primary reason of a possibly-structured error.
+export function session_primary(error) {
+  if (error !== null && typeof error === "object" && error.primary !== undefined) { return error.primary; }
+  return error;
+}

@@ -811,6 +811,17 @@ integration.
   [`plan/archive/design-qjs-module-identity-experiment.md`](../plan/archive/design-qjs-module-identity-experiment.md).
 - [x] `script api [MODULE] [--status shipped|planned|all] [--tree|--json]` renders one deterministic hierarchical object tree with reviewed Node.js/Bun analogues and returns the same filtered versioned catalog with explicit view and comparison metadata.
 - [x] qjswasm computation budget fails closed with the public limit exit class.
+- [x] The browser-session ownership selftest no longer exceeds the product's
+  unchanged JS-V1 decode ceiling. Its former 756-line entry is three independent
+  task entries (identity/guards, acknowledgement/refusals, terminal/cleanup)
+  backed by one test-only fixture module. The split preserves all 69 original
+  assertion labels exactly once, adds only two precommitted digest known-answer
+  checks, gives each shard a distinct owned root, and reduces the duplicated
+  `singleton_safety_runner` include path from two to one. All three targeted
+  checks and task runs pass, and post-staging repository lint covers the new
+  files. The decision and measurements are recorded in
+  `plan/design-qjs-session-selftest-sharding-experiment.md` and
+  `research/qjs-session-selftest-sharding/RESULTS.md`.
 - [x] The decoder's own ceiling now names itself. Upstream `9420045` gives
   `Limits::max_decode_items` a `Ceiling::DecodeItems` arm, so an embedder can
   read *which* number was too small from a typed accessor instead of matching

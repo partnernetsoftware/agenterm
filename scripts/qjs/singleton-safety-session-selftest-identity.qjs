@@ -1,0 +1,116 @@
+// Shard A of the browser-session -> ownership selftest: the macOS identity parser,
+// the CLI argument guards, the runner's template validation and the two frozen
+// identity goldens as a known-answer test.
+//
+// This shard deliberately does NOT import
+// `lib/singleton_safety_session_selftest_support`: it is the one piece that must
+// reach `lib/singleton_safety_runner` directly, so that the template validation
+// and the digest known-answer check stay on the runner's own surface. It reaches
+// `singleton_safety_browser_session` ZERO times.
+//
+// Owned root: target/singleton-safety-session-selftest-a (independent from the
+// other shards' roots). Removed on success and failure.
+import * as rh from "lib/rh_compat";
+import * as runner from "lib/singleton_safety_runner";
+
+const TEMPLATE_LOGICAL = "research/browser-profile-open-singleton-safety/result-template.json";
+const ROOT_LOGICAL = "target/singleton-safety-session-selftest-a";
+
+function require(condition, message) { if (!condition) { throw message; } }
+function owned_root() { return rh.join(rh.cwd(), ROOT_LOGICAL); }
+function template_path() { return rh.join(rh.cwd(), TEMPLATE_LOGICAL); }
+function remove_owned_root() {
+  try { rh.try_remove_dir_all(owned_root()); } catch (e) { print("session_selftest_cleanup: " + e); }
+}
+function with_owned_cleanup(fn) { try { return fn(); } finally { remove_owned_root(); } }
+function expect_throw(fn, label) {
+  let threw = false;
+  try { fn(); } catch (e) { threw = true; }
+  require(threw, "negative_did_not_throw:" + label);
+}
+
+// The macOS identity parser: one known answer plus the whole bad-shape set.
+function test_macos_identity() {
+  const ok = runner.macos_start_identity_to_identity("macos", 900, "macos-start-time:1700000000.500000");
+  require(ok.pid === 900 && ok.start_sec === 1700000000 && ok.start_usec === 500000,
+          "identity_known_answer:" + JSON.stringify(ok));
+  require(Object.keys(ok).length === 3, "identity_exact_keys");
+  // a zero second and a zero usec are canonical
+  const z = runner.macos_start_identity_to_identity("macos", 1, "macos-start-time:0.0");
+  require(z.start_sec === 0 && z.start_usec === 0, "identity_zero_ok");
+  const bad = [
+    "proc-start-ticks:12345", "windows-filetime:99", "macos-start-time:1",
+    "macos-start-time:1.", "macos-start-time:.5", "macos-start-time:1.2.3",
+    "macos-start-time:01.5", "macos-start-time:1.0500000", "macos-start-time:+1.5",
+    "macos-start-time:1.-5", "macos-start-time:1.1000000", "macos-start-time:1. 5",
+    "macos-start-time:1.5 ", "", "1.5"];
+  for (let i = 0; i < bad.length; i = i + 1) {
+    expect_throw(function () {
+      runner.macos_start_identity_to_identity("macos", 900, bad[i]);
+    }, "identity_bad:" + i);
+  }
+  // a non-macOS platform is refused before any parsing
+  expect_throw(function () {
+    runner.macos_start_identity_to_identity("linux", 900, "macos-start-time:1.5");
+  }, "identity_linux_refused");
+  expect_throw(function () {
+    runner.macos_start_identity_to_identity("windows", 900, "macos-start-time:1.5");
+  }, "identity_windows_refused");
+}
+
+// The CLI argument guards.
+function test_cli_guards() {
+  runner.require_timeout_range(1000, "t");
+  runner.require_timeout_range(60000, "t");
+  expect_throw(function () { runner.require_timeout_range(999, "t"); }, "guard_timeout_999");
+  expect_throw(function () { runner.require_timeout_range(60001, "t"); }, "guard_timeout_60001");
+  runner.require_session_name("a");
+  runner.require_session_name("browser-a1");
+  expect_throw(function () { runner.require_session_name("A"); }, "guard_name_upper");
+  expect_throw(function () { runner.require_session_name("1a"); }, "guard_name_digit_first");
+  expect_throw(function () { runner.require_session_name("a_b"); }, "guard_name_underscore");
+  expect_throw(function () { runner.require_session_name("a".repeat(33)); }, "guard_name_long");
+  require(runner.require_url(null) === null, "guard_url_null");
+  require(runner.require_url("https://x") === "https://x", "guard_url_ok");
+  expect_throw(function () { runner.require_url(""); }, "guard_url_empty");
+  expect_throw(function () { runner.require_url("-x"); }, "guard_url_switch");
+  expect_throw(function () { runner.require_url("a\nb"); }, "guard_url_multiline");
+}
+
+// The two frozen identity goldens, checked against the runner's own answer.
+//
+// The constants were derived OFFLINE as
+// sha256("agenterm.singleton-safety.v1.process-identity" || 0x00 ||
+// rfc8785[pid,start_sec,start_usec]); the runner's scratch path is only a
+// container and never enters the hash. Shards B and C use the same two constants
+// as the expected browser-root digest, so if the digest algorithm drifts this
+// shard reddens, and if the product's acknowledgement drifts B/C redden: neither
+// side proves itself.
+const IDENTITY_DOMAIN = "agenterm.singleton-safety.v1.process-identity";
+function test_identity_digest_known_answers() {
+  const browser = runner.digest_process_identity(IDENTITY_DOMAIN,
+    rh.join(owned_root(), "scratch-identity-browser"),
+    { pid: 901, start_sec: 1700000001, start_usec: 250000 });
+  require(browser === "1b51aed230ce7d94a8c7b067e4292eaac26dc13dc0466ac43825ee2bde94a7b5",
+          "identity_digest_browser_known_answer:" + browser);
+  const same = runner.digest_process_identity(IDENTITY_DOMAIN,
+    rh.join(owned_root(), "scratch-identity-same"),
+    { pid: 900, start_sec: 1700000000, start_usec: 500000 });
+  require(same === "ae1f5c3dc6678bedf38cd6c71190c09a0b486db963d2334086103f7a8e207245",
+          "identity_digest_same_known_answer:" + same);
+}
+
+function run() {
+  const template = runner.load_runner_template(template_path());
+  rh.create_dir_all(owned_root());
+  with_owned_cleanup(function () {
+    test_macos_identity();
+    test_cli_guards();
+    test_identity_digest_known_answers();
+  });
+  require(!rh.exists(owned_root()), "session_selftest_owned_root_remains");
+  print("singleton-safety session selftest (identity) ok");
+  return 0;
+}
+
+return run();

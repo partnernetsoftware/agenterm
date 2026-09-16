@@ -183,9 +183,46 @@ first kill.
 
 ## 8. Result trace
 
-To be filled after an approved implementation round: per-piece lines/bytes/exit/wall,
-the C3 union comparison, the C4 per-shard path counts, the §9.3 golden reproduction,
-the three `task run` results and `./lint.sh`, plus the final verdict.
+The implementation round shipped the fixed three-way split without changing the
+ceiling, tinyvm pin, or product modules. A/B/C respectively measured 116/223/287
+lines and 5,978/14,940/18,948 bytes; their targeted checks all exited 0 in
+96/121/124 ms. Their three catalog tasks then exited 0 in 541/1,930/3,204 ms.
+After all five implementation paths were added to the index (so `git ls-files`
+included the new entries and support module), `./lint.sh` passed in 16.6 s.
+
+The two offline digest goldens were reproduced independently with Python's
+SHA-256 and `printf | shasum -a 256` before implementation:
+
+- browser `{901,1700000001,250000}`:
+  `1b51aed230ce7d94a8c7b067e4292eaac26dc13dc0466ac43825ee2bde94a7b5`;
+- same-pid `{900,1700000000,500000}`:
+  `ae1f5c3dc6678bedf38cd6c71190c09a0b486db963d2334086103f7a8e207245`.
+
+C3's machine comparison found all 69 original labels exactly once across the
+three shards and only the two pre-authorized digest known-answer labels in
+addition. The normalized B and C case blocks were line-identical to their HEAD
+sources after undoing the support-module qualification.
+
+One specification defect was discovered during C4 accounting: §0.5 and the C4
+table counted imports only through `runner`/`session`, but called those numbers
+closure-wide. `singleton_safety_verdict` and `build_manifest` themselves import
+`rh_compat` and `canonical_json`. The truthful full-transitive path counts are:
+
+| closure | `rh_compat` | `canonical_json` | `runner` | `session` | `verdict` | `build_manifest` |
+|---|---:|---:|---:|---:|---:|---:|
+| HEAD | 8 | 5 | 2 | 1 | 2 | 2 |
+| A | 4 | 2 | 1 | 0 | 1 | 1 |
+| B | 5 | 3 | 1 | 1 | 1 | 1 |
+| C | 5 | 3 | 1 | 1 | 1 | 1 |
+
+Thus the table's shallow numeric bounds were not a valid full-closure oracle;
+they must not be quoted as such. The precommitted authority invariant behind C4
+nevertheless holds under the stronger complete walk: no shard adds a path and
+the duplicated heavy `runner` path falls from two to one. This accounting flaw
+is recorded rather than silently redefining the original table after the run.
+
+Final delivery evidence and the exact changed-file map live in
+`research/qjs-session-selftest-sharding/RESULTS.md`.
 
 ## 9. Specification self-review
 

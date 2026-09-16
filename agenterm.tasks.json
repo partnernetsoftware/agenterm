@@ -6012,6 +6012,42 @@
       "evidence": [
         "task.singleton-safety-runner-session-selftest"
       ]
+    },
+    "singleton-safety-session-identity-selftest": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "session-identity-selftest-proof"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_host_operations": 999999,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.singleton-safety-session-identity-selftest"
+      ]
+    },
+    "singleton-safety-session-terminal-selftest": {
+      "inputs": [
+        "source-tree"
+      ],
+      "outputs": [
+        "session-terminal-selftest-proof"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_host_operations": 999999,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.singleton-safety-session-terminal-selftest"
+      ]
     }
   },
   "tasks": [
@@ -6371,8 +6407,38 @@
     },
     {
       "id": "singleton-safety-runner-session-selftest",
-      "description": "Prove the browser-session -> ownership orchestration over a fake executor and adapter: macOS identity parser, CLI guards, canonical argv, browser-root ack, ownership-boundary causality and cleanup",
+      "description": "Prove the browser-session -> ownership happy path and refusal matrix over a fake executor and adapter: browser-root acknowledgement, ownership-boundary causality, the admission/ownership refusals and the foreign-session case. The macOS identity parser and CLI guards are the session-identity shard; the terminal/cleanup seat is the session-terminal shard",
       "entry": "scripts/qjs/singleton-safety-session-selftest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "singleton-safety-session-identity-selftest",
+      "description": "Prove the macOS start-identity parser and the CLI argument guards, re-validate the runner result template, and check the two frozen process-identity digests against the runner's own answer as a known-answer test",
+      "entry": "scripts/qjs/singleton-safety-session-selftest-identity.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "singleton-safety-session-terminal-selftest",
+      "description": "Prove the browser-session -> ownership terminal seat over a fake executor and adapter: finish/abort wrapping, cleanup-deadline failures, the post-remove removal proof and the status2 owner/browser exact-match refusals",
+      "entry": "scripts/qjs/singleton-safety-session-selftest-terminal.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [],
