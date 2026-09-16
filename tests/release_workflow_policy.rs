@@ -51,6 +51,8 @@ static DOC_REDACT_CHECK: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/doc-redact-check.sh").replace("\r\n", "\n"));
 static INSTALL_SH: LazyLock<String> =
     LazyLock::new(|| include_str!("../install.sh").replace("\r\n", "\n"));
+static INSTALL_CU_HOTKEYS_SH: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/install-cu-hotkeys.sh").replace("\r\n", "\n"));
 static NATIVE_IPC_SMOKE_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/native-ipc-smoke.qjs").replace("\r\n", "\n"));
 static SCRIPT_SMOKE_HELPERS_QJS: LazyLock<String> = LazyLock::new(|| {
@@ -1853,4 +1855,33 @@ fn user_installer_keeps_the_fixed_sibling_acu_provider_with_every_cu_symlink() {
     let artifacts = ARTIFACTS.to_string();
     assert!(artifacts.contains("agenterm-cu-provider.dylib"));
     assert!(artifacts.contains("agenterm-cu-provider.so"));
+}
+
+#[test]
+fn hotkey_installer_keeps_the_provider_beside_both_cu_copies() {
+    assert!(INSTALL_CU_HOTKEYS_SH.contains("-p agenterm-cu-provider"));
+    assert!(
+        INSTALL_CU_HOTKEYS_SH
+            .contains("PROVIDER_SOURCE=\"${ROOT}/target/abi-release/agenterm-cu-provider.dylib\"")
+    );
+    assert_eq!(
+        INSTALL_CU_HOTKEYS_SH
+            .matches("cp \"${PROVIDER_SOURCE}\"")
+            .count(),
+        2,
+        "the primary and legacy hotkey app copies both need the fixed sibling"
+    );
+    assert_eq!(
+        INSTALL_CU_HOTKEYS_SH
+            .matches("chmod 644 \"${APP}/Contents/MacOS/agenterm-cu-provider.dylib\"")
+            .count(),
+        1
+    );
+    assert_eq!(
+        INSTALL_CU_HOTKEYS_SH
+            .matches("chmod 644 \"${LEGACY_APP}/Contents/MacOS/agenterm-cu-provider.dylib\"")
+            .count(),
+        1
+    );
+    assert!(INSTALL_CU_HOTKEYS_SH.contains("codesign --verify --strict \"${provider}\""));
 }

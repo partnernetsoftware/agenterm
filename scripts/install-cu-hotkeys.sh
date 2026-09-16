@@ -22,26 +22,35 @@ APP_BIN="${APP}/Contents/MacOS/agenterm-cu"
 BIN="${BIN_DIR}/agenterm-cu"
 PLIST="${LAUNCH_DIR}/${LABEL}.plist"
 
-echo "building abi-release agenterm-cu + libagenterm..."
-cargo build --locked --profile abi-release -p agenterm-cu -p agenterm-abi \
+echo "building abi-release agenterm-cu + libagenterm + agenterm-cu-provider..."
+cargo build --locked --profile abi-release -p agenterm-cu -p agenterm-abi -p agenterm-cu-provider \
   --manifest-path "${ROOT}/Cargo.toml"
 CU_SOURCE="${ROOT}/target/abi-release/agenterm-cu"
 ABI_SOURCE="${ROOT}/target/abi-release/libagenterm.dylib"
+PROVIDER_SOURCE="${ROOT}/target/abi-release/agenterm-cu-provider.dylib"
+[ -f "${PROVIDER_SOURCE}" ] && [ ! -L "${PROVIDER_SOURCE}" ] && [ -s "${PROVIDER_SOURCE}" ] || {
+  echo "missing abi-release agenterm-cu provider: ${PROVIDER_SOURCE}" >&2
+  exit 1
+}
 "${ROOT}/packaging/verify-cu-abi.sh" "${CU_SOURCE}" "${ABI_SOURCE}"
 
 mkdir -p "${BIN_DIR}" "${DATA_DIR}" "${LAUNCH_DIR}" "${APP}/Contents/MacOS"
 cp "${CU_SOURCE}" "${APP_BIN}"
 cp "${ABI_SOURCE}" "${APP}/Contents/MacOS/libagenterm.dylib"
+cp "${PROVIDER_SOURCE}" "${APP}/Contents/MacOS/agenterm-cu-provider.dylib"
 chmod 755 "${APP_BIN}"
 chmod 644 "${APP}/Contents/MacOS/libagenterm.dylib"
+chmod 644 "${APP}/Contents/MacOS/agenterm-cu-provider.dylib"
 ln -sfn "${APP_BIN}" "${BIN}"
 
 # Mirror for any old absolute paths.
 mkdir -p "${LEGACY_APP}/Contents/MacOS"
 cp "${APP_BIN}" "${LEGACY_APP}/Contents/MacOS/agenterm-cu"
 cp "${ABI_SOURCE}" "${LEGACY_APP}/Contents/MacOS/libagenterm.dylib"
+cp "${PROVIDER_SOURCE}" "${LEGACY_APP}/Contents/MacOS/agenterm-cu-provider.dylib"
 chmod 755 "${LEGACY_APP}/Contents/MacOS/agenterm-cu"
 chmod 644 "${LEGACY_APP}/Contents/MacOS/libagenterm.dylib"
+chmod 644 "${LEGACY_APP}/Contents/MacOS/agenterm-cu-provider.dylib"
 
 write_plist() {
   local dest=$1
@@ -80,6 +89,18 @@ write_plist "${LEGACY_APP}"
 # Sign both copies so their cdhash matches.
 codesign --force --deep --sign - "${APP}" >/dev/null
 codesign --force --deep --sign - "${LEGACY_APP}" >/dev/null
+for provider in \
+  "${APP}/Contents/MacOS/agenterm-cu-provider.dylib" \
+  "${LEGACY_APP}/Contents/MacOS/agenterm-cu-provider.dylib"; do
+  [ -f "${provider}" ] && [ ! -L "${provider}" ] && [ -s "${provider}" ] || {
+    echo "installed hotkey app provider is unavailable: ${provider}" >&2
+    exit 1
+  }
+  codesign --verify --strict "${provider}" >/dev/null 2>&1 || {
+    echo "installed hotkey app provider signature is invalid: ${provider}" >&2
+    exit 1
+  }
+done
 
 # Register with Launch Services so the Accessibility list shows AgentermCu.
 if [ -x /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister ]; then
