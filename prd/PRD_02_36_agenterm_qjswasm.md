@@ -438,6 +438,9 @@ agenterm-qjswasm
 │  ├─ [x] harness journal: serialize once + fs.append; 33-row court 7.43M → 5.45M steps
 │  ├─ [x] temporary-region lifetime court rejected: JSON is 56.69%/59.20% gross allocation, but live return records leave zero operation-return suffix
 │  ├─ [x] immediate host-argument D0 rejected: server 8.286749%, wake 6.197612%; two failures make ≥2/3 impossible, so no reuse code
+│  ├─ [x] expression-depth decode-cost attribution rejected an optimization leaf: the fixed 64-level guest measured
+│  │      5,666 items off versus 7,870 on; 129 × 17 expression-local opcodes leave 11 non-scaling items
+│  │      consistent with shared setup, with no duplicate decoder charge or foldable emitted construct
 │  └─ [-] never raise a product gate merely to hide engine cost
 ├─ long horizon: tinyvm as a Wasmtime-class alternative
 │  ├─ [ ] WebAssembly core conformance + malformed-module differential court
