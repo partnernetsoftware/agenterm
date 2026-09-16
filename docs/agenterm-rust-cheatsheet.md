@@ -5830,6 +5830,14 @@ grant. Operation, target or session mismatch must not consume a use; a matched
 attempt reserves durably before dispatch and is never refunded after an effect
 failure.
 
+When canonical operations depend on command shape, expose the validator's
+complete sorted vocabulary through the product CLI. Do not make callers infer
+dotted ids from match arms, and do not maintain a second hand-written catalog
+that can drift from issuance validation. Test all three sides together: every
+shape-specific id produced by a command is accepted at issuance, every
+discoverable id is accepted, and split base verbs are not accidentally
+grantable.
+
 ## Bracket native process inventories and preserve native bytes
 
 Process-local inventories such as file descriptors, memory maps and threads

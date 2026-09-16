@@ -76,6 +76,27 @@ require_ok(run_id !== "" && rh.only_chars(run_id, rh.DIGITS), "cu_retirement_cel
 require_ok(run_attempt !== "" && rh.only_chars(run_attempt, rh.DIGITS), "cu_retirement_cell_run_attempt");
 
 const child_env = { AGENTERM_ABI_LIB: abi, AGENTERM_NO_ACTIVATE: "1" };
+const operation_catalog_result = rh.command(
+  executable,
+  ["grant", "operations"],
+  { env: child_env, timeout_ms: 30000 }
+);
+require_ok(operation_catalog_result.exit_code === 0 && operation_catalog_result.success,
+           "cu_retirement_cell_grant_operations_exit");
+const operation_catalog = JSON.parse(operation_catalog_result.stdout.trim());
+require_ok(operation_catalog.ok === true
+             && operation_catalog.command === "grant-operations"
+             && Array.isArray(operation_catalog.data.operations),
+           "cu_retirement_cell_grant_operations_reply");
+const operations = operation_catalog.data.operations;
+require_ok(operations.includes("shell-exec")
+             && operations.includes("window-place.center")
+             && operations.includes("privilege-provider.register"),
+           "cu_retirement_cell_grant_operations_values");
+for (let operation_index = 1; operation_index < operations.length; operation_index += 1) {
+  require_ok(operations[operation_index - 1] < operations[operation_index],
+             "cu_retirement_cell_grant_operations_order");
+}
 function observe(command) {
   const result = rh.command(
     executable,

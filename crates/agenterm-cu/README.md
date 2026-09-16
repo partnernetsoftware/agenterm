@@ -374,8 +374,10 @@ headless profile under `mktemp` that is removed on exit.
 - Bounded persisted grants: `agenterm-cu grant create --target current
   --scopes S --operations OP[,OP...] --ttl-ms N
   (--one-shot|--max-uses N)`, `grant list`,
-  `grant revoke --grant-id ID`; run with `--grant-id ID` (exclusive with every
-  other auth source). Use `help grant` for the canonical operation contract.
+  `grant operations`, `grant revoke --grant-id ID`; run with `--grant-id ID`
+  (exclusive with every other auth source). `grant operations` is the complete
+  sorted machine-readable vocabulary accepted by `--operations`; use `help
+  grant` for the contract.
   Operations are frozen per grant, so a future command cannot inherit an old
   scope merely by sharing `observe` or `actuate`. Schema-2 grants remain
   listable/revocable but execute fail-closed as `operation_unbound`. Local /

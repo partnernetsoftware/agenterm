@@ -246,8 +246,9 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   machine-local product-data location, refuses bare filenames and link-like
   stores, protects the parent directory, and publishes every replacement from
   an exclusively created private temporary. The raw `open_at` remains only an
-  injected-path seam. A current-only `grant create/list/revoke` management CLI
-  now uses that production path, generates opaque IDs from platform entropy,
+  injected-path seam. A current-only `grant create/list/operations/revoke`
+  management CLI now uses that production path, generates opaque IDs from
+  platform entropy,
   explicitly enrolls and resolves the sealed binding, and projects records
   without session identity. It rejects ambient authorization selectors and
   sanitizes store failures. Current-target `--grant-id` execution now opens the
@@ -257,11 +258,13 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   are recorded without consuming uses; a failed downstream command does not
   refund a reserved use. Session identity/key material is absent from the
   audit. Schema 3 now freezes an explicit, bounded canonical operation set at
-  issuance. Composite verbs separate materially different effects (including
-  plan/apply, process signal mode, app action, diff advance and placement
-  action), aliases normalize before matching, and an unknown operation is
-  refused before store or installation-identity creation. A same-scope wrong
-  operation is denied without consuming a use. Schema 2 cannot be safely
+  issuance. `grant operations` projects the complete sorted vocabulary accepted
+  by `grant create --operations`, so callers do not have to infer shape-specific
+  dotted names from source. Composite verbs separate materially different
+  effects (including plan/apply, process signal mode, app action, diff advance
+  and placement action), aliases normalize before matching, and an unknown
+  operation is refused before store or installation-identity creation. A
+  same-scope wrong operation is denied without consuming a use. Schema 2 cannot be safely
   expanded to today's catalog: it remains listable/revocable but executes as
   typed `operation_unbound`, and the first later mutation preserves that marker
   in schema 3. Store input/output is independently capped at 4 MiB. A public

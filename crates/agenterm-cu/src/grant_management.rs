@@ -1,7 +1,9 @@
 //! Local management surface for persisted, target-bound grants.
 
 use std::{
+    collections::BTreeSet,
     path::PathBuf,
+    sync::OnceLock,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -30,13 +32,28 @@ pub fn dispatch(args: &[String], ambient_authority_present: bool) -> Option<CuRe
     Some(match args.get(1).map(String::as_str) {
         Some("create") => create(&args[2..]),
         Some("list") => list(&args[2..]),
+        Some("operations") => operations(&args[2..]),
         Some("revoke") => revoke(&args[2..]),
         _ => failure(
             "grant",
             "invalid_grant_command",
-            "grant requires create, list, or revoke",
+            "grant requires create, list, operations, or revoke",
         ),
     })
+}
+
+fn operations(args: &[String]) -> CuReply {
+    if !args.is_empty() {
+        return failure(
+            "grant-operations",
+            "invalid_grant",
+            "grant operations accepts no arguments",
+        );
+    }
+    success(
+        "grant-operations",
+        json!({ "operations": authorization_operations() }),
+    )
 }
 
 fn create(args: &[String]) -> CuReply {
@@ -291,12 +308,12 @@ impl CreateArgs {
     }
 }
 
-fn parse_operations(value: &str) -> Result<std::collections::BTreeSet<String>, &'static str> {
+fn parse_operations(value: &str) -> Result<BTreeSet<String>, &'static str> {
     let operations = value
         .split(',')
         .map(str::trim)
         .map(str::to_owned)
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
     if operations.is_empty() || operations.contains("") {
         return Err("--operations requires one or more comma-separated canonical ids");
     }
@@ -309,199 +326,217 @@ fn parse_operations(value: &str) -> Result<std::collections::BTreeSet<String>, &
     Ok(operations)
 }
 
-fn known_authorization_operation(operation: &str) -> bool {
-    const SPLIT_BASES: &[&str] = &[
-        "app",
-        "audio",
-        "audit-compact",
-        "clipboard-clear",
-        "device-screenshot",
-        "diff",
-        "file-copy",
-        "file-mode",
-        "file-xattr-set",
-        "file-xattr-remove",
-        "file-quarantine-clear",
-        "file-move",
-        "file-transaction",
-        "invoke",
-        "login-session",
-        "page-dialog",
-        "page-screenshot",
-        "permissions",
-        "process-kill",
-        "process-set-state",
-        "process-signal",
-        "pty-diff",
-        "service",
-        "setup",
-        "window-place",
-    ];
-    if matches!(
-        operation,
-        "setup.check"
-            | "setup.apply"
-            | "permissions.status"
-            | "permissions.open"
-            | "audio.status"
-            | "ime.status"
-            | "screen-reader.status"
-            | "keyboard-layout.status"
-            | "audio.plan-volume"
-            | "audio.plan-muted"
-            | "audio.apply"
-            | "login-session.status"
-            | "login-session.plan-lock"
-            | "login-session.apply-lock"
-            | "audit-compact.plan"
-            | "audit-compact.apply"
-            | "file-copy.plan"
-            | "file-copy.apply"
-            | "file-mode.plan"
-            | "file-mode.apply"
-            | "file-xattr-set.plan"
-            | "file-xattr-set.apply"
-            | "file-xattr-remove.plan"
-            | "file-xattr-remove.apply"
-            | "file-quarantine-clear.plan"
-            | "file-quarantine-clear.apply"
-            | "file-move.plan"
-            | "file-move.apply"
-            | "file-transaction.status"
-            | "file-transaction.rollback"
-            | "file-transaction.recover"
-            | "file-transaction.finalize"
-            | "page-screenshot.capture"
-            | "page-screenshot.capture-and-activate"
-            | "app.hide"
-            | "app.show"
-            | "app.quit"
-            | "app.launch"
-            | "device-screenshot.list"
-            | "device-screenshot.capture"
-            | "page-dialog.accept"
-            | "page-dialog.dismiss"
-            | "diff.read"
-            | "diff.advance"
-            | "process-kill.graceful"
-            | "process-kill.forceful"
-            | "process-set-state.running"
-            | "process-set-state.stopped"
-            | "pty-diff.read"
-            | "pty-diff.advance"
-            | "clipboard-clear.plan"
-            | "clipboard-clear.apply"
-    ) {
-        return true;
-    }
-    let parts = operation.split('.').collect::<Vec<_>>();
-    if matches!(
-        parts.as_slice(),
-        ["service", "list" | "status", "user" | "system"]
-    ) || matches!(
-        parts.as_slice(),
-        [
-            "service",
-            "plan" | "transact",
-            "user" | "system",
-            "start" | "stop" | "restart" | "bootstrap" | "bootout"
-        ]
-    ) || matches!(parts.as_slice(), ["service", "apply"])
-        || matches!(
-            parts.as_slice(),
-            [
-                "invoke",
-                "press"
-                    | "set-value"
-                    | "select-option"
-                    | "set-checked"
-                    | "set-expanded"
-                    | "increment"
-                    | "decrement"
-                    | "set-selected"
-                    | "set-selection"
-                    | "scroll-to"
-                    | "cancel"
-                    | "show-default-ui"
-                    | "show-menu"
-            ]
-        )
-        || matches!(
-            parts.as_slice(),
-            [
-                "window-place",
-                "center"
-                    | "fullscreen"
-                    | "left-half"
-                    | "right-half"
-                    | "top-half"
-                    | "bottom-half"
-                    | "upper-left"
-                    | "lower-left"
-                    | "upper-right"
-                    | "lower-right"
-                    | "next-third"
-                    | "previous-third"
-                    | "next-display"
-                    | "previous-display"
-                    | "larger"
-                    | "smaller"
-                    | "undo"
-                    | "redo"
-                    | "frame"
-                    | "move"
-                    | "resize"
-            ]
-        )
-        || matches!(
-            parts.as_slice(),
-            [
-                "process-signal",
-                "single" | "tree",
-                "normal" | "force",
-                "sighup"
-                    | "sigint"
-                    | "sigterm"
-                    | "sigkill"
-                    | "sigstop"
-                    | "sigcont"
-                    | "sigusr1"
-                    | "sigusr2"
-            ]
-        )
-    {
-        return true;
-    }
+const SPLIT_BASES: &[&str] = &[
+    "app",
+    "audio",
+    "audit-compact",
+    "clipboard-clear",
+    "device-screenshot",
+    "diff",
+    "file-copy",
+    "file-mode",
+    "file-xattr-set",
+    "file-xattr-remove",
+    "file-quarantine-clear",
+    "file-move",
+    "file-transaction",
+    "invoke",
+    "job-prune",
+    "login-session",
+    "page-dialog",
+    "page-screenshot",
+    "permissions",
+    "process-kill",
+    "process-policy",
+    "process-set-state",
+    "process-signal",
+    "privilege-apply",
+    "privilege-provider",
+    "pty-diff",
+    "pty-signal",
+    "service",
+    "setup",
+    "window-place",
+];
 
-    if SPLIT_BASES.contains(&operation)
-        || matches!(operation, "exec" | "grant" | "help" | "host" | "verbs")
-        || matches!(
-            operation,
-            "pty"
-                | "job"
-                | "process"
-                | "resource"
-                | "power"
-                | "storage"
-                | "file"
-                | "network"
-                | "device"
-                | "privilege"
-                | "daemon"
-                | "desktop-helper"
-                | "simulator"
-                | "page"
-                | "ghost"
-                | "open"
-                | "notify"
-                | "service"
-        )
-    {
-        return false;
-    }
-    crate::verb_catalog::VERBS
-        .iter()
-        .any(|row| row.name == operation)
+const NON_AUTHORIZATION_VERBS: &[&str] = &[
+    "exec",
+    "grant",
+    "help",
+    "host",
+    "verbs",
+    "pty",
+    "job",
+    "process",
+    "resource",
+    "power",
+    "storage",
+    "file",
+    "network",
+    "device",
+    "privilege",
+    "daemon",
+    "desktop-helper",
+    "simulator",
+    "page",
+    "ghost",
+    "open",
+    "notify",
+    "service",
+];
+
+fn known_authorization_operation(operation: &str) -> bool {
+    authorization_operations().contains(operation)
+}
+
+/// Complete, sorted vocabulary accepted by `grant create --operations`.
+pub fn authorization_operations() -> &'static BTreeSet<String> {
+    static OPERATIONS: OnceLock<BTreeSet<String>> = OnceLock::new();
+    OPERATIONS.get_or_init(|| {
+        let mut operations = [
+            "setup.check",
+            "setup.apply",
+            "permissions.status",
+            "permissions.open",
+            "audio.status",
+            "ime.status",
+            "screen-reader.status",
+            "keyboard-layout.status",
+            "audio.plan-volume",
+            "audio.plan-muted",
+            "audio.apply",
+            "login-session.status",
+            "login-session.plan-lock",
+            "login-session.apply-lock",
+            "audit-compact.plan",
+            "audit-compact.apply",
+            "file-copy.plan",
+            "file-copy.apply",
+            "file-mode.plan",
+            "file-mode.apply",
+            "file-xattr-set.plan",
+            "file-xattr-set.apply",
+            "file-xattr-remove.plan",
+            "file-xattr-remove.apply",
+            "file-quarantine-clear.plan",
+            "file-quarantine-clear.apply",
+            "file-move.plan",
+            "file-move.apply",
+            "file-transaction.status",
+            "file-transaction.rollback",
+            "file-transaction.recover",
+            "file-transaction.finalize",
+            "page-screenshot.capture",
+            "page-screenshot.capture-and-activate",
+            "app.hide",
+            "app.show",
+            "app.quit",
+            "app.launch",
+            "device-screenshot.list",
+            "device-screenshot.capture",
+            "page-dialog.accept",
+            "page-dialog.dismiss",
+            "diff.read",
+            "diff.advance",
+            "process-kill.graceful",
+            "process-kill.forceful",
+            "process-set-state.running",
+            "process-set-state.stopped",
+            "pty-diff.read",
+            "pty-diff.advance",
+            "clipboard-clear.plan",
+            "clipboard-clear.apply",
+            "job-prune.plan",
+            "job-prune.apply",
+            "process-policy.background",
+            "process-policy.normal",
+            "privilege.apply.process.set-priority",
+            "privilege.apply.process.signal",
+            "privilege-provider.status",
+            "privilege-provider.register",
+            "privilege-provider.unregister",
+            "pty-signal.interrupt",
+            "pty-signal.terminate",
+            "pty-signal.stop",
+            "pty-signal.continue",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
+
+        for selector in ["list", "status"] {
+            for scope in ["user", "system"] {
+                operations.insert(format!("service.{selector}.{scope}"));
+            }
+        }
+        for phase in ["plan", "transact"] {
+            for scope in ["user", "system"] {
+                for action in ["start", "stop", "restart", "bootstrap", "bootout"] {
+                    operations.insert(format!("service.{phase}.{scope}.{action}"));
+                }
+            }
+        }
+        operations.insert("service.apply".to_owned());
+        for action in [
+            "press",
+            "set-value",
+            "select-option",
+            "set-checked",
+            "set-expanded",
+            "increment",
+            "decrement",
+            "set-selected",
+            "set-selection",
+            "scroll-to",
+            "cancel",
+            "show-default-ui",
+            "show-menu",
+        ] {
+            operations.insert(format!("invoke.{action}"));
+        }
+        for action in [
+            "center",
+            "fullscreen",
+            "left-half",
+            "right-half",
+            "top-half",
+            "bottom-half",
+            "upper-left",
+            "lower-left",
+            "upper-right",
+            "lower-right",
+            "next-third",
+            "previous-third",
+            "next-display",
+            "previous-display",
+            "larger",
+            "smaller",
+            "undo",
+            "redo",
+            "frame",
+            "move",
+            "resize",
+        ] {
+            operations.insert(format!("window-place.{action}"));
+        }
+        for target in ["single", "tree"] {
+            for mode in ["normal", "force"] {
+                for signal in [
+                    "sighup", "sigint", "sigterm", "sigkill", "sigstop", "sigcont", "sigusr1",
+                    "sigusr2",
+                ] {
+                    operations.insert(format!("process-signal.{target}.{mode}.{signal}"));
+                }
+            }
+        }
+        for row in crate::verb_catalog::VERBS {
+            operations.insert(row.name.to_owned());
+        }
+        for excluded in SPLIT_BASES.iter().chain(NON_AUTHORIZATION_VERBS) {
+            operations.remove(*excluded);
+        }
+        operations
+    })
 }
 
 fn only_store_arg(args: &[String]) -> Result<Option<PathBuf>, &'static str> {
@@ -699,6 +734,52 @@ mod tests {
             ]))
             .is_err()
         );
+    }
+
+    #[test]
+    fn canonical_operation_vocabulary_is_public_sorted_and_accepted() {
+        let operations = authorization_operations();
+        assert!(operations.contains("shell-exec"));
+        assert!(operations.contains("window-place.center"));
+        assert!(operations.contains("service.transact.system.restart"));
+        for operation in [
+            "job-prune.apply",
+            "process-policy.background",
+            "privilege.apply.process.signal",
+            "privilege-provider.register",
+            "pty-signal.stop",
+        ] {
+            assert!(operations.contains(operation), "missing {operation}");
+        }
+        for split_base in [
+            "job-prune",
+            "process-policy",
+            "privilege-apply",
+            "privilege-provider",
+            "pty-signal",
+        ] {
+            assert!(!operations.contains(split_base), "accepted {split_base}");
+        }
+        assert!(
+            operations
+                .iter()
+                .all(|operation| known_authorization_operation(operation))
+        );
+
+        let reply = dispatch(&strings(&["grant", "operations"]), false).unwrap();
+        assert!(reply.ok);
+        assert_eq!(reply.command, "grant-operations");
+        let data = reply.data.unwrap();
+        let projected = data["operations"]
+            .as_array()
+            .expect("operations array")
+            .iter()
+            .map(|value| value.as_str().expect("operation text"))
+            .collect::<Vec<_>>();
+        let mut sorted = projected.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(projected, sorted);
     }
 
     #[test]
