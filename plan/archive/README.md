@@ -79,6 +79,9 @@ cancellation pattern now owned by the CU and qjswasm PRDs.
 `ds4pro-analyze-wastime-and-scripting-layer.md` preserves the superseded
 three-engine comparison; PRD 02.36 now owns the evidence-gated,
 workload-by-workload Wasmtime-class replacement horizon.
+`goal-agenterm-osx.md` preserves the completed v0.1.15-era macOS campaign;
+current platform work and release qualification are owned by the platform goal,
+active version plan and release skill.
 
 ## Restored decision records
 

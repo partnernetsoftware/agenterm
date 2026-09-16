@@ -1,3 +1,6 @@
+> **已归档 2026-09-16 — 版本战役结束并被取代。** 本文等待的 v0.1.15 分发复验已不再是当前 release 入口，且文中的 `agenterm-con` / rh 产品形态已经迁出本仓。
+> 现行权威：`plan/plan-v0.1.18.md`、`plan/goal-crate-platform.md` 与 `skills/agenterm-release/SKILL.md`。
+
 # goal-agenterm-osx
 
 状态：active（O1b 与 con 黑盒闭环已达成，待 G1 新 Candidate 真机安装回执）
@@ -227,7 +230,7 @@ cargo test --test agenterm_con_blackbox
 阻塞：
 - <ID>：<外部/人工边界>；安全结果=<保持未勾选或 fail-closed 行为>
 
-改动 pathspec：plan/goal-agenterm-osx.md
+历史改动 pathspec：plan/archive/goal-agenterm-osx.md
 真机证据目录：~/.local/share/agenterm/evidence/o1b-ime
 ```
 
