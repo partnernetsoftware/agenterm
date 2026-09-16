@@ -39,6 +39,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "acu-thin-launcher-parity-court"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

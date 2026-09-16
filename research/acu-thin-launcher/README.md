@@ -19,6 +19,10 @@ product integration and not evidence that G1 passes.
   and browser-session owner boundaries.
 - `fixtures/bad-abi-provider` exports only a deliberately wrong ABI version for
   a fail-closed launcher court.
+- `parity-court` runs one bounded argv table against a same-source monolith and
+  staged launcher, requires exact exit/stdout/stderr equality, and also checks
+  absolute positive and typed-refusal expectations so two equally broken sides
+  cannot produce a false green.
 
 The launcher accepts only the platform's canonical sibling name:
 `agenterm-cu-provider.dll`, `agenterm-cu-provider.so`, or
@@ -56,6 +60,32 @@ CARGO_TARGET_DIR=target/acu-thin-launcher cargo zigbuild \
   --manifest-path research/acu-thin-launcher/Cargo.toml --release \
   --target x86_64-unknown-linux-gnu -p acu-thin-launcher
 ```
+
+After staging the launcher and provider as below, compare it with the
+same-source monolith. Every child has a ten-second deadline and is killed and
+reaped on timeout:
+
+```bash
+target/acu-thin-launcher/release/acu-thin-launcher-parity-court \
+  --monolith target/release/agenterm-cu \
+  --launcher target/acu-thin-launcher-stage/acu-thin-launcher \
+  --abi-library target/release/libagenterm.dylib \
+  --bad-abi \
+    target/acu-thin-launcher/release/libagenterm_cu_bad_abi_provider.dylib
+```
+
+Use `--list` to inspect the closed case set or `--case NAME` to isolate one
+failure. Every run also stages the bad-ABI fixture under the canonical provider
+name and requires the launcher to diverge from the healthy monolith with the
+boundary exit; `--case` never disables this control. This proves that the
+comparison harness detects a real fault.
+The native privilege refusal assumes an ordinary non-root process with no
+service-manager activation. The court deliberately omits the hotkey
+`--self-test`: on a macOS host with Accessibility trust it performs a real
+window-placement action, so it is not a non-mutating parity case. The closed
+table may contain only non-mutating, promptly exiting cases whose stdout and
+stderr streams each stay below 64 KiB; adding a stateful, resident or larger
+case requires a separate isolation and containment design.
 
 For a native macOS arm64 ordinary-argv probe, stage only the fixed names and
 run the launcher directly:

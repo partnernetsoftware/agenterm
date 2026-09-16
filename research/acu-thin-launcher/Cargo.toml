@@ -1,5 +1,10 @@
 [workspace]
-members = ["provider-main-probe", "launcher-probe", "fixtures/bad-abi-provider"]
+members = [
+  "provider-main-probe",
+  "launcher-probe",
+  "parity-court",
+  "fixtures/bad-abi-provider",
+]
 resolver = "2"
 
 [workspace.package]

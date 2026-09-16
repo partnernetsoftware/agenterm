@@ -917,6 +917,13 @@ Use the smallest authoritative evidence first:
 step invokes that path, run an explicit `cargo build -p PACKAGE --bin NAME` and
 record the product binary as the evidence subject.
 
+A paired black-box parity court must prove more than `A == B`: give at least
+one case an absolute success or typed-refusal expectation, and inject one known
+bad side as a negative control that must diverge. Drain child stdout and stderr
+concurrently behind explicit byte bounds, and treat timeout as failure after
+kill plus reap; otherwise two equally broken artifacts or a full output pipe can
+produce a false green or hang the court.
+
 An unwind-only dynamic artifact needs its own lint/test lane. Linting
 `agenterm-cu-provider` under the default profile stops in `build.rs` with
 `must be built with panic=unwind: use --profile abi-release (or abi-dev)`; the
