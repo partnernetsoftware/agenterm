@@ -162,7 +162,10 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   window truncates. An opaque cursor now reaches older byte/scan windows while
   binding its byte boundary to the opened audit file's object identity; an
   atomic compaction replacement makes the old cursor fail typed instead of
-  silently reinterpreting it. Broader retention policy remains open.
+  silently reinterpreting it. The required
+  `acu-provider-job-wait-cancel-smoke` owns this replacement boundary as
+  `cu.audit-cursor-invalidated-by-compaction`; broader retention policy remains
+  open.
   Current-target actuation now has
   a shared durable request envelope (`request-id` + active session id/lease):
   same request/session/command replays terminal metadata without redispatch,

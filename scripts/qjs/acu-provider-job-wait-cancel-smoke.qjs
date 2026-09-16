@@ -6,6 +6,7 @@ import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
 const declared_evidence = [
+  "cu.audit-cursor-invalidated-by-compaction",
   "cu.job-wait-cancel.embedded-supervisor-cancel",
   "cu.job-wait-cancel.owner-survives",
   "cu.job-wait-cancel.terminal-truth"
@@ -370,8 +371,22 @@ try {
       && terminal_owner.start_identity === snapshot.owner_start_identity,
     "terminal_owner_not_retained_until_session_end");
 
+  let audit_compaction_fixture = "{malformed\n";
+  for (let row = 0; row < 24; row = row + 1) {
+    audit_compaction_fixture = audit_compaction_fixture + JSON.stringify({
+      ts_ms: 1,
+      verb: "expired-cursor-padding-" + row,
+      outcome: "ok",
+      detail: "x".repeat(384)
+    }) + "\n";
+  }
+  require(fs_append_existing_durable(
+    environment.AGENTERM_CU_AUDIT_PATH, audit_compaction_fixture
+  ) === 0, "audit_compaction_fixture_append_failed:" + tool_result());
+
   print("STEP follow the opaque audit cursor into an older bounded byte window");
   let cursor = null;
+  let cursor_to_invalidate = null;
   let found_spawn_audit = false;
   for (let page = 0; page < 64; page = page + 1) {
     const query_args = [
@@ -384,6 +399,10 @@ try {
       query_args.push(cursor);
     }
     const older = call(query_args, "audit-query");
+    if (cursor_to_invalidate === null
+        && older.next_cursor !== null && older.next_cursor !== undefined) {
+      cursor_to_invalidate = older.next_cursor;
+    }
     if (older.returned === 2) {
       found_spawn_audit = true;
       for (const record of older.records) {
@@ -396,6 +415,28 @@ try {
     if (cursor === null || cursor === undefined) { break; }
   }
   require(found_spawn_audit, "older_cursor_did_not_reach_spawn_audit");
+  require(typeof cursor_to_invalidate === "string" && cursor_to_invalidate !== "",
+    "older_cursor_missing_compaction_probe");
+
+  print("STEP atomically compact the audit and reject the old opaque cursor");
+  const compacted = call([
+    "--target", "current", "--grant", "actuate",
+    "audit-compact", "--max-age-days", "1", "--max-events", "100",
+    "--max-bytes", "65536", "--apply"
+  ], "audit-compact");
+  require(compacted.status === "applied" && compacted.apply_required === false
+      && compacted.destination_durable === true
+      && compacted.malformed_dropped >= 1 && compacted.expired_dropped >= 1,
+    "audit_compaction_apply_contract");
+  const stale_cursor = raw_call([
+    "--target", "current", "--grant", "observe",
+    "audit-query", "--cursor", cursor_to_invalidate,
+    "--byte-max", "4096", "--max", "10"
+  ], "audit-query");
+  require(stale_cursor.ok === false
+      && stale_cursor.error !== null
+      && stale_cursor.error.code === "audit_cursor_stale",
+    "audit_compaction_reinterpreted_old_cursor");
 
   const end = call([
     "--target", "current", "--grant", "actuate",

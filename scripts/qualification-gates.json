@@ -265,6 +265,7 @@
     {
       "id": "acu-provider-job-wait-cancel-smoke",
       "evidence": [
+        "cu.audit-cursor-invalidated-by-compaction",
         "cu.job-wait-cancel.embedded-supervisor-cancel",
         "cu.job-wait-cancel.owner-survives",
         "cu.job-wait-cancel.terminal-truth"
@@ -312,6 +313,7 @@
     {
       "id": "acu-provider-job-wait-cancel-smoke",
       "evidence": [
+        "cu.audit-cursor-invalidated-by-compaction",
         "cu.job-wait-cancel.embedded-supervisor-cancel",
         "cu.job-wait-cancel.owner-survives",
         "cu.job-wait-cancel.terminal-truth"

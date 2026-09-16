@@ -9293,7 +9293,7 @@
     },
     {
       "id": "acu-provider-job-wait-cancel-smoke",
-      "description": "Prove a real embedded agenterm:acu 60-second managed-job wait cooperatively returns through the supervisor cancellation path before hard timeout, leaves the exact resident owner and lease unchanged for a prompt follow-up status, then reaches one exact terminal state with the owner and child absent.",
+      "description": "Prove a real embedded agenterm:acu 60-second managed-job wait cooperatively returns through the supervisor cancellation path before hard timeout, leaves the exact resident owner and lease unchanged for a prompt follow-up status, reaches one exact terminal state with the owner and child absent, and refuses an opaque audit cursor after atomic compaction replaces its file.",
       "entry": "scripts/qjs/acu-provider-job-wait-cancel-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
