@@ -107,7 +107,7 @@ function empty_environment() {
 // (agenterm.tasks.json before 6a12d8f0), `.` spelled as the absolute repo
 // and the other relative paths joined onto it. Extras are appended after,
 // exactly as `rh task run NAME -- EXTRA...` did.
-function catalog_entry(repo, id) {
+function catalog_probe(repo, id) {
   if (id === "lint") { return { entry: "lint", args: [repo] }; }
   if (id === "client-build") { return { entry: "build", args: [repo, "--clients-only"] }; }
   if (id === "prd-alignment") { return { entry: "prd-alignment", args: [repo, path.join(repo, "dist/agenterm")] }; }
@@ -169,7 +169,28 @@ function catalog_entry(repo, id) {
       args: [repo, path.join(repo, "dist/agenterm-cu.exe")]
     };
   }
-  throw "check_task_unknown:" + id;
+  if (id === "acu-provider-job-wait-cancel-smoke") {
+    return {
+      entry: id,
+      args: [
+        repo,
+        path.join(repo, "dist/agenterm.exe"),
+        path.join(repo, "scripts/qjs/acu-provider-job-wait-cancel-child.qjs")
+      ]
+    };
+  }
+  if (id === "acu-compat-corpus" || id === "acu-compound-projection"
+      || id === "acu-argv-parity" || id === "acu-legacy-args-parity"
+      || id === "acu-rewrite-parity") {
+    return { entry: id, args: [] };
+  }
+  return null;
+}
+
+function catalog_entry(repo, id) {
+  const entry = catalog_probe(repo, id);
+  require(entry !== null, "check_task_unknown:" + id);
+  return entry;
 }
 
 // The `cli script run` argument list for a repository script: the spelling
@@ -967,9 +988,8 @@ function smoke_gate_ids() {
     "remote-ui-upgrade-smoke", "fleet-smoke", "script-smoke", "theme-smoke",
     "working-context-smoke", "workbench-smoke", "control-center-smoke",
     "cu-windows-smoke", "acu-provider-job-wait-cancel-smoke",
-    "cu-browser-session-fixture-smoke", "acu-compat-corpus",
-    "acu-compound-projection", "acu-argv-parity", "acu-legacy-args-parity",
-    "acu-rewrite-parity"
+    "acu-compat-corpus", "acu-compound-projection", "acu-argv-parity",
+    "acu-legacy-args-parity", "acu-rewrite-parity"
   ];
 }
 
@@ -990,10 +1010,20 @@ function qualification_execution_gate_ids() {
     "remote-ui-upgrade-smoke", "fleet-smoke", "script-smoke", "theme-smoke",
     "working-context-smoke", "workbench-smoke", "control-center-smoke",
     "cu-windows-smoke", "acu-provider-job-wait-cancel-smoke",
-    "cu-browser-session-fixture-smoke", "acu-compat-corpus",
-    "acu-compound-projection", "acu-argv-parity", "acu-legacy-args-parity",
-    "acu-rewrite-parity"
+    "acu-compat-corpus", "acu-compound-projection", "acu-argv-parity",
+    "acu-legacy-args-parity", "acu-rewrite-parity"
   ];
+}
+
+function assert_smoke_catalog(repo) {
+  const missing = [];
+  for (const id of smoke_gate_ids()) {
+    if (catalog_probe(repo, id) === null) { missing.push(id); }
+  }
+  require(
+    missing.length === 0,
+    "check_smoke_catalog_entry_missing:" + joined_text(missing, ",")
+  );
 }
 
 function assert_required_execution_set(manifest) {
@@ -1116,6 +1146,7 @@ let sequence = 1;
 if (check_evidence !== 0) {
   const manifest = qualification.read_manifest(gate_manifest_path);
   assert_required_execution_set(manifest);
+  assert_smoke_catalog(repo);
   const checked = assert_declarations(bootstrap_worker, repo, scratch, sequence, manifest, true);
   print("PASS: evidence declarations (" + (checked - sequence) + " suites)");
   return;
@@ -1260,6 +1291,7 @@ const timing_kind = release !== 0 ? "candidate" : "ordinary";
 const smoke_included = skip_smoke !== 0 ? 0 : 1;
 const gate_manifest = context.manifest;
 assert_required_execution_set(gate_manifest);
+assert_smoke_catalog(repo);
 const timing_gate_ids = [];
 for (const gate of gate_manifest.required_gates) { timing_gate_ids.push("" + gate.id); }
 let timing = qualification.new_timing(

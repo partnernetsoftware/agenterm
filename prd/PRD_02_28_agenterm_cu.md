@@ -1358,6 +1358,8 @@ flowchart LR
     `agenterm cli script task run cu-browser-session-fixture-smoke` emits only
     `cu.browser-session-fixture.lifecycle.synthetic` and
     `cu.browser-session-fixture.typed-failures.synthetic`. The macOS public task
+    is a registered native court, not a Windows Candidate-required gate: its
+    Unix process and filesystem contract deliberately rejects Windows. It
     passed four clean invocations on 2026-09-12. A separate reversible
     missing-fixture run failed as required and restored the source hash. Linux
     runtime remains pending. Windows x86_64 and ARM64 retain compile/static

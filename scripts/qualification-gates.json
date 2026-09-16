@@ -272,13 +272,6 @@
       ]
     },
     {
-      "id": "cu-browser-session-fixture-smoke",
-      "evidence": [
-        "cu.browser-session-fixture.lifecycle.synthetic",
-        "cu.browser-session-fixture.typed-failures.synthetic"
-      ]
-    },
-    {
       "id": "acu-compat-corpus",
       "evidence": [
         "acu.compat-corpus.production-parity"
