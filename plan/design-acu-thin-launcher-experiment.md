@@ -168,12 +168,13 @@ into argv, environment or ABI buffers. Entry mode 7 preserves the paired Unix PT
 fixture's direct stdout and bounded lifetime; the existing registered device-lease
 court is green through the staged topology. Entry mode 10 now preserves the
 library-owned `verbs` text, JSON and typed-usage bytes through the bounded ABI
-buffer. The tree still stops at G1 red: the other four binary-entry families
-remain `provider_entry_mode_unimplemented`;
-their framing, resident lifetime, cleanup and exact exit parity are not
-implemented. The browser-session result is native court evidence, not Candidate
-evidence: its existing qjs court
-is a registered macOS court rather than a Windows Candidate gate. The device-lease
+buffer. Entry mode 11 now shares the X11 clipboard stdin/environment adapter
+between monolith and provider and retains zero ABI output. The tree still stops
+at G1 red: the other three binary-entry families remain
+`provider_entry_mode_unimplemented`; their framing, resident lifetime, cleanup
+and exact exit parity are not implemented. The browser-session result is native
+court evidence, not Candidate evidence: its existing qjs court is a registered
+macOS court rather than a Windows Candidate gate. The device-lease
 lifecycle result is likewise native macOS evidence from a registered Unix court,
 not Candidate evidence.
 

@@ -4915,6 +4915,10 @@ must not redispatch through the public command path or spawn another launcher.
 Treat the entry mode as direct process ownership: publish zero ABI output bytes,
 leave argv/stdin and durable readiness semantics with the existing owner, and
 let the parent map early child exit through its bounded typed startup court.
+If the monolith still keeps an internal entry body private to its bin target,
+extract that exact stdin/environment-to-exit adapter into the library before
+wiring the provider. The bin and provider must call one function; copying the
+adapter would create a second authority for payload encoding and exit mapping.
 
 ## Keep filesystem metadata and object identity separate
 

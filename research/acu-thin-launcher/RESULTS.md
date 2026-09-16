@@ -2,7 +2,7 @@
 
 Status: **ordinary seam and Linux L1 pass; G1 is red.** The prototype proves a
 small fixed-sibling launcher can execute ordinary ACU argv without owning the
-command schema. Four binary-only entry families remain unimplemented, so it does
+command schema. Three binary-only entry families remain unimplemented, so it does
 not accept B or establish the product topology.
 
 ## Source and tool identity
@@ -74,7 +74,7 @@ repository target tree.
 | gate | result | evidence / missing work |
 |---|---|---|
 | G0 safety/authority | partial green | one parser/Executor owner, fixed sibling, bounded ABI, release panic latch, missing/wrong ABI and malformed-result refusals; not all raw failures on three native OSes |
-| G1 behavior parity | **red** | ordinary help/capabilities/refusal, exact version and verbs text, network-probe and device-I/O fixtures, and managed-job, browser-session and device-lease owners run; the other four binary-entry families remain explicitly unimplemented; no complete paired monolith stdout/stderr corpus |
+| G1 behavior parity | **red** | ordinary help/capabilities/refusal, exact version and verbs text, network-probe and device-I/O fixtures, and managed-job, browser-session, device-lease and X11 clipboard owners run; the other three binary-entry families remain explicitly unimplemented; no complete paired monolith stdout/stderr corpus |
 | G2 launcher budgets | partial green | Linux x86_64 L1 is 389,096 bytes; Windows L1 and same-source paired monolith are unmeasured |
 | G3 six-cell/native | red | only Linux x86_64 cross-build plus macOS arm64 native ordinary execution |
 | G4 footprint | partial | macOS L1/L2/L3 complete; Linux L2/L3 and other cells unmeasured |
@@ -173,6 +173,20 @@ A native staged comparison matched the monolith byte-for-byte for
 `verbs --json` (208,307 stdout bytes), `verbs --text` (32,324 stdout bytes), and the
 typed `verbs --bogus` refusal (140 stdout bytes, exit 2); all three had empty
 stderr. This closes only mode 10. G1 remains red and topology B is not promoted.
+
+### Incremental G1 X11 clipboard-owner slice
+
+The mode-11 entry body now has one library owner shared by the monolith and
+provider. It selects text or typed bytes from the existing environment marker,
+reads the inherited stdin to EOF, calls the existing clipboard mechanism and
+publishes no ABI stdout/stderr bytes. The launcher preserves the first-argument
+sentinel shape and treats the provider call as direct process ownership.
+
+On native macOS, staged and monolith binaries matched on two pre-mechanism
+refusals: an empty MIME environment value and non-UTF-8 text stdin both returned
+exit 1 with empty stdout/stderr. The X11 selection lifetime remains evidenced
+only by registered Linux courts requiring `DISPLAY`; it was not rerun here.
+G1 remains red and topology B is not promoted.
 
 ## Commands used for the recorded result
 

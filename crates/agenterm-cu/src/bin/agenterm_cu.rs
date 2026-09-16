@@ -68,7 +68,7 @@ fn main() {
     if args.first().map(String::as_str)
         == Some(agenterm_cu::mechanism::clipboard::X11_CLIPBOARD_OWNER_ARG)
     {
-        std::process::exit(run_x11_clipboard_owner());
+        std::process::exit(agenterm_cu::run_x11_clipboard_owner());
     }
     let reply = dispatch(args.clone());
     if let Some(diagnostic) = agenterm_cu::argv::human_diagnostic(&args, &reply) {
@@ -130,33 +130,6 @@ fn print_reply(reply: &CuReply) -> i32 {
 
 fn dispatch(args: Vec<String>) -> CuReply {
     agenterm_cu::argv::execute_argv_from_environment(args)
-}
-
-fn run_x11_clipboard_owner() -> i32 {
-    use std::io::Read;
-    if std::env::var_os(agenterm_cu::mechanism::clipboard::X11_CLIPBOARD_TYPE_ENV).is_some() {
-        let type_name =
-            match std::env::var(agenterm_cu::mechanism::clipboard::X11_CLIPBOARD_TYPE_ENV) {
-                Ok(name) if !name.is_empty() => name,
-                _ => return 1,
-            };
-        let mut bytes = Vec::new();
-        if std::io::stdin().read_to_end(&mut bytes).is_err() {
-            return 1;
-        }
-        return match agenterm_cu::mechanism::clipboard::own_type(&type_name, &bytes) {
-            Ok(()) => 0,
-            Err(_) => 1,
-        };
-    }
-    let mut text = String::new();
-    if std::io::stdin().read_to_string(&mut text).is_err() {
-        return 1;
-    }
-    match agenterm_cu::mechanism::clipboard::own_text(&text) {
-        Ok(()) => 0,
-        Err(_) => 1,
-    }
 }
 
 #[cfg(test)]

@@ -2197,9 +2197,10 @@ flowchart LR
   owner also preserves its exact sentinel and inherited-stdin secret boundary,
   while its Unix PTY fixture retains direct stdout and bounded lifetime. The
   `verbs` text, JSON and typed-usage outputs now retain exact bytes and exits
-  through the bounded ABI buffer. The other four binary-entry families still
-  fail closed instead of preserving
-  framing/lifetime/cleanup parity. The browser-session result is a macOS native
+  through the bounded ABI buffer. The X11 clipboard owner now shares one
+  stdin/environment adapter between monolith and provider and retains zero ABI
+  output. The other three binary-entry families still fail closed instead of
+  preserving framing/lifetime/cleanup parity. The browser-session result is a macOS native
   public court, not Candidate evidence: that court is platform-limited and
   registered rather than Windows Candidate-required. The staged device-lease
   pair passed its registered Unix public court on native macOS and emitted both

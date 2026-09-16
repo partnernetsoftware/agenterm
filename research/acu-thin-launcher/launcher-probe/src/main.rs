@@ -27,6 +27,7 @@ const ENTRY_DEVICE_LEASE_OWNER: u32 = 5;
 const ENTRY_DEVICE_IO_FIXTURE: u32 = 7;
 const ENTRY_NETWORK_PROBE_FIXTURE: u32 = 8;
 const ENTRY_VERBS_TEXT: u32 = 10;
+const ENTRY_X11_CLIPBOARD_OWNER: u32 = 11;
 const ENTRY_VERSION_TEXT: u32 = 12;
 
 const NETWORK_PROBE_WORKER_ARG: &[u8] = b"--agenterm-cu-internal-network-probe-worker";
@@ -36,6 +37,7 @@ const DEVICE_LEASE_OWNER_ARG: &[u8] = b"--agenterm-cu-internal-device-lease-owne
 const DEVICE_IO_FIXTURE_ARG: &[u8] = b"--agenterm-cu-internal-device-io-fixture";
 const NETWORK_PROBE_FIXTURE_ARG: &[u8] = b"--agenterm-cu-internal-network-probe-fixture";
 const VERBS_ARG: &[u8] = b"verbs";
+const X11_CLIPBOARD_OWNER_ARG: &[u8] = b"__agenterm-internal-x11-clipboard-own";
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -243,6 +245,8 @@ fn expected_entry_mode(argv: &[Vec<u8>]) -> u32 {
         ENTRY_NETWORK_PROBE_FIXTURE
     } else if matches!(argv, [first, ..] if first.as_slice() == VERBS_ARG) {
         ENTRY_VERBS_TEXT
+    } else if matches!(argv, [first, ..] if first.as_slice() == X11_CLIPBOARD_OWNER_ARG) {
+        ENTRY_X11_CLIPBOARD_OWNER
     } else if matches!(argv, [arg] if matches!(arg.as_slice(), b"--version" | b"-V")) {
         ENTRY_VERSION_TEXT
     } else {
@@ -258,7 +262,8 @@ fn validate_output(entry_mode: u32, stdout: &[u8], stderr: &[u8]) -> Result<(), 
         | ENTRY_MANAGED_JOB_OWNER
         | ENTRY_DEVICE_LEASE_OWNER
         | ENTRY_DEVICE_IO_FIXTURE
-        | ENTRY_NETWORK_PROBE_FIXTURE => {
+        | ENTRY_NETWORK_PROBE_FIXTURE
+        | ENTRY_X11_CLIPBOARD_OWNER => {
             if stdout.is_empty() && stderr.is_empty() {
                 Ok(())
             } else {
@@ -280,6 +285,7 @@ fn entry_mode_owns_stdio(entry_mode: u32) -> bool {
             | ENTRY_DEVICE_LEASE_OWNER
             | ENTRY_DEVICE_IO_FIXTURE
             | ENTRY_NETWORK_PROBE_FIXTURE
+            | ENTRY_X11_CLIPBOARD_OWNER
     )
 }
 
@@ -521,6 +527,22 @@ mod tests {
         assert!(entry_mode_owns_stdio(ENTRY_DEVICE_IO_FIXTURE));
         assert_eq!(
             validate_output(ENTRY_DEVICE_IO_FIXTURE, b"unexpected", b"").unwrap_err(),
+            "provider_direct_stdio_buffer_invalid"
+        );
+    }
+
+    #[test]
+    fn x11_clipboard_owner_mode_preserves_first_argument_and_owns_stdio() {
+        for argv in [
+            vec![X11_CLIPBOARD_OWNER_ARG.to_vec()],
+            vec![X11_CLIPBOARD_OWNER_ARG.to_vec(), b"ignored-tail".to_vec()],
+        ] {
+            assert_eq!(expected_entry_mode(&argv), ENTRY_X11_CLIPBOARD_OWNER);
+        }
+        assert!(validate_output(ENTRY_X11_CLIPBOARD_OWNER, b"", b"").is_ok());
+        assert!(entry_mode_owns_stdio(ENTRY_X11_CLIPBOARD_OWNER));
+        assert_eq!(
+            validate_output(ENTRY_X11_CLIPBOARD_OWNER, b"unexpected", b"").unwrap_err(),
             "provider_direct_stdio_buffer_invalid"
         );
     }

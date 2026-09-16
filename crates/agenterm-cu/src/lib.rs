@@ -131,6 +131,38 @@ pub fn run_device_io_test_fixture(args: &[String]) -> i32 {
         2
     }
 }
+
+/// Owns the X11 clipboard selection for the bytes inherited on stdin.
+///
+/// This is an internal process entry shared by the monolith and thin-provider
+/// launchers. It never moves clipboard contents through argv or environment.
+#[doc(hidden)]
+pub fn run_x11_clipboard_owner() -> i32 {
+    use std::io::Read as _;
+
+    if std::env::var_os(mechanism::clipboard::X11_CLIPBOARD_TYPE_ENV).is_some() {
+        let type_name = match std::env::var(mechanism::clipboard::X11_CLIPBOARD_TYPE_ENV) {
+            Ok(name) if !name.is_empty() => name,
+            _ => return 1,
+        };
+        let mut bytes = Vec::new();
+        if std::io::stdin().read_to_end(&mut bytes).is_err() {
+            return 1;
+        }
+        return match mechanism::clipboard::own_type(&type_name, &bytes) {
+            Ok(()) => 0,
+            Err(_) => 1,
+        };
+    }
+    let mut text = String::new();
+    if std::io::stdin().read_to_string(&mut text).is_err() {
+        return 1;
+    }
+    match mechanism::clipboard::own_text(&text) {
+        Ok(()) => 0,
+        Err(_) => 1,
+    }
+}
 pub mod mcu_surface;
 pub mod mechanism;
 pub mod network_probe;

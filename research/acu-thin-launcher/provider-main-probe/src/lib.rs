@@ -217,6 +217,7 @@ unsafe fn process_main_inner(
         ENTRY_NETWORK_PROBE_FIXTURE => {
             Some(agenterm_cu::network_probe::run_loopback_fixture(&argv[1..]))
         }
+        ENTRY_X11_CLIPBOARD_OWNER => Some(agenterm_cu::run_x11_clipboard_owner()),
         _ => None,
     };
     if let Some(exit_code) = direct_exit {
@@ -414,6 +415,10 @@ mod tests {
             ),
             (&["--version"][..], ENTRY_VERSION_TEXT),
             (&["verbs", "--json"][..], ENTRY_VERBS_TEXT),
+            (
+                &[agenterm_cu::mechanism::clipboard::X11_CLIPBOARD_OWNER_ARG][..],
+                ENTRY_X11_CLIPBOARD_OWNER,
+            ),
         ];
         for (argv, expected) in cases {
             assert_eq!(classify_entry(&strings(argv)), expected, "{argv:?}");
