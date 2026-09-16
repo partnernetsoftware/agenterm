@@ -230,6 +230,7 @@ impl Executor {
                 max,
                 scan_max,
                 byte_max,
+                cursor,
                 ..
             } => self.query_audit(audit::AuditQuery {
                 request_id: request_id_filter.as_deref(),
@@ -240,6 +241,7 @@ impl Executor {
                 max: *max,
                 scan_max: *scan_max,
                 byte_max: *byte_max,
+                cursor: cursor.as_deref(),
             }),
             Command::AuditCompact {
                 max_age_days,

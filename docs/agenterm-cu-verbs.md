@@ -365,16 +365,16 @@ Dispatches bounded notification text without a shell. The durable receipt contai
 ### `audit-query`
 
 ```text
-audit-query [--request-id-filter ID] [--verb TEXT] [--outcome attempt|ok|failed|refused] [--since-ms UTC_MS] [--offset N] [--max N] [--scan-max N] [--byte-max N]
+audit-query [--request-id-filter ID] [--verb TEXT] [--outcome attempt|ok|failed|refused] [--since-ms UTC_MS] [--offset N] [--max N] [--scan-max N] [--byte-max N] [--cursor TOKEN]
 ```
 
 ```text
 agenterm-cu audit-query
   scope: observe    family: Runtime coordination
 
-usage: audit-query [--request-id-filter ID] [--verb TEXT] [--outcome KIND] [--since-ms UTC_MS] [budgets]
+usage: audit-query [--request-id-filter ID] [--verb TEXT] [--outcome KIND] [--since-ms UTC_MS] [budgets] [--cursor TOKEN]
 
-Newest-first bounded read of the append-only control audit. Request identity is an exact optional filter; request-correlated rows do not copy the enclosing session id or lease. Returned rows, scanned rows and scanned bytes have independent ceilings; truncation and the next offset are explicit.
+Newest-first bounded read of the append-only control audit. Request identity is an exact optional filter; request-correlated rows do not copy the enclosing session id or lease. Returned rows, scanned rows and scanned bytes have independent ceilings. next_offset continues within one scanned window; an opaque next_cursor reaches an older byte or scan window and fails closed after compaction replaces the audit file.
 ```
 
 ### `audit-compact`

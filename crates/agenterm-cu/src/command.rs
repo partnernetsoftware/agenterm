@@ -1533,6 +1533,8 @@ pub enum Command {
         scan_max: Option<usize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         byte_max: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
     },
     /// Plan or atomically apply bounded retention to the local control audit.
     AuditCompact {

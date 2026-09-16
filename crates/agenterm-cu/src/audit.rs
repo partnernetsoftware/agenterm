@@ -8,10 +8,11 @@ use std::{
 };
 
 use serde::Serialize;
+use sha2::{Digest as _, Sha256};
 
 use crate::{auth::Grant, command::Command, reply::CuError, target::TargetRef};
 use agenterm_platform::{
-    filesystem::write_private_atomic,
+    filesystem::{file_identity, write_private_atomic},
     locking::{LockErrorKind, PathLock},
 };
 
@@ -76,6 +77,13 @@ pub struct AuditQuery<'a> {
     pub max: Option<usize>,
     pub scan_max: Option<usize>,
     pub byte_max: Option<usize>,
+    pub cursor: Option<&'a str>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct AuditCursor {
+    byte_end: u64,
+    identity_digest: [u8; 32],
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -535,6 +543,7 @@ pub fn query(query: AuditQuery<'_>) -> Result<serde_json::Value, CuError> {
 }
 
 pub(crate) fn query_at(path: &Path, query: AuditQuery<'_>) -> Result<serde_json::Value, CuError> {
+    let cursor = query.cursor.map(parse_cursor).transpose()?;
     if let Some(request_id) = query.request_id
         && !valid_request_id(request_id)
     {
@@ -574,6 +583,12 @@ pub(crate) fn query_at(path: &Path, query: AuditQuery<'_>) -> Result<serde_json:
     let mut file = match File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if cursor.is_some() {
+                return Err(CuError::new(
+                    "audit_cursor_stale",
+                    "audit cursor no longer names the current audit file",
+                ));
+            }
             return Ok(query_reply(
                 path,
                 query,
@@ -588,6 +603,7 @@ pub(crate) fn query_at(path: &Path, query: AuditQuery<'_>) -> Result<serde_json:
                 0,
                 false,
                 false,
+                None,
             ));
         }
         Err(error) => {
@@ -597,6 +613,19 @@ pub(crate) fn query_at(path: &Path, query: AuditQuery<'_>) -> Result<serde_json:
             ));
         }
     };
+    let identity = file_identity(&file).map_err(|error| {
+        CuError::new(
+            "audit_unavailable",
+            format!("could not identify audit log {}: {error}", path.display()),
+        )
+    })?;
+    let identity_digest = audit_identity_digest(identity.filesystem_id, identity.object_id);
+    if cursor.is_some_and(|cursor| cursor.identity_digest != identity_digest) {
+        return Err(CuError::new(
+            "audit_cursor_stale",
+            "audit cursor names an audit file that has been replaced",
+        ));
+    }
     let size = file
         .metadata()
         .map_err(|error| {
@@ -606,8 +635,15 @@ pub(crate) fn query_at(path: &Path, query: AuditQuery<'_>) -> Result<serde_json:
             )
         })?
         .len();
-    let read_len = size.min(byte_max as u64) as usize;
-    let start = size.saturating_sub(read_len as u64);
+    let end = cursor.map_or(size, |cursor| cursor.byte_end);
+    if end > size {
+        return Err(CuError::new(
+            "audit_cursor_stale",
+            "audit cursor byte boundary is beyond the current audit file",
+        ));
+    }
+    let read_len = end.min(byte_max as u64) as usize;
+    let start = end.saturating_sub(read_len as u64);
     file.seek(SeekFrom::Start(start)).map_err(|error| {
         CuError::new(
             "audit_unavailable",
@@ -622,25 +658,46 @@ pub(crate) fn query_at(path: &Path, query: AuditQuery<'_>) -> Result<serde_json:
         )
     })?;
     let truncated_bytes = start > 0;
+    let mut content_start = start;
     if truncated_bytes {
         bytes = match bytes.iter().position(|byte| *byte == b'\n') {
-            Some(boundary) => bytes.split_off(boundary + 1),
+            Some(boundary) => {
+                content_start = content_start.saturating_add(boundary as u64 + 1);
+                bytes.split_off(boundary + 1)
+            }
             None => Vec::new(),
         };
     }
-    let text = String::from_utf8_lossy(&bytes);
+    let mut lines = Vec::new();
+    let mut line_start = 0usize;
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte == b'\n' {
+            if index > line_start {
+                lines.push((content_start + line_start as u64, &bytes[line_start..index]));
+            }
+            line_start = index + 1;
+        }
+    }
+    if line_start < bytes.len() {
+        lines.push((content_start + line_start as u64, &bytes[line_start..]));
+    }
     let mut scanned = 0usize;
     let mut matched = 0usize;
     let mut malformed = 0usize;
     let mut records = Vec::new();
     let mut truncated_scan = false;
-    for line in text.lines().rev().filter(|line| !line.trim().is_empty()) {
+    let mut oldest_scanned_start = None;
+    for (absolute_start, line) in lines.into_iter().rev() {
+        if line.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
         if scanned == scan_max {
             truncated_scan = true;
             break;
         }
         scanned += 1;
-        let value: serde_json::Value = match serde_json::from_str(line) {
+        oldest_scanned_start = Some(absolute_start);
+        let value: serde_json::Value = match serde_json::from_slice(line) {
             Ok(serde_json::Value::Object(object)) => serde_json::Value::Object(object),
             _ => {
                 malformed += 1;
@@ -673,6 +730,26 @@ pub(crate) fn query_at(path: &Path, query: AuditQuery<'_>) -> Result<serde_json:
             records.push(value);
         }
     }
+    let next_cursor_end = if truncated_scan {
+        oldest_scanned_start
+    } else if truncated_bytes {
+        // The first line crossed the raw byte boundary and was deliberately
+        // excluded. End the next page after that whole line so it can be read
+        // intact instead of disappearing between adjacent windows.
+        Some(if content_start < end {
+            content_start
+        } else {
+            start
+        })
+    } else {
+        None
+    };
+    let next_cursor = next_cursor_end.map(|byte_end| {
+        encode_cursor(AuditCursor {
+            byte_end,
+            identity_digest,
+        })
+    });
     Ok(query_reply(
         path,
         query,
@@ -687,7 +764,60 @@ pub(crate) fn query_at(path: &Path, query: AuditQuery<'_>) -> Result<serde_json:
         bytes.len(),
         truncated_scan,
         truncated_bytes,
+        next_cursor,
     ))
+}
+
+fn audit_identity_digest(filesystem_id: u64, object_id: u64) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(b"agenterm-cu-audit-cursor-v1\0");
+    digest.update(filesystem_id.to_le_bytes());
+    digest.update(object_id.to_le_bytes());
+    digest.finalize().into()
+}
+
+fn encode_cursor(cursor: AuditCursor) -> String {
+    format!(
+        "v1:{:016x}:{}",
+        cursor.byte_end,
+        cursor
+            .identity_digest
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    )
+}
+
+fn parse_cursor(value: &str) -> Result<AuditCursor, CuError> {
+    let mut fields = value.split(':');
+    let version = fields.next();
+    let byte_end = fields.next();
+    let digest = fields.next();
+    if version != Some("v1") || fields.next().is_some() {
+        return Err(invalid_cursor());
+    }
+    let byte_end =
+        u64::from_str_radix(byte_end.unwrap_or_default(), 16).map_err(|_| invalid_cursor())?;
+    let digest = digest.unwrap_or_default();
+    if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(invalid_cursor());
+    }
+    let mut identity_digest = [0_u8; 32];
+    for (index, slot) in identity_digest.iter_mut().enumerate() {
+        *slot = u8::from_str_radix(&digest[index * 2..index * 2 + 2], 16)
+            .map_err(|_| invalid_cursor())?;
+    }
+    Ok(AuditCursor {
+        byte_end,
+        identity_digest,
+    })
+}
+
+fn invalid_cursor() -> CuError {
+    CuError::new(
+        "invalid_input",
+        "--cursor must be an opaque audit cursor returned by audit-query",
+    )
 }
 
 fn bounded(name: &str, value: usize, min: usize, max: usize) -> Result<usize, CuError> {
@@ -723,11 +853,13 @@ fn query_reply(
     scanned_bytes: usize,
     truncated_scan: bool,
     truncated_bytes: bool,
+    next_cursor: Option<String>,
 ) -> serde_json::Value {
     let truncated_results = matched > offset.saturating_add(records.len());
     let complete = !(truncated_results || truncated_scan || truncated_bytes);
-    // An offset can continue only within the same scanned byte window. Byte or
-    // scan truncation needs a future cursor contract; do not fabricate one.
+    // Offset continues within this exact byte window. Cursor crosses byte or
+    // scan windows and is bound to the opened file object, so compaction cannot
+    // silently reinterpret a byte boundary against a replacement file.
     let next_offset = truncated_results.then(|| offset.saturating_add(records.len()));
     serde_json::json!({
         "addressing": "append-only-audit-jsonl",
@@ -738,6 +870,7 @@ fn query_reply(
             "outcome": query.outcome,
             "since_ms": query.since_ms,
         },
+        "cursor": query.cursor,
         "offset": offset,
         "max": max,
         "scan_max": scan_max,
@@ -752,6 +885,7 @@ fn query_reply(
         "truncated_bytes": truncated_bytes,
         "complete": complete,
         "next_offset": next_offset,
+        "next_cursor": next_cursor,
         "truncated": !complete,
         "records": records,
     })
@@ -999,6 +1133,163 @@ mod tests {
         )
         .expect_err("zero max");
         assert_eq!(error.code, "invalid_input");
+    }
+
+    #[test]
+    fn opaque_cursor_reaches_older_windows_without_overlap() {
+        let path = scratch_path("query-cursor");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut source = Vec::new();
+        for marker in 0..40 {
+            source.extend_from_slice(
+                serde_json::to_string(&serde_json::json!({
+                    "ts_ms": 1_000 + marker,
+                    "verb": "cursor-fixture",
+                    "outcome": "ok",
+                    "detail": {"marker": marker, "padding": "x".repeat(96)},
+                }))
+                .unwrap()
+                .as_bytes(),
+            );
+            source.push(b'\n');
+        }
+        std::fs::write(&path, source).expect("write cursor fixture");
+
+        let mut cursor = None::<String>;
+        let mut markers = Vec::new();
+        loop {
+            let page = query_at(
+                &path,
+                AuditQuery {
+                    byte_max: Some(1_024),
+                    cursor: cursor.as_deref(),
+                    ..AuditQuery::default()
+                },
+            )
+            .expect("query cursor page");
+            markers.extend(
+                page["records"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|record| record["detail"]["marker"].as_u64().unwrap()),
+            );
+            cursor = page["next_cursor"].as_str().map(ToOwned::to_owned);
+            if cursor.is_none() {
+                break;
+            }
+        }
+        assert_eq!(markers.len(), 40);
+        let unique = markers
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(unique.len(), 40, "adjacent cursor pages must not overlap");
+        assert_eq!(markers.first(), Some(&39));
+        assert_eq!(markers.last(), Some(&0));
+
+        let mut cursor = None::<String>;
+        let mut scan_limited = Vec::new();
+        loop {
+            let page = query_at(
+                &path,
+                AuditQuery {
+                    scan_max: Some(3),
+                    cursor: cursor.as_deref(),
+                    ..AuditQuery::default()
+                },
+            )
+            .expect("query scan-limited cursor page");
+            scan_limited.extend(
+                page["records"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|record| record["detail"]["marker"].as_u64().unwrap()),
+            );
+            cursor = page["next_cursor"].as_str().map(ToOwned::to_owned);
+            if cursor.is_none() {
+                break;
+            }
+        }
+        assert_eq!(scan_limited, (0..40).rev().collect::<Vec<_>>());
+        remove_scratch(&path);
+    }
+
+    #[test]
+    fn cursor_is_repeatable_until_atomic_compaction_replaces_the_file() {
+        let path = scratch_path("query-cursor-stale");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut source = Vec::new();
+        for marker in 0..120 {
+            source.extend_from_slice(
+                format!(
+                    "{{\"ts_ms\":2000000000000,\"verb\":\"fresh-{marker}\",\"outcome\":\"ok\",\"padding\":\"{}\"}}\n",
+                    "x".repeat(64)
+                )
+                .as_bytes(),
+            );
+        }
+        std::fs::write(&path, source).expect("write cursor fixture");
+        let first = query_at(
+            &path,
+            AuditQuery {
+                byte_max: Some(1_024),
+                ..AuditQuery::default()
+            },
+        )
+        .expect("first page");
+        let cursor = first["next_cursor"].as_str().unwrap().to_owned();
+        let older = query_at(
+            &path,
+            AuditQuery {
+                byte_max: Some(1_024),
+                cursor: Some(&cursor),
+                ..AuditQuery::default()
+            },
+        )
+        .expect("older page");
+        let replay = query_at(
+            &path,
+            AuditQuery {
+                byte_max: Some(1_024),
+                cursor: Some(&cursor),
+                ..AuditQuery::default()
+            },
+        )
+        .expect("repeat older page");
+        assert_eq!(older["records"], replay["records"]);
+
+        compact_at(
+            &path,
+            AuditRetention {
+                max_age_days: Some(1),
+                max_events: Some(100),
+                max_bytes: Some(64 * 1024),
+                apply: true,
+            },
+            2_000_000_000_000,
+        )
+        .expect("atomic compaction");
+        let stale = query_at(
+            &path,
+            AuditQuery {
+                cursor: Some(&cursor),
+                ..AuditQuery::default()
+            },
+        )
+        .expect_err("replacement invalidates old cursor");
+        assert_eq!(stale.code, "audit_cursor_stale");
+        let malformed = query_at(
+            &path,
+            AuditQuery {
+                cursor: Some("v2:0:not-a-v1-token"),
+                ..AuditQuery::default()
+            },
+        )
+        .expect_err("unknown cursor version");
+        assert_eq!(malformed.code, "invalid_input");
+        remove_scratch(&path);
     }
 
     #[test]

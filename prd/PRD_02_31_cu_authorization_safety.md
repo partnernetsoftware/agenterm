@@ -159,7 +159,10 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   to which machine. `audit-query` now exposes newest-first bounded observation
   with independent returned-row, scanned-row and byte ceilings, malformed-row
   counts, truncation flags and a continuation offset when only the result
-  window truncates. Retention/compaction and an older-byte cursor remain open.
+  window truncates. An opaque cursor now reaches older byte/scan windows while
+  binding its byte boundary to the opened audit file's object identity; an
+  atomic compaction replacement makes the old cursor fail typed instead of
+  silently reinterpreting it. Broader retention policy remains open.
   Current-target actuation now has
   a shared durable request envelope (`request-id` + active session id/lease):
   same request/session/command replays terminal metadata without redispatch,

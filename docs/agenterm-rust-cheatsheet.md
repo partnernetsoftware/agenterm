@@ -5844,6 +5844,14 @@ object: correlation rows must not inherit its session id or lease. Add
 correlation fields as optional JSONL members so old records stay readable, and
 make an exact query filter ignore older rows that lack the field.
 
+Never expose a naked byte offset as a durable cursor into an append-only file
+that can be compacted by atomic replacement. Bind the opaque cursor to the
+identity of the opened filesystem object and its byte boundary, read through
+that same handle, allow append-only growth, and reject a cursor as stale after
+replacement. Clamping an old offset into the replacement file silently skips
+or misattributes audit records. Keep result offsets scoped to one scanned
+window; use the identity-bound cursor only to cross byte or scan windows.
+
 ## Bracket native process inventories and preserve native bytes
 
 Process-local inventories such as file descriptors, memory maps and threads

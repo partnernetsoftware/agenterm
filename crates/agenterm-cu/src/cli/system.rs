@@ -601,9 +601,10 @@ pub fn parse(
         let max = flag_parsed::<usize>(args, "--max")?;
         let scan_max = flag_parsed::<usize>(args, "--scan-max")?;
         let byte_max = flag_parsed::<usize>(args, "--byte-max")?;
+        let cursor = flag_text(args, "--cursor")?;
         if !args.is_empty() {
             return Err(format!(
-                "audit-query accepts only --request-id-filter/--verb/--outcome/--since-ms/--offset/--max/--scan-max/--byte-max; unexpected {:?}",
+                "audit-query accepts only --request-id-filter/--verb/--outcome/--since-ms/--offset/--max/--scan-max/--byte-max/--cursor; unexpected {:?}",
                 args[0]
             ));
         }
@@ -617,6 +618,7 @@ pub fn parse(
             max,
             scan_max,
             byte_max,
+            cursor,
         });
     }
     if spec.name == "audit-compact" {

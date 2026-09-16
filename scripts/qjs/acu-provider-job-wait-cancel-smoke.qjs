@@ -370,6 +370,33 @@ try {
       && terminal_owner.start_identity === snapshot.owner_start_identity,
     "terminal_owner_not_retained_until_session_end");
 
+  print("STEP follow the opaque audit cursor into an older bounded byte window");
+  let cursor = null;
+  let found_spawn_audit = false;
+  for (let page = 0; page < 64; page = page + 1) {
+    const query_args = [
+      "--target", "current", "--grant", "observe",
+      "audit-query", "--request-id-filter", request_root + "-spawn",
+      "--byte-max", "4096", "--max", "10"
+    ];
+    if (cursor !== null) {
+      query_args.push("--cursor");
+      query_args.push(cursor);
+    }
+    const older = call(query_args, "audit-query");
+    if (older.returned === 2) {
+      found_spawn_audit = true;
+      for (const record of older.records) {
+        require(record.request_id === request_root + "-spawn",
+          "older_cursor_request_id_mismatch");
+      }
+      break;
+    }
+    cursor = older.next_cursor;
+    if (cursor === null || cursor === undefined) { break; }
+  }
+  require(found_spawn_audit, "older_cursor_did_not_reach_spawn_audit");
+
   const end = call([
     "--target", "current", "--grant", "actuate",
     "session-end", snapshot.session_id, "--lease", snapshot.session_lease, "--confirm"
