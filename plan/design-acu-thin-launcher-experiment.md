@@ -183,8 +183,11 @@ privilege launcher and test their publication transactions, but this does not
 prove live root-owned/signed activation or a native consent court. The Native
 Messaging entry now also shares one library
 adapter for extension-origin/argv validation and preserves Chromium-owned stdio
-directly. All twelve entry routes therefore exist, but G1 stays red until the
-native lifecycle, installed activation and paired parity courts are complete.
+directly. A bounded macOS paired court now gives repeatable exit/stdout/stderr
+parity for twelve non-mutating presentation and refusal cases, with absolute
+product anchors plus a bad-ABI negative control. All twelve entry routes
+therefore exist, but G1 stays red until the remaining native lifecycle,
+installed activation and Linux/Windows paired parity courts are complete.
 The browser-session result is native court evidence, not Candidate evidence:
 its existing qjs court is a registered macOS court rather than a Windows
 Candidate gate. The device-lease lifecycle result is likewise native macOS

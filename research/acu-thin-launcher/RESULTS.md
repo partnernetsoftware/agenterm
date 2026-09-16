@@ -77,7 +77,7 @@ repository target tree.
 | gate | result | evidence / missing work |
 |---|---|---|
 | G0 safety/authority | partial green | one parser/Executor owner, fixed sibling, bounded ABI, release panic latch, missing/wrong ABI and malformed-result refusals; not all raw failures on three native OSes |
-| G1 behavior parity | **red** | all twelve entry families are explicitly routed, including ordinary help/capabilities/refusal, version/verbs presentation, framed workers/fixtures and resident owners; native lifecycle, installed activation and paired monolith evidence remain incomplete |
+| G1 behavior parity | **red** | all twelve entry families are explicitly routed; a bounded macOS paired court now covers the non-mutating presentation/refusal subset with absolute anchors and a bad-ABI negative control, while native lifecycles, installed activation and Linux/Windows paired evidence remain incomplete |
 | G2 launcher budgets | partial green | Linux x86_64 L1 is 393,144 bytes and macOS arm64 L1 is 365,328 bytes; Windows L1 and same-source paired monolith are unmeasured |
 | G3 six-cell/native | red | only Linux x86_64 cross-build plus macOS arm64 native ordinary execution |
 | G4 footprint | partial | macOS arm64 and Linux x86_64 L1/L2/L3 complete; four other cells unmeasured |
@@ -244,6 +244,41 @@ entry route, not G1 itself: no positive Chromium frame journey ran, the browser
 bridge court is registered rather than Candidate-required, and no installed
 browser journey has exercised the now-published fixed sibling.
 
+### Incremental G1 paired-parity court
+
+Revision `34b5dfac` adds a repeatable black-box court that runs the same argv
+against a same-source monolith and staged launcher/provider, requires identical
+exit status plus stdout/stderr bytes, and separately enforces absolute product
+expectations. Both children have a ten-second deadline, concurrently drained
+64-KiB stream bounds, and kill-plus-reap timeout cleanup. Canonical paths must
+identify distinct executables.
+
+The native macOS arm64 run passed these twelve cases:
+
+| cases | absolute expectation | paired result |
+|---|---|---|
+| `--version` | exit 0; one `agenterm-cu` line; empty stderr | exact |
+| capabilities | exit 0; `data.mechanism == "libagenterm"`; empty stderr | exact |
+| ordinary capabilities without grant | exit 1; typed `refused`; empty stderr | exact |
+| five exact-entry sentinels plus `extra` | exit 1; typed `argv_entry_mode_unsupported`; empty stderr | exact |
+| `verbs --help` | exit 2; typed `usage`; empty stderr | exact |
+| Native Messaging parent-window argument on non-Windows | exit 1; empty stdout; exact invocation refusal stderr | exact |
+| foreign Native Messaging origin | exit 1; empty stdout; exact origin refusal stderr | exact |
+| privilege broker without service-manager activation | exit 3; empty stdout; exact transport-failure stderr | exact |
+
+The same run replaced the staged sibling with the bad-ABI fixture. The launcher
+then exited 70 with `provider_abi_version_mismatch`, while the monolith version
+case remained valid and the court required the observations to differ. This is
+a negative control proving the harness can see a known boundary fault rather
+than accepting two equally broken sides.
+
+This is native macOS evidence for a deliberately non-mutating subset, not a G1
+pass. The Linux-only `host`/`hotkeys` unsupported cases are compiled into the
+Linux lane but were not run here; macOS hotkey self-test is excluded because an
+Accessibility-trusted host may perform a real window placement. Resident
+lifecycle, installed service activation, Windows and Linux paired execution,
+and Candidate ownership remain open.
+
 ## Commands used for the recorded result
 
 The recorded run reused `target/`; replace it with the isolated lane from the
@@ -269,11 +304,10 @@ stat -f '%N %z' \
 
 ## Required next court
 
-Before B can be reconsidered, the provider process-main ABI must implement and
-natively test every listed entry mode with its real stdin/stdout framing,
-resident lifetime, cleanup and exit semantics. Then run paired monolith versus
-launcher presentation on all ordinary and binary cases, measure Windows L1,
-and complete all six build cells plus one native court per OS. Product
+Before B can be reconsidered, extend the paired court across Linux and Windows,
+and natively test every listed entry mode with its real stdin/stdout framing,
+resident lifetime, cleanup and exit semantics. Then measure Windows L1 and
+complete all six build cells plus one native court per OS. Product
 installers now publish the fixed sibling and test their file transactions; the
 remaining delivery question is live installed activation and lifecycle under
 the native service managers.
