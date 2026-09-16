@@ -593,6 +593,7 @@ pub fn parse(
         return parse_runtime(spec.name, target, args);
     }
     if spec.name == "audit-query" {
+        let request_id_filter = flag_text(args, "--request-id-filter")?;
         let verb_filter = flag_text(args, "--verb")?;
         let outcome = flag_text(args, "--outcome")?;
         let since_ms = flag_parsed::<u128>(args, "--since-ms")?;
@@ -602,12 +603,13 @@ pub fn parse(
         let byte_max = flag_parsed::<usize>(args, "--byte-max")?;
         if !args.is_empty() {
             return Err(format!(
-                "audit-query accepts only --verb/--outcome/--since-ms/--offset/--max/--scan-max/--byte-max; unexpected {:?}",
+                "audit-query accepts only --request-id-filter/--verb/--outcome/--since-ms/--offset/--max/--scan-max/--byte-max; unexpected {:?}",
                 args[0]
             ));
         }
         return Ok(Command::AuditQuery {
             target,
+            request_id_filter,
             verb_filter,
             outcome,
             since_ms,

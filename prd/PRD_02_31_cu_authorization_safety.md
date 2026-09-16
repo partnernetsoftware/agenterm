@@ -159,8 +159,8 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   to which machine. `audit-query` now exposes newest-first bounded observation
   with independent returned-row, scanned-row and byte ceilings, malformed-row
   counts, truncation flags and a continuation offset when only the result
-  window truncates. Retention/compaction, an older-byte cursor and
-  universal request correlation remain open. Current-target actuation now has
+  window truncates. Retention/compaction and an older-byte cursor remain open.
+  Current-target actuation now has
   a shared durable request envelope (`request-id` + active session id/lease):
   same request/session/command replays terminal metadata without redispatch,
   a changed fingerprint conflicts, and a reserved or outcome-unknown retry
@@ -168,8 +168,11 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   bounded, versioned stdin envelope and binds the rewritten command to an
   opaque endpoint scope. The effect-side worker owns reserve, audit, execution
   and finalization; unknown schemas, oversized envelopes and non-current inner
-  targets fail closed. Public remote mutation journeys and audit-query
-  correlation remain open, so this is not yet universal.
+  targets fail closed. When that envelope is present, audit rows now copy only
+  its bounded request id, never the session id or lease, and `audit-query
+  --request-id-filter` performs an exact bounded correlation across attempt and
+  outcome rows while older anonymous rows remain readable. Public remote
+  mutation journeys remain open, so this is not yet universal.
 - [~] the versioned JSONL audit is machine-readable, cross-process append
   serialized, durably flushed and survives the session that produced it.
 - [x] failure to record is failure to act: if the audit path is unavailable, the

@@ -210,6 +210,20 @@ try {
   const spawned = call(spawn_args, "job-spawn");
   require(typeof spawned.job_id === "string" && spawned.job_id !== "", "job_id_missing");
   require(typeof spawned.generation === "number" && spawned.generation > 0, "job_generation_missing");
+  const correlated = call([
+    "--target", "current", "--grant", "observe",
+    "audit-query", "--request-id-filter", request_root + "-spawn", "--max", "10"
+  ], "audit-query");
+  require(correlated.matched === 2, "request_audit_attempt_outcome_pair_missing");
+  require(correlated.returned === 2, "request_audit_pair_not_returned");
+  require(correlated.filter.request_id === request_root + "-spawn",
+    "request_audit_filter_not_echoed");
+  for (const record of correlated.records) {
+    require(record.request_id === request_root + "-spawn", "request_audit_id_mismatch");
+  }
+  const correlated_text = JSON.stringify(correlated.records);
+  require(!correlated_text.includes(session.session_id), "request_audit_leaked_session_id");
+  require(!correlated_text.includes(session.lease), "request_audit_leaked_session_lease");
   const status = call([
     "--target", "current", "--grant", "observe", "job-status", spawned.job_id
   ], "job-status");

@@ -365,16 +365,16 @@ Dispatches bounded notification text without a shell. The durable receipt contai
 ### `audit-query`
 
 ```text
-audit-query [--verb TEXT] [--outcome attempt|ok|failed|refused] [--since-ms UTC_MS] [--offset N] [--max N] [--scan-max N] [--byte-max N]
+audit-query [--request-id-filter ID] [--verb TEXT] [--outcome attempt|ok|failed|refused] [--since-ms UTC_MS] [--offset N] [--max N] [--scan-max N] [--byte-max N]
 ```
 
 ```text
 agenterm-cu audit-query
   scope: observe    family: Runtime coordination
 
-usage: audit-query [--verb TEXT] [--outcome KIND] [--since-ms UTC_MS] [budgets]
+usage: audit-query [--request-id-filter ID] [--verb TEXT] [--outcome KIND] [--since-ms UTC_MS] [budgets]
 
-Newest-first bounded read of the append-only control audit. Returned rows, scanned rows and scanned bytes have independent ceilings; truncation and the next offset are explicit.
+Newest-first bounded read of the append-only control audit. Request identity is an exact optional filter; request-correlated rows do not copy the enclosing session id or lease. Returned rows, scanned rows and scanned bytes have independent ceilings; truncation and the next offset are explicit.
 ```
 
 ### `audit-compact`

@@ -116,7 +116,7 @@ impl Executor {
         command: &Command,
         identity: &RequestIdentity,
     ) -> CuReply {
-        let mut audit = match self.begin_audit(command) {
+        let mut audit = match self.begin_audit(command, Some(&identity.request_id)) {
             Ok(audit) => audit,
             Err(error) => return CuReply::err(command, error),
         };
@@ -124,7 +124,9 @@ impl Executor {
             Ok(data) => CuReply::ok(command, data),
             Err(error) => CuReply::err(command, error),
         };
-        if let Err(mut error) = Self::audit_after(&mut audit, command, &reply) {
+        if let Err(mut error) =
+            Self::audit_after(&mut audit, command, Some(&identity.request_id), &reply)
+        {
             error.detail = Some(json!({
                 "stage": "audit_outcome",
                 "effect": "unknown",

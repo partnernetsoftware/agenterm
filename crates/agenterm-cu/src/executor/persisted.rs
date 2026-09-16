@@ -9,6 +9,7 @@ impl Executor {
         &self,
         command: &Command,
         persisted: &PersistedAuthorization,
+        request_id: Option<&str>,
         request_context: Option<&JobRequestContext<'_>>,
     ) -> CuReply {
         if command.target() != TargetRef::Current {
@@ -108,6 +109,7 @@ impl Executor {
                     &decision_id,
                     binding.target_id(),
                     &persisted.grant_id,
+                    request_id,
                     "denied",
                     outcome,
                     None,
@@ -129,6 +131,7 @@ impl Executor {
             &decision_id,
             binding.target_id(),
             &persisted.grant_id,
+            request_id,
             "authorized",
             "attempt",
             None,
@@ -145,6 +148,7 @@ impl Executor {
                     &decision_id,
                     &binding,
                     &persisted.grant_id,
+                    request_id,
                     "target_binding_unavailable",
                 );
             }
@@ -157,6 +161,7 @@ impl Executor {
                 &decision_id,
                 &binding,
                 &persisted.grant_id,
+                request_id,
                 "target_binding_changed",
             );
         }
@@ -182,6 +187,7 @@ impl Executor {
             &decision_id,
             binding.target_id(),
             &persisted.grant_id,
+            request_id,
             "authorized",
             outcome,
             detail,
@@ -229,6 +235,7 @@ impl Executor {
         decision_id: &str,
         binding: &crate::target_binding::TargetBinding,
         grant_id: &str,
+        request_id: Option<&str>,
         code: &'static str,
     ) -> CuReply {
         let error = CuError::new(
@@ -242,6 +249,7 @@ impl Executor {
             decision_id,
             binding.target_id(),
             grant_id,
+            request_id,
             "authorized",
             "failed",
             serde_json::to_value(&error).ok(),

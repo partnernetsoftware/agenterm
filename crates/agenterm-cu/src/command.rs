@@ -1518,6 +1518,8 @@ pub enum Command {
     AuditQuery {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        request_id_filter: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         verb_filter: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         outcome: Option<String>,

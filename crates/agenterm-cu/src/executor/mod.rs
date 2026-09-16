@@ -341,7 +341,7 @@ impl Executor {
             return self.execute_with_request_identity(command, identity);
         }
         if let Some(persisted) = self.persisted.as_ref() {
-            return self.execute_persisted(command, persisted, None);
+            return self.execute_persisted(command, persisted, None, None);
         }
         let required = command.required_grant();
         if !self.auth.allows(required) {
@@ -358,7 +358,7 @@ impl Executor {
         }
 
         let mut audit = if required == Grant::Actuate {
-            match self.begin_audit(command) {
+            match self.begin_audit(command, None) {
                 Ok(audit) => Some(audit),
                 Err(error) => return CuReply::err(command, error),
             }
@@ -374,7 +374,7 @@ impl Executor {
         };
 
         if let Some(audit) = audit.as_mut()
-            && let Err(mut error) = Self::audit_after(audit, command, &reply)
+            && let Err(mut error) = Self::audit_after(audit, command, None, &reply)
         {
             let mechanism_reply = serde_json::to_string(&reply)
                 .unwrap_or_else(|_| "<unserializable mechanism reply>".to_owned());
@@ -629,6 +629,7 @@ impl Executor {
             self.execute_persisted(
                 command,
                 persisted,
+                Some(&identity.request_id),
                 Some(&JobRequestContext {
                     session_id: &identity.session_id,
                     session_lease: &identity.session_lease,
@@ -636,7 +637,7 @@ impl Executor {
                 }),
             )
         } else {
-            let mut audit = match self.begin_audit(command) {
+            let mut audit = match self.begin_audit(command, Some(&identity.request_id)) {
                 Ok(audit) => audit,
                 Err(error) => {
                     let _ = store.finalize(
@@ -662,7 +663,9 @@ impl Executor {
                 Ok(data) => CuReply::ok(command, data),
                 Err(error) => CuReply::err(command, error),
             };
-            if let Err(mut error) = Self::audit_after(&mut audit, command, &reply) {
+            if let Err(mut error) =
+                Self::audit_after(&mut audit, command, Some(&identity.request_id), &reply)
+            {
                 let _ = store.mark_outcome_unknown(
                     &identity.request_id,
                     &fingerprint,
@@ -901,9 +904,20 @@ impl Executor {
         }
     }
 
-    fn begin_audit(&self, command: &Command) -> Result<AuditLog, CuError> {
+    fn begin_audit(
+        &self,
+        command: &Command,
+        request_id: Option<&str>,
+    ) -> Result<AuditLog, CuError> {
         let mut audit = self.open_audit()?;
-        audit.record_actuation(command.target(), command, Grant::Actuate, "attempt", None)?;
+        audit.record_actuation(
+            command.target(),
+            command,
+            Grant::Actuate,
+            "attempt",
+            request_id,
+            None,
+        )?;
         Ok(audit)
     }
 
@@ -926,6 +940,7 @@ impl Executor {
     fn audit_after(
         audit: &mut AuditLog,
         command: &Command,
+        request_id: Option<&str>,
         reply: &CuReply,
     ) -> Result<(), CuError> {
         let outcome = if reply.ok { "ok" } else { "failed" };
@@ -1032,7 +1047,14 @@ impl Executor {
                 })
             })
         };
-        audit.record_actuation(command.target(), command, Grant::Actuate, outcome, detail)
+        audit.record_actuation(
+            command.target(),
+            command,
+            Grant::Actuate,
+            outcome,
+            request_id,
+            detail,
+        )
     }
 
     pub(super) fn execute_current_controlled(
@@ -1323,6 +1345,25 @@ mod tests {
             1,
             "a durable replay must not reserve another persisted-grant attempt"
         );
+        let correlated = crate::audit::query_at(
+            &audit_path,
+            crate::audit::AuditQuery {
+                request_id: Some("fixture.persisted-request-1"),
+                ..crate::audit::AuditQuery::default()
+            },
+        )
+        .expect("query persisted request audit");
+        assert_eq!(correlated["matched"], 2, "attempt plus outcome");
+        assert!(
+            correlated["records"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|record| record["request_id"] == "fixture.persisted-request-1")
+        );
+        let audit_text = std::fs::read_to_string(&audit_path).expect("read request audit");
+        assert!(!audit_text.contains(&session.session_id));
+        assert!(!audit_text.contains(&session.lease));
 
         let different_grant = format!("cu1_{}", "7".repeat(64));
         let conflict = Executor::new(Authorization::new(BTreeSet::new()))
@@ -1569,7 +1610,7 @@ mod tests {
             CuError::new("history_commit_failed", "injected")
                 .with_detail(serde_json::json!({ "effect": "rolled_back" })),
         );
-        Executor::audit_after(&mut audit, &command, &reply).expect("audit outcome");
+        Executor::audit_after(&mut audit, &command, None, &reply).expect("audit outcome");
         let record: serde_json::Value =
             serde_json::from_str(std::fs::read_to_string(&path).expect("read audit").trim())
                 .expect("audit JSON");
@@ -1606,7 +1647,7 @@ mod tests {
                 "cleanup": "root-exited",
             }),
         );
-        Executor::audit_after(&mut audit, &command, &reply).expect("audit outcome");
+        Executor::audit_after(&mut audit, &command, None, &reply).expect("audit outcome");
         let text = std::fs::read_to_string(&path).expect("read audit");
         assert!(!text.contains("private-command-material"));
         assert!(!text.contains("private-stdout-material"));
@@ -1648,7 +1689,7 @@ mod tests {
                 "verified": true
             }),
         );
-        Executor::audit_after(&mut audit, &command, &reply).expect("audit outcome");
+        Executor::audit_after(&mut audit, &command, None, &reply).expect("audit outcome");
         let text = std::fs::read_to_string(&path).expect("read audit");
         for private in [
             "private-session-lease",
@@ -1732,7 +1773,7 @@ mod tests {
                 "verified": true
             }),
         );
-        Executor::audit_after(&mut audit, &command, &reply).expect("audit outcome");
+        Executor::audit_after(&mut audit, &command, None, &reply).expect("audit outcome");
         let text = std::fs::read_to_string(&path).expect("read audit");
         for private in [
             "private-request",
@@ -1781,7 +1822,7 @@ mod tests {
                 "verified": true
             }),
         );
-        Executor::audit_after(&mut audit, &command, &reply).expect("audit outcome");
+        Executor::audit_after(&mut audit, &command, None, &reply).expect("audit outcome");
         let text = std::fs::read_to_string(&path).expect("read audit");
         for private in [
             "private-frame",
@@ -1826,7 +1867,7 @@ mod tests {
                 "lease_redacted": true,
             }),
         );
-        Executor::audit_after(&mut audit, &command, &reply).expect("audit outcome");
+        Executor::audit_after(&mut audit, &command, None, &reply).expect("audit outcome");
         let text = std::fs::read_to_string(&path).expect("read audit");
         assert!(!text.contains("private-lease-material"));
         assert!(!text.contains("cHJpdmF0ZS1kZXZpY2UtcGF5bG9hZA=="));

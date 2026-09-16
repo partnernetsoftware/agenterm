@@ -5838,6 +5838,12 @@ shape-specific id produced by a command is accepted at issuance, every
 discoverable id is accepted, and split base verbs are not accidentally
 grantable.
 
+For durable request/audit correlation, pass only the already-validated bounded
+request id into that audit writer. Never pass the enclosing request-identity
+object: correlation rows must not inherit its session id or lease. Add
+correlation fields as optional JSONL members so old records stay readable, and
+make an exact query filter ignore older rows that lack the field.
+
 ## Bracket native process inventories and preserve native bytes
 
 Process-local inventories such as file descriptors, memory maps and threads

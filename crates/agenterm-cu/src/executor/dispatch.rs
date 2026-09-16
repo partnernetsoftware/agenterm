@@ -222,6 +222,7 @@ impl Executor {
                 &mut self.open_receipts(command.target())?,
             ),
             Command::AuditQuery {
+                request_id_filter,
                 verb_filter,
                 outcome,
                 since_ms,
@@ -231,6 +232,7 @@ impl Executor {
                 byte_max,
                 ..
             } => self.query_audit(audit::AuditQuery {
+                request_id: request_id_filter.as_deref(),
                 verb: verb_filter.as_deref(),
                 outcome: outcome.as_deref(),
                 since_ms: *since_ms,

@@ -32,6 +32,10 @@ struct AuditRecord<'a> {
     target_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     grant_id: Option<&'a str>,
+    // Exact caller id for joining the request ledger. The audit API accepts
+    // this narrow field so session identity and lease material cannot follow.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_id: Option<&'a str>,
     outcome: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     detail: Option<serde_json::Value>,
@@ -64,6 +68,7 @@ const RETENTION_SOURCE_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone, Debug, Default)]
 pub struct AuditQuery<'a> {
+    pub request_id: Option<&'a str>,
     pub verb: Option<&'a str>,
     pub outcome: Option<&'a str>,
     pub since_ms: Option<u128>,
@@ -139,6 +144,7 @@ impl AuditLog {
         command: &Command,
         grant: Grant,
         outcome: &str,
+        request_id: Option<&str>,
         detail: Option<serde_json::Value>,
     ) -> Result<(), CuError> {
         let record = AuditRecord {
@@ -158,6 +164,7 @@ impl AuditLog {
             decision_id: None,
             target_id: None,
             grant_id: None,
+            request_id,
             outcome,
             detail,
         };
@@ -173,6 +180,7 @@ impl AuditLog {
         decision_id: &str,
         target_id: &str,
         grant_id: &str,
+        request_id: Option<&str>,
         decision: &str,
         outcome: &str,
         detail: Option<serde_json::Value>,
@@ -194,6 +202,7 @@ impl AuditLog {
             decision_id: Some(decision_id),
             target_id: Some(target_id),
             grant_id: Some(grant_id),
+            request_id,
             outcome,
             detail,
         };
@@ -526,6 +535,14 @@ pub fn query(query: AuditQuery<'_>) -> Result<serde_json::Value, CuError> {
 }
 
 pub(crate) fn query_at(path: &Path, query: AuditQuery<'_>) -> Result<serde_json::Value, CuError> {
+    if let Some(request_id) = query.request_id
+        && !valid_request_id(request_id)
+    {
+        return Err(CuError::new(
+            "invalid_input",
+            "--request-id-filter must be 1..=128 ASCII token bytes",
+        ));
+    }
     let offset = bounded("--offset", query.offset.unwrap_or(0), 0, 100_000)?;
     let max = bounded(
         "--max",
@@ -630,13 +647,17 @@ pub(crate) fn query_at(path: &Path, query: AuditQuery<'_>) -> Result<serde_json:
                 continue;
             }
         };
-        if query.verb.is_some_and(|needle| {
-            !value["verb"]
-                .as_str()
-                .is_some_and(|verb| verb.contains(needle))
-        }) || query
-            .outcome
-            .is_some_and(|outcome| value["outcome"].as_str() != Some(outcome))
+        if query
+            .request_id
+            .is_some_and(|request_id| value["request_id"].as_str() != Some(request_id))
+            || query.verb.is_some_and(|needle| {
+                !value["verb"]
+                    .as_str()
+                    .is_some_and(|verb| verb.contains(needle))
+            })
+            || query
+                .outcome
+                .is_some_and(|outcome| value["outcome"].as_str() != Some(outcome))
             || query.since_ms.is_some_and(|since| {
                 value["ts_ms"]
                     .as_u64()
@@ -679,6 +700,14 @@ fn bounded(name: &str, value: usize, min: usize, max: usize) -> Result<usize, Cu
     Ok(value)
 }
 
+fn valid_request_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn query_reply(
     path: &Path,
@@ -703,7 +732,12 @@ fn query_reply(
     serde_json::json!({
         "addressing": "append-only-audit-jsonl",
         "path": path,
-        "filter": { "verb": query.verb, "outcome": query.outcome, "since_ms": query.since_ms },
+        "filter": {
+            "request_id": query.request_id,
+            "verb": query.verb,
+            "outcome": query.outcome,
+            "since_ms": query.since_ms,
+        },
         "offset": offset,
         "max": max,
         "scan_max": scan_max,
@@ -828,6 +862,7 @@ mod tests {
                 Grant::Actuate,
                 "attempt",
                 None,
+                None,
             )
             .expect("attempt record");
         audit
@@ -836,6 +871,7 @@ mod tests {
                 &command(),
                 Grant::Actuate,
                 "ok",
+                None,
                 Some(serde_json::json!({"result": "placed"})),
             )
             .expect("outcome record");
@@ -865,6 +901,7 @@ mod tests {
                 Grant::Actuate,
                 "attempt",
                 None,
+                None,
             )
             .expect_err("append failure must fail closed");
         assert_eq!(error.code, "audit_unavailable");
@@ -885,6 +922,7 @@ mod tests {
                 Grant::Actuate,
                 "attempt",
                 None,
+                None,
             )
             .expect_err("flush failure must fail closed");
         assert_eq!(error.code, "audit_unavailable");
@@ -904,6 +942,7 @@ mod tests {
                     &command(),
                     Grant::Actuate,
                     outcome,
+                    None,
                     Some(serde_json::json!({"marker": marker})),
                 )
                 .expect("audit record");
@@ -963,6 +1002,59 @@ mod tests {
     }
 
     #[test]
+    fn request_id_is_optional_exact_and_bounded_for_correlation() {
+        let path = scratch_path("request-correlation");
+        let mut audit = AuditLog::open_at(&path).expect("open isolated audit");
+        for request_id in [Some("request.one"), Some("request.two"), None] {
+            audit
+                .record_actuation(
+                    TargetRef::Current,
+                    &command(),
+                    Grant::Actuate,
+                    "ok",
+                    request_id,
+                    None,
+                )
+                .expect("audit record");
+        }
+        drop(audit);
+
+        let matched = query_at(
+            &path,
+            AuditQuery {
+                request_id: Some("request.one"),
+                ..AuditQuery::default()
+            },
+        )
+        .expect("request query");
+        assert_eq!(matched["matched"], 1);
+        assert_eq!(matched["records"][0]["request_id"], "request.one");
+        assert_eq!(matched["filter"]["request_id"], "request.one");
+
+        let absent = query_at(
+            &path,
+            AuditQuery {
+                request_id: Some("request.missing"),
+                ..AuditQuery::default()
+            },
+        )
+        .expect("missing request query");
+        assert_eq!(absent["matched"], 0);
+        assert_eq!(absent["records"], serde_json::json!([]));
+
+        let invalid = query_at(
+            &path,
+            AuditQuery {
+                request_id: Some("bad request"),
+                ..AuditQuery::default()
+            },
+        )
+        .expect_err("request filter uses the public identity grammar");
+        assert_eq!(invalid.code, "invalid_input");
+        remove_scratch(&path);
+    }
+
+    #[test]
     fn retention_plan_is_read_only_and_apply_is_bounded_atomic() {
         let path = scratch_path("retention");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -1008,7 +1100,14 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap().lines().count(), 100);
 
         stale_handle
-            .record_actuation(TargetRef::Current, &command(), Grant::Actuate, "ok", None)
+            .record_actuation(
+                TargetRef::Current,
+                &command(),
+                Grant::Actuate,
+                "ok",
+                None,
+                None,
+            )
             .expect("append reopens atomically replaced path");
         assert_eq!(std::fs::read_to_string(&path).unwrap().lines().count(), 101);
         remove_scratch(&path);
@@ -1050,6 +1149,7 @@ mod tests {
                             &command(),
                             Grant::Actuate,
                             "ok",
+                            None,
                             Some(serde_json::json!({ "worker": worker, "sequence": sequence })),
                         )
                         .expect("serialized append");
