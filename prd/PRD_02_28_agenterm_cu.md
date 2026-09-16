@@ -497,6 +497,21 @@ mechanisms remain behind the `libagenterm` runtime boundary.
   binds its exact CU digest, and distinguishes cleaned owned-ephemeral effects
   from persistent machine mutation. Linux, Windows and one exact six-cell
   Candidate aggregate remain unproved until the workflow actually runs.
+  A single local replay of that journey on the `570e062f` worktree (macOS arm64,
+  `agenterm cli script task run cu-setup-cli-smoke`) exited 0 in three seconds
+  with all four steps green and `EVIDENCE cu.setup-cli-entrypoint`: check is
+  zero-write, apply publishes once and a repeated apply leaves the launcher's
+  sha256 unchanged, the launcher forwards the exact source binary's `--version`,
+  and a foreign entry is refused with its bytes preserved. It also showed three
+  things the claim above does not state: the journey's own run directory under
+  `target/smoke/test-runs/` is removed on success, so it leaves no failure
+  bundle; the real `~/.local/bin` is never touched, because the court redirects
+  `--bin-dir` into that run directory; and this two-argument local form writes
+  **no** per-cell receipt -- the receipt belongs to the four-argument six-cell
+  form, so its absence here is the shape of the call, not missing evidence.
+  This is a replay of the arm64 claim above rather than a new proof: the
+  combined Linux/macOS apply qualification, the six-cell aggregate and a
+  Candidate remain unproved until the workflow actually runs.
   Runtime refresh follows ACU's real on-demand architecture instead of
   recreating MCU's global daemon: setup apply and resident job admission share
   one stable fence; check remains zero-write; an idle refresh aligns future
