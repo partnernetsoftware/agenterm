@@ -181,7 +181,7 @@ pub fn capabilities() -> McpCapabilities {
             McpUnavailableRole {
                 stable_id: "tool.control",
                 availability: McpAvailability::Deferred,
-                reason: "mutation awaits target-bound authorization and native courts",
+                reason: "mutation awaits packaged six-cell native courts",
             },
             McpUnavailableRole {
                 stable_id: "role.client-federation",
@@ -306,7 +306,8 @@ fn print_help() {
          \n\
          The stdio lifecycle, metadata-safe Fleet resources, a bounded\n\
          read-only wait tool, and agenterm-cu capability/observation tools are shipped.\n\
-         No network listener or mutation tool is available."
+         No network listener is available. Mutation remains absent from discovery,\n\
+         requires a persisted target grant, and awaits packaged native courts."
     );
 }
 
@@ -328,6 +329,15 @@ mod tests {
         assert_eq!(catalog.tools[1].name, "agenterm_acu_capabilities");
         assert_eq!(catalog.tools[2].name, "agenterm_acu_observe");
         assert!(catalog.tools.iter().all(|tool| tool.read_only));
+        let control = catalog
+            .unavailable_roles
+            .iter()
+            .find(|role| role.stable_id == "tool.control")
+            .expect("control role remains explicitly deferred");
+        assert_eq!(
+            control.reason,
+            "mutation awaits packaged six-cell native courts"
+        );
         assert!(catalog.limits.frame_bytes > 0);
         assert!(catalog.limits.resource_bytes <= catalog.limits.response_bytes);
         assert!(catalog.limits.resource_items > 0);

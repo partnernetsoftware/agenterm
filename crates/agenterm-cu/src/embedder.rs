@@ -6,6 +6,8 @@
 //! CLI parser / [`Executor`] path; it is not a second dispatcher and never
 //! shells out.
 
+use std::path::PathBuf;
+
 use crate::{Authorization, Command, CuError, CuReply, Executor, Grant, RequestIdentity};
 
 /// Version of the closed in-process request envelope.
@@ -24,7 +26,7 @@ pub const MCP_CAPABILITIES_TOOL_JSON: &str = include_str!("../contract/mcp-capab
 pub const MCP_OBSERVE_TOOL_JSON: &str = include_str!("../contract/mcp-observe-tool.json");
 
 /// MCP descriptor for the first bounded mutation. The MCP transport keeps it
-/// unadvertised until its connection-owned session and shutdown court pass.
+/// unadvertised until the packaged six-cell native court passes.
 pub const MCP_SHELL_EXEC_TOOL_JSON: &str = include_str!("../contract/mcp-shell-exec-tool.json");
 
 /// MCP-facing effect classification.
@@ -481,7 +483,7 @@ fn execute_identity_bound_command_from_environment(
         Ok(identity) => identity,
         Err(message) => return malformed_request(message),
     };
-    execute_command_with_identity_from_environment(&command, identity)
+    execute_command_with_identity_from_persisted_environment(&command, identity)
 }
 
 fn strict_request_identity(value: &serde_json::Value) -> Result<RequestIdentity, String> {
@@ -622,23 +624,108 @@ fn execute_command_from_environment_controlled(
     execute_command_controlled(&executor, command, control)
 }
 
-fn execute_command_with_identity_from_environment(
+fn execute_command_with_identity_from_persisted_environment(
     command: &Command,
     identity: RequestIdentity,
 ) -> CuReply {
-    let executor = match executor_from_environment(command) {
+    let executor = match persisted_executor_from_environment(command) {
         Ok(executor) => executor.with_request_identity(identity),
         Err(reply) => return *reply,
     };
     execute_command(&executor, command)
 }
 
-fn executor_from_environment(command: &Command) -> Result<Executor, Box<CuReply>> {
+fn persisted_executor_from_environment(command: &Command) -> Result<Executor, Box<CuReply>> {
+    // The ambient grant, when present, owns only the private session-start/end
+    // commands. Identity-bound effects deliberately ignore it and require this
+    // separate operation-bound persisted selector.
+    let grant_id = std::env::var("AGENTERM_CU_GRANT_ID").ok();
+    let grant_store = std::env::var_os("AGENTERM_CU_GRANT_STORE").map(PathBuf::from);
     let mut unsupported = false;
     for (key, _) in std::env::vars_os() {
         let Some(key) = key.to_str() else { continue };
         if crate::auth::is_reserved_authority_env(key)
+            && !key.eq_ignore_ascii_case("AGENTERM_CU_GRANT_ID")
+            && !key.eq_ignore_ascii_case("AGENTERM_CU_GRANT_STORE")
             && !key.eq_ignore_ascii_case("AGENTERM_CU_GRANT")
+        {
+            unsupported = true;
+        }
+    }
+    persisted_executor_from_sources(command, grant_id.as_deref(), grant_store, unsupported)
+}
+
+fn persisted_executor_from_sources(
+    command: &Command,
+    grant_id: Option<&str>,
+    grant_store: Option<PathBuf>,
+    unsupported_authority_environment: bool,
+) -> Result<Executor, Box<CuReply>> {
+    if unsupported_authority_environment {
+        return Err(Box::new(CuReply::err(
+            command,
+            CuError::new(
+                "invalid_authorization",
+                "unsupported authorization environment selector is present",
+            ),
+        )));
+    }
+    let Some(grant_id) = grant_id else {
+        let (code, message) = if grant_store.is_some() {
+            (
+                "invalid_authorization",
+                "AGENTERM_CU_GRANT_STORE requires AGENTERM_CU_GRANT_ID",
+            )
+        } else {
+            (
+                "persisted_grant_required",
+                "MCP mutations require a persisted target-bound grant",
+            )
+        };
+        return Err(Box::new(CuReply::err(command, CuError::new(code, message))));
+    };
+    if !crate::grant_management::valid_grant_id(grant_id) {
+        return Err(Box::new(CuReply::err(
+            command,
+            CuError::new("invalid_authorization", "persisted grant id is invalid"),
+        )));
+    }
+    if grant_store
+        .as_ref()
+        .is_some_and(|path| path.as_os_str().is_empty())
+    {
+        return Err(Box::new(CuReply::err(
+            command,
+            CuError::new(
+                "invalid_authorization",
+                "persisted grant store path is empty",
+            ),
+        )));
+    }
+    let store_path = match grant_store.map_or_else(crate::auth_store::AuthStore::default_path, Ok) {
+        Ok(path) => path,
+        Err(_) => {
+            return Err(Box::new(CuReply::err(
+                command,
+                CuError::new("grant_store_unavailable", "grant store is unavailable"),
+            )));
+        }
+    };
+    Ok(Executor::new(Authorization::new(Default::default()))
+        .with_persisted_grant(grant_id, store_path))
+}
+
+fn executor_from_environment(command: &Command) -> Result<Executor, Box<CuReply>> {
+    let mut unsupported = false;
+    for (key, _) in std::env::vars_os() {
+        let Some(key) = key.to_str() else { continue };
+        // Persisted selectors are consumed only by identity-bound effects.
+        // Session lifecycle and read-only calls may coexist with them but can
+        // derive no authority from them here.
+        if crate::auth::is_reserved_authority_env(key)
+            && !key.eq_ignore_ascii_case("AGENTERM_CU_GRANT")
+            && !key.eq_ignore_ascii_case("AGENTERM_CU_GRANT_ID")
+            && !key.eq_ignore_ascii_case("AGENTERM_CU_GRANT_STORE")
         {
             unsupported = true;
         }
@@ -1042,5 +1129,71 @@ mod tests {
             assert!(!error.contains("bearer secret"), "{encoded}: {error}");
             assert!(!error.contains("lease.one-two"), "{encoded}: {error}");
         }
+    }
+
+    #[test]
+    fn identity_bound_mutation_requires_one_valid_persisted_grant_source() {
+        let command: Command = serde_json::from_value(serde_json::json!({
+            "verb": "shell-exec",
+            "target": "current",
+            "command": "echo bounded",
+            "timeout_ms": 1_000,
+            "max_output_bytes": 4_096
+        }))
+        .expect("canonical shell command");
+        let code = |result: Result<Executor, Box<CuReply>>| match result {
+            Ok(_) => panic!("authorization source must be refused"),
+            Err(reply) => reply.error.expect("typed refusal").code,
+        };
+
+        assert_eq!(
+            code(persisted_executor_from_sources(&command, None, None, false)),
+            "persisted_grant_required"
+        );
+        assert_eq!(
+            code(persisted_executor_from_sources(
+                &command,
+                None,
+                Some(PathBuf::from("target/fixture-grants.json")),
+                false,
+            )),
+            "invalid_authorization"
+        );
+        assert_eq!(
+            code(persisted_executor_from_sources(
+                &command,
+                Some(&format!("cu1_{}", "a".repeat(64))),
+                Some(PathBuf::new()),
+                false,
+            )),
+            "invalid_authorization"
+        );
+        assert_eq!(
+            code(persisted_executor_from_sources(
+                &command,
+                Some("not-a-grant-id"),
+                None,
+                false,
+            )),
+            "invalid_authorization"
+        );
+        assert_eq!(
+            code(persisted_executor_from_sources(
+                &command,
+                Some(&format!("cu1_{}", "a".repeat(64))),
+                None,
+                true,
+            )),
+            "invalid_authorization"
+        );
+        assert!(
+            persisted_executor_from_sources(
+                &command,
+                Some(&format!("cu1_{}", "b".repeat(64))),
+                Some(PathBuf::from("target/fixture-grants.json")),
+                false,
+            )
+            .is_ok()
+        );
     }
 }

@@ -230,9 +230,12 @@ queueing is deterministic, and output disconnect is reported only after
 session cleanup. A stdout-only disconnect now stops admission at the first
 failed write, cancels queued work, waits for the dispatched provider call and
 attempts exactly one session-end while stdin remains open; tests no longer
-hide this path behind simultaneous EOF. It remains unadvertised until
-persisted target-bound authorization, lease renewal and packaged six-cell
-interactive stdio execution are green. The executor composition kernel now
+hide this path behind simultaneous EOF. It remains unadvertised until packaged
+six-cell interactive stdio execution is green; the fixed 3,600-second lease is
+the bounded product contract, not a renewal placeholder. Persisted target-bound
+authorization now admits only the reserved grant-id/store
+selectors on the identity-bound mutation path; ambient authority can open the
+private session but cannot authorize its effect. The executor composition kernel
 reserves the durable request before consuming a persisted grant, binds the
 request fingerprint to that grant selection and preserves session-owned
 dispatch context. Provider envelope and sidecar configuration remain

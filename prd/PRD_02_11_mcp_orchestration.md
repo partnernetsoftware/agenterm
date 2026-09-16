@@ -220,7 +220,8 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
     - [x] transport identity and effect identity stay separate: JSON-RPC `id`
       locates one active call/cancellation, while a public non-secret
       `idempotency_key` becomes the durable `RequestIdentity.request_id`
-    - [~] first implementation knife remains internal and unadvertised:
+    - [~] first implementation knife remains unadvertised; direct calls are
+      admitted only through the persisted target-grant provider path:
       queued cancellation proves zero provider call/reservation/effect;
       cancellation after dispatch never overwrites the authoritative
       `CuReply`; EOF drains bounded dispatched work, ends the owned session and
@@ -229,8 +230,13 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
         separate JSON-RPC/idempotency identities, queued zero-effect cancel,
         authoritative post-dispatch completion, `outcome_unknown`, and explicit
         EOF → session-end → ended ordering without exposing the lease
-      - [ ] wire the model to the fixed-sibling provider and real session
-        start/end calls before any mutation descriptor enters `tools/list`
+      - [x] wire the model to the fixed-sibling provider and real session
+        start/end calls without entering any mutation descriptor in `tools/list`
+      - [x] keep private session authority separate from effect authority:
+        `AGENTERM_CU_GRANT` may open and close the connection-owned session,
+        while the identity-bound effect ignores it and requires the existing
+        operation-bound `AGENTERM_CU_GRANT_ID` plus optional store selector;
+        reservation, audit and target-binding revalidation stay in the one Executor
     - [ ] only canonical commands with a product-owned execution deadline may
       enter the synchronous provider. Provider loss after dispatch is
       `outcome_unknown` and the durable reservation forbids automatic replay;

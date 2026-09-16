@@ -9,7 +9,10 @@
 //   AGENTERM_LAUNCHER ACU_PROVIDER
 import * as rh from "lib/rh_compat";
 
-const evidence_ids = ["acu.mcp-provider-capabilities", "acu.mcp-provider-observe"];
+const evidence_ids = [
+  "acu.mcp-provider-capabilities",
+  "acu.mcp-provider-observe"
+];
 
 function require_ok(condition, message) {
   if (!condition) { throw message; }
@@ -196,11 +199,15 @@ function initialized_input() {
 }
 
 function exchange(input) {
+  return exchange_with_grant(input, "observe");
+}
+
+function exchange_with_grant(input, grant) {
   const output = rh.command(
     launcher,
     ["cli", "mcp", "serve", "--stdio"],
     {
-      env: { AGENTERM_CU_GRANT: "observe", AGENTERM_NO_ACTIVATE: "1" },
+      env: { AGENTERM_CU_GRANT: grant, AGENTERM_NO_ACTIVATE: "1" },
       stdin: input,
       timeout_ms: 30000
     }
@@ -272,9 +279,23 @@ for (const reply of exchange(
 )) {
   if (reply.id !== "initialize") { responses.push(reply); }
 }
+for (const reply of exchange_with_grant(
+  initialized_input() + request("mutation-without-persisted-grant", "tools/call", {
+    name: "agenterm_acu_shell_exec",
+    arguments: {
+      idempotency_key: "mcp-smoke:must-not-run",
+      command: "exit 99",
+      timeout_ms: 1000,
+      max_output_bytes: 4096
+    }
+  }),
+  "actuate"
+)) {
+  if (reply.id === "mutation-without-persisted-grant") { responses.push(reply); }
+}
 const response_ids = [];
 for (const response of responses) { response_ids.push("" + response.id); }
-require_ok(responses.length === 9,
+require_ok(responses.length === 10,
            "acu_mcp_response_count:" + responses.length + ":" + response_ids.join(","));
 
 const initialized = response_with_id(responses, "initialize");
@@ -356,6 +377,16 @@ require_ok(exact_keys(extra_reply, ["ok", "target", "command", "error"])
 require_ok(extra_reply.error.message
              === "agenterm_acu_capabilities arguments must be an empty object",
            "acu_mcp_extra_argument_diagnostic");
+
+const mutation = response_with_id(responses, "mutation-without-persisted-grant");
+require_ok(mutation.result.isError === true,
+           "acu_mcp_mutation_without_persisted_grant_false_success");
+const mutation_reply = mutation.result.structuredContent;
+require_ok(mutation_reply.ok === false
+             && mutation_reply.command === "shell-exec"
+             && mutation_reply.error.code === "persisted_grant_required",
+           "acu_mcp_mutation_without_persisted_grant_not_refused:"
+             + JSON.stringify(mutation_reply));
 
 for (const id of evidence_ids) { print("EVIDENCE " + id); }
 print("PASS: MCP stdio executed fixed-sibling ACU capabilities and generic observation with closed schema refusals");

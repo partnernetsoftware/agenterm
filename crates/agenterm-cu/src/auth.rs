@@ -139,6 +139,7 @@ pub(crate) fn clear_reserved_authority_environment(command: &mut std::process::C
     for key in [
         "AGENTERM_CU_GRANT",
         "AGENTERM_CU_GRANT_ID",
+        "AGENTERM_CU_GRANT_STORE",
         "AGENTERM_CU_AUTH",
         "AGENTERM_CU_AUTH_PROVIDER",
     ] {

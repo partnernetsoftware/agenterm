@@ -6236,6 +6236,15 @@ is consumed even when the mechanism fails. Pass the original session-owned
 request context through authorized dispatch; do not silently drop job/device
 ownership merely because authorization moved into a helper.
 
+If an in-process provider also owns a private runtime session, keep its two
+authorities disjoint. An ambient grant may authorize only session start/end;
+the identity-bound effect path must ignore that grant and require its own
+operation-bound persisted grant. Both selectors may coexist in one provider
+process because they authorize different commands, but the ambient session
+grant must never become a fallback for the effect. This preserves a closed
+versioned envelope while still making an env-only mutation fail before native
+dispatch.
+
 Canonical JSON is not validated merely because Serde can deserialize and
 round-trip it. Any bound enforced by a CLI parser must also live in
 `Command::validate` (preferably through shared constants), and the common

@@ -402,7 +402,10 @@ pub fn serve_stdio_with_config<R: BufRead + Send + 'static, W: Write>(
     output: W,
     config: McpStdioConfig,
 ) -> io::Result<()> {
-    serve_stdio_core(input, output, config, NativeAcuProvider, false)
+    // Persisted authorization fails closed inside the provider before any
+    // effect, so the packaged sidecar may accept an explicitly named mutation
+    // before native courts promote its descriptor into tools/list.
+    serve_stdio_core(input, output, config, NativeAcuProvider, true, false)
 }
 
 #[doc(hidden)]
@@ -416,7 +419,7 @@ pub fn serve_stdio_with_config_and_provider<
     config: McpStdioConfig,
     provider: P,
 ) -> io::Result<()> {
-    serve_stdio_core(input, output, config, provider, true)
+    serve_stdio_core(input, output, config, provider, true, true)
 }
 
 fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
@@ -424,7 +427,8 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
     output: W,
     config: McpStdioConfig,
     acu_provider: P,
-    mutation_enabled: bool,
+    mutation_dispatch_enabled: bool,
+    mutation_advertised: bool,
 ) -> io::Result<()> {
     let mut output = CleanupWriter::new(output);
     let limit = capabilities().limits.frame_bytes as usize;
@@ -516,7 +520,7 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
                     handle_mutation_cancel(&message, &mut mutation, &mut output)?;
                     continue;
                 }
-                if mutation_enabled
+                if mutation_dispatch_enabled
                     && state == SessionState::Ready
                     && is_shell_exec_tool_call(&message)
                 {
@@ -549,7 +553,7 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
                     message,
                     &mut state,
                     &config,
-                    mutation_enabled,
+                    mutation_advertised,
                     &provider_client,
                 ) {
                     write_message(&mut output, &response)?;
@@ -1915,7 +1919,7 @@ fn process_message(
                     "instructions": if mutation_enabled {
                         "Read metadata-safe Fleet resources, wait for one bounded Fleet event, inspect agenterm-cu, or exercise the internal bounded mutation court."
                     } else {
-                        "Read metadata-safe Fleet resources, wait for one bounded Fleet event, or inspect agenterm-cu. Mutation tools remain unavailable."
+                        "Read metadata-safe Fleet resources, wait for one bounded Fleet event, or inspect agenterm-cu. Mutation stays absent from discovery, requires a persisted target grant, and awaits packaged native courts."
                     }
                 }),
             ))
@@ -2639,6 +2643,7 @@ mod tests {
                 McpStdioConfig::default(),
                 move |request: &str| provider.call(request),
                 true,
+                true,
             );
             done_sender.send(result).expect("report MCP worker result");
         });
@@ -2867,7 +2872,7 @@ mod tests {
     }
 
     #[test]
-    fn production_stdio_refuses_the_unadvertised_mutation_without_provider_dispatch() {
+    fn production_stdio_validates_the_unadvertised_mutation_before_provider_dispatch() {
         let responses = exchange(concat!(
             "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":",
             "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},",
@@ -2879,7 +2884,10 @@ mod tests {
         assert_eq!(responses.len(), 2);
         assert_eq!(responses[1]["id"], 2);
         assert_eq!(responses[1]["error"]["code"], ERROR_INVALID_PARAMS);
-        assert_eq!(responses[1]["error"]["message"], "Unknown tool");
+        assert_eq!(
+            responses[1]["error"]["message"],
+            "agenterm_acu_shell_exec requires idempotency_key"
+        );
     }
 
     #[test]

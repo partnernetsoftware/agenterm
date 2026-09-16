@@ -9415,7 +9415,7 @@
     },
     {
       "id": "acu-mcp-provider-smoke",
-      "description": "Prove MCP stdio reaches fixed-sibling ACU capabilities and generic canonical-Command observation through the shared typed Executor, while unknown, malformed and actuating calls fail closed.",
+      "description": "Prove MCP stdio reaches fixed-sibling ACU capabilities and generic canonical-Command observation through the shared typed Executor, while unknown, malformed, observation-actuating and ambient-only mutation calls fail closed.",
       "entry": "scripts/qjs/acu-mcp-provider-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

@@ -269,8 +269,12 @@ mechanisms remain behind the `libagenterm` runtime boundary.
   │  │  ├─ [x] JSON-RPC id owns transport cancellation; caller idempotency key owns durable effect identity
   │  │  ├─ [x] private lease never enters public arguments/stdout; local real-provider shell exit is green
   │  │  ├─ [x] startup admits exactly 1+1 deterministically; output disconnect still drains session-end before error
-  │  │  ├─ [~] request id + persisted target grant composition remains; preserve the shipped
-  │  │  │     versioned provider envelope and fixed 3,600-second session-lease budget
+  │  │  ├─ [x] request id + persisted target grant composition preserves the shipped versioned
+  │  │  │     provider envelope and fixed 3,600-second session-lease budget: the in-process provider
+  │  │  │     accepts only `AGENTERM_CU_GRANT_ID` plus its optional store selector for identity-bound
+  │  │  │     mutation, limits any ambient grant to private session lifecycle, and consumes the
+  │  │  │     persisted operation-bound effect attempt through the existing audited/revalidated
+  │  │  │     Executor path
   │  │  └─ [ ] packaged six-cell interactive stdio mutation court; only then enter `tools/list`
   │  └─ [ ] close the remaining named dynamic sub-shapes, native courts and physical reference archive
   │  ├─ calls the public agenterm:acu object

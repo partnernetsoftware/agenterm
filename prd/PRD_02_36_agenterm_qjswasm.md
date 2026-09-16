@@ -270,7 +270,8 @@ agenterm-qjswasm
 │  │  ├─ [~] MCP consumes the same adapter: capabilities + canonical observation are public; bounded shell mutation stays internal
 │  │  │  ├─ lazy connection session; one dispatched + one queued; queued cancel is zero-provider/zero-effect
 │  │  │  ├─ dispatched cancel preserves authoritative CuReply; EOF drains, suppresses output and ends once
-│  │  │  └─ fake lifecycle + local provider effect green; target-bound authorization and packaged six-cell court pending
+│  │  │  └─ fake lifecycle + local provider effect + persisted target-bound authorization green;
+│  │  │     packaged six-cell court remains pending
 │  │  ├─ [x] check-many resolves the same non-shadowable built-in module as execution
 │  │  ├─ [x] bootstrap worker identity covers the complete embedded `skills/acu` module closure and production assets
 │  │  │  ├─ tracked, dirty and untracked bytes all invalidate the worker; imported `.qjs` cannot execute stale code
