@@ -45,6 +45,30 @@ pub(crate) enum Convention {
     JsV1,
 }
 
+/// Decode-item ceiling for the QJS artifacts this product compiles and
+/// verifies itself.
+///
+/// The product's own closure (entry plus every reserved module) needs more
+/// than tinyvm's default 262,144 decode items once the expression-depth
+/// instrumentation is published. Every *other* guest -- a hand-written
+/// module, a third-party `.wasm`, the host door's own declaration probe --
+/// keeps the default.
+pub(crate) const QJS_ARTIFACT_MAX_DECODE_ITEMS: usize = 524_288;
+
+/// The load-time [`tinyvm::Limits`] for one guest kind.
+///
+/// This is the single place that decides the decode ceiling: the product's
+/// compiled `.qjs` artifacts get [`QJS_ARTIFACT_MAX_DECODE_ITEMS`], and every
+/// other guest keeps whatever `budget` already carries (tinyvm's default
+/// unless an embedder chose otherwise).
+pub(crate) fn artifact_limits(budget: &Budget, convention: Convention) -> tinyvm::Limits {
+    let mut limits = budget.limits;
+    if convention == Convention::JsV1 {
+        limits.max_decode_items = QJS_ARTIFACT_MAX_DECODE_ITEMS;
+    }
+    limits
+}
+
 pub(crate) struct Slot {
     instance: tinyvm::WasmInstance,
     /// Kept alive for the lifetime of the slot: the door's closures share this
@@ -113,8 +137,9 @@ impl Slot {
         native_door: bool,
         libraries: Rc<NativeLibraryCache>,
     ) -> Result<Self, QjswasmError> {
-        let mut module = tinyvm::WasmModule::from_bytes_explained(bytes, budget.limits)
-            .map_err(QjswasmError::from_load)?;
+        let mut module =
+            tinyvm::WasmModule::from_bytes_explained(bytes, artifact_limits(budget, convention))
+                .map_err(QjswasmError::from_load)?;
         if module.imports().iter().any(|desc| {
             desc.module == tinyvm_qjs::RUNTIME_LIMIT_MODULE
                 && desc.field == tinyvm_qjs::COLLECTION_ITEMS_LIMIT_IMPORT
@@ -824,5 +849,65 @@ fn from_val(value: tinyvm::Val) -> Result<Value, QjswasmError> {
         _ => Err(QjswasmError::UnsupportedValue(
             "export returned a reference or vector value type",
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_product_artifact_ceiling_is_larger_than_the_generic_default() {
+        let budget = Budget::default();
+
+        // The product's own compiled `.qjs` artifacts get the larger ceiling.
+        assert_eq!(
+            artifact_limits(&budget, Convention::JsV1).max_decode_items,
+            524_288
+        );
+
+        // A hand-written / raw guest keeps tinyvm's default, and so does the
+        // budget itself: this leaf must not widen the generic boundary.
+        assert_eq!(
+            artifact_limits(&budget, Convention::Wasm).max_decode_items,
+            tinyvm::Limits::default().max_decode_items
+        );
+        assert_eq!(
+            budget.limits.max_decode_items,
+            tinyvm::Limits::default().max_decode_items
+        );
+        assert_eq!(tinyvm::Limits::default().max_decode_items, 262_144);
+    }
+
+    #[test]
+    fn every_other_budget_field_survives_the_convention_split() {
+        let budget = Budget {
+            limits: tinyvm::Limits {
+                max_decode_items: 1024,
+                ..tinyvm::Limits::default()
+            },
+            ..Budget::default()
+        };
+
+        // An embedder's explicit choice is respected for raw guests ...
+        assert_eq!(
+            artifact_limits(&budget, Convention::Wasm).max_decode_items,
+            1024
+        );
+        // ... and the product path still raises it to its own ceiling.
+        assert_eq!(
+            artifact_limits(&budget, Convention::JsV1).max_decode_items,
+            524_288
+        );
+        // Nothing else moved.
+        let generic = artifact_limits(&budget, Convention::Wasm);
+        assert_eq!(generic.max_steps, budget.limits.max_steps);
+        assert_eq!(generic.max_memory_pages, budget.limits.max_memory_pages);
+        assert_eq!(generic.max_table_elems, budget.limits.max_table_elems);
+        assert_eq!(generic.max_call_depth, budget.limits.max_call_depth);
+        assert_eq!(
+            generic.max_activation_slots,
+            budget.limits.max_activation_slots
+        );
     }
 }

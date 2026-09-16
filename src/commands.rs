@@ -687,6 +687,7 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
                 "--profile",
                 "--timeout-ms",
                 "--max-operations",
+                "--max-expression-depth",
                 "--max-collection-items",
                 "--max-string-bytes",
                 "--max-output-bytes",

@@ -16,7 +16,7 @@
 //! specifier string our callback was asked for. This crate's callback is
 //! `&dyn Fn(&str) -> Option<String>` -- a specifier in, source text out -- with
 //! no identity, budget, deadline or cancellation channel, and that signature
-//! is pinned upstream (`tinyvm-qjs`, rev `9805985`). So the canonical cache
+//! is pinned upstream (`tinyvm-qjs`, rev `6b07440`). So the canonical cache
 //! below changes **reading and charging**: the second specifier that lands on
 //! the same file is served from the cache and is not charged twice. It does
 //! **not** make the compiler evaluate that file once; the compiler still has

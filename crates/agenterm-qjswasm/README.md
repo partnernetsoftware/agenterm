@@ -39,7 +39,7 @@ AgenTerm 自己的脚本引擎。`.qjs` 用**纯 Rust** 编译成 `.wasm`，`.wa
 在本仓各骗过一次人：`%` 与 `typeof` 早已支持却还挂在拒绝表上，以及本文件曾说这个 crate
 在工作区外而它在里面。
 
-当前 pin 已前进到 `9805985`。下面逐项标明的 bitwise 与 `for...of` 又经产品入口复测；
+当前 pin 已前进到 `6b07440`。下面逐项标明的 bitwise 与 `for...of` 又经产品入口复测；
 它们不再沿用本节标题所记的旧 revision，也不能继续留在拒绝表里。未明确重测的其它行
 仍不得借这两项的结果自动升级。
 
@@ -438,9 +438,16 @@ retained child 做进程树采样，host-op 会随被测门的总墙钟线性增
 | `max_steps`（每次顶层调用） | tinyvm | 该次调用 trap，槽可回收，宿主活着 |
 | `max_memory_pages` / `max_table_elems` | tinyvm | 装载期拒绝；运行期 `grow` 失败 → `Budget("max_memory_pages")` |
 | `max_call_depth` / `max_activation_slots` | tinyvm | trap，不吃原生栈 |
+| `max_expression_depth` | tinyvm-qjs + 本 crate 注入 | 每函数活动表达式链超限 → `Budget("expression_depth")`；CLI/task 可在 1..=128 内选择 |
+| `max_collection_items` | tinyvm-qjs + 本 crate 注入 | 单个 Array 超限 → `Budget("collection_items")` |
 | `max_stdout_bytes` | 本 crate | 截断并置 `truncated_stdout`，不静默丢 |
 | `max_bridge_result_bytes` | 本 crate | 报错，**不截断**——半个 JSON 比拒绝更糟 |
 | `max_result_string_bytes` | 本 crate | 报错，**不截断**——理由同上 |
+
+解码预算按 artifact 所有权分开：AgenTerm 自己编译并验证的 `JsV1` `.qjs`
+artifact 使用 524,288 个 decode items，以容纳 expression-depth 插桩后的完整 entry 与
+reserved-module closure；手写/第三方 raw `.wasm` 以及 host-door 声明探针继续使用 tinyvm
+默认的 262,144。这个分叉不改变 `Budget::default()`，也不放宽通用 Wasm 输入边界。
 
 `max_result_string_bytes` 2026-08-25 补上，因为宿主侧原本只有两个盖子，而接缝把
 `.qjs` 返回的字符串**拷进宿主 String** 是第三块宿主分配、由客人定大小、两个盖子都不管。

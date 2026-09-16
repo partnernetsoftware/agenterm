@@ -68,7 +68,7 @@ function require_thin_shell_alias(repo, name, task) {
 
 const BUSINESS_RULES = [
   "release-fast", "stage-build", "include-stress", "package-qualified",
-  "--timeout-ms", "--max-operations", "--max-collection-items",
+  "--timeout-ms", "--max-operations", "--max-expression-depth", "--max-collection-items",
   "--max-string-bytes", "--max-output-bytes", "cargo clean", "git push", "git tag"
 ];
 

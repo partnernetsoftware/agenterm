@@ -327,7 +327,8 @@ fn script_help_text() -> &'static str {
            agenterm cli script task run TASK [--manifest PATH] [OPTIONS] [--] [ARGS...]\n\
          The entry's extension picks the engine (.qjs, .lua, .sql); \
          AGENTERM_SCRIPT_BACKEND overrides it. There is no default engine.\n\
-         Options: --profile local|tool --timeout-ms N --max-operations N --max-collection-items N \
+         Options: --profile local|tool --timeout-ms N --max-operations N --max-expression-depth N \
+         --max-collection-items N \
          --max-string-bytes N --max-output-bytes N --max-source-bytes N \
          --max-host-operations N --fixed-clock-ms N --env-allow NAME \
          --wasm-convention compiled-qjs|plain [--wasm-entry-arg TYPE:VALUE]... \
@@ -2215,6 +2216,17 @@ fn run_script_command_with_context(
             }
         }
     }
+    if let Some(value) = option_value(arguments, "--max-expression-depth") {
+        match value.parse::<usize>() {
+            Ok(value) if (1..=hard_limits.expression_depth).contains(&value) => {
+                budgets.expression_depth = value;
+            }
+            _ => {
+                cli_eprintln!("script --max-expression-depth must be from 1 to 128");
+                return 2;
+            }
+        }
+    }
     // Not a budget: a replay clock. The guest's `time.now_ms` answers this
     // origin plus its own sleeps, so a journey can be re-run against the
     // same times it read the first time.
@@ -3165,6 +3177,9 @@ fn run_resolved_script_task(arguments: &[String], task: ResolvedScriptTask) -> i
         if let Some(value) = budget.max_collection_items {
             declared_options.push(("--max-collection-items", value));
         }
+        if let Some(value) = budget.max_expression_depth {
+            declared_options.push(("--max-expression-depth", value));
+        }
         if let Some(value) = budget.max_string_bytes {
             declared_options.push(("--max-string-bytes", value));
         }
@@ -3196,11 +3211,13 @@ fn run_resolved_script_task(arguments: &[String], task: ResolvedScriptTask) -> i
             translated.push(selected.to_string());
         }
         for option in [
+            "--max-expression-depth",
             "--max-collection-items",
             "--max-string-bytes",
             "--max-host-operations",
         ] {
             let declared = match option {
+                "--max-expression-depth" => budget.max_expression_depth,
                 "--max-collection-items" => budget.max_collection_items,
                 "--max-string-bytes" => budget.max_string_bytes,
                 "--max-host-operations" => budget.max_host_operations,
@@ -3218,6 +3235,7 @@ fn run_resolved_script_task(arguments: &[String], task: ResolvedScriptTask) -> i
             "--timeout-ms",
             "--max-operations",
             "--max-output-bytes",
+            "--max-expression-depth",
             "--max-collection-items",
             "--max-string-bytes",
             "--max-host-operations",
@@ -4375,6 +4393,7 @@ fn script_operand(arguments: &[String]) -> Option<&str> {
             "--profile"
             | "--timeout-ms"
             | "--max-operations"
+            | "--max-expression-depth"
             | "--max-collection-items"
             | "--max-string-bytes"
             | "--max-output-bytes"

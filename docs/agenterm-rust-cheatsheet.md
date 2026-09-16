@@ -4507,6 +4507,15 @@ tests can be green while callbacks accumulate the caller's state. Pin direct,
 indirect and runtime-callback paths with both exact success and one-less
 refusal.
 
+A public Script budget override is one contract across several parsers. Add
+its CLI help and range check, operand skipping, command allowlist, shared
+`check-many` compatibility parser, task-contract field and hard-limit check,
+and task-to-run translation in one increment. In the task translator, keep the
+optional-field iteration and its option-to-field match exhaustive together:
+adding only the match silently skips undeclared-option handling, while adding
+only the iteration reaches `unreachable!()`. Prove the final path through both
+direct CLI audit and a real named-task invocation.
+
 Cancellation must cover construction-time guest execution as well as exported
 calls. A Wasm start section runs while a slot is being instantiated, before
 the caller can receive or cancel a published handle, so borrow the same
@@ -6729,3 +6738,15 @@ cancel flag and a real wall-clock deadline at chunk boundaries, before and after
 each potentially blocking read. Do not use the replay clock for elapsed-time
 limits. Account `host_bytes` as arguments plus the parked result crossing the
 door; bytes inspected inside the host are scan work, not bridge traffic.
+
+## Keep decoder headroom scoped to artifact ownership
+
+Compiler instrumentation can multiply Wasm decode items even when source and
+runtime semantics remain bounded. Measure the real largest product-owned
+artifact before changing a decoder ceiling. If extra headroom is needed, keep
+the runtime's generic default unchanged and select the larger limit only at the
+typed ownership boundary for artifacts the product compiled itself. Source
+check, packed-artifact check, and execution load must reuse one selector;
+hand-written or third-party Wasm and declaration probes must retain the caller's
+limit. Pin both sides with tests so a product-capacity fix cannot silently widen
+the untrusted raw-Wasm boundary.

@@ -71,7 +71,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "9805985";
+pub const UPSTREAM_TINYVM_REV: &str = "6b07440";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -434,6 +434,21 @@ pub fn check_qjs(source: &str) -> Result<(), QjswasmError> {
     check_qjs_with(source, &Budget::default())
 }
 
+/// The budget a **compiled `.qjs` artifact** is validated under.
+///
+/// A check has to refuse exactly what the engine that will run the same bytes
+/// refuses. The engine loads `.qjs` artifacts with the product decode ceiling
+/// ([`slot::artifact_limits`] with `Convention::JsV1`), so the check paths for
+/// compiled sources carry that same ceiling. The raw-`.wasm` validators keep
+/// the caller's budget untouched: a hand-written or third-party module does
+/// not get the product's larger ceiling.
+fn qjs_artifact_budget(budget: &Budget) -> Budget {
+    Budget {
+        limits: slot::artifact_limits(budget, slot::Convention::JsV1),
+        ..budget.clone()
+    }
+}
+
 /// [`check_qjs`] against a caller-supplied budget, so a check refuses exactly
 /// what an [`Engine`] built on the same [`Budget`] would refuse to load.
 ///
@@ -443,7 +458,7 @@ pub fn check_qjs(source: &str) -> Result<(), QjswasmError> {
 /// bigger engine would have run.
 pub fn check_qjs_with(source: &str, budget: &Budget) -> Result<(), QjswasmError> {
     let bytes = compile_qjs(source)?;
-    validate_wasm_with(&bytes, budget)
+    validate_qjs_artifact_with(&bytes, budget)
 }
 
 /// [`check_qjs_with`] for a tool script: compiled with [`compile_qjs_tool`],
@@ -452,7 +467,7 @@ pub fn check_qjs_with(source: &str, budget: &Budget) -> Result<(), QjswasmError>
 /// in an [`Engine::with_tool_door`], so it is checked as one.
 pub fn check_qjs_tool_with(source: &str, budget: &Budget) -> Result<(), QjswasmError> {
     let bytes = compile_qjs_tool(source)?;
-    validate_wasm_tool_with(&bytes, budget)
+    validate_qjs_artifact_tool_with(&bytes, budget)
 }
 
 /// [`check_qjs_tool_with`] for a script that may `import`: the resolver is
@@ -465,7 +480,7 @@ pub fn check_qjs_tool_with_modules(
     budget: &Budget,
 ) -> Result<(), QjswasmError> {
     let bytes = compile_qjs_tool_with_modules(source, resolve)?;
-    validate_wasm_tool_with(&bytes, budget)
+    validate_qjs_artifact_tool_with(&bytes, budget)
 }
 
 /// The `tool.*` door as declarations: what a tool script may call beyond the
@@ -1662,6 +1677,23 @@ pub fn validate_wasm_tool_with(bytes: &[u8], budget: &Budget) -> Result<(), Qjsw
     let module = tinyvm::WasmModule::from_bytes_explained(bytes, budget.limits)
         .map_err(QjswasmError::from_load)?;
     host::check_declarations(&module, true, false)
+}
+
+/// [`validate_wasm_with`] for bytes this product **compiled from `.qjs`**.
+///
+/// Same imports and same declarations as the raw validator; the only
+/// difference is the decode ceiling, which is the product's own
+/// ([`slot::artifact_limits`] with `Convention::JsV1`). Product callers use
+/// this so a check refuses exactly what the engine running the same bytes
+/// refuses; hand-written and third-party `.wasm` keep [`validate_wasm_with`].
+pub fn validate_qjs_artifact_with(bytes: &[u8], budget: &Budget) -> Result<(), QjswasmError> {
+    validate_wasm_with(bytes, &qjs_artifact_budget(budget))
+}
+
+/// [`validate_wasm_tool_with`] for bytes this product **compiled from `.qjs`**.
+/// See [`validate_qjs_artifact_with`].
+pub fn validate_qjs_artifact_tool_with(bytes: &[u8], budget: &Budget) -> Result<(), QjswasmError> {
+    validate_wasm_tool_with(bytes, &qjs_artifact_budget(budget))
 }
 
 /// Route a path to a guest kind by extension. `.wasm` and `.qjs` only.

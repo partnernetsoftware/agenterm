@@ -1225,10 +1225,13 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // `execute` would run: a tool script's `tool.*` imports are exactly
         // what a sandbox validator exists to reject.
         let budget = qjs_budget(_options);
+        // The bytes came from this product's own `.qjs` compiler, so the
+        // check carries the product's artifact decode ceiling -- the same one
+        // the engine loading these bytes uses.
         if _options.tool_door {
-            agenterm_qjswasm::validate_wasm_tool_with(&wasm, &budget)
+            agenterm_qjswasm::validate_qjs_artifact_tool_with(&wasm, &budget)
         } else {
-            agenterm_qjswasm::validate_wasm_with(&wasm, &budget)
+            agenterm_qjswasm::validate_qjs_artifact_with(&wasm, &budget)
         }
         .map_err(|e| e.to_string())?;
         Ok(())

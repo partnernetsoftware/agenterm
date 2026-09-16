@@ -18,7 +18,8 @@ use crate::check_many::{
 /// `--project-root DIR`, `--timeout-ms N`, `--max-output-bytes N`
 /// (clamps the per-file source budget downward), `--profile
 /// local|pure|observe` (validated, otherwise ignored), `--json`, plus
-/// `--max-operations`/`--max-collection-items`/`--max-string-bytes`
+/// `--max-operations`/`--max-expression-depth`/`--max-collection-items`/
+/// `--max-string-bytes`
 /// accepted-but-ignored for rhai-wrapper compatibility. Unknown flags are
 /// an error, matching every engine's existing behavior.
 pub fn parse_check_many_cli<I>(mut args: I) -> Result<ParsedCheckManyCli, String>
@@ -55,7 +56,10 @@ where
                     return Err(format!("unknown script profile: {profile}"));
                 }
             }
-            "--max-operations" | "--max-collection-items" | "--max-string-bytes" => {
+            "--max-operations"
+            | "--max-expression-depth"
+            | "--max-collection-items"
+            | "--max-string-bytes" => {
                 let _ = next_value(&mut args, arg.as_str())?;
             }
             "--json" => json = true,
@@ -403,6 +407,8 @@ mod tests {
             "local",
             "--max-operations",
             "1000000",
+            "--max-expression-depth",
+            "64",
             "--json",
         ])
         .expect("parse");

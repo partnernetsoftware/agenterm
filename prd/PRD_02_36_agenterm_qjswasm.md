@@ -5,7 +5,7 @@ Family contract: [PRD 10](PRD_02_10_rhai_scripting.md)
 
 Status: **`[~]` active product engine**.
 
-**`9805985`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
+**`6b07440`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
 `crates/agenterm-qjswasm/Cargo.toml`, and tests must reject PRD/pin drift.
 This revision adds a generic, call-scoped cooperative-interruption seam: one
 invocation or start-section instantiation borrows one `AtomicBool`; pure guest
@@ -356,21 +356,25 @@ agenterm-qjswasm
 │  │  │  ├─ semantics: the ceiling bounds the simultaneously active, not-yet-completed expression
 │  │  │  │     evaluation chain during one invocation; function call frames, VM activation slots and
 │  │  │  │     expressions in dead or short-circuited source branches are not charged to this counter
-│  │  │  ├─ ownership: tinyvm-qjs at `9805985` preserves a per-function active-expression counter,
+│  │  │  ├─ ownership: tinyvm-qjs at `6b07440` preserves a per-function active-expression counter,
 │  │  │  │     reads a generic per-invocation limit import and exposes a distinct exhausted fault for
 │  │  │  │     source and reusable packed execution; agenterm-qjswasm supplies the effective value and projects that
 │  │  │  │     fault as `Budget("expression_depth")`
 │  │  │  └─ evidence: upstream G1-G5 and product seam courts prove exact-limit success and limit-plus-one
 │  │  │        refusal for deep evaluated expressions, direct/indirect/runtime callback isolation,
 │  │  │        32-frame recursion with shallow expressions, dead/short-circuited branches and abrupt
-│  │  │        completion; the same packed bytes refuse under the tighter load-time value. The public CLI
-│  │  │        proves the fixed 64 ceiling at 63/64 nested binary layers, and audit now reports no qjswasm
-│  │  │        engine budget as unenforced
+│  │  │        completion; the same packed bytes refuse under the tighter load-time value. The default-value
+│  │  │        court retains its 63/64 nested-binary boundary, while public CLI and task-contract overrides
+│  │  │        accept 1..=128, prove 4-layer success / 3-layer refusal, and project the selected value into
+│  │  │        requested/effective audit truth; audit reports no qjswasm engine budget as unenforced. The
+│  │  │        instrumented production closure measured 347,290 decode items, so product-owned `JsV1`
+│  │  │        artifacts load under an explicit 524,288-item ceiling while raw Wasm and tinyvm's default
+│  │  │        remain 262,144; load and check share this ownership split.
 │  │  ├─ safe failure: an accepted effective budget must be enforced or named as unenforced;
 │  │  │      requested/effective audit copies are not evidence that an engine consumed the field
 │  │  │  └─ new public override options land only with a complete engine consumer and its boundary
-│  │  │        evidence; `expression_depth` remains a fixed protocol default rather than adding a new
-│  │  │        override surface in this leaf, but the value is now consumed by the selected engine
+│  │  │        evidence; `expression_depth` now exposes the same bounded CLI/task value source as the other
+│  │  │        implemented engine budgets without changing its default 64 or hard maximum 128
 │  │  └─ non-goal: no AgenTerm-specific host import, memory-page approximation or source-only limit
 │  ├─ [x] child stdout/stderr truncation is explicit through read/wait/command
 │  ├─ [x] process.spawn refuses a 33rd retained handle before native spawn/drain allocation
