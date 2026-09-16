@@ -13,7 +13,8 @@ product integration and not evidence that G1 passes.
 - `provider-main-probe` owns entry classification and ordinary process
   presentation. Ordinary argv calls the existing
   `agenterm_cu::argv::execute_argv_from_environment`; it does not copy the
-  `Command` schema or create a second dispatcher.
+  `Command` schema or create a second dispatcher. The first explicit
+  binary-entry slice presents the library-owned version text.
 - `fixtures/bad-abi-provider` exports only a deliberately wrong ABI version for
   a fail-closed launcher court.
 
@@ -25,8 +26,10 @@ static fallback, subprocess fallback, MCU lookup, or Bun lookup.
 ABI-v1 bounds are 4,096 arguments, 1 MiB aggregate argv, 4 MiB stdout and
 1 MiB stderr. Status zero means the provider completed and the separate exit
 field is authoritative; launcher/provider boundary failures exit 70. The
-launcher validates the result version/size, lengths, exit range, stderr UTF-8,
-and the ordinary stdout JSON frame before publishing bytes.
+launcher validates the result version/size, exact argv-bound entry mode,
+lengths and exit range before publishing bytes. Ordinary mode additionally
+requires stderr UTF-8 and one JSON stdout frame; version mode requires one
+`agenterm-cu` text line and empty stderr.
 
 ## Reproduce
 
@@ -81,8 +84,8 @@ The provider classifies every current binary-only family before ordinary argv:
 - X11 clipboard owner;
 - version text.
 
-All of these currently return the typed boundary status
+Version text is implemented for the exact one-argument `--version` and `-V`
+forms. The other 11 families return the typed boundary status
 `provider_entry_mode_unimplemented`. Their stdin/stdout framing, resident
 lifetime, cleanup and exact exit behavior are not implemented or tested here.
-Consequently G1 is red; the mapping prevents accidental dispatch as an
-ordinary command but is not binary-entry parity.
+Consequently G1 remains red; one completed slice is not binary-entry parity.

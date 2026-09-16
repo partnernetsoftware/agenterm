@@ -151,10 +151,12 @@ research/acu-thin-launcher/
 **B remains alive but is not accepted.** The ordinary fixed-sibling seam is
 real: its Linux x86_64 stripped launcher is 389,096 bytes and macOS arm64
 native help, capabilities and legal refusal preserve product exits while
-missing/wrong providers fail at the boundary. The tree then stops at G1 red:
-all 12 current binary-entry families are classified before ordinary dispatch
-but intentionally return `provider_entry_mode_unimplemented`; framing,
-resident lifetime, cleanup and exact exit parity are not implemented.
+missing/wrong providers fail at the boundary. The first G1 slice now preserves
+the exact `--version` / `-V` text mode through an explicit provider/launcher
+allow-list, while a sentinel with trailing argv retains the ordinary typed
+refusal. The tree still stops at G1 red: the other 11 binary-entry families
+remain `provider_entry_mode_unimplemented`; their framing, resident lifetime,
+cleanup and exact exit parity are not implemented.
 
 Decision path: A is over budget → B passes the measured G0 subset and one G2
 cell → G1 red → no topology promotion. The result overturns only the fear that

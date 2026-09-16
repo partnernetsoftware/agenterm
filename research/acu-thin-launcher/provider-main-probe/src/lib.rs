@@ -206,19 +206,22 @@ unsafe fn process_main_inner(
     let mode = classify_entry(&argv);
     // SAFETY: result is a valid writable ABI result.
     unsafe { (*result).entry_mode = mode };
-    if mode != ENTRY_ORDINARY_ARGV {
-        return STATUS_ENTRY_MODE_UNIMPLEMENTED;
-    }
-
-    let reply = agenterm_cu::argv::execute_argv_from_environment(argv.clone());
-    let encoded = match serde_json::to_vec(&reply) {
-        Ok(mut encoded) => {
-            encoded.push(b'\n');
-            encoded
+    let (encoded, diagnostic, exit_code) = match mode {
+        ENTRY_ORDINARY_ARGV => {
+            let reply = agenterm_cu::argv::execute_argv_from_environment(argv.clone());
+            let encoded = match serde_json::to_vec(&reply) {
+                Ok(mut encoded) => {
+                    encoded.push(b'\n');
+                    encoded
+                }
+                Err(_) => return STATUS_SERIALIZE_FAILED,
+            };
+            let diagnostic = agenterm_cu::argv::human_diagnostic(&argv, &reply).unwrap_or_default();
+            (encoded, diagnostic, reply_exit_code(&reply))
         }
-        Err(_) => return STATUS_SERIALIZE_FAILED,
+        ENTRY_VERSION_TEXT => (agenterm_cu::version_text().into_bytes(), String::new(), 0),
+        _ => return STATUS_ENTRY_MODE_UNIMPLEMENTED,
     };
-    let diagnostic = agenterm_cu::argv::human_diagnostic(&argv, &reply).unwrap_or_default();
     if encoded.len() > stdout_capacity
         || encoded.len() > MAX_STDOUT_BYTES
         || diagnostic.len() > stderr_capacity
@@ -235,7 +238,7 @@ unsafe fn process_main_inner(
         if !diagnostic.is_empty() {
             ptr::copy_nonoverlapping(diagnostic.as_ptr(), stderr, diagnostic.len());
         }
-        (*result).exit_code = reply_exit_code(&reply);
+        (*result).exit_code = exit_code;
         (*result).stdout_len = encoded.len();
         (*result).stderr_len = diagnostic.len();
     }
@@ -267,15 +270,15 @@ fn classify_entry(args: &[String]) -> u32 {
     };
     if first.starts_with("chrome-extension://") {
         ENTRY_NATIVE_MESSAGING_HOST
-    } else if first == agenterm_cu::network_probe::WORKER_ARG {
+    } else if matches!(args, [arg] if arg == agenterm_cu::network_probe::WORKER_ARG) {
         ENTRY_NETWORK_PROBE_WORKER
     } else if first == agenterm_cu::browser_session_owner::OWNER_ARG {
         ENTRY_BROWSER_SESSION_OWNER
-    } else if first == agenterm_cu::MANAGED_JOB_OWNER_ARG {
+    } else if matches!(args, [arg] if arg == agenterm_cu::MANAGED_JOB_OWNER_ARG) {
         ENTRY_MANAGED_JOB_OWNER
-    } else if first == agenterm_cu::DEVICE_LEASE_OWNER_ARG {
+    } else if matches!(args, [arg] if arg == agenterm_cu::DEVICE_LEASE_OWNER_ARG) {
         ENTRY_DEVICE_LEASE_OWNER
-    } else if first == agenterm_cu::PRIVILEGE_BROKER_ARG {
+    } else if matches!(args, [arg] if arg == agenterm_cu::PRIVILEGE_BROKER_ARG) {
         ENTRY_PRIVILEGE_BROKER
     } else if first == agenterm_cu::DEVICE_IO_FIXTURE_ARG {
         ENTRY_DEVICE_IO_FIXTURE
@@ -287,7 +290,7 @@ fn classify_entry(args: &[String]) -> u32 {
         ENTRY_VERBS_TEXT
     } else if first == agenterm_cu::mechanism::clipboard::X11_CLIPBOARD_OWNER_ARG {
         ENTRY_X11_CLIPBOARD_OWNER
-    } else if matches!(first, "--version" | "-V") {
+    } else if matches!(args, [arg] if matches!(arg.as_str(), "--version" | "-V")) {
         ENTRY_VERSION_TEXT
     } else {
         ENTRY_ORDINARY_ARGV
@@ -370,6 +373,20 @@ mod tests {
             classify_entry(&strings(&["capabilities"])),
             ENTRY_ORDINARY_ARGV
         );
+        for sentinel in [
+            agenterm_cu::network_probe::WORKER_ARG,
+            agenterm_cu::MANAGED_JOB_OWNER_ARG,
+            agenterm_cu::DEVICE_LEASE_OWNER_ARG,
+            agenterm_cu::PRIVILEGE_BROKER_ARG,
+            "--version",
+            "-V",
+        ] {
+            assert_eq!(
+                classify_entry(&strings(&[sentinel, "extra"])),
+                ENTRY_ORDINARY_ARGV,
+                "{sentinel} with a tail must retain ordinary typed refusal"
+            );
+        }
     }
 
     #[test]
@@ -406,6 +423,53 @@ mod tests {
         assert_eq!(ABI_VERSION, 1);
         assert!(mem::size_of::<ProcessMainRequestV1>() >= 24);
         assert!(mem::size_of::<ProcessMainResultV1>() >= 32);
+    }
+
+    #[test]
+    fn public_abi_presents_the_library_owned_version_text() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        PROVIDER_FAILED.store(false, Ordering::Release);
+
+        let argv = strings(&["--version"]);
+        let span = ByteSpanV1 {
+            data: argv[0].as_ptr(),
+            len: argv[0].len(),
+        };
+        let request = ProcessMainRequestV1 {
+            abi_version: ABI_VERSION,
+            struct_size: mem::size_of::<ProcessMainRequestV1>() as u32,
+            argc: 1,
+            argv: &span,
+        };
+        let mut stdout = vec![0_u8; 128];
+        let mut stderr = vec![0_u8; 1];
+        let mut result = ProcessMainResultV1 {
+            abi_version: 0,
+            struct_size: 0,
+            entry_mode: u32::MAX,
+            exit_code: -1,
+            stdout_len: 0,
+            stderr_len: 0,
+        };
+        // SAFETY: the input span and all output/result buffers remain live.
+        let status = unsafe {
+            agenterm_cu_process_main_v1(
+                &request,
+                stdout.as_mut_ptr(),
+                stdout.len(),
+                stderr.as_mut_ptr(),
+                stderr.len(),
+                &mut result,
+            )
+        };
+        assert_eq!(status, STATUS_OK);
+        assert_eq!(result.entry_mode, ENTRY_VERSION_TEXT);
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(result.stderr_len, 0);
+        assert_eq!(
+            &stdout[..result.stdout_len],
+            agenterm_cu::version_text().as_bytes()
+        );
     }
 
     #[test]

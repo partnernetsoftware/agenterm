@@ -217,3 +217,23 @@ pub use reply::{CuError, CuReply};
 pub use ssh_transport::SshEndpoint;
 pub use target::TargetRef;
 pub use vnc_transport::VncEndpoint;
+
+/// Returns the canonical one-line product version presentation.
+///
+/// Keep this in the library so both the ordinary binary and a process-main
+/// provider report the `agenterm-cu` package version rather than the version of
+/// whichever wrapper crate happens to present it.
+pub fn version_text() -> String {
+    format!("agenterm-cu {}\n", env!("CARGO_PKG_VERSION"))
+}
+
+#[cfg(test)]
+mod product_identity_tests {
+    #[test]
+    fn version_text_is_one_library_owned_line() {
+        assert_eq!(
+            super::version_text(),
+            format!("agenterm-cu {}\n", env!("CARGO_PKG_VERSION"))
+        );
+    }
+}

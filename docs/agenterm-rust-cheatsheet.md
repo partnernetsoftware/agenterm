@@ -196,6 +196,12 @@ test owns repository metadata, accept an explicit runtime evidence root and
 copy only the bounded contract/fixture bundle into the target court; ordinary
 in-checkout execution may retain the manifest-directory fallback.
 
+A wrapper crate's `env!("CARGO_PKG_VERSION")` names the wrapper, not the product
+whose output it presents. When a monolith and a dynamic provider must emit the
+same product identity, keep the formatted text in the product library and have
+both presenters call it. Equal package versions at one revision are not a
+cross-crate invariant and cannot substitute for one owner.
+
 A handle that separates a mutating operation from a later two-stage copy must
 clear its previous retained output before starting every new operation. Clear
 on typed failure and panic as well as success replacement; otherwise a caller

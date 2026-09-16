@@ -26,7 +26,7 @@ fn main() {
         return;
     }
     if matches!(args.as_slice(), [arg] if arg == "--version" || arg == "-V") {
-        println!("agenterm-cu {}", env!("CARGO_PKG_VERSION"));
+        print!("{}", agenterm_cu::version_text());
         return;
     }
     if matches!(args.as_slice(), [arg] if arg == agenterm_cu::network_probe::WORKER_ARG) {

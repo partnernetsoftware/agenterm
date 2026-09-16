@@ -74,7 +74,7 @@ repository target tree.
 | gate | result | evidence / missing work |
 |---|---|---|
 | G0 safety/authority | partial green | one parser/Executor owner, fixed sibling, bounded ABI, release panic latch, missing/wrong ABI and malformed-result refusals; not all raw failures on three native OSes |
-| G1 behavior parity | **red** | ordinary help/capabilities/refusal run, but every binary-only entry mode is explicitly unimplemented; no paired monolith stdout/stderr corpus |
+| G1 behavior parity | **red** | ordinary help/capabilities/refusal and exact version text run; the other 11 binary-entry families remain explicitly unimplemented; no complete paired monolith stdout/stderr corpus |
 | G2 launcher budgets | partial green | Linux x86_64 L1 is 389,096 bytes; Windows L1 and same-source paired monolith are unmeasured |
 | G3 six-cell/native | red | only Linux x86_64 cross-build plus macOS arm64 native ordinary execution |
 | G4 footprint | partial | macOS L1/L2/L3 complete; Linux L2/L3 and other cells unmeasured |
@@ -84,6 +84,19 @@ Decision-tree path: A's historical over-budget fact opened B; this prototype
 reaches a real ordinary seam and passes the measured Linux L1 branch, then
 stops at **G1 red**. Mapping a binary mode and refusing it is the safe failure
 result, not parity. B is therefore not accepted and no G1 claim is made.
+
+### Incremental G1 version slice
+
+The first independently bounded binary-entry slice now carries exact
+`--version` / `-V` invocations through entry mode 12. The version line is owned
+by the `agenterm-cu` library, so the monolith and provider cannot silently use
+different package versions. The launcher accepts mode 12 only for those exact
+argv shapes, requires empty stderr and one `agenterm-cu` version line, and
+continues to reject every other nonordinary mode at the provider boundary.
+`--version extra` remains ordinary argv and returns the existing
+`argv_entry_mode_unsupported` refusal. This is partial G1 progress, not a gate
+verdict or topology promotion; the earlier measured byte table remains the
+record of its stated source revision.
 
 ## Commands used for the recorded result
 

@@ -19,6 +19,8 @@ const MAX_STDERR_BYTES: usize = 1_048_576;
 const BOUNDARY_EXIT: u8 = 70;
 
 const STATUS_OK: i32 = 0;
+const ENTRY_ORDINARY_ARGV: u32 = 0;
+const ENTRY_VERSION_TEXT: u32 = 12;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -125,8 +127,18 @@ fn run() -> Result<u8, &'static str> {
     if status != STATUS_OK {
         return Err(provider_status(status));
     }
-    validate_result(&result, stdout.len(), stderr.len())?;
-    validate_ordinary_output(&stdout[..result.stdout_len], &stderr[..result.stderr_len])?;
+    let expected_entry_mode = expected_entry_mode(&argv);
+    validate_result(
+        &result,
+        expected_entry_mode,
+        stdout.len(),
+        stderr.len(),
+    )?;
+    validate_output(
+        result.entry_mode,
+        &stdout[..result.stdout_len],
+        &stderr[..result.stderr_len],
+    )?;
     io::stdout()
         .lock()
         .write_all(&stdout[..result.stdout_len])
@@ -183,6 +195,7 @@ const fn provider_filename() -> &'static str {
 
 fn validate_result(
     result: &ProcessMainResultV1,
+    expected_entry_mode: u32,
     stdout_capacity: usize,
     stderr_capacity: usize,
 ) -> Result<(), &'static str> {
@@ -191,7 +204,7 @@ fn validate_result(
     {
         return Err("provider_result_shape_invalid");
     }
-    if result.entry_mode != 0 {
+    if result.entry_mode != expected_entry_mode {
         return Err("provider_result_entry_mode_invalid");
     }
     if result.stdout_len > stdout_capacity || result.stderr_len > stderr_capacity {
@@ -201,6 +214,22 @@ fn validate_result(
         return Err("provider_exit_code_invalid");
     }
     Ok(())
+}
+
+fn expected_entry_mode(argv: &[Vec<u8>]) -> u32 {
+    if matches!(argv, [arg] if matches!(arg.as_slice(), b"--version" | b"-V")) {
+        ENTRY_VERSION_TEXT
+    } else {
+        ENTRY_ORDINARY_ARGV
+    }
+}
+
+fn validate_output(entry_mode: u32, stdout: &[u8], stderr: &[u8]) -> Result<(), &'static str> {
+    match entry_mode {
+        ENTRY_ORDINARY_ARGV => validate_ordinary_output(stdout, stderr),
+        ENTRY_VERSION_TEXT => validate_version_output(stdout, stderr),
+        _ => Err("provider_result_entry_mode_invalid"),
+    }
 }
 
 fn validate_ordinary_output(stdout: &[u8], stderr: &[u8]) -> Result<(), &'static str> {
@@ -213,6 +242,17 @@ fn validate_ordinary_output(stdout: &[u8], stderr: &[u8]) -> Result<(), &'static
         return Err("provider_stdout_shape_invalid");
     }
     std::str::from_utf8(stderr).map_err(|_| "provider_stderr_not_utf8")?;
+    Ok(())
+}
+
+fn validate_version_output(stdout: &[u8], stderr: &[u8]) -> Result<(), &'static str> {
+    if !stderr.is_empty() {
+        return Err("provider_version_stderr_invalid");
+    }
+    let text = std::str::from_utf8(stdout).map_err(|_| "provider_version_stdout_invalid")?;
+    if !text.starts_with("agenterm-cu ") || !text.ends_with('\n') || text.lines().count() != 1 {
+        return Err("provider_version_stdout_invalid");
+    }
     Ok(())
 }
 
@@ -266,7 +306,7 @@ mod tests {
             stdout_len: 4,
             stderr_len: 3,
         };
-        assert!(validate_result(&result, 4, 3).is_ok());
+        assert!(validate_result(&result, ENTRY_ORDINARY_ARGV, 4, 3).is_ok());
         assert!(validate_ordinary_output(b"{}\n", b"usage").is_ok());
         assert_eq!(
             validate_ordinary_output(b"not-json\n", b"").unwrap_err(),
@@ -274,5 +314,24 @@ mod tests {
         );
         assert_eq!(provider_status(8), "provider_entry_mode_unimplemented");
         assert_eq!(BOUNDARY_EXIT, 70);
+    }
+
+    #[test]
+    fn version_mode_is_exact_and_has_its_own_output_contract() {
+        assert_eq!(expected_entry_mode(&[b"--version".to_vec()]), ENTRY_VERSION_TEXT);
+        assert_eq!(expected_entry_mode(&[b"-V".to_vec()]), ENTRY_VERSION_TEXT);
+        assert_eq!(
+            expected_entry_mode(&[b"--version".to_vec(), b"extra".to_vec()]),
+            ENTRY_ORDINARY_ARGV
+        );
+        assert!(validate_version_output(b"agenterm-cu 0.1.16\n", b"").is_ok());
+        assert_eq!(
+            validate_version_output(b"agenterm-cu 0.1.16\n", b"unexpected").unwrap_err(),
+            "provider_version_stderr_invalid"
+        );
+        assert_eq!(
+            validate_version_output(b"{}\n", b"").unwrap_err(),
+            "provider_version_stdout_invalid"
+        );
     }
 }
