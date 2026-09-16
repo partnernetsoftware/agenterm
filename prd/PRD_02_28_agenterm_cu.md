@@ -715,6 +715,12 @@ binary without its matching dylib is inert.
   dlsym `CGWindowListCreateImage` / AXUIElement). Evidence and the full symbol
   and capability audit:
   [`docs/cu-gaps-analysis.md`](../docs/cu-gaps-analysis.md).
+  The Unix installer publishes the PATH-visible `agenterm-cu` as an atomically
+  replaced regular executable, not a symlink: owner modes require their
+  fixed-name sibling to be a regular file, while `agenterm`, `libagenterm` and
+  the provider retain the release symlink layout. Reinstallation refuses an
+  unmanaged PATH file before changing the current release and verifies the
+  copied CU through the PATH-visible ABI.
 - [x] the compatibility self-test proves a newer compatible minor passes, an
   older minor and a different major fail, and a missing library fails; the
   existing macOS bundle self-test owns that verifier transitively. This is the
