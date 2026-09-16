@@ -21,10 +21,12 @@ const BOUNDARY_EXIT: u8 = 70;
 const STATUS_OK: i32 = 0;
 const ENTRY_ORDINARY_ARGV: u32 = 0;
 const ENTRY_NETWORK_PROBE_WORKER: u32 = 2;
+const ENTRY_MANAGED_JOB_OWNER: u32 = 4;
 const ENTRY_NETWORK_PROBE_FIXTURE: u32 = 8;
 const ENTRY_VERSION_TEXT: u32 = 12;
 
 const NETWORK_PROBE_WORKER_ARG: &[u8] = b"--agenterm-cu-internal-network-probe-worker";
+const MANAGED_JOB_OWNER_ARG: &[u8] = b"--agenterm-cu-internal-managed-job-owner";
 const NETWORK_PROBE_FIXTURE_ARG: &[u8] = b"--agenterm-cu-internal-network-probe-fixture";
 
 #[repr(C)]
@@ -133,12 +135,7 @@ fn run() -> Result<u8, &'static str> {
         return Err(provider_status(status));
     }
     let expected_entry_mode = expected_entry_mode(&argv);
-    validate_result(
-        &result,
-        expected_entry_mode,
-        stdout.len(),
-        stderr.len(),
-    )?;
+    validate_result(&result, expected_entry_mode, stdout.len(), stderr.len())?;
     validate_output(
         result.entry_mode,
         &stdout[..result.stdout_len],
@@ -226,6 +223,8 @@ fn validate_result(
 fn expected_entry_mode(argv: &[Vec<u8>]) -> u32 {
     if matches!(argv, [arg] if arg.as_slice() == NETWORK_PROBE_WORKER_ARG) {
         ENTRY_NETWORK_PROBE_WORKER
+    } else if matches!(argv, [arg] if arg.as_slice() == MANAGED_JOB_OWNER_ARG) {
+        ENTRY_MANAGED_JOB_OWNER
     } else if matches!(argv, [first, ..] if first.as_slice() == NETWORK_PROBE_FIXTURE_ARG) {
         ENTRY_NETWORK_PROBE_FIXTURE
     } else if matches!(argv, [arg] if matches!(arg.as_slice(), b"--version" | b"-V")) {
@@ -238,7 +237,7 @@ fn expected_entry_mode(argv: &[Vec<u8>]) -> u32 {
 fn validate_output(entry_mode: u32, stdout: &[u8], stderr: &[u8]) -> Result<(), &'static str> {
     match entry_mode {
         ENTRY_ORDINARY_ARGV => validate_ordinary_output(stdout, stderr),
-        ENTRY_NETWORK_PROBE_WORKER | ENTRY_NETWORK_PROBE_FIXTURE => {
+        ENTRY_NETWORK_PROBE_WORKER | ENTRY_MANAGED_JOB_OWNER | ENTRY_NETWORK_PROBE_FIXTURE => {
             if stdout.is_empty() && stderr.is_empty() {
                 Ok(())
             } else {
@@ -253,7 +252,7 @@ fn validate_output(entry_mode: u32, stdout: &[u8], stderr: &[u8]) -> Result<(), 
 fn entry_mode_owns_stdio(entry_mode: u32) -> bool {
     matches!(
         entry_mode,
-        ENTRY_NETWORK_PROBE_WORKER | ENTRY_NETWORK_PROBE_FIXTURE
+        ENTRY_NETWORK_PROBE_WORKER | ENTRY_MANAGED_JOB_OWNER | ENTRY_NETWORK_PROBE_FIXTURE
     )
 }
 
@@ -343,7 +342,10 @@ mod tests {
 
     #[test]
     fn version_mode_is_exact_and_has_its_own_output_contract() {
-        assert_eq!(expected_entry_mode(&[b"--version".to_vec()]), ENTRY_VERSION_TEXT);
+        assert_eq!(
+            expected_entry_mode(&[b"--version".to_vec()]),
+            ENTRY_VERSION_TEXT
+        );
         assert_eq!(expected_entry_mode(&[b"-V".to_vec()]), ENTRY_VERSION_TEXT);
         assert_eq!(
             expected_entry_mode(&[b"--version".to_vec(), b"extra".to_vec()]),
@@ -367,10 +369,7 @@ mod tests {
             ENTRY_NETWORK_PROBE_WORKER
         );
         assert_eq!(
-            expected_entry_mode(&[
-                NETWORK_PROBE_WORKER_ARG.to_vec(),
-                b"extra".to_vec(),
-            ]),
+            expected_entry_mode(&[NETWORK_PROBE_WORKER_ARG.to_vec(), b"extra".to_vec(),]),
             ENTRY_ORDINARY_ARGV
         );
         assert_eq!(
@@ -390,5 +389,23 @@ mod tests {
         assert!(entry_mode_owns_stdio(ENTRY_NETWORK_PROBE_WORKER));
         assert!(entry_mode_owns_stdio(ENTRY_NETWORK_PROBE_FIXTURE));
         assert!(!entry_mode_owns_stdio(ENTRY_VERSION_TEXT));
+    }
+
+    #[test]
+    fn managed_job_owner_mode_is_exact_and_never_publishes_abi_bytes() {
+        assert_eq!(
+            expected_entry_mode(&[MANAGED_JOB_OWNER_ARG.to_vec()]),
+            ENTRY_MANAGED_JOB_OWNER
+        );
+        assert!(validate_output(ENTRY_MANAGED_JOB_OWNER, b"", b"").is_ok());
+        assert!(entry_mode_owns_stdio(ENTRY_MANAGED_JOB_OWNER));
+        assert_eq!(
+            expected_entry_mode(&[MANAGED_JOB_OWNER_ARG.to_vec(), b"extra".to_vec()]),
+            ENTRY_ORDINARY_ARGV
+        );
+        assert_eq!(
+            validate_output(ENTRY_MANAGED_JOB_OWNER, b"unexpected", b"").unwrap_err(),
+            "provider_direct_stdio_buffer_invalid"
+        );
     }
 }

@@ -76,8 +76,8 @@ ACU replaces MCU
 │  │  six-cell dynamic-load court is wired and locally green, with first exact-SHA remote execution pending
 │  │  ├─ static provider rejected: Windows PE 3,731,968 → 8,865,792 bytes (> 4 MiB)
 │  │  ├─ dynamic provider accepted: exact release PE 3,738,112 bytes; separate ABI artifact; no fallback
-│  │  └─ [~] standalone thin launcher: Linux x86_64 L1 = 389,096 B; version text and
-│  │     network-probe worker/fixture are green, but nine binary-entry families keep G1 red
+│  │  └─ [~] standalone thin launcher: Linux x86_64 L1 = 389,096 B; version text,
+│  │     network-probe worker/fixture and managed-job owner are green, but eight families keep G1 red
 │  ├─ phase 3 [~]: `skills/acu/acu.qjs` + bounded argv helpers + frozen compatibility court are green;
 │  │  42/42 positive legacy probes execute in-process; 95 dynamic witnesses remain the named repair queue;
 │  │  all 2 dynamic-stay witnesses fail with their exact gap id instead of falling through to native usage;

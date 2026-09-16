@@ -157,9 +157,12 @@ allow-list, while a sentinel with trailing argv retains the ordinary typed
 refusal. The second slice preserves the network-probe worker and loopback
 fixture as child-process-owned stdin/stdout modes: the provider writes fd 1,
 the ABI publishes zero duplicate bytes, and the parent still bounds, validates,
-times out and reaps the exact child. The tree still stops at G1 red: the other
-nine binary-entry families remain `provider_entry_mode_unimplemented`; their
-framing, resident lifetime, cleanup and exact exit parity are not implemented.
+times out and reaps the exact child. The next slice preserves the managed-job
+resident owner inside the already detached launcher process. Its existing parent
+still observes durable readiness plus early exit, while the ABI publishes no
+competing output. The tree still stops at G1 red: the other eight binary-entry
+families remain `provider_entry_mode_unimplemented`;
+their framing, resident lifetime, cleanup and exact exit parity are not implemented.
 
 Decision path: A is over budget → B passes the measured G0 subset and one G2
 cell → G1 red → no topology promotion. The result overturns only the fear that

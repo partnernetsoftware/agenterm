@@ -4909,6 +4909,13 @@ claim/update lock; retry only the typed contention result under the existing
 startup deadline. Missing state, corrupt state and any other store failure stay
 terminal instead of being treated as transient readiness.
 
+When a fixed-sibling launcher hosts that detached owner in a provider library,
+the provider must call the owner body inside the already detached child. It
+must not redispatch through the public command path or spawn another launcher.
+Treat the entry mode as direct process ownership: publish zero ABI output bytes,
+leave argv/stdin and durable readiness semantics with the existing owner, and
+let the parent map early child exit through its bounded typed startup court.
+
 ## Keep filesystem metadata and object identity separate
 
 Use `symlink_metadata` when an observation promises to describe the final

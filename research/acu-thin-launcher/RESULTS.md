@@ -2,7 +2,7 @@
 
 Status: **ordinary seam and Linux L1 pass; G1 is red.** The prototype proves a
 small fixed-sibling launcher can execute ordinary ACU argv without owning the
-command schema. It does not implement the binary-only entry modes, so it does
+command schema. Eight binary-only entry families remain unimplemented, so it does
 not accept B or establish the product topology.
 
 ## Source and tool identity
@@ -74,7 +74,7 @@ repository target tree.
 | gate | result | evidence / missing work |
 |---|---|---|
 | G0 safety/authority | partial green | one parser/Executor owner, fixed sibling, bounded ABI, release panic latch, missing/wrong ABI and malformed-result refusals; not all raw failures on three native OSes |
-| G1 behavior parity | **red** | ordinary help/capabilities/refusal, exact version text and the network-probe worker/fixture run; the other nine binary-entry families remain explicitly unimplemented; no complete paired monolith stdout/stderr corpus |
+| G1 behavior parity | **red** | ordinary help/capabilities/refusal, exact version text, network-probe worker/fixture and the managed-job owner run; the other eight binary-entry families remain explicitly unimplemented; no complete paired monolith stdout/stderr corpus |
 | G2 launcher budgets | partial green | Linux x86_64 L1 is 389,096 bytes; Windows L1 and same-source paired monolith are unmeasured |
 | G3 six-cell/native | red | only Linux x86_64 cross-build plus macOS arm64 native ordinary execution |
 | G4 footprint | partial | macOS L1/L2/L3 complete; Linux L2/L3 and other cells unmeasured |
@@ -113,6 +113,22 @@ mode 2 and returned `provider=system-resolver-owned-worker`, `status=reachable`,
 one connected attempt, empty stderr and exit zero; the fixture also exited
 zero. This closes the network-probe worker/fixture pair only. It does not change
 the G1 verdict or promote topology B.
+
+### Incremental G1 managed-job-owner slice
+
+Entry mode 4 now preserves the existing managed-job resident-owner process
+boundary. The provider calls the owner body directly inside the already
+detached launcher child; it never
+redispatches through the public command path and therefore cannot recursively
+spawn another launcher. The launch frame remains on stdin and the provider
+publishes zero ABI stdout/stderr bytes.
+
+The existing parent side observes durable readiness and checks for early child
+exit inside a bounded startup window. A staged native dispatch probe supplied
+EOF instead of a launch frame and observed product exit 1, not launcher
+boundary exit 70, proving the mode reached its library owner. This is an
+entry-boundary probe, not a substitute for the already owning public lifecycle
+courts, and it does not change the G1 verdict or promote topology B.
 
 ## Commands used for the recorded result
 

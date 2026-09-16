@@ -2189,9 +2189,10 @@ flowchart LR
   qualification cannot raise that budget or promote these bytes. The
   fixed-sibling thin-launcher prototype reduces the measured Linux x86_64 L1
   to 389,096 bytes without copying the command schema, but correctly remains
-  unaccepted. Exact version text and the network-probe worker + loopback fixture
-  now preserve their process-entry contracts through explicit ABI modes; the
-  other nine binary-entry families still fail closed instead of preserving
+  unaccepted. Exact version text, the network-probe worker + loopback fixture,
+  and the managed-job resident owner now preserve their process-entry contracts
+  through explicit ABI modes; the other eight
+  binary-entry families still fail closed instead of preserving
   framing/lifetime/cleanup parity. Its decision is recorded in
   `plan/design-acu-thin-launcher-experiment.md`; the broker experiment and
   exact result ledger live in `plan/design-linux-privilege-broker-experiment.md`

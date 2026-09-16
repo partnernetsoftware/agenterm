@@ -208,9 +208,10 @@ unsafe fn process_main_inner(
     unsafe { (*result).entry_mode = mode };
     let direct_exit = match mode {
         ENTRY_NETWORK_PROBE_WORKER => Some(agenterm_cu::network_probe::run_worker_stdio()),
-        ENTRY_NETWORK_PROBE_FIXTURE => Some(agenterm_cu::network_probe::run_loopback_fixture(
-            &argv[1..],
-        )),
+        ENTRY_MANAGED_JOB_OWNER => Some(agenterm_cu::run_managed_job_owner()),
+        ENTRY_NETWORK_PROBE_FIXTURE => {
+            Some(agenterm_cu::network_probe::run_loopback_fixture(&argv[1..]))
+        }
         _ => None,
     };
     if let Some(exit_code) = direct_exit {
@@ -406,19 +407,23 @@ mod tests {
     }
 
     #[test]
-    fn direct_stdio_modes_are_the_network_probe_child_boundary() {
-        assert_eq!(
-            classify_entry(&strings(&[agenterm_cu::network_probe::WORKER_ARG])),
-            ENTRY_NETWORK_PROBE_WORKER
-        );
-        assert_eq!(
-            classify_entry(&strings(&[
-                agenterm_cu::network_probe::FIXTURE_ARG,
-                "3",
-                "30000",
-            ])),
-            ENTRY_NETWORK_PROBE_FIXTURE
-        );
+    fn direct_stdio_modes_are_the_implemented_child_boundary() {
+        for (argv, expected) in [
+            (
+                &[agenterm_cu::network_probe::WORKER_ARG][..],
+                ENTRY_NETWORK_PROBE_WORKER,
+            ),
+            (
+                &[agenterm_cu::MANAGED_JOB_OWNER_ARG][..],
+                ENTRY_MANAGED_JOB_OWNER,
+            ),
+            (
+                &[agenterm_cu::network_probe::FIXTURE_ARG, "3", "30000"][..],
+                ENTRY_NETWORK_PROBE_FIXTURE,
+            ),
+        ] {
+            assert_eq!(classify_entry(&strings(argv)), expected, "{argv:?}");
+        }
     }
 
     #[test]
