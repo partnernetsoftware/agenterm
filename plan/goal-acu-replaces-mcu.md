@@ -238,8 +238,9 @@ selectors on the identity-bound mutation path; ambient authority can open the
 private session but cannot authorize its effect. The executor composition kernel
 reserves the durable request before consuming a persisted grant, binds the
 request fingerprint to that grant selection and preserves session-owned
-dispatch context. Provider envelope and sidecar configuration remain
-deliberately closed, so this does not promote the MCP mutation tool.
+dispatch context. The provider envelope remains deliberately closed; the
+sidecar admits only the already-reserved grant-id/store selector pair for this
+identity-bound path. This does not promote the MCP mutation tool.
 
 ```text
 MCU retirement blockers
