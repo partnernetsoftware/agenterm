@@ -171,6 +171,7 @@ dependencies = [
  "sha2 0.11.0",
  "softbuffer",
  "tokio",
+ "unicode-width",
  "windows-sys 0.61.2",
  "winit",
  "x11rb",

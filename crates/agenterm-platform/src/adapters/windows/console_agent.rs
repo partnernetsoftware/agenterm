@@ -106,24 +106,18 @@ impl Portable {
     }
 }
 
-// CHAR_INFO attribute bits. windows-sys exposes these as plain u16 constants
-// in a module this crate does not otherwise need, so they are named here.
-const FOREGROUND_BLUE: u16 = 0x0001;
-const FOREGROUND_GREEN: u16 = 0x0002;
-const FOREGROUND_RED: u16 = 0x0004;
-const FOREGROUND_INTENSITY: u16 = 0x0008;
-const BACKGROUND_BLUE: u16 = 0x0010;
-const BACKGROUND_GREEN: u16 = 0x0020;
-const BACKGROUND_RED: u16 = 0x0040;
-const BACKGROUND_INTENSITY: u16 = 0x0080;
-/// A double-width character occupies two cells that carry the *same* code
-/// unit. Without these bits every wide glyph is emitted twice.
+// Most console attribute bits, the `Cell` type, the SGR mapping and the row
+// re-encoding all live in the platform-independent `console_row_emit` module so
+// they can be unit-tested off Windows. The double-width (CJK) continuation fix
+// lives there too. Everything is re-imported here by glob, so the existing
+// tests in this file keep reaching them through `use super::*`.
+use crate::adapters::console_row_emit::*;
+
+// A double-width character occupies two cells that carry the *same* code unit.
+// These two byte-order bits are used only by `decode_cell` below, so they stay
+// on the Windows path rather than in the always-compiled shared module.
 const COMMON_LVB_LEADING_BYTE: u16 = 0x0100;
 const COMMON_LVB_TRAILING_BYTE: u16 = 0x0200;
-const COMMON_LVB_REVERSE_VIDEO: u16 = 0x4000;
-const COMMON_LVB_UNDERSCORE: u16 = 0x8000;
-
-const DEFAULT_ATTRIBUTES: u16 = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
 
 // ---------------------------------------------------------------------------
 // Command-line transport
@@ -729,24 +723,6 @@ fn spawn_child(console: &ConsoleHandles, command_line: &mut [u16]) -> io::Result
 // Screen mirror: console buffer -> terminal stream
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Cell {
-    text: char,
-    attributes: u16,
-    /// A wide character's second cell, which carries no glyph of its own.
-    continuation: bool,
-}
-
-impl Default for Cell {
-    fn default() -> Self {
-        Self {
-            text: ' ',
-            attributes: DEFAULT_ATTRIBUTES,
-            continuation: false,
-        }
-    }
-}
-
 /// What the host has already been told the screen looks like.
 ///
 /// The mirror exists so the agent emits *differences*. Repainting everything
@@ -860,29 +836,14 @@ impl ScreenMirror {
 
     /// Rewrites one row from column one. Erasing to end of line first is what
     /// makes a shortened line actually get shorter.
+    ///
+    /// The cell-to-bytes walk — including the double-width (CJK) continuation
+    /// handling and the SGR/trailing-blank behaviour — is
+    /// [`emit_row_cells`](crate::adapters::console_row_emit::emit_row_cells),
+    /// which is platform-independent and unit-tested off Windows.
     fn emit_row(&mut self, out: &mut Vec<u8>, row: u16, cells: &[Cell]) {
         out.extend_from_slice(format!("\x1b[{};1H\x1b[K", row + 1).as_bytes());
-        let mut text = String::new();
-        for cell in cells {
-            if cell.continuation {
-                continue;
-            }
-            if cell.attributes != self.attributes {
-                if !text.is_empty() {
-                    out.extend_from_slice(text.as_bytes());
-                    text.clear();
-                }
-                out.extend_from_slice(sgr_for(cell.attributes).as_bytes());
-                self.attributes = cell.attributes;
-            }
-            text.push(cell.text);
-        }
-        // Trailing blanks are already handled by the erase, so they are only
-        // written when a later cell on the row is non-blank.
-        while text.ends_with(' ') {
-            text.pop();
-        }
-        out.extend_from_slice(text.as_bytes());
+        emit_row_cells(out, cells, &mut self.attributes);
         self.cursor = (row, 0);
     }
 }
@@ -940,46 +901,6 @@ fn decode_cell(raw: CHAR_INFO) -> Cell {
         attributes: raw.Attributes & !(COMMON_LVB_LEADING_BYTE | COMMON_LVB_TRAILING_BYTE),
         continuation: raw.Attributes & COMMON_LVB_TRAILING_BYTE != 0,
     }
-}
-
-/// Console attribute bits to an SGR sequence.
-///
-/// The console orders its colour bits blue-green-red and ANSI orders them
-/// red-green-blue, so the two nibbles are not interchangeable and swapping
-/// red and blue is the entire mapping.
-fn sgr_for(attributes: u16) -> String {
-    let ansi = |red: bool, green: bool, blue: bool| {
-        u8::from(red) | (u8::from(green) << 1) | (u8::from(blue) << 2)
-    };
-    let foreground = ansi(
-        attributes & FOREGROUND_RED != 0,
-        attributes & FOREGROUND_GREEN != 0,
-        attributes & FOREGROUND_BLUE != 0,
-    );
-    let background = ansi(
-        attributes & BACKGROUND_RED != 0,
-        attributes & BACKGROUND_GREEN != 0,
-        attributes & BACKGROUND_BLUE != 0,
-    );
-    let foreground = if attributes & FOREGROUND_INTENSITY != 0 {
-        90 + u16::from(foreground)
-    } else {
-        30 + u16::from(foreground)
-    };
-    let background = if attributes & BACKGROUND_INTENSITY != 0 {
-        100 + u16::from(background)
-    } else {
-        40 + u16::from(background)
-    };
-    let mut sequence = String::from("\x1b[0");
-    if attributes & COMMON_LVB_REVERSE_VIDEO != 0 {
-        sequence.push_str(";7");
-    }
-    if attributes & COMMON_LVB_UNDERSCORE != 0 {
-        sequence.push_str(";4");
-    }
-    sequence.push_str(&format!(";{foreground};{background}m"));
-    sequence
 }
 
 // ---------------------------------------------------------------------------
