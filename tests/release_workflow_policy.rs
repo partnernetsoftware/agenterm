@@ -428,10 +428,16 @@ fn qjswasm_internal_mechanism_tests_are_an_explicit_full_gate_subcourt() {
 }
 
 #[test]
-fn qjswasm_native_door_schema_tests_are_an_explicit_full_gate_subcourt() {
-    assert!(CHECK_QJS.contains("function cargo_unit_qjswasm_native_door_schema_spec(environment)"));
-    assert!(CHECK_QJS.contains("\"-p\", \"agenterm-qjswasm\", \"--test\", \"native_door_schema\""));
-    assert!(CHECK_QJS.contains("cargo_unit_qjswasm_native_door_schema_spec(build_environment)"));
+fn qjswasm_native_door_tests_are_an_explicit_full_gate_subcourt() {
+    let spec = CHECK_QJS
+        .split_once("function cargo_unit_qjswasm_native_door_spec(environment) {")
+        .and_then(|(_, tail)| tail.split_once("\n}"))
+        .map(|(body, _)| body)
+        .expect("qjswasm native-door unit spec");
+    assert!(spec.contains("\"-p\", \"agenterm-qjswasm\""));
+    assert!(spec.contains("\"--test\", \"native_door_schema\""));
+    assert!(spec.contains("\"--test\", \"native_door\""));
+    assert!(CHECK_QJS.contains("cargo_unit_qjswasm_native_door_spec(build_environment)"));
 }
 
 #[test]

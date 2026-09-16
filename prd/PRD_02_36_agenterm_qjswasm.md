@@ -921,6 +921,11 @@ integration.
   Mac kernel claim; Windows and Linux remain compile-only in this experiment.
   The exact commands and non-claims live in
   `research/qjswasm-native-door/RESULTS.md` §F18–§F19.
+- [x] The active full unit gate runs both owning native-door targets as one
+  subcourt: `native_door_schema` proves admission and typed refusal, while
+  `native_door` executes the platform-selected ABI oracles, composition,
+  budgets and cancellation. The policy test pins both targets and the one
+  invocation site, so retaining only the cheaper schema half fails closed.
 - Exact, fixed and fixed-pointer native calls now keep their declaration parser,
   prototype catalog, nullability and guest-span checks in this crate, while all
   five raw and JSON execution arms delegate through `agenterm-dyn::invoke_abi`.

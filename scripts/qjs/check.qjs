@@ -389,10 +389,11 @@ function cargo_unit_qjswasm_lib_spec(environment) {
   ], 300000, environment, 0);
 }
 
-function cargo_unit_qjswasm_native_door_schema_spec(environment) {
+function cargo_unit_qjswasm_native_door_spec(environment) {
   return spec("cargo", [
     "test", "--quiet", "--locked",
-    "-p", "agenterm-qjswasm", "--test", "native_door_schema"
+    "-p", "agenterm-qjswasm", "--test", "native_door_schema",
+    "--test", "native_door"
   ], 300000, environment, 0);
 }
 
@@ -1388,7 +1389,7 @@ gate = run_gate_specs(
     cargo_unit_qjswasm_door_spec(build_environment),
     cargo_unit_qjswasm_host_door_spec(build_environment),
     cargo_unit_qjswasm_lib_spec(build_environment),
-    cargo_unit_qjswasm_native_door_schema_spec(build_environment),
+    cargo_unit_qjswasm_native_door_spec(build_environment),
     cargo_unit_qjswasm_acu_door_spec(build_environment),
     cargo_unit_qjswasm_syntax_contract_spec(build_environment),
     cargo_unit_qjswasm_slot_contracts_spec(build_environment),
