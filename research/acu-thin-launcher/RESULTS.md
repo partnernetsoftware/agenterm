@@ -2,7 +2,7 @@
 
 Status: **ordinary seam and Linux L1 pass; G1 is red.** The prototype proves a
 small fixed-sibling launcher can execute ordinary ACU argv without owning the
-command schema. Two binary-only entry families remain unimplemented, so it does
+command schema. One binary-only entry family remains unimplemented, so it does
 not accept B or establish the product topology.
 
 ## Source and tool identity
@@ -74,7 +74,7 @@ repository target tree.
 | gate | result | evidence / missing work |
 |---|---|---|
 | G0 safety/authority | partial green | one parser/Executor owner, fixed sibling, bounded ABI, release panic latch, missing/wrong ABI and malformed-result refusals; not all raw failures on three native OSes |
-| G1 behavior parity | **red** | ordinary help/capabilities/refusal, exact version and verbs text, network-probe and device-I/O fixtures, and managed-job, browser-session, device-lease, hotkey and X11 clipboard owners run; the other two binary-entry families remain explicitly unimplemented; no complete paired monolith stdout/stderr corpus |
+| G1 behavior parity | **red** | ordinary help/capabilities/refusal, exact version and verbs text, network-probe and device-I/O fixtures, and managed-job, browser-session, device-lease, privilege-broker, hotkey and X11 clipboard owners run; the native-messaging family remains explicitly unimplemented; no complete paired monolith stdout/stderr corpus |
 | G2 launcher budgets | partial green | Linux x86_64 L1 is 389,096 bytes; Windows L1 and same-source paired monolith are unmeasured |
 | G3 six-cell/native | red | only Linux x86_64 cross-build plus macOS arm64 native ordinary execution |
 | G4 footprint | partial | macOS L1/L2/L3 complete; Linux L2/L3 and other cells unmeasured |
@@ -205,6 +205,20 @@ may perform a real window-placement action when Accessibility is trusted. No
 public court currently drives this entry, and the macOS LaunchAgent delivery
 still needs the provider staged beside the launcher before topology B could be
 promoted. G1 therefore remains red.
+
+### Incremental G1 privilege-broker slice
+
+Entry mode 6 now calls the existing platform broker body directly inside the
+service-manager-owned process. Its sentinel remains exact, trailing argv falls
+back to the ordinary typed refusal, and broker diagnostics continue to use the
+real process stderr while ABI output lengths remain zero. The boundary tests
+pin those facts without attempting privileged installation or consent.
+
+This is not privileged-delivery evidence. Linux systemd and macOS launchd must
+install a root-owned or signed fixed-sibling provider beside the launcher, and
+their native activation, peer authentication, consent and idle-exit journeys
+were not run here. G0 and G1 therefore remain incomplete even though the mode-6
+route itself no longer returns `provider_entry_mode_unimplemented`.
 
 ## Commands used for the recorded result
 

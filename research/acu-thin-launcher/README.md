@@ -103,7 +103,10 @@ through the bounded ABI buffer. The X11 clipboard owner now shares one library
 entry between monolith and provider, preserving its inherited stdin and
 zero-output process contract. The hotkey host now retains direct ownership of
 the process event loop and real stdout/stderr, including the `hotkeys` alias and
-bounded `--self-test` argv. The other two families return the typed boundary status
+bounded `--self-test` argv. The privilege broker also remains inside the
+service-manager-owned process and keeps its exact one-argument sentinel and
+direct diagnostics. The other family
+returns the typed boundary status
 `provider_entry_mode_unimplemented`. Their stdin/stdout framing, resident
 lifetime, cleanup and exact exit behavior are not implemented or tested here.
 Consequently G1 remains red; these completed slices are not binary-entry parity.

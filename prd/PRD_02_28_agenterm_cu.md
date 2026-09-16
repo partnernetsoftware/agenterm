@@ -2203,7 +2203,11 @@ flowchart LR
   ownership of its event loop, stdout/stderr and product exit status, including
   its bounded self-test argv; no public court currently drives that entry, and
   the macOS LaunchAgent must eventually stage the provider as a fixed sibling.
-  The other two binary-entry families still fail closed instead of
+  The privilege-broker entry now also retains its exact sentinel and runs the
+  existing broker directly in the service-manager-owned process, with no ABI
+  output; root-owned/signed fixed-sibling installation and native activation /
+  consent courts remain unproved. Only the native-messaging binary-entry family
+  still fails closed instead of
   preserving framing/lifetime/cleanup parity. The browser-session result is a macOS native
   public court, not Candidate evidence: that court is platform-limited and
   registered rather than Windows Candidate-required. The staged device-lease

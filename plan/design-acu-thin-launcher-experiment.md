@@ -173,8 +173,11 @@ between monolith and provider and retains zero ABI output. The tree still stops
 at G1 red. Entry mode 9 now preserves the `host`/`hotkeys` first-argument
 surface by running the existing platform desktop host as a direct process owner;
 its event loop, diagnostics, self-test output and exit status never pass through
-ABI buffers. The other two binary-entry families remain
-`provider_entry_mode_unimplemented`; their framing, resident lifetime, cleanup
+ABI buffers. Entry mode 6 likewise runs the existing Linux/macOS privilege
+broker inside the service-manager-owned process with an exact sentinel and no
+ABI output; this does not prove root-owned/signed provider installation or a
+native consent court. Only the native-messaging family remains
+`provider_entry_mode_unimplemented`; its framing, resident lifetime, cleanup
 and exact exit parity are not implemented. The browser-session result is native
 court evidence, not Candidate evidence: its existing qjs court is a registered
 macOS court rather than a Windows Candidate gate. The device-lease

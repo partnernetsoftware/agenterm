@@ -24,6 +24,7 @@ const ENTRY_NETWORK_PROBE_WORKER: u32 = 2;
 const ENTRY_BROWSER_SESSION_OWNER: u32 = 3;
 const ENTRY_MANAGED_JOB_OWNER: u32 = 4;
 const ENTRY_DEVICE_LEASE_OWNER: u32 = 5;
+const ENTRY_PRIVILEGE_BROKER: u32 = 6;
 const ENTRY_DEVICE_IO_FIXTURE: u32 = 7;
 const ENTRY_NETWORK_PROBE_FIXTURE: u32 = 8;
 const ENTRY_HOTKEY_HOST: u32 = 9;
@@ -35,6 +36,7 @@ const NETWORK_PROBE_WORKER_ARG: &[u8] = b"--agenterm-cu-internal-network-probe-w
 const BROWSER_SESSION_OWNER_ARG: &[u8] = b"--agenterm-cu-internal-browser-session-owner";
 const MANAGED_JOB_OWNER_ARG: &[u8] = b"--agenterm-cu-internal-managed-job-owner";
 const DEVICE_LEASE_OWNER_ARG: &[u8] = b"--agenterm-cu-internal-device-lease-owner";
+const PRIVILEGE_BROKER_ARG: &[u8] = b"--agenterm-cu-internal-privilege-broker";
 const DEVICE_IO_FIXTURE_ARG: &[u8] = b"--agenterm-cu-internal-device-io-fixture";
 const NETWORK_PROBE_FIXTURE_ARG: &[u8] = b"--agenterm-cu-internal-network-probe-fixture";
 const HOTKEY_HOST_ARG: &[u8] = b"host";
@@ -242,6 +244,8 @@ fn expected_entry_mode(argv: &[Vec<u8>]) -> u32 {
         ENTRY_MANAGED_JOB_OWNER
     } else if matches!(argv, [arg] if arg.as_slice() == DEVICE_LEASE_OWNER_ARG) {
         ENTRY_DEVICE_LEASE_OWNER
+    } else if matches!(argv, [arg] if arg.as_slice() == PRIVILEGE_BROKER_ARG) {
+        ENTRY_PRIVILEGE_BROKER
     } else if matches!(argv, [first, ..] if first.as_slice() == DEVICE_IO_FIXTURE_ARG) {
         ENTRY_DEVICE_IO_FIXTURE
     } else if matches!(argv, [first, ..] if first.as_slice() == NETWORK_PROBE_FIXTURE_ARG) {
@@ -267,6 +271,7 @@ fn validate_output(entry_mode: u32, stdout: &[u8], stderr: &[u8]) -> Result<(), 
         | ENTRY_BROWSER_SESSION_OWNER
         | ENTRY_MANAGED_JOB_OWNER
         | ENTRY_DEVICE_LEASE_OWNER
+        | ENTRY_PRIVILEGE_BROKER
         | ENTRY_DEVICE_IO_FIXTURE
         | ENTRY_NETWORK_PROBE_FIXTURE
         | ENTRY_HOTKEY_HOST
@@ -290,6 +295,7 @@ fn entry_mode_owns_stdio(entry_mode: u32) -> bool {
             | ENTRY_BROWSER_SESSION_OWNER
             | ENTRY_MANAGED_JOB_OWNER
             | ENTRY_DEVICE_LEASE_OWNER
+            | ENTRY_PRIVILEGE_BROKER
             | ENTRY_DEVICE_IO_FIXTURE
             | ENTRY_NETWORK_PROBE_FIXTURE
             | ENTRY_HOTKEY_HOST
@@ -461,6 +467,24 @@ mod tests {
         assert!(validate_output(ENTRY_HOTKEY_HOST, b"", b"").is_ok());
         assert_eq!(
             validate_output(ENTRY_HOTKEY_HOST, b"unexpected", b"").unwrap_err(),
+            "provider_direct_stdio_buffer_invalid"
+        );
+    }
+
+    #[test]
+    fn privilege_broker_mode_is_exact_and_retains_service_process_ownership() {
+        assert_eq!(
+            expected_entry_mode(&[PRIVILEGE_BROKER_ARG.to_vec()]),
+            ENTRY_PRIVILEGE_BROKER
+        );
+        assert_eq!(
+            expected_entry_mode(&[PRIVILEGE_BROKER_ARG.to_vec(), b"extra".to_vec()]),
+            ENTRY_ORDINARY_ARGV
+        );
+        assert!(entry_mode_owns_stdio(ENTRY_PRIVILEGE_BROKER));
+        assert!(validate_output(ENTRY_PRIVILEGE_BROKER, b"", b"").is_ok());
+        assert_eq!(
+            validate_output(ENTRY_PRIVILEGE_BROKER, b"", b"unexpected").unwrap_err(),
             "provider_direct_stdio_buffer_invalid"
         );
     }

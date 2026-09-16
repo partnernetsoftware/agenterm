@@ -213,6 +213,7 @@ unsafe fn process_main_inner(
         }
         ENTRY_MANAGED_JOB_OWNER => Some(agenterm_cu::run_managed_job_owner()),
         ENTRY_DEVICE_LEASE_OWNER => Some(agenterm_cu::run_device_lease_owner()),
+        ENTRY_PRIVILEGE_BROKER => Some(agenterm_cu::run_privilege_broker()),
         ENTRY_DEVICE_IO_FIXTURE => Some(agenterm_cu::run_device_io_test_fixture(&argv[1..])),
         ENTRY_NETWORK_PROBE_FIXTURE => {
             Some(agenterm_cu::network_probe::run_loopback_fixture(&argv[1..]))
