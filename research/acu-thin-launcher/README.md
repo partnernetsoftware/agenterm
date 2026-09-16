@@ -16,7 +16,7 @@ product integration and not evidence that G1 passes.
   `Command` schema or create a second dispatcher. The first explicit
   binary-entry slices present the library-owned version text and preserve the
   network-probe worker/fixture process boundary plus the detached managed-job
-  owner boundary.
+  and browser-session owner boundaries.
 - `fixtures/bad-abi-provider` exports only a deliberately wrong ABI version for
   a fail-closed launcher court.
 
@@ -31,11 +31,11 @@ field is authoritative; launcher/provider boundary failures exit 70. The
 launcher validates the result version/size, exact argv-bound entry mode,
 lengths and exit range before publishing bytes. Ordinary mode additionally
 requires stderr UTF-8 and one JSON stdout frame; version mode requires one
-`agenterm-cu` text line and empty stderr. Network-probe and managed-job-owner child
+`agenterm-cu` text line and empty stderr. Network-probe and resident-owner child
 modes own their process lifetime and any stdin/stdout directly, and must publish
 zero bytes through the ABI buffers. The network-probe parent retains the 4 KiB
-request, 64 KiB reply and kill/reap deadline; the managed-job owner keeps its
-existing durable readiness and early-exit court.
+request, 64 KiB reply and kill/reap deadline; the resident owners keep their
+existing durable readiness and early-exit courts.
 
 ## Reproduce
 
@@ -93,8 +93,12 @@ The provider classifies every current binary-only family before ordinary argv:
 Version text is implemented for the exact one-argument `--version` and `-V`
 forms. The network-probe worker and loopback fixture retain their direct stdio
 and child lifetime contracts. The managed-job owner runs directly inside the
-detached launcher child, without redispatch or respawn. The other eight families
-return the typed boundary status
+detached launcher child, without redispatch or respawn. The browser-session
+owner does the same while retaining its exact directory argv and null stdio.
+The other seven families return the typed boundary status
 `provider_entry_mode_unimplemented`. Their stdin/stdout framing, resident
 lifetime, cleanup and exact exit behavior are not implemented or tested here.
 Consequently G1 remains red; these completed slices are not binary-entry parity.
+The browser-session lifecycle was exercised by its macOS public builder/court;
+that result is not Candidate evidence because the court is platform-limited and
+its required id is not currently routed by the full-lane catalog.

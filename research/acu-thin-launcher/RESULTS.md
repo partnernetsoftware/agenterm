@@ -2,7 +2,7 @@
 
 Status: **ordinary seam and Linux L1 pass; G1 is red.** The prototype proves a
 small fixed-sibling launcher can execute ordinary ACU argv without owning the
-command schema. Eight binary-only entry families remain unimplemented, so it does
+command schema. Seven binary-only entry families remain unimplemented, so it does
 not accept B or establish the product topology.
 
 ## Source and tool identity
@@ -74,7 +74,7 @@ repository target tree.
 | gate | result | evidence / missing work |
 |---|---|---|
 | G0 safety/authority | partial green | one parser/Executor owner, fixed sibling, bounded ABI, release panic latch, missing/wrong ABI and malformed-result refusals; not all raw failures on three native OSes |
-| G1 behavior parity | **red** | ordinary help/capabilities/refusal, exact version text, network-probe worker/fixture and the managed-job owner run; the other eight binary-entry families remain explicitly unimplemented; no complete paired monolith stdout/stderr corpus |
+| G1 behavior parity | **red** | ordinary help/capabilities/refusal, exact version text, network-probe worker/fixture, managed-job owner and browser-session owner run; the other seven binary-entry families remain explicitly unimplemented; no complete paired monolith stdout/stderr corpus |
 | G2 launcher budgets | partial green | Linux x86_64 L1 is 389,096 bytes; Windows L1 and same-source paired monolith are unmeasured |
 | G3 six-cell/native | red | only Linux x86_64 cross-build plus macOS arm64 native ordinary execution |
 | G4 footprint | partial | macOS L1/L2/L3 complete; Linux L2/L3 and other cells unmeasured |
@@ -129,6 +129,22 @@ EOF instead of a launch frame and observed product exit 1, not launcher
 boundary exit 70, proving the mode reached its library owner. This is an
 entry-boundary probe, not a substitute for the already owning public lifecycle
 courts, and it does not change the G1 verdict or promote topology B.
+
+### Incremental G1 browser-session-owner slice
+
+Entry mode 3 now preserves the browser-session owner's first-argument routing:
+the provider passes every trailing argv token to `run_owner`, while the launcher
+requires zero ABI stdout/stderr bytes and never redispatches the public command.
+The owner therefore remains the already detached process whose exact directory
+argument names its durable spec and registry.
+
+The macOS public synthetic-browser builder ran against a staged launcher and
+provider and emitted both existing lifecycle and typed-failure evidence IDs.
+It proved ready/collision/stop/remove, exact owner and browser identities,
+malformed and oversized endpoint handling, early exit, and final process/root
+cleanup. This is native macOS court evidence, not Candidate evidence: the court
+rejects Windows and its required id is not currently routed by the full-lane
+task catalog. No execution-set or court change is included in this slice.
 
 ## Commands used for the recorded result
 

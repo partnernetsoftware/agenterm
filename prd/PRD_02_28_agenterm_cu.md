@@ -2190,10 +2190,12 @@ flowchart LR
   fixed-sibling thin-launcher prototype reduces the measured Linux x86_64 L1
   to 389,096 bytes without copying the command schema, but correctly remains
   unaccepted. Exact version text, the network-probe worker + loopback fixture,
-  and the managed-job resident owner now preserve their process-entry contracts
-  through explicit ABI modes; the other eight
+  and the managed-job + browser-session resident owners now preserve their
+  process-entry contracts through explicit ABI modes; the other seven
   binary-entry families still fail closed instead of preserving
-  framing/lifetime/cleanup parity. Its decision is recorded in
+  framing/lifetime/cleanup parity. The browser-session result is a macOS native
+  public court, not Candidate evidence: that court is platform-limited and its
+  required id is not currently routed by the full-lane catalog. Its decision is recorded in
   `plan/design-acu-thin-launcher-experiment.md`; the broker experiment and
   exact result ledger live in `plan/design-linux-privilege-broker-experiment.md`
   and `research/linux-privilege-broker/RESULTS.md`.

@@ -208,6 +208,9 @@ unsafe fn process_main_inner(
     unsafe { (*result).entry_mode = mode };
     let direct_exit = match mode {
         ENTRY_NETWORK_PROBE_WORKER => Some(agenterm_cu::network_probe::run_worker_stdio()),
+        ENTRY_BROWSER_SESSION_OWNER => {
+            Some(agenterm_cu::browser_session_owner::run_owner(&argv[1..]))
+        }
         ENTRY_MANAGED_JOB_OWNER => Some(agenterm_cu::run_managed_job_owner()),
         ENTRY_NETWORK_PROBE_FIXTURE => {
             Some(agenterm_cu::network_probe::run_loopback_fixture(&argv[1..]))
@@ -358,6 +361,10 @@ mod tests {
             (
                 &[agenterm_cu::MANAGED_JOB_OWNER_ARG][..],
                 ENTRY_MANAGED_JOB_OWNER,
+            ),
+            (
+                &[agenterm_cu::browser_session_owner::OWNER_ARG, "session"][..],
+                ENTRY_BROWSER_SESSION_OWNER,
             ),
             (
                 &[agenterm_cu::DEVICE_LEASE_OWNER_ARG][..],

@@ -21,11 +21,13 @@ const BOUNDARY_EXIT: u8 = 70;
 const STATUS_OK: i32 = 0;
 const ENTRY_ORDINARY_ARGV: u32 = 0;
 const ENTRY_NETWORK_PROBE_WORKER: u32 = 2;
+const ENTRY_BROWSER_SESSION_OWNER: u32 = 3;
 const ENTRY_MANAGED_JOB_OWNER: u32 = 4;
 const ENTRY_NETWORK_PROBE_FIXTURE: u32 = 8;
 const ENTRY_VERSION_TEXT: u32 = 12;
 
 const NETWORK_PROBE_WORKER_ARG: &[u8] = b"--agenterm-cu-internal-network-probe-worker";
+const BROWSER_SESSION_OWNER_ARG: &[u8] = b"--agenterm-cu-internal-browser-session-owner";
 const MANAGED_JOB_OWNER_ARG: &[u8] = b"--agenterm-cu-internal-managed-job-owner";
 const NETWORK_PROBE_FIXTURE_ARG: &[u8] = b"--agenterm-cu-internal-network-probe-fixture";
 
@@ -223,6 +225,8 @@ fn validate_result(
 fn expected_entry_mode(argv: &[Vec<u8>]) -> u32 {
     if matches!(argv, [arg] if arg.as_slice() == NETWORK_PROBE_WORKER_ARG) {
         ENTRY_NETWORK_PROBE_WORKER
+    } else if matches!(argv, [first, ..] if first.as_slice() == BROWSER_SESSION_OWNER_ARG) {
+        ENTRY_BROWSER_SESSION_OWNER
     } else if matches!(argv, [arg] if arg.as_slice() == MANAGED_JOB_OWNER_ARG) {
         ENTRY_MANAGED_JOB_OWNER
     } else if matches!(argv, [first, ..] if first.as_slice() == NETWORK_PROBE_FIXTURE_ARG) {
@@ -237,7 +241,10 @@ fn expected_entry_mode(argv: &[Vec<u8>]) -> u32 {
 fn validate_output(entry_mode: u32, stdout: &[u8], stderr: &[u8]) -> Result<(), &'static str> {
     match entry_mode {
         ENTRY_ORDINARY_ARGV => validate_ordinary_output(stdout, stderr),
-        ENTRY_NETWORK_PROBE_WORKER | ENTRY_MANAGED_JOB_OWNER | ENTRY_NETWORK_PROBE_FIXTURE => {
+        ENTRY_NETWORK_PROBE_WORKER
+        | ENTRY_BROWSER_SESSION_OWNER
+        | ENTRY_MANAGED_JOB_OWNER
+        | ENTRY_NETWORK_PROBE_FIXTURE => {
             if stdout.is_empty() && stderr.is_empty() {
                 Ok(())
             } else {
@@ -252,7 +259,10 @@ fn validate_output(entry_mode: u32, stdout: &[u8], stderr: &[u8]) -> Result<(), 
 fn entry_mode_owns_stdio(entry_mode: u32) -> bool {
     matches!(
         entry_mode,
-        ENTRY_NETWORK_PROBE_WORKER | ENTRY_MANAGED_JOB_OWNER | ENTRY_NETWORK_PROBE_FIXTURE
+        ENTRY_NETWORK_PROBE_WORKER
+            | ENTRY_BROWSER_SESSION_OWNER
+            | ENTRY_MANAGED_JOB_OWNER
+            | ENTRY_NETWORK_PROBE_FIXTURE
     )
 }
 
@@ -405,6 +415,27 @@ mod tests {
         );
         assert_eq!(
             validate_output(ENTRY_MANAGED_JOB_OWNER, b"unexpected", b"").unwrap_err(),
+            "provider_direct_stdio_buffer_invalid"
+        );
+    }
+
+    #[test]
+    fn browser_session_owner_mode_preserves_first_argument_classification() {
+        for argv in [
+            vec![BROWSER_SESSION_OWNER_ARG.to_vec()],
+            vec![BROWSER_SESSION_OWNER_ARG.to_vec(), b"session".to_vec()],
+            vec![
+                BROWSER_SESSION_OWNER_ARG.to_vec(),
+                b"session".to_vec(),
+                b"extra".to_vec(),
+            ],
+        ] {
+            assert_eq!(expected_entry_mode(&argv), ENTRY_BROWSER_SESSION_OWNER);
+        }
+        assert!(validate_output(ENTRY_BROWSER_SESSION_OWNER, b"", b"").is_ok());
+        assert!(entry_mode_owns_stdio(ENTRY_BROWSER_SESSION_OWNER));
+        assert_eq!(
+            validate_output(ENTRY_BROWSER_SESSION_OWNER, b"unexpected", b"").unwrap_err(),
             "provider_direct_stdio_buffer_invalid"
         );
     }

@@ -160,9 +160,13 @@ the ABI publishes zero duplicate bytes, and the parent still bounds, validates,
 times out and reaps the exact child. The next slice preserves the managed-job
 resident owner inside the already detached launcher process. Its existing parent
 still observes durable readiness plus early exit, while the ABI publishes no
-competing output. The tree still stops at G1 red: the other eight binary-entry
-families remain `provider_entry_mode_unimplemented`;
-their framing, resident lifetime, cleanup and exact exit parity are not implemented.
+competing output. A following macOS native court now preserves the browser-session
+owner's exact directory argv, durable readiness, identity and cleanup lifecycle
+through entry mode 3. The tree still stops at G1 red: the other seven binary-entry
+families remain `provider_entry_mode_unimplemented`; their framing, resident
+lifetime, cleanup and exact exit parity are not implemented. The browser-session
+result is native court evidence, not Candidate evidence: its existing qjs court
+is macOS-only and the full-lane catalog currently does not route that required id.
 
 Decision path: A is over budget → B passes the measured G0 subset and one G2
 cell → G1 red → no topology promotion. The result overturns only the fear that
