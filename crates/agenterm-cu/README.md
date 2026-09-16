@@ -375,8 +375,8 @@ headless profile under `mktemp` that is removed on exit.
   --scopes S --operations OP[,OP...] --ttl-ms N
   (--one-shot|--max-uses N)`, `grant list`,
   `grant operations`, `grant revoke --grant-id ID`; run with `--grant-id ID`
-  (exclusive with every other auth source). `grant operations` is the complete
-  sorted machine-readable vocabulary accepted by `--operations`; use `help
+  (exclusive with every other auth source). `grant operations` is the sorted
+  machine-readable declared vocabulary accepted by `--operations`; use `help
   grant` for the contract.
   Operations are frozen per grant, so a future command cannot inherit an old
   scope merely by sharing `observe` or `actuate`. Schema-2 grants remain

@@ -385,7 +385,7 @@ const NON_AUTHORIZATION_VERBS: &[&str] = &[
     "service",
 ];
 
-fn known_authorization_operation(operation: &str) -> bool {
+pub(crate) fn known_authorization_operation(operation: &str) -> bool {
     authorization_operations().contains(operation)
 }
 

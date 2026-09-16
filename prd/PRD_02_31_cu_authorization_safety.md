@@ -258,7 +258,7 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   are recorded without consuming uses; a failed downstream command does not
   refund a reserved use. Session identity/key material is absent from the
   audit. Schema 3 now freezes an explicit, bounded canonical operation set at
-  issuance. `grant operations` projects the complete sorted vocabulary accepted
+  issuance. `grant operations` projects the sorted declared vocabulary accepted
   by `grant create --operations`, so callers do not have to infer shape-specific
   dotted names from source. Composite verbs separate materially different
   effects (including plan/apply, process signal mode, app action, diff advance

@@ -32,6 +32,15 @@ impl Executor {
                 ),
             );
         };
+        if !crate::grant_management::known_authorization_operation(&operation) {
+            return CuReply::err(
+                command,
+                CuError::new(
+                    "authorization_operation_unpublished",
+                    "command operation is absent from the persisted-grant vocabulary",
+                ),
+            );
+        }
         let decision_id = match generated_decision_id() {
             Some(id) => id,
             None => {

@@ -5831,7 +5831,7 @@ attempt reserves durably before dispatch and is never refunded after an effect
 failure.
 
 When canonical operations depend on command shape, expose the validator's
-complete sorted vocabulary through the product CLI. Do not make callers infer
+sorted declared vocabulary through the product CLI. Do not make callers infer
 dotted ids from match arms, and do not maintain a second hand-written catalog
 that can drift from issuance validation. Test all three sides together: every
 shape-specific id produced by a command is accepted at issuance, every

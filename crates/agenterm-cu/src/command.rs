@@ -4868,6 +4868,11 @@ impl Command {
             Self::Align { .. } => return None,
             _ => self.verb(),
         };
+        #[cfg(test)]
+        assert!(
+            crate::grant_management::known_authorization_operation(&operation),
+            "command produced an unpublished canonical authorization operation: {operation}"
+        );
         Some(operation)
     }
 

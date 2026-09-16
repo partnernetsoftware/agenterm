@@ -74,8 +74,8 @@ flowchart LR
 
 1. Reconcile PRD 28–32 and the public verb catalog with actual current-tier code.
 2. Close shared command/backend parity before adding new verbs.
-   The first active leaf is whole-window `activate`: ABI 1.26 and macOS live
-   read-back are green; Linux/Windows native courts still own promotion.
+   Whole-window `activate` now has ABI 1.26 plus green macOS and active-lane
+   Windows exact-handle read-back; the Linux native court still owns promotion.
 3. Port or retire every release-critical Rh-era script gate; do not preserve a
    dark gate only to keep its name.
 4. Prove the three native journeys with capability-aware assertions. A backend

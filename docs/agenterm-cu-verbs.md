@@ -6379,15 +6379,15 @@ arguments:
   --max-uses N                  bounded use count
   --grant-store PATH            explicit store (test / admin seam)
 
-`grant operations` returns the complete sorted machine-readable operation
-vocabulary accepted by `grant create`; shape-dependent commands use the exact
-dotted operation shown there. Grant management is local/current only. It
-refuses ambient AGENTERM_CU_GRANT* and AGENTERM_CU_AUTH* selectors;
---grant-store is an explicit test/admin seam. A created grant is selected on
-later commands with --grant-id ID, which is mutually exclusive with --grant
-and the environment. Operations are frozen in the grant; a later command
-cannot inherit authority merely because it uses the same observe/actuate
-scope. Schema-2 grants remain listable and revocable but fail closed as
+`grant operations` returns the sorted machine-readable operation vocabulary
+declared by `grant create`; shape-dependent commands use the exact dotted
+operation shown there. Grant management is local/current only. It refuses
+ambient AGENTERM_CU_GRANT* and AGENTERM_CU_AUTH* selectors; --grant-store is
+an explicit test/admin seam. A created grant is selected on later commands
+with --grant-id ID, which is mutually exclusive with --grant and the
+environment. Operations are frozen in the grant; a later command cannot
+inherit authority merely because it uses the same observe/actuate scope.
+Schema-2 grants remain listable and revocable but fail closed as
 operation_unbound when used.
 ```
 
