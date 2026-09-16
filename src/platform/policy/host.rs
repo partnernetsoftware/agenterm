@@ -29,21 +29,9 @@ pub(crate) fn headless_composer_height() -> i32 {
     if is_windows_host() { 104 } else { 64 }
 }
 
-#[allow(dead_code)]
-pub(crate) fn shell_command_for_host<'a>(
-    windows_command: &'a str,
-    unix_command: &'a str,
-) -> &'a str {
-    if is_windows_host() {
-        windows_command
-    } else {
-        unix_command
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{is_macos_host, is_unix_host, is_windows_host, shell_command_for_host};
+    use super::{is_macos_host, is_unix_host, is_windows_host};
 
     #[test]
     fn host_predicates_match_runtime_kind() {
@@ -62,14 +50,6 @@ mod tests {
                 kind,
                 agenterm_platform::PlatformKind::Linux | agenterm_platform::PlatformKind::Macos
             )
-        );
-    }
-
-    #[test]
-    fn shell_command_for_host_selects_by_runtime_kind() {
-        assert_eq!(
-            shell_command_for_host("win", "unix"),
-            if is_windows_host() { "win" } else { "unix" }
         );
     }
 }

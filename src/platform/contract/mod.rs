@@ -12,8 +12,6 @@ pub(crate) use agenterm_platform::contract::process;
 pub(crate) use agenterm_platform::contract::pty;
 #[allow(unused_imports)]
 pub(crate) use agenterm_platform::contract::runtime;
-pub(crate) mod script_clipboard;
-pub(crate) mod script_window;
 pub(crate) mod supervisor_audit;
 pub(crate) mod ui_clipboard;
 #[allow(unused_imports)]

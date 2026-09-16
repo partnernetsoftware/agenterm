@@ -10,11 +10,7 @@ pub(crate) use agenterm_platform::process;
 pub(crate) use agenterm_platform::pty;
 #[allow(unused_imports)]
 pub(crate) use agenterm_platform::runtime;
-pub(crate) mod script_clipboard;
-pub(crate) mod script_files;
 pub(crate) mod script_host;
-pub(crate) mod script_stream;
-pub(crate) mod script_window;
 pub(crate) mod supervisor_audit;
 pub(crate) mod ui_clipboard;
 #[allow(unused_imports)]

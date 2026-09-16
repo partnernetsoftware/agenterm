@@ -457,26 +457,12 @@ integrated validation recorded below):
   `services::process → selected → adapters/{windows,linux,macos}`; process
   observation, inventory, termination, child-tree, and CLI autostart native
   mechanics have no remaining root-service implementation copy.
-- [x] Script Runtime clipboard bindings now call
-  `services::script_clipboard → selected → adapters`. Windows retains its
-  two-second Unicode clipboard, UTF-16, and transferable-allocation contract;
-  Linux/macOS retain the existing typed Unsupported result rather than silently
-  inheriting GUI clipboard timeout or paste-policy semantics.
-- [x] Script Runtime child-window facts, keyboard/pointer delivery, native
-  messages, bounds, resize, and dialog-control operations now call
-  `services::script_window → selected → adapters`. Win32 handles and messages
-  no longer appear in `script_process`; Linux/macOS retain the public typed
-  Unsupported receipts rather than a silent compatibility fallback.
-- [x] Script Runtime atomic promotion, append parent-directory durability, and
-  reparse-point metadata now call `services::script_files → selected →
-  adapters`. Windows retains verbatim-path `MoveFileExW` promotion; Unix
-  retains parent-directory `fsync`; product code keeps its unrestricted-path
-  API and existing typed error receipts.
-- [x] Script Runtime child stdout/stderr pump now obtains native pipe probe
-  tokens and `PeekNamedPipe` availability only through
-  `services::script_stream → selected → adapters`. The Windows exited-child
-  drain behavior remains bounded; Linux/macOS deliberately supply no native
-  probe token, so the portable blocking-reader path remains explicit.
+- [x] After the Rh Script Runtime left this repository, its uncalled
+  `services::script_{clipboard,window,files,stream}` projections and their two
+  product-local contract aliases were deleted instead of being retained as a
+  second dormant facade. The reusable clipboard, process-window, filesystem,
+  and pipe-probe mechanisms remain owned and tested by `agenterm-platform`;
+  current product callers use their live facades directly.
 - [x] Script worker supervision and audit serialization now call
   `services::supervisor_audit → selected → adapters`; their former product
   `platform/{windows,unix}` subtrees have been deleted. Adapter-owned Job
