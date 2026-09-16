@@ -1817,7 +1817,7 @@ fn process_message(
     message: Value,
     state: &mut SessionState,
     config: &McpStdioConfig,
-    mutation_enabled: bool,
+    mutation_advertised: bool,
     provider: &ProviderClient,
 ) -> Option<Value> {
     let Some(object) = message.as_object() else {
@@ -1916,7 +1916,7 @@ fn process_message(
                         "version": env!("CARGO_PKG_VERSION"),
                         "description": "AgenTerm Fleet and bounded agenterm-cu bridge"
                     },
-                    "instructions": if mutation_enabled {
+                    "instructions": if mutation_advertised {
                         "Read metadata-safe Fleet resources, wait for one bounded Fleet event, inspect agenterm-cu, or exercise the internal bounded mutation court."
                     } else {
                         "Read metadata-safe Fleet resources, wait for one bounded Fleet event, or inspect agenterm-cu. Mutation stays absent from discovery, requires a persisted target grant, and awaits packaged native courts."
@@ -2050,7 +2050,7 @@ fn process_message(
                     "../crates/agenterm-cu/contract/mcp-observe-tool.json"
                 )),
             ];
-            if mutation_enabled {
+            if mutation_advertised {
                 tools.push(acu_tool_descriptor(include_str!(
                     "../crates/agenterm-cu/contract/mcp-shell-exec-tool.json"
                 )));

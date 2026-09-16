@@ -274,7 +274,8 @@ mechanisms remain behind the `libagenterm` runtime boundary.
   │  │  │     accepts only `AGENTERM_CU_GRANT_ID` plus its optional store selector for identity-bound
   │  │  │     mutation, limits any ambient grant to private session lifecycle, and consumes the
   │  │  │     persisted operation-bound effect attempt through the existing audited/revalidated
-  │  │  │     Executor path
+  │  │  │     Executor path; a local manual fixed-sibling black box proved one `shell-exec`
+  │  │  │     use changes `consumed_uses` from zero to one, while the packaged six-cell court remains open
   │  │  └─ [ ] packaged six-cell interactive stdio mutation court; only then enter `tools/list`
   │  └─ [ ] close the remaining named dynamic sub-shapes, native courts and physical reference archive
   │  ├─ calls the public agenterm:acu object
