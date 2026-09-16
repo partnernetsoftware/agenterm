@@ -141,8 +141,9 @@ before/after diff。因此 `edc59a29` 以 `getegid.wat` 建立了新的可比边
 默认 5 + native family 3 = 8；适配器仍进入同一 qjswasm dispatch 与 dyn loader/stub，不是第四扇执行门；
 判据 4 有固定表和独立计数，但没有生成器产物账 → 部分通过；**判据 5 的 target 编译账已补齐**
 （`x86_64-pc-windows-msvc`、`aarch64-pc-windows-msvc` 的 clippy 与 Linux `x86_64` 的 zigbuild，
-三者均 rc=0 且属**仅编译**，见 §8.2 与 `RESULTS.md` §F7–§F11），但 Windows/Linux 的 **runtime
-仍未取得**，判据 7 的 release 账本也仍缺 → **不得进入 §7 迁移**。
+三者均 rc=0 且属**仅编译**，见 §8.2 与 `RESULTS.md` §F7–§F11）；macOS x86_64 的
+schema 8/8 与 runtime 51/51 已在 Rosetta 下实际执行（`RESULTS.md` §F18–§F19），但
+Windows/Linux 的 **runtime 仍未取得**，判据 7 的 release 账本也仍缺 → **不得进入 §7 迁移**。
 
 ### 8.2 S1–S5 与事前判据对账
 
@@ -152,7 +153,7 @@ before/after diff。因此 `edc59a29` 以 `getegid.wat` 建立了新的可比边
 | S2 单一 door + bounded caller | **已实现** | `35098c28` 将唯一 `agenterm.native_call(i32,i32,i32,i32)->i32` 接入 opt-in Engine；`native_door.rs` 覆盖默认关闭、显式开启、声明发现和 budget/cancel；非宿主目标编译归属已由 S5 记录 | 尚缺 Windows/Linux runtime 归属 |
 | S3 三能力 + 负面矩阵 | **本机实现完成** | Unix `getpid/getppid/getuid` 真调用并分别与进程 ID、父进程 ID、real UID 的独立 host oracle 精确比较；另有 `abs(i32)` 与 `cos(f64)` 精确 ABI family；schema 测试覆盖 spec/block/argument span 和尺寸，door 测试区分 library/symbol/signature/OOB | 证据只归属于实际运行测试的 Unix host；逐 target runtime 资格仍由 S5 补齐 |
 | S4 第四能力 | **斜率已由第五点补测通过** | 原第四点仍由 `getpagesize.wat` 证明；`edc59a29` 只新增 `getegid.wat` 与测试，独立 `id -g` oracle 精确相等，当时 door 仍只有一个 native import | 原第四点没有独立基线，因此按 §8.4 记录规格偏差；第五点是替代的可比边际点，不改写原历史；后续 QJS 语言适配器另记在判据 3 当前状态 |
-| S5 qualification | **部分完成（编译面已补齐，运行面未齐）** | `research/qjswasm-native-door/RESULTS.md` 保留早期本机与跨目标历史；**§F7–§F11 在 `2158fffb` 记录**双 MSVC clippy（`-D warnings`，rc=0，qjswasm 零诊断）与 Linux `x86_64` `cargo zigbuild --all-targets`（rc=0，仅依赖 `agenterm-platform` 的 warning），均为仅编译；**§F16–§F17 在 `fd797b6f` 刷新本机 arm64 schema 8/8 与 runtime 51/51**；`3afbdc1d` 另证 public artifact 监督 | **仍未取得 Windows/Linux 或 macOS x86_64 runtime**；缺同口径 release qjswasm/根产品增量 |
+| S5 qualification | **部分完成（编译面已补齐，运行面未齐）** | `research/qjswasm-native-door/RESULTS.md` 保留早期本机与跨目标历史；**§F7–§F11 在 `2158fffb` 记录**双 MSVC clippy（`-D warnings`，rc=0，qjswasm 零诊断）与 Linux `x86_64` `cargo zigbuild --all-targets`（rc=0，仅依赖 `agenterm-platform` 的 warning），均为仅编译；**§F16–§F17 在 `fd797b6f` 刷新本机 arm64 schema 8/8 与 runtime 51/51**；**§F18–§F19 在 `b3c28fb7` 记录 macOS x86_64 Rosetta schema 8/8 与 runtime 51/51**；`3afbdc1d` 另证 public artifact 监督 | **仍未取得 Windows/Linux runtime**；缺同口径 release qjswasm/根产品增量 |
 
 ### 8.3 判据账（数字均为当前树结构审计，不冒充目标运行）
 
@@ -197,8 +198,9 @@ cargo test --test script_native_artifact_supervisor
    至少用 `windows_get_current_process_id.wat`，Unix 用 owning fixtures；不得用 public artifact 协议测试代跑。
    **当前进度**：`x86_64-pc-windows-msvc`、`aarch64-pc-windows-msvc` 与 Linux `x86_64` 的 **compile 面已记录**
    （`RESULTS.md` §F7–§F11：精确 SHA `2158fffb` + 工具链 + 命令 + rc/warning，均标仅编译），本机 Unix runtime 已记录；
-   **仍未完成**：这三个非宿主 cell 与 macOS x86_64 的 **native fixture 运行**（runner 存在与否须逐 cell 说明）；
-   本机 macOS arm64 已在 `fd797b6f` 复跑（`RESULTS.md` §F16–§F17），不替代这些格；另缺 release L2/L3 体积账。
+   **仍未完成**：Windows 双目标与 Linux x86_64 的 **native fixture 运行**（runner 存在与否须逐 cell 说明）；
+   本机 macOS arm64 已在 `fd797b6f` 复跑（`RESULTS.md` §F16–§F17），macOS x86_64 已在
+   `b3c28fb7` 经 Rosetta 复跑（§F18–§F19）；两者都不替代其余目标，另缺 release L2/L3 体积账。
 2. 补 release before/after 账：L1 已在 `RESULTS.md` §F12–§F15 按固定 source pair 与四元口径测定；
    仍须报告 L2 机制+OS 接缝与 L3 整个投递足迹。缺可比 baseline 时写“未测定”，不得跨 profile 相减。
 3. 写入独立 `research/.../RESULTS.md`，包含 exact SHA、工具链、门面计数、49/381 独立复算、runtime

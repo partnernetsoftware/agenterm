@@ -331,3 +331,34 @@ Rosetta、Windows 或 Linux。
 - 未声称任何 Windows/Linux runtime；既有跨目标记录仍只有编译证据；
 - 未刷新 L1 bytes，也未补 L2/L3；
 - 测试数是本次实际发现并执行的当前集合，不是未来固定数量。
+
+---
+
+# 追加：follow-up 5 — macOS x86_64 Rosetta runtime
+
+本节只补齐 native-door 在 `x86_64-apple-darwin` 目标上的实际执行证据；它不把
+Rosetta 用户态执行写成 Intel Mac 内核证据，也不外推到 Windows 或 Linux。
+
+## F18. Source identity、命令与结果
+
+| 项 | 值 |
+|---|---|
+| source identity | `b3c28fb7642ed6790635b20207a8fe2813f685fc` |
+| host / target / evidence grade | Apple Silicon macOS / `x86_64-apple-darwin` / **Rosetta runtime** |
+| toolchain | `rustc 1.97.0 (2d8144b78 2026-07-07)` · `cargo 1.97.0 (c980f4866 2026-06-30)` |
+| schema command | `CARGO_TARGET_DIR=target/native-door-x86_64-runtime cargo test --locked --target x86_64-apple-darwin -p agenterm-qjswasm --test native_door_schema` |
+| schema result | **8 passed; 0 failed** |
+| runtime command | `CARGO_TARGET_DIR=target/native-door-x86_64-runtime cargo test --locked --target x86_64-apple-darwin -p agenterm-qjswasm --test native_door` |
+| runtime result | **51 passed; 0 failed** |
+
+`file` identifies the executed `native_door` test artifact as a
+`Mach-O 64-bit executable x86_64`; Cargo then ran that artifact successfully on
+the arm64 host. The runtime set includes the isolated `alarm(0)` and `umask`
+cases and the Darwin scalar, caller-buffer, pointer-region and `ioctl` oracles.
+
+## F19. 本节未声称项
+
+- 未声称 Intel Mac hardware/kernel execution；本节只证明 Rosetta 用户态执行；
+- 未声称任何 Windows/Linux runtime；既有跨目标记录仍只有编译证据；
+- 未刷新 L1 bytes，也未补 L2/L3；
+- 测试数是本次实际发现并执行的集合，不是未来固定数量。

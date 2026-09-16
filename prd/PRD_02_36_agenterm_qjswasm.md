@@ -913,6 +913,14 @@ integration.
   six-cell claim.
 - `cargo test -p agenterm-qjswasm` owns crate behavior; do not pin a historical
   pass count because the suite grows.
+- [x] The native-door runtime now has both macOS execution grades: native
+  arm64 and Rosetta x86_64. At source `b3c28fb7`, the isolated
+  `x86_64-apple-darwin` lane executed the schema and runtime suites (8 and 51
+  current tests respectively), and `file` identified the executed runtime
+  artifact as Mach-O x86_64. This is user-space Rosetta evidence, not an Intel
+  Mac kernel claim; Windows and Linux remain compile-only in this experiment.
+  The exact commands and non-claims live in
+  `research/qjswasm-native-door/RESULTS.md` §F18–§F19.
 - Exact, fixed and fixed-pointer native calls now keep their declaration parser,
   prototype catalog, nullability and guest-span checks in this crate, while all
   five raw and JSON execution arms delegate through `agenterm-dyn::invoke_abi`.
