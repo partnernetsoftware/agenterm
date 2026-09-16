@@ -67,6 +67,9 @@ decision that moved Script process inventory onto the shipped `process.list`
 door; PRD 02.36 and the current smoke helper own the delivered behavior.
 `precision-audit.md` preserves the closed 92-item narrow audit ledger; every
 finding is fixed, adjudicated, or bounded by an explicitly named owner.
+`design-dyn-typed-symbol-fold-experiment.md` preserves the completed decision
+that rejected a generic dyn seam and folded the two real consumers into one
+platform-private loader with no delivered-byte growth.
 
 ## Restored decision records
 

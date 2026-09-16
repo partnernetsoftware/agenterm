@@ -3,7 +3,7 @@
 Status: **decided**. Arm B was killed at the precommitted V0 safety gate; arm C
 beat A after the second real consumer and was integrated.
 
-Specification: `plan/design-dyn-typed-symbol-fold-experiment.md`.
+Archived specification: `plan/archive/design-dyn-typed-symbol-fold-experiment.md`.
 
 The experiment compares the current two adapter-local `libsystemd` loaders with
 one platform-local shared seam. It does not add a dyn API, change a product

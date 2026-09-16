@@ -239,7 +239,7 @@ declaration → lowering → mechanism → typed-result 管线。若新增代码
 公开 Rust 面与自测、没有生产边而被撤回；future-JIT / host-ISA 只有在真实消费者、allocation
 生命周期绑定、六目标边界与 public court 同时落地后才可重新进入源码。
 
-决定性实验 [`plan/design-dyn-typed-symbol-fold-experiment.md`](../plan/design-dyn-typed-symbol-fold-experiment.md)
+决定性实验 [`plan/archive/design-dyn-typed-symbol-fold-experiment.md`](../plan/archive/design-dyn-typed-symbol-fold-experiment.md)
 已用两个真实 `libsystemd` adapter 作出裁决：通用 dyn typed-symbol seam 在 V0 即被
 `Copy` 函数指针逃离 library 生命周期的反例否决；不能用 raw address、`'static` cast 或
 第二张签名表修补。platform-private seam 则在第二消费者后净删 8 production NCLOC、把

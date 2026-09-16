@@ -1,3 +1,6 @@
+> **已归档 2026-09-16 — 已判决并交付。** 通用 dyn typed-symbol seam 在 V0 被否决，平台私有 loader 胜出并完成双消费者折叠；dyn 产品状态未改变。
+> 现行权威：`prd/PRD_02_34_agenterm_dyn.md`、`crates/agenterm-platform` 的 systemd loader 与 `docs/agenterm-rust-cheatsheet.md`。
+
 # dyn typed-symbol folding decisive experiment
 
 **DECIDED · B killed at V0 · C beat A and was integrated · no dyn capability-status change**
