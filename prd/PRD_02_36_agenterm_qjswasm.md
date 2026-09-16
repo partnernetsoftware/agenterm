@@ -5,9 +5,9 @@ Family contract: [PRD 10](PRD_02_10_rhai_scripting.md)
 
 Status: **`[~]` active product engine**.
 
-**`6b07440`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
+**`9420045`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
 `crates/agenterm-qjswasm/Cargo.toml`, and tests must reject PRD/pin drift.
-This revision adds a generic, call-scoped cooperative-interruption seam: one
+This pinned line includes a generic, call-scoped cooperative-interruption seam: one
 invocation or start-section instantiation borrows one `AtomicBool`; pure guest
 computation polls it without a host callback, and qjswasm maps the distinct
 core `Interruption` class to `QjswasmError::Cancelled`. The identity is never
@@ -356,7 +356,7 @@ agenterm-qjswasm
 │  │  │  ├─ semantics: the ceiling bounds the simultaneously active, not-yet-completed expression
 │  │  │  │     evaluation chain during one invocation; function call frames, VM activation slots and
 │  │  │  │     expressions in dead or short-circuited source branches are not charged to this counter
-│  │  │  ├─ ownership: tinyvm-qjs at `6b07440` preserves a per-function active-expression counter,
+│  │  │  ├─ ownership: tinyvm-qjs at `9420045` preserves a per-function active-expression counter,
 │  │  │  │     reads a generic per-invocation limit import and exposes a distinct exhausted fault for
 │  │  │  │     source and reusable packed execution; agenterm-qjswasm supplies the effective value and projects that
 │  │  │  │     fault as `Budget("expression_depth")`
@@ -808,6 +808,19 @@ integration.
   [`plan/archive/design-qjs-module-identity-experiment.md`](../plan/archive/design-qjs-module-identity-experiment.md).
 - [x] `script api [MODULE] [--status shipped|planned|all] [--tree|--json]` renders one deterministic hierarchical object tree with reviewed Node.js/Bun analogues and returns the same filtered versioned catalog with explicit view and comparison metadata.
 - [x] qjswasm computation budget fails closed with the public limit exit class.
+- [x] The decoder's own ceiling now names itself. Upstream `9420045` gives
+  `Limits::max_decode_items` a `Ceiling::DecodeItems` arm, so an embedder can
+  read *which* number was too small from a typed accessor instead of matching
+  `module decode budget` as text. The boundary is narrow and deliberate: this
+  crate's load path still answers the refusal as `QjswasmError::Load`, because
+  `from_load` reads the function site and never the fault class, so moving that
+  public class to `Budget` is a separate leaf rather than a consequence of the
+  pin; the refusal reports **no quantity**, because charging stops at the first
+  refusal and a full requirement is only obtainable by re-decoding with a larger
+  ceiling, which is a caller's measurement rather than a number this engine
+  invents; and the `max_decode_items` name this crate maps that arm to is
+  unreachable from any product path today -- kept because the compiler demands
+  it and because a later class migration should not have to invent it.
 - [x] syntax/compiler refusals and unsupported source methods use the same
   public `script` failure class through single-file check, direct run, task run,
   and check-many; the shared worker dispatch preserves the engine's typed class

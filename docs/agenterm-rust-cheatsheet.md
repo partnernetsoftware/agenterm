@@ -6750,3 +6750,11 @@ check, packed-artifact check, and execution load must reuse one selector;
 hand-written or third-party Wasm and declaration probes must retain the caller's
 limit. Pin both sides with tests so a product-capacity fix cannot silently widen
 the untrusted raw-Wasm boundary.
+
+A decoder that stops at its first budget refusal cannot also report the full
+amount the rejected module would have required. At that point it knows only a
+strict lower bound. Obtaining the total means either continuing after the
+ceiling or decoding again under a larger one, both of which spend work the
+ceiling exists to prevent. Keep the refusal typed to the exact configurable
+field, preserve its static message, and describe any reported count as a lower
+bound; do not label it `used` or recommend it as the next safe ceiling.

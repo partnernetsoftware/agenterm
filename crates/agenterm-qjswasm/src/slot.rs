@@ -767,6 +767,16 @@ fn ceiling_name(error: &tinyvm::WasmError) -> &'static str {
         Some(tinyvm::WasmCeiling::ActivationSlots) => "max_activation_slots",
         Some(tinyvm::WasmCeiling::MemoryPages) => "max_memory_pages",
         Some(tinyvm::WasmCeiling::TableElems) => "max_table_elems",
+        // Not reachable through this crate's load path today:
+        // `from_bytes_explained` answers a decode refusal as `Load` --
+        // `from_load` reads the function site and never the fault class -- so
+        // `classify` does not see this ceiling. The arm is not decoration
+        // anyway: the compiler demands it the moment the pin moves, which is
+        // how a new `Limits` field gets a name here instead of silently
+        // keeping an outdated one, and it makes a future class migration a
+        // one-line change rather than a misname. Moving the product's public
+        // class from `Load` to `Budget` is a separate leaf.
+        Some(tinyvm::WasmCeiling::DecodeItems) => "max_decode_items",
         // A ceiling with no `Limits` field behind it: the core's own fixed
         // operand-stack bound. Still exhaustion, but raising a number will not
         // help, so say which one it is rather than name a field that is not

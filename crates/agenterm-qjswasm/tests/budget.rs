@@ -388,3 +388,62 @@ fn the_step_budget_is_a_real_dial_not_a_decoration() {
         out.steps
     );
 }
+
+/// The decoder's own ceiling names itself to an embedder, while this crate
+/// still answers it at load.
+///
+/// Two claims in one run, because they are the two halves a refactor could
+/// silently swap:
+///
+/// 1. tinyvm's accessors classify the fault as a resource ceiling and name
+///    [`tinyvm::WasmCeiling::DecodeItems`] -- the `Limits::max_decode_items`
+///    field to raise. That name arrived with the `9420045` pin, and before it
+///    an embedder holding this fault had no typed way to tell which number was
+///    too small.
+/// 2. this crate's load path answers [`QjswasmError::Load`] anyway, because
+///    `from_load` reads the function site and never the fault class. That is
+///    the current product contract, pinned here so a later change to the
+///    public class is a decision rather than a side effect.
+///
+/// What is deliberately *not* asserted: the `"max_decode_items"` string
+/// `ceiling_name` returns for this arm. `classify` never sees this fault today,
+/// so no product path can reach that string; the compiler requires the arm, and
+/// a test claiming to cover it would be testing a call nothing makes.
+#[test]
+fn a_decode_ceiling_names_itself_while_the_product_still_loads_it() {
+    let guest = fixtures::infinite_loop();
+
+    // Zero items cannot even hold the type section, so what refuses is the
+    // ceiling and not the module -- which the control below shows.
+    let mut starved = Engine::with_budget(budget_with(|l| l.max_decode_items = 0));
+    let err = starved
+        .spawn(Guest::Wasm(&guest), None)
+        .expect_err("no module decodes under a zero-item ceiling");
+    match err {
+        QjswasmError::Load(ref inner) => {
+            assert_eq!(
+                inner.class(),
+                tinyvm::WasmFaultClass::ResourceCeiling,
+                "the core must classify a decode refusal as a ceiling: {inner:?}"
+            );
+            assert_eq!(
+                inner.ceiling(),
+                Some(tinyvm::WasmCeiling::DecodeItems),
+                "and it must name the Limits field to raise"
+            );
+            assert_eq!(inner.message(), "module decode budget");
+        }
+        other => panic!("an over-budget module is refused at load, got {other:?}"),
+    }
+    assert_eq!(
+        starved.live_slots(),
+        0,
+        "a rejected load must not occupy a slot"
+    );
+
+    // The control: identical bytes, default ceiling.
+    let mut ordinary = Engine::with_budget(Budget::default());
+    ordinary
+        .spawn(Guest::Wasm(&guest), None)
+        .expect("the fixture itself is not what refused");
+}
