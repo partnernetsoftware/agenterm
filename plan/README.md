@@ -9,6 +9,7 @@ evidence plans. Completed or superseded material belongs in
 
 | File | Role |
 |---|---|
+| [`goal.md`](goal.md) | continuous dyn + qjswasm + CU development objective |
 | [`roadmap-0.1x-0.2x.md`](roadmap-0.1x-0.2x.md) | series dependency tree and memory palace |
 | [`plan-v0.1.18.md`](plan-v0.1.18.md) | only active version: qualified three-host `agenterm-cu` current tier |
 | [`plan-v0.1.19.md`](plan-v0.1.19.md) | next-version draft: prove the fast-change Chassis boundary |
@@ -16,6 +17,7 @@ evidence plans. Completed or superseded material belongs in
 | [`goal-chassis-l1-l2-l3.md`](goal-chassis-l1-l2-l3.md) | Chassis implementation/evidence owner |
 | [`goal-local-six-cell.md`](goal-local-six-cell.md) | local cross-build and runtime-court contract |
 | [`goal-crate-platform.md`](goal-crate-platform.md) | platform encapsulation boundary |
+| [`design-agenterm-qjswasm.md`](design-agenterm-qjswasm.md) | current qjswasm execution projection; PRD 02.36 remains product truth |
 | [`design-cu-multi-os-parity.md`](design-cu-multi-os-parity.md) | current CU multi-host parity design |
 | [`platform-ux-parity-evidence-matrix.md`](platform-ux-parity-evidence-matrix.md) | cross-host UX evidence matrix |
 | [`goal-company-windows-signing.md`](goal-company-windows-signing.md) | reusable Windows signing qualification and remaining product gate |
