@@ -1,3 +1,6 @@
+> **已归档 2026-09-16 — 已判决并交付。** `process.list` 的 A/B 判决已执行，清单消费者已经迁移，当前产品状态由 PRD 02.36 与实现共同拥有。
+> 现行权威：`prd/PRD_02_36_agenterm_qjswasm.md`、`scripts/qjs/lib/script_smoke_helpers.qjs`。
+
 # Script process witness 判决实验
 
 不进 must-ship，不改变 PRD 能力状态；本实验只判定任务脚本是否应把

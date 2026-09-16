@@ -62,6 +62,9 @@ workflow ledger, while `experiment-headless-pty-owner.md` preserves the settled
 single-authority decision now owned by the CU PRDs.
 `prompt-grok-cursor-cloud.md` preserves the superseded cloud-agent polling
 playbook; current execution ownership is declared only in `plan/goal.md`.
+`design-script-process-witness-experiment.md` preserves the completed A/B
+decision that moved Script process inventory onto the shipped `process.list`
+door; PRD 02.36 and the current smoke helper own the delivered behavior.
 
 ## Restored decision records
 
