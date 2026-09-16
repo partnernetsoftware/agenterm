@@ -443,7 +443,7 @@ function named `fleet_result_len` ``）。
 ### 值表示：已判决，不再重开
 
 **结论：V1 双字 `(tag: i32, payload: i64)`**，由一份实测实验判定——规格
-[`plan/design-value-representation-experiment.md`](design-value-representation-experiment.md)，
+[`plan/archive/design-value-representation-experiment.md`](archive/design-value-representation-experiment.md)，
 结果 `research/value-representation/RESULTS.md`。候选是它与单 f64 NaN-boxing。
 
 rev1 在这里直接倾向了双字，**属于未做功课的手挥**；rev3 撤销该倾向、改为待实验；

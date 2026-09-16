@@ -1,3 +1,6 @@
+> **已归档 2026-09-16 — 已判决。** A–D 时间盒已关闭，Variant C 保留，D 已回滚，未解决的发布体积预算继续由 CU PRD 管理。
+> 现行权威：`prd/PRD_02_28_agenterm_cu.md`；复跑证据：`research/cu-size-budget/RESULTS.md`。
+
 # ACU single-entry release-size experiment
 
 Status: **complete · C retained for bounded growth · D rejected and rolled

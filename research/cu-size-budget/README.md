@@ -1,7 +1,7 @@
 # ACU size-budget court
 
 This directory implements
-[`plan/design-cu-single-entry-size-experiment.md`](../../plan/design-cu-single-entry-size-experiment.md).
+[`plan/archive/design-cu-single-entry-size-experiment.md`](../../plan/archive/design-cu-single-entry-size-experiment.md).
 It measures exact stripped Windows x86_64 Release artifacts and never changes
 the public 2 MiB executable ceiling.
 

@@ -615,7 +615,7 @@ flowchart LR
   archived: v0.1.16 Windows x86_64 shipped a 1,420,800-byte CU executable, and
   current capability growth has crossed the still-governing 2 MiB executable
   court. The no-raise decision experiment is
-  [`plan/design-cu-single-entry-size-experiment.md`](../plan/design-cu-single-entry-size-experiment.md).
+  [`plan/archive/design-cu-single-entry-size-experiment.md`](../plan/archive/design-cu-single-entry-size-experiment.md).
   Variant C now keeps only route identity and parser family hot and stores the
   complete validated help/catalog projection as an immutable compressed
   in-binary stream. Exact Windows x86_64 evidence is 2,221,056 bytes at zero
@@ -2553,7 +2553,7 @@ flowchart LR
   with no Ctrl-C byte, PID scan, activation or whole-Job substitute. Linux and
   Windows runtime reruns remain qualification leaves, so the ledger row is
   `platform-limited` rather than universally native. The frozen court and
-  result are [`plan/design-pty-process-control-experiment.md`](../plan/design-pty-process-control-experiment.md)
+  result are [`plan/archive/design-pty-process-control-experiment.md`](../plan/archive/design-pty-process-control-experiment.md)
   and [`research/pty-process-control/RESULTS.md`](../research/pty-process-control/RESULTS.md).
 
 - [~] AgenTerm viewport control is no longer conflated with background PTY

@@ -7,7 +7,7 @@ after criterion ④ tied; corroborated at step 5 by criterion ⑥ and unaffected
 criterion ⑦, whose leak list contains no losing condition for either side.
 The verdict survives the one lowering choice it turned on (sensitivity S-ADD).
 
-Specification (authoritative): [`plan/design-value-representation-experiment.md`](../../plan/design-value-representation-experiment.md).
+Specification (archived decision record): [`plan/archive/design-value-representation-experiment.md`](../../plan/archive/design-value-representation-experiment.md).
 This file is the third-party-reproducible form of its §8.
 
 ---

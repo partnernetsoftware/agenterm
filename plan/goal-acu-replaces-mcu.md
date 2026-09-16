@@ -878,7 +878,7 @@ Q3 owned runtime facades
 │  │  └─ [ ] enlarged journey six-cell rerun
 │  ├─ [x] lease-owned registry, streams and explicit session-end cleanup
 │  ├─ [~] PTY process control: exact owned-session cleanup + foreground signal semantics
-│  │  ├─ [x] architecture/court frozen in `design-pty-process-control-experiment.md`
+│  │  ├─ [x] architecture/court frozen in `archive/design-pty-process-control-experiment.md`
 │  │  ├─ [x] POSIX bounded session freeze/kill/empty + Windows Job accounting contract
 │  │  ├─ [x] public qjswasm resistant-child cleanup + unrelated-sibling isolation on macOS
 │  │  ├─ [x] POSIX retained-master foreground STOP/CONT/TERM + exact post-state

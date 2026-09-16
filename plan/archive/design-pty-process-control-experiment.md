@@ -1,3 +1,6 @@
+> **已归档 2026-09-16 — 已判决。** POSIX 前台进程组语义已接受，Windows 保持 typed limitation，后续平台资格由 CU PRD 管理。
+> 现行权威：`prd/PRD_02_28_agenterm_cu.md`；复跑证据：`research/pty-process-control/RESULTS.md`。
+
 # PTY process-control semantics decision experiment
 
 Status: **COMPLETE · POSIX foreground semantics accepted; Windows typed-limited**
@@ -7,7 +10,7 @@ Purpose: decide whether a direct Windows ConPTY can support the same exact
 foreground-process-group signal contract as POSIX, without weakening
 `pty-signal` into byte injection or silently broadening it to whole-job kill.  
 Implementation: `research/pty-process-control/`  
-Parent: [`goal-acu-replaces-mcu.md`](goal-acu-replaces-mcu.md)  
+Parent: [`goal-acu-replaces-mcu.md`](../goal-acu-replaces-mcu.md)
 Prerequisites: this specification, `docs/agenterm-rust-cheatsheet.md`, and the
 platform PTY contract. The implementation is independent and uses only public
 OS contracts; MCU is a behavior reference, never copied code.
@@ -148,7 +151,7 @@ research/pty-process-control/
 ## 8. Result backfill
 
 The result is recorded in
-[`research/pty-process-control/RESULTS.md`](../research/pty-process-control/RESULTS.md).
+[`research/pty-process-control/RESULTS.md`](../../research/pty-process-control/RESULTS.md).
 macOS passed retained-master foreground isolation and post-state through the
 public qjswasm court. Linux shares the accepted POSIX implementation and
 compiles, with native runtime qualification still pending. Direct ConPTY and

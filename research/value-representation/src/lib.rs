@@ -4,7 +4,7 @@
 //! * **V1** a two-word `(tag: i32, payload: i64)` pair -- [`repr_pair`]
 //! * **V2** single-`f64` NaN-boxing -- [`repr_nanbox`]
 //!
-//! Specification: `plan/design-value-representation-experiment.md`. Results and
+//! Specification: `plan/archive/design-value-representation-experiment.md`. Results and
 //! rerun commands: `RESULTS.md` next to this file.
 //!
 //! ```text

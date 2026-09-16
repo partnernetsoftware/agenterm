@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Produce all four builds and print every criterion in section 3 of
-# plan/design-value-representation-experiment.md.
+# plan/archive/design-value-representation-experiment.md.
 #
 # Prerequisite: the tinyvm checkout is a sibling of this repository
 # (../../../tinyvm relative to this directory). Cargo 1.97.0.

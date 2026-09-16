@@ -43,6 +43,13 @@ history.
   temporary-region specialization decisions.
 - `design-ui-snapshot-selection-boundary-experiment.md` — admitted transport
   field selection without changing the product capability state.
+- `design-cu-single-entry-size-experiment.md` — retained the bounded hot/cold
+  catalog, rejected the ABI relocation, and returned the unresolved size gap
+  to the CU product budget.
+- `design-pty-process-control-experiment.md` — accepted exact POSIX foreground
+  signaling while preserving the typed Windows limitation.
+- `design-value-representation-experiment.md` — selected the measured V1
+  `(tag: i32, payload: i64)` representation over NaN-boxing.
 
 ## Superseded execution notes
 

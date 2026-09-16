@@ -1,3 +1,6 @@
+> **已归档 2026-09-16 — 已判决。** V1 双字表示已经实测胜出并写入现行 qjswasm 设计，本文件只保留判决过程与测量口径。
+> 现行权威：`prd/PRD_02_36_agenterm_qjswasm.md`、`plan/design-agenterm-qjswasm.md`；复跑证据：`research/value-representation/RESULTS.md`。
+
 # 判决性实验：`.qjs → .wasm` 的通用值表示
 
 | 字段 | 值 |
@@ -5,10 +8,10 @@
 | 日期 | 2026-08-24 |
 | 目的 | 在 M2 开工前，用可测量的判据在「双字 (tag, payload)」与「单 f64 NaN-boxing」之间出判决 |
 | 实现位置 | `research/value-representation/` |
-| 前置阅读 | [PRD 36](../prd/PRD_02_36_agenterm_qjswasm.md)、[实现设计](design-agenterm-qjswasm.md) §7、tinyvm `crates/tinyvm/src/wasm.rs` |
+| 前置阅读 | [PRD 36](../../prd/PRD_02_36_agenterm_qjswasm.md)、[实现设计](../design-agenterm-qjswasm.md) §7、tinyvm `crates/tinyvm/src/wasm.rs` |
 | 来源纪律 | 净室。ECMA-262 为语义权威；QuickJS 只吸收设计取舍与理由，**不抄源码、注释、标识符、查找表** |
 | 产品范围 | **不进 must-ship，不改 PRD 能力状态。** 本实验只产出一个决策与一份泄漏清单 |
-| 状态 | **已完成（2026-08-24）。判决：V1 双字。** 见 §8；数字与复跑命令见 [`research/value-representation/RESULTS.md`](../research/value-representation/RESULTS.md) |
+| 状态 | **已完成（2026-08-24）。判决：V1 双字。** 见 §8；数字与复跑命令见 [`research/value-representation/RESULTS.md`](../../research/value-representation/RESULTS.md) |
 
 > 编译器已于 2026-08-24 随分层迁进 `tinyvm-qjs`。本实验的规格与实现**跟着编译器走**，
 > 不在两个仓各留一份。实现落在本仓 `research/value-representation/`，对
@@ -220,7 +223,7 @@ research/value-representation/
 **做完了（2026-08-24）。判决：V1 双字 `(tag: i32, payload: i64)`。**
 
 实现在 `research/value-representation/`，第三方可复跑形态在
-[`RESULTS.md`](../research/value-representation/RESULTS.md)——本节是它的摘要，
+[`RESULTS.md`](../../research/value-representation/RESULTS.md)——本节是它的摘要，
 逐条命令、逐程序数字、完整泄漏清单以那份为准。复跑：
 `cd research/value-representation && ./measure.sh`（需要 `tinyvm` 与本仓同级）。
 

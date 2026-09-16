@@ -206,7 +206,7 @@ crate 的写刀。上游给的是「编译 `.qjs`」这一件通用事。
 |--------|----------------|----|----------|
 | 作用域与变量解析（`var`/`let`/`const`、提升、TDZ、名字→索引） | wasm locals 本就按索引寻址，这一步必须做 | M1–M2 | **极高**（同一个问题） |
 | 闭包变量装箱（捕获的局部变量提升为堆单元） | wasm 局部变量在帧上，内层函数无法按引用捕获，必须装箱进线性内存 | M5 | **极高** |
-| 值表示（64 位标记联合 vs 32 位 NaN-boxing 的取舍理由） | **已判决**：V1 双字 `(tag:i32, payload:i64)`，由实测实验定，见 `plan/design-value-representation-experiment.md` 与 `research/value-representation/RESULTS.md` | 已落地 | **高** |
+| 值表示（64 位标记联合 vs 32 位 NaN-boxing 的取舍理由） | **已判决**：V1 双字 `(tag:i32, payload:i64)`，由实测实验定，见 `plan/archive/design-value-representation-experiment.md` 与 `research/value-representation/RESULTS.md` | 已落地 | **高** |
 | 字符串表示（8 位 / 16 位双形态 + 驻留表） | M3 串表示与相等性 | M3 | 高 |
 | shape / 隐藏类（属性查找） | M4 对象堆布局 | M4 | 高 |
 | 引用计数 + 循环回收 | M4–M5 回收策略；小引擎选 RC 是强数据点 | M4–M5 | 高 |

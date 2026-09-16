@@ -1,7 +1,8 @@
 # Structural review: `.qjs` → `.wasm` / tinyvm (2026-08-30)
 
 Reviewer: grok. Read-only. Pin in tree: `crates/agenterm-qjswasm/Cargo.toml:40-41` `rev = "e8f1686"`.
-`plan/design-value-representation-experiment.md` **does not exist**; V1 evidence is README + A9.
+The completed V1 evidence is retained in
+`plan/archive/design-value-representation-experiment.md` and A9.
 
 Verdict: the three-layer arrow is real and worth pushing. The engine is already the product’s only script line (qjs/wasmcore/rh archived). The next 10× is **prelude + host-op accounting**, not NaN-boxing, not asm, not a typed door.
 

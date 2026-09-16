@@ -3,7 +3,7 @@
 Status: **COMPLETE · POSIX foreground signal accepted; Windows typed-limited**
 
 Specification:
-[`plan/design-pty-process-control-experiment.md`](../../plan/design-pty-process-control-experiment.md)
+[`plan/archive/design-pty-process-control-experiment.md`](../../plan/archive/design-pty-process-control-experiment.md)
 
 ## Measurement conditions
 

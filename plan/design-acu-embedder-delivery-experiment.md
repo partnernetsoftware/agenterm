@@ -9,7 +9,7 @@ state. It chooses a delivery boundary for the already functional
 | date | 2026-09-07 |
 | purpose | keep `agenterm:acu` on the existing `Command -> Executor -> CuReply` authority while restoring the Windows main-PE size court |
 | implementation | `research/acu-embedder-delivery/` |
-| pre-reading | `AGENTS.md`, `docs/agenterm-rust-cheatsheet.md`, `.agents/skills/decisive-experiment/SKILL.md`, `plan/design-cu-single-entry-size-experiment.md` |
+| pre-reading | `AGENTS.md`, `docs/agenterm-rust-cheatsheet.md`, `.agents/skills/decisive-experiment/SKILL.md`, `plan/archive/design-cu-single-entry-size-experiment.md` |
 | source discipline | same dirty shared tree and pinned Rust 1.97.0 for paired measurements; every result records HEAD plus dirty-state digest |
 | source provenance | clean-room boundary prototype using only repository interfaces and OS loader/IPC contracts; no third-party implementation copied |
 

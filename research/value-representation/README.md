@@ -5,7 +5,7 @@ Which universal value representation should the `.qjs → .wasm` compiler use?
 - **V1** two-word `(tag: i32, payload: i64)` — `src/repr_pair.rs`
 - **V2** single-`f64` NaN-boxing — `src/repr_nanbox.rs`
 
-Specification (authoritative): [`plan/design-value-representation-experiment.md`](../../plan/design-value-representation-experiment.md).
+Specification (archived decision record): [`plan/archive/design-value-representation-experiment.md`](../../plan/archive/design-value-representation-experiment.md).
 Findings, numbers and decision trace: [`RESULTS.md`](RESULTS.md).
 
 **Status: done. Verdict V1.** Not a product; nothing here ships and nothing here

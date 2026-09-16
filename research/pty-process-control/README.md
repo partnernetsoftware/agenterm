@@ -1,7 +1,7 @@
 # PTY process-control decision court
 
 This directory owns the reproducible fixtures and result for
-[`plan/design-pty-process-control-experiment.md`](../../plan/design-pty-process-control-experiment.md).
+[`plan/archive/design-pty-process-control-experiment.md`](../../plan/archive/design-pty-process-control-experiment.md).
 
 Status: **POSIX forced-cleanup floor green**. `RESULTS.md` preserves the
 endpoint-only failure baseline and the post-fix public qjswasm result.
