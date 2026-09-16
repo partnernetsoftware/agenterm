@@ -87,6 +87,9 @@ draft; the active fast-change boundary is the v0.1.19 Chassis plan.
 `design-llm-gateway-rhai-logic-pack.md` preserves the retired Rhai-specific
 implementation draft; PRD 13 retains only the engine-neutral Native Shell and
 independently versioned Logic Pack boundary.
+`design-device-watch-cancellation-experiment.md` preserves the completed
+structured-partial cancellation decision; PRD 28 owns the shipped
+`device-watch` behavior and remaining native-platform qualification.
 
 ## Restored decision records
 

@@ -1,3 +1,6 @@
+> **已归档 2026-09-16 — 已判决并交付。** 实验选择具名取消错误携带完整、受界限约束的部分观测；生产 `device-watch` 已实现该语义，PRD 28 已吸收现行契约。
+> 现行权威：`prd/PRD_02_28_agenterm_cu.md` 的 device-watch 与 cooperative cancellation 分支。
+
 # Device-watch cancellation evidence experiment
 
 ## Background and fixed facts
