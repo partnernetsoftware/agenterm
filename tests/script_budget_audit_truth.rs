@@ -8,7 +8,7 @@ use std::process::Command;
 const AGENTERM_BIN: &str = env!("CARGO_BIN_EXE_agenterm");
 
 #[test]
-fn qjs_audit_credits_the_enforced_collection_budget() {
+fn qjs_audit_credits_every_enforced_engine_budget() {
     let directory = tempfile::tempdir().expect("temporary audit directory");
     let audit_path = directory.path().join("script-audit.jsonl");
     let output = Command::new(AGENTERM_BIN)
@@ -45,10 +45,9 @@ fn qjs_audit_credits_the_enforced_collection_budget() {
     assert_eq!(record["schema_version"], 2);
     assert_eq!(record["requested_budgets"]["collection_items"], 2);
     assert_eq!(record["effective_budgets"]["collection_items"], 2);
-    assert_eq!(
-        record["unenforced_budgets"],
-        serde_json::json!(["expression_depth"])
-    );
+    assert_eq!(record["requested_budgets"]["expression_depth"], 64);
+    assert_eq!(record["effective_budgets"]["expression_depth"], 64);
+    assert_eq!(record["unenforced_budgets"], serde_json::json!([]));
     assert_eq!(
         record["effective_budgets"]["host_operations"],
         record["requested_budgets"]["host_operations"]
@@ -87,4 +86,46 @@ fn qjs_cli_refuses_collection_limit_plus_one_by_name() {
             .as_str()
             .is_some_and(|message| message.contains("collection_items"))
     );
+}
+
+#[test]
+fn qjs_cli_enforces_the_fixed_expression_depth_budget() {
+    fn nested(levels: usize) -> String {
+        let mut expression = "1".to_owned();
+        for _ in 0..levels {
+            expression = format!("1 + ({expression})");
+        }
+        expression
+    }
+
+    let directory = tempfile::tempdir().expect("temporary audit directory");
+    for (levels, expected_code) in [(63, 0), (64, 3)] {
+        let output = Command::new(AGENTERM_BIN)
+            .args(["cli", "script", "eval", &nested(levels), "--json"])
+            .env("AGENTERM_SCRIPT_BACKEND", "qjswasm")
+            .env(
+                "AGENTERM_SCRIPT_AUDIT_PATH",
+                directory.path().join(format!("expression-{levels}.jsonl")),
+            )
+            .env("AGENTERM_NO_ACTIVATE", "1")
+            .output()
+            .expect("agenterm CLI runs");
+        assert_eq!(
+            output.status.code(),
+            Some(expected_code),
+            "levels={levels} stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if expected_code != 0 {
+            let result: serde_json::Value =
+                serde_json::from_slice(&output.stdout).expect("script refusal is JSON");
+            assert_eq!(result["failure"]["category"], "limit");
+            assert!(
+                result["failure"]["message"]
+                    .as_str()
+                    .is_some_and(|message| message.contains("expression_depth"))
+            );
+        }
+    }
 }

@@ -39,7 +39,7 @@ AgenTerm 自己的脚本引擎。`.qjs` 用**纯 Rust** 编译成 `.wasm`，`.wa
 在本仓各骗过一次人：`%` 与 `typeof` 早已支持却还挂在拒绝表上，以及本文件曾说这个 crate
 在工作区外而它在里面。
 
-当前 pin 已前进到 `6cff7d4`。下面逐项标明的 bitwise 与 `for...of` 又经产品入口复测；
+当前 pin 已前进到 `9805985`。下面逐项标明的 bitwise 与 `for...of` 又经产品入口复测；
 它们不再沿用本节标题所记的旧 revision，也不能继续留在拒绝表里。未明确重测的其它行
 仍不得借这两项的结果自动升级。
 
@@ -266,7 +266,8 @@ return status;
 想要一份**够不着应用门**的产物用 `compile_qjs_without_door`——它的 application-door
 import 表按构造为空；源码使用 Array 时仍会声明通用 runtime-limit import。实测它对
 `print("x")` 报 ``this engine finds no declaration of `print` ``，对 `return 1 + 1;`
-发射零个 import。`check` 与 `execute` 都走 `compile_qjs`，两边看见的是同一门语言。
+只发射 engine-generic `expression_depth` import，没有 application-door import。`check` 与
+`execute` 都走 `compile_qjs`，两边看见的是同一门语言。
 
 ### 第二扇门：`tool.*`（只给工具脚本，沙箱永远开不了）
 

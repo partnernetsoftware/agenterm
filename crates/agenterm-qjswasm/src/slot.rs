@@ -140,6 +140,27 @@ impl Slot {
                 },
             )?;
         }
+        if module.imports().iter().any(|desc| {
+            desc.module == tinyvm_qjs::RUNTIME_LIMIT_MODULE
+                && desc.field == tinyvm_qjs::EXPRESSION_DEPTH_LIMIT_IMPORT
+        }) {
+            let expression_depth = i32::try_from(budget.max_expression_depth).map_err(|_| {
+                QjswasmError::Door("max_expression_depth exceeds the runtime limit ABI".to_owned())
+            })?;
+            host::bind(
+                &mut module,
+                tinyvm_qjs::RUNTIME_LIMIT_MODULE,
+                tinyvm_qjs::EXPRESSION_DEPTH_LIMIT_IMPORT,
+                move |args, _memory| {
+                    if !args.is_empty() {
+                        return Err(tinyvm::WasmError::Trap(
+                            "expression_depth runtime limit signature",
+                        ));
+                    }
+                    Ok(vec![tinyvm::Val::I32(expression_depth)])
+                },
+            )?;
+        }
         let door = host::install(
             &mut module,
             budget,
@@ -463,6 +484,9 @@ impl Slot {
                 }
                 Some(tinyvm_qjs::GuestFault::CollectionItemsExhausted) => {
                     return QjswasmError::Budget("collection_items");
+                }
+                Some(tinyvm_qjs::GuestFault::ExpressionDepthExhausted) => {
+                    return QjswasmError::Budget("expression_depth");
                 }
                 Some(tinyvm_qjs::GuestFault::UncaughtThrow) => {
                     // Since tinyvm 25fcf02 the epilogue records where the

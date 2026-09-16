@@ -839,6 +839,7 @@ fn finding_7_the_returned_string_is_bounded_by_no_host_side_cap() {
         max_bridge_result_bytes: 16,
         max_result_string_bytes: 16,
         max_collection_items: 10_000,
+        max_expression_depth: 64,
         // A1.12: host operations are capped like steps; generous here so the
         // seam under test is the one named above.
         max_host_ops: 4096,

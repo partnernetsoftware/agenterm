@@ -1351,6 +1351,70 @@ fn collection_items_bounds_every_array_path_for_source_and_packed_bytes() {
 }
 
 #[test]
+fn expression_depth_bounds_runtime_chains_for_source_and_packed_bytes() {
+    let deep = "return 1 + (2 + (3 + 4));";
+    let exact = Budget {
+        max_expression_depth: 4,
+        ..Budget::default()
+    };
+    Engine::with_budget(exact)
+        .run_once(Guest::Qjs(deep), None, "main", &[])
+        .expect("exact expression depth passes");
+
+    let tight = Budget {
+        max_expression_depth: 3,
+        ..Budget::default()
+    };
+    let error = Engine::with_budget(tight.clone())
+        .run_once(Guest::Qjs(deep), None, "main", &[])
+        .expect_err("limit plus one must refuse source execution");
+    assert!(matches!(error, QjswasmError::Budget("expression_depth")));
+
+    let bytes = compile_qjs(deep).expect("source compiles once");
+    let error = Engine::with_budget(tight)
+        .run_once(Guest::CompiledQjs(&bytes), None, "main", &[])
+        .expect_err("the reusable artifact must enforce the load-time limit");
+    assert!(matches!(error, QjswasmError::Budget("expression_depth")));
+
+    let isolated = Budget {
+        max_expression_depth: 4,
+        ..Budget::default()
+    };
+    Engine::with_budget(isolated.clone())
+        .run_once(
+            Guest::Qjs("function f(n) { return n ? f(n - 1) : 0; } return f(32);"),
+            None,
+            "main",
+            &[],
+        )
+        .expect("call frames do not consume expression depth");
+    for source in [
+        "return false && (1 + (2 + (3 + 4)));",
+        "return true ? 1 : (1 + (2 + (3 + 4)));",
+    ] {
+        Engine::with_budget(isolated.clone())
+            .run_once(Guest::Qjs(source), None, "main", &[])
+            .expect("an unevaluated branch is free");
+    }
+}
+
+#[test]
+fn expression_depth_limit_must_fit_the_internal_i32_abi() {
+    let budget = Budget {
+        max_expression_depth: usize::MAX,
+        ..Budget::default()
+    };
+    let error = Engine::with_budget(budget)
+        .run_once(Guest::Qjs("return 1;"), None, "main", &[])
+        .expect_err("every compiled program consumes the expression-depth import");
+    assert!(
+        matches!(error, QjswasmError::Door(ref message)
+            if message.contains("max_expression_depth exceeds")),
+        "got {error:?}"
+    );
+}
+
+#[test]
 fn collection_items_is_per_array_not_cumulative() {
     let budget = Budget {
         max_collection_items: 2,

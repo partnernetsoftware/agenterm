@@ -261,7 +261,7 @@ mod tests {
             effective_capabilities: vec!["unrestricted_local".to_owned()],
             requested_budgets: budgets.clone(),
             effective_budgets: budgets,
-            unenforced_budgets: vec!["expression_depth"],
+            unenforced_budgets: Vec::new(),
             broker_operation_ids: Vec::new(),
         }
     }
@@ -321,7 +321,7 @@ mod tests {
             assert!(!json.contains(forbidden), "{forbidden} leaked");
         }
         assert!(json.contains("\"source_fingerprint\""));
-        assert!(json.contains("\"unenforced_budgets\":[\"expression_depth\"]"));
+        assert!(json.contains("\"unenforced_budgets\":[]"));
     }
 
     #[test]

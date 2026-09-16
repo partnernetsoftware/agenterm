@@ -4499,6 +4499,14 @@ fault rather than heap exhaustion. Enforce cardinality at every create/grow
 boundary, including bulk paths that bypass the ordinary append helper, and
 prove one artifact under two limits plus exact-limit/limit-plus-one behavior.
 
+For per-function guest state, audit every route into a user function, not only
+the compiler's direct and indirect call lowering. Runtime prefabs such as an
+Array `map` can call JavaScript through a table adapter; that adapter must
+establish and restore the same function-local baseline or the ordinary call
+tests can be green while callbacks accumulate the caller's state. Pin direct,
+indirect and runtime-callback paths with both exact success and one-less
+refusal.
+
 Cancellation must cover construction-time guest execution as well as exported
 calls. A Wasm start section runs while a slot is being instantiated, before
 the caller can receive or cancel a published handle, so borrow the same

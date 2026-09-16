@@ -148,6 +148,19 @@ tinyvm/crates/tinyvm-qjs/src/runtime.rs
 
 ## §8 结论回填
 
+### 最终判决（2026-09-16）
+
+上游 tinyvm `9805985` 已完成并判定 **A 胜出**。G1/G2/G3/G5 全过：4 层 exact-limit
+成功、3 层 ceiling 返回 distinct expression-depth fault；32 层递归浅表达式不计调用帧；
+dead/short-circuit 分支不收费；direct、indirect 与 runtime callback 均有上下界证据；catch、
+跨函数 throw、normal/throw finally 与 return+finally 保持精确结果；普通 opt-out 编译 bytes
+逐字相等。G4 同工具链测得 8 层 10,884 B / 17 checks，64 层 15,028 B / 129 checks。
+
+完整判决 trace、safe failure、适用边界与复跑命令位于上游
+`research/expression-depth/RESULTS.md`。B 未触发，C 保持判负。本仓随后以远端 pin
+`9805985` 接入 generic import 与 fault 映射；产品 evidence 由 PRD 36 和 owning tests 管理，
+不复制上游 RESULTS。
+
 ### 静态预审（非实验判决）
 
 已按上游 `6cff7d4` 完成第 1 步静态接缝审计，尚未实现插桩、未运行 G1-G5：

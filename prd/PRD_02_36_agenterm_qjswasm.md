@@ -5,7 +5,7 @@ Family contract: [PRD 10](PRD_02_10_rhai_scripting.md)
 
 Status: **`[~]` active product engine**.
 
-**`6cff7d4`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
+**`9805985`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
 `crates/agenterm-qjswasm/Cargo.toml`, and tests must reject PRD/pin drift.
 This revision adds a generic, call-scoped cooperative-interruption seam: one
 invocation or start-section instantiation borrows one `AtomicBool`; pure guest
@@ -350,25 +350,27 @@ agenterm-qjswasm
 │  │  │  └─ evidence: upstream and product seam courts prove exact-limit success and limit-plus-one
 │  │  │        refusal for every construction path, plus the same refusal from one reusable packed
 │  │  │        artifact; two Arrays at the ceiling prove the counter is not cumulative. The audit
-│  │  │        disclosure now leaves only `expression_depth` in `unenforced_budgets`.
-│  │  ├─ [ ] `expression_depth` is likewise published without a qjswasm owner; do not map it
+│  │  │        disclosure removed `collection_items` from `unenforced_budgets`.
+│  │  ├─ [x] `expression_depth` is enforced by qjswasm without mapping it
 │  │  │      to call depth, activation slots or compile-time nesting because those are different facts
 │  │  │  ├─ semantics: the ceiling bounds the simultaneously active, not-yet-completed expression
 │  │  │  │     evaluation chain during one invocation; function call frames, VM activation slots and
 │  │  │  │     expressions in dead or short-circuited source branches are not charged to this counter
-│  │  │  ├─ ownership: tinyvm-qjs must preserve enough generic compiler/runtime information to enforce
-│  │  │  │     that runtime boundary for both source and reusable packed execution and expose a distinct
-│  │  │  │     exhausted fault; agenterm-qjswasm only supplies the effective value and projects that
+│  │  │  ├─ ownership: tinyvm-qjs at `9805985` preserves a per-function active-expression counter,
+│  │  │  │     reads a generic per-invocation limit import and exposes a distinct exhausted fault for
+│  │  │  │     source and reusable packed execution; agenterm-qjswasm supplies the effective value and projects that
 │  │  │  │     fault as `Budget("expression_depth")`
-│  │  │  └─ evidence: exact-limit success and limit-plus-one refusal must cover a deeply evaluated
-│  │  │        expression with shallow call/slot use, deep calls with shallow expressions, and an
-│  │  │        unevaluated deeply nested branch, plus the same refusal from a reusable packed artifact;
-│  │  │        partial or source-only coverage leaves `expression_depth` in `unenforced_budgets`
+│  │  │  └─ evidence: upstream G1-G5 and product seam courts prove exact-limit success and limit-plus-one
+│  │  │        refusal for deep evaluated expressions, direct/indirect/runtime callback isolation,
+│  │  │        32-frame recursion with shallow expressions, dead/short-circuited branches and abrupt
+│  │  │        completion; the same packed bytes refuse under the tighter load-time value. The public CLI
+│  │  │        proves the fixed 64 ceiling at 63/64 nested binary layers, and audit now reports no qjswasm
+│  │  │        engine budget as unenforced
 │  │  ├─ safe failure: an accepted effective budget must be enforced or named as unenforced;
 │  │  │      requested/effective audit copies are not evidence that an engine consumed the field
 │  │  │  └─ new public override options land only with a complete engine consumer and its boundary
-│  │  │        evidence; `expression_depth` therefore remains a fixed protocol default while it is
-│  │  │        named as unenforced, rather than advertising a CLI/task value that cannot take effect
+│  │  │        evidence; `expression_depth` remains a fixed protocol default rather than adding a new
+│  │  │        override surface in this leaf, but the value is now consumed by the selected engine
 │  │  └─ non-goal: no AgenTerm-specific host import, memory-page approximation or source-only limit
 │  ├─ [x] child stdout/stderr truncation is explicit through read/wait/command
 │  ├─ [x] process.spawn refuses a 33rd retained handle before native spawn/drain allocation

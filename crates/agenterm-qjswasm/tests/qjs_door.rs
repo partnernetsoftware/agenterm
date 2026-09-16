@@ -381,12 +381,17 @@ fn a_door_call_is_an_ordinary_expression() {
 // The import table is the door, and only what the script asked for
 // =========================================================================
 
-/// A script that mentions no host name emits **no** imports, so a guest that
-/// cannot reach the door does not oblige anyone to bind one.
+/// A script that mentions no host name emits **no application-door** imports,
+/// so a guest that cannot reach the door does not oblige anyone to bind one.
+/// Engine-generic robustness imports are deliberately a separate namespace.
 #[test]
-fn a_script_that_mentions_no_host_name_emits_no_imports() {
+fn a_script_that_mentions_no_host_name_emits_no_application_door_imports() {
     let wasm = compile_qjs("let x = 1; return x + 41;").expect("compiles");
-    assert_eq!(imports(&wasm), Vec::<String>::new());
+    assert_eq!(application_imports(&wasm), Vec::<String>::new());
+    assert_eq!(
+        engine_imports(&wasm),
+        vec!["tinyvm_qjs_runtime.expression_depth() -> i32"]
+    );
 
     // And it still runs, unchanged: declaring a door is not a tax on scripts
     // that do not use it.
@@ -400,17 +405,17 @@ fn a_script_that_mentions_no_host_name_emits_no_imports() {
 #[test]
 fn only_the_door_functions_a_script_mentions_are_imported() {
     assert_eq!(
-        imports(&compile_qjs("print(\"a\"); return 0;").unwrap()),
+        application_imports(&compile_qjs("print(\"a\"); return 0;").unwrap()),
         vec!["agenterm.print(i32, i32) -> ()"]
     );
     assert_eq!(
-        imports(&compile_qjs("return fleet_call(\"o\", \"p\");").unwrap()),
+        application_imports(&compile_qjs("return fleet_call(\"o\", \"p\");").unwrap()),
         vec!["agenterm.fleet_call(i32, i32, i32, i32) -> i32"]
     );
     // `fleet_result` alone brings its length pass with it: a byte result is
     // two imports, because a wasm function cannot return a slice.
     assert_eq!(
-        imports(&compile_qjs("return fleet_result();").unwrap()),
+        application_imports(&compile_qjs("return fleet_result();").unwrap()),
         vec![
             "agenterm.fleet_result_len() -> i32",
             "agenterm.fleet_result(i32, i32) -> i32",
@@ -432,7 +437,7 @@ fn the_emitted_imports_are_exactly_the_existing_door() {
         compile_qjs("print(\"x\"); let s = fleet_call(\"o\", \"p\"); return fleet_result();")
             .expect("compiles");
     assert_eq!(
-        imports(&wasm),
+        application_imports(&wasm),
         vec![
             "agenterm.print(i32, i32) -> ()",
             "agenterm.fleet_call(i32, i32, i32, i32) -> i32",
@@ -546,6 +551,20 @@ fn imports(wasm: &[u8]) -> Vec<String> {
         at = end;
     }
     out
+}
+
+fn application_imports(wasm: &[u8]) -> Vec<String> {
+    imports(wasm)
+        .into_iter()
+        .filter(|import| !import.starts_with("tinyvm_qjs_runtime."))
+        .collect()
+}
+
+fn engine_imports(wasm: &[u8]) -> Vec<String> {
+    imports(wasm)
+        .into_iter()
+        .filter(|import| import.starts_with("tinyvm_qjs_runtime."))
+        .collect()
 }
 
 fn render(types: &[u8]) -> String {

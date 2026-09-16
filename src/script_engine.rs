@@ -442,6 +442,7 @@ fn qjs_budget(options: &ScriptInvocationOptions) -> agenterm_qjswasm::Budget {
         budget.limits.max_steps = budgets.operations;
         budget.limits.max_call_depth = budgets.call_depth;
         budget.max_collection_items = budgets.collection_items;
+        budget.max_expression_depth = budgets.expression_depth;
         budget.max_host_ops = budgets.host_operations;
         budget.max_stdout_bytes = budgets.output_bytes;
         // A tool result becomes a guest string, so the public invocation's
@@ -1868,6 +1869,20 @@ mod tests {
 
     #[test]
     #[cfg(feature = "script-qjswasm")]
+    fn qjs_budget_maps_the_public_expression_ceiling() {
+        let invocation_budget = ScriptBudgets {
+            expression_depth: 7,
+            ..ScriptBudgets::default()
+        };
+        let options = ScriptInvocationOptions {
+            budgets: Some(invocation_budget),
+            ..ScriptInvocationOptions::default()
+        };
+        assert_eq!(qjs_budget(&options).max_expression_depth, 7);
+    }
+
+    #[test]
+    #[cfg(feature = "script-qjswasm")]
     fn qjs_collection_ceiling_governs_source_and_reusable_artifacts() {
         let source = "return [1, 2, 3].length;";
         let exact = ScriptInvocationOptions {
@@ -1903,6 +1918,45 @@ mod tests {
             .expect("qjswasm executes compiled artifacts")
             .expect_err("packed limit plus one refuses");
         assert!(artifact_error.message.contains("collection_items"));
+    }
+
+    #[test]
+    #[cfg(feature = "script-qjswasm")]
+    fn qjs_expression_ceiling_governs_source_and_reusable_artifacts() {
+        let source = "return 1 + (2 + (3 + 4));";
+        let exact = ScriptInvocationOptions {
+            budgets: Some(ScriptBudgets {
+                expression_depth: 4,
+                ..ScriptBudgets::default()
+            }),
+            ..ScriptInvocationOptions::default()
+        };
+        QjswasmEngineBackend
+            .execute(source, &exact, None)
+            .expect("exact source limit passes");
+
+        let tight = ScriptInvocationOptions {
+            budgets: Some(ScriptBudgets {
+                expression_depth: 3,
+                ..ScriptBudgets::default()
+            }),
+            ..ScriptInvocationOptions::default()
+        };
+        let source_error = QjswasmEngineBackend
+            .execute(source, &tight, None)
+            .expect_err("source limit plus one refuses");
+        assert!(source_error.to_string().contains("expression_depth"));
+
+        let (artifact, extension) = QjswasmEngineBackend
+            .pack_artifact(source)
+            .expect("qjswasm owns artifacts")
+            .expect("source compiles");
+        assert_eq!(extension, "wasm");
+        let artifact_error = QjswasmEngineBackend
+            .execute_artifact(&artifact, &tight, None)
+            .expect("qjswasm executes compiled artifacts")
+            .expect_err("packed limit plus one refuses");
+        assert!(artifact_error.message.contains("expression_depth"));
     }
 
     #[test]

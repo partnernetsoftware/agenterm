@@ -71,7 +71,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "6cff7d4";
+pub const UPSTREAM_TINYVM_REV: &str = "9805985";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -141,13 +141,14 @@ pub use tinyvm_qjs::{HostFn, HostParam, HostResult};
 /// say, and a door that appeared only on the execute path would make `check`
 /// refuse working scripts. A script that mentions no door name compiles
 /// exactly as it did before and emits **no application-door** imports, so the
-/// declaration costs nothing to a guest that does not reach for it. Array
-/// programs may still declare the engine-generic runtime-limit import.
+/// declaration costs nothing to a guest that does not reach for it. Compiled
+/// programs still declare the engine-generic expression-depth runtime limit;
+/// Array programs additionally declare the collection-item limit.
 ///
 /// Callers who want a guest with no application host surface at all -- one
 /// whose bytes provably cannot name either door -- use
-/// [`compile_qjs_without_door`]. The generic runtime-limit import remains
-/// available when the source uses Arrays. Callers compiling a *tool* script --
+/// [`compile_qjs_without_door`]. Engine-generic runtime-limit imports remain
+/// available independently of that application surface. Callers compiling a *tool* script --
 /// one that may also name the `tool.*` door -- use [`compile_qjs_tool`]; this
 /// entry point does not know that door exists.
 pub fn compile_qjs(source: &str) -> Result<Vec<u8>, CompileError> {
@@ -307,6 +308,7 @@ fn both_doors(native: bool) -> Vec<HostFn> {
 fn runtime_limits() -> tinyvm_qjs::RuntimeLimits {
     tinyvm_qjs::RuntimeLimits {
         collection_items: true,
+        expression_depth: true,
     }
 }
 
@@ -526,6 +528,10 @@ pub struct Budget {
     /// `1..=100_000`, so direct embedders are the only callers that can choose
     /// that stricter internal value.
     pub max_collection_items: usize,
+    /// Maximum simultaneously active expression-evaluation depth inside one
+    /// JavaScript function. Calls begin a fresh chain; call depth and VM
+    /// activation slots remain independently bounded by [`tinyvm::Limits`].
+    pub max_expression_depth: usize,
     /// Cumulative `agenterm.print` bytes retained for one call. Exceeding this
     /// truncates and sets [`Outcome::truncated_stdout`] -- never a silent drop.
     pub max_stdout_bytes: usize,
@@ -607,6 +613,7 @@ impl std::fmt::Debug for Budget {
             .field("max_call_depth", &self.limits.max_call_depth)
             .field("max_activation_slots", &self.limits.max_activation_slots)
             .field("max_collection_items", &self.max_collection_items)
+            .field("max_expression_depth", &self.max_expression_depth)
             .field("max_stdout_bytes", &self.max_stdout_bytes)
             .field("max_bridge_result_bytes", &self.max_bridge_result_bytes)
             .field("max_result_string_bytes", &self.max_result_string_bytes)
@@ -623,6 +630,7 @@ impl Default for Budget {
         Self {
             limits: tinyvm::Limits::default(),
             max_collection_items: 10_000,
+            max_expression_depth: 64,
             max_stdout_bytes: 1 << 20,
             max_bridge_result_bytes: 1 << 20,
             max_result_string_bytes: 1 << 20,

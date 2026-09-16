@@ -2031,7 +2031,8 @@ fn has_tool_door_says_which_engine_this_is() {
 
 /// The declaration costs nothing until a script mentions it: a script that
 /// names no tool function compiles to byte-identical wasm through both entry
-/// points, and imports nothing.
+/// points, and imports no application door. Engine-generic robustness imports
+/// remain deliberately independent of that application surface.
 #[test]
 fn a_script_that_mentions_no_tool_name_compiles_byte_identical_through_both_entry_points() {
     for source in [
@@ -2048,8 +2049,12 @@ fn a_script_that_mentions_no_tool_name_compiles_byte_identical_through_both_entr
         );
     }
     assert_eq!(
-        imports(&compile_qjs_tool("return 1;").unwrap()),
+        application_imports(&compile_qjs_tool("return 1;").unwrap()),
         Vec::<String>::new()
+    );
+    assert_eq!(
+        engine_imports(&compile_qjs_tool("return 1;").unwrap()),
+        vec!["tinyvm_qjs_runtime.expression_depth() -> i32"]
     );
 }
 
@@ -2058,11 +2063,11 @@ fn a_script_that_mentions_no_tool_name_compiles_byte_identical_through_both_entr
 #[test]
 fn only_the_tool_functions_a_script_mentions_are_imported() {
     assert_eq!(
-        imports(&compile_qjs_tool("return fs_exists(\"/\");").unwrap()),
+        application_imports(&compile_qjs_tool("return fs_exists(\"/\");").unwrap()),
         vec!["tool.fs.exists(i32, i32) -> i32"]
     );
     assert_eq!(
-        imports(
+        application_imports(
             &compile_qjs_tool("print(\"x\"); fs_write(\"a\", \"b\"); return tool_result();")
                 .unwrap()
         ),
@@ -2135,6 +2140,20 @@ fn imports(wasm: &[u8]) -> Vec<String> {
         at = end;
     }
     out
+}
+
+fn application_imports(wasm: &[u8]) -> Vec<String> {
+    imports(wasm)
+        .into_iter()
+        .filter(|import| !import.starts_with("tinyvm_qjs_runtime."))
+        .collect()
+}
+
+fn engine_imports(wasm: &[u8]) -> Vec<String> {
+    imports(wasm)
+        .into_iter()
+        .filter(|import| import.starts_with("tinyvm_qjs_runtime."))
+        .collect()
 }
 
 fn render(types: &[u8]) -> String {
