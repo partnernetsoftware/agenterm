@@ -60,6 +60,8 @@ reviews whose current owners are named in their archive banners. The two
 documents. `libagenterm-verification-state.md` preserves the retired ABI
 workflow ledger, while `experiment-headless-pty-owner.md` preserves the settled
 single-authority decision now owned by the CU PRDs.
+`prompt-grok-cursor-cloud.md` preserves the superseded cloud-agent polling
+playbook; current execution ownership is declared only in `plan/goal.md`.
 
 ## Restored decision records
 

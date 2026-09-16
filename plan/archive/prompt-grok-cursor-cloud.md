@@ -1,3 +1,6 @@
+> **已归档 2026-09-16 — 被取代。** 这份 Cursor Cloud 定时 loop 提示不再是当前执行入口，请勿按正文启动旧工作进程。
+> 现行权威：`plan/goal.md`；tmux 执行监督约定见 `docs/tmux-executor-supervision.md`。
+
 # Grok ↔ Cursor Cloud 协同 loop 提示词
 
 状态：可执行（给 `/loop` 用）；2026-08-08 更新  
