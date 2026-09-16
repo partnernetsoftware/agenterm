@@ -25,7 +25,7 @@ AgenTerm 自己的脚本引擎。`.qjs` 用**纯 Rust** 编译成 `.wasm`，`.wa
 按「通用引擎能力归 tinyvm、业务归 agenterm」这条分层线，它属于上游。本 crate 留下的是
 真正的业务——`agenterm.*` 门、槽、预算策略、接线。`CompileError` 原样再导出；
 `compile_qjs` 是本 crate 的函数，签名不变，但它现在**带着门的声明表**进上游编译器
-（`compile_qjs_m1_with`），因为「有哪些宿主能力」正是业务那一半。撤销记录见
+（带通用 runtime-limit 声明的 M1 入口），因为「有哪些宿主能力」正是业务那一半。撤销记录见
 [PRD 36](../../prd/PRD_02_36_agenterm_qjswasm.md) 与
 [设计稿 §2](../../plan/design-agenterm-qjswasm.md)。
 
@@ -39,7 +39,7 @@ AgenTerm 自己的脚本引擎。`.qjs` 用**纯 Rust** 编译成 `.wasm`，`.wa
 在本仓各骗过一次人：`%` 与 `typeof` 早已支持却还挂在拒绝表上，以及本文件曾说这个 crate
 在工作区外而它在里面。
 
-当前 pin 已前进到 `9ac2598`。下面逐项标明的 bitwise 与 `for...of` 又经产品入口复测；
+当前 pin 已前进到 `6cff7d4`。下面逐项标明的 bitwise 与 `for...of` 又经产品入口复测；
 它们不再沿用本节标题所记的旧 revision，也不能继续留在拒绝表里。未明确重测的其它行
 仍不得借这两项的结果自动升级。
 
@@ -88,7 +88,7 @@ completion value 投影全程，任何一段掉链子这里都看得见。`e1122
   `0` / `""` / `false` 保留左侧）、`==`/`!=`/`===`/`!==`、`<` `<=` `>` `>=`、
   `+` `-`、`*` `/`、`%`、`typeof`、前后缀 `++`/`--`、一元 `+ - !`、括号、**`?:`**，
   以及按 ECMA-262 32-bit 词语义运行的 `&` / `|` / `^` / `<<` / `>>` / `>>>`
-  （含对应复合赋值）。`9ac2598` 的产品入口实测 `1 ^ 2` 为 `3`；生产 FNV-1a
+  （含对应复合赋值）。历史 baseline pin `9ac2598` 的产品入口实测 `1 ^ 2` 为 `3`；生产 FNV-1a
   compatibility helper 也已从逐 bit 循环改为双 32-bit word 实现，并与标准向量逐字节一致。
 - **三个 ECMA-262 转换都到了**（`14a641a`）：`"n=" + 1` 是 `"n=1"`、`"2" * 2` 是 `4`、
   `"a" < "b"` 是 `true`、`1 == "1"` 是 `true`。**上一版 README 说这些 trap，已作废。**
@@ -151,7 +151,7 @@ completion value 投影全程，任何一段掉链子这里都看得见。`e1122
 1. **语法认得，能力还没有**——诊断形如「this engine does not support X yet」：
    数组 elision（`[1, , 2]`——hole 不是 `undefined`，引擎没法分辨，所以按名字拒绝
    而不是二选一）、数字分隔符（`1_000`）、`class`、`switch`、
-   `for…in`（`9ac2598` 产品入口复测仍拒绝）、`do`/`while`、
+   `for…in`（`6cff7d4` 产品入口复测仍拒绝）、`do`/`while`、
    带标签的模板（`` t`a` ``——**普通模板已经不在这张表上了**，见上）、
    默认 / rest / 解构参数（**箭头函数本身也不在这张表上了**，见上）、
    `**`、可选链首个属性访问之后的 continuation、逗号运算符、BigInt、
@@ -182,18 +182,17 @@ completion value 投影全程，任何一段掉链子这里都看得见。`e1122
 
 **诊断的诚实度**：带标签的语句现在正确报「does not support labelled
 statements yet」（曾经错报成三目运算符）；正常的 `for (const x of y)`
-也已经编译，旧版记录的 `const` / `let` 诊断差异已作废。当前 pin 仍有一条
-更窄的上游误报：`for (const of values) { }` 缺少绑定名，却报
-「this engine does not support the `of` keyword yet」。有效 `for…of` 在同一产品
-编译入口能通过，所以这是结构诊断的已知误归因，不是语言能力缺口。
-同一 pin 的 `for…in` 仍不支持，但诊断也有一条窄误归因：有效的
+也已经编译，旧版记录的 `const` / `let` 诊断差异已作废。`6cff7d4` 进一步修正
+`for (const of values) { }`：现在准确指出 `for … of` 头缺少声明绑定名，
+不再把已支持的 `of` 关键字说成能力缺口。同一 pin 的 `for…in` 仍不支持，
+但诊断还有一条窄误归因：有效的
 `for (const key in object) { }` 先报 `const` binding 缺 initializer，而 `let` 形式才报
 unsupported `in`。因此拒绝表结论仍成立；这条 tripwire 只冻结错误归因，不能冒充支持证据。
 
 **运行期缺口，2026-08-25 复核后的准确说法**（上一版这里写「本层两条」，**两条都记错了，
 下面是订正**）：
 
-- **`for…of` 当前只迭代数组，不迭代 String。** `9ac2598` 的产品入口复测
+- **`for…of` 当前只迭代数组，不迭代 String。** `6cff7d4` 的产品入口复测
   `for (const character of "ab")`，得到具名的未捕获异常：String 索引给 UTF-16 码元，
   而 ECMA-262 String iterator 给 code point，引擎拒绝拿前者冒充后者。生产脚本需要字符表时
   继续使用数组；这不是 `for…of` 语法缺口，也不能从数组正路径外推 String 已可迭代。
@@ -264,8 +263,9 @@ return status;
 `print` 求值为 `undefined`、两个宿主侧上限、门外的名字被拒且诊断把声明了哪些列出来、
 以及把 emit 出来的 import 表解码出来逐字对 `src/host.rs::SIGNATURES`）。
 
-想要一份**够不着门**的产物（import 表按构造为空）用 `compile_qjs_without_door`——实测它
-对 `print("x")` 报 ``this engine finds no declaration of `print` ``，对 `return 1 + 1;`
+想要一份**够不着应用门**的产物用 `compile_qjs_without_door`——它的 application-door
+import 表按构造为空；源码使用 Array 时仍会声明通用 runtime-limit import。实测它对
+`print("x")` 报 ``this engine finds no declaration of `print` ``，对 `return 1 + 1;`
 发射零个 import。`check` 与 `execute` 都走 `compile_qjs`，两边看见的是同一门语言。
 
 ### 第二扇门：`tool.*`（只给工具脚本，沙箱永远开不了）

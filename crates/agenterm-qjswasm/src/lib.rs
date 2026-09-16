@@ -71,7 +71,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "9ac2598";
+pub const UPSTREAM_TINYVM_REV: &str = "6cff7d4";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -140,19 +140,23 @@ pub use tinyvm_qjs::{HostFn, HostParam, HostResult};
 /// reaches it through [`Engine::spawn`]) have to agree about what a script may
 /// say, and a door that appeared only on the execute path would make `check`
 /// refuse working scripts. A script that mentions no door name compiles
-/// exactly as it did before and emits **no** imports, so the declaration costs
-/// nothing to a guest that does not reach for it.
+/// exactly as it did before and emits **no application-door** imports, so the
+/// declaration costs nothing to a guest that does not reach for it. Array
+/// programs may still declare the engine-generic runtime-limit import.
 ///
-/// Callers who want a guest with no host surface at all -- one whose bytes
-/// provably cannot name the door -- use [`compile_qjs_without_door`]. Callers
-/// compiling a *tool* script -- one that may also name the `tool.*` door --
-/// use [`compile_qjs_tool`]; this entry point does not know that door exists.
+/// Callers who want a guest with no application host surface at all -- one
+/// whose bytes provably cannot name either door -- use
+/// [`compile_qjs_without_door`]. The generic runtime-limit import remains
+/// available when the source uses Arrays. Callers compiling a *tool* script --
+/// one that may also name the `tool.*` door -- use [`compile_qjs_tool`]; this
+/// entry point does not know that door exists.
 pub fn compile_qjs(source: &str) -> Result<Vec<u8>, CompileError> {
-    tinyvm_qjs::compile_qjs_m1_with(
+    tinyvm_qjs::compile_qjs_m1_with_runtime_limits(
         source,
         tinyvm_qjs::Options {
             names: tinyvm_qjs::Names::Declared(host::declarations()),
         },
+        runtime_limits(),
     )
 }
 
@@ -166,11 +170,12 @@ pub fn compile_qjs(source: &str) -> Result<Vec<u8>, CompileError> {
 /// supervised worker process whose hard-timeout path reclaims the process
 /// tree.
 pub fn compile_qjs_native(source: &str) -> Result<Vec<u8>, CompileError> {
-    tinyvm_qjs::compile_qjs_m1_with(
+    tinyvm_qjs::compile_qjs_m1_with_runtime_limits(
         source,
         tinyvm_qjs::Options {
             names: tinyvm_qjs::Names::Declared(host::declarations_with_native()),
         },
+        runtime_limits(),
     )
 }
 
@@ -200,22 +205,24 @@ pub fn compile_qjs_native(source: &str) -> Result<Vec<u8>, CompileError> {
 /// naming the `tool.*` import, so a tool artifact cannot be run somewhere it
 /// would be handed a door it should not have.
 pub fn compile_qjs_tool(source: &str) -> Result<Vec<u8>, CompileError> {
-    tinyvm_qjs::compile_qjs_m1_with(
+    tinyvm_qjs::compile_qjs_m1_with_runtime_limits(
         source,
         tinyvm_qjs::Options {
             names: tinyvm_qjs::Names::Declared(both_doors(false)),
         },
+        runtime_limits(),
     )
 }
 
 /// [`compile_qjs_tool`] with the native door declared as a second, explicit
 /// opt-in. See [`compile_qjs_native`] for the process-containment contract.
 pub fn compile_qjs_tool_native(source: &str) -> Result<Vec<u8>, CompileError> {
-    tinyvm_qjs::compile_qjs_m1_with(
+    tinyvm_qjs::compile_qjs_m1_with_runtime_limits(
         source,
         tinyvm_qjs::Options {
             names: tinyvm_qjs::Names::Declared(both_doors(true)),
         },
+        runtime_limits(),
     )
 }
 
@@ -224,11 +231,12 @@ pub fn compile_qjs_tool_with_modules(
     source: &str,
     resolve: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Vec<u8>, CompileError> {
-    tinyvm_qjs::compile_qjs_m1_with_modules(
+    tinyvm_qjs::compile_qjs_m1_with_modules_and_runtime_limits(
         source,
         tinyvm_qjs::Options {
             names: tinyvm_qjs::Names::Declared(both_doors(false)),
         },
+        runtime_limits(),
         resolve,
     )
 }
@@ -243,11 +251,12 @@ pub fn compile_qjs_tool_with_modules_and_allocation_probe(
     source: &str,
     resolve: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Vec<u8>, CompileError> {
-    tinyvm_qjs::compile_qjs_m1_with_modules_and_allocation_probe(
+    tinyvm_qjs::compile_qjs_m1_with_modules_and_runtime_limits_and_allocation_probe(
         source,
         tinyvm_qjs::Options {
             names: tinyvm_qjs::Names::Declared(both_doors(false)),
         },
+        runtime_limits(),
         resolve,
     )
 }
@@ -257,11 +266,12 @@ pub fn compile_qjs_tool_native_with_modules(
     source: &str,
     resolve: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Vec<u8>, CompileError> {
-    tinyvm_qjs::compile_qjs_m1_with_modules(
+    tinyvm_qjs::compile_qjs_m1_with_modules_and_runtime_limits(
         source,
         tinyvm_qjs::Options {
             names: tinyvm_qjs::Names::Declared(both_doors(true)),
         },
+        runtime_limits(),
         resolve,
     )
 }
@@ -271,11 +281,12 @@ pub fn compile_qjs_tool_native_with_modules_and_allocation_probe(
     source: &str,
     resolve: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Vec<u8>, CompileError> {
-    tinyvm_qjs::compile_qjs_m1_with_modules_and_allocation_probe(
+    tinyvm_qjs::compile_qjs_m1_with_modules_and_runtime_limits_and_allocation_probe(
         source,
         tinyvm_qjs::Options {
             names: tinyvm_qjs::Names::Declared(both_doors(true)),
         },
+        runtime_limits(),
         resolve,
     )
 }
@@ -291,6 +302,12 @@ fn both_doors(native: bool) -> Vec<HostFn> {
     };
     decls.extend(tool::declarations());
     decls
+}
+
+fn runtime_limits() -> tinyvm_qjs::RuntimeLimits {
+    tinyvm_qjs::RuntimeLimits {
+        collection_items: true,
+    }
 }
 
 /// [`compile_qjs`], plus a way for the source to `import` other sources.
@@ -315,11 +332,12 @@ pub fn compile_qjs_with_modules(
     source: &str,
     resolve: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Vec<u8>, CompileError> {
-    tinyvm_qjs::compile_qjs_m1_with_modules(
+    tinyvm_qjs::compile_qjs_m1_with_modules_and_runtime_limits(
         source,
         tinyvm_qjs::Options {
             names: tinyvm_qjs::Names::Declared(host::declarations()),
         },
+        runtime_limits(),
         resolve,
     )
 }
@@ -330,11 +348,12 @@ pub fn compile_qjs_with_modules_and_allocation_probe(
     source: &str,
     resolve: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Vec<u8>, CompileError> {
-    tinyvm_qjs::compile_qjs_m1_with_modules_and_allocation_probe(
+    tinyvm_qjs::compile_qjs_m1_with_modules_and_runtime_limits_and_allocation_probe(
         source,
         tinyvm_qjs::Options {
             names: tinyvm_qjs::Names::Declared(host::declarations()),
         },
+        runtime_limits(),
         resolve,
     )
 }
@@ -344,11 +363,12 @@ pub fn compile_qjs_native_with_modules(
     source: &str,
     resolve: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Vec<u8>, CompileError> {
-    tinyvm_qjs::compile_qjs_m1_with_modules(
+    tinyvm_qjs::compile_qjs_m1_with_modules_and_runtime_limits(
         source,
         tinyvm_qjs::Options {
             names: tinyvm_qjs::Names::Declared(host::declarations_with_native()),
         },
+        runtime_limits(),
         resolve,
     )
 }
@@ -358,11 +378,12 @@ pub fn compile_qjs_native_with_modules_and_allocation_probe(
     source: &str,
     resolve: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Vec<u8>, CompileError> {
-    tinyvm_qjs::compile_qjs_m1_with_modules_and_allocation_probe(
+    tinyvm_qjs::compile_qjs_m1_with_modules_and_runtime_limits_and_allocation_probe(
         source,
         tinyvm_qjs::Options {
             names: tinyvm_qjs::Names::Declared(host::declarations_with_native()),
         },
+        runtime_limits(),
         resolve,
     )
 }
@@ -371,14 +392,18 @@ pub fn compile_qjs_native_with_modules_and_allocation_probe(
 /// diagnostic, and the emitted module imports nothing at all.
 ///
 /// This is the shape the crate compiled everything as until the door landed.
-/// It is kept because "this guest cannot reach the host, and that is checkable
-/// from its bytes" is a real thing to want -- a corpus scan, a pure-computation
-/// benchmark, a guest whose import table must be empty by construction rather
-/// than by inspection. It is **not** what `check` or `execute` use: a script
-/// checked with this and run with the door would be checked against a smaller
-/// language than it runs in.
+/// It is kept because "this guest cannot reach an application host door, and
+/// that is checkable from its bytes" is a real thing to want -- a corpus scan,
+/// a pure-computation benchmark, or a guest whose imports are limited to the
+/// generic runtime-limit mechanism. It is **not** what `check` or `execute`
+/// use: a script checked with this and run with the door would be checked
+/// against a smaller language than it runs in.
 pub fn compile_qjs_without_door(source: &str) -> Result<Vec<u8>, CompileError> {
-    tinyvm_qjs::compile_qjs_m1(source)
+    tinyvm_qjs::compile_qjs_m1_with_runtime_limits(
+        source,
+        tinyvm_qjs::Options::default(),
+        runtime_limits(),
+    )
 }
 
 /// The whole of a `.qjs` check: compile the source, then put the bytes it
@@ -495,6 +520,12 @@ pub struct Budget {
     /// Core-enforced limits: instruction steps per top-level call, linear
     /// memory pages, table elements, guest call depth, activation slots.
     pub limits: tinyvm::Limits,
+    /// Maximum cardinality of each individual JavaScript Array. This resets
+    /// with the invocation and is not cumulative across separate Arrays. Zero
+    /// permits empty Arrays only; the public Script budget contract accepts
+    /// `1..=100_000`, so direct embedders are the only callers that can choose
+    /// that stricter internal value.
+    pub max_collection_items: usize,
     /// Cumulative `agenterm.print` bytes retained for one call. Exceeding this
     /// truncates and sets [`Outcome::truncated_stdout`] -- never a silent drop.
     pub max_stdout_bytes: usize,
@@ -575,6 +606,7 @@ impl std::fmt::Debug for Budget {
             .field("max_table_elems", &self.limits.max_table_elems)
             .field("max_call_depth", &self.limits.max_call_depth)
             .field("max_activation_slots", &self.limits.max_activation_slots)
+            .field("max_collection_items", &self.max_collection_items)
             .field("max_stdout_bytes", &self.max_stdout_bytes)
             .field("max_bridge_result_bytes", &self.max_bridge_result_bytes)
             .field("max_result_string_bytes", &self.max_result_string_bytes)
@@ -590,6 +622,7 @@ impl Default for Budget {
     fn default() -> Self {
         Self {
             limits: tinyvm::Limits::default(),
+            max_collection_items: 10_000,
             max_stdout_bytes: 1 << 20,
             max_bridge_result_bytes: 1 << 20,
             max_result_string_bytes: 1 << 20,

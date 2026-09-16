@@ -781,6 +781,18 @@ pub(crate) fn check_declarations(
 ) -> Result<(), QjswasmError> {
     for desc in module.imports() {
         let door: &str = &desc.module;
+        if door == tinyvm_qjs::RUNTIME_LIMIT_MODULE
+            && desc.field == tinyvm_qjs::COLLECTION_ITEMS_LIMIT_IMPORT
+        {
+            if desc.n_params != 0 || desc.n_results != 1 || !desc.i32_only {
+                return Err(QjswasmError::Door(format!(
+                    "guest declares `{door}.{}` with the wrong signature: the runtime limit \
+                     takes no parameters and returns one i32",
+                    desc.field
+                )));
+            }
+            continue;
+        }
         // An import from any other module namespace can never be bound: these
         // doors are the whole world a guest gets, and PRD 36 forbids growing
         // an OS-shaped surface (`wasi_snapshot_preview1`) beside them. It is
@@ -1595,6 +1607,26 @@ mod tests {
         assert!(
             matches!(&error, QjswasmError::Door(message) if message.contains("print")),
             "expected a Door diagnostic naming the import, got {error:?}"
+        );
+    }
+
+    #[test]
+    fn a_mistyped_runtime_limit_import_is_refused_at_install() {
+        let wasm = wat::parse_str(format!(
+            r#"(module
+                (import "{}" "{}" (func $limit (param i32) (result i32)))
+                (memory 1)
+                (func (export "main")))"#,
+            tinyvm_qjs::RUNTIME_LIMIT_MODULE,
+            tinyvm_qjs::COLLECTION_ITEMS_LIMIT_IMPORT,
+        ))
+        .expect("valid wat");
+        let error = install_error(&wasm);
+        assert!(
+            matches!(&error, QjswasmError::Door(message)
+                if message.contains(tinyvm_qjs::COLLECTION_ITEMS_LIMIT_IMPORT)
+                    && message.contains("takes no parameters")),
+            "expected a Door diagnostic naming the runtime-limit signature, got {error:?}"
         );
     }
 

@@ -5,7 +5,7 @@ Family contract: [PRD 10](PRD_02_10_rhai_scripting.md)
 
 Status: **`[~]` active product engine**.
 
-**`9ac2598`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
+**`6cff7d4`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
 `crates/agenterm-qjswasm/Cargo.toml`, and tests must reject PRD/pin drift.
 This revision adds a generic, call-scoped cooperative-interruption seam: one
 invocation or start-section instantiation borrows one `AtomicBool`; pure guest
@@ -332,23 +332,25 @@ agenterm-qjswasm
 │  ├─ [x] the published invocation call-depth ceiling replaces tinyvm's independent default and is the limit the guest actually runs under
 │  ├─ [~] remaining public budget truth requires generic qjs runtime mechanisms
 │  │  ├─ [x] audit schema 2 preserves requested/effective numeric values and adds the
-│  │  │      backend-specific `unenforced_budgets` list; qjswasm names
-│  │  │      `expression_depth` and `collection_items`, and the public JSONL court proves
-│  │  │      an accepted collection ceiling can coexist only with that explicit disclosure
-│  │  ├─ [ ] `collection_items` is accepted by CLI/task manifests and published in audit receipts,
-│  │  │      but qjswasm does not yet enforce it; the mechanism must cover literals, push,
+│  │  │      backend-specific `unenforced_budgets` list; qjswasm initially named
+│  │  │      `expression_depth` and `collection_items`, while the collection-item leaf below
+│  │  │      removes its name only after the public JSONL court proves enforcement
+│  │  ├─ [x] `collection_items` is accepted by CLI/task manifests, published in audit receipts and
+│  │  │      enforced by qjswasm; the mechanism covers literals, push,
 │  │  │      sparse indexed growth, concat/map and JSON parse under the same per-invocation
 │  │  │      ceiling for source execution and reusable packed artifacts
-│  │  │  ├─ semantics: the ceiling is the cardinality of each individual collection, matching
+│  │  │  ├─ semantics: for this leaf, a collection is a JavaScript Array; object property counts
+│  │  │  │     are not charged. The ceiling is the cardinality of each individual Array, matching
 │  │  │  │     SQL's existing "any single result set" contract; it resets for every invocation
 │  │  │  │     and is not a cumulative allocation counter across otherwise bounded collections
-│  │  │  ├─ ownership: tinyvm-qjs must enforce the ceiling at its shared collection create/grow
-│  │  │  │     boundary and expose a generic runtime limit plus a distinct exhausted fault;
-│  │  │  │     agenterm-qjswasm only supplies the effective value and projects that fault as
+│  │  │  ├─ ownership: tinyvm-qjs at `6cff7d4` enforces the ceiling at its shared Array create/grow
+│  │  │  │     boundary and exposes a generic runtime-limit import plus a distinct exhausted fault;
+│  │  │  │     agenterm-qjswasm supplies the effective value and projects that fault as
 │  │  │  │     `Budget("collection_items")`
-│  │  │  └─ evidence: exact-limit success and limit-plus-one refusal for every construction path,
-│  │  │        plus the same refusal from a reusable packed artifact; partial path coverage leaves
-│  │  │        `collection_items` in `unenforced_budgets`
+│  │  │  └─ evidence: upstream and product seam courts prove exact-limit success and limit-plus-one
+│  │  │        refusal for every construction path, plus the same refusal from one reusable packed
+│  │  │        artifact; two Arrays at the ceiling prove the counter is not cumulative. The audit
+│  │  │        disclosure now leaves only `expression_depth` in `unenforced_budgets`.
 │  │  ├─ [ ] `expression_depth` is likewise published without a qjswasm owner; do not map it
 │  │  │      to call depth, activation slots or compile-time nesting because those are different facts
 │  │  │  ├─ semantics: the ceiling bounds the simultaneously active, not-yet-completed expression
@@ -413,11 +415,11 @@ agenterm-qjswasm
 │  │  ├─ [x] `for…of` over arrays is executable, while String iteration retains a
 │  │  │      product-seam runtime tripwire: UTF-16 code-unit indexing cannot impersonate
 │  │  │      the ECMA-262 code-point iterator, so production character tables stay arrays
-│  │  └─ [~] current pin has two parser-owned loop-header misattributions: a missing
-│  │         declaration binding in `for…of` reports unsupported `of`, while valid
-│  │         `const` `for…in` reports a missing initializer before its real unsupported
-│  │         `in` boundary; product tripwires retain both exact contradictions until
-│  │         the generic parser repairs are available at a published revision
+│  │  └─ [~] `6cff7d4` repairs the missing-binding `for…of` diagnostic, which now
+│  │         names the absent declaration instead of blaming supported `of`; the
+│  │         remaining parser-owned loop-header misattribution is valid `const`
+│  │         `for…in` reporting a missing initializer before its real unsupported
+│  │         `in` boundary, retained by one exact product tripwire
 │  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
 ├─ upstream performance frontier
 │  ├─ [x] host-op and string/JSON cost measured before changing limits

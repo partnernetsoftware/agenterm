@@ -1299,6 +1299,108 @@ fn a_compiled_artifact_reloaded_gives_the_same_value_as_its_source() {
     );
 }
 
+#[test]
+fn collection_items_bounds_every_array_path_for_source_and_packed_bytes() {
+    let sources = [
+        ("literal", "return [1, 2, 3].length;"),
+        (
+            "push",
+            "let a = []; a.push(1); a.push(2); a.push(3); return a.length;",
+        ),
+        (
+            "sparse indexed growth",
+            "let a = []; a[2] = 3; return a.length;",
+        ),
+        ("concat", "return [1].concat([2, 3]).length;"),
+        (
+            "map",
+            "let f = function (x) { return x + 1; }; return [1, 2, 3].map(f).length;",
+        ),
+        ("JSON.parse", "return JSON.parse(\"[1,2,3]\").length;"),
+    ];
+    for (path, source) in sources {
+        let exact = Budget {
+            max_collection_items: 3,
+            ..Budget::default()
+        };
+        Engine::with_budget(exact)
+            .run_once(Guest::Qjs(source), None, "main", &[])
+            .unwrap_or_else(|error| panic!("exact limit refused {path} {source:?}: {error}"));
+
+        let tight = Budget {
+            max_collection_items: 2,
+            ..Budget::default()
+        };
+        let error = Engine::with_budget(tight.clone())
+            .run_once(Guest::Qjs(source), None, "main", &[])
+            .expect_err("limit plus one must refuse source execution");
+        assert!(
+            matches!(error, QjswasmError::Budget("collection_items")),
+            "{path} {source:?}: {error:?}"
+        );
+
+        let bytes = compile_qjs(source).expect("source compiles once");
+        let error = Engine::with_budget(tight)
+            .run_once(Guest::CompiledQjs(&bytes), None, "main", &[])
+            .expect_err("the reusable artifact must enforce the load-time limit");
+        assert!(
+            matches!(error, QjswasmError::Budget("collection_items")),
+            "packed {path} {source:?}: {error:?}"
+        );
+    }
+}
+
+#[test]
+fn collection_items_is_per_array_not_cumulative() {
+    let budget = Budget {
+        max_collection_items: 2,
+        ..Budget::default()
+    };
+    Engine::with_budget(budget)
+        .run_once(
+            Guest::Qjs("let a = [1, 2]; let b = [3, 4]; return a.length + b.length;"),
+            None,
+            "main",
+            &[],
+        )
+        .expect("two separately bounded arrays fit");
+}
+
+#[test]
+fn collection_limit_abi_range_is_checked_only_when_the_guest_uses_arrays() {
+    let budget = Budget {
+        max_collection_items: usize::MAX,
+        ..Budget::default()
+    };
+    Engine::with_budget(budget.clone())
+        .run_once(Guest::Qjs("return 1;"), None, "main", &[])
+        .expect("an unused limit needs no ABI conversion");
+
+    let error = Engine::with_budget(budget)
+        .run_once(Guest::Qjs("return [];"), None, "main", &[])
+        .expect_err("an Array needs a representable imported ceiling");
+    assert!(
+        matches!(error, QjswasmError::Door(ref message)
+            if message.contains("max_collection_items exceeds")),
+        "got {error:?}"
+    );
+}
+
+#[test]
+fn a_zero_internal_collection_limit_allows_only_empty_arrays() {
+    let budget = Budget {
+        max_collection_items: 0,
+        ..Budget::default()
+    };
+    Engine::with_budget(budget.clone())
+        .run_once(Guest::Qjs("return [].length;"), None, "main", &[])
+        .expect("an empty Array has zero items");
+    let error = Engine::with_budget(budget)
+        .run_once(Guest::Qjs("return [1].length;"), None, "main", &[])
+        .expect_err("one item exceeds a zero ceiling");
+    assert!(matches!(error, QjswasmError::Budget("collection_items")));
+}
+
 /// The pin printed by [`agenterm_qjswasm::identity`] is the pin the build
 /// actually uses.
 ///

@@ -115,6 +115,31 @@ impl Slot {
     ) -> Result<Self, QjswasmError> {
         let mut module = tinyvm::WasmModule::from_bytes_explained(bytes, budget.limits)
             .map_err(QjswasmError::from_load)?;
+        if module.imports().iter().any(|desc| {
+            desc.module == tinyvm_qjs::RUNTIME_LIMIT_MODULE
+                && desc.field == tinyvm_qjs::COLLECTION_ITEMS_LIMIT_IMPORT
+        }) {
+            // Scalar/hand-written artifacts declare no such import and must
+            // not pay this ABI conversion. `host::bind` also tolerates an
+            // absent import, but this guard keeps the value validation scoped
+            // to guests that consume it.
+            let collection_items = i32::try_from(budget.max_collection_items).map_err(|_| {
+                QjswasmError::Door("max_collection_items exceeds the runtime limit ABI".to_owned())
+            })?;
+            host::bind(
+                &mut module,
+                tinyvm_qjs::RUNTIME_LIMIT_MODULE,
+                tinyvm_qjs::COLLECTION_ITEMS_LIMIT_IMPORT,
+                move |args, _memory| {
+                    if !args.is_empty() {
+                        return Err(tinyvm::WasmError::Trap(
+                            "collection_items runtime limit signature",
+                        ));
+                    }
+                    Ok(vec![tinyvm::Val::I32(collection_items)])
+                },
+            )?;
+        }
         let door = host::install(
             &mut module,
             budget,
@@ -435,6 +460,9 @@ impl Slot {
             match self.guest_fault() {
                 Some(tinyvm_qjs::GuestFault::HeapExhausted) => {
                     return QjswasmError::Budget("max_memory_pages");
+                }
+                Some(tinyvm_qjs::GuestFault::CollectionItemsExhausted) => {
+                    return QjswasmError::Budget("collection_items");
                 }
                 Some(tinyvm_qjs::GuestFault::UncaughtThrow) => {
                     // Since tinyvm 25fcf02 the epilogue records where the

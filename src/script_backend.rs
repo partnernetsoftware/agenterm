@@ -138,7 +138,7 @@ impl ScriptBackend {
                 "host_operations",
             ],
             #[cfg(feature = "script-qjswasm")]
-            Self::Qjswasm => &["expression_depth", "collection_items"],
+            Self::Qjswasm => &["expression_depth"],
         }
     }
 
@@ -406,10 +406,10 @@ mod tests {
 
     #[cfg(feature = "script-qjswasm")]
     #[test]
-    fn qjswasm_names_only_the_two_public_budgets_it_does_not_enforce() {
+    fn qjswasm_names_only_the_public_budget_it_does_not_enforce() {
         assert_eq!(
             ScriptBackend::Qjswasm.unenforced_budget_names(),
-            ["expression_depth", "collection_items"]
+            ["expression_depth"]
         );
     }
 

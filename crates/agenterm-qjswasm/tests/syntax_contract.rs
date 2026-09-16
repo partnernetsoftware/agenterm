@@ -147,7 +147,7 @@ fn loop_control_outside_a_loop_is_still_rejected_by_context() {
 }
 
 #[test]
-fn the_current_pin_records_the_missing_for_of_binding_misreport() {
+fn the_current_pin_names_a_missing_for_of_binding() {
     compile_qjs("for (const value of [1, 2]) { print(value); }")
         .expect("the product compiler supports declaration-form for-of");
 
@@ -155,12 +155,12 @@ fn the_current_pin_records_the_missing_for_of_binding_misreport() {
         .expect_err("a declaration-form for-of header needs a binding name");
     assert_eq!(
         error.to_string(),
-        "this engine does not support the `of` keyword yet (at byte 11)",
-        "when the upstream diagnostic is repaired, retire this known-misreport pin and update README"
+        "this engine needs a name after the `const` keyword in the `for … of` header (at byte 11)",
+        "the parser must blame the missing declaration binding, not the supported `of` keyword"
     );
     assert!(
-        rejection_section().contains("`for (const of values) { }`"),
-        "README must disclose the current pin's false capability attribution"
+        !rejection_section().contains("this engine does not support the `of` keyword yet"),
+        "README must retire the repaired false capability attribution, while it may retain the malformed example as repair history"
     );
 }
 
@@ -175,7 +175,7 @@ fn the_current_pin_records_the_const_for_in_initializer_misreport() {
     );
     let documented = rejection_section();
     assert!(
-        documented.contains("`for…in`") && documented.contains("`9ac2598` 产品入口复测仍拒绝"),
+        documented.contains("`for…in`") && documented.contains("`6cff7d4` 产品入口复测仍拒绝"),
         "README must bind the current for-in refusal to the revision actually exercised"
     );
 }

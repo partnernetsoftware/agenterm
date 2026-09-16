@@ -4491,6 +4491,14 @@ ceilings count as enforcement, while parser range validation does not. When an
 engine uses one observable ceiling for two fields, document that representative
 mapping at the adapter instead of claiming either field disappeared.
 
+A runtime ceiling for reusable compiled artifacts must not be baked into the
+artifact bytes. Prefer an opt-in, engine-generic import that the embedder binds
+at load time; keep old compiler entry points import-free by default, add no
+guest-callable setter export, and report exhaustion through a distinct guest
+fault rather than heap exhaustion. Enforce cardinality at every create/grow
+boundary, including bulk paths that bypass the ordinary append helper, and
+prove one artifact under two limits plus exact-limit/limit-plus-one behavior.
+
 Cancellation must cover construction-time guest execution as well as exported
 calls. A Wasm start section runs while a slot is being instantiated, before
 the caller can receive or cancel a published handle, so borrow the same
