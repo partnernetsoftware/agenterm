@@ -154,9 +154,12 @@ native help, capabilities and legal refusal preserve product exits while
 missing/wrong providers fail at the boundary. The first G1 slice now preserves
 the exact `--version` / `-V` text mode through an explicit provider/launcher
 allow-list, while a sentinel with trailing argv retains the ordinary typed
-refusal. The tree still stops at G1 red: the other 11 binary-entry families
-remain `provider_entry_mode_unimplemented`; their framing, resident lifetime,
-cleanup and exact exit parity are not implemented.
+refusal. The second slice preserves the network-probe worker and loopback
+fixture as child-process-owned stdin/stdout modes: the provider writes fd 1,
+the ABI publishes zero duplicate bytes, and the parent still bounds, validates,
+times out and reaps the exact child. The tree still stops at G1 red: the other
+nine binary-entry families remain `provider_entry_mode_unimplemented`; their
+framing, resident lifetime, cleanup and exact exit parity are not implemented.
 
 Decision path: A is over budget → B passes the measured G0 subset and one G2
 cell → G1 red → no topology promotion. The result overturns only the fear that

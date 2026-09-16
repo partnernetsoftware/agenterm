@@ -202,6 +202,16 @@ same product identity, keep the formatted text in the product library and have
 both presenters call it. Equal package versions at one revision are not a
 cross-crate invariant and cannot substitute for one owner.
 
+A dynamic provider mode may own process stdin/stdout only when the mode is
+already an isolated child whose parent checks exit status before accepting its
+bounded protocol. Make fd ownership an explicit per-mode contract, require the
+ABI output lengths to remain zero so the launcher cannot duplicate frames, and
+never re-enter the public command dispatcher from that handler: doing so can
+self-spawn the same launcher recursively and escape the parent's kill/reap
+containment. A nonzero child exit makes any bytes already in the private pipe
+non-authoritative; this rule does not justify direct stdio for an ordinary
+in-process request.
+
 A handle that separates a mutating operation from a later two-stage copy must
 clear its previous retained output before starting every new operation. Clear
 on typed failure and panic as well as success replacement; otherwise a caller

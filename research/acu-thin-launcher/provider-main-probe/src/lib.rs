@@ -206,6 +206,22 @@ unsafe fn process_main_inner(
     let mode = classify_entry(&argv);
     // SAFETY: result is a valid writable ABI result.
     unsafe { (*result).entry_mode = mode };
+    let direct_exit = match mode {
+        ENTRY_NETWORK_PROBE_WORKER => Some(agenterm_cu::network_probe::run_worker_stdio()),
+        ENTRY_NETWORK_PROBE_FIXTURE => Some(agenterm_cu::network_probe::run_loopback_fixture(
+            &argv[1..],
+        )),
+        _ => None,
+    };
+    if let Some(exit_code) = direct_exit {
+        // These isolated child modes own process fd 0/1 directly. Their parent
+        // bounds and validates the protocol after observing this process exit;
+        // publishing the same bytes through the ABI buffers would duplicate
+        // the frame. reset_result already left both lengths at zero.
+        // SAFETY: result is a valid writable ABI result.
+        unsafe { (*result).exit_code = exit_code };
+        return STATUS_OK;
+    }
     let (encoded, diagnostic, exit_code) = match mode {
         ENTRY_ORDINARY_ARGV => {
             let reply = agenterm_cu::argv::execute_argv_from_environment(argv.clone());
@@ -387,6 +403,22 @@ mod tests {
                 "{sentinel} with a tail must retain ordinary typed refusal"
             );
         }
+    }
+
+    #[test]
+    fn direct_stdio_modes_are_the_network_probe_child_boundary() {
+        assert_eq!(
+            classify_entry(&strings(&[agenterm_cu::network_probe::WORKER_ARG])),
+            ENTRY_NETWORK_PROBE_WORKER
+        );
+        assert_eq!(
+            classify_entry(&strings(&[
+                agenterm_cu::network_probe::FIXTURE_ARG,
+                "3",
+                "30000",
+            ])),
+            ENTRY_NETWORK_PROBE_FIXTURE
+        );
     }
 
     #[test]

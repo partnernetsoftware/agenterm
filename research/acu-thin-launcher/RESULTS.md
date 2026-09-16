@@ -74,7 +74,7 @@ repository target tree.
 | gate | result | evidence / missing work |
 |---|---|---|
 | G0 safety/authority | partial green | one parser/Executor owner, fixed sibling, bounded ABI, release panic latch, missing/wrong ABI and malformed-result refusals; not all raw failures on three native OSes |
-| G1 behavior parity | **red** | ordinary help/capabilities/refusal and exact version text run; the other 11 binary-entry families remain explicitly unimplemented; no complete paired monolith stdout/stderr corpus |
+| G1 behavior parity | **red** | ordinary help/capabilities/refusal, exact version text and the network-probe worker/fixture run; the other nine binary-entry families remain explicitly unimplemented; no complete paired monolith stdout/stderr corpus |
 | G2 launcher budgets | partial green | Linux x86_64 L1 is 389,096 bytes; Windows L1 and same-source paired monolith are unmeasured |
 | G3 six-cell/native | red | only Linux x86_64 cross-build plus macOS arm64 native ordinary execution |
 | G4 footprint | partial | macOS L1/L2/L3 complete; Linux L2/L3 and other cells unmeasured |
@@ -97,6 +97,22 @@ continues to reject every other nonordinary mode at the provider boundary.
 `argv_entry_mode_unsupported` refusal. This is partial G1 progress, not a gate
 verdict or topology promotion; the earlier measured byte table remains the
 record of its stated source revision.
+
+### Incremental G1 network-probe slice
+
+Entry modes 2 and 8 now preserve the existing isolated network-probe journey.
+The provider runs the worker or fixture body directly inside the already-owned
+child process, where it owns stdin/stdout; the ABI result lengths remain zero,
+so the launcher cannot duplicate the protocol frame. The public command still
+self-spawns the launcher once, bounds the request and response, kills and reaps
+on deadline, and accepts output only after the child exits successfully.
+
+A native staged journey started the mode-8 loopback fixture, then invoked the
+public `network-probe` command. That command self-spawned the same launcher in
+mode 2 and returned `provider=system-resolver-owned-worker`, `status=reachable`,
+one connected attempt, empty stderr and exit zero; the fixture also exited
+zero. This closes the network-probe worker/fixture pair only. It does not change
+the G1 verdict or promote topology B.
 
 ## Commands used for the recorded result
 

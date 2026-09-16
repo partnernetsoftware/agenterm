@@ -20,7 +20,12 @@ const BOUNDARY_EXIT: u8 = 70;
 
 const STATUS_OK: i32 = 0;
 const ENTRY_ORDINARY_ARGV: u32 = 0;
+const ENTRY_NETWORK_PROBE_WORKER: u32 = 2;
+const ENTRY_NETWORK_PROBE_FIXTURE: u32 = 8;
 const ENTRY_VERSION_TEXT: u32 = 12;
+
+const NETWORK_PROBE_WORKER_ARG: &[u8] = b"--agenterm-cu-internal-network-probe-worker";
+const NETWORK_PROBE_FIXTURE_ARG: &[u8] = b"--agenterm-cu-internal-network-probe-fixture";
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -139,14 +144,16 @@ fn run() -> Result<u8, &'static str> {
         &stdout[..result.stdout_len],
         &stderr[..result.stderr_len],
     )?;
-    io::stdout()
-        .lock()
-        .write_all(&stdout[..result.stdout_len])
-        .map_err(|_| "stdout_write_failed")?;
-    io::stderr()
-        .lock()
-        .write_all(&stderr[..result.stderr_len])
-        .map_err(|_| "stderr_write_failed")?;
+    if !entry_mode_owns_stdio(result.entry_mode) {
+        io::stdout()
+            .lock()
+            .write_all(&stdout[..result.stdout_len])
+            .map_err(|_| "stdout_write_failed")?;
+        io::stderr()
+            .lock()
+            .write_all(&stderr[..result.stderr_len])
+            .map_err(|_| "stderr_write_failed")?;
+    }
     u8::try_from(result.exit_code).map_err(|_| "provider_exit_code_invalid")
 }
 
@@ -217,7 +224,11 @@ fn validate_result(
 }
 
 fn expected_entry_mode(argv: &[Vec<u8>]) -> u32 {
-    if matches!(argv, [arg] if matches!(arg.as_slice(), b"--version" | b"-V")) {
+    if matches!(argv, [arg] if arg.as_slice() == NETWORK_PROBE_WORKER_ARG) {
+        ENTRY_NETWORK_PROBE_WORKER
+    } else if matches!(argv, [first, ..] if first.as_slice() == NETWORK_PROBE_FIXTURE_ARG) {
+        ENTRY_NETWORK_PROBE_FIXTURE
+    } else if matches!(argv, [arg] if matches!(arg.as_slice(), b"--version" | b"-V")) {
         ENTRY_VERSION_TEXT
     } else {
         ENTRY_ORDINARY_ARGV
@@ -227,9 +238,23 @@ fn expected_entry_mode(argv: &[Vec<u8>]) -> u32 {
 fn validate_output(entry_mode: u32, stdout: &[u8], stderr: &[u8]) -> Result<(), &'static str> {
     match entry_mode {
         ENTRY_ORDINARY_ARGV => validate_ordinary_output(stdout, stderr),
+        ENTRY_NETWORK_PROBE_WORKER | ENTRY_NETWORK_PROBE_FIXTURE => {
+            if stdout.is_empty() && stderr.is_empty() {
+                Ok(())
+            } else {
+                Err("provider_direct_stdio_buffer_invalid")
+            }
+        }
         ENTRY_VERSION_TEXT => validate_version_output(stdout, stderr),
         _ => Err("provider_result_entry_mode_invalid"),
     }
+}
+
+fn entry_mode_owns_stdio(entry_mode: u32) -> bool {
+    matches!(
+        entry_mode,
+        ENTRY_NETWORK_PROBE_WORKER | ENTRY_NETWORK_PROBE_FIXTURE
+    )
 }
 
 fn validate_ordinary_output(stdout: &[u8], stderr: &[u8]) -> Result<(), &'static str> {
@@ -333,5 +358,37 @@ mod tests {
             validate_version_output(b"{}\n", b"").unwrap_err(),
             "provider_version_stdout_invalid"
         );
+    }
+
+    #[test]
+    fn network_probe_child_modes_own_stdio_and_never_publish_abi_bytes() {
+        assert_eq!(
+            expected_entry_mode(&[NETWORK_PROBE_WORKER_ARG.to_vec()]),
+            ENTRY_NETWORK_PROBE_WORKER
+        );
+        assert_eq!(
+            expected_entry_mode(&[
+                NETWORK_PROBE_WORKER_ARG.to_vec(),
+                b"extra".to_vec(),
+            ]),
+            ENTRY_ORDINARY_ARGV
+        );
+        assert_eq!(
+            expected_entry_mode(&[
+                NETWORK_PROBE_FIXTURE_ARG.to_vec(),
+                b"3".to_vec(),
+                b"30000".to_vec(),
+            ]),
+            ENTRY_NETWORK_PROBE_FIXTURE
+        );
+        assert!(validate_output(ENTRY_NETWORK_PROBE_WORKER, b"", b"").is_ok());
+        assert!(validate_output(ENTRY_NETWORK_PROBE_FIXTURE, b"", b"").is_ok());
+        assert_eq!(
+            validate_output(ENTRY_NETWORK_PROBE_WORKER, b"{}", b"").unwrap_err(),
+            "provider_direct_stdio_buffer_invalid"
+        );
+        assert!(entry_mode_owns_stdio(ENTRY_NETWORK_PROBE_WORKER));
+        assert!(entry_mode_owns_stdio(ENTRY_NETWORK_PROBE_FIXTURE));
+        assert!(!entry_mode_owns_stdio(ENTRY_VERSION_TEXT));
     }
 }

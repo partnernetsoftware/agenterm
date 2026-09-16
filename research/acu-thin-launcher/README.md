@@ -14,7 +14,8 @@ product integration and not evidence that G1 passes.
   presentation. Ordinary argv calls the existing
   `agenterm_cu::argv::execute_argv_from_environment`; it does not copy the
   `Command` schema or create a second dispatcher. The first explicit
-  binary-entry slice presents the library-owned version text.
+  binary-entry slices present the library-owned version text and preserve the
+  network-probe worker/fixture process boundary.
 - `fixtures/bad-abi-provider` exports only a deliberately wrong ABI version for
   a fail-closed launcher court.
 
@@ -29,7 +30,9 @@ field is authoritative; launcher/provider boundary failures exit 70. The
 launcher validates the result version/size, exact argv-bound entry mode,
 lengths and exit range before publishing bytes. Ordinary mode additionally
 requires stderr UTF-8 and one JSON stdout frame; version mode requires one
-`agenterm-cu` text line and empty stderr.
+`agenterm-cu` text line and empty stderr. Network-probe child modes own process
+stdin/stdout directly and must publish zero bytes through the ABI buffers; the
+owning parent retains the 4 KiB request, 64 KiB reply and kill/reap deadline.
 
 ## Reproduce
 
@@ -85,7 +88,8 @@ The provider classifies every current binary-only family before ordinary argv:
 - version text.
 
 Version text is implemented for the exact one-argument `--version` and `-V`
-forms. The other 11 families return the typed boundary status
+forms. The network-probe worker and loopback fixture retain their direct stdio
+and child lifetime contracts. The other nine families return the typed boundary status
 `provider_entry_mode_unimplemented`. Their stdin/stdout framing, resident
 lifetime, cleanup and exact exit behavior are not implemented or tested here.
 Consequently G1 remains red; one completed slice is not binary-entry parity.
