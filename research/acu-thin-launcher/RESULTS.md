@@ -126,7 +126,17 @@ passed the negative control: the launcher failed at boundary exit 70 while the
 monolith version anchor remained valid. The payload SHA-256 was
 `ef20223d1dd6743684b8df5aec9fa28ce51b1ebc8c6f00b87fc7e0ffed8e7518`.
 
-This is native Windows paired evidence, not a Candidate receipt. The same
+The Windows scope is deliberately narrow. None of these cases exercises a
+Windows-specific Native Messaging, privilege-broker or hotkey-host shape, and
+none enters a direct-stdio mode successfully; those sentinels are arity
+refusals before fd ownership begins. The three positive presentation paths are
+version, capabilities and `verbs --help`. The court also supplies one explicit
+`AGENTERM_ABI_LIB` path to both children, so this run proves process-main and
+embedded-call byte parity under that injected library path, not the launcher's
+production sibling discovery of `agenterm.dll`.
+
+This is native Windows arm64 paired evidence, not a Candidate receipt; the
+release-quality receipt remains owned by the Windows x86_64 lane. The same
 guest's `acu-provider-job-wait-cancel-smoke` stopped at `job_not_running` with
 the launcher owner. A control rerun replaced only that owner with the
 same-source monolith and failed at the identical assertion, with orphan-free

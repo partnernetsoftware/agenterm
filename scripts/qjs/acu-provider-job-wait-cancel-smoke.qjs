@@ -228,7 +228,8 @@ try {
   const status = call([
     "--target", "current", "--grant", "observe", "job-status", spawned.job_id
   ], "job-status");
-  require(status.state === "running", "job_not_running");
+  require(status.state === "running",
+    "job_not_running:" + status.state + ":" + status.exit_code);
   require(typeof status.owner_pid === "number" && status.owner_pid > 0, "owner_pid_missing");
   require(typeof status.process_pid === "number" && status.process_pid > 0, "process_pid_missing");
   require(status.live !== null && status.live.state.kind === "running", "job_live_missing");
