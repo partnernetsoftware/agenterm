@@ -99,6 +99,15 @@ both ABI families. This removes the single-file dual-ABI blocker for a later
 Windows Candidate staging attempt; it does not itself run that Windows journey
 or promote topology B.
 
+The same research workspace then cross-built its Windows x86_64 boundary
+artifacts with `cargo xwin`; none was executed. The release launcher was
+177,152 bytes, the parity court 316,416 bytes and the bad-ABI fixture DLL
+101,888 bytes. The first attempt exposed a missing Windows `cfg` on the
+foreign-origin expectation arm; after the arm was made consistent with its
+Unix-only case and enum variant, the complete research workspace built cleanly.
+This is build evidence only. The production provider, monolith and required
+journey still need a native Windows build/stage/run.
+
 ## Gate ledger
 
 | gate | result | evidence / missing work |

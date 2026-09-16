@@ -197,6 +197,10 @@ the twelve paired cases plus the bad-ABI control stayed green with that
 production provider. This removes the single-file dual-ABI blocker for the
 Windows required journey; it is a prerequisite result, not the Windows G1
 verdict.
+The research launcher, parity court and bad-ABI fixture now also cross-build as
+Windows x86_64 release artifacts. They have not been executed, and the
+production provider/monolith pair has not yet been staged on Windows, so this
+changes neither G1 nor G3.
 The browser-session result is native court evidence, not Candidate evidence:
 its existing qjs court is a registered macOS court rather than a Windows
 Candidate gate. The device-lease lifecycle result is likewise native macOS

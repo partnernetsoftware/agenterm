@@ -347,6 +347,7 @@ fn validate_expected(case: &Case, observation: &Observation) -> Result<(), Strin
                 "native_stderr",
             )
         }
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         Expectation::NativeMessagingOriginRefusal => {
             require(exit_code(observation) == Some(1), case, "native_exit")?;
             require(observation.stdout.is_empty(), case, "native_stdout")?;
