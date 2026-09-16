@@ -23,6 +23,10 @@ Current product truth starts at `PRD.md`; current sequencing starts at
 the `design-rh-standalone-product*` set preserve the extracted Rh product's
 history. Rh left this repository; current `.qjs` work is qjswasm/tinyvm.
 
+`design-scripting-boundary-comparison.md` preserves the Rh-era industry
+comparison, and `design-script-engine-trait.md` preserves the completed shared
+adapter campaign that preceded the current qjswasm/Lua/SQL routing shape.
+
 The superseded dyn S-expression reviews, the completed qjs/wasmcore archive
 gates, and the old qjs module-import design are retained here for the same
 reason: their product eras have ended, while their decisions remain useful

@@ -1,6 +1,6 @@
 //! Unified per-engine `ScriptEngineBackend` trait + static-dispatch enum.
 //!
-//! Trait-M1-M4 of `plan/design-script-engine-trait.md`. This module defines
+//! Trait-M1-M4 of `plan/archive/design-script-engine-trait.md`. This module defines
 //! the shared invocation types (§2.2), the `ScriptEngineBackend` trait
 //! (§2.3), the per-engine impls, and the `ScriptEngine` static-dispatch enum
 //! (§2.4). `script_worker.rs`'s `execute_inner` dispatches only through this

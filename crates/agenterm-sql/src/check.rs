@@ -23,7 +23,7 @@
 //!   standard's constraint set. A future real implementation could run both
 //!   dialects and report which one(s) a given source parses under, or add a
 //!   `--dialect` flag; neither exists yet — tracked, not silently assumed
-//!   done. See `plan/design-script-engine-trait.md` §2.6 for the SSOT on
+//!   done. See `plan/archive/design-script-engine-trait.md` §2.6 for the historical design on
 //!   this crate's scope.
 //!
 //! Multi-statement sources (statements separated by `;`) parse cleanly:

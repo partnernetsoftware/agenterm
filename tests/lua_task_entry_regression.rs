@@ -8,7 +8,7 @@
 //!
 //! History: originally written against `try_execute_lua_invocation` +
 //! `LuaInvocationOptions`; those were folded into `LuaEngineBackend`
-//! (Trait-M4, see `plan/design-script-engine-trait.md` §4), so the same
+//! (Trait-M4, see `plan/archive/design-script-engine-trait.md` §4), so the same
 //! scenarios now run through the `ScriptEngineBackend` trait. The
 //! `ScriptBackend::Rhai` variant assertions were dropped when that backend
 //! was retired, and the `ScriptBackend::Rh` ones when that engine left the

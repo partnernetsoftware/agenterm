@@ -26,8 +26,12 @@
 - 产品 `ui-action` interim 集合闸：[`src/frontend/ui_action_catalog.rs`](../src/frontend/ui_action_catalog.rs)。  
 - 机制漏点表：[`plan/plan-platform-encapsulation-gap.md`](plan-platform-encapsulation-gap.md)。  
 - 可执行 goal：[`plan/goal-crate-platform.md`](goal-crate-platform.md)。  
-- **Rhai ↔ Rust Facade 边界**（脚本 L3 pack / L2 catalog / L1 kernel）：[`plan/design-rhai-rust-boundary.md`](design-rhai-rust-boundary.md)。  
-  那是脚本嵌入边界。工作台 **Chassis-L1 / L2 / L3**（每格一份冻 loader / 可贴的宿主 ABI / 应用包；chassis = 底盘，不是命令行 shell）是目标分层：日常循环是打包已冻 L1 + L2/L3，不是再编六格。当前独立 `agenterm-chassis-loader` 已能校验 composed image 后交给 native host 呈窗；这是 partial 底座，不代表现行 `agenterm` workbench PE 已被替换，PTY/IPC/L2 Host ABI dispatch 仍未迁移。执行树 [`plan/refactor-chassis-l1-l2-l3.md`](refactor-chassis-l1-l2-l3.md)，合成器 [`scripts/chassis-compose-product.py`](../scripts/chassis-compose-product.py)。结构变更仍只改本文。
+- **Script Runtime 边界**（产品路由 / qjswasm 适配 / tinyvm 执行核）：
+  [`prd/PRD_02_10_rhai_scripting.md`](../prd/PRD_02_10_rhai_scripting.md)、
+  [`prd/PRD_02_36_agenterm_qjswasm.md`](../prd/PRD_02_36_agenterm_qjswasm.md) 与
+  [`plan/design-agenterm-qjswasm.md`](design-agenterm-qjswasm.md)。Rh 已迁出；其
+  L1/L2/L3 边界推理只作为 [`plan/archive/`](archive/) 中的历史记录保留。
+  工作台 **Chassis-L1 / L2 / L3**（每格一份冻 loader / 可贴的宿主 ABI / 应用包；chassis = 底盘，不是命令行 shell）是目标分层：日常循环是打包已冻 L1 + L2/L3，不是再编六格。当前独立 `agenterm-chassis-loader` 已能校验 composed image 后交给 native host 呈窗；这是 partial 底座，不代表现行 `agenterm` workbench PE 已被替换，PTY/IPC/L2 Host ABI dispatch 仍未迁移。执行树 [`plan/refactor-chassis-l1-l2-l3.md`](refactor-chassis-l1-l2-l3.md)，合成器 [`scripts/chassis-compose-product.py`](../scripts/chassis-compose-product.py)。结构变更仍只改本文。
 
 ### 1.1 目录树
 
@@ -145,30 +149,18 @@ userdata 与独立队列；同步 User32/IMM FFI 触发的嵌套回调不得从�
 非收敛 drain 都 typed-fail closed。该共享边界是原生机制复用，不把 con 或工作台
 产品策略下沉到 platform。
 
-**2026-08-09：** `agenterm-rh` / `agenterm-lua` / `agenterm-qjs` / `agenterm-sql`
-四个独立 `[[bin]]` 已退役（commit `234b2f87`），改为主 `agenterm` PE 的
-argv 透传子命令：`agenterm rh|lua|qjs|sql <args>`（rh 实现仍在
-`crates/agenterm-rh`，qjs/lua/sql 同理各自 crate；只是不再各自产出独立
-release 可执行文件）。
+**当前 Script Runtime：** Rh 于 2026-08-29 迁出本仓；rquickjs
+`agenterm-qjs` 与 wasmtime `agenterm-wasmcore` 也已从产品路径移除。
+`agenterm cli script` 由文件扩展名或显式 `AGENTERM_SCRIPT_BACKEND` 选择引擎，
+没有默认回退；`.qjs` / `.wasm` 由 `agenterm-qjswasm` 编译或装载并在 tinyvm
+执行，Lua 与 SQL 只在各自 feature 打开时作为具名 sibling。路由真相在
+[`src/script_backend.rs`](../src/script_backend.rs)，产品合同在 PRD 02.10，
+qjswasm 实现与 pin 在 PRD 02.36 和 crate README。
 
-**构建自举：** `build.bat` / `build.sh` 仅定位或首次构建主 `agenterm`，
-再以 `agenterm rh task run ...` 进入 `scripts/rh/` 的唯一构建政策。最近一次
-通过 `agenterm rh version` 自检的主程序保存在 Cargo output 之外；源码身份
-变化会尝试 seed 当前主程序，seed 失败则回退而不覆盖旧 LKG。clean clone 与
-无缓存 CI 在 stage-0 执行 `cargo build --bin agenterm`，不恢复独立
-`agenterm-rh` bin。
-
-**rh 切换：** 宿主经 [`src/script_backend.rs`](../src/script_backend.rs) 选择 backend；详见 [`plan/design-rh-aot.md`](design-rh-aot.md)。
-
-**rh 两条执行路径：** `agenterm rh eval` / `run` 走 `crates/agenterm-rh` 里的
-Language-1 解释器——直接执行,不需要 Rust 工具链,也不落 native pack。
-`compile` / `transpile` / `pack` / `qualify` / `run-smoke` / `task` 仍走 AOT:
-转译成 Rust、`cargo` 编 cdylib、`dlopen` 调 `rh_entry()`,任务闸依赖的就是这条。
-两条路径不是同一把尺子——转译器比解释器严格,所以 `eval` 通过不构成「能编成
-pack」的证据;要给闸看的东西必须走 AOT 那条验。工作台自身的能力(Fleet、PTY、
-GUI)对解释器不是内建语法,而是由宿主实现 `rh::Host` 后按名字应答
-(`Host::call("fleet.tabs.list", ...)`);加能力是加名字,不是改语言。
-详见 [`plan/design-rh-standalone-product.md`](design-rh-standalone-product.md)。
+**构建自举：** `build.bat` / `build.sh` 是 `scripts/bootstrap.sh` 的薄入口，
+定位兼容的 qjswasm Script worker，缺失或不兼容时才构建并复制一个稳定 bootstrap
+worker，再进入 `scripts/qjs/` 的具名任务。构建身份冻结不得恢复无条件 worker
+预构建；否则编译期身份会交替 Cargo fingerprint，破坏 warm loop。
 
 Authority entry plan: [`plan/archive/plan-agenterm-server-mode.md`](archive/plan-agenterm-server-mode.md)。
 
@@ -217,7 +209,7 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
 | 代码现在怎么分层？ | **本文** |
 | 结构如何被自动勾住 / 工具边界？ | **本文 §8** |
 | 本版要修哪些叶？ | 当前版本 `plan/plan-v0.1.*.md`（结构机读化 → **S 组**） |
-| 能力是否 shipped / 验收？ | owning `prd/PRD_*.md` + `prd/alignment-contract.json` + `scripts/rh/prd-alignment.rh`（**能力**对齐，**不是**结构树） |
+| 能力是否 shipped / 验收？ | owning `prd/PRD_*.md` + `prd/alignment-contract.json` + `scripts/qjs/prd-alignment.qjs`（**能力**对齐，**不是**结构树） |
 | `agenterm-con` 的能力 / 边界 / 预算 / 体积史？ | **已迁出**，见 minicon 仓 `prd/PRD_02_23_minicon.md`（子树根）+ `24` 终端渲染 / `25` 工作区输入 / `26` 控制与 CLI / `27` package 与交付。本仓只保留依赖方向和已迁出事实，不再复制 con 的活文件图、结构债或证据计数（§4 C1–C3）。 |
 | Win↔Unix 可见行为差距？ | `plan/plan-unix-gui-win-parity.md` + evidence matrix（**差距地图，不是结构 SSOT**） |
 | Agent 操作纪律？ | `AGENTS.md` |
@@ -675,7 +667,7 @@ boundary_tests.rs        结构红线闸（不是全文 diff 引擎）
 |------|------|----------------|
 | 本文 | 现行结构叙述 SSOT | 否（人手） |
 | `boundary_tests` | 代码侧可机检红线 | **单向：代码规则** |
-| `prd-alignment.rh` | PRD 能力/证据/命令目录 | **另一轴**，非结构树 |
+| `prd-alignment.qjs` | PRD 能力/证据/命令目录 | **另一轴**，非结构树 |
 | rust-analyzer (LSP) | 跳转/补全/重命名 | **编辑助手**，不校验分层 |
 
 **结论**：已有「钩」，但是 **局部自动 + 全局靠纪律**；**未能**做到「改 md 自动约束代码 / 改目录自动改 md」的全自动双向对齐。
@@ -700,7 +692,7 @@ boundary_tests.rs        结构红线闸（不是全文 diff 引擎）
 | LSP | rust-analyzer | 写代码顺手；**不**消费本文、**不**当对齐证据 |
 | 构建 | `cargo check` / `cargo test` | 模块能编过；orphan `mod` 会红 |
 | **本仓结构闸** | `boundary_tests` | **唯一官方结构红线机闸** |
-| 能力对齐 | `prd-alignment.rh` + alignment-contract | shipped/证据，**非**分层树 |
+| 能力对齐 | `prd-alignment.qjs` + alignment-contract | shipped/证据，**非**分层树 |
 | 静态分析 | clippy / 可选 semgrep·ast-grep | 可补模式禁令；非 SSOT |
 | 依赖图 | `cargo-modules` / depgraph 等 | 发现巨石与环；**辅助**，不替代本文 |
 | 文档生成 | 自写 tree 脚本 / rustdoc | 可做 **代码→文档片段** |

@@ -1,11 +1,14 @@
 # 脚本引擎调用适配层统一设计：`try_execute_*` 三件套的下一刀
 
+> **已归档 2026-09-16 — 已交付并被后续引擎路线取代。** Trait-M1–M4 的历史决策已落地；Rh 与 rquickjs 后端随后迁出，当前路由不再由本文排期。
+> 现行权威：`src/script_backend.rs`、`prd/PRD_02_10_rhai_scripting.md`、`prd/PRD_02_36_agenterm_qjswasm.md`。
+
 | 字段 | 值 |
 |------|-----|
 | **文档** | 根 crate `src/script_backend.rs` 三个 `try_execute_{rh,lua,qjs}_invocation` 的收敛设计 |
 | 日期 | 2026-08-08 |
 | 状态 | 设计稿 rev1（未实现） |
-| 关联 | `plan/archive/plan-v0.1.16.md` §1「Rh. 脚本引擎矩阵」、`plan/design-scripting-boundary-comparison.md`、`crates/agenterm-script-common`（library-level 已统一层） |
+| 关联 | `plan/archive/plan-v0.1.16.md` §1「Rh. 脚本引擎矩阵」、`plan/archive/design-scripting-boundary-comparison.md`、`crates/agenterm-script-common`（library-level 已统一层） |
 | 范围声明 | **只读 + 设计文档任务**；本文档不修改任何 `.rs` 文件，不改 `try_execute_*` 本身 |
 
 ---

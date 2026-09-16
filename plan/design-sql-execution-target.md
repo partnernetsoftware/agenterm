@@ -5,7 +5,7 @@
 | **文档** | `crates/agenterm-sql` 第四脚本后端的 `execute` 设计——占位实现之后的决策文档 |
 | 日期 | 2026-08-09 |
 | 状态 | 设计稿 rev1（未实现，仅文档） |
-| 关联 | `crates/agenterm-sql`（scaffold, commit `d50194fa`）、`src/script_engine.rs`（`ScriptEngineBackend` trait + `SqlEngineBackend`）、`plan/design-script-engine-trait.md` §2.6（原始设计预言）、`plan/archive/plan-v0.1.16.md` §1 Rh SQL-M0 行 |
+| 关联 | `crates/agenterm-sql`（scaffold, commit `d50194fa`）、`src/script_engine.rs`（`ScriptEngineBackend` trait + `SqlEngineBackend`）、`plan/archive/design-script-engine-trait.md` §2.6（历史设计预言）、`plan/archive/plan-v0.1.16.md` §1 Rh SQL-M0 行 |
 | 范围声明 | **只读 + 设计文档任务**；本文档不修改任何代码文件 |
 
 ---
@@ -72,7 +72,7 @@ fn execute(
    产出的是一个"影响行数"或空。`ScriptInvocationResult.value: Option<serde_json::Value>` 这个
    槽位对"多行多列"没有原生对应——需要一个编码决策（本文档 §2.1 采用"JSON 数组，每行一个
    object"），而这个决策在 rh/lua/qjs 里从来不需要做，因为它们的返回值天生就是标量/单个结构。
-   `design-script-engine-trait.md:467-468` 已经预言了这一点："`ScriptInvocationResult.value`
+   `archive/design-script-engine-trait.md:467-468` 已经预言了这一点："`ScriptInvocationResult.value`
    大概率是查询结果集序列化成的 JSON 数组，而不是单个标量"。
 3. **副作用模型不同**。rh/lua/qjs 的副作用通道是显式的：`print()`→stdout，`fleet.*`/`__host.fleet_call`
    →host 状态变更（`src/script_fleet.rs`、`crates/... /LuaHostFunctions.fleet_call`）。SQL 的副作用
@@ -83,7 +83,7 @@ fn execute(
 
 ### 1.3 `fleet_bridge` 参数已经被设计阶段判定为"大概率不用"，且现有 impl 已经这样做了
 
-`design-script-engine-trait.md:465-471` 原话："sql 语句本身没有'调用 fleet.* host 函数'这种脚本
+`archive/design-script-engine-trait.md:465-471` 原话："sql 语句本身没有'调用 fleet.* host 函数'这种脚本
 语言概念，`fleet_bridge` 参数对 sql 可能永远是 `None`/未使用"；`SqlEngineBackend::execute` 的当前
 签名参数名已经是 `_fleet_bridge`（`src/script_engine.rs:410`），印证了这个判断在接口层面已经生效——
 这不是本文档要重新论证的问题，而是要在 §2 里说明：即便如此，"host 状态"仍然可能通过**方案 (c)

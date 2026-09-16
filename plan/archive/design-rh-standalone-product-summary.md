@@ -2,7 +2,7 @@
 
 > ⚠️ Archive: Rh left this repository; this summary is historical evidence.
 
-SSOT：`plan/design-rh-standalone-product.md`。本文只陈述现状，不记过程。
+历史 SSOT：`plan/archive/design-rh-standalone-product.md`。本文只陈述现状，不记过程。
 
 **rh** 是一门默认解释执行的动态语言：私仓 `partnernetsoftware/rh`（CLI / loader / `rh-lang`），AgenTerm 仍 path 依赖工作树里的 crate，公开之前不 git-pin。
 

@@ -138,7 +138,7 @@ framed-worker integration points. It explicitly does **not** mean matching
 rh's AOT/native-codegen execution strategy — that is rh-specific; lua/qjs
 may use their own VM/bytecode execution as long as the L2 contract and CLI
 behavior match. See
-[`plan/design-scripting-boundary-comparison.md`](../../plan/design-scripting-boundary-comparison.md)
+[`plan/archive/design-scripting-boundary-comparison.md`](../../plan/archive/design-scripting-boundary-comparison.md)
 §2.1/§6 for the L1/L2/L3 boundary this rests on.
 
 **Shared engine layer (2026-08-08/09, four rounds, `plan/archive/plan-v0.1.16.md` §1
@@ -164,7 +164,7 @@ structural:
   `corpus.rs` (bound to the whole-project transpile pipeline, not a bare
   check). See the crate's module doc,
   [`crates/agenterm-script-common/src/lib.rs`](../../crates/agenterm-script-common/src/lib.rs),
-  and [`plan/design-script-engine-trait.md`](../../plan/design-script-engine-trait.md)
+  and [`plan/archive/design-script-engine-trait.md`](../../plan/archive/design-script-engine-trait.md)
   §0 for the full rationale, including the future `sql` backend this crate
   boundary is meant to absorb without a fourth hand-copy.
 - **`trait ScriptEngineBackend`** (`src/script_engine.rs`, design doc §2.3)

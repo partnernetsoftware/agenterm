@@ -7,7 +7,7 @@
 | 状态 | 概念提案（idea garden，未排期，非任务单） |
 | 作者 | GLM 5.2 宏观 review（2026-08-11）产出 |
 | 野心声明 | **产品内部极度牛逼技术、整体架构稳健同时足够灵活、灵活甚至动态适应 UI/UX 的需求变更与进化** |
-| 关联 | `plan/ARCHITECTURE.md`（结构 SSOT、L2/L3 债务）、`plan/design-script-engine-trait.md`（trait 统一已落地的先例）、`plan/design-frontend-shared-core.md`（双前端巨石测绘）、`plan/design-binary-size-and-reuse.md`（体积归因）、`plan/design-release-base-vs-apps.md`（base vs app 分轨发布）、`plan/plan-v0.1.18.md`（Portable App Substrate）、`prd/PRD_02_07_agent_control_plane.md`、`prd/PRD_02_10_rhai_scripting.md`、`prd/PRD_02_21_control_center.md` |
+| 关联 | `plan/ARCHITECTURE.md`（结构 SSOT、L2/L3 债务）、`plan/archive/design-script-engine-trait.md`（trait 统一已落地的历史先例）、`plan/design-frontend-shared-core.md`（双前端巨石测绘）、`plan/design-binary-size-and-reuse.md`（体积归因）、`plan/design-release-base-vs-apps.md`（base vs app 分轨发布）、`plan/plan-v0.1.18.md`（Portable App Substrate）、`prd/PRD_02_07_agent_control_plane.md`、`prd/PRD_02_10_rhai_scripting.md`、`prd/PRD_02_21_control_center.md` |
 | 范围声明 | **只读 + 设计提案**；本文档不修改任何 `.rs` 文件，不替代 `ARCHITECTURE.md` 的结构 SSOT 地位 |
 
 ---

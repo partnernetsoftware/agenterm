@@ -3,7 +3,7 @@
 //! and `agenterm-qjs` (`crates/agenterm-qjs`). Wired into the root Cargo
 //! workspace (see root `Cargo.toml`'s `[[bin]] agenterm-sql` entry, and
 //! `src/script_backend.rs`/`src/script_engine.rs` for the
-//! `ScriptBackend::Sql`/`SqlEngineBackend` wiring). `plan/design-script-engine-trait.md`
+//! `ScriptBackend::Sql`/`SqlEngineBackend` wiring). `plan/archive/design-script-engine-trait.md`
 //! §2.6 "第四个后端（sql）需要实现的最小方法集" is the SSOT that scoped this
 //! crate before any code existed here; `plan/plan-v0.1.16.md` §1 Rh and
 //! `agenterm-script-common`'s own module doc both flagged sql as "user has

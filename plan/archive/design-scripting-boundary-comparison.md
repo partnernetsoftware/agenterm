@@ -1,5 +1,8 @@
 # 脚本/嵌入运行时边界：行业对照与 AgenTerm 定位
 
+> **已归档 2026-09-16 — 被取代。** 本文保存 Rh 时代的行业边界比较；Rh 已迁出，当前 Script Runtime 与 qjswasm 产品真理归 PRD 02.10 / 02.36。
+> 现行权威：`prd/PRD_02_10_rhai_scripting.md`、`prd/PRD_02_36_agenterm_qjswasm.md`、`plan/ARCHITECTURE.md`。
+
 | 字段 | 值 |
 |------|-----|
 | **文档** | Lua / Python / Node / Bun 等与 AgenTerm Rhai↔Rust 边界的对照分析 |

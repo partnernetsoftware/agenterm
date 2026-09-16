@@ -825,7 +825,7 @@ lua 雏形来去规避这个风险。
 
 **顺手复核了「`check` 无项目级 import 图校验」这条旧记录，发现比原描述更严重，已实测纠正**：不是「能 parse 但不校验 import 图」，而是**任何含 `import` 语句的 qjs 脚本，无论目标文件是否存在，`check()` 现在都直接失败**——`Context::full` 没注册 module loader，`Module::declare` 遇到 `import { value } from "./lib/leaf.js"`（即使 `./lib/leaf.js` 真实存在且合法）会报 `could not load module`，退出码 2；反过来 `eval()`/`run`/`pack`/`qualify` 走的 `eval_entry`（classical script，非 module）对同一段源码给出**完全不同**的错误——`Unexpected token '{'`（`import` 解构语法在非 module 脚本里本来就不合法）。也就是说 qjs 目前的 `entry()`-on-`globalThis` 约定和 ES `import`/`export` **互斥**：不是「多文件项目缺校验」，是「多文件项目现在完全跑不通，check 和 eval 还各自用不同的方式拒绝」。好消息：实测 `scripts/qjs/lib/fleet.js`（目前唯一随包的 qjs 脚本）没用 `import`/`export`，所以这是潜伏缺口，不是已发布的活 bug。要对齐 rh 的 `project_import.rs`（字面量扫描 + 循环/越权检测 + 递归 parse，见该文件）需要先决定 qjs 这层要不要走真 ES module 语义（牵连上面 `pack` 的字节码加载缺口是同一个根因：module vs global-script 两套语义现在都没打通）——这是一个设计决策，不是照抄 rh 就能填的坑，本轮只诚实record，未动手实现。
 
-**设计已补上**：[`design-qjs-module-imports.md`](../design-qjs-module-imports.md)——选定方案是真 ES module（`rquickjs` 的 `loader` feature + 项目根目录受限的自定义 `Resolver`，因为已用源码核实 `FileResolver` 默认不做越权防护），只对**探测到顶层 `import`/`export`** 的脚本生效，不影响现有单文件脚本；`check()` 的 module-declare parse-only 现状保留不变（已核实 rquickjs 没有经典脚本的公开 parse-only API，这是约束不是选择）。分 M5a–M5d 四叶实现，本轮**只完成设计，未写代码**（`export const meta` 式的落地留给下一步，见该文档 §7）。
+**设计已补上**：[`design-qjs-module-imports.md`](design-qjs-module-imports.md)——选定方案是真 ES module（`rquickjs` 的 `loader` feature + 项目根目录受限的自定义 `Resolver`，因为已用源码核实 `FileResolver` 默认不做越权防护），只对**探测到顶层 `import`/`export`** 的脚本生效，不影响现有单文件脚本；`check()` 的 module-declare parse-only 现状保留不变（已核实 rquickjs 没有经典脚本的公开 parse-only API，这是约束不是选择）。分 M5a–M5d 四叶实现，本轮**只完成设计，未写代码**（`export const meta` 式的落地留给下一步，见该文档 §7）。
 
 仍差：项目级多文件 import（上述，比先前记录的更大，需要先做设计决策）；真字节码加载+执行（上述，已知取舍，非遗漏）；`--framed-worker`（lua 有一个但当前代码库里似乎没人 spawn 它——本轮未加，不确定值不值得加，先不做）。
 
@@ -859,7 +859,7 @@ lua 雏形来去规避这个风险。
 Rh-M23 已完成，仅作为下一版基线。
 
 细节 SSOT：[`plan-rh-3.md`](plan-rh-3.md)、[`design-rh-aot.md`](design-rh-aot.md)、
-[`design-scripting-boundary-comparison.md`](../design-scripting-boundary-comparison.md)。
+[`design-scripting-boundary-comparison.md`](design-scripting-boundary-comparison.md)。
 
 ---
 

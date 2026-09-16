@@ -12,7 +12,7 @@
 | **文档** | 脚本应用包的完整分期计划——自解包、双引擎策略、Strangler 渐进迁移 |
 | **日期** | 2026-08-10（rev2：事实校正 + 引擎默认化前置 + fallback 两段式） |
 | **状态** | 定稿，待 v0.1.17 收口后授权开工 |
-| **前置** | `plan/agenterm-rhai-app.md`（架构讨论稿 rev1）、`plan/design-rhai-rust-boundary.md`（边界 SSOT）、`plan/design-release-base-vs-apps.md`（发布分轨）、`plan/design-scripting-boundary-comparison.md`（引擎边界对照）、`plan/ARCHITECTURE.md`（结构 SSOT） |
+| **前置** | `plan/archive/agenterm-rhai-app.md`（架构讨论稿 rev1）、`plan/archive/design-rhai-rust-boundary.md`（历史边界）、`plan/design-release-base-vs-apps.md`（发布分轨）、`plan/archive/design-scripting-boundary-comparison.md`（历史引擎边界对照）、`plan/ARCHITECTURE.md`（结构 SSOT） |
 | **产品归属** | `prd/PRD_02_10_rhai_scripting.md` §Layered deployment、`prd/PRD_02_02_executable_family.md` |
 | **决策人** | 产品范围决策；引擎选型在 §7，决策表在 §9 |
 
@@ -418,7 +418,7 @@ pack 目录**外**还有一个同级文件（不属于密封内容，用户改 p
 │
 ├── A0 本文定稿
 │   ├── 纳入 `plan/agenterm-rhai-app.md` 的架构讨论作为 §12 交叉引用条目
-│   ├── 与 `plan/design-rhai-rust-boundary.md` 三层边界对齐
+│   ├── 与 `plan/archive/design-rhai-rust-boundary.md` 三层边界对齐
 │   └── 与 `plan/design-release-base-vs-apps.md` App Pack 条目对齐
 │
 └── A1 开放问题收口
@@ -796,10 +796,10 @@ pack 目录**外**还有一个同级文件（不属于密封内容，用户改 p
 | 文档 | 关系 |
 |------|------|
 | `plan/agenterm-rhai-app.md` | 架构讨论稿 rev1；本文是它的执行投影 |
-| `plan/design-rhai-rust-boundary.md` | L1/L2/L3 三层边界 SSOT |
+| `plan/archive/design-rhai-rust-boundary.md` | L1/L2/L3 三层历史边界 |
 | `plan/design-release-base-vs-apps.md` | Base vs Apps 分轨发布设计 |
-| `plan/design-scripting-boundary-comparison.md` | Rhai/Lua/QJS 引擎边界对照 |
-| `plan/design-script-engine-trait.md` | `ScriptEngineBackend` trait 设计 |
+| `plan/archive/design-scripting-boundary-comparison.md` | Rhai/Lua/QJS 引擎边界对照 |
+| `plan/archive/design-script-engine-trait.md` | `ScriptEngineBackend` trait 设计 |
 | `plan/ARCHITECTURE.md` | 现行结构 SSOT；三层边界 |
 | `plan/archive/plan-v0.1.17.md` | v0.1.17 收口版；本计划在其后执行 |
 | `plan/plan-v0.1.18.md` | v0.1.18 版本执行投影；拥有该版本的范围、Gate 与验收口径，本文继续拥有 App Pack 架构和 Phase 细节 |

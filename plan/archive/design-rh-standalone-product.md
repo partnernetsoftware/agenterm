@@ -9,7 +9,7 @@
 | **Date** | 2026-08-21 |
 | **Status** | Living SSOT. One-page now-state: `design-rh-standalone-product-summary.md`. Locks: Key Decisions. |
 | **Audience** | Senior engineers who know `crates/agenterm-rh`, the root host, and Chassis-L1 |
-| **Related** | `prd/PRD_02_10_rhai_scripting.md`, `plan/design-rh-aot.md`, `plan/ARCHITECTURE.md`, `plan/reference-cross-target-execution.md` §5 / §6.2 / §6.3, `plan/plan-v0.1.18.md` (APE parked for *workbench*), `plan/plan-ape-thin-shell-dynamic-packages.md` (name collision) |
+| **Related** | `prd/PRD_02_10_rhai_scripting.md`, `plan/archive/design-rh-aot.md`, `plan/ARCHITECTURE.md`, `plan/reference-cross-target-execution.md` §5 / §6.2 / §6.3, `plan/plan-v0.1.18.md` (APE parked for *workbench*), `plan/plan-ape-thin-shell-dynamic-packages.md` (name collision) |
 
 ---
 
@@ -892,7 +892,7 @@ None. Product locks live in **Key Decisions**. Do not append session notes here.
 - `crates/agenterm-lua/src/lib.rs` (`LuaHostFunctions` Option fns)
 - `crates/agenterm-dyn/README.md`
 - `prd/PRD_02_10_rhai_scripting.md`
-- `plan/design-rh-aot.md`, `plan/ARCHITECTURE.md`, `plan/reference-cross-target-execution.md` §5 / §6.2 / §6.3, `plan/plan-v0.1.18.md`, `plan/plan-ape-thin-shell-dynamic-packages.md`
+- `plan/archive/design-rh-aot.md`, `plan/ARCHITECTURE.md`, `plan/reference-cross-target-execution.md` §5 / §6.2 / §6.3, `plan/plan-v0.1.18.md`, `plan/plan-ape-thin-shell-dynamic-packages.md`
 - `../wbox/Cargo.toml` — sibling repo, not in this workspace (`git = "https://github.com/mgttt/agenterm.git"`, rev `c8ace42`)
 - crates.io API: `rh` taken; `rh-lang` absent (2026-08-21)
 

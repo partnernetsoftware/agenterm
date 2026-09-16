@@ -407,8 +407,8 @@ R′. Evidence closeout
 | [`plan-unix-gui-win-parity.md`](../plan-unix-gui-win-parity.md) | Unix 对齐地图 |
 | [`plan-rh-3.md`](plan-rh-3.md) | rh 并行轨细节 |
 | [`../prd/PRD_02_10_rhai_scripting.md`](../../prd/PRD_02_10_rhai_scripting.md) | QJS-M6 operation catalog 与 Script Runtime 权威 |
-| [`design-scripting-boundary-comparison.md`](../design-scripting-boundary-comparison.md) | 脚本引擎 L2 契约 |
-| [`design-script-engine-trait.md`](../design-script-engine-trait.md) | trait 统一设计 |
+| [`design-scripting-boundary-comparison.md`](design-scripting-boundary-comparison.md) | 脚本引擎 L2 契约（历史） |
+| [`design-script-engine-trait.md`](design-script-engine-trait.md) | trait 统一设计（历史） |
 | [`ARCHITECTURE.md`](../ARCHITECTURE.md) | 热文件 / 分层 |
 | [`Agents.md`](../../Agents.md) | 并发、观察、开发环 |
 

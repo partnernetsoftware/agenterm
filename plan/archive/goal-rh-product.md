@@ -2,7 +2,7 @@
 
 > ⚠️ Archive: completed/transferred Rh goal; do not resume in this repository.
 
-SSOT：`plan/design-rh-standalone-product.md`。不达目标不停。不要把「先别公开仓」理解成「产品停工」。
+历史 SSOT：`plan/archive/design-rh-standalone-product.md`。不达目标不停。不要把「先别公开仓」理解成「产品停工」。
 
 --- GOAL ---
 
