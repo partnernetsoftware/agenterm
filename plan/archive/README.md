@@ -46,7 +46,9 @@ history.
 `grok.glm.refactor.review.md` preserve bounded historical measurements or
 reviews whose current owners are named in their archive banners. The two
 `*-shell-l1-l2-l3.md` files are retired rename pointers to the active chassis
-documents.
+documents. `libagenterm-verification-state.md` preserves the retired ABI
+workflow ledger, while `experiment-headless-pty-owner.md` preserves the settled
+single-authority decision now owned by the CU PRDs.
 
 ## Restored decision records
 

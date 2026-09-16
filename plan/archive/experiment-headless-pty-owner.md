@@ -1,8 +1,12 @@
-# Headless PTY owner decision
+# ⚠️ 已归档：Headless PTY owner decision
+
+> **归档于 2026-09-16 — 已判决。** 既有 `agenterm server` 是唯一 PTY/job
+> authority；当前产品状态与剩余工作由 `prd/PRD_02_28_agenterm_cu.md`、
+> `prd/PRD_02_29_cu_command_surface.md` 和 `plan/goal-acu-replaces-mcu.md` 承接。
 
 Status: **DECIDED · reuse the existing `agenterm server` authority**
 
-Parent: [`goal-acu-replaces-mcu.md`](goal-acu-replaces-mcu.md)
+Parent: [`goal-acu-replaces-mcu.md`](../goal-acu-replaces-mcu.md)
 
 ## Product question
 

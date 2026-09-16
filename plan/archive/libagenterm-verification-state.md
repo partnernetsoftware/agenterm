@@ -1,8 +1,13 @@
-# libagenterm 交付面验证状态（2026-08-14 收口）
+# ⚠️ 已归档：libagenterm 交付面验证状态（2026-08-14 收口）
+
+> **归档于 2026-09-16 — 验证拓扑已被取代。** 本文记录的三平台 workflow
+> 已停用；当前纯 ABI 契约门由 `scripts/qjs/check.qjs` 与
+> `tests/release_workflow_policy.rs` 锁定，交付约束由
+> `prd/PRD_02_17_delivery_quality.md` 和 `crates/agenterm-abi/README.md` 承接。
 
 > 本文档回答一个问题：**libagenterm 对外承诺的每一条，今天有没有一个"错了会红"的检查盯着？**
 > 它不是设计文档（那是 `plan-v0.1.18.md` §14），也不是 Phase 0 判据的结论
-> （那是 `phase0-baseline-measurements.md`）。它是**验证覆盖面的现状台账**，
+> （那是 `plan/archive/phase0-baseline-measurements.md`）。它是当时的**验证覆盖面台账**，
 > 以及**还压在人身上的决策清单**。
 
 ## 1. 已被门控的承诺
