@@ -8,22 +8,21 @@ establishing the product topology.
 
 ## Source and tool identity
 
-- Repository HEAD during measurement: `f1248853dac22703df12f18d02842210a144cf5f`.
+- Repository HEAD during measurement: `904da6d42c0405b32b849716ff0aef46b702a765`.
 - Toolchain: `rustc 1.97.0 (2d8144b78 2026-07-07)`.
 - Host: macOS arm64.
-- Linux x86_64 launcher: cross-built with `cargo zigbuild`, inspected as a
-  stripped x86-64 ELF, and not executed.
+- Linux x86_64 launcher and provider: cross-built with `cargo zigbuild`,
+  inspected as stripped x86-64 ELF files, and not executed.
 - Native macOS artifacts: release-built and executed on arm64.
-- Because the host had little free disk, the recorded run reused the existing
-  repo-local `target/` cache instead of creating the preferred isolated target
-  lane. No other target lane was removed.
+- The recorded run used separate repo-local target lanes for native macOS and
+  Linux cross-build evidence; both lanes were reclaimed after recording.
 
 Core source SHA-256:
 
 | file | SHA-256 |
 |---|---|
-| `provider-main-probe/src/lib.rs` | `1b1b5a4b408852f791e457d338f17f2f448ab93a6a9b264386e688bd8221ad5c` |
-| `launcher-probe/src/main.rs` | `6a3a1f86d1a6e53bd95a825d95e05c7891c61d46010cd0a39b0c8b80ee44f2f7` |
+| `provider-main-probe/src/lib.rs` | `168fa7be9f6e67a6dc12334e4420f5bad0dca8323abd959acd5a92afdc74c6f4` |
+| `launcher-probe/src/main.rs` | `4d7094747dc1968aba250aaa620df3afe71edea21ae71f74c1537168690210cb` |
 | `fixtures/bad-abi-provider/src/lib.rs` | `7e18830734df58bfe24c04b778afc1b218cfcbb5f3da8698dc936dacef063cfc` |
 
 ## L1 / L2 / L3 bytes
@@ -34,15 +33,17 @@ kept distinct.
 
 | target | level | artifact | bytes | execution / verdict |
 |---|---|---|---:|---|
-| Linux x86_64 | L1 | `acu-thin-launcher` | 389,096 | cross-built only; stripped ELF; below 4,194,304-byte H0 court |
-| Linux x86_64 | L2 | provider | unmeasured | not built in this bounded local run |
-| Linux x86_64 | L3 | launcher + provider | unmeasured | cannot be inferred from macOS L2 |
-| macOS arm64 | L1 | `acu-thin-launcher` | 364,768 | native-executed |
-| macOS arm64 | L2 | `agenterm-cu-provider.dylib` | 6,925,760 | native-executed |
-| macOS arm64 | L3 | L1 + L2 | 7,290,528 | reported honestly; no launcher-budget implication |
+| Linux x86_64 | L1 | `acu-thin-launcher` | 393,144 | cross-built only; stripped ELF; below 4,194,304-byte H0 court |
+| Linux x86_64 | L2 | provider | 15,002,344 | cross-built only; stripped ELF shared object |
+| Linux x86_64 | L3 | launcher + provider | 15,395,488 | complete flat-file sum; no runtime claim |
+| macOS arm64 | L1 | `acu-thin-launcher` | 365,328 | native-executed |
+| macOS arm64 | L2 | `agenterm-cu-provider.dylib` | 8,162,016 | native-executed |
+| macOS arm64 | L3 | L1 + L2 | 8,527,344 | reported honestly; no launcher-budget implication |
 
-The Linux L1 result is direct G2 evidence for that one launcher cell only. No
-Windows launcher was built, and the experiment did not perform a paired current
+The two L1 results are direct G2 evidence for those launcher cells only. The
+complete entry table added 4,048 bytes to Linux L1 and 560 bytes to macOS L1
+relative to the earlier measurement, while both remain far below H0. No Windows
+launcher was built, and the experiment did not perform a paired current
 monolith build, so it does not establish all of G2 or the G5 slope.
 
 ## Native macOS ordinary and failure court
@@ -76,9 +77,9 @@ repository target tree.
 |---|---|---|
 | G0 safety/authority | partial green | one parser/Executor owner, fixed sibling, bounded ABI, release panic latch, missing/wrong ABI and malformed-result refusals; not all raw failures on three native OSes |
 | G1 behavior parity | **red** | all twelve entry families are explicitly routed, including ordinary help/capabilities/refusal, version/verbs presentation, framed workers/fixtures and resident owners; native lifecycle, delivery and paired monolith evidence remain incomplete |
-| G2 launcher budgets | partial green | Linux x86_64 L1 is 389,096 bytes; Windows L1 and same-source paired monolith are unmeasured |
+| G2 launcher budgets | partial green | Linux x86_64 L1 is 393,144 bytes and macOS arm64 L1 is 365,328 bytes; Windows L1 and same-source paired monolith are unmeasured |
 | G3 six-cell/native | red | only Linux x86_64 cross-build plus macOS arm64 native ordinary execution |
-| G4 footprint | partial | macOS L1/L2/L3 complete; Linux L2/L3 and other cells unmeasured |
+| G4 footprint | partial | macOS arm64 and Linux x86_64 L1/L2/L3 complete; four other cells unmeasured |
 | G5 slope | unmeasured | no synthetic verb addition court |
 
 Decision-tree path: A's historical over-budget fact opened B; this prototype
