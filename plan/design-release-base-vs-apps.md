@@ -6,7 +6,7 @@
 | **日期** | 2026-08-06 |
 | **状态** | 设计稿 rev1 |
 | **受众** | 产品（主导）、发布/CI、工程实现、softmgr 远期 |
-| **SSOT 关联** | `prd/PRD_02_02_executable_family.md`、`prd/PRD_02_17_delivery_quality.md`、`prd/PRD_02_21_control_center.md`、`plan/design-llm-gateway-rhai-logic-pack.md`、`skills/agenterm-release/SKILL.md` |
+| **SSOT 关联** | `prd/PRD_02_02_executable_family.md`、`prd/PRD_02_17_delivery_quality.md`、`prd/PRD_02_21_control_center.md`、`prd/PRD_02_13_llm_gateway.md`、`skills/agenterm-release/SKILL.md` |
 
 ---
 
@@ -24,7 +24,7 @@
          ┌─────────────────────────────────────────┐
          │  P4 Apps（体验层，快迭代）                 │
          │  CC · LLM Gateway · WebView 壳 · Hub UI  │
-         │  + Rhai Logic Packs · 皮肤/主题包          │
+         │  + LLM Logic Packs · 皮肤/主题包           │
          └──────────────────┬──────────────────────┘
                             │ 依赖 ≥ base.min_version
          ┌──────────────────▼──────────────────────┐
@@ -73,7 +73,7 @@
 | `app.control-center` | `agenterm-cc` (+ 远期 `agenterm cc` 子命令入口) | ≤4 MiB PE | 中–高（UX/IA） |
 | `app.control-center-web` | WebView 壳 + `assets/`（research → 可选 App） | host ~521KiB 级 + assets | 高（UI 壳） |
 | `app.llm-gateway` | `agenterm-llm-gateway` + browser worker | 独立预算 | 中（Native Shell） |
-| `app.llm-gateway-pack` | Rhai Logic Pack | 小（KiB–MiB） | **很高**（站点适配） |
+| `app.llm-gateway-pack` | LLM Logic Pack | 小（KiB–MiB） | **很高**（站点适配） |
 | `app.agenterm`（v0.1.18 起） | 一份跨 OS/ISA 的 QJS 产品层 `.agp` | 小–中 | 高；见 `plan/plan-v0.1.18.md` |
 | `app.skins-builtin` | 四预设皮肤 | 小 | 低 |
 | （远期）`app.softmgr-ui` | 包管理 UI | TBD | 低 |
@@ -91,7 +91,7 @@
 | Gateway pack | `gateway.manifest.json` + providers | App channel 或 user drop-in |
 | Rhai task pack | 用户自动化 | 用户/市场（远期） |
 
-Logic Pack **不**进 Candidate 六平台 PE 矩阵；走 **pack 签名 + hash** 通道（见 `plan/design-llm-gateway-rhai-logic-pack.md`）。
+Logic Pack **不**进 Candidate 六平台 PE 矩阵；走 **pack 签名 + hash** 通道；产品边界见 `prd/PRD_02_13_llm_gateway.md`。
 
 ---
 
@@ -278,7 +278,7 @@ app.control-center-web 0.1.x
 |------|----------------|
 | `design-cc-hyper-control-agent.md` | CC App 功能分期 vs Base 解耦 |
 | `design-llm-bridge-web-to-api.md` | Gateway App + pack 分发布 |
-| `design-llm-gateway-rhai-logic-pack.md` | pack 通道与版本 |
+| `prd/PRD_02_13_llm_gateway.md` | LLM pack 边界、通道与未决后端 |
 | `plan-cc-automation-cli.md` | `agenterm-cli cc *` 对 App 生命周期的 SSOT |
 
 ---

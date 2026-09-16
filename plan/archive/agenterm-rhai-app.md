@@ -11,7 +11,7 @@
 | **文档** | 薄 DI 基座 + 随发布携带的 Rhai 应用包 + 可选远程互动更新 |
 | **日期** | 2026-08-06 |
 | **状态** | 讨论稿 rev1 |
-| **关联** | `plan/archive/design-rhai-rust-boundary.md`（历史封装边界）、`plan/design-release-base-vs-apps.md`、`plan/design-llm-gateway-rhai-logic-pack.md`、`plan/ARCHITECTURE.md`、`prd/PRD_02_10_rhai_scripting.md` |
+| **关联** | `plan/archive/design-rhai-rust-boundary.md`（历史封装边界）、`plan/design-release-base-vs-apps.md`、`plan/archive/design-llm-gateway-rhai-logic-pack.md`、`plan/ARCHITECTURE.md`、`prd/PRD_02_10_rhai_scripting.md` |
 
 ---
 
@@ -325,7 +325,7 @@ Phase 2+（按模块迁）
 ## 11. 交叉引用
 
 - 发布分轨：`plan/design-release-base-vs-apps.md`
-- LLM pack：`plan/design-llm-gateway-rhai-logic-pack.md`
+- LLM pack：`plan/archive/design-llm-gateway-rhai-logic-pack.md`
 - CC 超控：`plan/design-cc-hyper-control-agent.md`
 - Script 包契约：`prd/PRD_02_10_rhai_scripting.md`（package-ready，非 registry）
 - 架构三层：`plan/ARCHITECTURE.md`

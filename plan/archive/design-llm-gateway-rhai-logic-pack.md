@@ -1,3 +1,6 @@
+> **已归档 2026-09-16 — 后端前提被取代。** Native Shell 与独立 Logic Pack 的更新边界仍由 PRD 13 保留，但本文绑定的 Rhai runtime 已离开本仓，不能再作为实施规格。
+> 现行权威：`prd/PRD_02_13_llm_gateway.md`；未来脚本后端必须在实现立项时按现行 Script Runtime 契约重新裁决。
+
 # LLM 网关 — Rhai 逻辑包架构（Native Shell + Logic Pack）
 
 | 字段 | 值 |

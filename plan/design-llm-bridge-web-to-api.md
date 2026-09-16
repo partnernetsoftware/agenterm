@@ -5,8 +5,8 @@
 | **文档** | 受管 LLM 网关的 Web 会话适配层 + 用户 BYOK 产品设计 |
 | **日期** | 2026-08-06 |
 | **状态** | 设计稿 rev1 |
-| **SSOT 关联** | `prd/PRD_02_13_llm_gateway.md`、`plan/design-llm-bridge-web-to-api.md`（同级：**Rhai 逻辑包** → `plan/design-llm-gateway-rhai-logic-pack.md`）、`plan/design-cc-hyper-control-agent.md`、`prd/PRD_02_19_inspiration_and_future_vision.md` §INF |
-| **非目标** | 在 `agenterm-cc` / `agenterm-rhai` 内嵌 Playwright；Script 权限策略；把 LLM 文本当作 Fleet 操作成功证明 |
+| **SSOT 关联** | `prd/PRD_02_13_llm_gateway.md`、`plan/design-llm-bridge-web-to-api.md`、`plan/design-cc-hyper-control-agent.md`、`prd/PRD_02_19_inspiration_and_future_vision.md` §INF |
+| **非目标** | 在 `agenterm-cc` / Script worker 内嵌 Playwright；Script 权限策略；把 LLM 文本当作 Fleet 操作成功证明 |
 
 ---
 
@@ -63,14 +63,14 @@ Consumers (同一契约)
 
 - **网关** = 唯一 loopback 面 + 策略
 - **WebSessionProvider** = 一种「用浏览器当 upstream」的适配器
-- 实现 M9 门之前，可先在 `research/` 或独立 sidecar 做**技术探针**；产品化必须过同一网关，禁止 Script/Rhai 直开浏览器。
+- 实现 M9 门之前，可先在 `research/` 或独立 sidecar 做**技术探针**；产品化必须过同一网关，禁止 Script Runtime 直开浏览器。
 
 ### 2.2 进程边界
 
 | 组件 | 进程 | 备注 |
 |------|------|------|
-| `agenterm-llm-gateway` | 可选 sidecar | 4 MiB 级专用 PE；**Native Shell**；内嵌 Rhai 加载 **Logic Pack**（见 `design-llm-gateway-rhai-logic-pack.md`） |
-| Browser worker | gateway 子进程或 `agenterm-llm-browser` | Playwright/Camoufox 体积大 → **独立**；SiteAdapter **编排**在 Rhai pack，不每次改 PE |
+| `agenterm-llm-gateway` | 可选 sidecar | 4 MiB 级专用 PE；**Native Shell**；加载独立 **Logic Pack**，具体脚本后端在立项时按 PRD 13 裁决 |
+| Browser worker | gateway 子进程或 `agenterm-llm-browser` | Playwright/Camoufox 体积大 → **独立**；SiteAdapter **编排**在 Logic Pack，不每次改 PE |
 | CC / Composer | 仅 HTTP 客户端 | 只连 loopback；不 import Playwright |
 
 **Logic Pack 更新：** 站点 DOM/路由变更 → 更新 `packs/llm-gateway-builtin/` 或 user channel → `agenterm-cli llm-gateway reload`；**无需**重发 gateway PE（除非 `gateway_shell` / host API 版本变）。
@@ -211,7 +211,7 @@ LLM 输出**永远不能**单独完成 Fleet 变更；与 PRD M9 一致。
 | 网络 | 网关默认 loopback；出站 allowlist（M9） |
 | 子进程 | Browser worker 无 PTY/workspace 继承 |
 | ToS | 设置与首次登录显式声明：Web 桥接为用户自行登录会话，AgenTerm 非官方 API |
-| Agent 策略 | 批准/配额在 **Agent harness / gateway**，不在 Rhai profile |
+| Agent 策略 | 批准/配额在 **Agent harness / gateway**，不在 Script profile |
 
 ---
 
@@ -233,7 +233,7 @@ Release 路径：独立 `agenterm-llm-gateway`（+ 可选 browser worker PE）�
 | **R0 研究** | `research/agenterm-llm-bridge`：单 SiteAdapter + curl 调 `/v1/chat/completions` | 本地脚本 + 无密钥日志 |
 | **R1 网关骨架** | loopback gateway；BYOK 单 provider；`agenterm-cli llm ping` | 单元 + 黑盒 |
 | **R2 Web 单站** | Managed profile + DeepSeek Web；登录/探测/流式 | 隔离 profile 目录 smoke |
-| **R3 并发** | Profile + slot 池；多请求不互踢 | 并发 Rhai/CLI 测试 |
+| **R3 并发** | Profile + slot 池；多请求不互踢 | 并发 Script/CLI 测试 |
 | **R4 CC 投影** | Intent bar model 选择 + 状态卡片（可 unavailable） | `cc-snapshot` 字段 |
 | **R5 M9 门** | 审计/配额/熔断对齐 PRD_02_13 | qualification 条目 |
 

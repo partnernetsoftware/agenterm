@@ -14,7 +14,7 @@
 | 当前主线任务 | **server/CLI 首要**；CI 收口；CC 产品化不急 |
 | 产品契约 | `prd/PRD_02_21_control_center.md` / `prd/PRD_02_02_executable_family.md` |
 | 历史脚本边界 | `plan/archive/design-rhai-rust-boundary.md`、`plan/archive/design-scripting-boundary-comparison.md`、`plan/archive/research-rhai-kernel-depth.md` |
-| LLM | 网关 Native Shell + **Rhai Logic Pack** 热更新；见 `design-llm-gateway-rhai-logic-pack.md` |
+| LLM | 网关 Native Shell + **LLM Logic Pack** 热更新；现行产品边界见 `prd/PRD_02_13_llm_gateway.md` |
 | `origin/main` | tip `aef96053`（duty handoff） |
 | 待审合 | 无（`origin/cursor/*` ahead=0；`1-0e37`/`rh-emit-set-index-assign-1645` ahead=0） |
 | CI | docs 推送不触发 CI（paths-ignore）；Windows `ui-input` 仍开放决策 |

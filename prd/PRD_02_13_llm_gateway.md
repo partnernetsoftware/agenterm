@@ -10,15 +10,19 @@ not commit the gateway executable or a release version.
 Product design for **Web session providers** (Playwright/Camoufox → OpenAI-compatible)
 and **user BYOK** routing lives in
 [`plan/design-llm-bridge-web-to-api.md`](../plan/design-llm-bridge-web-to-api.md).
-**Rhai Logic Pack** split (frequent adapter updates without PE releases) lives in
-[`plan/design-llm-gateway-rhai-logic-pack.md`](../plan/design-llm-gateway-rhai-logic-pack.md).
-Those adapters must terminate at this gateway, not bypass it.
+The product hypothesis retains a **Native Shell + independently versioned Logic
+Pack** split so frequent adapter changes need not force a shell release. The
+former Rhai-specific implementation draft is
+[`archived`](../plan/archive/design-llm-gateway-rhai-logic-pack.md): Rhai left
+this repository, so no backend, file extension or embedded engine is selected
+until implementation is assigned and the current Script Runtime contract passes
+its owning gates. Those adapters must terminate at this gateway, not bypass it.
 
 - Dependency and isolation
   - [ ] implementation begins only after Observable Fleet, the stable
-    unrestricted Rhai API/runtime contract, MCP typed tools, credential
-    isolation, and audit contracts pass their gates; the gateway cannot add a
-    permission profile to `agenterm rh`
+    unrestricted Script Runtime contract, MCP typed tools, credential
+    isolation, and audit contracts pass their gates; the gateway cannot turn a
+    Script profile or capability declaration into an authorization boundary
   - [ ] run as an optional loopback-authenticated sidecar, separate from the
     lightweight specialized-model worker and from GUI startup
   - [ ] keep provider credentials in an OS credential store, outside

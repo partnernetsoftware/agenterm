@@ -84,6 +84,9 @@ current platform work and release qualification are owned by the platform goal,
 active version plan and release skill.
 `plan-ape-thin-shell-dynamic-packages.md` preserves the superseded APE/thin-shell
 draft; the active fast-change boundary is the v0.1.19 Chassis plan.
+`design-llm-gateway-rhai-logic-pack.md` preserves the retired Rhai-specific
+implementation draft; PRD 13 retains only the engine-neutral Native Shell and
+independently versioned Logic Pack boundary.
 
 ## Restored decision records
 
