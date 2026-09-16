@@ -2,7 +2,7 @@
 
 Status: **ordinary seam and Linux L1 pass; G1 is red.** The prototype proves a
 small fixed-sibling launcher can execute ordinary ACU argv without owning the
-command schema. Seven binary-only entry families remain unimplemented, so it does
+command schema. Six binary-only entry families remain unimplemented, so it does
 not accept B or establish the product topology.
 
 ## Source and tool identity
@@ -74,7 +74,7 @@ repository target tree.
 | gate | result | evidence / missing work |
 |---|---|---|
 | G0 safety/authority | partial green | one parser/Executor owner, fixed sibling, bounded ABI, release panic latch, missing/wrong ABI and malformed-result refusals; not all raw failures on three native OSes |
-| G1 behavior parity | **red** | ordinary help/capabilities/refusal, exact version text, network-probe worker/fixture, managed-job owner and browser-session owner run; the other seven binary-entry families remain explicitly unimplemented; no complete paired monolith stdout/stderr corpus |
+| G1 behavior parity | **red** | ordinary help/capabilities/refusal, exact version text, network-probe worker/fixture, and managed-job, browser-session and device-lease owners run; the other six binary-entry families remain explicitly unimplemented; no complete paired monolith stdout/stderr corpus |
 | G2 launcher budgets | partial green | Linux x86_64 L1 is 389,096 bytes; Windows L1 and same-source paired monolith are unmeasured |
 | G3 six-cell/native | red | only Linux x86_64 cross-build plus macOS arm64 native ordinary execution |
 | G4 footprint | partial | macOS L1/L2/L3 complete; Linux L2/L3 and other cells unmeasured |
@@ -143,8 +143,21 @@ provider and emitted both existing lifecycle and typed-failure evidence IDs.
 It proved ready/collision/stop/remove, exact owner and browser identities,
 malformed and oversized endpoint handling, early exit, and final process/root
 cleanup. This is native macOS court evidence, not Candidate evidence: the court
-rejects Windows and its required id is not currently routed by the full-lane
-task catalog. No execution-set or court change is included in this slice.
+is registered and platform-limited rather than a Windows Candidate gate. No
+execution-set or court change is included in this slice.
+
+### Incremental G1 device-lease-owner slice
+
+Entry mode 5 now preserves the resident device-lease owner's exact sentinel and
+direct inherited-stdin contract. The provider calls `run_device_lease_owner`
+inside the already detached launcher child; the lease secret remains confined
+to that launch pipe, both ABI output lengths stay zero, and no public command is
+redispatched. Exact-arity and zero-buffer boundary tests are green.
+
+This slice has no new lifecycle claim. Its existing public device-lease court is
+registered and Unix-only, and it starts the still-unimplemented device-I/O
+fixture mode before it can reach the owner. Mode 7 is therefore a prerequisite
+for an end-to-end staged court. G1 remains red and topology B is not promoted.
 
 ## Commands used for the recorded result
 

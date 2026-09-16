@@ -23,12 +23,14 @@ const ENTRY_ORDINARY_ARGV: u32 = 0;
 const ENTRY_NETWORK_PROBE_WORKER: u32 = 2;
 const ENTRY_BROWSER_SESSION_OWNER: u32 = 3;
 const ENTRY_MANAGED_JOB_OWNER: u32 = 4;
+const ENTRY_DEVICE_LEASE_OWNER: u32 = 5;
 const ENTRY_NETWORK_PROBE_FIXTURE: u32 = 8;
 const ENTRY_VERSION_TEXT: u32 = 12;
 
 const NETWORK_PROBE_WORKER_ARG: &[u8] = b"--agenterm-cu-internal-network-probe-worker";
 const BROWSER_SESSION_OWNER_ARG: &[u8] = b"--agenterm-cu-internal-browser-session-owner";
 const MANAGED_JOB_OWNER_ARG: &[u8] = b"--agenterm-cu-internal-managed-job-owner";
+const DEVICE_LEASE_OWNER_ARG: &[u8] = b"--agenterm-cu-internal-device-lease-owner";
 const NETWORK_PROBE_FIXTURE_ARG: &[u8] = b"--agenterm-cu-internal-network-probe-fixture";
 
 #[repr(C)]
@@ -229,6 +231,8 @@ fn expected_entry_mode(argv: &[Vec<u8>]) -> u32 {
         ENTRY_BROWSER_SESSION_OWNER
     } else if matches!(argv, [arg] if arg.as_slice() == MANAGED_JOB_OWNER_ARG) {
         ENTRY_MANAGED_JOB_OWNER
+    } else if matches!(argv, [arg] if arg.as_slice() == DEVICE_LEASE_OWNER_ARG) {
+        ENTRY_DEVICE_LEASE_OWNER
     } else if matches!(argv, [first, ..] if first.as_slice() == NETWORK_PROBE_FIXTURE_ARG) {
         ENTRY_NETWORK_PROBE_FIXTURE
     } else if matches!(argv, [arg] if matches!(arg.as_slice(), b"--version" | b"-V")) {
@@ -244,6 +248,7 @@ fn validate_output(entry_mode: u32, stdout: &[u8], stderr: &[u8]) -> Result<(), 
         ENTRY_NETWORK_PROBE_WORKER
         | ENTRY_BROWSER_SESSION_OWNER
         | ENTRY_MANAGED_JOB_OWNER
+        | ENTRY_DEVICE_LEASE_OWNER
         | ENTRY_NETWORK_PROBE_FIXTURE => {
             if stdout.is_empty() && stderr.is_empty() {
                 Ok(())
@@ -262,6 +267,7 @@ fn entry_mode_owns_stdio(entry_mode: u32) -> bool {
         ENTRY_NETWORK_PROBE_WORKER
             | ENTRY_BROWSER_SESSION_OWNER
             | ENTRY_MANAGED_JOB_OWNER
+            | ENTRY_DEVICE_LEASE_OWNER
             | ENTRY_NETWORK_PROBE_FIXTURE
     )
 }
@@ -415,6 +421,24 @@ mod tests {
         );
         assert_eq!(
             validate_output(ENTRY_MANAGED_JOB_OWNER, b"unexpected", b"").unwrap_err(),
+            "provider_direct_stdio_buffer_invalid"
+        );
+    }
+
+    #[test]
+    fn device_lease_owner_mode_is_exact_and_never_publishes_abi_bytes() {
+        assert_eq!(
+            expected_entry_mode(&[DEVICE_LEASE_OWNER_ARG.to_vec()]),
+            ENTRY_DEVICE_LEASE_OWNER
+        );
+        assert!(validate_output(ENTRY_DEVICE_LEASE_OWNER, b"", b"").is_ok());
+        assert!(entry_mode_owns_stdio(ENTRY_DEVICE_LEASE_OWNER));
+        assert_eq!(
+            expected_entry_mode(&[DEVICE_LEASE_OWNER_ARG.to_vec(), b"extra".to_vec()]),
+            ENTRY_ORDINARY_ARGV
+        );
+        assert_eq!(
+            validate_output(ENTRY_DEVICE_LEASE_OWNER, b"unexpected", b"").unwrap_err(),
             "provider_direct_stdio_buffer_invalid"
         );
     }

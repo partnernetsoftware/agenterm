@@ -95,10 +95,12 @@ forms. The network-probe worker and loopback fixture retain their direct stdio
 and child lifetime contracts. The managed-job owner runs directly inside the
 detached launcher child, without redispatch or respawn. The browser-session
 owner does the same while retaining its exact directory argv and null stdio.
-The other seven families return the typed boundary status
+The device-lease owner now likewise consumes its inherited launch pipe directly,
+without moving its lease secret through argv, environment or ABI buffers. The
+other six families return the typed boundary status
 `provider_entry_mode_unimplemented`. Their stdin/stdout framing, resident
 lifetime, cleanup and exact exit behavior are not implemented or tested here.
 Consequently G1 remains red; these completed slices are not binary-entry parity.
 The browser-session lifecycle was exercised by its macOS public builder/court;
 that result is not Candidate evidence because the court is platform-limited and
-its required id is not currently routed by the full-lane catalog.
+it is deliberately a registered macOS court rather than a Windows Candidate gate.

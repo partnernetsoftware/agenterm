@@ -212,6 +212,7 @@ unsafe fn process_main_inner(
             Some(agenterm_cu::browser_session_owner::run_owner(&argv[1..]))
         }
         ENTRY_MANAGED_JOB_OWNER => Some(agenterm_cu::run_managed_job_owner()),
+        ENTRY_DEVICE_LEASE_OWNER => Some(agenterm_cu::run_device_lease_owner()),
         ENTRY_NETWORK_PROBE_FIXTURE => {
             Some(agenterm_cu::network_probe::run_loopback_fixture(&argv[1..]))
         }
@@ -361,6 +362,10 @@ mod tests {
             (
                 &[agenterm_cu::MANAGED_JOB_OWNER_ARG][..],
                 ENTRY_MANAGED_JOB_OWNER,
+            ),
+            (
+                &[agenterm_cu::DEVICE_LEASE_OWNER_ARG][..],
+                ENTRY_DEVICE_LEASE_OWNER,
             ),
             (
                 &[agenterm_cu::browser_session_owner::OWNER_ARG, "session"][..],
