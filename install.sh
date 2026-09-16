@@ -158,6 +158,12 @@ case "$(uname -m)" in
     ;;
 esac
 
+if [[ "$OS" == "macos" ]]; then
+  PROVIDER_LIBRARY="agenterm-cu-provider.dylib"
+else
+  PROVIDER_LIBRARY="agenterm-cu-provider.so"
+fi
+
 download() {
   local url="$1"
   local destination="$2"
@@ -228,6 +234,8 @@ if [[ -n "$LOCAL_BUILD_DIR" ]]; then
   done
   [[ -f "$LOCAL_BUILD_DIR/$REQUIRED_LIBRARY" && ! -L "$LOCAL_BUILD_DIR/$REQUIRED_LIBRARY" && -s "$LOCAL_BUILD_DIR/$REQUIRED_LIBRARY" ]] ||
     fail "local build is missing ABI library: $LOCAL_BUILD_DIR/$REQUIRED_LIBRARY"
+  [[ -f "$LOCAL_BUILD_DIR/$PROVIDER_LIBRARY" && ! -L "$LOCAL_BUILD_DIR/$PROVIDER_LIBRARY" && -s "$LOCAL_BUILD_DIR/$PROVIDER_LIBRARY" ]] ||
+    fail "local build is missing ACU provider: $LOCAL_BUILD_DIR/$PROVIDER_LIBRARY"
   verify_cu_abi "$LOCAL_BUILD_DIR/agenterm-cu" "$LOCAL_BUILD_DIR/$REQUIRED_LIBRARY"
   LOCAL_VERSION_OUTPUT="$($LOCAL_BUILD_DIR/agenterm cli --version)"
   [[ "$LOCAL_VERSION_OUTPUT" =~ ^agenterm[[:space:]]+cli[[:space:]]+([0-9A-Za-z.+_-]+)$ ]] ||
@@ -240,6 +248,7 @@ if [[ -n "$LOCAL_BUILD_DIR" ]]; then
     cp "$LOCAL_BUILD_DIR/$executable" "$STAGING_DIR/$executable"
   done
   cp "$LOCAL_BUILD_DIR/$REQUIRED_LIBRARY" "$STAGING_DIR/$REQUIRED_LIBRARY"
+  cp "$LOCAL_BUILD_DIR/$PROVIDER_LIBRARY" "$STAGING_DIR/$PROVIDER_LIBRARY"
 
   RELEASES_DIR="$INSTALL_ROOT/releases"
   RELEASE_DIR="$RELEASES_DIR/$RELEASE_VERSION-local-$OS-$ARCH"
@@ -254,6 +263,9 @@ if [[ -n "$LOCAL_BUILD_DIR" ]]; then
     replace_symlink "$CURRENT_LINK/$executable" "$BIN_DIR/$executable"
   done
   replace_symlink "$CURRENT_LINK/$REQUIRED_LIBRARY" "$BIN_DIR/$REQUIRED_LIBRARY"
+  replace_symlink "$CURRENT_LINK/$PROVIDER_LIBRARY" "$BIN_DIR/$PROVIDER_LIBRARY"
+  [[ -f "$BIN_DIR/$PROVIDER_LIBRARY" && -s "$BIN_DIR/$PROVIDER_LIBRARY" ]] ||
+    fail "installed ACU provider symlink is unavailable: $BIN_DIR/$PROVIDER_LIBRARY"
 
   APP_DIR="$APPLICATIONS_DIR/AgenTerm.app"
   APP_CONTENTS="$APP_DIR/Contents"
@@ -480,6 +492,8 @@ for executable in "${REQUIRED_EXECUTABLES[@]}"; do
 done
 [[ -f "$STAGING_DIR/$REQUIRED_LIBRARY" && ! -L "$STAGING_DIR/$REQUIRED_LIBRARY" && -s "$STAGING_DIR/$REQUIRED_LIBRARY" ]] ||
   fail "release payload is missing $REQUIRED_LIBRARY"
+[[ -f "$STAGING_DIR/$PROVIDER_LIBRARY" && ! -L "$STAGING_DIR/$PROVIDER_LIBRARY" && -s "$STAGING_DIR/$PROVIDER_LIBRARY" ]] ||
+  fail "release payload is missing $PROVIDER_LIBRARY"
 
 if [[ "$OS" == "macos" && "$USE_UNSIGNED_PREVIEW" != "1" ]]; then
   command -v codesign >/dev/null 2>&1 || fail "codesign is required on macOS"
@@ -492,6 +506,8 @@ if [[ "$OS" == "macos" && "$USE_UNSIGNED_PREVIEW" != "1" ]]; then
   done
   codesign --verify --strict "$STAGING_DIR/$REQUIRED_LIBRARY" >/dev/null 2>&1 ||
     fail "Apple code-signature verification failed for $REQUIRED_LIBRARY"
+  codesign --verify --strict "$STAGING_DIR/$PROVIDER_LIBRARY" >/dev/null 2>&1 ||
+    fail "Apple code-signature verification failed for $PROVIDER_LIBRARY"
 fi
 verify_cu_abi "$STAGING_DIR/agenterm-cu" "$STAGING_DIR/$REQUIRED_LIBRARY"
 
@@ -511,6 +527,9 @@ for executable in "${REQUIRED_EXECUTABLES[@]}"; do
   replace_symlink "$CURRENT_LINK/$executable" "$LINK_PATH"
 done
 replace_symlink "$CURRENT_LINK/$REQUIRED_LIBRARY" "$BIN_DIR/$REQUIRED_LIBRARY"
+replace_symlink "$CURRENT_LINK/$PROVIDER_LIBRARY" "$BIN_DIR/$PROVIDER_LIBRARY"
+[[ -f "$BIN_DIR/$PROVIDER_LIBRARY" && -s "$BIN_DIR/$PROVIDER_LIBRARY" ]] ||
+  fail "installed ACU provider symlink is unavailable: $BIN_DIR/$PROVIDER_LIBRARY"
 
 # G2: remove broken BIN symlinks that still point under this install root
 # (e.g. renamed agenterm-script → agenterm-rh left a dangling link).

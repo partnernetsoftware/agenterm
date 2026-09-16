@@ -49,6 +49,8 @@ static PLATFORM_THREADING_RS: LazyLock<String> = LazyLock::new(|| {
 });
 static DOC_REDACT_CHECK: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/doc-redact-check.sh").replace("\r\n", "\n"));
+static INSTALL_SH: LazyLock<String> =
+    LazyLock::new(|| include_str!("../install.sh").replace("\r\n", "\n"));
 static NATIVE_IPC_SMOKE_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/native-ipc-smoke.qjs").replace("\r\n", "\n"));
 static SCRIPT_SMOKE_HELPERS_QJS: LazyLock<String> = LazyLock::new(|| {
@@ -1826,4 +1828,29 @@ fn six_cell_registry_does_not_invent_fixed_ssh_endpoints_for_lima_runners() {
             "the blocker must name the real runner family and its owner"
         );
     }
+}
+
+#[test]
+fn user_installer_keeps_the_fixed_sibling_acu_provider_with_every_cu_symlink() {
+    assert!(INSTALL_SH.contains("PROVIDER_LIBRARY=\"agenterm-cu-provider.dylib\""));
+    assert!(INSTALL_SH.contains("PROVIDER_LIBRARY=\"agenterm-cu-provider.so\""));
+    assert_eq!(
+        INSTALL_SH
+            .matches("replace_symlink \"$CURRENT_LINK/$PROVIDER_LIBRARY\"")
+            .count(),
+        2,
+        "local-build and release installs must both publish the fixed sibling"
+    );
+    assert!(INSTALL_SH.contains("local build is missing ACU provider:"));
+    assert!(INSTALL_SH.contains("release payload is missing $PROVIDER_LIBRARY"));
+    assert_eq!(
+        INSTALL_SH
+            .matches("installed ACU provider symlink is unavailable:")
+            .count(),
+        2
+    );
+
+    let artifacts = ARTIFACTS.to_string();
+    assert!(artifacts.contains("agenterm-cu-provider.dylib"));
+    assert!(artifacts.contains("agenterm-cu-provider.so"));
 }
