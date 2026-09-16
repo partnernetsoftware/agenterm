@@ -2,8 +2,9 @@
 
 Status: **ordinary seam and Linux L1 pass; G1 is red.** The prototype proves a
 small fixed-sibling launcher can execute ordinary ACU argv without owning the
-command schema. All twelve binary-entry families now have explicit routes, but
-the incomplete native court and delivery matrix still prevents accepting B or
+command schema. All twelve binary-entry families now have explicit routes and
+repository installers publish the fixed sibling, but incomplete native
+lifecycle and installed-activation courts still prevent accepting B or
 establishing the product topology.
 
 ## Source and tool identity
@@ -76,7 +77,7 @@ repository target tree.
 | gate | result | evidence / missing work |
 |---|---|---|
 | G0 safety/authority | partial green | one parser/Executor owner, fixed sibling, bounded ABI, release panic latch, missing/wrong ABI and malformed-result refusals; not all raw failures on three native OSes |
-| G1 behavior parity | **red** | all twelve entry families are explicitly routed, including ordinary help/capabilities/refusal, version/verbs presentation, framed workers/fixtures and resident owners; native lifecycle, delivery and paired monolith evidence remain incomplete |
+| G1 behavior parity | **red** | all twelve entry families are explicitly routed, including ordinary help/capabilities/refusal, version/verbs presentation, framed workers/fixtures and resident owners; native lifecycle, installed activation and paired monolith evidence remain incomplete |
 | G2 launcher budgets | partial green | Linux x86_64 L1 is 393,144 bytes and macOS arm64 L1 is 365,328 bytes; Windows L1 and same-source paired monolith are unmeasured |
 | G3 six-cell/native | red | only Linux x86_64 cross-build plus macOS arm64 native ordinary execution |
 | G4 footprint | partial | macOS arm64 and Linux x86_64 L1/L2/L3 complete; four other cells unmeasured |
@@ -205,8 +206,9 @@ zero ABI-buffer publication and direct process ownership. A native host
 self-test was deliberately not run in this increment because macOS self-test
 may perform a real window-placement action when Accessibility is trusted. No
 public court currently drives this entry, and the macOS LaunchAgent delivery
-still needs the provider staged beside the launcher before topology B could be
-promoted. G1 therefore remains red.
+now builds, stages and verifies the provider beside both launcher copies. That
+is delivery-layout evidence only: no public court or native host self-test owns
+the lifecycle. G1 therefore remains red.
 
 ### Incremental G1 privilege-broker slice
 
@@ -216,11 +218,14 @@ back to the ordinary typed refusal, and broker diagnostics continue to use the
 real process stderr while ABI output lengths remain zero. The boundary tests
 pin those facts without attempting privileged installation or consent.
 
-This is not privileged-delivery evidence. Linux systemd and macOS launchd must
-install a root-owned or signed fixed-sibling provider beside the launcher, and
-their native activation, peer authentication, consent and idle-exit journeys
-were not run here. G0 and G1 therefore remain incomplete even though the mode-6
-route itself no longer returns `provider_entry_mode_unimplemented`.
+Repository delivery now publishes the fixed sibling on both privilege paths:
+Linux installs five digest-sealed artifacts in one recoverable transaction, and
+macOS stages a second provider beside the Resources helper while bundle and
+package courts require it. This remains layout and transaction evidence, not live
+privileged activation. Root-owned or signed service activation, peer
+authentication, consent and idle-exit journeys were not run here. G0 and G1
+therefore remain incomplete even though the mode-6 route itself no longer
+returns `provider_entry_mode_unimplemented`.
 
 ### Incremental G1 Native Messaging slice
 
@@ -236,8 +241,8 @@ A native staged refusal matched the monolith for a foreign extension origin:
 both exited 1, wrote zero stdout bytes and emitted exactly
 `browser_bridge_origin_invalid` on stderr. This closes the last unimplemented
 entry route, not G1 itself: no positive Chromium frame journey ran, the browser
-bridge court is registered rather than Candidate-required, and installers do
-not yet prove the fixed-sibling provider beside every launcher path.
+bridge court is registered rather than Candidate-required, and no installed
+browser journey has exercised the now-published fixed sibling.
 
 ## Commands used for the recorded result
 
@@ -268,6 +273,7 @@ Before B can be reconsidered, the provider process-main ABI must implement and
 natively test every listed entry mode with its real stdin/stdout framing,
 resident lifetime, cleanup and exit semantics. Then run paired monolith versus
 launcher presentation on all ordinary and binary cases, measure Windows L1,
-and complete all six build cells plus one native court per OS. Provider
-installer/signing/update atomicity remains outside this prototype, as specified
-by the experiment.
+and complete all six build cells plus one native court per OS. Product
+installers now publish the fixed sibling and test their file transactions; the
+remaining delivery question is live installed activation and lifecycle under
+the native service managers.

@@ -142,14 +142,17 @@ research/acu-thin-launcher/
 
 ## 7. Not answered
 
-- Provider installer/update atomicity beyond the existing Candidate bundle.
+- Live installed-provider activation and update recovery under the native
+  service managers; repository installers now publish the fixed sibling and
+  exercise their file transactions, but those courts do not start the installed
+  authority.
 - Whether the provider should later split by capability family.
 - Signed privileged-provider rollout on macOS and Windows.
 
 ## 8. Result
 
 **B remains alive but is not accepted.** The ordinary fixed-sibling seam is
-real: its Linux x86_64 stripped launcher is 389,096 bytes and macOS arm64
+real: its Linux x86_64 stripped launcher is 393,144 bytes and macOS arm64
 native help, capabilities and legal refusal preserve product exits while
 missing/wrong providers fail at the boundary. The first G1 slice now preserves
 the exact `--version` / `-V` text mode through an explicit provider/launcher
@@ -175,18 +178,20 @@ surface by running the existing platform desktop host as a direct process owner;
 its event loop, diagnostics, self-test output and exit status never pass through
 ABI buffers. Entry mode 6 likewise runs the existing Linux/macOS privilege
 broker inside the service-manager-owned process with an exact sentinel and no
-ABI output; this does not prove root-owned/signed provider installation or a
-native consent court. The Native Messaging entry now also shares one library
+ABI output. Linux and macOS packaging now place the provider beside the
+privilege launcher and test their publication transactions, but this does not
+prove live root-owned/signed activation or a native consent court. The Native
+Messaging entry now also shares one library
 adapter for extension-origin/argv validation and preserves Chromium-owned stdio
 directly. All twelve entry routes therefore exist, but G1 stays red until the
-native lifecycle, delivery and paired parity courts are complete. The browser-session result is native
-court evidence, not Candidate evidence: its existing qjs court is a registered
-macOS court rather than a Windows Candidate gate. The device-lease
-lifecycle result is likewise native macOS evidence from a registered Unix court,
-not Candidate evidence.
+native lifecycle, installed activation and paired parity courts are complete.
+The browser-session result is native court evidence, not Candidate evidence:
+its existing qjs court is a registered macOS court rather than a Windows
+Candidate gate. The device-lease lifecycle result is likewise native macOS
+evidence from a registered Unix court, not Candidate evidence.
 
-Decision path: A is over budget → B passes the measured G0 subset and one G2
-cell → G1 red → no topology promotion. The result overturns only the fear that
+Decision path: A is over budget → B passes the measured G0 subset and two G2
+cells → G1 red → no topology promotion. The result overturns only the fear that
 the loader itself might be too large; it does not prove a complete replacement.
 No criterion or budget was changed after measurement. Exact bytes, L1/L2/L3,
 deviations and reproduction commands live in
