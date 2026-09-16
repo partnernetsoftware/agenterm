@@ -1,3 +1,6 @@
+> **已归档 2026-09-16 — 已判决并交付。** Detached helper 被否决，call-scoped cooperative cancellation 的首个 observe-only slice 已交付；后续各 native wait 的 phase-aware 契约已由 CU PRD 接管。
+> 现行权威：`prd/PRD_02_28_agenterm_cu.md` 与 `prd/PRD_02_36_agenterm_qjswasm.md`；实验数据保留在 `research/acu-bridge-cancellation/RESULTS.md`。
+
 # ACU bridge cancellation experiment
 
 This experiment changes no ACU capability state. It decides how a synchronous

@@ -210,6 +210,7 @@ mechanisms remain behind the `libagenterm` runtime boundary.
   │  │  │      after its baseline exists, cancellation preserves the shaped bounded baseline and
   │  │  │      accumulated events as `effect:partially_performed`, while a same-round snapshot,
   │  │  │      provider error, event ceiling or deadline remains authoritative
+  │  │  │      (closed decision record: `plan/archive/design-acu-bridge-cancellation-experiment.md`)
   │  │  ├─ [x] `pty-wait` polls the same borrowed token before consulting its PTY authority and
   │  │  │      between output/status rounds; pre-authority cancellation returns `effect:not_performed`,
   │  │  │      while a later stop preserves the bounded cursor/scan/condition evidence as

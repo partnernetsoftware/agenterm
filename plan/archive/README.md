@@ -73,6 +73,9 @@ platform-private loader with no delivered-byte growth.
 `design-qjs-module-identity-experiment.md` preserves the stopped module-identity
 court: canonical accounting shipped, while single evaluation remains blocked
 on an upstream identity-bearing compiler interface.
+`design-acu-bridge-cancellation-experiment.md` preserves the completed decision
+that rejected detached bridge work and established the call-scoped cooperative
+cancellation pattern now owned by the CU and qjswasm PRDs.
 
 ## Restored decision records
 
