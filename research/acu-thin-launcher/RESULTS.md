@@ -105,17 +105,43 @@ artifacts with `cargo xwin`; none was executed. The release launcher was
 101,888 bytes. The first attempt exposed a missing Windows `cfg` on the
 foreign-origin expectation arm; after the arm was made consistent with its
 Unix-only case and enum variant, the complete research workspace built cleanly.
-This is build evidence only. The production provider, monolith and required
-journey still need a native Windows build/stage/run.
+This is build evidence only. The x86_64 artifacts and required journey still
+need a native Windows run.
+
+An incremental native Windows arm64 run at source revision `945ab8ec` then
+staged real files in an isolated payload, without touching `dist/`. The release
+launcher was 167,424 bytes, the parity court 288,768 bytes, the bad-ABI fixture
+99,328 bytes and the ABI-release production provider 12,024,832 bytes. The
+provider exported all five symbols: three embedded-call symbols and two
+process-main symbols. The Windows court passed these nine closed cases:
+
+- version, capabilities and ordinary refusal absolute anchors;
+- the version, network-worker, managed-job-owner, device-lease-owner and
+  privilege-broker exact-entry sentinels with a trailing argument; and
+- the `verbs --help` binary/library fork.
+
+All nine cases matched the same-source monolith byte for byte on exit status,
+stdout and stderr. Replacing the staged provider with the bad-ABI fixture also
+passed the negative control: the launcher failed at boundary exit 70 while the
+monolith version anchor remained valid. The payload SHA-256 was
+`ef20223d1dd6743684b8df5aec9fa28ce51b1ebc8c6f00b87fc7e0ffed8e7518`.
+
+This is native Windows paired evidence, not a Candidate receipt. The same
+guest's `acu-provider-job-wait-cancel-smoke` stopped at `job_not_running` with
+the launcher owner. A control rerun replaced only that owner with the
+same-source monolith and failed at the identical assertion, with orphan-free
+cleanup in both runs. The required owner journey is therefore blocked by its
+Windows arm64 baseline in this lane; that result neither clears G1 nor assigns
+the failure to the thin launcher. The x86_64 Candidate journey remains open.
 
 ## Gate ledger
 
 | gate | result | evidence / missing work |
 |---|---|---|
 | G0 safety/authority | partial green | one parser/Executor owner, fixed sibling, bounded ABI, release panic latch, missing/wrong ABI and malformed-result refusals; not all raw failures on three native OSes |
-| G1 behavior parity | **red** | all twelve entry families are explicitly routed; a bounded macOS paired court now covers the non-mutating presentation/refusal subset with absolute anchors and a bad-ABI negative control, while native lifecycles, installed activation and Linux/Windows paired evidence remain incomplete |
-| G2 launcher budgets | partial green | Linux x86_64 L1 is 393,144 bytes and macOS arm64 L1 is 365,328 bytes; Windows L1 and same-source paired monolith are unmeasured |
-| G3 six-cell/native | red | only Linux x86_64 cross-build plus macOS arm64 native ordinary execution |
+| G1 behavior parity | **red** | all twelve entry families are explicitly routed; bounded macOS arm64 and Windows arm64 paired courts cover non-mutating presentation/refusal subsets with absolute anchors and bad-ABI controls, while native successful owner lifecycles, installed activation and Linux paired evidence remain incomplete |
+| G2 launcher budgets | partial green | Linux x86_64 L1 is 393,144 bytes, macOS arm64 L1 is 365,328 bytes, Windows x86_64 is 177,152 bytes and Windows arm64 is 167,424 bytes; the Windows values are whole release artifacts rather than a refreshed L1 attribution |
+| G3 six-cell/native | red | Linux x86_64 cross-build, macOS arm64 native ordinary/parity execution and Windows arm64 native paired execution; other native cells and required Windows owner journey remain open |
 | G4 footprint | partial | macOS arm64 and Linux x86_64 L1/L2/L3 complete; four other cells unmeasured |
 | G5 slope | unmeasured | no synthetic verb addition court |
 
@@ -308,12 +334,15 @@ case remained valid and the court required the observations to differ. This is
 a negative control proving the harness can see a known boundary fault rather
 than accepting two equally broken sides.
 
-This is native macOS evidence for a deliberately non-mutating subset, not a G1
-pass. The Linux-only `host`/`hotkeys` unsupported cases are compiled into the
+This began as native macOS evidence for a deliberately non-mutating subset, not
+a G1 pass. The later Windows arm64 run described above closes the Windows
+presentation/refusal subset with its platform-specific closed case table and
+the same bad-ABI control. It does not cover a non-mutating Windows mode-9 host
+shape. The Linux-only `host`/`hotkeys` unsupported cases are compiled into the
 Linux lane but were not run here; macOS hotkey self-test is excluded because an
-Accessibility-trusted host may perform a real window placement. Resident
-lifecycle, installed service activation, Windows and Linux paired execution,
-and Candidate ownership remain open.
+Accessibility-trusted host may perform a real window placement. Successful
+resident lifecycles, installed service activation, Linux paired execution and
+Candidate ownership remain open.
 
 ## Commands used for the recorded result
 
@@ -342,10 +371,11 @@ stat -f '%N %z' \
 
 ## Required next court
 
-Before B can be reconsidered, extend the paired court across Linux and Windows,
-and natively test every listed entry mode with its real stdin/stdout framing,
-resident lifetime, cleanup and exit semantics. Then measure Windows L1 and
-complete all six build cells plus one native court per OS. Product
-installers now publish the fixed sibling and test their file transactions; the
-remaining delivery question is live installed activation and lifecycle under
-the native service managers.
+Before B can be reconsidered, extend the paired court across Linux and complete
+the Windows x86_64 Candidate owner journey. Natively test every listed entry
+mode with its real stdin/stdout framing, resident lifetime, cleanup and exit
+semantics; the Windows arm64 required-smoke baseline failure must not be
+misclassified as a launcher failure. Then complete all six build cells plus one
+native court per OS. Product installers now publish the fixed sibling and test
+their file transactions; the remaining delivery question is live installed
+activation and lifecycle under the native service managers.
