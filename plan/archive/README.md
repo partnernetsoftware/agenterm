@@ -76,6 +76,9 @@ on an upstream identity-bearing compiler interface.
 `design-acu-bridge-cancellation-experiment.md` preserves the completed decision
 that rejected detached bridge work and established the call-scoped cooperative
 cancellation pattern now owned by the CU and qjswasm PRDs.
+`ds4pro-analyze-wastime-and-scripting-layer.md` preserves the superseded
+three-engine comparison; PRD 02.36 now owns the evidence-gated,
+workload-by-workload Wasmtime-class replacement horizon.
 
 ## Restored decision records
 

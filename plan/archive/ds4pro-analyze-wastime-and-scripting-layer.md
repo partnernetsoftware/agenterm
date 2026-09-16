@@ -1,3 +1,6 @@
+> **已归档 2026-09-16 — 前提被取代。** 本文比较的 QJS、rh、wasmcore 三引擎产品形态已经退出当前树；长期 Wasmtime-class 替代路线仍开放，但只由现行 PRD 的逐 workload 证据阶梯推进。
+> 现行权威：`prd/PRD_02_36_agenterm_qjswasm.md`；历史 wasmcore 判决见该 PRD 指向的 archive。
+
 # wasmtime 与脚本层统一分析（rev2）
 
 | 字段 | 值 |
