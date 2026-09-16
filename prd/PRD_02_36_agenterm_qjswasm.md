@@ -796,7 +796,8 @@ integration.
   channel, so two spellings of one canonical file are still two upstream module
   identities and may be evaluated twice. Canonical single evaluation remains an
   upstream-interface dependency; this repository does not reimplement or
-  approximate the module system.
+  approximate the module system. The closed decision record is
+  [`plan/archive/design-qjs-module-identity-experiment.md`](../plan/archive/design-qjs-module-identity-experiment.md).
 - [x] `script api [MODULE] [--status shipped|planned|all] [--tree|--json]` renders one deterministic hierarchical object tree with reviewed Node.js/Bun analogues and returns the same filtered versioned catalog with explicit view and comparison metadata.
 - [x] qjswasm computation budget fails closed with the public limit exit class.
 - [x] syntax/compiler refusals and unsupported source methods use the same

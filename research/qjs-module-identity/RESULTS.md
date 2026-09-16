@@ -1,6 +1,6 @@
 # QJS module resolution identity results
 
-Specification: `plan/design-qjs-module-identity-experiment.md`.
+Archived specification: `plan/archive/design-qjs-module-identity-experiment.md`.
 
 ## Conditions
 

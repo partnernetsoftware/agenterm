@@ -1,3 +1,6 @@
+> **已归档 2026-09-16 — 已判决。** Canonical read/charge 已在仓内交付；single evaluation 因编译器接口没有 identity channel 而停止，仓内 parser/rewriter 路线被明确否决。
+> 现行权威：`prd/PRD_02_36_agenterm_qjswasm.md`；测量与判决证据保留在 `research/qjs-module-identity/RESULTS.md`。
+
 # QJS module resolution identity experiment
 
 This experiment does not enter must-ship by itself. It decides which part of

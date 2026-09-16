@@ -70,6 +70,9 @@ finding is fixed, adjudicated, or bounded by an explicitly named owner.
 `design-dyn-typed-symbol-fold-experiment.md` preserves the completed decision
 that rejected a generic dyn seam and folded the two real consumers into one
 platform-private loader with no delivered-byte growth.
+`design-qjs-module-identity-experiment.md` preserves the stopped module-identity
+court: canonical accounting shipped, while single evaluation remains blocked
+on an upstream identity-bearing compiler interface.
 
 ## Restored decision records
 
