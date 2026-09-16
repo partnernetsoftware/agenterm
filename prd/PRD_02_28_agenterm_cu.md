@@ -2206,9 +2206,11 @@ flowchart LR
   The privilege-broker entry now also retains its exact sentinel and runs the
   existing broker directly in the service-manager-owned process, with no ABI
   output; root-owned/signed fixed-sibling installation and native activation /
-  consent courts remain unproved. Only the native-messaging binary-entry family
-  still fails closed instead of
-  preserving framing/lifetime/cleanup parity. The browser-session result is a macOS native
+  consent courts remain unproved. The Native Messaging entry now shares one
+  library adapter for extension-origin / platform-argv validation and preserves
+  Chromium-owned framed stdio directly. All twelve entry routes therefore exist,
+  while positive browser framing, native lifecycle, fixed-sibling delivery and
+  paired parity courts remain open; G1 is still red. The browser-session result is a macOS native
   public court, not Candidate evidence: that court is platform-limited and
   registered rather than Windows Candidate-required. The staged device-lease
   pair passed its registered Unix public court on native macOS and emitted both

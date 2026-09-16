@@ -105,11 +105,10 @@ zero-output process contract. The hotkey host now retains direct ownership of
 the process event loop and real stdout/stderr, including the `hotkeys` alias and
 bounded `--self-test` argv. The privilege broker also remains inside the
 service-manager-owned process and keeps its exact one-argument sentinel and
-direct diagnostics. The other family
-returns the typed boundary status
-`provider_entry_mode_unimplemented`. Their stdin/stdout framing, resident
-lifetime, cleanup and exact exit behavior are not implemented or tested here.
-Consequently G1 remains red; these completed slices are not binary-entry parity.
+direct diagnostics. Finally, the Native Messaging entry shares one library
+adapter for origin/argv validation and lets Chromium retain direct ownership of
+its bounded frame stream. All twelve entry families now have explicit routes,
+but G1 remains red until their native lifecycle and delivery courts are complete.
 The browser-session lifecycle was exercised by its macOS public builder/court;
 that result is not Candidate evidence because the court is platform-limited and
 it is deliberately a registered macOS court rather than a Windows Candidate gate.

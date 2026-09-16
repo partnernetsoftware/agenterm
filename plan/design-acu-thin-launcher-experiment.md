@@ -176,9 +176,10 @@ its event loop, diagnostics, self-test output and exit status never pass through
 ABI buffers. Entry mode 6 likewise runs the existing Linux/macOS privilege
 broker inside the service-manager-owned process with an exact sentinel and no
 ABI output; this does not prove root-owned/signed provider installation or a
-native consent court. Only the native-messaging family remains
-`provider_entry_mode_unimplemented`; its framing, resident lifetime, cleanup
-and exact exit parity are not implemented. The browser-session result is native
+native consent court. The Native Messaging entry now also shares one library
+adapter for extension-origin/argv validation and preserves Chromium-owned stdio
+directly. All twelve entry routes therefore exist, but G1 stays red until the
+native lifecycle, delivery and paired parity courts are complete. The browser-session result is native
 court evidence, not Candidate evidence: its existing qjs court is a registered
 macOS court rather than a Windows Candidate gate. The device-lease
 lifecycle result is likewise native macOS evidence from a registered Unix court,

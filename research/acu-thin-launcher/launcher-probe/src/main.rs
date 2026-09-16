@@ -20,6 +20,7 @@ const BOUNDARY_EXIT: u8 = 70;
 
 const STATUS_OK: i32 = 0;
 const ENTRY_ORDINARY_ARGV: u32 = 0;
+const ENTRY_NATIVE_MESSAGING_HOST: u32 = 1;
 const ENTRY_NETWORK_PROBE_WORKER: u32 = 2;
 const ENTRY_BROWSER_SESSION_OWNER: u32 = 3;
 const ENTRY_MANAGED_JOB_OWNER: u32 = 4;
@@ -33,6 +34,7 @@ const ENTRY_X11_CLIPBOARD_OWNER: u32 = 11;
 const ENTRY_VERSION_TEXT: u32 = 12;
 
 const NETWORK_PROBE_WORKER_ARG: &[u8] = b"--agenterm-cu-internal-network-probe-worker";
+const CHROME_EXTENSION_PREFIX: &[u8] = b"chrome-extension://";
 const BROWSER_SESSION_OWNER_ARG: &[u8] = b"--agenterm-cu-internal-browser-session-owner";
 const MANAGED_JOB_OWNER_ARG: &[u8] = b"--agenterm-cu-internal-managed-job-owner";
 const DEVICE_LEASE_OWNER_ARG: &[u8] = b"--agenterm-cu-internal-device-lease-owner";
@@ -236,7 +238,9 @@ fn validate_result(
 }
 
 fn expected_entry_mode(argv: &[Vec<u8>]) -> u32 {
-    if matches!(argv, [arg] if arg.as_slice() == NETWORK_PROBE_WORKER_ARG) {
+    if matches!(argv, [first, ..] if first.starts_with(CHROME_EXTENSION_PREFIX)) {
+        ENTRY_NATIVE_MESSAGING_HOST
+    } else if matches!(argv, [arg] if arg.as_slice() == NETWORK_PROBE_WORKER_ARG) {
         ENTRY_NETWORK_PROBE_WORKER
     } else if matches!(argv, [first, ..] if first.as_slice() == BROWSER_SESSION_OWNER_ARG) {
         ENTRY_BROWSER_SESSION_OWNER
@@ -267,7 +271,8 @@ fn expected_entry_mode(argv: &[Vec<u8>]) -> u32 {
 fn validate_output(entry_mode: u32, stdout: &[u8], stderr: &[u8]) -> Result<(), &'static str> {
     match entry_mode {
         ENTRY_ORDINARY_ARGV => validate_ordinary_output(stdout, stderr),
-        ENTRY_NETWORK_PROBE_WORKER
+        ENTRY_NATIVE_MESSAGING_HOST
+        | ENTRY_NETWORK_PROBE_WORKER
         | ENTRY_BROWSER_SESSION_OWNER
         | ENTRY_MANAGED_JOB_OWNER
         | ENTRY_DEVICE_LEASE_OWNER
@@ -291,7 +296,8 @@ fn validate_output(entry_mode: u32, stdout: &[u8], stderr: &[u8]) -> Result<(), 
 fn entry_mode_owns_stdio(entry_mode: u32) -> bool {
     matches!(
         entry_mode,
-        ENTRY_NETWORK_PROBE_WORKER
+        ENTRY_NATIVE_MESSAGING_HOST
+            | ENTRY_NETWORK_PROBE_WORKER
             | ENTRY_BROWSER_SESSION_OWNER
             | ENTRY_MANAGED_JOB_OWNER
             | ENTRY_DEVICE_LEASE_OWNER
@@ -485,6 +491,25 @@ mod tests {
         assert!(validate_output(ENTRY_PRIVILEGE_BROKER, b"", b"").is_ok());
         assert_eq!(
             validate_output(ENTRY_PRIVILEGE_BROKER, b"", b"unexpected").unwrap_err(),
+            "provider_direct_stdio_buffer_invalid"
+        );
+    }
+
+    #[test]
+    fn native_messaging_origin_shape_retains_browser_owned_stdio() {
+        for argv in [
+            vec![b"chrome-extension://valid/".to_vec()],
+            vec![
+                b"chrome-extension://valid/".to_vec(),
+                b"--parent-window=0".to_vec(),
+            ],
+        ] {
+            assert_eq!(expected_entry_mode(&argv), ENTRY_NATIVE_MESSAGING_HOST);
+        }
+        assert!(entry_mode_owns_stdio(ENTRY_NATIVE_MESSAGING_HOST));
+        assert!(validate_output(ENTRY_NATIVE_MESSAGING_HOST, b"", b"").is_ok());
+        assert_eq!(
+            validate_output(ENTRY_NATIVE_MESSAGING_HOST, b"frame", b"").unwrap_err(),
             "provider_direct_stdio_buffer_invalid"
         );
     }

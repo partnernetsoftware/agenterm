@@ -207,6 +207,9 @@ unsafe fn process_main_inner(
     // SAFETY: result is a valid writable ABI result.
     unsafe { (*result).entry_mode = mode };
     let direct_exit = match mode {
+        ENTRY_NATIVE_MESSAGING_HOST => {
+            Some(agenterm_cu::browser_bridge::run_native_host_entry(&argv))
+        }
         ENTRY_NETWORK_PROBE_WORKER => Some(agenterm_cu::network_probe::run_worker_stdio()),
         ENTRY_BROWSER_SESSION_OWNER => {
             Some(agenterm_cu::browser_session_owner::run_owner(&argv[1..]))

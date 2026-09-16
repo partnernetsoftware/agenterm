@@ -649,6 +649,48 @@ pub fn run_native_host(origin: &str) -> Result<(), BridgeHostError> {
     run_native_host_with_io(stdin, stdout.lock(), None)
 }
 
+/// Runs one browser-owned Native Messaging process entry.
+///
+/// The caller has already identified an extension-shaped first argument. This
+/// adapter keeps Chromium's platform argv validation and stdout framing in one
+/// library owner shared by the monolith and thin-provider experiment.
+#[doc(hidden)]
+pub fn run_native_host_entry(args: &[String]) -> i32 {
+    let result = validate_native_host_invocation(args).and_then(run_native_host);
+    match result {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("{}", error.code);
+            1
+        }
+    }
+}
+
+fn validate_native_host_invocation(args: &[String]) -> Result<&str, BridgeHostError> {
+    let Some(origin) = args.first() else {
+        return Err(BridgeHostError::new("browser_bridge_invocation_invalid"));
+    };
+    if origin.as_str() != format!("chrome-extension://{ACU_EXTENSION_ID}/") {
+        return Err(BridgeHostError::new("browser_bridge_origin_invalid"));
+    }
+    match args.get(1..) {
+        Some([]) => Ok(origin.as_str()),
+        #[cfg(windows)]
+        Some([parent]) if valid_parent_window_arg(parent) => Ok(origin.as_str()),
+        _ => Err(BridgeHostError::new("browser_bridge_invocation_invalid")),
+    }
+}
+
+#[cfg(windows)]
+fn valid_parent_window_arg(argument: &str) -> bool {
+    let Some(value) = argument.strip_prefix("--parent-window=") else {
+        return false;
+    };
+    !value.is_empty()
+        && value.bytes().all(|byte| byte.is_ascii_digit())
+        && value.parse::<usize>().is_ok()
+}
+
 fn run_native_host_with_io(
     browser_in: impl Read + Send + 'static,
     mut browser_out: impl Write,
@@ -1162,6 +1204,32 @@ impl BridgeHostError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_host_entry_keeps_origin_and_platform_argv_closed() {
+        let origin = format!("chrome-extension://{ACU_EXTENSION_ID}/");
+        assert!(validate_native_host_invocation(std::slice::from_ref(&origin)).is_ok());
+        for args in [
+            vec!["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/".to_owned()],
+            vec![origin.clone(), "unexpected".to_owned()],
+            vec![origin.clone(), "unexpected".to_owned(), "more".to_owned()],
+        ] {
+            assert!(validate_native_host_invocation(&args).is_err());
+        }
+        #[cfg(windows)]
+        {
+            assert!(
+                validate_native_host_invocation(&[origin.clone(), "--parent-window=0".to_owned(),])
+                    .is_ok()
+            );
+            assert!(!valid_parent_window_arg("--parent-window="));
+            assert!(!valid_parent_window_arg("--parent-window=+1"));
+        }
+        #[cfg(not(windows))]
+        assert!(
+            validate_native_host_invocation(&[origin, "--parent-window=0".to_owned()]).is_err()
+        );
+    }
     use crate::browser_bridge::NativeMessageDecoder;
     use serde_json::{Map, json};
     use std::sync::{Condvar, Mutex};

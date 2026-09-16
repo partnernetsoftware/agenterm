@@ -15,8 +15,8 @@ pub use assets::{
 };
 pub use host::{
     BridgeHostError, BridgeResponse, BridgeStatus, BridgeWireError, ConnectionInventory,
-    RequestLedger, list_live_connections, run_native_host, send_to_connection,
-    send_to_connection_with_timeout,
+    RequestLedger, list_live_connections, run_native_host, run_native_host_entry,
+    send_to_connection, send_to_connection_with_timeout,
 };
 #[cfg(windows)]
 pub(crate) use installer::install_for_current_user_host;

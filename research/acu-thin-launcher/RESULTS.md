@@ -2,8 +2,9 @@
 
 Status: **ordinary seam and Linux L1 pass; G1 is red.** The prototype proves a
 small fixed-sibling launcher can execute ordinary ACU argv without owning the
-command schema. One binary-only entry family remains unimplemented, so it does
-not accept B or establish the product topology.
+command schema. All twelve binary-entry families now have explicit routes, but
+the incomplete native court and delivery matrix still prevents accepting B or
+establishing the product topology.
 
 ## Source and tool identity
 
@@ -74,7 +75,7 @@ repository target tree.
 | gate | result | evidence / missing work |
 |---|---|---|
 | G0 safety/authority | partial green | one parser/Executor owner, fixed sibling, bounded ABI, release panic latch, missing/wrong ABI and malformed-result refusals; not all raw failures on three native OSes |
-| G1 behavior parity | **red** | ordinary help/capabilities/refusal, exact version and verbs text, network-probe and device-I/O fixtures, and managed-job, browser-session, device-lease, privilege-broker, hotkey and X11 clipboard owners run; the native-messaging family remains explicitly unimplemented; no complete paired monolith stdout/stderr corpus |
+| G1 behavior parity | **red** | all twelve entry families are explicitly routed, including ordinary help/capabilities/refusal, version/verbs presentation, framed workers/fixtures and resident owners; native lifecycle, delivery and paired monolith evidence remain incomplete |
 | G2 launcher budgets | partial green | Linux x86_64 L1 is 389,096 bytes; Windows L1 and same-source paired monolith are unmeasured |
 | G3 six-cell/native | red | only Linux x86_64 cross-build plus macOS arm64 native ordinary execution |
 | G4 footprint | partial | macOS L1/L2/L3 complete; Linux L2/L3 and other cells unmeasured |
@@ -219,6 +220,23 @@ install a root-owned or signed fixed-sibling provider beside the launcher, and
 their native activation, peer authentication, consent and idle-exit journeys
 were not run here. G0 and G1 therefore remain incomplete even though the mode-6
 route itself no longer returns `provider_entry_mode_unimplemented`.
+
+### Incremental G1 Native Messaging slice
+
+Entry mode 1 now shares one library-owned adapter for extension-origin checks,
+the closed platform argv shape, error presentation and browser-owned host
+lifetime. The launcher predicts only the `chrome-extension://` prefix and leaves
+the exact extension id plus Windows `--parent-window` validation to that product
+adapter. Native Messaging owns real stdin/stdout directly; its one-MiB frame
+limit and bounded input queue remain at the protocol layer rather than being
+replaced by the ABI's whole-call output budget.
+
+A native staged refusal matched the monolith for a foreign extension origin:
+both exited 1, wrote zero stdout bytes and emitted exactly
+`browser_bridge_origin_invalid` on stderr. This closes the last unimplemented
+entry route, not G1 itself: no positive Chromium frame journey ran, the browser
+bridge court is registered rather than Candidate-required, and installers do
+not yet prove the fixed-sibling provider beside every launcher path.
 
 ## Commands used for the recorded result
 
