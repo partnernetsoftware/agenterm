@@ -249,7 +249,7 @@
  },
  "lane": {
   "experiment": "qjswasm host-reply wire cost",
-  "spec": "plan/design-qjswasm-host-reply-wire-cost-experiment.md",
+  "spec": "plan/archive/design-qjswasm-host-reply-wire-cost-experiment.md",
   "execution_date": "2026-09-13",
   "agenterm_head": "df049328c494a5cf6516fa73657138807c0d1167",
   "agenterm_dirty": "clean at lane build; the only tree changes are this experiment's own research/ artifacts",

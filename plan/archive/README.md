@@ -23,6 +23,18 @@ Current product truth starts at `PRD.md`; current sequencing starts at
 the `design-rh-standalone-product*` set preserve the extracted Rh product's
 history. Rh left this repository; current `.qjs` work is qjswasm/tinyvm.
 
+## Completed decision experiments
+
+- `design-process-policy-authority-experiment.md` — rejected the exact
+  arbitrary-process Mach authority route.
+- `design-qjswasm-host-reply-wire-cost-experiment.md` — assigned oversized
+  host-reply ownership to host-side field selection.
+- `design-qjswasm-immediate-host-argument-region-experiment.md` and
+  `design-qjswasm-region-lifetime-experiment.md` — preserved the rejected
+  temporary-region specialization decisions.
+- `design-ui-snapshot-selection-boundary-experiment.md` — admitted transport
+  field selection without changing the product capability state.
+
 ## Restored decision records
 
 The historical Markdown archive accidentally removed from the tree in an

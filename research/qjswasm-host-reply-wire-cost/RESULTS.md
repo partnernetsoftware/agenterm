@@ -4,7 +4,7 @@ Status: **VERDICT — owner = host-side field selection. No capability-state cha
 no product change.** The experiment ended as §4 says it must; the implementation
 it names is a new leaf that has not been started.
 
-Experiment: [`plan/design-qjswasm-host-reply-wire-cost-experiment.md`](../../plan/design-qjswasm-host-reply-wire-cost-experiment.md)
+Experiment: [`plan/archive/design-qjswasm-host-reply-wire-cost-experiment.md`](../../plan/archive/design-qjswasm-host-reply-wire-cost-experiment.md)
 §0–§8. This file is the third-party rerunnable receipt; `plan`'s §8 is the
 decision record.
 
@@ -340,7 +340,7 @@ in §7, and they agree.
 Owner named by the branch that ran: **host-side field selection** — the host
 choosing which fields to send a guest that has declared what it reads. That is a
 new door / API-shape decision with its own schema, cost and consumer questions
-(`plan/design-qjswasm-host-reply-wire-cost-experiment.md` §7 leaves them to it),
+(`plan/archive/design-qjswasm-host-reply-wire-cost-experiment.md` §7 leaves them to it),
 and it is a **new leaf**, never work inside this one. No product wire
 implementation, no door or API addition, no guest change and no upstream work
 happened here. The upstream frontier (per-node parse cost) is untouched and

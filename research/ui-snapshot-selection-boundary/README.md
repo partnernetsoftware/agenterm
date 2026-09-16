@@ -1,7 +1,7 @@
 # ui-snapshot selection boundary evidence
 
 This directory records the completed experiment specified by
-`plan/design-ui-snapshot-selection-boundary-experiment.md`. It decides only
+`plan/archive/design-ui-snapshot-selection-boundary-experiment.md`. It decides only
 whether an opt-in text-reparse adapter is admissible for a later product leaf.
 It does not add a public option or change an ordinary `ui-snapshot` reply.
 

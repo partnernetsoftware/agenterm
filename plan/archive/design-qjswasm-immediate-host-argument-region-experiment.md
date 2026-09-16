@@ -1,4 +1,8 @@
-# qjswasm immediate host-argument region experiment
+# ⚠️ 已归档：qjswasm immediate host-argument region experiment
+
+> **归档于 2026-09-16。** 实验已作出否决判定，当前产品边界由
+> `prd/PRD_02_36_agenterm_qjswasm.md` 承接。本文件只保存历史判决与证据，
+> 不是活跃执行计划。
 
 Status: **DECIDED · D0 failed · Variant B killed · not must-ship**.
 
@@ -11,7 +15,7 @@ result would still require a separate exact-pin review.
 | date | 2026-09-05 |
 | purpose | decide whether an immediately consumed `JSON.stringify(...)` result can form one safe compiler-proven temporary region around a synchronous host call |
 | implementation | upstream `tinyvm` research first; AgenTerm supplies product journeys and may consume a later exact pin only after every court passes |
-| pre-reading | `plan/design-qjswasm-region-lifetime-experiment.md`, `research/qjswasm-region-lifetime/RESULTS.md`, `plan/design-host-op-budget.md`, `prd/PRD_02_36_agenterm_qjswasm.md` |
+| pre-reading | `plan/archive/design-qjswasm-region-lifetime-experiment.md`, `research/qjswasm-region-lifetime/RESULTS.md`, `plan/design-host-op-budget.md`, `prd/PRD_02_36_agenterm_qjswasm.md` |
 | frozen engine baseline | `tinyvm` + `tinyvm-qjs` `1bf632b` |
 | diagnostic meter revision | `tinyvm` + `tinyvm-qjs` `f303132`; attribution only, no rewind |
 | source discipline | one implementation with a build-time experiment switch; build A and B from the same source rather than maintaining twin prototypes |
@@ -303,7 +307,7 @@ not evidence.
 Status: **D0 failed; exact specialization killed before implementation**.
 
 The first exact-source rehearsal is recorded in
-[`research/qjswasm-immediate-host-argument-region/RESULTS.md`](../research/qjswasm-immediate-host-argument-region/RESULTS.md).
+[`research/qjswasm-immediate-host-argument-region/RESULTS.md`](../../research/qjswasm-immediate-host-argument-region/RESULTS.md).
 On exact AgenTerm `b64a3454` and tinyvm `f303132`, clean macOS aarch64 native
 runs measured server at 97,068 / 1,171,364 B = 8.286749% and wake at 103,484 /
 1,669,740 B = 6.197612%. Both exceed 64 KiB but fail the frozen 10% ratio.

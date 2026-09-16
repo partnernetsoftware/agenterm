@@ -1,7 +1,7 @@
 # qjswasm host-reply wire cost
 
 Verdict directory for
-[`plan/design-qjswasm-host-reply-wire-cost-experiment.md`](../../plan/design-qjswasm-host-reply-wire-cost-experiment.md).
+[`plan/archive/design-qjswasm-host-reply-wire-cost-experiment.md`](../../plan/archive/design-qjswasm-host-reply-wire-cost-experiment.md).
 It contains no product wire change, no door or API addition, no guest change and
 no upstream work.
 

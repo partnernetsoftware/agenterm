@@ -444,7 +444,7 @@ agenterm-qjswasm
 ```
 
 The host-reply wire cost decision experiment,
-[`plan/design-qjswasm-host-reply-wire-cost-experiment.md`](../plan/design-qjswasm-host-reply-wire-cost-experiment.md).
+[`plan/archive/design-qjswasm-host-reply-wire-cost-experiment.md`](../plan/archive/design-qjswasm-host-reply-wire-cost-experiment.md).
 It asks whether the bytes the host hands a guest as a reply are a large enough
 owner of journey steps that a product-side wire change (compact reply text
 and/or host-side field selection) is the next action. **The experiment has now
@@ -476,7 +476,7 @@ host operations plus `server.headless-authority` evidence remained unchanged.
 This is a second real **consumer** of the first producer, not the still-missing
 second producer needed to turn the additive selection core into a net code fold.
 The second-producer boundary was frozen and has now been decided by measurement:
-[`plan/design-ui-snapshot-selection-boundary-experiment.md`](../plan/design-ui-snapshot-selection-boundary-experiment.md)
+[`plan/archive/design-ui-snapshot-selection-boundary-experiment.md`](../plan/archive/design-ui-snapshot-selection-boundary-experiment.md)
 and
 [`research/ui-snapshot-selection-boundary/RESULTS.md`](../research/ui-snapshot-selection-boundary/RESULTS.md)
 record `S0 yes → W0 yes → H0 yes → T admitted`. Two real rendered snapshots

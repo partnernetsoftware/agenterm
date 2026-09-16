@@ -3,7 +3,7 @@
 Status: **COMPLETE · arbitrary-process Mach task-policy route rejected**
 
 Specification:
-[`plan/design-process-policy-authority-experiment.md`](../../plan/design-process-policy-authority-experiment.md)
+[`plan/archive/design-process-policy-authority-experiment.md`](../../plan/archive/design-process-policy-authority-experiment.md)
 
 ## Measurement conditions
 

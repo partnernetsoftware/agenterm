@@ -1,4 +1,8 @@
-# qjswasm temporary-region lifetime experiment
+# ⚠️ 已归档：qjswasm temporary-region lifetime experiment
+
+> **归档于 2026-09-16。** 实验已作出否决判定，当前产品边界由
+> `prd/PRD_02_36_agenterm_qjswasm.md` 承接。本文件只保存历史判决与证据，
+> 不是活跃执行计划。
 
 Status: **decided · L0 failed · scoped operation-boundary rewind killed · diagnostic attribution retained**.
 

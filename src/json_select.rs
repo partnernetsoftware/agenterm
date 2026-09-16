@@ -445,7 +445,7 @@ mod tests {
     }
 
     /// Research reporter for
-    /// `plan/design-ui-snapshot-selection-boundary-experiment.md`.
+    /// `plan/archive/design-ui-snapshot-selection-boundary-experiment.md`.
     ///
     /// Ignored by default because elapsed time is evidence to record, never a
     /// unit-test assertion. The semantic and bound assertions remain hard so a

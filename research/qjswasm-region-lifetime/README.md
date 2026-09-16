@@ -1,7 +1,7 @@
 # qjswasm region-lifetime evidence
 
 This directory holds the measured evidence for
-`plan/design-qjswasm-region-lifetime-experiment.md`.
+`plan/archive/design-qjswasm-region-lifetime-experiment.md`.
 
 The diagnostic path is opt-in:
 

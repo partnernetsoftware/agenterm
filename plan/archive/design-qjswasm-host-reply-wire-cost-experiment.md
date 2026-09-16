@@ -1,4 +1,8 @@
-# qjswasm host-reply wire cost experiment
+# ⚠️ 已归档：qjswasm host-reply wire cost experiment
+
+> **归档于 2026-09-16。** 实验已完成，当前产品结论由
+> `prd/PRD_02_36_agenterm_qjswasm.md` 承接。本文件只保留历史判决、量测方法
+> 与复现记录，不是活跃执行计划。
 
 Status: **COMPLETE · verdict `V0 yes -> W0-C yes -> W1 no -> owner = host-side field selection` · not must-ship · no capability-status change · implementation not started**.
 
@@ -340,7 +344,7 @@ that deviation in §8 as the previous experiment did.
 ## 8. Result
 
 Run 2026-09-13. Full receipt, rerun commands, digests and the raw per-run
-envelopes: [`research/qjswasm-host-reply-wire-cost/`](../research/qjswasm-host-reply-wire-cost/)
+envelopes: [`research/qjswasm-host-reply-wire-cost/`](../../research/qjswasm-host-reply-wire-cost/)
 (`RESULTS.md`, `lane.json`, `census.json`, `shapes/`, `runs/`,
 `measurements.json`, `receipt.json`).
 

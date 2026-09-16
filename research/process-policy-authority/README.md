@@ -1,7 +1,7 @@
 # Process-policy authority probe
 
 This directory implements the bounded experiment specified by
-`plan/design-process-policy-authority-experiment.md`. It uses one owned child
+`plan/archive/design-process-policy-authority-experiment.md`. It uses one owned child
 and one unrelated sibling; it never targets an existing user process.
 
 From the repository root on macOS:

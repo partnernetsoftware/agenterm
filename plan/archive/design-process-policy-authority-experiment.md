@@ -1,4 +1,8 @@
-# Exact process-policy authority experiment
+# ⚠️ 已归档：Exact process-policy authority experiment
+
+> **归档于 2026-09-16。** 实验已完成，产品结论已由
+> `prd/PRD_02_28_agenterm_cu.md` 与当前实现承接。本文件只保留历史判决与
+> 可复现实验记录，不是活跃执行计划。
 
 Status: **COMPLETE · exact arbitrary-process Mach route rejected**
 
@@ -7,7 +11,7 @@ Purpose: decide whether ACU can change an already-running macOS process between
 normal and Darwin-background policy with exact-object authority, instead of
 inheriting MCU's bracketed-but-PID-racy `taskpolicy -p PID` mutation.
 Implementation: `research/process-policy-authority/`
-Parent: [`goal-acu-replaces-mcu.md`](goal-acu-replaces-mcu.md)
+Parent: [`goal-acu-replaces-mcu.md`](../goal-acu-replaces-mcu.md)
 Source discipline: public macOS SDK contracts only; MCU supplies the behavior
 to compare, never implementation code.
 
@@ -126,4 +130,4 @@ and do not inherit MCU's bracketed `taskpolicy -p PID` mutation. The product
 slice is exact observation plus typed pre-effect limitation. Owned managed-job
 pre-exec policy is a separate question. Full commands, matrix, normalized
 output and deviations are in
-[`research/process-policy-authority/RESULTS.md`](../research/process-policy-authority/RESULTS.md).
+[`research/process-policy-authority/RESULTS.md`](../../research/process-policy-authority/RESULTS.md).

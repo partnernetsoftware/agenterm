@@ -2,7 +2,7 @@
 
 Receipt for the leaf that turns the frozen wire-cost verdict
 (`owner = host-side field selection`, see
-`plan/design-qjswasm-host-reply-wire-cost-experiment.md` §8 and
+`plan/archive/design-qjswasm-host-reply-wire-cost-experiment.md` §8 and
 `research/qjswasm-host-reply-wire-cost/RESULTS.md`) into one small, typed,
 permission-free capability: a pure JSON projection core plus its first
 product producer, and one real journey migrated off its `sh` + `grep`
