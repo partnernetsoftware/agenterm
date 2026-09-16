@@ -2194,14 +2194,15 @@ flowchart LR
   unaccepted. Exact version text, the network-probe worker + loopback fixture,
   and the managed-job + browser-session resident owners now preserve their
   process-entry contracts through explicit ABI modes. The device-lease resident
-  owner also preserves its exact sentinel and inherited-stdin secret boundary;
-  the other six
-  binary-entry families still fail closed instead of preserving
+  owner also preserves its exact sentinel and inherited-stdin secret boundary,
+  while its Unix PTY fixture retains direct stdout and bounded lifetime. The
+  other five binary-entry families still fail closed instead of preserving
   framing/lifetime/cleanup parity. The browser-session result is a macOS native
   public court, not Candidate evidence: that court is platform-limited and
-  registered rather than Windows Candidate-required. The device-lease slice has
-  boundary evidence only until its Unix registered court can cross the separate
-  device-I/O fixture mode. Its decision is recorded in
+  registered rather than Windows Candidate-required. The staged device-lease
+  pair passed its registered Unix public court on native macOS and emitted both
+  existing evidence IDs; that result is likewise not Candidate evidence. Its
+  decision is recorded in
   `plan/design-acu-thin-launcher-experiment.md`; the broker experiment and
   exact result ledger live in `plan/design-linux-privilege-broker-experiment.md`
   and `research/linux-privilege-broker/RESULTS.md`.

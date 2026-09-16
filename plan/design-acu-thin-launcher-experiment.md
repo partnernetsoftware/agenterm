@@ -164,13 +164,16 @@ competing output. A following macOS native court now preserves the browser-sessi
 owner's exact directory argv, durable readiness, identity and cleanup lifecycle
 through entry mode 3. Entry mode 5 also preserves the device-lease resident
 owner's exact sentinel and inherited launch pipe without copying its lease secret
-into argv, environment or ABI buffers. The tree still stops at G1 red: the other
-six binary-entry families remain `provider_entry_mode_unimplemented`; their framing, resident
-lifetime, cleanup and exact exit parity are not implemented. The browser-session
+into argv, environment or ABI buffers. Entry mode 7 preserves the paired Unix PTY
+fixture's direct stdout and bounded lifetime; the existing registered device-lease
+court is green through the staged topology. The tree still stops at G1 red: the
+other five binary-entry families remain `provider_entry_mode_unimplemented`;
+their framing, resident lifetime, cleanup and exact exit parity are not
+implemented. The browser-session
 result is native court evidence, not Candidate evidence: its existing qjs court
 is a registered macOS court rather than a Windows Candidate gate. The device-lease
-slice currently has boundary evidence only because its Unix registered court first
-requires the still-unimplemented device-I/O fixture mode.
+lifecycle result is likewise native macOS evidence from a registered Unix court,
+not Candidate evidence.
 
 Decision path: A is over budget → B passes the measured G0 subset and one G2
 cell → G1 red → no topology promotion. The result overturns only the fear that

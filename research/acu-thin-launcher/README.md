@@ -96,8 +96,9 @@ and child lifetime contracts. The managed-job owner runs directly inside the
 detached launcher child, without redispatch or respawn. The browser-session
 owner does the same while retaining its exact directory argv and null stdio.
 The device-lease owner now likewise consumes its inherited launch pipe directly,
-without moving its lease secret through argv, environment or ABI buffers. The
-other six families return the typed boundary status
+without moving its lease secret through argv, environment or ABI buffers. Its
+Unix PTY fixture also retains its direct stdout and bounded lifetime contract.
+The other five families return the typed boundary status
 `provider_entry_mode_unimplemented`. Their stdin/stdout framing, resident
 lifetime, cleanup and exact exit behavior are not implemented or tested here.
 Consequently G1 remains red; these completed slices are not binary-entry parity.
