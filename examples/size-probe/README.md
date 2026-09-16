@@ -10,7 +10,7 @@
 > 也接进探针**（screenshot 双导出 / a11y / input event_text 路径），把"剩余机制补不上
 > 缺口"从推断变成实测（本轮 `S_probe` = +87,040 B，结论见下文）。
 
-基线（`plan/phase0-baseline-measurements.md` 实测）：`libagenterm.dll` = **400,896 B**，
+基线（`plan/archive/phase0-baseline-measurements.md` 实测）：`libagenterm.dll` = **400,896 B**，
 三个消费者**每个平均要瘦掉 > 133,632 B**（= 400,896 / 3）共享才真的省字节。
 （本轮实测 `libagenterm.dll` = 403,456 B，与基线差 2,560 B，属构建环境差异；阈值对照
 沿用 133,632 B 以便与 M15/M23 同口径可比。）

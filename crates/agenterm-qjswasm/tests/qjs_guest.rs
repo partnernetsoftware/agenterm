@@ -1250,7 +1250,7 @@ fn extension_routing_covers_exactly_two_extensions() {
 /// running the source directly.
 ///
 /// This is the acceptance criterion the `agenterm-qjs` CLI archive gate names
-/// as its step zero (`plan/design-qjs-archive-gate.md` 4.3 and 9). Every
+/// as its step zero (`plan/archive/design-qjs-archive-gate.md` 4.3 and 9). Every
 /// compile-once-run-later verb -- `pack`, a build cache, an artifact fetched
 /// from anywhere -- is built on it, and before `Guest::CompiledQjs` existed it
 /// was false: `Guest::Wasm(&compile_qjs(src))` loaded the same bytes under the

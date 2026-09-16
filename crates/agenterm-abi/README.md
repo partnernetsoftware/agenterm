@@ -188,7 +188,7 @@ cc -Wall -Wextra -Werror -Iinclude examples/c/agenterm_probe.c target/abi-dev/li
 CI 与本机并列处均已标注，两者差异属 MSVC 版本不同，如实并列）。动态形态
 除上表探针外**仍需随行** dll/so/dylib（本机 Windows `abi-dev` 实测
 `agenterm.dll` = 878,080 B；`abi-release` 基线 400,896 B 见
-`plan/phase0-baseline-measurements.md`）。
+`plan/archive/phase0-baseline-measurements.md`）。
 
 **静态库的符号面远大于动态库（里程碑 36 实测，里程碑 39 三平台实测）**：
 选静态还是动态，除了体积（上表）还应看符号面——这是**只有静态链接才有的

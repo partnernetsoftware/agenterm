@@ -23,6 +23,11 @@ Current product truth starts at `PRD.md`; current sequencing starts at
 the `design-rh-standalone-product*` set preserve the extracted Rh product's
 history. Rh left this repository; current `.qjs` work is qjswasm/tinyvm.
 
+The superseded dyn S-expression reviews, the completed qjs/wasmcore archive
+gates, and the old qjs module-import design are retained here for the same
+reason: their product eras have ended, while their decisions remain useful
+history.
+
 ## Completed decision experiments
 
 - `design-process-policy-authority-experiment.md` — rejected the exact
@@ -34,6 +39,14 @@ history. Rh left this repository; current `.qjs` work is qjswasm/tinyvm.
   temporary-region specialization decisions.
 - `design-ui-snapshot-selection-boundary-experiment.md` — admitted transport
   field selection without changing the product capability state.
+
+## Superseded execution notes
+
+`phase0-baseline-measurements.md`, `note-six-runner-courts.md`, and
+`grok.glm.refactor.review.md` preserve bounded historical measurements or
+reviews whose current owners are named in their archive banners. The two
+`*-shell-l1-l2-l3.md` files are retired rename pointers to the active chassis
+documents.
 
 ## Restored decision records
 

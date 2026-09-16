@@ -17,7 +17,7 @@ Do not treat [`plan/agenterm-dyn-cc-review.md`](agenterm-dyn-cc-review.md) as
 current for CI or macOS. That note predates live Darwin `system_probes` and
 the dyn steps already in `.github/workflows/ci-agenterm.yml`.
 
-Product bar: [`prd/PRD_02_34_agenterm_dyn.md`](../prd/PRD_02_34_agenterm_dyn.md).
+Product bar: [`prd/PRD_02_34_agenterm_dyn.md`](../../prd/PRD_02_34_agenterm_dyn.md).
 Windows extra probes stay **placeholders** until 政委 flips that sentence.
 This file is the Windows verification / fill-in playbook, not a license to
 thicken the crate.

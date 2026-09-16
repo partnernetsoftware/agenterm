@@ -1,4 +1,7 @@
-# 抽象与复用专项 review：agenterm-con 与主 crate 的重复代码地图
+# ⚠️ 已归档：agenterm-con 与主 crate 的重复代码地图
+
+> **归档于 2026-09-16 — 被取代。** `agenterm-con` 已离开当前产品树；
+> 当前源码布局权威仅为 `plan/ARCHITECTURE.md`。
 
 | 字段 | 值 |
 |------|-----|

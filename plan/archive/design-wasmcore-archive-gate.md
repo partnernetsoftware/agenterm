@@ -1,12 +1,15 @@
-# `agenterm-wasmcore` 归档门（第一条）：能力差异的诚实清单
+# ⚠️ 已归档：`agenterm-wasmcore` 归档门（第一条）
+
+> **归档于 2026-09-16 — 已结案。** `agenterm-wasmcore` 已离开当前产品树；
+> 现行权威为 `prd/PRD_02_36_agenterm_qjswasm.md`，本文件只保存归档判据与证据。
 
 | 字段 | 值 |
 |------|-----|
 | **文档** | PRD 36「归档 `agenterm-wasmcore` 的门」第 1 条的交付物：逐条列出 wasmcore 能而 qjswasm 不能的事，每条标 **要补** / **有意不补** |
 | 日期 | 2026-08-25 |
 | 状态 | **已结案 2026-08-28**：crate 已归档。第 1 条门判绿；第 2 条**没有按原设想执行**——`.wasm` 默认路由**不切到 qjswasm**，改为落空 + 点名诊断，理由在 PRD 36 的路由表下方；第 3 条数字在 §5，已留档为 tinyvm「原生降级」轨的输入。本文件自此是**历史证据**，不再描述现状 |
-| **产品真理** | [`prd/PRD_02_36_agenterm_qjswasm.md`](../prd/PRD_02_36_agenterm_qjswasm.md)。门的定义以该文件为准，本文件只填内容 |
-| 关联 | [`plan/design-agenterm-qjswasm.md`](design-agenterm-qjswasm.md)、[archived wasmcore decision](../prd/archive/PRD_02_36_agenterm_qjswasm_history_2026-08.md)、`src/script_engine.rs`、`crates/agenterm-qjswasm/src/host.rs` |
+| **产品真理** | [`prd/PRD_02_36_agenterm_qjswasm.md`](../../prd/PRD_02_36_agenterm_qjswasm.md)。门的定义以该文件为准，本文件只填内容 |
+| 关联 | [`plan/design-agenterm-qjswasm.md`](../design-agenterm-qjswasm.md)、[archived wasmcore decision](../../prd/archive/PRD_02_36_agenterm_qjswasm_history_2026-08.md)、`src/script_engine.rs`、`crates/agenterm-qjswasm/src/host.rs` |
 | 方法 | 每条差异要么给 `file:line`，要么给**真跑出来的输出**。读源码得出的结论标「读码」，跑出来的标「实测」。§2 的表整张是实测 |
 
 ---

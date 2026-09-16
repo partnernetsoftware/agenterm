@@ -1,4 +1,8 @@
-# qjs 多文件 `import` 方案设计
+# ⚠️ 已归档：qjs 多文件 `import` 方案设计
+
+> **归档于 2026-09-16 — 被取代。** 本设计面向已移除的 `agenterm-qjs` / Rh
+> 实现；现行权威为 `prd/PRD_02_36_agenterm_qjswasm.md`、
+> `plan/design-agenterm-qjswasm.md` 与 qjswasm module resolver。
 
 | 字段 | 值 |
 |------|-----|

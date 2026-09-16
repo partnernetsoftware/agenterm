@@ -1,12 +1,16 @@
-# `agenterm-qjs` 归档门第三条：CLI 面逐动词判决
+# ⚠️ 已归档：`agenterm-qjs` 归档门第三条
+
+> **归档于 2026-09-16 — 已被 qjswasm 路线取代。** 原归档门的判决已落入
+> qjswasm 产品路线；现行权威为 `prd/PRD_02_36_agenterm_qjswasm.md` 与
+> `plan/design-agenterm-qjswasm.md`。
 
 | 字段 | 值 |
 |------|-----|
 | **文档** | PRD 36 归档门第三条的交付物：`agenterm-qjs` 每一个 CLI 子命令与每一份 manifest schema，在 `agenterm-qjswasm` 上**有没有**对应面、**应该是什么形状**、**不提供的理由** |
 | 日期 | 2026-08-25 |
 | 状态 | 判决稿 rev1。门**未关**——本文件是关门需要的那份声明，不是关门动作本身 |
-| **产品真理** | [`prd/PRD_02_36_agenterm_qjswasm.md`](../prd/PRD_02_36_agenterm_qjswasm.md)。归档门三条以该文件为准；本文件只回答第三条 |
-| 关联 | [`plan/design-agenterm-qjswasm.md`](design-agenterm-qjswasm.md)、[`plan/design-qjs-module-imports.md`](design-qjs-module-imports.md)、[`crates/agenterm-qjswasm/README.md`](../crates/agenterm-qjswasm/README.md)、[`docs/agenterm-qjs-cheatsheet.md`](../docs/agenterm-qjs-cheatsheet.md) |
+| **产品真理** | [`prd/PRD_02_36_agenterm_qjswasm.md`](../../prd/PRD_02_36_agenterm_qjswasm.md)。归档门三条以该文件为准；本文件只回答第三条 |
+| 关联 | [`plan/design-agenterm-qjswasm.md`](../design-agenterm-qjswasm.md)、[`plan/archive/design-qjs-module-imports.md`](design-qjs-module-imports.md)、[`crates/agenterm-qjswasm/README.md`](../../crates/agenterm-qjswasm/README.md)、[`docs/agenterm-qjs-cheatsheet.md`](../../docs/agenterm-qjs-cheatsheet.md) |
 | 范围声明 | 只写判决与证据。不改任何 `.rs`，不改 PRD 36，不执行归档 |
 
 PRD 36 §归档门第三条原文：

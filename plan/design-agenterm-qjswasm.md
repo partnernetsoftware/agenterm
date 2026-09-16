@@ -219,7 +219,7 @@ impl Engine {
 /// 计划中的 CLI `qjswasm build` 也走它——**该 CLI 今天不存在**
 /// （2026-08-25 实测：本仓没有 `qjswasm` 子命令，`src/bin/agenterm.rs` 的
 /// `ENGINE_SUBCOMMANDS` 里没有它。判决与落地顺序见
-/// `plan/design-qjs-archive-gate.md` §9）。
+/// `plan/archive/design-qjs-archive-gate.md` §9）。
 pub fn compile_qjs(source: &str) -> Result<Vec<u8>, CompileError>;
 
 /// 同一个编译器，但**不声明门**：每个自由名字都是能力拒绝，产物的 import 表按构造为空。

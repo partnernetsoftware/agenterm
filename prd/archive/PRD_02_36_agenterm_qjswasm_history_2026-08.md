@@ -311,7 +311,7 @@ qjswasm   compiling .qjs: needs an operand here, found a `/` at byte 0
 
 ### 门 3：逐动词判决（2026-08-25，全部跑过，不是读出来的）
 
-判据表在 [`plan/design-qjs-archive-gate.md`](../../plan/design-qjs-archive-gate.md)，
+判据表在 [`plan/archive/design-qjs-archive-gate.md`](../../plan/archive/design-qjs-archive-gate.md)，
 每格都有可复现的命令。三类判决：**必须提供**（新引擎上要有等价动词）、
 **形状必然不同**（能力在，但产物或收据不同，须写清差异）、**可以不提供**（附理由）。
 
@@ -466,7 +466,7 @@ qjswasm   compiling .qjs: needs an operand here, found a `/` at byte 0
 
 | # | 门 | 状态（2026-08-25） |
 |---|----|------|
-| 1 | 能力差异有诚实清单，每条注明要补 / 有意不补 | **可判绿**——清单在下，交付物是 [`plan/design-wasmcore-archive-gate.md`](../../plan/design-wasmcore-archive-gate.md) |
+| 1 | 能力差异有诚实清单，每条注明要补 / 有意不补 | **可判绿**——清单在下，交付物是 [`plan/archive/design-wasmcore-archive-gate.md`](../../plan/archive/design-wasmcore-archive-gate.md) |
 | 2 | `.wasm` 默认路由切到 qjswasm，拒绝形状有测试锁住 | **不能绿**，还差两件，见下 |
 | 3 | 现状实测（零 `.wasm` 语料、optional + default 关） | **已复核**，数字与原文一致，但生产调用点是四处不是一处 |
 

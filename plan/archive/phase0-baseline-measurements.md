@@ -1,4 +1,8 @@
-# Phase 0 迁移前实测基线（里程碑 14）
+# ⚠️ 已归档：Phase 0 迁移前实测基线（里程碑 14）
+
+> **归档于 2026-09-16 — 历史基线。** 当前 CU 与 libagenterm 交付权威在
+> `prd/PRD_02_28_agenterm_cu.md`、`prd/PRD_02_29_cu_command_surface.md`；
+> 本文件只保存迁移前的产物与量测快照。
 
 > Historical snapshot: this document preserves the artifact names, paths,
 > hashes and linkage observations measured at that time. The row named
@@ -105,7 +109,7 @@
 在 con 迁移之前，`examples/size-probe/` 用最小双变体探针测"消费者迁到动态 dylib
 后能瘦多少"（记作 `S_probe`），以提前判决判据 2（共享收益）是否可能成立。
 完整证据（变体说明、构建命令、运行输出、PE 导入表佐证）见
-[`examples/size-probe/README.md`](../examples/size-probe/README.md)，本表只收录其数字：
+[`examples/size-probe/README.md`](../../examples/size-probe/README.md)，本表只收录其数字：
 
 | 口径 | 变体 A（静态） | 变体 B（动态 dylib） | `S_probe` |
 |------|----------------|----------------------|-----------|

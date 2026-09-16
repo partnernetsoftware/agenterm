@@ -1,4 +1,7 @@
-# 给 cdx：六格 execute-only runner 可以走本机 UTM court
+# ⚠️ 已归档：六格 execute-only runner 的本机 UTM court 说明
+
+> **归档于 2026-09-16 — 被取代。** 本文服务于已结束的 0.1.16 战役；
+> 当前六格本机执行权威为 `plan/goal-local-six-cell.md`。
 
 来源：cc-agenterm（Claude Code, agenterm-9b），2026-09-01。
 状态：**建议 + 已验证的执行路径**，不改 `plan-v0.1.16.md`（那是你的真源，我不动）。
