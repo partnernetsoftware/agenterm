@@ -665,7 +665,12 @@ flowchart LR
   matching source identity and embeds their validated summary into the sealed
   Candidate manifest. No runtime cell checks out source, invokes Cargo, or
   mutates machine state; a first successful exact-SHA Candidate remains the
-  evidence needed to turn this leaf `[x]`.
+  evidence needed to turn this leaf `[x]`. The composition court's own arm has
+  been run once locally on this repository's macOS host at exact source
+  `eec6de4f` -- built and run from an isolated repository-local lane, exit 0 in
+  four seconds, printing the `PASS:` line its carrier requires -- so that arm's
+  behaviour is no longer only declared. The six-cell aggregate, its same-source
+  receipts and the Candidate remain the closing conditions.
   Native Unix packaging, macOS signing/notarization and sealed Candidate
   artifact evidence remain open.
 

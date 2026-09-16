@@ -84,11 +84,35 @@ Use the host-matching root aliases:
 | Purpose | Windows | Linux/macOS |
 |---|---|---|
 | Lint | `./lint.cmd` | `./lint.sh` |
-| Build | `./build.bat` | `./build.sh` |
+| Build | `./build.bat` (with a lane, below) | `./build.sh` (with a lane, below) |
 | Quick | `./check.cmd --quick` | `./check.sh --quick` |
 | CI-grade | `./check.cmd --skip-smoke` | `./check.sh --skip-smoke` |
 | Full | `./check.cmd` | `./check.sh` |
 | Release rehearsal | `./release.cmd --rehearse` | `./release.sh --rehearse` |
+
+The build task is declared to receive exactly two isolation variables, so a
+bare build alias answers `task_environment_missing` and exits 2 before it
+writes anything. Name a repository-local lane instead:
+
+```powershell
+$env:AGENTERM_BUILD_DIST_DIR = 'dist/<lane>'
+$env:CARGO_TARGET_DIR = 'target/<lane>'
+./build.bat <profile>
+```
+
+or on Linux/macOS:
+
+```sh
+AGENTERM_BUILD_DIST_DIR=dist/<lane> CARGO_TARGET_DIR=target/<lane> ./build.sh <profile>
+```
+
+Both values must be direct children of the repository's `dist/` and `target/`
+(a bare `dist` or `target` is refused, and so is a symlink). Read the artifact
+paths off the build's own output instead of assuming them: it lists every
+artifact under a `Built client artifacts [<profile>, <os>-<arch>]:` header, one
+path per line -- in this checkout a `dev` lane reported `target/<lane>/debug/`,
+and a lane building for another target can carry a target-triple level as well.
+Only the native Windows lane stages the shipped names under `dist/<lane>/`.
 
 Run cheap formatting and lint while iterating, then owning unit and public
 black-box courts, then integrated gates. Reserve stress, packaging, and exact-

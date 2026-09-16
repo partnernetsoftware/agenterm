@@ -1051,7 +1051,13 @@ integration.
   now runs that court on every packaged six-cell runtime cell after the ACU
   provider courts and publishes `cu.retirement-cell.native-acu-composition` in
   the cell receipt. That path is wired but not yet remotely executed, so this
-  leaf claims no six-cell verdict.
+  leaf claims no six-cell verdict. The court itself has been executed locally
+  once, on this repository's own macOS host at exact source `eec6de4f`: built
+  into an isolated repository-local lane and run from it, it exited 0 in four
+  seconds and printed its `PASS:` line, which is exactly the line the six-cell
+  carrier court requires. That is **local evidence only** -- it does not make
+  this path remotely executed, the six packaged runtime cells and their
+  same-source receipts are still absent, and no Candidate has been produced.
 - The same `agenterm:native` module serves the pointer prototypes through one
   **call-scoped host region** per pointer position. The host allocates that
   storage, zero-fills it, keeps 16 bytes of natural alignment in the allocation
