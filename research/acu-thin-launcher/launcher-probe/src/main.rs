@@ -26,6 +26,7 @@ const ENTRY_MANAGED_JOB_OWNER: u32 = 4;
 const ENTRY_DEVICE_LEASE_OWNER: u32 = 5;
 const ENTRY_DEVICE_IO_FIXTURE: u32 = 7;
 const ENTRY_NETWORK_PROBE_FIXTURE: u32 = 8;
+const ENTRY_VERBS_TEXT: u32 = 10;
 const ENTRY_VERSION_TEXT: u32 = 12;
 
 const NETWORK_PROBE_WORKER_ARG: &[u8] = b"--agenterm-cu-internal-network-probe-worker";
@@ -34,6 +35,7 @@ const MANAGED_JOB_OWNER_ARG: &[u8] = b"--agenterm-cu-internal-managed-job-owner"
 const DEVICE_LEASE_OWNER_ARG: &[u8] = b"--agenterm-cu-internal-device-lease-owner";
 const DEVICE_IO_FIXTURE_ARG: &[u8] = b"--agenterm-cu-internal-device-io-fixture";
 const NETWORK_PROBE_FIXTURE_ARG: &[u8] = b"--agenterm-cu-internal-network-probe-fixture";
+const VERBS_ARG: &[u8] = b"verbs";
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -239,6 +241,8 @@ fn expected_entry_mode(argv: &[Vec<u8>]) -> u32 {
         ENTRY_DEVICE_IO_FIXTURE
     } else if matches!(argv, [first, ..] if first.as_slice() == NETWORK_PROBE_FIXTURE_ARG) {
         ENTRY_NETWORK_PROBE_FIXTURE
+    } else if matches!(argv, [first, ..] if first.as_slice() == VERBS_ARG) {
+        ENTRY_VERBS_TEXT
     } else if matches!(argv, [arg] if matches!(arg.as_slice(), b"--version" | b"-V")) {
         ENTRY_VERSION_TEXT
     } else {
@@ -262,6 +266,7 @@ fn validate_output(entry_mode: u32, stdout: &[u8], stderr: &[u8]) -> Result<(), 
             }
         }
         ENTRY_VERSION_TEXT => validate_version_output(stdout, stderr),
+        ENTRY_VERBS_TEXT => validate_verbs_output(stdout, stderr),
         _ => Err("provider_result_entry_mode_invalid"),
     }
 }
@@ -300,6 +305,26 @@ fn validate_version_output(stdout: &[u8], stderr: &[u8]) -> Result<(), &'static 
         return Err("provider_version_stdout_invalid");
     }
     Ok(())
+}
+
+fn validate_verbs_output(stdout: &[u8], stderr: &[u8]) -> Result<(), &'static str> {
+    if !stderr.is_empty() {
+        return Err("provider_verbs_stderr_invalid");
+    }
+    let text = std::str::from_utf8(stdout).map_err(|_| "provider_verbs_stdout_invalid")?;
+    if text.starts_with("NAME") {
+        return Ok(());
+    }
+    let json = stdout
+        .strip_suffix(b"\n")
+        .ok_or("provider_verbs_stdout_invalid")?;
+    let value: serde_json::Value =
+        serde_json::from_slice(json).map_err(|_| "provider_verbs_stdout_invalid")?;
+    if value.is_array() || value.get("ok") == Some(&serde_json::Value::Bool(false)) {
+        Ok(())
+    } else {
+        Err("provider_verbs_stdout_invalid")
+    }
 }
 
 fn provider_status(status: i32) -> &'static str {
@@ -382,6 +407,30 @@ mod tests {
             validate_version_output(b"{}\n", b"").unwrap_err(),
             "provider_version_stdout_invalid"
         );
+    }
+
+    #[test]
+    fn verbs_mode_accepts_text_json_and_typed_usage_only() {
+        for argv in [
+            vec![VERBS_ARG.to_vec()],
+            vec![VERBS_ARG.to_vec(), b"--json".to_vec()],
+            vec![VERBS_ARG.to_vec(), b"--text".to_vec()],
+            vec![VERBS_ARG.to_vec(), b"--bogus".to_vec()],
+        ] {
+            assert_eq!(expected_entry_mode(&argv), ENTRY_VERBS_TEXT);
+        }
+        assert!(validate_verbs_output(b"NAME  SUMMARY\n", b"").is_ok());
+        assert!(validate_verbs_output(b"[]\n", b"").is_ok());
+        assert!(validate_verbs_output(b"{\"ok\":false}\n", b"").is_ok());
+        assert_eq!(
+            validate_verbs_output(b"{}\n", b"").unwrap_err(),
+            "provider_verbs_stdout_invalid"
+        );
+        assert_eq!(
+            validate_verbs_output(b"[]\n", b"unexpected").unwrap_err(),
+            "provider_verbs_stderr_invalid"
+        );
+        assert!(!entry_mode_owns_stdio(ENTRY_VERBS_TEXT));
     }
 
     #[test]

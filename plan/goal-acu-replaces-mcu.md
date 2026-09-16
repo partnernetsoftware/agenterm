@@ -77,8 +77,8 @@ ACU replaces MCU
 │  │  ├─ static provider rejected: Windows PE 3,731,968 → 8,865,792 bytes (> 4 MiB)
 │  │  ├─ dynamic provider accepted: exact release PE 3,738,112 bytes; separate ABI artifact; no fallback
 │  │  └─ [~] standalone thin launcher: Linux x86_64 L1 = 389,096 B; version text,
-│  │     network/device fixtures + managed-job/browser-session/device-lease owners are green,
-│  │     but five families keep G1 red; owner lifecycle evidence remains platform-scoped
+│  │     version/verbs + network/device fixtures + three resident owners are green,
+│  │     but four families keep G1 red; owner lifecycle evidence remains platform-scoped
 │  ├─ phase 3 [~]: `skills/acu/acu.qjs` + bounded argv helpers + frozen compatibility court are green;
 │  │  42/42 positive legacy probes execute in-process; 95 dynamic witnesses remain the named repair queue;
 │  │  all 2 dynamic-stay witnesses fail with their exact gap id instead of falling through to native usage;

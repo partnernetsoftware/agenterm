@@ -2196,7 +2196,9 @@ flowchart LR
   process-entry contracts through explicit ABI modes. The device-lease resident
   owner also preserves its exact sentinel and inherited-stdin secret boundary,
   while its Unix PTY fixture retains direct stdout and bounded lifetime. The
-  other five binary-entry families still fail closed instead of preserving
+  `verbs` text, JSON and typed-usage outputs now retain exact bytes and exits
+  through the bounded ABI buffer. The other four binary-entry families still
+  fail closed instead of preserving
   framing/lifetime/cleanup parity. The browser-session result is a macOS native
   public court, not Candidate evidence: that court is platform-limited and
   registered rather than Windows Candidate-required. The staged device-lease

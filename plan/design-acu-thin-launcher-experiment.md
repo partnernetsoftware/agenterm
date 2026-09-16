@@ -166,11 +166,13 @@ through entry mode 3. Entry mode 5 also preserves the device-lease resident
 owner's exact sentinel and inherited launch pipe without copying its lease secret
 into argv, environment or ABI buffers. Entry mode 7 preserves the paired Unix PTY
 fixture's direct stdout and bounded lifetime; the existing registered device-lease
-court is green through the staged topology. The tree still stops at G1 red: the
-other five binary-entry families remain `provider_entry_mode_unimplemented`;
+court is green through the staged topology. Entry mode 10 now preserves the
+library-owned `verbs` text, JSON and typed-usage bytes through the bounded ABI
+buffer. The tree still stops at G1 red: the other four binary-entry families
+remain `provider_entry_mode_unimplemented`;
 their framing, resident lifetime, cleanup and exact exit parity are not
-implemented. The browser-session
-result is native court evidence, not Candidate evidence: its existing qjs court
+implemented. The browser-session result is native court evidence, not Candidate
+evidence: its existing qjs court
 is a registered macOS court rather than a Windows Candidate gate. The device-lease
 lifecycle result is likewise native macOS evidence from a registered Unix court,
 not Candidate evidence.

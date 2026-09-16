@@ -242,6 +242,20 @@ unsafe fn process_main_inner(
             (encoded, diagnostic, reply_exit_code(&reply))
         }
         ENTRY_VERSION_TEXT => (agenterm_cu::version_text().into_bytes(), String::new(), 0),
+        ENTRY_VERBS_TEXT => match agenterm_cu::cli::help::run_verbs(&argv[1..]) {
+            Ok(text) => (text.into_bytes(), String::new(), 0),
+            Err(reply) => {
+                let exit_code = reply_exit_code(&reply);
+                let encoded = match serde_json::to_vec(&*reply) {
+                    Ok(mut encoded) => {
+                        encoded.push(b'\n');
+                        encoded
+                    }
+                    Err(_) => return STATUS_SERIALIZE_FAILED,
+                };
+                (encoded, String::new(), exit_code)
+            }
+        },
         _ => return STATUS_ENTRY_MODE_UNIMPLEMENTED,
     };
     if encoded.len() > stdout_capacity
@@ -399,6 +413,7 @@ mod tests {
                 ENTRY_X11_CLIPBOARD_OWNER,
             ),
             (&["--version"][..], ENTRY_VERSION_TEXT),
+            (&["verbs", "--json"][..], ENTRY_VERBS_TEXT),
         ];
         for (argv, expected) in cases {
             assert_eq!(classify_entry(&strings(argv)), expected, "{argv:?}");
