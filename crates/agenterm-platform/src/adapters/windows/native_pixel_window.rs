@@ -22,12 +22,12 @@ use crate::selected::reentrant_dispatch::{BoundedQueue, QueueError};
 
 use windows_sys::Win32::Graphics::Gdi::ValidateRect;
 use windows_sys::Win32::{
-    Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
+    Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
     Graphics::Gdi::{
         BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BeginPaint, DIB_RGB_COLORS, EndPaint, HDC,
-        InvalidateRect, PAINTSTRUCT, SRCCOPY, StretchDIBits,
+        InvalidateRect, PAINTSTRUCT, SRCCOPY, ScreenToClient, StretchDIBits,
     },
-    System::LibraryLoader::GetModuleHandleW,
+    System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW},
     UI::{
         HiDpi::GetDpiForWindow,
         Input::Ime::{IACE_DEFAULT, ImmAssociateContextEx},
@@ -177,6 +177,7 @@ enum PendingNativeEvent {
     },
     MouseWheel {
         delta: WheelDelta,
+        position: Option<LogicalPoint>,
         modifiers: ModifierState,
     },
     Wake,
@@ -600,6 +601,14 @@ struct Backend {
     control: Rc<NativeControl>,
     capture_active: Cell<bool>,
     ime_allowed: Cell<bool>,
+    /// The most recent client-area pointer position, in logical pixels. Wheel
+    /// messages carry screen coordinates and no cursor position of their own, so
+    /// caching the last `WM_MOUSEMOVE` point lets a wheel event report where the
+    /// pointer is — matching the winit backend, whose `MouseWheel` carries
+    /// `last_pointer`. Without it every wheel event reached the app with
+    /// `position: None`, so scroll-forwarding to a mouse-tracking TUI (e.g. a
+    /// full-screen app) always encoded cell (0,0) and the sidebar never scrolled.
+    last_pointer: Cell<Option<LogicalPoint>>,
 }
 
 /// A visible `CreateWindowExW` can synchronously deliver `WM_PAINT` before the
@@ -829,10 +838,54 @@ struct HostState {
     interactive_resize: bool,
 }
 
+/// Declares the process per-monitor DPI-aware *before* any window exists, so
+/// `GetDpiForWindow` reports the real DPI and `WM_DPICHANGED` fires. Without it
+/// a DPI-unaware process is bitmap-stretched by the OS on any scaled display —
+/// every glyph goes soft while `cmd.exe` (which is DPI-aware) stays crisp. The
+/// modern entry points are absent on Windows 7/8, so each is resolved
+/// dynamically: a static import of `SetProcessDpiAwarenessContext` would make
+/// the executable fail to load on those systems. Must run before the first
+/// `CreateWindowExW`, or the OS latches the awareness to unaware.
+fn ensure_process_dpi_aware() {
+    unsafe {
+        // Windows 10 1703+: user32!SetProcessDpiAwarenessContext.
+        let user32 = LoadLibraryW(wide_null("user32.dll").as_ptr());
+        if !user32.is_null()
+            && let Some(proc) =
+                GetProcAddress(user32, c"SetProcessDpiAwarenessContext".as_ptr().cast())
+        {
+            let set_ctx: unsafe extern "system" fn(isize) -> i32 = mem::transmute(proc);
+            // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4 (1703+),
+            // _PER_MONITOR_AWARE = -3 (1607+) as the fallback.
+            if set_ctx(-4) != 0 || set_ctx(-3) != 0 {
+                return;
+            }
+        }
+        // Windows 8.1: shcore!SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE).
+        let shcore = LoadLibraryW(wide_null("shcore.dll").as_ptr());
+        if !shcore.is_null()
+            && let Some(proc) = GetProcAddress(shcore, c"SetProcessDpiAwareness".as_ptr().cast())
+        {
+            let set_aware: unsafe extern "system" fn(i32) -> i32 = mem::transmute(proc);
+            if set_aware(2) == 0 {
+                return;
+            }
+        }
+        // Windows Vista/7: user32!SetProcessDPIAware (system-DPI aware only).
+        if !user32.is_null()
+            && let Some(proc) = GetProcAddress(user32, c"SetProcessDPIAware".as_ptr().cast())
+        {
+            let set_dpi_aware: unsafe extern "system" fn() -> i32 = mem::transmute(proc);
+            let _ = set_dpi_aware();
+        }
+    }
+}
+
 pub(crate) fn run_pixel_window(
     options: PixelWindowOptions,
     application: Box<dyn PixelWindowApplication>,
 ) -> Result<(), PixelWindowError> {
+    ensure_process_dpi_aware();
     let instance = unsafe { GetModuleHandleW(ptr::null()) };
     if instance.is_null() {
         return Err(last_error("pixel_window_module_handle_failed"));
@@ -880,6 +933,7 @@ pub(crate) fn run_pixel_window(
         control: control.clone(),
         capture_active: Cell::new(false),
         ime_allowed: Cell::new(options.ime_allowed),
+        last_pointer: Cell::new(None),
     });
     let wake_alive = Arc::clone(&alive);
     let wake_hwnd = Arc::clone(&backend.wake_hwnd);
@@ -1309,10 +1363,14 @@ unsafe fn snapshot_native_message(
             unit: wparam as u16,
             modifiers: modifiers(),
         },
-        WM_MOUSEMOVE => PendingNativeEvent::PointerMoved {
-            position: point(lparam, scale),
-            modifiers: modifiers(),
-        },
+        WM_MOUSEMOVE => {
+            let position = point(lparam, scale);
+            backend.last_pointer.set(Some(position));
+            PendingNativeEvent::PointerMoved {
+                position,
+                modifiers: modifiers(),
+            }
+        }
         MOUSE_LEAVE_MESSAGE => PendingNativeEvent::PointerLeft,
         WM_CAPTURECHANGED => PendingNativeEvent::CaptureChanged {
             new_owner: lparam as HWND,
@@ -1339,8 +1397,18 @@ unsafe fn snapshot_native_message(
         }
         WM_MOUSEWHEEL => {
             let delta = ((wparam >> 16) as u16 as i16) as f32 / 120.0;
+            // Wheel messages report screen coordinates and carry no cursor
+            // position of their own; reuse the last pointer move, falling back to
+            // converting the wheel's own screen point if the pointer has not
+            // moved yet. Without a position the app forwards cell (0,0) to a
+            // mouse-tracking TUI and cannot route the wheel to the hovered pane.
+            let position = backend
+                .last_pointer
+                .get()
+                .or_else(|| unsafe { screen_to_client_logical(hwnd, lparam, scale) });
             PendingNativeEvent::MouseWheel {
                 delta: WheelDelta::Lines { x: 0.0, y: delta },
+                position,
                 modifiers: modifiers(),
             }
         }
@@ -1514,11 +1582,15 @@ fn dispatch_pending_event(state: &mut HostState, hwnd: HWND, event: PendingNativ
                 modifiers,
             },
         ),
-        PendingNativeEvent::MouseWheel { delta, modifiers } => dispatch_event(
+        PendingNativeEvent::MouseWheel {
+            delta,
+            position,
+            modifiers,
+        } => dispatch_event(
             state,
             PixelWindowEvent::MouseWheel {
                 delta,
-                position: None,
+                position,
                 modifiers,
             },
         ),
@@ -2313,6 +2385,25 @@ fn point(lparam: LPARAM, scale: f64) -> LogicalPoint {
     let x = i32::from((packed & 0xffff) as u16 as i16);
     let y = i32::from((packed >> 16) as u16 as i16);
     LogicalPoint::new(f64::from(x) / scale, f64::from(y) / scale)
+}
+
+/// Converts a `WM_MOUSEWHEEL` screen-coordinate lParam to a client-area logical
+/// point. Unlike the client-relative pointer messages, wheel messages report
+/// screen coordinates, so `ScreenToClient` is required before scaling. Used only
+/// as a fallback when no cached pointer position exists yet.
+unsafe fn screen_to_client_logical(hwnd: HWND, lparam: LPARAM, scale: f64) -> Option<LogicalPoint> {
+    let packed = lparam as u32;
+    let mut pt = POINT {
+        x: i32::from((packed & 0xffff) as u16 as i16),
+        y: i32::from((packed >> 16) as u16 as i16),
+    };
+    if unsafe { ScreenToClient(hwnd, &mut pt) } == 0 {
+        return None;
+    }
+    Some(LogicalPoint::new(
+        f64::from(pt.x) / scale,
+        f64::from(pt.y) / scale,
+    ))
 }
 
 fn closed_error() -> PixelWindowError {
