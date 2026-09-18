@@ -1,0 +1,4 @@
+/target/
+*.slot
+*.receipt.json
+_*.log

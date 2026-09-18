@@ -1,0 +1,23 @@
+# Standalone lab crate — not a workspace member of the product tree.
+[workspace]
+
+[package]
+name = "mmap-ephemeral-lab"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.97"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[[bin]]
+name = "mmap-lab"
+path = "src/main.rs"
+
+# Zero crates.io deps: PATH `cc` shims break build-scripts (libc/memmap2).
+# mmap is via raw libc FFI below.
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

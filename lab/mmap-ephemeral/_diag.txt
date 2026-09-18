@@ -1,0 +1,7 @@
+done
+libc-6e6c47cefa88bd63
+libc-e6c96f9eb0c4129a
+/Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/.fingerprint/libc-6e6c47cefa88bd63/build-script-build-script-build.json
+/Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/.fingerprint/libc-6e6c47cefa88bd63/build-script-build-script-build
+rustc 1.97.0 (2d8144b78 2026-07-07)
+cargo 1.97.0 (c980f4866 2026-06-30)

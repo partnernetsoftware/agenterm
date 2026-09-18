@@ -1,0 +1,69 @@
+total 8
+drwxr-xr-x  3 wjc  staff   96 18  9 20:11 .
+drwxr-xr-x  4 wjc  staff  128 18  9 20:11 ..
+-rw-r--r--  1 wjc  staff  513 18  9 20:11 build_script_build-6e6c47cefa88bd63.d
+total 8
+drwxr-xr-x  4 wjc  staff  128 18  9 20:11 .
+drwxr-xr-x  4 wjc  staff  128 18  9 20:11 ..
+-rw-r--r--  1 wjc  staff   48 18  9 20:11 invoked.timestamp
+drwxr-xr-x  2 wjc  staff   64 18  9 20:11 out
+
+/Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/build/libc-e6c96f9eb0c4129a//out:
+total 0
+drwxr-xr-x  2 wjc  staff   64 18  9 20:11 .
+drwxr-xr-x  4 wjc  staff  128 18  9 20:11 ..
+     Removed 11 files, 3.2KiB total
+   0.030916833s  INFO prepare_target{force=false package_id=mmap-ephemeral-lab v0.0.0 (/Users/wjc/repos/agenterm/lab/mmap-ephemeral) target="mmap-lab"}: cargo::core::compiler::fingerprint: fingerprint error for mmap-ephemeral-lab v0.0.0 (/Users/wjc/repos/agenterm/lab/mmap-ephemeral)/Build/TargetInner { name: "mmap-lab", doc: true, ..: with_path("/Users/wjc/repos/agenterm/lab/mmap-ephemeral/src/main.rs", Edition2024) }
+   0.031088125s  INFO prepare_target{force=false package_id=mmap-ephemeral-lab v0.0.0 (/Users/wjc/repos/agenterm/lab/mmap-ephemeral) target="mmap-lab"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/.fingerprint/mmap-ephemeral-lab-60b813a32564bdec/bin-mmap-lab`
+
+Caused by:
+    No such file or directory (os error 2)
+   0.031349708s  INFO prepare_target{force=false package_id=memmap2 v0.9.11 target="memmap2"}: cargo::core::compiler::fingerprint: fingerprint error for memmap2 v0.9.11/Build/TargetInner { ..: lib_target("memmap2", ["lib"], "/Users/wjc/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/memmap2-0.9.11/src/lib.rs", Edition2021) }
+   0.031366292s  INFO prepare_target{force=false package_id=memmap2 v0.9.11 target="memmap2"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/.fingerprint/memmap2-ab5627fd086c95de/lib-memmap2`
+
+Caused by:
+    No such file or directory (os error 2)
+   0.031436833s  INFO prepare_target{force=false package_id=libc v0.2.189 target="libc"}: cargo::core::compiler::fingerprint: fingerprint error for libc v0.2.189/Build/TargetInner { ..: lib_target("libc", ["lib"], "/Users/wjc/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.189/src/lib.rs", Edition2021) }
+   0.031441583s  INFO prepare_target{force=false package_id=libc v0.2.189 target="libc"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/.fingerprint/libc-0bc09b2caff9f640/lib-libc`
+
+Caused by:
+    No such file or directory (os error 2)
+   0.031757167s  INFO prepare_target{force=false package_id=libc v0.2.189 target="build-script-build"}: cargo::core::compiler::fingerprint: fingerprint error for libc v0.2.189/RunCustomBuild/TargetInner { ..: custom_build_target("build-script-build", "/Users/wjc/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.189/build.rs", Edition2021) }
+   0.031762708s  INFO prepare_target{force=false package_id=libc v0.2.189 target="build-script-build"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/.fingerprint/libc-e6c96f9eb0c4129a/run-build-script-build-script-build`
+
+Caused by:
+    No such file or directory (os error 2)
+   0.031807708s  INFO prepare_target{force=false package_id=libc v0.2.189 target="build-script-build"}: cargo::core::compiler::fingerprint: fingerprint error for libc v0.2.189/Build/TargetInner { ..: custom_build_target("build-script-build", "/Users/wjc/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.189/build.rs", Edition2021) }
+   0.031813625s  INFO prepare_target{force=false package_id=libc v0.2.189 target="build-script-build"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/.fingerprint/libc-6e6c47cefa88bd63/build-script-build-script-build`
+
+Caused by:
+    No such file or directory (os error 2)
+   Compiling libc v0.2.189
+     Running `CARGO=/Users/wjc/.rustup/toolchains/1.97.0-aarch64-apple-darwin/bin/cargo CARGO_CRATE_NAME=build_script_build CARGO_MANIFEST_DIR=/Users/wjc/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.189 CARGO_MANIFEST_PATH=/Users/wjc/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.189/Cargo.toml CARGO_PKG_AUTHORS='' CARGO_PKG_DESCRIPTION='Raw FFI bindings to platform libraries like libc.' CARGO_PKG_HOMEPAGE='' CARGO_PKG_LICENSE='MIT OR Apache-2.0' CARGO_PKG_LICENSE_FILE='' CARGO_PKG_NAME=libc CARGO_PKG_README=README.md CARGO_PKG_REPOSITORY='https://github.com/rust-lang/libc' CARGO_PKG_RUST_VERSION=1.65 CARGO_PKG_VERSION=0.2.189 CARGO_PKG_VERSION_MAJOR=0 CARGO_PKG_VERSION_MINOR=2 CARGO_PKG_VERSION_PATCH=189 CARGO_PKG_VERSION_PRE='' DYLD_FALLBACK_LIBRARY_PATH='/Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/deps:/Users/wjc/.rustup/toolchains/1.97.0-aarch64-apple-darwin/lib:/Users/wjc/lib:/usr/local/lib:/usr/lib' /Users/wjc/.rustup/toolchains/1.97.0-aarch64-apple-darwin/bin/rustc --crate-name build_script_build --edition=2021 /Users/wjc/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.189/build.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type bin --emit=dep-info,link -C embed-bitcode=no --allow=unused_qualifications '--warn=clippy::unnecessary_semicolon' '--allow=clippy::unnecessary_cast' '--warn=clippy::ptr_as_ptr' '--allow=clippy::non_minimal_cfg' '--allow=clippy::missing_safety_doc' '--warn=clippy::map_unwrap_or' '--warn=clippy::manual_assert' '--allow=clippy::identity_op' '--warn=clippy::explicit_iter_loop' -C debug-assertions=off --cfg 'feature="default"' --cfg 'feature="std"' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("align", "const-extern-fn", "default", "extra_traits", "rustc-dep-of-std", "rustc-std-workspace-core", "std", "use_std"))' -C metadata=21bf4bf95617a85b -C extra-filename=-6e6c47cefa88bd63 --out-dir /Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/build/libc-6e6c47cefa88bd63 -C strip=symbols -L dependency=/Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/deps --cap-lints warn`
+warning: linker stderr: error: --provider required for /Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/build/libc-6e6c47cefa88bd63/rustcxOOThO/symbols.o mode
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: linker stdout: # bin/cc — unified Claude Code wrapper (replaces ~35 cc-* files)
+         # Usage:
+         #   bin/cc proxy   --provider deepseek|kimi|huoshan|ollama|cerebras [--flash] [--safe] [--duplex] [--highspeed]
+         #   bin/cc direct  --provider glm|deepseek|bailian|mmx|ollama [--fast] [--duplex]
+         #   bin/cc llmgate --workflow claude|codex|moltbaby-v1.3|gpt|spark
+         #   bin/cc exec    --provider deepseek  (streaming executor)
+         #   bin/cc looper  --provider deepseek  (mindmap looper)
+
+warning: stripping debug info with `rust-objcopy` failed: exit status: 1
+  |
+  = note: rust-objcopy: error: '/Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/build/libc-6e6c47cefa88bd63/build_script_build-6e6c47cefa88bd63': No such file or directory
+          
+
+warning: `libc` (build script) generated 3 warnings
+     Running `CARGO=/Users/wjc/.rustup/toolchains/1.97.0-aarch64-apple-darwin/bin/cargo CARGO_CFG_FEATURE=default,std CARGO_CFG_PANIC=unwind CARGO_CFG_TARGET_ABI='' CARGO_CFG_TARGET_ARCH=aarch64 CARGO_CFG_TARGET_ENDIAN=little CARGO_CFG_TARGET_ENV='' CARGO_CFG_TARGET_FAMILY=unix CARGO_CFG_TARGET_FEATURE=aes,crc,dit,dotprod,dpb,dpb2,fcma,fhm,flagm,fp16,frintts,jsconv,lor,lse,neon,paca,pacg,pan,pmuv3,ras,rcpc,rcpc2,rdm,sb,sha2,sha3,ssbs,vh CARGO_CFG_TARGET_HAS_ATOMIC=128,16,32,64,8,ptr CARGO_CFG_TARGET_HAS_ATOMIC_PRIMITIVE_ALIGNMENT=128,16,32,64,8,ptr CARGO_CFG_TARGET_OS=macos CARGO_CFG_TARGET_POINTER_WIDTH=64 CARGO_CFG_TARGET_VENDOR=apple CARGO_CFG_UNIX='' CARGO_ENCODED_RUSTFLAGS='' CARGO_FEATURE_DEFAULT=1 CARGO_FEATURE_STD=1 CARGO_MANIFEST_DIR=/Users/wjc/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.189 CARGO_MANIFEST_PATH=/Users/wjc/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.189/Cargo.toml CARGO_PKG_AUTHORS='' CARGO_PKG_DESCRIPTION='Raw FFI bindings to platform libraries like libc.' CARGO_PKG_HOMEPAGE='' CARGO_PKG_LICENSE='MIT OR Apache-2.0' CARGO_PKG_LICENSE_FILE='' CARGO_PKG_NAME=libc CARGO_PKG_README=README.md CARGO_PKG_REPOSITORY='https://github.com/rust-lang/libc' CARGO_PKG_RUST_VERSION=1.65 CARGO_PKG_VERSION=0.2.189 CARGO_PKG_VERSION_MAJOR=0 CARGO_PKG_VERSION_MINOR=2 CARGO_PKG_VERSION_PATCH=189 CARGO_PKG_VERSION_PRE='' DEBUG=false DYLD_FALLBACK_LIBRARY_PATH='/Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release:/Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/deps:/Users/wjc/.rustup/toolchains/1.97.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib:/Users/wjc/.rustup/toolchains/1.97.0-aarch64-apple-darwin/lib:/Users/wjc/lib:/usr/local/lib:/usr/lib' HOST=aarch64-apple-darwin NUM_JOBS=6 OPT_LEVEL=3 OUT_DIR=/Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/build/libc-e6c96f9eb0c4129a/out PROFILE=release RUSTC=/Users/wjc/.rustup/toolchains/1.97.0-aarch64-apple-darwin/bin/rustc RUSTDOC=/Users/wjc/.rustup/toolchains/1.97.0-aarch64-apple-darwin/bin/rustdoc TARGET=aarch64-apple-darwin /Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/build/libc-6e6c47cefa88bd63/build-script-build`
+error: failed to run custom build command for `libc v0.2.189`
+
+Caused by:
+  could not execute process `CARGO=/Users/wjc/.rustup/toolchains/1.97.0-aarch64-apple-darwin/bin/cargo CARGO_CFG_FEATURE=default,std CARGO_CFG_PANIC=unwind CARGO_CFG_TARGET_ABI='' CARGO_CFG_TARGET_ARCH=aarch64 CARGO_CFG_TARGET_ENDIAN=little CARGO_CFG_TARGET_ENV='' CARGO_CFG_TARGET_FAMILY=unix CARGO_CFG_TARGET_FEATURE=aes,crc,dit,dotprod,dpb,dpb2,fcma,fhm,flagm,fp16,frintts,jsconv,lor,lse,neon,paca,pacg,pan,pmuv3,ras,rcpc,rcpc2,rdm,sb,sha2,sha3,ssbs,vh CARGO_CFG_TARGET_HAS_ATOMIC=128,16,32,64,8,ptr CARGO_CFG_TARGET_HAS_ATOMIC_PRIMITIVE_ALIGNMENT=128,16,32,64,8,ptr CARGO_CFG_TARGET_OS=macos CARGO_CFG_TARGET_POINTER_WIDTH=64 CARGO_CFG_TARGET_VENDOR=apple CARGO_CFG_UNIX='' CARGO_ENCODED_RUSTFLAGS='' CARGO_FEATURE_DEFAULT=1 CARGO_FEATURE_STD=1 CARGO_MANIFEST_DIR=/Users/wjc/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.189 CARGO_MANIFEST_PATH=/Users/wjc/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.189/Cargo.toml CARGO_PKG_AUTHORS='' CARGO_PKG_DESCRIPTION='Raw FFI bindings to platform libraries like libc.' CARGO_PKG_HOMEPAGE='' CARGO_PKG_LICENSE='MIT OR Apache-2.0' CARGO_PKG_LICENSE_FILE='' CARGO_PKG_NAME=libc CARGO_PKG_README=README.md CARGO_PKG_REPOSITORY='https://github.com/rust-lang/libc' CARGO_PKG_RUST_VERSION=1.65 CARGO_PKG_VERSION=0.2.189 CARGO_PKG_VERSION_MAJOR=0 CARGO_PKG_VERSION_MINOR=2 CARGO_PKG_VERSION_PATCH=189 CARGO_PKG_VERSION_PRE='' DEBUG=false DYLD_FALLBACK_LIBRARY_PATH='/Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release:/Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/deps:/Users/wjc/.rustup/toolchains/1.97.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib:/Users/wjc/.rustup/toolchains/1.97.0-aarch64-apple-darwin/lib:/Users/wjc/lib:/usr/local/lib:/usr/lib' HOST=aarch64-apple-darwin NUM_JOBS=6 OPT_LEVEL=3 OUT_DIR=/Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/build/libc-e6c96f9eb0c4129a/out PROFILE=release RUSTC=/Users/wjc/.rustup/toolchains/1.97.0-aarch64-apple-darwin/bin/rustc RUSTDOC=/Users/wjc/.rustup/toolchains/1.97.0-aarch64-apple-darwin/bin/rustdoc TARGET=aarch64-apple-darwin /Users/wjc/repos/agenterm/lab/mmap-ephemeral/target/release/build/libc-6e6c47cefa88bd63/build-script-build` (never executed)
+
+Caused by:
+  No such file or directory (os error 2)
+EXIT:101
