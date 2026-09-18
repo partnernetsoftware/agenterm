@@ -304,8 +304,19 @@ function cargo_unit_primary_spec(environment) {
   // `#[cfg(test)]` modules are NOT built or run by `cargo test -p agenterm`.
   // The skip list is rh's verbatim; the 900s budget tolerates a rebuild of
   // every test target (timing.json still records the real duration).
+  //
+  // The `--config build.rustflags` denials close the hole where a test gate
+  // reports green over a test that never ran: a function that loses its
+  // `#[test]` attribute compiles as unreachable `dead_code`, and an ignored
+  // `Result` hides a setup step that failed. Passed per invocation rather than
+  // through `RUSTFLAGS` so the flags stay bound to this gate. Scope is the two
+  // primary unit crates, which are measured clean under all three denials; the
+  // per-crate specs below keep the default flags until each is measured too,
+  // because a denial added without that measurement turns the gate red for
+  // reasons unrelated to the change under test.
   return spec("cargo", [
     "test", "--quiet", "--locked", "--all-features",
+    "--config", "build.rustflags=[\"-D\",\"dead_code\",\"-D\",\"unused_variables\",\"-D\",\"unused_must_use\"]",
     "-p", "agenterm", "-p", "agenterm-ui-core", "--",
     "--skip", "preflight_task_is_fail_closed_and_writes_reports_for_real_git_fixtures",
     "--skip", "preflight_benchmark_task_measures_clean_public_worker_runs",

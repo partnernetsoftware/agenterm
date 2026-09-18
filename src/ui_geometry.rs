@@ -77,6 +77,30 @@ impl PixelRect {
     pub(crate) fn contains(self, x: i32, y: i32) -> bool {
         self.contains_x(x) && (self.top..self.bottom).contains(&y)
     }
+
+    /// Confine a child rectangle to its parent without inverting it.
+    ///
+    /// Child geometry is built from fixed control sizes plus minimum floors, so
+    /// a band that the window shrinks below those floors would otherwise emit a
+    /// rectangle that escapes its parent: the control paints over the band
+    /// below it and, worse, keeps hit-testing there. Clamping is a no-op
+    /// whenever the child already fits, so ordinary window sizes are unchanged.
+    pub(crate) fn clamped_to(self, parent: PixelRect) -> PixelRect {
+        // Normalize the parent first: `clamp` panics when min > max, and a
+        // degenerate parent must produce an empty child, never a panic.
+        let parent_right = parent.right.max(parent.left);
+        let parent_bottom = parent.bottom.max(parent.top);
+        let left = self.left.clamp(parent.left, parent_right);
+        let right = self.right.clamp(left, parent_right);
+        let top = self.top.clamp(parent.top, parent_bottom);
+        let bottom = self.bottom.clamp(top, parent_bottom);
+        PixelRect {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
 }
 
 const COMPOSER_MARGIN: i32 = 6;
@@ -110,6 +134,13 @@ pub(crate) fn composer_geometry(composer: PixelRect) -> ComposerGeometry {
         bottom: (composer.bottom - COMPOSER_INPUT_BOTTOM_INSET)
             .max(composer.top + COMPOSER_INPUT_MIN_HEIGHT),
     };
+    // A window short enough to squeeze the Composer band below the Send button
+    // and the input's minimum height used to push both controls out of the
+    // band, over the status bar and past the window bottom, where they still
+    // hit-tested. Controls stay inside their own band; when there is no room
+    // they collapse to nothing instead of escaping.
+    let send = send.clamped_to(composer);
+    let input = input.clamped_to(composer);
     ComposerGeometry { input, send }
 }
 pub(crate) struct WorkspaceLayoutInput {
@@ -1080,6 +1111,495 @@ fn tree_row_actions(row: PixelRect, mode: TreeRowMode) -> TreeRowActionGeometry 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One sweep case: client size, the host chrome heights that a display
+    /// scale produces, and the Tabs preference.
+    #[derive(Clone, Copy, Debug)]
+    struct SweepCase {
+        width: i32,
+        height: i32,
+        composer_height: i32,
+        status_height: i32,
+        server_strip_height: i32,
+        tabs_visible: bool,
+        tabs_width: i32,
+    }
+
+    /// Layout is a pure function of the client rect plus the chrome heights the
+    /// host supplies, so it can be swept exhaustively without a GPU, a window
+    /// or a running adapter. These cases cover phone-narrow through 4K, the
+    /// chrome heights that display scales 1.0 / 1.25 / 1.5 / 2.0 / 3.0 produce,
+    /// the server strip on and off, Tabs shown and hidden, and the degenerate
+    /// zero and one-pixel clients that only ever appear during a resize.
+    ///
+    /// Every invariant below runs over the whole sweep. The point is to close
+    /// whole *classes* of layout bug — a band that overlaps its neighbor, a
+    /// control that leaves its parent, a hit region that steals the child
+    /// terminal's last row — instead of pinning one reported size.
+    const LAYOUT_SWEEP: &[SweepCase] = &{
+        const fn case(
+            width: i32,
+            height: i32,
+            composer_height: i32,
+            status_height: i32,
+            server_strip_height: i32,
+            tabs_visible: bool,
+            tabs_width: i32,
+        ) -> SweepCase {
+            SweepCase {
+                width,
+                height,
+                composer_height,
+                status_height,
+                server_strip_height,
+                tabs_visible,
+                tabs_width,
+            }
+        }
+        [
+            // scale 1.0
+            case(800, 600, 104, 26, 0, true, TABS_DEFAULT_WIDTH),
+            case(800, 600, 104, 26, 30, true, TABS_DEFAULT_WIDTH),
+            case(1280, 720, 104, 26, 30, true, TABS_MIN_WIDTH),
+            case(1280, 720, 104, 26, 0, false, TABS_DEFAULT_WIDTH),
+            // scale 1.25 / 1.5
+            case(1600, 900, 130, 33, 38, true, TABS_DEFAULT_WIDTH),
+            case(1920, 1080, 156, 39, 45, true, TABS_MAX_WIDTH),
+            case(1920, 1080, 156, 39, 45, false, TABS_MAX_WIDTH),
+            // scale 2.0 / 3.0
+            case(2560, 1440, 208, 52, 60, true, TABS_DEFAULT_WIDTH),
+            case(3840, 2160, 208, 52, 60, true, TABS_MAX_WIDTH),
+            case(900, 1600, 312, 78, 90, true, TABS_MIN_WIDTH),
+            // Narrow and short clients: the terminal floor, the compact
+            // toolbar threshold and the status collapse all engage here.
+            case(
+                TERMINAL_MIN_WIDTH,
+                600,
+                104,
+                26,
+                0,
+                true,
+                TABS_DEFAULT_WIDTH,
+            ),
+            case(420, 640, 104, 26, 30, true, TABS_DEFAULT_WIDTH),
+            case(360, 480, 104, 26, 0, true, TABS_MAX_WIDTH),
+            case(240, 320, 104, 26, 30, false, TABS_DEFAULT_WIDTH),
+            case(1280, 120, 104, 26, 30, true, TABS_DEFAULT_WIDTH),
+            case(1280, 46, 104, 26, 0, true, TABS_DEFAULT_WIDTH),
+            // Degenerate clients seen mid-resize and while minimized.
+            case(0, 0, 104, 26, 30, true, TABS_DEFAULT_WIDTH),
+            case(1, 1, 104, 26, 0, true, TABS_DEFAULT_WIDTH),
+            case(0, 900, 104, 26, 0, false, TABS_DEFAULT_WIDTH),
+            case(900, 0, 104, 26, 30, true, TABS_DEFAULT_WIDTH),
+        ]
+    };
+
+    fn sweep_layout(sweep: SweepCase) -> WorkspaceLayout {
+        workspace_layout(WorkspaceLayoutInput {
+            client_width: sweep.width,
+            client_height: sweep.height,
+            tabs_visible: sweep.tabs_visible,
+            configured_tabs_width: sweep.tabs_width,
+            composer_height: sweep.composer_height,
+            status_height: sweep.status_height,
+            server_strip_height: sweep.server_strip_height,
+        })
+    }
+
+    /// Every rectangle the layout hands a host must be a real rectangle inside
+    /// the client. A negative extent is not a "collapsed" control: it inverts
+    /// `contains`, so a host paints nothing while hit-testing everything.
+    fn assert_sane_rect(label: &str, rect: PixelRect, client: PixelRect, sweep: SweepCase) {
+        assert!(
+            rect.width() >= 0 && rect.height() >= 0,
+            "{label} must have non-negative extent, got {rect:?} ({sweep:?})"
+        );
+        assert!(
+            rect.left >= client.left
+                && rect.top >= client.top
+                && rect.right <= client.right
+                && rect.bottom <= client.bottom,
+            "{label} must stay inside the client {client:?}, got {rect:?} ({sweep:?})"
+        );
+    }
+
+    fn assert_disjoint(
+        first_label: &str,
+        first: PixelRect,
+        second_label: &str,
+        second: PixelRect,
+        sweep: SweepCase,
+    ) {
+        if first.width() == 0 || first.height() == 0 || second.width() == 0 || second.height() == 0
+        {
+            return;
+        }
+        let overlaps = first.left < second.right
+            && second.left < first.right
+            && first.top < second.bottom
+            && second.top < first.bottom;
+        assert!(
+            !overlaps,
+            "{first_label} {first:?} must not overlap {second_label} {second:?} ({sweep:?})"
+        );
+    }
+
+    /// The terminal column is a vertical stack — server strip, workspace
+    /// toolbar, terminal viewport, composer, status bar — and it must tile the
+    /// window with no gap and no overlap at every size and chrome scale. A gap
+    /// leaves unpainted pixels; an overlap steals input from the band beneath.
+    #[test]
+    fn the_terminal_column_bands_tile_the_window_with_no_gap_or_overlap() {
+        for &sweep in LAYOUT_SWEEP {
+            let layout = sweep_layout(sweep);
+            if layout.client.width() == 0 || layout.client.height() == 0 {
+                continue;
+            }
+            let mut top = 0;
+            if let Some(strip) = layout.server_strip {
+                assert_eq!(strip.top, top, "server strip starts at the top ({sweep:?})");
+                top = strip.bottom;
+            }
+            // The workspace toolbar band is *reserved* above the terminal
+            // whether or not a toolbar is rendered into it: on a client too
+            // narrow for even the compact toolbar, `workspace_toolbar` is
+            // `None` and the band stays empty. What must hold either way is
+            // that the band is contiguous — no gap, no overlap — and that a
+            // present toolbar fills it exactly.
+            let reserved_toolbar_height = WORKSPACE_TOOLBAR_HEIGHT
+                .min(layout.client.height().saturating_sub(top))
+                .max(0);
+            if let Some(toolbar) = layout.workspace_toolbar {
+                assert_eq!(
+                    toolbar.bounds.top, top,
+                    "toolbar must meet the band above it ({sweep:?})"
+                );
+                assert_eq!(
+                    toolbar.bounds.bottom,
+                    top + reserved_toolbar_height,
+                    "a present toolbar must fill the reserved band ({sweep:?})"
+                );
+            }
+            top += reserved_toolbar_height;
+            assert_eq!(
+                layout.terminal.top, top,
+                "terminal viewport must meet the chrome above it ({sweep:?})"
+            );
+            assert_eq!(
+                layout.terminal.bottom, layout.composer.top,
+                "terminal viewport bottom must meet the composer top ({sweep:?})"
+            );
+            assert_eq!(
+                layout.composer.bottom, layout.status.top,
+                "composer must sit flush on the status bar ({sweep:?})"
+            );
+            assert_eq!(
+                layout.status.bottom, layout.client.bottom,
+                "status bar must reach the window bottom ({sweep:?})"
+            );
+        }
+    }
+
+    /// No pixel the child terminal draws into may be owned by host chrome. The
+    /// last terminal-viewport row must classify as terminal and as neither the
+    /// composer nor the status bar; the next row down must be the composer.
+    /// This is the direct guard for "the TUI's bottom input line cannot be
+    /// clicked": with an off-by-one inset that row's pixels fall inside the
+    /// composer and the click never reaches the child.
+    #[test]
+    fn the_last_terminal_row_is_never_captured_by_host_chrome() {
+        for &sweep in LAYOUT_SWEEP {
+            let layout = sweep_layout(sweep);
+            if layout.terminal.width() == 0 || layout.terminal.height() == 0 {
+                continue;
+            }
+            let x = layout.terminal.left;
+            let last_terminal_y = layout.terminal.bottom - 1;
+            assert!(
+                layout.terminal.contains(x, last_terminal_y),
+                "the last terminal row must belong to the terminal ({sweep:?})"
+            );
+            assert!(
+                !layout.composer.contains(x, last_terminal_y),
+                "the composer must not own the last terminal row ({sweep:?})"
+            );
+            assert!(
+                !layout.status.contains(x, last_terminal_y),
+                "the status bar must not own the last terminal row ({sweep:?})"
+            );
+            if let Some(toolbar) = layout.workspace_toolbar {
+                assert!(
+                    !toolbar.bounds.contains(x, last_terminal_y),
+                    "the toolbar must not own the last terminal row ({sweep:?})"
+                );
+            }
+            if layout.composer.height() > 0 {
+                assert!(
+                    layout.composer.contains(x, layout.terminal.bottom),
+                    "the row below the terminal must be the composer ({sweep:?})"
+                );
+            }
+        }
+    }
+
+    /// Tabs and the terminal column are exclusive: the sidebar owns everything
+    /// left of `effective_tabs_width` and nothing right of it, and the two
+    /// partition the client width. The resize grip lives inside the sidebar and
+    /// never eats into the tree surface it resizes.
+    #[test]
+    fn the_sidebar_and_terminal_columns_partition_the_width() {
+        for &sweep in LAYOUT_SWEEP {
+            let layout = sweep_layout(sweep);
+            assert_eq!(
+                layout.sidebar.right, layout.effective_tabs_width,
+                "the sidebar must end at the effective Tabs width ({sweep:?})"
+            );
+            assert_eq!(
+                layout.terminal.left, layout.effective_tabs_width,
+                "the terminal column must begin at the effective Tabs width ({sweep:?})"
+            );
+            assert_eq!(
+                layout.terminal.right, layout.client.right,
+                "the terminal column must reach the right edge ({sweep:?})"
+            );
+            assert!(
+                !layout.tabs_visible
+                    || layout.effective_tabs_width == 0
+                    || layout.client.width() - layout.effective_tabs_width >= TERMINAL_MIN_WIDTH
+                    || layout.effective_tabs_width == TABS_MIN_WIDTH.min(layout.client.width()),
+                "Tabs must yield to the terminal floor before it collapses ({sweep:?})"
+            );
+            assert_disjoint(
+                "sidebar",
+                layout.sidebar,
+                "terminal",
+                layout.terminal,
+                sweep,
+            );
+            assert_disjoint(
+                "sidebar",
+                layout.sidebar,
+                "composer",
+                layout.composer,
+                sweep,
+            );
+            assert_disjoint("sidebar", layout.sidebar, "status", layout.status, sweep);
+            if let Some(grip) = layout.resize_grip {
+                assert!(
+                    grip.left >= layout.sidebar.left && grip.right <= layout.sidebar.right,
+                    "the resize grip must stay inside the sidebar ({sweep:?})"
+                );
+                assert!(
+                    layout.sidebar_tree.right <= grip.left,
+                    "the tree surface must stop at the resize grip ({sweep:?})"
+                );
+            }
+            if let Some(clock) = layout.sidebar_clock {
+                assert_disjoint(
+                    "sidebar clock",
+                    clock,
+                    "server strip",
+                    layout.server_strip.unwrap_or(clock),
+                    sweep,
+                );
+            }
+        }
+    }
+
+    /// Every rectangle the layout publishes — bands, toolbar buttons, composer
+    /// controls and status segments — must be a sane rectangle inside its own
+    /// parent. This is the whole-class guard against a control that renders off
+    /// the window or inverts its hit region on a narrow client.
+    #[test]
+    fn every_published_rect_stays_sane_and_inside_its_parent() {
+        for &sweep in LAYOUT_SWEEP {
+            let layout = sweep_layout(sweep);
+            let client = layout.client;
+            assert_eq!(client.left, 0, "client origin is the window ({sweep:?})");
+            assert_eq!(client.top, 0, "client origin is the window ({sweep:?})");
+            for (label, rect) in [
+                ("sidebar", layout.sidebar),
+                ("sidebar tree", layout.sidebar_tree),
+                ("terminal", layout.terminal),
+                ("composer", layout.composer),
+                ("status", layout.status),
+            ] {
+                assert_sane_rect(label, rect, client, sweep);
+            }
+            for rect in layout.server_strip.into_iter() {
+                assert_sane_rect("server strip", rect, client, sweep);
+            }
+            for rect in layout.sidebar_clock.into_iter() {
+                assert_sane_rect("sidebar clock", rect, client, sweep);
+            }
+            for rect in layout.resize_grip.into_iter() {
+                assert_sane_rect("resize grip", rect, client, sweep);
+            }
+            if let Some(toolbar) = layout.workspace_toolbar {
+                assert_sane_rect("toolbar", toolbar.bounds, client, sweep);
+                for (label, rect) in [
+                    ("toolbar divider", toolbar.divider),
+                    ("toolbar new tab", toolbar.new_tab),
+                    ("toolbar tabs", toolbar.tabs),
+                    ("toolbar control center", toolbar.control_center),
+                    ("toolbar settings", toolbar.settings),
+                    ("toolbar locale", toolbar.locale),
+                    ("toolbar font decrease", toolbar.font_decrease),
+                    ("toolbar font increase", toolbar.font_increase),
+                ] {
+                    assert_sane_rect(label, rect, toolbar.bounds, sweep);
+                }
+            }
+            let segments = layout.status_segments;
+            for rect in segments.tabs_recovery.into_iter() {
+                assert_sane_rect("status tabs recovery", rect, layout.status, sweep);
+            }
+            for (label, rect) in [
+                ("status cwd", segments.cwd),
+                ("status provider", segments.provider),
+                ("status ime", segments.ime),
+                ("status cursor", segments.cursor),
+                ("status mouse", segments.mouse),
+                ("status proxy", segments.proxy),
+            ] {
+                assert_sane_rect(label, rect, layout.status, sweep);
+            }
+        }
+    }
+
+    /// The status bar's segments are laid left to right and must stay ordered
+    /// and non-overlapping while the bar collapses from the right. A segment
+    /// that crosses its neighbor makes two readouts share pixels.
+    #[test]
+    fn status_segments_stay_ordered_and_disjoint_while_the_bar_collapses() {
+        for &sweep in LAYOUT_SWEEP {
+            let layout = sweep_layout(sweep);
+            let segments = layout.status_segments;
+            let mut ordered: Vec<(&str, PixelRect)> = Vec::new();
+            if let Some(recovery) = segments.tabs_recovery {
+                ordered.push(("tabs recovery", recovery));
+            }
+            ordered.extend([
+                ("cwd", segments.cwd),
+                ("provider", segments.provider),
+                ("ime", segments.ime),
+                ("cursor", segments.cursor),
+                ("mouse", segments.mouse),
+                ("proxy", segments.proxy),
+            ]);
+            let mut cursor = layout.status.left;
+            for (label, rect) in ordered {
+                assert!(
+                    rect.left >= cursor,
+                    "status segment {label} must begin at or after the previous one \
+                     ({rect:?} after x={cursor}, {sweep:?})"
+                );
+                assert!(
+                    rect.right >= rect.left,
+                    "status segment {label} must not invert ({rect:?}, {sweep:?})"
+                );
+                cursor = rect.right;
+            }
+            assert!(
+                cursor <= layout.status.right,
+                "status segments must not run past the bar ({sweep:?})"
+            );
+        }
+    }
+
+    /// Composer controls belong to the composer band: the Send button stays
+    /// inside it, the text input stays inside it, and the two never share a
+    /// pixel — otherwise a click on the input's right edge sends the draft.
+    #[test]
+    fn composer_controls_stay_inside_the_band_and_never_overlap() {
+        for &sweep in LAYOUT_SWEEP {
+            let layout = sweep_layout(sweep);
+            if layout.composer.width() == 0 || layout.composer.height() == 0 {
+                continue;
+            }
+            let geometry = composer_geometry(layout.composer);
+            assert!(
+                geometry.input.width() >= 0 && geometry.input.height() >= 0,
+                "composer input must not invert ({geometry:?}, {sweep:?})"
+            );
+            assert!(
+                geometry.send.width() >= 0 && geometry.send.height() >= 0,
+                "composer send must not invert ({geometry:?}, {sweep:?})"
+            );
+            assert_disjoint(
+                "composer input",
+                geometry.input,
+                "composer send",
+                geometry.send,
+                sweep,
+            );
+            assert_disjoint(
+                "composer send",
+                geometry.send,
+                "terminal",
+                layout.terminal,
+                sweep,
+            );
+            assert_disjoint(
+                "composer send",
+                geometry.send,
+                "status",
+                layout.status,
+                sweep,
+            );
+        }
+    }
+
+    /// Layout is a pure function: the same input must produce the same output,
+    /// and no case in the sweep may panic, overflow or saturate into a
+    /// different shape. Extreme inputs use `i32` limits a hostile or buggy
+    /// window message could deliver.
+    #[test]
+    fn layout_is_deterministic_and_survives_extreme_inputs() {
+        for &sweep in LAYOUT_SWEEP {
+            assert_eq!(
+                sweep_layout(sweep),
+                sweep_layout(sweep),
+                "layout must be a pure function of its input ({sweep:?})"
+            );
+        }
+        for &width in &[i32::MIN, -1, 0, 1, i32::MAX] {
+            for &height in &[i32::MIN, -1, 0, 1, i32::MAX] {
+                for &tabs_visible in &[true, false] {
+                    let layout = workspace_layout(WorkspaceLayoutInput {
+                        client_width: width,
+                        client_height: height,
+                        tabs_visible,
+                        configured_tabs_width: i32::MAX,
+                        composer_height: i32::MAX,
+                        status_height: i32::MAX,
+                        server_strip_height: i32::MAX,
+                    });
+                    assert!(
+                        layout.client.width() >= 0 && layout.client.height() >= 0,
+                        "extreme client must saturate, not invert ({width}x{height})"
+                    );
+                    assert!(
+                        layout.terminal.width() >= 0 && layout.terminal.height() >= 0,
+                        "extreme terminal must saturate, not invert ({width}x{height})"
+                    );
+                    assert!(
+                        layout.composer.width() >= 0 && layout.composer.height() >= 0,
+                        "extreme composer must saturate, not invert ({width}x{height})"
+                    );
+                    assert!(
+                        layout.status.width() >= 0 && layout.status.height() >= 0,
+                        "extreme status must saturate, not invert ({width}x{height})"
+                    );
+                    assert!(
+                        layout.effective_tabs_width >= 0
+                            && layout.effective_tabs_width <= layout.client.width(),
+                        "effective Tabs width must stay inside the client ({width}x{height})"
+                    );
+                }
+            }
+        }
+    }
 
     fn layout(width: i32, height: i32, tabs_visible: bool, tabs_width: i32) -> WorkspaceLayout {
         workspace_layout(WorkspaceLayoutInput {

@@ -125,6 +125,52 @@ Use public CLI and wait operations for runtime tests, isolated IPC/workspace
 values, and stable tab IDs. Avoid fixed sleeps. Rendering investigations need
 both structured state and image evidence.
 
+### Evidence discipline
+
+These rules are not style. Each one is here because its absence produced a
+result that looked green and proved nothing.
+
+- **Every test must be falsifiable.** Before you trust a new test, change the
+  code it guards and watch it fail. A test that still passes with its guard
+  removed is documentation, not evidence. When you add one, confirm the gate's
+  reported test count actually went up — a test that loses its `#[test]`
+  attribute compiles as dead code and silently runs nothing.
+- **A green build is not a compiled module.** Feature unification, default
+  feature sets and `cfg` gates all let a check pass over code that was never
+  built. `docs/agenterm-rust-cheatsheet.md` §2 owns the rule; the practical
+  form is to name the package, features and targets your evidence covers and to
+  claim nothing outside them. The `agenterm-platform` crate is the sharpest
+  case: its default features omit `pty`, so whole modules do not compile in a
+  default check, and a consumer that enables them is the only real proof.
+- **One platform's evidence is never a cross-platform claim.** Record a result
+  as belonging to the OS, ISA and host it was taken on. Evidence you could not
+  obtain is `BLOCKED` with the reason — never a silent skip, and never a PASS
+  inferred from the platform next to it.
+- **A measurement is void unless the probe provably touched its subject.** A
+  probe must assert it is attached to the thing it measures before its result
+  counts; otherwise a redirected handle, a stale binary or an unattached
+  console yields a confident answer about nothing. Keep a negative control
+  beside every positive result: remove the fix, and watch the evidence
+  disappear.
+- **Never truncate a gate's output**, and when a gate fails, fix the input
+  rather than relaxing the gate. If a gate must change, that is an owner
+  decision recorded as such.
+- **Fix the class, not the instance.** A reported layout, hit-test or geometry
+  bug is a missing invariant. Close it with an invariant swept over the whole
+  input space — see `LAYOUT_SWEEP` and the invariant tests in
+  `src/ui_geometry.rs`, which run every window size and chrome scale through
+  band tiling, containment, disjointness and "the last terminal row is never
+  captured by host chrome" without needing a GPU or a window.
+
+### Skills: look them up before acting
+
+Signing, the release chain, the VM courts and terminal-IO diagnosis all have
+registered skills under `~/.claude/skills/`, alongside this repository's own
+`skills/`. Invoke the owning skill first — do not reconstruct a procedure from
+memory or from reading a workflow file. **A skill's top-level page is only its
+index; the operational detail lives in its `references/`.** When a task teaches
+something durable, write it back into the owning skill, not only into notes.
+
 GitHub Actions observation is bounded and read-only: one observer retains one
 run and attempt, backs off while unchanged, and fetches details only when
 needed. Never extract or repurpose credentials. If mutation authority is
