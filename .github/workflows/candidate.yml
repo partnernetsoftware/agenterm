@@ -451,6 +451,7 @@ jobs:
           APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
           APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
           APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          AGENTERM_APPLE_TEAM_ID: ${{ vars.AGENTERM_APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
           for name in \
@@ -458,7 +459,8 @@ jobs:
             APPLE_DEVELOPER_ID_P12_PASSWORD \
             APPLE_NOTARY_KEY_P8_BASE64 \
             APPLE_NOTARY_KEY_ID \
-            APPLE_NOTARY_ISSUER_ID
+            APPLE_NOTARY_ISSUER_ID \
+            AGENTERM_APPLE_TEAM_ID
           do
             if [[ -z "${!name:-}" ]]; then
               echo "Required macOS release secret is missing: $name" >&2
@@ -515,11 +517,19 @@ jobs:
             echo "Imported certificate is not a Developer ID Application identity." >&2
             exit 1
           fi
+          # scripts/sign-macos-release.sh and validate-app-bundle.sh both require
+          # AGENTERM_APPLE_TEAM_ID. Without it the first signing step of a
+          # signed Candidate dies before it signs anything.
+          if [[ ! "$AGENTERM_APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]; then
+            echo "AGENTERM_APPLE_TEAM_ID must be a 10-character Apple Team identifier." >&2
+            exit 1
+          fi
           {
             echo "APPLE_SIGNING_IDENTITY=$IDENTITY"
             echo "APPLE_NOTARY_KEY_PATH=$NOTARY_KEY_PATH"
             echo "APPLE_NOTARY_KEY_ID=$APPLE_NOTARY_KEY_ID"
             echo "APPLE_NOTARY_ISSUER_ID=$APPLE_NOTARY_ISSUER_ID"
+            echo "AGENTERM_APPLE_TEAM_ID=$AGENTERM_APPLE_TEAM_ID"
           } >> "$GITHUB_ENV"
 
       - name: Report macOS unsigned preview channel

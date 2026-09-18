@@ -1,0 +1,475 @@
+name: macOS Signing Qualification
+
+# AgenTerm's Apple Developer ID counterpart of windows-signing-qualification.yml.
+# It is deliberately a dead end: nothing downstream consumes its output and every
+# receipt it writes carries release_eligible=false. Its purpose is to exercise the
+# real Developer ID certificate, the real notary credential, stapling and the
+# Gatekeeper verdict on the exact Mach-O bytes of one already successful unsigned
+# Candidate, BEFORE release-policy.json signing.macos is ever flipped to required.
+#
+# The Apple provider and the Azure provider are independent switches with
+# independent credentials. Nothing here may be shared with the Windows lane.
+#
+# Protected configuration lives in the release-signing Environment:
+#   secrets   APPLE_DEVELOPER_ID_P12_BASE64   APPLE_DEVELOPER_ID_P12_PASSWORD
+#             APPLE_NOTARY_KEY_P8_BASE64      APPLE_NOTARY_KEY_ID
+#             APPLE_NOTARY_ISSUER_ID
+#   variables AGENTERM_APPLE_TEAM_ID
+# The Team ID is public provenance, like the Windows publisher name. The key
+# material, the p12 password, the Key ID and the Issuer ID are not, and must
+# never reach a receipt, a log or this file.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact current main SHA or immutable vX.Y.Z tag SHA
+        required: true
+        type: string
+      candidate_run_id:
+        description: Successful unsigned Release Candidate run for source_sha
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: agenterm-macos-signing-qualification-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+      candidate_attempt: ${{ steps.identity.outputs.candidate_attempt }}
+      source_class: ${{ steps.identity.outputs.source_class }}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Bind exact unsigned Candidate identity
+        id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          git fetch --no-tags origin main
+          controller_sha="$(git rev-parse origin/main)"
+          [[ "$controller_sha" == "$GITHUB_SHA" ]]
+
+          policy="$(git show "$SOURCE_SHA:release-policy.json")"
+          # A qualification exists only while the product is NOT claiming signed
+          # macOS releases. Flipping the policy is an owner decision and it
+          # retires this workflow rather than being proven by it.
+          [[ "$(jq -r .signing.macos <<<"$policy")" == unsigned-preview ]]
+          version="$(jq -r .version <<<"$policy")"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          cargo_version="$(
+            git show "$SOURCE_SHA:Cargo.toml" |
+              sed -n 's/^version = "\([^"]*\)"/\1/p' | head -n1
+          )"
+          [[ "$cargo_version" == "$version" ]]
+          if [[ "$SOURCE_SHA" == "$controller_sha" ]]; then
+            source_class=current-main
+          else
+            tag="v$version"
+            git fetch --no-tags origin "refs/tags/$tag:refs/tags/$tag"
+            [[ "$(git rev-parse "refs/tags/$tag^{}")" == "$SOURCE_SHA" ]]
+            source_class=immutable-version-tag
+          fi
+
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID")"
+          [[ "$(jq -r .path <<<"$run")" == ".github/workflows/candidate.yml" ]]
+          [[ "$(jq -r .event <<<"$run")" == workflow_dispatch ]]
+          [[ "$(jq -r .status <<<"$run")" == completed ]]
+          [[ "$(jq -r .conclusion <<<"$run")" == success ]]
+          [[ "$(jq -r .head_sha <<<"$run")" == "$SOURCE_SHA" ]]
+          artifacts="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID/artifacts?per_page=100")"
+          for artifact_name in \
+            candidate-part-macos-aarch64 \
+            candidate-part-macos-x86_64
+          do
+            [[ "$(jq --arg name "$artifact_name" \
+              '[.artifacts[] | select(.name == $name and (.expired | not))] | length' \
+              <<<"$artifacts")" == 1 ]]
+          done
+          {
+            echo "version=$version"
+            echo "candidate_attempt=$(jq -r .run_attempt <<<"$run")"
+            echo "source_class=$source_class"
+          } >>"$GITHUB_OUTPUT"
+
+  sign:
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform_id: macos-aarch64
+            arch: aarch64
+          - platform_id: macos-x86_64
+            arch: x86_64
+    runs-on: macos-latest
+    timeout-minutes: 60
+    environment: release-signing
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Download exact unsigned macOS Candidate part
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          PLATFORM_ID: ${{ matrix.platform_id }}
+        run: |
+          set -euo pipefail
+          gh run download "$CANDIDATE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "candidate-part-$PLATFORM_ID" --dir unsigned
+
+      - name: Require protected Apple signing configuration
+        env:
+          APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          AGENTERM_APPLE_TEAM_ID: ${{ vars.AGENTERM_APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          # Fail closed on missing configuration. A macOS qualification never
+          # silently degrades into an unsigned rehearsal.
+          for name in \
+            APPLE_DEVELOPER_ID_P12_BASE64 \
+            APPLE_DEVELOPER_ID_P12_PASSWORD \
+            APPLE_NOTARY_KEY_P8_BASE64 \
+            APPLE_NOTARY_KEY_ID \
+            APPLE_NOTARY_ISSUER_ID \
+            AGENTERM_APPLE_TEAM_ID
+          do
+            if [[ -z "${!name:-}" ]]; then
+              echo "required release-signing value is missing: $name" >&2
+              exit 1
+            fi
+          done
+          [[ "$AGENTERM_APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]
+
+      - name: Verify exact unsigned Mach-O inputs
+        id: unsigned
+        env:
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          # The unsigned Candidate ships the preview channel archive. Its bytes
+          # are the qualification payload; its NAME is preview identity, which is
+          # one more reason this court can never be promoted.
+          archive="unsigned/agenterm-$EXPECTED_VERSION-macos-$ARCH-unsigned-preview.zip"
+          test -f "$archive"
+          shasum -a 256 "$archive" | cut -d' ' -f1 >unsigned-archive-sha256.txt
+          mkdir -p work
+          ditto -x -k "$archive" work
+          python3 scripts/audit-macos-signing-receipt.py list-macho \
+            --manifest scripts/artifacts.json --arch "$ARCH" >macho-names.txt
+          : >before-sha256.txt
+          while IFS= read -r name; do
+            test -f "work/$name"
+            # Every input must be a Mach-O with no existing signature: a
+            # qualification proves the provider changed these exact bytes.
+            file -b "work/$name" | grep -q 'Mach-O'
+            if codesign -dv "work/$name" >/dev/null 2>&1; then
+              echo "unsigned Candidate input already carries a signature: $name" >&2
+              exit 1
+            fi
+            printf '%s %s\n' "$name" "$(shasum -a 256 "work/$name" | cut -d' ' -f1)" \
+              >>before-sha256.txt
+          done <macho-names.txt
+          cat before-sha256.txt
+
+      - name: Import the Developer ID identity into a throwaway keychain
+        env:
+          APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+        run: |
+          set -euo pipefail
+          # Never the login keychain: its SecurityAgent prompt is not
+          # automatable and hangs a non-interactive codesign forever.
+          certificate="$RUNNER_TEMP/agenterm-developer-id.p12"
+          notary_key="$RUNNER_TEMP/AuthKey_notary.p8"
+          python3 - "$certificate" "$notary_key" <<'PY'
+          import base64, os, pathlib, sys
+
+          certificate_path, notary_key_path = map(pathlib.Path, sys.argv[1:3])
+          certificate_path.write_bytes(
+              base64.b64decode(
+                  "".join(os.environ["APPLE_DEVELOPER_ID_P12_BASE64"].split()),
+                  validate=True,
+              )
+          )
+          notary_key_path.write_bytes(
+              base64.b64decode(
+                  "".join(os.environ["APPLE_NOTARY_KEY_P8_BASE64"].split()),
+                  validate=True,
+              )
+          )
+          PY
+          keychain="$RUNNER_TEMP/agenterm-qualification.keychain-db"
+          keychain_password="$(uuidgen)"
+          echo "::add-mask::$keychain_password"
+          echo "$keychain" >"$RUNNER_TEMP/keychain-path"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" -k "$keychain" \
+            -P "$APPLE_DEVELOPER_ID_P12_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$keychain_password" "$keychain" >/dev/null
+          security default-keychain -s "$keychain"
+          identity="$(
+            security find-identity -v -p codesigning "$keychain" |
+              sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' | head -n1
+          )"
+          if [[ -z "$identity" ]]; then
+            echo "imported certificate is not a Developer ID Application identity" >&2
+            exit 1
+          fi
+          rm -f "$certificate"
+          {
+            echo "APPLE_SIGNING_IDENTITY=$identity"
+            echo "APPLE_NOTARY_KEY_PATH=$notary_key"
+          } >>"$GITHUB_ENV"
+
+      - name: Sign every Mach-O and seal AgenTerm.app inner-out
+        env:
+          AGENTERM_APPLE_TEAM_ID: ${{ vars.AGENTERM_APPLE_TEAM_ID }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          ./scripts/sign-macos-release.sh "$ARCH" work
+          codesign -dv --verbose=2 work/AgenTerm.app 2>&1 |
+            grep -q "TeamIdentifier=$AGENTERM_APPLE_TEAM_ID"
+          codesign -dv --verbose=2 work/AgenTerm.app 2>&1 | grep -q 'flags=.*runtime'
+
+      - name: Notarize and staple the bundle
+        env:
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          # A bare Mach-O cannot be stapled (stapler error 73) and Gatekeeper's
+          # launch path rejects it as "does not seem to be an app" even when it
+          # is genuinely notarized. Only the bundle can carry the ticket, so the
+          # bundle is what gets stapled and what spctl must accept.
+          ditto -c -k --keepParent work/AgenTerm.app work/AgenTerm.app.zip
+          result="$(
+            xcrun notarytool submit work/AgenTerm.app.zip \
+              --key "$APPLE_NOTARY_KEY_PATH" \
+              --key-id "$APPLE_NOTARY_KEY_ID" \
+              --issuer "$APPLE_NOTARY_ISSUER_ID" \
+              --wait --output-format json
+          )"
+          echo "$result"
+          [[ "$(jq -r .status <<<"$result")" == Accepted ]]
+          jq -r .id <<<"$result" >notarization-id.txt
+          rm -f work/AgenTerm.app.zip
+          xcrun stapler staple work/AgenTerm.app
+          xcrun stapler validate work/AgenTerm.app
+          # The offline Gatekeeper verdict. This is the assertion that the
+          # current unsigned-preview channel cannot make at all.
+          spctl -a -t exec -vv work/AgenTerm.app 2>&1 | tee spctl.txt
+          grep -q 'accepted' spctl.txt
+          grep -q 'source=Notarized Developer ID' spctl.txt
+
+      - name: Write the non-promotable macOS signing receipt
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_CLASS: ${{ needs.preflight.outputs.source_class }}
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.version }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CANDIDATE_RUN_ATTEMPT: ${{ needs.preflight.outputs.candidate_attempt }}
+          PLATFORM_ID: ${{ matrix.platform_id }}
+          AGENTERM_APPLE_TEAM_ID: ${{ vars.AGENTERM_APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p receipt
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+
+          def sha256(path):
+              digest = hashlib.sha256()
+              with open(path, "rb") as stream:
+                  for chunk in iter(lambda: stream.read(1 << 20), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          before = {}
+          for line in Path("before-sha256.txt").read_text().splitlines():
+              name, value = line.split(" ", 1)
+              before[name] = value.strip()
+
+          assets = {}
+          for name, before_sha in before.items():
+              path = Path("work") / name
+              after = sha256(path)
+              if after == before_sha:
+                  raise SystemExit(f"provider did not change the bytes of {name}")
+              assets[name] = {
+                  "before_sha256": before_sha,
+                  "after_sha256": after,
+                  "bytes": path.stat().st_size,
+                  "hardened_runtime": True,
+                  "stapled": False,
+              }
+
+          spctl = Path("spctl.txt").read_text().strip().splitlines()
+          receipt = {
+              "schema_version": 1,
+              "kind": "agenterm-macos-signing-qualification",
+              "source_sha": os.environ["SOURCE_SHA"],
+              "source_class": os.environ["SOURCE_CLASS"],
+              "version": os.environ["EXPECTED_VERSION"],
+              "platform_id": os.environ["PLATFORM_ID"],
+              "run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "upstream": {
+                  "run_id": int(os.environ["CANDIDATE_RUN_ID"]),
+                  "run_attempt": int(os.environ["CANDIDATE_RUN_ATTEMPT"]),
+              },
+              "signing_provider": "apple-developer-id",
+              "team_identifier": os.environ["AGENTERM_APPLE_TEAM_ID"],
+              "unsigned_input_archive_sha256":
+                  Path("unsigned-archive-sha256.txt").read_text().strip(),
+              "assets": assets,
+              "bundle": {
+                  "name": "AgenTerm.app",
+                  "hardened_runtime": True,
+                  "stapled": True,
+                  "notarization_id": Path("notarization-id.txt").read_text().strip(),
+                  "spctl": [line.strip() for line in spctl],
+              },
+              # Structural, not editorial. Nothing downstream may promote this.
+              "release_eligible": False,
+          }
+          Path("receipt/macos-signing-receipt.json").write_text(
+              json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+          )
+          print(json.dumps(receipt, indent=2, sort_keys=True))
+          PY
+          python3 scripts/audit-macos-signing-receipt.py audit \
+            receipt/macos-signing-receipt.json \
+            --root work --release-eligible false \
+            --expected-source "$SOURCE_SHA" --expected-version "$EXPECTED_VERSION" \
+            --expected-platform "$PLATFORM_ID"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: agenterm-macos-signing-qualification-${{ matrix.platform_id }}-attempt-${{ github.run_attempt }}
+          path: receipt/macos-signing-receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Tear down the signing keychain
+        if: always()
+        run: |
+          keychain="$(cat "$RUNNER_TEMP/keychain-path" 2>/dev/null || true)"
+          if [ -n "$keychain" ]; then
+            security delete-keychain "$keychain" 2>/dev/null || true
+          fi
+          rm -f "$RUNNER_TEMP/agenterm-developer-id.p12" \
+            "$RUNNER_TEMP/AuthKey_notary.p8" 2>/dev/null || true
+
+  aggregate:
+    name: require both signed macOS courts
+    if: always() && needs.sign.result == 'success'
+    needs: [preflight, sign]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: agenterm-macos-signing-qualification-*-attempt-${{ github.run_attempt }}
+          path: receipts
+      - name: Seal non-promotable macOS qualification aggregate
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_CLASS: ${{ needs.preflight.outputs.source_class }}
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.version }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CANDIDATE_RUN_ATTEMPT: ${{ needs.preflight.outputs.candidate_attempt }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          expected = {"macos-aarch64", "macos-x86_64"}
+          run_id = int(os.environ["GITHUB_RUN_ID"])
+          attempt = int(os.environ["GITHUB_RUN_ATTEMPT"])
+          rows = [
+              json.loads(path.read_text())
+              for path in Path("receipts").rglob("macos-signing-receipt.json")
+          ]
+          rows = [
+              row for row in rows
+              if row.get("run_id") == run_id and row.get("run_attempt") == attempt
+          ]
+          cells = [row.get("platform_id") for row in rows]
+          if len(rows) != 2 or set(cells) != expected or len(set(cells)) != 2:
+              raise SystemExit(f"macOS court set mismatch: {cells}")
+          if any(row.get("release_eligible") is not False for row in rows):
+              raise SystemExit("one or more macOS receipts became promotable")
+          if any(row.get("bundle", {}).get("stapled") is not True for row in rows):
+              raise SystemExit("a macOS bundle was not stapled")
+          for row in rows:
+              verdict = " ".join(row.get("bundle", {}).get("spctl", []))
+              if "accepted" not in verdict:
+                  raise SystemExit("Gatekeeper did not accept a macOS bundle")
+              if "source=Notarized Developer ID" not in verdict:
+                  raise SystemExit("a macOS bundle is not a notarized Developer ID")
+          if {row.get("source_sha") for row in rows} != {os.environ["SOURCE_SHA"]}:
+              raise SystemExit("source SHA mismatch")
+          if {row.get("source_class") for row in rows} != {os.environ["SOURCE_CLASS"]}:
+              raise SystemExit("source class mismatch")
+          if {row.get("version") for row in rows} != {os.environ["EXPECTED_VERSION"]}:
+              raise SystemExit("version mismatch")
+          output = {
+              "schema_version": 1,
+              "kind": "agenterm-macos-signing-qualification-aggregate",
+              "source_sha": os.environ["SOURCE_SHA"],
+              "source_class": os.environ["SOURCE_CLASS"],
+              "version": os.environ["EXPECTED_VERSION"],
+              "run_id": run_id,
+              "run_attempt": attempt,
+              "upstream": {
+                  "run_id": int(os.environ["CANDIDATE_RUN_ID"]),
+                  "run_attempt": int(os.environ["CANDIDATE_RUN_ATTEMPT"]),
+              },
+              "platforms": sorted(cells),
+              "release_eligible": False,
+          }
+          Path("macos-signing-qualification-aggregate.json").write_text(
+              json.dumps(output, indent=2, sort_keys=True) + "\n"
+          )
+          print(json.dumps(output, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: agenterm-macos-signing-qualification-aggregate-attempt-${{ github.run_attempt }}
+          path: macos-signing-qualification-aggregate.json
+          if-no-files-found: error
+          retention-days: 14

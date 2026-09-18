@@ -1,0 +1,104 @@
+name: Reputation Qualification
+
+# release-policy.json declares reputation.windows_final_candidate_bytes:
+# "required". candidate.yml asserts that the field says "required", but until
+# this workflow existed nothing produced or consumed the evidence it names: the
+# only Defender signal was a `DEFENDER PASS` line printed inside a GitHub-hosted
+# Windows runner, unbound to the sealed Candidate and unreadable by the release
+# gate. A gate that only asserts its own configuration is a false green.
+#
+# This workflow binds a locally produced Microsoft Defender scan of the exact
+# sealed Windows Candidate bytes to that Candidate's manifest, and publishes the
+# qualification that release.yml requires.
+#
+# The scan itself is deliberately NOT run here. GitHub's Windows runners scan a
+# freshly built artifact on the same machine that produced it, which proves
+# nothing about how the published bytes look to a user's Defender. The operator
+# runs scripts/utm-win-defender-court.sh on a real Windows machine against the
+# downloaded sealed Candidate, then feeds the receipt in here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful Release Candidate workflow run ID
+        required: true
+        type: string
+      source_sha:
+        description: Exact Candidate source SHA
+        required: true
+        type: string
+      qualification_base64:
+        description: Base64 of the locally verified agenterm reputation qualification JSON
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: agenterm-reputation-${{ inputs.candidate_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  bind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+
+      - name: Resolve exact successful Candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_SHA" == "$SOURCE_SHA" ]]
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID")"
+          [[ "$(jq -r .path <<<"$run")" == ".github/workflows/candidate.yml" ]]
+          [[ "$(jq -r .event <<<"$run")" == workflow_dispatch ]]
+          [[ "$(jq -r .status <<<"$run")" == completed ]]
+          [[ "$(jq -r .conclusion <<<"$run")" == success ]]
+          [[ "$(jq -r .head_sha <<<"$run")" == "$SOURCE_SHA" ]]
+          mkdir candidate
+          gh run download "$CANDIDATE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "release-candidate-$CANDIDATE_RUN_ID" --dir candidate
+
+      - name: Require the checked-in reputation policy
+        run: |
+          set -euo pipefail
+          # The policy field is what makes this gate mandatory. If an owner ever
+          # turns it off, this workflow must stop claiming to satisfy it.
+          test "$(jq -r .reputation.windows_final_candidate_bytes release-policy.json)" = required
+
+      - name: Decode and verify the reputation qualification
+        env:
+          QUALIFICATION_BASE64: ${{ inputs.qualification_base64 }}
+        run: |
+          set -euo pipefail
+          mkdir qualified
+          printf '%s' "$QUALIFICATION_BASE64" | base64 --decode \
+            >qualified/reputation-qualification.json
+          manifest="$(
+            find candidate -maxdepth 2 -name '*-candidate-manifest.json' -print |
+              LC_ALL=C sort | head -n1
+          )"
+          test -n "$manifest"
+          python3 scripts/agenterm-reputation-court.py verify \
+            --manifest "$manifest" \
+            --qualification qualified/reputation-qualification.json
+          cp "$manifest" qualified/
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: reputation-qualification-${{ github.run_id }}
+          path: qualified/
+          if-no-files-found: error
+          retention-days: 14

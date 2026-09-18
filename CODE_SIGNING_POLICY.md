@@ -55,6 +55,86 @@ Signing is a Candidate transformation, not a Promotion operation:
 Linux signing and Apple Developer ID/notarization are separate policy lanes;
 Windows Authenticode evidence does not make those artifacts signed.
 
+## macOS: Apple Developer ID
+
+AgenTerm's accepted macOS publisher is the company Developer ID Application
+certificate. The Apple lane and the Azure lane are independent switches with
+independent credentials, independent receipts and independent failure modes;
+nothing may be shared between them, and turning one on says nothing about the
+other.
+
+`release-policy.json` `signing.macos` is either:
+
+- `unsigned-preview`: Candidate publishes the visibly labelled preview channel
+  (`agenterm-<version>-macos-<arch>-unsigned-preview.zip`, provenance `channel:
+  "macos-unsigned-preview"`, `signed: false`, `notarized: false`);
+- `required`: missing credentials, an invalid signature, a failed notarization
+  or a rejected Gatekeeper verdict blocks Candidate creation. The workflow never
+  falls back from `required` to the preview channel.
+
+The current value is `unsigned-preview` and no AgenTerm byte has ever been
+signed with the Developer ID certificate. Changing the value to `required` is an
+explicit owner decision for a future version, and it is the **last** step of the
+sequence in `skills/agenterm-release/references/apple-signing-enrollment.md`,
+not the first.
+
+Before that flip, `.github/workflows/macos-signing-qualification.yml` exercises
+the real certificate and the real notary credential against the exact Mach-O
+bytes of one already successful unsigned Candidate. It performs no Cargo build,
+it is dispatchable only while the policy says `unsigned-preview`, and every
+receipt it writes is `release_eligible: false`, so nothing downstream can
+promote it. For each macOS architecture it proves:
+
+1. every input is an unsigned Mach-O whose name comes from
+   `scripts/artifacts.json`, never a glob;
+2. the provider changed the bytes, recorded as per-file before/after SHA-256;
+3. every file carries the hardened runtime and a secure timestamp, and
+   `AgenTerm.app` is sealed inner-out including the privileged helper;
+4. Apple notarization returned `Accepted`, and the submission id is recorded;
+5. `xcrun stapler staple` succeeded **on the bundle** and
+   `spctl -a -t exec` reports `accepted` / `source=Notarized Developer ID`.
+
+Step 5 is the one a bare binary can never pass. A loose Mach-O cannot be
+stapled, and Gatekeeper's launch path rejects it as "not an app" even when Apple
+holds the ticket — which is why the double-clickable deliverable is the bundle.
+
+Public macOS receipts may carry the Developer ID publisher name, the Apple Team
+identifier, hashes, sizes, the notarization submission id, the stapling result
+and the Gatekeeper verdict. The `.p12` and `.p8` material, the `.p12` password,
+the App Store Connect Key ID and Issuer ID, and any keychain password are
+protected and never enter source, logs, receipts or handoff text.
+`scripts/audit-macos-signing-receipt.py` rejects a receipt carrying any of them
+before it can be published.
+
+## Final-byte reputation
+
+`release-policy.json` `reputation.windows_final_candidate_bytes` is `required`.
+That means a Promotion must carry a Microsoft Defender scan of the **sealed
+Candidate's** Windows archives, performed on a real Windows machine, bound to
+that Candidate's manifest by hash:
+
+1. `scripts/utm-win-defender-court.sh` leases an AgenTerm Windows UTM court,
+   pushes exactly the two archives the sealed manifest names, scans them with
+   `MpCmdRun.exe -DisableRemediation`, and writes an `agenterm-defender-court`
+   receipt recording each archive's hash before and after the scan;
+2. `scripts/agenterm-reputation-court.py qualify` converts that receipt into an
+   `agenterm-reputation-qualification`, refusing any receipt whose bytes, source
+   SHA or Candidate run identity do not match the manifest;
+3. `.github/workflows/reputation.yml` re-verifies the qualification against the
+   Candidate it downloads itself, and publishes it;
+4. `.github/workflows/release.yml` requires that reputation run and re-derives
+   the binding a third time against the manifest it is about to publish.
+
+Equal before and after hashes are load-bearing: they prove the scan observed the
+shipped bytes and did not quarantine or remediate them. The court is scoped to
+the Windows archives because that is what the policy field names; extending it
+is a policy change, not a script change.
+
+The `DEFENDER PASS` lines inside `candidate.yml` and
+`windows-signing-qualification.yml` remain useful in-run signals, but they scan
+a freshly built artifact on the machine that produced it and are bound to no
+manifest. They are not this gate and never satisfy it.
+
 ## Inspect a downloaded file
 
 On Windows, right-click a file and open **Properties → Digital Signatures** for

@@ -7,6 +7,10 @@ on:
         description: Successful Release Candidate workflow run ID
         required: true
         type: string
+      reputation_run_id:
+        description: Successful Reputation Qualification run ID (required while release-policy.json reputation.windows_final_candidate_bytes is required)
+        required: false
+        type: string
       confirmation:
         description: Type publish-vX.Y.Z after reviewing the candidate (or dry-run-publish-vX.Y.Z when dry_run)
         required: true
@@ -99,6 +103,39 @@ jobs:
             --dir candidate
           cp "$RUNNER_TEMP/candidate-run-identity.json" candidate/
 
+      - name: Require the final-byte reputation qualification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPUTATION_RUN_ID: ${{ inputs.reputation_run_id }}
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          # The checked-in policy decides whether this gate is mandatory.
+          # "required" means required: a missing reputation run fails the
+          # Promotion rather than silently publishing unscanned final bytes.
+          mode="$(jq -r .reputation.windows_final_candidate_bytes release-policy.json)"
+          case "$mode" in
+            required) ;;
+            *) echo "Unsupported reputation policy: $mode" >&2; exit 1 ;;
+          esac
+          if [[ -z "${REPUTATION_RUN_ID:-}" ]]; then
+            echo "release-policy.json requires a final-byte reputation qualification." >&2
+            echo "Run scripts/utm-win-defender-court.sh against the sealed Candidate," >&2
+            echo "qualify it with scripts/agenterm-reputation-court.py, dispatch" >&2
+            echo "reputation.yml, then pass that run id as reputation_run_id." >&2
+            exit 1
+          fi
+          [[ "$REPUTATION_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          reputation="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$REPUTATION_RUN_ID")"
+          [[ "$(jq -r .path <<<"$reputation")" == ".github/workflows/reputation.yml" ]]
+          [[ "$(jq -r .event <<<"$reputation")" == workflow_dispatch ]]
+          [[ "$(jq -r .status <<<"$reputation")" == completed ]]
+          [[ "$(jq -r .conclusion <<<"$reputation")" == success ]]
+          [[ "$(jq -r .head_sha <<<"$reputation")" == "$SOURCE_SHA" ]]
+          mkdir reputation
+          gh run download "$REPUTATION_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "reputation-qualification-$REPUTATION_RUN_ID" --dir reputation
+
       - name: Extract candidate Script Runtime
         run: |
           set -euo pipefail
@@ -123,6 +160,13 @@ jobs:
           "$RUNNER_TEMP/agenterm-promotion-tool/agenterm" cli script \
             task run candidate-verify --manifest agenterm.tasks.json -- \
             . "$manifest" candidate/payload
+          # Re-derive the reputation binding here, against the sealed manifest
+          # this Promotion is actually publishing. A successful reputation run
+          # is not evidence on its own; the qualification must cover exactly
+          # these Windows archive hashes.
+          python3 scripts/agenterm-reputation-court.py verify \
+            --manifest "$manifest" \
+            --qualification reputation/reputation-qualification.json
           version="$(jq -r .version "$manifest")"
           tag="$(jq -r .expected_tag "$manifest")"
           source_sha="$(jq -r .source_sha "$manifest")"

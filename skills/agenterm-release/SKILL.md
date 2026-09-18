@@ -24,6 +24,11 @@ Read `references/github-auth-and-dispatch.md` when authentication, workflow
 dispatch, monitoring, rate limits, or human approval is involved.
 Read `references/company-signing-enrollment.md` before changing signing policy,
 provider configuration, signature receipts, or final-byte reputation courts.
+Read `references/apple-signing-enrollment.md` before touching the macOS lane:
+Apple Developer ID is a separate provider with an exportable key, its own
+qualification court (`.github/workflows/macos-signing-qualification.yml`), and
+its own owner checklist. Never share a switch, a secret or a receipt between it
+and the Windows lane.
 That product reference records AgenTerm-specific state; the canonical reusable
 implementation and operations procedure is
 `~/repos/company-dev-hub/skills/sign-windows-artifacts/SKILL.md`. Before a
@@ -75,12 +80,45 @@ validate, push, and dispatch the replacement exact-SHA Candidate without asking
 the human to repeat authorization for each repair commit. A request limited to
 one named SHA does not authorize later SHAs. Public Promotion remains separate.
 
+## Reputation gate
+
+Between Candidate and Promotion, `release-policy.json`
+`reputation.windows_final_candidate_bytes: "required"` demands a Defender scan
+of the sealed Windows bytes. Run it locally against the downloaded Candidate,
+then publish the qualification:
+
+```sh
+gh run download <candidate_run_id> --name release-candidate-<candidate_run_id> --dir target/candidate-<v>
+scripts/utm-win-defender-court.sh target/candidate-<v> target/defender-court-<v>.json
+python3 scripts/agenterm-reputation-court.py qualify \
+  --manifest target/candidate-<v>/agenterm-<v>-candidate-manifest.json \
+  --defender target/defender-court-<v>.json \
+  --output target/reputation-qualification-<v>.json
+Q="$(base64 -i target/reputation-qualification-<v>.json | tr -d '\n')"
+gh workflow run reputation.yml --ref <branch-or-tag-at-candidate-sha> \
+  -f candidate_run_id=<candidate_run_id> -f source_sha=<sha> -f qualification_base64="$Q"
+```
+
+`reputation.yml` and `release.yml` both assert `GITHUB_SHA == source_sha`, so if
+`main` has moved past the Candidate SHA — any commit, even docs — pin a
+throwaway branch at that SHA and dispatch `--ref` it, then delete it after
+publish. Default the court to `win-aarch64-desktop`: Defender scans statically,
+so a native ARM guest is a valid scanner for x86_64 archives and is far more
+reliable than the emulated x86 guest on Apple Silicon. Never run exploratory VMs
+in the UTM instance the release court uses.
+
+Do not relax the scan, edit an assertion, or hand-write a verdict to get a green
+gate. `AGENTERM_DEFENDER_VERDICT` is refused by the court for exactly that
+reason.
+
 ## Promotion workflow
 
 Promotion is a separate human authority boundary.
 
 1. Do not dispatch `release.yml` until the user explicitly approves public
-   publication for the exact Candidate.
+   publication for the exact Candidate. Pass `reputation_run_id` from the
+   reputation gate above; while the policy says `required`, omitting it is a
+   hard failure rather than an unscanned publish.
 2. Bind `candidate_run_id`, source SHA, version, expected tag, artifact
    identity, expiry, and confirmation `publish-vX.Y.Z`.
 3. Require the configured `release` environment approval when available.
