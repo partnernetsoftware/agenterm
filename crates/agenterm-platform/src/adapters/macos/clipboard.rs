@@ -568,4 +568,43 @@ mod tests {
         assert!(result.is_err(), "{result:?}");
         assert!(started.elapsed() < Duration::from_secs(3));
     }
+
+    #[test]
+    fn clipboard_helpers_pin_utf8_and_do_not_inherit_the_session_encoding() {
+        // pbpaste encodes in the user's default text encoding, derived from the
+        // locale environment. A GUI-launched .app inherits almost none, so on a
+        // non-English system the bytes come back in a legacy encoding and every
+        // paste containing a non-ASCII character failed to decode. Pinning the
+        // locale is the fix; this guards it against being tidied away.
+        let mut command = Command::new("pbpaste");
+        utf8_locale(&mut command);
+        let pinned: Vec<(String, Option<String>)> = command
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().into_owned(),
+                    value.map(|value| value.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        for key in ["LC_ALL", "LANG"] {
+            let found = pinned.iter().find(|(name, _)| name == key);
+            assert!(found.is_some(), "{key} is not pinned: {pinned:?}");
+            let value = found.and_then(|(_, value)| value.clone()).unwrap_or_default();
+            assert!(
+                value.to_ascii_uppercase().ends_with("UTF-8"),
+                "{key} must pin a UTF-8 locale, got {value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_legacy_encoded_clipboard_payload_is_what_the_pin_prevents() {
+        // The exact bytes measured from `env -i pbpaste` on a Chinese macOS
+        // holding `It's 中文`: GBK, not UTF-8, and it fails at index 2 — the
+        // "invalid utf-8 sequence of 1 byte from index 2" the user reported.
+        let legacy = [0x49, 0x74, 0xa1, 0xaf, 0x73, 0x20, 0xd6, 0xd0, 0xce, 0xc4];
+        let error = String::from_utf8(legacy.to_vec()).expect_err("GBK is not UTF-8");
+        assert_eq!(error.utf8_error().valid_up_to(), 2);
+    }
 }
