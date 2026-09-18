@@ -197,12 +197,30 @@ pub(crate) fn clear(timeout: Duration) -> Result<(), ClipboardError> {
     )
 }
 
+/// Pins the helper's text encoding instead of inheriting the session's.
+///
+/// `pbpaste`/`pbcopy` encode in the user's default text encoding, which is
+/// derived from the locale environment. A GUI-launched `.app` inherits almost
+/// no environment, so on a machine whose system language is not English the
+/// helper emits that language's legacy encoding and the bytes are not UTF-8 at
+/// all. Measured on a Chinese macOS with the clipboard holding `It's 中文`:
+/// from a shell `49 74 e2 80 99 ...` (UTF-8), from an empty environment
+/// `49 74 a1 af 73 20 d6 d0 ce c4` (GBK) — which fails to decode at index 2 and
+/// surfaced to the user as "clipboard read failed: invalid utf-8 sequence of 1
+/// byte from index 2" on every paste containing a non-ASCII character.
+///
+/// `LC_ALL` overrides every other locale variable, so this is deterministic no
+/// matter what the process happens to have inherited.
+fn utf8_locale(command: &mut Command) -> &mut Command {
+    command.env("LC_ALL", "en_US.UTF-8").env("LANG", "en_US.UTF-8")
+}
+
 fn write_via_command_script(
     program: &str,
     script: &str,
     timeout: Duration,
 ) -> Result<(), ClipboardError> {
-    let mut child = Command::new(program)
+    let mut child = utf8_locale(&mut Command::new(program))
         .arg("-e")
         .arg(script)
         .stdin(Stdio::null())
@@ -267,7 +285,7 @@ pub(crate) fn map_error(error: ClipboardError) -> crate::contract::clipboard::Cl
 }
 
 fn write_via_command(program: &str, text: &str, timeout: Duration) -> Result<(), ClipboardError> {
-    let mut child = Command::new(program)
+    let mut child = utf8_locale(&mut Command::new(program))
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -332,7 +350,7 @@ fn read_via_command_with_args(
     limit: usize,
     timeout: Duration,
 ) -> Result<String, ClipboardError> {
-    let mut child = Command::new(program)
+    let mut child = utf8_locale(&mut Command::new(program))
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
