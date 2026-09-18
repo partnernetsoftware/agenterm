@@ -35,10 +35,12 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 use windows_sys::Win32::System::Console::{
     AllocConsole, CHAR_INFO, CHAR_INFO_0, CONSOLE_SCREEN_BUFFER_INFO, COORD, CTRL_BREAK_EVENT,
-    CTRL_C_EVENT, FreeConsole, GenerateConsoleCtrlEvent, GetConsoleScreenBufferInfo,
-    GetConsoleWindow, INPUT_RECORD, INPUT_RECORD_0, KEY_EVENT, KEY_EVENT_RECORD,
-    KEY_EVENT_RECORD_0, ReadConsoleOutputW, SMALL_RECT, SetConsoleCtrlHandler,
-    SetConsoleScreenBufferSize, SetConsoleWindowInfo, WriteConsoleInputW,
+    CTRL_C_EVENT, ENABLE_MOUSE_INPUT, FROM_LEFT_1ST_BUTTON_PRESSED, FROM_LEFT_2ND_BUTTON_PRESSED, FreeConsole,
+    GenerateConsoleCtrlEvent, GetConsoleMode, GetConsoleScreenBufferInfo, GetConsoleWindow, INPUT_RECORD,
+    INPUT_RECORD_0, KEY_EVENT, KEY_EVENT_RECORD, KEY_EVENT_RECORD_0, MOUSE_EVENT,
+    MOUSE_EVENT_RECORD, MOUSE_MOVED, MOUSE_WHEELED, RIGHTMOST_BUTTON_PRESSED, ReadConsoleOutputW,
+    SMALL_RECT, SetConsoleCtrlHandler, SetConsoleScreenBufferSize, SetConsoleWindowInfo,
+    WriteConsoleInputW,
 };
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
@@ -460,8 +462,10 @@ fn run_agent(
     let mut screen = ScreenMirror::new(cols, rows);
     let mut idle = 0_u32;
     let mut first_poll_failure = None;
+    let mut mouse_announced = false;
     loop {
         apply_pending_resize(&console);
+        announce_mouse_mode(&console, output_write, &mut mouse_announced);
         let changed = match screen.poll_and_emit(&console, output_write) {
             Ok(changed) => {
                 first_poll_failure = None;
@@ -1042,6 +1046,17 @@ fn write_records(console_input: HANDLE, bytes: &[u8]) -> usize {
             }
             _ => {}
         }
+        match decode_sgr_mouse(&bytes[index..]) {
+            SgrMouse::Report(report, used) => {
+                index += used;
+                records.push(mouse_record(report));
+                continue;
+            }
+            // A partial report must wait for the rest rather than be decoded as
+            // a literal escape key.
+            SgrMouse::Incomplete => break,
+            SgrMouse::Other => {}
+        }
         let Some((key, used)) = decode_key(&bytes[index..]) else {
             break;
         };
@@ -1084,6 +1099,164 @@ struct Key {
 }
 
 const LEFT_CTRL_PRESSED: u32 = 0x0008;
+const LEFT_ALT_PRESSED: u32 = 0x0002;
+const SHIFT_PRESSED: u32 = 0x0010;
+
+/// Tells the terminal when the child turns console mouse input on or off.
+///
+/// On this path a program asks for the mouse through `SetConsoleMode`
+/// (`ENABLE_MOUSE_INPUT`), not by writing a DECSET. The terminal upstream only
+/// parses the output stream, so without this it never learns the child wants
+/// the mouse and keeps every click as local selection — which is exactly how
+/// mouse support goes missing. Synthesising the DECSET is the same translation
+/// ConPTY performs for its own host; this path has to do it itself.
+fn announce_mouse_mode(console: &ConsoleHandles, output: HANDLE, announced: &mut bool) {
+    let mut mode = 0_u32;
+    // SAFETY: the console input handle is owned by this agent for its lifetime.
+    if unsafe { GetConsoleMode(console.input.as_raw_handle() as HANDLE, &mut mode) } == 0 {
+        return;
+    }
+    let wanted = mode & ENABLE_MOUSE_INPUT != 0;
+    if wanted == *announced {
+        return;
+    }
+    *announced = wanted;
+    // 1003 (any-motion) with 1006 (SGR) is what reports every button, drag and
+    // wheel with coordinates that do not break past column 223.
+    let sequence: &[u8] = if wanted {
+        b"\x1b[?1003h\x1b[?1006h"
+    } else {
+        b"\x1b[?1006l\x1b[?1003l"
+    };
+    let _ = write_all(output, sequence);
+}
+
+/// One mouse report decoded from the SGR (DECSET 1006) form a terminal emits.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct MouseReport {
+    /// The SGR button code, including the modifier, motion and wheel bits.
+    code: u32,
+    /// Zero-based cell coordinates; the wire form is one-based.
+    column: i16,
+    row: i16,
+    /// `M` is a press, `m` a release.
+    pressed: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SgrMouse {
+    Report(MouseReport, usize),
+    /// A prefix of a report: wait for more bytes rather than delivering the
+    /// escape literally.
+    Incomplete,
+    /// Not a mouse report; let the key decoder have it.
+    Other,
+}
+
+/// Decodes `ESC [ < code ; column ; row (M|m)`.
+///
+/// ConPTY refuses to carry mouse reports to a child, so on the console-agent
+/// path the terminal's SGR bytes are translated into the `MOUSE_EVENT_RECORD`
+/// a console delivers natively — which is the same thing a program receives
+/// when it runs in a plain conhost window.
+fn decode_sgr_mouse(bytes: &[u8]) -> SgrMouse {
+    const PREFIX: [u8; 3] = [0x1b, b'[', b'<'];
+    for (offset, want) in PREFIX.iter().enumerate() {
+        match bytes.get(offset) {
+            None => return SgrMouse::Incomplete,
+            Some(byte) if byte == want => {}
+            Some(_) => return SgrMouse::Other,
+        }
+    }
+    let mut index = PREFIX.len();
+    let mut fields = [0_u32; 3];
+    for slot in 0..3 {
+        let start = index;
+        while let Some(byte) = bytes.get(index) {
+            if !byte.is_ascii_digit() {
+                break;
+            }
+            fields[slot] = fields[slot]
+                .saturating_mul(10)
+                .saturating_add(u32::from(byte - b'0'));
+            index += 1;
+        }
+        if index == start {
+            return SgrMouse::Other;
+        }
+        match bytes.get(index) {
+            None => return SgrMouse::Incomplete,
+            Some(b';') if slot < 2 => index += 1,
+            Some(b'M' | b'm') if slot == 2 => {}
+            Some(_) => return SgrMouse::Other,
+        }
+    }
+    let pressed = bytes[index] == b'M';
+    let cell = |value: u32| i16::try_from(value.saturating_sub(1)).unwrap_or(i16::MAX);
+    SgrMouse::Report(
+        MouseReport {
+            code: fields[0],
+            column: cell(fields[1]),
+            row: cell(fields[2]),
+            pressed,
+        },
+        index + 1,
+    )
+}
+
+/// Builds the console record for one decoded report.
+fn mouse_record(report: MouseReport) -> INPUT_RECORD {
+    const SHIFT_BIT: u32 = 4;
+    const ALT_BIT: u32 = 8;
+    const CTRL_BIT: u32 = 16;
+    const MOTION_BIT: u32 = 32;
+    const WHEEL_BIT: u32 = 64;
+
+    let mut buttons = 0_u32;
+    let mut flags = 0_u32;
+    if report.code & WHEEL_BIT != 0 {
+        flags |= MOUSE_WHEELED;
+        // The wheel delta rides in the high word, signed: SGR 64 scrolls up.
+        let delta: i16 = if report.code & 0x03 == 0 { 120 } else { -120 };
+        buttons |= (delta as u16 as u32) << 16;
+    } else {
+        if report.pressed {
+            buttons |= match report.code & 0x03 {
+                0 => FROM_LEFT_1ST_BUTTON_PRESSED,
+                1 => FROM_LEFT_2ND_BUTTON_PRESSED,
+                2 => RIGHTMOST_BUTTON_PRESSED,
+                _ => 0,
+            };
+        }
+        if report.code & MOTION_BIT != 0 {
+            flags |= MOUSE_MOVED;
+        }
+    }
+    let mut modifiers = 0_u32;
+    if report.code & SHIFT_BIT != 0 {
+        modifiers |= SHIFT_PRESSED;
+    }
+    if report.code & ALT_BIT != 0 {
+        modifiers |= LEFT_ALT_PRESSED;
+    }
+    if report.code & CTRL_BIT != 0 {
+        modifiers |= LEFT_CTRL_PRESSED;
+    }
+    INPUT_RECORD {
+        EventType: MOUSE_EVENT as u16,
+        Event: INPUT_RECORD_0 {
+            MouseEvent: MOUSE_EVENT_RECORD {
+                dwMousePosition: COORD {
+                    X: report.column,
+                    Y: report.row,
+                },
+                dwButtonState: buttons,
+                dwControlKeyState: modifiers,
+                dwEventFlags: flags,
+            },
+        },
+    }
+}
 
 fn key_record(key: Key, down: bool) -> INPUT_RECORD {
     INPUT_RECORD {
@@ -1597,5 +1770,107 @@ mod tests {
             start + MAX_POLL_FAILURE_DURATION
         ));
         assert_eq!(first_failure, Some(start));
+    }
+
+    /// ConPTY drops mouse reports, so on this path the terminal's SGR bytes are
+    /// the only way a click can reach the child — they must decode exactly, and
+    /// a half-arrived report must never be delivered as a literal escape key.
+    #[test]
+    fn sgr_mouse_reports_decode_into_console_records() {
+        // Left press at one-based (11,6) -> zero-based (10,5).
+        let press = b"\x1b[<0;11;6M";
+        assert_eq!(
+            decode_sgr_mouse(press),
+            SgrMouse::Report(
+                MouseReport {
+                    code: 0,
+                    column: 10,
+                    row: 5,
+                    pressed: true
+                },
+                press.len()
+            )
+        );
+        // The matching release carries the same cell with `m`.
+        assert_eq!(
+            decode_sgr_mouse(b"\x1b[<0;11;6m"),
+            SgrMouse::Report(
+                MouseReport {
+                    code: 0,
+                    column: 10,
+                    row: 5,
+                    pressed: false
+                },
+                11
+            )
+        );
+        // Trailing bytes belong to whatever follows.
+        assert_eq!(
+            decode_sgr_mouse(b"\x1b[<0;1;1Mrest"),
+            SgrMouse::Report(
+                MouseReport {
+                    code: 0,
+                    column: 0,
+                    row: 0,
+                    pressed: true
+                },
+                10
+            )
+        );
+
+        // Every prefix is incomplete, never "not a mouse report": delivering a
+        // partial report as a literal ESC is exactly the bug to avoid.
+        for cut in 0..press.len() {
+            assert_eq!(
+                decode_sgr_mouse(&press[..cut]),
+                SgrMouse::Incomplete,
+                "prefix of length {cut} must wait for more bytes"
+            );
+        }
+
+        // An ordinary cursor key is not a mouse report and must fall through.
+        assert_eq!(decode_sgr_mouse(b"\x1b[A"), SgrMouse::Other);
+        assert_eq!(decode_sgr_mouse(b"hello"), SgrMouse::Other);
+    }
+
+    /// The button, wheel, motion and modifier bits each land in the field a
+    /// console client actually reads.
+    #[test]
+    fn mouse_records_carry_button_wheel_and_modifier_state() {
+        let report = |code: u32, pressed: bool| MouseReport {
+            code,
+            column: 3,
+            row: 4,
+            pressed,
+        };
+        let buttons = |record: INPUT_RECORD| unsafe { record.Event.MouseEvent.dwButtonState };
+        let flags = |record: INPUT_RECORD| unsafe { record.Event.MouseEvent.dwEventFlags };
+        let modifiers = |record: INPUT_RECORD| unsafe { record.Event.MouseEvent.dwControlKeyState };
+
+        assert_eq!(
+            buttons(mouse_record(report(0, true))),
+            FROM_LEFT_1ST_BUTTON_PRESSED
+        );
+        assert_eq!(
+            buttons(mouse_record(report(2, true))),
+            RIGHTMOST_BUTTON_PRESSED
+        );
+        // A release reports no button held.
+        assert_eq!(buttons(mouse_record(report(0, false))), 0);
+        // Motion sets the flag rather than a button transition.
+        assert_eq!(
+            flags(mouse_record(report(32, true))) & MOUSE_MOVED,
+            MOUSE_MOVED
+        );
+        // Wheel up puts a positive delta in the high word.
+        let up = mouse_record(report(64, true));
+        assert_eq!(flags(up) & MOUSE_WHEELED, MOUSE_WHEELED);
+        assert_eq!((buttons(up) >> 16) as u16 as i16, 120);
+        let down = mouse_record(report(65, true));
+        assert_eq!((buttons(down) >> 16) as u16 as i16, -120);
+        // Ctrl+click keeps the button and reports the modifier.
+        let ctrl_click = mouse_record(report(16, true));
+        assert_eq!(buttons(ctrl_click), FROM_LEFT_1ST_BUTTON_PRESSED);
+        assert_eq!(modifiers(ctrl_click) & LEFT_CTRL_PRESSED, LEFT_CTRL_PRESSED);
     }
 }
