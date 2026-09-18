@@ -35,12 +35,12 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 use windows_sys::Win32::System::Console::{
     AllocConsole, CHAR_INFO, CHAR_INFO_0, CONSOLE_SCREEN_BUFFER_INFO, COORD, CTRL_BREAK_EVENT,
-    CTRL_C_EVENT, ENABLE_MOUSE_INPUT, FROM_LEFT_1ST_BUTTON_PRESSED, FROM_LEFT_2ND_BUTTON_PRESSED, FreeConsole,
-    GenerateConsoleCtrlEvent, GetConsoleMode, GetConsoleScreenBufferInfo, GetConsoleWindow, INPUT_RECORD,
-    INPUT_RECORD_0, KEY_EVENT, KEY_EVENT_RECORD, KEY_EVENT_RECORD_0, MOUSE_EVENT,
-    MOUSE_EVENT_RECORD, MOUSE_MOVED, MOUSE_WHEELED, RIGHTMOST_BUTTON_PRESSED, ReadConsoleOutputW,
-    SMALL_RECT, SetConsoleCtrlHandler, SetConsoleScreenBufferSize, SetConsoleWindowInfo,
-    WriteConsoleInputW,
+    CTRL_C_EVENT, ENABLE_MOUSE_INPUT, FROM_LEFT_1ST_BUTTON_PRESSED, FROM_LEFT_2ND_BUTTON_PRESSED,
+    FreeConsole, GenerateConsoleCtrlEvent, GetConsoleMode, GetConsoleScreenBufferInfo,
+    GetConsoleWindow, INPUT_RECORD, INPUT_RECORD_0, KEY_EVENT, KEY_EVENT_RECORD,
+    KEY_EVENT_RECORD_0, MOUSE_EVENT, MOUSE_EVENT_RECORD, MOUSE_MOVED, MOUSE_WHEELED,
+    RIGHTMOST_BUTTON_PRESSED, ReadConsoleOutputW, SMALL_RECT, SetConsoleCtrlHandler,
+    SetConsoleScreenBufferSize, SetConsoleWindowInfo, WriteConsoleInputW,
 };
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,

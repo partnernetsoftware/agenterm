@@ -212,7 +212,9 @@ pub(crate) fn clear(timeout: Duration) -> Result<(), ClipboardError> {
 /// `LC_ALL` overrides every other locale variable, so this is deterministic no
 /// matter what the process happens to have inherited.
 fn utf8_locale(command: &mut Command) -> &mut Command {
-    command.env("LC_ALL", "en_US.UTF-8").env("LANG", "en_US.UTF-8")
+    command
+        .env("LC_ALL", "en_US.UTF-8")
+        .env("LANG", "en_US.UTF-8")
 }
 
 fn write_via_command_script(
@@ -590,7 +592,9 @@ mod tests {
         for key in ["LC_ALL", "LANG"] {
             let found = pinned.iter().find(|(name, _)| name == key);
             assert!(found.is_some(), "{key} is not pinned: {pinned:?}");
-            let value = found.and_then(|(_, value)| value.clone()).unwrap_or_default();
+            let value = found
+                .and_then(|(_, value)| value.clone())
+                .unwrap_or_default();
             assert!(
                 value.to_ascii_uppercase().ends_with("UTF-8"),
                 "{key} must pin a UTF-8 locale, got {value:?}"
