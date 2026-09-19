@@ -368,6 +368,15 @@ function cargo_unit_powershell_compat_spec(environment) {
   ], 120000, environment, 2);
 }
 
+function cargo_unit_powershell_build_spec(environment) {
+  // Compile outside the 120-second PowerShell behavior deadline. The exact
+  // court below uses the same Cargo target, features, and build environment.
+  return spec("cargo", [
+    "test", "--quiet", "--locked", "--all-features",
+    "--test", "agenterm_cli_forwarding", "--no-run"
+  ], 600000, environment, 0);
+}
+
 function cargo_unit_qjswasm_adversarial_spec(environment) {
   return spec("cargo", [
     "test", "--quiet", "--locked",
@@ -1407,6 +1416,7 @@ gate = run_gate_specs(
   [
     cargo_unit_cu_fixture_spec(build_environment),
     cargo_unit_primary_spec(build_environment),
+    cargo_unit_powershell_build_spec(build_environment),
     cargo_unit_powershell_compat_spec(build_environment),
     cargo_unit_qjswasm_adversarial_spec(build_environment),
     cargo_unit_qjswasm_tool_door_spec(build_environment),

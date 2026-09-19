@@ -351,6 +351,23 @@ fn powershell_launcher_test_is_an_explicit_terminal_compatibility_subcourt() {
     );
     assert!(CHECK_QJS.contains("], 120000, environment, 2);"));
     assert!(CHECK_QJS.contains("cargo_unit_powershell_compat_spec(build_environment)"));
+    let build_spec = CHECK_QJS
+        .split_once("function cargo_unit_powershell_build_spec(environment) {")
+        .and_then(|(_, tail)| tail.split_once("\n}"))
+        .map(|(body, _)| body)
+        .expect("PowerShell compatibility target must have a separate compile step");
+    assert!(build_spec.contains("\"--test\", \"agenterm_cli_forwarding\", \"--no-run\""));
+    assert!(build_spec.contains("], 600000, environment, 0);"));
+    let build_call = CHECK_QJS
+        .find("cargo_unit_powershell_build_spec(build_environment)")
+        .expect("precompile step must run in the unit gate");
+    let court_call = CHECK_QJS
+        .find("cargo_unit_powershell_compat_spec(build_environment)")
+        .expect("exact PowerShell court must run in the unit gate");
+    assert!(
+        build_call < court_call,
+        "precompile must precede the 120-second behavior court"
+    );
 }
 
 #[test]
