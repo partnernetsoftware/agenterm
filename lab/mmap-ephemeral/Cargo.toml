@@ -18,6 +18,10 @@ path = "src/lib.rs"
 name = "mmap-lab"
 path = "src/bin/mmap_lab.rs"
 
+[[bin]]
+name = "shmbox-practice"
+path = "src/bin/practice.rs"
+
 # Zero crates.io deps: PATH `cc` shims break build-scripts (libc/memmap2).
 # mmap / os_sync via raw FFI in `src/ffi.rs`.
 

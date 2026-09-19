@@ -8,6 +8,7 @@ Not product code. Standalone package. See [`LAYOUT.md`](LAYOUT.md), [`PRACTICAL.
 |-------|------|
 | **`shmbox` lib** | Slot ABI + `Address` + `Server`/`Client` (`ask`/`accept`/`call`/`serve`) |
 | **`mmap-lab` bin** | probes / latency bench / RPS / ephemeral spawn |
+| **`shmbox-practice` bin** | cross-process ephemeral / resident / kill-9 reclaim |
 | **`nng_bench/`** | nng pair `ipc://` opponent |
 
 ## Wait backends (`WaitKind::Native`)
@@ -35,3 +36,4 @@ cargo build --manifest-path lab/mmap-ephemeral/Cargo.toml --release
 |------|--------|
 | Latency p50 vs nng (native/os_sync) | **PASS ~6.6×** |
 | RPS vs nng (native/os_sync) | **PASS ~4×** |
+| Practice (`./run_practice.sh`) | ephemeral / resident / crash reclaim |

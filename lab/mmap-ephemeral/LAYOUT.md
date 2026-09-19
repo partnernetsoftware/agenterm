@@ -7,6 +7,7 @@ lab/mmap-ephemeral/
 ├── .cargo/config.toml
 ├── run_rps_court.sh
 ├── run_court.sh               # IPC + RPC suite (cargo test --lib court)
+├── run_practice.sh            # cross-process ephemeral / resident / crash
 ├── src/
 │   ├── lib.rs
 │   ├── address.rs             # shmbox:file:… / shmbox:shm:…
@@ -21,7 +22,9 @@ lab/mmap-ephemeral/
 │   │   ├── darwin.rs          # os_sync_*
 │   │   ├── linux.rs           # futex syscall
 │   │   └── windows.rs         # WaitOnAddress + mapping APIs
-│   └── bin/mmap_lab.rs
+│   └── bin/
+│       ├── mmap_lab.rs
+│       └── practice.rs        # shmbox-practice court
 └── nng_bench/                 # opponent only (nng still uses ipc://)
 ```
 
