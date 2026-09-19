@@ -8,7 +8,7 @@
 //!
 //! Tiny wire verbs (no serde): `XOR <bytes>`, `STAT` → `pid=… gen=…`.
 
-use shmbox::{xor_a5, Client, Endpoint, Error, Server, WaitKind};
+use shmbox::{Client, Endpoint, Error, Server, WaitKind, xor_a5};
 use std::env;
 use std::fs;
 use std::io::{self, Write};
@@ -24,10 +24,7 @@ fn self_exe() -> io::Result<PathBuf> {
 }
 
 fn slot_path(tag: &str) -> PathBuf {
-    env::temp_dir().join(format!(
-        "shmbox-practice-{tag}-{}.slot",
-        std::process::id()
-    ))
+    env::temp_dir().join(format!("shmbox-practice-{tag}-{}.slot", std::process::id()))
 }
 
 fn addr_of(path: &Path) -> String {
@@ -82,6 +79,12 @@ fn wait_connect(ep: &Endpoint, deadline: Duration) -> Result<Client, Error> {
             Err(Error::NoOwner) | Err(Error::Dead) => {
                 if start.elapsed() >= deadline {
                     return Err(Error::NoOwner);
+                }
+                thread::sleep(Duration::from_millis(2));
+            }
+            Err(Error::Io(e)) if e.kind() == io::ErrorKind::InvalidData => {
+                if start.elapsed() >= deadline {
+                    return Err(Error::Io(e));
                 }
                 thread::sleep(Duration::from_millis(2));
             }
@@ -247,9 +250,7 @@ fn run_crash() -> Result<(), Error> {
             println!("  client after kill: {err:?} (expected fail)");
         }
         Ok(_) => {
-            return Err(Error::Io(io::Error::other(
-                "unexpected success after kill",
-            )));
+            return Err(Error::Io(io::Error::other("unexpected success after kill")));
         }
         Err(e) => println!("  client after kill: {e} (acceptable)"),
     }
