@@ -267,13 +267,6 @@ mod conpty {
         entries().is_some()
     }
 
-    /// True when the ConPTY in use came from beside the executable rather than
-    /// from Windows. Meaningful only after `entries()` has resolved.
-    pub(super) fn sidecar_in_use() -> bool {
-        let _ = entries();
-        SIDECAR_IN_USE.load(Ordering::Acquire)
-    }
-
     /// A sentence a user can act on, not just a flag.
     pub(super) fn sidecar_detail() -> &'static str {
         let _ = entries();

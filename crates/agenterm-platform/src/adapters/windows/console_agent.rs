@@ -1170,13 +1170,13 @@ fn decode_sgr_mouse(bytes: &[u8]) -> SgrMouse {
     }
     let mut index = PREFIX.len();
     let mut fields = [0_u32; 3];
-    for slot in 0..3 {
+    for (slot, field) in fields.iter_mut().enumerate() {
         let start = index;
         while let Some(byte) = bytes.get(index) {
             if !byte.is_ascii_digit() {
                 break;
             }
-            fields[slot] = fields[slot]
+            *field = field
                 .saturating_mul(10)
                 .saturating_add(u32::from(byte - b'0'));
             index += 1;
