@@ -733,6 +733,13 @@ function execute(command_spec, repo, scratch, sequence) {
   }
   if (process_wait(handle, 10000) !== 0) { throw "check_process_wait:" + tool_result(); }
   const result = JSON.parse(tool_result());
+  // The door caps a slot at 32 live child handles. A qualification spawns one
+  // child per gate step -- the unit-tests gate alone is 23 -- so a waited-for
+  // slot that is never released exhausts the door part way through the run,
+  // and the failure lands on whichever step happens to be the 33rd rather
+  // than on anything that is actually wrong. Read the result first: release
+  // destroys the slot and replaces tool_result().
+  if (process_release(handle) !== 0) { throw "check_process_release:" + tool_result(); }
   const duration = rh.now_ms() - started;
   // The command itself may have removed target/ after the pre-spawn check.
   // This is intentional for the release build, so recreate the owned evidence

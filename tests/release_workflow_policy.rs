@@ -2039,3 +2039,27 @@ fn hotkey_installer_keeps_the_provider_beside_both_cu_copies() {
     );
     assert!(INSTALL_CU_HOTKEYS_SH.contains("codesign --verify --strict \"${provider}\""));
 }
+
+/// The qjs door caps a slot at 32 live child handles and a release
+/// qualification spawns one child per gate step -- the unit-tests gate alone is
+/// 23 -- so a waited-for slot that is never released exhausts the door part way
+/// through the run. The failure then lands on whichever step happens to be the
+/// 33rd, which is never the step that is actually wrong.
+#[test]
+fn the_qualification_releases_every_child_slot_it_spawns() {
+    let spawns = CHECK_QJS.matches("process_spawn(").count();
+    let releases = CHECK_QJS.matches("process_release(").count();
+    assert!(
+        spawns > 0,
+        "the qualification no longer spawns children; retire this gate deliberately"
+    );
+    assert_eq!(
+        releases, spawns,
+        "check.qjs spawns {spawns} child slots but releases {releases}: a leaked \
+         slot exhausts the door's 32-handle cap mid-run"
+    );
+    assert!(
+        CHECK_QJS.contains("if (process_release(handle) !== 0)"),
+        "the release must be checked, not fired and forgotten"
+    );
+}
