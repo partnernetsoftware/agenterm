@@ -229,7 +229,7 @@ fn all_prd_alignment_lanes_honor_the_declared_120_second_contract() {
     let budget = &TASKS["contracts"]["prd-alignment"]["budget"];
     assert_eq!(budget["timeout_ms"], 120_000);
     assert!(
-        CHECK_QJS.contains("direct_task(\n      bootstrap_worker, repo, \"prd-alignment\", 120000")
+        CHECK_QJS.contains("direct_task(\n    bootstrap_worker, repo, \"prd-alignment\", 120000,")
     );
     assert!(CHECK_QJS.contains("task(worker, repo, \"prd-alignment\", 120000"));
     assert!(!CHECK_QJS.contains("task(worker, repo, \"prd-alignment\", 10000"));
