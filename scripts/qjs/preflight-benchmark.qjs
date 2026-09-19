@@ -18,12 +18,12 @@ function cleanup_run_reports(run_directory, iterations) {
 // the binary names `cli script task run` as its replacement, so that is the
 // spelling here; the rest of the argument list is rh's.
 function task_args(task_manifest, repo, run_report, timeout_ms) {
-  // Keep the measured child on the preflight task's declared 100M-step
-  // contract. The old 10M Rhai-era override made the qjswasm child exhaust
-  // fuel on Windows before it could publish its report.
+  // Keep the measured child on the preflight task's declared 1B-step
+  // contract. Smaller Rhai-era overrides made the qjswasm child exhaust
+  // fuel before it could publish its report.
   return [
     "cli", "script", "task", "run", "preflight", "--manifest", task_manifest,
-    "--timeout-ms", "" + timeout_ms, "--max-operations", "100000000",
+    "--timeout-ms", "" + timeout_ms, "--max-operations", "1000000000",
     "--", repo, run_report, "--quiet"
   ];
 }
@@ -39,6 +39,7 @@ let output_path = rh.join(repo, output_arg);
 if (rh.is_absolute(output_arg)) {
   output_path = output_arg;
 }
+rh.create_dir_all(rh.parent(output_path));
 
 const iterations_raw = args[4];
 let iterations = 0;
@@ -79,13 +80,18 @@ for (let offset = 0; offset < iterations; offset = offset + 1) {
   const started = rh.now_ms();
   // The measured target below is p95 <= 15000ms, so the per-run budget must
   // outlive the threshold it measures: 30000ms, not 10000ms.
-  const exit_code = rh.command_status(
+  const child = rh.command(
     worker,
     task_args(task_manifest, repo, run_report_relative, 30000),
     { timeout_ms: 30000 }
   );
+  const exit_code = child.exit_code;
   const wall_duration = rh.now_ms() - started;
-  rh.require(rh.exists(run_report), "preflight_benchmark_report_missing:" + iteration_tag);
+  rh.require(
+    rh.exists(run_report),
+    "preflight_benchmark_report_missing:" + iteration_tag
+      + ":exit=" + exit_code + ":stderr=" + child.stderr
+  );
   const preflight = JSON.parse(rh.read_text(run_report));
   const passed = preflight.passed;
   if (passed === 0 || exit_code !== 0) {
