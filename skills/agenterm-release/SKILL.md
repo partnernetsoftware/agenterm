@@ -29,6 +29,11 @@ Apple Developer ID is a separate provider with an exportable key, its own
 qualification court (`.github/workflows/macos-signing-qualification.yml`), and
 its own owner checklist. Never share a switch, a secret or a receipt between it
 and the Windows lane.
+Read `references/protected-console-transfer.md` when an account holder has
+opened an authenticated Apple, Azure or GitHub console and one existing value
+must be transferred into the protected GitHub Environment. It makes
+`agenterm-cu` the preferred observation path and forbids logs, clipboard use or
+temporary secret files.
 That product reference records AgenTerm-specific state; the canonical reusable
 implementation and operations procedure is
 `~/repos/company-dev-hub/skills/sign-windows-artifacts/SKILL.md`. Before a

@@ -18,7 +18,12 @@ AgenTerm delivery after v0.1.16
 │  ├─ exact-SHA Candidate → no-rebuild Promotion → public audit
 │  ├─ qjswasm + tinyvm is the only live .qjs engine line
 │  └─ historical plan: plan/archive/plan-v0.1.16.md
-├─ [~] v0.1.18 — agent-operable desktop
+├─ [~] v0.1.17 — trusted, repeatable release
+│  ├─ copy MiniCon's proven stage boundaries, not its product code
+│  ├─ local six-cell + UTM/native evidence precedes provider spend
+│  ├─ protected Windows/macOS signing feeds a sealed Candidate
+│  └─ Defender/reputation + dry-run precede human Promotion
+├─ [ ] v0.1.18 — agent-operable desktop
 │  ├─ agenterm-cu current tier becomes a qualified distributable
 │  ├─ Win/macOS/Linux native accessibility journeys tell the truth
 │  ├─ authorization + audit gate every action; unsupported stays typed
@@ -55,7 +60,8 @@ flowchart LR
   DIST["0.2.x<br/>install · update · rollback"]
   HOLD["hold or cut leaf<br/>do not widen version"]
 
-  V16 --> CU
+  R17["v0.1.17<br/>trusted release path"]
+  V16 --> R17 --> CU
   Q --> CU
   A11Y --> CU
   AUTH --> CU
@@ -66,6 +72,22 @@ flowchart LR
 ```
 
 ## Version gates
+
+### v0.1.17 — trusted, repeatable release
+
+- User problem: AgenTerm has a strong exact-SHA contract but its local matrix,
+  protected signing and Candidate stages are not yet as smooth or independently
+  resumable as MiniCon's proven release path.
+- Invariant: each stage consumes immutable output from the previous stage;
+  signing credentials reach only protected signing jobs; Promotion rebuilds
+  nothing and remains a human boundary.
+- Success evidence: six-cell plus native/UTM receipts, release-eligible Windows
+  and macOS signing receipts, one sealed Candidate, bound Defender reputation,
+  a non-publishing Promotion rehearsal and finally a public integrity pass.
+- Safe failure: missing runner, credential, provider verdict, receipt or hash is
+  typed and blocks the stage. It never selects unsigned bytes implicitly.
+- Non-goals: new CU capability, shared MiniCon/AgenTerm infrastructure,
+  installer/update work or speculative architecture extraction.
 
 ### v0.1.18 — agent-operable desktop
 
@@ -106,7 +128,9 @@ flowchart LR
 
 ## Portfolio rules
 
-- v0.1.17 remains an archived, never-shipped plan number and is not reused.
+- The original v0.1.17 plan remains archived and is never an execution
+  authority. The 2026-09-19 product decision reassigns the number to the new
+  trusted-release plan; it does not revive any archived scope.
 - A version owns one user-visible outcome; independent work may ride only after
   its own gates pass and may not block that outcome.
 - Cross-build, GitHub native execution and local UTM are independent evidence

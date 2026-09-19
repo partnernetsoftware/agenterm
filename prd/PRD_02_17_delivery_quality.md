@@ -4,7 +4,14 @@ Parent: [AgenTerm product tree](../PRD.md#product-tree)
 
 Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
-- [~] Minicon's proven release lessons are being absorbed through
+Current version assignment: v0.1.17 owns the end-to-end development, build,
+local UTM/native qualification, GitHub payload, protected dual-signing,
+Candidate, reputation, rehearsal and Promotion path. Its execution authority is
+[`plan/plan-v0.1.17.md`](../plan/plan-v0.1.17.md). Product/architecture reuse
+between MiniCon and AgenTerm is deferred to v0.1.18; it is not a prerequisite
+for making this release path green.
+
+- [~] MiniCon's proven release lessons are being absorbed through
   `plan/goal-release-minicon-lessons.md`: clean staging, raw/compressed size
   evidence, six execute-only courts, slim-Linux dependency proof, explicit
   signing policy, and reputation checks over final Candidate bytes. AgenTerm's

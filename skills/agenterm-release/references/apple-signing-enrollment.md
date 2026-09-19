@@ -144,6 +144,12 @@ the `.p8`, which is downloadable exactly once.
    repository secrets and is **not** bound to `environment: release-signing`.
    Decide whether to move them; adding the environment to that job applies to
    all six matrix cells, including the Windows ones, so it is an owner call.
+   If a metadata value already exists in App Store Connect but is absent from
+   GitHub, use
+   [`protected-console-transfer.md`](protected-console-transfer.md): observe the
+   exact authenticated page with `agenterm-cu`, validate the field in memory,
+   and pipe it directly to `gh secret set`. Do not create a replacement API key,
+   copy the page to the clipboard, or persist the field in a log.
 6. **Run the macOS qualification court** — dispatch
    `macos-signing-qualification.yml` with the source SHA and a successful
    unsigned Candidate run id. This is the first real use of the credentials.

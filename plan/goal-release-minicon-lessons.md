@@ -1,5 +1,9 @@
 # Goal: absorb Minicon release lessons into AgenTerm
 
+Version owner: [`plan-v0.1.17.md`](plan-v0.1.17.md). This goal supplies the
+detailed release-engineering leaves for that version. It does not authorize a
+shared MiniCon/AgenTerm framework; evidence-led abstraction belongs to v0.1.18.
+
 Outcome: AgenTerm keeps its exact-SHA Candidate → byte-only Promotion contract,
 while adopting the release failures already paid for in Minicon: clean inputs,
 visible size evidence, execute-only runtime courts, dependency-complete Linux

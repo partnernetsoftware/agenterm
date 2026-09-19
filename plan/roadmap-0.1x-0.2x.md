@@ -8,10 +8,15 @@ Product owner: [`prd/PRD_02_18_roadmap.md`](../prd/PRD_02_18_roadmap.md)
 ```text
 0.1.x — make today's product controllable and tomorrow's changes cheaper
 ├─ [x] 0.1.16 reproducible six-cell baseline
-├─ [~] 0.1.18 agent-operable desktop
+├─ [~] 0.1.17 trusted, repeatable release
+│  ├─ local fast loop → six-cell build → UTM/native courts
+│  ├─ protected Windows and macOS signing stages
+│  └─ sealed Candidate → reputation → dry-run → human Promotion
+├─ [ ] 0.1.18 agent-operable desktop
 │  ├─ agenterm-cu current tier qualified on Win/macOS/Linux
 │  ├─ native accessibility + shared verbs + grant/audit contract
-│  └─ qjswasm owns release-critical .qjs journeys
+│  ├─ qjswasm owns release-critical .qjs journeys
+│  └─ extract MiniCon/AgenTerm reuse only from two proven release paths
 ├─ [ ] 0.1.19 fast-change Chassis boundary
 │  ├─ frozen thin L1; versioned bounded L2 ABI
 │  └─ L2/L3-only change composes and tests without six-cell rustc
@@ -30,6 +35,7 @@ Product owner: [`prd/PRD_02_18_roadmap.md`](../prd/PRD_02_18_roadmap.md)
 ```mermaid
 flowchart LR
   R16["0.1.16<br/>six-cell release truth"]
+  R17["0.1.17<br/>trusted release path"]
   CU["0.1.18<br/>agent-operable desktop"]
   Q["qjswasm + tinyvm<br/>journey logic"]
   P["agenterm-platform + libagenterm<br/>native mechanisms"]
@@ -41,7 +47,7 @@ flowchart LR
   K{"owning black-box<br/>evidence green?"}
   CUT["hold or cut leaf"]
 
-  R16 --> CU
+  R16 --> R17 --> CU
   Q & P --> CU
   CU --> K
   K -->|yes| CH --> CL --> CC --> D --> H
@@ -52,6 +58,7 @@ flowchart LR
 
 | Version | One user result | Hard evidence | First exclusions |
 |---|---|---|---|
+| 0.1.17 | one source SHA moves smoothly to dual-signed trusted release bytes | six-cell/UTM receipts; Windows and macOS signing courts; sealed Candidate; dry-run Promotion | new product families, CU expansion, shared MiniCon framework |
 | 0.1.18 | one distributable agent can observe and control the current desktop across three hosts | native UIA/AX/AT-SPI2 journeys; grant/audit; qjswasm gate; exact packages | full remote tiers, planner/model, CC, Chassis migration |
 | 0.1.19 | product-logic changes no longer rebuild six native bases | unchanged L1 digests; no-Cargo compose; ABI rejection and last-good recovery | JIT/compiler, OTA, marketplace, PTY scripting |
 | 0.1.20 | accumulated parity and truth-ledger debt is closed | selected three-host black boxes; PRD/alignment/catalog zero drift | new products and speculative engines |
@@ -59,13 +66,16 @@ flowchart LR
 
 ## Sequencing rules
 
-1. v0.1.18 closes before v0.1.19 becomes active; Chassis research may continue
+1. v0.1.17 closes the operational release path before v0.1.18 expands product
+   scope. Cross-repository reuse is a v0.1.18 decision backed by the completed
+   MiniCon and AgenTerm paths, not a v0.1.17 prerequisite.
+2. v0.1.18 closes before v0.1.19 becomes active; Chassis research may continue
    independently but cannot redefine the active release outcome.
-2. v0.1.19 must prove the time-folding claim quantitatively. If an L2/L3-only
+3. v0.1.19 must prove the time-folding claim quantitatively. If an L2/L3-only
    change still invokes six-cell Cargo or changes L1 bytes, hold the migration.
-3. v0.1.20 admits only bounded closure leaves selected from measured product
+4. v0.1.20 admits only bounded closure leaves selected from measured product
    debt; it is not a backlog dump.
-4. v0.2.0 starts with Cockpit. Workflow, Extensions, InfoHub and distribution
+5. v0.2.0 starts with Cockpit. Workflow, Extensions, InfoHub and distribution
    expand only after the first vertical slice has public black-box evidence.
-5. Cross-build, GitHub native runners and local UTM are independent evidence
+6. Cross-build, GitHub native runners and local UTM are independent evidence
    layers. Exact-SHA Candidate and no-rebuild Promotion remain the release path.

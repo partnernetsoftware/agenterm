@@ -1,11 +1,13 @@
 # AgenTerm v0.1.18 — agent-operable desktop
 
-Status: **active plan; no Candidate or release authorization implied**
+Status: **next-version plan; starts after v0.1.17 release closure**
 Product owner: [`prd/PRD_02_18_roadmap.md`](../prd/PRD_02_18_roadmap.md)
 Capability owners: PRD 28–32 and PRD 36
 
-v0.1.17 was archived without shipping and is not reused. v0.1.18 follows the
-public v0.1.16 baseline.
+The original v0.1.17 backlog remains archived and is not reused. On 2026-09-19
+the product owner assigned the version number to a new, narrow trusted-release
+train; this plan starts after that release and uses the two proven MiniCon and
+AgenTerm workflows as evidence for abstraction and reuse decisions.
 
 ## Outcome tree
 
@@ -30,6 +32,7 @@ v0.1.18 — an agent can use one qualified three-host desktop-control product
    ├─ complete ssh / rdp / vnc product tiers
    ├─ model, planner or unrestricted remote automation
    ├─ Control Center feature expansion
+   ├─ speculative cross-repository reuse without two measured consumers
    └─ Chassis L1/L2/L3 migration
 ```
 
