@@ -846,7 +846,9 @@ impl WindowAttachment {
 
 impl fmt::Debug for WindowAttachment {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("WindowAttachment").finish_non_exhaustive()
+        formatter
+            .debug_struct("WindowAttachment")
+            .finish_non_exhaustive()
     }
 }
 

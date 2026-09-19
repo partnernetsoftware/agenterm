@@ -103,10 +103,10 @@ static NEXT_CONPTY_PIPE_ID: AtomicU64 = AtomicU64::new(1);
 /// borrows the existing reference and there is nothing to free.
 mod conpty {
     use super::{CONPTY_MIN_BUILD, COORD, HPCON};
-    use std::sync::OnceLock;
-    use windows_sys::Win32::Foundation::HANDLE;
     use std::os::windows::ffi::OsStrExt as _;
+    use std::sync::OnceLock;
     use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+    use windows_sys::Win32::Foundation::HANDLE;
 
     use windows_sys::Win32::Foundation::HMODULE;
     use windows_sys::Win32::System::LibraryLoader::{
@@ -279,12 +279,18 @@ mod conpty {
         let _ = entries();
         match SIDECAR_STATE.load(Ordering::Acquire) {
             SIDECAR_ACTIVE => "using conpty.dll beside the executable",
-            SIDECAR_ABSENT => "using the console host Windows ships (no conpty.dll beside the executable)",
+            SIDECAR_ABSENT => {
+                "using the console host Windows ships (no conpty.dll beside the executable)"
+            }
             SIDECAR_DLL_WITHOUT_HOST => {
                 "conpty.dll is present but OpenConsole.exe is missing beside it, so Windows' own console host is in use"
             }
-            SIDECAR_LOAD_FAILED => "conpty.dll is present but could not be loaded (wrong architecture?)",
-            SIDECAR_MISSING_EXPORTS => "conpty.dll is present but does not export the pseudoconsole entry points",
+            SIDECAR_LOAD_FAILED => {
+                "conpty.dll is present but could not be loaded (wrong architecture?)"
+            }
+            SIDECAR_MISSING_EXPORTS => {
+                "conpty.dll is present but does not export the pseudoconsole entry points"
+            }
             _ => "using the console host Windows ships",
         }
     }
