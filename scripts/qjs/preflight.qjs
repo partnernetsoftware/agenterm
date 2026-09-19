@@ -84,7 +84,7 @@ if (args.length !== 2) {
 const started = rh.now_ms();
 const repo = rh.absolute(args[0]);
 const output_arg = args[1];
-const output_is_absolute = output_arg.startsWith("/");
+const output_is_absolute = rh.is_absolute(output_arg);
 let output = rh.join(repo, output_arg);
 if (output_is_absolute) {
   output = output_arg;

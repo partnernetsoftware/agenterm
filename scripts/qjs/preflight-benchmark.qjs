@@ -36,7 +36,7 @@ const task_manifest = rh.absolute(args[1]);
 const repo = rh.absolute(args[2]);
 const output_arg = args[3];
 let output_path = rh.join(repo, output_arg);
-if (output_arg.startsWith("/")) {
+if (rh.is_absolute(output_arg)) {
   output_path = output_arg;
 }
 
