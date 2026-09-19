@@ -635,15 +635,8 @@ fn process_configured_child_probe() {
     if std::env::var_os("AGENTERM_QJS_CONTAINED_PROBE").is_none() {
         return;
     }
-    let stage = std::env::var_os("AGENTERM_QJS_PROBE_STAGE").map(PathBuf::from);
-    if let Some(path) = &stage {
-        std::fs::write(path, "entered").expect("write probe entry stage");
-    }
     let mut stdin = String::new();
     std::io::Read::read_to_string(&mut std::io::stdin(), &mut stdin).expect("read probe stdin");
-    if let Some(path) = &stage {
-        std::fs::write(path, "stdin-read").expect("write probe input stage");
-    }
     println!(
         "configured:{stdin}:{}:{}",
         std::env::var_os("AGENTERM_QJS_REMOVED").is_none(),
@@ -653,9 +646,6 @@ fn process_configured_child_probe() {
     );
     std::io::Write::write_all(&mut std::io::stderr(), b"configured-stderr")
         .expect("write probe stderr");
-    if let Some(path) = &stage {
-        std::fs::write(path, "output-written").expect("write probe output stage");
-    }
 }
 
 #[test]
@@ -663,38 +653,25 @@ fn every_qjs_child_entry_uses_contained_launch_with_configured_stdio() {
     let scratch = Scratch::new("contained-command");
     let command_stderr = scratch.path("command.stderr");
     let spawn_stdout = scratch.path("spawn.stdout");
-    let probe_stage = scratch.path("probe.stage");
-    let spawn_stage = scratch.path("spawn.stage");
     let executable = std::env::current_exe().expect("resolve tool-door test executable");
+    // This test relaunches its own Rust test binary. The first contained Windows
+    // launch took 11.14 s on a cold hosted runner (the next two took 0.11 s);
+    // the former 10 s fixture timeout was not a product process.command deadline.
     let base = format!(
         r#"{{
             program: {program},
             args: ["--exact", "process_configured_child_probe", "--show-output"],
             current_dir: {cwd},
-            env: {{ AGENTERM_QJS_CONTAINED_PROBE: "1", AGENTERM_QJS_REMOVED: "present",
-                    AGENTERM_QJS_PROBE_STAGE: {probe_stage} }},
+            env: {{ AGENTERM_QJS_CONTAINED_PROBE: "1", AGENTERM_QJS_REMOVED: "present" }},
             env_remove: ["AGENTERM_QJS_REMOVED"],
             stdin_text: "from-stdin",
             timeout_ms: 30000
         }}"#,
         program = js(&executable),
         cwd = js(&scratch.0),
-        probe_stage = js(&probe_stage),
     );
     let source = format!(
         r#"
-        const spawnSpec = {base};
-        spawnSpec.stdout_path = {spawn_stdout};
-        spawnSpec.env.AGENTERM_QJS_PROBE_STAGE = {spawn_stage};
-        const handle = process_spawn(JSON.stringify(spawnSpec));
-        if (handle < 0) {{ return "spawn:" + tool_result(); }}
-        if (process_wait(handle, 30000) !== 0) {{ return "wait:" + tool_result(); }}
-        const spawned = JSON.parse(tool_result());
-        if (!spawned.success) {{
-            return "spawn-failure:" + spawned.exit_code + "|" + spawned.timed_out
-                + "|" + spawned.stdout.length + "|" + spawned.stderr.length;
-        }}
-
         const commandSpec = {base};
         commandSpec.stderr_path = {command_stderr};
         if (process_command(JSON.stringify(commandSpec)) !== 0) {{ return "command:" + tool_result(); }}
@@ -703,6 +680,17 @@ fn every_qjs_child_entry_uses_contained_launch_with_configured_stdio() {
             return "command-failure:" + command.exit_code + "|" + command.timed_out
                 + "|" + command.stdout.length + "|" + command.stderr.length
                 + "|" + command.stdout_truncated + "|" + command.stderr_truncated;
+        }}
+
+        const spawnSpec = {base};
+        spawnSpec.stdout_path = {spawn_stdout};
+        const handle = process_spawn(JSON.stringify(spawnSpec));
+        if (handle < 0) {{ return "spawn:" + tool_result(); }}
+        if (process_wait(handle, 30000) !== 0) {{ return "wait:" + tool_result(); }}
+        const spawned = JSON.parse(tool_result());
+        if (!spawned.success) {{
+            return "spawn-failure:" + spawned.exit_code + "|" + spawned.timed_out
+                + "|" + spawned.stdout.length + "|" + spawned.stderr.length;
         }}
 
         const statusSpec = {base};
@@ -714,18 +702,15 @@ fn every_qjs_child_entry_uses_contained_launch_with_configured_stdio() {
         "#,
         command_stderr = js(&command_stderr),
         spawn_stdout = js(&spawn_stdout),
-        spawn_stage = js(&spawn_stage),
     );
     let out = run_tool(&source);
     let command_stderr_bytes = std::fs::metadata(&command_stderr)
         .map(|metadata| metadata.len())
         .unwrap_or(0);
-    let probe_stage = std::fs::read_to_string(&probe_stage).unwrap_or_else(|_| "absent".to_owned());
-    let spawn_stage = std::fs::read_to_string(&spawn_stage).unwrap_or_else(|_| "absent".to_owned());
     assert_eq!(
         string_of(&out),
         "true||true|true||true|0",
-        "{out:?}; command_stderr_bytes={command_stderr_bytes}; probe_stage={probe_stage}; spawn_stage={spawn_stage}"
+        "{out:?}; command_stderr_bytes={command_stderr_bytes}"
     );
     assert_eq!(
         std::fs::read_to_string(command_stderr).expect("command stderr redirect"),
