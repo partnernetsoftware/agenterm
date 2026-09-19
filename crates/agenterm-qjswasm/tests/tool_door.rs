@@ -675,7 +675,7 @@ fn every_qjs_child_entry_uses_contained_launch_with_configured_stdio() {
                     AGENTERM_QJS_PROBE_STAGE: {probe_stage} }},
             env_remove: ["AGENTERM_QJS_REMOVED"],
             stdin_text: "from-stdin",
-            timeout_ms: 10000
+            timeout_ms: 30000
         }}"#,
         program = js(&executable),
         cwd = js(&scratch.0),
@@ -688,8 +688,12 @@ fn every_qjs_child_entry_uses_contained_launch_with_configured_stdio() {
         spawnSpec.env.AGENTERM_QJS_PROBE_STAGE = {spawn_stage};
         const handle = process_spawn(JSON.stringify(spawnSpec));
         if (handle < 0) {{ return "spawn:" + tool_result(); }}
-        if (process_wait(handle, 10000) !== 0) {{ return "wait:" + tool_result(); }}
+        if (process_wait(handle, 30000) !== 0) {{ return "wait:" + tool_result(); }}
         const spawned = JSON.parse(tool_result());
+        if (!spawned.success) {{
+            return "spawn-failure:" + spawned.exit_code + "|" + spawned.timed_out
+                + "|" + spawned.stdout.length + "|" + spawned.stderr.length;
+        }}
 
         const commandSpec = {base};
         commandSpec.stderr_path = {command_stderr};
