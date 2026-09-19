@@ -99,17 +99,28 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
       `Privacy & Security → Open Anyway` path after hash verification, and
       explicitly reject global Gatekeeper disablement or recursive quarantine
       removal
-  - [x] once that policy is changed to `required`, the Candidate workflow
-    fails closed without a Developer ID Application certificate and App Store
-    Connect notarization key, signs every declared Mach-O independently with
-    hardened runtime plus a secure timestamp, verifies each signature,
-    packages macOS as a ZIP
-    accepted by `notarytool`, and publishes only after Apple returns `Accepted`
-    - repository Actions secrets are
+  - [~] once that policy is changed to `required`, the Candidate workflow must
+    fail closed without a Developer ID Application certificate and App Store
+    Connect notarization key, sign every declared Mach-O independently with
+    hardened runtime plus a secure timestamp, verify each signature, notarize
+    the application bundle, staple and validate the ticket, and only then
+    package the final bytes. `notarytool` returning `Accepted` is not sufficient:
+    MiniCon proved that a ticket left only on Apple's servers still leaves an
+    offline first launch unverifiable.
+    - protected `release-signing` Environment secrets are
       `APPLE_DEVELOPER_ID_P12_BASE64`,
       `APPLE_DEVELOPER_ID_P12_PASSWORD`, `APPLE_NOTARY_KEY_P8_BASE64`,
       `APPLE_NOTARY_KEY_ID`, and `APPLE_NOTARY_ISSUER_ID`; certificate and API
       key files exist only in the ephemeral runner keychain/directory
+    - the Environment variable `AGENTERM_APPLE_TEAM_ID` is public provenance;
+      the Key ID and Issuer ID remain protected values
+    - [x] the non-promotable macOS signing qualification workflow owns the
+      correct order and proves sign → notarize → staple → Gatekeeper assessment
+      on both macOS architectures while policy remains `unsigned-preview`
+    - [ ] the release-eligible Candidate path must consume the protected
+      Environment without exposing Apple credentials to unrelated matrix cells,
+      and must seal the post-staple archive hashes into provenance before this
+      item can become complete
   - [ ] the first credentialed ARM64 and x86_64 workflow run must retain the
     Apple submission IDs/logs and prove a freshly downloaded archive launches
     under Gatekeeper on a clean macOS account; raw ad-hoc or unsigned archives

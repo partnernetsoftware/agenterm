@@ -33,13 +33,26 @@ Every AgenTerm signing path creates a throwaway keychain, imports with
   assets are the visibly labelled preview channel
   (`agenterm-<version>-macos-<arch>-unsigned-preview.zip`, `channel:
   "macos-unsigned-preview"`, `signed: false`, `notarized: false`).
-- The signing **mechanics already exist and are correct**:
+- The company Developer ID Application certificate and App Store Connect API
+  notary key already exist, are retained in the company vault, and have been
+  proven by MiniCon's signed, notarized and stapled release. AgenTerm must reuse
+  them; it must not create a second publisher certificate or notary identity.
+- AgenTerm's `release-signing` Environment now contains the certificate, its
+  password, the notary key, Key ID and public Team ID. The Issuer ID remains the
+  one missing protected value. Secret values were not read back or written to
+  the repository.
+- The Environment currently has no required-reviewer protection rule. Choose
+  and add the intended human reviewer before the first qualification dispatch;
+  do not treat the Environment name alone as an approval boundary.
+- The signing **mechanics exist but are not yet release-complete**:
   `scripts/sign-macos-release.sh` signs every Mach-O named by
   `scripts/artifacts.json`, stages `AgenTerm.app` through
   `packaging/privilege/macos/stage-app-bundle.sh`, and seals the bundle
   inner-out — nested dylibs, then the privileged helper with its own identifier
   and entitlements, then each executable, then the outer bundle. `candidate.yml`
-  imports the credentials and notarizes, all gated behind `signed_macos`.
+  has an inline credential/sign/notarize branch gated behind `signed_macos`, but
+  its build matrix is not bound to the protected Environment and it packages
+  before notarization without stapling. It must not be enabled as written.
 - **No AgenTerm byte has ever been signed with the Developer ID certificate.**
   The mechanics have never been executed once.
 - `.github/workflows/macos-signing-qualification.yml` is the non-promotable
@@ -121,8 +134,13 @@ the `.p8`, which is downloadable exactly once.
    the `.p8`), `APPLE_NOTARY_KEY_ID`, `APPLE_NOTARY_ISSUER_ID`.
    Variable — `AGENTERM_APPLE_TEAM_ID` (the 10-character Team ID; public
    provenance, so a variable and not a secret).
-   Add the required reviewers you want on macOS signing runs.
-   Gate: the workflow's "Require protected Apple signing configuration" step
+   Add the required reviewers you want on macOS signing runs. AgenTerm's
+   Environment currently has none, so this remains an explicit owner setup
+   item rather than an inferred policy.
+   Current AgenTerm state: all names except `APPLE_NOTARY_ISSUER_ID` are
+   configured. Complete that one value from the existing company App Store
+   Connect key; do not create a replacement key merely to recover its Issuer
+   ID. Gate: the workflow's "Require protected Apple signing configuration" step
    fails closed and names any missing value. *No wait.*
    **Note:** `candidate.yml`'s `build` job currently reads these as ordinary
    repository secrets and is **not** bound to `environment: release-signing`.
@@ -135,9 +153,13 @@ the `.p8`, which is downloadable exactly once.
    `release_eligible: false` aggregate. *Wait: Apple notarization is typically
    minutes but has no SLA; the job budget is 60 minutes per cell.*
    Produces: proof the mechanism works, with no release claim.
-7. **Decide the stapling order for the Candidate lane** (see "Known gap"). This
-   is an engineering change to packaging that must land and be re-qualified
-   before a signed release is honest. *No provider cost.*
+7. **Move Candidate signing behind the protected boundary and fix packaging
+   order** (see "Known gap"). MiniCon has already settled the order: sign the
+   bundle, notarize it, staple and validate it, then package and hash the final
+   bytes. AgenTerm still needs a dedicated protected signing stage (or an
+   equivalent split job) so unrelated build-matrix cells never receive Apple
+   credentials. This engineering change must land and be re-qualified before a
+   signed release is honest. *No provider cost.*
 8. **Only then, flip the policy.** Set `release-policy.json`
    `signing.macos: "required"` in a commit, for a future unreleased version.
    This is the explicit owner decision `CODE_SIGNING_POLICY.md` reserves. It

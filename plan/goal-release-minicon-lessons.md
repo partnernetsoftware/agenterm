@@ -41,6 +41,30 @@ archives, explicit signing policy, and final-byte reputation checks.
       Candidate sealing; live provider evidence remains pending
     - [~] Windows receipt schema binds pre-sign and final SHA-256 plus timestamp
       evidence; first live receipt remains pending
+    - [~] Apple Developer ID activation follows the MiniCon-proven order without
+      copying MiniCon repository credentials or creating a second company
+      certificate
+      - [x] the company Developer ID Application certificate and App Store
+        Connect notary key already exist and have signed, notarized and stapled
+        MiniCon production bytes; AgenTerm must reuse that company identity
+      - [~] AgenTerm's protected `release-signing` Environment now has the
+        existing certificate, its password, the notary key, Key ID and public
+        Team ID; `APPLE_NOTARY_ISSUER_ID` is the sole missing protected value
+      - [ ] add the intended human reviewer protection to `release-signing`;
+        the Environment currently has no protection rule, so merely naming it
+        does not yet create a signing-approval boundary
+      - [x] `.github/workflows/macos-signing-qualification.yml` is an exact-byte,
+        non-promotable court that signs, notarizes, staples and assesses both
+        macOS cells while policy remains `unsigned-preview`
+      - [ ] run that court against a future successful unsigned Candidate; the
+        published `v0.1.16` identity and current same-version source are not a
+        valid new Candidate input
+      - [ ] replace Candidate's current inline sign → package → notarize order
+        with a protected signing stage that notarizes and staples before final
+        packaging and provenance. The six-cell build matrix must not gain
+        blanket access to `release-signing`
+      - [ ] only after that court and Candidate topology are green may an owner
+        change `signing.macos` from `unsigned-preview` to `required`
   - [ ] final-byte reputation court
     - [x] Defender scans the exact extracted Windows Candidate files on both
       native ISA runners, after archive SHA verification and execution
@@ -112,3 +136,13 @@ flowchart LR
   execute-only runtime job, six native runner identities, Defender gate,
   checked-in policy, aggregate dependency, or accidentally adds checkout/Cargo
   to the runtime section.
+- MiniCon's shipped macOS path demonstrates the missing ordering constraint:
+  the signed application is notarized and stapled before its final distributable
+  bytes are sealed. AgenTerm's qualification workflow already proves this
+  order, while its release-eligible Candidate path still packages before
+  notarization and has no stapling step.
+- AgenTerm's Apple values belong to the protected `release-signing`
+  Environment. The current Candidate build matrix is not bound to that
+  Environment, so enabling `signing.macos=required` now would fail closed; the
+  fix is a dedicated protected signing boundary, not duplicating those values as
+  ordinary repository secrets.
