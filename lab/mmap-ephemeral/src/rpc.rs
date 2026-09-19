@@ -1,15 +1,17 @@
 //! Client call / server serve on a [`Slot`](crate::Slot).
 //!
-//! `seq` is the in-flight id. The server may publish `RESP` only while `state`
-//! is still `REQ` and `seq` still matches. A client timeout CAS-es `REQ → IDLE`.
+//! `seq` is the in-flight id. A client CAS-es `IDLE → CLAIM` before writing the
+//! payload, then publishes `REQ`. The server may publish `RESP` only while
+//! `state` is still `REQ` and `seq` still matches. A client timeout CAS-es
+//! `REQ → IDLE` only for its own `seq`.
 
 use crate::slot::{
-    Slot, PAYLOAD_CAP, STATE_IDLE, STATE_REQ, STATE_RESP, STATUS_OK, STATUS_REJECTED,
-    STATUS_TIMEOUT,
+    PAYLOAD_CAP, STATE_CLAIM, STATE_IDLE, STATE_REQ, STATE_RESP, STATUS_OK, STATUS_REJECTED,
+    STATUS_TIMEOUT, Slot,
 };
-use crate::wait::{require_native, wait_idle_slice, wait_state, wake_state, WaitKind};
+use crate::wait::{WaitKind, require_native, wait_idle_slice, wait_state, wake_state};
 use std::io;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::Duration;
 
 pub const DEFAULT_SERVE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -24,6 +26,30 @@ pub fn xor_a5(buf: &mut [u8]) {
 
 fn fail(kind: io::ErrorKind, msg: &str) -> io::Error {
     io::Error::new(kind, msg)
+}
+
+/// Clears `CLAIM` if this call panics before publishing `REQ`.
+struct ClaimGuard {
+    state: *const AtomicU32,
+    seq: *const AtomicU64,
+    id: u64,
+    armed: bool,
+}
+
+impl Drop for ClaimGuard {
+    fn drop(&mut self) {
+        if !self.armed || self.state.is_null() {
+            return;
+        }
+        // SAFETY: pointers are this Slot's header; the Slot outlives the guard.
+        unsafe {
+            if (*self.seq).load(Ordering::Acquire) == self.id
+                && (*self.state).load(Ordering::Acquire) == STATE_CLAIM
+            {
+                (*self.state).store(STATE_IDLE, Ordering::Release);
+            }
+        }
+    }
 }
 
 impl Slot {
@@ -54,14 +80,41 @@ impl Slot {
         if req.len() > PAYLOAD_CAP {
             return Err(fail(io::ErrorKind::InvalidInput, "payload too large"));
         }
+        let id = self.publish_req(req, wait, expect_gen)?;
+        self.wait_reply(id, wait, timeout, expect_gen, false)
+    }
+
+    pub(crate) fn publish_req(
+        &mut self,
+        req: &[u8],
+        wait: WaitKind,
+        expect_gen: Option<u32>,
+    ) -> io::Result<u64> {
+        if wait == WaitKind::Native {
+            require_native(wait)?;
+        }
+        if req.len() > PAYLOAD_CAP {
+            return Err(fail(io::ErrorKind::InvalidInput, "payload too large"));
+        }
+        self.reclaim_dead_flight(wait);
         self.ensure_generation(expect_gen)?;
-        let _id = {
+        let id = {
             let h = self.header();
-            if h.state.load(Ordering::Acquire) != STATE_IDLE {
-                return Err(fail(io::ErrorKind::WouldBlock, "busy"));
-            }
+            h.state
+                .compare_exchange(STATE_IDLE, STATE_CLAIM, Ordering::AcqRel, Ordering::Acquire)
+                .map_err(|_| fail(io::ErrorKind::WouldBlock, "busy"))?;
             h.seq.fetch_add(1, Ordering::AcqRel).wrapping_add(1)
         };
+        let mut guard = {
+            let h = self.header();
+            ClaimGuard {
+                state: &h.state,
+                seq: &h.seq,
+                id,
+                armed: true,
+            }
+        };
+        self.stamp_client();
         self.payload_mut()[..req.len()].copy_from_slice(req);
         {
             let h = self.header();
@@ -70,36 +123,130 @@ impl Slot {
             h.state.store(STATE_REQ, Ordering::Release);
             wake_state(h, wait);
         }
+        guard.armed = false;
+        Ok(id)
+    }
 
+    pub(crate) fn wait_reply(
+        &mut self,
+        id: u64,
+        wait: WaitKind,
+        timeout: Duration,
+        expect_gen: Option<u32>,
+        nonblock: bool,
+    ) -> io::Result<Vec<u8>> {
+        if nonblock {
+            self.ensure_generation(expect_gen)?;
+            if self.header().state.load(Ordering::Acquire) == STATE_RESP {
+                return self.take_reply(wait, id);
+            }
+            return Err(fail(io::ErrorKind::WouldBlock, "busy"));
+        }
         match wait_state(self.header(), STATE_RESP, timeout, wait) {
-            Ok(()) => self.take_reply(wait),
+            Ok(()) => self.take_reply(wait, id),
             Err(e) if e.kind() == io::ErrorKind::TimedOut => {
                 self.ensure_generation(expect_gen)?;
-                if self.header().state.load(Ordering::Acquire) == STATE_RESP {
-                    return self.take_reply(wait);
-                }
-                match self.header().state.compare_exchange(
-                    STATE_REQ,
-                    STATE_IDLE,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                ) {
-                    Ok(_) => {
-                        let h = self.header();
-                        h.status.store(STATUS_TIMEOUT, Ordering::Release);
-                        wake_state(h, wait);
-                        Err(fail(io::ErrorKind::TimedOut, "timeout"))
-                    }
-                    Err(_) => {
-                        if self.header().state.load(Ordering::Acquire) == STATE_RESP {
-                            self.take_reply(wait)
-                        } else {
-                            Err(fail(io::ErrorKind::TimedOut, "timeout"))
-                        }
-                    }
-                }
+                self.abandon_flight(wait, id)
             }
             Err(e) => Err(e),
+        }
+    }
+
+    /// Copy one request out. The slot stays `REQ` until [`reply_req`](Self::reply_req).
+    pub(crate) fn accept_req(
+        &mut self,
+        wait: WaitKind,
+        timeout: Duration,
+        nonblock: bool,
+    ) -> io::Result<(u64, Vec<u8>)> {
+        if wait == WaitKind::Native {
+            require_native(wait)?;
+        }
+        if nonblock {
+            self.reclaim_dead_flight(wait);
+            if self.state() != STATE_REQ {
+                return Err(fail(io::ErrorKind::WouldBlock, "busy"));
+            }
+        } else {
+            loop {
+                wait_state(self.header(), STATE_REQ, timeout, wait)?;
+                if self.reclaim_dead_flight(wait) {
+                    continue;
+                }
+                break;
+            }
+        }
+        let flight = self.header().seq.load(Ordering::Acquire);
+        let n = self.header().req_len.load(Ordering::Acquire) as usize;
+        if n > PAYLOAD_CAP {
+            return Err(fail(io::ErrorKind::InvalidData, "req too large"));
+        }
+        let bytes = self.payload()[..n].to_vec();
+        if self.header().seq.load(Ordering::Acquire) != flight
+            || self.header().state.load(Ordering::Acquire) != STATE_REQ
+        {
+            return Err(fail(io::ErrorKind::TimedOut, "timeout"));
+        }
+        Ok((flight, bytes))
+    }
+
+    /// Publish the reply for `id`. A lost CAS means the caller already timed out.
+    pub(crate) fn reply_req(&mut self, id: u64, body: &[u8], wait: WaitKind) -> io::Result<()> {
+        if body.len() > PAYLOAD_CAP {
+            return Err(fail(io::ErrorKind::InvalidInput, "payload too large"));
+        }
+        if self.header().seq.load(Ordering::Acquire) != id
+            || self.header().state.load(Ordering::Acquire) != STATE_REQ
+        {
+            return Err(fail(io::ErrorKind::TimedOut, "timeout"));
+        }
+        self.payload_mut()[..body.len()].copy_from_slice(body);
+        let h = self.header();
+        if h.seq.load(Ordering::Acquire) != id {
+            return Err(fail(io::ErrorKind::TimedOut, "timeout"));
+        }
+        h.resp_len.store(body.len() as u32, Ordering::Release);
+        h.status.store(STATUS_OK, Ordering::Release);
+        if h.seq.load(Ordering::Acquire) == id
+            && h.state
+                .compare_exchange(STATE_REQ, STATE_RESP, Ordering::Release, Ordering::Acquire)
+                .is_ok()
+        {
+            wake_state(h, wait);
+            Ok(())
+        } else {
+            Err(fail(io::ErrorKind::TimedOut, "timeout"))
+        }
+    }
+
+    pub(crate) fn abandon_flight(&mut self, wait: WaitKind, id: u64) -> io::Result<Vec<u8>> {
+        if self.header().seq.load(Ordering::Acquire) != id {
+            return Err(fail(io::ErrorKind::TimedOut, "timeout"));
+        }
+        if self.header().state.load(Ordering::Acquire) == STATE_RESP {
+            return self.take_reply(wait, id);
+        }
+        match self.header().state.compare_exchange(
+            STATE_REQ,
+            STATE_IDLE,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => {
+                let h = self.header();
+                h.status.store(STATUS_TIMEOUT, Ordering::Release);
+                wake_state(h, wait);
+                Err(fail(io::ErrorKind::TimedOut, "timeout"))
+            }
+            Err(_) => {
+                if self.header().seq.load(Ordering::Acquire) == id
+                    && self.header().state.load(Ordering::Acquire) == STATE_RESP
+                {
+                    self.take_reply(wait, id)
+                } else {
+                    Err(fail(io::ErrorKind::TimedOut, "timeout"))
+                }
+            }
         }
     }
 
@@ -112,7 +259,12 @@ impl Slot {
         Ok(())
     }
 
-    fn take_reply(&mut self, wait: WaitKind) -> io::Result<Vec<u8>> {
+    fn take_reply(&mut self, wait: WaitKind, id: u64) -> io::Result<Vec<u8>> {
+        if self.header().seq.load(Ordering::Acquire) != id
+            || self.header().state.load(Ordering::Acquire) != STATE_RESP
+        {
+            return Err(fail(io::ErrorKind::InvalidData, "stale reply"));
+        }
         let status = self.header().status.load(Ordering::Acquire);
         let n = self.header().resp_len.load(Ordering::Acquire) as usize;
         let n = n.min(PAYLOAD_CAP);
@@ -127,10 +279,7 @@ impl Slot {
         } else if status == STATUS_REJECTED {
             Err(fail(io::ErrorKind::InvalidData, "rejected"))
         } else {
-            Err(fail(
-                io::ErrorKind::InvalidData,
-                "bad status",
-            ))
+            Err(fail(io::ErrorKind::InvalidData, "bad status"))
         }
     }
 
@@ -162,14 +311,25 @@ impl Slot {
 
     /// Like [`serve_one`](Self::serve_one), but `Err` becomes status `Rejected`
     /// (still a reply). A lost CAS (client already timed out) is not an error.
-    pub fn serve_reply<F>(&mut self, wait: WaitKind, timeout: Duration, mut handler: F) -> io::Result<()>
+    pub fn serve_reply<F>(
+        &mut self,
+        wait: WaitKind,
+        timeout: Duration,
+        mut handler: F,
+    ) -> io::Result<()>
     where
         F: FnMut(&mut [u8]) -> io::Result<()>,
     {
         if wait == WaitKind::Native {
             require_native(wait)?;
         }
-        wait_state(self.header(), STATE_REQ, timeout, wait)?;
+        loop {
+            wait_state(self.header(), STATE_REQ, timeout, wait)?;
+            if self.reclaim_dead_flight(wait) {
+                continue;
+            }
+            break;
+        }
         let flight = self.header().seq.load(Ordering::Acquire);
         let n = self.header().req_len.load(Ordering::Acquire) as usize;
         if n > PAYLOAD_CAP {
@@ -197,14 +357,8 @@ impl Slot {
         h.resp_len.store(resp_n as u32, Ordering::Release);
         h.status.store(status, Ordering::Release);
         if h.seq.load(Ordering::Acquire) == flight
-            && h
-                .state
-                .compare_exchange(
-                    STATE_REQ,
-                    STATE_RESP,
-                    Ordering::Release,
-                    Ordering::Acquire,
-                )
+            && h.state
+                .compare_exchange(STATE_REQ, STATE_RESP, Ordering::Release, Ordering::Acquire)
                 .is_ok()
         {
             wake_state(h, wait);

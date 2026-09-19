@@ -1,6 +1,6 @@
 //! mmap-lab — CLI harness over the `shmbox` library (lab only).
 
-use shmbox::{probe_shm, xor_a5, Slot, SlotLoc, WaitKind};
+use shmbox::{Slot, SlotLoc, WaitKind, probe_shm, xor_a5};
 use std::env;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -260,9 +260,7 @@ default --wait: yield (bench/rps default: both)"
     std::process::exit(2);
 }
 
-fn parse_flags(
-    args: &mut Vec<String>,
-) -> (WaitKind, bool, bool, Option<&'static str>, bool) {
+fn parse_flags(args: &mut Vec<String>) -> (WaitKind, bool, bool, Option<&'static str>, bool) {
     let mut wait = WaitKind::Yield;
     let mut wait_both = false;
     let mut wait_flag_seen = false;
@@ -273,7 +271,10 @@ fn parse_flags(
         let a = args[i].as_str();
         if a == "--wait" {
             wait_flag_seen = true;
-            let v = args.get(i + 1).map(String::as_str).unwrap_or_else(|| usage());
+            let v = args
+                .get(i + 1)
+                .map(String::as_str)
+                .unwrap_or_else(|| usage());
             if v == "both" {
                 wait_both = true;
             } else {
@@ -294,7 +295,10 @@ fn parse_flags(
             continue;
         }
         if a == "--backend" {
-            let v = args.get(i + 1).map(String::as_str).unwrap_or_else(|| usage());
+            let v = args
+                .get(i + 1)
+                .map(String::as_str)
+                .unwrap_or_else(|| usage());
             backend_override = match v {
                 "file" => Some("file"),
                 "shm" => Some("shm"),
@@ -311,7 +315,13 @@ fn parse_flags(
         }
         i += 1;
     }
-    (wait, wait_both, wait_flag_seen, backend_override, skip_ephemeral)
+    (
+        wait,
+        wait_both,
+        wait_flag_seen,
+        backend_override,
+        skip_ephemeral,
+    )
 }
 
 fn apply_backend(loc: SlotLoc, backend: Option<&str>) -> SlotLoc {
@@ -376,7 +386,12 @@ fn main() {
             if args.len() < 2 {
                 usage();
             }
-            cmd_call(&SlotLoc::parse(&args[0]), args[1].as_bytes(), ephemeral, wait)
+            cmd_call(
+                &SlotLoc::parse(&args[0]),
+                args[1].as_bytes(),
+                ephemeral,
+                wait,
+            )
         }
         "bench" => {
             if args.is_empty() {

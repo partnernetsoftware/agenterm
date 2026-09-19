@@ -18,6 +18,12 @@ pub const FILE_ATTRIBUTE_NORMAL: DWORD = 0x80;
 pub const INFINITE: DWORD = 0xFFFF_FFFF;
 pub const PROCESS_QUERY_LIMITED_INFORMATION: DWORD = 0x1000;
 
+#[repr(C)]
+pub struct FileTime {
+    pub lo: DWORD,
+    pub hi: DWORD,
+}
+
 #[link(name = "kernel32")]
 #[link(name = "synchronization")]
 unsafe extern "system" {
@@ -49,6 +55,13 @@ unsafe extern "system" {
     pub fn CloseHandle(h: HANDLE) -> BOOL;
     pub fn GetLastError() -> DWORD;
     pub fn OpenProcess(access: DWORD, inherit: BOOL, pid: DWORD) -> HANDLE;
+    pub fn GetProcessTimes(
+        process: HANDLE,
+        created: *mut FileTime,
+        exited: *mut FileTime,
+        kernel: *mut FileTime,
+        user: *mut FileTime,
+    ) -> BOOL;
     pub fn WaitOnAddress(
         addr: *const c_void,
         compare: *const c_void,

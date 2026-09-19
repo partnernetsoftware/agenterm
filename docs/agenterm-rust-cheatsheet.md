@@ -62,7 +62,11 @@ Cross-OS wait map in the same lab: `WaitKind::Native` → macOS `os_sync_*_SHARE
 Linux shared `futex`, Windows `WaitOnAddress`; practical bind/connect API is
 `Endpoint`/`Server`/`Client` in `lab/mmap-ephemeral/src/channel.rs` (see
 `PRACTICAL.md`). Prefer file-backed slots on Darwin (`shm_open` reopen often
-`EACCES`).
+`EACCES`). `kill(pid, 0)` only proves a pid exists; that lab stores the process
+start-time beside `owner_pid` and the in-flight caller so a recycled pid does
+not keep the mailbox and a dead caller does not leave it `Busy`. Addresses are
+`shmbox:file:…` / `shmbox:shm:…` (`src/address.rs`); peers are `Server`/`Client`
+with optional split flight `ask`/`await_reply` and `accept`/`reply`.
 
 The repository is pinned by `rust-toolchain.toml`. Do not solve a compiler
 failure by silently changing the toolchain, edition, target, linker, or global
@@ -929,7 +933,8 @@ Use the smallest authoritative evidence first:
    ordering (`src/platform/adapters/*/contract_manifest.rs` is the measured
    case), so a "formatted" file turns a clean tree red under
    `cargo fmt --all -- --check`. To format one file alone, pass the manifest's
-   edition explicitly: `rustfmt --edition 2024 <file>`.
+   edition explicitly: `rustfmt --edition 2024 <file>`. Edition 2024 also reserves
+   `gen`; a local with that name is a parse error, not a warning.
 2. Package Clippy with `--all-targets -- -D warnings`.
 3. Pure scalar/contract tests.
 4. ISA parity and target compilation.

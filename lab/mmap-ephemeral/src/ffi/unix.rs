@@ -48,8 +48,21 @@ unsafe extern "C" {
 #[cfg(target_os = "macos")]
 #[link(name = "c")]
 unsafe extern "C" {
-    pub fn dlsym(
-        handle: *mut core::ffi::c_void,
-        symbol: *const c_char,
-    ) -> *mut core::ffi::c_void;
+    pub fn dlsym(handle: *mut core::ffi::c_void, symbol: *const c_char) -> *mut core::ffi::c_void;
+}
+
+#[cfg(target_os = "macos")]
+pub const PROC_PIDTBSDINFO: c_int = 3;
+
+// `proc_pidinfo` lives in libproc (part of libSystem).
+#[cfg(target_os = "macos")]
+#[link(name = "proc")]
+unsafe extern "C" {
+    pub fn proc_pidinfo(
+        pid: c_int,
+        flavor: c_int,
+        arg: u64,
+        buffer: *mut u8,
+        buffersize: c_int,
+    ) -> c_int;
 }

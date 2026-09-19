@@ -66,7 +66,7 @@ pub fn probe_native() -> Result<&'static str, String> {
 pub fn probe_os_sync() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        use crate::ffi::{dlsym, RTLD_DEFAULT};
+        use crate::ffi::{RTLD_DEFAULT, dlsym};
         let needed = [
             "os_sync_wait_on_address\0",
             "os_sync_wait_on_address_with_timeout\0",
@@ -108,16 +108,10 @@ pub(crate) fn wake_state(h: &Header, wait: WaitKind) {
     }
     #[cfg(target_os = "macos")]
     {
-        use crate::ffi::{
-            os_sync_wake_by_address_any, OS_SYNC_WAKE_BY_ADDRESS_SHARED, ENOENT,
-        };
+        use crate::ffi::{ENOENT, OS_SYNC_WAKE_BY_ADDRESS_SHARED, os_sync_wake_by_address_any};
         // SAFETY: state is 4-byte aligned; SHARED matches MAP_SHARED.
         let rc = unsafe {
-            os_sync_wake_by_address_any(
-                state_addr(h).cast(),
-                4,
-                OS_SYNC_WAKE_BY_ADDRESS_SHARED,
-            )
+            os_sync_wake_by_address_any(state_addr(h).cast(), 4, OS_SYNC_WAKE_BY_ADDRESS_SHARED)
         };
         if rc < 0 {
             let err = io::Error::last_os_error();
@@ -140,7 +134,12 @@ pub(crate) fn wake_state(h: &Header, wait: WaitKind) {
     }
 }
 
-pub(crate) fn wait_state(h: &Header, want: u32, timeout: Duration, wait: WaitKind) -> io::Result<()> {
+pub(crate) fn wait_state(
+    h: &Header,
+    want: u32,
+    timeout: Duration,
+    wait: WaitKind,
+) -> io::Result<()> {
     match wait {
         WaitKind::Yield => wait_state_yield(h, want, timeout),
         WaitKind::Native => wait_state_native(h, want, timeout),
@@ -186,8 +185,8 @@ fn wait_once_native(h: &Header, cur: u32, remaining: Duration) -> io::Result<()>
     #[cfg(target_os = "macos")]
     {
         use crate::ffi::{
-            os_sync_wait_on_address_with_timeout, OS_CLOCK_MACH_ABSOLUTE_TIME,
-            OS_SYNC_WAIT_ON_ADDRESS_SHARED, EFAULT, EINTR, ENOMEM, ETIMEDOUT,
+            EFAULT, EINTR, ENOMEM, ETIMEDOUT, OS_CLOCK_MACH_ABSOLUTE_TIME,
+            OS_SYNC_WAIT_ON_ADDRESS_SHARED, os_sync_wait_on_address_with_timeout,
         };
         let timeout_ns = remaining.as_nanos().min(u64::MAX as u128) as u64;
         if timeout_ns == 0 {
@@ -217,7 +216,7 @@ fn wait_once_native(h: &Header, cur: u32, remaining: Duration) -> io::Result<()>
     }
     #[cfg(target_os = "linux")]
     {
-        use crate::ffi::{futex_wait, Timespec, EINTR, ETIMEDOUT};
+        use crate::ffi::{EINTR, ETIMEDOUT, Timespec, futex_wait};
         let ts = Timespec {
             tv_sec: remaining.as_secs() as i64,
             tv_nsec: remaining.subsec_nanos() as i64,
@@ -245,14 +244,8 @@ fn wait_once_native(h: &Header, cur: u32, remaining: Duration) -> io::Result<()>
         }
         let compare = cur;
         // SAFETY: 4-byte wait on shared state; compare is stack local copy.
-        let ok = unsafe {
-            WaitOnAddress(
-                state_addr(h).cast(),
-                (&compare as *const u32).cast(),
-                4,
-                ms,
-            )
-        };
+        let ok =
+            unsafe { WaitOnAddress(state_addr(h).cast(), (&compare as *const u32).cast(), 4, ms) };
         if ok != 0 {
             return Ok(());
         }

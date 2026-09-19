@@ -6,7 +6,7 @@ Not product code. Standalone package. See [`LAYOUT.md`](LAYOUT.md), [`PRACTICAL.
 
 | Layer | Role |
 |-------|------|
-| **`shmbox` lib** | Slot ABI + `WaitKind` + `Endpoint`/`Server`/`Client` |
+| **`shmbox` lib** | Slot ABI + `Address` + `Server`/`Client` (`ask`/`accept`/`call`/`serve`) |
 | **`mmap-lab` bin** | probes / latency bench / RPS / ephemeral spawn |
 | **`nng_bench/`** | nng pair `ipc://` opponent |
 

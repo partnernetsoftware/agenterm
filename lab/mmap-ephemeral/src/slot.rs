@@ -4,8 +4,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
-/// Production mailbox (`MMAPEPH\x03`). Layout still 64 bytes; pad became owner/generation/status.
-pub const MAGIC: u64 = 0x4d4d_4150_4550_4803; // "MMAPEPH\x03"
+/// Production mailbox (`MMAPEPH\x04`). Layout still 64 bytes.
+/// The old pad is `owner_birth` + in-flight `client_pid` / `client_birth`.
+pub const MAGIC: u64 = 0x4d4d_4150_4550_4804; // "MMAPEPH\x04"
 pub const SLOT_BYTES: usize = 64 * 1024;
 pub const HEADER_BYTES: usize = 64;
 pub const PAYLOAD_CAP: usize = SLOT_BYTES - HEADER_BYTES;
@@ -13,6 +14,8 @@ pub const PAYLOAD_CAP: usize = SLOT_BYTES - HEADER_BYTES;
 pub(crate) const STATE_IDLE: u32 = 0;
 pub(crate) const STATE_REQ: u32 = 1;
 pub(crate) const STATE_RESP: u32 = 2;
+/// Exclusive claim. Payload is published only after this CAS wins; servers ignore it.
+pub(crate) const STATE_CLAIM: u32 = 3;
 
 pub const STATUS_OK: u32 = 0;
 /// Wire value. Callers see `WouldBlock` / `"busy"` without overwriting a live slot.
@@ -59,7 +62,12 @@ pub(crate) struct Header {
     pub owner_pid: AtomicU32,
     pub generation: AtomicU32,
     pub status: AtomicU32,
-    _reserved: [u8; 20],
+    /// Process start-time of `owner_pid`, split so the header stays 4-aligned here.
+    pub owner_birth_lo: AtomicU32,
+    pub owner_birth_hi: AtomicU32,
+    pub client_pid: AtomicU32,
+    pub client_birth_lo: AtomicU32,
+    pub client_birth_hi: AtomicU32,
 }
 
 const _: () = assert!(std::mem::size_of::<Header>() == HEADER_BYTES);
@@ -99,7 +107,7 @@ impl Drop for Slot {
         }
         #[cfg(windows)]
         {
-            use crate::ffi::{CloseHandle, UnmapViewOfFile, INVALID_HANDLE_VALUE};
+            use crate::ffi::{CloseHandle, INVALID_HANDLE_VALUE, UnmapViewOfFile};
             if !self.ptr.is_null() {
                 // SAFETY: ptr from MapViewOfFile.
                 unsafe {
@@ -154,6 +162,7 @@ impl Slot {
     pub fn reset_mailbox(&self) {
         let h = self.header();
         h.shutdown.store(0, Ordering::Release);
+        h.client_pid.store(0, Ordering::Release);
         h.state.store(STATE_IDLE, Ordering::Release);
     }
 
@@ -183,17 +192,23 @@ impl Slot {
 
     /// First owner of a freshly created slot. Generation becomes 1.
     pub fn claim_owner(&self) {
+        let birth = process_birth(std::process::id()).unwrap_or(0);
+        self.store_owner_birth(birth);
         let h = self.header();
         h.status.store(STATUS_OK, Ordering::Release);
+        h.client_pid.store(0, Ordering::Release);
         h.generation.store(1, Ordering::Release);
         h.owner_pid.store(std::process::id(), Ordering::Release);
     }
 
     /// Dead-owner takeover: bump generation, force IDLE, record this pid.
     pub fn reclaim_owner(&self) {
+        let birth = process_birth(std::process::id()).unwrap_or(0);
+        self.store_owner_birth(birth);
         let h = self.header();
         h.shutdown.store(0, Ordering::Release);
         h.status.store(STATUS_OK, Ordering::Release);
+        h.client_pid.store(0, Ordering::Release);
         h.state.store(STATE_IDLE, Ordering::Release);
         let next = h.generation.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
         if next == 0 {
@@ -203,15 +218,138 @@ impl Slot {
     }
 
     /// Another live process already owns this slot.
+    ///
+    /// A live pid whose start-time does not match `owner_birth` is a recycled
+    /// pid, not the owner.
     pub fn owner_blocks_bind(&self) -> bool {
         let pid = self.owner_pid();
-        pid != 0 && pid != std::process::id() && pid_alive(pid)
+        pid != 0 && pid != std::process::id() && same_instance(pid, self.owner_birth())
+    }
+
+    /// `connect` gate: a live owner, or `NotFound` / `BrokenPipe`.
+    pub(crate) fn require_live_owner(&self) -> io::Result<u32> {
+        let pid = self.owner_pid();
+        let owner_gen = self.generation();
+        if owner_gen == 0 || pid == 0 {
+            return Err(io::Error::new(io::ErrorKind::NotFound, "no owner"));
+        }
+        if !same_instance(pid, self.owner_birth()) {
+            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "dead"));
+        }
+        Ok(owner_gen)
+    }
+
+    pub(crate) fn stamp_client(&self) {
+        let pid = std::process::id();
+        let birth = process_birth(pid).unwrap_or(0);
+        self.store_client(pid, birth);
+    }
+
+    /// `CLAIM` / `REQ` / `RESP` left by a dead caller becomes `IDLE`.
+    /// Returns whether this call cleared one. `client_pid == 0` is left alone.
+    pub(crate) fn reclaim_dead_flight(&self, wait: crate::wait::WaitKind) -> bool {
+        let h = self.header();
+        let state = h.state.load(Ordering::Acquire);
+        if state == STATE_IDLE {
+            return false;
+        }
+        let pid = h.client_pid.load(Ordering::Acquire);
+        if pid == 0 || same_instance(pid, self.client_birth()) {
+            return false;
+        }
+        if h.client_pid.load(Ordering::Acquire) != pid {
+            return false;
+        }
+        if h.state
+            .compare_exchange(state, STATE_IDLE, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return false;
+        }
+        h.client_pid.store(0, Ordering::Release);
+        crate::wait::wake_state(h, wait);
+        true
+    }
+
+    fn owner_birth(&self) -> u64 {
+        let h = self.header();
+        load_pair(&h.owner_birth_lo, &h.owner_birth_hi)
+    }
+
+    fn client_birth(&self) -> u64 {
+        let h = self.header();
+        load_pair(&h.client_birth_lo, &h.client_birth_hi)
+    }
+
+    fn store_owner_birth(&self, birth: u64) {
+        let h = self.header();
+        store_pair(&h.owner_birth_lo, &h.owner_birth_hi, birth);
+    }
+
+    fn store_client(&self, pid: u32, birth: u64) {
+        let h = self.header();
+        store_pair(&h.client_birth_lo, &h.client_birth_hi, birth);
+        h.client_pid.store(pid, Ordering::Release);
+    }
+
+    /// Drop ownership if this server still holds `generation`.
+    /// Bumps generation so connected clients observe [`crate::Error::Dead`],
+    /// and clears `owner_pid` so a recycled pid cannot block the next `bind`.
+    pub(crate) fn release_owner(&self, generation: u32, wait: crate::wait::WaitKind) {
+        {
+            let h = self.header();
+            if h.generation.load(Ordering::Acquire) != generation {
+                return;
+            }
+            if h.owner_pid.load(Ordering::Acquire) != std::process::id() {
+                return;
+            }
+            let next = h.generation.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
+            if next == 0 {
+                h.generation.store(1, Ordering::Release);
+            }
+            h.owner_pid.store(0, Ordering::Release);
+        }
+        self.store_owner_birth(0);
+        let h = self.header();
+        // Leave a published reply in place so the client can still take it.
+        if h.state.load(Ordering::Acquire) != STATE_RESP {
+            h.client_pid.store(0, Ordering::Release);
+            h.state.store(STATE_IDLE, Ordering::Release);
+        }
+        crate::wait::wake_state(h, wait);
     }
 
     #[cfg(test)]
     pub(crate) fn force_owner_pid(&self, pid: u32) {
+        let birth = process_birth(pid).unwrap_or(0);
+        self.store_owner_birth(birth);
         self.header().owner_pid.store(pid, Ordering::Release);
     }
+
+    #[cfg(test)]
+    pub(crate) fn force_owner_birth(&self, birth: u64) {
+        self.store_owner_birth(birth);
+    }
+
+    /// Leave `REQ` owned by a pid that is not alive.
+    #[cfg(test)]
+    pub(crate) fn force_dead_client_flight(&self) {
+        self.store_client(u32::MAX - 7, 1);
+        self.header().state.store(STATE_REQ, Ordering::Release);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn current_birth() -> Option<u64> {
+        process_birth(std::process::id())
+    }
+}
+
+fn ensure_mapped_len(len: u64) -> io::Result<()> {
+    if len != SLOT_BYTES as u64 {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "short slot"));
+    }
+    Ok(())
 }
 
 fn finish_slot(map: Slot, create: bool) -> io::Result<Slot> {
@@ -257,9 +395,7 @@ fn pid_alive(pid: u32) -> bool {
     }
     #[cfg(windows)]
     {
-        use crate::ffi::{
-            CloseHandle, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-        };
+        use crate::ffi::{CloseHandle, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
         let h = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
         if !h.is_null() {
             unsafe {
@@ -270,6 +406,105 @@ fn pid_alive(pid: u32) -> bool {
         // ERROR_ACCESS_DENIED = 5 → process exists.
         io::Error::last_os_error().raw_os_error() == Some(5)
     }
+}
+
+fn load_pair(lo: &AtomicU32, hi: &AtomicU32) -> u64 {
+    let hi = u64::from(hi.load(Ordering::Acquire));
+    let lo = u64::from(lo.load(Ordering::Acquire));
+    (hi << 32) | lo
+}
+
+fn store_pair(lo: &AtomicU32, hi: &AtomicU32, value: u64) {
+    lo.store(value as u32, Ordering::Release);
+    hi.store((value >> 32) as u32, Ordering::Release);
+}
+
+/// `birth == 0` means "unknown": a live pid is treated as the same instance.
+/// A non-zero birth must match the process start-time, so a recycled pid does not.
+fn same_instance(pid: u32, birth: u64) -> bool {
+    if pid == 0 || !pid_alive(pid) {
+        return false;
+    }
+    match process_birth(pid) {
+        Some(live) => birth == 0 || birth == live,
+        None => true,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn process_birth(pid: u32) -> Option<u64> {
+    if pid == 0 {
+        return None;
+    }
+    // Offsets checked against `struct proc_bsdinfo`: size 136, `pbi_pid` 12,
+    // `pbi_start_tvsec` 120, `pbi_start_tvusec` 128.
+    let mut buf = [0u8; 256];
+    // SAFETY: buffer is writable and large enough for PROC_PIDTBSDINFO.
+    let n = unsafe {
+        crate::ffi::proc_pidinfo(
+            pid as i32,
+            crate::ffi::PROC_PIDTBSDINFO,
+            0,
+            buf.as_mut_ptr(),
+            buf.len() as i32,
+        )
+    };
+    if n < 136 {
+        return None;
+    }
+    let got = u32::from_ne_bytes(buf[12..16].try_into().ok()?);
+    if got != pid {
+        return None;
+    }
+    let sec = u64::from_ne_bytes(buf[120..128].try_into().ok()?);
+    let usec = u64::from_ne_bytes(buf[128..136].try_into().ok()?);
+    if sec == 0 && usec == 0 {
+        return None;
+    }
+    Some(sec.saturating_mul(1_000_000).saturating_add(usec))
+}
+
+#[cfg(target_os = "linux")]
+fn process_birth(pid: u32) -> Option<u64> {
+    if pid == 0 {
+        return None;
+    }
+    let text = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let rest = text.rsplit_once(')')?.1;
+    // Field 22 (starttime) is the 20th token after the comm `)`.
+    rest.split_whitespace().nth(19)?.parse().ok()
+}
+
+#[cfg(windows)]
+fn process_birth(pid: u32) -> Option<u64> {
+    use crate::ffi::{
+        CloseHandle, FileTime, GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    if pid == 0 {
+        return None;
+    }
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
+        return None;
+    }
+    let mut created = FileTime { lo: 0, hi: 0 };
+    let mut exited = FileTime { lo: 0, hi: 0 };
+    let mut kernel = FileTime { lo: 0, hi: 0 };
+    let mut user = FileTime { lo: 0, hi: 0 };
+    // SAFETY: handle from OpenProcess; FileTime is the Win32 FILETIME layout.
+    let ok = unsafe { GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user) };
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
+    if ok == 0 {
+        return None;
+    }
+    Some((u64::from(created.hi) << 32) | u64::from(created.lo))
+}
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+fn process_birth(_pid: u32) -> Option<u64> {
+    None
 }
 
 #[cfg(unix)]
@@ -327,6 +562,13 @@ mod unix_impl {
             file.set_len(SLOT_BYTES as u64)?;
             use std::os::unix::fs::PermissionsExt;
             file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        } else {
+            let meta = file.metadata()?;
+            ensure_mapped_len(meta.len())?;
+            use std::os::unix::fs::PermissionsExt;
+            if meta.permissions().mode() & 0o077 != 0 {
+                return Err(io::Error::new(io::ErrorKind::PermissionDenied, "slot mode"));
+            }
         }
         let fd = file.as_raw_fd();
         let ptr = map_fd(fd, false)?;
@@ -414,8 +656,8 @@ use unix_impl::{open_slot_file, open_slot_shm, probe_shm as probe_shm_inner};
 mod win_impl {
     use super::*;
     use crate::ffi::{
-        self, CloseHandle, CreateFileMappingW, MapViewOfFile, FILE_MAP_ALL_ACCESS,
-        INVALID_HANDLE_VALUE, PAGE_READWRITE,
+        self, CloseHandle, CreateFileMappingW, FILE_MAP_ALL_ACCESS, INVALID_HANDLE_VALUE,
+        MapViewOfFile, PAGE_READWRITE,
     };
     use std::fs::OpenOptions;
     use std::os::windows::ffi::OsStrExt;
@@ -487,6 +729,8 @@ mod win_impl {
             .open(path)?;
         if create {
             file.set_len(SLOT_BYTES as u64)?;
+        } else {
+            ensure_mapped_len(file.metadata()?.len())?;
         }
         // Duplicate: AsRawHandle is borrowed; DuplicateHandle would be safer.
         // Lab: leak the std file into a raw HANDLE we CloseHandle in Drop — use

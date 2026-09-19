@@ -105,7 +105,13 @@ mod conpty {
     use super::{CONPTY_MIN_BUILD, COORD, HPCON};
     use std::sync::OnceLock;
     use windows_sys::Win32::Foundation::HANDLE;
-    use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+    use std::os::windows::ffi::OsStrExt as _;
+    use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+
+    use windows_sys::Win32::Foundation::HMODULE;
+    use windows_sys::Win32::System::LibraryLoader::{
+        GetModuleHandleW, GetProcAddress, LoadLibraryW,
+    };
 
     /// Named so each `transmute` states the exact signature it is producing
     /// rather than inferring one from the field it lands in.
@@ -125,12 +131,103 @@ mod conpty {
     /// `None` records a system without ConPTY. Resolution is attempted once:
     /// a missing export does not become available later in the process.
     static ENTRIES: OnceLock<Option<Entries>> = OnceLock::new();
+    /// Whether the sidecar ConPTY won. Reported rather than inferred: a user who
+    /// dropped the files in needs to see that they took effect.
+    pub(super) static SIDECAR_IN_USE: AtomicBool = AtomicBool::new(false);
+    /// Why the sidecar is not in use, for a status line a user can act on.
+    /// "Not found" and "found but unusable" need different answers from them.
+    pub(super) static SIDECAR_STATE: AtomicU8 = AtomicU8::new(SIDECAR_UNRESOLVED);
+    pub(super) const SIDECAR_UNRESOLVED: u8 = 0;
+    pub(super) const SIDECAR_ABSENT: u8 = 1;
+    pub(super) const SIDECAR_DLL_WITHOUT_HOST: u8 = 2;
+    pub(super) const SIDECAR_LOAD_FAILED: u8 = 3;
+    pub(super) const SIDECAR_MISSING_EXPORTS: u8 = 4;
+    pub(super) const SIDECAR_ACTIVE: u8 = 5;
 
     fn entries() -> Option<&'static Entries> {
         ENTRIES.get_or_init(resolve).as_ref()
     }
 
+    /// A newer ConPTY placed beside the executable, if it is usable.
+    ///
+    /// The copy Windows ships mistranslates a mouse report for a program that
+    /// reads console events: one keystroke per character instead of a mouse
+    /// record, measured 3/3 against Microsoft's own redistributable, which gets
+    /// it right. That is why such a program answers the mouse in Windows
+    /// Terminal — which carries its own console host — and not in a terminal
+    /// that calls `kernel32!CreatePseudoConsole`.
+    ///
+    /// `conpty.dll` wins only when `OpenConsole.exe` sits beside it. The DLL
+    /// alone loads, succeeds, and behaves exactly like the inbox host with no
+    /// error at all, so requiring the companion is the difference between using
+    /// the fix and believing you are. Every rejection is recorded, because
+    /// "nothing there" and "there but unusable" need different answers from a
+    /// user.
+    fn sidecar_module() -> Option<HMODULE> {
+        let Ok(executable) = std::env::current_exe() else {
+            SIDECAR_STATE.store(SIDECAR_ABSENT, Ordering::Release);
+            return None;
+        };
+        let Some(directory) = executable.parent() else {
+            SIDECAR_STATE.store(SIDECAR_ABSENT, Ordering::Release);
+            return None;
+        };
+        let dll = directory.join("conpty.dll");
+        if !dll.is_file() {
+            SIDECAR_STATE.store(SIDECAR_ABSENT, Ordering::Release);
+            return None;
+        }
+        if !directory.join("OpenConsole.exe").is_file() {
+            SIDECAR_STATE.store(SIDECAR_DLL_WITHOUT_HOST, Ordering::Release);
+            return None;
+        }
+        let wide = dll
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let module = unsafe {
+            // SAFETY: the path is NUL-terminated and outlives the call.
+            LoadLibraryW(wide.as_ptr())
+        };
+        if module.is_null() {
+            SIDECAR_STATE.store(SIDECAR_LOAD_FAILED, Ordering::Release);
+            return None;
+        }
+        Some(module)
+    }
+
     fn resolve() -> Option<Entries> {
+        if let Some(module) = sidecar_module() {
+            let resolved = unsafe {
+                // SAFETY: the module handle is live and the names are NUL
+                // terminated; the signatures match the pseudoconsole ABI.
+                (|| {
+                    Some(Entries {
+                        create: std::mem::transmute::<Resolved, Create>(GetProcAddress(
+                            module,
+                            c"CreatePseudoConsole".as_ptr().cast(),
+                        )?),
+                        resize: std::mem::transmute::<Resolved, Resize>(GetProcAddress(
+                            module,
+                            c"ResizePseudoConsole".as_ptr().cast(),
+                        )?),
+                        close: std::mem::transmute::<Resolved, Close>(GetProcAddress(
+                            module,
+                            c"ClosePseudoConsole".as_ptr().cast(),
+                        )?),
+                    })
+                })()
+            };
+            match resolved {
+                Some(entries) => {
+                    SIDECAR_IN_USE.store(true, Ordering::Release);
+                    SIDECAR_STATE.store(SIDECAR_ACTIVE, Ordering::Release);
+                    return Some(entries);
+                }
+                None => SIDECAR_STATE.store(SIDECAR_MISSING_EXPORTS, Ordering::Release),
+            }
+        }
         let name = "kernel32.dll\0".encode_utf16().collect::<Vec<_>>();
         // SAFETY: the name is NUL terminated. GetModuleHandleW borrows the
         // loader's reference to an already-loaded module without adding one,
@@ -168,6 +265,28 @@ mod conpty {
     /// through and handle the refusal.
     pub(super) fn is_available() -> bool {
         entries().is_some()
+    }
+
+    /// True when the ConPTY in use came from beside the executable rather than
+    /// from Windows. Meaningful only after `entries()` has resolved.
+    pub(super) fn sidecar_in_use() -> bool {
+        let _ = entries();
+        SIDECAR_IN_USE.load(Ordering::Acquire)
+    }
+
+    /// A sentence a user can act on, not just a flag.
+    pub(super) fn sidecar_detail() -> &'static str {
+        let _ = entries();
+        match SIDECAR_STATE.load(Ordering::Acquire) {
+            SIDECAR_ACTIVE => "using conpty.dll beside the executable",
+            SIDECAR_ABSENT => "using the console host Windows ships (no conpty.dll beside the executable)",
+            SIDECAR_DLL_WITHOUT_HOST => {
+                "conpty.dll is present but OpenConsole.exe is missing beside it, so Windows' own console host is in use"
+            }
+            SIDECAR_LOAD_FAILED => "conpty.dll is present but could not be loaded (wrong architecture?)",
+            SIDECAR_MISSING_EXPORTS => "conpty.dll is present but does not export the pseudoconsole entry points",
+            _ => "using the console host Windows ships",
+        }
     }
 
     /// Explains the refusal in terms the reader can act on: a version, not a
@@ -1738,7 +1857,12 @@ pub(crate) fn backend_report() -> crate::pty::BackendReport {
     if conpty::is_available() {
         crate::pty::BackendReport {
             kind: "conpty",
-            detail: describe_build(),
+            // Which ConPTY, not just that there is one. The copy Windows ships
+            // mistranslates mouse reports for programs that read console
+            // events; a newer one placed beside the executable does not. A user
+            // who dropped those files in needs to see whether they took effect,
+            // because the DLL without its OpenConsole.exe fails silently.
+            detail: format!("{}, {}", describe_build(), conpty::sidecar_detail()),
         }
     } else {
         crate::pty::BackendReport {
