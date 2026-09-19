@@ -356,7 +356,7 @@ function cargo_unit_cu_fixture_spec(environment) {
   // until this gate builds it explicitly; warm local targets must not decide
   // whether the test can run.
   return spec("cargo", [
-    "build", "--quiet", "--locked", "--all-features", "-p", "agenterm-cu"
+    "build", "--quiet", "--locked", "-p", "agenterm-cu", "--bin", "agenterm-cu"
   ], 600000, environment, 0);
 }
 
