@@ -38,7 +38,8 @@ use crate::{
             PixelFrameError, PixelFrameState, PixelPointerCursor, PixelRect, PixelWindow,
             PixelWindowApplication, PixelWindowBackend, PixelWindowDirective, PixelWindowError,
             PixelWindowEvent, PixelWindowMetrics, PixelWindowOptions, PointerButton,
-            PointerButtonState, WheelDelta, WindowSemanticFlags, WindowWaker, XrgbPixelFrame,
+            PointerButtonState, WheelDelta, WindowAttachment, WindowSemanticFlags, WindowWaker,
+            XrgbPixelFrame,
             record_host_failure,
         },
     },
@@ -103,6 +104,7 @@ pub(crate) fn run_pixel_window(
         failure: None,
         present: Rc::new(RefCell::new(PixelPresentLedger::new())),
         frame_state: PixelFrameState::new(unix_frame_backing_retention()),
+        attach_request: Rc::new(Cell::new(None)),
         #[cfg(target_os = "macos")]
         detached_for_reopen: Rc::new(Cell::new(false)),
     };
@@ -144,6 +146,12 @@ fn event_loop_closed() -> PixelWindowError {
 struct NativeWindowBackend {
     window: Rc<Window>,
     present: Rc<RefCell<PixelPresentLedger>>,
+    /// A detach or attach the application asked for, waiting for the loop to
+    /// reach a point where it owns the event loop and can act on it. Winit only
+    /// hands out `&ActiveEventLoop` inside its callbacks, so the request cannot
+    /// be served where it is made.
+    attach_request: Rc<Cell<Option<bool>>>,
+    waker: WindowWaker,
     #[cfg(target_os = "macos")]
     detached_for_reopen: Rc<Cell<bool>>,
 }
@@ -151,6 +159,24 @@ struct NativeWindowBackend {
 impl PixelWindowBackend for NativeWindowBackend {
     fn request_redraw(&self) {
         self.window.request_redraw();
+    }
+
+    fn set_window_attached(&self, attached: bool) -> Result<(), PixelWindowError> {
+        self.attach_request.set(Some(attached));
+        // Without a wake the loop may be parked in `Wait` with nothing else due,
+        // and the request would sit unserved until the user moved the mouse.
+        self.waker.wake()
+    }
+
+    fn attachment(&self) -> Option<WindowAttachment> {
+        // Captures the request cell and the waker, never the window: the point
+        // of detaching is that the native window and its surface are released.
+        let request = Rc::clone(&self.attach_request);
+        let waker = self.waker.clone();
+        Some(WindowAttachment::new(Rc::new(move |attached: bool| {
+            request.set(Some(attached));
+            waker.wake()
+        })))
     }
 
     fn present_stats(&self) -> PixelPresentStats {
@@ -309,11 +335,111 @@ struct PixelWindowRunner {
     failure: Option<PixelWindowError>,
     present: Rc<RefCell<PixelPresentLedger>>,
     frame_state: PixelFrameState,
+    /// Shared with every window this runner builds, so a detach requested
+    /// through one is still visible after the next one is constructed.
+    attach_request: Rc<Cell<Option<bool>>>,
     #[cfg(target_os = "macos")]
     detached_for_reopen: Rc<Cell<bool>>,
 }
 
 impl PixelWindowRunner {
+    fn ensure_window(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+        let attributes = WindowAttributes::default()
+            .with_title(self.options.title.clone())
+            .with_inner_size(NativeLogicalSize::new(
+                self.options.initial_logical_size.width,
+                self.options.initial_logical_size.height,
+            ))
+            // Keeps the terminal viewport at a usable size; a shorter window
+            // leaves fewer grid rows than the terminal contract supports.
+            .with_min_inner_size(NativeLogicalSize::new(320.0, 240.0));
+        let attributes = if let Some((width, height, rgba)) = &self.options.window_icon_rgba {
+            match winit::window::Icon::from_rgba(rgba.clone(), *width, *height) {
+                Ok(icon) => attributes.with_window_icon(Some(icon)),
+                Err(_) => attributes,
+            }
+        } else {
+            attributes
+        };
+        let attributes = configure_window_attributes(attributes, self.options.no_activate);
+        let native_window = match event_loop.create_window(attributes) {
+            Ok(window) => Rc::new(window),
+            Err(error) => {
+                self.fail(
+                    event_loop,
+                    PixelWindowError::failed("pixel_window_create_failed", error),
+                );
+                return;
+            }
+        };
+        #[cfg(target_os = "linux")]
+        if let Err(error) = super::x11_no_activate::reveal_window(
+            event_loop,
+            &native_window,
+            self.options.no_activate,
+        ) {
+            self.fail(
+                event_loop,
+                PixelWindowError::failed("pixel_window_no_activate_failed", error),
+            );
+            return;
+        }
+        native_window.set_ime_allowed(self.options.ime_allowed);
+        let surface = match Surface::new(&self.context, Rc::clone(&native_window)) {
+            Ok(surface) => surface,
+            Err(error) => {
+                self.fail(
+                    event_loop,
+                    PixelWindowError::failed("pixel_window_surface_create_failed", error),
+                );
+                return;
+            }
+        };
+        let backend: Rc<dyn PixelWindowBackend> = Rc::new(NativeWindowBackend {
+            window: native_window,
+            present: Rc::clone(&self.present),
+            attach_request: Rc::clone(&self.attach_request),
+            waker: self.waker.clone(),
+            #[cfg(target_os = "macos")]
+            detached_for_reopen: Rc::clone(&self.detached_for_reopen),
+        });
+        let window = PixelWindow::new(backend, self.waker.clone());
+        self.surface = Some(surface);
+        self.window = Some(window.clone());
+        match catch_application("opened", || self.application.opened(&window)) {
+            Ok(directive) => {
+                window.request_redraw();
+                self.apply_directive(event_loop, directive);
+            }
+            Err(error) => self.fail(event_loop, error),
+        }
+    }
+
+    /// Serves a detach or attach the application asked for.
+    ///
+    /// Runs here because this is where the loop owns `&ActiveEventLoop`; the
+    /// request itself is made from anywhere, through the window handle.
+    fn serve_attach_request(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(attached) = self.attach_request.take() else {
+            return;
+        };
+        if attached {
+            self.ensure_window(event_loop);
+            return;
+        }
+        // Dropping the surface before the window matters: the surface borrows
+        // the window's handle, and releasing it second would keep the backing
+        // memory alive for exactly as long as the detach was supposed to free
+        // it.
+        self.surface = None;
+        self.surface_size = None;
+        self.window = None;
+        self.frame_state = PixelFrameState::new(unix_frame_backing_retention());
+    }
+
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: PixelWindowError) {
         // Same reason as the native host: this exits the loop, and a GUI
         // process that exits has nowhere to say why.
@@ -491,76 +617,7 @@ fn catch_application<T>(
 
 impl ApplicationHandler<()> for PixelWindowRunner {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.window.is_some() {
-            return;
-        }
-        let attributes = WindowAttributes::default()
-            .with_title(self.options.title.clone())
-            .with_inner_size(NativeLogicalSize::new(
-                self.options.initial_logical_size.width,
-                self.options.initial_logical_size.height,
-            ))
-            // Keeps the terminal viewport at a usable size; a shorter window
-            // leaves fewer grid rows than the terminal contract supports.
-            .with_min_inner_size(NativeLogicalSize::new(320.0, 240.0));
-        let attributes = if let Some((width, height, rgba)) = &self.options.window_icon_rgba {
-            match winit::window::Icon::from_rgba(rgba.clone(), *width, *height) {
-                Ok(icon) => attributes.with_window_icon(Some(icon)),
-                Err(_) => attributes,
-            }
-        } else {
-            attributes
-        };
-        let attributes = configure_window_attributes(attributes, self.options.no_activate);
-        let native_window = match event_loop.create_window(attributes) {
-            Ok(window) => Rc::new(window),
-            Err(error) => {
-                self.fail(
-                    event_loop,
-                    PixelWindowError::failed("pixel_window_create_failed", error),
-                );
-                return;
-            }
-        };
-        #[cfg(target_os = "linux")]
-        if let Err(error) = super::x11_no_activate::reveal_window(
-            event_loop,
-            &native_window,
-            self.options.no_activate,
-        ) {
-            self.fail(
-                event_loop,
-                PixelWindowError::failed("pixel_window_no_activate_failed", error),
-            );
-            return;
-        }
-        native_window.set_ime_allowed(self.options.ime_allowed);
-        let surface = match Surface::new(&self.context, Rc::clone(&native_window)) {
-            Ok(surface) => surface,
-            Err(error) => {
-                self.fail(
-                    event_loop,
-                    PixelWindowError::failed("pixel_window_surface_create_failed", error),
-                );
-                return;
-            }
-        };
-        let backend: Rc<dyn PixelWindowBackend> = Rc::new(NativeWindowBackend {
-            window: native_window,
-            present: Rc::clone(&self.present),
-            #[cfg(target_os = "macos")]
-            detached_for_reopen: Rc::clone(&self.detached_for_reopen),
-        });
-        let window = PixelWindow::new(backend, self.waker.clone());
-        self.surface = Some(surface);
-        self.window = Some(window.clone());
-        match catch_application("opened", || self.application.opened(&window)) {
-            Ok(directive) => {
-                window.request_redraw();
-                self.apply_directive(event_loop, directive);
-            }
-            Err(error) => self.fail(event_loop, error),
-        }
+        self.ensure_window(event_loop);
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, _event: ()) {
@@ -673,6 +730,7 @@ impl ApplicationHandler<()> for PixelWindowRunner {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.serve_attach_request(event_loop);
         #[cfg(target_os = "macos")]
         if macos_should_reopen(
             self.window.as_ref().is_some_and(PixelWindow::visible),
@@ -682,7 +740,13 @@ impl ApplicationHandler<()> for PixelWindowRunner {
             self.dispatch_event(event_loop, PixelWindowEvent::Reopen);
         }
         let Some(window) = self.window.clone() else {
-            event_loop.set_control_flow(ControlFlow::Wait);
+            // A detached process still has an endpoint to answer, PTYs to drain
+            // and timers to run. Without this the loop parks and the process is
+            // alive but deaf.
+            match catch_application("detached", || self.application.detached()) {
+                Ok(directive) => self.apply_directive(event_loop, directive),
+                Err(error) => self.fail(event_loop, error),
+            }
             return;
         };
         let now = Instant::now();

@@ -16,6 +16,7 @@ pub const OPEN_ALWAYS: DWORD = 4;
 pub const OPEN_EXISTING: DWORD = 3;
 pub const FILE_ATTRIBUTE_NORMAL: DWORD = 0x80;
 pub const INFINITE: DWORD = 0xFFFF_FFFF;
+pub const PROCESS_QUERY_LIMITED_INFORMATION: DWORD = 0x1000;
 
 #[link(name = "kernel32")]
 #[link(name = "synchronization")]
@@ -47,6 +48,7 @@ unsafe extern "system" {
     pub fn UnmapViewOfFile(base: *const c_void) -> BOOL;
     pub fn CloseHandle(h: HANDLE) -> BOOL;
     pub fn GetLastError() -> DWORD;
+    pub fn OpenProcess(access: DWORD, inherit: BOOL, pid: DWORD) -> HANDLE;
     pub fn WaitOnAddress(
         addr: *const c_void,
         compare: *const c_void,

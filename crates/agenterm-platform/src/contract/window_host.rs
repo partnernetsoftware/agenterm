@@ -611,6 +611,33 @@ pub(crate) fn record_host_failure(_component: &str, _error: &PixelWindowError) {
 pub(crate) trait PixelWindowBackend {
     fn request_redraw(&self);
 
+    /// Tears the window down while the event loop keeps running, or builds it
+    /// again from the application's state.
+    ///
+    /// Detaching is not hiding: the surface and its backing memory are
+    /// released, and reattaching constructs a new window rather than revealing
+    /// an old one. An application that survives a detach must therefore be able
+    /// to repaint itself from its own state, which is the same requirement a
+    /// first `opened` already imposes.
+    ///
+    /// The default refuses, loudly. A backend that cannot do this must not
+    /// silently no-op: an application told its window is gone, while the window
+    /// is still on screen, is a worse failure than one told it cannot detach.
+    fn set_window_attached(&self, attached: bool) -> Result<(), PixelWindowError> {
+        let _ = attached;
+        Err(PixelWindowError::Unsupported {
+            reason: "detachable window".into(),
+        })
+    }
+
+    /// A handle that outlives this window, for reattaching after a detach.
+    ///
+    /// `None` from a backend that cannot detach, so an application asking for
+    /// one learns that before it has torn anything down.
+    fn attachment(&self) -> Option<WindowAttachment> {
+        None
+    }
+
     fn present_stats(&self) -> PixelPresentStats {
         PixelPresentStats::default()
     }
@@ -670,6 +697,20 @@ impl PixelWindow {
 
     pub fn waker(&self) -> WindowWaker {
         self.waker.clone()
+    }
+
+    /// Detaches this window from the running loop, or reattaches one.
+    ///
+    /// The process, its sessions and its control endpoint outlive a detach; only
+    /// the window and its surface are released. See
+    /// [`PixelWindowBackend::set_window_attached`].
+    pub fn set_attached(&self, attached: bool) -> Result<(), PixelWindowError> {
+        self.backend.set_window_attached(attached)
+    }
+
+    /// A detach-surviving handle for reattaching later. See [`WindowAttachment`].
+    pub fn attachment(&self) -> Option<WindowAttachment> {
+        self.backend.attachment()
     }
 
     pub fn request_redraw(&self) {
@@ -769,6 +810,33 @@ impl fmt::Debug for PixelWindow {
 
 type WakeCallback = dyn Fn() -> Result<(), PixelWindowError> + Send + Sync;
 
+/// Attaches and detaches the window, and stays valid while none exists.
+///
+/// Deliberately does **not** hold the window: an application keeps one of these
+/// across a detach, and a handle that kept the native window alive would defeat
+/// the point of detaching — the surface and its backing memory must actually be
+/// released.
+#[derive(Clone)]
+pub struct WindowAttachment {
+    set: Rc<dyn Fn(bool) -> Result<(), PixelWindowError>>,
+}
+
+impl WindowAttachment {
+    pub(crate) fn new(set: Rc<dyn Fn(bool) -> Result<(), PixelWindowError>>) -> Self {
+        Self { set }
+    }
+
+    pub fn set(&self, attached: bool) -> Result<(), PixelWindowError> {
+        (self.set)(attached)
+    }
+}
+
+impl fmt::Debug for WindowAttachment {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("WindowAttachment").finish_non_exhaustive()
+    }
+}
+
 #[derive(Clone)]
 pub struct WindowWaker {
     callback: Arc<WakeCallback>,
@@ -797,6 +865,17 @@ impl fmt::Debug for WindowWaker {
 
 pub trait PixelWindowApplication: 'static {
     fn opened(&mut self, window: &PixelWindow) -> Result<PixelWindowDirective, PixelWindowError>;
+
+    /// Called once per loop turn while **no window is attached**.
+    ///
+    /// Everything else in this trait is handed a window, which is correct while
+    /// one exists and is exactly why a detached process would otherwise go
+    /// deaf: its control endpoint, its PTY readers and its timers all still
+    /// need turns. An application that never detaches can ignore this; the
+    /// default keeps the loop parked.
+    fn detached(&mut self) -> Result<PixelWindowDirective, PixelWindowError> {
+        Ok(PixelWindowDirective::Wait)
+    }
 
     fn event(
         &mut self,

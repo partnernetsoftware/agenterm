@@ -42,6 +42,7 @@ unsafe extern "C" {
     pub fn shm_unlink(name: *const c_char) -> c_int;
     pub fn ftruncate(fd: c_int, length: i64) -> c_int;
     pub fn close(fd: c_int) -> c_int;
+    pub fn kill(pid: i32, sig: i32) -> c_int;
 }
 
 #[cfg(target_os = "macos")]

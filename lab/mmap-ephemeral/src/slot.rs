@@ -4,8 +4,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
-/// Bumped when wait/wake + shm backends landed (layout still 64 B header).
-pub const MAGIC: u64 = 0x4d4d_4150_4550_4802; // "MMAPEPH\x02"
+/// Production mailbox (`MMAPEPH\x03`). Layout still 64 bytes; pad became owner/generation/status.
+pub const MAGIC: u64 = 0x4d4d_4150_4550_4803; // "MMAPEPH\x03"
 pub const SLOT_BYTES: usize = 64 * 1024;
 pub const HEADER_BYTES: usize = 64;
 pub const PAYLOAD_CAP: usize = SLOT_BYTES - HEADER_BYTES;
@@ -13,6 +13,16 @@ pub const PAYLOAD_CAP: usize = SLOT_BYTES - HEADER_BYTES;
 pub(crate) const STATE_IDLE: u32 = 0;
 pub(crate) const STATE_REQ: u32 = 1;
 pub(crate) const STATE_RESP: u32 = 2;
+
+pub const STATUS_OK: u32 = 0;
+/// Wire value. Callers see `WouldBlock` / `"busy"` without overwriting a live slot.
+#[allow(dead_code)]
+pub const STATUS_BUSY: u32 = 1;
+pub const STATUS_TIMEOUT: u32 = 2;
+pub const STATUS_REJECTED: u32 = 3;
+/// Wire value. Callers see `BrokenPipe` / `"dead"` when `generation` changes.
+#[allow(dead_code)]
+pub const STATUS_DEAD: u32 = 4;
 
 #[derive(Clone, Debug)]
 pub enum SlotLoc {
@@ -46,8 +56,13 @@ pub(crate) struct Header {
     pub shutdown: AtomicU32,
     pub req_len: AtomicU32,
     pub resp_len: AtomicU32,
-    _pad: [u8; 32],
+    pub owner_pid: AtomicU32,
+    pub generation: AtomicU32,
+    pub status: AtomicU32,
+    _reserved: [u8; 20],
 }
+
+const _: () = assert!(std::mem::size_of::<Header>() == HEADER_BYTES);
 
 /// One mapped mailbox. Single-threaded use per process side (lab contract).
 pub struct Slot {
@@ -157,6 +172,46 @@ impl Slot {
     pub fn seq(&self) -> u64 {
         self.header().seq.load(Ordering::Acquire)
     }
+
+    pub fn generation(&self) -> u32 {
+        self.header().generation.load(Ordering::Acquire)
+    }
+
+    pub fn owner_pid(&self) -> u32 {
+        self.header().owner_pid.load(Ordering::Acquire)
+    }
+
+    /// First owner of a freshly created slot. Generation becomes 1.
+    pub fn claim_owner(&self) {
+        let h = self.header();
+        h.status.store(STATUS_OK, Ordering::Release);
+        h.generation.store(1, Ordering::Release);
+        h.owner_pid.store(std::process::id(), Ordering::Release);
+    }
+
+    /// Dead-owner takeover: bump generation, force IDLE, record this pid.
+    pub fn reclaim_owner(&self) {
+        let h = self.header();
+        h.shutdown.store(0, Ordering::Release);
+        h.status.store(STATUS_OK, Ordering::Release);
+        h.state.store(STATE_IDLE, Ordering::Release);
+        let next = h.generation.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
+        if next == 0 {
+            h.generation.store(1, Ordering::Release);
+        }
+        h.owner_pid.store(std::process::id(), Ordering::Release);
+    }
+
+    /// Another live process already owns this slot.
+    pub fn owner_blocks_bind(&self) -> bool {
+        let pid = self.owner_pid();
+        pid != 0 && pid != std::process::id() && pid_alive(pid)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn force_owner_pid(&self, pid: u32) {
+        self.header().owner_pid.store(pid, Ordering::Release);
+    }
 }
 
 fn finish_slot(map: Slot, create: bool) -> io::Result<Slot> {
@@ -183,6 +238,37 @@ fn open_slot(loc: &SlotLoc, create: bool) -> io::Result<Slot> {
     match loc {
         SlotLoc::File(path) => open_slot_file(path, create),
         SlotLoc::Shm(name) => open_slot_shm(name, create),
+    }
+}
+
+fn pid_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        // SAFETY: signal 0 only probes existence; does not deliver.
+        let rc = unsafe { crate::ffi::kill(pid as i32, 0) };
+        if rc == 0 {
+            return true;
+        }
+        // ESRCH = 3 on Darwin and Linux. EPERM means the pid exists.
+        io::Error::last_os_error().raw_os_error() != Some(3)
+    }
+    #[cfg(windows)]
+    {
+        use crate::ffi::{
+            CloseHandle, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        let h = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if !h.is_null() {
+            unsafe {
+                let _ = CloseHandle(h);
+            }
+            return true;
+        }
+        // ERROR_ACCESS_DENIED = 5 → process exists.
+        io::Error::last_os_error().raw_os_error() == Some(5)
     }
 }
 
@@ -239,6 +325,8 @@ mod unix_impl {
             .open(path)?;
         if create {
             file.set_len(SLOT_BYTES as u64)?;
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
         }
         let fd = file.as_raw_fd();
         let ptr = map_fd(fd, false)?;

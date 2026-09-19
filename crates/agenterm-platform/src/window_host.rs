@@ -10,7 +10,8 @@ pub use crate::contract::window_host::{
     PixelFrameGeneration, PixelFrameInfo, PixelFrameWrite, PixelFrameWriteReceipt,
     PixelPointerCursor, PixelRect, PixelWindow, PixelWindowApplication, PixelWindowDirective,
     PixelWindowError, PixelWindowEvent, PixelWindowMetrics, PixelWindowOptions, PointerButton,
-    PointerButtonState, WheelDelta, WindowSemanticFlags, WindowWaker, XrgbPixelFrame,
+    PointerButtonState, WheelDelta, WindowAttachment, WindowSemanticFlags, WindowWaker,
+    XrgbPixelFrame,
 };
 
 /// Run one native pixel window until the application requests exit or the
