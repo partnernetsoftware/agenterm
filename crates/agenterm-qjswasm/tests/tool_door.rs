@@ -644,7 +644,8 @@ fn process_configured_child_probe() {
             .expect("probe current directory")
             .display()
     );
-    eprint!("configured-stderr");
+    std::io::Write::write_all(&mut std::io::stderr(), b"configured-stderr")
+        .expect("write probe stderr");
 }
 
 #[test]
@@ -656,7 +657,7 @@ fn every_qjs_child_entry_uses_contained_launch_with_configured_stdio() {
     let base = format!(
         r#"{{
             program: {program},
-            args: ["--exact", "process_configured_child_probe", "--nocapture"],
+            args: ["--exact", "process_configured_child_probe", "--show-output"],
             current_dir: {cwd},
             env: {{ AGENTERM_QJS_CONTAINED_PROBE: "1", AGENTERM_QJS_REMOVED: "present" }},
             env_remove: ["AGENTERM_QJS_REMOVED"],
