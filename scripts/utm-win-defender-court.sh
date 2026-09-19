@@ -126,10 +126,12 @@ cleanup() {
 trap cleanup EXIT
 
 ready_timeout=180
+interactive_timeout=360
 result_timeout=900
 if [ "$COURT" = win-x86_64-desktop ]; then
   # Fully emulated on Apple Silicon: every phase needs a wider budget.
   ready_timeout=600
+  interactive_timeout=600
   result_timeout=1800
 fi
 
@@ -139,17 +141,34 @@ UTM_COURT_CLEANUP_READY_TIMEOUT="${UTM_COURT_CLEANUP_READY_TIMEOUT:-$ready_timeo
 LEASED=1
 echo "Defender court phase: transport-ready ${ready_timeout}s"
 "$COURT_CLI" wait-ready "$COURT" "$ready_timeout" >/dev/null
-# Defender scans files statically: MpCmdRun reads the bytes and never executes
-# them, so the scan carries no console, desktop or job semantics and does not
-# need a graphical login session. Driving it through the guest agent removes a
-# dependency on the login-session job agent, which is not guaranteed to be
-# running on a disposable court -- it timed out claiming its nonce on
-# win-aarch64-desktop while a guest-agent scan of the same bytes on the same VM
-# returned exit 0 with an unchanged post-scan hash.
+# Windows courts are driven through the login-session job agent. utm-court's
+# direct interactive execution verb is Linux-only and answers a Windows court
+# with "currently Linux-only". This is the same job.pending.ps1 / job.ready
+# protocol that scripts/utm-cu-managed-job-court.sh uses for its Windows cells,
+# and it stays the primary path.
 #
-# The session-0 caution that applies to console/PTY and job-object behavior
-# (see the managed-job courts) does not transfer here: there is no user-facing
-# semantic in a static file scan.
+# It is not, however, guaranteed to be running on a disposable court: on
+# win-aarch64-desktop the detached session agent did not claim its nonce within
+# 360s, which blocked the reputation gate end to end. Defender scans files
+# statically -- MpCmdRun reads the bytes and never executes them -- so the scan
+# carries no console, desktop or job-object semantics and stays valid when it is
+# driven through the guest agent instead. The session-0 caution that governs the
+# PTY and managed-job courts does not transfer to a static file scan.
+#
+# So: try the login session, fall back to the guest agent, and record which path
+# produced the verdict in the receipt. A silent fallback would hide a host
+# denial inside a clean result; a named one does not.
+echo "Defender court phase: interactive-ready ${interactive_timeout}s"
+SCAN_PATH=login-session
+if ! "$COURT_CLI" interactive-ready "$COURT" "$interactive_timeout" \
+    >"$SCRATCH/interactive-ready.json" 2>"$SCRATCH/interactive-ready.err"; then
+  SCAN_PATH=guest-agent
+  echo "Defender court phase: login-session agent unavailable, scanning through the guest agent"
+  sed 's/^/  /' "$SCRATCH/interactive-ready.err" >&2 || true
+fi
+AGENT_ROOT="$("$COURT_CLI" windows-agent-root)"
+JOB="$AGENT_ROOT\\job.pending.ps1"
+READY_FLAG="$AGENT_ROOT\\job.ready"
 
 # A freshly leased court answers its first guest-agent calls with transient
 # host errors (OSStatus -10004 / -2700) until the channel settles. Retry rather
@@ -264,10 +283,15 @@ printf '%s\n' \
   '  Move-Item -LiteralPath $resultTmp -Destination $result -Force' \
   '}' \
   'exit $exitCode' >"$RUNNER"
-court_retry push "$COURT" "$RUNNER" "$PREFIX-run.ps1"
-court_retry exec "$COURT" -- \
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PREFIX-run.ps1" \
-  >/dev/null 2>&1 || true
+if [ "$SCAN_PATH" = login-session ]; then
+  court_retry push "$COURT" "$RUNNER" "$JOB"
+  printf ready | court_retry push "$COURT" - "$READY_FLAG"
+else
+  court_retry push "$COURT" "$RUNNER" "$PREFIX-run.ps1"
+  court_retry exec "$COURT" -- \
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PREFIX-run.ps1" \
+    >/dev/null 2>&1 || true
+fi
 
 echo "Defender court phase: scan (${result_timeout}s)"
 deadline=$((SECONDS + result_timeout))
@@ -312,7 +336,7 @@ os.replace(temporary, path)
 PY
 
 python3 - "$LOCAL_REPORT" "$RECEIPT_PATH" "$SOURCE_SHA" "$VERSION" \
-  "$CANDIDATE_RUN_ID" "$CANDIDATE_RUN_ATTEMPT" "$COURT" <<'PY'
+  "$CANDIDATE_RUN_ID" "$CANDIDATE_RUN_ATTEMPT" "$COURT" "$SCAN_PATH" <<'PY'
 import datetime, json, os, pathlib, sys
 
 report = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
@@ -333,6 +357,9 @@ receipt = {
     "version": sys.argv[4],
     "candidate_run": {"id": int(sys.argv[5]), "attempt": int(sys.argv[6])},
     "court": sys.argv[7],
+    # Which guest path drove the scan: a fallback must be legible in the
+    # receipt, never folded into a clean verdict.
+    "scan_path": sys.argv[8],
     "scanner": report["scanner"],
     "verdict": "clean",
     "assets": sorted(assets, key=lambda row: row["platform_id"]),
