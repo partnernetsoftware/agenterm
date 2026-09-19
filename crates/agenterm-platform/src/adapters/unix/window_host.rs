@@ -12,8 +12,11 @@ use std::{
     time::Instant,
 };
 
+// `Cell` carries the attach request on every unix target, not just macOS: the
+// detachable window is not a macOS feature. `Duration` still is.
+use std::cell::Cell;
 #[cfg(target_os = "macos")]
-use std::{cell::Cell, time::Duration};
+use std::time::Duration;
 
 use softbuffer::{Context, Surface};
 use winit::{
