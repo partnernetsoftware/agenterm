@@ -635,8 +635,15 @@ fn process_configured_child_probe() {
     if std::env::var_os("AGENTERM_QJS_CONTAINED_PROBE").is_none() {
         return;
     }
+    let stage = std::env::var_os("AGENTERM_QJS_PROBE_STAGE").map(PathBuf::from);
+    if let Some(path) = &stage {
+        std::fs::write(path, "entered").expect("write probe entry stage");
+    }
     let mut stdin = String::new();
     std::io::Read::read_to_string(&mut std::io::stdin(), &mut stdin).expect("read probe stdin");
+    if let Some(path) = &stage {
+        std::fs::write(path, "stdin-read").expect("write probe input stage");
+    }
     println!(
         "configured:{stdin}:{}:{}",
         std::env::var_os("AGENTERM_QJS_REMOVED").is_none(),
@@ -646,6 +653,9 @@ fn process_configured_child_probe() {
     );
     std::io::Write::write_all(&mut std::io::stderr(), b"configured-stderr")
         .expect("write probe stderr");
+    if let Some(path) = &stage {
+        std::fs::write(path, "output-written").expect("write probe output stage");
+    }
 }
 
 #[test]
@@ -653,19 +663,22 @@ fn every_qjs_child_entry_uses_contained_launch_with_configured_stdio() {
     let scratch = Scratch::new("contained-command");
     let command_stderr = scratch.path("command.stderr");
     let spawn_stdout = scratch.path("spawn.stdout");
+    let probe_stage = scratch.path("probe.stage");
     let executable = std::env::current_exe().expect("resolve tool-door test executable");
     let base = format!(
         r#"{{
             program: {program},
             args: ["--exact", "process_configured_child_probe", "--show-output"],
             current_dir: {cwd},
-            env: {{ AGENTERM_QJS_CONTAINED_PROBE: "1", AGENTERM_QJS_REMOVED: "present" }},
+            env: {{ AGENTERM_QJS_CONTAINED_PROBE: "1", AGENTERM_QJS_REMOVED: "present",
+                    AGENTERM_QJS_PROBE_STAGE: {probe_stage} }},
             env_remove: ["AGENTERM_QJS_REMOVED"],
             stdin_text: "from-stdin",
             timeout_ms: 10000
         }}"#,
         program = js(&executable),
         cwd = js(&scratch.0),
+        probe_stage = js(&probe_stage),
     );
     let source = format!(
         r#"
@@ -700,10 +713,11 @@ fn every_qjs_child_entry_uses_contained_launch_with_configured_stdio() {
     let command_stderr_bytes = std::fs::metadata(&command_stderr)
         .map(|metadata| metadata.len())
         .unwrap_or(0);
+    let probe_stage = std::fs::read_to_string(&probe_stage).unwrap_or_else(|_| "absent".to_owned());
     assert_eq!(
         string_of(&out),
         "true||true|true||true|0",
-        "{out:?}; command_stderr_bytes={command_stderr_bytes}"
+        "{out:?}; command_stderr_bytes={command_stderr_bytes}; probe_stage={probe_stage}"
     );
     assert_eq!(
         std::fs::read_to_string(command_stderr).expect("command stderr redirect"),
