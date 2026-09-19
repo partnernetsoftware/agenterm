@@ -126,12 +126,10 @@ cleanup() {
 trap cleanup EXIT
 
 ready_timeout=180
-interactive_timeout=360
 result_timeout=900
 if [ "$COURT" = win-x86_64-desktop ]; then
   # Fully emulated on Apple Silicon: every phase needs a wider budget.
   ready_timeout=600
-  interactive_timeout=600
   result_timeout=1800
 fi
 
@@ -141,18 +139,30 @@ UTM_COURT_CLEANUP_READY_TIMEOUT="${UTM_COURT_CLEANUP_READY_TIMEOUT:-$ready_timeo
 LEASED=1
 echo "Defender court phase: transport-ready ${ready_timeout}s"
 "$COURT_CLI" wait-ready "$COURT" "$ready_timeout" >/dev/null
-echo "Defender court phase: interactive-ready ${interactive_timeout}s"
-"$COURT_CLI" interactive-ready "$COURT" "$interactive_timeout" \
-  >"$SCRATCH/interactive-ready.json"
+# Defender scans files statically: MpCmdRun reads the bytes and never executes
+# them, so the scan carries no console, desktop or job semantics and does not
+# need a graphical login session. Driving it through the guest agent removes a
+# dependency on the login-session job agent, which is not guaranteed to be
+# running on a disposable court -- it timed out claiming its nonce on
+# win-aarch64-desktop while a guest-agent scan of the same bytes on the same VM
+# returned exit 0 with an unchanged post-scan hash.
+#
+# The session-0 caution that applies to console/PTY and job-object behavior
+# (see the managed-job courts) does not transfer here: there is no user-facing
+# semantic in a static file scan.
 
-# Windows courts are driven through the login-session job agent. utm-court's
-# direct interactive execution verb is Linux-only and answers a Windows court
-# with "currently Linux-only", and a Defender scan wants a real user session
-# anyway. This is the same job.pending.ps1 / job.ready protocol that
-# scripts/utm-cu-managed-job-court.sh uses for its Windows cells.
-AGENT_ROOT="$("$COURT_CLI" windows-agent-root)"
-JOB="$AGENT_ROOT\\job.pending.ps1"
-READY_FLAG="$AGENT_ROOT\\job.ready"
+# A freshly leased court answers its first guest-agent calls with transient
+# host errors (OSStatus -10004 / -2700) until the channel settles. Retry rather
+# than failing the whole court on a startup race.
+court_retry() {
+  _attempt=1
+  until "$COURT_CLI" "$@"; do
+    [ "$_attempt" -ge 5 ] && return 1
+    _attempt=$((_attempt + 1))
+    sleep 8
+  done
+  return 0
+}
 
 RUN_ID="${SOURCE_SHA:0:12}-$COURT-$$-$RANDOM"
 PREFIX="$WINDOWS_ROOT\\agenterm-defender-$RUN_ID"
@@ -174,7 +184,7 @@ while IFS=$'\t' read -r platform_id digest path; do
   guest_file="$PREFIX-$platform_id.zip"
   echo "Defender court phase: payload-transfer $platform_id"
   UTM_COURT_TRANSFER_TIMEOUT=300 \
-    "$COURT_CLI" push "$COURT" "$path" "$guest_file"
+    court_retry push "$COURT" "$path" "$guest_file"
   printf '%s\t%s\t%s\n' "$platform_id" "$digest" "$guest_file" >>"$PUSHED_SPEC"
 done <<<"$ASSET_ROWS"
 
@@ -230,10 +240,12 @@ $payload = [ordered]@{
 PS1
 } >"$SCAN_SCRIPT"
 
-"$COURT_CLI" push "$COURT" "$PUSHED_SPEC" "$PREFIX-assets.tsv"
-"$COURT_CLI" push "$COURT" "$SCAN_SCRIPT" "$PREFIX-scan.ps1"
+court_retry push "$COURT" "$PUSHED_SPEC" "$PREFIX-assets.tsv"
+court_retry push "$COURT" "$SCAN_SCRIPT" "$PREFIX-scan.ps1"
 
-# Hand the scan to the login-session job agent and wait for its exit receipt.
+# The wrapper records the scan's exit code as a guest file, so the receipt-
+# bearing contract below is identical no matter how the wrapper was launched.
+RUNNER="$SCRATCH/run.ps1"
 printf '%s\n' \
   '$ErrorActionPreference = "Stop"' \
   "\$scan = '$PREFIX-scan.ps1'" \
@@ -251,8 +263,11 @@ printf '%s\n' \
   '  [IO.File]::WriteAllText($resultTmp, [string]$exitCode)' \
   '  Move-Item -LiteralPath $resultTmp -Destination $result -Force' \
   '}' \
-  'exit $exitCode' | "$COURT_CLI" push "$COURT" - "$JOB"
-printf ready | "$COURT_CLI" push "$COURT" - "$READY_FLAG"
+  'exit $exitCode' >"$RUNNER"
+court_retry push "$COURT" "$RUNNER" "$PREFIX-run.ps1"
+court_retry exec "$COURT" -- \
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PREFIX-run.ps1" \
+  >/dev/null 2>&1 || true
 
 echo "Defender court phase: scan (${result_timeout}s)"
 deadline=$((SECONDS + result_timeout))
