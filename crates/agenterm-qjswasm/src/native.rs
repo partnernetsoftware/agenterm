@@ -1434,7 +1434,9 @@ fn preflight_region_plans(plans: &[RegionPlan], maximum: usize) -> Result<(), Na
     Ok(())
 }
 
+#[cfg(unix)]
 const UNAME_SYMBOL: &str = "uname";
+#[cfg(unix)]
 const GETRUSAGE_SYMBOL: &str = "getrusage";
 
 /// Whether this declaration names an image whose `uname` contract is known.
@@ -1443,6 +1445,7 @@ const GETRUSAGE_SYMBOL: &str = "getrusage";
 /// is the platform image used by this crate's native fixtures for the same
 /// system C surface. Other named libraries remain open-world declarations: a
 /// matching symbol spelling does not prove that they use `struct utsname`.
+#[cfg(unix)]
 fn is_known_uname_library(library: &str) -> bool {
     library.is_empty() || (cfg!(target_os = "macos") && library == "libSystem.B.dylib")
 }
