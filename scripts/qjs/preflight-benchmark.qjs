@@ -55,15 +55,17 @@ rh.require(rh.exists(worker), "preflight_benchmark_worker_missing");
 rh.require(rh.exists(task_manifest), "preflight_benchmark_manifest_missing");
 
 const run_stamp = rh.now_ms();
-const run_directory = rh.join(repo, "target/preflight-benchmark-runs-" + run_stamp);
+const run_directory_relative = "target/preflight-benchmark-runs-" + run_stamp;
+const run_directory = rh.join(repo, run_directory_relative);
 rh.create_dir_all(run_directory);
 
 // One untimed warmup. This benchmark measures steady-state public worker
 // runs; with 5 iterations p95 is the MAXIMUM sample, so a cold pack cache
 // made the first run pay a full compile and that compile became the
 // reported p95. Measuring the compiler is not the contract here.
-const warmup_report = rh.join(run_directory, "warmup.json");
-rh.command_status(worker, task_args(task_manifest, repo, warmup_report, 120000), { timeout_ms: 120000 });
+const warmup_report_relative = run_directory_relative + "/warmup.json";
+const warmup_report = rh.join(repo, warmup_report_relative);
+rh.command_status(worker, task_args(task_manifest, repo, warmup_report_relative, 120000), { timeout_ms: 120000 });
 rh.try_remove_file(warmup_report);
 
 const runs = [];
@@ -72,13 +74,14 @@ let all_passed = 1;
 for (let offset = 0; offset < iterations; offset = offset + 1) {
   const iteration = offset + 1;
   const iteration_tag = "" + iteration;
-  const run_report = rh.join(run_directory, iteration_tag + ".json");
+  const run_report_relative = run_directory_relative + "/" + iteration_tag + ".json";
+  const run_report = rh.join(repo, run_report_relative);
   const started = rh.now_ms();
   // The measured target below is p95 <= 15000ms, so the per-run budget must
   // outlive the threshold it measures: 30000ms, not 10000ms.
   const exit_code = rh.command_status(
     worker,
-    task_args(task_manifest, repo, run_report, 30000),
+    task_args(task_manifest, repo, run_report_relative, 30000),
     { timeout_ms: 30000 }
   );
   const wall_duration = rh.now_ms() - started;

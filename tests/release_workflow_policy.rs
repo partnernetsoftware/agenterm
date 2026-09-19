@@ -163,6 +163,8 @@ fn release_preflight_uses_its_declared_task_timeout() {
     assert!(PREFLIGHT_QJS.contains("const output_is_absolute = rh.is_absolute(output_arg);"));
     assert!(include_str!("../scripts/qjs/preflight-benchmark.qjs")
         .contains("if (rh.is_absolute(output_arg))"));
+    assert!(include_str!("../scripts/qjs/preflight-benchmark.qjs")
+        .contains("task_args(task_manifest, repo, run_report_relative, 30000)"));
 }
 
 #[test]
