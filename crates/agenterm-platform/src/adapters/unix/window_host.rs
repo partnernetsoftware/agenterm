@@ -89,6 +89,7 @@ pub(crate) fn run_pixel_window(
             event_loop_closed()
         })
     }));
+    let options_start_detached = options.start_detached;
     let mut runner = PixelWindowRunner {
         options,
         application,
@@ -105,6 +106,7 @@ pub(crate) fn run_pixel_window(
         present: Rc::new(RefCell::new(PixelPresentLedger::new())),
         frame_state: PixelFrameState::new(unix_frame_backing_retention()),
         attach_request: Rc::new(Cell::new(None)),
+        start_detached: options_start_detached,
         #[cfg(target_os = "macos")]
         detached_for_reopen: Rc::new(Cell::new(false)),
     };
@@ -338,13 +340,33 @@ struct PixelWindowRunner {
     /// Shared with every window this runner builds, so a detach requested
     /// through one is still visible after the next one is constructed.
     attach_request: Rc<Cell<Option<bool>>>,
+    /// Suppresses the first window only; see `ensure_window`.
+    start_detached: bool,
     #[cfg(target_os = "macos")]
     detached_for_reopen: Rc<Cell<bool>>,
 }
 
 impl PixelWindowRunner {
+    /// An attach handle that needs no window, so a headless process can ask for
+    /// its first one.
+    fn attachment_handle(&self) -> WindowAttachment {
+        let request = Rc::clone(&self.attach_request);
+        let waker = self.waker.clone();
+        WindowAttachment::new(Rc::new(move |attached: bool| {
+            request.set(Some(attached));
+            waker.wake()
+        }))
+    }
+
     fn ensure_window(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
+            return;
+        }
+        // A process asked to start detached gets its loop, its waker and its
+        // `detached` turns immediately, and no window until something attaches
+        // one. Consumed once, so a later resume is a normal resume.
+        if self.start_detached {
+            self.start_detached = false;
             return;
         }
         let attributes = WindowAttributes::default()
@@ -743,7 +765,14 @@ impl ApplicationHandler<()> for PixelWindowRunner {
             // A detached process still has an endpoint to answer, PTYs to drain
             // and timers to run. Without this the loop parks and the process is
             // alive but deaf.
-            match catch_application("detached", || self.application.detached()) {
+            // Built from the runner's own state, not from a window: a process
+            // that started headless has never had one, and still has to be able
+            // to ask for one.
+            let waker = self.waker.clone();
+            let attachment = self.attachment_handle();
+            match catch_application("detached", || {
+                self.application.detached(&waker, &attachment)
+            }) {
                 Ok(directive) => self.apply_directive(event_loop, directive),
                 Err(error) => self.fail(event_loop, error),
             }

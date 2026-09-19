@@ -290,6 +290,12 @@ pub struct PixelWindowOptions {
     pub no_activate: bool,
     pub ime_allowed: bool,
     pub window_icon_rgba: Option<(u32, u32, Vec<u8>)>,
+    /// Start the loop with no window at all.
+    ///
+    /// For a process that means to run headless and have a window attached
+    /// later, if ever. It suppresses the first window only; everything after
+    /// that is ordinary attach and detach.
+    pub start_detached: bool,
 }
 
 impl PixelWindowOptions {
@@ -300,7 +306,14 @@ impl PixelWindowOptions {
             no_activate: false,
             ime_allowed: false,
             window_icon_rgba: None,
+            start_detached: false,
         }
+    }
+
+    #[must_use]
+    pub const fn with_start_detached(mut self, start_detached: bool) -> Self {
+        self.start_detached = start_detached;
+        self
     }
 
     pub const fn with_no_activate(mut self, no_activate: bool) -> Self {
@@ -873,7 +886,12 @@ pub trait PixelWindowApplication: 'static {
     /// deaf: its control endpoint, its PTY readers and its timers all still
     /// need turns. An application that never detaches can ignore this; the
     /// default keeps the loop parked.
-    fn detached(&mut self) -> Result<PixelWindowDirective, PixelWindowError> {
+    fn detached(
+        &mut self,
+        waker: &WindowWaker,
+        attachment: &WindowAttachment,
+    ) -> Result<PixelWindowDirective, PixelWindowError> {
+        let _ = (waker, attachment);
         Ok(PixelWindowDirective::Wait)
     }
 
