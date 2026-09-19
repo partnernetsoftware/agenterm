@@ -21,6 +21,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use agenterm_platform::process::{ProcessObservation, observe};
 use agenterm_qjswasm::{
     Budget, Engine, Guest, JsValue, Outcome, QjswasmError, Value, compile_qjs, compile_qjs_tool,
     validate_wasm, validate_wasm_tool_with,
@@ -89,6 +90,24 @@ fn number_of(out: &Outcome) -> f64 {
     }
 }
 
+fn assert_child_reaped_with_live_control(pid: u32) {
+    // First prove the observer can see a same-user live child. Otherwise an
+    // always-Dead observer would make the cleanup assertion meaningless.
+    let mut witness = std::process::Command::new("sleep")
+        .arg("30")
+        .spawn()
+        .expect("live control child");
+    let live = observe(witness.id());
+    let _ = witness.kill();
+    let _ = witness.wait();
+    assert!(matches!(live, ProcessObservation::Live { .. }), "{live:?}");
+    let actual = observe(pid);
+    assert!(
+        matches!(actual, ProcessObservation::Dead { .. }),
+        "unwaited child {pid} survived slot cleanup or could not be observed: {actual:?}"
+    );
+}
+
 // =========================================================================
 // fs
 // =========================================================================
@@ -137,13 +156,16 @@ fn fs_round_trip_write_read_metadata_remove() {
 fn fs_create_dir_all_then_read_dir_is_sorted_json() {
     let dir = Scratch::new("readdir");
     let nested = dir.path("a").join("b").join("c");
+    let zeta = nested.join("zeta.txt");
+    let alpha = nested.join("alpha.txt");
+    let mid = nested.join("mid");
     let out = run_tool(&format!(
         r#"
         let d = {d};
         if (fs_create_dir_all(d) !== 0) {{ return "mkdir: " + tool_result(); }}
-        fs_write(d + "/zeta.txt", "z");
-        fs_write(d + "/alpha.txt", "a");
-        fs_create_dir_all(d + "/mid");
+        if (fs_write({zeta}, "z") !== 0) {{ return "zeta: " + tool_result(); }}
+        if (fs_write({alpha}, "a") !== 0) {{ return "alpha: " + tool_result(); }}
+        if (fs_create_dir_all({mid}) !== 0) {{ return "mid: " + tool_result(); }}
         if (fs_read_dir(d) !== 0) {{ return "read_dir: " + tool_result(); }}
         let entries = JSON.parse(tool_result());
         let names = "";
@@ -152,7 +174,10 @@ fn fs_create_dir_all_then_read_dir_is_sorted_json() {
         }}
         return names;
         "#,
-        d = js(&nested)
+        d = js(&nested),
+        zeta = js(&zeta),
+        alpha = js(&alpha),
+        mid = js(&mid)
     ));
     assert_eq!(string_of(&out), "alpha.txt;mid/;zeta.txt;");
     assert!(nested.join("mid").is_dir());
@@ -699,11 +724,11 @@ fn fs_metadata_reports_a_modification_time() {
         .as_millis() as u64;
     let source = format!(
         r#"
-        if (fs_metadata("{}") !== 0) {{ return "metadata: " + tool_result(); }}
+        if (fs_metadata({}) !== 0) {{ return "metadata: " + tool_result(); }}
         let m = JSON.parse(tool_result());
         return "" + m.modified_ms;
         "#,
-        file.display()
+        js(&file)
     );
     let out = run_tool(&source);
     let got: u64 = string_of(&out)
@@ -729,11 +754,11 @@ fn symlink_metadata_reports_unix_owner_and_permission_bits_without_a_process_wit
         .expect("set fixture mode");
     let out = run_tool(&format!(
         r#"
-        if (fs_symlink_metadata("{}") !== 0) {{ return "metadata: " + tool_result(); }}
+        if (fs_symlink_metadata({}) !== 0) {{ return "metadata: " + tool_result(); }}
         let metadata = JSON.parse(tool_result());
         return metadata.unix_mode + "|" + metadata.unix_uid;
         "#,
-        file.display()
+        js(&file)
     ));
     use std::os::unix::fs::MetadataExt as _;
     let uid = std::fs::symlink_metadata(&file)
@@ -1355,8 +1380,8 @@ fn fs_try_lock_exclusive_refuses_a_second_taker_until_unlock() {
     let file = dir.join("held.lock");
     let source = format!(
         r#"
-        let a = fs_try_lock_exclusive("{0}");
-        let b = fs_try_lock_exclusive("{0}");
+        let a = fs_try_lock_exclusive({0});
+        let b = fs_try_lock_exclusive({0});
         if (fs_unlock(a) !== 0) {{ return "unlock: " + tool_result(); }}
         // flock is tied to the open file description, and a child forked by
         // a neighbouring test inherits our descriptor for the instant before
@@ -1364,12 +1389,12 @@ fn fs_try_lock_exclusive_refuses_a_second_taker_until_unlock() {
         // few milliseconds. The door is a *try*: poll, as a script would.
         let c = -1;
         for (let i = 0; i < 40 && c < 0; i = i + 1) {{
-            c = fs_try_lock_exclusive("{0}");
+            c = fs_try_lock_exclusive({0});
             if (c < 0) {{ time_sleep_ms(25); }}
         }}
         return (a >= 0) + "|" + b + "|" + (c >= 0);
         "#,
-        file.display()
+        js(&file)
     );
     let out = run_tool(&source);
     assert_eq!(string_of(&out), "true|-1|true", "{out:?}");
@@ -1482,12 +1507,12 @@ fn fs_append_adds_to_the_end_and_creates_the_file() {
     let file = dir.join("journal.jsonl");
     let source = format!(
         r#"
-        if (fs_append("{0}", "one\n") !== 0) {{ return "append: " + tool_result(); }}
-        if (fs_append("{0}", "two\n") !== 0) {{ return "append: " + tool_result(); }}
-        if (fs_read_to_string("{0}") !== 0) {{ return "read: " + tool_result(); }}
+        if (fs_append({0}, "one\n") !== 0) {{ return "append: " + tool_result(); }}
+        if (fs_append({0}, "two\n") !== 0) {{ return "append: " + tool_result(); }}
+        if (fs_read_to_string({0}) !== 0) {{ return "read: " + tool_result(); }}
         return tool_result();
         "#,
-        file.display()
+        js(&file)
     );
     let out = run_tool(&source);
     assert_eq!(string_of(&out), "one\ntwo\n", "{out:?}");
@@ -1673,16 +1698,16 @@ fn process_command_can_send_its_streams_to_files() {
         let spec = JSON.stringify({{
             program: "sh",
             args: ["-c", "printf out; printf err 1>&2; exit 0"],
-            stdout_path: "{}",
-            stderr_path: "{}",
+            stdout_path: {},
+            stderr_path: {},
             timeout_ms: 10000
         }});
         if (process_command(spec) !== 0) {{ return "command: " + tool_result(); }}
         let r = JSON.parse(tool_result());
         return r.exit_code + "|" + r.stdout + "|" + r.stderr;
         "#,
-        out_path.display(),
-        err_path.display()
+        js(&out_path),
+        js(&err_path)
     );
     let out = run_tool(&source);
     assert_eq!(string_of(&out), "0||", "{out:?}");
@@ -2242,9 +2267,15 @@ fn a_spawned_child_can_be_watched_killed_and_waited() {
         const spec = JSON.stringify({ program: "sh", args: ["-c", "echo started; sleep 30"] });
         const h = process_spawn(spec);
         if (h < 0) { return "spawn:" + tool_result(); }
-        time_sleep_ms(200);
         if (process_state(h) !== 0) { return "state:" + tool_result(); }
         const before = tool_result();
+        let seen = "";
+        for (let i = 0; i < 100 && seen.indexOf("started") < 0; i = i + 1) {
+            if (process_read(h, 128) !== 0) { return "read:" + tool_result(); }
+            seen = seen + JSON.parse(tool_result()).stdout;
+            if (seen.indexOf("started") < 0) { time_sleep_ms(20); }
+        }
+        if (seen.trim() !== "started") { return "output-before-kill:" + seen; }
         process_kill(h);
         if (process_wait(h, 5000) !== 0) { return "wait:" + tool_result(); }
         const out = JSON.parse(tool_result());
@@ -2272,11 +2303,9 @@ fn a_spawned_child_can_be_watched_killed_and_waited() {
 /// `run_once` drops its slot before returning, so the reap has already
 /// happened by the time control is back here -- which is the property.
 ///
-/// The child is found by its own command line, not by `pgrep -P <us>`: under
-/// the workspace run every test in this binary shares one parent PID, and
-/// counting children of it counts *other tests'* processes too. The first
-/// cut of this test did that and failed only under the parallel run, which
-/// read as a reap bug and was a test-isolation bug.
+/// The exact returned child PID is observed through the platform process
+/// owner. Counting children of this test binary would also count other tests'
+/// processes under a parallel run, and `pgrep` is not available on Windows.
 #[test]
 fn an_unwaited_child_is_killed_with_the_slot() {
     let marker = format!("30.{}", std::process::id() % 1000 + 100);
@@ -2287,7 +2316,7 @@ fn an_unwaited_child_is_killed_with_the_slot() {
         if (h < 0) {{ return "spawn:" + tool_result(); }}
         time_sleep_ms(100);
         if (process_state(h) !== 0) {{ return "state:" + tool_result(); }}
-        return tool_result();
+        return tool_result() + "|" + process_pid(h);
     "#
     );
     let mut engine = agenterm_qjswasm::Engine::with_tool_door(agenterm_qjswasm::Budget::default());
@@ -2304,19 +2333,11 @@ fn an_unwaited_child_is_killed_with_the_slot() {
         Some(agenterm_qjswasm::Value::Js(agenterm_qjswasm::JsValue::Str(s))) => s.clone(),
         other => panic!("expected a string, got {other:?}"),
     };
-    assert_eq!(got, "running", "the child was alive while the script ran");
+    let (state, pid) = got.split_once('|').expect("state and child pid");
+    assert_eq!(state, "running", "the child was alive while the script ran");
+    let pid: u32 = pid.parse().expect("child pid");
     drop(engine);
-    std::thread::sleep(std::time::Duration::from_millis(200));
-    let survivors = std::process::Command::new("pgrep")
-        .args(["-f", &format!("^sleep {marker}$")])
-        .output()
-        .expect("pgrep");
-    let survivors = String::from_utf8_lossy(&survivors.stdout);
-    assert!(
-        survivors.trim().is_empty(),
-        "the unwaited child must be reaped with the slot; still running: {}",
-        survivors.trim()
-    );
+    assert_child_reaped_with_live_control(pid);
 }
 
 /// Releasing a finished slot must not disturb teardown: an un-released running
@@ -2340,7 +2361,7 @@ fn a_released_done_slot_does_not_spare_an_unwaited_running_child() {
         if (second < 0) {{ return "spawn2:" + tool_result(); }}
         time_sleep_ms(100);
         if (process_state(second) !== 0) {{ return "state2:" + tool_result(); }}
-        return tool_result();
+        return tool_result() + "|" + process_pid(second);
     "#
     );
     let mut engine = agenterm_qjswasm::Engine::with_tool_door(agenterm_qjswasm::Budget::default());
@@ -2357,22 +2378,14 @@ fn a_released_done_slot_does_not_spare_an_unwaited_running_child() {
         Some(agenterm_qjswasm::Value::Js(agenterm_qjswasm::JsValue::Str(s))) => s.clone(),
         other => panic!("expected a string, got {other:?}"),
     };
+    let (state, pid) = got.split_once('|').expect("state and second child pid");
     assert_eq!(
-        got, "running",
+        state, "running",
         "the second child was alive while the script ran"
     );
+    let pid: u32 = pid.parse().expect("second child pid");
     drop(engine);
-    std::thread::sleep(std::time::Duration::from_millis(200));
-    let survivors = std::process::Command::new("pgrep")
-        .args(["-f", &format!("^sleep {survivor}$")])
-        .output()
-        .expect("pgrep");
-    let survivors = String::from_utf8_lossy(&survivors.stdout);
-    assert!(
-        survivors.trim().is_empty(),
-        "the un-released running child must still be reaped; still running: {}",
-        survivors.trim()
-    );
+    assert_child_reaped_with_live_control(pid);
 }
 
 /// The owned unit is the process tree, not only the shell returned by spawn.
