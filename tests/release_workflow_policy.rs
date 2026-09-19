@@ -371,6 +371,50 @@ fn powershell_launcher_test_is_an_explicit_terminal_compatibility_subcourt() {
 }
 
 #[test]
+fn release_fast_fixture_separates_cold_compilation_from_the_bounded_build() {
+    let prebuild = CHECK_QJS
+        .split_once("function cargo_release_fast_fixture_spec(package_name, environment) {")
+        .and_then(|(_, tail)| tail.split_once("\n}"))
+        .map(|(body, _)| body)
+        .expect("release-fast fixture prebuild spec");
+    assert!(prebuild.contains("\"build\", \"--locked\", \"--profile\", \"release-fast\""));
+    assert!(prebuild.contains("\"--package\", package_name"));
+    assert!(prebuild.contains("], 900000, environment, 0);"));
+    let abi_prebuild = CHECK_QJS
+        .split_once("function cargo_abi_release_fixture_spec(package_name, target, environment) {")
+        .and_then(|(_, tail)| tail.split_once("\n}"))
+        .map(|(body, _)| body)
+        .expect("ABI release fixture prebuild spec");
+    assert!(abi_prebuild.contains("\"--profile\", \"abi-release\", \"--target\", target"));
+    assert!(abi_prebuild.contains("\"--package\", package_name"));
+    assert!(abi_prebuild.contains("], 900000, environment, 0);"));
+
+    let fixture = CHECK_QJS
+        .split_once("// Cold release-fast compilation is not the 300 s artifact fixture court.")
+        .and_then(|(_, tail)| tail.split_once("copy_release_fast_fixture(repo, upgrade_fixture)"))
+        .map(|(body, _)| body)
+        .expect("release-fast fixture gate");
+    let root = fixture
+        .find("cargo_release_fast_fixture_spec(\"agenterm\", build_environment)")
+        .expect("prebuild the GUI package");
+    let cu = fixture
+        .find("cargo_release_fast_fixture_spec(\"agenterm-cu\", build_environment)")
+        .expect("prebuild CU separately");
+    let abi = fixture
+        .find("cargo_abi_release_fixture_spec(\"agenterm-abi\", fixture_target, build_environment)")
+        .expect("prebuild ABI at the build script's target");
+    let provider = fixture
+        .find("cargo_abi_release_fixture_spec(\"agenterm-cu-provider\", fixture_target, build_environment)")
+        .expect("prebuild CU provider separately");
+    let bounded = fixture
+        .find("cmd_build_bat_spec(repo, \"release-fast\", 300000, build_environment)")
+        .expect("retain the 300-second artifact build");
+    assert!(root < cu && cu < abi && abi < provider && provider < bounded);
+    assert!(fixture.contains("run_gate_specs("));
+    assert!(fixture.contains("const fixture_target = host_target_triple(repo);"));
+}
+
+#[test]
 fn primary_unit_spec_keeps_both_packages_and_the_explicit_skip_set() {
     let spec = CHECK_QJS
         .split_once("function cargo_unit_primary_spec(environment) {")

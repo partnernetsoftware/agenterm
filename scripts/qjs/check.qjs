@@ -276,6 +276,29 @@ function cmd_build_bat_spec(repo, profile, timeout_ms, environment) {
   return spec("cmd.exe", arguments_list, timeout_ms, environment, 0);
 }
 
+function cargo_release_fast_fixture_spec(package_name, environment) {
+  return spec("cargo", [
+    "build", "--locked", "--profile", "release-fast", "--package", package_name
+  ], 900000, environment, 0);
+}
+
+function cargo_abi_release_fixture_spec(package_name, target, environment) {
+  return spec("cargo", [
+    "build", "--locked", "--profile", "abi-release", "--target", target,
+    "--package", package_name
+  ], 900000, environment, 0);
+}
+
+function host_target_triple(repo) {
+  const rustc = rh.command("rustc", ["-vV"], { cwd: repo, timeout_ms: 10000 });
+  require(rustc.exit_code === 0, "qualification_host_target_unavailable");
+  for (const source_line of rustc.stdout.split("\n")) {
+    const line = source_line.trim();
+    if (line.startsWith("host: ")) { return line.slice(6).trim(); }
+  }
+  throw "qualification_host_target_missing";
+}
+
 // rh's `rh task check --manifest`; the catalog verb this binary has.
 function task_catalog_spec(worker, repo) {
   const arguments_list = ["cli", "script", "task", "list", "--manifest", path.join(repo, "agenterm.tasks.json")];
@@ -1454,9 +1477,19 @@ rh.try_remove_file(upgrade_fixture);
 // The release-fast fixture must be captured before the release build runs:
 // a staged release reclaims the development target with `cargo clean`.
 if (skip_smoke === 0) {
-  gate = run_gate(
+  // Cold release-fast compilation is not the 300 s artifact fixture court.
+  // Keep all four Cargo roots in separate invocations, as build.qjs does:
+  // combining them would unify agenterm-platform features across products.
+  const fixture_target = host_target_triple(repo);
+  gate = run_gate_specs(
     context, timing, "artifact-build-fast", "alternate GUI fixture build",
-    cmd_build_bat_spec(repo, "release-fast", 300000, build_environment),
+    [
+      cargo_release_fast_fixture_spec("agenterm", build_environment),
+      cargo_release_fast_fixture_spec("agenterm-cu", build_environment),
+      cargo_abi_release_fixture_spec("agenterm-abi", fixture_target, build_environment),
+      cargo_abi_release_fixture_spec("agenterm-cu-provider", fixture_target, build_environment),
+      cmd_build_bat_spec(repo, "release-fast", 300000, build_environment)
+    ],
     repo, scratch, sequence
   );
   sequence = gate.sequence;

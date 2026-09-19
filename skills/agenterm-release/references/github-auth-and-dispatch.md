@@ -111,6 +111,22 @@ payload source commit.
 
 ## Bounded observation
 
+### Keep cold compilation outside a behavior or fixture deadline
+
+A hosted Windows runner can spend a short court's entire deadline compiling a
+new Cargo profile. The PowerShell compatibility court therefore precompiles
+its exact test target before its 120-second execute-only step. The full-lane
+`release-fast` alternate-GUI fixture likewise prebuilds `agenterm` and
+`agenterm-cu` under `release-fast`, then `agenterm-abi` and
+`agenterm-cu-provider` under `abi-release` with the exact host target triple,
+as **four separate** Cargo roots in the same target tree and environment
+before the bounded `build.bat release-fast` step. Combining roots
+feature-unifies platform adapters and changes the artifact being tested; the
+ABI profile/target is a distinct cache identity. Keep the build/fixture step's
+300-second bound; a cold compiler is not evidence that its shipped-byte
+assertions failed. Validate the prebuild's package/profile/target/order with a
+policy test and a negative control.
+
 Prefer channels in this order:
 
 1. connected authenticated GitHub application;
