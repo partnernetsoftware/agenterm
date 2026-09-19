@@ -1,6 +1,6 @@
 [package]
 name = "agenterm-qjswasm"
-version = "0.1.16"
+version = "0.1.17"
 edition = "2024"
 rust-version = "1.97"
 description = "AgenTerm's own script engine: compiles .qjs to .wasm in pure Rust and runs both on tinyvm (no JIT). Not rquickjs, not a QuickJS C binding."

@@ -1,6 +1,6 @@
 [package]
 name = "agenterm-cu-provider"
-version = "0.1.16"
+version = "0.1.17"
 edition = "2024"
 rust-version = "1.97"
 description = "Versioned dynamic provider for the AgenTerm ACU qjs embedder"
