@@ -37,7 +37,7 @@ dependencies = [
 
 [[package]]
 name = "agenterm"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "ab_glyph",
  "agenterm-chassis",
