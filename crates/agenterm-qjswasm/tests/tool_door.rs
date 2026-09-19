@@ -672,6 +672,11 @@ fn every_qjs_child_entry_uses_contained_launch_with_configured_stdio() {
         commandSpec.stderr_path = {command_stderr};
         if (process_command(JSON.stringify(commandSpec)) !== 0) {{ return "command:" + tool_result(); }}
         const command = JSON.parse(tool_result());
+        if (!command.success) {{
+            return "command-failure:" + command.exit_code + "|" + command.timed_out
+                + "|" + command.stdout.length + "|" + command.stderr.length
+                + "|" + command.stdout_truncated + "|" + command.stderr_truncated;
+        }}
 
         const spawnSpec = {base};
         spawnSpec.stdout_path = {spawn_stdout};

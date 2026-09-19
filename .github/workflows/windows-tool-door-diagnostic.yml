@@ -29,4 +29,10 @@ jobs:
 
       - name: Run the complete Windows tool door court
         shell: bash
-        run: cargo test --locked -p agenterm-qjswasm --test tool_door -- --nocapture
+        run: |
+          for trial in 1 2 3; do
+            echo "Exact contained-launch trial $trial"
+            cargo test --locked -p agenterm-qjswasm --test tool_door \
+              every_qjs_child_entry_uses_contained_launch_with_configured_stdio -- --exact
+          done
+          cargo test --locked -p agenterm-qjswasm --test tool_door -- --nocapture
