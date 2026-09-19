@@ -32,6 +32,11 @@ jobs:
         run: |
           cargo test --locked -p agenterm-qjswasm --test tool_door \
             process_command_feeds_stdin_while_capturing_stdout_and_redirecting_stderr -- --exact
+          probe_exe=$(find target/debug/deps -maxdepth 1 -name 'tool_door-*.exe' -print -quit)
+          test -n "$probe_exe"
+          echo 'Direct nested test-binary control'
+          printf 'from-stdin' | AGENTERM_QJS_CONTAINED_PROBE=1 timeout 20s \
+            "$probe_exe" --exact process_configured_child_probe --show-output
           for trial in 1 2 3; do
             echo "Exact contained-launch trial $trial"
             cargo test --locked -p agenterm-qjswasm --test tool_door \
