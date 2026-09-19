@@ -357,7 +357,7 @@ pub(crate) fn intentional_shutdown_matches(address: &str, pid: u32) -> bool {
         })
 }
 
-fn mark_intentional_shutdown_in(
+pub(crate) fn mark_intentional_shutdown_in(
     directory: &Path,
     address: &str,
     endpoint: Option<IpcEndpoint>,
@@ -868,7 +868,7 @@ fn prune_replaced_stale_registrations(directory: &Path, incoming: &InstanceRecor
     Ok(())
 }
 
-fn discover_instances_in(directory: &Path) -> Result<Vec<DiscoveredInstance>> {
+pub(crate) fn discover_instances_in(directory: &Path) -> Result<Vec<DiscoveredInstance>> {
     if !private_instance_directory_exists(directory)? {
         return Ok(Vec::new());
     }
@@ -971,32 +971,6 @@ mod tests {
             .join("target")
             .join("instances-tests")
             .join(name)
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn instance_registry_refuses_a_preplanted_directory_symlink() {
-        use std::os::unix::fs::symlink;
-
-        let root = test_directory(format!(
-            "agenterm-instance-symlink-test-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ));
-        let planted = root.join("planted");
-        let registry = root.join("instances");
-        fs::create_dir_all(&planted).unwrap();
-        symlink(&planted, &registry).unwrap();
-
-        assert!(discover_instances_in(&registry).is_err());
-        assert!(mark_intentional_shutdown_in(&registry, "fixture", None, None, 42).is_err());
-        assert!(fs::read_dir(&planted).unwrap().next().is_none());
-
-        fs::remove_file(registry).unwrap();
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

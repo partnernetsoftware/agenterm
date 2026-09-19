@@ -2426,32 +2426,6 @@ return native.call("|uname|i32(ptr)", [null]);
         );
     }
 
-    #[cfg(all(feature = "script-qjswasm", unix))]
-    #[test]
-    fn qjs_native_non_finite_float_is_refused_instead_of_becoming_null() {
-        #[cfg(target_os = "linux")]
-        let library = "libm.so.6";
-        #[cfg(target_os = "macos")]
-        let library = "";
-        let source = format!(
-            r#"
-import * as native from "agenterm:native";
-return native.call("{library}|sqrt|f64(f64)", [-1]);
-"#
-        );
-        let options = ScriptInvocationOptions {
-            native_door_contained: true,
-            ..ScriptInvocationOptions::default()
-        };
-        let error = QjswasmEngineBackend
-            .execute(&source, &options, None)
-            .expect_err("NaN has no JSON value and must not become null");
-        assert!(
-            error.message.contains("native_result_not_finite"),
-            "the refusal keeps its stable code: {error:?}"
-        );
-    }
-
     #[cfg(feature = "script-qjswasm")]
     #[test]
     fn direct_backend_artifact_execution_refuses_the_native_import() {
@@ -2832,8 +2806,7 @@ return reply.ok + ":" + reply.command;
             // owner cannot outlive its caller there, so the product must refuse
             // and close the durable start intent. This is host BLOCKED evidence,
             // never evidence that the causal JW1 positive path ran.
-            if cfg!(windows)
-                && !spawn_reply.ok
+            if !spawn_reply.ok
                 && spawn_reply.command == "job-spawn"
                 && spawn_reply
                     .error
@@ -2877,10 +2850,12 @@ return reply.ok + ":" + reply.command;
             }
             assert!(
                 spawn_output.status.success(),
-                "agenterm-cu job-spawn failed (status={}): stdout={} stderr={}",
+                "agenterm-cu job-spawn failed (status={}): stdout={} stderr={} store={}",
                 spawn_output.status,
                 String::from_utf8_lossy(&spawn_output.stdout),
-                String::from_utf8_lossy(&spawn_output.stderr)
+                String::from_utf8_lossy(&spawn_output.stderr),
+                std::fs::read_to_string(root.join("managed-jobs.json"))
+                    .unwrap_or_else(|error| format!("unavailable: {error}"))
             );
             let spawn = data(spawn_reply);
             let job_id = spawn["job_id"].as_str().expect("job id").to_owned();

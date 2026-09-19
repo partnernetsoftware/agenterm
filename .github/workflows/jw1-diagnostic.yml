@@ -1,0 +1,37 @@
+name: JW1 Diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact main commit to diagnose; this workflow cannot qualify a release
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  macos-owner:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+
+      - name: Verify exact source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Diagnose resident-owner JW1 path
+        run: |
+          set -euo pipefail
+          cargo build --quiet --locked -p agenterm-cu --bin agenterm-cu
+          cargo test --quiet --locked -p agenterm --lib --features script-acu-embedder \
+            script_engine::tests::jw1_recording_bridge::jw1_recording_bridge_causal_composite \
+            -- --exact --nocapture | tee target/jw1-diagnostic.log
+          grep -Eq 'test result: ok\. 1 passed; 0 failed' target/jw1-diagnostic.log
+          grep -q 'JW1 causal composite evidence:' target/jw1-diagnostic.log
