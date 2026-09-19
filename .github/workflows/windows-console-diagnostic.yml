@@ -1,0 +1,120 @@
+name: Windows Console Diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact main commit to diagnose; this workflow cannot qualify a release
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  console-forwarding:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+
+      - name: Verify exact source
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Build the exact PowerShell forwarding court
+        shell: bash
+        run: cargo test --quiet --locked --all-features --test agenterm_cli_forwarding --no-run
+
+      - name: Separate process wait from pipe EOF
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import pathlib
+          import subprocess
+          import tempfile
+
+          exe = pathlib.Path('target/debug/agenterm.exe').resolve()
+          assert exe.is_file(), 'the court did not build agenterm.exe'
+
+          def describe_and_stop_tree(root_pid):
+              query = subprocess.run([
+                  'powershell.exe', '-NoProfile', '-NonInteractive', '-Command',
+                  'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name | ConvertTo-Json -Compress'
+              ], capture_output=True, timeout=15, check=True, text=True)
+              processes = json.loads(query.stdout)
+              if isinstance(processes, dict):
+                  processes = [processes]
+              selected = [root_pid]
+              for _ in range(len(processes)):
+                  new = [int(item['ProcessId']) for item in processes
+                         if int(item['ParentProcessId']) in selected
+                         and int(item['ProcessId']) not in selected]
+                  if not new:
+                      break
+                  selected.extend(new)
+              for item in processes:
+                  if int(item['ProcessId']) in selected:
+                      print(f"process pid={item['ProcessId']} parent={item['ParentProcessId']} name={item['Name']}", flush=True)
+              for pid in reversed(selected):
+                  subprocess.run(['taskkill.exe', '/T', '/F', '/PID', str(pid)],
+                                 timeout=15, check=False, capture_output=True)
+
+          def observe(label, argv, capture, workdir=None):
+              with tempfile.TemporaryDirectory(prefix='agenterm-console-probe-') as directory:
+                  root = pathlib.Path(directory)
+                  out = (root / 'stdout').open('wb') if not capture else subprocess.PIPE
+                  err = (root / 'stderr').open('wb') if not capture else subprocess.PIPE
+                  try:
+                      child = subprocess.Popen(argv, cwd=workdir or exe.parent, stdin=subprocess.DEVNULL,
+                                               stdout=out, stderr=err)
+                      timed_out = False
+                      try:
+                          if capture:
+                              stdout, stderr = child.communicate(timeout=20)
+                          else:
+                              child.wait(timeout=20)
+                              out.close()
+                              err.close()
+                              stdout = (root / 'stdout').read_bytes()
+                              stderr = (root / 'stderr').read_bytes()
+                      except subprocess.TimeoutExpired:
+                          timed_out = True
+                          print(f'{label}: timeout parent_exited={child.poll() is not None}', flush=True)
+                          describe_and_stop_tree(child.pid)
+                          if not capture:
+                              out.close()
+                              err.close()
+                          stdout = (root / 'stdout').read_bytes() if not capture else b''
+                          stderr = (root / 'stderr').read_bytes() if not capture else b''
+                      print(f'{label}: exit={child.poll()} timeout={timed_out} '
+                            f'stdout={stdout[:200]!r} stderr={stderr[:200]!r}', flush=True)
+                  finally:
+                      if not capture:
+                          if not out.closed:
+                              out.close()
+                          if not err.closed:
+                              err.close()
+
+          worker = [str(exe), '__agenterm-internal-cli', '--version']
+          direct = [str(exe), 'cli', '--version']
+          cmd = ['cmd.exe', '/d', '/c', '.\\agenterm.exe cli --version']
+          powershell = ['powershell.exe', '-NoLogo', '-NoProfile', '-NonInteractive',
+                        '-Command', '& .\\agenterm.exe cli --version']
+          observe('worker-pipe', worker, True)
+          observe('direct-pipe', direct, True)
+          observe('cmd-pipe', cmd, True)
+          observe('powershell-pipe', powershell, True)
+          observe('powershell-file', powershell, False)
+          observe('exact-court', [
+              'cargo', 'test', '--quiet', '--locked', '--all-features',
+              '--test', 'agenterm_cli_forwarding',
+              'powershell_waits_for_explicit_agenterm_exe', '--', '--exact', '--nocapture'
+          ], True, pathlib.Path.cwd())
+          PY
