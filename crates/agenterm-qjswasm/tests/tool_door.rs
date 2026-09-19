@@ -696,7 +696,14 @@ fn every_qjs_child_entry_uses_contained_launch_with_configured_stdio() {
         spawn_stdout = js(&spawn_stdout),
     );
     let out = run_tool(&source);
-    assert_eq!(string_of(&out), "true||true|true||true|0", "{out:?}");
+    let command_stderr_bytes = std::fs::metadata(&command_stderr)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    assert_eq!(
+        string_of(&out),
+        "true||true|true||true|0",
+        "{out:?}; command_stderr_bytes={command_stderr_bytes}"
+    );
     assert_eq!(
         std::fs::read_to_string(command_stderr).expect("command stderr redirect"),
         "configured-stderr"
@@ -1873,6 +1880,27 @@ fn process_command_captures_stdout_and_the_exit_code() {
         "#,
     );
     assert_eq!(string_of(&out), "3|false");
+}
+
+#[cfg(windows)]
+#[test]
+fn process_command_feeds_stdin_while_capturing_stdout_and_redirecting_stderr() {
+    let scratch = Scratch::new("windows-command-stdio");
+    let stderr = scratch.path("command.stderr");
+    let out = run_tool(&format!(
+        r#"
+        const spec = JSON.stringify({{
+            program: "cmd.exe", args: ["/d", "/c", "more"],
+            stdin_text: "from-stdin\n", stderr_path: {stderr}, timeout_ms: 5000
+        }});
+        if (process_command(spec) !== 0) {{ return "command:" + tool_result(); }}
+        const reply = JSON.parse(tool_result());
+        return "" + reply.success + "|" + reply.timed_out + "|"
+            + reply.stdout.indexOf("from-stdin");
+        "#,
+        stderr = js(&stderr)
+    ));
+    assert_eq!(string_of(&out), "true|false|0", "{out:?}");
 }
 
 /// A program that does not exist is status 1 with a readable diagnostic; a
