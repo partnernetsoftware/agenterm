@@ -27,9 +27,10 @@ jobs:
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
 
-      - name: Run the complete Windows tool door court
+      - name: Run Windows ABI and tool door courts
         shell: bash
         run: |
+          cargo test --locked -p agenterm-abi --test exports_set
           cargo test --locked -p agenterm-qjswasm --test tool_door \
             process_command_feeds_stdin_while_capturing_stdout_and_redirecting_stderr -- --exact
           probe_exe=$(find target/debug/deps -maxdepth 1 -name 'tool_door-*.exe' -print -quit)

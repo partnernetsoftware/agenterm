@@ -88,7 +88,9 @@ fn required_runtime_symbols(cu_source: &str) -> BTreeSet<String> {
         .split_once("const REQUIRED_RUNTIME_SYMBOLS: &[&[u8]] = &[")
         .expect("agenterm-cu must declare REQUIRED_RUNTIME_SYMBOLS")
         .1
-        .split_once("];\n")
+        // Windows checkouts may use CRLF; the array terminator is the Rust
+        // syntax, not a particular checkout's line ending.
+        .split_once("];")
         .expect("REQUIRED_RUNTIME_SYMBOLS must be a closed array")
         .0;
     body.lines()
@@ -99,6 +101,17 @@ fn required_runtime_symbols(cu_source: &str) -> BTreeSet<String> {
                 .map(str::to_owned)
         })
         .collect()
+}
+
+#[test]
+fn runtime_symbol_inventory_accepts_both_checkout_line_endings() {
+    let source = "const REQUIRED_RUNTIME_SYMBOLS: &[&[u8]] = &[\n    b\"agt_abi_version\",\n];\n";
+    let expected = BTreeSet::from(["agt_abi_version".to_owned()]);
+    assert_eq!(required_runtime_symbols(source), expected);
+    assert_eq!(
+        required_runtime_symbols(&source.replace('\n', "\r\n")),
+        expected
+    );
 }
 
 /// Extract the set of `#[unsafe(no_mangle)] pub extern "C" fn NAME` declarations
