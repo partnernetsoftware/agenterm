@@ -154,6 +154,15 @@ fn target_inventory_keeps_default_host_ops_and_matches_its_outer_timeout() {
 }
 
 #[test]
+fn release_preflight_uses_its_declared_task_timeout() {
+    let timeout = TASKS["contracts"]["preflight"]["budget"]["timeout_ms"]
+        .as_u64()
+        .expect("preflight timeout");
+    assert_eq!(timeout, 120_000);
+    assert!(CHECK_QJS.contains("bootstrap_worker, repo, \"preflight\", 120000,"));
+}
+
+#[test]
 fn build_isolation_is_declared_and_fails_closed_before_mutation() {
     let task = TASKS["tasks"]
         .as_array()

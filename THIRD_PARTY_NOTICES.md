@@ -14,12 +14,15 @@ Copyright and license terms remain with their respective authors.
 | `atspi` | Apache-2.0 OR MIT |
 | `async_io_stream` | Unlicense |
 | `cc` (dev dependency) | MIT OR Apache-2.0 |
+| `core-foundation` | MIT OR Apache-2.0 |
 | `flate2` | MIT OR Apache-2.0 |
 | `futures` | MIT OR Apache-2.0 |
 | `jpeg-decoder` | MIT OR Apache-2.0 |
 | `libc` | MIT OR Apache-2.0 |
 | `libloading` | ISC |
 | `md-5` | MIT OR Apache-2.0 |
+| `memmap2` | MIT OR Apache-2.0 |
+| `miniz_oxide` | MIT OR Zlib OR Apache-2.0 |
 | `mlua` | MIT |
 | `num-bigint` | MIT OR Apache-2.0 |
 | `objc2` | MIT |
@@ -28,7 +31,10 @@ Copyright and license terms remain with their respective authors.
 | `object` | Apache-2.0 OR MIT |
 | `png` | MIT OR Apache-2.0 |
 | `rand` | MIT OR Apache-2.0 |
+| `regex` | MIT OR Apache-2.0 |
 | `rusqlite` | MIT |
+| `security-framework` | MIT OR Apache-2.0 |
+| `security-framework-sys` | MIT OR Apache-2.0 |
 | `serde` | MIT OR Apache-2.0 |
 | `serde_json` | MIT OR Apache-2.0 |
 | `sha2` | MIT OR Apache-2.0 |

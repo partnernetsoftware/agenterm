@@ -1335,7 +1335,7 @@ if (release !== 0) {
   gate = run_gate(
     context, timing, "release-preflight", "clean internal candidate preflight",
     task(
-      bootstrap_worker, repo, "preflight", 10000,
+      bootstrap_worker, repo, "preflight", 120000,
       [repo, path.join(repo, "target/preflight/preflight.json")],
       empty_environment(), 0
     ),
