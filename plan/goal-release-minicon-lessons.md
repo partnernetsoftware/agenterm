@@ -47,9 +47,10 @@ archives, explicit signing policy, and final-byte reputation checks.
       - [x] the company Developer ID Application certificate and App Store
         Connect notary key already exist and have signed, notarized and stapled
         MiniCon production bytes; AgenTerm must reuse that company identity
-      - [~] AgenTerm's protected `release-signing` Environment now has the
-        existing certificate, its password, the notary key, Key ID and public
-        Team ID; `APPLE_NOTARY_ISSUER_ID` is the sole missing protected value
+      - [x] AgenTerm's protected `release-signing` Environment has the existing
+        certificate, its password, the notary key, Key ID, Issuer ID and public
+        Team ID; secret values were transferred without entering the repository
+        or conversation
       - [x] `release-signing` requires the repository owner as its human
         reviewer; the single-owner setup permits self-review so qualification
         is protected without becoming permanently unapprovable

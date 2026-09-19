@@ -37,10 +37,9 @@ Every AgenTerm signing path creates a throwaway keychain, imports with
   notary key already exist, are retained in the company vault, and have been
   proven by MiniCon's signed, notarized and stapled release. AgenTerm must reuse
   them; it must not create a second publisher certificate or notary identity.
-- AgenTerm's `release-signing` Environment now contains the certificate, its
-  password, the notary key, Key ID and public Team ID. The Issuer ID remains the
-  one missing protected value. Secret values were not read back or written to
-  the repository.
+- AgenTerm's `release-signing` Environment contains the certificate, its
+  password, the notary key, Key ID, Issuer ID and public Team ID. Secret values
+  were not read back or written to the repository.
 - The Environment requires the repository owner as its human reviewer. The
   single-owner setup permits self-review; signing jobs therefore pause for an
   explicit account-holder action without becoming permanently unapprovable.
@@ -137,11 +136,10 @@ the `.p8`, which is downloadable exactly once.
    AgenTerm currently requires the repository owner as reviewer and permits
    self-review for this single-owner repository. Preserve an explicit human
    approval before a signing job receives these values.
-   Current AgenTerm state: all names except `APPLE_NOTARY_ISSUER_ID` are
-   configured. Complete that one value from the existing company App Store
-   Connect key; do not create a replacement key merely to recover its Issuer
-   ID. Gate: the workflow's "Require protected Apple signing configuration" step
-   fails closed and names any missing value. *No wait.*
+   Current AgenTerm state: all six protected names are configured from the
+   existing company identity; no replacement certificate or API key was
+   created. Gate: the workflow's "Require protected Apple signing
+   configuration" step fails closed and names any missing value. *No wait.*
    **Note:** `candidate.yml`'s `build` job currently reads these as ordinary
    repository secrets and is **not** bound to `environment: release-signing`.
    Decide whether to move them; adding the environment to that job applies to
