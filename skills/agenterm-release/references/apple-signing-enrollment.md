@@ -41,9 +41,9 @@ Every AgenTerm signing path creates a throwaway keychain, imports with
   password, the notary key, Key ID and public Team ID. The Issuer ID remains the
   one missing protected value. Secret values were not read back or written to
   the repository.
-- The Environment currently has no required-reviewer protection rule. Choose
-  and add the intended human reviewer before the first qualification dispatch;
-  do not treat the Environment name alone as an approval boundary.
+- The Environment requires the repository owner as its human reviewer. The
+  single-owner setup permits self-review; signing jobs therefore pause for an
+  explicit account-holder action without becoming permanently unapprovable.
 - The signing **mechanics exist but are not yet release-complete**:
   `scripts/sign-macos-release.sh` signs every Mach-O named by
   `scripts/artifacts.json`, stages `AgenTerm.app` through
@@ -134,9 +134,9 @@ the `.p8`, which is downloadable exactly once.
    the `.p8`), `APPLE_NOTARY_KEY_ID`, `APPLE_NOTARY_ISSUER_ID`.
    Variable — `AGENTERM_APPLE_TEAM_ID` (the 10-character Team ID; public
    provenance, so a variable and not a secret).
-   Add the required reviewers you want on macOS signing runs. AgenTerm's
-   Environment currently has none, so this remains an explicit owner setup
-   item rather than an inferred policy.
+   AgenTerm currently requires the repository owner as reviewer and permits
+   self-review for this single-owner repository. Preserve an explicit human
+   approval before a signing job receives these values.
    Current AgenTerm state: all names except `APPLE_NOTARY_ISSUER_ID` are
    configured. Complete that one value from the existing company App Store
    Connect key; do not create a replacement key merely to recover its Issuer

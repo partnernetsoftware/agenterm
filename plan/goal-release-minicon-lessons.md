@@ -50,9 +50,9 @@ archives, explicit signing policy, and final-byte reputation checks.
       - [~] AgenTerm's protected `release-signing` Environment now has the
         existing certificate, its password, the notary key, Key ID and public
         Team ID; `APPLE_NOTARY_ISSUER_ID` is the sole missing protected value
-      - [ ] add the intended human reviewer protection to `release-signing`;
-        the Environment currently has no protection rule, so merely naming it
-        does not yet create a signing-approval boundary
+      - [x] `release-signing` requires the repository owner as its human
+        reviewer; the single-owner setup permits self-review so qualification
+        is protected without becoming permanently unapprovable
       - [x] `.github/workflows/macos-signing-qualification.yml` is an exact-byte,
         non-promotable court that signs, notarizes, staples and assesses both
         macOS cells while policy remains `unsigned-preview`
