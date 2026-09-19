@@ -67,7 +67,7 @@ jobs:
                                  timeout=15, check=False, capture_output=True)
 
           def observe(label, argv, capture, workdir=None):
-              with tempfile.TemporaryDirectory(prefix='agenterm-console-probe-') as directory:
+              with tempfile.TemporaryDirectory(prefix='agenterm-console-probe-', ignore_cleanup_errors=True) as directory:
                   root = pathlib.Path(directory)
                   out = (root / 'stdout').open('wb') if not capture else subprocess.PIPE
                   err = (root / 'stderr').open('wb') if not capture else subprocess.PIPE
@@ -82,17 +82,20 @@ jobs:
                               child.wait(timeout=20)
                               out.close()
                               err.close()
+                              # PowerShell can return before its GUI child closes the
+                              # redirected files. Record and stop that exact tree first.
+                              describe_and_stop_tree(child.pid)
                               stdout = (root / 'stdout').read_bytes()
                               stderr = (root / 'stderr').read_bytes()
-                      except subprocess.TimeoutExpired:
+                      except subprocess.TimeoutExpired as error:
                           timed_out = True
                           print(f'{label}: timeout parent_exited={child.poll() is not None}', flush=True)
                           describe_and_stop_tree(child.pid)
                           if not capture:
                               out.close()
                               err.close()
-                          stdout = (root / 'stdout').read_bytes() if not capture else b''
-                          stderr = (root / 'stderr').read_bytes() if not capture else b''
+                          stdout = (root / 'stdout').read_bytes() if not capture else (error.stdout or b'')
+                          stderr = (root / 'stderr').read_bytes() if not capture else (error.stderr or b'')
                       print(f'{label}: exit={child.poll()} timeout={timed_out} '
                             f'stdout={stdout[:200]!r} stderr={stderr[:200]!r}', flush=True)
                   finally:
@@ -111,10 +114,10 @@ jobs:
           observe('direct-pipe', direct, True)
           observe('cmd-pipe', cmd, True)
           observe('powershell-pipe', powershell, True)
-          observe('powershell-file', powershell, False)
           observe('exact-court', [
               'cargo', 'test', '--quiet', '--locked', '--all-features',
               '--test', 'agenterm_cli_forwarding',
               'powershell_waits_for_explicit_agenterm_exe', '--', '--exact', '--nocapture'
           ], True, pathlib.Path.cwd())
+          observe('powershell-file', powershell, False)
           PY
