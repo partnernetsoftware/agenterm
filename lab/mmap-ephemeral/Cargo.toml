@@ -1,4 +1,5 @@
-# Standalone lab crate — not a workspace member of the product tree.
+# Standalone lab package — not a workspace member of the product tree.
+# Public library name: `shmbox`. CLI harness: `mmap-lab`.
 [workspace]
 
 [package]
@@ -9,12 +10,16 @@ rust-version = "1.97"
 license = "MIT OR Apache-2.0"
 publish = false
 
+[lib]
+name = "shmbox"
+path = "src/lib.rs"
+
 [[bin]]
 name = "mmap-lab"
-path = "src/main.rs"
+path = "src/bin/mmap_lab.rs"
 
 # Zero crates.io deps: PATH `cc` shims break build-scripts (libc/memmap2).
-# mmap is via raw libc FFI below.
+# mmap / os_sync via raw FFI in `src/ffi.rs`.
 
 [profile.release]
 opt-level = 3

@@ -2,3 +2,5 @@
 *.slot
 *.receipt.json
 _*.log
+_*.txt
+nng_bench/nng_pair_bench

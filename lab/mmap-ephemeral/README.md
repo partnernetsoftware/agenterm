@@ -1,53 +1,37 @@
-# lab/mmap-ephemeral — short-lived process + mmap mailbox
+# lab/mmap-ephemeral — shmbox + courts
 
-Not product code. Not a PRD leaf. Standalone crate (not a workspace member).
+Not product code. Standalone package. See [`LAYOUT.md`](LAYOUT.md), [`PRACTICAL.md`](PRACTICAL.md), [`RESULTS.md`](RESULTS.md).
 
-## Question
+## Layers
 
-Can an API-shaped local service avoid listen sockets / named pipes by using:
+| Layer | Role |
+|-------|------|
+| **`shmbox` lib** | Slot ABI + `WaitKind` + `Endpoint`/`Server`/`Client` |
+| **`mmap-lab` bin** | probes / latency bench / RPS / ephemeral spawn |
+| **`nng_bench/`** | nng pair `ipc://` opponent |
 
-1. a file-backed mmap slot as the request/response mailbox, and
-2. a short-lived `worker` process spawned per call,
+## Wait backends (`WaitKind::Native`)
 
-and how does that latency compare to a resident process polling the same slot?
+| OS | Implementation |
+|----|----------------|
+| macOS | `os_sync_*_SHARED` |
+| Linux | `futex` WAIT/WAKE |
+| Windows | `WaitOnAddress` / `WakeByAddressSingle` |
 
-## Shape
+CLI: `--wait yield|native` (`os_sync` is an alias for `native`).
 
-| Mode | Role |
-|------|------|
-| `init` | create the 64 KiB slot file |
-| `worker` | serve exactly one request, then exit |
-| `resident` | loop on the slot until `shutdown` |
-| `call [--ephemeral]` | client write/wait (optionally spawn worker) |
-| `bench` | warm once, then time ephemeral vs resident |
-
-Toy work in the worker: XOR payload with `0xA5`.
-
-No socket. No named pipe. Coordination is atomics in the mapped header.
-
-## Reproduce
-
-From repository root. Build inside the lab crate so its `.cargo/config.toml`
-pins `/usr/bin/clang` (a PATH `cc` shim breaks linking on some hosts):
+## Build / smoke (macOS)
 
 ```bash
 cargo build --manifest-path lab/mmap-ephemeral/Cargo.toml --release
-
-SLOT=lab/mmap-ephemeral/bench.slot
-rm -f "$SLOT"
-./lab/mmap-ephemeral/target/release/mmap-lab bench "$SLOT" 200
+./lab/mmap-ephemeral/target/release/mmap-lab probe-native
+./lab/mmap-ephemeral/target/release/mmap-lab --wait native rps \
+  lab/mmap-ephemeral/rps.slot 20000 500
 ```
 
-Optional single-shot:
+## Court headline
 
-```bash
-./lab/mmap-ephemeral/target/release/mmap-lab init "$SLOT"
-./lab/mmap-ephemeral/target/release/mmap-lab call --ephemeral "$SLOT" hello
-```
-
-## Non-goals
-
-- Not a general RPC framework
-- Not security / multi-writer locking beyond a single-client lab
-- Not futex-optimized wait (uses `yield`); absolute numbers are indicative
-- Does not touch product crates or CI gates
+| Gate | Result |
+|------|--------|
+| Latency p50 vs nng (native/os_sync) | **PASS ~6.6×** |
+| RPS vs nng (native/os_sync) | **PASS ~4×** |

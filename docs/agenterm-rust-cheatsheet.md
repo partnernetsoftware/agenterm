@@ -38,6 +38,32 @@ repo-local target. Never set `CARGO_TARGET_DIR` to `/tmp/claude-*`,
 `/tmp/codex-*`, or any session `scratchpad/` — that is how a chat session
 accumulates tens of gigabytes of leftover `target/` trees.
 
+If `cargo` fails with `could not execute process .../build-script-build (never
+executed)` / `No such file or directory` while compiling `libc` (or any crate
+with a build-script), check whether `cc` on `PATH` is a non-compiler shim
+(for example a Claude Code wrapper that prints `--provider required`). On
+macOS pin the real linker for that crate/lane with
+`[target.<triple>] linker = "/usr/bin/clang"` under a local `.cargo/config.toml`,
+or fix `PATH` so `cc` is `/usr/bin/cc`. Symptom fingerprint: linker stderr
+mentions `--provider` and linker stdout dumps an unrelated CLI help banner.
+
+macOS same-machine wait/wake lab note (proven in `lab/mmap-ephemeral/`): Darwin
+`os_sync_wait_on_address*` / `os_sync_wake_by_address_*` (macOS 14.4+) work
+across `mmap` `MAP_SHARED` file slots when both sides pass the `*_SHARED`
+flags; probe with `dlsym` before claiming availability. Hot ping-pong latency
+still favors a yield spin — os_sync trades CPU for blocking wakes. POSIX
+`shm_open` on current Darwin can create a name but return `EACCES` on any
+reopen (same process or peer); do not plan multi-process mailboxes on shm_open
+without a reopen probe — prefer a normal file + `mmap` `MAP_SHARED`.
+Same lab: resident file-mmap beat nng pair `ipc://` (UDS) on p50 by ≥2× for
+both waits; primary practical gate is os_sync/Native (idle does not spin). Receipt:
+`lab/mmap-ephemeral/RESULTS.md`; opponent C: `lab/mmap-ephemeral/nng_bench/`.
+Cross-OS wait map in the same lab: `WaitKind::Native` → macOS `os_sync_*_SHARED`,
+Linux shared `futex`, Windows `WaitOnAddress`; practical bind/connect API is
+`Endpoint`/`Server`/`Client` in `lab/mmap-ephemeral/src/channel.rs` (see
+`PRACTICAL.md`). Prefer file-backed slots on Darwin (`shm_open` reopen often
+`EACCES`).
+
 The repository is pinned by `rust-toolchain.toml`. Do not solve a compiler
 failure by silently changing the toolchain, edition, target, linker, or global
 Cargo jobs.

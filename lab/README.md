@@ -5,4 +5,4 @@ and **not** CI gates. Each subdirectory is a self-contained probe.
 
 | Dir | Question |
 |-----|----------|
-| [`mmap-ephemeral/`](mmap-ephemeral/) | mmap mailbox + short-lived worker vs resident (no listen socket) |
+| [`mmap-ephemeral/`](mmap-ephemeral/) | `shmbox` library + courts: mmap mailbox vs nng `ipc://` (latency + RPS) |
