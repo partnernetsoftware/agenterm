@@ -664,6 +664,7 @@ fn every_qjs_child_entry_uses_contained_launch_with_configured_stdio() {
     let command_stderr = scratch.path("command.stderr");
     let spawn_stdout = scratch.path("spawn.stdout");
     let probe_stage = scratch.path("probe.stage");
+    let spawn_stage = scratch.path("spawn.stage");
     let executable = std::env::current_exe().expect("resolve tool-door test executable");
     let base = format!(
         r#"{{
@@ -682,6 +683,14 @@ fn every_qjs_child_entry_uses_contained_launch_with_configured_stdio() {
     );
     let source = format!(
         r#"
+        const spawnSpec = {base};
+        spawnSpec.stdout_path = {spawn_stdout};
+        spawnSpec.env.AGENTERM_QJS_PROBE_STAGE = {spawn_stage};
+        const handle = process_spawn(JSON.stringify(spawnSpec));
+        if (handle < 0) {{ return "spawn:" + tool_result(); }}
+        if (process_wait(handle, 10000) !== 0) {{ return "wait:" + tool_result(); }}
+        const spawned = JSON.parse(tool_result());
+
         const commandSpec = {base};
         commandSpec.stderr_path = {command_stderr};
         if (process_command(JSON.stringify(commandSpec)) !== 0) {{ return "command:" + tool_result(); }}
@@ -692,13 +701,6 @@ fn every_qjs_child_entry_uses_contained_launch_with_configured_stdio() {
                 + "|" + command.stdout_truncated + "|" + command.stderr_truncated;
         }}
 
-        const spawnSpec = {base};
-        spawnSpec.stdout_path = {spawn_stdout};
-        const handle = process_spawn(JSON.stringify(spawnSpec));
-        if (handle < 0) {{ return "spawn:" + tool_result(); }}
-        if (process_wait(handle, 10000) !== 0) {{ return "wait:" + tool_result(); }}
-        const spawned = JSON.parse(tool_result());
-
         const statusSpec = {base};
         const status = process_status(JSON.stringify(statusSpec));
         return "" + command.success + "|" + command.stderr + "|"
@@ -708,16 +710,18 @@ fn every_qjs_child_entry_uses_contained_launch_with_configured_stdio() {
         "#,
         command_stderr = js(&command_stderr),
         spawn_stdout = js(&spawn_stdout),
+        spawn_stage = js(&spawn_stage),
     );
     let out = run_tool(&source);
     let command_stderr_bytes = std::fs::metadata(&command_stderr)
         .map(|metadata| metadata.len())
         .unwrap_or(0);
     let probe_stage = std::fs::read_to_string(&probe_stage).unwrap_or_else(|_| "absent".to_owned());
+    let spawn_stage = std::fs::read_to_string(&spawn_stage).unwrap_or_else(|_| "absent".to_owned());
     assert_eq!(
         string_of(&out),
         "true||true|true||true|0",
-        "{out:?}; command_stderr_bytes={command_stderr_bytes}; probe_stage={probe_stage}"
+        "{out:?}; command_stderr_bytes={command_stderr_bytes}; probe_stage={probe_stage}; spawn_stage={spawn_stage}"
     );
     assert_eq!(
         std::fs::read_to_string(command_stderr).expect("command stderr redirect"),
