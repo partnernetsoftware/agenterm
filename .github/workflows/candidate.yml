@@ -126,7 +126,9 @@ jobs:
             timeout_minutes: 30
           - platform_id: macos-aarch64
             runner: macos-latest
-            timeout_minutes: 30
+            # This leg also proves JW1 on a host that permits an independent
+            # resident owner; Windows hosted runners can deny Job breakaway.
+            timeout_minutes: 45
           - platform_id: macos-x86_64
             runner: macos-latest
             timeout_minutes: 30
@@ -552,6 +554,17 @@ jobs:
           rustup target add aarch64-apple-darwin
           AGENTERM_BOOTSTRAP_TASK=client-build \
             ./scripts/bootstrap.sh release --target aarch64-apple-darwin
+
+      - name: Prove JW1 causal cancellation with an independent resident owner
+        if: matrix.platform_id == 'macos-aarch64'
+        run: |
+          set -euo pipefail
+          cargo build --quiet --locked -p agenterm-cu --bin agenterm-cu
+          cargo test --quiet --locked -p agenterm --lib --features script-acu-embedder \
+            script_engine::tests::jw1_recording_bridge::jw1_recording_bridge_causal_composite \
+            -- --exact --nocapture | tee target/jw1-causal-evidence.log
+          grep -Eq 'test result: ok\. 1 passed; 0 failed' target/jw1-causal-evidence.log
+          grep -q 'JW1 causal composite evidence:' target/jw1-causal-evidence.log
 
       - name: Sign macOS ARM64 clients
         if: >-

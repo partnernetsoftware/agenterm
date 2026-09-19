@@ -2700,12 +2700,19 @@ return reply.ok + ":" + reply.command;
         const PAYLOAD_NAME: &str =
             "script_engine::tests::jw1_recording_bridge::jw1_managed_job_payload";
 
-        fn invoke_cli(executable: &std::path::Path, argv: &[String]) -> agenterm_cu::CuReply {
-            let output = Command::new(executable)
+        fn invoke_cli_output(
+            executable: &std::path::Path,
+            argv: &[String],
+        ) -> std::process::Output {
+            Command::new(executable)
                 .args(argv)
                 .stdin(Stdio::null())
                 .output()
-                .expect("run public agenterm-cu argv");
+                .expect("run public agenterm-cu argv")
+        }
+
+        fn invoke_cli(executable: &std::path::Path, argv: &[String]) -> agenterm_cu::CuReply {
+            let output = invoke_cli_output(executable, argv);
             assert!(
                 output.status.success(),
                 "agenterm-cu failed (status={}): stdout={} stderr={}",
@@ -2793,7 +2800,7 @@ return reply.ok + ":" + reply.command;
             let lease = session["lease"].as_str().expect("session lease").to_owned();
             let request_id = format!("jw1{:028x}", std::process::id());
             let current = std::env::current_exe().expect("test executable");
-            let spawn = data(invoke_cli(
+            let spawn_output = invoke_cli_output(
                 executable,
                 &vec![
                     "--target".into(),
@@ -2818,7 +2825,64 @@ return reply.ok + ":" + reply.command;
                     "--ignored".into(),
                     "--nocapture".into(),
                 ],
-            ));
+            );
+            let spawn_reply: agenterm_cu::CuReply = serde_json::from_slice(&spawn_output.stdout)
+                .expect("public job-spawn argv emits one CuReply");
+            // GitHub-hosted Windows runners can forbid Job breakaway. A resident
+            // owner cannot outlive its caller there, so the product must refuse
+            // and close the durable start intent. This is host BLOCKED evidence,
+            // never evidence that the causal JW1 positive path ran.
+            if cfg!(windows)
+                && !spawn_reply.ok
+                && spawn_reply.command == "job-spawn"
+                && spawn_reply
+                    .error
+                    .as_ref()
+                    .is_some_and(|error| error.code == "managed_job_detach_unavailable")
+            {
+                assert_eq!(spawn_output.status.code(), Some(1));
+                let document: serde_json::Value = serde_json::from_slice(
+                    &std::fs::read(root.join("managed-jobs.json"))
+                        .expect("failed start intent remains inspectable"),
+                )
+                .expect("managed-job state is JSON");
+                let jobs = document["jobs"].as_object().expect("managed-job records");
+                assert_eq!(jobs.len(), 1, "exactly one failed start intent");
+                let record = jobs.values().next().expect("failed start record");
+                assert_eq!(record["state"]["kind"], "start_failed");
+                assert_eq!(record["state"]["code"], "owner_detach_unavailable");
+                assert!(record["owner"].is_null(), "no resident owner was claimed");
+                let _ = invoke_cli(
+                    executable,
+                    &[
+                        "--target",
+                        "current",
+                        "--grant",
+                        "actuate",
+                        "session-end",
+                        &session_id,
+                        "--lease",
+                        &lease,
+                        "--confirm",
+                    ]
+                    .map(str::to_owned),
+                );
+                println!(
+                    "EVIDENCE jw1_host_detach=BLOCKED code=managed_job_detach_unavailable failed_start_intent_closed=true"
+                );
+                return serde_json::json!({
+                    "host_detach_unavailable": true,
+                    "failed_start_intent_closed": true,
+                });
+            }
+            assert!(
+                spawn_output.status.success(),
+                "agenterm-cu job-spawn failed (status={}): stdout={} stderr={}",
+                spawn_output.status,
+                String::from_utf8_lossy(&spawn_output.stdout),
+                String::from_utf8_lossy(&spawn_output.stderr)
+            );
+            let spawn = data(spawn_reply);
             let job_id = spawn["job_id"].as_str().expect("job id").to_owned();
             let generation = spawn["generation"].as_u64().expect("generation");
             let wait_argv = vec![
@@ -3058,6 +3122,15 @@ return reply.ok + ":" + reply.command;
                 &std::fs::read(root.join("report.json")).expect("child report"),
             )
             .expect("parse child report");
+            if report["host_detach_unavailable"] == true {
+                assert_eq!(report["failed_start_intent_closed"], true);
+                println!(
+                    "BLOCKED JW1 causal positive: host denied resident-owner Job breakaway; exact fail-closed refusal and start-intent cleanup verified"
+                );
+                std::fs::remove_dir_all(&root).expect("clean exact owned JW1 root");
+                assert!(!root.exists(), "owned JW1 root is gone");
+                return;
+            }
             for key in [
                 "entered",
                 "cancel_consumed",

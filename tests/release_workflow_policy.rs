@@ -44,6 +44,8 @@ static PACKAGE_SIX_CELL_QJS: LazyLock<String> = LazyLock::new(|| {
 });
 static CHECK_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/check.qjs").replace("\r\n", "\n"));
+static SCRIPT_ENGINE_RS: LazyLock<String> =
+    LazyLock::new(|| include_str!("../src/script_engine.rs").replace("\r\n", "\n"));
 static PLATFORM_THREADING_RS: LazyLock<String> = LazyLock::new(|| {
     include_str!("../crates/agenterm-platform/src/threading.rs").replace("\r\n", "\n")
 });
@@ -398,6 +400,16 @@ fn primary_unit_spec_keeps_both_packages_and_the_explicit_skip_set() {
         );
     }
     assert!(CHECK_QJS.contains("cargo_unit_primary_spec(build_environment)"));
+}
+
+#[test]
+fn jw1_host_denial_is_explicit_and_candidate_requires_independent_positive_evidence() {
+    assert!(SCRIPT_ENGINE_RS.contains("error.code == \"managed_job_detach_unavailable\""));
+    assert!(SCRIPT_ENGINE_RS.contains("record[\"state\"][\"code\"], \"owner_detach_unavailable\""));
+    assert!(SCRIPT_ENGINE_RS.contains("EVIDENCE jw1_host_detach=BLOCKED"));
+    assert!(CANDIDATE.contains("Prove JW1 causal cancellation with an independent resident owner"));
+    assert!(CANDIDATE.contains("grep -q 'JW1 causal composite evidence:'"));
+    assert!(!CHECK_QJS.contains("\"--skip\", \"jw1_recording_bridge_causal_composite\""));
 }
 
 #[test]
