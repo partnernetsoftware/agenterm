@@ -6060,10 +6060,6 @@
       "args": [
         "."
       ],
-      "env": [
-        "AGENTERM_BUILD_DIST_DIR",
-        "CARGO_TARGET_DIR"
-      ],
       "dependencies": [
         "build-identity",
         "stage-build",

@@ -162,7 +162,7 @@ fn build_isolation_is_declared_and_fails_closed_before_mutation() {
         .find(|task| task["id"] == "build")
         .expect("build task");
     let expected = serde_json::json!(["AGENTERM_BUILD_DIST_DIR", "CARGO_TARGET_DIR"]);
-    assert_eq!(task["env"], expected);
+    assert!(task.get("env").is_none());
     assert_eq!(TASKS["contracts"]["build"]["env_allow"], expected);
 
     assert!(
