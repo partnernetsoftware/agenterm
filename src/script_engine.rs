@@ -2708,7 +2708,9 @@ return reply.ok + ":" + reply.command;
                 .expect("run public agenterm-cu argv");
             assert!(
                 output.status.success(),
-                "agenterm-cu failed: {}",
+                "agenterm-cu failed (status={}): stdout={} stderr={}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
                 String::from_utf8_lossy(&output.stderr)
             );
             serde_json::from_slice(&output.stdout).expect("public argv emits one CuReply")
