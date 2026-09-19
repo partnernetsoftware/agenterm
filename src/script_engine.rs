@@ -2649,8 +2649,9 @@ return reply.ok + ":" + reply.command;
     /// spelling in source files.  A source grep can be bypassed by aliases or
     /// formatting and used to miss the inline `agenterm:acu` module entirely.
     /// Decode the artifact emitted by the real product resolver and keep its
-    /// host door exact: argv/result/print plus the in-process ACU bridge, and
-    /// no `tool.process_*` import that could shell out to a second runtime.
+    /// host door exact: argv/result/print plus the in-process ACU bridge and
+    /// the two runtime-budget meters, with no `tool.process_*` import that
+    /// could shell out to a second runtime.
     #[cfg(feature = "script-acu-embedder")]
     #[test]
     fn embedded_acu_compiled_closure_has_only_the_exact_host_imports() {
@@ -2672,6 +2673,8 @@ return reply.ok + ":" + reply.command;
                 "tool.arg",
                 "tool.result_len",
                 "tool.result",
+                "tinyvm_qjs_runtime.collection_items",
+                "tinyvm_qjs_runtime.expression_depth",
             ]
         );
     }

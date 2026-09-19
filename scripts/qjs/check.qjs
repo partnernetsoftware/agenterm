@@ -350,6 +350,16 @@ function cargo_unit_primary_spec(environment) {
   ], 900000, environment, 0);
 }
 
+function cargo_unit_cu_fixture_spec(environment) {
+  // The JW1 recording-bridge unit test re-execs itself with the product CU
+  // binary from the same Cargo target lane. A clean runner has no such binary
+  // until this gate builds it explicitly; warm local targets must not decide
+  // whether the test can run.
+  return spec("cargo", [
+    "build", "--quiet", "--locked", "--all-features", "-p", "agenterm-cu"
+  ], 600000, environment, 0);
+}
+
 function cargo_unit_powershell_compat_spec(environment) {
   return spec("cargo", [
     "test", "--quiet", "--locked", "--all-features",
@@ -1395,6 +1405,7 @@ sequence = gate.sequence;
 gate = run_gate_specs(
   context, timing, "unit-tests", "unit tests",
   [
+    cargo_unit_cu_fixture_spec(build_environment),
     cargo_unit_primary_spec(build_environment),
     cargo_unit_powershell_compat_spec(build_environment),
     cargo_unit_qjswasm_adversarial_spec(build_environment),
