@@ -2500,9 +2500,16 @@ fn the_quality_gate_survey_workflow_can_never_produce_release_bytes() {
     let survey =
         include_str!("../.github/workflows/windows-survey-diagnostic.yml").replace("\r\n", "\n");
 
+    // Survey mode is not optional in this workflow, and there must be exactly
+    // one invocation so no branch can reach the gate without it.
     assert!(
-        survey.contains("call check.cmd --release --include-stress --survey "),
-        "the survey workflow must invoke the gate in survey mode"
+        survey.contains("$gateArgs = @('--release', '--include-stress', '--survey')"),
+        "the survey workflow must always pass --survey"
+    );
+    assert_eq!(
+        survey.matches("check.cmd").count(),
+        1,
+        "the survey workflow must invoke the gate exactly once"
     );
     for forbidden in [
         "candidate-part",

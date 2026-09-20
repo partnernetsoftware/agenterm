@@ -70,33 +70,32 @@ jobs:
           restore-keys: |
             cargo-home-candidate-v2-windows-x86_64-${{ runner.os }}-${{ runner.arch }}-rust1.97-
 
+      # Streamed, not buffered. The Candidate cell writes the gate output to a
+      # file and `type`s it at the end, which is fine for a 45-minute round
+      # that either seals or does not. A survey deliberately runs long, and a
+      # reader who cannot see which gate it is on until the whole thing ends
+      # has no way to tell progress from a hang.
       - name: Survey the full release quality gate
-        shell: cmd
+        shell: pwsh
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
           ONLY_GATES: ${{ inputs.only }}
           AGENTERM_SCRIPT_WORKER_STDERR: inherit
         run: |
-          @echo off
-          set "LOG=%RUNNER_TEMP%\agenterm-survey.log"
-          for /f "delims=" %%H in ('git rev-parse HEAD') do set "ACTUAL_HEAD=%%H"
-          if /I not "%ACTUAL_HEAD%"=="%SOURCE_SHA%" (
-            echo Checked-out HEAD %ACTUAL_HEAD% does not match requested SHA %SOURCE_SHA%.
-            exit /b 1
-          )
-          git switch -C main "%SOURCE_SHA%" > "%LOG%" 2>&1
-          if errorlevel 1 (
-            type "%LOG%"
-            exit /b 1
-          )
-          if defined ONLY_GATES (
-            call check.cmd --release --include-stress --survey --only "%ONLY_GATES%" --timing target/qualification/timing.json >> "%LOG%" 2>&1
-          ) else (
-            call check.cmd --release --include-stress --survey --timing target/qualification/timing.json >> "%LOG%" 2>&1
-          )
-          set "CHECK_EXIT=%ERRORLEVEL%"
-          type "%LOG%"
-          exit /b %CHECK_EXIT%
+          $ErrorActionPreference = 'Continue'
+          $log = Join-Path $env:RUNNER_TEMP 'agenterm-survey.log'
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne $env:SOURCE_SHA) {
+            Write-Host "Checked-out HEAD $head does not match requested SHA $env:SOURCE_SHA."
+            exit 1
+          }
+          git switch -C main $env:SOURCE_SHA
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $gateArgs = @('--release', '--include-stress', '--survey')
+          if ($env:ONLY_GATES) { $gateArgs += @('--only', $env:ONLY_GATES) }
+          $gateArgs += @('--timing', 'target/qualification/timing.json')
+          & cmd.exe /c "check.cmd $($gateArgs -join ' ')" 2>&1 | Tee-Object -FilePath $log
+          exit $LASTEXITCODE
 
       - name: Summarize the surveyed failures
         if: always()
