@@ -19,6 +19,55 @@ import * as rh from "lib/rh_compat";
 //    Native Authenticode inspection has no non-PowerShell equivalent on
 //    Windows; the portable scripts/inspect-authenticode.sh covers the rest.
 //    tests/release_workflow_policy.rs machine-checks that premise.
+// The one PowerShell surface that IS automation and stays. Windows Authenticode
+// signing has no non-PowerShell equivalent: it drives signtool and the Windows
+// certificate store from the signing stage of candidate.yml and
+// windows-signing-qualification.yml. Naming it honestly here, rather than
+// hiding it in the non-automation list above, keeps the ledger's claim true.
+// Exact path only, and tests/release_workflow_policy.rs pins the complete set
+// of files allowed to reference it, so this surface cannot spread quietly.
+// PowerShell the migration did not remove because it cannot: each of these is
+// either the Windows guest's own shell or a vendor toolchain that exists only
+// as PowerShell. The ledger's claim is about AgenTerm's *host* build and
+// quality orchestration, which is what the 43 deleted entries were.
+//
+//   candidate.yml / windows-signing-qualification.yml
+//       Azure Trusted Signing and signtool run under pwsh; the signing stage
+//       has no non-PowerShell expression.
+//   windows-console-diagnostic.yml
+//       conhost behaviour is the subject under test; the probe must be a real
+//       Windows console client.
+//   utm-win-defender-court.sh / utm-cu-managed-job-court.sh
+//       host-side scripts that name guest-side PowerShell. The guest is
+//       Windows; PowerShell is its shell.
+//
+// Exemption is per file AND per count: the expected number of PowerShell
+// references in each file is pinned below, so a new PowerShell line anywhere
+// in an exempt file still fails closed. Raising a number is a deliberate act
+// with a diff, not a silent drift.
+const UNAVOIDABLE_WINDOWS_POWERSHELL = [
+  { path: ".github/workflows/candidate.yml", references: 6 },
+  { path: ".github/workflows/windows-signing-qualification.yml", references: 7 },
+  { path: ".github/workflows/windows-console-diagnostic.yml", references: 2 },
+  { path: "scripts/utm-win-defender-court.sh", references: 8 },
+  { path: "scripts/utm-cu-managed-job-court.sh", references: 1 }
+];
+
+const UNAVOIDABLE_BUDGET = {};
+for (const entry of UNAVOIDABLE_WINDOWS_POWERSHELL) {
+  UNAVOIDABLE_BUDGET[entry.path] = entry.references;
+}
+
+function unavoidable_powershell_budget(path) {
+  const budget = UNAVOIDABLE_BUDGET[path];
+  if (budget === undefined) { return -1; }
+  return budget;
+}
+
+function is_windows_signing_ps1(path) {
+  return path === "scripts/windows-signing-candidate.ps1";
+}
+
 function is_non_automation_ps1(path) {
   return path === "research/dynamic-core/build/build_windows.ps1"
     || path === "research/dynamic-core/discovery/build/build_windows.ps1"
@@ -209,7 +258,7 @@ let current_count = 0;
 for (const source_line of rh.read_text(stdout_path).split("\n")) {
   const path = source_line.trim();
   if (path === "") { continue; }
-  if (is_non_automation_ps1(path)) { continue; }
+  if (is_non_automation_ps1(path) || is_windows_signing_ps1(path)) { continue; }
   rh.require(known[path] === true, "migration_unplanned_ps1: " + path);
   rh.require(deleted_paths_set[path] !== true, "migration_deleted_ps1_returned: " + path);
   if (current[path] !== true) { current_count = current_count + 1; }
@@ -265,6 +314,8 @@ for (const source_line of rh.read_text(stdout_path).split("\n")) {
   if (path === "") { continue; }
   automation_count = automation_count + 1;
   const source = rh.read_text(rh.join(repo, path));
+  const powershell_budget = unavoidable_powershell_budget(path);
+  let powershell_references = 0;
   let line_number = 0;
   for (const line of source.split("\n")) {
     line_number = line_number + 1;
@@ -324,10 +375,21 @@ for (const source_line of rh.read_text(stdout_path).split("\n")) {
           allowed = 1;
         }
       }
+      if (allowed === 0 && powershell_budget >= 0) {
+        powershell_references = powershell_references + 1;
+        allowed = 1;
+      }
       if (allowed === 0) {
         throw "migration_powershell_automation_reference:" + path + ":" + line_number;
       }
     }
+  }
+  if (powershell_budget >= 0) {
+    rh.require(
+      powershell_references === powershell_budget,
+      "migration_powershell_budget:" + path + ":" + powershell_references
+        + " expected " + powershell_budget
+    );
   }
 }
 
