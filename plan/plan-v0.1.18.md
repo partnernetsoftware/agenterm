@@ -80,9 +80,17 @@ flowchart LR
 1. Close the release-topology gap before a Candidate: one macOS-hosted
    cross-build produces all six payloads; native runtime cells verify their
    OS/ISA and downloaded hashes without Cargo. Preserve the Windows quality
-   receipt and native tests. Compile-time test paths must be relocated with a
-   bounded runtime fixture root, never silently skipped or counted as another
-   host's PASS.
+   receipt and native tests. Source-tree audits in the existing primary unit
+   gate read `src/`, `prd/`, and `scripts/` and therefore stay against the
+   exact-SHA checkout on the build/quality host; they are not a bounded VM
+   fixture. Native test harnesses instead resolve shipped binaries and only
+   their declared fixtures at runtime from a bounded bundle. Do not silently
+   skip either class or count one host's result as another host's PASS. Measure
+   commit-to-sealed-Candidate wall time, not only the Candidate job duration:
+   moving an unchanged gate to an earlier workflow is not a speedup by itself.
+   Eliminate duplicate `artifact-build` / `artifact-build-fast` compilation
+   against the exact packaged bytes before spending a migration on test-path
+   plumbing; any changed gate meaning gets a new gate and evidence identity.
 2. Reconcile PRD 28–32 and the public verb catalog with actual current-tier code.
 3. Close shared command/backend parity before adding new verbs.
    Whole-window `activate` now has ABI 1.26 plus green macOS and active-lane
