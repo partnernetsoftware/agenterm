@@ -2073,8 +2073,7 @@ fn the_qualification_releases_every_child_slot_it_spawns() {
 #[test]
 fn the_exempt_authenticode_inspector_is_never_invoked_by_automation() {
     const INSPECTOR: &str = "inspect-authenticode.ps1";
-    let audit = include_str!("../scripts/qjs/powershell-migration-audit.qjs")
-        .replace("\r\n", "\n");
+    let audit = include_str!("../scripts/qjs/powershell-migration-audit.qjs").replace("\r\n", "\n");
     assert!(
         audit.contains("|| path === \"scripts/inspect-authenticode.ps1\";"),
         "the inspector must be an exact exempt path, not a pattern"
@@ -2097,7 +2096,9 @@ fn the_exempt_authenticode_inspector_is_never_invoked_by_automation() {
     let mut invokers = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             let name = entry.file_name();
@@ -2119,9 +2120,16 @@ fn the_exempt_authenticode_inspector_is_never_invoked_by_automation() {
             if is_prose || is_this_test || is_reader || is_itself || is_the_ledger_audit {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
             if text.contains(INSPECTOR) {
-                invokers.push(path.strip_prefix(root).unwrap_or(&path).display().to_string());
+                invokers.push(
+                    path.strip_prefix(root)
+                        .unwrap_or(&path)
+                        .display()
+                        .to_string(),
+                );
             }
         }
     }
