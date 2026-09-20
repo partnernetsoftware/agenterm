@@ -66,10 +66,20 @@ function record(ctx, arguments, output, expected_failure) {
   harness.append_command_record_lines(ctx, arguments, output, expected_failure, []);
 }
 
+// A CLI that may autostart a server waits up to IPC_AUTOSTART_TIMEOUT (15 s)
+// for it to answer, so an outer budget of exactly 15 s can never let a slow
+// autostart finish: the wait is cut off at the moment the inner one is still
+// entitled to. On a loaded Windows runner that is not hypothetical -- the
+// legacy-TCP step failed with ConnectTimeout on a server whose autostart had
+// not run out of its own budget yet. The outer wait has to outlast the inner
+// one, the same ordering `a_gate_outlasts_the_children_it_spawns` pins for
+// gates and their children.
+const CLI_WAIT_MS = 60000;
+
 function start_gap_client(ctx, cli, gap_target, worker, iteration) {
   const gap_note = "gap-" + worker + "-" + iteration;
   const spec = harness.configured_cli_spec(ctx, cli, ["set-tab-note", "-t", "" + gap_target, gap_note]);
-  spec.timeout_ms = 15000;
+  spec.timeout_ms = CLI_WAIT_MS;
   return harness.start(spec);
 }
 
@@ -135,7 +145,7 @@ function run_program(ctx, program, arguments, expected_failure, remove_address, 
   if (workspace !== "") {
     spec.env.AGENTERM_WORKSPACE_PATH = workspace;
   }
-  spec.timeout_ms = 15000;
+  spec.timeout_ms = CLI_WAIT_MS;
   const output = rh.command_spec(spec);
   record(ctx, arguments, output, expected_failure);
   const merged_output = merge_output(output);
@@ -162,7 +172,7 @@ function run_tolerant(ctx, program, arguments, remove_address, workspace) {
     spec.env_remove = ["AGENTERM_IPC_ADDRESS"];
   }
   if (workspace !== "") { spec.env.AGENTERM_WORKSPACE_PATH = workspace; }
-  spec.timeout_ms = 15000;
+  spec.timeout_ms = CLI_WAIT_MS;
   const output = rh.command_spec(spec);
   record(ctx, arguments, output, 0);
   return { success: output.success === true ? 1 : 0, text: merge_output(output) };
@@ -198,7 +208,7 @@ function json_without_address(ctx, cli, arguments) {
   const spec = harness.configured_cli_spec(ctx, cli, arguments);
   spec.env = rh.env_without(spec.env, ["AGENTERM_IPC_ADDRESS"]);
   spec.env_remove = ["AGENTERM_IPC_ADDRESS"];
-  spec.timeout_ms = 15000;
+  spec.timeout_ms = CLI_WAIT_MS;
   const output = rh.command_spec(spec);
   record(ctx, arguments, output, 0);
   return JSON.parse(merge_output(output).trim());
@@ -319,7 +329,7 @@ function complete_waiter_child(child) {
 function cleanup_server(ctx, cli, server_address) {
   const kill_arguments = ["--address", "" + server_address, "kill-server"];
   const spec = harness.configured_cli_spec(ctx, cli, kill_arguments);
-  spec.timeout_ms = 15000;
+  spec.timeout_ms = CLI_WAIT_MS;
   const output = rh.command_spec(spec);
   record(ctx, kill_arguments, output, output.success === true ? 0 : 1);
 }

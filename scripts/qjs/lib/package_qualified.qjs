@@ -65,6 +65,19 @@ function is_file(p) {
 // `tar` when the door cannot spawn that name (a non-Windows host). Returns
 // the door's {exit_code, success, stdout, stderr, timed_out}.
 export function archive_command(args, cwd) {
+  // Name the Windows archiver by path, not by spelling. These calls pass `-a`
+  // to build a zip from the suffix, which bsdtar supports and GNU tar does
+  // not -- and a bare `tar.exe` resolves through PATH, reaching Git Bash's GNU
+  // tar on a runner whose PATH leads with it. The failure then surfaces as a
+  // bare `package_zip_create` with no hint that the wrong archiver answered.
+  // Windows ships bsdtar at System32\tar.exe.
+  const system_root = rh.env_or("SystemRoot", "");
+  if (system_root !== "") {
+    const system_tar = rh.join(rh.join(system_root, "System32"), "tar.exe");
+    if (rh.exists(system_tar)) {
+      return rh.command(system_tar, args, { cwd: cwd, timeout_ms: 30000 });
+    }
+  }
   try {
     return rh.command("tar.exe", args, { cwd: cwd, timeout_ms: 30000 });
   } catch (spawn_error) {
