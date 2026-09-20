@@ -41,7 +41,14 @@ function run_packager(worker, repo, entry, fixture, receipt, output_relative) {
   return rh.command(
     worker,
     [
+      // Both budgets, always. A `cli script run` without them takes the
+      // engine's defaults, and a packager that outgrows them is killed with
+      // "cancelled by the host while waiting" -- a message about the host's
+      // patience that names neither the script nor the budget it exceeded.
+      // That is what this self-test had been failing with; the door timeout
+      // below was never the binding limit.
       "cli", "script", "run", "--profile", "tool",
+      "--timeout-ms", "240000", "--max-operations", "1000000000",
       "scripts/qjs/" + entry + ".qjs", "--",
       fixture,
       receipt,

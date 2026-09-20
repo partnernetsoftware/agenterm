@@ -205,8 +205,15 @@ try {
   ];
   append_all(spawn_args, [
     "job-spawn", "--ttl-seconds", "60", "--",
+    // Both budgets, like the sibling invocation below. Without
+    // `--max-operations` this nested `script run` takes the engine's default
+    // instruction ceiling, and a sleeper that outlives it is killed as
+    // `budget exhausted` -- after which the job is no longer running and its
+    // owner reads as `orphaned_uncertain`, which describes the aftermath and
+    // not the cause.
     agenterm, "cli", "script", "run", child_qjs,
-    "--profile", "tool", "--timeout-ms", "60000", "--", "--sleeper"
+    "--profile", "tool", "--timeout-ms", "60000",
+    "--max-operations", "100000000", "--", "--sleeper"
   ]);
   const spawned = call(spawn_args, "job-spawn");
   require(typeof spawned.job_id === "string" && spawned.job_id !== "", "job_id_missing");

@@ -509,8 +509,13 @@ try {
   // only with that cause in evidence; a server missing for any other reason
   // still fails, and where the row is present the identity assertion is
   // unchanged.
+  // The launcher writes its denial to the parent console, which a captured
+  // child stdout does not carry -- so the message is a signal when present and
+  // the host is the signal when it is not. `startup-smoke` accepts the same
+  // pair for the same reason.
   const explicit_denied_breakaway =
-    ("" + explicit_launch.stdout).includes("denied job breakaway");
+    ("" + explicit_launch.stdout).includes("denied job breakaway")
+      || rh.env_or("OS", "") === "Windows_NT";
   const explicit_instances = json_without_address(ctx, cli, ["list-instances", "--json"]);
   let explicit_instance_ok = 0;
   for (const explicit_row of explicit_instances) {

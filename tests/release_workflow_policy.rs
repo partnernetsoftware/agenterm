@@ -2754,3 +2754,63 @@ fn no_script_calls_rh_join_with_a_third_argument() {
         offenders.join("\n")
     );
 }
+
+/// A nested `cli script run` names both engine ceilings or neither holds.
+///
+/// The engine applies its own defaults for whichever of `--timeout-ms` and
+/// `--max-operations` a nested invocation omits, and a script that outgrows a
+/// default is killed with `cancelled by the host while waiting` or
+/// `budget exhausted` -- messages that name the host's patience rather than
+/// the script or the ceiling it crossed. The package-boundary self-test failed
+/// that way for rounds, and the ACU job smoke's sleeper was killed by the
+/// instruction ceiling its own sibling invocation already declared, after
+/// which the job read as `orphaned_uncertain`: the aftermath, not the cause.
+///
+/// Reverse control: drop either flag from any nested run and this fails.
+#[test]
+fn every_nested_script_run_declares_both_engine_budgets() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/qjs");
+    let mut offenders = Vec::new();
+    let mut sites = 0;
+    let mut stack = vec![root];
+    while let Some(directory) = stack.pop() {
+        for entry in std::fs::read_dir(&directory).expect("scripts/qjs must be readable") {
+            let path = entry.expect("readable entry").path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("qjs") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("readable script");
+            let lines: Vec<&str> = source.lines().collect();
+            for (number, line) in lines.iter().enumerate() {
+                if !line.contains("\"cli\", \"script\", \"run\"") {
+                    continue;
+                }
+                sites += 1;
+                // The argument list is written across the following lines.
+                let window = lines[number..lines.len().min(number + 14)].join("\n");
+                let missing: Vec<&str> = ["--timeout-ms", "--max-operations"]
+                    .into_iter()
+                    .filter(|flag| !window.contains(flag))
+                    .collect();
+                if !missing.is_empty() {
+                    offenders.push(format!(
+                        "{}:{}: missing {}",
+                        path.file_name().and_then(|n| n.to_str()).unwrap_or("?"),
+                        number + 1,
+                        missing.join(" and ")
+                    ));
+                }
+            }
+        }
+    }
+    assert!(sites >= 10, "expected many nested runs, found {sites}");
+    assert!(
+        offenders.is_empty(),
+        "a nested script run must declare both engine budgets:\n{}",
+        offenders.join("\n")
+    );
+}

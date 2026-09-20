@@ -409,6 +409,10 @@ for (const gate of evidence_gates) {
       // instruction ceiling instead of silently falling back to script run's
       // 128M default in this nested invocation.
       "--max-operations", "1000000000",
+      // Paired with the door budget below: a nested run that names only one of
+      // the two ceilings is killed by whichever it left at its default, and
+      // the message names the host's patience rather than the budget.
+      "--timeout-ms", "30000",
       "--", "--list-evidence"
     ], { cwd: repo, timeout_ms: 30000 });
     rh.require(listed.success === true, "prd_alignment_evidence_list_failed:" + gate.id);
