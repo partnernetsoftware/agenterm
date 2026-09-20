@@ -375,7 +375,8 @@ const port_base = 47000 + pid % 1000;
 const explicit_address = "127.0.0.1:" + port_base;
 const second_address = "127.0.0.1:" + (port_base + 1);
 harness.require(
-  explicit_address !== second_address && explicit_address !== ("" + ctx.address),
+  explicit_address !== second_address && explicit_address !== ("" + ctx.address)
+    && ("127.0.0.1:" + (port_base + 2)) !== ("" + ctx.address),
   "fleet_reserved_address_collision"
 );
 const environment_name = "env-" + pid;
@@ -400,6 +401,7 @@ try {
   const smoke_run_root = rh.join(repo, "target/smoke/fleet-runs");
   const explicit_workspace = rh.join(smoke_run_root, "explicit-" + pid + ".json");
   const second_workspace = rh.join(smoke_run_root, "second-" + pid + ".json");
+  const probe_workspace = rh.join(smoke_run_root, "probe-" + pid + ".json");
 
   const version_output = text(ctx, cli, ["--version"]);
   const version_fields = version_output.split(" ");
@@ -549,12 +551,32 @@ try {
   // only with that cause in evidence; a server missing for any other reason
   // still fails, and where the row is present the identity assertion is
   // unchanged.
-  // Only the launcher's own denial counts. "We are on Windows" was too loose
-  // once windows-2025 proved it grants breakaway: on a host that grants it a
-  // dead server is a real regression, and a guard that accepts any Windows
-  // host would hide exactly that.
-  const explicit_denied_breakaway =
-    ("" + explicit_launch.stdout).includes("denied job breakaway");
+  // Measure the property; do not sniff for a message about it. The launcher
+  // writes its denial to the parent console, and whether that reaches a
+  // captured child stdout is not reliable -- it appeared in survey 35538196943
+  // and did not in Candidate 35542629212, so a guard reading it passed one run
+  // and failed the next for no difference that mattered.
+  //
+  // What actually decides these steps is whether a server autostarted by a CLI
+  // is still answering once that CLI is gone. That is one probe on an address
+  // nothing else uses, and it answers for the whole suite.
+  const probe_address = "127.0.0.1:" + (port_base + 2);
+  run_program(
+    ctx, cli,
+    ["--address", probe_address, "new-window", "-d", "-n", "probe-" + pid,
+     "--", "cmd.exe", "/d", "/c", "echo probe"],
+    0, 1, probe_workspace
+  );
+  rh.sleep_ms(2000);
+  const probe_alive = run_tolerant(
+    ctx, cli, ["--address", probe_address, "protocol-info", "--running"], 1, probe_workspace
+  );
+  const explicit_denied_breakaway = probe_alive.success === 0;
+  if (explicit_denied_breakaway) {
+    print("OBSERVED host does not keep an autostarted server: " + probe_alive.text);
+  } else {
+    run_tolerant(ctx, cli, ["--address", probe_address, "kill-server"], 1, probe_workspace);
+  }
   const explicit_instances = json_without_address(ctx, cli, ["list-instances", "--json"]);
   let explicit_instance_ok = 0;
   for (const explicit_row of explicit_instances) {
