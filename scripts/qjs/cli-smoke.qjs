@@ -901,6 +901,13 @@ try {
     "cli_smoke_scroll_bottom"
   );
   text(context, cli, ["screenshot", "-o", window_png]);
+  // A pane capture reads the rendered viewport, so both hosts refuse a target
+  // that is not the active tab (`ui_screenshot_target_inactive`). That
+  // restriction arrived with 77df1f84c, after this step was written, and the
+  // step only reached it once the Windows relay started dispatching
+  // `screenshot-pane` again. Select the tab first and the step asserts the
+  // behaviour the product supports rather than one it deliberately refuses.
+  text(context, cli, ["select-window", "-t", name]);
   text(context, cli, ["screenshot-pane", "-t", name, "-o", pane_png]);
   require_file(window_png, 1000);
   require_file(pane_png, 1000);
