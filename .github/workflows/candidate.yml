@@ -106,14 +106,14 @@ jobs:
       matrix:
         include:
           - platform_id: windows-x86_64
-            # windows-2025, not windows-latest: the two images differ on whether
-            # they grant Windows job breakaway, and several gates exist to prove
-            # a server outlives the CLI that started it. windows-latest began
-            # denying breakaway after 2026-09-03, which took cli-smoke,
-            # remote-ui-smoke, fleet-smoke and the ACU job smoke with it;
-            # measured on 2026-09-21, cli-smoke passes on windows-2025 in 10 s
-            # with no denial reported (survey 35534620248). The runtime cells
-            # below have always used windows-2025.
+            # windows-2025 to match the runtime cells below, which have always
+            # used it. This is alignment, not a fix: both hosted images deny
+            # Windows job breakaway. The earlier reading that windows-2025
+            # granted it came from a probe that could not show it -- cli-smoke
+            # now owns its own server and no longer depends on an autostarted
+            # one surviving, so its passing says nothing about breakaway.
+            # Candidate 35536411980 reported the denial five times on this very
+            # image.
             runner: windows-2025
             # 90, not 45: this is the heaviest leg -- full release quality gate,
             # release-profile build, packaging and staging -- and it runs against
