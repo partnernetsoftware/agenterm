@@ -153,6 +153,21 @@ function run_program(ctx, program, arguments, expected_failure, remove_address, 
   };
 }
 
+// Run without asserting the outcome: the caller decides what an acceptable
+// result is. Used where a host limitation makes both outcomes legitimate.
+function run_tolerant(ctx, program, arguments, remove_address, workspace) {
+  const spec = harness.configured_cli_spec(ctx, program, arguments);
+  if (remove_address !== 0) {
+    spec.env = rh.env_without(spec.env, ["AGENTERM_IPC_ADDRESS"]);
+    spec.env_remove = ["AGENTERM_IPC_ADDRESS"];
+  }
+  if (workspace !== "") { spec.env.AGENTERM_WORKSPACE_PATH = workspace; }
+  spec.timeout_ms = 15000;
+  const output = rh.command_spec(spec);
+  record(ctx, arguments, output, 0);
+  return { success: output.success === true ? 1 : 0, text: merge_output(output) };
+}
+
 function run_default(ctx, program, arguments) {
   return run_program(ctx, program, arguments, 0, 0, "");
 }
@@ -544,7 +559,22 @@ try {
     harness.require(explicit_instance_ok !== 0, "fleet_explicit_autostart_identity:absent");
   }
   print("STEP server-kill aliases the existing destructive operation");
-  run_program(ctx, cli, ["--address", explicit_address, "server-kill"], 0, 1, explicit_workspace);
+  // The subject is the alias, not the liveness of its target. Where the host
+  // denied breakaway the explicitly addressed server may already be gone --
+  // it did not outlive the CLI that started it -- and `server-kill` then
+  // answers that it is not running. Both outcomes prove the alias reached the
+  // destructive operation rather than a usage error; nothing else is accepted.
+  if (explicit_denied_breakaway) {
+    const killed = run_tolerant(
+      ctx, cli, ["--address", explicit_address, "server-kill"], 1, explicit_workspace
+    );
+    harness.require(
+      killed.success !== 0 || killed.text.includes("server is not running"),
+      "fleet_server_kill_alias:" + killed.text
+    );
+  } else {
+    run_program(ctx, cli, ["--address", explicit_address, "server-kill"], 0, 1, explicit_workspace);
+  }
 
   print("STEP tab-scoped environment and reserved AgenTerm harness");
   text(
