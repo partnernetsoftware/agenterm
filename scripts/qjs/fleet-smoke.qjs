@@ -520,18 +520,29 @@ try {
   let explicit_instance_ok = 0;
   for (const explicit_row of explicit_instances) {
     if (("" + explicit_row.address) === explicit_address) {
+      // Identity stays strict whatever the liveness: whatever this registry
+      // recorded for the address we asked for must be the workspace we asked
+      // for. Only the "is it still running" half can degrade, and the record
+      // outlives the process -- the row is present with a non-running status,
+      // which is why guarding only the absent case was not enough.
       harness.require(
-        ("" + explicit_row.status) === "running"
-          && ("" + explicit_row.workspace_path) === explicit_workspace,
-        "fleet_explicit_autostart_identity"
+        ("" + explicit_row.workspace_path) === explicit_workspace,
+        "fleet_explicit_autostart_workspace:" + explicit_row.workspace_path
       );
-      explicit_instance_ok = 1;
+      if (("" + explicit_row.status) === "running") {
+        explicit_instance_ok = 1;
+      } else if (explicit_denied_breakaway) {
+        explicit_instance_ok = 1;
+        print("OBSERVED explicit autostart degraded: this host denied job breakaway, so the requested server did not outlive its launcher (status=" + explicit_row.status + ")");
+      } else {
+        harness.require(false, "fleet_explicit_autostart_identity:" + explicit_row.status);
+      }
     }
   }
   if (explicit_instance_ok === 0 && explicit_denied_breakaway) {
-    print("OBSERVED explicit autostart degraded: this host denied job breakaway, so the requested server did not outlive its launcher");
+    print("OBSERVED explicit autostart degraded: this host denied job breakaway, so the requested server left no live instance");
   } else {
-    harness.require(explicit_instance_ok !== 0, "fleet_explicit_autostart_identity");
+    harness.require(explicit_instance_ok !== 0, "fleet_explicit_autostart_identity:absent");
   }
   print("STEP server-kill aliases the existing destructive operation");
   run_program(ctx, cli, ["--address", explicit_address, "server-kill"], 0, 1, explicit_workspace);
