@@ -226,7 +226,14 @@ function acquire_release(context, repo, catalog, release, asset, facts) {
   verify_archive(archive, release, asset);
   let tar = "tar";
   if (facts.os === "windows") {
-    tar = "tar.exe";
+    // Name the system archiver by path, not by spelling. Windows ships bsdtar
+    // at System32\tar.exe, which understands `D:\...`; a bare `tar.exe`
+    // resolves through PATH, and on a runner whose PATH leads with Git Bash it
+    // reaches GNU tar instead, which reads the drive letter as a remote host
+    // and fails with "Cannot connect to D: resolve failed".
+    const system_root = rh.env_or("SystemRoot", "C:\\Windows");
+    const system_tar = rh.join(system_root, "System32", "tar.exe");
+    tar = rh.exists(system_tar) ? system_tar : "tar.exe";
   }
   command_output(context, tar, ["-xf", archive, "-C", "" + extracted], false, 30);
   let suffix = "";

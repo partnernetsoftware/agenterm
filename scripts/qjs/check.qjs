@@ -1659,8 +1659,14 @@ ordinary_gate("internal-version-policy", "internal version publication policy",
   task(worker, repo, "internal-version-policy", 10000, [], no_env, 0));
 ordinary_gate("qualification-selftest", "qualification fail-closed self-test",
   task(worker, repo, "qualification-selftest", 20000, [], no_env, 0));
+// 1200000, not 60000: this self-test runs the packager six times and allows
+// each child 180000 ms of its own. A parent budget below what it grants its
+// children is a scheduled cancellation -- fast hosts finish inside it and a
+// loaded one does not, and the failure arrives as `cancelled by the host while
+// waiting`, which names the parent rather than whatever the child was doing.
+// Candidate survey 35524148075 failed here exactly that way.
 ordinary_gate("package-boundary-selftest", "qualified package boundary self-test",
-  task(worker, repo, "package-qualified-selftest", 60000, [], no_env, 0));
+  task(worker, repo, "package-qualified-selftest", 1200000, [], no_env, 0));
 ordinary_gate("harness-cleanup-selftest", "owned-resource cleanup self-test",
   task(worker, repo, "harness-cleanup-selftest", 10000, [], no_env, 0));
 

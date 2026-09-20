@@ -2628,3 +2628,50 @@ fn no_gate_script_spells_the_workspace_version() {
         offenders.join("\n")
     );
 }
+
+/// A gate must never grant its children more time than it has itself.
+///
+/// `package-boundary-selftest` ran the packager six times, allowing each child
+/// 180 s, inside a gate budgeted at 60 s. Fast hosts finished inside the
+/// parent's budget and a loaded one did not, and the failure then arrived as
+/// `cancelled by the host while waiting` -- a message that names the parent
+/// and says nothing about what the child was doing, which is the expensive
+/// part. Same shape as the release artifact build's budget: the number is a
+/// guard against hanging, and the only thing that must hold is the order.
+///
+/// Reverse control: lower the gate budget under the child allowance and this
+/// fails.
+#[test]
+fn a_gate_outlasts_the_children_it_spawns() {
+    let selftest = include_str!("../scripts/qjs/package-qualified-selftest.qjs");
+    let child_ms: u64 = selftest
+        .split_once("timeout_ms: ")
+        .expect("the packager child must carry a timeout")
+        .1
+        .split(|c: char| !c.is_ascii_digit())
+        .next()
+        .expect("that timeout must be a number")
+        .parse()
+        .expect("numeric child timeout");
+    let runs = selftest
+        .lines()
+        .filter(|line| line.starts_with("expect_package_"))
+        .count() as u64;
+    assert!(runs >= 2, "expected several packager runs, found {runs}");
+
+    let gate_ms: u64 = CHECK_QJS
+        .split_once("task(worker, repo, \"package-qualified-selftest\", ")
+        .expect("check.qjs must still budget the self-test")
+        .1
+        .split(',')
+        .next()
+        .expect("that budget must be a number")
+        .trim()
+        .parse()
+        .expect("numeric gate budget");
+
+    assert!(
+        gate_ms >= child_ms * runs,
+        "the gate allows {gate_ms} ms but may spend {runs} x {child_ms} ms on children"
+    );
+}
