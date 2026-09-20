@@ -1265,10 +1265,7 @@ while (arg_index < args.length) {
 // through `run_quick_gate`, which has no survey path, so a surveyed quick run
 // would stop at its first failure while its output claimed a survey. Refusing
 // the combination is the only spelling that cannot mislead.
-require(
-  survey === 0 || (quick === 0 && only_gates.length === 0),
-  "check_survey_requires_full_lane"
-);
+require(survey === 0 || quick === 0, "check_survey_requires_full_lane");
 
 const gate_manifest_path = path.join(repo, "scripts/qualification-gates.json");
 
@@ -1297,7 +1294,15 @@ if (unix_bootstrap !== 0 && quick === 0
     && check_evidence === 0) {
   quick = 1;
 }
-require(only_gates.length === 0 || quick !== 0, "check_only_requires_quick");
+// `--only` narrows a lane. In the quick lane that is an ordinary developer
+// convenience. In the full lane it would mean a run that skipped most of the
+// qualification, so it is allowed there only together with `--survey`, which
+// cannot write a receipt -- a narrowed full-lane run is therefore incapable of
+// being mistaken for a qualification no matter how it is read.
+require(
+  only_gates.length === 0 || quick !== 0 || survey !== 0,
+  "check_only_requires_quick_or_survey"
+);
 require(unix_bootstrap === 0 || quick !== 0 || check_evidence !== 0, "check_full_qualification_requires_windows");
 
 const bootstrap_worker = resolve_bootstrap_worker(repo);
@@ -1615,6 +1620,15 @@ const artifact_verification_mode = resolve_artifact_verification_mode(release);
 const no_env = empty_environment();
 
 function ordinary_gate(id, label, command_spec) {
+  // A narrowed run records what it did not run. An unselected gate that left no
+  // trace would be indistinguishable from a passing one in the timing report,
+  // which is the same "a skip reads as a pass" failure the survey exists to
+  // avoid.
+  if (!selected(id)) {
+    print("SKIP: " + label + " (not selected)");
+    qualification.timing_set_gate(timing, id, "skipped", 0, 0, false);
+    return;
+  }
   const completed = run_gate(context, timing, id, label, command_spec, repo, scratch, sequence);
   sequence = completed.sequence;
 }
@@ -1657,6 +1671,11 @@ if (skip_smoke === 0) {
   };
   const smoke_ids = smoke_gate_ids();
   for (const id of smoke_ids) {
+    if (!selected(id)) {
+      print("SKIP: " + id + " (not selected)");
+      qualification.timing_set_gate(timing, id, "skipped", 0, 0, false);
+      continue;
+    }
     const extra = [];
     if (id === "remote-ui-upgrade-smoke") { extra.push(upgrade_fixture); }
     if (id === "fleet-smoke" && include_stress !== 0) { extra.push("--event-load"); }

@@ -22,6 +22,15 @@ on:
         description: Exact 40-character commit to survey
         required: true
         type: string
+      only:
+        description: >-
+          Optional comma-separated gate ids. Narrows the survey to those gates
+          so one suspect gate answers in minutes instead of waiting out the
+          whole lane. Diagnostic only -- a narrowed run proves nothing about
+          the gates it did not run, and survey mode cannot write a receipt
+          either way.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -65,6 +74,7 @@ jobs:
         shell: cmd
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
+          ONLY_GATES: ${{ inputs.only }}
           AGENTERM_SCRIPT_WORKER_STDERR: inherit
         run: |
           @echo off
@@ -79,7 +89,11 @@ jobs:
             type "%LOG%"
             exit /b 1
           )
-          call check.cmd --release --include-stress --survey --timing target/qualification/timing.json >> "%LOG%" 2>&1
+          if defined ONLY_GATES (
+            call check.cmd --release --include-stress --survey --only "%ONLY_GATES%" --timing target/qualification/timing.json >> "%LOG%" 2>&1
+          ) else (
+            call check.cmd --release --include-stress --survey --timing target/qualification/timing.json >> "%LOG%" 2>&1
+          )
           set "CHECK_EXIT=%ERRORLEVEL%"
           type "%LOG%"
           exit /b %CHECK_EXIT%

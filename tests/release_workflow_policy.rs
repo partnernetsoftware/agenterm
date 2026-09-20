@@ -2446,6 +2446,22 @@ fn a_surveyed_qualification_can_never_write_a_receipt() {
         CHECK_QJS.contains("\"check_survey_requires_full_lane\""),
         "survey mode must refuse the quick lane instead of half-surveying it"
     );
+
+    // Narrowing the full lane with `--only` skips most of the qualification, so
+    // it is permitted there only together with `--survey`: survey cannot write
+    // a receipt, which makes a narrowed full-lane run structurally incapable of
+    // being mistaken for a qualification.
+    assert!(
+        CHECK_QJS.contains("\"check_only_requires_quick_or_survey\""),
+        "a narrowed full lane must require survey mode"
+    );
+    // And a narrowed run must say what it skipped: a gate that leaves no trace
+    // reads as a passing gate in the timing report.
+    assert_eq!(
+        CHECK_QJS.matches("\"skipped\", 0, 0, false);").count(),
+        6,
+        "every unselected-gate path must record a skip, not silence"
+    );
     assert_eq!(
         CHECK_QJS.matches("survey_verdict();").count(),
         1,
