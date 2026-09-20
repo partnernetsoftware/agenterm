@@ -358,6 +358,8 @@ for (let index = 2; index < args.length; index = index + 1) {
 }
 
 const ctx = harness.new_context(repo, "fleet");
+// Children this suite owns and must reap; handed to `complete_owned_quiet`.
+const owned_children = [];
 const pid = process_id();
 const port_base = 47000 + pid % 1000;
 const explicit_address = "127.0.0.1:" + port_base;
@@ -503,6 +505,19 @@ try {
   harness.require(split_failure_text.includes("unsupported"), "fleet_mux_split_not_explicit");
   run_program(ctx, cli, mux_argv(["--address", "0.0.0.0:42000", "compatibility"]), 1, 1, "");
   harness.emit_evidence(ctx, declared_evidence, "fleet.mux-frontend");
+
+  // From here on the suite owns the server on its own address, as cli-smoke
+  // does. Everything above is deliberately offline; everything below assumes a
+  // server that is still there for the next command, and an autostarted one is
+  // not that on a host which denies Windows job breakaway -- it dies with the
+  // CLI that created it, so each step that needed it failed one after another.
+  // The step immediately below still exercises autostart, on its own separate
+  // address, which is where autostart is the subject rather than a
+  // precondition.
+  owned_children.push(harness.start(
+    harness.configured_spec(ctx, cli, ["server", "--address", main_address])
+  ));
+  harness.wait_for_spawned_server(ctx, cli, owned_children[owned_children.length - 1]);
 
   print("STEP explicit CLI address autostarts the requested server");
   const explicit_launch = run_program(
@@ -1127,7 +1142,7 @@ cleanup_server(ctx, cli, main_address);
 
 let completion_failure = "";
 try {
-  harness.complete_owned_quiet(ctx, [], succeeded !== 0, failure);
+  harness.complete_owned_quiet(ctx, owned_children, succeeded !== 0, failure);
 } catch (error) {
   completion_failure = catch_text(error);
 }
