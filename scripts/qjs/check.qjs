@@ -3,7 +3,7 @@
 // Args:
 //   [REPO] [--quick] [--release] [--skip-smoke] [--include-stress]
 //     [--internal-qualification-dry-run] [--receipt PATH] [--target TARGET]
-//     [--timing PATH] [--only GATE[,GATE...]]
+//     [--timing PATH] [--only GATE[,GATE...]] [--survey]
 //   [REPO] --list-evidence
 //   [REPO] --check-evidence
 //
@@ -849,11 +849,53 @@ function run_gate_step(context, timing, id, label, command_spec, repo, scratch, 
   return { context: context, timing: timing, sequence: command_sequence + 1 };
 }
 
+// Survey mode collects every failing gate instead of stopping at the first.
+// A release round costs ~45 minutes and a fail-fast gate spends all of it to
+// report exactly one problem, so a repository with five independent defects
+// needs five rounds to learn five facts. Surveying trades a longer single run
+// for the whole failure set.
+//
+// The safety property that makes this honest: survey mode NEVER writes a
+// qualification receipt. A run that deliberately continues past a failure must
+// be incapable of producing the artifact that means "this passed" -- otherwise
+// the cheapest way to a green receipt would be to survey and ignore the list.
+const survey_failures = [];
+
+function survey_record(id, label, failure) {
+  survey_failures.push({ id: "" + id, label: "" + label, failure: "" + failure });
+  print("SURVEY FAIL: " + label);
+}
+
+// Every lane must consult this before it prints its own PASS line. A lane that
+// forgets turns a surveyed failure into a green run, which is worse than the
+// fail-fast behaviour survey mode replaces.
+function survey_verdict() {
+  if (survey === 0) { return; }
+  print("\nQUALIFICATION RECEIPT NOT WRITTEN: survey mode is diagnostic only.");
+  if (survey_failures.length > 0) {
+    print("\nSURVEY: " + survey_failures.length + " gate(s) failed");
+    for (const entry of survey_failures) {
+      print("\n---- " + entry.id + " ----\n" + entry.failure);
+    }
+    const ids = [];
+    for (const entry of survey_failures) { ids.push(entry.id); }
+    throw "check_survey_failed:" + joined_text(ids, ",");
+  }
+  print("\nSURVEY: every gate passed. Re-run without --survey to produce a receipt.");
+}
+
 function run_gate(context, timing, id, label, command_spec, repo, scratch, sequence) {
   print("\n==> " + label);
   const started = rh.now_ms();
   const all_output = [];
-  const step = run_gate_step(context, timing, id, label, command_spec, repo, scratch, sequence, started, all_output, 1);
+  let step;
+  try {
+    step = run_gate_step(context, timing, id, label, command_spec, repo, scratch, sequence, started, all_output, 1);
+  } catch (failure) {
+    if (survey === 0) { throw failure; }
+    survey_record(id, label, failure);
+    return { context: context, timing: timing, sequence: sequence + 1 };
+  }
   const duration = rh.now_ms() - started;
   qualification.add_result(context, id, "passed", duration, all_output);
   qualification.timing_set_gate(timing, id, "passed", duration, 0, false);
@@ -883,10 +925,20 @@ function run_gate_specs(context, timing, id, label, command_specs, repo, scratch
   const all_output = [];
   let next_sequence = sequence;
   for (const command_spec of command_specs) {
-    const step = run_gate_step(
-      context, timing, id, label, command_spec,
-      repo, scratch, next_sequence, started, all_output, 1
-    );
+    let step;
+    try {
+      step = run_gate_step(
+        context, timing, id, label, command_spec,
+        repo, scratch, next_sequence, started, all_output, 1
+      );
+    } catch (failure) {
+      if (survey === 0) { throw failure; }
+      // The remaining specs of a failed gate are abandoned, not surveyed: they
+      // share the gate's fixtures, so their results after a failed sibling say
+      // nothing a reader could act on.
+      survey_record(id, label, failure);
+      return { context: context, timing: timing, sequence: next_sequence + 1 };
+    }
     next_sequence = step.sequence;
   }
   const duration = rh.now_ms() - started;
@@ -1154,6 +1206,7 @@ let include_stress = 0;
 let dry_run = 0;
 let list_evidence = 0;
 let check_evidence = 0;
+let survey = 0;
 let quick_target = "";
 let quick_target_set = 0;
 let only_gates = [];
@@ -1176,6 +1229,8 @@ while (arg_index < args.length) {
     list_evidence = 1;
   } else if (value === "--check-evidence") {
     check_evidence = 1;
+  } else if (value === "--survey") {
+    survey = 1;
   } else if (value === "--receipt") {
     require(arg_index + 1 < args.length, "check_receipt_value_missing");
     receipt_path = rh.absolute(args[arg_index + 1]);
@@ -1205,6 +1260,15 @@ while (arg_index < args.length) {
   }
   arg_index = arg_index + 1;
 }
+
+// `--survey` is a full-qualification instrument. The quick lane dispatches
+// through `run_quick_gate`, which has no survey path, so a surveyed quick run
+// would stop at its first failure while its output claimed a survey. Refusing
+// the combination is the only spelling that cannot mislead.
+require(
+  survey === 0 || (quick === 0 && only_gates.length === 0),
+  "check_survey_requires_full_lane"
+);
 
 const gate_manifest_path = path.join(repo, "scripts/qualification-gates.json");
 
@@ -1643,7 +1707,11 @@ if (skip_smoke !== 0) {
   ordinary_gate("diagnostic-bundle-selftest", "CLI GUI and script diagnostic bundle self-test",
     task(worker, repo, "diagnostic-bundle-selftest", 60000, [], { AGENTERM_NO_ACTIVATE: "1" }, 0));
 }
-if (skip_smoke !== 0) {
+if (survey !== 0) {
+  // Checked before every other receipt branch so no combination of flags can
+  // route a surveyed run into `qualification.write_receipt`.
+  survey_verdict();
+} else if (skip_smoke !== 0) {
   print("\nQUALIFICATION RECEIPT NOT WRITTEN: smoke gates were skipped.");
 } else if (include_stress === 0) {
   print("\nQUALIFICATION RECEIPT NOT WRITTEN: explicit stress gate was not included.");

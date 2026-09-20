@@ -2400,3 +2400,73 @@ fn a_release_size_budget_is_declared_consistently_for_every_platform() {
         );
     }
 }
+
+/// Survey mode exists so one 45-minute release round can report every failing
+/// gate instead of only the first. That is only honest while a surveyed run
+/// cannot produce a qualification receipt: a mode that deliberately continues
+/// past failures and still emits the artifact meaning "this passed" would make
+/// surveying the cheapest route to a green receipt.
+///
+/// The reverse control is the `else if` chain itself -- if the survey branch
+/// stops being first, some other flag combination can reach `write_receipt`
+/// with failures recorded.
+#[test]
+fn a_surveyed_qualification_can_never_write_a_receipt() {
+    assert!(
+        CHECK_QJS.contains("} else if (value === \"--survey\") {"),
+        "survey mode must stay reachable as an explicit flag"
+    );
+
+    let receipt_chain = CHECK_QJS
+        .split_once("if (survey !== 0) {")
+        .expect("the receipt decision must begin with the survey branch")
+        .1
+        .split_once("qualification.timing_finish(timing, \"passed\");")
+        .expect("the receipt decision must end at timing_finish")
+        .0;
+
+    let survey_branch = receipt_chain
+        .split_once("} else if (skip_smoke !== 0) {")
+        .expect("the survey branch must be followed by the skip_smoke branch")
+        .0;
+    assert!(
+        !survey_branch.contains("qualification.write_receipt("),
+        "the survey branch must never call qualification.write_receipt"
+    );
+    assert!(
+        CHECK_QJS.contains("throw \"check_survey_failed:\""),
+        "a survey that recorded failures must still fail the run"
+    );
+
+    // The quick lane dispatches through `run_quick_gate`, which has no survey
+    // path: a surveyed quick run would stop at its first failure while its
+    // output claimed a survey. The combination must be refused outright rather
+    // than silently half-working.
+    assert!(
+        CHECK_QJS.contains("\"check_survey_requires_full_lane\""),
+        "survey mode must refuse the quick lane instead of half-surveying it"
+    );
+    assert_eq!(
+        CHECK_QJS.matches("survey_verdict();").count(),
+        1,
+        "only the full qualification lane may reach the survey verdict"
+    );
+
+    // Every gate wrapper that swallows a failure must record it. A wrapper that
+    // catches and returns without recording turns a red gate into a silent one,
+    // which is the exact failure `--survey` would otherwise introduce.
+    let swallow_sites = CHECK_QJS
+        .matches("if (survey === 0) { throw failure; }")
+        .count();
+    assert_eq!(
+        swallow_sites, 2,
+        "exactly the two gate wrappers may swallow a failure under survey"
+    );
+    assert_eq!(
+        CHECK_QJS
+            .matches("survey_record(id, label, failure);")
+            .count(),
+        swallow_sites,
+        "every swallowed failure must be recorded"
+    );
+}
