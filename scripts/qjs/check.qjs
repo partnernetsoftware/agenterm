@@ -1096,7 +1096,7 @@ function assert_declarations(worker, repo, scratch, sequence, gate_manifest, rep
 function freeze_identity(worker, repo, scratch, sequence) {
   const identity_path = path.join(scratch, "build-identity.cmd");
   const result = execute(
-    task(worker, repo, "build-identity", 10000, [repo, "dev", identity_path], empty_environment(), 0),
+    task(worker, repo, "build-identity", 120000, [repo, "dev", identity_path], empty_environment(), 0),
     repo, scratch, sequence
   );
   require(result.success, "check_build_identity:" + result.stdout + result.stderr);
@@ -1639,14 +1639,21 @@ ordinary_gate("task-catalog", "repository script task catalog",
   task_catalog_spec(worker, repo));
 ordinary_gate("mcp-conformance", "public MCP conformance and isolation",
   task(worker, repo, "mcp-conformance", 600000, [], no_env, 0));
+// These budgets guard against a hang; they are not latency contracts, and 10000
+// was sized when the qualification stopped at its first failure. A survey runs
+// the whole lane, so the gates near the end meet a far more loaded host than a
+// fail-fast round ever showed them -- the PowerShell ledger, which walks every
+// file in the repository, was cancelled at ten seconds in survey 35531092925
+// having passed every earlier round. The others below share its shape: a
+// repository-wide walk under a ten-second ceiling.
 ordinary_gate("migration-audit", "PowerShell migration ledger and no-new-PS1 gate",
-  task(worker, repo, "migration-audit", 10000, [], no_env, 0));
+  task(worker, repo, "migration-audit", 300000, [], no_env, 0));
 ordinary_gate("artifact-verification", "binary roles and metadata",
   task(worker, repo, "artifact-verification", 30000, [artifact_verification_mode], no_env, 0));
 ordinary_gate("readme-examples", "manifest-driven README examples",
-  task(worker, repo, "readme-examples", 10000, [], no_env, 0));
+  task(worker, repo, "readme-examples", 120000, [], no_env, 0));
 ordinary_gate("docs-site", "case-exact static docs assets",
-  task(worker, repo, "verify-docs-site", 10000, [], no_env, 0));
+  task(worker, repo, "verify-docs-site", 120000, [], no_env, 0));
 ordinary_gate("supply-chain", "locked dependency licenses and SPDX inventory",
   // 60s could not cover its own `cargo metadata` child budget once the cargo
   // package lock was contended; the manifest budget is 300s.
@@ -1656,7 +1663,7 @@ ordinary_gate("target-report", "Cargo target inventory",
   // silently replace that contract with a 10 s process timeout on large trees.
   task(worker, repo, "target-report", 120000, [], no_env, 0));
 ordinary_gate("internal-version-policy", "internal version publication policy",
-  task(worker, repo, "internal-version-policy", 10000, [], no_env, 0));
+  task(worker, repo, "internal-version-policy", 120000, [], no_env, 0));
 ordinary_gate("qualification-selftest", "qualification fail-closed self-test",
   task(worker, repo, "qualification-selftest", 20000, [], no_env, 0));
 // 1800000, not 60000: this self-test runs the packager six times and allows
@@ -1668,7 +1675,7 @@ ordinary_gate("qualification-selftest", "qualification fail-closed self-test",
 ordinary_gate("package-boundary-selftest", "qualified package boundary self-test",
   task(worker, repo, "package-qualified-selftest", 1800000, [], no_env, 0));
 ordinary_gate("harness-cleanup-selftest", "owned-resource cleanup self-test",
-  task(worker, repo, "harness-cleanup-selftest", 10000, [], no_env, 0));
+  task(worker, repo, "harness-cleanup-selftest", 120000, [], no_env, 0));
 
 if (skip_smoke === 0) {
   const no_activate = {
