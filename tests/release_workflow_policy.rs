@@ -2063,3 +2063,71 @@ fn the_qualification_releases_every_child_slot_it_spawns() {
         "the release must be checked, not fired and forgotten"
     );
 }
+
+/// The PowerShell ledger closes PowerShell as product and build automation.
+/// `scripts/inspect-authenticode.ps1` sits outside it only because nothing
+/// executes it: a Windows reader runs it by hand from the signing docs. That
+/// premise is the whole justification for the exemption, so check it here
+/// instead of trusting the comment that states it. If anything ever invokes
+/// the inspector, it has become automation and belongs back under the ledger.
+#[test]
+fn the_exempt_authenticode_inspector_is_never_invoked_by_automation() {
+    const INSPECTOR: &str = "inspect-authenticode.ps1";
+    let audit = include_str!("../scripts/qjs/powershell-migration-audit.qjs")
+        .replace("\r\n", "\n");
+    assert!(
+        audit.contains("|| path === \"scripts/inspect-authenticode.ps1\";"),
+        "the inspector must be an exact exempt path, not a pattern"
+    );
+    let exemption = audit
+        .split_once("function is_non_automation_ps1(path) {")
+        .expect("the PowerShell exemption function must keep its name")
+        .1
+        .split_once("\n}")
+        .expect("the exemption function must be closed")
+        .0;
+    assert!(
+        !exemption.contains("startsWith")
+            && !exemption.contains("indexOf")
+            && !exemption.contains("includes"),
+        "the PowerShell exemption must stay an exact-path list, not a pattern match"
+    );
+
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut invokers = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if path.is_dir() {
+                if !matches!(name.as_ref(), "target" | ".git" | "node_modules") {
+                    stack.push(path);
+                }
+                continue;
+            }
+            // Documentation may tell a human to run it; automation may not.
+            // The policy test that reads the file's text is not an invocation.
+            let is_prose = name.ends_with(".md");
+            let is_this_test = name == "release_workflow_policy.rs";
+            let is_reader = name == "authenticode_inspector_policy.rs";
+            let is_itself = name == INSPECTOR;
+            // The ledger audit names the path because that *is* the exemption.
+            let is_the_ledger_audit = name == "powershell-migration-audit.qjs";
+            if is_prose || is_this_test || is_reader || is_itself || is_the_ledger_audit {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            if text.contains(INSPECTOR) {
+                invokers.push(path.strip_prefix(root).unwrap_or(&path).display().to_string());
+            }
+        }
+    }
+    assert!(
+        invokers.is_empty(),
+        "the exempt Authenticode inspector is referenced by non-prose files, so it is \
+         automation after all and the PowerShell ledger exemption no longer holds: {invokers:?}"
+    );
+}

@@ -6,13 +6,27 @@
 // `--profile tool`.
 import * as rh from "lib/rh_compat";
 
-function is_archived_research_ps1(path) {
+// The ledger closes PowerShell as *product and build automation*. Two exact
+// lists sit outside it, and nothing else does: an unlisted .ps1 still fails
+// closed. Both lists are exact paths, never prefixes or patterns, so a new
+// PowerShell surface cannot arrive by resembling an existing one.
+//
+// 1. Frozen dynamic-core experiment drivers: archived measurement evidence.
+// 2. The public Authenticode inspector: a manual tool a Windows reader runs by
+//    hand from README.md / CODE_SIGNING_POLICY.md. No workflow, task, script or
+//    product path invokes it -- `authenticode_inspector_policy.rs` only reads
+//    its text -- so it is not automation and the ledger has no claim on it.
+//    Native Authenticode inspection has no non-PowerShell equivalent on
+//    Windows; the portable scripts/inspect-authenticode.sh covers the rest.
+//    tests/release_workflow_policy.rs machine-checks that premise.
+function is_non_automation_ps1(path) {
   return path === "research/dynamic-core/build/build_windows.ps1"
     || path === "research/dynamic-core/discovery/build/build_windows.ps1"
     || path === "research/dynamic-core/ir/build/run.ps1"
     || path === "research/dynamic-core/lowering/build/build_lowering.ps1"
     || path === "research/dynamic-core/reuse/build/build_windows.ps1"
-    || path === "research/dynamic-core/stencil/build/build_stencil.ps1";
+    || path === "research/dynamic-core/stencil/build/build_stencil.ps1"
+    || path === "scripts/inspect-authenticode.ps1";
 }
 
 // One ledger list field: a non-empty array of at most 32 distinct, non-empty,
@@ -195,7 +209,7 @@ let current_count = 0;
 for (const source_line of rh.read_text(stdout_path).split("\n")) {
   const path = source_line.trim();
   if (path === "") { continue; }
-  if (is_archived_research_ps1(path)) { continue; }
+  if (is_non_automation_ps1(path)) { continue; }
   rh.require(known[path] === true, "migration_unplanned_ps1: " + path);
   rh.require(deleted_paths_set[path] !== true, "migration_deleted_ps1_returned: " + path);
   if (current[path] !== true) { current_count = current_count + 1; }
