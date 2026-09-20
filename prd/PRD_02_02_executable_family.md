@@ -328,8 +328,11 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 - [x] all control frontends reuse shared request/target/format libraries;
   they do not duplicate GUI state or start a second workspace authority
 - [~] each binary has independent release size reporting and an enforced
-  budget (4 MiB GUI, 2 MiB per CLI); per-binary startup reporting remains
-  planned, and adding a frontend must not inflate `agenterm.exe`
+  budget. The approved control-CLI ceiling for `agenterm-cu.exe` is 4 MiB;
+  other binary ceilings are recorded in `scripts/artifacts.json`. The GUI's
+  current 5 MiB manifest ceiling is not an accepted replacement for the
+  original 4 MiB objective. Per-binary startup reporting remains planned,
+  and adding a frontend must not inflate `agenterm.exe`.
 
 ## Unified placeholder TUI entry
 

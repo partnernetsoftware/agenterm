@@ -41,7 +41,7 @@
       "offline_probe": [
         "--version"
       ],
-      "release_budget_bytes": 2097152
+      "release_budget_bytes": 4194304
     }
   ],
   "libraries": [
@@ -106,7 +106,7 @@
           "offline_probe": [
             "--version"
           ],
-          "release_budget_bytes": 2097152
+          "release_budget_bytes": 4194304
         }
       ],
       "libraries": [
@@ -171,7 +171,7 @@
           "offline_probe": [
             "--version"
           ],
-          "release_budget_bytes": 2097152
+          "release_budget_bytes": 4194304
         }
       ],
       "libraries": [

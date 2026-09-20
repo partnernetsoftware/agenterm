@@ -2919,9 +2919,9 @@ flowchart LR
   The same public journey is green on macOS arm64, Linux arm64 + x86_64, and
   Windows x86_64. Windows arm64 was blocked before execution by its UTM/QGA
   transfer channel, so it contributes no product verdict. The current Windows
-  release binary exceeds the existing 2 MiB `agenterm-cu` budget; the release
-  size court remains open and the capability ledger stays `platform-limited`
-  without raising that ceiling. Slow execute-only courts declare a bounded
+  release binary exceeds the approved 4 MiB `agenterm-cu` ceiling; the release
+  size court remains open and the capability ledger stays `platform-limited`.
+  Slow execute-only courts declare a bounded
   journey deadline and use Windows' synchronous `agenterm.com` front door;
   neither court latency nor a GUI-subsystem early return may become false green.
   The active qjswasm/tinyvm host surface still has no generic DNS/TCP API;
