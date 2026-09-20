@@ -1617,6 +1617,56 @@ mod tests {
         );
     }
 
+    /// Every catalogued command and alias answers `--help` with a usage line.
+    ///
+    /// `fleet-smoke` walks `list-commands` and asserts exactly this, so a
+    /// command that joins the catalog without a reachable usage line turns that
+    /// gate red -- and, because the qualification stops at its first failure,
+    /// keeps every later gate from ever running. `acu` did that from the day it
+    /// was catalogued: it carried a usage string, but its dispatch returned
+    /// above the help check and forwarded `--help` to the ACU surface, which
+    /// answers JSON.
+    ///
+    /// The usage string alone is not the contract -- `acu` had one and still
+    /// failed -- so this also pins the order: help must be answered before any
+    /// command-specific early return in `run_cli`.
+    #[test]
+    fn every_catalogued_command_answers_help_with_a_usage_line() {
+        for identity in COMMAND_CATALOG {
+            for name in std::iter::once(identity.id).chain(identity.aliases.iter().copied()) {
+                let usage = control_command_usage(name)
+                    .unwrap_or_else(|| panic!("command {name} has no usage line"));
+                assert!(
+                    usage.starts_with("agenterm cli "),
+                    "command {name} usage must open with `agenterm cli `: {usage}"
+                );
+                assert!(
+                    control_command_requests_help(&args(&[name, "--help"])),
+                    "command {name} must recognise --help"
+                );
+            }
+        }
+
+        // A usage line nothing reaches is not a usage line. `run_cli` answers
+        // help first; a command-specific `return` placed above that check
+        // swallows `--help` exactly the way `acu` did.
+        let client = include_str!("client/mod.rs");
+        let body = client
+            .split_once("fn run_cli(arguments: Vec<String>")
+            .expect("run_cli must still exist")
+            .1;
+        let help_at = body
+            .find("if control_command_requests_help(&arguments) {")
+            .expect("run_cli must answer help");
+        let dispatch_at = body
+            .find("return run_acu_compat_command(")
+            .expect("run_cli must still dispatch acu");
+        assert!(
+            help_at < dispatch_at,
+            "run_cli must answer --help before dispatching a command that forwards it"
+        );
+    }
+
     #[test]
     fn command_catalog_is_unique_and_drives_public_identity() {
         let mut names = std::collections::BTreeSet::new();

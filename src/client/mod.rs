@@ -1194,15 +1194,26 @@ fn run_list_instances(arguments: &[String]) -> i32 {
 
 fn run_cli(arguments: Vec<String>, control_options: CliControlOptions) -> i32 {
     let mut arguments = arguments;
-    if arguments.first().is_some_and(|command| command == "acu") {
-        return run_acu_compat_command(&arguments[1..]);
-    }
+    // Help is answered before any command-specific dispatch. `acu` forwards its
+    // arguments to the ACU compatibility surface, and while its early return
+    // sat above this check it swallowed `--help` too: `agenterm cli acu --help`
+    // answered with ACU's JSON envelope instead of the usage line every other
+    // catalogued command prints, even though `acu` has carried a usage string
+    // since it joined the catalog. `fleet-smoke` walks the catalog asserting
+    // exactly that contract and has failed on `acu` ever since.
+    //
+    // Forwarding is unaffected: `control_command_requests_help` stops at the
+    // first non-flag positional for a passthrough command, so `acu help tree`
+    // still reaches ACU's own reference.
     if control_command_requests_help(&arguments) {
         let command = arguments.first().map(String::as_str).unwrap_or_default();
         if let Some(usage) = control_command_usage(command) {
             cli_println!("Usage: {usage}");
             return 0;
         }
+    }
+    if arguments.first().is_some_and(|command| command == "acu") {
+        return run_acu_compat_command(&arguments[1..]);
     }
     if let Err(error) = validate_control_command(&arguments) {
         cli_eprintln!("{error}");
