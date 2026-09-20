@@ -27,6 +27,19 @@ function emit(context, id) {
   harness.emit_evidence(context, EVIDENCE, id);
 }
 
+function repo_cargo_version(repo) {
+  const manifest = rh.read_text(rh.join(repo, "Cargo.toml"));
+  for (const line of manifest.replaceAll("\r\n", "\n").split("\n")) {
+    const text = line.trim();
+    if (text.startsWith("version = \"")) {
+      const value = text.slice("version = \"".length, text.length - 1);
+      rh.require(value !== "", "script_qjs_cargo_version_empty");
+      return value;
+    }
+  }
+  throw "script_qjs_cargo_version_missing";
+}
+
 function api_contract(context, cli, runtime_dir, audit_path) {
   print("STEP active qjswasm API discovery and repository dogfood");
   const envelope_path = rh.join(runtime_dir, "script-api-envelope.json");
@@ -128,13 +141,20 @@ function active_runtime(context, cli, runtime_dir, audit_path) {
     REDACTIONS
   );
   const result = JSON.parse(output.stdout.trim());
+  // Read the version rather than spell it. This assertion used to carry the
+  // release version as a literal, so it began failing the moment the workspace
+  // version moved and stayed failing across two releases, while the fail-fast
+  // gate only ever named whichever gate happened to fail first. Derived, it
+  // still proves the CLI reports the workspace exact version, and it cannot go
+  // stale again.
+  const cargo_version = repo_cargo_version(rh.absolute("."));
   require(
     result.argv.length === 2
       && result.argv[0] === cli
       && result.argv[1] === "AUDIT_ARG_SECRET"
       && result.success
       && result.exit_code === 0
-      && result.stdout.startsWith("agenterm 0.1.16")
+      && result.stdout.startsWith("agenterm " + cargo_version)
       && result.stderr === ""
       && !result.timed_out
       && result.missing_status !== 0

@@ -2572,3 +2572,59 @@ fn a_failed_smoke_gate_carries_its_failure_bundle_out_of_ci() {
         "the failure-diagnostics upload must be conditioned on failure"
     );
 }
+
+/// No gate may spell the workspace version as a literal.
+///
+/// `script-smoke` and `script-qjswasm-smoke` each asserted the CLI printed
+/// `agenterm <a released version>`, written out by hand. Both went stale the
+/// moment the workspace version moved and stayed red across two releases --
+/// and because the qualification stops at its first failing gate, every round
+/// named only whichever one happened to run first. A version literal in a gate
+/// is a scheduled failure with no owner.
+///
+/// Reverse control: put any `agenterm <semver>` literal back into a gate script
+/// and this fails.
+#[test]
+fn no_gate_script_spells_the_workspace_version() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/qjs");
+    // Compatibility suites are the deliberate exception: they drive *published*
+    // releases, whose versions are historical facts rather than this
+    // workspace's, and naming them is the point.
+    const HISTORICAL: [&str; 1] = ["native-ipc-compat-smoke.qjs"];
+
+    let mut offenders = Vec::new();
+    let mut scanned = 0;
+    for entry in std::fs::read_dir(&root).expect("scripts/qjs must exist") {
+        let path = entry.expect("readable entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("qjs") {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .expect("utf-8 file name")
+            .to_owned();
+        if HISTORICAL.contains(&name.as_str()) {
+            continue;
+        }
+        scanned += 1;
+        let source = std::fs::read_to_string(&path).expect("readable script");
+        for (number, line) in source.lines().enumerate() {
+            if let Some(rest) = line.split("agenterm ").nth(1) {
+                let looks_like_version = rest
+                    .split(|c: char| !(c.is_ascii_digit() || c == '.'))
+                    .next()
+                    .is_some_and(|head| head.matches('.').count() >= 2 && head.len() >= 5);
+                if looks_like_version {
+                    offenders.push(format!("{name}:{}: {}", number + 1, line.trim()));
+                }
+            }
+        }
+    }
+    assert!(scanned > 20, "the scan found only {scanned} gate scripts");
+    assert!(
+        offenders.is_empty(),
+        "gate scripts must derive the workspace version, not spell it:\n{}",
+        offenders.join("\n")
+    );
+}

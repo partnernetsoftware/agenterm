@@ -195,6 +195,19 @@ function matching(entries, field, value) {
   return result;
 }
 
+function repo_cargo_version(repo) {
+  const manifest = rh.read_text(rh.join(repo, "Cargo.toml"));
+  for (const line of manifest.replaceAll("\r\n", "\n").split("\n")) {
+    const text = line.trim();
+    if (text.startsWith("version = \"")) {
+      const value = text.slice("version = \"".length, text.length - 1);
+      harness.require(value !== "", "script_cargo_version_empty");
+      return value;
+    }
+  }
+  throw "script_cargo_version_missing";
+}
+
 function trimmed(value) {
   return ("" + value).trim();
 }
@@ -638,9 +651,12 @@ function assert_process_and_streams(context, cli, audit_path, runtime_dir) {
   const version_spec = { program: cli, args: ["--version"], timeout_ms: 2000 };
   harness.require(process_command(JSON.stringify(version_spec)) === 0, "script_qjs_version_command_refused");
   const qjs_version_output = JSON.parse(tool_result());
+  // Derived, not spelled. The literal that used to sit here went stale the
+  // moment the workspace version moved and kept this gate red from 0.1.17 on.
+  const cargo_version = repo_cargo_version(rh.absolute("."));
   harness.require(
     qjs_version_output.success
-      && trimmed(qjs_version_output.stdout).startsWith("agenterm 0.1.16")
+      && trimmed(qjs_version_output.stdout).startsWith("agenterm " + cargo_version)
       && !qjs_version_output.timed_out,
     "script_stream_live_final_mismatch"
   );
