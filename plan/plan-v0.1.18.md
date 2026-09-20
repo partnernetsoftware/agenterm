@@ -88,9 +88,11 @@ flowchart LR
    skip either class or count one host's result as another host's PASS. Measure
    commit-to-sealed-Candidate wall time, not only the Candidate job duration:
    moving an unchanged gate to an earlier workflow is not a speedup by itself.
-   Eliminate duplicate `artifact-build` / `artifact-build-fast` compilation
-   against the exact packaged bytes before spending a migration on test-path
-   plumbing; any changed gate meaning gets a new gate and evidence identity.
+   `artifact-build-fast` makes the prior-version upgrade fixture, whereas
+   `artifact-build` makes the release artifact; different profiles and tests
+   make them distinct, not a proved 22-minute duplicate. Preserve that order
+   while measuring which build work can actually be reused. Any changed gate
+   meaning gets a new gate identity rather than silently reusing an old PASS.
 2. Reconcile PRD 28–32 and the public verb catalog with actual current-tier code.
 3. Close shared command/backend parity before adding new verbs.
    Whole-window `activate` now has ABI 1.26 plus green macOS and active-lane
