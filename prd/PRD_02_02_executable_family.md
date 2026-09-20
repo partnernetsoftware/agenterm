@@ -327,12 +327,14 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
     `agenterm.exe` into a monolith
 - [x] all control frontends reuse shared request/target/format libraries;
   they do not duplicate GUI state or start a second workspace authority
-- [~] each binary has independent release size reporting and an enforced
-  budget. The v0.1.17 Windows control-CLI ceiling for `agenterm-cu.exe` is 8 MiB,
-  matching the measured 7,302,144-byte release binary with bounded headroom;
-  other binary ceilings are recorded in `scripts/artifacts.json`. The GUI's
-  current v0.1.17 5 MiB manifest ceiling is a release rebaseline, not proof
-  that the original 4 MiB objective was met. Per-binary startup reporting remains planned,
+- [~] each binary has independent release size reporting. For v0.1.17 the
+  owner suspended release-blocking size ceilings: the manifest's 8 MiB
+  Windows `agenterm-cu.exe` and 5 MiB GUI values are reference targets, not
+  PASS claims. The Windows x86_64 CU release binary measured 7,302,144 bytes;
+  exact Candidate sizes must still be recorded. Hash, source, package and
+  runtime courts remain mandatory. The separate 64 KiB `agenterm.com`
+  staging safety bound remains enforced. Per-binary startup reporting remains
+  planned,
   and adding a frontend must not inflate `agenterm.exe`.
 
 ## Unified placeholder TUI entry

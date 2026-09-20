@@ -123,7 +123,7 @@ const DOWNLOAD_SHA: &str = "fa0a91b85d4f404e444e00e005971372dc801d16";
 const CACHE_SHA: &str = "0400d5f644dc74513175e3cd8d07132dd4860809";
 
 #[test]
-fn windows_cu_budget_is_the_governing_eight_mib_control_cli_budget() {
+fn windows_cu_eight_mib_size_reference_is_consistent() {
     const CONTROL_CLI_BUDGET: u64 = 8 * 1024 * 1024;
     let budget_for = |artifacts: &serde_json::Value| {
         artifacts
@@ -145,6 +145,26 @@ fn windows_cu_budget_is_the_governing_eight_mib_control_cli_budget() {
             .unwrap_or_else(|| panic!("missing Windows platform {arch}"));
         assert_eq!(budget_for(&platform["executables"]), CONTROL_CLI_BUDGET);
     }
+}
+
+/// For v0.1.17 the owner chose size reporting over a release-blocking size
+/// ceiling. Hash, source, offline behavior, and the separate agenterm.com
+/// staging safety bound remain enforced.
+#[test]
+fn release_size_is_observed_without_blocking_v0117() {
+    assert!(ARTIFACT_VERIFICATION_QJS.contains("RELEASE SIZE executable="));
+    assert!(ARTIFACT_VERIFICATION_QJS.contains("RELEASE SIZE library="));
+    assert!(ARTIFACT_VERIFICATION_QJS.contains("actual_bytes="));
+    assert!(ARTIFACT_VERIFICATION_QJS.contains("artifact_missing:"));
+    assert!(ARTIFACT_VERIFICATION_QJS.contains("artifact_library_missing:"));
+    assert!(ARTIFACT_VERIFICATION_QJS.contains("artifact_empty:"));
+    assert!(ARTIFACT_VERIFICATION_QJS.contains("artifact_library_empty:"));
+    assert!(ARTIFACT_VERIFICATION_QJS.contains("artifact_metadata_hash:"));
+    assert!(ARTIFACT_VERIFICATION_QJS.contains("artifact_library_metadata_hash:"));
+    assert!(!ARTIFACT_VERIFICATION_QJS.contains("actual_bytes <= budget_bytes"));
+    assert!(
+        include_str!("../scripts/qjs/stage-build.qjs").contains("stage_build_agenterm_com_budget")
+    );
 }
 
 #[test]
@@ -2219,11 +2239,9 @@ fn gate_output_is_filtered_to_exactly_what_the_receipt_consumes() {
     );
 }
 
-/// A release size budget is declared once in the base executables list and
-/// again in each platform override, so raising one and missing another leaves
-/// a platform that fails the next Candidate for a reason already fixed. The
-/// v0.1.13 ledger records that same hazard when this gate last fired. Every
-/// declaration of one artifact's budget must agree.
+/// Size references remain consistent across platform overrides even while
+/// v0.1.17 observes rather than blocks on them. They can be compared with
+/// exact Candidate measurements and reviewed before re-enabling a size court.
 #[test]
 fn a_release_size_budget_is_declared_consistently_for_every_platform() {
     let artifacts: serde_json::Value =

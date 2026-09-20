@@ -66,10 +66,13 @@ for making this release path green.
   without Azure login or consuming a signing transaction.
 - [x] fast incremental developer build under ignored local `dist/`
 - [x] release mode and `agenterm.json` build metadata
-- [~] size-optimized release profile and per-binary size courts remain in
-  force. The v0.1.17 `agenterm-cu.exe` ceiling is 8 MiB against a measured
-  7,302,144-byte Windows x86_64 release binary. The GUI's 5 MiB release
-  rebaseline does not establish the original 4 MiB objective.
+- [~] size-optimized release profile remains in force. For v0.1.17 the owner
+  suspended per-binary release-blocking size courts while keeping actual-byte
+  reporting and all hash, source, package and runtime checks. The manifest's
+  Windows CU 8 MiB and GUI 5 MiB values are reference targets, not a claim
+  that the original 2/4 MiB objectives were met. Candidate `35499008127`
+  measured `agenterm-cu-provider.dll` at 13,522,944 bytes against its old
+  12 MiB reference; the same observe-only decision applies to libraries.
 - [x] GUI `agenterm.exe` has no startup console flash
 - [x] console `agenterm cli` preserves CLI output and exit codes
 - [x] startup regression requires a main window within one second locally;
@@ -895,9 +898,10 @@ costs a full candidate cycle:
 - [~] Windows `agenterm-cu.exe` previously met a 2 MiB control-CLI budget:
   an earlier Candidate measured 1,420,800 bytes and an independent same-profile
   build measured 1,414,656 bytes (`.text` alone 1,131,942 bytes). The approved
-  v0.1.17 ceiling is now 8 MiB in the top-level and both Windows platform
+  v0.1.17 reference is 8 MiB in the top-level and both Windows platform
   records. A current Windows x86_64 release-profile build measures 7,302,144
-  bytes. The exact Candidate must still pass its own size court; this local
+  bytes. The owner suspended release-blocking size comparisons for this
+  release; exact Candidate byte counts remain required evidence and this local
   measurement is not a substitute for its sealed artifact evidence.
 - [x] Cargo target inventory remains an exact, bounded walk without sending
   every file or a large directory listing through the Script bridge. Candidate

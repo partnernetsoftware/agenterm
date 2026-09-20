@@ -1,4 +1,4 @@
-// Verify staged executable roles, budgets, provenance, and offline catalogs.
+// Verify staged executable roles, size observations, provenance, and offline catalogs.
 //
 // Args:
 //   REPO [release|development]
@@ -83,11 +83,9 @@ for (const artifact of manifest.executables) {
   rh.require(rh.exists(path), "artifact_missing:" + artifact_name);
   if (release === 1) {
     const actual_bytes = rh.metadata(path).len;
-    const budget_bytes = Number(artifact.release_budget_bytes);
-    rh.require(
-      actual_bytes <= budget_bytes,
-      "artifact_release_budget:" + artifact_name + ":actual=" + actual_bytes + ":budget=" + budget_bytes
-    );
+    rh.require(actual_bytes > 0, "artifact_empty:" + artifact_name);
+    print("RELEASE SIZE executable=" + artifact_name + " actual_bytes=" + actual_bytes
+      + " reference_budget_bytes=" + Number(artifact.release_budget_bytes));
   }
   let metadata_matches = 0;
   for (const meta_entry of metadata.executables) {
@@ -113,11 +111,9 @@ for (const library of manifest.libraries) {
   rh.require(rh.exists(path), "artifact_library_missing:" + library_name);
   if (release === 1) {
     const actual_bytes = rh.metadata(path).len;
-    const budget_bytes = Number(library.release_budget_bytes);
-    rh.require(
-      actual_bytes <= budget_bytes,
-      "artifact_library_release_budget:" + library_name + ":actual=" + actual_bytes + ":budget=" + budget_bytes
-    );
+    rh.require(actual_bytes > 0, "artifact_library_empty:" + library_name);
+    print("RELEASE SIZE library=" + library_name + " actual_bytes=" + actual_bytes
+      + " reference_budget_bytes=" + Number(library.release_budget_bytes));
   }
   let metadata_matches = 0;
   for (const meta_entry of metadata.libraries) {
@@ -249,6 +245,6 @@ rh.try_remove_file(stdout_path);
 
 print(
   "PASS: verified " + expected_count + " staged executables and " + expected_library_count
-    + " typed libraries, hashes, budgets, and offline catalogs"
+    + " typed libraries, hashes, size observations, and offline catalogs"
 );
 return;
