@@ -112,3 +112,7 @@ jobs:
             ${{ runner.temp }}/agenterm-survey.log
             target/qualification/timing.json
             target/smoke/*.png
+            # Each failing smoke gate names a FAILURE BUNDLE directory; a
+            # survey exists to collect every failure at once, so it must carry
+            # every bundle out with it.
+            target/smoke/test-runs/**

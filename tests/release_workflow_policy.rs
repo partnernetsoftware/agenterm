@@ -2512,3 +2512,40 @@ fn the_quality_gate_survey_workflow_can_never_produce_release_bytes() {
         "the survey workflow should still restore the Candidate cache"
     );
 }
+
+/// A failing smoke gate prints `FAILURE BUNDLE <dir>` and that directory is the
+/// only record of what the harness observed. A workflow that uploads the gate
+/// log without the bundle hands a reader an exception string and nothing to
+/// diagnose from, which costs another full round to recover -- the exact cost
+/// this repository spent thirteen rounds on today.
+///
+/// Reverse control: remove the bundle path from either workflow and this fails.
+#[test]
+fn a_failed_smoke_gate_carries_its_failure_bundle_out_of_ci() {
+    const BUNDLE_PATH: &str = "target/smoke/test-runs/**";
+    let candidate = include_str!("../.github/workflows/candidate.yml").replace("\r\n", "\n");
+    let survey =
+        include_str!("../.github/workflows/windows-survey-diagnostic.yml").replace("\r\n", "\n");
+
+    for (name, text) in [("candidate.yml", &candidate), ("survey", &survey)] {
+        assert!(
+            text.contains(BUNDLE_PATH),
+            "{name} must upload the smoke failure bundle directory, not just the log"
+        );
+    }
+
+    // The bundle is worthless if it is collected by a step that only runs on
+    // success: the bundle exists precisely when the gate failed.
+    let upload = candidate
+        .split_once("name: Upload failed quality-gate diagnostics")
+        .expect("candidate.yml must still upload failure diagnostics")
+        .1;
+    let upload_block = upload
+        .split_once(BUNDLE_PATH)
+        .expect("the bundle path must be inside that upload step")
+        .0;
+    assert!(
+        upload_block.contains("if: failure()"),
+        "the failure-diagnostics upload must be conditioned on failure"
+    );
+}

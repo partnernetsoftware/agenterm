@@ -258,6 +258,12 @@ jobs:
             ${{ runner.temp }}/agenterm-theme-*.png
             ${{ runner.temp }}/agenterm-proxy-eye-*.png
             target/smoke/*.png
+            # A failing smoke gate names its FAILURE BUNDLE directory in the
+            # log and that directory holds the only record of what the harness
+            # actually observed. Collecting the log without it leaves a reader
+            # with the exception text and nothing to diagnose from, which costs
+            # a whole 45-minute round to recover.
+            target/smoke/test-runs/**
 
       - name: Publish Candidate quality timing summary
         # A4: the timing-summary task appends the per-gate table to GITHUB_STEP_SUMMARY
