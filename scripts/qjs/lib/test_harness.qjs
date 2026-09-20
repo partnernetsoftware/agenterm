@@ -990,7 +990,12 @@ export function host_is_windows() {
 // to it, failing early if the child leaves. The Windows lane never needed
 // this (the CLI autostarts there); every other host does.
 export function wait_for_spawned_server(context, cli, server) {
-  for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
+  // A readiness guard rail, not a startup-latency contract: this returns as
+  // soon as the server answers and fails immediately if it exits, so the only
+  // thing the bound decides is how long a genuinely hung server takes to be
+  // called hung. Ten seconds is not enough for a cold GUI-subsystem binary on
+  // a loaded Windows runner.
+  for (let attempt = 0; attempt < 1200; attempt = attempt + 1) {
     const probe = run_cli(context, cli, ["protocol-info", "--running"], 0, []);
     if (probe.success) { return JSON.parse(probe.stdout); }
     if (state(server) === "exited") {

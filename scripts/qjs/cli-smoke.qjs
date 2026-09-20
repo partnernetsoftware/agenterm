@@ -261,14 +261,27 @@ if (!windows_host) {
 }
 
 try {
-  if (!windows_host) {
-    print("STEP start the independent server (the CLI autostarts one on Windows only)");
-    const server = harness.start(
-      harness.configured_spec(context, gui_exe, ["server", "--address", context.address])
-    );
-    owned_children.push(server);
-    harness.wait_for_spawned_server(context, cli, server);
-  }
+  // The suite owns its server on every host, Windows included.
+  //
+  // Windows used to be left to the CLI's autostart, which was fine while the
+  // host granted job breakaway: the autostarted server left the launching CLI's
+  // job and outlived it. GitHub's windows-latest now denies breakaway, and the
+  // product says so plainly -- "started inside the caller's process job ... it
+  // may stop when that owning job closes". It then does: the first command
+  // succeeds, the launching CLI exits, its job closes, and the next command one
+  // second later gets ConnectTimeout. Depending on an autostarted server
+  // outliving its launcher is depending on something the product never promises
+  // on such a host.
+  //
+  // This costs no coverage of the fallback itself: `startup-smoke` asserts that
+  // exact guidance text, so the denied-breakaway path stays gated there, where
+  // it is the subject rather than a precondition.
+  print("STEP start the independent server this suite owns");
+  const server = harness.start(
+    harness.configured_spec(context, gui_exe, ["server", "--address", context.address])
+  );
+  owned_children.push(server);
+  harness.wait_for_spawned_server(context, cli, server);
 
   print("STEP create tab and prove request receipt replay");
   text(context, cli, ["new-window", "-d", "-n", name]);
