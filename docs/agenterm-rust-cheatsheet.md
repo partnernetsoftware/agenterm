@@ -226,6 +226,18 @@ test owns repository metadata, accept an explicit runtime evidence root and
 copy only the bounded contract/fixture bundle into the target court; ordinary
 in-checkout execution may retain the manifest-directory fallback.
 
+The current `agenterm --all-features` Windows test target cannot be produced
+by `cargo xwin test --no-run` on macOS: enabling optional `script-lua` selects
+vendored LuaJIT, whose `luajit-src` MSVC build invokes `msvcbuild.bat` and
+requires `cl.exe` from the Visual Studio registry. The attempt fails at
+`mlua-sys` with `failed to find cl` before test executables exist. A green
+cross-build of the default QJS feature set does not prove the optional Lua
+feature: `cargo xwin test --locked --target x86_64-pc-windows-msvc -p agenterm
+-p agenterm-ui-core --no-run` did produce the default-feature Windows test
+executables. Keep the optional Lua Windows evidence separately named until
+that toolchain boundary is solved. Do not remove `--all-features` from an
+existing gate and reuse its evidence ID as if the same assertion had run.
+
 A wrapper crate's `env!("CARGO_PKG_VERSION")` names the wrapper, not the product
 whose output it presents. When a monolith and a dynamic provider must emit the
 same product identity, keep the formatted text in the product library and have
