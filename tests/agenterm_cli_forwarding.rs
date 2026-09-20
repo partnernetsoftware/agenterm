@@ -6,8 +6,11 @@ use std::{
     process::{Command, Stdio},
 };
 
+#[path = "support/relocated.rs"]
+mod relocated;
+
 fn agenterm_executable() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_agenterm"))
+    relocated::binary("agenterm")
 }
 
 #[test]

@@ -2,8 +2,11 @@
 
 use std::{fs, path::PathBuf, process::Command};
 
+#[path = "support/relocated.rs"]
+mod relocated;
+
 fn launcher() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_agenterm-com"))
+    relocated::binary("agenterm-com")
 }
 
 #[test]

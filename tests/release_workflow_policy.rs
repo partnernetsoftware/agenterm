@@ -179,6 +179,21 @@ fn mcp_test_cli_path_is_runtime_relocatable() {
 }
 
 #[test]
+fn windows_forwarding_tests_resolve_binaries_from_the_runtime_bundle() {
+    let resolver = include_str!("support/relocated.rs");
+    assert!(resolver.contains("AGENTERM_TEST_BIN_DIR"));
+    for (source, name) in [
+        (include_str!("agenterm_cli_forwarding.rs"), "agenterm"),
+        (include_str!("agenterm_com_forwarding.rs"), "agenterm-com"),
+        (include_str!("agenterm_tui_forwarding.rs"), "agenterm-com"),
+    ] {
+        assert!(source.contains("mod relocated;"));
+        assert!(source.contains(&format!("relocated::binary(\"{name}\")")));
+        assert!(!source.contains("env!(\"CARGO_BIN_EXE_"));
+    }
+}
+
+#[test]
 fn target_inventory_keeps_default_host_ops_and_matches_its_outer_timeout() {
     let budget = &TASKS["contracts"]["target-report"]["budget"];
     assert_eq!(budget["timeout_ms"], 120_000);
