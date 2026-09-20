@@ -229,3 +229,39 @@ fn wait_for_original_exit(id: u32, identity: &str) {
         }
     }
 }
+
+/// A child that finishes before the guard attaches must not fail the spawn.
+///
+/// `getpgid` cannot tell an unreaped zombie from a pid that never existed --
+/// both answer `ESRCH` -- so a command fast enough to exit between `spawn` and
+/// `attach` used to be reported as `owned process-group read failed`, failing
+/// a command that had in fact succeeded. A Candidate's macOS packaging step hit
+/// this spawning `chmod`, intermittently and only under load.
+///
+/// The reverse control is the assertion on `terminate`: tolerating `ESRCH` is
+/// only sound because the resulting guard owns nothing. If `attach` ever
+/// returned an *active* guard here it would hold a process group it never
+/// verified, and a later `terminate` could signal a recycled pid's group.
+#[test]
+fn a_child_that_finishes_before_attach_yields_a_guard_that_owns_nothing() {
+    let mut command = Command::new("/usr/bin/true");
+    process::configure_owned_command(&mut command).expect("configure child group");
+    let mut child = command.spawn().expect("spawn short-lived child");
+
+    // Deterministic, not a race: wait for the exit, and deliberately do NOT
+    // reap, so the pid is exactly the zombie case `attach` has to tolerate.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        assert!(Instant::now() < deadline, "child never exited");
+        match child.try_wait().expect("poll short-lived child") {
+            Some(_) => break,
+            None => std::thread::sleep(Duration::from_millis(10)),
+        }
+    }
+
+    let mut guard = ProcessTreeGuard::attach(&child)
+        .expect("a finished child must not be reported as a failed spawn");
+    guard
+        .terminate()
+        .expect("terminating a guard that owns nothing must succeed");
+}

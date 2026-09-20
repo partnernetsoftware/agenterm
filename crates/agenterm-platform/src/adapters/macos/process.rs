@@ -833,6 +833,10 @@ struct AdoptedTerminationMember {
     reference: crate::process_reference::ProcessReference,
 }
 
+/// `getpgid` answered `ESRCH`: no live process bears this id. Only `attach`,
+/// which still holds the unreaped child, may read this as "already finished".
+const ALREADY_FINISHED: &str = "owned process has already finished";
+
 pub(crate) fn configure_owned_command(command: &mut Command) -> Result<(), String> {
     use std::os::unix::process::CommandExt;
     unsafe {
@@ -848,8 +852,44 @@ pub(crate) fn configure_owned_command(command: &mut Command) -> Result<(), Strin
 }
 
 impl ProcessTreeGuard {
+    /// Retain a child the caller still owns as an unreaped `Child`.
+    ///
+    /// A short-lived child can finish between `spawn` and this call, and on
+    /// macOS `getpgid` cannot tell an unreaped zombie from a pid that never
+    /// existed -- both answer `ESRCH` (verified: a forked child that has exited
+    /// but not been waited for reads exactly like one already reaped). Treating
+    /// that as a spawn failure fails commands that in fact succeeded; a
+    /// Candidate's macOS packaging step failed exactly this way spawning
+    /// `chmod`, intermittently and only under load.
+    ///
+    /// Tolerating `ESRCH` is safe *here and only here*: the caller holds the
+    /// unreaped `Child`, so the kernel cannot have recycled that pid, and the
+    /// only thing `ESRCH` can mean is that the child already finished. A child
+    /// that finished has no process group left to contain, so the guard owns
+    /// nothing and every operation on it is already a no-op.
+    ///
+    /// `attach_pid` keeps refusing: its caller has no `Child`, so there the
+    /// same `ESRCH` genuinely cannot be distinguished from a recycled pid.
     pub fn attach(child: &Child) -> Result<Self, String> {
-        Self::attach_pid(child.id())
+        match Self::attach_pid(child.id()) {
+            Err(reason) if reason == ALREADY_FINISHED => Ok(Self::already_finished()),
+            other => other,
+        }
+    }
+
+    /// A guard over a child that finished before it could be contained.
+    ///
+    /// `active: false` is the existing spelling for "owns nothing": `terminate`
+    /// already returns `Ok(())` on it without signalling anything.
+    fn already_finished() -> Self {
+        Self {
+            process_group: 0,
+            owned_session: 0,
+            root_start_identity: None,
+            adopted: false,
+            adopted_termination: None,
+            active: false,
+        }
     }
 
     /// Retain an already-created, current-user root by numeric id.
@@ -872,10 +912,14 @@ impl ProcessTreeGuard {
             .map_err(|_| "child process ID exceeds pid_t".to_owned())?;
         let native_group = unsafe { libc::getpgid(process_group) };
         if native_group < 0 {
-            return Err(format!(
-                "owned process-group read failed: {}",
-                std::io::Error::last_os_error()
-            ));
+            let error = std::io::Error::last_os_error();
+            // Distinguished so `attach` -- which holds the unreaped child and
+            // therefore knows the pid cannot be recycled -- can read it as
+            // "already finished" instead of "spawn failed".
+            if error.raw_os_error() == Some(libc::ESRCH) {
+                return Err(ALREADY_FINISHED.to_owned());
+            }
+            return Err(format!("owned process-group read failed: {error}"));
         }
         if native_group != process_group {
             return Err("owned process must be its process-group leader".to_owned());
