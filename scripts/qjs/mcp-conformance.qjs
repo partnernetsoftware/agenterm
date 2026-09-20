@@ -34,12 +34,12 @@ const code = rh.command_stdout_file(
     }
   }
 );
-rh.require(code === 0, "mcp-conformance");
-const stdout = rh.read_text(stdout_path);
+const stdout = rh.exists(stdout_path) ? rh.read_text(stdout_path) : "";
 rh.try_remove_file(stdout_path);
 if (stdout !== "") {
   print(stdout);
 }
+rh.require(code === 0, "mcp-conformance:exit=" + code);
 print(
   "PASS: candidate-bound public MCP lifecycle, same-source, wait, fault, privacy, and isolation"
 );

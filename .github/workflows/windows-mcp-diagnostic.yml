@@ -1,0 +1,41 @@
+name: Windows MCP Diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact main commit to diagnose; this workflow cannot qualify a release
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  mcp-stdio:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+
+      - name: Verify exact source
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Build the console forwarder
+        shell: bash
+        run: |
+          cargo build --locked --bin agenterm-com
+          cp target/debug/agenterm-com.exe target/debug/agenterm.com
+
+      - name: Run the exact public MCP test target
+        shell: bash
+        env:
+          AGENTERM_NO_ACTIVATE: "1"
+          AGENTERM_MCP_CLI: target/debug/agenterm.com
+        run: cargo test --quiet --locked --test mcp_stdio -- --nocapture
