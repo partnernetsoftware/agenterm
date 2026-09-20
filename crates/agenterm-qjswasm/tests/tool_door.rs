@@ -1325,7 +1325,11 @@ fn process_read_hands_out_output_as_it_arrives_and_wait_still_has_all_of_it() {
         r#"
         let h = process_spawn(JSON.stringify({ program: "sh", args: ["-c", "echo a; sleep 0.4; echo b"] }));
         let first = "";
-        for (let i = 0; i < 40; i = i + 1) {
+        // A guard rail against hanging, not a latency contract: the assertion
+        // below is on what was read, never on how soon. 40 x 25ms left one
+        // second for a `sh` to start, which a loaded runner does not always
+        // manage.
+        for (let i = 0; i < 400; i = i + 1) {
             if (process_read(h, 4096) !== 0) { return "read: " + tool_result(); }
             let r = JSON.parse(tool_result());
             first = first + r.stdout;
@@ -1483,7 +1487,9 @@ fn unlocked_lock_handles_remain_tombstones_across_engine_calls() {
     let source = format!(
         r#"
         let h = -1;
-        for (let attempt = 0; attempt < 40 && h < 0; attempt = attempt + 1) {{
+        // Same reasoning: contention is expected to clear, and the budget is
+        // only here so a genuine deadlock still ends the test.
+        for (let attempt = 0; attempt < 400 && h < 0; attempt = attempt + 1) {{
             h = fs_try_lock_exclusive({path});
             if (h < 0) {{
                 const error = tool_result();

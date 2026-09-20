@@ -189,3 +189,64 @@ fn allowlists_are_live_and_disjoint() {
         );
     }
 }
+
+/// Every relayed UI command one host serves, the other must serve too.
+///
+/// The same duplication this file exists for produced a second drift, in
+/// dispatch rather than in keys. `77df1f84c` moved Windows `screenshot-pane` /
+/// `screenshot-tab` handling out of the relay's command table into an earlier
+/// branch, but gated that branch on `--json` as well as on the command name.
+/// The handler already decides its own reply shape from the arguments, so the
+/// extra condition did nothing except route the plain form back to the command
+/// table -- which only knows `screenshot`. A relayed `screenshot-pane` without
+/// `--json` then failed as `unsupported relayed UI command`, and four smoke
+/// gates (cli, remote-ui, fleet, script) failed with it, for seventeen days.
+///
+/// The gate is parity, not a hard-coded list: whatever screenshot spellings the
+/// unix frontend accepts, the Windows relay must dispatch, and it must not
+/// condition that dispatch on an optional output flag.
+#[test]
+fn every_screenshot_spelling_the_unix_frontend_accepts_the_windows_relay_dispatches() {
+    const UNIX: &str = include_str!("../src/platform/adapters/unix/frontend/mod.rs");
+    const WINDOWS: &str = include_str!("../src/platform/adapters/windows/remote_frontend.rs");
+
+    let unix_arm = UNIX
+        .split_once("Some(\"screenshot\")")
+        .expect("the unix frontend must still accept screenshot commands")
+        .1
+        .split_once(')')
+        .expect("that pattern must be closed")
+        .0;
+    let mut expected = vec!["screenshot"];
+    for spelling in ["screenshot-pane", "screenshot-tab"] {
+        if unix_arm.contains(spelling) {
+            expected.push(spelling);
+        }
+    }
+    assert!(
+        expected.len() > 1,
+        "the unix pattern shape changed; re-read it before trusting this gate"
+    );
+
+    for spelling in &expected {
+        assert!(
+            WINDOWS.contains(&format!("\"{spelling}\"")),
+            "the Windows relay never names {spelling}"
+        );
+    }
+
+    // The aliases are dispatched by name alone. A guard that also requires an
+    // optional flag silently sends the other form to the command table, which
+    // is exactly how this regression shipped.
+    let guard = WINDOWS
+        .split_once("matches!(command_name, Some(\"screenshot-pane\" | \"screenshot-tab\"))")
+        .expect("the relay must dispatch both aliases by name")
+        .1
+        .split_once('{')
+        .expect("that branch must open a block")
+        .0;
+    assert!(
+        !guard.contains("--json"),
+        "relayed screenshot dispatch must not depend on --json: {guard:?}"
+    );
+}

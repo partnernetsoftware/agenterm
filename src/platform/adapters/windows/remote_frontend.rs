@@ -1234,9 +1234,14 @@ impl RemoteWindowState {
                 self.last_error = Some(response.error.clone());
             }
             response
-        } else if matches!(command_name, Some("screenshot-pane" | "screenshot-tab"))
-            && command.args.iter().any(|argument| argument == "--json")
-        {
+        // Both replies route here, not just `--json`. The handler already
+        // decides the shape from the arguments itself (`json_reply`), and
+        // gating dispatch on `--json` as well sent the plain form to
+        // `execute_client_command`, whose command table only knows
+        // `screenshot`: a relayed `screenshot-pane` without `--json` failed as
+        // `unsupported relayed UI command`. Before 77df1f84c moved this
+        // handling out of that table, one arm served both forms.
+        } else if matches!(command_name, Some("screenshot-pane" | "screenshot-tab")) {
             let response = self.execute_pane_screenshot_command(&command.args);
             if !response.ok {
                 self.last_error = Some(response.error.clone());
