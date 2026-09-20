@@ -2675,3 +2675,82 @@ fn a_gate_outlasts_the_children_it_spawns() {
         "the gate allows {gate_ms} ms but may spend {runs} x {child_ms} ms on children"
     );
 }
+
+/// `rh.join` takes exactly two paths and ignores anything further.
+///
+/// A third argument is dropped in silence, so `rh.join(repo, "dist", name)`
+/// yields `<repo>/dist` -- a directory that exists, which means the usual
+/// `rh.require(rh.exists(path))` guard passes and the wrong path travels on.
+/// `package-six-cell-delivery` carried two of these on the delivery path, and
+/// the same mistake in `native-ipc-compat-smoke` produced
+/// `C:\Windows/System32` and a missing-executable failure that named a
+/// directory.
+///
+/// Reverse control: write a three-argument `rh.join` anywhere under
+/// `scripts/qjs` and this fails.
+#[test]
+fn no_script_calls_rh_join_with_a_third_argument() {
+    fn top_level_commas(arguments: &str) -> usize {
+        let mut depth = 0i32;
+        let mut commas = 0;
+        for byte in arguments.chars() {
+            match byte {
+                '(' | '[' => depth += 1,
+                ')' | ']' => depth -= 1,
+                ',' if depth == 0 => commas += 1,
+                _ => {}
+            }
+        }
+        commas
+    }
+
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/qjs");
+    let mut offenders = Vec::new();
+    let mut stack = vec![root];
+    while let Some(directory) = stack.pop() {
+        for entry in std::fs::read_dir(&directory).expect("scripts/qjs must be readable") {
+            let path = entry.expect("readable entry").path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("qjs") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("readable script");
+            for (number, line) in source.lines().enumerate() {
+                let mut rest = line;
+                while let Some(position) = rest.find("rh.join(") {
+                    rest = &rest[position + "rh.join(".len()..];
+                    // Only the arguments of this call: stop at its closer.
+                    let mut depth = 1i32;
+                    let end = rest
+                        .char_indices()
+                        .find(|(_, c)| {
+                            match c {
+                                '(' => depth += 1,
+                                ')' => depth -= 1,
+                                _ => {}
+                            }
+                            depth == 0
+                        })
+                        .map(|(index, _)| index);
+                    let Some(end) = end else { continue };
+                    if top_level_commas(&rest[..end]) >= 2 {
+                        offenders.push(format!(
+                            "{}:{}: {}",
+                            path.file_name().and_then(|n| n.to_str()).unwrap_or("?"),
+                            number + 1,
+                            line.trim()
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "rh.join takes two paths; a third is dropped silently:\n{}",
+        offenders.join("\n")
+    );
+}

@@ -89,7 +89,7 @@ for (const cell of cells) {
   }
   const extension = os_name === "linux" ? ".tar.gz" : ".zip";
   const archive_name = "agenterm-" + version + "-" + os_name + "-" + arch + extension;
-  const archive_path = rh.join(repo, "dist", archive_name);
+  const archive_path = rh.join(rh.join(repo, "dist"), archive_name);
   const checksum_path = archive_path + ".sha256";
   rh.require(rh.exists(archive_path), "package_six_cell_archive_missing:" + archive_path);
   rh.require(rh.exists(checksum_path), "package_six_cell_checksum_missing:" + checksum_path);
@@ -116,7 +116,7 @@ if (pack_ape !== 0) {
     const loader_path = rh.join(repo, "research/agenterm-com-loader/dist/agenterm-ape-loader");
     if (pack_out.success && rh.exists(ape_path)) {
       const ape_name = "agenterm-ape.com";
-      const ape_dist = rh.join(repo, "dist", ape_name);
+      const ape_dist = rh.join(rh.join(repo, "dist"), ape_name);
       rh.copy(ape_path, ape_dist);
       const ape_hash = rh.sha256_file(ape_dist);
       rh.atomic_write(ape_dist + ".sha256", ape_hash + "  " + ape_name + "\n");
