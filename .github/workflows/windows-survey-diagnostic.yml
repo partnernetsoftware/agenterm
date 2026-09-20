@@ -75,27 +75,37 @@ jobs:
       # that either seals or does not. A survey deliberately runs long, and a
       # reader who cannot see which gate it is on until the whole thing ends
       # has no way to tell progress from a hang.
+      # Streamed, not buffered. The Candidate cell writes the gate output to a
+      # file and `type`s it at the end, which is fine for a 45-minute round
+      # that either seals or does not. A survey deliberately runs long, and a
+      # reader who cannot see which gate it is on until the whole thing ends
+      # has no way to tell progress from a hang.
+      #
+      # Git Bash, not PowerShell: `tee` streams and writes the log in one pass,
+      # and the PowerShell migration ledger is right to refuse a new dependency
+      # here for a convenience that bash already provides.
       - name: Survey the full release quality gate
-        shell: pwsh
+        shell: bash
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
           ONLY_GATES: ${{ inputs.only }}
           AGENTERM_SCRIPT_WORKER_STDERR: inherit
         run: |
-          $ErrorActionPreference = 'Continue'
-          $log = Join-Path $env:RUNNER_TEMP 'agenterm-survey.log'
-          $head = (git rev-parse HEAD).Trim()
-          if ($head -ne $env:SOURCE_SHA) {
-            Write-Host "Checked-out HEAD $head does not match requested SHA $env:SOURCE_SHA."
+          set -uo pipefail
+          log="${RUNNER_TEMP}/agenterm-survey.log"
+          head="$(git rev-parse HEAD)"
+          if [[ "$head" != "$SOURCE_SHA" ]]; then
+            echo "Checked-out HEAD $head does not match requested SHA $SOURCE_SHA."
             exit 1
-          }
-          git switch -C main $env:SOURCE_SHA
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          $gateArgs = @('--release', '--include-stress', '--survey')
-          if ($env:ONLY_GATES) { $gateArgs += @('--only', $env:ONLY_GATES) }
-          $gateArgs += @('--timing', 'target/qualification/timing.json')
-          & cmd.exe /c "check.cmd $($gateArgs -join ' ')" 2>&1 | Tee-Object -FilePath $log
-          exit $LASTEXITCODE
+          fi
+          git switch -C main "$SOURCE_SHA" || exit 1
+          gate_args="--release --include-stress --survey"
+          if [[ -n "${ONLY_GATES}" ]]; then
+            gate_args="$gate_args --only ${ONLY_GATES}"
+          fi
+          gate_args="$gate_args --timing target/qualification/timing.json"
+          cmd.exe //c "check.cmd $gate_args" 2>&1 | tee "$log"
+          exit "${PIPESTATUS[0]}"
 
       - name: Summarize the surveyed failures
         if: always()

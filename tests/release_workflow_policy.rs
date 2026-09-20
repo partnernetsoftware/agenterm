@@ -2503,7 +2503,7 @@ fn the_quality_gate_survey_workflow_can_never_produce_release_bytes() {
     // Survey mode is not optional in this workflow, and there must be exactly
     // one invocation so no branch can reach the gate without it.
     assert!(
-        survey.contains("$gateArgs = @('--release', '--include-stress', '--survey')"),
+        survey.contains("gate_args=\"--release --include-stress --survey\""),
         "the survey workflow must always pass --survey"
     );
     assert_eq!(
