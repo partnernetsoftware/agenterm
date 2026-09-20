@@ -2139,3 +2139,35 @@ fn the_exempt_authenticode_inspector_is_never_invoked_by_automation() {
          automation after all and the PowerShell ledger exemption no longer holds: {invokers:?}"
     );
 }
+
+/// The release artifact build is strictly more work than the release-fast
+/// fixture roots it shares a toolchain with, so it can never legitimately be
+/// given a smaller runaway budget. These budgets are guards against a hung
+/// build, not contracts about how fast a hosted runner happens to be that day;
+/// a runner 1.5x slower than the last one already took the artifact build from
+/// 399s through a 600s ceiling once.
+#[test]
+fn the_release_artifact_build_is_never_budgeted_below_its_fixture_prebuild() {
+    fn budget(source: &str, needle: &str) -> u64 {
+        let tail = source
+            .split_once(needle)
+            .unwrap_or_else(|| panic!("check.qjs no longer contains {needle}"))
+            .1;
+        let digits: String = tail
+            .chars()
+            .skip_while(|c| !c.is_ascii_digit())
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        digits.parse().expect("a numeric budget")
+    }
+    let fixture = budget(
+        &CHECK_QJS,
+        "\"build\", \"--locked\", \"--profile\", \"release-fast\"",
+    );
+    let artifact = budget(&CHECK_QJS, "return release !== 0 ? ");
+    assert!(
+        artifact >= fixture,
+        "the release artifact build is budgeted {artifact} ms but the smaller \
+         release-fast fixture prebuild gets {fixture} ms"
+    );
+}

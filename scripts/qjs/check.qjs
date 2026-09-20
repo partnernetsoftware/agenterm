@@ -534,8 +534,17 @@ function cargo_unit_lua_spec(environment) {
   ], 300000, environment, 0);
 }
 
+// This gate asserts that the release artifact builds, not that it builds
+// inside some particular minute. The budget is a runaway guard, and it had no
+// margin against runner variance: on 2026-09-20 a windows-latest runner ran
+// ~1.5x slower than the one before it (unit tests 503s -> 770s, the GUI
+// fixture 372s -> 582s), which took this build from 399s straight through the
+// 600s ceiling. Size it for the work on a slow runner instead, at the budget
+// the release-fast fixture roots already use for a cold Cargo build -- the
+// full release build is strictly more work than that fixture, so it can never
+// legitimately need less. tests/release_workflow_policy.rs pins that ordering.
 function build_artifact_timeout_ms(release) {
-  return release !== 0 ? 600000 : 300000;
+  return release !== 0 ? 900000 : 300000;
 }
 
 function build_artifact_profile(release) {
