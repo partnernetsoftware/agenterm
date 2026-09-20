@@ -109,6 +109,16 @@ function normalized_guidance(text) {
   return ("" + text).replaceAll("\r\n", "\n").trim();
 }
 
+function guidance_matches_host(guidance, pid, address) {
+  const expected = expected_guidance(pid, address);
+  const actual = normalized_guidance(guidance);
+  if (actual === expected) { return true; }
+  // A Windows host may deny Job breakaway. The launcher must say so rather
+  // than silently claiming that its server will outlive the caller's Job.
+  return windows && actual === expected
+    + "\nAgenTerm server started inside the caller's process job because Windows denied job breakaway; it may stop when that owning job closes.";
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   print("startup.first-window-async-ready");
@@ -183,7 +193,7 @@ try {
 
   const initial_guidance = read_until(gui, "More CLI commands: agenterm cli -h", 5000);
   harness.require(
-    normalized_guidance(initial_guidance) === expected_guidance(child_pid(gui), smoke_address),
+    guidance_matches_host(initial_guidance, child_pid(gui), smoke_address),
     "startup_inherited_stderr_guidance:" + initial_guidance
   );
 
@@ -220,7 +230,7 @@ try {
   harness.require(second_output.success, "startup_second_gui_exit:" + second_output.exit_code + ":" + second_output.stderr);
   const second_guidance = second_output.stderr;
   harness.require(
-    normalized_guidance(second_guidance) === expected_guidance(child_pid(second), smoke_address),
+    guidance_matches_host(second_guidance, child_pid(second), smoke_address),
     "startup_second_gui_guidance:" + second_guidance
   );
 
