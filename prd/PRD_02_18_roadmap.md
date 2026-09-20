@@ -10,6 +10,10 @@ The pre-v0.1.16 milestone ledger is preserved in
 
 Legend: `[x]` shipped, `[~]` partial, `[ ]` planned, `[-]` excluded.
 
+The user skipped v0.1.17 without public publication on 2026-09-20 and moved
+the active release train to v0.1.18. The v0.1.17 section below records the
+abandoned release objective, not a shipped prerequisite or a current gate.
+
 ## Markdown-tree DAG
 
 ```text
@@ -18,12 +22,12 @@ AgenTerm delivery after v0.1.16
 │  ├─ exact-SHA Candidate → no-rebuild Promotion → public audit
 │  ├─ qjswasm + tinyvm is the only live .qjs engine line
 │  └─ historical plan: plan/archive/plan-v0.1.16.md
-├─ [~] v0.1.17 — trusted, repeatable release
+├─ [-] v0.1.17 — skipped without public release on 2026-09-20
 │  ├─ copy MiniCon's proven stage boundaries, not its product code
 │  ├─ local six-cell + UTM/native evidence precedes provider spend
 │  ├─ protected Windows/macOS signing feeds a sealed Candidate
 │  └─ Defender/reputation + dry-run precede human Promotion
-├─ [ ] v0.1.18 — agent-operable desktop
+├─ [~] v0.1.18 — active agent-operable desktop train
 │  ├─ agenterm-cu current tier becomes a qualified distributable
 │  ├─ Win/macOS/Linux native accessibility journeys tell the truth
 │  ├─ authorization + audit gate every action; unsupported stays typed
@@ -60,8 +64,9 @@ flowchart LR
   DIST["0.2.x<br/>install · update · rollback"]
   HOLD["hold or cut leaf<br/>do not widen version"]
 
-  R17["v0.1.17<br/>trusted release path"]
-  V16 --> R17 --> CU
+  R17["v0.1.17<br/>skipped, unpublished"]
+  V16 --> CU
+  R17 -. historical release lessons .-> CU
   Q --> CU
   A11Y --> CU
   AUTH --> CU

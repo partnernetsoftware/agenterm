@@ -11,8 +11,8 @@ evidence plans. Completed or superseded material belongs in
 |---|---|
 | [`goal.md`](goal.md) | continuous dyn + qjswasm + CU development objective |
 | [`roadmap-0.1x-0.2x.md`](roadmap-0.1x-0.2x.md) | series dependency tree and memory palace |
-| [`plan-v0.1.17.md`](plan-v0.1.17.md) | active version: smooth dual-signed exact-SHA release path |
-| [`plan-v0.1.18.md`](plan-v0.1.18.md) | next version: CU product work plus evidence-led MiniCon/AgenTerm reuse decisions |
+| [`plan-v0.1.17.md`](plan-v0.1.17.md) | skipped, unpublished release-train record |
+| [`plan-v0.1.18.md`](plan-v0.1.18.md) | active version: CU product gates and one-cross-build release topology |
 | [`plan-v0.1.19.md`](plan-v0.1.19.md) | later draft: prove the fast-change Chassis boundary |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | sole living source map and boundary catalog |
 | [`goal-chassis-l1-l2-l3.md`](goal-chassis-l1-l2-l3.md) | Chassis implementation/evidence owner |

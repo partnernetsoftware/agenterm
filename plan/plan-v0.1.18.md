@@ -1,13 +1,15 @@
 # AgenTerm v0.1.18 — agent-operable desktop
 
-Status: **next-version plan; starts after v0.1.17 release closure**
+Status: **active version plan; v0.1.17 was skipped without publication**
 Product owner: [`prd/PRD_02_18_roadmap.md`](../prd/PRD_02_18_roadmap.md)
 Capability owners: PRD 28–32 and PRD 36
 
 The original v0.1.17 backlog remains archived and is not reused. On 2026-09-19
 the product owner assigned the version number to a new, narrow trusted-release
-train; this plan starts after that release and uses the two proven MiniCon and
-AgenTerm workflows as evidence for abstraction and reuse decisions.
+train. On 2026-09-20 the user stopped that train without publishing it and
+activated v0.1.18. This plan retains its own G0–G6 product and delivery gates;
+the unfinished single-cross-build / native-execute-only release topology is
+now a prerequisite of its Candidate, not evidence that v0.1.17 shipped.
 
 ## Outcome tree
 
@@ -71,20 +73,26 @@ flowchart LR
 | G3 authority | observe-only refuses mutation; granted action has matching audit attempt/result without sensitive payload | refuse action if grant or audit fails |
 | G4 script owner | every release-critical CU journey is `.qjs` and runs on qjswasm/tinyvm under bounded resources | dark Rh-era gate cannot count |
 | G5 packaging | each supported package contains exact `agenterm-cu` plus its matching dynamic library and metadata | package fails closed |
-| G6 delivery | exact Candidate executes on declared cells and Promotion rebuilds nothing | no tag or Release |
+| G6 delivery | one exact-SHA cross-build produces six target payloads; six architecture-checked native cells only execute and verify those bytes; Promotion rebuilds nothing | no tag or Release |
 
 ## Work order
 
-1. Reconcile PRD 28–32 and the public verb catalog with actual current-tier code.
-2. Close shared command/backend parity before adding new verbs.
+1. Close the release-topology gap before a Candidate: one macOS-hosted
+   cross-build produces all six payloads; native runtime cells verify their
+   OS/ISA and downloaded hashes without Cargo. Preserve the Windows quality
+   receipt and native tests. Compile-time test paths must be relocated with a
+   bounded runtime fixture root, never silently skipped or counted as another
+   host's PASS.
+2. Reconcile PRD 28–32 and the public verb catalog with actual current-tier code.
+3. Close shared command/backend parity before adding new verbs.
    Whole-window `activate` now has ABI 1.26 plus green macOS and active-lane
    Windows exact-handle read-back; the Linux native court still owns promotion.
-3. Port or retire every release-critical Rh-era script gate; do not preserve a
+4. Port or retire every release-critical Rh-era script gate; do not preserve a
    dark gate only to keep its name.
-4. Prove the three native journeys with capability-aware assertions. A backend
+5. Prove the three native journeys with capability-aware assertions. A backend
    that cannot publish a state returns a typed capability result; tests do not
    invent success.
-5. Seal packages and receipts, then run the exact-SHA Candidate contract.
+6. Seal packages and receipts, then run the exact-SHA Candidate contract.
 
 Formal Candidate dispatch and public Promotion follow
 `skills/agenterm-release/SKILL.md`; this plan grants neither authority.

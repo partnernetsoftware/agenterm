@@ -1,7 +1,7 @@
 # AgenTerm v0.1.17 — trusted, repeatable release
 
-Status: **active plan; implementation and Candidate work are authorized, public
-Promotion is not**
+Status: **skipped without a public v0.1.17 release on 2026-09-20; retained as
+the record of the attempted release train**
 Product owner: [`prd/PRD_02_18_roadmap.md`](../prd/PRD_02_18_roadmap.md)
 Delivery owner: [`prd/PRD_02_17_delivery_quality.md`](../prd/PRD_02_17_delivery_quality.md)
 
@@ -10,6 +10,11 @@ never started. The product owner reopened the number on 2026-09-19 for a new,
 narrow outcome: make AgenTerm's development-to-release path as smooth,
 repeatable and fail-closed as MiniCon's proven path. None of the archived
 v0.1.17 backlog is revived by this decision.
+
+On 2026-09-20 the user stopped this train before Candidate closure and directed
+work to v0.1.18. No v0.1.17 Candidate was promoted or published. The unfinished
+release-topology work is owned by the active v0.1.18 plan; the attempted run
+history here remains historical evidence, not a prerequisite to start it.
 
 ## Outcome tree
 

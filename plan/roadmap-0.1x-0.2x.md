@@ -8,11 +8,11 @@ Product owner: [`prd/PRD_02_18_roadmap.md`](../prd/PRD_02_18_roadmap.md)
 ```text
 0.1.x — make today's product controllable and tomorrow's changes cheaper
 ├─ [x] 0.1.16 reproducible six-cell baseline
-├─ [~] 0.1.17 trusted, repeatable release
+├─ [-] 0.1.17 trusted-release train skipped without publication
 │  ├─ local fast loop → six-cell build → UTM/native courts
 │  ├─ protected Windows and macOS signing stages
 │  └─ sealed Candidate → reputation → dry-run → human Promotion
-├─ [ ] 0.1.18 agent-operable desktop
+├─ [~] 0.1.18 active agent-operable desktop train
 │  ├─ agenterm-cu current tier qualified on Win/macOS/Linux
 │  ├─ native accessibility + shared verbs + grant/audit contract
 │  ├─ qjswasm owns release-critical .qjs journeys
@@ -35,7 +35,7 @@ Product owner: [`prd/PRD_02_18_roadmap.md`](../prd/PRD_02_18_roadmap.md)
 ```mermaid
 flowchart LR
   R16["0.1.16<br/>six-cell release truth"]
-  R17["0.1.17<br/>trusted release path"]
+  R17["0.1.17<br/>skipped, unpublished"]
   CU["0.1.18<br/>agent-operable desktop"]
   Q["qjswasm + tinyvm<br/>journey logic"]
   P["agenterm-platform + libagenterm<br/>native mechanisms"]
@@ -47,7 +47,8 @@ flowchart LR
   K{"owning black-box<br/>evidence green?"}
   CUT["hold or cut leaf"]
 
-  R16 --> R17 --> CU
+  R16 --> CU
+  R17 -. historical release lessons .-> CU
   Q & P --> CU
   CU --> K
   K -->|yes| CH --> CL --> CC --> D --> H
@@ -58,7 +59,7 @@ flowchart LR
 
 | Version | One user result | Hard evidence | First exclusions |
 |---|---|---|---|
-| 0.1.17 | one source SHA moves smoothly to dual-signed trusted release bytes | six-cell/UTM receipts; Windows and macOS signing courts; sealed Candidate; dry-run Promotion | new product families, CU expansion, shared MiniCon framework |
+| 0.1.17 (skipped) | attempted trusted-release train; no public result | no sealed Candidate or Promotion claimed | historical record only |
 | 0.1.18 | one distributable agent can observe and control the current desktop across three hosts | native UIA/AX/AT-SPI2 journeys; grant/audit; qjswasm gate; exact packages | full remote tiers, planner/model, CC, Chassis migration |
 | 0.1.19 | product-logic changes no longer rebuild six native bases | unchanged L1 digests; no-Cargo compose; ABI rejection and last-good recovery | JIT/compiler, OTA, marketplace, PTY scripting |
 | 0.1.20 | accumulated parity and truth-ledger debt is closed | selected three-host black boxes; PRD/alignment/catalog zero drift | new products and speculative engines |
@@ -66,9 +67,9 @@ flowchart LR
 
 ## Sequencing rules
 
-1. v0.1.17 closes the operational release path before v0.1.18 expands product
-   scope. Cross-repository reuse is a v0.1.18 decision backed by the completed
-   MiniCon and AgenTerm paths, not a v0.1.17 prerequisite.
+1. v0.1.17 was skipped without publication on 2026-09-20. v0.1.18 owns the
+   unfinished release-topology work as well as its own product gates; no
+   v0.1.17 success may be inferred from the attempted Candidate runs.
 2. v0.1.18 closes before v0.1.19 becomes active; Chassis research may continue
    independently but cannot redefine the active release outcome.
 3. v0.1.19 must prove the time-folding claim quantitatively. If an L2/L3-only

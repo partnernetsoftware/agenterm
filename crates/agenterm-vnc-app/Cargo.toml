@@ -1,6 +1,6 @@
 [package]
 name = "agenterm-vnc-app"
-version = "0.1.17"
+version = "0.1.18"
 edition = "2024"
 rust-version = "1.97"
 description = "Agenterm VNC client: a Tauri 2 shell over the agenterm-vnc session mechanism"

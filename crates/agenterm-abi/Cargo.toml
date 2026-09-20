@@ -1,6 +1,6 @@
 [package]
 name = "agenterm-abi"
-version = "0.1.17"
+version = "0.1.18"
 edition = "2024"
 rust-version = "1.97"
 description = "libagenterm — thin C ABI export shell (mechanism boundary, not product authority)"
