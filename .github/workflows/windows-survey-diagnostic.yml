@@ -22,6 +22,15 @@ on:
         description: Exact 40-character commit to survey
         required: true
         type: string
+      runner:
+        description: >-
+          Runner label to survey on (default windows-latest). GitHub's hosted
+          images differ in whether they grant Windows job breakaway, which
+          decides whether a server can outlive the CLI that started it -- and
+          several gates exist to prove exactly that. This input makes the
+          difference measurable instead of assumed.
+        required: false
+        type: string
       only:
         description: >-
           Optional comma-separated gate ids. Narrows the survey to those gates
@@ -41,7 +50,7 @@ concurrency:
 
 jobs:
   survey:
-    runs-on: windows-latest
+    runs-on: ${{ inputs.runner || 'windows-latest' }}
     # Longer than the Candidate cell's 90: surveying deliberately keeps going
     # after a failure, so a tree with several failing gates runs longer than the
     # fail-fast round it replaces.
