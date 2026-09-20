@@ -24,7 +24,8 @@ on:
         type: string
       runner:
         description: >-
-          Runner label to survey on (default windows-latest). GitHub's hosted
+          Runner label to survey on (default windows-2025, matching the
+          Candidate's build cell). GitHub's hosted
           images differ in whether they grant Windows job breakaway, which
           decides whether a server can outlive the CLI that started it -- and
           several gates exist to prove exactly that. This input makes the
@@ -50,7 +51,7 @@ concurrency:
 
 jobs:
   survey:
-    runs-on: ${{ inputs.runner || 'windows-latest' }}
+    runs-on: ${{ inputs.runner || 'windows-2025' }}
     # Longer than the Candidate cell's 90: surveying deliberately keeps going
     # after a failure, so a tree with several failing gates runs longer than the
     # fail-fast round it replaces.

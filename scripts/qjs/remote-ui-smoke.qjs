@@ -2678,9 +2678,10 @@ try {
   // the server does answer, the strict assertion still holds: closing the GUI
   // must not leave a lease attached.
   const replacement_output = "" + replacement_exit.stdout + replacement_exit.stderr;
-  const breakaway_denied =
-    replacement_output.includes("denied job breakaway")
-      || rh.env_or("OS", "") === "Windows_NT";
+  // Only the launcher's own denial counts -- see fleet-smoke: windows-2025
+  // grants breakaway, so accepting any Windows host would hide a real
+  // regression there.
+  const breakaway_denied = replacement_output.includes("denied job breakaway");
   const leaked_probe = optional_cli(context, cli, ["ui-lease", "status"]);
   if (leaked_probe.success) {
     const leaked_lease = parse_json_text(trimmed(leaked_probe.stdout));
