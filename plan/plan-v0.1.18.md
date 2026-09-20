@@ -106,3 +106,19 @@ flowchart LR
 
 Formal Candidate dispatch and public Promotion follow
 `skills/agenterm-release/SKILL.md`; this plan grants neither authority.
+
+## G6 migration evidence (2026-09-20)
+
+The existing `client-build-all` task completed a cold, isolated `release`
+lane on one macOS ARM64 host: all six target triples passed and its summary
+listed 32 artifacts (5 per macOS/Linux cell, 6 per Windows cell). An
+independent reread matched all 32 reported SHA-256 values to nonempty files.
+This proves the single-host build mechanism, not native execution, signing,
+packaging equivalence, or Candidate sealing. The current `candidate.yml`
+still builds in six separate jobs and must not be described as migrated.
+
+Default-feature Windows test executables also cross-compiled with
+`cargo xwin test --no-run`; the existing `--all-features` primary test did
+not, because vendored LuaJIT requires a Windows `cl.exe` build tool. Those
+are distinct evidence scopes. No Windows all-features PASS is inferred from
+the default-feature cross-build.
