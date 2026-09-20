@@ -145,7 +145,8 @@ export function new_context(repo_value, suite) {
     command_log_path: join(run_directory, "commands.json"),
     command_journal_path: join(run_directory, "commands.jsonl"),
     cleanup_path: join(run_directory, "cleanup.json"),
-    manifest_path: join(run_directory, "manifest.json")
+    manifest_path: join(run_directory, "manifest.json"),
+    autostart_stderr_path: join(run_directory, "autostart-stderr.log")
   };
 }
 
@@ -180,7 +181,14 @@ export function configured_spec(context, program, args) {
       AGENTERM_WORKSPACE_PATH: "" + context.workspace_path,
       AGENTERM_SETTINGS_PATH: "" + context.settings_path,
       AGENTERM_INSTANCE_DIR: "" + context.instance_directory,
-      AGENTERM_NO_ACTIVATE: "1"
+      AGENTERM_NO_ACTIVATE: "1",
+      // Windows autostarts the server from inside the CLI and detaches it, so
+      // production sends its stderr to the null device -- it has no console to
+      // write to. A server that dies during startup then reaches the gate as a
+      // bare `ConnectTimeout` with no reason anywhere, which is exactly how
+      // cli-smoke consumed a whole Candidate round on 2026-09-20. Point it at
+      // the run directory so the reason lands in the FAILURE BUNDLE.
+      AGENTERM_AUTOSTART_STDERR_PATH: "" + context.autostart_stderr_path
     },
     timeout_ms: 60000
   };

@@ -24,6 +24,30 @@ pub(crate) fn autostart_server(
     autostart_server_impl(parameter_name, parameter_value)
 }
 
+/// Where an autostarted server's stderr goes.
+///
+/// Production discards it: the autostarted server is detached and outlives the
+/// caller, so it has no console to write to. That is correct for a product and
+/// wrong for a failing gate -- when the server dies during startup, the client
+/// sees only `ConnectTimeout` and the reason is gone. `cli-smoke` spent a whole
+/// 45-minute Candidate round reporting exactly that and nothing else.
+///
+/// `AGENTERM_AUTOSTART_STDERR_PATH` opts into keeping it. Unset -- every
+/// production path -- behaves exactly as before.
+fn autostart_stderr() -> std::io::Result<Stdio> {
+    let Some(path) = std::env::var_os("AGENTERM_AUTOSTART_STDERR_PATH") else {
+        return Ok(Stdio::null());
+    };
+    if path.is_empty() {
+        return Ok(Stdio::null());
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)?;
+    Ok(Stdio::from(file))
+}
+
 fn autostart_server_impl(parameter_name: &str, parameter_value: &str) -> std::io::Result<bool> {
     if !matches!(
         agenterm_platform::platform_kind(),
@@ -42,7 +66,7 @@ fn autostart_server_impl(parameter_name: &str, parameter_value: &str) -> std::io
         .arg(parameter_value)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(autostart_stderr()?);
     // P0-3: detached spawn prefers Job breakaway so Keep-Server survives GUI
     // process-tree teardown. CallerJobFallback is an honest host limit.
     let spawn_mode = agenterm_platform::process::spawn_detached_command(&mut command)?;
@@ -59,6 +83,49 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::PathBuf;
+
+    /// An autostarted server that dies during startup must be able to say why.
+    /// Production keeps discarding its stderr -- it is detached and has no
+    /// console -- but a gate can opt into keeping it, and without that opt-in a
+    /// failed autostart reaches the reader as `ConnectTimeout` and nothing
+    /// else. That cost a full Candidate round on 2026-09-20.
+    #[test]
+    fn autostart_stderr_is_discarded_until_a_path_opts_in() {
+        let src = include_str!("process.rs");
+        let production = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production half of process.rs");
+        assert!(
+            production.contains(".stderr(autostart_stderr()?)"),
+            "autostart must route stderr through the opt-in helper"
+        );
+        // Unset and empty both mean production behaviour. An empty value is
+        // what a shell expansion of an undefined variable produces, and
+        // treating it as a path would create a file named "" or fail the
+        // spawn outright.
+        let helper = production
+            .split_once("fn autostart_stderr()")
+            .expect("the helper must exist")
+            .1;
+        let body = helper
+            .split_once("\nfn ")
+            .expect("the helper must be followed by another item")
+            .0;
+        assert!(
+            body.contains("AGENTERM_AUTOSTART_STDERR_PATH"),
+            "the opt-in must be spelled by that environment variable"
+        );
+        assert_eq!(
+            body.matches("Stdio::null()").count(),
+            2,
+            "both the unset and the empty case must fall back to null"
+        );
+        assert!(
+            body.contains(".append(true)"),
+            "a retried autostart must not truncate the previous attempt's reason"
+        );
+    }
 
     /// Structural proof that GUI autostart uses the platform detached path
     /// (breakaway + ACCESS_DENIED fallback), not a raw Command::spawn.
