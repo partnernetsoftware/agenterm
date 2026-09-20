@@ -194,6 +194,15 @@ fn windows_forwarding_tests_resolve_binaries_from_the_runtime_bundle() {
 }
 
 #[test]
+fn linux_release_packaging_requires_its_native_library_staging_host() {
+    let source = include_str!("../scripts/qjs/package-client-release.qjs");
+    assert!(source.contains("package_client_linux_native_host_required"));
+    assert!(source.contains("os_name !== \"linux\" || host_os === \"linux\""));
+    assert!(source.contains("if (os_name === \"linux\" && host_os === \"linux\")"));
+    assert!(source.contains("scripts/stage-linux-gui-libs.sh"));
+}
+
+#[test]
 fn target_inventory_keeps_default_host_ops_and_matches_its_outer_timeout() {
     let budget = &TASKS["contracts"]["target-report"]["budget"];
     assert_eq!(budget["timeout_ms"], 120_000);

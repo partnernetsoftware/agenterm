@@ -136,6 +136,10 @@ rh.require(
 );
 rh.require(!unsigned_preview || os_name === "macos", "package_client_preview_platform");
 rh.require(!signed || os_name === "macos", "package_client_signed_platform");
+// The Linux archive must carry the native GUI library closure. The staging
+// adapter below only runs on Linux, so a cross-host pack would otherwise
+// succeed while silently omitting libxkbcommon-x11 and libxcb-xkb.
+rh.require(os_name !== "linux" || host_os === "linux", "package_client_linux_native_host_required");
 
 let dist = rh.join(repo, "dist");
 if (rh.has_env("AGENTERM_PACKAGE_DIST")) {

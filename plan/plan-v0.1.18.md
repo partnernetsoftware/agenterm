@@ -117,6 +117,13 @@ This proves the single-host build mechanism, not native execution, signing,
 packaging equivalence, or Candidate sealing. The current `candidate.yml`
 still builds in six separate jobs and must not be described as migrated.
 
+Linux packaging remains a native Linux step even when its binaries are built
+elsewhere: the package script stages the `libxkbcommon-x11` / `libxcb-xkb`
+closure only on Linux. A macOS packaging probe returned success but omitted
+that closure, so cross-host Linux packaging now fails explicitly. A future
+execute-only Linux cell must download the cross-built binaries, package them
+on Linux without Cargo, and run the resulting exact archive.
+
 Default-feature Windows test executables also cross-compiled with
 `cargo xwin test --no-run`; the existing `--all-features` primary test did
 not, because vendored LuaJIT requires a Windows `cl.exe` build tool. Those
