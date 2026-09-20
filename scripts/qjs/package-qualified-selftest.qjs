@@ -47,7 +47,13 @@ function run_packager(worker, repo, entry, fixture, receipt, output_relative) {
       receipt,
       output_relative
     ],
-    { cwd: repo, timeout_ms: 180000 }
+    // 300000: what this budget bounds is the packager child, and on a loaded
+    // Windows runner archiving the staged artifacts has exceeded 180000 --
+    // reported as the child's own "cancelled by the host while waiting", which
+    // reads like a hang rather than a budget. The gate that spawns this one is
+    // sized to outlast six of these; `a_gate_outlasts_the_children_it_spawns`
+    // keeps the two in that order.
+    { cwd: repo, timeout_ms: 300000 }
   );
 }
 

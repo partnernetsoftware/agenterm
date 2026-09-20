@@ -232,7 +232,10 @@ function acquire_release(context, repo, catalog, release, asset, facts) {
     // reaches GNU tar instead, which reads the drive letter as a remote host
     // and fails with "Cannot connect to D: resolve failed".
     const system_root = rh.env_or("SystemRoot", "C:\\Windows");
-    const system_tar = rh.join(system_root, "System32", "tar.exe");
+    // `rh.join` takes exactly two paths; a third argument is dropped silently,
+    // which produced `C:\Windows/System32` and a "contained process executable
+    // not found" instead of the archiver.
+    const system_tar = rh.join(rh.join(system_root, "System32"), "tar.exe");
     tar = rh.exists(system_tar) ? system_tar : "tar.exe";
   }
   command_output(context, tar, ["-xf", archive, "-C", "" + extracted], false, 30);
