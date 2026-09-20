@@ -2194,7 +2194,27 @@ fn gate_output_is_filtered_to_exactly_what_the_receipt_consumes() {
          check.qjs must stop pre-filtering on it"
     );
     assert!(
-        CHECK_QJS.contains("if (line.startsWith(\"EVIDENCE \")) { target.push(line); }"),
-        "check.qjs must keep pre-filtering gate output to EVIDENCE lines"
+        CHECK_QJS.contains("append_evidence_lines(all_output, result.stdout);"),
+        "a gate's accumulated output must use the EVIDENCE-filtered appender"
+    );
+    // The two consumers need different filters and collapsing them breaks the
+    // other one: `--list-evidence` answers bare ids with no marker prefix, so
+    // filtering that path on the EVIDENCE prefix silently empties every
+    // declaration and fails the run as `check_evidence_declaration_stale`.
+    assert!(
+        CHECK_QJS.contains("append_text_lines(evidence, result.stdout);"),
+        "the --list-evidence declaration path must keep every line"
+    );
+    let declaration_appender = CHECK_QJS
+        .split_once("function append_text_lines(target, text) {")
+        .expect("append_text_lines must still exist")
+        .1
+        .split_once("\n}")
+        .expect("append_text_lines must be closed")
+        .0;
+    assert!(
+        !declaration_appender.contains("EVIDENCE "),
+        "append_text_lines feeds the declaration comparison and must not filter \
+         on the EVIDENCE prefix"
     );
 }

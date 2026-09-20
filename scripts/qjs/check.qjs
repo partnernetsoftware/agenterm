@@ -784,16 +784,26 @@ function bounded_text(text, maximum) {
   return value.slice(value.length - maximum);
 }
 
-// Only EVIDENCE lines survive: `qualification.evidence_from_output` discards
-// everything else, and a gate's failure path prints the raw command result
-// rather than this array. Retaining every line meant holding each spec's
-// entire stdout and stderr as guest strings -- the unit-tests gate alone runs
-// 23 cargo specs into one array -- which exhausted the guest's linear memory
-// and surfaced as an intermittent `guest trapped: memory access out of
-// bounds` partway through that gate, on runs whose code was identical to ones
-// that passed. Filtering here is behaviour-preserving by construction; the
-// coupling is pinned by tests/release_workflow_policy.rs.
+// Every non-empty line. `--list-evidence` answers a bare list of ids with no
+// marker prefix, so the declaration comparison needs all of them.
 function append_text_lines(target, text) {
+  for (const source_line of text.split("\n")) {
+    const line = source_line.trim();
+    if (line !== "") { target.push(line); }
+  }
+}
+
+// Only EVIDENCE lines, for the array a gate accumulates across its commands.
+// `qualification.evidence_from_output` discards everything else, and a gate's
+// failure path prints the raw command result rather than this array, so the
+// rest was allocated, retained for the length of the gate, and thrown away.
+// The unit-tests gate runs 23 cargo specs into one array: keeping every line
+// held those specs' entire output as guest strings and exhausted the guest's
+// linear memory, surfacing as an intermittent `guest trapped: memory access
+// out of bounds` partway through that gate on code identical to runs that
+// passed it. The receipt is unchanged by construction; both halves of that
+// coupling are pinned by tests/release_workflow_policy.rs.
+function append_evidence_lines(target, text) {
   for (const source_line of text.split("\n")) {
     const line = source_line.trim();
     if (line.startsWith("EVIDENCE ")) { target.push(line); }
@@ -823,8 +833,8 @@ function run_gate_step(context, timing, id, label, command_spec, repo, scratch, 
   if (result.observed_powershell.length > 0 && command_spec.allow_powershell !== 0) {
     print("OBSERVED explicit terminal compatibility payload: " + joined_text(result.observed_powershell, ","));
   }
-  append_text_lines(all_output, result.stdout);
-  append_text_lines(all_output, result.stderr);
+  append_evidence_lines(all_output, result.stdout);
+  append_evidence_lines(all_output, result.stderr);
   if (result.stdout_truncated) {
     for (const line of evidence_lines_of_file(result.stdout_path)) { all_output.push(line); }
   }
