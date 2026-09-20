@@ -2470,3 +2470,45 @@ fn a_surveyed_qualification_can_never_write_a_receipt() {
         "every swallowed failure must be recorded"
     );
 }
+
+/// The survey workflow exists to spend one Windows round learning every failing
+/// gate instead of only the first. It must stay diagnostic: if it ever uploads
+/// a candidate part, seals a manifest, or runs without `--survey`, it becomes a
+/// second path to release bytes that nothing downstream distinguishes from
+/// `candidate.yml`.
+///
+/// Reverse control: drop `--survey` from the invocation, or add a
+/// `candidate-part` upload, and this fails.
+#[test]
+fn the_quality_gate_survey_workflow_can_never_produce_release_bytes() {
+    let survey =
+        include_str!("../.github/workflows/windows-survey-diagnostic.yml").replace("\r\n", "\n");
+
+    assert!(
+        survey.contains("call check.cmd --release --include-stress --survey "),
+        "the survey workflow must invoke the gate in survey mode"
+    );
+    for forbidden in [
+        "candidate-part",
+        "candidate-unsigned-part",
+        "candidate-aggregate",
+        "package-release-qualified",
+        "qualification-receipt",
+    ] {
+        assert!(
+            !survey.contains(forbidden),
+            "the survey workflow must not touch the release path: {forbidden}"
+        );
+    }
+    // A survey shares the Candidate's cache key to start equally warm, so it
+    // must only ever restore. Saving would let a diagnostic run overwrite the
+    // cache a real Candidate depends on.
+    assert!(
+        !survey.contains("actions/cache/save"),
+        "a survey must never save a cache the Candidate cell reads"
+    );
+    assert!(
+        survey.contains("actions/cache/restore@"),
+        "the survey workflow should still restore the Candidate cache"
+    );
+}
