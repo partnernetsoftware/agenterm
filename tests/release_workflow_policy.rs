@@ -2171,3 +2171,30 @@ fn the_release_artifact_build_is_never_budgeted_below_its_fixture_prebuild() {
          release-fast fixture prebuild gets {fixture} ms"
     );
 }
+
+/// check.qjs keeps only EVIDENCE lines when it accumulates a gate's command
+/// output, because that is all the qualification receipt consumes. Retaining
+/// every line held each spec's whole stdout as guest strings and exhausted the
+/// wasm guest's memory partway through the 23-spec unit-tests gate. If the
+/// consumer ever starts keeping more than EVIDENCE lines, that upstream filter
+/// silently becomes data loss, so pin both halves of the coupling together.
+#[test]
+fn gate_output_is_filtered_to_exactly_what_the_receipt_consumes() {
+    let qualification = include_str!("../scripts/qjs/lib/qualification.qjs").replace("\r\n", "\n");
+    let consumer = qualification
+        .split_once("export function evidence_from_output(output) {")
+        .expect("qualification.qjs must still expose evidence_from_output")
+        .1
+        .split_once("\n}")
+        .expect("evidence_from_output must be closed")
+        .0;
+    assert!(
+        consumer.contains("line.startsWith(\"EVIDENCE \")"),
+        "the receipt consumer no longer selects on the EVIDENCE prefix, so \
+         check.qjs must stop pre-filtering on it"
+    );
+    assert!(
+        CHECK_QJS.contains("if (line.startsWith(\"EVIDENCE \")) { target.push(line); }"),
+        "check.qjs must keep pre-filtering gate output to EVIDENCE lines"
+    );
+}

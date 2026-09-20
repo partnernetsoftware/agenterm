@@ -784,10 +784,19 @@ function bounded_text(text, maximum) {
   return value.slice(value.length - maximum);
 }
 
+// Only EVIDENCE lines survive: `qualification.evidence_from_output` discards
+// everything else, and a gate's failure path prints the raw command result
+// rather than this array. Retaining every line meant holding each spec's
+// entire stdout and stderr as guest strings -- the unit-tests gate alone runs
+// 23 cargo specs into one array -- which exhausted the guest's linear memory
+// and surfaced as an intermittent `guest trapped: memory access out of
+// bounds` partway through that gate, on runs whose code was identical to ones
+// that passed. Filtering here is behaviour-preserving by construction; the
+// coupling is pinned by tests/release_workflow_policy.rs.
 function append_text_lines(target, text) {
   for (const source_line of text.split("\n")) {
     const line = source_line.trim();
-    if (line !== "") { target.push(line); }
+    if (line.startsWith("EVIDENCE ")) { target.push(line); }
   }
 }
 
