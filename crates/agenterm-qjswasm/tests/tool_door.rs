@@ -2311,12 +2311,22 @@ fn a_spawned_child_can_be_watched_killed_and_waited() {
         if (process_state(h) !== 0) { return "state:" + tool_result(); }
         const before = tool_result();
         let seen = "";
-        for (let i = 0; i < 100 && seen.indexOf("started") < 0; i = i + 1) {
+        // The assertion is that the pre-kill output is exactly "started" --
+        // never that it arrives quickly. This loop is a guard rail against
+        // hanging, so it is sized for the slowest host that must still pass:
+        // on Windows `sh` comes from Git Bash, and starting it on a loaded
+        // Candidate runner takes well over the two seconds this used to allow.
+        // Candidate 35520419254 failed here with an empty `seen`, which reads
+        // as "the child produced nothing" when it only meant "not yet".
+        let waited = 0;
+        for (let i = 0; i < 1000 && seen.indexOf("started") < 0; i = i + 1) {
             if (process_read(h, 128) !== 0) { return "read:" + tool_result(); }
             seen = seen + JSON.parse(tool_result()).stdout;
-            if (seen.indexOf("started") < 0) { time_sleep_ms(20); }
+            if (seen.indexOf("started") < 0) { time_sleep_ms(20); waited = waited + 20; }
         }
-        if (seen.trim() !== "started") { return "output-before-kill:" + seen; }
+        // Report the wait: an empty `seen` and a timed-out `seen` are different
+        // failures and the message has to tell them apart.
+        if (seen.trim() !== "started") { return "output-before-kill:waited=" + waited + "ms:" + seen; }
         process_kill(h);
         if (process_wait(h, 5000) !== 0) { return "wait:" + tool_result(); }
         const out = JSON.parse(tool_result());
