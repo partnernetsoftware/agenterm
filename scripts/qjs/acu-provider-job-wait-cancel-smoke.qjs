@@ -228,8 +228,17 @@ try {
   const status = call([
     "--target", "current", "--grant", "observe", "job-status", spawned.job_id
   ], "job-status");
+  // `orphaned_uncertain` means the store could not prove the job's resident
+  // owner is still the process it recorded -- dead, or a reused pid. Which of
+  // those it is decides whether this is a host that will not keep a resident
+  // process alive or a real lifecycle defect, and the state alone cannot say.
+  // Carry the owner's identity and the live view into the message so the next
+  // failure arrives with its own evidence instead of costing another round.
   require(status.state === "running",
-    "job_not_running:" + status.state + ":" + status.exit_code);
+    "job_not_running:" + status.state + ":" + status.exit_code
+      + ":owner_pid=" + status.owner_pid
+      + ":live=" + JSON.stringify(status.live)
+      + ":detach=" + JSON.stringify(status.detach_liveness));
   require(typeof status.owner_pid === "number" && status.owner_pid > 0, "owner_pid_missing");
   require(typeof status.process_pid === "number" && status.process_pid > 0, "process_pid_missing");
   require(status.live !== null && status.live.state.kind === "running", "job_live_missing");
