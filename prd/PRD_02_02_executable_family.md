@@ -155,6 +155,17 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
       Each row owns its title/note editor in place: `Edit` is replaced by
       bounded native title/note inputs plus `Save` and `Cancel`; Save updates
       the same stable server tab and Cancel performs no mutation.
+      **Host limitation (observed 2026-09-20).** `Keep Server Running` is
+      implemented by letting the server's spawn break out of the caller's Windows
+      job object. A host that denies job breakaway cannot honour it: the server
+      stays inside the launching process's job and dies when that job closes.
+      The launcher already reports this honestly -- "started inside the caller's
+      process job because Windows denied job breakaway; it may stop when that
+      owning job closes" -- and GitHub's `windows-latest` runners began denying
+      it after 2026-09-03, which is how it was found. Managed environments,
+      containers and other CI hosts can deny it the same way. Restoring the
+      capability there needs a different mechanism (a service, a scheduled task,
+      or an intermediate process outside the job), not a larger timeout.
       Window close now uses non-blocking native `Keep Server Running` (default),
       `Stop Server & Exit`, and `Cancel` choices: the current Composer draft is
       synchronized first, keep releases only the UI lease, stop performs the
