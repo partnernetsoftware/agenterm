@@ -168,6 +168,17 @@ fn release_size_is_observed_without_blocking_v0117() {
 }
 
 #[test]
+fn mcp_test_cli_path_is_runtime_relocatable() {
+    let source = include_str!("mcp_stdio.rs");
+    assert!(source.contains("AGENTERM_TEST_BIN_DIR"));
+    assert_eq!(
+        source.matches("env!(\"CARGO_BIN_EXE_agenterm\")").count(),
+        1
+    );
+    assert!(source.contains(".unwrap_or_else(agenterm_cli)"));
+}
+
+#[test]
 fn target_inventory_keeps_default_host_ops_and_matches_its_outer_timeout() {
     let budget = &TASKS["contracts"]["target-report"]["budget"];
     assert_eq!(budget["timeout_ms"], 120_000);

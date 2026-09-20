@@ -1317,7 +1317,7 @@ fn public_resource_matches_cli_snapshot_field_for_field() {
         }
     });
 
-    let cli_output = Command::new(env!("CARGO_BIN_EXE_agenterm"))
+    let cli_output = Command::new(agenterm_cli())
         .args(["cli", "--address", &address, "ui-snapshot"])
         .output()
         .expect("run public CLI snapshot");
@@ -1924,18 +1924,12 @@ fn killed_sidecar_cannot_interrupt_live_gui_server_or_pty() {
     fs::create_dir_all(&instances).expect("create instance directory");
 
     let mut server = Some(
-        configured_command(
-            env!("CARGO_BIN_EXE_agenterm"),
-            &address,
-            &workspace,
-            &settings,
-            &instances,
-        )
-        .args(["server", "--address", &address])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("start isolated server"),
+        configured_command(agenterm_cli(), &address, &workspace, &settings, &instances)
+            .args(["server", "--address", &address])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start isolated server"),
     );
     // OS-enforced backstop for the manual kill/wait loop below the
     // `catch_unwind`: a kill-on-close containment handle that the OS closes
@@ -1960,18 +1954,12 @@ fn killed_sidecar_cannot_interrupt_live_gui_server_or_pty() {
             Duration::from_secs(5),
         );
         gui = Some(
-            configured_command(
-                env!("CARGO_BIN_EXE_agenterm"),
-                &address,
-                &workspace,
-                &settings,
-                &instances,
-            )
-            .arg("--no-activate")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("start replaceable GUI"),
+            configured_command(agenterm_cli(), &address, &workspace, &settings, &instances)
+                .arg("--no-activate")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("start replaceable GUI"),
         );
         _gui_tree_guard = Some(
             agenterm_platform::process::ProcessTreeGuard::attach(
@@ -2887,12 +2875,24 @@ fn configured_command(
     command
 }
 
+fn agenterm_cli() -> PathBuf {
+    std::env::var_os("AGENTERM_TEST_BIN_DIR")
+        .map(|directory| {
+            PathBuf::from(directory).join(if cfg!(windows) {
+                "agenterm.exe"
+            } else {
+                "agenterm"
+            })
+        })
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_agenterm")))
+}
+
 fn mcp_cli() -> PathBuf {
     // MCP is hosted under `agenterm cli mcp` (standalone PE removed).
     std::env::var_os("AGENTERM_MCP_CLI")
         .or_else(|| std::env::var_os("AGENTERM_MCP_EXE"))
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_agenterm")))
+        .unwrap_or_else(agenterm_cli)
 }
 
 fn mcp_command(args: &[&str]) -> Command {
@@ -2910,17 +2910,11 @@ fn run_cli(
     instances: &Path,
     arguments: &[&str],
 ) -> std::process::Output {
-    configured_command(
-        env!("CARGO_BIN_EXE_agenterm"),
-        address,
-        workspace,
-        settings,
-        instances,
-    )
-    .args(["cli", "--address", address])
-    .args(arguments)
-    .output()
-    .expect("run isolated CLI")
+    configured_command(agenterm_cli(), address, workspace, settings, instances)
+        .args(["cli", "--address", address])
+        .args(arguments)
+        .output()
+        .expect("run isolated CLI")
 }
 
 #[cfg(windows)]
