@@ -2,6 +2,9 @@ use std::sync::LazyLock;
 
 static CANDIDATE: LazyLock<String> =
     LazyLock::new(|| include_str!("../.github/workflows/candidate.yml").replace("\r\n", "\n"));
+static CROSS_BUILD_REHEARSAL: LazyLock<String> = LazyLock::new(|| {
+    include_str!("../.github/workflows/cross-build-topology-rehearsal.yml").replace("\r\n", "\n")
+});
 static PROMOTION: LazyLock<String> =
     LazyLock::new(|| include_str!("../.github/workflows/release.yml").replace("\r\n", "\n"));
 static INTEGRITY: LazyLock<String> = LazyLock::new(|| {
@@ -121,6 +124,53 @@ const CHECKOUT_SHA: &str = "08eba0b27e820071cde6df949e0beb9ba4906955";
 const UPLOAD_SHA: &str = "ea165f8d65b6e75b540449e92b4886f43607fa02";
 const DOWNLOAD_SHA: &str = "fa0a91b85d4f404e444e00e005971372dc801d16";
 const CACHE_SHA: &str = "0400d5f644dc74513175e3cd8d07132dd4860809";
+
+#[test]
+fn cross_build_rehearsal_is_one_builder_and_six_native_execute_only_cells() {
+    let workflow = CROSS_BUILD_REHEARSAL.as_str();
+    let build = workflow
+        .split_once("  cross_build:\n")
+        .expect("single cross-build job")
+        .1
+        .split_once("  native_execute:\n")
+        .expect("native execution follows cross-build")
+        .0;
+    let native = workflow
+        .split_once("  native_execute:\n")
+        .expect("native execution job")
+        .1
+        .split_once("  aggregate:\n")
+        .expect("six-cell aggregation follows native execution")
+        .0;
+    assert!(build.contains("runs-on: macos-15"));
+    assert!(build.contains("AGENTERM_BOOTSTRAP_TASK: client-build-all"));
+    assert!(build.contains("Stage verified raw binaries without builder paths"));
+    assert_eq!(
+        workflow
+            .matches("AGENTERM_BOOTSTRAP_TASK: client-build-all")
+            .count(),
+        1
+    );
+    for cell in [
+        "windows-x86_64",
+        "windows-aarch64",
+        "linux-x86_64",
+        "linux-aarch64",
+        "macos-x86_64",
+        "macos-aarch64",
+    ] {
+        assert!(native.contains(&format!("cell: {cell},")), "missing {cell}");
+    }
+    assert_eq!(native.matches("cell: ").count(), 6);
+    assert!(native.contains("test \"$RUNNER_OS\" = \"$EXPECTED_OS\""));
+    assert!(native.contains("test \"$RUNNER_ARCH\" = \"$EXPECTED_ARCH\""));
+    assert!(native.contains("hashlib.sha256(path.read_bytes()).hexdigest()"));
+    assert!(!native.contains("actions/checkout@"));
+    assert!(!native.contains("cargo "));
+    assert!(!native.contains("./scripts/bootstrap.sh"));
+    assert!(workflow.contains("REHEARSAL PASS six native cells one manifest"));
+    assert!(!workflow.contains("release.yml"));
+}
 
 #[test]
 fn windows_cu_eight_mib_size_reference_is_consistent() {

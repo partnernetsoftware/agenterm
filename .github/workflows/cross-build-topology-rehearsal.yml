@@ -1,0 +1,278 @@
+# Non-promotable topology rehearsal. This proves a single exact-source macOS
+# cross-build can feed six native execute-only cells; it is not a Candidate.
+name: Cross-build topology rehearsal
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact current main SHA to rehearse without publishing
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cross-build-rehearsal-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  cross_build:
+    runs-on: macos-15
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+
+      - name: Require exact current main
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$GITHUB_SHA" = "$SOURCE_SHA"
+          git fetch --no-tags origin main
+          test "$(git rev-parse origin/main)" = "$SOURCE_SHA"
+
+      - name: Install cross-build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup target add \
+            aarch64-apple-darwin x86_64-apple-darwin \
+            aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu \
+            aarch64-pc-windows-msvc x86_64-pc-windows-msvc
+          brew list llvm >/dev/null 2>&1 || brew install llvm
+          brew list zig >/dev/null 2>&1 || brew install zig
+          llvm_bin="$(brew --prefix llvm)/bin"
+          echo "$llvm_bin" >> "$GITHUB_PATH"
+          export PATH="$llvm_bin:$PATH"
+          command -v llvm-rc
+          command -v zig
+          tools_root="$RUNNER_TEMP/cargo-cross-tools"
+          mkdir -p "$tools_root/bin"
+          echo "$tools_root/bin" >> "$GITHUB_PATH"
+          cargo install --root "$tools_root" cargo-zigbuild --locked --version 0.23.2
+          cargo install --root "$tools_root" cargo-xwin --locked --version 0.23.1
+
+      - name: Build six release targets once
+        shell: bash
+        env:
+          AGENTERM_BOOTSTRAP_TASK: client-build-all
+          AGENTERM_BUILD_DIST_DIR: dist/cross-build-rehearsal
+          CARGO_TARGET_DIR: target/cross-build-rehearsal
+        run: ./scripts/bootstrap.sh release
+
+      - name: Stage verified raw binaries without builder paths
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import shutil
+
+          source = pathlib.Path("target/qualification/six-cell/summary.json")
+          summary = json.loads(source.read_text(encoding="utf-8"))
+          expected = {
+              "aarch64-apple-darwin", "x86_64-apple-darwin",
+              "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu",
+              "aarch64-pc-windows-msvc", "x86_64-pc-windows-msvc",
+          }
+          cells = summary.get("cells")
+          if summary.get("profile") != "release" or not isinstance(cells, list):
+              raise SystemExit("wrong six-cell build profile or summary shape")
+          if {cell.get("target") for cell in cells} != expected or len(cells) != 6:
+              raise SystemExit("six-cell target set is incomplete or duplicated")
+          root = pathlib.Path("cross-build-input")
+          root.mkdir()
+          staged = {}
+          for cell in cells:
+              target = cell["target"]
+              if cell.get("state") != "PASS":
+                  raise SystemExit(f"cross-build cell not PASS: {target}")
+              destination = root / target
+              destination.mkdir()
+              files = []
+              for item in cell["artifacts"]:
+                  original = pathlib.Path(item["path"])
+                  if not original.is_file() or original.is_symlink() or original.stat().st_size == 0:
+                      raise SystemExit(f"missing or unsafe cross-build artifact: {target}")
+                  digest = hashlib.sha256(original.read_bytes()).hexdigest()
+                  if digest != item["sha256"]:
+                      raise SystemExit(f"cross-build artifact changed: {target}")
+                  output = destination / original.name
+                  if output.exists():
+                      raise SystemExit(f"duplicate cross-build artifact name: {target}")
+                  shutil.copyfile(original, output)
+                  files.append({"name": output.name, "bytes": output.stat().st_size,
+                                "sha256": digest})
+              if len(files) != (6 if target.endswith("windows-msvc") else 5):
+                  raise SystemExit(f"cross-build artifact count mismatch: {target}")
+              staged[target] = sorted(files, key=lambda item: item["name"])
+          version = json.loads(pathlib.Path("release-policy.json").read_text(encoding="utf-8"))["version"]
+          manifest = {"schema": 1, "kind": "agenterm-cross-build-rehearsal",
+                      "source_sha": os.environ["SOURCE_SHA"], "version": version,
+                      "run_id": int(os.environ["GITHUB_RUN_ID"]),
+                      "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                      "cells": staged}
+          (root / "manifest.json").write_text(
+              json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          print(f"CROSS BUILD staged cells={len(staged)} artifacts={sum(map(len, staged.values()))}")
+          PY
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cross-build-input-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cross-build-input/
+          if-no-files-found: error
+          retention-days: 2
+
+  native_execute:
+    needs: cross_build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: x86_64-pc-windows-msvc, cell: windows-x86_64, runner: windows-2025, os: Windows, arch: X64}
+          - {target: aarch64-pc-windows-msvc, cell: windows-aarch64, runner: windows-11-arm, os: Windows, arch: ARM64}
+          - {target: x86_64-unknown-linux-gnu, cell: linux-x86_64, runner: ubuntu-24.04, os: Linux, arch: X64}
+          - {target: aarch64-unknown-linux-gnu, cell: linux-aarch64, runner: ubuntu-24.04-arm, os: Linux, arch: ARM64}
+          - {target: x86_64-apple-darwin, cell: macos-x86_64, runner: macos-15-intel, os: macOS, arch: X64}
+          - {target: aarch64-apple-darwin, cell: macos-aarch64, runner: macos-15, os: macOS, arch: ARM64}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      # No source checkout and no Cargo: this cell only executes downloaded bytes.
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: cross-build-input-${{ github.run_id }}-${{ github.run_attempt }}
+          path: input
+
+      - name: Verify runner, all matching bytes, and native CLI behavior
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          EXPECTED_TARGET: ${{ matrix.target }}
+          EXPECTED_CELL: ${{ matrix.cell }}
+          EXPECTED_OS: ${{ matrix.os }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_OS" = "$EXPECTED_OS"
+          test "$RUNNER_ARCH" = "$EXPECTED_ARCH"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          root = pathlib.Path("input")
+          manifest_path = root / "manifest.json"
+          raw = manifest_path.read_bytes()
+          manifest = json.loads(raw)
+          target = os.environ["EXPECTED_TARGET"]
+          if (manifest.get("kind") != "agenterm-cross-build-rehearsal"
+                  or manifest.get("source_sha") != os.environ["SOURCE_SHA"]
+                  or manifest.get("run_id") != int(os.environ["GITHUB_RUN_ID"])
+                  or manifest.get("run_attempt") != int(os.environ["GITHUB_RUN_ATTEMPT"])):
+              raise SystemExit("cross-build manifest identity mismatch")
+          entries = manifest["cells"][target]
+          directory = root / target
+          if {path.name for path in directory.iterdir()} != {entry["name"] for entry in entries}:
+              raise SystemExit("cross-build artifact set mismatch")
+          for entry in entries:
+              path = directory / entry["name"]
+              if (not path.is_file() or path.is_symlink()
+                      or path.stat().st_size != entry["bytes"]
+                      or hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]):
+                  raise SystemExit("cross-build artifact bytes mismatch")
+          suffix = ".exe" if os.environ["EXPECTED_OS"] == "Windows" else ""
+          programs = [directory / f"agenterm-cu{suffix}"]
+          if suffix:
+              programs.append(directory / "agenterm-com.exe")
+          else:
+              programs.append(directory / "agenterm")
+          for program in programs:
+              if not suffix:
+                  program.chmod(program.stat().st_mode | 0o111)
+              arguments = ["cli", "--version"] if program.name.startswith("agenterm-com") or program.name == "agenterm" else ["--version"]
+              result = subprocess.run([str(program.resolve()), *arguments],
+                                      capture_output=True, text=True, timeout=30, check=False)
+              if result.returncode != 0 or manifest["version"] not in result.stdout:
+                  raise SystemExit(f"native CLI failed: {program.name}, exit={result.returncode}, stderr={result.stderr}")
+          receipt = {"schema": 1, "kind": "agenterm-cross-build-native-rehearsal",
+                     "source_sha": manifest["source_sha"],
+                     "run_id": manifest["run_id"],
+                     "run_attempt": manifest["run_attempt"],
+                     "cell": os.environ["EXPECTED_CELL"], "target": target,
+                     "runner_os": os.environ["RUNNER_OS"],
+                     "runner_arch": os.environ["RUNNER_ARCH"],
+                     "manifest_sha256": hashlib.sha256(raw).hexdigest(), "state": "PASS"}
+          output = pathlib.Path("receipts")
+          output.mkdir()
+          (output / f"{receipt['cell']}.json").write_text(
+              json.dumps(receipt, sort_keys=True) + "\n", encoding="utf-8")
+          print(f"PASS {receipt['cell']} {receipt['manifest_sha256']}")
+          PY
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cross-build-native-${{ matrix.cell }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: receipts/
+          if-no-files-found: error
+          retention-days: 2
+
+  aggregate:
+    needs: [cross_build, native_execute]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          pattern: cross-build-native-*-${{ github.run_id }}-${{ github.run_attempt }}
+          path: receipts
+          merge-multiple: true
+
+      - name: Require six unique native PASS receipts for one manifest
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+
+          expected = {"windows-x86_64", "windows-aarch64", "linux-x86_64",
+                      "linux-aarch64", "macos-x86_64", "macos-aarch64"}
+          paths = list(pathlib.Path("receipts").glob("*.json"))
+          if len(paths) != 6:
+              raise SystemExit("native rehearsal receipt count is not six")
+          receipts = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+          if {item.get("cell") for item in receipts} != expected:
+              raise SystemExit("native rehearsal cells missing or duplicated")
+          digests = {item.get("manifest_sha256") for item in receipts}
+          if len(digests) != 1 or not next(iter(digests)):
+              raise SystemExit("native rehearsal manifest digests differ")
+          for item in receipts:
+              if (item.get("state") != "PASS"
+                      or item.get("source_sha") != os.environ["SOURCE_SHA"]
+                      or item.get("run_id") != int(os.environ["GITHUB_RUN_ID"])
+                      or item.get("run_attempt") != int(os.environ["GITHUB_RUN_ATTEMPT"])):
+                  raise SystemExit("native rehearsal receipt identity or state invalid")
+          print(f"REHEARSAL PASS six native cells one manifest {next(iter(digests))}")
+          PY
