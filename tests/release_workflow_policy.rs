@@ -1158,6 +1158,34 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
     ] {
         assert!(runtime.contains(runner), "missing runtime runner: {runner}");
     }
+    for (platform, os, arch) in [
+        ("windows-x86_64", "Windows", "X64"),
+        ("windows-aarch64", "Windows", "ARM64"),
+        ("linux-x86_64", "Linux", "X64"),
+        ("linux-aarch64", "Linux", "ARM64"),
+        ("macos-aarch64", "macOS", "ARM64"),
+        ("macos-x86_64", "macOS", "X64"),
+    ] {
+        let cell = runtime
+            .split_once(&format!("platform_id: {platform}\n"))
+            .and_then(|(_, tail)| {
+                tail.split_once("\n          - platform_id:")
+                    .map(|(cell, _)| cell)
+                    .or(Some(tail))
+            })
+            .expect("native runtime cell");
+        assert!(
+            cell.contains(&format!("expected_os: {os}")),
+            "wrong OS guard for {platform}"
+        );
+        assert!(
+            cell.contains(&format!("expected_arch: {arch}")),
+            "wrong architecture guard for {platform}"
+        );
+    }
+    assert!(runtime.contains("name: Guard native runner identity (no compile)"));
+    assert!(runtime.contains("test \"$RUNNER_OS\" = \"$EXPECTED_RUNNER_OS\""));
+    assert!(runtime.contains("test \"$RUNNER_ARCH\" = \"$EXPECTED_RUNNER_ARCH\""));
     assert!(runtime.contains("candidate-part-${{ matrix.platform_id }}"));
     assert!(runtime.contains("Scan final Windows Candidate bytes with Defender"));
     assert!(runtime.contains("name: cu-retirement-cell-smoke"));

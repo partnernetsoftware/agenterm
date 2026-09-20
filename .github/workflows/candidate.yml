@@ -983,21 +983,33 @@ jobs:
           - platform_id: windows-x86_64
             runner: windows-2025
             family: windows
+            expected_os: Windows
+            expected_arch: X64
           - platform_id: windows-aarch64
             runner: windows-11-arm
             family: windows
+            expected_os: Windows
+            expected_arch: ARM64
           - platform_id: linux-x86_64
             runner: ubuntu-24.04
             family: linux
+            expected_os: Linux
+            expected_arch: X64
           - platform_id: linux-aarch64
             runner: ubuntu-24.04-arm
             family: linux
+            expected_os: Linux
+            expected_arch: ARM64
           - platform_id: macos-aarch64
             runner: macos-15
             family: macos
+            expected_os: macOS
+            expected_arch: ARM64
           - platform_id: macos-x86_64
             runner: macos-15-intel
             family: macos
+            expected_os: macOS
+            expected_arch: X64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     steps:
@@ -1014,6 +1026,16 @@ jobs:
         with:
           name: candidate-runtime-control-${{ github.run_id }}-${{ github.run_attempt }}
           path: runtime-control
+
+      - name: Guard native runner identity (no compile)
+        shell: bash
+        env:
+          EXPECTED_RUNNER_OS: ${{ matrix.expected_os }}
+          EXPECTED_RUNNER_ARCH: ${{ matrix.expected_arch }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_OS" = "$EXPECTED_RUNNER_OS"
+          test "$RUNNER_ARCH" = "$EXPECTED_RUNNER_ARCH"
 
       - name: Execute final Windows archive
         if: matrix.family == 'windows'
