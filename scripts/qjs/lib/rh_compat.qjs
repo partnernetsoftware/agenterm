@@ -198,7 +198,8 @@ export function command_status(program, args, options) {
 
 // rh's `command_stdout_file(path)`: send both child streams directly to files
 // so a cold Cargo invocation cannot overflow the tool door's bounded answer.
-// Callers read stdout only after success; this helper owns stderr scratch.
+// Callers read stdout from the named file. Preserve failed child diagnostics
+// before removing stderr scratch; otherwise every caller loses Cargo's error.
 export function command_stdout_file(program, args, stdout_path, options) {
   const redirected = {};
   if (options !== undefined) {
@@ -214,7 +215,14 @@ export function command_stdout_file(program, args, stdout_path, options) {
   try {
     out = command(program, args, redirected);
   } finally {
-    try_remove_file(stderr_path);
+    try {
+      if ((out === undefined || out.exit_code !== 0) && exists(stderr_path)) {
+        const stderr = read_text(stderr_path);
+        if (stderr !== "") { print(stderr); }
+      }
+    } finally {
+      try_remove_file(stderr_path);
+    }
   }
   return out.exit_code === null ? -1 : out.exit_code;
 }

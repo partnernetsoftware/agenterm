@@ -20,7 +20,7 @@ rh.require(
   "mcp_candidate_missing:" + candidate
 );
 
-const stdout_path = repo + ".mcp-conformance.stdout.tmp";
+const stdout_path = rh.join(rh.join(repo, "target"), "mcp-conformance.stdout.tmp");
 const code = rh.command_stdout_file(
   "cargo",
   ["test", "--quiet", "--locked", "--test", "mcp_stdio", "--", "--nocapture"],
