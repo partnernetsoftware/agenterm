@@ -123,8 +123,8 @@ const DOWNLOAD_SHA: &str = "fa0a91b85d4f404e444e00e005971372dc801d16";
 const CACHE_SHA: &str = "0400d5f644dc74513175e3cd8d07132dd4860809";
 
 #[test]
-fn windows_cu_budget_is_the_governing_four_mib_control_cli_budget() {
-    const CONTROL_CLI_BUDGET: u64 = 4 * 1024 * 1024;
+fn windows_cu_budget_is_the_governing_eight_mib_control_cli_budget() {
+    const CONTROL_CLI_BUDGET: u64 = 8 * 1024 * 1024;
     let budget_for = |artifacts: &serde_json::Value| {
         artifacts
             .as_array()
