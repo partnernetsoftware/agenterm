@@ -10,7 +10,7 @@
         "cli",
         "--version"
       ],
-      "release_budget_bytes": 4194304
+      "release_budget_bytes": 5242880
     },
     {
       "name": "agenterm.com",
@@ -75,7 +75,7 @@
             "cli",
             "--version"
           ],
-          "release_budget_bytes": 4194304
+          "release_budget_bytes": 5242880
         },
         {
           "name": "agenterm.com",
@@ -140,7 +140,7 @@
             "cli",
             "--version"
           ],
-          "release_budget_bytes": 4194304
+          "release_budget_bytes": 5242880
         },
         {
           "name": "agenterm.com",

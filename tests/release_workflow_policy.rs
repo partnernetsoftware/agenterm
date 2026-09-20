@@ -2218,3 +2218,54 @@ fn gate_output_is_filtered_to_exactly_what_the_receipt_consumes() {
          on the EVIDENCE prefix"
     );
 }
+
+/// A release size budget is declared once in the base executables list and
+/// again in each platform override, so raising one and missing another leaves
+/// a platform that fails the next Candidate for a reason already fixed. The
+/// v0.1.13 ledger records that same hazard when this gate last fired. Every
+/// declaration of one artifact's budget must agree.
+#[test]
+fn a_release_size_budget_is_declared_consistently_for_every_platform() {
+    let artifacts: serde_json::Value =
+        serde_json::from_str(include_str!("../scripts/artifacts.json"))
+            .expect("scripts/artifacts.json must parse");
+    let mut budgets: std::collections::BTreeMap<String, std::collections::BTreeSet<u64>> =
+        Default::default();
+    fn collect(
+        node: &serde_json::Value,
+        out: &mut std::collections::BTreeMap<String, std::collections::BTreeSet<u64>>,
+    ) {
+        match node {
+            serde_json::Value::Object(map) => {
+                if let (Some(name), Some(budget)) = (
+                    map.get("name").and_then(|v| v.as_str()),
+                    map.get("release_budget_bytes").and_then(|v| v.as_u64()),
+                ) {
+                    out.entry(name.to_owned()).or_default().insert(budget);
+                }
+                for value in map.values() {
+                    collect(value, out);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for value in items {
+                    collect(value, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    collect(&artifacts, &mut budgets);
+    assert!(
+        !budgets.is_empty(),
+        "no release size budgets found; retire this gate deliberately"
+    );
+    for (name, values) in &budgets {
+        assert_eq!(
+            values.len(),
+            1,
+            "{name} declares more than one release budget across its platform \
+             overrides: {values:?}"
+        );
+    }
+}
