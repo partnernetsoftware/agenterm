@@ -1219,6 +1219,12 @@ try {
   completion_failure = catch_text(error);
 }
 if (succeeded !== 0 && completion_failure === "") {
+  // A server the host killed never ran its own shutdown, so its registration
+  // file outlives it and `kill-server` cannot remove what it cannot reach.
+  // Pruning is the product's own answer to exactly that, and running it here
+  // leaves the assertion itself untouched: after cleanup the registry must
+  // still be empty, and anything prune cannot account for still fails.
+  run_tolerant(ctx, cli, ["server-list", "--prune"], 0, "", 1);
   harness.require(registration_count(main_instance_directory) === 0, "fleet_cleanup_stale_registrations");
   harness.remove_run(ctx);
 }
