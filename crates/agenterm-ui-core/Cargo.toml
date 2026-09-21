@@ -1,6 +1,6 @@
 [package]
 name = "agenterm-ui-core"
-version = "0.1.18"
+version = "0.1.19"
 edition = "2024"
 rust-version = "1.97"
 description = "Host-neutral AgenTerm interaction geometry"
