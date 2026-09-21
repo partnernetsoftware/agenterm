@@ -219,6 +219,10 @@ struct PixelFace {
     metrics: TEXTMETRICW,
     cmap_attempted: bool,
     cmap: Option<Box<[u8]>>,
+    /// The same face as seen by DirectWrite, created on first use from this
+    /// face's device context. `None` after an attempt means GDI draws it.
+    dwrite_attempted: bool,
+    dwrite: Option<dwrite::Com>,
 }
 
 impl Drop for PixelFace {
@@ -289,6 +293,8 @@ impl PixelFace {
             metrics,
             cmap_attempted: false,
             cmap: None,
+            dwrite_attempted: false,
+            dwrite: None,
         })
     }
 
@@ -781,11 +787,24 @@ fn cmap_format_12_glyph_index(cmap: &[u8], codepoint: u32) -> Option<u16> {
 /// glyphs from its own would drop or lift them off the line the Latin text
 /// sits on.
 fn raster_face(
-    face: &PixelFace,
+    face: &mut PixelFace,
     glyph_index: u16,
     grid_ascent: Option<i32>,
 ) -> Result<Option<RasterGlyph>, FontError> {
     let ascent = grid_ascent.unwrap_or(face.metrics.tmAscent);
+    if let Some(glyph) = dwrite::raster(face, glyph_index, ascent) {
+        return Ok(Some(glyph));
+    }
+    gdi_raster_face(face, glyph_index, ascent)
+}
+
+/// The GDI outline path: what drew every glyph before DirectWrite, and what
+/// still does wherever DirectWrite is unavailable.
+fn gdi_raster_face(
+    face: &PixelFace,
+    glyph_index: u16,
+    ascent: i32,
+) -> Result<Option<RasterGlyph>, FontError> {
     let identity = MAT2 {
         eM11: FIXED { fract: 0, value: 1 },
         eM12: FIXED::default(),
@@ -862,6 +881,336 @@ fn raster_face(
         offset_x: metrics.gmptGlyphOrigin.x,
         offset_y: ascent - metrics.gmptGlyphOrigin.y,
     }))
+}
+
+/// DirectWrite rasterisation behind the same glyph contract.
+///
+/// GDI's `GetGlyphOutlineW(GGO_GRAY8_BITMAP)` grid-fits both axes with the
+/// font's TrueType hinting and returns 65 coverage levels; Windows Terminal
+/// draws through DirectWrite, whose symmetric natural rendering keeps the
+/// outline's horizontal shape and returns full 8-bit coverage. After the face
+/// and the blend were fixed, this is where the remaining difference to Windows
+/// Terminal was expected to sit.
+///
+/// The face selection above is untouched: `CreateFontFaceFromHdc` takes the
+/// exact GDI face already chosen -- Latin grid, CJK coverage at twice the cell
+/// width -- and asks DirectWrite to draw it. The coverage returned is linear,
+/// like the alpha texture Windows Terminal feeds its own gamma correction, so
+/// a product-side correction applies to it unchanged.
+///
+/// Every COM call is through a hand-indexed vtable slot. The indices are the
+/// declaration order in the Windows SDK's `dwrite.h`/`dwrite_2.h`, read from
+/// the headers rather than recalled; a wrong index does not fail to compile,
+/// it calls the wrong method. `dwrite.dll` is loaded dynamically and any
+/// failure -- no Factory2 before Windows 8.1, an HRESULT, an empty face --
+/// falls back to GDI rather than to a blank cell.
+mod dwrite {
+    use core::ffi::c_void;
+    use std::{cell::RefCell, ptr};
+
+    use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+
+    use super::{MAX_GLYPH_DIM, PixelFace, RasterGlyph};
+
+    #[repr(C)]
+    struct Guid {
+        data1: u32,
+        data2: u16,
+        data3: u16,
+        data4: [u8; 8],
+    }
+
+    /// `IDWriteFactory2`, dwrite_2.h.
+    const IID_IDWRITE_FACTORY2: Guid = Guid {
+        data1: 0x0439_fc60,
+        data2: 0xca44,
+        data3: 0x4994,
+        data4: [0x8d, 0xee, 0x3a, 0x9a, 0xf7, 0xb7, 0x32, 0xec],
+    };
+
+    // Vtable slots: IUnknown is 0..=2; each interface's methods follow its
+    // base's in header declaration order.
+    const RELEASE: usize = 2;
+    /// IDWriteFactory: the 15th of its 21 methods.
+    const FACTORY_GET_GDI_INTEROP: usize = 17;
+    /// IDWriteFactory (3..=23), IDWriteFactory1 (24, 25), then IDWriteFactory2's
+    /// fifth method.
+    const FACTORY2_CREATE_GLYPH_RUN_ANALYSIS: usize = 30;
+    /// IDWriteGdiInterop: the 4th of its 5 methods.
+    const GDI_INTEROP_CREATE_FONT_FACE_FROM_HDC: usize = 6;
+    const ANALYSIS_GET_ALPHA_TEXTURE_BOUNDS: usize = 3;
+    const ANALYSIS_CREATE_ALPHA_TEXTURE: usize = 4;
+
+    const FACTORY_TYPE_SHARED: u32 = 0;
+    const RENDERING_MODE_NATURAL_SYMMETRIC: u32 = 5;
+    const MEASURING_MODE_NATURAL: u32 = 0;
+    const GRID_FIT_MODE_DEFAULT: u32 = 0;
+    const TEXT_ANTIALIAS_MODE_GRAYSCALE: u32 = 1;
+    /// With grayscale antialiasing this texture is one byte of coverage per
+    /// pixel.
+    const TEXTURE_ALIASED_1X1: u32 = 0;
+
+    /// `DWRITE_GLYPH_RUN`, dwrite.h.
+    #[repr(C)]
+    struct GlyphRun {
+        font_face: *mut c_void,
+        font_em_size: f32,
+        glyph_count: u32,
+        glyph_indices: *const u16,
+        glyph_advances: *const f32,
+        glyph_offsets: *const c_void,
+        is_sideways: i32,
+        bidi_level: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct Rect {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+
+    /// One owned COM reference.
+    pub(super) struct Com(*mut c_void);
+
+    impl Drop for Com {
+        fn drop(&mut self) {
+            if self.0.is_null() {
+                return;
+            }
+            // SAFETY: self.0 is a live COM object this wrapper owns one
+            // reference to; slot 2 of every COM vtable is IUnknown::Release.
+            unsafe {
+                let release: unsafe extern "system" fn(*mut c_void) -> u32 =
+                    core::mem::transmute(slot(self.0, RELEASE));
+                release(self.0);
+            }
+        }
+    }
+
+    /// SAFETY: `object` must be a live COM interface pointer whose vtable has
+    /// more than `index` entries.
+    unsafe fn slot(object: *mut c_void, index: usize) -> *const c_void {
+        unsafe {
+            let vtable = *(object as *const *const *const c_void);
+            *vtable.add(index)
+        }
+    }
+
+    struct Rasterizer {
+        factory: Com,
+        interop: Com,
+    }
+
+    impl Rasterizer {
+        fn create() -> Option<Self> {
+            let name: Vec<u16> = "dwrite.dll".encode_utf16().chain(Some(0)).collect();
+            // SAFETY: a NUL-terminated wide string. The module is never
+            // freed: DirectWrite objects live for the thread.
+            let module = unsafe { LoadLibraryW(name.as_ptr()) };
+            if module.is_null() {
+                return None;
+            }
+            // SAFETY: a valid module handle and a NUL-terminated name.
+            let entry = unsafe { GetProcAddress(module, c"DWriteCreateFactory".as_ptr().cast()) }?;
+            type CreateFactory =
+                unsafe extern "system" fn(u32, *const Guid, *mut *mut c_void) -> i32;
+            // SAFETY: DWriteCreateFactory is WINAPI with this signature.
+            let create: CreateFactory = unsafe { core::mem::transmute(entry) };
+            let mut raw = ptr::null_mut();
+            // SAFETY: valid GUID and out-pointer.
+            let hr = unsafe { create(FACTORY_TYPE_SHARED, &IID_IDWRITE_FACTORY2, &mut raw) };
+            if hr < 0 || raw.is_null() {
+                return None;
+            }
+            let factory = Com(raw);
+            let mut interop = ptr::null_mut();
+            // SAFETY: factory is an IDWriteFactory2; slot 17 is GetGdiInterop.
+            let hr = unsafe {
+                let get: unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> i32 =
+                    core::mem::transmute(slot(factory.0, FACTORY_GET_GDI_INTEROP));
+                get(factory.0, &mut interop)
+            };
+            if hr < 0 || interop.is_null() {
+                return None;
+            }
+            Some(Self {
+                factory,
+                interop: Com(interop),
+            })
+        }
+
+        fn font_face(&self, dc: *mut c_void) -> Option<Com> {
+            let mut raw = ptr::null_mut();
+            // SAFETY: interop is an IDWriteGdiInterop; slot 6 is
+            // CreateFontFaceFromHdc; dc has a font selected.
+            let hr = unsafe {
+                let from_hdc: unsafe extern "system" fn(
+                    *mut c_void,
+                    *mut c_void,
+                    *mut *mut c_void,
+                ) -> i32 = core::mem::transmute(slot(
+                    self.interop.0,
+                    GDI_INTEROP_CREATE_FONT_FACE_FROM_HDC,
+                ));
+                from_hdc(self.interop.0, dc, &mut raw)
+            };
+            (hr >= 0 && !raw.is_null()).then(|| Com(raw))
+        }
+
+        /// Coverage for one glyph, with bounds relative to a pen at the origin
+        /// on the baseline (`top` is negative above it).
+        fn coverage(&self, face: &Com, em_px: f32, glyph: u16) -> Option<(Rect, Vec<u8>)> {
+            let run = GlyphRun {
+                font_face: face.0,
+                font_em_size: em_px,
+                glyph_count: 1,
+                glyph_indices: &glyph,
+                glyph_advances: ptr::null(),
+                glyph_offsets: ptr::null(),
+                is_sideways: 0,
+                bidi_level: 0,
+            };
+            let mut raw = ptr::null_mut();
+            // SAFETY: factory is an IDWriteFactory2; slot 30 is its
+            // CreateGlyphRunAnalysis (run, transform, rendering, measuring,
+            // grid fit, antialias, baseline x, baseline y, out).
+            let hr = unsafe {
+                type Create = unsafe extern "system" fn(
+                    *mut c_void,
+                    *const GlyphRun,
+                    *const c_void,
+                    u32,
+                    u32,
+                    u32,
+                    u32,
+                    f32,
+                    f32,
+                    *mut *mut c_void,
+                ) -> i32;
+                let create: Create =
+                    core::mem::transmute(slot(self.factory.0, FACTORY2_CREATE_GLYPH_RUN_ANALYSIS));
+                create(
+                    self.factory.0,
+                    &run,
+                    ptr::null(),
+                    RENDERING_MODE_NATURAL_SYMMETRIC,
+                    MEASURING_MODE_NATURAL,
+                    GRID_FIT_MODE_DEFAULT,
+                    TEXT_ANTIALIAS_MODE_GRAYSCALE,
+                    0.0,
+                    0.0,
+                    &mut raw,
+                )
+            };
+            if hr < 0 || raw.is_null() {
+                return None;
+            }
+            let analysis = Com(raw);
+            let mut bounds = Rect::default();
+            // SAFETY: analysis is an IDWriteGlyphRunAnalysis; slot 3 is
+            // GetAlphaTextureBounds.
+            let hr = unsafe {
+                let get: unsafe extern "system" fn(*mut c_void, u32, *mut Rect) -> i32 =
+                    core::mem::transmute(slot(analysis.0, ANALYSIS_GET_ALPHA_TEXTURE_BOUNDS));
+                get(analysis.0, TEXTURE_ALIASED_1X1, &mut bounds)
+            };
+            if hr < 0 {
+                return None;
+            }
+            let width = bounds.right.saturating_sub(bounds.left);
+            let height = bounds.bottom.saturating_sub(bounds.top);
+            if width <= 0 || height <= 0 {
+                return Some((bounds, Vec::new()));
+            }
+            if width as u32 > MAX_GLYPH_DIM || height as u32 > MAX_GLYPH_DIM {
+                return None;
+            }
+            let mut alpha = vec![0_u8; width as usize * height as usize];
+            // SAFETY: slot 4 is CreateAlphaTexture; the buffer is exactly
+            // width * height bytes for a 1x1 texture over these bounds.
+            let hr = unsafe {
+                let fill: unsafe extern "system" fn(
+                    *mut c_void,
+                    u32,
+                    *const Rect,
+                    *mut u8,
+                    u32,
+                ) -> i32 = core::mem::transmute(slot(analysis.0, ANALYSIS_CREATE_ALPHA_TEXTURE));
+                fill(
+                    analysis.0,
+                    TEXTURE_ALIASED_1X1,
+                    &bounds,
+                    alpha.as_mut_ptr(),
+                    u32::try_from(alpha.len()).ok()?,
+                )
+            };
+            (hr >= 0).then_some((bounds, alpha))
+        }
+    }
+
+    thread_local! {
+        /// `None` inside means DirectWrite was tried on this thread and is
+        /// unavailable, so it is not tried again per glyph.
+        static RASTERIZER: RefCell<Option<Option<Rasterizer>>> = const { RefCell::new(None) };
+    }
+
+    /// Whether DirectWrite draws glyphs. `AGENTERM_FONT_RASTERIZER=gdi` keeps
+    /// the GDI path, for side-by-side comparison and as a way back.
+    fn enabled() -> bool {
+        std::env::var("AGENTERM_FONT_RASTERIZER")
+            .map_or(true, |value| !value.eq_ignore_ascii_case("gdi"))
+    }
+
+    /// The glyph through DirectWrite, or `None` to let GDI draw it.
+    pub(super) fn raster(
+        face: &mut PixelFace,
+        glyph_index: u16,
+        ascent: i32,
+    ) -> Option<RasterGlyph> {
+        if !enabled() {
+            return None;
+        }
+        RASTERIZER
+            .try_with(|slot| {
+                let mut slot = slot.try_borrow_mut().ok()?;
+                let rasterizer = slot.get_or_insert_with(Rasterizer::create).as_ref()?;
+                if !face.dwrite_attempted {
+                    face.dwrite_attempted = true;
+                    face.dwrite = rasterizer.font_face(face.dc);
+                }
+                let dwrite_face = face.dwrite.as_ref()?;
+                // The GDI face was created with a character height of
+                // `-size_px`, so its em in pixels is the cell height less the
+                // internal leading.
+                let em_px = (face.metrics.tmHeight - face.metrics.tmInternalLeading).max(1) as f32;
+                let (bounds, alpha) = rasterizer.coverage(dwrite_face, em_px, glyph_index)?;
+                let width = bounds.right.saturating_sub(bounds.left).max(0) as u32;
+                let height = bounds.bottom.saturating_sub(bounds.top).max(0) as u32;
+                Some(RasterGlyph {
+                    alpha,
+                    width: if height == 0 { 0 } else { width },
+                    height: if width == 0 { 0 } else { height },
+                    offset_x: bounds.left,
+                    offset_y: ascent + bounds.top,
+                })
+            })
+            .ok()
+            .flatten()
+    }
+
+    #[cfg(test)]
+    pub(super) fn available() -> bool {
+        RASTERIZER
+            .try_with(|slot| {
+                slot.borrow_mut()
+                    .get_or_insert_with(Rasterizer::create)
+                    .is_some()
+            })
+            .unwrap_or(false)
+    }
 }
 
 pub(crate) fn create_terminal_font(
@@ -1066,6 +1415,102 @@ mod tests {
                 horizontal.offset_x,
                 horizontal.offset_x + horizontal.width as i32
             );
+        }
+    }
+
+    /// DirectWrite is what draws glyphs on any Windows since 8.1. If it
+    /// silently failed to load, every other test would still pass on the GDI
+    /// fallback and the change would be decorative.
+    #[test]
+    fn directwrite_is_available_on_this_host() {
+        assert!(dwrite::available(), "IDWriteFactory2 could not be created");
+    }
+
+    /// Which rasteriser actually ran, told from the outside by its coverage
+    /// lattice. DirectWrite's grayscale alpha texture is 4x4 supersampled:
+    /// exactly 17 levels, `round(k * 255 / 16)`. GDI's `GGO_GRAY8_BITMAP` has
+    /// 65, rescaled here to `k * 255 / 64`, so a GDI glyph of any size shows
+    /// values off DirectWrite's lattice.
+    ///
+    /// Measured on a Windows court, `@` at 32 px: DirectWrite 17 distinct
+    /// values, GDI 63. Note what that means: DirectWrite's grayscale is
+    /// *coarser*, not smoother. Its difference is hinting -- symmetric natural
+    /// rendering fits only the vertical axis, where GDI grid-fits both with
+    /// the font's TrueType instructions -- and whether that reads better is a
+    /// judgement for eyes, which `AGENTERM_FONT_RASTERIZER=gdi` makes possible
+    /// side by side.
+    #[test]
+    fn glyphs_are_drawn_by_directwrite_not_gdi() {
+        let directwrite_levels: std::collections::HashSet<u8> = (0..=16_u16)
+            .map(|level| ((level * 255 + 8) / 16) as u8)
+            .collect();
+        let mut grid = select_grid(32).expect("selection");
+        let ascent = grid.face.metrics.tmAscent;
+        let mut utf16 = [0_u16; 2];
+        let units = '@'.encode_utf16(&mut utf16);
+        let index = grid
+            .face
+            .glyph_index('@', units)
+            .expect("lookup")
+            .expect("glyph");
+        let drawn = rasterize('@', 32).expect("raster").expect("@");
+        assert!(
+            drawn
+                .alpha
+                .iter()
+                .all(|alpha| directwrite_levels.contains(alpha)),
+            "coverage off DirectWrite's 17-level lattice: GDI drew this glyph"
+        );
+        let gdi = gdi_raster_face(&grid.face, index, ascent)
+            .expect("gdi")
+            .expect("gdi glyph");
+        assert!(
+            gdi.alpha
+                .iter()
+                .any(|alpha| !directwrite_levels.contains(alpha)),
+            "the discriminator cannot tell GDI from DirectWrite on this glyph"
+        );
+        let _ = dwrite::raster(&mut grid.face, index, ascent);
+    }
+
+    /// Changing rasteriser must not move glyphs within the cell: the grid,
+    /// the baseline and CJK alignment were all established against GDI's
+    /// placement. DirectWrite's natural rendering may differ by a pixel of
+    /// antialiasing at an edge, not more.
+    #[test]
+    fn directwrite_places_glyphs_where_gdi_did() {
+        for size in [12_u16, 15, 16, 24] {
+            let mut grid = select_grid(size).expect("selection");
+            let ascent = grid.face.metrics.tmAscent;
+            let mut utf16 = [0_u16; 2];
+            for ch in ['H', 'g', 'M', '|'] {
+                let units = ch.encode_utf16(&mut utf16);
+                let index = grid
+                    .face
+                    .glyph_index(ch, units)
+                    .expect("lookup")
+                    .expect("glyph");
+                let gdi = gdi_raster_face(&grid.face, index, ascent)
+                    .expect("gdi")
+                    .expect("gdi glyph");
+                let dw = dwrite::raster(&mut grid.face, index, ascent).expect("directwrite glyph");
+                let bottom = |g: &RasterGlyph| g.offset_y + g.height as i32;
+                assert!(
+                    (dw.offset_y - gdi.offset_y).abs() <= 1
+                        && (bottom(&dw) - bottom(&gdi)).abs() <= 1,
+                    "{ch:?} at {size}px: directwrite y {}..{} vs gdi y {}..{}",
+                    dw.offset_y,
+                    bottom(&dw),
+                    gdi.offset_y,
+                    bottom(&gdi)
+                );
+                assert!(
+                    (dw.offset_x - gdi.offset_x).abs() <= 1,
+                    "{ch:?} at {size}px: directwrite x {} vs gdi x {}",
+                    dw.offset_x,
+                    gdi.offset_x
+                );
+            }
         }
     }
 
