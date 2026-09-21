@@ -165,7 +165,7 @@ function run_program(ctx, program, arguments, expected_failure, remove_address, 
 
 // Run without asserting the outcome: the caller decides what an acceptable
 // result is. Used where a host limitation makes both outcomes legitimate.
-function run_tolerant(ctx, program, arguments, remove_address, workspace) {
+function run_tolerant(ctx, program, arguments, remove_address, workspace, expected_failure) {
   const spec = harness.configured_cli_spec(ctx, program, arguments);
   if (remove_address !== 0) {
     spec.env = rh.env_without(spec.env, ["AGENTERM_IPC_ADDRESS"]);
@@ -174,7 +174,10 @@ function run_tolerant(ctx, program, arguments, remove_address, workspace) {
   if (workspace !== "") { spec.env.AGENTERM_WORKSPACE_PATH = workspace; }
   spec.timeout_ms = CLI_WAIT_MS;
   const output = rh.command_spec(spec);
-  record(ctx, arguments, output, 0);
+  // Record what the caller expected, not a blanket zero: a tolerated failure
+  // logged as unexpected makes the journal lie about which command was the
+  // one that actually ended the run.
+  record(ctx, arguments, output, expected_failure);
   return { success: output.success === true ? 1 : 0, text: merge_output(output) };
 }
 
@@ -569,13 +572,13 @@ try {
   );
   rh.sleep_ms(2000);
   const probe_alive = run_tolerant(
-    ctx, cli, ["--address", probe_address, "protocol-info", "--running"], 1, probe_workspace
+    ctx, cli, ["--address", probe_address, "protocol-info", "--running"], 1, probe_workspace, 1
   );
   const explicit_denied_breakaway = probe_alive.success === 0;
   if (explicit_denied_breakaway) {
     print("OBSERVED host does not keep an autostarted server: " + probe_alive.text);
   } else {
-    run_tolerant(ctx, cli, ["--address", probe_address, "kill-server"], 1, probe_workspace);
+    run_tolerant(ctx, cli, ["--address", probe_address, "kill-server"], 1, probe_workspace, 0);
   }
   const explicit_instances = json_without_address(ctx, cli, ["list-instances", "--json"]);
   let explicit_instance_ok = 0;
@@ -613,7 +616,7 @@ try {
   // destructive operation rather than a usage error; nothing else is accepted.
   if (explicit_denied_breakaway) {
     const killed = run_tolerant(
-      ctx, cli, ["--address", explicit_address, "server-kill"], 1, explicit_workspace
+      ctx, cli, ["--address", explicit_address, "server-kill"], 1, explicit_workspace, 1
     );
     harness.require(
       killed.success !== 0 || killed.text.includes("server is not running"),
@@ -935,7 +938,22 @@ try {
     explicit_windows.includes(environment_name) && !explicit_windows.includes(second_window_name),
     "fleet_environment_address_priority" + priority_detail
   );
-  run_program(ctx, cli, ["--address", second_address, "shutdown"], 0, 0, second_workspace);
+  // Same reasoning as `server-kill` above: on a host that does not keep an
+  // autostarted server, the second legacy server may already be gone, and
+  // `shutdown` then reports it is not running. The subject here is that the
+  // command reaches the addressed server's shutdown path, which both outcomes
+  // show; anything else still fails.
+  if (explicit_denied_breakaway) {
+    const stopped = run_tolerant(
+      ctx, cli, ["--address", second_address, "shutdown"], 0, second_workspace, 1
+    );
+    harness.require(
+      stopped.success !== 0 || stopped.text.includes("server is not running"),
+      "fleet_second_shutdown:" + stopped.text
+    );
+  } else {
+    run_program(ctx, cli, ["--address", second_address, "shutdown"], 0, 0, second_workspace);
+  }
 
   text(ctx, cli, ["new-session", "--", "cmd.exe", "/d", "/c", "echo child", "-s", "hijack"]);
   const list_sessions = text(ctx, cli, ["list-sessions"]);
