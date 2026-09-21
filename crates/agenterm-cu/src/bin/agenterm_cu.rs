@@ -1620,8 +1620,22 @@ mod surface_tests {
         let targeted = run(&["--target", "current", "page-text", "-h"]);
         assert!(targeted.ok, "{:?}", targeted.error);
         assert_eq!(targeted.command, "help");
-        // A literal `-h` inside free text is not a help request.
+        // A literal `-h` inside free text is not a help request. Past `--`,
+        // which is what ends flag parsing, it is ordinary text.
         let typed = run(&[
+            "--target",
+            "current",
+            "send-text",
+            "--window",
+            "1",
+            "--",
+            "-h",
+            "x",
+        ]);
+        assert_eq!(typed.command, "send-text");
+        // Before `--` it is an unknown flag, which is a usage error -- but
+        // still never help. That distinction is the thing worth pinning.
+        let dashed = run(&[
             "--target",
             "current",
             "send-text",
@@ -1630,7 +1644,7 @@ mod surface_tests {
             "-h",
             "x",
         ]);
-        assert_eq!(typed.command, "send-text");
+        assert_ne!(dashed.command, "help");
     }
 
     #[test]

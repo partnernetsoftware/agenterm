@@ -41,14 +41,33 @@ if (help === null || typeof help !== "object"
 }
 
 // 2. dyn-backed raw ABI in the same guest, before the ACU Executor request.
-const pid = native.call("|getpid|i32()", []);
+// The C runtime spells this function two ways: POSIX hosts publish `getpid`
+// and the MSVC CRT publishes `_getpid`. Hard-coding the POSIX spelling made
+// this gate unresolvable on every Windows cell -- a C naming fact reported as
+// a composition failure, and an unrecoverable one: a symbol the host cannot
+// resolve ends the guest rather than raising something catchable. Both
+// spellings are the same function, so the guest names the one this host
+// publishes rather than discovering it by failing.
+// Two host facts, not one. The MSVC CRT spells this `_getpid` where POSIX
+// spells it `getpid`; and Rust links that CRT statically, so its symbols are
+// present in the executable but not *exported* -- `GetProcAddress` on the
+// process module cannot see them, where `dlsym` on a Unix host finds libc
+// because libc is a shared library. Naming `ucrtbase` gives the Windows guest
+// the same shared C runtime the Unix guest gets for free. Getting either fact
+// wrong ends the guest outright: an unresolvable symbol is a host door
+// failure, not something the script can catch and retry.
+const windows_host = env_has("OS") === 1;
+const crt = windows_host ? "ucrtbase" : "";
+const process_identity_symbol = windows_host ? "_getpid" : "getpid";
+
+const pid = native.call(crt + "|" + process_identity_symbol + "|i32()", []);
 if (pid === null || typeof pid !== "object"
     || pid.type !== "i32"
     || pid.value <= 0) {
   throw "native_acu_getpid_result";
 }
 
-const magnitude = native.call("|abs|i32(i32)", [-7]);
+const magnitude = native.call(crt + "|abs|i32(i32)", [-7]);
 if (magnitude === null || typeof magnitude !== "object"
     || magnitude.type !== "i32"
     || magnitude.value !== 7) {
@@ -87,7 +106,7 @@ if (refused === null || typeof refused !== "object"
 
 // 5. The native bridge still answers after the ACU Executor hop, and with the
 //    same process identity: neither bridge consumed the other's arguments.
-const after = native.call("|getpid|i32()", []);
+const after = native.call(crt + "|" + process_identity_symbol + "|i32()", []);
 if (after === null || typeof after !== "object"
     || after.type !== "i32"
     || after.value !== pid.value) {

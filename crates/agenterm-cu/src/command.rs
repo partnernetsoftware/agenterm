@@ -5305,12 +5305,10 @@ impl Command {
                     "scroll-wheel requires one non-zero axis and each axis within the bounded detent limit",
                 )
             }
-            Self::PrivilegePlanPowerAction { ttl_seconds, .. } => {
-                if !(1..=600).contains(ttl_seconds) {
-                    return Err("privilege power-action plan ttl_seconds must be in 1..=600");
-                }
-                Ok(())
-            }
+            // The TTL bound belongs to the planner, which refuses it with the
+            // typed `privilege_plan_ttl_invalid` code its callers match on.
+            // Repeating the range here shadowed that with a generic
+            // `invalid_command` and made the typed refusal unreachable.
             Self::AppFacts { selector, .. } => {
                 if selector.is_empty()
                     || selector.len() > agenterm_platform::app_facts::MAX_APP_FACTS_SELECTOR_BYTES
