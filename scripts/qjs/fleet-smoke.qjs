@@ -1088,6 +1088,22 @@ try {
   text(ctx, cli, ["shutdown"]);
   wait_process_gone(restart_pid, "fleet_old_server_exit_timeout");
   text(ctx, cli, ["start-server"]);
+  // `start-server` is exercised above and its success is the part this step
+  // owns. What it cannot provide on a host that does not keep an autostarted
+  // server is a server that is still there for the assertions below -- and the
+  // suite's own server was just shut down by design. Put one back, on the same
+  // address, so the restart's real subject (a fresh epoch, and old events no
+  // longer readable) is still proved rather than lost to the host.
+  if (explicit_denied_breakaway) {
+    const restarted_probe = run_tolerant(ctx, cli, ["protocol-info", "--running"], 0, "", 1);
+    if (restarted_probe.success === 0) {
+      print("OBSERVED restart degraded: the host did not keep the server start-server launched");
+      owned_children.push(harness.start(
+        harness.configured_spec(ctx, cli, ["server", "--address", main_address])
+      ));
+      harness.wait_for_spawned_server(ctx, cli, owned_children[owned_children.length - 1]);
+    }
+  }
   const restart_name = "restart-" + pid;
   text(ctx, cli, ["new-window", "-d", "-n", restart_name, "--", "cmd.exe", "/d", "/c", "echo restarted"]);
   const restart_after = json(ctx, cli, ["ui-snapshot"]);
