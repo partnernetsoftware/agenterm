@@ -110,7 +110,6 @@ fn spawn_contained(
             // that did not deliberately leave.
             allow_breakaway: true,
             limits,
-            ..ProcessContainmentOptions::default()
         },
     )
     .map_err(io::Error::other)?;
@@ -126,7 +125,6 @@ fn spawn_contained(
                     terminate_on_last_close: true,
                     allow_breakaway: true,
                     limits,
-                    ..ProcessContainmentOptions::default()
                 },
             )
             .map_err(io::Error::other)?;
