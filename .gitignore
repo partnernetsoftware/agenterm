@@ -34,3 +34,4 @@ crates/agenterm-cu/src/executor/target/
 # Decisive-experiment budgets and reviewed receipt copies outlive disposable
 # Cargo lanes but remain local evidence rather than tracked product input.
 /.agenterm-research-state/
+target-six

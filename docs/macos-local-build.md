@@ -113,3 +113,23 @@ debug Clippy is not the same check and will not tell you the same things: on
 2026-09-21 it was silent about two `let ... else` clauses that became
 irrefutable after an enum lost a variant, and the Candidate's quality gate
 rejected the lib tests for exactly that.
+
+## `gh run download` needs the proxy too
+
+The sealed Candidate for v0.1.18 (118 MB) sat at zero bytes for 67 minutes on
+the direct route. The same artifact, fetched through the proxy, landed in 59
+seconds:
+
+```bash
+ID=$(gh api repos/<owner>/<repo>/actions/runs/<run>/artifacts \
+  -q '.artifacts[]|select(.name=="release-candidate-<run>")|.id')
+curl -sSfL --proxy http://127.0.0.1:8888 \
+  -H "Authorization: token $(gh auth token)" \
+  -o candidate.zip \
+  "https://api.github.com/repos/<owner>/<repo>/actions/artifacts/$ID/zip"
+```
+
+Same class as the cargo-xwin MSVC CRT fetch above: the direct route stalls
+without failing, which reads as "slow" rather than "stuck". Download only the
+artifact you need -- the full run carries roughly 280 MB of per-platform parts
+that the promotion chain never reads.
