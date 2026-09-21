@@ -14,7 +14,14 @@ C="${UTM_COURT_CLI:-$HOME/repos/utm-court/bin/utm-court}"
 P="${AGENTERM_BUILD_PROXY-http://127.0.0.1:8888}"
 if [ -n "$P" ]; then export HTTPS_PROXY="$P" HTTP_PROXY="$P" ALL_PROXY="$P"; fi
 cd "$R"
-cargo xwin build --locked --profile release-fast --target x86_64-pc-windows-msvc -p agenterm -p agenterm-cu >"$S/sync-build.log" 2>&1 || { echo "BUILD FAILED exe"; exit 1; }
+# One package per invocation, exactly as scripts/qjs/build.qjs does it. A joint
+# invocation feature-unifies agenterm-platform's `device-capture` into images
+# the product ships without it -- on macOS that registers the same Objective-C
+# class twice in one process and puts a dyld warning on stderr, which reds a
+# gate that asserts the server says nothing there. The bug is then in the
+# local build, not in the product, and it costs a round to work that out.
+cargo xwin build --locked --profile release-fast --target x86_64-pc-windows-msvc -p agenterm >"$S/sync-build.log" 2>&1 || { echo "BUILD FAILED exe"; exit 1; }
+cargo xwin build --locked --profile release-fast --target x86_64-pc-windows-msvc -p agenterm-cu >>"$S/sync-build.log" 2>&1 || { echo "BUILD FAILED cu"; exit 1; }
 cargo xwin build --locked --profile abi-release --target x86_64-pc-windows-msvc -p agenterm-cu-provider >>"$S/sync-build.log" 2>&1 || { echo "BUILD FAILED dll"; exit 1; }
 # One artifact per push: a combined ~11 MB archive times out, while each of
 # these lands in well under a minute. The transport, not the archive format,

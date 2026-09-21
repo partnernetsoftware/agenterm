@@ -97,3 +97,25 @@ in the wrong order, so `acu-mcp-provider-smoke.qjs` received the position of
 An assertion that carried the child's own stderr would have said so on the
 first round. That is now a repository-wide invariant: no gate script may judge
 a child by its exit code without carrying that child's output.
+
+## Build each package in its own Cargo invocation
+
+`scripts/qjs/build.qjs` does, deliberately, and the local loop must match it:
+
+```bash
+cargo build --profile release-fast --target <t> -p agenterm
+cargo build --profile release-fast --target <t> -p agenterm-cu
+cargo build --profile abi-release  --target <t> -p agenterm-abi
+cargo build --profile abi-release  --target <t> -p agenterm-cu-provider
+```
+
+A joint invocation feature-unifies `agenterm-platform`'s `device-capture` into
+images the product ships without it. On macOS that registers the same
+Objective-C class in two loaded images, dyld warns on stderr, and the gate that
+asserts the MCP server writes nothing there goes red. On 2026-09-21 that was
+read as an inherent defect of the fixed-sibling provider design and written up
+as a release blocker; it was a joint `cargo build -p agenterm -p agenterm-cu`
+in the staging script. Built the product's way, the macOS runtime cell passes
+on this machine.
+
+**A local reproduction has to reproduce the build, not just the directory.**
