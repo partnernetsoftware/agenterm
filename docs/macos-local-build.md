@@ -85,3 +85,20 @@ Asking for a target whose packages are not cached starts a fresh download, so
 prefer the warm one. When the destination is the `win-aarch64-desktop` court,
 an `x86_64-pc-windows-msvc` build runs there under emulation and costs no new
 download.
+
+## Before pushing anything a Windows gate will judge
+
+Run the lint in the configuration the gate actually uses — the Windows target,
+the release profile, all targets, warnings denied:
+
+```bash
+export HTTPS_PROXY=http://127.0.0.1:8888 ALL_PROXY=http://127.0.0.1:8888
+cargo xwin clippy --locked --profile release-fast \
+  --target x86_64-pc-windows-msvc --all-targets -- -D warnings
+```
+
+Two minutes here against ninety in the Candidate's Windows leg. A host-target
+debug Clippy is not the same check and will not tell you the same things: on
+2026-09-21 it was silent about two `let ... else` clauses that became
+irrefutable after an enum lost a variant, and the Candidate's quality gate
+rejected the lib tests for exactly that.
