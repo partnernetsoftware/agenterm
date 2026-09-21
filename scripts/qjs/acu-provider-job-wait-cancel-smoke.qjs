@@ -317,7 +317,15 @@ try {
   require(cancelled.success === true, "cancelled_wait_child_failed:" + cancelled.stderr);
   require(wait_cancelled_from_stdout(cancelled.stdout), "cancelled_wait_reply_missing");
   require(cancelled.stderr.indexOf("host_hard_timeout") < 0, "cancelled_wait_hard_timeout");
-  require(external_wall_ms < invocation_deadline_ms + 150,
+  // What this bound is for: proving the cancel was honoured instead of the
+  // invocation running to the host's hard timeout -- and that the embedded
+  // 60-second wait did not simply elapse. A 150 ms margin on a 3 s deadline
+  // measures scheduler noise rather than either of those: the Windows court
+  // recorded 3152 ms, two milliseconds over, with the cancel plainly honoured
+  // (`cancelled_wait_hard_timeout` asserts the hard-timeout case separately
+  // right above). One second of headroom still catches both failures it
+  // exists to catch, and stops catching the clock.
+  require(external_wall_ms < invocation_deadline_ms + 1000,
     "cancelled_wait_external_wall:" + external_wall_ms);
 
   const audits = read_json_lines(script_audit);

@@ -101,6 +101,27 @@ pub(crate) enum InjectedAuditFailure {
     FlushAfter(usize),
 }
 
+/// Open options for the audit log.
+///
+/// Compaction replaces this pathname atomically while writers may still hold
+/// it open. On Unix that is fine: the replaced inode stays writable until the
+/// last handle closes. Windows refuses to replace a file whose open handles
+/// did not permit it, so every handle on the audit log declares
+/// `FILE_SHARE_DELETE` alongside read and write -- otherwise the publish fails
+/// with `PermissionDenied` and the compaction looks broken when it is only
+/// being blocked by a reader that is behaving correctly.
+fn audit_open_options() -> OpenOptions {
+    let mut options = OpenOptions::new();
+    options.create(true).append(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
+        options.share_mode(0x0000_0001 | 0x0000_0002 | 0x0000_0004);
+    }
+    options
+}
+
 impl AuditLog {
     pub fn open() -> Result<Self, CuError> {
         let path =
@@ -121,16 +142,12 @@ impl AuditLog {
                 )
             })?;
         }
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-            .map_err(|error| {
-                CuError::new(
-                    "audit_unavailable",
-                    format!("could not open audit log {}: {error}", path.display()),
-                )
-            })?;
+        let file = audit_open_options().open(&path).map_err(|error| {
+            CuError::new(
+                "audit_unavailable",
+                format!("could not open audit log {}: {error}", path.display()),
+            )
+        })?;
         Ok(Self {
             path,
             file,
@@ -238,19 +255,15 @@ impl AuditLog {
         // Compaction atomically replaces the pathname. Reopen after taking the
         // same lock so this handle never appends an outcome to the unlinked
         // pre-compaction inode it opened earlier.
-        self.file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)
-            .map_err(|error| {
-                CuError::new(
-                    "audit_unavailable",
-                    format!(
-                        "could not reopen audit log {}: {error}",
-                        self.path.display()
-                    ),
-                )
-            })?;
+        self.file = audit_open_options().open(&self.path).map_err(|error| {
+            CuError::new(
+                "audit_unavailable",
+                format!(
+                    "could not reopen audit log {}: {error}",
+                    self.path.display()
+                ),
+            )
+        })?;
         #[cfg(test)]
         if matches!(
             self.injected_failure,
@@ -361,6 +374,7 @@ pub(crate) fn compact_at(
                     .with_detail(serde_json::json!({
                         "effect": "unknown",
                         "error_kind": format!("{:?}", error.kind()),
+                        "error": error.to_string(),
                     })));
                 }
             },

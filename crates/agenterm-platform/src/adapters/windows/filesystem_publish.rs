@@ -21,8 +21,10 @@ pub fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
     // symlinks, which owned-sibling publication deliberately no longer pays for.
     // What it must not drop is MAX_PATH escape: MoveFileExW on a plain 280-byte
     // path fails ERROR_PATH_NOT_FOUND.
-    let source = verbatim(full_path(source)?);
-    let destination = verbatim(full_path(destination)?);
+    let source_display = verbatim(full_path(source)?);
+    let destination_display = verbatim(full_path(destination)?);
+    let destination = destination_display.clone();
+    let source = source_display.clone();
     let source = source
         .as_os_str()
         .encode_wide()
@@ -33,16 +35,32 @@ pub fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
-    const ATTEMPTS: usize = 32;
+    // 64 ms of retries (32 x 2 ms) is a guard against an instantaneous race,
+    // not against a real holder. On Windows a replacement loses to any open
+    // handle that did not permit delete-sharing, and to the scanner that opens
+    // every freshly written file -- both of which last far longer than that.
+    // A managed job's resident owner appending to an audit log put a release
+    // gate in exactly this position: `audit_compact_publish_failed` with
+    // `PermissionDenied`, reproduced every run in the Windows court.
+    //
+    // The bound is still bounded, and still ends: it is a hang guard, so it is
+    // sized for the slowest legitimate holder rather than the fastest.
+    const ATTEMPTS: usize = 400;
     for attempt in 0..ATTEMPTS {
-        if unsafe {
-            MoveFileExW(
-                source.as_ptr(),
-                destination.as_ptr(),
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-            )
-        } != 0
-        {
+        // WRITE_THROUGH asks the rename itself to be flushed, and paired with
+        // REPLACE_EXISTING it is refused where a plain replacement is allowed:
+        // a destination that is open -- even with delete-sharing granted --
+        // answers ACCESS_DENIED. The caller has already `sync_all`ed the
+        // source bytes and syncs the directory afterwards, so the durability
+        // WRITE_THROUGH adds here is already provided either side of it.
+        // Ask for it first, and fall back to the plain replacement rather than
+        // failing a publish that Windows would otherwise accept.
+        let flags = if attempt == 0 {
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
+        } else {
+            MOVEFILE_REPLACE_EXISTING
+        };
+        if unsafe { MoveFileExW(source.as_ptr(), destination.as_ptr(), flags) } != 0 {
             return Ok(());
         }
         let error = std::io::Error::last_os_error();
@@ -54,9 +72,33 @@ pub fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
                     || code == ERROR_LOCK_VIOLATION as i32
         );
         if !retryable || attempt + 1 == ATTEMPTS {
-            return Err(error);
+            // Say what the destination looked like at the moment of refusal.
+            // `Access is denied` names the syscall's verdict and nothing about
+            // the cause, and three rebuild cycles went into guessing at it.
+            let attributes = unsafe { GetFileAttributesW(destination.as_ptr()) };
+            let source_attributes = unsafe { GetFileAttributesW(source.as_ptr()) };
+            let source_state = std::fs::OpenOptions::new()
+                .write(true)
+                .open(source_display.as_path())
+                .map(|_| "writable".to_owned())
+                .unwrap_or_else(|probe| format!("unopenable: {probe}"));
+            let reopen = std::fs::OpenOptions::new()
+                .write(true)
+                .open(destination_display.as_path())
+                .map(|_| "writable".to_owned())
+                .unwrap_or_else(|reopen_error| format!("unopenable: {reopen_error}"));
+            return Err(std::io::Error::new(
+                error.kind(),
+                format!(
+                    "{error} (destination {attributes:#x} {reopen}; source {source_attributes:#x} {source_state}; attempts {})",
+                    attempt + 1
+                ),
+            ));
         }
-        std::thread::sleep(Duration::from_millis(2));
+        // Back off gently: the first contention is usually momentary, and a
+        // scanner holding the file is not helped by spinning.
+        let backoff = if attempt < 32 { 2 } else { 10 };
+        std::thread::sleep(Duration::from_millis(backoff));
     }
     unreachable!("bounded replacement loop always returns")
 }

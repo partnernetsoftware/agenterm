@@ -216,12 +216,22 @@ pub fn write_private_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
         )
     })?;
     let mut cleanup = TemporaryFile::new(temporary.clone());
-    file.write_all(bytes)?;
-    file.sync_all()?;
+    // Name the step in every error. The caller reports `error.kind()`, and
+    // three different operations here can answer `PermissionDenied` -- creating
+    // the temporary, replacing the destination, or syncing the directory. One
+    // release gate cost several rounds to a wrong guess about which.
+    let step = |what: &str, error: io::Error| {
+        io::Error::new(
+            error.kind(),
+            format!("private atomic publish failed at {what}: {error}"),
+        )
+    };
+    file.write_all(bytes).map_err(|e| step("write", e))?;
+    file.sync_all().map_err(|e| step("sync", e))?;
     drop(file);
-    replace_file(&temporary, path)?;
+    replace_file(&temporary, path).map_err(|e| step("replace", e))?;
     cleanup.disarm();
-    sync_parent(parent)
+    sync_parent(parent).map_err(|e| step("sync-parent", e))
 }
 
 #[cfg(feature = "filesystem")]

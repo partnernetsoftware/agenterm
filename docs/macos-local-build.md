@@ -46,3 +46,42 @@ open ~/Applications/AgenTerm.app
 
 Local builds are unsigned bytes produced on your machine. Release checksum,
 signature, notarization, Candidate, and Promotion rules remain unchanged.
+
+## Cross-compiling for Windows from this Mac
+
+Building a Windows target from macOS needs the MSVC CRT and the Windows SDK.
+`cargo xwin` fetches them once into a user-global cache shared by every
+project on the machine, so the step is normally invisible — you only meet it
+on a cold cache.
+
+**Use the local proxy.** The direct route to Microsoft's download host does
+not complete from here: measured on 2026-09-21 it timed out at 12 s with no
+response, while the same request through the proxy answered in about 1 s. On
+the direct route a cold cache crawled from 58 MB to 73 MB in roughly fifteen
+minutes; through the proxy it reached 1.1 GB and started compiling inside one
+minute.
+
+```bash
+export HTTPS_PROXY=http://127.0.0.1:8888
+export HTTP_PROXY=http://127.0.0.1:8888
+export ALL_PROXY=http://127.0.0.1:8888
+
+cargo xwin build --locked --profile release-fast \
+  --target x86_64-pc-windows-msvc -p agenterm
+```
+
+Prefer the proxy for `cargo build` and `cargo fetch` here too: the crate
+registry and the MSVC packages take the same route out.
+
+Two ways to turn a slow download into a stuck one, both avoidable:
+
+- **Do not interrupt `cargo xwin` mid-download.** A partial cache makes the
+  next run re-verify everything from the start.
+- **Do not run two `cargo xwin` builds at once.** They deadlock on the cache
+  lock; three concurrent runs held the cache frozen until all but one were
+  killed.
+
+Asking for a target whose packages are not cached starts a fresh download, so
+prefer the warm one. When the destination is the `win-aarch64-desktop` court,
+an `x86_64-pc-windows-msvc` build runs there under emulation and costs no new
+download.
