@@ -328,6 +328,9 @@ function start_waiter(ctx, cli, epoch, after, kind, timeout_ms) {
 function complete_waiter_child(child) {
   const output = harness.wait(child, 15000);
   const merged_output = merge_output(output);
+  // Slot back to the door before asserting: the result is already in hand, and
+  // every waiter this suite starts would otherwise hold one for the whole run.
+  harness.release(child);
   harness.require(output.success === true, "fleet_event_waiter_failed:" + merged_output);
   return JSON.parse(merged_output.trim());
 }
