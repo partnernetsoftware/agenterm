@@ -34,7 +34,11 @@ echo "pre-push checks ($TARGET):"
 step fmt cargo fmt --check
 step clippy cargo xwin clippy --locked --profile release-fast \
   --target "$TARGET" --all-targets -- -D warnings
-step tests cargo test --locked --lib
+# On a non-Windows host `check.qjs` drops to its quick lane, which is a real
+# subset of the Candidate's gate lane -- PRD capability alignment, the native
+# public catalog clients, host Clippy and the library tests -- for about 90
+# seconds. It is the widest local net available and it costs almost nothing.
+step quick-lane env AGENTERM_BOOTSTRAP_TASK=check ./scripts/bootstrap.sh
 step policy cargo test --locked --test release_workflow_policy
 step redact ./scripts/doc-redact-check.sh
 
