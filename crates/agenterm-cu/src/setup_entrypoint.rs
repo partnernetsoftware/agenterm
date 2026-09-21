@@ -358,6 +358,17 @@ fn launcher_bytes(source: &Path, source_sha256: &str) -> Result<Vec<u8>, CuError
                 "current agenterm-cu executable path contains a quote",
             ));
         }
+        // `cmd.exe` cannot execute a verbatim path. The backslash-backslash-
+        // question-mark spelling is what Win32 calls want for long paths, and
+        // writing it into the launcher produced a script that answered "The
+        // system cannot find the path specified." for every invocation -- the
+        // launcher was published, checked, and unusable. Strip the prefix for
+        // the one place the string is handed to a shell rather than an API.
+        let source = source
+            .strip_prefix(r"\\?\UNC\")
+            .map(|rest| format!(r"\\{rest}"))
+            .or_else(|| source.strip_prefix(r"\\?\").map(str::to_owned))
+            .unwrap_or_else(|| source.to_owned());
         let source = source.replace('%', "%%");
         Ok(format!(
             "@echo off\r\nrem {MARKER} schema={SCHEMA} version={} source-sha256={source_sha256}\r\nsetlocal DisableDelayedExpansion\r\n\"{source}\" %*\r\nexit /b %errorlevel%\r\n",
