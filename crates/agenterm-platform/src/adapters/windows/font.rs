@@ -46,6 +46,18 @@ const RASTER_FAMILIES: &[&str] = &[
     "Segoe UI Emoji",
 ];
 
+/// Faces for the Latin text that fills most of a terminal, in preference
+/// order. One of these sets the cell when it is really installed.
+///
+/// `RASTER_FAMILIES` is ordered for coverage, which is right for CJK and wrong
+/// for Latin: its first entry, NSimSun, measures as a perfect dual-width grid
+/// face and so won the grid on every Windows carrying East Asian fonts --
+/// drawing all Latin text in a Song face whose Latin glyphs are thin and
+/// loosely fitted at terminal sizes. The owner's `minicon --status` reported
+/// exactly that (`新宋体`). Consolas has shipped on every Windows since Vista,
+/// so it is the floor; Cascadia Mono is what Windows Terminal draws.
+const LATIN_FAMILIES: &[&str] = &["Cascadia Mono", "Consolas"];
+
 thread_local! {
     static RASTER_FACES: RefCell<RasterFaces> = const { RefCell::new(RasterFaces::empty()) };
 }
@@ -57,8 +69,19 @@ thread_local! {
 
 struct RasterFaces {
     size_px: u16,
-    /// The family the cell grid was measured on, resolved once per size.
-    /// Glyph lookup must start here or ASCII is drawn from a face whose
+    resolved: bool,
+    /// The Latin face that sets the cell, when one is installed. Glyph lookup
+    /// starts here.
+    latin: Option<PixelFace>,
+    /// The baseline every glyph is aligned to, from the face that sets the
+    /// cell. `None` keeps each coverage face on its own ascent, which is what
+    /// the single-face grid always did.
+    grid_ascent: Option<i32>,
+    /// The size coverage faces are created at: `2 * cell_width` under a Latin
+    /// grid, so a dual-width CJK face's full-width glyph spans two cells.
+    coverage_size_px: u16,
+    /// Without a Latin face: the coverage family the grid was measured on.
+    /// Glyph lookup must start there or ASCII is drawn from a face whose
     /// advance has nothing to do with the cell width.
     primary: Option<usize>,
     faces: [Option<PixelFace>; RASTER_FAMILIES.len()],
@@ -68,6 +91,10 @@ impl RasterFaces {
     const fn empty() -> Self {
         Self {
             size_px: 0,
+            resolved: false,
+            latin: None,
+            grid_ascent: None,
+            coverage_size_px: 0,
             primary: None,
             faces: [const { None }; RASTER_FAMILIES.len()],
         }
@@ -77,6 +104,10 @@ impl RasterFaces {
         if self.size_px != size_px {
             *self = Self {
                 size_px,
+                resolved: false,
+                latin: None,
+                grid_ascent: None,
+                coverage_size_px: size_px,
                 primary: None,
                 faces: std::array::from_fn(|_| None),
             };
@@ -85,25 +116,47 @@ impl RasterFaces {
 
     /// Resolved lazily and cached: selection measures several faces, which is
     /// far too expensive to repeat per glyph.
-    fn primary_index(&mut self) -> usize {
-        if let Some(index) = self.primary {
-            return index;
+    fn resolve(&mut self) {
+        if self.resolved {
+            return;
         }
-        let index = select_primary(self.size_px).map_or(0, |(index, _, _)| index);
-        self.primary = Some(index);
-        index
+        self.resolved = true;
+        match select_grid(self.size_px) {
+            Ok(Grid {
+                face,
+                source: GridSource::Latin,
+                coverage_size_px,
+                ..
+            }) => {
+                self.grid_ascent = Some(face.metrics.tmAscent);
+                self.coverage_size_px = coverage_size_px;
+                self.latin = Some(face);
+            }
+            Ok(Grid {
+                source: GridSource::Coverage(index),
+                ..
+            }) => self.primary = Some(index),
+            Err(_) => self.primary = Some(0),
+        }
     }
 
-    /// Families in lookup order: the measured primary first, then the rest in
-    /// declaration order for coverage.
+    /// Coverage families in lookup order. Under a Latin grid they are all
+    /// fallbacks, consulted in declaration order; otherwise the measured
+    /// primary comes first.
     fn lookup_order(&mut self) -> impl Iterator<Item = usize> + use<> {
-        let primary = self.primary_index();
-        std::iter::once(primary).chain((0..RASTER_FAMILIES.len()).filter(move |i| *i != primary))
+        self.resolve();
+        let primary = self.primary;
+        primary
+            .into_iter()
+            .chain((0..RASTER_FAMILIES.len()).filter(move |i| Some(*i) != primary))
     }
 
     fn face(&mut self, index: usize) -> Result<&mut PixelFace, FontError> {
         if self.faces[index].is_none() {
-            self.faces[index] = Some(PixelFace::create(RASTER_FAMILIES[index], self.size_px)?);
+            self.faces[index] = Some(PixelFace::create(
+                RASTER_FAMILIES[index],
+                self.coverage_size_px,
+            )?);
         }
         self.faces[index].as_mut().ok_or(FontError::CreateFailed)
     }
@@ -386,6 +439,110 @@ fn measure_face(face: &PixelFace) -> Option<FaceShape> {
     })
 }
 
+/// Where the face that sets the cell came from.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum GridSource {
+    /// A `LATIN_FAMILIES` face: CJK and other coverage comes from
+    /// `RASTER_FAMILIES` rasterised at `coverage_size_px`.
+    Latin,
+    /// No Latin face is installed: the grid is the measured `RASTER_FAMILIES`
+    /// entry at this index, exactly as before Latin faces were preferred.
+    Coverage(usize),
+}
+
+/// The face the cell grid is built on, and how everything else is fitted to
+/// it.
+struct Grid {
+    face: PixelFace,
+    source: GridSource,
+    shape: Option<FaceShape>,
+    /// The size coverage faces are rasterised at.
+    coverage_size_px: u16,
+    /// What a full-width character actually advances in the face that will
+    /// draw it, at the size it will be drawn -- the number `half/full width
+    /// correct` is judged on.
+    full_width_advance: Option<i32>,
+}
+
+/// A Latin face that is really installed and really monospaced.
+///
+/// The name check is load-bearing: `CreateFontW` never fails on a missing
+/// family, so asking for Cascadia Mono on a machine without it returns
+/// whatever the mapper prefers -- quite possibly NSimSun again. Latin family
+/// names are not localized, so the resolved name must equal the request.
+fn select_latin(size_px: u16) -> Option<(PixelFace, FaceShape)> {
+    select_latin_from(LATIN_FAMILIES, size_px)
+}
+
+fn select_latin_from(families: &[&str], size_px: u16) -> Option<(PixelFace, FaceShape)> {
+    for family in families {
+        let Ok(face) = PixelFace::create(family, size_px) else {
+            continue;
+        };
+        if !face
+            .actual_name()
+            .is_ok_and(|name| name.eq_ignore_ascii_case(family))
+        {
+            continue;
+        }
+        if let Some(shape) = measure_face(&face) {
+            return Some((face, shape));
+        }
+    }
+    None
+}
+
+/// The advance of `中` in the first coverage face that has it, created at
+/// `size_px` -- the same face, at the same size, `rasterize` will draw it
+/// from.
+fn coverage_full_width_advance(size_px: u16) -> Option<i32> {
+    let mut utf16 = [0u16; 2];
+    let units = '中'.encode_utf16(&mut utf16);
+    for family in RASTER_FAMILIES {
+        let Ok(mut face) = PixelFace::create(family, size_px) else {
+            continue;
+        };
+        if matches!(face.glyph_index('中', units), Ok(Some(_))) {
+            return char_advance(face.dc, FULL_WIDTH_PROBE);
+        }
+    }
+    None
+}
+
+/// Chooses the grid: a Latin face when one is installed, with coverage faces
+/// sized so a full-width character spans exactly two of its cells;
+/// otherwise the single measured coverage face, as before.
+///
+/// A dual-width CJK face like NSimSun advances a full-width character by its
+/// em, so creating it at `2 * cell_width` makes that advance exactly two cells
+/// and its half-width glyphs exactly one. The ratio is then measured, not
+/// assumed, and reported.
+fn select_grid(size_px: u16) -> Result<Grid, FontError> {
+    if let Some((face, shape)) = select_latin(size_px) {
+        let coverage_size_px = u16::try_from(shape.cell_width.saturating_mul(2)).unwrap_or(size_px);
+        let full_width_advance = coverage_full_width_advance(coverage_size_px);
+        return Ok(Grid {
+            face,
+            source: GridSource::Latin,
+            shape: Some(FaceShape {
+                cell_width: shape.cell_width,
+                full_width_is_double: full_width_advance == Some(shape.cell_width * 2),
+            }),
+            coverage_size_px,
+            full_width_advance,
+        });
+    }
+    let (index, face, shape) = select_primary(size_px)?;
+    let full_width_advance = char_advance(face.dc, FULL_WIDTH_PROBE);
+    Ok(Grid {
+        face,
+        source: GridSource::Coverage(index),
+        shape,
+        coverage_size_px: size_px,
+        full_width_advance,
+    })
+}
+
 /// Chooses the family the cell grid is built on.
 ///
 /// Preference order is measured, not positional: a family that is monospaced
@@ -449,7 +606,7 @@ pub(crate) fn primary_metrics(size_px: u16) -> Result<FontMetrics, FontError> {
             ascent,
         });
     }
-    let (_, face, shape) = select_primary(size_px)?;
+    let Grid { face, shape, .. } = select_grid(size_px)?;
     // The measured advance, not `tmAveCharWidth`: the average is a
     // font-wide statistic that equals the real advance only when the face is
     // monospaced, which is exactly the thing that was not being checked.
@@ -484,7 +641,12 @@ pub(crate) fn primary_face_report(
     size_px: u16,
 ) -> Result<crate::font::PrimaryFaceReport, FontError> {
     let size_px = size_px.clamp(MIN_SIZE_PX, MAX_SIZE_PX);
-    let (_, face, shape) = select_primary(size_px)?;
+    let Grid {
+        face,
+        shape,
+        full_width_advance,
+        ..
+    } = select_grid(size_px)?;
     Ok(crate::font::PrimaryFaceReport {
         face: face.actual_name()?,
         cell_width: shape.map_or_else(
@@ -496,7 +658,7 @@ pub(crate) fn primary_face_report(
         // fabricated number: "unknown" is the honest answer and the one that
         // tells a reader the selection fell through.
         ascii_advance: shape.map(|shape| shape.cell_width.max(0) as u32),
-        full_width_advance: char_advance(face.dc, FULL_WIDTH_PROBE).map(|width| width as u32),
+        full_width_advance: full_width_advance.map(|width| width as u32),
     })
 }
 
@@ -507,7 +669,7 @@ pub(crate) fn probe_capability() -> Result<(), FontError> {
 pub(crate) fn rasterizer_name() -> Result<String, FontError> {
     // The face the grid was actually measured on, so the window title names
     // what is being rendered rather than what was asked for first.
-    select_primary(16)?.1.actual_name()
+    select_grid(16)?.face.actual_name()
 }
 
 pub(crate) fn rasterize(ch: char, size_px: u16) -> Result<Option<RasterGlyph>, FontError> {
@@ -518,12 +680,20 @@ pub(crate) fn rasterize(ch: char, size_px: u16) -> Result<Option<RasterGlyph>, F
         .try_with(|slot| {
             let mut renderer = slot.try_borrow_mut().map_err(|_| FontError::RasterFailed)?;
             renderer.reset(size_px);
+            renderer.resolve();
+            let grid_ascent = renderer.grid_ascent;
+            if let Some(latin) = renderer.latin.as_mut()
+                && let Some(glyph_index) = latin.glyph_index(ch, units)?
+                && let Some(glyph) = raster_face(latin, glyph_index, grid_ascent)?
+            {
+                return Ok(Some(glyph));
+            }
             for index in renderer.lookup_order().collect::<Vec<_>>() {
                 let face = renderer.face(index)?;
                 let Some(glyph_index) = face.glyph_index(ch, units)? else {
                     continue;
                 };
-                if let Some(glyph) = raster_face(face, glyph_index)? {
+                if let Some(glyph) = raster_face(face, glyph_index, grid_ascent)? {
                     return Ok(Some(glyph));
                 }
             }
@@ -606,7 +776,16 @@ fn cmap_format_12_glyph_index(cmap: &[u8], codepoint: u32) -> Option<u16> {
     None
 }
 
-fn raster_face(face: &PixelFace, glyph_index: u16) -> Result<Option<RasterGlyph>, FontError> {
+/// `grid_ascent` is the baseline of the face that sets the cell. A coverage
+/// face rasterised at another size has another ascent, and measuring its
+/// glyphs from its own would drop or lift them off the line the Latin text
+/// sits on.
+fn raster_face(
+    face: &PixelFace,
+    glyph_index: u16,
+    grid_ascent: Option<i32>,
+) -> Result<Option<RasterGlyph>, FontError> {
+    let ascent = grid_ascent.unwrap_or(face.metrics.tmAscent);
     let identity = MAT2 {
         eM11: FIXED { fract: 0, value: 1 },
         eM12: FIXED::default(),
@@ -641,7 +820,7 @@ fn raster_face(face: &PixelFace, glyph_index: u16) -> Result<Option<RasterGlyph>
             width: 0,
             height: 0,
             offset_x: metrics.gmptGlyphOrigin.x,
-            offset_y: face.metrics.tmAscent - metrics.gmptGlyphOrigin.y,
+            offset_y: ascent - metrics.gmptGlyphOrigin.y,
         }));
     }
     let mut native = vec![0u8; required as usize];
@@ -681,7 +860,7 @@ fn raster_face(face: &PixelFace, glyph_index: u16) -> Result<Option<RasterGlyph>
         width,
         height,
         offset_x: metrics.gmptGlyphOrigin.x,
-        offset_y: face.metrics.tmAscent - metrics.gmptGlyphOrigin.y,
+        offset_y: ascent - metrics.gmptGlyphOrigin.y,
     }))
 }
 
@@ -787,19 +966,19 @@ mod tests {
     #[test]
     fn the_selected_face_is_monospaced_at_every_size_the_product_offers() {
         for size in [8_u16, 12, 15, 16, 24, 48, 72] {
-            let (index, face, shape) = select_primary(size).expect("a face is always selected");
-            let shape = shape.unwrap_or_else(|| {
+            let grid = select_grid(size).expect("a face is always selected");
+            let shape = grid.shape.unwrap_or_else(|| {
                 panic!(
                     "no monospaced face found at {size}px; fell back to {:?}",
-                    RASTER_FAMILIES[index]
+                    grid.source
                 )
             });
             assert!(shape.cell_width > 0, "{size}px has no measurable advance");
             assert_eq!(
-                char_advance(face.dc, NARROW_PROBE),
-                char_advance(face.dc, WIDE_PROBE),
+                char_advance(grid.face.dc, NARROW_PROBE),
+                char_advance(grid.face.dc, WIDE_PROBE),
                 "{:?} at {size}px is not monospaced: 'i' and 'W' differ",
-                RASTER_FAMILIES[index]
+                grid.source
             );
         }
     }
@@ -810,14 +989,85 @@ mod tests {
     /// reporting it.
     #[test]
     fn the_selected_face_renders_full_width_characters_at_exactly_two_cells() {
-        let (index, face, shape) = select_primary(16).expect("a face is always selected");
-        let shape = shape.expect("a monospaced face");
+        // Every size the product offers, not one: under a Latin grid the ratio
+        // is produced by sizing the coverage face, and an off-by-one in that
+        // arithmetic shows at some sizes and not others.
+        for size in [8_u16, 12, 15, 16, 20, 24, 32, 48, 72] {
+            let grid = select_grid(size).expect("a face is always selected");
+            let shape = grid.shape.expect("a monospaced face");
+            assert!(
+                shape.full_width_is_double,
+                "{:?} at {size}px does not render 中 at two cells (ascii={}, full={:?}, coverage at {}px)",
+                grid.source, shape.cell_width, grid.full_width_advance, grid.coverage_size_px
+            );
+        }
+    }
+
+    /// The reason the Latin families exist. On a machine with East Asian
+    /// fonts NSimSun measures as a perfect dual-width grid face, and before
+    /// Latin faces were preferred it won the grid -- so every Latin letter in
+    /// the terminal was drawn in a Song face. Consolas ships with every
+    /// Windows since Vista, so on a stock machine the grid must be Latin.
+    #[test]
+    fn latin_text_is_drawn_in_a_latin_face_not_a_cjk_one() {
+        let grid = select_grid(16).expect("selection");
+        let name = grid.face.actual_name().expect("resolved name");
+        assert_eq!(
+            grid.source,
+            GridSource::Latin,
+            "the grid fell back to a coverage face: {name:?}"
+        );
         assert!(
-            shape.full_width_is_double,
-            "{:?} does not render 中 at two cells (ascii={}, full={:?})",
-            RASTER_FAMILIES[index],
-            shape.cell_width,
-            char_advance(face.dc, FULL_WIDTH_PROBE)
+            LATIN_FAMILIES
+                .iter()
+                .any(|family| name.eq_ignore_ascii_case(family)),
+            "the grid face is {name:?}, not one of {LATIN_FAMILIES:?}"
+        );
+    }
+
+    /// `CreateFontW` never fails on a missing family, so a Latin preference is
+    /// only real if the resolved name is checked. Without the check, asking for
+    /// a family this machine lacks would "succeed" with whatever the mapper
+    /// chose -- NSimSun included.
+    #[test]
+    fn a_latin_family_the_machine_lacks_is_not_accepted_through_substitution() {
+        assert!(
+            select_latin_from(&["Definitely Not An Installed Face"], 16).is_none(),
+            "a substituted face was accepted as the requested Latin family"
+        );
+    }
+
+    /// Coverage glyphs sit on the Latin baseline. Rasterised at twice the
+    /// cell width, a CJK face has a larger ascent of its own, and measuring
+    /// its glyphs from that would push them below the line.
+    #[test]
+    fn coverage_glyphs_share_the_latin_baseline() {
+        let size = 16;
+        let grid = select_grid(size).expect("selection");
+        if grid.source != GridSource::Latin {
+            eprintln!("skipped: no Latin grid face on this machine");
+            return;
+        }
+        let ascent = grid.face.metrics.tmAscent;
+        let latin = rasterize('H', size).expect("raster").expect("H");
+        let wide = rasterize('中', size).expect("raster").expect("中");
+        let latin_baseline = latin.offset_y + latin.height as i32;
+        let wide_bottom = wide.offset_y + wide.height as i32;
+        // `H` sits on the baseline; `中` descends a little below it in Song
+        // faces but must stay within the Latin face's descent.
+        assert!(
+            latin_baseline <= ascent + 1,
+            "H baseline {latin_baseline} vs ascent {ascent}"
+        );
+        let descent = grid.face.metrics.tmDescent;
+        assert!(
+            wide_bottom <= ascent + descent + 1,
+            "中 bottom {wide_bottom} falls below the Latin line (ascent {ascent}, descent {descent})"
+        );
+        assert!(
+            wide.offset_y >= -2,
+            "中 rises {} px above the cell",
+            -wide.offset_y
         );
     }
 
@@ -967,11 +1217,11 @@ mod tests {
     #[test]
     fn reported_cell_width_is_the_measured_advance_not_the_average() {
         let metrics = primary_metrics(16).expect("metrics");
-        let (_, face, shape) = select_primary(16).expect("selection");
-        let shape = shape.expect("a monospaced face");
+        let grid = select_grid(16).expect("selection");
+        let shape = grid.shape.expect("a monospaced face");
         assert_eq!(metrics.cell_width, shape.cell_width as f32);
         assert_eq!(
-            char_advance(face.dc, ASCII_PROBE),
+            char_advance(grid.face.dc, ASCII_PROBE),
             Some(shape.cell_width),
             "the reported cell width must be an advance a glyph actually has"
         );
