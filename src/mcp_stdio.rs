@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use crate::{
     mcp_acu_mutation::{
-        CancelResult, CompletionDisposition, CompletionOutcome, ConnectionMutationState,
+        CancelResult, CompletionOutcome, ConnectionMutationState,
         IdempotencyKey, JsonRpcRequestId, MutationRequest, ProviderCompletion,
         SessionEndCompletion, SubmitResult,
     },
@@ -1469,31 +1469,27 @@ fn handle_provider_complete<W: Write>(
                 },
                 Err(_) => ProviderCompletion::LostAfterDispatch,
             };
-            let disposition = state.complete(&id, completion).map_err(|_| {
+            let completed = state.complete(&id, completion).map_err(|_| {
                 io::Error::other("provider completion did not match the dispatched MCP request")
             })?;
-            match disposition {
-                CompletionDisposition::Emit(completed) => {
-                    let _ = (&completed.idempotency_key, completed.cancellation_requested);
-                    let reply = match completed.outcome {
-                        CompletionOutcome::Authoritative { reply, counts } => {
-                            let _ = counts;
-                            reply
-                        }
-                        CompletionOutcome::OutcomeUnknown { counts } => {
-                            let _ = counts;
-                            provider_boundary_reply("acu_provider_boundary_lost_after_dispatch")
-                        }
-                    };
-                    write_message(
-                        output,
-                        &acu_tool_response(mutation_id_value(&completed.json_rpc_id), reply),
-                    )?;
-                    if !output.has_error() && !provider.gate.is_busy() {
-                        dispatch_next(state, provider)
-                            .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
-                    }
+            let _ = (&completed.idempotency_key, completed.cancellation_requested);
+            let reply = match completed.outcome {
+                CompletionOutcome::Authoritative { reply, counts } => {
+                    let _ = counts;
+                    reply
                 }
+                CompletionOutcome::OutcomeUnknown { counts } => {
+                    let _ = counts;
+                    provider_boundary_reply("acu_provider_boundary_lost_after_dispatch")
+                }
+            };
+            write_message(
+                output,
+                &acu_tool_response(mutation_id_value(&completed.json_rpc_id), reply),
+            )?;
+            if !output.has_error() && !provider.gate.is_busy() {
+                dispatch_next(state, provider)
+                    .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
             }
             if state.is_session_ending() && !provider.gate.is_busy() {
                 dispatch_session_end(state, provider)

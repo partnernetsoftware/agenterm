@@ -232,7 +232,7 @@ impl<T> ConnectionMutationState<T> {
         &mut self,
         id: &JsonRpcRequestId,
         completion: ProviderCompletion<R>,
-    ) -> Result<CompletionDisposition<R>, CompletionError> {
+    ) -> Result<CompletedCall<R>, CompletionError> {
         let Some(dispatched) = self.dispatched.as_ref() else {
             return Err(CompletionError::NoDispatchedCall);
         };
@@ -254,7 +254,7 @@ impl<T> ConnectionMutationState<T> {
         // server had in fact completed. Standard input closing says nothing
         // about standard output.
         self.enter_session_ending_if_drained();
-        Ok(CompletionDisposition::Emit(completed))
+        Ok(completed)
     }
 
     pub(crate) fn receive_eof(&mut self) -> EofDisposition {
@@ -535,10 +535,6 @@ pub(crate) enum CompletionOutcome<R> {
     OutcomeUnknown { counts: EffectCounts },
 }
 
-pub(crate) enum CompletionDisposition<R> {
-    Emit(CompletedCall<R>),
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CompletionError {
     NoDispatchedCall,
@@ -660,7 +656,7 @@ mod tests {
             state.cancel(&rpc(1)),
             CancelResult::DispatchedCancellationRecorded
         );
-        let CompletionDisposition::Emit(completed) = state
+        let completed = state
             .complete(
                 &rpc(1),
                 ProviderCompletion::Authoritative {
@@ -669,10 +665,7 @@ mod tests {
                     effect_attempted: true,
                 },
             )
-            .expect("completion")
-        else {
-            panic!("open connection emits completion");
-        };
+            .expect("completion");
         assert_eq!(completed.json_rpc_id, rpc(1));
         assert_eq!(completed.idempotency_key.as_str(), "effect-a");
         assert!(completed.cancellation_requested);
@@ -690,12 +683,9 @@ mod tests {
         let mut state = state();
         state.submit(request(1, "effect-a", "command"));
         state.begin_dispatch().expect("dispatch");
-        let CompletionDisposition::Emit(completed) = state
+        let completed = state
             .complete::<()>(&rpc(1), ProviderCompletion::LostAfterDispatch)
-            .expect("completion")
-        else {
-            panic!("open connection emits completion");
-        };
+            .expect("completion");
         let CompletionOutcome::OutcomeUnknown { counts } = completed.outcome else {
             panic!("provider loss must be uncertain");
         };
@@ -732,7 +722,7 @@ mod tests {
                 },
             )
             .expect("dispatched work drains");
-        assert!(matches!(disposition, CompletionDisposition::Emit(_)));
+        assert_eq!(disposition.json_rpc_id, rpc(1));
         assert!(state.is_session_ending());
         assert!(!state.is_ended());
 

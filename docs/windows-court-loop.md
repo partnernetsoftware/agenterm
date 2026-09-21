@@ -65,3 +65,35 @@ as "the gate failed again" in CI.
 - **Clear `target/smoke` between runs** when a run was interrupted. Leftover
   managed-job state surfaces as `managed_job_outcome_unknown`, which looks
   like a product failure and is not.
+
+## What the 2026-09-21 round added
+
+Two more traps, both belonging to the court rather than the product:
+
+- **`exec` returns when the guest agent accepts a command, not when the guest
+  has run it.** Three cell steps issued back to back all start at once, so the
+  cell reads a receipt its own predecessor has not written yet and reports
+  `..._receipt_missing` — a missing file, not the race that caused it. A push
+  issued straight after a `mkdir` loses the same race and reports "cannot find
+  the path". `scripts/windows-court-runtime-cell.sh` puts a marker in the log
+  at the end of each step and waits for it.
+- **A guest DLL stays locked after every visible process is gone.** Pushing
+  over it fails with "being used by another process", which reads like a
+  transport fault. Each run gets its own timestamped guest directory instead.
+
+And one that belongs to this Mac: **overwriting a running or previously-run
+Mach-O in place gets the next execution SIGKILLed (exit 137)**, because the
+code signature no longer matches the file. `rm` first, then copy.
+
+## The single most expensive diagnostic gap
+
+Candidate 35590507738 failed **all six** runtime cells with the same string,
+`cu_retirement_cell_mcp_provider_exit`, and that string named a step rather
+than a cause. Six cells, six platforms, one message, nothing to act on.
+
+The cause was one line in `candidate.yml`: the four smoke scripts were passed
+in the wrong order, so `acu-mcp-provider-smoke.qjs` received the position of
+`native-acu-composition-smoke.qjs` and refused with "expected: no arguments".
+An assertion that carried the child's own stderr would have said so on the
+first round. That is now a repository-wide invariant: no gate script may judge
+a child by its exit code without carrying that child's output.
