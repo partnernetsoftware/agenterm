@@ -2874,3 +2874,51 @@ fn the_test_harness_returns_child_slots_to_the_door() {
          result must be read before it"
     );
 }
+
+/// A child's exit code is the thinnest possible verdict: it says a step failed
+/// and nothing about why, so a 45-minute pipeline spends a whole round learning
+/// one bit. Every assertion in a gate script that judges a child by its exit
+/// code must carry that child's own stderr out with it.
+#[test]
+fn no_gate_script_judges_a_child_by_exit_code_alone() {
+    for entry in std::fs::read_dir("scripts/qjs").expect("scripts/qjs must exist") {
+        let path = entry.expect("readable entry").path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("qjs") {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).expect("readable gate script");
+        for call in balanced_calls(&source, "require_ok(") {
+            if call.contains("exit_code") {
+                assert!(
+                    call.contains("stderr") || call.contains("stdout"),
+                    "{}: an exit-code assertion must carry the child's output: {call}",
+                    path.display()
+                );
+            }
+        }
+    }
+}
+
+/// Every `needle(` call in `source`, returned as the text between its
+/// parentheses.
+fn balanced_calls<'a>(source: &'a str, needle: &str) -> Vec<&'a str> {
+    let bytes = source.as_bytes();
+    let mut calls = Vec::new();
+    let mut from = 0;
+    while let Some(found) = source[from..].find(needle) {
+        let open = from + found + needle.len();
+        let mut depth = 1usize;
+        let mut cursor = open;
+        while cursor < bytes.len() && depth > 0 {
+            match bytes[cursor] {
+                b'(' => depth += 1,
+                b')' => depth -= 1,
+                _ => {}
+            }
+            cursor += 1;
+        }
+        calls.push(&source[open..cursor.saturating_sub(1)]);
+        from = open;
+    }
+    calls
+}

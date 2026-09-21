@@ -16,6 +16,26 @@ function require_ok(condition, message) {
   if (!condition) { throw message; }
 }
 
+// A child that exits non-zero has already said why, on one of its two streams.
+// Asserting only on the exit code throws that away and leaves the gate
+// reporting state instead of cause -- which is how this suite spent four
+// rounds of a 45-minute pipeline learning one fact each time. Every child
+// verdict in this file goes through here.
+function require_child_ok(result, id) {
+  if (result.exit_code === 0 && result.success) { return; }
+  const out = typeof result.stdout === "string" ? result.stdout : "";
+  const err = typeof result.stderr === "string" ? result.stderr : "";
+  throw id + ": exit_code=" + result.exit_code
+    + " stderr=" + tail(err) + " stdout=" + tail(out);
+}
+
+// Bounded so one runaway child cannot bury the verdict it belongs to.
+function tail(text) {
+  const limit = 4000;
+  if (text.length <= limit) { return text; }
+  return "..." + text.substring(text.length - limit);
+}
+
 function valid_hex(value, length) {
   return value.length === length && rh.only_chars(value, rh.HEX);
 }
@@ -81,8 +101,7 @@ const operation_catalog_result = rh.command(
   ["grant", "operations"],
   { env: child_env, timeout_ms: 30000 }
 );
-require_ok(operation_catalog_result.exit_code === 0 && operation_catalog_result.success,
-           "cu_retirement_cell_grant_operations_exit");
+require_child_ok(operation_catalog_result, "cu_retirement_cell_grant_operations_exit");
 const operation_catalog = JSON.parse(operation_catalog_result.stdout.trim());
 require_ok(operation_catalog.ok === true
              && operation_catalog.command === "grant-operations"
@@ -103,7 +122,7 @@ function observe(command) {
     ["--target", "current", "--grant", "observe", command],
     { env: child_env, timeout_ms: 30000 }
   );
-  require_ok(result.exit_code === 0 && result.success, "cu_retirement_cell_" + command + "_exit");
+  require_child_ok(result, "cu_retirement_cell_" + command + "_exit");
   const reply = JSON.parse(result.stdout.trim());
   require_ok(reply.ok === true && reply.target === "current" && reply.command === command,
              "cu_retirement_cell_" + command + "_reply");
@@ -136,8 +155,7 @@ const provider_probe = rh.command(
     timeout_ms: 90000
   }
 );
-require_ok(provider_probe.exit_code === 0 && provider_probe.success,
-           "cu_retirement_cell_provider_exit");
+require_child_ok(provider_probe, "cu_retirement_cell_provider_exit");
 require_ok(provider_probe.stdout.includes(
   "PASS: agenterm:acu fixed-sibling provider executed typed command and argv in-process"
 ), "cu_retirement_cell_provider_pass");
@@ -154,8 +172,7 @@ const mcp_provider_probe = rh.command(
     timeout_ms: 90000
   }
 );
-require_ok(mcp_provider_probe.exit_code === 0 && mcp_provider_probe.success,
-           "cu_retirement_cell_mcp_provider_exit");
+require_child_ok(mcp_provider_probe, "cu_retirement_cell_mcp_provider_exit");
 require_ok(has_exact_line(
   mcp_provider_probe.stdout,
   "EVIDENCE acu.mcp-provider-capabilities"
@@ -193,8 +210,7 @@ const power_setup = rh.command(
   ],
   { env: power_env, timeout_ms: 30000 }
 );
-require_ok(power_setup.exit_code === 0 && power_setup.success,
-           "cu_retirement_cell_power_setup");
+require_child_ok(power_setup, "cu_retirement_cell_power_setup");
 power_env.AGENTERM_CU_GRANT = "observe";
 const power_provider_probe = rh.command(
   launcher,
@@ -205,8 +221,7 @@ const power_provider_probe = rh.command(
   ],
   { cwd: rh.parent(output), env: power_env, timeout_ms: 90000 }
 );
-require_ok(power_provider_probe.exit_code === 0 && power_provider_probe.success,
-           "cu_retirement_cell_power_provider_exit:" + power_provider_probe.stderr);
+require_child_ok(power_provider_probe, "cu_retirement_cell_power_provider_exit");
 require_ok(has_exact_line(
   power_provider_probe.stdout,
   "EVIDENCE cu.power-action-plan.acu-object"
@@ -232,8 +247,7 @@ const composition_probe = rh.command(
   ],
   { env: { AGENTERM_NO_ACTIVATE: "1" }, timeout_ms: 90000 }
 );
-require_ok(composition_probe.exit_code === 0 && composition_probe.success,
-           "cu_retirement_cell_composition_exit:" + composition_probe.stderr);
+require_child_ok(composition_probe, "cu_retirement_cell_composition_exit");
 require_ok(has_exact_line(
   composition_probe.stdout,
   "PASS: one supervised QJS guest composed target-free ACU help, an authorized typed Executor capabilities reply, its typed refusal without a granted selector, and dyn-backed raw ABI getpid/abs without argument loss"

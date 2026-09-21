@@ -92,7 +92,7 @@ function tail_text(text, limit) {
 
 function git_stdout(repo, args, code) {
   const out = rh.command("git", args, { cwd: repo, timeout_ms: 30000 });
-  require_ok(out.exit_code === 0, code);
+  require_ok(out.exit_code === 0, code + ":" + out.stderr);
   return out.stdout.trim();
 }
 
