@@ -84,6 +84,9 @@ struct RasterFaces {
     /// Glyph lookup must start there or ASCII is drawn from a face whose
     /// advance has nothing to do with the cell width.
     primary: Option<usize>,
+    /// Whether DirectWrite draws at this size: measured once per size by
+    /// `prefer_directwrite`, which is too expensive to repeat per glyph.
+    directwrite: bool,
     faces: [Option<PixelFace>; RASTER_FAMILIES.len()],
 }
 
@@ -96,6 +99,7 @@ impl RasterFaces {
             grid_ascent: None,
             coverage_size_px: 0,
             primary: None,
+            directwrite: false,
             faces: [const { None }; RASTER_FAMILIES.len()],
         }
     }
@@ -109,6 +113,7 @@ impl RasterFaces {
                 grid_ascent: None,
                 coverage_size_px: size_px,
                 primary: None,
+                directwrite: false,
                 faces: std::array::from_fn(|_| None),
             };
         }
@@ -138,6 +143,14 @@ impl RasterFaces {
             }) => self.primary = Some(index),
             Err(_) => self.primary = Some(0),
         }
+        // Decided on the face that sets the cell -- the one most of the
+        // screen is drawn in -- and applied to every face at this size.
+        self.directwrite = if let Some(latin) = self.latin.as_mut() {
+            prefer_directwrite(latin)
+        } else {
+            let primary = self.primary.unwrap_or(0);
+            self.face(primary).is_ok_and(prefer_directwrite)
+        };
     }
 
     /// Coverage families in lookup order. Under a Latin grid they are all
@@ -688,9 +701,10 @@ pub(crate) fn rasterize(ch: char, size_px: u16) -> Result<Option<RasterGlyph>, F
             renderer.reset(size_px);
             renderer.resolve();
             let grid_ascent = renderer.grid_ascent;
+            let directwrite = renderer.directwrite;
             if let Some(latin) = renderer.latin.as_mut()
                 && let Some(glyph_index) = latin.glyph_index(ch, units)?
-                && let Some(glyph) = raster_face(latin, glyph_index, grid_ascent)?
+                && let Some(glyph) = raster_face(latin, glyph_index, grid_ascent, directwrite)?
             {
                 return Ok(Some(glyph));
             }
@@ -699,7 +713,7 @@ pub(crate) fn rasterize(ch: char, size_px: u16) -> Result<Option<RasterGlyph>, F
                 let Some(glyph_index) = face.glyph_index(ch, units)? else {
                     continue;
                 };
-                if let Some(glyph) = raster_face(face, glyph_index, grid_ascent)? {
+                if let Some(glyph) = raster_face(face, glyph_index, grid_ascent, directwrite)? {
                     return Ok(Some(glyph));
                 }
             }
@@ -790,12 +804,105 @@ fn raster_face(
     face: &mut PixelFace,
     glyph_index: u16,
     grid_ascent: Option<i32>,
+    directwrite: bool,
 ) -> Result<Option<RasterGlyph>, FontError> {
     let ascent = grid_ascent.unwrap_or(face.metrics.tmAscent);
-    if let Some(glyph) = dwrite::raster(face, glyph_index, ascent) {
+    if directwrite && let Some(glyph) = dwrite::raster(face, glyph_index, ascent) {
         return Ok(Some(glyph));
     }
     gdi_raster_face(face, glyph_index, ascent)
+}
+
+/// Which rasteriser draws this face at its size, decided by measurement.
+///
+/// Neither GDI nor DirectWrite is better at every size. Measured on a Windows
+/// court with Consolas, against the outline drawn at eight times the size and
+/// box-filtered down: at 12-16 px GDI's hinting thickens stems and misses the
+/// outline by 0.17-0.21 RMSE where DirectWrite misses by 0.06-0.13; at 18-24 px
+/// GDI follows the outline almost exactly (0.013-0.019) and DirectWrite
+/// thickens instead (0.09-0.10). The switch comes from the font's own hinting
+/// instructions, so it is a property of the face, not a constant: measure the
+/// face in hand and keep whichever is closer to its outline.
+///
+/// `AGENTERM_FONT_RASTERIZER=gdi` or `=directwrite` overrides the measurement.
+fn prefer_directwrite(face: &mut PixelFace) -> bool {
+    match std::env::var("AGENTERM_FONT_RASTERIZER") {
+        Ok(value) if value.eq_ignore_ascii_case("gdi") => return false,
+        Ok(value) if value.eq_ignore_ascii_case("directwrite") => return true,
+        _ => {}
+    }
+    match (outline_error(face, true), outline_error(face, false)) {
+        (Some(directwrite), Some(gdi)) => directwrite < gdi,
+        // No DirectWrite, or no reference to judge by: GDI always works.
+        _ => false,
+    }
+}
+
+/// How far one rasteriser's output for `face` is from the face's outline: RMSE
+/// of coverage over a probe string, against the same glyphs drawn at eight
+/// times the size and box-filtered back down to this one.
+fn outline_error(face: &mut PixelFace, directwrite: bool) -> Option<f64> {
+    const SCALE: i32 = 8;
+    const PROBE: &str = "Hamburgefonstiv0@&";
+    let family = face.actual_name().ok()?;
+    let em_px = (face.metrics.tmHeight - face.metrics.tmInternalLeading).max(1);
+    let mut reference_face = PixelFace::create(&family, u16::try_from(em_px * SCALE).ok()?).ok()?;
+    let ascent = face.metrics.tmAscent;
+    let reference_ascent = reference_face.metrics.tmAscent;
+    let width = char_advance(face.dc, ASCII_PROBE)?.max(1);
+    let height = face.metrics.tmHeight.max(1);
+    let mut squared = 0.0_f64;
+    let mut samples = 0_usize;
+    let mut utf16 = [0_u16; 2];
+    for ch in PROBE.chars() {
+        let units = ch.encode_utf16(&mut utf16);
+        let small = face.glyph_index(ch, units).ok()??;
+        let large = reference_face.glyph_index(ch, units).ok()??;
+        let drawn = if directwrite {
+            dwrite::raster(face, small, ascent)?
+        } else {
+            gdi_raster_face(face, small, ascent).ok()??
+        };
+        let reference = dwrite::raster(&mut reference_face, large, reference_ascent)?;
+        let mut canvas = vec![0.0_f32; (width * height) as usize];
+        let mut ideal = vec![0.0_f32; (width * height) as usize];
+        accumulate(&mut canvas, width, height, &drawn, 1, 0);
+        accumulate(
+            &mut ideal,
+            width,
+            height,
+            &reference,
+            SCALE,
+            ascent * SCALE - reference_ascent,
+        );
+        for (value, target) in canvas.iter().zip(&ideal) {
+            squared += f64::from((value.min(1.0) - target.min(1.0)).powi(2));
+            samples += 1;
+        }
+    }
+    (samples > 0).then(|| (squared / samples as f64).sqrt())
+}
+
+/// Adds a glyph's coverage into a cell-sized canvas, box-filtering by `scale`.
+fn accumulate(
+    canvas: &mut [f32],
+    width: i32,
+    height: i32,
+    glyph: &RasterGlyph,
+    scale: i32,
+    origin_y: i32,
+) {
+    let weight = 1.0 / (scale * scale) as f32;
+    for gy in 0..glyph.height as i32 {
+        for gx in 0..glyph.width as i32 {
+            let x = (glyph.offset_x + gx).div_euclid(scale);
+            let y = (origin_y + glyph.offset_y + gy).div_euclid(scale);
+            if (0..width).contains(&x) && (0..height).contains(&y) {
+                let alpha = f32::from(glyph.alpha[(gy * glyph.width as i32 + gx) as usize]);
+                canvas[(y * width + x) as usize] += alpha / 255.0 * weight;
+            }
+        }
+    }
 }
 
 /// The GDI outline path: what drew every glyph before DirectWrite, and what
@@ -1157,22 +1264,12 @@ mod dwrite {
         static RASTERIZER: RefCell<Option<Option<Rasterizer>>> = const { RefCell::new(None) };
     }
 
-    /// Whether DirectWrite draws glyphs. `AGENTERM_FONT_RASTERIZER=gdi` keeps
-    /// the GDI path, for side-by-side comparison and as a way back.
-    fn enabled() -> bool {
-        std::env::var("AGENTERM_FONT_RASTERIZER")
-            .map_or(true, |value| !value.eq_ignore_ascii_case("gdi"))
-    }
-
     /// The glyph through DirectWrite, or `None` to let GDI draw it.
     pub(super) fn raster(
         face: &mut PixelFace,
         glyph_index: u16,
         ascent: i32,
     ) -> Option<RasterGlyph> {
-        if !enabled() {
-            return None;
-        }
         RASTERIZER
             .try_with(|slot| {
                 let mut slot = slot.try_borrow_mut().ok()?;
@@ -1429,48 +1526,138 @@ mod tests {
     /// Which rasteriser actually ran, told from the outside by its coverage
     /// lattice. DirectWrite's grayscale alpha texture is 4x4 supersampled:
     /// exactly 17 levels, `round(k * 255 / 16)`. GDI's `GGO_GRAY8_BITMAP` has
-    /// 65, rescaled here to `k * 255 / 64`, so a GDI glyph of any size shows
-    /// values off DirectWrite's lattice.
+    /// 65, rescaled to `k * 255 / 64`, so a GDI glyph shows values off
+    /// DirectWrite's lattice.
     ///
-    /// Measured on a Windows court, `@` at 32 px: DirectWrite 17 distinct
-    /// values, GDI 63. Note what that means: DirectWrite's grayscale is
-    /// *coarser*, not smoother. Its difference is hinting -- symmetric natural
-    /// rendering fits only the vertical axis, where GDI grid-fits both with
-    /// the font's TrueType instructions -- and whether that reads better is a
-    /// judgement for eyes, which `AGENTERM_FONT_RASTERIZER=gdi` makes possible
-    /// side by side.
+    /// The property held: at every size the glyph is drawn by the rasteriser
+    /// `prefer_directwrite` measured as closer to the outline -- the
+    /// measurement is honoured, not decorative. Which one wins at which size
+    /// is the font's business and is not pinned, beyond noting that on this
+    /// host each wins somewhere.
     #[test]
-    fn glyphs_are_drawn_by_directwrite_not_gdi() {
+    fn the_rasteriser_that_measured_closer_is_the_one_that_draws() {
         let directwrite_levels: std::collections::HashSet<u8> = (0..=16_u16)
             .map(|level| ((level * 255 + 8) / 16) as u8)
             .collect();
-        let mut grid = select_grid(32).expect("selection");
-        let ascent = grid.face.metrics.tmAscent;
-        let mut utf16 = [0_u16; 2];
-        let units = '@'.encode_utf16(&mut utf16);
-        let index = grid
-            .face
-            .glyph_index('@', units)
-            .expect("lookup")
-            .expect("glyph");
-        let drawn = rasterize('@', 32).expect("raster").expect("@");
-        assert!(
-            drawn
+        let mut chose = [false, false];
+        for size in [12_u16, 15, 16, 18, 24] {
+            let mut grid = select_grid(size).expect("selection");
+            let choice = prefer_directwrite(&mut grid.face);
+            chose[usize::from(choice)] = true;
+            let drawn = rasterize('@', size).expect("raster").expect("@");
+            let on_lattice = drawn
                 .alpha
                 .iter()
-                .all(|alpha| directwrite_levels.contains(alpha)),
-            "coverage off DirectWrite's 17-level lattice: GDI drew this glyph"
-        );
-        let gdi = gdi_raster_face(&grid.face, index, ascent)
-            .expect("gdi")
-            .expect("gdi glyph");
+                .all(|alpha| directwrite_levels.contains(alpha));
+            assert_eq!(
+                on_lattice,
+                choice,
+                "at {size}px the measurement chose {} but {} drew the glyph",
+                if choice { "DirectWrite" } else { "GDI" },
+                if on_lattice { "DirectWrite" } else { "GDI" }
+            );
+        }
         assert!(
-            gdi.alpha
-                .iter()
-                .any(|alpha| !directwrite_levels.contains(alpha)),
-            "the discriminator cannot tell GDI from DirectWrite on this glyph"
+            chose[0] && chose[1],
+            "one rasteriser won at every size ({chose:?}); re-read the measurement"
         );
-        let _ = dwrite::raster(&mut grid.face, index, ascent);
+    }
+
+    /// Not a gate: a measurement, run on demand on a Windows host with
+    /// `--ignored --nocapture`. Renders one line through GDI and through
+    /// DirectWrite at the grid size, and a reference by drawing the same
+    /// glyphs at eight times the size and box-filtering back down -- close to
+    /// the outline's true coverage. Reports each rasteriser's error against
+    /// that reference and how much of its ink is fully solid, and writes all
+    /// three strips as `raster-compare.pgm`.
+    #[test]
+    #[ignore = "measurement for choosing a rasteriser, not a regression gate"]
+    fn compare_rasterisers_against_supersampled_reference() {
+        const SCALE: i32 = 8;
+        let sample = "Hamburgefonstiv 0123 {}[]()|il1 O0 @#&%";
+        for size in [12_u16, 13, 14, 15, 16, 18, 20, 24] {
+            let mut grid = select_grid(size).expect("selection");
+            let family = grid.face.actual_name().expect("name");
+            let cell_w = grid.shape.expect("shape").cell_width;
+            let cell_h = grid.face.metrics.tmHeight;
+            let ascent = grid.face.metrics.tmAscent;
+            let mut big = PixelFace::create(&family, size * SCALE as u16).expect("big face");
+            let big_ascent = big.metrics.tmAscent;
+            let width = cell_w * sample.chars().count() as i32;
+            let mut strips = vec![vec![0_f32; (width * cell_h) as usize]; 3];
+            let mut utf16 = [0_u16; 2];
+            for (column, ch) in sample.chars().enumerate() {
+                let units = ch.encode_utf16(&mut utf16);
+                let Some(index) = grid.face.glyph_index(ch, units).expect("lookup") else {
+                    continue;
+                };
+                let x0 = column as i32 * cell_w;
+                let mut blit =
+                    |strip: &mut Vec<f32>, g: &RasterGlyph, scale: i32, origin_y: i32| {
+                        for gy in 0..g.height as i32 {
+                            for gx in 0..g.width as i32 {
+                                let a =
+                                    f32::from(g.alpha[(gy * g.width as i32 + gx) as usize]) / 255.0;
+                                // Position in the big raster, relative to this cell.
+                                let px = g.offset_x + gx;
+                                let py = origin_y + g.offset_y + gy;
+                                let (x, y) = (x0 + px.div_euclid(scale), py.div_euclid(scale));
+                                if x >= 0 && x < width && y >= 0 && y < cell_h {
+                                    strip[(y * width + x) as usize] += a / (scale * scale) as f32;
+                                }
+                            }
+                        }
+                    };
+                if let Ok(Some(g)) = gdi_raster_face(&grid.face, index, ascent) {
+                    blit(&mut strips[0], &g, 1, 0);
+                }
+                if let Some(g) = dwrite::raster(&mut grid.face, index, ascent) {
+                    blit(&mut strips[1], &g, 1, 0);
+                }
+                let big_index = big
+                    .glyph_index(ch, units)
+                    .expect("lookup")
+                    .expect("big glyph");
+                if let Some(g) = dwrite::raster(&mut big, big_index, big_ascent) {
+                    // Put the big glyph's baseline on the grid baseline.
+                    blit(&mut strips[2], &g, SCALE, ascent * SCALE - big_ascent);
+                }
+            }
+            let reference = strips[2].clone();
+            for (name, strip) in [("gdi", &strips[0]), ("directwrite", &strips[1])] {
+                let mut squared = 0.0_f64;
+                let (mut ink, mut solid) = (0_u32, 0_u32);
+                for (value, ideal) in strip.iter().zip(&reference) {
+                    let value = value.min(1.0);
+                    squared += f64::from((value - ideal.min(1.0)).powi(2));
+                    if value > 0.02 {
+                        ink += 1;
+                        if value > 0.98 {
+                            solid += 1;
+                        }
+                    }
+                }
+                eprintln!(
+                    "COMPARE {family} {size}px {name:<11} rmse_vs_reference={:.4} solid_ink={:.1}%",
+                    (squared / strip.len() as f64).sqrt(),
+                    100.0 * f64::from(solid) / f64::from(ink.max(1))
+                );
+            }
+            {
+                let mut pgm = format!("P5\n{} {}\n255\n", width, cell_h * 3 + 4).into_bytes();
+                for (row_index, strip) in strips.iter().enumerate() {
+                    for y in 0..cell_h {
+                        for x in 0..width {
+                            pgm.push((strip[(y * width + x) as usize].min(1.0) * 255.0) as u8);
+                        }
+                    }
+                    if row_index < 2 {
+                        pgm.extend(std::iter::repeat_n(64, (width * 2) as usize));
+                    }
+                }
+                std::fs::write(format!("raster-compare-{size}.pgm"), pgm).expect("write sheet");
+            }
+        }
     }
 
     /// Changing rasteriser must not move glyphs within the cell: the grid,
