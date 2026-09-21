@@ -1229,8 +1229,36 @@ fn owner_command(program: &std::path::Path) -> ProcessCommand {
         .arg(crate::MANAGED_JOB_OWNER_ARG)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(owner_stderr());
     command
+}
+
+/// Where a resident owner's stderr goes.
+///
+/// Production discards it: the owner is detached and outlives the caller, so
+/// it has no console to write to. That is right for a product and blinding for
+/// a gate -- an owner that dies seconds after launch leaves the store
+/// reporting `owner_lost`, which says the owner is gone and nothing about why.
+/// One release round observed the job created and orphaned 496 ms apart with
+/// no record of the cause anywhere.
+///
+/// `AGENTERM_CU_OWNER_STDERR_PATH` opts into keeping it. Unset or empty --
+/// every production path -- behaves exactly as before.
+fn owner_stderr() -> Stdio {
+    let Some(path) = std::env::var_os("AGENTERM_CU_OWNER_STDERR_PATH") else {
+        return Stdio::null();
+    };
+    if path.is_empty() {
+        return Stdio::null();
+    }
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        Ok(file) => Stdio::from(file),
+        Err(_) => Stdio::null(),
+    }
 }
 
 pub(super) fn job_wait_payload(

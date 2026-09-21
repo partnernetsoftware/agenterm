@@ -137,6 +137,11 @@ const environment = {
   AGENTERM_CU_RUNTIME_PATH: rh.join(isolated_root, "cu-runtime.json"),
   AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(isolated_root, "cu-idempotency.json"),
   AGENTERM_CU_AUDIT_PATH: rh.join(isolated_root, "cu-audit.jsonl"),
+  // The resident owner is detached and production sends its stderr to the null
+  // device, so an owner that dies leaves the store reporting `owner_lost` and
+  // nothing about why. Point it inside the run directory, where the FAILURE
+  // BUNDLE will carry it out of CI.
+  AGENTERM_CU_OWNER_STDERR_PATH: rh.join(context.run_directory, "owner-stderr.log"),
   HOME: isolated_root,
   XDG_RUNTIME_DIR: rh.join(isolated_root, "runtime"),
   XDG_CONFIG_HOME: rh.join(isolated_root, "config"),
@@ -255,7 +260,12 @@ try {
   // outlast the wait and it still happens). Carry the whole record instead of
   // picking fields: whatever ended the owner is in it, and another round spent
   // guessing costs more than the bytes.
-  require(status.state === "running", "job_not_running:" + JSON.stringify(status));
+  if (status.state !== "running") {
+    const owner_log = rh.join(context.run_directory, "owner-stderr.log");
+    let owner_said = "<no owner stderr recorded>";
+    if (rh.exists(owner_log)) { owner_said = rh.read_text(owner_log); }
+    require(false, "job_not_running:" + JSON.stringify(status) + ":owner_stderr=" + owner_said);
+  }
   require(typeof status.owner_pid === "number" && status.owner_pid > 0, "owner_pid_missing");
   require(typeof status.process_pid === "number" && status.process_pid > 0, "process_pid_missing");
   require(status.live !== null && status.live.state.kind === "running", "job_live_missing");
