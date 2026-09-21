@@ -2964,3 +2964,36 @@ fn every_workflow_script_run_declares_both_engine_budgets() {
     assert!(sites > 0, "no workflow invokes the script engine");
     assert!(offenders.is_empty(), "{}", offenders.join("\n"));
 }
+
+/// The Windows cell runs a compiler wrapper downloaded at job time, and that
+/// wrapper sees every source file the Candidate compiles. It must be pinned to
+/// one version and verified against a checksum before it is put on PATH --
+/// otherwise the release's compiler is whatever the download URL served that
+/// day.
+#[test]
+fn the_downloaded_compiler_wrapper_is_pinned_and_checksummed() {
+    let candidate = include_str!("../.github/workflows/candidate.yml");
+    let install = candidate
+        .split("- name: Install sccache")
+        .nth(1)
+        .and_then(|rest| rest.split("\n      - name:").next())
+        .expect("the Windows cell installs sccache");
+    assert!(
+        install.contains("SCCACHE_VERSION: 0.8.2"),
+        "version must be pinned"
+    );
+    let sum = install
+        .split("SCCACHE_SHA256: ")
+        .nth(1)
+        .and_then(|rest| rest.split_whitespace().next())
+        .expect("a checksum must be declared");
+    assert_eq!(sum.len(), 64, "the checksum must be a full sha256");
+    assert!(sum.chars().all(|c| c.is_ascii_hexdigit()));
+    let verify = install
+        .find("sha256sum -c")
+        .expect("the download must be verified");
+    let enable = install
+        .find("RUSTC_WRAPPER=")
+        .expect("the wrapper is enabled");
+    assert!(verify < enable, "verify the bytes before enabling them");
+}
