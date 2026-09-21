@@ -192,7 +192,15 @@ let terminal = null;
 try {
   const session = call([
     "--target", "current", "--grant", "actuate",
-    "session-start", "--label", "job-wait-cancel-smoke", "--ttl-seconds", "60"
+    // 300, not 60: this suite's subject is the embedded 60-second wait and the
+    // cancel that ends it, so a 60-second TTL expires at exactly the moment the
+    // thing under test completes. Any overhead at all -- and a loaded Windows
+    // runner has plenty -- retires the session first, which cleans up its jobs,
+    // kills the resident owner and leaves `job-status` reporting
+    // `orphaned_uncertain`: the aftermath of a lease that ran out, reported as
+    // if the owner had been lost. The TTL has to outlast what it is holding
+    // open, the same ordering every other budget here now follows.
+    "session-start", "--label", "job-wait-cancel-smoke", "--ttl-seconds", "300"
   ], "session-start");
   require(typeof session.session_id === "string" && session.session_id !== "", "session_id_missing");
   require(typeof session.lease === "string" && session.lease !== "", "session_lease_missing");
@@ -204,7 +212,7 @@ try {
     "--session-lease", session.lease
   ];
   append_all(spawn_args, [
-    "job-spawn", "--ttl-seconds", "60", "--",
+    "job-spawn", "--ttl-seconds", "300", "--",
     // Both budgets, like the sibling invocation below. Without
     // `--max-operations` this nested `script run` takes the engine's default
     // instruction ceiling, and a sleeper that outlives it is killed as
