@@ -2814,3 +2814,47 @@ fn every_nested_script_run_declares_both_engine_budgets() {
         offenders.join("\n")
     );
 }
+
+/// A suite that starts children in rounds must give their slots back.
+///
+/// The qjs door caps a slot at 32 live child handles and a waited-for child
+/// keeps its handle until `process_release`. fleet-smoke starts sixteen
+/// clients a round, so without the release the second round exhausts the door
+/// and the failure lands on whichever `start` happens to be the thirty-third
+/// -- naming an innocent call rather than the leak. `check.qjs` lost a whole
+/// evening to the same shape earlier on 2026-09-20.
+///
+/// Reverse control: drop the release from the harness and this fails.
+#[test]
+fn the_test_harness_returns_child_slots_to_the_door() {
+    const HARNESS: &str = include_str!("../scripts/qjs/lib/test_harness.qjs");
+    assert!(
+        HARNESS.contains("export function release(handle) {"),
+        "the harness must expose a way to release a finished child"
+    );
+    assert!(
+        HARNESS.contains("door(process_release(handle), \"process_release\")"),
+        "release must go through the door and report its failure"
+    );
+
+    // Anything that starts children in a loop has to use it.
+    const FLEET: &str = include_str!("../scripts/qjs/fleet-smoke.qjs");
+    let waiter = FLEET
+        .split_once("function require_child_output(child, code) {")
+        .expect("fleet-smoke must still wait for its round of clients")
+        .1
+        .split_once("\n}")
+        .expect("that function must be closed")
+        .0;
+    assert!(
+        waiter.contains("harness.release(child);"),
+        "the per-round waiter must release each child's slot"
+    );
+    let wait_at = waiter.find("harness.wait(").expect("it must wait first");
+    let release_at = waiter.find("harness.release(").expect("and release after");
+    assert!(
+        wait_at < release_at,
+        "release destroys the slot and replaces tool_result(), so the child's \
+         result must be read before it"
+    );
+}

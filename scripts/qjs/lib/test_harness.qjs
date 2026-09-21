@@ -210,6 +210,19 @@ export function state(handle) {
   return door(process_state(handle), "process_state");
 }
 
+// Give a finished child's slot back to the door.
+//
+// The door caps a slot at 32 live child handles, and a child that has been
+// waited for still owns its handle until this is called. A suite that starts
+// children in rounds -- fleet-smoke starts sixteen per round -- therefore
+// exhausts the door part way through, and the failure lands on whichever
+// `start` happens to be the thirty-third rather than on anything that is
+// wrong. Read the child's result before calling this: release destroys the
+// slot and replaces `tool_result()`.
+export function release(handle) {
+  door(process_release(handle), "process_release");
+}
+
 export function wait(handle, timeout_ms) {
   return JSON.parse(door(process_wait(handle, timeout_ms), "process_wait"));
 }
