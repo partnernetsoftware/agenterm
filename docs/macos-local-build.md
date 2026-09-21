@@ -88,7 +88,18 @@ download.
 
 ## Before pushing anything a Windows gate will judge
 
-Run the lint in the configuration the gate actually uses — the Windows target,
+```bash
+./scripts/pre-push-check.sh
+```
+
+That runs, in the configuration the gate uses, the checks the gate runs first:
+`cargo fmt --check`, the Windows-target release Clippy, the library tests, the
+release-policy tests and the redaction check. The gate stops at its first
+failure, so a formatting slip and a lint slip are two separate ninety-minute
+rounds of it; both are minutes here. On 2026-09-21 they were exactly that --
+two rounds, one for each.
+
+The lint step on its own, for reference — the Windows target,
 the release profile, all targets, warnings denied:
 
 ```bash

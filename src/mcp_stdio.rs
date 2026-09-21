@@ -14,9 +14,8 @@ use serde_json::{Value, json};
 
 use crate::{
     mcp_acu_mutation::{
-        CancelResult, CompletionOutcome, ConnectionMutationState,
-        IdempotencyKey, JsonRpcRequestId, MutationRequest, ProviderCompletion,
-        SessionEndCompletion, SubmitResult,
+        CancelResult, CompletionOutcome, ConnectionMutationState, IdempotencyKey, JsonRpcRequestId,
+        MutationRequest, ProviderCompletion, SessionEndCompletion, SubmitResult,
     },
     mcp_catalog::{MCP_PROTOCOL_REVISION, capabilities},
     mcp_fleet,
@@ -1386,10 +1385,7 @@ fn handle_provider_complete<W: Write>(
                 for request in first.into_iter().chain(queued) {
                     write_message(
                         output,
-                        &acu_tool_response(
-                            mutation_id_value(request.json_rpc_id()),
-                            reply.clone(),
-                        ),
+                        &acu_tool_response(mutation_id_value(request.json_rpc_id()), reply.clone()),
                     )?;
                 }
                 return Ok(eof);
