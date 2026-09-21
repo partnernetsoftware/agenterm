@@ -249,11 +249,13 @@ try {
   // process alive or a real lifecycle defect, and the state alone cannot say.
   // Carry the owner's identity and the live view into the message so the next
   // failure arrives with its own evidence instead of costing another round.
-  require(status.state === "running",
-    "job_not_running:" + status.state + ":" + status.exit_code
-      + ":owner_pid=" + status.owner_pid
-      + ":live=" + JSON.stringify(status.live)
-      + ":detach=" + JSON.stringify(status.detach_liveness));
+  // Two hypotheses have already died on partial evidence here -- a host that
+  // denies breakaway (the product refuses outright in that case, so a job that
+  // exists had an owner that broke away) and an expired lease (the TTLs now
+  // outlast the wait and it still happens). Carry the whole record instead of
+  // picking fields: whatever ended the owner is in it, and another round spent
+  // guessing costs more than the bytes.
+  require(status.state === "running", "job_not_running:" + JSON.stringify(status));
   require(typeof status.owner_pid === "number" && status.owner_pid > 0, "owner_pid_missing");
   require(typeof status.process_pid === "number" && status.process_pid > 0, "process_pid_missing");
   require(status.live !== null && status.live.state.kind === "running", "job_live_missing");
