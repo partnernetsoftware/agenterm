@@ -667,7 +667,7 @@ fn output_disconnect_stops_accepting_before_private_session_start() {
 }
 
 #[test]
-fn public_stdio_eof_drains_dispatched_cancels_queued_and_emits_nothing_after_eof() {
+fn public_stdio_eof_drains_dispatched_cancels_queued_and_still_answers_the_dispatched_call() {
     let provider = Arc::new(FakeProviderState::default());
     provider.gate_first.store(true, Ordering::Release);
     let (input, output, worker) = start_fake_stdio(Arc::clone(&provider));
@@ -688,11 +688,17 @@ fn public_stdio_eof_drains_dispatched_cancels_queued_and_emits_nothing_after_eof
         provider_verbs(&calls),
         ["session-start", "shell-exec", "session-end"]
     );
-    assert_eq!(wait_fake_responses(&output, 1).len(), 1);
+    // Closing stdin ends the session; it does not withdraw the answer to a
+    // call the server had already dispatched. The initialize reply and the
+    // dispatched mutation's reply both reach a client that has finished
+    // writing -- which is every scripted client this server has.
+    let responses = wait_fake_responses(&output, 2);
+    assert_eq!(responses.len(), 2);
+    assert_eq!(responses[1]["id"], "first");
 }
 
 #[test]
-fn public_stdio_eof_exits_when_a_dispatched_mutation_times_out() {
+fn public_stdio_eof_answers_and_exits_when_a_dispatched_mutation_times_out() {
     let provider = Arc::new(FakeProviderState::default());
     provider.gate_first.store(true, Ordering::Release);
     let (input, output, worker) = start_fake_stdio(Arc::clone(&provider));
@@ -712,7 +718,9 @@ fn public_stdio_eof_exits_when_a_dispatched_mutation_times_out() {
     joined
         .expect("join MCP worker")
         .expect("serve stdio after mutation timeout");
-    assert_eq!(wait_fake_responses(&output, 1).len(), 1);
+    let responses = wait_fake_responses(&output, 2);
+    assert_eq!(responses.len(), 2);
+    assert_eq!(responses[1]["id"], "first");
 
     provider.release_first.store(true, Ordering::Release);
     provider.changed.notify_all();

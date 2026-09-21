@@ -1154,8 +1154,11 @@ fn receive_eof_mutation(lifecycle: &mut MutationLifecycle) {
     match lifecycle {
         MutationLifecycle::Dormant => {}
         MutationLifecycle::Starting { first, queued, eof } => {
-            first.take();
-            queued.take();
+            // The private ACU session is still starting, so there is nothing to
+            // cancel yet -- but these requests were accepted before EOF and are
+            // owed an answer. Dropping them here is what made a piped client
+            // hang on a mutating tools/call.
+            let _ = (&first, &queued);
             *eof = true;
         }
         MutationLifecycle::Active {
@@ -1375,21 +1378,19 @@ fn handle_provider_complete<W: Write>(
                 })
             });
             let Some((Some(session_id), Some(lease))) = session else {
-                if !eof {
-                    let reply = match parsed {
-                        Ok(reply) if reply["ok"] == false => reply,
-                        Ok(_) => provider_boundary_reply("acu_provider_session_identity_invalid"),
-                        Err(code) => provider_boundary_reply(&code),
-                    };
-                    for request in first.into_iter().chain(queued) {
-                        write_message(
-                            output,
-                            &acu_tool_response(
-                                mutation_id_value(request.json_rpc_id()),
-                                reply.clone(),
-                            ),
-                        )?;
-                    }
+                let reply = match parsed {
+                    Ok(reply) if reply["ok"] == false => reply,
+                    Ok(_) => provider_boundary_reply("acu_provider_session_identity_invalid"),
+                    Err(code) => provider_boundary_reply(&code),
+                };
+                for request in first.into_iter().chain(queued) {
+                    write_message(
+                        output,
+                        &acu_tool_response(
+                            mutation_id_value(request.json_rpc_id()),
+                            reply.clone(),
+                        ),
+                    )?;
                 }
                 return Ok(eof);
             };
@@ -1399,33 +1400,48 @@ fn handle_provider_complete<W: Write>(
             ) {
                 Ok(state) => state,
                 Err(_) => {
-                    if !eof {
-                        for request in first.into_iter().chain(queued) {
-                            write_message(
-                                output,
-                                &acu_tool_response(
-                                    mutation_id_value(request.json_rpc_id()),
-                                    provider_boundary_reply(
-                                        "acu_provider_session_identity_invalid",
-                                    ),
-                                ),
-                            )?;
-                        }
+                    for request in first.into_iter().chain(queued) {
+                        write_message(
+                            output,
+                            &acu_tool_response(
+                                mutation_id_value(request.json_rpc_id()),
+                                provider_boundary_reply("acu_provider_session_identity_invalid"),
+                            ),
+                        )?;
                     }
                     return Ok(eof);
                 }
             };
-            if !eof && (first.is_some() || queued.is_some()) {
+            // A request accepted before EOF is dispatched and answered even
+            // when stdin has since closed; `exit_after_end` still ends the
+            // session immediately afterwards. A broken *stdout* is the other
+            // case entirely -- there is nowhere to write an answer, so the
+            // only honest move is to cancel and end once.
+            if (first.is_some() || queued.is_some()) && !output.has_error() {
                 if first.is_none() {
                     first = queued.take();
                 }
+                // `state.submit` moves the request into the connection's
+                // queue -- it is the work, not a check of it. Wrapping it in
+                // `debug_assert_eq!` compiled it out of every release build,
+                // so a shipped server accepted a mutating tools/call, answered
+                // it never, and left the client waiting forever.
                 if let Some(request) = first {
-                    debug_assert_eq!(state.submit(request), SubmitResult::Queued);
+                    let queued_first = state.submit(request);
+                    debug_assert_eq!(queued_first, SubmitResult::Queued);
                     dispatch_next(&mut state, provider)
                         .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
                 }
                 if let Some(request) = queued {
-                    debug_assert_eq!(state.submit(request), SubmitResult::Queued);
+                    let queued_second = state.submit(request);
+                    debug_assert_eq!(queued_second, SubmitResult::Queued);
+                }
+                if eof {
+                    // Tell the connection stdin is already closed, so it ends
+                    // the session -- and the process -- as soon as the work
+                    // accepted before EOF has been answered.
+                    let drained = state.receive_eof();
+                    let _ = (drained.cancelled_queued, drained.wait_for_dispatched);
                 }
             } else {
                 let eof = state.receive_eof();
@@ -1478,7 +1494,6 @@ fn handle_provider_complete<W: Write>(
                             .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
                     }
                 }
-                CompletionDisposition::SuppressAfterEof(_) => {}
             }
             if state.is_session_ending() && !provider.gate.is_busy() {
                 dispatch_session_end(state, provider)

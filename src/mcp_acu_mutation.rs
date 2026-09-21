@@ -246,13 +246,15 @@ impl<T> ConnectionMutationState<T> {
             cancellation_requested: dispatched.cancellation_requested,
             outcome: completion.into_outcome(),
         };
-        let suppress_output = self.phase != ConnectionPhase::Open;
+        // EOF on stdin stops new work and cancels what is still queued, but a
+        // call that was already dispatched has a JSON-RPC id and an answer
+        // owed. Suppressing that answer left a client that had finished
+        // writing -- which is every scripted client, and every harness that
+        // drives this server from a pipe -- waiting forever on a request the
+        // server had in fact completed. Standard input closing says nothing
+        // about standard output.
         self.enter_session_ending_if_drained();
-        Ok(if suppress_output {
-            CompletionDisposition::SuppressAfterEof(completed)
-        } else {
-            CompletionDisposition::Emit(completed)
-        })
+        Ok(CompletionDisposition::Emit(completed))
     }
 
     pub(crate) fn receive_eof(&mut self) -> EofDisposition {
@@ -535,7 +537,6 @@ pub(crate) enum CompletionOutcome<R> {
 
 pub(crate) enum CompletionDisposition<R> {
     Emit(CompletedCall<R>),
-    SuppressAfterEof(CompletedCall<R>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -704,7 +705,7 @@ mod tests {
     }
 
     #[test]
-    fn eof_rejects_new_work_cancels_queue_waits_for_dispatch_and_suppresses_output() {
+    fn eof_rejects_new_work_cancels_queue_and_still_answers_the_dispatched_call() {
         let mut state = state();
         state.submit(request(1, "effect-a", "first"));
         state.begin_dispatch().expect("dispatch");
@@ -731,10 +732,7 @@ mod tests {
                 },
             )
             .expect("dispatched work drains");
-        assert!(matches!(
-            disposition,
-            CompletionDisposition::SuppressAfterEof(_)
-        ));
+        assert!(matches!(disposition, CompletionDisposition::Emit(_)));
         assert!(state.is_session_ending());
         assert!(!state.is_ended());
 

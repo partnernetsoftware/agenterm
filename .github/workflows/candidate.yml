@@ -1240,9 +1240,9 @@ jobs:
             "runtime-evidence/setup-$PLATFORM_ID.json" \
             "runtime-evidence/setup-refresh-$PLATFORM_ID.json" \
             "runtime-control/acu-provider-smoke.qjs" \
-            "runtime-control/native-acu-composition-smoke.qjs" \
             "runtime-control/acu-mcp-provider-smoke.qjs" \
-            "runtime-control/acu-power-action-provider-smoke.qjs"
+            "runtime-control/acu-power-action-provider-smoke.qjs" \
+            "runtime-control/native-acu-composition-smoke.qjs"
 
       - name: Upload ACU native runtime receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
