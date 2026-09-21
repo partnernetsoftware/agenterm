@@ -42,9 +42,11 @@ function prepare_private_runtime(path) {
 function data_of(reply, command) {
   require(reply !== null && typeof reply === "object", "acu_reply_shape:" + command);
   if (reply.ok !== true) {
-    const code = reply.error !== null && typeof reply.error === "object"
-      ? "" + reply.error.code : "unknown";
-    throw "acu_reply_failed:" + command + ":" + code;
+    // Carry the error whole. The code alone named `audit_compact_publish_failed`
+    // and dropped the `error_kind` the reply already had, which is the part
+    // that says whether a publish lost to a permission, a lock or something
+    // else -- and finding that out cost a round.
+    throw "acu_reply_failed:" + command + ":" + JSON.stringify(reply.error);
   }
   require(reply.command === command, "acu_reply_command:" + command);
   require(reply.data !== null && typeof reply.data === "object", "acu_reply_data:" + command);
