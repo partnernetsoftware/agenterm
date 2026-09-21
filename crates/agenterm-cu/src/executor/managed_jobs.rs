@@ -296,6 +296,21 @@ fn start_resident_launch(
             return Err(error);
         }
     };
+    // The owner's own stderr stays empty when it is killed rather than
+    // crashing, so the parent records what the spawn actually returned. Two
+    // theories about this failure have already died on inference; the mode is
+    // the one fact that separates "the host would not detach it" from "it
+    // detached and something else ended it".
+    if let Some(path) = std::env::var_os("AGENTERM_CU_OWNER_STDERR_PATH")
+        && !path.is_empty()
+        && let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+    {
+        use std::io::Write as _;
+        let _ = writeln!(file, "spawn_mode={mode:?} owner_pid={}", owner_child.id());
+    }
     if mode != DetachedSpawnMode::Independent {
         let _ = owner_child.kill();
         let _ = owner_child.wait();
