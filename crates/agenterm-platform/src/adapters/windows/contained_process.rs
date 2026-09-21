@@ -97,6 +97,18 @@ fn spawn_contained(
         None,
         ProcessContainmentOptions {
             terminate_on_last_close: true,
+            // A contained command must still be able to detach something on
+            // purpose. Without BREAKAWAY_OK this job silently defeats the
+            // product's own deliberate detaches -- and the product checks for
+            // that: it refuses to create a managed job when the host will not
+            // detach its resident owner. A containment that denies breakaway
+            // makes that check meaningless, because the owner is reported
+            // detached and then dies with the job anyway.
+            //
+            // `ProcessTreeGuard`'s containment in this same crate already
+            // allows it for the same reason. Containment still ends everything
+            // that did not deliberately leave.
+            allow_breakaway: true,
             limits,
             ..ProcessContainmentOptions::default()
         },
@@ -112,6 +124,7 @@ fn spawn_contained(
                 None,
                 ProcessContainmentOptions {
                     terminate_on_last_close: true,
+                    allow_breakaway: true,
                     limits,
                     ..ProcessContainmentOptions::default()
                 },
