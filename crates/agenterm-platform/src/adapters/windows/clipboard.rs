@@ -13,7 +13,8 @@ use windows_sys::Win32::{
     System::{
         DataExchange::{
             CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData,
-            GetClipboardFormatNameW, IsClipboardFormatAvailable, OpenClipboard, SetClipboardData,
+            GetClipboardFormatNameW, GetClipboardSequenceNumber, IsClipboardFormatAvailable,
+            OpenClipboard, SetClipboardData,
         },
         Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock},
     },
@@ -78,6 +79,16 @@ fn open(owner: HWND, timeout: Duration) -> Result<OpenClipboardGuard, ClipboardE
 
 pub(crate) fn has_unicode_text() -> bool {
     unsafe { IsClipboardFormatAvailable(UNICODE_TEXT) != 0 }
+}
+
+/// `GetClipboardSequenceNumber`: incremented by the system on every change
+/// to the clipboard's contents. It does not open the clipboard, so polling it
+/// never contends with another process that holds it.
+pub(crate) fn change_count() -> Option<u64> {
+    // SAFETY: no arguments; reads a system counter.
+    let sequence = unsafe { GetClipboardSequenceNumber() };
+    // Zero means the calling window station has no access to the clipboard.
+    (sequence != 0).then_some(u64::from(sequence))
 }
 
 /// Every format currently on the clipboard, in the order Windows offers

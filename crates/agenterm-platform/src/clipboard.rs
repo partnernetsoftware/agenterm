@@ -160,9 +160,42 @@ pub fn has_unicode_text() -> bool {
     selected::clipboard::has_unicode_text()
 }
 
+/// A number that changes whenever the clipboard's contents change, from any
+/// process, read without opening the clipboard -- cheap enough to poll every
+/// frame, so a caller can re-read the contents only when they changed.
+///
+/// `None` where the platform offers no such counter (macOS through
+/// `pbcopy`/`pbpaste`, X11); callers then refresh on their own writes and on
+/// focus instead.
+pub fn change_count() -> Option<u64> {
+    selected::clipboard::change_count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The counter exists to be compared: a write must change it, or a
+    /// caller polling it would never notice new contents. Where the process
+    /// cannot reach a clipboard at all (a service session), there is nothing
+    /// to observe and the test says so rather than passing silently.
+    #[cfg(windows)]
+    #[test]
+    fn writing_the_clipboard_changes_its_change_count() {
+        let Some(before) = change_count() else {
+            eprintln!("skipped: no clipboard in this window station");
+            return;
+        };
+        if set_text("agenterm change_count probe").is_err() {
+            eprintln!("skipped: clipboard write refused in this session");
+            return;
+        }
+        let after = change_count().expect("counter after a write");
+        assert_ne!(
+            before, after,
+            "a clipboard write did not change the counter"
+        );
+    }
 
     #[test]
     fn text_read_poll_distinguishes_pending_ready_and_disconnect() {

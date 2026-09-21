@@ -259,6 +259,12 @@ fn parse_clipboard_info(listing: &str) -> Vec<String> {
         .collect()
 }
 
+/// No change counter is reachable here without a native pasteboard binding;
+/// callers refresh on their own writes and on focus instead.
+pub(crate) fn change_count() -> Option<u64> {
+    None
+}
+
 pub(crate) fn has_unicode_text() -> bool {
     match read_via_command("pbpaste", 1, HELPER_TIMEOUT) {
         Ok(text) => !text.is_empty(),

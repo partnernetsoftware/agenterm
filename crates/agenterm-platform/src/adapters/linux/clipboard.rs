@@ -428,6 +428,12 @@ fn timeout_error(timeout: Duration, label: &str) -> ClipboardError {
 }
 
 /// Fast probe for Unicode clipboard text without reading the full payload when possible.
+/// No change counter is reachable here without a native pasteboard binding;
+/// callers refresh on their own writes and on focus instead.
+pub(crate) fn change_count() -> Option<u64> {
+    None
+}
+
 pub(crate) fn has_unicode_text() -> bool {
     let display = display_facts_from_env();
     let backends = ClipboardBackendFacts::probe();
