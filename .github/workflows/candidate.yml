@@ -1231,7 +1231,13 @@ jobs:
             --max-output-bytes 262144 \
             runtime-control/cu-setup-runtime-refresh-smoke.qjs -- \
             "$PWD" "$cu" "runtime-evidence/setup-refresh-$PLATFORM_ID.json" "$PLATFORM_ID"
+          # Both engine budgets, named. Without them this cell runs on the
+          # engine's defaults, which are sized for a quick script rather than
+          # for a suite that spawns six child gates -- on a slower cell it is
+          # cancelled mid-flight and reports "cancelled by the host while
+          # waiting", which says nothing about what it was waiting for.
           AGENTERM_NO_ACTIVATE=1 "$launcher" cli script run --profile tool \
+            --timeout-ms 900000 --max-operations 1000000000 \
             runtime-control/cu-retirement-cell-smoke.qjs -- \
             "$launcher" "$consumer" "$cu" "$provider" "$abi" \
             "$PLATFORM_ID" "$SOURCE_SHA" "$archive_sha256" \
@@ -1343,7 +1349,8 @@ jobs:
           find candidate-input -mindepth 1 -maxdepth 1 -type f \
             -exec cp -- {} candidate-output/payload/ \;
           "$RUNNER_TEMP/agenterm-candidate-tool/agenterm" cli script run \
-            --profile tool scripts/qjs/cu-retirement-runtime-aggregate.qjs -- \
+            --profile tool --timeout-ms 300000 --max-operations 100000000 \
+            scripts/qjs/cu-retirement-runtime-aggregate.qjs -- \
             runtime-evidence "${{ inputs.source_sha }}" \
             "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
             candidate-output/evidence/cu-six-cell-runtime.json

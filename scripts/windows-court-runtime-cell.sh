@@ -13,6 +13,14 @@ R="$(cd "$(dirname "$0")/.." && pwd)"
 COURT="${1:-win-aarch64-desktop}"
 TARGET="${2:-aarch64-pc-windows-msvc}"
 C="${UTM_COURT_CLI:-$HOME/repos/utm-court/bin/utm-court}"
+# The platform id the cell stamps into its receipt is the ARTIFACT's, not the
+# court's: an x86_64 build proved on the aarch64 court under emulation is still
+# an x86_64 cell, and saying otherwise would make the receipt a lie.
+case "$TARGET" in
+  aarch64-pc-windows-msvc) PLATFORM_ID=windows-aarch64 ;;
+  x86_64-pc-windows-msvc) PLATFORM_ID=windows-x86_64 ;;
+  *) echo "unsupported target $TARGET"; exit 1 ;;
+esac
 S="${WINDOWS_COURT_STAGE:-${TMPDIR:-/tmp}/agenterm-runtime-cell}"
 # Each run gets its own guest directory. A DLL the guest has loaded once can
 # stay locked long after every visible process is gone, and pushing over it
@@ -109,9 +117,9 @@ run_cell() {
   return 1
 }
 B='set AGENTERM_NO_ACTIVATE=1 && runtime\agenterm.com cli script run --profile tool'
-run_cell "$B --timeout-ms 120000 --max-operations 100000000 --max-output-bytes 262144 runtime-control\\cu-setup-cli-smoke.qjs -- $G runtime\\agenterm-cu.exe runtime-evidence\\setup-windows-aarch64.json windows-aarch64"
-run_cell "$B --timeout-ms 120000 --max-operations 100000000 --max-output-bytes 262144 runtime-control\\cu-setup-runtime-refresh-smoke.qjs -- $G runtime\\agenterm-cu.exe runtime-evidence\\setup-refresh-windows-aarch64.json windows-aarch64"
-run_cell "$B runtime-control\\cu-retirement-cell-smoke.qjs -- runtime\\agenterm.com runtime\\agenterm.exe runtime\\agenterm-cu.exe runtime\\agenterm-cu-provider.dll runtime\\agenterm.dll windows-aarch64 $SHA $ASHA 1 1 runtime-evidence\\windows-aarch64.json runtime-evidence\\setup-windows-aarch64.json runtime-evidence\\setup-refresh-windows-aarch64.json runtime-control\\acu-provider-smoke.qjs runtime-control\\acu-mcp-provider-smoke.qjs runtime-control\\acu-power-action-provider-smoke.qjs runtime-control\\native-acu-composition-smoke.qjs"
+run_cell "$B --timeout-ms 120000 --max-operations 100000000 --max-output-bytes 262144 runtime-control\\cu-setup-cli-smoke.qjs -- $G runtime\\agenterm-cu.exe runtime-evidence\\setup-$PLATFORM_ID.json $PLATFORM_ID"
+run_cell "$B --timeout-ms 120000 --max-operations 100000000 --max-output-bytes 262144 runtime-control\\cu-setup-runtime-refresh-smoke.qjs -- $G runtime\\agenterm-cu.exe runtime-evidence\\setup-refresh-$PLATFORM_ID.json $PLATFORM_ID"
+run_cell "$B --timeout-ms 900000 --max-operations 1000000000 runtime-control\\cu-retirement-cell-smoke.qjs -- runtime\\agenterm.com runtime\\agenterm.exe runtime\\agenterm-cu.exe runtime\\agenterm-cu-provider.dll runtime\\agenterm.dll $PLATFORM_ID $SHA $ASHA 1 1 runtime-evidence\\$PLATFORM_ID.json runtime-evidence\\setup-$PLATFORM_ID.json runtime-evidence\\setup-refresh-$PLATFORM_ID.json runtime-control\\acu-provider-smoke.qjs runtime-control\\acu-mcp-provider-smoke.qjs runtime-control\\acu-power-action-provider-smoke.qjs runtime-control\\native-acu-composition-smoke.qjs"
 
 # `exec` returns when the guest agent accepts the command, not when the guest
 # shell closes its redirect, so the pull can lose the race to the writer.

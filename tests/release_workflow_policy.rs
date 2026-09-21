@@ -1600,7 +1600,7 @@ fn promotion_is_manual_candidate_bound_and_performs_no_build_or_overwrite() {
     assert!(PROMOTION.contains("Recovering exact unpublished draft"));
     assert!(PROMOTION.contains("agenterm-promotion-identity"));
     assert!(PROMOTION.contains("cli script run \\"));
-    assert!(PROMOTION.contains("--profile tool scripts/qjs/promotion-identity.qjs -- \\"));
+    assert!(PROMOTION.contains("scripts/qjs/promotion-identity.qjs -- \\"));
     assert!(!PROMOTION.contains("scripts/rh/promotion-identity.rh"));
     assert!(PROMOTION.contains("agenterm-promotion:v1 candidate_run_id="));
     assert!(PROMOTION.contains("body_sha256"));
@@ -2921,4 +2921,46 @@ fn balanced_calls<'a>(source: &'a str, needle: &str) -> Vec<&'a str> {
         from = open;
     }
     calls
+}
+
+/// The same budget rule as `every_nested_script_run_declares_both_engine_budgets`,
+/// for the workflows that invoke the engine directly. A gate run on the
+/// engine's defaults is sized for a quick script, not for a suite that spawns
+/// six child gates: on a slower cell it is cancelled mid-flight and reports
+/// "cancelled by the host while waiting", which names neither the gate nor the
+/// wait.
+#[test]
+fn every_workflow_script_run_declares_both_engine_budgets() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".github/workflows");
+    let mut offenders = Vec::new();
+    let mut sites = 0;
+    for entry in std::fs::read_dir(&root).expect(".github/workflows must be readable") {
+        let path = entry.expect("readable entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("yml") {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).expect("readable workflow");
+        let lines: Vec<&str> = source.lines().collect();
+        for (number, line) in lines.iter().enumerate() {
+            if !line.contains("cli script run") {
+                continue;
+            }
+            sites += 1;
+            let window = lines[number..lines.len().min(number + 6)].join("\n");
+            let missing: Vec<&str> = ["--timeout-ms", "--max-operations"]
+                .into_iter()
+                .filter(|flag| !window.contains(flag))
+                .collect();
+            if !missing.is_empty() {
+                offenders.push(format!(
+                    "{}:{}: missing {}",
+                    path.display(),
+                    number + 1,
+                    missing.join(" and ")
+                ));
+            }
+        }
+    }
+    assert!(sites > 0, "no workflow invokes the script engine");
+    assert!(offenders.is_empty(), "{}", offenders.join("\n"));
 }
