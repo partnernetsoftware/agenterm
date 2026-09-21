@@ -13,6 +13,7 @@ use windows_sys::Win32::{
     Storage::FileSystem::{
         FILE_ATTRIBUTE_DIRECTORY, GetFileAttributesW, GetFullPathNameW, INVALID_FILE_ATTRIBUTES,
         MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+        REPLACEFILE_IGNORE_MERGE_ERRORS, ReplaceFileW,
     },
 };
 
@@ -71,6 +72,26 @@ pub fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
                     || code == ERROR_SHARING_VIOLATION as i32
                     || code == ERROR_LOCK_VIOLATION as i32
         );
+        // `MoveFileEx` refuses a destination that is open even where every
+        // handle granted delete-sharing. `ReplaceFileW` exists for exactly that
+        // case: it is the call Windows documents for replacing a file that may
+        // be in use, and it keeps the replacement atomic. Try it once the move
+        // has proved it will not proceed, before giving up.
+        if retryable && attempt + 1 == ATTEMPTS {
+            let replaced = unsafe {
+                ReplaceFileW(
+                    destination.as_ptr(),
+                    source.as_ptr(),
+                    null_mut(),
+                    REPLACEFILE_IGNORE_MERGE_ERRORS,
+                    null_mut(),
+                    null_mut(),
+                )
+            };
+            if replaced != 0 {
+                return Ok(());
+            }
+        }
         if !retryable || attempt + 1 == ATTEMPTS {
             // Say what the destination looked like at the moment of refusal.
             // `Access is denied` names the syscall's verdict and nothing about
