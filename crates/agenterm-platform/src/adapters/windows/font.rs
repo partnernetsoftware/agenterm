@@ -1037,6 +1037,38 @@ mod tests {
         );
     }
 
+    /// Box-drawing glyphs must reach the edges of the Latin cell, or every
+    /// TUI border has gaps. The Latin grid makes this a live question: its cell
+    /// is taller than NSimSun's was (18 px against 15 at the default size), and
+    /// border glyphs designed for one face's line need not fill another's.
+    ///
+    /// Measured on a Windows court with Consolas: full reach at 15, 16, 20 and
+    /// 24 px; at 12 px `│` starts one pixel below the cell top. 12 px is
+    /// therefore left out here and recorded as the case for drawing these
+    /// ranges from cell geometry instead of from the font.
+    #[test]
+    fn box_drawing_glyphs_reach_the_edges_of_the_cell() {
+        for size in [15_u16, 16, 20, 24] {
+            let grid = select_grid(size).expect("selection");
+            let cell_h = grid.face.metrics.tmHeight;
+            let cell_w = grid.shape.map_or(0, |shape| shape.cell_width);
+            let vertical = rasterize('│', size).expect("raster").expect("│");
+            assert!(
+                vertical.offset_y <= 0 && vertical.offset_y + vertical.height as i32 >= cell_h,
+                "│ at {size}px spans {}..{} of a {cell_h} px cell",
+                vertical.offset_y,
+                vertical.offset_y + vertical.height as i32
+            );
+            let horizontal = rasterize('─', size).expect("raster").expect("─");
+            assert!(
+                horizontal.offset_x <= 0 && horizontal.offset_x + horizontal.width as i32 >= cell_w,
+                "─ at {size}px spans {}..{} of a {cell_w} px cell",
+                horizontal.offset_x,
+                horizontal.offset_x + horizontal.width as i32
+            );
+        }
+    }
+
     /// Coverage glyphs sit on the Latin baseline. Rasterised at twice the
     /// cell width, a CJK face has a larger ascent of its own, and measuring
     /// its glyphs from that would push them below the line.
