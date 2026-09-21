@@ -231,50 +231,6 @@ jobs:
             sccache-v1-windows-x86_64-rust1.97-${{ hashFiles('Cargo.lock') }}-
             sccache-v1-windows-x86_64-rust1.97-
 
-      # A content-addressed compiler cache, keyed by compiler input rather than
-      # by a directory of build state. A restored `target/` can resurrect stale
-      # incremental fingerprints from another commit -- which is what produced
-      # the Windows worker fast-fail (0xc0000409) that made the target key
-      # exact-SHA-only -- while an sccache entry either matches the exact input
-      # or is not used. So this cache CAN be restored across commits, and that
-      # is where the time goes: most of this cell is compilation, all of it cold
-      # today because the target key ends in the Candidate SHA.
-      - name: Install sccache
-        if: matrix.platform_id == 'windows-x86_64'
-        shell: bash
-        env:
-          SCCACHE_VERSION: 0.8.2
-          SCCACHE_SHA256: de5e9f66bb8a6bbdf0e28cb8a086a8d12699af796bf70bcd9dc40d80715bf9b8
-        run: |
-          set -euo pipefail
-          name="sccache-v$SCCACHE_VERSION-x86_64-pc-windows-msvc"
-          curl -sSfL --retry 3 -o sccache.tar.gz \
-            "https://github.com/mozilla/sccache/releases/download/v$SCCACHE_VERSION/$name.tar.gz"
-          echo "$SCCACHE_SHA256  sccache.tar.gz" | sha256sum -c -
-          tar -xzf sccache.tar.gz
-          mkdir -p "$RUNNER_TEMP/sccache-bin"
-          mv "$name/sccache.exe" "$RUNNER_TEMP/sccache-bin/"
-          rm -rf sccache.tar.gz "$name"
-          echo "RUSTC_WRAPPER=$RUNNER_TEMP/sccache-bin/sccache.exe" >>"$GITHUB_ENV"
-          echo "SCCACHE_DIR=$RUNNER_TEMP/sccache-cache" >>"$GITHUB_ENV"
-          echo "SCCACHE_CACHE_SIZE=8G" >>"$GITHUB_ENV"
-          # Incremental compilation is not cacheable by sccache; the target
-          # tree above keeps its exact-SHA incremental state for re-runs.
-          echo "CARGO_INCREMENTAL=0" >>"$GITHUB_ENV"
-
-      - name: Restore sccache
-        if: matrix.platform_id == 'windows-x86_64'
-        continue-on-error: true
-        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: ${{ runner.temp }}/sccache-cache
-          key: sccache-v1-windows-x86_64-rust1.97-${{ hashFiles('Cargo.lock') }}-${{ inputs.source_sha }}
-          # Safe across commits, unlike target/: entries are keyed by compiler
-          # input, so a mismatch is a miss rather than a stale hit.
-          restore-keys: |
-            sccache-v1-windows-x86_64-rust1.97-${{ hashFiles('Cargo.lock') }}-
-            sccache-v1-windows-x86_64-rust1.97-
-
       - name: Restore candidate Cargo cache
         id: restore-cargo-home-candidate
         if: matrix.platform_id != 'windows-aarch64'
@@ -469,24 +425,6 @@ jobs:
             target/release-fast/
             target/.rustc_info.json
           key: cargo-target-v3-windows-x86_64-candidate-${{ runner.os }}-${{ runner.arch }}-rust1.97-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml', 'build.rs', 'scripts/artifacts.json') }}-${{ inputs.source_sha }}
-
-      - name: Report sccache statistics
-        if: always() && matrix.platform_id == 'windows-x86_64'
-        continue-on-error: true
-        shell: bash
-        run: '"$RUNNER_TEMP/sccache-bin/sccache.exe" --show-stats'
-
-      # Saved even when the run failed: an entry records what one compiler input
-      # produced, which stays true whatever a later gate decided. That is the
-      # difference from the target tree, saved only on success because a failed
-      # run is evidence its compiled state is not reusable.
-      - name: Save sccache
-        if: always() && matrix.platform_id == 'windows-x86_64'
-        continue-on-error: true
-        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: ${{ runner.temp }}/sccache-cache
-          key: sccache-v1-windows-x86_64-rust1.97-${{ hashFiles('Cargo.lock') }}-${{ inputs.source_sha }}
 
       - name: Report sccache statistics
         if: always() && matrix.platform_id == 'windows-x86_64'

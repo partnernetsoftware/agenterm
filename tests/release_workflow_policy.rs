@@ -2997,3 +2997,50 @@ fn the_downloaded_compiler_wrapper_is_pinned_and_checksummed() {
         .expect("the wrapper is enabled");
     assert!(verify < enable, "verify the bytes before enabling them");
 }
+
+/// A step declared twice in one job runs twice. Install-twice is idempotent,
+/// but a doubled cache save fails on its second attempt and a doubled
+/// restore can overwrite what the first put back -- and neither is visible
+/// in the diff that introduced it, only in the run's step list. It happened
+/// once with sccache, via a scripted edit applied on top of itself.
+#[test]
+fn no_workflow_job_declares_the_same_step_twice() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".github/workflows");
+    let mut offenders = Vec::new();
+    for entry in std::fs::read_dir(&root).expect(".github/workflows must be readable") {
+        let path = entry.expect("readable entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("yml") {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).expect("readable workflow");
+        // Jobs are the two-space-indented keys under `jobs:`; steps are
+        // `      - name:` lines within them.
+        let mut job = String::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut in_jobs = false;
+        for line in source.lines() {
+            if line == "jobs:" {
+                in_jobs = true;
+                continue;
+            }
+            if !in_jobs {
+                continue;
+            }
+            if line.len() > 2
+                && line.starts_with("  ")
+                && !line.starts_with("   ")
+                && line.trim_end().ends_with(':')
+            {
+                job = line.trim().trim_end_matches(':').to_owned();
+                seen.clear();
+                continue;
+            }
+            if let Some(name) = line.strip_prefix("      - name: ") {
+                if !seen.insert(name.trim().to_owned()) {
+                    offenders.push(format!("{}: job {job}: {}", path.display(), name.trim()));
+                }
+            }
+        }
+    }
+    assert!(offenders.is_empty(), "duplicate steps:\n{}", offenders.join("\n"));
+}
