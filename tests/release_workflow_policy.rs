@@ -2068,16 +2068,32 @@ fn six_cell_registry_does_not_invent_fixed_ssh_endpoints_for_lima_runners() {
         .collect::<Vec<_>>();
     assert_eq!(linux.len(), 2, "both Linux ISA cells must be described");
     for cell in linux {
-        assert_eq!(cell["kind"], "blocked");
+        // The hazard this test exists for is a *fixed* endpoint invented for a
+        // runner that publishes a dynamic one. A leased court is the opposite:
+        // the court CLI resolves the endpoint at lease time, so it can never
+        // go stale in this file. Either the cell says it has no runner, or it
+        // names a court -- never a hard-coded host/port/key.
         assert!(cell.get("host").is_none());
         assert!(cell.get("port").is_none());
         assert!(cell.get("identity_from_home").is_none());
-        assert!(
-            cell["reason"]
-                .as_str()
-                .is_some_and(|reason| reason.contains("Lima") && reason.contains("provisioner")),
-            "the blocker must name the real runner family and its owner"
-        );
+        match cell["kind"].as_str() {
+            Some("blocked") => assert!(
+                cell["reason"]
+                    .as_str()
+                    .is_some_and(|reason| reason.contains("Lima")
+                        && reason.contains("provisioner")),
+                "the blocker must name the real runner family and its owner"
+            ),
+            Some("court") => {
+                assert!(
+                    cell["court"].as_str().is_some_and(|name| !name.is_empty()),
+                    "a court cell must name the court it leases"
+                );
+                assert!(cell["guest_dir"].as_str().is_some());
+                assert_eq!(cell["shell"], "sh");
+            }
+            other => panic!("a Linux cell may be blocked or run in a court, not {other:?}"),
+        }
     }
 }
 

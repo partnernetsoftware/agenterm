@@ -51,6 +51,72 @@ function identity_path(cell) {
 // to disk; the door captures both (bounded by the slot's result cap) and this
 // writes them out after the child exits. Same files, same contents, and the
 // caller still reads `.success` off the output.
+// Resolve the product-neutral court CLI the same way the Defender court
+// caller does, so both find one installation.
+function court_command() {
+  const explicit = rh.env_or("UTM_COURT_CLI", "");
+  if (explicit !== "") { return explicit; }
+  const home = rh.env_or("UTM_COURT_HOME", "");
+  if (home !== "") { return rh.join(rh.join(home, "bin"), "utm-court"); }
+  return rh.join(rh.join(rh.env_or("HOME", ""), "repos/utm-court/bin"), "utm-court");
+}
+
+// One guest command, with its output redirected to a guest file the caller
+// pulls back. Windows and the Unix guests need different shells for that.
+function court_exec(court, cell, command, guest_out) {
+  const args = ["exec", court, "--"];
+  if (("" + cell.shell) === "cmd") {
+    args.push("cmd.exe");
+    args.push("/c");
+    args.push(redirected(command, guest_out));
+  } else {
+    args.push("/bin/sh");
+    args.push("-c");
+    args.push(redirected(command, guest_out));
+  }
+  return args;
+}
+
+// A step with nowhere to write its output yet -- the directory-creating one --
+// passes an empty `guest_out` and simply runs.
+function redirected(command, guest_out) {
+  if (guest_out === "") { return command; }
+  return command + " > " + guest_out + " 2>&1";
+}
+
+function mkdir_command(cell, guest_dir) {
+  if (("" + cell.shell) === "cmd") {
+    return "if not exist \"" + guest_dir + "\" mkdir \"" + guest_dir + "\"";
+  }
+  return "mkdir -p '" + guest_dir + "'";
+}
+
+// `exec` returns once the court has handed the command to the guest agent, not
+// once the guest's shell has closed its redirect. Pulling immediately therefore
+// loses the race and reports "the file is being used by another process" --
+// which reads exactly like a failed smoke. Retry until the writer lets go, and
+// only then decide; a guest-side sleep between attempts is the barrier.
+function court_pull(court_cli, court, cell, guest_path, work_root, target) {
+  const local = rh.join(work_root, target + ".court-out.txt");
+  let attempt = 0;
+  while (attempt < 12) {
+    attempt = attempt + 1;
+    const pulled = run(court_cli, ["pull", court, guest_path, local], 300000,
+      rh.join(work_root, target + ".pull.stdout"),
+      rh.join(work_root, target + ".pull.stderr"));
+    if (pulled.success && rh.exists(local)) { return rh.read_text(local); }
+    run(court_cli, court_exec(court, cell, guest_sleep(cell), ""), 120000,
+      rh.join(work_root, target + ".settle.stdout"),
+      rh.join(work_root, target + ".settle.stderr"));
+  }
+  return "";
+}
+
+function guest_sleep(cell) {
+  if (("" + cell.shell) === "cmd") { return "ping -n 3 127.0.0.1"; }
+  return "sleep 2";
+}
+
 function run(program, arguments, timeout_ms, stdout_path, stderr_path) {
   const output = rh.command(program, arguments, { timeout_ms: timeout_ms });
   rh.atomic_write(stdout_path, output.stdout);
@@ -268,6 +334,84 @@ for (const cell of runners.cells) {
       cu_stderr_path
     );
     smoke_ok = hosted.success && cu_hosted.success && cu_hosted.stdout.includes('"ok":true');
+  } else if (kind === "court") {
+    // A UTM court is the same contract as `host`, reached through the
+    // product-neutral `utm-court` CLI instead of a shell on this machine:
+    // lease, push the exact bytes, run the same two smokes the host cell
+    // runs, and read the verdict back. The court is the only runner we own
+    // for the Windows and Linux cells, and it is a real machine of that
+    // architecture rather than an emulation of one -- which is the whole
+    // reason this file distinguishes `level`.
+    const court = "" + cell.court;
+    const guest_dir = "" + cell.guest_dir;
+    const guest_binary = guest_dir + cell.separator + binary;
+    const guest_cu = guest_dir + cell.separator + cu_binary;
+    const court_cli = court_command();
+
+    const leased = run(court_cli, ["lease", court], 900000,
+      rh.join(work_root, target + ".lease.stdout"),
+      rh.join(work_root, target + ".lease.stderr"));
+    if (!leased.success) {
+      failed = failed + 1;
+      print("qualify: FAIL " + target + " -- " + "court lease failed: " + leased.stderr);
+      results.push({
+        target: target,
+        level: level,
+        static_check: static_check,
+        state: "FAIL",
+        detail: "court lease failed: " + leased.stderr
+      });
+      continue;
+    }
+    run(court_cli, ["wait-ready", court, "240"], 300000,
+      rh.join(work_root, target + ".ready.stdout"),
+      rh.join(work_root, target + ".ready.stderr"));
+
+    // The push lands a file, not a directory, so the destination directory
+    // has to exist first; on the Unix guests the pushed bytes also arrive
+    // without an executable bit.
+    run(court_cli, court_exec(court, cell, mkdir_command(cell, guest_dir), ""), 300000,
+      rh.join(work_root, target + ".prepare.stdout"),
+      rh.join(work_root, target + ".prepare.stderr"));
+
+    const pushed = run(court_cli, ["push", court, local_binary, guest_binary], 900000,
+      rh.join(work_root, target + ".push.stdout"),
+      rh.join(work_root, target + ".push.stderr"));
+    const pushed_cu = run(court_cli, ["push", court, local_cu_binary, guest_cu], 900000,
+      rh.join(work_root, target + ".push-cu.stdout"),
+      rh.join(work_root, target + ".push-cu.stderr"));
+    if (!pushed.success || !pushed_cu.success) {
+      failed = failed + 1;
+      print("qualify: FAIL " + target + " -- " + "court push to " + court + " failed");
+      results.push({
+        target: target,
+        level: level,
+        static_check: static_check,
+        state: "FAIL",
+        detail: "court push to " + court + " failed"
+      });
+      continue;
+    }
+
+    if (("" + cell.shell) !== "cmd") {
+      run(court_cli, court_exec(court, cell,
+        "chmod +x " + guest_binary + " " + guest_cu, ""), 300000,
+        rh.join(work_root, target + ".chmod.stdout"),
+        rh.join(work_root, target + ".chmod.stderr"));
+    }
+
+    // The guest agent does not stream stdout, so each smoke writes a file in
+    // the guest and the verdict is pulled back.
+    const guest_out = guest_dir + cell.separator + "smoke.txt";
+    const guest_cu_out = guest_dir + cell.separator + "cu-smoke.txt";
+    const smoke = run(court_cli, court_exec(court, cell, guest_binary + " cli --help", guest_out),
+      600000, stdout_path, stderr_path);
+    const cu_smoke = run(court_cli,
+      court_exec(court, cell,
+        guest_cu + " --target current --grant observe storage-devices --max 1", guest_cu_out),
+      600000, cu_stdout_path, cu_stderr_path);
+    const cu_text = court_pull(court_cli, court, cell, guest_cu_out, work_root, target);
+    smoke_ok = smoke.success && cu_smoke.success && cu_text.includes('"ok":true');
   } else if (kind === "ssh") {
     const destination = "" + cell.user + "@" + cell.host;
     const remote_dir = "" + cell.remote_dir;

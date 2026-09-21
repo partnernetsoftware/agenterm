@@ -9,6 +9,7 @@
     "missing runner is exactly the case where a skip would read as a pass.",
     "",
     "kind=host  : execute the artifact directly on this machine.",
+    "kind=court : lease a UTM court through the product-neutral `utm-court` CLI,\n             push the exact local bytes into `guest_dir`, and run the same two\n             smokes the host cell runs. `court` is the court name, `separator`\n             is the guest's path separator and `shell` selects cmd or sh. The\n             endpoint is resolved at lease time, so nothing here goes stale.",
     "kind=ssh   : scp the artifact to host:port and execute it there. `identity_from_home`\n             is the ssh key path relative to $HOME, so no absolute host path lands here.",
     "kind=blocked: no runner; `reason` is required and is reproduced verbatim in",
     "             the receipt so a reader learns what to go fix.",
@@ -35,33 +36,45 @@
     },
     {
       "target": "aarch64-unknown-linux-gnu",
-      "kind": "blocked",
+      "kind": "court",
       "level": "native",
-      "reason": "The owned Linux runner is the MiniCon-provisioned Lima instance minicon-lnx-aarch64. Lima publishes a dynamic endpoint and owns setup/start through its provisioner; the former fixed-port SSH descriptor never addressed this instance. Keep this cell blocked until the provisioner or a product-neutral court exposes one leased execution entry.",
-      "expect_file": "ELF 64-bit LSB pie executable, ARM aarch64"
+      "expect_file": "ELF 64-bit LSB pie executable, ARM aarch64",
+      "court": "lnx-aarch64-desktop",
+      "guest_dir": "/tmp/agenterm-court",
+      "separator": "/",
+      "shell": "sh"
     },
     {
       "target": "x86_64-unknown-linux-gnu",
-      "kind": "blocked",
+      "kind": "court",
       "level": "emulated=tcg",
-      "reason": "The owned Linux runner is the MiniCon-provisioned Lima instance minicon-lnx-x86_64. Lima publishes a dynamic endpoint and owns setup/start through its provisioner; the former fixed-port SSH descriptor never addressed this instance. Keep this cell blocked until the provisioner or a product-neutral court exposes one leased execution entry.",
-      "expect_file": "ELF 64-bit LSB pie executable, x86-64"
+      "expect_file": "ELF 64-bit LSB pie executable, x86-64",
+      "court": "lnx-x86_64-desktop",
+      "guest_dir": "/tmp/agenterm-court",
+      "separator": "/",
+      "shell": "sh"
     },
     {
       "target": "aarch64-pc-windows-msvc",
-      "kind": "blocked",
+      "kind": "court",
       "level": "native",
-      "reason": "This JSON is the older ssh/host map, not the utm-court caller. Local Windows arm64 execute-only evidence goes through scripts/utm-cu-managed-job-court.sh against win-aarch64-desktop. Do not treat VM presence as this cell becoming kind=host.",
       "expect_file": "PE32+ executable (GUI) Aarch64",
-      "expect_cu_file": "PE32+ executable (console) Aarch64"
+      "expect_cu_file": "PE32+ executable (console) Aarch64",
+      "court": "win-aarch64-desktop",
+      "guest_dir": "C:\\agenterm-court",
+      "separator": "\\",
+      "shell": "cmd"
     },
     {
       "target": "x86_64-pc-windows-msvc",
-      "kind": "blocked",
-      "level": "emulated=prism",
-      "reason": "This JSON is the older ssh/host map, not the utm-court caller. Local Windows x86_64 execute-only evidence goes through scripts/utm-cu-managed-job-court.sh against win-x86_64-desktop. Presence of a VM is not this cell becoming kind=host.",
+      "kind": "court",
+      "level": "emulated=tcg",
       "expect_file": "PE32+ executable (GUI) x86-64",
-      "expect_cu_file": "PE32+ executable (console) x86-64"
+      "expect_cu_file": "PE32+ executable (console) x86-64",
+      "court": "win-x86_64-desktop",
+      "guest_dir": "C:\\agenterm-court",
+      "separator": "\\",
+      "shell": "cmd"
     }
   ]
 }
