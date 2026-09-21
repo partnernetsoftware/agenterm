@@ -3035,12 +3035,16 @@ fn no_workflow_job_declares_the_same_step_twice() {
                 seen.clear();
                 continue;
             }
-            if let Some(name) = line.strip_prefix("      - name: ") {
-                if !seen.insert(name.trim().to_owned()) {
-                    offenders.push(format!("{}: job {job}: {}", path.display(), name.trim()));
-                }
+            if let Some(name) = line.strip_prefix("      - name: ")
+                && !seen.insert(name.trim().to_owned())
+            {
+                offenders.push(format!("{}: job {job}: {}", path.display(), name.trim()));
             }
         }
     }
-    assert!(offenders.is_empty(), "duplicate steps:\n{}", offenders.join("\n"));
+    assert!(
+        offenders.is_empty(),
+        "duplicate steps:\n{}",
+        offenders.join("\n")
+    );
 }
