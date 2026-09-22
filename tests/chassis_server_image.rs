@@ -274,32 +274,21 @@ fn no_gui_path_attaches_without_the_image_check() {
         let text = fs::read_to_string(&file).expect("read source");
         let relative = file.strip_prefix(&src).expect("under src");
         if relative == Path::new("frontend_server.rs") {
-            // Only the two connect functions may call it, and the unverified
-            // one is reachable only through its verifying wrapper.
+            // Only the live port's `attach` may call it; `verified_attach`
+            // reaches it after a read-only image check.
             let mut current_fn = "";
             for line in text.lines() {
-                if let Some(rest) = line
-                    .trim_start()
+                let trimmed = line.trim_start();
+                if let Some(rest) = trimmed
                     .strip_prefix("pub(crate) fn ")
-                    .or_else(|| line.trim_start().strip_prefix("fn "))
+                    .or_else(|| trimmed.strip_prefix("fn "))
                 {
-                    current_fn = rest.split('(').next().unwrap_or("");
+                    current_fn = rest.split(['(', '<']).next().unwrap_or("");
                 }
-                if line.contains("UiClientModel::connect(")
-                    && current_fn != "connect_verified_frontend_gui_client"
-                    && current_fn != "connect_or_start_frontend_gui_client_unverified"
-                {
+                if line.contains("UiClientModel::connect(") && current_fn != "attach" {
                     offenders.push(format!("frontend_server.rs in {current_fn}"));
                 }
             }
-            let unverified_callers = text
-                .matches("connect_or_start_frontend_gui_client_unverified(")
-                .count();
-            // The definition plus the one verifying caller.
-            assert_eq!(
-                unverified_callers, 2,
-                "the unverified connect has one verifying caller"
-            );
         } else if text.contains("UiClientModel::connect(") {
             offenders.push(relative.display().to_string());
         }

@@ -74,35 +74,137 @@ impl FrontendServerRecovery {
 /// the attach unless both sides run the same verified chassis image -- or
 /// neither runs one. Which image a session runs is never decided by whichever
 /// process happened to start the server first.
+///
+/// Readiness and the image are read through `protocol-info`, which is
+/// read-only. `UiClientModel::connect` is not: it attaches the UI lease and
+/// bootstraps the client, so it runs only after the image matched.
 pub(crate) fn connect_or_start_frontend_gui_client(
     client_id: &str,
 ) -> Result<UiClientModel, String> {
-    let mut client = connect_or_start_frontend_gui_client_unverified(client_id)?;
-    // A client that was just started or found is still checked here: the
-    // verified connect below is for every later reattach.
-    if let Err(refusal) = verify_server_chassis_image(ImageDeclaration::Strict) {
-        let _ = client.detach();
-        return Err(refusal);
+    let port = LivePort { client_id };
+    if server_answers() {
+        return verified_attach(&port).map_err(AttachError::into_message);
+    }
+
+    // Resolved default pipe/socket is down. Before spawning a second authority
+    // (which would re-spawn empty shells from workspace.json and look like a
+    // full session reset), attach any live registration for this logical
+    // instance (e.g. another `main` still holding agent tabs after Keep Server).
+    if let Some(endpoint) = discover_live_peer_endpoint()? {
+        pin_client_endpoint(&endpoint);
+        return verified_attach(&port).map_err(|error| match error {
+            AttachError::Connect(error) => format!(
+                "live AgenTerm server for this instance is reachable at {endpoint} but UI connect failed: {error}"
+            ),
+            other => other.into_message(),
+        });
+    }
+
+    start_frontend_server_process()?;
+    let deadline = Instant::now() + GUI_FRONTEND_SERVER_START_TIMEOUT;
+    while !server_answers() {
+        if Instant::now() >= deadline {
+            return Err(
+                "could not start independent AgenTerm server: server did not become ready"
+                    .to_owned(),
+            );
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    verified_attach(&port).map_err(|error| match error {
+        AttachError::Connect(error) => {
+            format!("could not start independent AgenTerm server: {error}")
+        }
+        other => other.into_message(),
+    })
+}
+
+/// Every GUI (re)attach goes through here or through
+/// [`connect_or_start_frontend_gui_client`]: a first connect, a reconnect
+/// after the server went away, a switch to another instance. On a refusal
+/// the UI lease was never attached and the caller stays disconnected with an
+/// error naming the mismatch. `tests/chassis_server_image.rs` pins that no
+/// other GUI path calls `UiClientModel::connect` directly.
+pub(crate) fn connect_verified_frontend_gui_client(
+    client_id: &str,
+) -> Result<UiClientModel, String> {
+    verified_attach(&LivePort { client_id }).map_err(AttachError::into_message)
+}
+
+/// Whether an authority answers the read-only `protocol-info`.
+fn server_answers() -> bool {
+    crate::client::send_ipc_request(vec!["protocol-info".to_owned()])
+        .is_ok_and(|response| response.ok)
+}
+
+/// What a GUI attach needs from the world, so the order of its steps can be
+/// tested: read the server's image without side effects, then attach the UI
+/// lease, then give it back.
+pub(crate) trait AttachPort {
+    type Client;
+    /// The server's image id through a read-only request.
+    fn server_image(&self) -> Result<Option<String>, String>;
+    /// This process's image id.
+    fn local_image(&self) -> Option<String>;
+    /// Attach the UI lease and bootstrap a client. Not read-only.
+    fn attach(&self) -> Result<Self::Client, String>;
+    fn detach(&self, client: Self::Client);
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum AttachError {
+    /// The images differ or could not be read; nothing was attached, or what
+    /// was attached has been given back.
+    Image(String),
+    /// The image matched but the server refused the UI client.
+    Connect(String),
+}
+
+impl AttachError {
+    fn into_message(self) -> String {
+        match self {
+            Self::Image(message) => message,
+            Self::Connect(message) => format!("running server rejected replaceable UI: {message}"),
+        }
+    }
+}
+
+/// Check the image read-only, attach only on a match, and check again after:
+/// a server replaced between the two steps is detached rather than kept.
+pub(crate) fn verified_attach<P: AttachPort>(port: &P) -> Result<P::Client, AttachError> {
+    let local = port.local_image();
+    let before = port.server_image().map_err(AttachError::Image)?;
+    image_match(local.as_deref(), before.as_deref()).map_err(AttachError::Image)?;
+    let client = port.attach().map_err(AttachError::Connect)?;
+    let after = port
+        .server_image()
+        .and_then(|server| image_match(local.as_deref(), server.as_deref()));
+    if let Err(refusal) = after {
+        port.detach(client);
+        return Err(AttachError::Image(refusal));
     }
     Ok(client)
 }
 
-/// Every GUI (re)attach goes through here: a first connect, a reconnect after
-/// the server went away, a switch to another instance. The connection is
-/// accepted only after the image check passes; on a refusal it is detached
-/// and the caller stays disconnected with an error naming the mismatch.
-/// `tests/chassis_server_image.rs` pins that no other GUI path calls
-/// `UiClientModel::connect` directly.
-pub(crate) fn connect_verified_frontend_gui_client(
-    client_id: &str,
-) -> Result<UiClientModel, String> {
-    let mut client =
-        UiClientModel::connect(client_id.to_owned()).map_err(|error| error.to_string())?;
-    if let Err(refusal) = verify_server_chassis_image(ImageDeclaration::Strict) {
-        let _ = client.detach();
-        return Err(refusal);
+struct LivePort<'a> {
+    client_id: &'a str,
+}
+
+impl AttachPort for LivePort<'_> {
+    type Client = UiClientModel;
+    fn server_image(&self) -> Result<Option<String>, String> {
+        read_server_image_id()
     }
-    Ok(client)
+    fn local_image(&self) -> Option<String> {
+        crate::frontend::chassis_image::loaded_image_identity()
+            .map(|identity| identity.image_id.clone())
+    }
+    fn attach(&self) -> Result<UiClientModel, String> {
+        UiClientModel::connect(self.client_id.to_owned()).map_err(|error| error.to_string())
+    }
+    fn detach(&self, mut client: UiClientModel) {
+        let _ = client.detach();
+    }
 }
 
 /// How a client states the image it expects the authority to run.
@@ -117,6 +219,14 @@ pub(crate) enum ImageDeclaration {
 /// reports through `protocol-info`. Refusals carry content ids only.
 pub(crate) fn verify_server_chassis_image(declaration: ImageDeclaration) -> Result<(), String> {
     let ImageDeclaration::Strict = declaration;
+    let server = read_server_image_id()?;
+    let local = crate::frontend::chassis_image::loaded_image_identity()
+        .map(|identity| identity.image_id.as_str());
+    image_match(local, server.as_deref())
+}
+
+/// The running authority's image id, through the read-only `protocol-info`.
+fn read_server_image_id() -> Result<Option<String>, String> {
     let response = crate::client::send_ipc_request(vec!["protocol-info".to_owned()])
         .map_err(|error| format!("chassis_image_unverifiable: {error:#}"))?;
     if !response.ok {
@@ -124,10 +234,7 @@ pub(crate) fn verify_server_chassis_image(declaration: ImageDeclaration) -> Resu
     }
     let info: serde_json::Value = serde_json::from_str(&response.output)
         .map_err(|_| "chassis_image_unverifiable: protocol-info is not JSON".to_owned())?;
-    let server = server_image_id(&info)?;
-    let local = crate::frontend::chassis_image::loaded_image_identity()
-        .map(|identity| identity.image_id.as_str());
-    image_match(local, server.as_deref())
+    server_image_id(&info)
 }
 
 /// The server's image id from `protocol-info`. An older server that predates
@@ -164,51 +271,6 @@ fn image_match(local: Option<&str>, server: Option<&str>) -> Result<(), String> 
          stop that server or launch with the matching image",
         local.unwrap_or("no image"),
         server.unwrap_or("no image")
-    ))
-}
-
-fn connect_or_start_frontend_gui_client_unverified(
-    client_id: &str,
-) -> Result<UiClientModel, String> {
-    match UiClientModel::connect(client_id.to_owned()) {
-        Ok(client) => return Ok(client),
-        Err(error) => {
-            // Endpoint is up but rejected this UI client — do not spawn a twin.
-            if is_frontend_server_endpoint_listening() {
-                return Err(format!("running server rejected replaceable UI: {error}"));
-            }
-        }
-    }
-
-    // Resolved default pipe/socket is down. Before spawning a second authority
-    // (which would re-spawn empty shells from workspace.json and look like a
-    // full session reset), attach any live registration for this logical
-    // instance (e.g. another `main` still holding agent tabs after Keep Server).
-    if let Some(endpoint) = discover_live_peer_endpoint()? {
-        pin_client_endpoint(&endpoint);
-        match UiClientModel::connect(client_id.to_owned()) {
-            Ok(client) => return Ok(client),
-            Err(error) => {
-                return Err(format!(
-                    "live AgenTerm server for this instance is reachable at {endpoint} but UI connect failed: {error}"
-                ));
-            }
-        }
-    }
-
-    start_frontend_server_process()?;
-    let deadline = Instant::now() + GUI_FRONTEND_SERVER_START_TIMEOUT;
-    let mut last_error = None;
-    while Instant::now() < deadline {
-        match UiClientModel::connect(client_id.to_owned()) {
-            Ok(client) => return Ok(client),
-            Err(error) => last_error = Some(format!("{error}")),
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    Err(format!(
-        "could not start independent AgenTerm server: {}",
-        last_error.unwrap_or_else(|| "server did not become ready".to_owned())
     ))
 }
 
@@ -366,10 +428,118 @@ pub(crate) fn frontend_server_spawn_parameter(
 
 #[cfg(test)]
 mod tests {
+    use super::{AttachError, AttachPort, verified_attach};
     use super::{
         FrontendServerRecovery, GUI_FRONTEND_SERVER_RESTART_INTERVAL, image_match,
         next_frontend_server_restart_after, server_image_id,
     };
+    use std::cell::{Cell, RefCell};
+
+    /// A scripted server: the image it reports on each read, whether it
+    /// accepts the UI client, and a record of every lease attach and detach.
+    struct FakePort {
+        local: Option<String>,
+        reports: RefCell<Vec<Result<Option<String>, String>>>,
+        accept: bool,
+        attached: Cell<u32>,
+        detached: Cell<u32>,
+    }
+
+    impl FakePort {
+        fn new(local: Option<&str>, reports: &[Result<Option<&str>, &str>], accept: bool) -> Self {
+            Self {
+                local: local.map(str::to_owned),
+                reports: RefCell::new(
+                    reports
+                        .iter()
+                        .rev()
+                        .map(|report| {
+                            report
+                                .map(|id| id.map(str::to_owned))
+                                .map_err(str::to_owned)
+                        })
+                        .collect(),
+                ),
+                accept,
+                attached: Cell::new(0),
+                detached: Cell::new(0),
+            }
+        }
+    }
+
+    impl AttachPort for FakePort {
+        type Client = ();
+        fn server_image(&self) -> Result<Option<String>, String> {
+            self.reports
+                .borrow_mut()
+                .pop()
+                .expect("an unscripted image read")
+        }
+        fn local_image(&self) -> Option<String> {
+            self.local.clone()
+        }
+        fn attach(&self) -> Result<(), String> {
+            self.attached.set(self.attached.get() + 1);
+            if self.accept {
+                Ok(())
+            } else {
+                Err("ui_lease_conflict".to_owned())
+            }
+        }
+        fn detach(&self, _client: ()) {
+            self.detached.set(self.detached.get() + 1);
+        }
+    }
+
+    /// The UI lease is never attached to a server running another image,
+    /// none, or one whose image cannot be read.
+    #[test]
+    fn a_mismatched_server_never_sees_a_ui_lease_attach() {
+        for (local, report) in [
+            (Some("aa"), Ok(Some("bb"))),
+            (Some("aa"), Ok(None)),
+            (None, Ok(Some("aa"))),
+            (Some("aa"), Err("chassis_image_unverifiable: malformed")),
+        ] {
+            let port = FakePort::new(local, &[report], true);
+            let error = verified_attach(&port).expect_err("refused");
+            assert!(matches!(error, AttachError::Image(_)), "{error:?}");
+            assert_eq!(
+                port.attached.get(),
+                0,
+                "no lease attach for {local:?} vs {report:?}"
+            );
+            assert_eq!(port.detached.get(), 0);
+        }
+    }
+
+    #[test]
+    fn a_matching_server_is_attached_once_and_kept() {
+        let port = FakePort::new(Some("aa"), &[Ok(Some("aa")), Ok(Some("aa"))], true);
+        assert!(verified_attach(&port).is_ok());
+        assert_eq!((port.attached.get(), port.detached.get()), (1, 0));
+        let plain = FakePort::new(None, &[Ok(None), Ok(None)], true);
+        assert!(verified_attach(&plain).is_ok());
+    }
+
+    /// A server replaced between the check and the attach is given its lease
+    /// back rather than kept.
+    #[test]
+    fn a_server_swapped_during_attach_is_detached() {
+        let port = FakePort::new(Some("aa"), &[Ok(Some("aa")), Ok(Some("bb"))], true);
+        let error = verified_attach(&port).expect_err("swapped");
+        assert!(matches!(error, AttachError::Image(_)), "{error:?}");
+        assert_eq!((port.attached.get(), port.detached.get()), (1, 1));
+    }
+
+    #[test]
+    fn a_refused_ui_client_is_a_connect_error_not_an_image_error() {
+        let port = FakePort::new(None, &[Ok(None)], false);
+        assert_eq!(
+            verified_attach(&port),
+            Err(AttachError::Connect("ui_lease_conflict".to_owned()))
+        );
+    }
 
     /// A strict client attaches only to a server running the same image, and
     /// either side lacking one is a refusal, not a fallback.
