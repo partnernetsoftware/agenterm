@@ -1605,10 +1605,9 @@ pub(crate) fn builtin_adjacent_tab_position(current: usize, count: usize, direct
 
 /// Answer `protocol-info` for `args`, applying `--select` before serialization.
 ///
-/// Without a selection this calls the unchanged renderer, so the bytes are
-/// exactly what they were before this leaf. With a selection it projects the
-/// producer's own [`serde_json::Value`] and renders that: no text is parsed and
-/// nothing is re-spelled.
+/// Without a selection this calls the full renderer. With a selection it
+/// projects the producer's own [`serde_json::Value`] and renders that: no text
+/// is parsed and nothing is re-spelled.
 fn protocol_info_response(host: &mut dyn ControlHost, args: &[String]) -> IpcResponse {
     let value =
         crate::client::protocol_info_value_with_ui_bridge("running_host", host.ui_bridge_facts());
