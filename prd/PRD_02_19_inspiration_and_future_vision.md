@@ -685,6 +685,7 @@ Feeds non-goals:
 ### Lane F — Mobile connector (REACH · W6)
 
 Phone as **desktop fleet remote client**, not a standalone mobile terminal.
+远景对照（政委 2026-09-22）：类似 UU 远程的远程办公管理——手机连桌面舰队，不是第二套终端 OS。仍后线。
 Product contract: [33 Mobile reach](PRD_02_33_mobile_reach.md) (PWA first at
 `https://agenterm.work/app`; iOS/Android store apps remain placeholders).
 
