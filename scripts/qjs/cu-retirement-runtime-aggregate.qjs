@@ -2,9 +2,15 @@
 // summary that candidate-aggregate embeds into the sealed manifest.
 //
 // Args: RECEIPT_DIR SOURCE_SHA RUN_ID RUN_ATTEMPT OUTPUT_JSON
+//
+// RECEIPT_DIR holds one directory per downloaded artifact of this run,
+// `candidate-cu-runtime-<platform>-<run>-<attempt>`, each with exactly
+// `<platform>.json`. A rerun of failed cells leaves the cells that passed at
+// their earlier attempt, so each cell's receipt is the one from its highest
+// attempt present, and that receipt must name the same run and attempt as
+// the artifact that carried it.
 import * as rh from "lib/rh_compat";
 import * as candidate from "lib/release_candidate";
-
 const args = rh.args();
 rh.require(args.length === 5, "cu_runtime_aggregate_arguments");
 const root = rh.absolute(args[0]);
@@ -17,22 +23,47 @@ const expected = [
   "linux-x86_64", "linux-aarch64",
   "macos-aarch64", "macos-x86_64"
 ];
-
+rh.require(candidate.canonical_positive_integer(run_attempt), "cu_runtime_run_attempt");
+const prefix = "candidate-cu-runtime-";
+const chosen = {};
+for (const entry of rh.read_dir(root)) {
+  rh.require(entry.is_dir, "cu_runtime_receipt_not_artifact:" + entry.name);
+  rh.require(entry.name.startsWith(prefix), "cu_runtime_receipt_artifact_name:" + entry.name);
+  const tail = entry.name.slice(prefix.length);
+  let platform_id = "";
+  for (const candidate_id of expected) {
+    if (tail.startsWith(candidate_id + "-")) { platform_id = candidate_id; }
+  }
+  rh.require(platform_id !== "", "cu_runtime_receipt_platform:" + entry.name);
+  const identity = tail.slice(platform_id.length + 1).split("-");
+  rh.require(identity.length === 2, "cu_runtime_receipt_artifact_name:" + entry.name);
+  rh.require(identity[0] === run_id, "cu_runtime_receipt_foreign_run:" + entry.name);
+  const attempt = identity[1];
+  rh.require(candidate.canonical_positive_integer(attempt) && Number(attempt) <= Number(run_attempt),
+             "cu_runtime_receipt_attempt:" + entry.name);
+  const previous = chosen[platform_id];
+  if (previous === undefined || Number(attempt) > Number(previous.attempt)) {
+    chosen[platform_id] = { attempt: attempt, dir: rh.join(root, entry.name) };
+  }
+}
 const cells = [];
 for (const platform_id of expected) {
-  const path = rh.join(root, platform_id + ".json");
-  rh.require(rh.exists(path) && rh.metadata(path).is_file,
-             "cu_runtime_receipt_missing:" + platform_id);
-  cells.push(rh.parse_file(path));
+  const selection = chosen[platform_id];
+  rh.require(selection !== undefined, "cu_runtime_receipt_missing:" + platform_id);
+  const names = [];
+  for (const entry of rh.read_dir(selection.dir)) {
+    rh.require(entry.is_file, "cu_runtime_receipt_not_file:" + entry.name);
+    names.push(entry.name);
+  }
+  rh.require(candidate.exact_values([platform_id + ".json"], names), "cu_runtime_receipt_set:" + platform_id);
+  const cell = rh.parse_file(rh.join(selection.dir, platform_id + ".json"));
+  const cell_run = cell !== null && typeof cell === "object" ? cell.run : null;
+  rh.require(cell_run !== null && typeof cell_run === "object"
+             && ("" + cell_run.id) === run_id
+             && ("" + cell_run.attempt) === selection.attempt,
+             "cu_runtime_receipt_producer_mismatch:" + platform_id);
+  cells.push(cell);
 }
-const names = [];
-for (const entry of rh.read_dir(root)) {
-  rh.require(entry.is_file, "cu_runtime_receipt_not_file:" + entry.name);
-  names.push(entry.name);
-}
-const expected_names = [];
-for (const platform_id of expected) { expected_names.push(platform_id + ".json"); }
-rh.require(candidate.exact_values(expected_names, names), "cu_runtime_receipt_set");
 
 const summary = {
   schema_version: 1,

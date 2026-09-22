@@ -200,7 +200,7 @@ require_ok(
     && candidate.includes("check.cmd --release --include-stress")
     && candidate.includes("expected == \"v0.1.7\"")
     && candidate.includes("release-candidate-${{ github.run_id }}")
-    && candidate.includes("needs: [preflight, build, windows_unsigned, windows_sign, runtime]")
+    && candidate.includes("needs: [preflight, build, windows_unsigned, windows_sign, chassis_pack, runtime]")
     && candidate.includes("release-policy.json")
     && candidate.includes("windows-signing-candidate.ps1 -Mode Prepare")
     && candidate.includes("windows-signing-candidate.ps1 -Mode Finalize")

@@ -135,6 +135,24 @@ export function exact_values(expected, actual) {
   return true;
 }
 
+// A cell's producer attempt: a canonical positive integer no later than the
+// consumer's own attempt. A rerun of failed cells leaves the cells that
+// passed at their earlier attempt, so equality would reject a valid run.
+// Decimal digits with no sign, no leading zero and at least one digit.
+export function canonical_positive_integer(value) {
+  const digits = text(value);
+  if (digits.length === 0 || digits[0] < "1" || digits[0] > "9") { return false; }
+  for (let i = 1; i < digits.length; i = i + 1) {
+    if (digits[i] < "0" || digits[i] > "9") { return false; }
+  }
+  return true;
+}
+
+function producer_attempt_at_most(attempt, run_attempt) {
+  return canonical_positive_integer(attempt) && canonical_positive_integer(run_attempt)
+    && Number(text(attempt)) <= Number(text(run_attempt));
+}
+
 export function validate_cu_runtime_summary(summary, source_sha, run_id, run_attempt) {
   const expected = [
     { platform_id: "windows-x86_64", os: "windows", arch: "x86_64" },
@@ -176,7 +194,7 @@ export function validate_cu_runtime_summary(summary, source_sha, run_id, run_att
         && cell.kind === "agenterm-cu-runtime-cell"
         && cell.source_sha === source_sha
         && text(cell_run.id) === text(run_id)
-        && text(cell_run.attempt) === text(run_attempt)
+        && producer_attempt_at_most(cell_run.attempt, run_attempt)
         && cell.platform_id === expected[i].platform_id
         && cell.os === expected[i].os
         && cell.arch === expected[i].arch

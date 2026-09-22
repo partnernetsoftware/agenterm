@@ -302,7 +302,7 @@ function verify_candidate_identity(repo, identity, blockers) {
       platforms_checked = platforms_checked + 1;
     }
   }
-  if (!active_line(runtime, "needs: [preflight, build, windows_unsigned, windows_sign]")
+  if (!active_line(runtime, "needs: [preflight, build, windows_unsigned, windows_sign, chassis_pack]")
       || !active_line(runtime, "fail-fast: false")
       || active_contains(runtime, "actions/checkout@")
       || active_contains(runtime, "cargo ")) {
@@ -376,14 +376,14 @@ function verify_candidate_identity(repo, identity, blockers) {
   const seal = named_step(aggregate, "Seal exact candidate bundle");
   const sealed_upload = named_step(aggregate, "Upload sealed candidate");
   if (!active_line(aggregate,
-      "needs: [preflight, build, windows_unsigned, windows_sign, runtime]")
+      "needs: [preflight, build, windows_unsigned, windows_sign, chassis_pack, runtime]")
       || !active_contains(aggregate, "needs.runtime.result == 'success'")
       || receipt_download === null
       || !active_contains(receipt_download,
         "actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16")
       || !active_line(receipt_download,
-        "pattern: candidate-cu-runtime-*-${{ github.run_id }}-${{ github.run_attempt }}")
-      || !active_line(receipt_download, "merge-multiple: true")
+        "pattern: candidate-cu-runtime-*-${{ github.run_id }}-*")
+      || active_line(receipt_download, "merge-multiple: true")
       || !active_line(receipt_download, "path: runtime-evidence")) {
     candidate_problem(blockers, "runtime_aggregate_dependency_invalid", "receipt dependency");
   }

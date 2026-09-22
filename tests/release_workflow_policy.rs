@@ -1224,9 +1224,9 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
         );
     }
     assert!(CANDIDATE.contains("name: Resolve checked-in release policy"));
-    assert!(
-        CANDIDATE.contains("needs: [preflight, build, windows_unsigned, windows_sign, runtime]")
-    );
+    assert!(CANDIDATE.contains(
+        "needs: [preflight, build, windows_unsigned, windows_sign, chassis_pack, runtime]"
+    ));
 
     let runtime = CANDIDATE
         .split_once("\n  runtime:\n")
@@ -1455,7 +1455,9 @@ fn candidate_runs_one_full_gate_and_seals_six_platform_parts_plus_chassis_produc
     assert!(!CANDIDATE.contains("candidate-aggregate.rh"));
     assert!(!CANDIDATE.contains(" rh \\"));
     assert!(CANDIDATE.contains("python3 scripts/chassis-candidate-pack.py"));
-    assert!(CANDIDATE.contains("candidate-input/agenterm-$version-chassis-product.tgz"));
+    assert!(CANDIDATE.contains("chassis-product/agenterm-$version-chassis-product.tgz"));
+    // Aggregate seals the bytes chassis_pack composed and runtime installed.
+    assert!(CANDIDATE.contains("\"chassis-product/$tgz.provenance.json\" candidate-input/"));
     assert!(CANDIDATE.contains("name: Build thin Chassis-L1 loader"));
     assert!(CANDIDATE.contains("--features loader"));
     assert!(CANDIDATE.contains("python3 scripts/chassis-stage-l1-loader.py"));
@@ -3094,4 +3096,135 @@ fn candidate_runtime_control_survives_rerun_of_failed_jobs() {
     // Negative control: the shape that failed on rerun must be caught.
     let old = "jobs:\n  preflight:\n    steps:\n  runtime:\n    steps:\n      - uses: actions/download-artifact@fa0a\n        with:\n          name: candidate-runtime-control-${{ github.run_id }}-${{ github.run_attempt }}\n";
     assert_eq!(consumer_rebuilt_attempt_names(old, "preflight").len(), 1);
+}
+
+/// The one chassis job text between `start` and the next top-level job.
+fn candidate_job(name: &str) -> &'static str {
+    let start = format!("\n  {name}:\n");
+    let (_, tail) = CANDIDATE.split_once(&start).expect("candidate job");
+    let end = tail
+        .match_indices("\n  ")
+        .find(|(index, _)| {
+            let rest = &tail[index + 3..];
+            rest.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+                && rest
+                    .split_once(':')
+                    .is_some_and(|(key, _)| !key.contains(' '))
+        })
+        .map(|(index, _)| index)
+        .unwrap_or(tail.len());
+    &tail[..end]
+}
+
+/// Whether a consumer downloads installed-product receipts in a way a rerun
+/// of failed cells breaks: by its own attempt, or merged into one directory.
+fn receipt_download_breaks_on_rerun(aggregate: &str) -> bool {
+    download_breaks_on_rerun(aggregate, "Download installed chassis product receipts")
+}
+
+/// The same rule for any receipt download step named `step_name`.
+fn download_breaks_on_rerun(aggregate: &str, step_name: &str) -> bool {
+    let Some((_, tail)) = aggregate.split_once(&format!("name: {step_name}")) else {
+        return true;
+    };
+    let step = tail.split("\n      - name:").next().unwrap_or("");
+    step.contains("github.run_attempt") || step.contains("merge-multiple: true")
+}
+
+#[test]
+fn candidate_runtime_installs_one_sealed_chassis_product() {
+    let pack = candidate_job("chassis_pack");
+    assert!(pack.contains("needs: [preflight, build, windows_unsigned, windows_sign]"));
+    assert!(pack.contains("pattern: candidate-part-*"));
+    assert!(pack.contains("python3 scripts/chassis-candidate-pack.py"));
+    assert!(pack.contains(
+        "artifact: candidate-chassis-product-${{ github.run_id }}-${{ github.run_attempt }}"
+    ));
+    for shipped in [
+        "scripts/chassis-install-product.py",
+        "scripts/chassis_l3_app.py",
+        "scripts/qjs/chassis-installed-journey.qjs",
+    ] {
+        assert!(pack.contains(shipped), "chassis_pack must ship {shipped}");
+    }
+
+    let runtime = candidate_job("runtime");
+    assert!(
+        runtime.contains("needs: [preflight, build, windows_unsigned, windows_sign, chassis_pack]")
+    );
+    assert!(runtime.contains("needs.chassis_pack.result == 'success'"));
+    assert!(runtime.contains("name: ${{ needs.chassis_pack.outputs.artifact }}"));
+    assert!(runtime.contains("name: Installed chassis product public journey"));
+    assert!(runtime.contains("--native-cell \"$cell\""));
+    assert!(runtime.contains("test \"$RUNNER_ARCH\" = \"$arch\""));
+    for (platform, cell) in [
+        ("windows-x86_64", "win-x86_64"),
+        ("windows-aarch64", "win-aarch64"),
+        ("linux-x86_64", "lnx-x86_64"),
+        ("linux-aarch64", "lnx-aarch64"),
+        ("macos-x86_64", "osx-x86_64"),
+        ("macos-aarch64", "osx-aarch64"),
+    ] {
+        assert!(
+            runtime.contains(&format!("{platform}) cell={cell} ")),
+            "runtime must state {cell} for {platform}"
+        );
+    }
+    assert!(runtime.contains("the final binary loaded cell"));
+    assert!(runtime.contains(
+        "name: candidate-chassis-runtime-${{ matrix.platform_id }}-${{ github.run_id }}-${{ github.run_attempt }}"
+    ));
+    assert!(!runtime.contains("actions/checkout"));
+    assert!(!runtime.contains("cargo "));
+
+    let aggregate = candidate_job("aggregate");
+    assert!(aggregate.contains("name: ${{ needs.chassis_pack.outputs.artifact }}"));
+    assert!(aggregate.contains("pattern: candidate-chassis-runtime-*-${{ github.run_id }}-*"));
+    assert!(aggregate.contains("python3 scripts/chassis-runtime-receipts.py"));
+    assert!(aggregate.contains("--tgz-sha256 \"$tgz_sha\""));
+    assert!(
+        !aggregate.contains("chassis-candidate-pack.py"),
+        "aggregate must not compose again"
+    );
+    assert!(!receipt_download_breaks_on_rerun(aggregate));
+    // The verified summary is written inside the sealed upload, before the
+    // seal step, so it travels with the Candidate artifact.
+    let summary = "> candidate-output/evidence/chassis-six-cell-runtime.json";
+    let bind_at = aggregate
+        .find(summary)
+        .expect("chassis summary written to sealed evidence");
+    let seal_at = aggregate
+        .find("name: Seal exact candidate bundle")
+        .expect("seal step");
+    assert!(
+        bind_at < seal_at,
+        "the summary must exist before the seal step"
+    );
+    assert!(aggregate.contains("path: candidate-output/"));
+
+    // Negative controls: the shapes a rerun of failed cells breaks.
+    let own_attempt = "      - name: Download installed chassis product receipts\n        with:\n          pattern: candidate-chassis-runtime-*-${{ github.run_id }}-${{ github.run_attempt }}\n";
+    assert!(receipt_download_breaks_on_rerun(own_attempt));
+    let merged = "      - name: Download installed chassis product receipts\n        with:\n          pattern: candidate-chassis-runtime-*-${{ github.run_id }}-*\n          merge-multiple: true\n";
+    assert!(receipt_download_breaks_on_rerun(merged));
+}
+
+#[test]
+fn candidate_acu_runtime_receipts_survive_a_partial_rerun() {
+    let aggregate = candidate_job("aggregate");
+    let step = "Download exact-attempt ACU runtime receipts";
+    assert!(aggregate.contains("pattern: candidate-cu-runtime-*-${{ github.run_id }}-*"));
+    assert!(!download_breaks_on_rerun(aggregate, step));
+    // The runtime cell still names its upload by its own attempt; the
+    // aggregator binds each receipt to that attempt.
+    assert!(candidate_job("runtime").contains(
+        "name: candidate-cu-runtime-${{ matrix.platform_id }}-${{ github.run_id }}-${{ github.run_attempt }}"
+    ));
+    assert!(
+        RELEASE_CANDIDATE_QJS.contains("producer_attempt_at_most(cell_run.attempt, run_attempt)")
+    );
+
+    // Negative control: the old download.
+    let old = "      - name: Download exact-attempt ACU runtime receipts\n        with:\n          pattern: candidate-cu-runtime-*-${{ github.run_id }}-${{ github.run_attempt }}\n          merge-multiple: true\n          path: runtime-evidence\n";
+    assert!(download_breaks_on_rerun(old, step));
 }

@@ -1,0 +1,165 @@
+// The installed Chassis product, on this cell, through the public CLI.
+//
+// Args:
+//   CLI SERVER IMAGE TGZ_SHA256 PLATFORM SCRATCH RECEIPT
+//
+// CLI runs `cli ...` commands and SERVER runs `server ...` (on Windows the
+// console launcher and the GUI-subsystem PE; elsewhere the same binary).
+// IMAGE is a directory the product installer produced from the sealed
+// chassis tgz whose SHA-256 is TGZ_SHA256. The journey starts a headless
+// authority on that image in an isolated state directory under SCRATCH,
+// opens three tabs, selects the last, steps with `next-window`, and reads the
+// active tab back through `ui-snapshot`. The shipped L2 rule wraps, so the
+// answer must be the first tab. Any other answer, or any failed step, fails
+// the run. RECEIPT gets numbers and content ids only: no paths, arguments,
+// environment or payloads.
+//
+// Self-contained on purpose: it runs from a flat Candidate artifact, so it
+// imports nothing.
+
+function argn(i) {
+  if (arg(i) !== 0) { throw "chassis_journey_arg:" + tool_result(); }
+  return tool_result();
+}
+
+const cli = argn(0);
+const server_program = argn(1);
+const image = argn(2);
+const tgz_sha256 = argn(3);
+const platform_id = argn(4);
+const scratch = argn(5);
+const receipt_path = argn(6);
+
+function now() {
+  if (time_now_ms() !== 0) { throw "chassis_journey_time:" + tool_result(); }
+  return Number(tool_result());
+}
+
+function require(condition, code) {
+  if (!condition) { throw code; }
+}
+
+const started = now();
+const separator = scratch.indexOf("\\") >= 0 ? "\\" : "/";
+function join(a, b) { return a + separator + b; }
+
+const state = join(scratch, "chassis-journey-state");
+if (fs_create_dir_all(join(state, "instances")) !== 0) {
+  throw "chassis_journey_state:" + tool_result();
+}
+const env = {
+  AGENTERM_WORKSPACE_PATH: join(state, "workspace.json"),
+  AGENTERM_SETTINGS_PATH: join(state, "settings.json"),
+  AGENTERM_INSTANCE_DIR: join(state, "instances")
+};
+
+// One CLI command against the journey's own authority.
+function run_cli(address, args, timeout_ms) {
+  const spec = {
+    program: cli,
+    args: ["cli", "--address", address].concat(args),
+    env: env,
+    timeout_ms: timeout_ms
+  };
+  if (process_command(JSON.stringify(spec)) !== 0) {
+    throw "chassis_journey_cli_spawn:" + args[0] + ":" + tool_result();
+  }
+  return JSON.parse(tool_result());
+}
+
+// A loopback port this run owns. The engine cannot bind a probe socket, so a
+// start that finds the port taken is retried on another.
+function candidate_port(attempt) {
+  return 20000 + ((now() + attempt * 7919) % 20000);
+}
+
+let server = null;
+let address = "";
+let start_attempts = 0;
+for (let attempt = 0; attempt < 4 && server === null; attempt = attempt + 1) {
+  start_attempts = start_attempts + 1;
+  address = "127.0.0.1:" + candidate_port(attempt);
+  const spec = {
+    program: server_program,
+    args: ["server", "--address", address, "--empty", "--chassis-image", image],
+    current_dir: scratch,
+    env: env,
+    timeout_ms: 600000,
+    stdout_path: join(state, "server-" + attempt + ".stdout"),
+    stderr_path: join(state, "server-" + attempt + ".stderr")
+  };
+  const handle = process_spawn(JSON.stringify(spec));
+  require(handle >= 0, "chassis_journey_server_spawn");
+  let ready = false;
+  for (let tick = 0; tick < 300 && !ready; tick = tick + 1) {
+    if (process_state(handle) !== 0) { throw "chassis_journey_server_state:" + tool_result(); }
+    if (tool_result() === "exited") { break; }
+    ready = run_cli(address, ["protocol-info", "--running"], 10000).exit_code === 0;
+    if (!ready) { time_sleep_ms(200); }
+  }
+  if (ready) {
+    server = handle;
+  } else {
+    process_kill(handle);
+    process_wait(handle, 10000);
+    process_release(handle);
+  }
+}
+require(server !== null, "chassis_journey_server_not_ready");
+
+let outcome = null;
+try {
+  const info = JSON.parse(run_cli(address, ["protocol-info", "--running"], 10000).stdout);
+  const reported = info.chassis_image;
+  require(reported !== null && typeof reported === "object", "chassis_journey_no_image");
+  const image_id = "" + reported.image_id;
+  require(image_id.length === 64, "chassis_journey_image_id");
+
+  const created = [];
+  for (let n = 1; n <= 3; n = n + 1) {
+    created.push(run_cli(address, ["new-window", "-n", "journey" + n], 30000).exit_code);
+  }
+  const listed = run_cli(address, ["list-windows", "-F", "#{window_id}"], 30000);
+  const ids = [];
+  for (const line of ("" + listed.stdout).split("\n")) {
+    const id = line.trim();
+    if (id !== "") { ids.push(id); }
+  }
+  require(ids.length === 3, "chassis_journey_tab_count:" + ids.length);
+  const selected = run_cli(address, ["select-window", "-t", ids[2]], 30000).exit_code;
+  const stepped = run_cli(address, ["next-window"], 30000).exit_code;
+  const snapshot = run_cli(address, ["ui-snapshot", "--select", "active_tab_id"], 30000);
+  const active = JSON.parse(snapshot.stdout).active_tab_id;
+
+  outcome = {
+    schema: 1,
+    kind: "agenterm-chassis-installed-journey",
+    platform_id: platform_id,
+    cell: "" + reported.cell,
+    tgz_sha256: tgz_sha256,
+    image_id: image_id,
+    l1_sha256: "" + reported.l1_sha256,
+    tabs: ids,
+    new_window_rc: created,
+    select_rc: selected,
+    next_window_rc: stepped,
+    active_tab_id: active,
+    expected_active_tab_id: ids[0],
+    start_attempts: start_attempts
+  };
+  run_cli(address, ["kill-server"], 30000);
+} finally {
+  process_kill(server);
+  process_wait(server, 10000);
+  process_release(server);
+}
+
+outcome.elapsed_ms = now() - started;
+outcome.passed = outcome.select_rc === 0 && outcome.next_window_rc === 0
+  && outcome.new_window_rc.join(",") === "0,0,0"
+  && outcome.active_tab_id === outcome.expected_active_tab_id;
+if (fs_write(receipt_path, JSON.stringify(outcome, null, 2) + "\n") !== 0) {
+  throw "chassis_journey_receipt:" + tool_result();
+}
+print(JSON.stringify(outcome));
+require(outcome.passed, "chassis_journey_failed:" + outcome.active_tab_id + "!=" + outcome.expected_active_tab_id);

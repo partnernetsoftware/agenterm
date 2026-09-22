@@ -304,6 +304,32 @@ def main() -> None:
                 oversized_loader[index] = (file_member(member.name, payload, 0o755), payload)
         expect_rejected(repo, root, "loader-size", oversized_loader, "loader size is invalid")
 
+        # The cell is the caller's to state (a runner's Python may report an
+        # emulated architecture). An unknown cell is refused, and a stated
+        # cell other than the archive's declared one is honoured and refused.
+        for label, cell, message in (
+            ("unknown-cell", "win-riscv64", "invalid choice"),
+            ("other-cell", next(c for c in CELLS if c != NATIVE_CELL), "does not match this host"),
+        ):
+            archive_path = root / f"{label}.tgz"
+            checksum_path = write_archive(archive_path, product_members())
+            target = root / f"installed-{label}"
+            refused = subprocess.run(
+                [
+                    sys.executable,
+                    str(repo / "scripts/chassis-install-product.py"),
+                    "--archive", str(archive_path),
+                    "--checksum", str(checksum_path),
+                    "--install-dir", str(target),
+                    "--native-cell", cell,
+                ],
+                cwd=repo, check=False, capture_output=True, text=True,
+            )
+            if refused.returncode == 0 or message not in refused.stderr:
+                raise SystemExit(f"{label} was not refused as {message!r}\n{refused.stderr}")
+            if target.exists():
+                raise SystemExit(f"{label} left a partial install directory")
+
         # The L3 app contract, fail closed before anything is installed.
         only_example = replace_member(product_members(), "l3/app.json", None)
         expect_rejected(repo, root, "only-example-app", only_example, "has no l3/app.json")
