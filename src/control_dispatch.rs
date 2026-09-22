@@ -1596,17 +1596,19 @@ pub(crate) enum InstancePickerTarget {
     Pid(u32),
 }
 
+/// The built-in next/previous rule: step `direction` from `current` among
+/// `count` tabs and wrap at both ends. It is the product rule without a
+/// chassis image, and the default L2 `adjacent-tab` program must equal it.
+pub(crate) fn builtin_adjacent_tab_position(current: usize, count: usize, direction: i32) -> usize {
+    (current as i32 + direction).rem_euclid(count as i32) as usize
+}
+
 /// Answer `protocol-info` for `args`, applying `--select` before serialization.
 ///
 /// Without a selection this calls the unchanged renderer, so the bytes are
 /// exactly what they were before this leaf. With a selection it projects the
 /// producer's own [`serde_json::Value`] and renders that: no text is parsed and
 /// nothing is re-spelled.
-/// The built-in next/previous rule: step and wrap at both ends.
-pub(crate) fn builtin_adjacent_tab_position(current: usize, count: usize, direction: i32) -> usize {
-    (current as i32 + direction).rem_euclid(count as i32) as usize
-}
-
 fn protocol_info_response(host: &mut dyn ControlHost, args: &[String]) -> IpcResponse {
     let value =
         crate::client::protocol_info_value_with_ui_bridge("running_host", host.ui_bridge_facts());
