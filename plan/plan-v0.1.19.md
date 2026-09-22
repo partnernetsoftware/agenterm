@@ -66,12 +66,15 @@ startup-contract change, so its new six-cell bytes replace the v0.1.18
 historical baseline for G2/G3. Do not use inherited environment variables or
 the first server starter as an implicit image selector. An isolated L2 behavior
 variant may prove the fast loop; the shipped default must preserve cycling.
-Before G3, align the composed product's L3 manifest with the workbench image
-loader: the sealed v0.1.18 product archive contains `example-app.json` and
-`product-identity.json`, while `load_image` requires `l3/app.json`. A successful
-scratchpad image is not evidence that the release packaging path can boot.
-Prove this using a real composed archive and a negative control for the missing
-manifest, then freeze and qualify the exact new bytes.
+Before G3, align the Candidate archive, installer and workbench loader on one
+product `l3/app.json`. The sealed v0.1.18 archive contains only
+`example-app.json` and `product-identity.json` under L3. The installer maps
+the example to `app.json`, but the resulting installed image still fails to
+load because that app does not declare `tabs.active`. A successful scratchpad
+image or direct archive extraction is not evidence that the regular
+Candidate → installer → loader path can boot. Prove the corrected capability
+contract through that path, including a negative control using the sealed
+v0.1.18 archive, then freeze and qualify the exact new bytes.
 
 ## Execution order and release cut
 
