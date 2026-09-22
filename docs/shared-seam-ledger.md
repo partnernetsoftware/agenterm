@@ -22,19 +22,21 @@ authoritative for the version it builds.
 
 | Shared crate | Owner | MiniCon observed pin | Consumer surface |
 |---|---|---|---|
-| `agenterm-platform` | AgenTerm lane | `5eda1de74` | 13 base features, plus `input-inject` in dev builds, `native-pixel-window` on Windows and `portable-pixel-window` on Unix |
-| `agenterm-ui-core` | AgenTerm lane | `5eda1de74` | `terminal-selection` |
+| `agenterm-platform` | AgenTerm lane | `6ae0f9bb6` | 13 base features, plus `input-inject` in dev builds, `native-pixel-window` on Windows and `portable-pixel-window` on Unix |
+| `agenterm-ui-core` | AgenTerm lane | `6ae0f9bb6` | `terminal-selection` and shared scrollbar geometry |
 
-The observed pin predates current AgenTerm `main`; it does not claim that the
-consumer has qualified intervening commits. The feature list above is an
-inventory from MiniCon's `Cargo.toml`, not yet an automated gate result.
+MiniCon moved its pin after adopting the shared scrollbar in its 0.1.22 train;
+its local fmt, host/Windows Clippy and 360 tests passed. The observed pin
+predates current AgenTerm `main` and does not qualify later commits. The
+feature list above is an inventory from MiniCon's `Cargo.toml`, not yet an
+automated gate result in AgenTerm.
 
 ## Claims and decisions
 
 | Area | Agent | Exclusive files | Purpose and date | State |
 |---|---|---|---|---|
 | `agenterm-ui-core/click` | `cc-minicon` | None | Compare real click grouping callers, time windows, position keys and fourth-click behavior; 2026-09-22 | Paused: blank-space third click, composer fourth click, Windows click events and time-window policy differ between products |
-| `agenterm-ui-core/scrollbar` | `cc-minicon` | None | Shared geometry vectors landed in `2e77d3195` (12 added tests, production code unchanged); 2026-09-22 | AgenTerm test handoff complete; MiniCon consumer migration and pin bump pending. Four mutation controls went red; one hit-test mutation was equivalent. A possible one-row drag shift when travel is sparse remains a separate product decision. |
+| `agenterm-ui-core/scrollbar` | `cc-minicon` | None | Shared geometry vectors landed in `2e77d3195` (12 added tests, production code unchanged); 2026-09-22 | Both consumers now use shared geometry; MiniCon pin is `6ae0f9bb6`. Four mutation controls went red; one hit-test mutation was equivalent. A possible one-row drag shift when travel is sparse remains a separate product decision. |
 | `agenterm-platform/consumer-matrix` | `cdx-agenterm` | None yet | Specify and add target-aware MiniCon consumer feature checks; 2026-09-22 | Planned; no build result claimed |
 
 The composer candidate remains an investigation item, not a file claim. It
