@@ -38,7 +38,7 @@ v0.1.17 已于 2026-08-12 归档，其全部未完成叶按 `plan/README.md` §�
 > 结构 SSOT：[`ARCHITECTURE.md`](../ARCHITECTURE.md)。
 > 上版收口树（已归档，未完成叶见本文 §11）：
 > [`archive/plan-v0.1.17.md`](plan-v0.1.17.md)。
-> 跨目标机制研究：[`reference-cross-target-execution.md`](../reference-cross-target-execution.md)。
+> 跨目标机制研究：[`reference-cross-target-execution.md`](reference-cross-target-execution.md)。
 > 原 App Pack 讨论与分期推演已归档为
 > [`archive/plan-agenterm-app-pack.md`](plan-agenterm-app-pack.md)；本文件已吸收其仍生效的
 > 架构合同、Phase 0 执行叶和后续去向。

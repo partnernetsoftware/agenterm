@@ -11,7 +11,7 @@
 | 日期 | 2026-08-08 |
 | 目的 | 判定：**解释路线相对 JIT 路线，是否有「执行时策略控制点」上的结构性安全优势**——能拦什么、拦不住什么、每条指令代价多少、JIT 付同样代价能不能做到 |
 | 实现位置 | `research/dynamic-core/policy/`（**不挂根 workspace**，独立 `rustc` `#[path]` 编译，与 Q9 同纪律） |
-| 前置阅读 | Q9 `interp/RESULTS.md`（基底）、Q12 `landing/RESULTS.md` ⑤（解释路线的结构性免疫）、Q4 `equiv/RESULTS.md`（产出时结构守卫及其覆盖边界）、`plan/reference-cross-target-execution.md` §4.1（eBPF 验证器 20k 行 = 装载时策略的代价）、§12 可信度标注 |
+| 前置阅读 | Q9 `interp/RESULTS.md`（基底）、Q12 `landing/RESULTS.md` ⑤（解释路线的结构性免疫）、Q4 `equiv/RESULTS.md`（产出时结构守卫及其覆盖边界）、`plan/archive/reference-cross-target-execution.md` §4.1（eBPF 验证器 20k 行 = 装载时策略的代价）、§12 可信度标注 |
 | 来源纪律 | **净室**：不读、不引用任何既有沙箱/权限/验证器实现源码。IR 与解释器 `#[path]` 复用 `../ir/` 与 `../interp/`，不重造 |
 
 > **不是 AgenTerm 产品范围。** 不进 must-ship，不改 PRD 能力状态。这是研究轨投影（Q15）。

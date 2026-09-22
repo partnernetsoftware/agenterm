@@ -9,7 +9,7 @@
 | **Date** | 2026-08-21 |
 | **Status** | Living SSOT. One-page now-state: `design-rh-standalone-product-summary.md`. Locks: Key Decisions. |
 | **Audience** | Senior engineers who know `crates/agenterm-rh`, the root host, and Chassis-L1 |
-| **Related** | `prd/PRD_02_10_rhai_scripting.md`, `plan/archive/design-rh-aot.md`, `plan/ARCHITECTURE.md`, `plan/reference-cross-target-execution.md` §5 / §6.2 / §6.3, `plan/plan-v0.1.18.md` (APE parked for *workbench*), `plan/archive/plan-ape-thin-shell-dynamic-packages.md` (name collision) |
+| **Related** | `prd/PRD_02_10_rhai_scripting.md`, `plan/archive/design-rh-aot.md`, `plan/ARCHITECTURE.md`, `plan/archive/reference-cross-target-execution.md` §5 / §6.2 / §6.3, `plan/plan-v0.1.18.md` (APE parked for *workbench*), `plan/archive/plan-ape-thin-shell-dynamic-packages.md` (name collision) |
 
 ---
 
@@ -46,7 +46,7 @@ Historical snapshot of AgenTerm **before** the sibling `rh` interpreter shipped.
 | Shared scaffolding must stay | `agenterm-script-common` is used by lua/qjs/sql. **In-tree `agenterm-rh` does depend on it** (`check_many.rs`). lua/qjs must not git-pin rh. |
 | Six cells | `crates/agenterm-chassis/src/lib.rs` `CELLS` / `native_cell()`: `win-x86_64`, `win-aarch64`, `lnx-x86_64`, `lnx-aarch64`, `osx-x86_64`, `osx-aarch64`. `"unknown"` is the `_` arm. |
 | Chassis loader fail-closed | `agenterm-chassis-loader` `check_native_cell`: unknown **or** mismatch rejects |
-| APE research | `plan/reference-cross-target-execution.md` §5 (fat / N native copies is the ISA answer), §6.2 (APE is packaging not interface; steal polyglot header, OS probe, apelink layout; do **not** Cosmopolitan-libc), §6.3 (only one format owns offset 0 without rewrite; polyglot is a hostile launcher surface) |
+| APE research | `plan/archive/reference-cross-target-execution.md` §5 (fat / N native copies is the ISA answer), §6.2 (APE is packaging not interface; steal polyglot header, OS probe, apelink layout; do **not** Cosmopolitan-libc), §6.3 (only one format owns offset 0 without rewrite; polyglot is a hostile launcher surface) |
 | Workbench APE parked | `plan/plan-v0.1.18.md`: multi-arch loader/APE is a v0.2.x *workbench* research gate |
 | Name collision | `plan/archive/plan-ape-thin-shell-dynamic-packages.md` **"ape" = Agenterm Platform Engine**. Cosmopolitan **APE = Actually Portable Executable**. rh loader is the latter *format idea*, never the former crate |
 | Git-pin precedent | sibling repo `wbox` `Cargo.toml` (not an AgenTerm workspace member): `agenterm-platform = { git = "https://github.com/mgttt/agenterm.git", rev = "c8ace42", default-features = false }` — **public** repo `mgttt/agenterm` (not `partnernetsoftware/agenterm`), full SHA, feature-gated |
@@ -892,7 +892,7 @@ None. Product locks live in **Key Decisions**. Do not append session notes here.
 - `crates/agenterm-lua/src/lib.rs` (`LuaHostFunctions` Option fns)
 - `crates/agenterm-dyn/README.md`
 - `prd/PRD_02_10_rhai_scripting.md`
-- `plan/archive/design-rh-aot.md`, `plan/ARCHITECTURE.md`, `plan/reference-cross-target-execution.md` §5 / §6.2 / §6.3, `plan/plan-v0.1.18.md`, `plan/archive/plan-ape-thin-shell-dynamic-packages.md`
+- `plan/archive/design-rh-aot.md`, `plan/ARCHITECTURE.md`, `plan/archive/reference-cross-target-execution.md` §5 / §6.2 / §6.3, `plan/plan-v0.1.18.md`, `plan/archive/plan-ape-thin-shell-dynamic-packages.md`
 - `../wbox/Cargo.toml` — sibling repo, not in this workspace (`git = "https://github.com/mgttt/agenterm.git"`, rev `c8ace42`)
 - crates.io API: `rh` taken; `rh-lang` absent (2026-08-21)
 

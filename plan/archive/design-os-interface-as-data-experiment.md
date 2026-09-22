@@ -14,7 +14,7 @@
 |------|-----|
 | **日期** | 2026-08-08 |
 | **目的** | 用可测量的证据判定「Q1 定位的那条唯一的缝——OS 接口内容——能否把*手写代码*换成*数据表*，由一个固定的通用编组器解释」 |
-| **前置** | Q1 [`design-neutral-ir-experiment.md`](design-neutral-ir-experiment.md) §8 + `ir/RESULTS.md`（泄漏 L1–L5）；Q4 `equiv/RESULTS.md`（不可验证占比 0%→30–41%→45–56%）；R1 综述 [`reference-cross-target-execution.md`](../reference-cross-target-execution.md) §2.2(ANDF)/§4.1e(BTF+CO-RE)/§10.5(Declare) |
+| **前置** | Q1 [`design-neutral-ir-experiment.md`](design-neutral-ir-experiment.md) §8 + `ir/RESULTS.md`（泄漏 L1–L5）；Q4 `equiv/RESULTS.md`（不可验证占比 0%→30–41%→45–56%）；R1 综述 [`reference-cross-target-execution.md`](reference-cross-target-execution.md) §2.2(ANDF)/§4.1e(BTF+CO-RE)/§10.5(Declare) |
 | **来源纪律** | **从零探索。** 不照搬、不引用任何既有实现源码；只借鉴公开发表的技术教训（CO-RE 的「查询+神谕」形态、ANDF 的「长尾烧预算」教训） |
 
 ---

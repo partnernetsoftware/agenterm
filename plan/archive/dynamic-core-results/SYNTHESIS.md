@@ -108,7 +108,7 @@
 | **[仅字节测量]** | 交叉编译/隔离后用尺寸工具量的，**该产物从未被执行** |
 | **[编码器验证]** | 发射的机器码与独立编码器/LLVM ground truth 对齐，未执行 |
 | **[结构推断]** | 由源码结构确立（LOC 统计、`grep` 纪律检查、schema 检查），不涉及执行 |
-| **[转述未验]** | 来自 [`plan/reference-cross-target-execution.md`](../../reference-cross-target-execution.md)（下称 R1），**本轨从未复现**。转述永不升级为结论 |
+| **[转述未验]** | 来自 [`plan/archive/reference-cross-target-execution.md`](../reference-cross-target-execution.md)（下称 R1），**本轨从未复现**。转述永不升级为结论 |
 
 机制跑过、但引用的字节来自另一个未执行的构建时，**两个都写**（例：`[真机执行；字节仅测量]`）。**估算必须标"估算、未实现"。**
 
@@ -602,7 +602,7 @@ Q7 那条"L3a 以查询形式表化"**在 Windows 上没有可用的查询通道
 
 ### X2 — R1 §12（回灌层）里仍带着一条已被撤回的跨口径比较 ✅ **已修（`d201a02d`）**
 
-`plan/reference-cross-target-execution.md` §12.1 的 **A14** 行曾写着「…比 Q9 的解释器（3177 B）也大」——已被口径审计撤回（COMPARABILITY **E4 / U2**）但当时未传播到 R1。**编排者已直接修正该文件**：半句标为撤回 + 该轴未测定，与 Q2 的 1.94× 同口径那半保留。三处（技术清单 / `stencil/RESULTS.md` / R1 §12）现已一致。
+`plan/archive/reference-cross-target-execution.md` §12.1 的 **A14** 行曾写着「…比 Q9 的解释器（3177 B）也大」——已被口径审计撤回（COMPARABILITY **E4 / U2**）但当时未传播到 R1。**编排者已直接修正该文件**：半句标为撤回 + 该轴未测定，与 Q2 的 1.94× 同口径那半保留。三处（技术清单 / `stencil/RESULTS.md` / R1 §12）现已一致。
 
 ### X3 — R1 §12 的 A12 把四个不同口径的字节放进同一张"体积地板记账" ✅ **已修（`d201a02d`）**
 

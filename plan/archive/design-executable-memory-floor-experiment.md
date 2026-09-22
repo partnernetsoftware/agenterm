@@ -15,7 +15,7 @@
 | **日期** | 2026-08-08 |
 | **目的** | 用**实测**（不是引用综述）回答：四原语里的 ①（内存 RW↔RX）②（跳进那段内存）③（裸 syscall + 符号解析）在今天的主流平台上实际还剩多少可用空间；缺口在哪、是策略可配置的还是硬性的、有没有合法替代路径 |
 | **实现位置** | `research/dynamic-core/platform/`（**不挂进根 workspace**） |
-| **前置阅读** | `plan/reference-cross-target-execution.md` §7.1–7.2（发现来源）；`design-dynamic-core-experiment.md` §1.1（四原语定义）；`.claude/skills/decisive-experiment/SKILL.md` |
+| **前置阅读** | `plan/archive/reference-cross-target-execution.md` §7.1–7.2（发现来源）；`design-dynamic-core-experiment.md` §1.1（四原语定义）；`.claude/skills/decisive-experiment/SKILL.md` |
 | **来源纪律** | **从零探索。** 不照搬任何既有实现源码；Win32 契约取自公开文档与本机 Windows SDK 头文件 |
 | **可信度纪律** | **本机是 Windows Server 2022 / x86_64 真机**——Windows 侧必须是实测。Linux/macOS/iOS/OpenBSD 本机无法实测（无 WSL）：能找到本地一手依据就用，否则明确标为「未验证的转述」，**不把综述里未核实的论断升级成本实验的结论** |
 

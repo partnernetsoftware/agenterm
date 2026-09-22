@@ -22,6 +22,17 @@ Keep the release quality gate intact. Candidate is a qualification run after
 local validation, not a sampling loop: if it fails, stop promotion and use its
 failure context for a targeted local repair and negative control.
 
+Local G2 rehearsal on 2026-09-22 used the sealed v0.1.18 loader bytes with the
+current L2/L3 files. Two L2-only edits, composed and installed without Cargo,
+changed the three-tab public journey from `@1` to `@3` and then `@2` in
+0.72 and 0.74 seconds; the six historical loader hashes stayed identical.
+An incompatible ABI image was refused by a new server while the old server
+continued to answer the public journey. This proves process-level retention,
+not in-process hot replacement. Current-source six-cell hashes and native
+runtime receipts remain open. The L1 change classifier identified the S1
+server entry as L1 and S2/S3 as outside L1; Candidate does not invoke that
+classifier, and its six cells rebuild unconditionally.
+
 ## Outcome tree
 
 ```text
