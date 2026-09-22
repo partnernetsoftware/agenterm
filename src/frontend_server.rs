@@ -81,18 +81,35 @@ impl FrontendServerRecovery {
 pub(crate) fn connect_or_start_frontend_gui_client(
     client_id: &str,
 ) -> Result<UiClientModel, String> {
-    let port = LivePort { client_id };
-    if server_answers() {
-        return verified_attach(&port).map_err(AttachError::into_message);
+    connect_or_start_with(&LivePort { client_id })
+}
+
+/// What starting-or-attaching needs beyond an attach: whether the endpoint is
+/// taken, a live peer for this instance, starting an authority, and whether a
+/// started one answers yet.
+pub(crate) trait StartPort: AttachPort {
+    /// Whether anything holds the resolved endpoint, at the transport level.
+    /// A server that is there but refuses or cannot report its image still
+    /// holds it: it must be attached to (and refused), never started over.
+    fn occupied(&self) -> bool;
+    /// Pin a live registration for this logical instance, if there is one.
+    fn discover_peer(&self) -> Result<Option<String>, String>;
+    fn start(&self) -> Result<(), String>;
+    /// Whether a just-started authority answers the read-only `protocol-info`.
+    fn ready(&self) -> bool;
+}
+
+pub(crate) fn connect_or_start_with<P: StartPort>(port: &P) -> Result<P::Client, String> {
+    if port.occupied() {
+        return verified_attach(port).map_err(AttachError::into_message);
     }
 
     // Resolved default pipe/socket is down. Before spawning a second authority
     // (which would re-spawn empty shells from workspace.json and look like a
     // full session reset), attach any live registration for this logical
     // instance (e.g. another `main` still holding agent tabs after Keep Server).
-    if let Some(endpoint) = discover_live_peer_endpoint()? {
-        pin_client_endpoint(&endpoint);
-        return verified_attach(&port).map_err(|error| match error {
+    if let Some(endpoint) = port.discover_peer()? {
+        return verified_attach(port).map_err(|error| match error {
             AttachError::Connect(error) => format!(
                 "live AgenTerm server for this instance is reachable at {endpoint} but UI connect failed: {error}"
             ),
@@ -100,9 +117,9 @@ pub(crate) fn connect_or_start_frontend_gui_client(
         });
     }
 
-    start_frontend_server_process()?;
+    port.start()?;
     let deadline = Instant::now() + GUI_FRONTEND_SERVER_START_TIMEOUT;
-    while !server_answers() {
+    while !port.ready() {
         if Instant::now() >= deadline {
             return Err(
                 "could not start independent AgenTerm server: server did not become ready"
@@ -111,7 +128,7 @@ pub(crate) fn connect_or_start_frontend_gui_client(
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    verified_attach(&port).map_err(|error| match error {
+    verified_attach(port).map_err(|error| match error {
         AttachError::Connect(error) => {
             format!("could not start independent AgenTerm server: {error}")
         }
@@ -188,6 +205,25 @@ pub(crate) fn verified_attach<P: AttachPort>(port: &P) -> Result<P::Client, Atta
 
 struct LivePort<'a> {
     client_id: &'a str,
+}
+
+impl StartPort for LivePort<'_> {
+    fn occupied(&self) -> bool {
+        is_frontend_server_endpoint_listening()
+    }
+    fn discover_peer(&self) -> Result<Option<String>, String> {
+        let Some(endpoint) = discover_live_peer_endpoint()? else {
+            return Ok(None);
+        };
+        pin_client_endpoint(&endpoint);
+        Ok(Some(endpoint.to_string()))
+    }
+    fn start(&self) -> Result<(), String> {
+        start_frontend_server_process()
+    }
+    fn ready(&self) -> bool {
+        server_answers()
+    }
 }
 
 impl AttachPort for LivePort<'_> {
@@ -428,7 +464,7 @@ pub(crate) fn frontend_server_spawn_parameter(
 
 #[cfg(test)]
 mod tests {
-    use super::{AttachError, AttachPort, verified_attach};
+    use super::{AttachError, AttachPort, StartPort, connect_or_start_with, verified_attach};
     use super::{
         FrontendServerRecovery, GUI_FRONTEND_SERVER_RESTART_INTERVAL, image_match,
         next_frontend_server_restart_after, server_image_id,
@@ -443,6 +479,8 @@ mod tests {
         accept: bool,
         attached: Cell<u32>,
         detached: Cell<u32>,
+        occupied: bool,
+        started: Cell<u32>,
     }
 
     impl FakePort {
@@ -463,6 +501,8 @@ mod tests {
                 accept,
                 attached: Cell::new(0),
                 detached: Cell::new(0),
+                occupied: false,
+                started: Cell::new(0),
             }
         }
     }
@@ -489,6 +529,46 @@ mod tests {
         fn detach(&self, _client: ()) {
             self.detached.set(self.detached.get() + 1);
         }
+    }
+
+    impl StartPort for FakePort {
+        fn occupied(&self) -> bool {
+            self.occupied
+        }
+        fn discover_peer(&self) -> Result<Option<String>, String> {
+            Ok(None)
+        }
+        fn start(&self) -> Result<(), String> {
+            self.started.set(self.started.get() + 1);
+            Ok(())
+        }
+        fn ready(&self) -> bool {
+            true
+        }
+    }
+
+    /// A server that holds the endpoint but refuses `protocol-info` (or
+    /// reports an incompatible answer) is a present server that fails the
+    /// image check -- never an empty endpoint that invites a second authority.
+    #[test]
+    fn a_reachable_server_refusing_protocol_info_is_not_started_over() {
+        let mut port = FakePort::new(
+            None,
+            &[Err("chassis_image_unverifiable: protocol_info refused")],
+            true,
+        );
+        port.occupied = true;
+        let error = connect_or_start_with(&port).expect_err("refused");
+        assert!(error.starts_with("chassis_image_unverifiable"), "{error}");
+        assert_eq!(port.started.get(), 0, "no second authority");
+        assert_eq!(port.attached.get(), 0, "no UI lease");
+    }
+
+    #[test]
+    fn an_empty_endpoint_starts_one_authority_then_attaches() {
+        let port = FakePort::new(None, &[Ok(None), Ok(None), Ok(None)], true);
+        assert!(connect_or_start_with(&port).is_ok());
+        assert_eq!((port.started.get(), port.attached.get()), (1, 1));
     }
 
     /// The UI lease is never attached to a server running another image,
