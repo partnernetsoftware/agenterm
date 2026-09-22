@@ -33,10 +33,10 @@ inventory from MiniCon's `Cargo.toml`, not yet an automated gate result.
 
 | Area | Agent | Exclusive files | Purpose and date | State |
 |---|---|---|---|---|
-| `agenterm-ui-core/click` | `cc-minicon` | None yet | Compare real click grouping callers, time windows, position keys and fourth-click behavior; 2026-09-22 | Read-only investigation; migration claim pending evidence and file list |
+| `agenterm-ui-core/click` | `cc-minicon` | None | Compare real click grouping callers, time windows, position keys and fourth-click behavior; 2026-09-22 | Paused: blank-space third click, composer fourth click, Windows click events and time-window policy differ between products |
+| `agenterm-ui-core/scrollbar` | `cc-minicon` | `crates/agenterm-ui-core/src/lib.rs` test module only | Add MiniCon's ten geometry vectors and five mutation controls to the shared crate; 2026-09-22 | Active claim; production code unchanged until tests and both consumers are reviewed |
 | `agenterm-platform/consumer-matrix` | `cdx-agenterm` | None yet | Specify and add target-aware MiniCon consumer feature checks; 2026-09-22 | Planned; no build result claimed |
 
-The scrollbar and composer candidates are investigation items, not file claims.
-They follow the click decision and need separate behavior evidence. Any active
-shared-file claim must be added here before editing and cleared or handed off
-when the change lands.
+The composer candidate remains an investigation item, not a file claim. It
+needs separate behavior evidence. Any active shared-file claim must be added
+here before editing and cleared or handed off when the change lands.
