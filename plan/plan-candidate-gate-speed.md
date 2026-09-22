@@ -32,10 +32,14 @@
 - `b10585adc` adds bounded trap context: the last billed host door, its parked
   answer length and resource counts. It preserves the failure class and exit
   behavior. The door is a diagnostic lead, not proof of where the guest trapped
-  or why. The native Windows x86_64 court is `BLOCKED` because its guest agent
-  did not become ready within the court budget; Windows ARM64 Prism stress ran
-  150 audit children with 14,988 tree/state samples and no trap, but does not
-  qualify native x86_64.
+  or why. Windows ARM64 Prism stress ran 150 audit children with 14,988
+  tree/state samples and no trap, but does not qualify native x86_64.
+- The native Windows x86_64 court was blocked by a `planned` registry state
+  dated 2026-09-07; its historical Guest Agent timeout was not a failed boot
+  on 2026-09-22. Operator utm-court commit `e13ded4` selected the installed VM
+  by UUID. A supported lease, 120-second wait-ready, command probe and release
+  completed on 2026-09-22, leaving the VM stopped. The court is now available
+  for a bounded native x86_64 reproduction; this does not repair the trap.
 - Next evidence: a bounded native Windows x86_64 stress reproduction with a
   positive attachment check; safe diagnostic context at the trap boundary;
   then a causal fix and negative control. Do not dispatch another Candidate
