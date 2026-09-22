@@ -15,6 +15,7 @@ version commitment and does not start iOS or Android engineering.
 
 ## Why this product exists
 
+- [ ] **远景（政委 2026-09-22）：** 长期要做移动客户端，支撑远程办公管理，类似 UU 远程一类产品体验——人在外面也能连上桌面 AgenTerm，盯舰队、协作、办公。先 PWA，后商店壳。不另起手机终端 OS。现在仍是后线，不插队桌面主线。
 - [ ] AgenTerm's daily value is a long-lived **desktop** fleet. People still
   leave the desk. They need a comfortable phone surface to see that fleet and
   later to pair with it — not a second terminal OS on iOS/Android.
