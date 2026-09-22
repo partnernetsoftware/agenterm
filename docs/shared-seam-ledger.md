@@ -34,7 +34,7 @@ inventory from MiniCon's `Cargo.toml`, not yet an automated gate result.
 | Area | Agent | Exclusive files | Purpose and date | State |
 |---|---|---|---|---|
 | `agenterm-ui-core/click` | `cc-minicon` | None | Compare real click grouping callers, time windows, position keys and fourth-click behavior; 2026-09-22 | Paused: blank-space third click, composer fourth click, Windows click events and time-window policy differ between products |
-| `agenterm-ui-core/scrollbar` | `cc-minicon` | `crates/agenterm-ui-core/src/lib.rs` test module only | Add MiniCon's ten geometry vectors and five mutation controls to the shared crate; 2026-09-22 | Active claim; production code unchanged until tests and both consumers are reviewed |
+| `agenterm-ui-core/scrollbar` | `cc-minicon` | None | Shared geometry vectors landed in `2e77d3195` (12 added tests, production code unchanged); 2026-09-22 | AgenTerm test handoff complete; MiniCon consumer migration and pin bump pending. Four mutation controls went red; one hit-test mutation was equivalent. A possible one-row drag shift when travel is sparse remains a separate product decision. |
 | `agenterm-platform/consumer-matrix` | `cdx-agenterm` | None yet | Specify and add target-aware MiniCon consumer feature checks; 2026-09-22 | Planned; no build result claimed |
 
 The composer candidate remains an investigation item, not a file claim. It
