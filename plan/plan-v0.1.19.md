@@ -48,12 +48,21 @@ build cells passed; the Windows x86_64 quality gate trapped in
 93.13% sccache hit rate proves cache reuse only. The exact recovery work is
 owned by [`plan-candidate-gate-speed.md`](plan-candidate-gate-speed.md).
 
+The sealed v0.1.18 Candidate `35606274661` supplies a traceable historical
+six-cell loader baseline: the independently recomputed loader SHA-256 values
+match its product manifest and each cell's descriptor, and the product archive
+matches its provenance and public release asset. Its source SHA is
+`eaaec807d`; these are v0.1.18 bytes, not a claim that current `main` has the
+same L1 bytes. Here, "six L1 digests" means the six loader **binary** hashes
+in the compose manifest. Source-path hashes are change-classification evidence
+and cannot stand in for those bytes.
+
 ## Execution order and release cut
 
 | Gate | Deliverable | Proof before advancing | Stop or cut condition |
 |---|---|---|---|
 | G0 — restore qualification | Reproduce and repair the audit trap locally; fix failed-job rerun's attempt-bound control artifact; retain the existing release assertions. | Negative control for each repair, then a six-build/six-runtime/aggregate exact-SHA Candidate. | No Candidate success claim from five builds or a skipped aggregate. Public Promotion remains a separate human decision. |
-| G1 — choose one production slice | Select `active-tab` or another existing product action that crosses the real workbench dispatch; record its current caller, authority, output bytes and owning public court. Freeze the exact six L1 input digests and the Host ABI version before changing the slice. | One baseline public CLI journey and an independently checked L1 digest manifest. The slice must be reachable by users, not merely by `agenterm-chassis` tests. | If the action cannot cross the versioned ABI without moving PTY/window/input/IPC semantics into L2, reject that slice and choose a narrower one. |
+| G1 — choose one production slice | Select an existing product action with a real L2 decision that crosses live workbench dispatch; record its caller, authority, output bytes and owning public court. Freeze the exact six L1 loader binary digests and Host ABI version before changing the slice. | One stable baseline public CLI journey and an independently checked six-cell loader manifest tied to its source revision. The slice must be reachable by users, not merely by `agenterm-chassis` tests. | If the action only forwards a host value, lacks stable public observation, or cannot cross the versioned ABI without moving PTY/window/input/IPC semantics into L2, reject it and choose a narrower one. |
 | G2 — wire replaceable behavior | Put only the chosen product rule behind the versioned L2 Host ABI and let the live product dispatch call it. Keep the native host, authority and lifecycle in their current owners. Reject incompatible packs before replacing the last known-good image. | Change the L2/L3 rule twice without invoking Cargo: output changes in the public journey, all six frozen L1 digests remain identical, and an incompatible ABI pack is refused while the prior image still runs. For each edit, measure source edit → composed/inspected package on one declared host; require at most 10 minutes and retain elapsed time and artifact hashes. Native courts are measured separately. | If the live journey still uses the old compiled rule, either edit exceeds the budget, or any L1 digest changes, this gate is open; do not claim a fast-change boundary. |
 | G3 — native and release evidence | Run the owning native courts for the chosen slice on all six OS/ISA cells, then the existing Candidate, reputation and rehearsal chain over the exact packaged bytes. Deliberately change one L1 input and show that the native build/sign/package path re-enters. | Per-cell runtime receipts and one sealed Candidate; the L1-change control triggers the full native path. Preserve existing product tree, remain-on-exit, explicit-close, signing and no-overwrite rules. | A blocked host is recorded as BLOCKED, not inferred from another OS. If G2/G3 cannot finish, v0.1.19 must narrow its stated capability or remain unreleased; an example app alone is insufficient. |
 
