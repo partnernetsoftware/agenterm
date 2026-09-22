@@ -49,7 +49,12 @@ MiniCon's base `agenterm-platform` request is `clipboard`, `entropy`,
 `filesystem-publish`, `filesystem-read`, `font`, `ime`, `input`, `ipc`,
 `parent-console`, `pty`, `runtime`, `screenshot`, `window`, with default
 features disabled. Cargo also unifies `input-inject` for dev builds,
-`native-pixel-window` on Windows, and `portable-pixel-window` on Unix.
+`native-pixel-window` on Windows, `runtime` again in Windows dev dependencies,
+and `portable-pixel-window` on Unix. The repeated Windows `runtime` block
+does not change the effective union, but the manifest shape is part of the
+consumer contract. MiniCon policy commit `93e4c37` now pins all five blocks,
+their disabled default features, and the common git rev, with mutation
+controls for feature and rev drift.
 The AgenTerm gate must compile that union per target, then run tests where a
 native host or leased court can execute them. A cross-target check proves
 compilation only. MiniCon's own Cargo manifest remains the source for this
