@@ -42,3 +42,18 @@ automated gate result in AgenTerm.
 The composer candidate remains an investigation item, not a file claim. It
 needs separate behavior evidence. Any active shared-file claim must be added
 here before editing and cleared or handed off when the change lands.
+
+## Consumer feature gate to add
+
+MiniCon's base `agenterm-platform` request is `clipboard`, `entropy`,
+`filesystem-publish`, `filesystem-read`, `font`, `ime`, `input`, `ipc`,
+`parent-console`, `pty`, `runtime`, `screenshot`, `window`, with default
+features disabled. Cargo also unifies `input-inject` for dev builds,
+`native-pixel-window` on Windows, and `portable-pixel-window` on Unix.
+The AgenTerm gate must compile that union per target, then run tests where a
+native host or leased court can execute them. A cross-target check proves
+compilation only. MiniCon's own Cargo manifest remains the source for this
+list; its consumer-side policy test should flag drift before either lane calls
+the gate current. Keep the target checks separate from AgenTerm's default or
+all-feature platform builds so feature unification cannot mask a missing
+consumer module.
