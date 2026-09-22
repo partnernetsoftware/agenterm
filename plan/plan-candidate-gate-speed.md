@@ -41,10 +41,11 @@
   by UUID. A supported lease, 120-second wait-ready, command probe and release
   completed on 2026-09-22, leaving the VM stopped. The court is now available
   for a bounded emulated-x86_64 reproduction; this does not repair the trap.
-- Next evidence: a deterministic heap-limit check, then the first naturally
-  occurring native Windows x86_64 trap with `fn#N` context; a causal fix still
-  needs a negative control. Do not dispatch another Candidate merely to sample
-  an intermittent failure.
+- The bounded heap-limit check below found no trap. Stop exploratory stress
+  sampling and return to the v0.1.19 product and release path. Candidate is
+  dispatched for qualification after local validation, never merely to sample
+  an intermittent failure. A repeated trap still needs a causal local repair
+  with a negative control before another qualification run.
 
 ### G0 T1 bounded reproduction, 2026-09-22 (closed)
 
@@ -94,6 +95,23 @@ is native x86_64 hardware evidence, and none of it qualifies a Candidate.
   of non-reproduction at this scale, not of absence.
 - Stopped by the owner: no more T1/T2 stress sampling, and the one-off
   10,653-byte jump is not pursued.
+
+### G0 A controlled heap-limit check, 2026-09-22 (closed)
+
+On macOS ARM64 at `cf9c8dc50`, a debug build ran the migration audit and an
+outer `check.qjs`-shaped spawn/poll driver with `AGENTERM_QJS_MAX_MEMORY_PAGES`
+set to 57 values, including the failure boundaries. The unset-variable
+controls passed. Low limits produced only `Budget(max_memory_pages)` failures:
+the audit failed through 109 pages and passed from 110; the driver failed
+through 22 and passed from 23. There were zero guest OOB traps. The driver
+corrected an initial exit-code capture error and repeated the affected cases.
+Evidence is in `scratchpad/evidence/g0-a/` (local, not a release artifact).
+
+This excludes the tested path from a deliberately low page limit through
+`memory.grow` failure to an OOB trap. It does not exclude other heap or
+host-input-dependent address calculations. A qualification run containing
+`7182894b8` would supply `fn#N` and the last billed door if the trap recurs;
+these probes alone cannot declare that risk resolved.
 
 Agreed with the owner on 2026-09-21: do items 1 and 2 immediately after
 v0.1.18 publishes. Not before — editing `candidate.yml` voids a Candidate in

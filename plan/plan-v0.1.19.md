@@ -4,6 +4,24 @@ Status: **active planning; v0.1.18 published 2026-09-21**
 Product owner: [`prd/PRD_02_18_roadmap.md`](../prd/PRD_02_18_roadmap.md)
 Execution owner: [`goal-chassis-l1-l2-l3.md`](goal-chassis-l1-l2-l3.md)
 
+## Release focus, 2026-09-22
+
+The next release is a harness terminal with a faster product-change loop.
+S1 (explicit Chassis image identity and server attachment), S2 (the shared
+next/previous-tab L2 rule), and S3 (one product L3 app contract across pack
+and install) are implemented on `main`. The remaining version work is to
+rebuild and freeze six current L1 loaders, verify the installed product through
+the public CLI on the available courts, and qualify the exact commit and bytes
+through Candidate and the existing release chain.
+
+The intermittent Windows x86_64 qjswasm guest trap is a known qualification
+risk, not a separate product feature or an open-ended research gate. Local
+bounded probes did not reproduce it; the rerun artifact bug is fixed and trap
+diagnostics now include a guest function index and the last billed host door.
+Keep the release quality gate intact. Candidate is a qualification run after
+local validation, not a sampling loop: if it fails, stop promotion and use its
+failure context for a targeted local repair and negative control.
+
 ## Outcome tree
 
 ```text
@@ -34,7 +52,8 @@ exists, Chassis remains a partial substrate and cannot replace the live path.
 
 ## Current baseline and version decision
 
-At main `5eda1de74`, v0.1.18 is public and v0.1.19 is open. The independent
+At the original planning baseline `5eda1de74`, v0.1.18 was public and v0.1.19
+was open. The independent
 Chassis crate can deterministically compose and validate a six-cell image, and
 both workbench adapters reject an invalid image before presentation. Its
 `active-tab` L2 artifact is still a substrate: the live workbench PE and its
@@ -80,12 +99,12 @@ v0.1.18 archive, then freeze and qualify the exact new bytes.
 
 | Gate | Deliverable | Proof before advancing | Stop or cut condition |
 |---|---|---|---|
-| G0 — restore qualification | Reproduce and repair the audit trap locally; fix failed-job rerun's attempt-bound control artifact; retain the existing release assertions. | Negative control for each repair, then a six-build/six-runtime/aggregate exact-SHA Candidate. | No Candidate success claim from five builds or a skipped aggregate. Public Promotion remains a separate human decision. |
+| G0 — restore qualification | Keep the repaired failed-job rerun artifact identity and the existing release assertions; finish local validation of the release candidate. | A six-build/six-runtime/aggregate exact-SHA Candidate. If the intermittent trap recurs, diagnose that failure locally using its new context and require a negative control for the repair. | No Candidate success claim from five builds or a skipped aggregate. Public Promotion remains a separate human decision. |
 | G1 — choose one production slice | Select an existing product action with a real L2 decision that crosses live workbench dispatch; record its caller, authority, output bytes and owning public court. Freeze the exact six L1 loader binary digests and Host ABI version before changing the slice. | One stable baseline public CLI journey and an independently checked six-cell loader manifest tied to its source revision. The slice must be reachable by users, not merely by `agenterm-chassis` tests. | If the action only forwards a host value, lacks stable public observation, or cannot cross the versioned ABI without moving PTY/window/input/IPC semantics into L2, reject it and choose a narrower one. |
 | G2 — wire replaceable behavior | Put only the chosen product rule behind the versioned L2 Host ABI and let the live product dispatch call it. Keep the native host, authority and lifecycle in their current owners. Reject incompatible packs before replacing the last known-good image. | Change the L2/L3 rule twice without invoking Cargo: output changes in the public journey, all six frozen L1 digests remain identical, and an incompatible ABI pack is refused while the prior image still runs. For each edit, measure source edit → composed/inspected package on one declared host; require at most 10 minutes and retain elapsed time and artifact hashes. Native courts are measured separately. | If the live journey still uses the old compiled rule, either edit exceeds the budget, or any L1 digest changes, this gate is open; do not claim a fast-change boundary. |
 | G3 — native and release evidence | Run the owning native courts for the chosen slice on all six OS/ISA cells, then the existing Candidate, reputation and rehearsal chain over the exact packaged bytes. Deliberately change one L1 input and show that the native build/sign/package path re-enters. | Per-cell runtime receipts and one sealed Candidate; the L1-change control triggers the full native path. Preserve existing product tree, remain-on-exit, explicit-close, signing and no-overwrite rules. | A blocked host is recorded as BLOCKED, not inferred from another OS. If G2/G3 cannot finish, v0.1.19 must narrow its stated capability or remain unreleased; an example app alone is insufficient. |
 
-Do the bounded UI cleanup below only after G0, and only when it helps G1/G2
+Do the bounded UI cleanup below only when it helps G1/G2
 remove a real duplicate product rule. Do not make a wholesale adapter split,
 MiniCon platform change or optional new feature part of the version's critical
 path. This order leaves the version with one measurable product boundary and a
@@ -100,7 +119,7 @@ owning PRDs. Keep the current CU frontier ahead of unrelated UI breadth.
 
 | Order | Change | Owner and dependency | Evidence / safe failure |
 |---|---|---|---|
-| 0 | Restore a trustworthy Candidate before using it as refactor evidence. Diagnose the Windows `powershell-migration-audit` qjswasm out-of-bounds trap from run `35626359893`; retain the 93.13% sccache hit measurement as a cache result only. Repair the attempt-specific runtime-control download that makes a failed-job rerun unable to find the preflight artifact. | Delivery quality, [`plan-candidate-gate-speed.md`](plan-candidate-gate-speed.md); no public Promotion. | Local owning reproduction and negative control, then an exact-SHA Candidate with six build/runtime cells and aggregate. A failed or skipped aggregate remains failed. |
+| 0 | Qualify the exact release commit with Candidate after local validation. The rerun artifact repair and bounded trap diagnostics are on `main`; retain the 93.13% sccache hit measurement as a cache result only. | Delivery quality, [`plan-candidate-gate-speed.md`](plan-candidate-gate-speed.md); no public Promotion. | Six build/runtime cells and aggregate must pass. A failed or skipped aggregate remains failed; a repeat trap requires targeted local diagnosis and repair before another qualification run. |
 | 1 | Trace one existing shared `ui-action` family end to end through `frontend`, Windows remote, Unix embedded, and `control_dispatch`. Start with window and tab selection actions, which are already in `SHARED_UI_ACTIONS`; record the actual duplicate parse/transition points before moving code. | L2 product semantics in `src/frontend/*`; host adapters only present and forward. Do not change action IDs or public payloads. | Existing catalog set test plus an owning pure-state test that fails when one host's rule diverges; public CLI journey on available native hosts. An untested host is `BLOCKED`, not inferred green. |
 | 2 | Move only the proven duplicate request normalization or state transition into the existing shared frontend owner. Replace the two adapter branches with calls to it; leave host-specific wake, IME, drawing and native controls in their adapters. | Depends on order 1 showing the same rule on both hosts. Update `ui_action_catalog.rs` only if its inventory truly changes; record a `parity-gap:` for genuine host-only behavior. | Red/green guard mutation, `cargo test --lib` owning tests, boundary test, and public CLI behavior. Preserve terminal tree, remain-on-exit and explicit-close behavior. |
 | 3 | After the shared rule is green, extract the remaining Windows command-presenting branch into a sibling module only if it removes a real ownership tangle from `remote_frontend.rs`. Do not split by line count alone. Audit `platform/mod.rs` consumers before any L3 facade removal. | L2 then L3 in [`ARCHITECTURE.md`](ARCHITECTURE.md) §4. Keep MiniCon's `agenterm-platform` consumer and Windows font owner out of this slice. | No new product semantics in an adapter or mechanism crate; same CLI snapshots/receipts before and after. Update the architecture map in the same change if a physical owner moves. |
