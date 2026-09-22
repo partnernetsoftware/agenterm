@@ -442,8 +442,12 @@ fn qjs_trap_context(cost: &agenterm_qjswasm::Cost) -> String {
             answer_bytes: None,
         }) => format!("last billed door {op} before its answer"),
     };
+    let site = match cost.trap_function_index {
+        Some(index) => format!("fn#{index}"),
+        None => "no guest function".to_string(),
+    };
     format!(
-        " (trap context: {door}; heap_pages {}; steps {}; host_ops {})",
+        " (trap context: {site}; {door}; heap_pages {}; steps {}; host_ops {})",
         cost.heap_pages, cost.steps, cost.host_ops
     )
 }
@@ -2584,7 +2588,7 @@ return native.call("|uname|i32(ptr)", [null]);
             .expect_err("the load past the page traps");
         assert_eq!(error.category, ScriptFailureCategory::Script);
         assert!(
-            error.message.starts_with("guest trapped: memory access out of bounds (trap context: last billed door agenterm.fleet_call parked 4 bytes; heap_pages 1; steps "),
+            error.message.starts_with("guest trapped: memory access out of bounds (trap context: fn#1; last billed door agenterm.fleet_call parked 4 bytes; heap_pages 1; steps "),
             "{}",
             error.message
         );

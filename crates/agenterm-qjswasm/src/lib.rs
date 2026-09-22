@@ -71,7 +71,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "9420045";
+pub const UPSTREAM_TINYVM_REV: &str = "f476cd2";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -818,6 +818,10 @@ pub struct Cost {
     /// answer or that the defect is in that door. Always `None` on a
     /// successful call's bill.
     pub last_door: Option<LastDoor>,
+    /// Which guest-defined function a failed call stopped in, as tinyvm's
+    /// function index (imports first). A location, not a classification;
+    /// always `None` on a successful call's bill.
+    pub trap_function_index: Option<u32>,
 }
 
 /// A failed call's last billed host operation: its door-qualified name and

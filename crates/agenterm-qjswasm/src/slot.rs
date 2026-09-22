@@ -258,6 +258,10 @@ impl Slot {
         let peak_call_depth = self.instance.last_peak_call_depth();
         let peak_activation_slots = self.instance.last_peak_activation_slots();
         let heap_pages = self.instance.memory_pages();
+        let trap_function_index = self
+            .instance
+            .last_trap_site()
+            .map(|site| site.function_index);
         let heap_bytes = if result.is_ok() {
             self.allocation_waterline()?
         } else {
@@ -325,6 +329,7 @@ impl Slot {
                     json_stringify_bytes: None,
                     immediate_stringify_host_argument_bytes: None,
                     last_door,
+                    trap_function_index,
                 });
                 return Err(self.explain(fault));
             }

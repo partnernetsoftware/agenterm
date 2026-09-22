@@ -593,6 +593,8 @@ fn a_trap_keeps_the_last_door_and_its_answer_length() {
             answer_bytes: Some(4),
         })
     );
+    // Four door imports come first, so `main` is function 4.
+    assert_eq!(cost.trap_function_index, Some(4));
 }
 
 /// The record is per call: a later trap that reached no door does not
@@ -617,5 +619,7 @@ fn a_trap_without_a_door_names_none() {
         .run_once(Guest::Wasm(&bare), None, "main", &[])
         .expect_err("must trap");
     assert!(matches!(err, QjswasmError::Trap(_)), "got {err:?}");
-    assert_eq!(engine.take_failed_cost().expect("it ran").last_door, None);
+    let cost = engine.take_failed_cost().expect("it ran");
+    assert_eq!(cost.last_door, None);
+    assert_eq!(cost.trap_function_index, Some(4));
 }
