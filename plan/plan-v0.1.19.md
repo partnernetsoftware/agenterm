@@ -66,6 +66,12 @@ startup-contract change, so its new six-cell bytes replace the v0.1.18
 historical baseline for G2/G3. Do not use inherited environment variables or
 the first server starter as an implicit image selector. An isolated L2 behavior
 variant may prove the fast loop; the shipped default must preserve cycling.
+Before G3, align the composed product's L3 manifest with the workbench image
+loader: the sealed v0.1.18 product archive contains `example-app.json` and
+`product-identity.json`, while `load_image` requires `l3/app.json`. A successful
+scratchpad image is not evidence that the release packaging path can boot.
+Prove this using a real composed archive and a negative control for the missing
+manifest, then freeze and qualify the exact new bytes.
 
 ## Execution order and release cut
 
