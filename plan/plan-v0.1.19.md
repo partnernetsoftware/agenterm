@@ -57,6 +57,16 @@ same L1 bytes. Here, "six L1 digests" means the six loader **binary** hashes
 in the compose manifest. Source-path hashes are change-classification evidence
 and cannot stand in for those bytes.
 
+G1's candidate is the shared next/previous tab cycling rule, observable
+through the public CLI's stable active tab ID. Windows computes that rule in
+a persistent server process, while `--chassis-image` currently loads only in
+the GUI process. Give the server an explicit, validated image identity and
+reject incompatible attachments before freezing L1. This is a one-time L1
+startup-contract change, so its new six-cell bytes replace the v0.1.18
+historical baseline for G2/G3. Do not use inherited environment variables or
+the first server starter as an implicit image selector. An isolated L2 behavior
+variant may prove the fast loop; the shipped default must preserve cycling.
+
 ## Execution order and release cut
 
 | Gate | Deliverable | Proof before advancing | Stop or cut condition |
