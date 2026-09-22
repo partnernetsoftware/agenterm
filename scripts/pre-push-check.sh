@@ -34,6 +34,9 @@ echo "pre-push checks ($TARGET):"
 step fmt cargo fmt --check
 step clippy cargo xwin clippy --locked --profile release-fast \
   --target "$TARGET" --all-targets -- -D warnings
+# A shared crate is also judged under MiniCon's actual consumer feature
+# unions. Cross-target checks compile the module; native tests execute it.
+step minicon-consumer python3 ./scripts/minicon-consumer-matrix.py --all --test-native
 # On a non-Windows host `check.qjs` drops to its quick lane, which is a real
 # subset of the Candidate's gate lane -- PRD capability alignment, the native
 # public catalog clients, host Clippy and the library tests -- for about 90

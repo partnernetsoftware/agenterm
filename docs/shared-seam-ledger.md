@@ -37,7 +37,7 @@ automated gate result in AgenTerm.
 |---|---|---|---|---|
 | `agenterm-ui-core/click` | `cc-minicon` | None | Compare real click grouping callers, time windows, position keys and fourth-click behavior; 2026-09-22 | Paused: blank-space third click, composer fourth click, Windows click events and time-window policy differ between products |
 | `agenterm-ui-core/scrollbar` | `cc-minicon` | None | Shared geometry vectors landed in `2e77d3195` (12 added tests, production code unchanged); 2026-09-22 | Both consumers now use shared geometry; MiniCon pin is `6ae0f9bb6`. Four mutation controls went red; one hit-test mutation was equivalent. A possible one-row drag shift when travel is sparse remains a separate product decision. |
-| `agenterm-platform/consumer-matrix` | `cdx-agenterm` | None yet | Specify and add target-aware MiniCon consumer feature checks; 2026-09-22 | Planned; no build result claimed |
+| `agenterm-platform/consumer-matrix` | `cdx-agenterm` | None | Add target-aware MiniCon consumer feature checks; 2026-09-22 | Local pre-push gate checks normal/dev unions on six targets; macOS ARM executes 275/285 tests. Cross-target checks prove compilation only; native runtime evidence on other hosts remains open. |
 
 The composer candidate remains an investigation item, not a file claim. It
 needs separate behavior evidence. Any active shared-file claim must be added
@@ -55,10 +55,12 @@ does not change the effective union, but the manifest shape is part of the
 consumer contract. MiniCon policy commit `93e4c37` now pins all five blocks,
 their disabled default features, and the common git rev, with mutation
 controls for feature and rev drift.
-The AgenTerm gate must compile that union per target, then run tests where a
-native host or leased court can execute them. A cross-target check proves
-compilation only. MiniCon's own Cargo manifest remains the source for this
-list; its consumer-side policy test should flag drift before either lane calls
-the gate current. Keep the target checks separate from AgenTerm's default or
-all-feature platform builds so feature unification cannot mask a missing
-consumer module.
+`scripts/minicon-consumer-matrix.py --all --test-native` now checks normal and
+dev unions separately on six targets from `scripts/pre-push-check.sh`, then
+executes both sets of library tests on the native host. A cross-target check
+proves compilation only. MiniCon's own Cargo manifest remains the source for
+this list; its consumer-side policy test flags drift before either lane calls
+the gate current. The matrix uses a separate target lane and package-scoped
+commands so AgenTerm's default or all-feature builds cannot mask a missing
+consumer module. Native runtime evidence on the other hosts is still required
+before making a cross-platform execution claim.
