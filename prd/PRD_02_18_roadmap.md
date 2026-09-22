@@ -10,9 +10,11 @@ The pre-v0.1.16 milestone ledger is preserved in
 
 Legend: `[x]` shipped, `[~]` partial, `[ ]` planned, `[-]` excluded.
 
-The user skipped v0.1.17 without public publication on 2026-09-20 and moved
-the active release train to v0.1.18. The v0.1.17 section below records the
-abandoned release objective, not a shipped prerequisite or a current gate.
+The user skipped v0.1.17 without public publication on 2026-09-20. v0.1.18
+published on 2026-09-21; its release evidence is in
+[`docs/release-0.1.18-record.md`](../docs/release-0.1.18-record.md). v0.1.19
+is the active planning train. The v0.1.17 section below records the abandoned
+objective, not a shipped prerequisite or a current gate.
 
 ## Markdown-tree DAG
 
@@ -27,7 +29,7 @@ AgenTerm delivery after v0.1.16
 │  ├─ local six-cell + UTM/native evidence precedes provider spend
 │  ├─ protected Windows/macOS signing feeds a sealed Candidate
 │  └─ Defender/reputation + dry-run precede human Promotion
-├─ [~] v0.1.18 — active agent-operable desktop train
+├─ [x] v0.1.18 — published agent-operable desktop train
 │  ├─ agenterm-cu current tier becomes a qualified distributable
 │  ├─ Win/macOS/Linux native accessibility journeys tell the truth
 │  ├─ authorization + audit gate every action; unsupported stays typed

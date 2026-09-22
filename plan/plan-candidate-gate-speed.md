@@ -1,5 +1,46 @@
 # Cut the Windows cell from ninety minutes
 
+## 2026-09-21 measurement and recovery state
+
+- `sccache` is wired in. Candidate `35626359893` on source `905e583ac`
+  reported 1,587 hits, 117 misses, and a 93.13% hit rate in the Windows
+  x86_64 job. The release quality step ran 35m39s, then failed in
+  `powershell-migration-audit` with a qjswasm memory-access-out-of-bounds trap.
+  All other five build cells passed; runtime and aggregate were skipped. The
+  cache measurement is valid, but this is not a successful Candidate or a
+  complete Windows wall-clock comparison.
+- Failed-job rerun of Candidate `35619273184` did not repair its macOS x86_64
+  runtime failure: attempt 2 requested `candidate-runtime-control-<run>-2`,
+  while preflight was not rerun and had uploaded the control for attempt 1.
+  Resolve this artifact identity before relying on failed-job reruns.
+- Keep the quality/artifact job split below behind a trustworthy gate; do not
+  count a skipped aggregate as speed evidence.
+
+### G0 follow-up, 2026-09-22
+
+- Rerun artifact identity is repaired in `ebcfb5ef1`: preflight
+  exposes the artifact name it actually uploaded, and runtime consumes that
+  job output. The owning policy suite reports 115 passing tests, including a
+  negative fixture for the old attempt-derived consumer name; pre-push exited
+  0. The commit is on `main`; it has not been qualified by a new Candidate.
+- The audit script is not established as the trap root cause. An isolated
+  macOS/Windows ARM64 guest campaign saw 0 traps in 20 runs, while a scan of
+  60 recent Candidates found three guest OOB traps, all on native Windows
+  x86_64, including two in the outer `check.qjs` rather than the nested audit.
+  This narrows the investigation to qjswasm/tinyvm and host-input boundaries;
+  it does not yet prove a mechanism or a fix.
+- `b10585adc` adds bounded trap context: the last billed host door, its parked
+  answer length and resource counts. It preserves the failure class and exit
+  behavior. The door is a diagnostic lead, not proof of where the guest trapped
+  or why. The native Windows x86_64 court is `BLOCKED` because its guest agent
+  did not become ready within the court budget; Windows ARM64 Prism stress ran
+  150 audit children with 14,988 tree/state samples and no trap, but does not
+  qualify native x86_64.
+- Next evidence: a bounded native Windows x86_64 stress reproduction with a
+  positive attachment check; safe diagnostic context at the trap boundary;
+  then a causal fix and negative control. Do not dispatch another Candidate
+  merely to sample an intermittent failure.
+
 Agreed with the owner on 2026-09-21: do items 1 and 2 immediately after
 v0.1.18 publishes. Not before — editing `candidate.yml` voids a Candidate in
 flight and restarts its clock.

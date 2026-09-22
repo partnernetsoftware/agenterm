@@ -4,13 +4,15 @@ Parent: [AgenTerm product tree](../PRD.md#product-tree)
 
 Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
-Current version assignment: v0.1.18 owns the end-to-end development, build,
+v0.1.18 published on 2026-09-21 using the end-to-end development, build,
 local UTM/native qualification, GitHub payload, protected signing, Candidate,
-reputation, rehearsal and Promotion path. The user skipped v0.1.17 without a
-public release on 2026-09-20; its attempted train remains recorded in
-[`plan/plan-v0.1.17.md`](../plan/plan-v0.1.17.md). Active execution authority
-is [`plan/plan-v0.1.18.md`](../plan/plan-v0.1.18.md), including the
-single-cross-build / six-native-execute-only topology before its Candidate.
+reputation, rehearsal and Promotion path; the exact evidence is in
+[`docs/release-0.1.18-record.md`](../docs/release-0.1.18-record.md). The user
+skipped v0.1.17 without a public release on 2026-09-20; its attempted train
+remains recorded in [`plan/plan-v0.1.17.md`](../plan/plan-v0.1.17.md).
+v0.1.19 planning and Candidate follow-up live in
+[`plan/plan-v0.1.19.md`](../plan/plan-v0.1.19.md) and
+[`plan/plan-candidate-gate-speed.md`](../plan/plan-candidate-gate-speed.md).
 
 - [~] MiniCon's proven release lessons are being absorbed through
   `plan/goal-release-minicon-lessons.md`: clean staging, raw/compressed size
