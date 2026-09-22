@@ -3048,3 +3048,50 @@ fn no_workflow_job_declares_the_same_step_twice() {
         offenders.join("\n")
     );
 }
+
+/// Names of cross-job artifacts that a consumer rebuilds from its own
+/// `github.run_attempt`. A rerun of failed jobs keeps successful producers from
+/// the earlier attempt, so such a consumer looks for a name nobody uploaded.
+fn consumer_rebuilt_attempt_names(workflow: &str, producer_job: &str) -> Vec<String> {
+    let mut job = "";
+    let mut offenders = Vec::new();
+    let mut pending_download = false;
+    for line in workflow.lines() {
+        if let Some(name) = line.strip_prefix("  ").and_then(|l| l.strip_suffix(':'))
+            && !name.starts_with(' ')
+            && !name.contains(' ')
+        {
+            job = name;
+        }
+        if line.contains("actions/download-artifact@") {
+            pending_download = true;
+            continue;
+        }
+        if pending_download && line.trim_start().starts_with("name:") {
+            pending_download = false;
+            if job != producer_job
+                && line.contains("candidate-runtime-control-")
+                && line.contains("github.run_attempt")
+            {
+                offenders.push(format!("{job}: {}", line.trim()));
+            }
+        }
+    }
+    offenders
+}
+
+#[test]
+fn candidate_runtime_control_survives_rerun_of_failed_jobs() {
+    assert!(CANDIDATE.contains(
+        "runtime_control_artifact: candidate-runtime-control-${{ github.run_id }}-${{ github.run_attempt }}"
+    ));
+    assert!(CANDIDATE.contains("name: ${{ needs.preflight.outputs.runtime_control_artifact }}"));
+    assert_eq!(
+        consumer_rebuilt_attempt_names(&CANDIDATE, "preflight"),
+        Vec::<String>::new()
+    );
+
+    // Negative control: the shape that failed on rerun must be caught.
+    let old = "jobs:\n  preflight:\n    steps:\n  runtime:\n    steps:\n      - uses: actions/download-artifact@fa0a\n        with:\n          name: candidate-runtime-control-${{ github.run_id }}-${{ github.run_attempt }}\n";
+    assert_eq!(consumer_rebuilt_attempt_names(old, "preflight").len(), 1);
+}
