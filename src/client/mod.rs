@@ -187,8 +187,23 @@ pub fn run_cli_entry_with_args(mut arguments: Vec<String>) -> i32 {
     }
     let mut control_options = CliControlOptions::default();
     let mut selectors = EndpointSelectorArgs::default();
+    let mut chassis_image: Option<std::path::PathBuf> = None;
     loop {
         match arguments.first().map(String::as_str) {
+            Some("--chassis-image") => {
+                if arguments.len() < 2 {
+                    cli_eprintln!("agenterm cli --chassis-image requires IMAGE");
+                    return 2;
+                }
+                arguments.remove(0);
+                if chassis_image
+                    .replace(std::path::PathBuf::from(arguments.remove(0)))
+                    .is_some()
+                {
+                    cli_eprintln!("agenterm cli --chassis-image may be specified only once");
+                    return 2;
+                }
+            }
             Some("--address") => {
                 if arguments.len() < 2 {
                     cli_eprintln!("agenterm cli --address requires HOST:PORT");
@@ -294,7 +309,38 @@ pub fn run_cli_entry_with_args(mut arguments: Vec<String>) -> i32 {
         );
         return 2;
     }
+    // A CLI that names an image declares it: the image is verified here, the
+    // authority is started with it when none answers, and the command runs
+    // only against a server reporting the same content id. A CLI that names
+    // none declares nothing and is an ordinary client -- it is never treated
+    // as a client of a verified image.
+    if let Some(image) = chassis_image.as_deref()
+        && let Err(refusal) = declared_image_preflight(image)
+    {
+        cli_eprintln!(
+            "{}",
+            serde_json::json!({"code": "chassis_image_refused", "message": refusal})
+        );
+        return 2;
+    }
     run_cli(arguments, control_options)
+}
+
+fn declared_image_preflight(image: &std::path::Path) -> Result<(), String> {
+    crate::frontend::chassis_image::load_selected_image(Some(image))?;
+    if send_ipc_request(vec!["protocol-info".to_owned()]).is_err() {
+        start_server_process().map_err(|error| format!("{error:#}"))?;
+        let deadline = Instant::now() + IPC_AUTOSTART_TIMEOUT;
+        while send_ipc_request(vec!["protocol-info".to_owned()]).is_err() {
+            if Instant::now() >= deadline {
+                return Err("chassis_image_unverifiable: no authority answered".to_owned());
+            }
+            thread::sleep(IPC_AUTOSTART_POLL);
+        }
+    }
+    crate::frontend_server::verify_server_chassis_image(
+        crate::frontend_server::ImageDeclaration::Strict,
+    )
 }
 
 pub fn run_script_entry_with_args(mut arguments: Vec<String>) -> i32 {
@@ -5209,6 +5255,9 @@ pub(crate) fn protocol_info_value_with_ui_bridge(
         "upgrade_identity": current_upgrade_identity(),
         "platform": crate::platform::platform_info_json(),
         "ui_bridge": ui_bridge_facts,
+        // The chassis image this process verified and loaded, by content id;
+        // `null` when it loaded none. Never a path.
+        "chassis_image": crate::frontend::chassis_image::loaded_image_identity(),
         "control_contract": {
             "schema_version": crate::control_contract::CONTROL_CONTRACT_SCHEMA_VERSION,
             "request_dedupe": true,

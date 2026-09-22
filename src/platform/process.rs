@@ -20,8 +20,9 @@ pub(crate) use agenterm_platform::process::{
 pub(crate) fn autostart_server(
     parameter_name: &str,
     parameter_value: &str,
+    chassis_image: Option<&std::path::Path>,
 ) -> std::io::Result<bool> {
-    autostart_server_impl(parameter_name, parameter_value)
+    autostart_server_impl(parameter_name, parameter_value, chassis_image)
 }
 
 /// Where an autostarted server's stderr goes.
@@ -48,7 +49,11 @@ fn autostart_stderr() -> std::io::Result<Stdio> {
     Ok(Stdio::from(file))
 }
 
-fn autostart_server_impl(parameter_name: &str, parameter_value: &str) -> std::io::Result<bool> {
+fn autostart_server_impl(
+    parameter_name: &str,
+    parameter_value: &str,
+    chassis_image: Option<&std::path::Path>,
+) -> std::io::Result<bool> {
     if !matches!(
         agenterm_platform::platform_kind(),
         agenterm_platform::PlatformKind::Windows
@@ -63,7 +68,13 @@ fn autostart_server_impl(parameter_name: &str, parameter_value: &str) -> std::io
     command
         .arg("server")
         .arg(parameter_name)
-        .arg(parameter_value)
+        .arg(parameter_value);
+    // The image travels on the authority's command line only, never in an
+    // inherited environment variable that its PTY children would see.
+    if let Some(image) = chassis_image {
+        command.arg("--chassis-image").arg(image);
+    }
+    command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(autostart_stderr()?);

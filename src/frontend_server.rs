@@ -70,7 +70,62 @@ impl FrontendServerRecovery {
     }
 }
 
+/// Connect a GUI to its authority, starting one if none answers, and refuse
+/// the attach unless both sides run the same verified chassis image -- or
+/// neither runs one. Which image a session runs is never decided by whichever
+/// process happened to start the server first.
 pub(crate) fn connect_or_start_frontend_gui_client(
+    client_id: &str,
+) -> Result<UiClientModel, String> {
+    let mut client = connect_or_start_frontend_gui_client_unverified(client_id)?;
+    if let Err(refusal) = verify_server_chassis_image(ImageDeclaration::Strict) {
+        let _ = client.detach();
+        return Err(refusal);
+    }
+    Ok(client)
+}
+
+/// How a client states the image it expects the authority to run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ImageDeclaration {
+    /// A GUI, or a CLI given `--chassis-image`: the server must run exactly
+    /// this process's image, and must run none when this process loaded none.
+    Strict,
+}
+
+/// Compare this process's loaded image with the one the running authority
+/// reports through `protocol-info`. Refusals carry content ids only.
+pub(crate) fn verify_server_chassis_image(declaration: ImageDeclaration) -> Result<(), String> {
+    let ImageDeclaration::Strict = declaration;
+    let response = crate::client::send_ipc_request(vec!["protocol-info".to_owned()])
+        .map_err(|error| format!("chassis_image_unverifiable: {error:#}"))?;
+    if !response.ok {
+        return Err(format!("chassis_image_unverifiable: {}", response.error));
+    }
+    let info: serde_json::Value = serde_json::from_str(&response.output)
+        .map_err(|_| "chassis_image_unverifiable: protocol-info is not JSON".to_owned())?;
+    let server = info
+        .get("chassis_image")
+        .and_then(|image| image.get("image_id"))
+        .and_then(serde_json::Value::as_str);
+    let local = crate::frontend::chassis_image::loaded_image_identity()
+        .map(|identity| identity.image_id.as_str());
+    image_match(local, server)
+}
+
+fn image_match(local: Option<&str>, server: Option<&str>) -> Result<(), String> {
+    if local == server {
+        return Ok(());
+    }
+    Err(format!(
+        "chassis_image_mismatch: this client runs {} but the server runs {}; \
+         stop that server or launch with the matching image",
+        local.unwrap_or("no image"),
+        server.unwrap_or("no image")
+    ))
+}
+
+fn connect_or_start_frontend_gui_client_unverified(
     client_id: &str,
 ) -> Result<UiClientModel, String> {
     match UiClientModel::connect(client_id.to_owned()) {
@@ -232,8 +287,12 @@ pub(crate) fn start_frontend_server_process() -> Result<(), String> {
         ));
     }
     let parameter = frontend_server_spawn_parameter(&resolved);
-    let started = crate::platform::process::autostart_server(parameter.0, &parameter.1)
-        .map_err(|error| error.to_string())?;
+    let started = crate::platform::process::autostart_server(
+        parameter.0,
+        &parameter.1,
+        crate::frontend::chassis_image::loaded_image_root(),
+    )
+    .map_err(|error| error.to_string())?;
     if !started {
         Err("independent AgenTerm server autostart is unavailable".to_owned())
     } else {
@@ -266,9 +325,30 @@ pub(crate) fn frontend_server_spawn_parameter(
 #[cfg(test)]
 mod tests {
     use super::{
-        FrontendServerRecovery, GUI_FRONTEND_SERVER_RESTART_INTERVAL,
+        FrontendServerRecovery, GUI_FRONTEND_SERVER_RESTART_INTERVAL, image_match,
         next_frontend_server_restart_after,
     };
+
+    /// A strict client attaches only to a server running the same image, and
+    /// either side lacking one is a refusal, not a fallback.
+    #[test]
+    fn strict_image_match_refuses_every_mismatch() {
+        assert!(image_match(None, None).is_ok());
+        assert!(image_match(Some("aa"), Some("aa")).is_ok());
+        for (local, server) in [
+            (Some("aa"), None),
+            (None, Some("aa")),
+            (Some("aa"), Some("bb")),
+        ] {
+            let refusal = image_match(local, server).expect_err("mismatch");
+            assert!(refusal.starts_with("chassis_image_mismatch:"), "{refusal}");
+        }
+        let refusal = image_match(Some("aa"), None).expect_err("server has none");
+        assert!(
+            refusal.contains("runs aa") && refusal.contains("runs no image"),
+            "{refusal}"
+        );
+    }
     use std::time::{Duration, Instant};
 
     #[test]

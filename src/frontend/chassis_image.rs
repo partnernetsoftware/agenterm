@@ -27,6 +27,140 @@ pub(crate) struct LoadedChassisImage {
     active_tab_program: Program,
     host_abi: String,
     declared_capabilities: Vec<String>,
+    identity: ChassisImageIdentity,
+}
+
+/// What a process says about the image it loaded: a content address over the
+/// exact bytes it verified and runs, never a host path. Two images that
+/// differ in any L2/L3 byte, or in this cell's loader, have different ids.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct ChassisImageIdentity {
+    pub(crate) image_id: String,
+    pub(crate) cell: String,
+    pub(crate) l1_sha256: String,
+}
+
+impl LoadedChassisImage {
+    pub(crate) fn identity(&self) -> &ChassisImageIdentity {
+        &self.identity
+    }
+}
+
+/// Where the image this process loaded is installed, for handing it to a
+/// child authority on its command line. Never printed.
+pub(crate) fn loaded_image_root() -> Option<&'static Path> {
+    LOADED_IMAGE.get().map(|image| image.root.as_path())
+}
+
+/// The identity of the image this process loaded, if it loaded one.
+pub(crate) fn loaded_image_identity() -> Option<&'static ChassisImageIdentity> {
+    LOADED_IMAGE.get().map(LoadedChassisImage::identity)
+}
+
+const IMAGE_ID_DOMAIN: &[u8] = b"agenterm-chassis-image-id/v1\0";
+
+/// Every file that defines what this host runs from `root`, as
+/// `(relative path, bytes)` sorted by path: the manifest, this cell's loader,
+/// and every file under `l2/` and `l3/`. A symbolic link anywhere in that set
+/// is refused, so the bytes read are the bytes that exist.
+fn image_files(root: &Path, cell: &str) -> Result<Vec<(String, Vec<u8>)>, String> {
+    fn read_one(root: &Path, relative: &str) -> Result<(String, Vec<u8>), String> {
+        let path = root.join(relative);
+        let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
+            format!(
+                "chassis image file {relative} is unreadable: {}",
+                error.kind()
+            )
+        })?;
+        if !metadata.file_type().is_file() {
+            return Err(format!(
+                "chassis image entry {relative} is not a regular file"
+            ));
+        }
+        let bytes = std::fs::read(&path).map_err(|error| {
+            format!(
+                "chassis image file {relative} is unreadable: {}",
+                error.kind()
+            )
+        })?;
+        Ok((relative.to_owned(), bytes))
+    }
+    fn walk(root: &Path, relative: &str, out: &mut Vec<(String, Vec<u8>)>) -> Result<(), String> {
+        let dir = root.join(relative);
+        let metadata = std::fs::symlink_metadata(&dir).map_err(|error| {
+            format!(
+                "chassis image directory {relative} is unreadable: {}",
+                error.kind()
+            )
+        })?;
+        if !metadata.file_type().is_dir() {
+            return Err(format!("chassis image entry {relative} is not a directory"));
+        }
+        let mut names = Vec::new();
+        for entry in std::fs::read_dir(&dir).map_err(|error| {
+            format!(
+                "chassis image directory {relative} is unreadable: {}",
+                error.kind()
+            )
+        })? {
+            let entry = entry.map_err(|error| {
+                format!(
+                    "chassis image directory {relative} is unreadable: {}",
+                    error.kind()
+                )
+            })?;
+            let name = entry
+                .file_name()
+                .into_string()
+                .map_err(|_| format!("chassis image directory {relative} has a non-UTF-8 name"))?;
+            names.push(name);
+        }
+        names.sort();
+        for name in names {
+            let child = format!("{relative}/{name}");
+            let kind = std::fs::symlink_metadata(root.join(&child))
+                .map_err(|error| {
+                    format!(
+                        "chassis image entry {child} is unreadable: {}",
+                        error.kind()
+                    )
+                })?
+                .file_type();
+            if kind.is_dir() {
+                walk(root, &child, out)?;
+            } else {
+                out.push(read_one(root, &child)?);
+            }
+        }
+        Ok(())
+    }
+    let mut files = vec![
+        read_one(root, "manifest.json")?,
+        read_one(root, &format!("l1/{cell}/loader"))?,
+    ];
+    walk(root, "l2", &mut files)?;
+    walk(root, "l3", &mut files)?;
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(files)
+}
+
+/// Domain-separated, length-prefixed digest of `files`: no two different
+/// `(path, bytes)` sets can encode to the same stream.
+fn image_id_of(files: &[(String, Vec<u8>)]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(IMAGE_ID_DOMAIN);
+    hasher.update((files.len() as u64).to_le_bytes());
+    for (path, bytes) in files {
+        hasher.update((path.len() as u64).to_le_bytes());
+        hasher.update(path.as_bytes());
+        hasher.update((bytes.len() as u64).to_le_bytes());
+        hasher.update(bytes);
+    }
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 static LOADED_IMAGE: OnceLock<LoadedChassisImage> = OnceLock::new();
@@ -50,17 +184,45 @@ pub(crate) fn load_selected_image(
     Ok(LOADED_IMAGE.get())
 }
 
+/// Load and verify `root`. Every refusal names what failed inside the image
+/// and never the host path it was installed at: a diagnostic travels to logs
+/// and other processes, the location does not need to.
 pub(crate) fn load_image(root: &Path) -> Result<LoadedChassisImage, String> {
-    if !root.is_dir() {
-        return Err(format!(
-            "chassis image is not an installed directory: {}; extract a Candidate .tgz before launch",
-            root.display()
-        ));
+    load_image_at(root, &|| {}).map_err(|message| redact_image_root(&message, root))
+}
+
+fn redact_image_root(message: &str, root: &Path) -> String {
+    let mut redacted = message.to_owned();
+    let mut spellings = vec![root.display().to_string()];
+    if let Ok(canonical) = root.canonicalize() {
+        spellings.push(canonical.display().to_string());
     }
-    agenterm_chassis::check_product_image(root)
-        .map_err(|error| format!("chassis image check failed: {error}"))?;
+    for spelling in spellings {
+        if !spelling.is_empty() {
+            redacted = redacted.replace(&spelling, "<image>");
+        }
+    }
+    redacted
+}
+
+/// `between` runs after the bytes are first read and before they are checked
+/// and parsed: production passes nothing, a test changes the image there.
+fn load_image_at(root: &Path, between: &dyn Fn()) -> Result<LoadedChassisImage, String> {
+    if !root.is_dir() {
+        return Err(
+            "chassis image is not an installed directory; extract a Candidate .tgz before launch"
+                .to_owned(),
+        );
+    }
     let native_cell = agenterm_platform::chassis_loader::native_cell()
         .ok_or_else(|| "this OS/ISA has no Chassis-L1 loader cell".to_owned())?;
+    // The id names the bytes read here. The same set is read again after
+    // every check and parse below; if the directory changed in between, the
+    // id would not describe what runs, so the load is refused.
+    let before = image_id_of(&image_files(root, native_cell)?);
+    between();
+    agenterm_chassis::check_product_image(root)
+        .map_err(|error| format!("chassis image check failed: {error}"))?;
     let native_loader = root.join("l1").join(native_cell).join("loader");
     if !native_loader.is_file() {
         return Err(format!(
@@ -81,6 +243,14 @@ pub(crate) fn load_image(root: &Path) -> Result<LoadedChassisImage, String> {
     .map_err(|error| format!("cannot parse chassis L2 active-tab program: {error}"))?;
     let active_tab_program = assemble(&source, Some(&app.capabilities))
         .map_err(|error| format!("cannot assemble chassis L2 active-tab program: {error}"))?;
+    let after = image_id_of(&image_files(root, native_cell)?);
+    if after != before {
+        return Err("chassis image changed while it was being verified and loaded".to_owned());
+    }
+    let l1_sha256 = sha256_hex(
+        &std::fs::read(&native_loader)
+            .map_err(|error| format!("cannot read native chassis loader: {}", error.kind()))?,
+    );
     Ok(LoadedChassisImage {
         root: root.to_path_buf(),
         native_loader,
@@ -88,6 +258,11 @@ pub(crate) fn load_image(root: &Path) -> Result<LoadedChassisImage, String> {
         active_tab_program,
         host_abi,
         declared_capabilities: app.capabilities,
+        identity: ChassisImageIdentity {
+            image_id: after,
+            cell: native_cell.to_owned(),
+            l1_sha256,
+        },
     })
 }
 
@@ -260,5 +435,119 @@ mod tests {
         write_image(tmp.path(), Some("libc.so.6"));
         let error = load_image(tmp.path()).expect_err("forbidden L3");
         assert!(error.contains("libc.so.6"), "{error}");
+    }
+
+    /// The refusal that names an L3 file used to carry the install path; the
+    /// loader now reports it relative to the image.
+    #[test]
+    fn a_refusal_never_names_the_install_path() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        write_image(tmp.path(), Some("libc.so.6"));
+        let error = load_image(tmp.path()).expect_err("forbidden L3");
+        let root = tmp.path().display().to_string();
+        let canonical = tmp
+            .path()
+            .canonicalize()
+            .expect("canonical")
+            .display()
+            .to_string();
+        assert!(
+            !error.contains(&root) && !error.contains(&canonical),
+            "{error}"
+        );
+        assert!(error.contains("<image>"), "{error}");
+        let missing = load_image(&tmp.path().join("absent")).expect_err("no directory");
+        assert!(!missing.contains(&root), "{missing}");
+    }
+
+    #[test]
+    fn the_image_id_is_stable_and_names_this_cell() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        write_image(tmp.path(), None);
+        let first = load_image(tmp.path()).expect("load");
+        let second = load_image(tmp.path()).expect("load again");
+        assert_eq!(first.identity(), second.identity());
+        assert_eq!(first.identity().image_id.len(), 64);
+        let cell = agenterm_platform::chassis_loader::native_cell().expect("cell");
+        assert_eq!(first.identity().cell, cell);
+        assert_eq!(
+            first.identity().l1_sha256,
+            sha256_hex(&executable_bytes(cell))
+        );
+    }
+
+    /// Any byte of L2 or L3 is part of the id, including files the manifest
+    /// does not describe by content.
+    #[test]
+    fn changing_one_l2_or_l3_byte_changes_the_id() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        write_image(tmp.path(), None);
+        let base = load_image(tmp.path()).expect("load").identity().clone();
+
+        let program = tmp.path().join("l2/programs/active-tab.json");
+        let original = fs::read_to_string(&program).expect("program");
+        fs::write(
+            &program,
+            original.replace("\"active-tab\"", "\"active-tab \""),
+        )
+        .expect("edit");
+        let l2 = load_image(tmp.path())
+            .expect("load l2 edit")
+            .identity()
+            .clone();
+        assert_ne!(base.image_id, l2.image_id);
+        assert_eq!(base.l1_sha256, l2.l1_sha256, "L1 bytes did not change");
+        fs::write(&program, &original).expect("restore");
+
+        write_image(tmp.path(), Some("changed"));
+        let l3 = load_image(tmp.path())
+            .expect("load l3 edit")
+            .identity()
+            .clone();
+        assert_ne!(base.image_id, l3.image_id);
+
+        write_image(tmp.path(), None);
+        fs::write(tmp.path().join("l3/extra.txt"), b"x").expect("extra");
+        let extra = load_image(tmp.path())
+            .expect("load extra")
+            .identity()
+            .clone();
+        assert_ne!(
+            base.image_id, extra.image_id,
+            "an added file is part of the id"
+        );
+    }
+
+    /// Length prefixes keep a path/content boundary from sliding.
+    #[test]
+    fn the_encoding_has_no_concatenation_ambiguity() {
+        let a = image_id_of(&[("ab".to_owned(), b"c".to_vec())]);
+        let b = image_id_of(&[("a".to_owned(), b"bc".to_vec())]);
+        let c = image_id_of(&[
+            ("a".to_owned(), b"".to_vec()),
+            ("b".to_owned(), b"c".to_vec()),
+        ]);
+        assert_ne!(a, b);
+        assert_ne!(a, c);
+        assert_ne!(b, c);
+    }
+
+    /// An image edited while it is being verified is refused rather than
+    /// reported under an id that no longer describes what runs.
+    #[test]
+    fn an_image_changed_during_load_is_refused() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        write_image(tmp.path(), None);
+        let program = tmp.path().join("l2/programs/active-tab.json");
+        let error = load_image_at(tmp.path(), &|| {
+            let text = fs::read_to_string(&program).expect("program");
+            fs::write(&program, format!("{text} ")).expect("edit");
+        })
+        .expect_err("changed mid-load");
+        assert!(
+            error.contains("changed while it was being verified"),
+            "{error}"
+        );
+        assert!(load_image(tmp.path()).is_ok(), "the settled image loads");
     }
 }

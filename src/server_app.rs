@@ -172,8 +172,9 @@ pub fn run_server_entry() -> i32 {
 }
 
 /// Headless authority entry for `agenterm server`. `arguments` should be
-/// selector flags only (`--address` / `--endpoint` / `--instance`); a leading
-/// `server` / `--server` token is tolerated for wrappers.
+/// selector flags only (`--address` / `--endpoint` / `--instance`), plus at
+/// most one `--chassis-image IMAGE`; a leading `server` / `--server` token is
+/// tolerated for wrappers.
 pub fn run_server_entry_with_args(arguments: Vec<String>) -> i32 {
     let start_empty = match configure_server_launch(&arguments) {
         Ok(start_empty) => start_empty,
@@ -194,6 +195,7 @@ pub fn run_server_entry_with_args(arguments: Vec<String>) -> i32 {
 fn configure_server_launch(arguments: &[String]) -> Result<bool> {
     let mut selectors = EndpointSelectorArgs::default();
     let mut start_empty = false;
+    let mut chassis_image: Option<std::path::PathBuf> = None;
     let mut position = 0;
     while position < arguments.len() {
         match arguments[position].as_str() {
@@ -236,6 +238,17 @@ fn configure_server_launch(arguments: &[String]) -> Result<bool> {
                 );
                 position += 2;
             }
+            "--chassis-image" => {
+                if chassis_image.is_some() {
+                    anyhow::bail!("agenterm server --chassis-image may be specified only once");
+                }
+                chassis_image = Some(std::path::PathBuf::from(
+                    arguments
+                        .get(position + 1)
+                        .context("agenterm server --chassis-image requires IMAGE")?,
+                ));
+                position += 2;
+            }
             "--empty" => {
                 if start_empty {
                     anyhow::bail!("agenterm server --empty may be specified only once");
@@ -247,6 +260,19 @@ fn configure_server_launch(arguments: &[String]) -> Result<bool> {
         }
     }
     crate::client::set_ipc_selectors(selectors)?;
+    // The authority verifies the image itself, from the bytes it will run;
+    // it never takes a client's word for it. A refused image is a refused
+    // start, reported without the host path.
+    if let Some(image) = chassis_image.as_deref() {
+        let loaded = crate::frontend::chassis_image::load_selected_image(Some(image))
+            .map_err(|error| anyhow::anyhow!("chassis_image_refused: {error}"))?;
+        if let Some(loaded) = loaded {
+            eprintln!(
+                "AgenTerm server loaded chassis image {}",
+                loaded.identity().image_id
+            );
+        }
+    }
     Ok(start_empty)
 }
 
@@ -2207,6 +2233,34 @@ mod tests {
             configure_server_launch(&["--address".to_owned(), "0.0.0.0:48815".to_owned()]).is_err()
         );
         assert!(configure_server_launch(&["--unknown".to_owned()]).is_err());
+    }
+
+    /// The authority verifies a named image itself and refuses to start on a
+    /// bad one; the refusal is typed and carries no host path.
+    #[test]
+    fn server_refuses_a_missing_duplicate_or_invalid_chassis_image() {
+        assert!(configure_server_launch(&["--chassis-image".to_owned()]).is_err());
+        assert!(
+            configure_server_launch(&[
+                "--chassis-image".to_owned(),
+                "a".to_owned(),
+                "--chassis-image".to_owned(),
+                "b".to_owned(),
+            ])
+            .is_err()
+        );
+        let tmp = tempfile::tempdir().expect("tmp");
+        let absent = tmp.path().join("no-such-image");
+        let error =
+            configure_server_launch(&["--chassis-image".to_owned(), absent.display().to_string()])
+                .expect_err("absent image refused");
+        let rendered = format!("{error:#}");
+        assert!(rendered.starts_with("chassis_image_refused:"), "{rendered}");
+        assert!(
+            !rendered.contains(&tmp.path().display().to_string()),
+            "{rendered}"
+        );
+        assert!(crate::frontend::chassis_image::loaded_image_identity().is_none());
     }
 
     #[test]
