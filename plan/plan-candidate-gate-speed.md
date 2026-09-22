@@ -34,16 +34,66 @@
   behavior. The door is a diagnostic lead, not proof of where the guest trapped
   or why. Windows ARM64 Prism stress ran 150 audit children with 14,988
   tree/state samples and no trap, but does not qualify native x86_64.
-- The native Windows x86_64 court was blocked by a `planned` registry state
-  dated 2026-09-07; its historical Guest Agent timeout was not a failed boot
-  on 2026-09-22. Operator utm-court commit `e13ded4` selected the installed VM
+- The Windows x86_64 court (an x86_64 guest emulated by QEMU TCG on the
+  ARM64 operator Mac, not native x86_64 hardware) was blocked by a `planned`
+  registry state dated 2026-09-07; its historical Guest Agent timeout was not a
+  failed boot on 2026-09-22. Operator utm-court commit `e13ded4` selected the installed VM
   by UUID. A supported lease, 120-second wait-ready, command probe and release
   completed on 2026-09-22, leaving the VM stopped. The court is now available
-  for a bounded native x86_64 reproduction; this does not repair the trap.
-- Next evidence: a bounded native Windows x86_64 stress reproduction with a
-  positive attachment check; safe diagnostic context at the trap boundary;
-  then a causal fix and negative control. Do not dispatch another Candidate
-  merely to sample an intermittent failure.
+  for a bounded emulated-x86_64 reproduction; this does not repair the trap.
+- Next evidence: a deterministic heap-limit check, then the first naturally
+  occurring native Windows x86_64 trap with `fn#N` context; a causal fix still
+  needs a negative control. Do not dispatch another Candidate merely to sample
+  an intermittent failure.
+
+### G0 T1 bounded reproduction, 2026-09-22 (closed)
+
+Every run below used the `win-x86_64-desktop` court: an x86_64 Windows guest
+emulated by QEMU TCG on the ARM64 host. The effective QEMU arguments were
+`-accel tcg` without `thread=multi`, so both vCPUs execute serially. None of it
+is native x86_64 hardware evidence, and none of it qualifies a Candidate.
+
+- Trap context on `main` now also names the guest function: tinyvm `f476cd2`
+  records `Instance::last_trap_site()` at the call boundary on failure only,
+  and `7182894b8` prints it as `fn#N` ahead of the last billed door and the
+  bill. `op#` was dropped: wrapping the interpreter loop to read the program
+  counter cost 1-8% ns/instruction on `interpreter_throughput`.
+- The driver copies the outer shape of `check.qjs` `execute()`: spawn one
+  child, poll `process_tree` and `process_state` every 1000 ms until it
+  exits, repeat. It records numbers only. The guest ran `agenterm.exe` built
+  with `cargo xwin --release` from `6283e6ccc` (`dbcd8463f` for the first
+  probe). The guest-side `certutil` SHA-256 matched the host build in the
+  probes and segments 3 and 6:
+  `eb4683a00380f7642ea4a279f52e00ff6e6c13ce0af96ecb9a41df1781999b62`
+  (`4056ffa8...` for the `dbcd8463f` probe).
+
+| Run | Shape | Result | Valid |
+| --- | --- | --- | --- |
+| probe (dbcd8463f) | `ping -n 3`, 1 min | 9 children, 43 tree/state samples, rc 0, `arch=AMD64` | yes, positive attachment only |
+| long run, 14:28 | 3-level `cmd`/`ping`, planned 40 min | host disk ran low; guest agent returned `Timed out waiting for RPC`; output never retrieved | **no** |
+| segment 1 | - | the host exe had been deleted while freeing disk; nothing ran | **no** |
+| segment 2 | 3-level tree | driver died after 1 child: the host watchdog's `pull` of the progress file collided with the driver's append (`os error 32`); fixed by bounded retries and a skipped-line counter | **no** |
+| segment 3 | 3-level tree, 10 min | 18 children, 520 samples, `tree_bytes_max` 233, 0 retries, rc 0, no trap | yes |
+| segment 4 | 12 background pings, 1 min | 2 children, 54 samples, `tree_bytes_max` 873, rc 0 | yes, positive probe |
+| segment 5 | 12 background pings, 10 min | 13 children, 345 samples, `tree_bytes_max` 10,653 (children 11-13; 873 before), mean 1,544 bytes/sample, rc 0, no trap; guest SHA pull failed, host SHA logged | yes; the 10,653-byte jump is unexplained |
+| segment 6 | 12 background pings, 2 min | 3 children, 70 samples; every child `ping_max` 13, `root_bad` 0; max 1,168 bytes at 20 processes, then 15 processes and 873 bytes; rc 0 | yes, diagnostic |
+
+- Court and disk incident: after the long run the VM stayed `stopping`; its
+  QEMU process was still alive. `utmctl stop --kill` on the exact UUID stopped
+  it, and a read-only `qemu-img check` found no errors. Segments 1-6 each
+  checked host free space against a 20 GiB floor, used
+  `lease --disposable`, and were released; free space stayed at 34-35 GiB.
+- Diagnostic fields added in segment 6, numbers only: per child `n_max`,
+  `ping_max` (design ceiling 13), `root_bad` (a non-empty tree whose root is
+  not a child of the driver, meaning a reused PID), `bytes_max_child`, and the
+  process and ping counts at that maximum.
+- The CI history cannot be matched sample for sample. `timing.json` holds gate
+  durations only, and no log records `process_tree` lengths. At one poll per
+  second, the gates before `migration-audit` in `35626359893` imply about
+  2,050 polls. Segments 3-6 total 989 samples with no trap. That is evidence
+  of non-reproduction at this scale, not of absence.
+- Stopped by the owner: no more T1/T2 stress sampling, and the one-off
+  10,653-byte jump is not pursued.
 
 Agreed with the owner on 2026-09-21: do items 1 and 2 immediately after
 v0.1.18 publishes. Not before — editing `candidate.yml` voids a Candidate in
