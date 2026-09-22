@@ -11,9 +11,14 @@ import os
 import platform
 import shutil
 import stat
+import sys
 import tarfile
 import tempfile
 from pathlib import Path, PurePosixPath
+
+sys.dont_write_bytecode = True  # no __pycache__ beside a shared checkout
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from chassis_l3_app import APP, L3AppError, check_contract, validate_layout  # noqa: E402
 
 
 CELLS = (
@@ -153,12 +158,12 @@ def validate_members(tar: tarfile.TarFile) -> tuple[list[tarfile.TarInfo], dict[
     for name in required:
         if not seen[name].isfile():
             raise InstallError(f"required product member is not a file: {name}")
-    app_names = {"l3/app.json", "l3/example-app.json"} & seen.keys()
-    if len(app_names) != 1:
-        raise InstallError("product archive must contain exactly one canonical L3 app")
-    app_name = next(iter(app_names))
-    if not seen[app_name].isfile():
-        raise InstallError("canonical L3 app is not a file")
+    # l3/app.json is the product app and the only one: an example app may
+    # travel in the archive but is never read or renamed into its place.
+    if APP not in seen:
+        raise InstallError(f"product archive has no {APP}")
+    if not seen[APP].isfile():
+        raise InstallError(f"{APP} is not a file")
     for name in seen:
         if name.startswith("l1/") and name not in required:
             raise InstallError(f"unexpected L1 payload: {name}")
@@ -176,6 +181,23 @@ def read_json_member(tar: tarfile.TarFile, member: tarfile.TarInfo) -> dict:
     if not isinstance(value, dict):
         raise InstallError(f"product member must contain a JSON object: {member.name}")
     return value
+
+
+def check_archive_app(tar: tarfile.TarFile, seen: dict[str, tarfile.TarInfo]) -> None:
+    """The L3 app contract on the archive's own members, before extraction."""
+    programs = {
+        name: read_json_member(tar, member)
+        for name, member in sorted(seen.items())
+        if name.startswith("l2/programs/") and name.endswith(".json") and member.isfile()
+    }
+    try:
+        check_contract(
+            read_json_member(tar, seen[APP]),
+            read_json_member(tar, seen["l2/host-abi.json"]),
+            programs,
+        )
+    except L3AppError as error:
+        raise InstallError(f"L3 app contract: {error}") from None
 
 
 def validate_manifest(tar: tarfile.TarFile, seen: dict[str, tarfile.TarInfo], selected_cell: str) -> dict:
@@ -248,12 +270,13 @@ def install(archive: Path, checksum: Path, destination: Path, selected_cell: str
         with tarfile.open(raw_tar, "r:") as tar:
             members, seen = validate_members(tar)
             manifest = validate_manifest(tar, seen, selected_cell)
+            check_archive_app(tar, seen)
             extract_regular_files(tar, members, image)
-        example_app = image / "l3/example-app.json"
-        installed_app = image / "l3/app.json"
-        if example_app.is_file():
-            shutil.copyfile(example_app, installed_app)
-            installed_app.chmod(example_app.stat().st_mode & 0o777)
+        # The same contract again on the bytes as installed.
+        try:
+            validate_layout(image)
+        except L3AppError as error:
+            raise InstallError(f"installed L3 app contract: {error}") from None
         raw_tar.unlink()
         os.replace(image, destination)
         temporary.rmdir()

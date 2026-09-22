@@ -25,6 +25,18 @@ CELLS = (
 MAX_LOADER_BYTES = 2 * 1024 * 1024
 
 
+def cargo_version(repo: Path) -> str:
+    """The root package version: the packer refuses any other."""
+    in_package = False
+    for raw_line in (repo / "Cargo.toml").read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if line.startswith("["):
+            in_package = line == "[package]"
+        elif in_package and line.startswith("version = "):
+            return line.split('"', 2)[1]
+    raise AssertionError("root Cargo.toml package version is missing")
+
+
 def run_pack(
     repo: Path,
     candidate: Path,
@@ -56,7 +68,7 @@ def run_pack(
 
 def main() -> None:
     repo = Path(__file__).resolve().parents[1]
-    version = "0.1.16"
+    version = cargo_version(repo)
     source_sha = "1" * 40
     with tempfile.TemporaryDirectory(prefix="chassis-candidate-pack-test-") as tmp_raw:
         tmp = Path(tmp_raw)
@@ -131,6 +143,11 @@ def main() -> None:
             raise SystemExit("Candidate chassis provenance is invalid")
         with tarfile.open(output, "r:gz") as archive:
             identity = json.load(archive.extractfile("l3/product-identity.json"))
+            # The product app is the repository's own, byte for byte -- the
+            # same bytes the CI packer ships.
+            packed_app = archive.extractfile("l3/app.json").read()
+            if packed_app != (repo / "crates/agenterm-chassis/l3/app.json").read_bytes():
+                raise SystemExit("Candidate l3/app.json is not the repository product app")
             if identity["version"] != version or identity["source_sha"] != source_sha:
                 raise SystemExit("product identity does not bind version and source SHA")
             for cell, digest in expected.items():

@@ -7,8 +7,13 @@ import json
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from pathlib import Path
+
+sys.dont_write_bytecode = True  # no __pycache__ beside a shared checkout
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from chassis_l3_app import L3AppError, validate_layout  # noqa: E402
 
 CELLS = (
     "win-x86_64",
@@ -22,10 +27,10 @@ CELLS = (
 
 def main() -> None:
     repo = Path(__file__).resolve().parents[1]
-    abi = repo / "crates/agenterm-chassis/l2/host-abi.json"
-    app = repo / "crates/agenterm-chassis/l3/example-app.json"
+    l2 = repo / "crates/agenterm-chassis/l2"
+    l3 = repo / "crates/agenterm-chassis/l3"
     compose = repo / "scripts/chassis-compose-product.py"
-    if not abi.is_file() or not app.is_file() or not compose.is_file():
+    if not l2.is_dir() or not l3.is_dir() or not compose.is_file():
         raise SystemExit("missing chassis L2/L3 or compose script")
 
     with tempfile.TemporaryDirectory(prefix="chassis-ci-pack-") as tmp_raw:
@@ -35,10 +40,14 @@ def main() -> None:
             cell_dir = layout / "l1" / cell
             cell_dir.mkdir(parents=True)
             (cell_dir / "loader").write_bytes(f"CHASSIS-L1-STUB:{cell}\n".encode())
-        (layout / "l2").mkdir()
-        shutil.copyfile(abi, layout / "l2" / "host-abi.json")
-        (layout / "l3").mkdir()
-        shutil.copyfile(app, layout / "l3" / "app.json")
+        # The same L2 and L3 trees the Candidate packer uses, so both paths
+        # ship the same product app bytes and pass the same contract.
+        shutil.copytree(l2, layout / "l2")
+        shutil.copytree(l3, layout / "l3")
+        try:
+            validate_layout(layout)
+        except L3AppError as error:
+            raise SystemExit(f"chassis L3 app contract: {error}") from None
         archive = tmp / "product.tgz"
         report = subprocess.run(
             [sys.executable, str(compose), "--from", str(layout), "--out", str(archive)],
@@ -51,6 +60,10 @@ def main() -> None:
             raise SystemExit(
                 f"compose failed\nstdout:\n{report.stdout}\nstderr:\n{report.stderr}"
             )
+        with tarfile.open(archive, "r:gz") as packed:
+            member = packed.extractfile("l3/app.json")
+            if member is None or member.read() != (l3 / "app.json").read_bytes():
+                raise SystemExit("CI pack l3/app.json is not the repository product app")
         data = json.loads(report.stdout)
         if data.get("invokes_cargo") is not False:
             raise SystemExit("compose must not invoke cargo")

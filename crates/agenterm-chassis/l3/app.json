@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "layer": "chassis-l3",
+  "name": "agenterm.workbench",
+  "capabilities": [
+    "tabs.active",
+    "tabs.active-position",
+    "tabs.count",
+    "tabs.step"
+  ]
+}

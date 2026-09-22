@@ -25,6 +25,18 @@ CELLS = (
 NATIVE_CELL = "lnx-x86_64"
 
 
+def cargo_version(repo: Path) -> str:
+    """The root package version: the packer refuses any other."""
+    in_package = False
+    for raw_line in (repo / "Cargo.toml").read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if line.startswith("["):
+            in_package = line == "[package]"
+        elif in_package and line.startswith("version = "):
+            return line.split('"', 2)[1]
+    raise AssertionError("root Cargo.toml package version is missing")
+
+
 def file_member(name: str, data: bytes, mode: int = 0o644) -> tarfile.TarInfo:
     member = tarfile.TarInfo(name)
     member.size = len(data)
@@ -49,18 +61,37 @@ def product_members() -> list[tuple[tarfile.TarInfo, bytes | None]]:
         "capabilities": [{"id": "tabs.list", "kind": "host_call", "impl": "native"}],
     }
     app = {"schema": 1, "name": "install.test", "capabilities": ["tabs.list"]}
+    program = {"caps": ["tabs.list"], "ops": [["call", "tabs.list"], ["halt"]]}
+    # An example app may travel with the product; it is never the app.
+    example = {"schema": 1, "name": "example.app", "capabilities": ["protocol.info"]}
     entries = [(file_member("manifest.json", json.dumps(manifest).encode()), json.dumps(manifest).encode())]
     entries.extend((file_member(f"l1/{cell}/loader", data, 0o755), data) for cell, data in loaders.items())
     entries.append((file_member("l2/host-abi.json", json.dumps(abi).encode()), json.dumps(abi).encode()))
-    # Candidate currently names the repository payload example-app.json; the
-    # installer exposes the canonical app.json path consumed by workbench.
     entries.append(
         (
-            file_member("l3/example-app.json", json.dumps(app).encode()),
-            json.dumps(app).encode(),
+            file_member("l2/programs/list.json", json.dumps(program).encode()),
+            json.dumps(program).encode(),
+        )
+    )
+    entries.append((file_member("l3/app.json", json.dumps(app).encode()), json.dumps(app).encode()))
+    entries.append(
+        (
+            file_member("l3/example-app.json", json.dumps(example).encode()),
+            json.dumps(example).encode(),
         )
     )
     return entries
+
+
+def replace_member(
+    entries: list[tuple[tarfile.TarInfo, bytes | None]], name: str, value: object | None
+) -> list[tuple[tarfile.TarInfo, bytes | None]]:
+    """`entries` with `name` replaced by `value` as JSON, or removed for None."""
+    out = [(member, data) for member, data in entries if member.name != name]
+    if value is not None:
+        payload = json.dumps(value).encode()
+        out.append((file_member(name, payload), payload))
+    return out
 
 
 def write_archive(path: Path, entries: list[tuple[tarfile.TarInfo, bytes | None]]) -> Path:
@@ -78,7 +109,7 @@ def write_archive(path: Path, entries: list[tuple[tarfile.TarInfo, bytes | None]
 def write_candidate_product(repo: Path, root: Path) -> tuple[Path, Path]:
     candidate = root / "candidate-input"
     candidate.mkdir()
-    version = "0.1.16"
+    version = cargo_version(repo)
     source_sha = "2" * 40
     (candidate / f"agenterm-{version}-sbom.spdx.json").write_text(
         '{"spdxVersion":"SPDX-2.3"}\n', encoding="utf-8"
@@ -186,9 +217,13 @@ def main() -> None:
             raise SystemExit("valid install report lost product identity")
         # This is the directory contract consumed by workbench --chassis-image.
         manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
-        app = json.loads((destination / "l3/app.json").read_text(encoding="utf-8"))
-        if manifest["cells"] != list(CELLS) or app["name"] != "example.app":
+        installed_app = (destination / "l3/app.json").read_bytes()
+        app = json.loads(installed_app)
+        if manifest["cells"] != list(CELLS) or app["name"] != "agenterm.workbench":
             raise SystemExit("installed image does not satisfy workbench directory contract")
+        # The product app is the repository's own, byte for byte.
+        if installed_app != (repo / "crates/agenterm-chassis/l3/app.json").read_bytes():
+            raise SystemExit("installed l3/app.json is not the repository product app")
         loader = destination / f"l1/{NATIVE_CELL}/loader"
         if not loader.is_file() or loader.stat().st_mode & 0o777 != 0o755:
             raise SystemExit("installed native loader mode is not executable-only policy")
@@ -268,6 +303,24 @@ def main() -> None:
                 payload = b"x" * (2 * 1024 * 1024 + 1)
                 oversized_loader[index] = (file_member(member.name, payload, 0o755), payload)
         expect_rejected(repo, root, "loader-size", oversized_loader, "loader size is invalid")
+
+        # The L3 app contract, fail closed before anything is installed.
+        only_example = replace_member(product_members(), "l3/app.json", None)
+        expect_rejected(repo, root, "only-example-app", only_example, "has no l3/app.json")
+
+        uncovered = replace_member(
+            product_members(),
+            "l3/app.json",
+            {"schema": 1, "name": "install.test", "capabilities": []},
+        )
+        expect_rejected(repo, root, "uncovered-cap", uncovered, "lacks capabilities its L2 programs call")
+
+        unknown = replace_member(
+            product_members(),
+            "l3/app.json",
+            {"schema": 1, "name": "install.test", "capabilities": ["tabs.list", "no.such.cap"]},
+        )
+        expect_rejected(repo, root, "unknown-cap", unknown, "absent from the L2 Host ABI")
 
         print("PASS: chassis product installer is atomic and fail-closed")
         print("PASS: installed directory satisfies workbench image contract")

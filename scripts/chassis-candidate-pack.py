@@ -17,6 +17,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.dont_write_bytecode = True  # no __pycache__ beside a shared checkout
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from chassis_l3_app import L3AppError, validate_layout  # noqa: E402
+
 
 CELLS = (
     "win-x86_64",
@@ -141,6 +145,12 @@ def main() -> None:
             frozen[cell] = {"asset": f"chassis-l1/{cell}/loader", "sha256": sha256_file(loader)}
         shutil.copytree(l2, layout / "l2")
         shutil.copytree(l3, layout / "l3")
+        # The product app is the repository's l3/app.json, byte for byte, and
+        # it must cover every bundled L2 program before anything is composed.
+        try:
+            validate_layout(layout)
+        except L3AppError as error:
+            raise SystemExit(f"chassis L3 app contract: {error}") from None
         (layout / "l3" / "product-identity.json").write_text(
             json.dumps(
                 {

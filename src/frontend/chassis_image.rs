@@ -220,6 +220,13 @@ fn load_image_at(root: &Path, between: &dyn Fn()) -> Result<LoadedChassisImage, 
     // The id names the bytes read here. The same set is read again after
     // every check and parse below; if the directory changed in between, the
     // id would not describe what runs, so the load is refused.
+    // The L1 layout check reports a missing app as a bare I/O error; name it.
+    if !root.join("l3/app.json").is_file() {
+        return Err(
+            "chassis image has no l3/app.json, the product L3 app; an example app is never read in its place"
+                .to_owned(),
+        );
+    }
     let before = image_id_of(&image_files(root, native_cell)?);
     between();
     agenterm_chassis::check_product_image(root)
@@ -620,6 +627,19 @@ mod tests {
         assert_ne!(a, b);
         assert_ne!(a, c);
         assert_ne!(b, c);
+    }
+
+    #[test]
+    fn an_image_without_the_product_app_says_so() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        write_image(tmp.path(), None);
+        fs::rename(
+            tmp.path().join("l3/app.json"),
+            tmp.path().join("l3/example-app.json"),
+        )
+        .expect("rename");
+        let error = load_image(tmp.path()).expect_err("no app");
+        assert!(error.contains("no l3/app.json"), "{error}");
     }
 
     #[test]
