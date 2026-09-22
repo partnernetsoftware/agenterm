@@ -25,6 +25,7 @@ pub(crate) struct LoadedChassisImage {
     pub(crate) native_loader: PathBuf,
     pub(crate) l3_name: String,
     active_tab_program: Program,
+    adjacent_tab_program: Program,
     host_abi: String,
     declared_capabilities: Vec<String>,
     identity: ChassisImageIdentity,
@@ -243,6 +244,19 @@ fn load_image_at(root: &Path, between: &dyn Fn()) -> Result<LoadedChassisImage, 
     .map_err(|error| format!("cannot parse chassis L2 active-tab program: {error}"))?;
     let active_tab_program = assemble(&source, Some(&app.capabilities))
         .map_err(|error| format!("cannot assemble chassis L2 active-tab program: {error}"))?;
+    // next/previous-window is decided by this program whenever an image is
+    // loaded; an image without it is refused here rather than falling back.
+    let adjacent_source: L2Source = serde_json::from_slice(
+        &std::fs::read(root.join("l2/programs/adjacent-tab.json")).map_err(|error| {
+            format!(
+                "cannot read chassis L2 adjacent-tab program: {}",
+                error.kind()
+            )
+        })?,
+    )
+    .map_err(|error| format!("cannot parse chassis L2 adjacent-tab program: {error}"))?;
+    let adjacent_tab_program = assemble(&adjacent_source, Some(&app.capabilities))
+        .map_err(|error| format!("cannot assemble chassis L2 adjacent-tab program: {error}"))?;
     let after = image_id_of(&image_files(root, native_cell)?);
     if after != before {
         return Err("chassis image changed while it was being verified and loaded".to_owned());
@@ -256,6 +270,7 @@ fn load_image_at(root: &Path, between: &dyn Fn()) -> Result<LoadedChassisImage, 
         native_loader,
         l3_name: app.name,
         active_tab_program,
+        adjacent_tab_program,
         host_abi,
         declared_capabilities: app.capabilities,
         identity: ChassisImageIdentity {
@@ -283,6 +298,64 @@ pub(crate) fn eval_active_tab<H: HostCallback>(
     )
     .map_err(|error| error.to_string())?;
     Ok((value, dispatcher.into_host()))
+}
+
+/// The tab next to the active one in `step` (+1 next, -1 previous) among
+/// `count` tabs, decided by the loaded image's L2 `adjacent-tab` program.
+/// Any failure -- the program, the dispatcher, or an answer outside
+/// `0..count` -- is an error for the caller to report; there is no fallback.
+pub(crate) fn eval_adjacent_tab(
+    image: &LoadedChassisImage,
+    active_position: usize,
+    count: usize,
+    step: i32,
+) -> Result<usize, String> {
+    let facts = AdjacentTabFacts {
+        active_position: i64::try_from(active_position).map_err(|_| "too many tabs".to_owned())?,
+        count: i64::try_from(count).map_err(|_| "too many tabs".to_owned())?,
+        step: i64::from(step),
+    };
+    let mut dispatcher =
+        Dispatcher::from_host_abi_json(&image.host_abi, &image.declared_capabilities, facts)
+            .map_err(|error| format!("chassis_l2_adjacent_tab_failed: {error}"))?;
+    let value = agenterm_chassis::vm::run(
+        &image.adjacent_tab_program,
+        &mut dispatcher,
+        agenterm_chassis::vm::DEFAULT_MAX_STEPS,
+    )
+    .map_err(|error| format!("chassis_l2_adjacent_tab_failed: {error}"))?;
+    usize::try_from(value)
+        .ok()
+        .filter(|position| *position < count)
+        .ok_or_else(|| {
+            format!("chassis_l2_adjacent_tab_failed: program answered {value} for {count} tabs")
+        })
+}
+
+/// The three facts the `adjacent-tab` program may read, and nothing else.
+struct AdjacentTabFacts {
+    active_position: i64,
+    count: i64,
+    step: i64,
+}
+
+impl HostCallback for AdjacentTabFacts {
+    fn call(&mut self, capability: &str, parameters: &Value) -> Result<Value, String> {
+        if parameters != &serde_json::json!({}) {
+            return Err(format!("`{capability}` takes no parameters"));
+        }
+        match capability {
+            "tabs.active-position" => Ok(Value::from(self.active_position)),
+            "tabs.count" => Ok(Value::from(self.count)),
+            "tabs.step" => Ok(Value::from(self.step)),
+            other => Err(format!("unsupported adjacent-tab call `{other}`")),
+        }
+    }
+}
+
+/// The loaded image, if this process loaded one.
+pub(crate) fn loaded_image() -> Option<&'static LoadedChassisImage> {
+    LOADED_IMAGE.get()
 }
 
 struct ValidationOnlyHost;
@@ -351,13 +424,25 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
+/// A loaded image built from the repository's L2 in a temporary directory,
+/// for tests elsewhere in the crate that need the product rule.
+#[cfg(test)]
+pub(crate) fn test_image_with_repository_l2() -> LoadedChassisImage {
+    let dir = tempfile::tempdir().expect("tmp");
+    tests::write_image(dir.path(), None);
+    let image = load_image(dir.path()).expect("load");
+    // The loaded image keeps its bytes in memory; the directory can go.
+    drop(dir);
+    image
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use agenterm_chassis::CELLS;
     use std::fs;
 
-    fn write_image(root: &Path, l3_note: Option<&str>) {
+    pub(super) fn write_image(root: &Path, l3_note: Option<&str>) {
         let mut hashes = serde_json::Map::new();
         for cell in CELLS {
             let dir = root.join("l1").join(cell);
@@ -382,12 +467,17 @@ mod tests {
             include_str!("../../crates/agenterm-chassis/l2/programs/active-tab.json"),
         )
         .expect("program");
+        fs::write(
+            root.join("l2/programs/adjacent-tab.json"),
+            include_str!("../../crates/agenterm-chassis/l2/programs/adjacent-tab.json"),
+        )
+        .expect("adjacent program");
         fs::create_dir_all(root.join("l3")).expect("l3");
         let note = l3_note.unwrap_or("");
         fs::write(
             root.join("l3/app.json"),
             format!(
-                r#"{{"schema":1,"name":"workbench","capabilities":["tabs.active"],"note":"{note}"}}"#
+                r#"{{"schema":1,"name":"workbench","capabilities":["tabs.active","tabs.active-position","tabs.count","tabs.step"],"note":"{note}"}}"#
             ),
         )
         .expect("app");
@@ -530,6 +620,47 @@ mod tests {
         assert_ne!(a, b);
         assert_ne!(a, c);
         assert_ne!(b, c);
+    }
+
+    #[test]
+    fn an_image_without_the_adjacent_tab_program_is_refused() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        write_image(tmp.path(), None);
+        fs::remove_file(tmp.path().join("l2/programs/adjacent-tab.json")).expect("remove");
+        let error = load_image(tmp.path()).expect_err("missing program");
+        assert!(error.contains("adjacent-tab"), "{error}");
+    }
+
+    /// A program answering outside the tab range, or failing to run, is an
+    /// error for the caller; nothing falls back to the built-in rule.
+    #[test]
+    fn a_failing_or_out_of_range_program_is_an_error() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        write_image(tmp.path(), None);
+        let program = tmp.path().join("l2/programs/adjacent-tab.json");
+        fs::write(
+            &program,
+            r#"{"caps":["tabs.count"],"ops":[["call","tabs.count"],["halt"]]}"#,
+        )
+        .expect("out of range");
+        let image = load_image(tmp.path()).expect("load");
+        let error = eval_adjacent_tab(&image, 0, 3, 1).expect_err("3 is not a position");
+        assert!(
+            error.starts_with("chassis_l2_adjacent_tab_failed"),
+            "{error}"
+        );
+
+        fs::write(
+            &program,
+            r#"{"caps":["tabs.count"],"ops":[["add"],["halt"]]}"#,
+        )
+        .expect("underflow");
+        let image = load_image(tmp.path()).expect("load");
+        let error = eval_adjacent_tab(&image, 0, 3, 1).expect_err("stack underflow");
+        assert!(
+            error.starts_with("chassis_l2_adjacent_tab_failed"),
+            "{error}"
+        );
     }
 
     /// An image edited while it is being verified is refused rather than

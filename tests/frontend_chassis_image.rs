@@ -44,10 +44,15 @@ fn write_installed_image(root: &Path) {
         include_str!("../crates/agenterm-chassis/l2/programs/active-tab.json"),
     )
     .expect("active-tab program");
+    fs::write(
+        root.join("l2/programs/adjacent-tab.json"),
+        include_str!("../crates/agenterm-chassis/l2/programs/adjacent-tab.json"),
+    )
+    .expect("adjacent-tab program");
     fs::create_dir_all(root.join("l3")).expect("l3");
     fs::write(
         root.join("l3/app.json"),
-        r#"{"schema":1,"name":"workbench","capabilities":["tabs.active"]}"#,
+        r#"{"schema":1,"name":"workbench","capabilities":["tabs.active","tabs.active-position","tabs.count","tabs.step"]}"#,
     )
     .expect("app manifest");
     fs::write(

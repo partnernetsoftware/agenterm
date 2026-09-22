@@ -1034,14 +1034,31 @@ pub(crate) trait ControlHost {
         id: u64,
     ) -> Result<crate::terminal_runtime::TerminalShutdownReceipt, String>;
 
-    /// Adjacent tab position for select-window -n/-p. Default: None.
-    fn adjacent_tab_position(&self, direction: i32) -> Option<usize> {
+    /// Adjacent tab position for select-window -n/-p and next/previous-window:
+    /// `Ok(None)` when there are no tabs. With a chassis image loaded, the
+    /// image's L2 `adjacent-tab` program decides and any failure of it is an
+    /// error, never a silent return to the built-in rule; without one, the
+    /// built-in rule below is the product behaviour.
+    fn adjacent_tab_position(&self, direction: i32) -> Result<Option<usize>, String> {
         let tabs = self.tabs();
         if tabs.is_empty() {
-            return None;
+            return Ok(None);
         }
-        let current = resolve_target_position(tabs, self.active_id(), None).unwrap_or(0) as i32;
-        Some((current + direction).rem_euclid(tabs.len() as i32) as usize)
+        let current = resolve_target_position(tabs, self.active_id(), None).unwrap_or(0);
+        if let Some(image) = crate::frontend::chassis_image::loaded_image() {
+            return crate::frontend::chassis_image::eval_adjacent_tab(
+                image,
+                current,
+                tabs.len(),
+                direction,
+            )
+            .map(Some);
+        }
+        Ok(Some(builtin_adjacent_tab_position(
+            current,
+            tabs.len(),
+            direction,
+        )))
     }
 
     fn resolve_parent_id(&self, target: &str) -> Result<Option<u64>, String> {
@@ -1585,6 +1602,11 @@ pub(crate) enum InstancePickerTarget {
 /// exactly what they were before this leaf. With a selection it projects the
 /// producer's own [`serde_json::Value`] and renders that: no text is parsed and
 /// nothing is re-spelled.
+/// The built-in next/previous rule: step and wrap at both ends.
+pub(crate) fn builtin_adjacent_tab_position(current: usize, count: usize, direction: i32) -> usize {
+    (current as i32 + direction).rem_euclid(count as i32) as usize
+}
+
 fn protocol_info_response(host: &mut dyn ControlHost, args: &[String]) -> IpcResponse {
     let value =
         crate::client::protocol_info_value_with_ui_bridge("running_host", host.ui_bridge_facts());
@@ -2428,10 +2450,25 @@ pub(crate) fn dispatch_shared_command(
             }
         }
         "selectw" | "select-window" => {
-            let position = if has_option(args, "-n") {
-                host.adjacent_tab_position(1)
+            let adjacent = if has_option(args, "-n") {
+                Some(host.adjacent_tab_position(1))
             } else if has_option(args, "-p") {
-                host.adjacent_tab_position(-1)
+                Some(host.adjacent_tab_position(-1))
+            } else {
+                None
+            };
+            let position = if let Some(adjacent) = adjacent {
+                match adjacent {
+                    Ok(position) => position,
+                    Err(error) => {
+                        return Some(IpcResponse::typed_failure(
+                            error,
+                            "chassis_l2_adjacent_tab_failed",
+                            "internal",
+                            false,
+                        ));
+                    }
+                }
             } else {
                 resolve_target_position(host.tabs(), host.active_id(), option_value(args, "-t"))
             };
@@ -2907,8 +2944,17 @@ pub(crate) fn dispatch_shared_command(
             } else {
                 -1
             };
-            let Some(position) = host.adjacent_tab_position(direction) else {
-                return Some(IpcResponse::failure("no windows"));
+            let position = match host.adjacent_tab_position(direction) {
+                Ok(Some(position)) => position,
+                Ok(None) => return Some(IpcResponse::failure("no windows")),
+                Err(error) => {
+                    return Some(IpcResponse::typed_failure(
+                        error,
+                        "chassis_l2_adjacent_tab_failed",
+                        "internal",
+                        false,
+                    ));
+                }
             };
             match host.select_tab_at(position) {
                 Ok(()) => Some(IpcResponse::success("")),
@@ -3034,6 +3080,27 @@ fn foreground_signal_failure(error: PtyError) -> IpcResponse {
 
 #[cfg(test)]
 mod tests {
+    /// The image's default L2 `adjacent-tab` program is the built-in rule,
+    /// input for input, so loading an image changes where the rule lives and
+    /// not what next/previous-window does.
+    #[test]
+    fn the_default_adjacent_tab_program_matches_the_builtin_rule_exhaustively() {
+        let image = crate::frontend::chassis_image::test_image_with_repository_l2();
+        for count in 1..=40usize {
+            for current in 0..count {
+                for step in [1, -1] {
+                    assert_eq!(
+                        crate::frontend::chassis_image::eval_adjacent_tab(
+                            &image, current, count, step
+                        ),
+                        Ok(super::builtin_adjacent_tab_position(current, count, step)),
+                        "count {count} current {current} step {step}"
+                    );
+                }
+            }
+        }
+    }
+
     use super::*;
 
     fn mouse_args(rest: &[&str]) -> Vec<String> {

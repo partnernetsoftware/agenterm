@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "name": "adjacent-tab",
+  "layer": "chassis-l2",
+  "format": "chassis-l2-ir-v1",
+  "entry": "next-or-previous-tab-position",
+  "note": "Default product rule: step from the active position and wrap at both ends, identical to (position + step).rem_euclid(count). The VM has no modulo, so the two wrap cases are explicit branches.",
+  "caps": [
+    "tabs.active-position",
+    "tabs.step",
+    "tabs.count"
+  ],
+  "ops": [
+    [
+      "call",
+      "tabs.active-position"
+    ],
+    [
+      "call",
+      "tabs.step"
+    ],
+    [
+      "add"
+    ],
+    [
+      "call",
+      "tabs.count"
+    ],
+    [
+      "eq"
+    ],
+    [
+      "jump_if_zero",
+      8
+    ],
+    [
+      "push",
+      0
+    ],
+    [
+      "halt"
+    ],
+    [
+      "call",
+      "tabs.active-position"
+    ],
+    [
+      "call",
+      "tabs.step"
+    ],
+    [
+      "add"
+    ],
+    [
+      "push",
+      -1
+    ],
+    [
+      "eq"
+    ],
+    [
+      "jump_if_zero",
+      18
+    ],
+    [
+      "call",
+      "tabs.count"
+    ],
+    [
+      "push",
+      1
+    ],
+    [
+      "sub"
+    ],
+    [
+      "halt"
+    ],
+    [
+      "call",
+      "tabs.active-position"
+    ],
+    [
+      "call",
+      "tabs.step"
+    ],
+    [
+      "add"
+    ],
+    [
+      "halt"
+    ]
+  ]
+}

@@ -48,14 +48,18 @@ fn write_image(root: &Path, l2_note: &str) {
     }
     let repo_l2 = Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/agenterm-chassis/l2");
     fs::create_dir_all(root.join("l2/programs")).expect("l2");
-    for file in ["host-abi.json", "programs/active-tab.json"] {
+    for file in [
+        "host-abi.json",
+        "programs/active-tab.json",
+        "programs/adjacent-tab.json",
+    ] {
         fs::copy(repo_l2.join(file), root.join("l2").join(file)).expect("copy l2");
     }
     fs::write(root.join("l2/README.md"), format!("test image{l2_note}\n")).expect("readme");
     fs::create_dir_all(root.join("l3")).expect("l3");
     fs::write(
         root.join("l3/app.json"),
-        r#"{"schema":1,"name":"workbench","capabilities":["tabs.active"]}"#,
+        r#"{"schema":1,"name":"workbench","capabilities":["tabs.active","tabs.active-position","tabs.count","tabs.step"]}"#,
     )
     .expect("app");
     let manifest = serde_json::json!({
@@ -297,4 +301,88 @@ fn no_gui_path_attaches_without_the_image_check() {
         offenders.is_empty(),
         "GUI attach without the image check: {offenders:?}"
     );
+}
+
+/// The public next-window journey on an image-backed authority: three tabs,
+/// select the last, step forward, read the active tab.
+fn next_window_from_last(authority: &Authority) -> (Output, String) {
+    for n in 1..=3 {
+        assert!(
+            authority
+                .cli(&["new-window", "-n", &format!("t{n}")])
+                .status
+                .success()
+        );
+    }
+    let listed = authority.cli(&["list-windows", "-F", "#{window_id}"]);
+    let last = String::from_utf8_lossy(&listed.stdout)
+        .lines()
+        .last()
+        .expect("three tabs")
+        .to_owned();
+    assert!(
+        authority
+            .cli(&["select-window", "-t", &last])
+            .status
+            .success()
+    );
+    let stepped = authority.cli(&["next-window"]);
+    let snapshot = authority.cli(&["ui-snapshot", "--select", "active_tab_id"]);
+    let active: serde_json::Value =
+        serde_json::from_slice(&snapshot.stdout).expect("snapshot json");
+    (
+        stepped,
+        active["active_tab_id"]
+            .as_str()
+            .expect("active tab")
+            .to_owned(),
+    )
+}
+
+/// The default L2 rule is the product rule: from the last tab, next wraps to
+/// the first, exactly as the built-in rule does without an image.
+#[test]
+fn the_default_image_rule_wraps_like_the_builtin_rule() {
+    let (_dir, a, _b) = images();
+    let with_image = Authority::start(Some(&a)).expect("server with A");
+    let (stepped, active) = next_window_from_last(&with_image);
+    assert!(stepped.status.success());
+    assert_eq!(active, "@1");
+    let plain = Authority::start(None).expect("plain server");
+    let (stepped, active) = next_window_from_last(&plain);
+    assert!(stepped.status.success());
+    assert_eq!(active, "@1");
+}
+
+/// With an image loaded, its L2 program decides: a program answering outside
+/// the tabs fails the command and leaves the active tab alone -- it does not
+/// fall back to the built-in rule.
+#[test]
+fn a_failing_image_rule_fails_the_command_without_fallback() {
+    let (_dir, a, _b) = images();
+    fs::write(
+        a.join("l2/programs/adjacent-tab.json"),
+        r#"{"caps":["tabs.count"],"ops":[["call","tabs.count"],["halt"]]}"#,
+    )
+    .expect("out-of-range program");
+    let authority = Authority::start(Some(&a)).expect("server");
+    let (stepped, active) = next_window_from_last(&authority);
+    assert!(!stepped.status.success());
+    let stderr = String::from_utf8_lossy(&stepped.stderr);
+    assert!(
+        stderr.contains("chassis_l2_adjacent_tab_failed"),
+        "{stderr}"
+    );
+    assert_eq!(active, "@3", "the active tab did not move");
+}
+
+#[test]
+fn an_image_without_the_rule_is_refused_at_start() {
+    let (_dir, a, _b) = images();
+    fs::remove_file(a.join("l2/programs/adjacent-tab.json")).expect("remove");
+    let error = match Authority::start(Some(&a)) {
+        Ok(_) => panic!("an image without its rule must refuse the start"),
+        Err(error) => error,
+    };
+    assert!(error.contains("adjacent-tab"), "{error}");
 }

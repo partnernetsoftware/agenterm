@@ -171,13 +171,18 @@ impl Fixture {
             .to_string(),
         )
         .expect("L2 program");
+        fs::write(
+            staged.join("l2/programs/adjacent-tab.json"),
+            include_str!("../crates/agenterm-chassis/l2/programs/adjacent-tab.json"),
+        )
+        .expect("adjacent-tab program");
         fs::create_dir_all(staged.join("l3")).expect("L3");
         fs::write(
             staged.join("l3/app.json"),
             json!({
                 "schema": 1,
                 "name": "chassis.e2e",
-                "capabilities": ["tabs.active"],
+                "capabilities": ["tabs.active", "tabs.active-position", "tabs.count", "tabs.step"],
             })
             .to_string(),
         )
