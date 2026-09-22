@@ -7,7 +7,8 @@ CU=${AGENTERM_CU:-agenterm-cu}
 OUT=${1:-docs/agenterm-cu-verbs.md}
 command -v "$CU" >/dev/null || { echo "gen-cu-verbs-doc: $CU not on PATH" >&2; exit 2; }
 "$CU" verbs --json > /tmp/.cu-verbs.$$ 2>/dev/null || { echo "gen-cu-verbs-doc: verbs --json failed" >&2; exit 2; }
-trap 'rm -f /tmp/.cu-verbs.$$' EXIT
+TMP=$(mktemp "${OUT}.tmp.XXXXXX") || { echo "gen-cu-verbs-doc: cannot stage $OUT" >&2; exit 2; }
+trap 'rm -f /tmp/.cu-verbs.$$ "$TMP"' EXIT
 {
   echo "# agenterm-cu verb reference"
   echo
@@ -32,19 +33,26 @@ for fam in families:
     print(f"\n## {fam}\n")
     for v in [x for x in verbs if x["family"] == fam]:
         print(f"### `{v['name']}`\n")
-        if v.get("usage"):
-            print("```text")
-            print(v["usage"])
-            print("```\n")
         ref = subprocess.run([cu, "help", v["name"]], capture_output=True, text=True)
+        if ref.returncode != 0:
+            raise SystemExit(f"help failed for {v['name']}: {ref.returncode}")
         prose = ref.stderr.strip() or ref.stdout.strip()
+        help_lines = {line.strip() for line in prose.splitlines()}
+        extra_usage = [line for line in v.get("usage", "").splitlines()
+                       if line.strip() and line.strip() not in help_lines]
+        if extra_usage:
+            print("Additional invocation forms not shown by help:\n")
+            print("```text")
+            print("\n".join(extra_usage))
+            print("```\n")
         if prose:
             print("```text")
             print(prose)
             print("```\n")
 PY
-} > "$OUT"
+} > "$TMP"
 # Keep exactly one trailing newline so regenerated references pass the tree's
 # diff hygiene check regardless of the final help block's prose spacing.
-perl -0pi -e 's/\n+\z/\n/' "$OUT"
+perl -0pi -e 's/\n+\z/\n/' "$TMP"
+mv "$TMP" "$OUT"
 echo "gen-cu-verbs-doc: wrote $OUT ($(wc -l < "$OUT") lines)"
