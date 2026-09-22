@@ -98,7 +98,7 @@ agenterm-base-<ver>-<plat>.zip
 
 ### 4.2 与现有 Rhai 供应的关系（「host API」是什么、缺什么）
 
-**先答：** 对 **自动化 / smoke / 构建 task / 用户脚本**，现有 Script API v2 **已经够用**——`std.*`、`rhai::http`、`fleet.*`（含 `ui.snapshot`、tabs、terminal capture、events、operations 目录）在 `docs/agenterm-rh-runtime.md` 里已 shipped。
+**先答：** 对 **自动化 / smoke / 构建 task / 用户脚本**，现有 Script API v2 **已经够用**——`std.*`、`rhai::http`、`fleet.*`（含 `ui.snapshot`、tabs、terminal capture、events、operations 目录）在 `docs/archive/agenterm-rh-runtime.md` 里已 shipped。
 
 **「host API」不是第二套 Rhai，也不是缩减版 runtime。** 它仅指：当 Rhai 从 **「跑完即 exit 的 task」** 变成 **「嵌在 GUI/网关进程里、长生命周期的 product pack」** 时，native 侧还需补的那几条 **嵌入钩子**——仍应 **挂进同一 Script API catalog**，用 `product.*` / `pack.*` / `cc.*` 等稳定 ID，**不**另起权限/profile 体系。
 

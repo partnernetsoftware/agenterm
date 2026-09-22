@@ -41,9 +41,9 @@ const image_reference = html.includes("src=\"assets/agenterm-workspace.png\"");
 if (!image_reference) {
   throw "docs index must use the case-exact workspace image reference";
 }
-const script_specification = html.includes("docs/agenterm-rh-runtime.md");
-if (!script_specification) {
-  throw "docs index must use the case-exact script specification path";
+const script_guide = html.includes("crates/agenterm-qjswasm/README.md");
+if (!script_guide) {
+  throw "docs index must use the case-exact current Script guide path";
 }
 const copyright = html.includes("© 2026 PARTNERNET SOFTWARE PTY LTD");
 if (!copyright) {

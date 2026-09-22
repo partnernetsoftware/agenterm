@@ -807,7 +807,7 @@ pack 目录**外**还有一个同级文件（不属于密封内容，用户改 p
 | `prd/PRD_02_02_executable_family.md` | 可执行文件家族 |
 | `plan/archive/design-llm-gateway-rhai-logic-pack.md` | LLM Logic Pack（与 CC pack 可并行） |
 | `plan/design-cc-hyper-control-agent.md` | CC 超控设计 |
-| `docs/agenterm-rh-runtime.md` | Script Runtime 用户文档（rev1 写作 `agenterm-rhai-runtime.md`，已随引擎改名） |
+| `docs/archive/agenterm-rh-runtime.md` | Script Runtime 用户文档（rev1 写作 `agenterm-rhai-runtime.md`，已随引擎改名） |
 | `src/platform/policy/paths.rs` | 数据目录解析 SSOT（`local_data_root_for_product_directory`） |
 | `src/platform/boundary_tests.rs` | 平台边界策略，约束 app_pack 模块不得自带 cfg/硬编码路径 |
 | `src/operations.rs` | `OPERATION_CATALOG`（44 个操作）；`product.*` 不并入此表 |

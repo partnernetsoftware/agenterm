@@ -65,14 +65,14 @@ write_identity() {
         printf '%s\n' 'tracked-index'
         git ls-files -s -- Cargo.toml Cargo.lock build.rs \
             rust-toolchain.toml .cargo crates src skills/acu \
-            docs/agenterm-rh-runtime.md assets agenterm.tasks.json
+            docs/archive/agenterm-rh-runtime.md assets agenterm.tasks.json
         printf '%s\n' 'tracked-worktree'
         git diff --no-ext-diff --binary -- Cargo.toml Cargo.lock build.rs \
             rust-toolchain.toml .cargo crates src skills/acu \
-            docs/agenterm-rh-runtime.md assets agenterm.tasks.json
+            docs/archive/agenterm-rh-runtime.md assets agenterm.tasks.json
         git ls-files --others --exclude-standard -- Cargo.toml Cargo.lock \
             build.rs rust-toolchain.toml .cargo crates src skills/acu \
-            docs/agenterm-rh-runtime.md assets \
+            docs/archive/agenterm-rh-runtime.md assets \
             agenterm.tasks.json > "$UNTRACKED_FILE"
         printf '%s\n' 'untracked-paths'
         cat "$UNTRACKED_FILE"

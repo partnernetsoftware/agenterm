@@ -19,7 +19,7 @@ checklist. Do not rewrite history docs wholesale.
 | Live `scripts/rhai/` tree | **archived** (74 files under `scripts/archive/rhai/`) |
 | Skills presenting `scripts/rhai/*.rhai` as live operator path | **0** (post-scrub) |
 | Skills presenting `agenterm-rhai` as preferred operator entry | **0** (post-scrub; compat shim note in macOS install skill only) |
-| Docs claiming live `scripts/rhai/` operator paths | **0** — `docs/agenterm-rh-runtime.md` correctly marks archive + shim |
+| Docs claiming live `scripts/rhai/` operator paths | **0** — `docs/archive/agenterm-rh-runtime.md` correctly marks archive + shim |
 
 ## Remaining `agenterm-rhai` by category (~354 hits, tip probe)
 
@@ -31,7 +31,7 @@ Counts exclude `scripts/archive/**`, `target/`, `dist/`.
 | **Compat tests / policy guards** | Must stay until PE drop | `tests/rhai_migration.rs`, `tests/rh_cli_forward.rs`, `tests/release_workflow_policy.rs`, `tests/rh_aot_ci_policy.rs` |
 | **Bootstrap / packaging** | Stages both `agenterm-rh` + shim | `scripts/bootstrap.sh`, `scripts/artifacts.json`, `install.sh` |
 | **Live `.rh` policy asserts** | Regression guards | `scripts/rh/check.rh`, `scripts/rh/script-smoke.rh`, `scripts/rh/startup-smoke.rh` |
-| **Historical docs / plans** | Intentional — do not mass-edit | `docs/agenterm-rh-runtime.md`, `plan/agenterm-rhai-app.md`, `plan/rh-3.md`, version plans |
+| **Historical docs / plans** | Intentional — do not mass-edit | `docs/archive/agenterm-rh-runtime.md`, `plan/agenterm-rhai-app.md`, `plan/rh-3.md`, version plans |
 | **PRD / AGENTS** | Product authority — Wave 4 sweep | `prd/PRD_02_10_rhai_scripting.md`, `AGENTS.md` |
 | **Public site** | Shim listed as `(compat)` | `docs/index.html` |
 | **Parity matrix fallback** | Explicit compat fallback only | `plan/platform-ux-parity-evidence-matrix.md` |

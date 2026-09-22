@@ -749,8 +749,8 @@ pub const OPERATION_CATALOG: &[OperationSpec] = &[
     // `capture` method is registered on the `FleetTerminal` type in
     // `src/script_fleet.rs`; the signature is spelled out in
     // `src/script_catalog.rs::fleet_operation_entry`, and it is what
-    // `docs/agenterm-rh-runtime.md` teaches users to write. There is no
-    // constant path to record, because the middle segment is a runtime value.
+    // `docs/archive/agenterm-rh-runtime.md` historically taught this form.
+    // There is no constant path because the middle segment is a runtime value.
     //
     // *Why not rename it to `fleet.terminal.capture` anyway.* That path is
     // already taken by a **different** receiver. `fleet.terminal` is a

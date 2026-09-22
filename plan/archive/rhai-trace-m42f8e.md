@@ -96,7 +96,7 @@
 - `crates/agenterm-rh/src/caller_inventory.rs` (2) [code]
 - `crates/agenterm-rh/src/check_many.rs` (3) [code]
 - `crates/agenterm-rh/src/main.rs` (2) [code]
-- `docs/agenterm-rh-runtime.md` (7) [docs]
+- `docs/archive/agenterm-rh-runtime.md` (7) [docs]
 - `docs/index.html` (4) [docs]
 - `examples/script-daily-check/README.md` (5) [docs]
 - `examples/script-daily-check/agenterm.tasks.json` (1) [tasks]
@@ -350,7 +350,7 @@ M42f8: compat-delegating = migration diagnostic only; Phase C removes Engine/com
 14. `plan/platform-ux-parity-evidence-matrix.md` (9) — Phase B doc sweep
 15. `src/script_stdlib.rs` (9) — Phase B general sweep
 16. `AGENTS.md` (8) — Phase B doc sweep
-17. `docs/agenterm-rh-runtime.md` (8) — Phase B doc sweep
+17. `docs/archive/agenterm-rh-runtime.md` (8) — Phase B doc sweep
 18. `plan/agenterm-rhai-app.md` (7) — Phase B doc sweep
 19. `prd/PRD_02_17_delivery_quality.md` (7) — Phase B doc sweep
 20. `prd/alignment-contract.json` (7) — Phase B doc sweep
@@ -435,7 +435,7 @@ M42f8: compat-delegating = migration diagnostic only; Phase C removes Engine/com
 6. **scripts/rh/*** — Scrub rhai path/fallback strings (script-smoke.rh, check.rh)
 7. **scripts/*.json configs** — powershell-migration, artifacts, qualification-gates
 8. **AGENTS.md, PRD*, plan*, skills/** — Doc/trace sweep
-9. **docs/agenterm-rh-runtime.md, bootstrap.*** — Rename/archive runtime doc references
+9. **docs/archive/agenterm-rh-runtime.md, bootstrap.*** — Rename/archive runtime doc references
 10. **src/**, **crates/agenterm-rh/** — Phase C: shim, caller-inventory, rh_host_run_script
 11. **Cargo.toml, src/bin/agenterm-rhai.rs** — Phase C: drop compat PE
 

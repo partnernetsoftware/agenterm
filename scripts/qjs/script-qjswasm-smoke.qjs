@@ -83,7 +83,7 @@ function api_contract(context, cli, runtime_dir, audit_path) {
       "script", "run", rh.join(repo, "scripts/qjs/verify-script-contract.qjs"),
       "--profile", "tool", "--timeout-ms", "180000",
       "--max-string-bytes", "8388608", "--",
-      rh.join(repo, "docs/agenterm-rh-runtime.md"),
+      rh.join(repo, "docs/archive/agenterm-rh-runtime.md"),
       catalog_path
     ],
     audit_path

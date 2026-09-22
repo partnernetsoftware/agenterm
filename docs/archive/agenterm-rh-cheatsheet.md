@@ -5,7 +5,7 @@
 > for current scripts. This manual has no current execution authority.
 
 Practical reference for writing `scripts/rh/**.rh`. The full interface tree is
-[`docs/agenterm-rh-runtime.md`](../agenterm-rh-runtime.md) — that document is a
+[`docs/archive/agenterm-rh-runtime.md`](agenterm-rh-runtime.md) — that document is a
 *specification*; this one exists to stop the syntax and semantics mistakes that
 actually cause rework. Companion: [`docs/agenterm-qjs-cheatsheet.md`](agenterm-qjs-cheatsheet.md).
 

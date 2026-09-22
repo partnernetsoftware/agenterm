@@ -5,7 +5,7 @@
 
 Parent: [AgenTerm product tree](../../PRD.md#product-tree)
 
-Runtime contract (historical Rhai): [AgenTerm Script Runtime specification](../../docs/agenterm-rh-runtime.md)
+Runtime contract (historical Rhai): [AgenTerm Script Runtime specification](../../docs/archive/agenterm-rh-runtime.md)
 
 Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
@@ -331,7 +331,7 @@ until its `.qjs` port lands (PRD 02.36 A1.2/A1.3: `path.qjs`, then the
 - **`script check-many`** was dark from 2026-08-29 through 2026-08-31. It is
   now owned by qjswasm and accepts `agenterm-qjs-check-manifest`; the separate
   `agenterm lua|sql check-many` development doors are unchanged.
-- **Docs**: `docs/agenterm-rh-runtime.md`, `docs/agenterm-rh-cheatsheet.md`,
+- **Docs**: `docs/archive/agenterm-rh-runtime.md`, `docs/archive/agenterm-rh-cheatsheet.md`,
   `PRD.md`'s rh lines, `plan/*` and `skills/*` mentions are history, not
   retargeted. `examples/script-daily-check/` (the rh "north-star" project)
   is gone.
@@ -875,7 +875,7 @@ typo to fix:
   `fleet.terminal(tab).capture(max_bytes)`. `src/script_fleet.rs` registers
   `capture` on the `FleetTerminal` type;
   `src/script_catalog.rs::fleet_operation_entry` carries that exact
-  signature; [`docs/agenterm-rh-runtime.md`](../../docs/agenterm-rh-runtime.md)
+  signature; [`docs/archive/agenterm-rh-runtime.md`](../../docs/archive/agenterm-rh-runtime.md)
   teaches users to write it. The middle segment is a runtime value, so there
   is no constant dotted path to record.
 - `fleet.terminal.capture` is not available as a substitute. `fleet.terminal`

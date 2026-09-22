@@ -1356,7 +1356,7 @@ agenterm-rhai.exe
 - clean candidate 仍只构建一次，package 消费同一批字节。
 
 README 增加一个简短 script task 示例；稳定运行时合同由
-[`docs/agenterm-rh-runtime.md`](../../docs/agenterm-rh-runtime.md)
+[`docs/archive/agenterm-rh-runtime.md`](../../docs/archive/agenterm-rh-runtime.md)
 承载，机器事实由 `agenterm-rhai.exe api --json` 承载，PRD 拥有产品
 状态，避免 README 或计划变成第二份手写手册。
 

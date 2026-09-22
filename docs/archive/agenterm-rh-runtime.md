@@ -1,15 +1,11 @@
 # AgenTerm Script Runtime Specification (Rhai-era archive)
 
-> **Operational note (2026-08):** Live repository automation runs native `.rh`
-> tasks under `scripts/rh/` through **`agenterm rh`** (task/worker/check-many
-> front door). Legacy Rhai sources live under `scripts/archive/rhai/`. The
-> **`agenterm-rhai`** compatibility shim was **retired** in Wave 4.5;
-> `run`/`eval`/`repl` on `.rhai` sources is no longer available.
-> The standalone `agenterm-rh.exe` / `agenterm-lua.exe` / `agenterm-qjs.exe` /
-> `agenterm-sql.exe` binaries were retired in favor of `agenterm rh|lua|qjs|sql`
-> subcommands (2026-08-09).
-> For current capability status see
-> [PRD_02_10](../prd/PRD_02_10_rhai_scripting.md).
+> Archived 2026-09-22. This is a historical Rhai-era contract fixture, not the
+> current script guide. For current `.qjs` usage, read
+> [`agenterm-qjswasm`'s README](../../crates/agenterm-qjswasm/README.md).
+
+> Historical scope: the native `.rh` task engine and the earlier Rhai shim are
+> both retired. This document remains as the v0.1.9 contract fixture.
 
 Status: Stable Script API v2 specification for v0.1.9 (historical Rhai contract)
 
@@ -25,10 +21,10 @@ Last reviewed: 2026-07-31
 Normative language: English
 
 Product authority:
-[Rust host and Rhai scripting PRD](../prd/PRD_02_10_rhai_scripting.md)
+[Rust host and Rhai scripting PRD](../../prd/PRD_02_10_rhai_scripting.md)
 
 Delivery plan:
-[AgenTerm v0.1.9 public plan](../plan/archive/plan-v0.1.9.md)
+[AgenTerm v0.1.9 public plan](../../plan/archive/plan-v0.1.9.md)
 
 This document defines the stable AgenTerm Rhai object and interface model for
 script authors, runtime implementers, tests, documentation generators, and

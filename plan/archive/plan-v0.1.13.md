@@ -191,7 +191,7 @@ v0.1.13  Trust & platform narrowness
    │     are not delivered to a non-frontmost child window (keyboard input
    │     remains supported)」，点名缺失能力 = 后台（非前台子窗口）指针投递；
    │     保留 typed 边界（`process_window_input_unsupported`/cause
-   │     `unsupported`，冒烟依赖该码不变）；docs/agenterm-rh-runtime.md
+   │     `unsupported`，冒烟依赖该码不变）；docs/archive/agenterm-rh-runtime.md
    │     同步改为「macOS keyboard adapter exact-PID；pointer 为 typed
    │     Unsupported」不再写「key/pointer adapters」；跨 target
    │     `cargo check --target x86_64-apple-darwin` 绿

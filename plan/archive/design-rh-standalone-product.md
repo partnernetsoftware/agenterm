@@ -471,7 +471,7 @@ Do **not** resurrect `rh_host_eval_int` / `rh_host_run_script`.
 | `check_many.rs`, `corpus.rs`, `caller_inventory.rs`, `evidence.rs`, `project_import.rs`, `bundle.rs` | **Stay** | Uses `agenterm-script-common`; **B1 must not copy these** |
 | `src/script_rh_host.rs` et al. | **Stay**; implement `rh::Host` in D1 | |
 | Language fixtures without fleet | **Copy** into rh testdata | |
-| `docs/agenterm-rh-cheatsheet.md` | AgenTerm keeps workbench docs | |
+| `docs/archive/agenterm-rh-cheatsheet.md` | AgenTerm keeps workbench docs | |
 
 ### 9. AgenTerm as embedder
 
@@ -990,7 +990,7 @@ Each PR is independently reviewable. **No GitHub repo until PR-A4 and PR-A5 are 
 ### PR-D2 — Docs: product interp vs AgenTerm AOT
 
 - **Title:** `docs: rh.com is interp; agenterm rh compile is AOT`
-- **Files:** `prd/PRD_02_10_rhai_scripting.md` (fix 32→33 fleet gap while touching), `docs/agenterm-rh-cheatsheet.md`, `plan/ARCHITECTURE.md` paragraph; rh README
+- **Files:** `prd/PRD_02_10_rhai_scripting.md` (fix 32→33 fleet gap while touching), `docs/archive/agenterm-rh-cheatsheet.md`, `plan/ARCHITECTURE.md` paragraph; rh README
 - **Depends on:** PR-D1
 - **Description:** Documentation only.
 

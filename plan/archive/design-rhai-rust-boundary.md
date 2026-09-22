@@ -8,7 +8,7 @@
 | **日期** | 2026-08-06 |
 | **状态** | 设计稿 rev1 |
 | **受众** | 产品、Script 运行时、GUI/CC、发布/证据 |
-| **关联** | `plan/archive/design-scripting-boundary-comparison.md`（**行业边界对照**）、`plan/plan-v0.1.18.md`、`plan/ARCHITECTURE.md`、`docs/agenterm-rh-runtime.md`、`prd/PRD_02_10_rhai_scripting.md`、`AGENTS.md` |
+| **关联** | `plan/archive/design-scripting-boundary-comparison.md`（**行业边界对照**）、`plan/plan-v0.1.18.md`、`plan/ARCHITECTURE.md`、`docs/archive/agenterm-rh-runtime.md`、`prd/PRD_02_10_rhai_scripting.md`、`AGENTS.md` |
 
 ---
 
@@ -199,7 +199,7 @@ L1 模块 **不得** 在 Rhai 中重写或「策略插件化」到 per-byte/per-
 
 ### B2 — 仅 Facade 出口
 
-Rhai 触达 Fleet/终端/产品面的 **唯一** 合法路径是 Script API catalog 已登记条目（`docs/agenterm-rh-runtime.md` + `script api --json`）。
+Rhai 触达 Fleet/终端/产品面的 **唯一** 合法路径是 Script API catalog 已登记条目（`docs/archive/agenterm-rh-runtime.md` + `script api --json`）。
 
 **可证明：** `script_catalog` 与 `register_*` 漂移检测（见 `plan/archive/precision-audit.md`）；未登记 = 不存在。
 

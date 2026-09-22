@@ -549,7 +549,7 @@ function assert_api_contract(context, cli, script, runtime_dir, audit_path) {
   print("STEP Script repository dogfood contract check");
   const catalog_path = rh.join(runtime_dir, "script-catalog.json");
   script_smoke_write(catalog_path, rh.stringify_pretty(catalog));
-  const spec = rh.join(context.owned_root, "../../../docs/agenterm-rh-runtime.md");
+  const spec = rh.join(context.owned_root, "../../../docs/archive/agenterm-rh-runtime.md");
   // Resolve from the current directory, as the original did.
   const repo = rh.absolute(".");
   // The verifier is the repository's own script; it moved to .qjs and runs
@@ -562,7 +562,7 @@ function assert_api_contract(context, cli, script, runtime_dir, audit_path) {
       rh.join(repo, "scripts/qjs/verify-script-contract.qjs"),
       "--profile", "tool", "--timeout-ms", "180000",
       "--max-string-bytes", "8388608", "--",
-      rh.join(repo, "docs/agenterm-rh-runtime.md"),
+      rh.join(repo, "docs/archive/agenterm-rh-runtime.md"),
       catalog_path
     ],
     audit_path
