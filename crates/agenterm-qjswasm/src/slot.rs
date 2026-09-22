@@ -299,6 +299,9 @@ impl Slot {
         // evidence and must not land on the next call's Outcome.
         let tool_calls = self.door.take_tool_calls();
         let (host_ops, host_bytes, waited_ms) = self.door.take_meter();
+        // Taken on every path so one call's last door never reaches the next
+        // call's evidence; only a failure below keeps it.
+        let last_door = self.door.take_last_door();
 
         let returned = match result {
             Ok(values) => values,
@@ -321,6 +324,7 @@ impl Slot {
                     json_parse_bytes: None,
                     json_stringify_bytes: None,
                     immediate_stringify_host_argument_bytes: None,
+                    last_door,
                 });
                 return Err(self.explain(fault));
             }

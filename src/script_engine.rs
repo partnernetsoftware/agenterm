@@ -405,6 +405,49 @@ fn qjs_engine_error(error: agenterm_qjswasm::QjswasmError) -> ScriptEngineError 
     }
 }
 
+/// A call that failed after the guest ran: the typed error plus what the
+/// engine kept for it. A trap -- "the guest stopped and the core does not know
+/// why" -- also names the last host operation billed before it and the bill
+/// itself, so an intermittent trap in CI leaves a lead. The door is the last
+/// one billed, not proof the guest was reading its answer or that the defect
+/// is there. Only a door name and numbers: never a path, argument,
+/// environment or payload. The class and exit code stay those of the trap.
+#[cfg(feature = "script-qjswasm")]
+fn qjs_failed_call_error(
+    error: agenterm_qjswasm::QjswasmError,
+    engine: &mut agenterm_qjswasm::Engine,
+) -> ScriptEngineError {
+    let trapped = matches!(error, agenterm_qjswasm::QjswasmError::Trap(_));
+    let mut failed = qjs_engine_error(error);
+    failed.stdout = engine.take_failed_stdout();
+    failed.stdout_truncated = engine.take_failed_stdout_truncated();
+    let cost = engine.take_failed_cost();
+    if trapped && let Some(cost) = cost.as_ref() {
+        failed.message.push_str(&qjs_trap_context(cost));
+    }
+    failed.cost = cost.map(script_cost);
+    failed
+}
+
+#[cfg(feature = "script-qjswasm")]
+fn qjs_trap_context(cost: &agenterm_qjswasm::Cost) -> String {
+    let door = match cost.last_door {
+        None => "no billed host door".to_string(),
+        Some(agenterm_qjswasm::LastDoor {
+            op,
+            answer_bytes: Some(bytes),
+        }) => format!("last billed door {op} parked {bytes} bytes"),
+        Some(agenterm_qjswasm::LastDoor {
+            op,
+            answer_bytes: None,
+        }) => format!("last billed door {op} before its answer"),
+    };
+    format!(
+        " (trap context: {door}; heap_pages {}; steps {}; host_ops {})",
+        cost.heap_pages, cost.steps, cost.host_ops
+    )
+}
+
 #[cfg(feature = "script-qjswasm")]
 fn qjs_compile_error(error: agenterm_qjswasm::CompileError) -> ScriptEngineError {
     ScriptEngineError {
@@ -1102,13 +1145,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                     "main",
                     &[],
                 )
-                .map_err(|e| {
-                    let mut error = qjs_engine_error(e);
-                    error.stdout = engine.take_failed_stdout();
-                    error.stdout_truncated = engine.take_failed_stdout_truncated();
-                    error.cost = engine.take_failed_cost().map(script_cost);
-                    error
-                })
+                .map_err(|error| qjs_failed_call_error(error, &mut engine))
                 .and_then(qjswasm_invocation_result),
         )
     }
@@ -1131,13 +1168,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                     "main",
                     &entry_arguments,
                 )
-                .map_err(|error| {
-                    let mut error = qjs_engine_error(error);
-                    error.stdout = engine.take_failed_stdout();
-                    error.stdout_truncated = engine.take_failed_stdout_truncated();
-                    error.cost = engine.take_failed_cost().map(script_cost);
-                    error
-                })
+                .map_err(|error| qjs_failed_call_error(error, &mut engine))
                 .and_then(qjswasm_invocation_result),
         )
     }
@@ -1296,13 +1327,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                 "main",
                 &[],
             )
-            .map_err(|e| {
-                let mut error = qjs_engine_error(e);
-                error.stdout = engine.take_failed_stdout();
-                error.stdout_truncated = engine.take_failed_stdout_truncated();
-                error.cost = engine.take_failed_cost().map(script_cost);
-                error
-            })?;
+            .map_err(|error| qjs_failed_call_error(error, &mut engine))?;
 
         qjswasm_invocation_result(outcome)
     }
@@ -2531,6 +2556,52 @@ return native.call("|uname|i32(ptr)", [null]);
             multi_error.cost.is_some(),
             "the multi-result run keeps its bill"
         );
+    }
+
+    /// A trap's public message names the last host door and the bill; the
+    /// class stays `script`, and a failure that is not a trap gains nothing.
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn qjswasm_trap_message_carries_the_last_door_and_bill() {
+        let engine = QjswasmEngineBackend;
+        let options = ScriptInvocationOptions::default();
+        let trapping = wat::parse_str(
+            r#"(module
+                (import "agenterm" "fleet_call"
+                    (func $fleet_call (param i32 i32 i32 i32) (result i32)))
+                (memory 1 1)
+                (data (i32.const 0) "fleet.ping")
+                (func (export "main") (result i32)
+                    (drop (call $fleet_call
+                        (i32.const 0) (i32.const 10) (i32.const 0) (i32.const 0)))
+                    (i32.load (i32.const 65536))))"#,
+        )
+        .expect("trapping plain wasm fixture");
+        let bridge: ScriptFleetBridgeFn = Arc::new(|_op: &str, _params: &str| Ok("pong".into()));
+        let error = engine
+            .execute_plain_wasm_artifact(&trapping, &options, Some(bridge))
+            .expect("qjswasm loads plain wasm")
+            .expect_err("the load past the page traps");
+        assert_eq!(error.category, ScriptFailureCategory::Script);
+        assert!(
+            error.message.starts_with("guest trapped: memory access out of bounds (trap context: last billed door agenterm.fleet_call parked 4 bytes; heap_pages 1; steps "),
+            "{}",
+            error.message
+        );
+        assert!(
+            error.message.ends_with("; host_ops 1)"),
+            "{}",
+            error.message
+        );
+
+        let not_json =
+            wat::parse_str(r#"(module (func (export "main") (result f64) f64.const inf))"#)
+                .expect("plain wasm fixture");
+        let error = engine
+            .execute_plain_wasm_artifact(&not_json, &options, None)
+            .expect("qjswasm loads plain wasm")
+            .expect_err("Infinity is not JSON");
+        assert!(!error.message.contains("trap context"), "{}", error.message);
     }
 
     #[cfg(feature = "script-acu-embedder")]

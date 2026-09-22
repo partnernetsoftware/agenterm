@@ -812,6 +812,21 @@ pub struct Cost {
     /// Gross bytes in exact immediate `JSON.stringify(binding)` to synchronous
     /// single-string host calls, diagnostic modules only.
     pub immediate_stringify_host_argument_bytes: Option<usize>,
+    /// The last host operation billed before the failed call ended, and the
+    /// bytes it parked. Recorded for a call that failed after the guest ran,
+    /// as a lead for a trap: it does not prove the guest was reading that
+    /// answer or that the defect is in that door. Always `None` on a
+    /// successful call's bill.
+    pub last_door: Option<LastDoor>,
+}
+
+/// A failed call's last billed host operation: its door-qualified name and
+/// how many bytes it parked (`None` when the call ended before an answer was
+/// parked). A lead, not a cause. Deliberately no arguments, paths or payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LastDoor {
+    pub op: &'static str,
+    pub answer_bytes: Option<usize>,
 }
 
 /// One call's result plus its deterministic cost, so "is this script

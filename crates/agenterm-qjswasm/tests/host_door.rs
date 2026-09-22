@@ -11,7 +11,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use agenterm_qjswasm::{Budget, Engine, FleetBridgeFn, Guest, QjswasmError, Value};
+use agenterm_qjswasm::{Budget, Engine, FleetBridgeFn, Guest, LastDoor, QjswasmError, Value};
 
 /// The four imports plus a scratch page, written once.
 const DOOR_IMPORTS: &str = r#"
@@ -553,4 +553,69 @@ fn a_guest_written_to_the_portable_convention_runs_here() {
         "the portable guest returns the length of the bridge's reply; a \
          negative names which of its own checks failed"
     );
+}
+
+/// Ring the bridge, then load one byte past the only page: a trap that
+/// happens while the guest is holding a door's answer.
+fn trap_after_the_door_guest() -> Vec<u8> {
+    guest(
+        r#"
+        (memory 1 1)
+        (data (i32.const 0) "fleet.ping")
+        (func (export "main") (result i32)
+            (drop (call $fleet_call
+                (i32.const 0) (i32.const 10) (i32.const 0) (i32.const 0)))
+            (i32.load (i32.const 65536)))
+        "#,
+    )
+}
+
+/// A trap names the last door it was billed for and what that door parked --
+/// the one fact an intermittent CI trap was missing -- and is still a
+/// `Trap`, not reclassified by carrying evidence.
+#[test]
+fn a_trap_keeps_the_last_door_and_its_answer_length() {
+    let mut engine = Engine::new();
+    let err = engine
+        .run_once(
+            Guest::Wasm(&trap_after_the_door_guest()),
+            Some(bridge_answering(Ok("pong".to_owned()))),
+            "main",
+            &[],
+        )
+        .expect_err("the load past the page must trap");
+    assert!(matches!(err, QjswasmError::Trap(_)), "got {err:?}");
+    let cost = engine.take_failed_cost().expect("the guest ran");
+    assert_eq!(
+        cost.last_door,
+        Some(LastDoor {
+            op: "agenterm.fleet_call",
+            answer_bytes: Some(4),
+        })
+    );
+}
+
+/// The record is per call: a later trap that reached no door does not
+/// inherit the previous call's door.
+#[test]
+fn a_trap_without_a_door_names_none() {
+    let mut engine = Engine::new();
+    let _ = engine.run_once(
+        Guest::Wasm(&trap_after_the_door_guest()),
+        Some(bridge_answering(Ok("pong".to_owned()))),
+        "main",
+        &[],
+    );
+    let _ = engine.take_failed_cost();
+    let bare = guest(
+        r#"
+        (memory 1 1)
+        (func (export "main") (result i32) (i32.load (i32.const 65536)))
+        "#,
+    );
+    let err = engine
+        .run_once(Guest::Wasm(&bare), None, "main", &[])
+        .expect_err("must trap");
+    assert!(matches!(err, QjswasmError::Trap(_)), "got {err:?}");
+    assert_eq!(engine.take_failed_cost().expect("it ran").last_door, None);
 }

@@ -96,6 +96,34 @@ pub(crate) struct Meter {
     refused: Option<&'static str>,
     cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     cancelled: bool,
+    /// The last host operation billed before the call ended, and the bytes
+    /// it parked, for a trap's evidence only. A lead, not a proof: it does
+    /// not show the guest was reading that answer when it trapped, nor that
+    /// the defect is in that door. The name is the door's own
+    /// (`tool.process_state`); no argument, path or payload is kept.
+    last_op: Option<&'static str>,
+    last_answer: Option<usize>,
+}
+
+/// One `'static` spelling per distinct door operation name. Both halves are
+/// `'static` import names fixed at the bind sites, so the set is closed by
+/// type and each name is leaked at most once per process however many slots
+/// bind it; no runtime string can reach this.
+pub(crate) fn interned_op_name(door: &'static str, field: &'static str) -> &'static str {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+    static NAMES: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
+    let name = format!("{door}.{field}");
+    let mut names = NAMES
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(existing) = names.get(name.as_str()) {
+        return existing;
+    }
+    let leaked: &'static str = Box::leak(name.into_boxed_str());
+    names.insert(leaked);
+    leaked
 }
 
 impl Meter {
@@ -111,6 +139,8 @@ impl Meter {
             refused: None,
             cancel,
             cancelled: false,
+            last_op: None,
+            last_answer: None,
         }
     }
 
@@ -135,7 +165,9 @@ impl Meter {
     /// One more operation carrying `bytes` of arguments. `Err` when the cap
     /// is already spent: the operation must not run, and the caller traps
     /// with [`HOST_OPS_EXHAUSTED`].
-    pub(crate) fn charge(&mut self, bytes: usize) -> Result<(), &'static str> {
+    pub(crate) fn charge(&mut self, op: &'static str, bytes: usize) -> Result<(), &'static str> {
+        self.last_op = Some(op);
+        self.last_answer = None;
         self.check_cancel()?;
         if self.ops >= self.max_ops as u64 {
             self.refused = Some("max_host_ops");
@@ -148,6 +180,16 @@ impl Meter {
 
     pub(crate) fn answered(&mut self, bytes: usize) {
         self.bytes += bytes as u64;
+        self.last_answer = Some(bytes);
+    }
+
+    /// The last billed operation and what it parked, reset for the next call.
+    pub(crate) fn take_last_door(&mut self) -> Option<crate::LastDoor> {
+        let op = self.last_op.take()?;
+        Some(crate::LastDoor {
+            op,
+            answer_bytes: self.last_answer.take(),
+        })
     }
 
     pub(crate) fn waited(&mut self, for_: Duration) {
@@ -435,6 +477,10 @@ impl HostState {
         self.meter.borrow_mut().take()
     }
 
+    pub(crate) fn take_last_door(&self) -> Option<crate::LastDoor> {
+        self.meter.borrow_mut().take_last_door()
+    }
+
     /// The budget a door refused to exceed, if this call ended on one --
     /// read before `take_fault`, since a refusal is not a door defect.
     pub(crate) fn take_budget_refusal(&self) -> Option<&'static str> {
@@ -535,7 +581,7 @@ pub(crate) fn install(
         // On the bill before the bridge is asked, and refused past the cap.
         meter_for_fleet
             .borrow_mut()
-            .charge(op.len() + params.len())
+            .charge("agenterm.fleet_call", op.len() + params.len())
             .map_err(WasmError::Trap)?;
 
         let (status, payload) = match (str::from_utf8(op), str::from_utf8(params)) {
@@ -599,7 +645,7 @@ pub(crate) fn install(
         state.borrow_mut().acu_result.clear();
         meter_for_acu
             .borrow_mut()
-            .charge(command.len())
+            .charge("agenterm.acu_call", command.len())
             .map_err(WasmError::Trap)?;
         let (status, payload) = match str::from_utf8(command) {
             Err(_) => (STATUS_ERR, ACU_NOT_UTF8.as_bytes().to_vec()),
@@ -664,7 +710,10 @@ pub(crate) fn install(
                 native_positions(args).map_err(|error| record_native_fault(&state, error))?;
             meter_for_native
                 .borrow_mut()
-                .charge(positions.spec_len.saturating_add(positions.block_len))
+                .charge(
+                    "agenterm.native_call",
+                    positions.spec_len.saturating_add(positions.block_len),
+                )
                 .map_err(WasmError::Trap)?;
             let call = decode_native_call(
                 memory,
@@ -700,7 +749,10 @@ pub(crate) fn install(
             state.borrow_mut().native_result.clear();
             meter_for_native
                 .borrow_mut()
-                .charge(spec.len().saturating_add(arguments.len()))
+                .charge(
+                    "agenterm.native_invoke",
+                    spec.len().saturating_add(arguments.len()),
+                )
                 .map_err(WasmError::Trap)?;
             let result = invoke_native_json(spec, arguments, &libraries_for_invoke, max_result)
                 .map_err(|error| record_native_fault(&state, error))?;
@@ -867,14 +919,15 @@ pub(crate) fn check_declarations(
 pub(crate) fn bind_metered<F>(
     module: &mut tinyvm::WasmModule,
     meter: &Rc<RefCell<Meter>>,
-    door: &str,
-    field: &str,
+    door: &'static str,
+    field: &'static str,
     f: F,
 ) -> Result<(), QjswasmError>
 where
     F: Fn(&[Val], &mut [u8]) -> Result<Vec<Val>, WasmError> + 'static,
 {
     let meter = Rc::clone(meter);
+    let op_name = interned_op_name(door, field);
     let length_slots = if door == tool::DOOR {
         tool::argument_length_slots(field)
     } else {
@@ -888,7 +941,10 @@ where
                 _ => None,
             })
             .sum();
-        meter.borrow_mut().charge(bytes).map_err(WasmError::Trap)?;
+        meter
+            .borrow_mut()
+            .charge(op_name, bytes)
+            .map_err(WasmError::Trap)?;
         f(args, memory)
     })
 }

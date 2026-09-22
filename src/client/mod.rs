@@ -2828,16 +2828,7 @@ fn run_script_command_with_context(
                 println!();
             }
         }
-        let mut diagnostic = serde_json::json!({
-            "code": failure.code,
-            "message": failure.message,
-            "invocation_id": result.invocation_id,
-            "exit_class": result.exit_class,
-        });
-        if result.stdout_truncated {
-            diagnostic["stdout_truncated"] = serde_json::Value::Bool(true);
-        }
-        cli_eprintln!("{diagnostic}");
+        cli_eprintln!("{}", script_failure_diagnostic(&result, failure));
         None
     } else {
         None
@@ -3312,6 +3303,25 @@ fn report_supervisor_error(error: SupervisorError) -> i32 {
         })
     );
     exit_class.process_exit_code()
+}
+
+/// The one-line failure diagnostic `script run` writes to stderr. The message
+/// is the failure's own, whole: a qjswasm trap's bounded context travels in
+/// it, so this envelope keeps its four fields and adds none.
+fn script_failure_diagnostic(
+    result: &crate::script_protocol::ScriptResult,
+    failure: &crate::script_protocol::ScriptFailure,
+) -> serde_json::Value {
+    let mut diagnostic = serde_json::json!({
+        "code": failure.code,
+        "message": failure.message,
+        "invocation_id": result.invocation_id,
+        "exit_class": result.exit_class,
+    });
+    if result.stdout_truncated {
+        diagnostic["stdout_truncated"] = serde_json::Value::Bool(true);
+    }
+    diagnostic
 }
 
 fn script_broker_error(code: &str, message: impl Into<String>) -> ScriptBrokerResponse {
@@ -5336,6 +5346,42 @@ fn print_mux_compatibility(json: bool) {
 
 #[cfg(test)]
 mod tests {
+    /// The public `script run` failure line carries a qjswasm trap's context
+    /// verbatim inside `message`, and keeps exactly its four fields.
+    #[test]
+    fn script_failure_diagnostic_carries_the_trap_context_verbatim() {
+        let message = "guest trapped: memory access out of bounds (trap context: last billed door \
+                       tool.process_state parked 7 bytes; heap_pages 3; steps 10; host_ops 2)";
+        let result: crate::script_protocol::ScriptResult =
+            serde_json::from_value(serde_json::json!({
+                "envelope_version": 1,
+                "invocation_id": "g0-1",
+                "api_version": 1,
+                "ok": false,
+                "exit_class": "script",
+                "stdout": "",
+                "duration_ms": 5,
+            }))
+            .expect("a failed result deserialises without any new field");
+        let failure: crate::script_protocol::ScriptFailure =
+            serde_json::from_value(serde_json::json!({
+                "code": "qjswasm_backend",
+                "message": message,
+                "category": "script",
+            }))
+            .expect("failure deserialises");
+        let diagnostic = super::script_failure_diagnostic(&result, &failure);
+        assert_eq!(
+            diagnostic,
+            serde_json::json!({
+                "code": "qjswasm_backend",
+                "message": message,
+                "invocation_id": "g0-1",
+                "exit_class": "script",
+            })
+        );
+    }
+
     use super::{
         HostedSubcommand, append_script_run_value, artifact_audit_fingerprint,
         exit_code_from_script_value, hosted_subcommand, non_text_script_hint,
