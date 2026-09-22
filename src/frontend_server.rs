@@ -78,6 +78,26 @@ pub(crate) fn connect_or_start_frontend_gui_client(
     client_id: &str,
 ) -> Result<UiClientModel, String> {
     let mut client = connect_or_start_frontend_gui_client_unverified(client_id)?;
+    // A client that was just started or found is still checked here: the
+    // verified connect below is for every later reattach.
+    if let Err(refusal) = verify_server_chassis_image(ImageDeclaration::Strict) {
+        let _ = client.detach();
+        return Err(refusal);
+    }
+    Ok(client)
+}
+
+/// Every GUI (re)attach goes through here: a first connect, a reconnect after
+/// the server went away, a switch to another instance. The connection is
+/// accepted only after the image check passes; on a refusal it is detached
+/// and the caller stays disconnected with an error naming the mismatch.
+/// `tests/chassis_server_image.rs` pins that no other GUI path calls
+/// `UiClientModel::connect` directly.
+pub(crate) fn connect_verified_frontend_gui_client(
+    client_id: &str,
+) -> Result<UiClientModel, String> {
+    let mut client =
+        UiClientModel::connect(client_id.to_owned()).map_err(|error| error.to_string())?;
     if let Err(refusal) = verify_server_chassis_image(ImageDeclaration::Strict) {
         let _ = client.detach();
         return Err(refusal);
@@ -104,13 +124,35 @@ pub(crate) fn verify_server_chassis_image(declaration: ImageDeclaration) -> Resu
     }
     let info: serde_json::Value = serde_json::from_str(&response.output)
         .map_err(|_| "chassis_image_unverifiable: protocol-info is not JSON".to_owned())?;
-    let server = info
-        .get("chassis_image")
-        .and_then(|image| image.get("image_id"))
-        .and_then(serde_json::Value::as_str);
+    let server = server_image_id(&info)?;
     let local = crate::frontend::chassis_image::loaded_image_identity()
         .map(|identity| identity.image_id.as_str());
-    image_match(local, server)
+    image_match(local, server.as_deref())
+}
+
+/// The server's image id from `protocol-info`. An older server that predates
+/// the field, or one reporting `null`, runs no image. Anything else must be
+/// an object whose `image_id` is 64 lowercase hex digits: a malformed report
+/// is unverifiable, never read as "no image".
+fn server_image_id(info: &serde_json::Value) -> Result<Option<String>, String> {
+    let image = match info.get("chassis_image") {
+        None | Some(serde_json::Value::Null) => return Ok(None),
+        Some(image) => image,
+    };
+    let id = image
+        .as_object()
+        .and_then(|object| object.get("image_id"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|id| {
+            id.len() == 64
+                && id
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        })
+        .ok_or_else(|| {
+            "chassis_image_unverifiable: the server reported a malformed chassis_image".to_owned()
+        })?;
+    Ok(Some(id.to_owned()))
 }
 
 fn image_match(local: Option<&str>, server: Option<&str>) -> Result<(), String> {
@@ -326,7 +368,7 @@ pub(crate) fn frontend_server_spawn_parameter(
 mod tests {
     use super::{
         FrontendServerRecovery, GUI_FRONTEND_SERVER_RESTART_INTERVAL, image_match,
-        next_frontend_server_restart_after,
+        next_frontend_server_restart_after, server_image_id,
     };
 
     /// A strict client attaches only to a server running the same image, and
@@ -349,6 +391,37 @@ mod tests {
             "{refusal}"
         );
     }
+
+    /// An older server without the field, or `null`, runs no image; a
+    /// malformed report is unverifiable and never read as "no image".
+    #[test]
+    fn a_malformed_server_image_report_is_refused_not_ignored() {
+        use serde_json::json;
+        let id = "0123456789abcdef".repeat(4);
+        assert_eq!(server_image_id(&json!({})), Ok(None));
+        assert_eq!(server_image_id(&json!({"chassis_image": null})), Ok(None));
+        assert_eq!(
+            server_image_id(&json!({"chassis_image": {"image_id": id}})),
+            Ok(Some(id.clone()))
+        );
+        for malformed in [
+            json!({"chassis_image": "0123"}),
+            json!({"chassis_image": 7}),
+            json!({"chassis_image": {}}),
+            json!({"chassis_image": {"image_id": null}}),
+            json!({"chassis_image": {"image_id": "abc"}}),
+            json!({"chassis_image": {"image_id": id.to_uppercase()}}),
+            json!({"chassis_image": {"image_id": format!("{id}0")}}),
+            json!({"chassis_image": [id]}),
+        ] {
+            let refusal = server_image_id(&malformed).expect_err("malformed");
+            assert!(
+                refusal.starts_with("chassis_image_unverifiable:"),
+                "{refusal}"
+            );
+        }
+    }
+
     use std::time::{Duration, Instant};
 
     #[test]

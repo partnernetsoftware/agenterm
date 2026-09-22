@@ -1162,7 +1162,11 @@ impl RemoteWindowState {
                 self.last_error = Some(format!("{error:#}"));
                 if Instant::now() >= self.reconnect_after {
                     self.reconnect_after = Instant::now() + RECONNECT_INTERVAL;
-                    match UiClientModel::connect(self.client_id.clone()) {
+                    match crate::frontend_server::connect_verified_frontend_gui_client(
+                        &self.client_id,
+                    )
+                    .map_err(anyhow::Error::msg)
+                    {
                         Ok(client) => {
                             self.client = Some(client);
                             self.server_recovery.on_reconnected(Instant::now());
@@ -5471,7 +5475,9 @@ impl RemoteWindowState {
                     &prev.endpoint,
                     Some(&prev.logical_instance.canonical_name()),
                 );
-                if let Ok(client) = UiClientModel::connect(state.client_id.clone()) {
+                if let Ok(client) =
+                    crate::frontend_server::connect_verified_frontend_gui_client(&state.client_id)
+                {
                     state.client = Some(client);
                 }
             }
@@ -5494,7 +5500,9 @@ impl RemoteWindowState {
                 resolved.endpoint
             );
         }
-        match UiClientModel::connect(self.client_id.clone()) {
+        match crate::frontend_server::connect_verified_frontend_gui_client(&self.client_id)
+            .map_err(anyhow::Error::msg)
+        {
             Ok(client) => {
                 self.client = Some(client);
             }

@@ -248,3 +248,64 @@ fn a_server_refuses_an_image_with_a_symbolic_link() {
     };
     assert!(error.contains("not a regular file"), "{error}");
 }
+
+/// Every GUI (re)attach -- first connect, reconnect after the server went
+/// away, switching instance -- must pass the image check. The check lives in
+/// `frontend_server::connect_verified_frontend_gui_client` and the wrapped
+/// first connect; a direct `UiClientModel::connect` anywhere else would
+/// accept a server running a different image, or none.
+#[test]
+fn no_gui_path_attaches_without_the_image_check() {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(dir).expect("src dir") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                out.push(path);
+            }
+        }
+    }
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    walk(&src, &mut files);
+    let mut offenders = Vec::new();
+    for file in files {
+        let text = fs::read_to_string(&file).expect("read source");
+        let relative = file.strip_prefix(&src).expect("under src");
+        if relative == Path::new("frontend_server.rs") {
+            // Only the two connect functions may call it, and the unverified
+            // one is reachable only through its verifying wrapper.
+            let mut current_fn = "";
+            for line in text.lines() {
+                if let Some(rest) = line
+                    .trim_start()
+                    .strip_prefix("pub(crate) fn ")
+                    .or_else(|| line.trim_start().strip_prefix("fn "))
+                {
+                    current_fn = rest.split('(').next().unwrap_or("");
+                }
+                if line.contains("UiClientModel::connect(")
+                    && current_fn != "connect_verified_frontend_gui_client"
+                    && current_fn != "connect_or_start_frontend_gui_client_unverified"
+                {
+                    offenders.push(format!("frontend_server.rs in {current_fn}"));
+                }
+            }
+            let unverified_callers = text
+                .matches("connect_or_start_frontend_gui_client_unverified(")
+                .count();
+            // The definition plus the one verifying caller.
+            assert_eq!(
+                unverified_callers, 2,
+                "the unverified connect has one verifying caller"
+            );
+        } else if text.contains("UiClientModel::connect(") {
+            offenders.push(relative.display().to_string());
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "GUI attach without the image check: {offenders:?}"
+    );
+}
