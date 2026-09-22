@@ -10,7 +10,7 @@
 | 日期 | 2026-08-25 |
 | 状态 | 判决稿 rev1。门**未关**——本文件是关门需要的那份声明，不是关门动作本身 |
 | **产品真理** | [`prd/PRD_02_36_agenterm_qjswasm.md`](../../prd/PRD_02_36_agenterm_qjswasm.md)。归档门三条以该文件为准；本文件只回答第三条 |
-| 关联 | [`plan/design-agenterm-qjswasm.md`](../design-agenterm-qjswasm.md)、[`plan/archive/design-qjs-module-imports.md`](design-qjs-module-imports.md)、[`crates/agenterm-qjswasm/README.md`](../../crates/agenterm-qjswasm/README.md)、[`docs/agenterm-qjs-cheatsheet.md`](../../docs/agenterm-qjs-cheatsheet.md) |
+| 关联 | [`plan/design-agenterm-qjswasm.md`](../design-agenterm-qjswasm.md)、[`plan/archive/design-qjs-module-imports.md`](design-qjs-module-imports.md)、[`crates/agenterm-qjswasm/README.md`](../../crates/agenterm-qjswasm/README.md)、[`docs/archive/agenterm-qjs-cheatsheet.md`](../../docs/archive/agenterm-qjs-cheatsheet.md) |
 | 范围声明 | 只写判决与证据。不改任何 `.rs`，不改 PRD 36，不执行归档 |
 
 PRD 36 §归档门第三条原文：

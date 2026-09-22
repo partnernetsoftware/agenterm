@@ -1,7 +1,11 @@
 # rh condensed manual
 
+> Archived 2026-09-22: the rh engine described here was retired. Use
+> [`agenterm-qjswasm`'s README](../../crates/agenterm-qjswasm/README.md)
+> for current scripts. This manual has no current execution authority.
+
 Practical reference for writing `scripts/rh/**.rh`. The full interface tree is
-[`docs/agenterm-rh-runtime.md`](agenterm-rh-runtime.md) — that document is a
+[`docs/agenterm-rh-runtime.md`](../agenterm-rh-runtime.md) — that document is a
 *specification*; this one exists to stop the syntax and semantics mistakes that
 actually cause rework. Companion: [`docs/agenterm-qjs-cheatsheet.md`](agenterm-qjs-cheatsheet.md).
 

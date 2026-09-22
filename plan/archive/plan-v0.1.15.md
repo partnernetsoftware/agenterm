@@ -2545,7 +2545,7 @@ ui-input key --key NAME [--mods shift,ctrl,alt,meta]
    供几何是架构取舍。
 4. **Linux 缺口**：`process_window` 无 adapter；`linux/font.rs` 硬编码 Debian 路径
    无 fontconfig，非 Debian 系发行版会静默掉到 8x8 点阵字体。
-5. 去中心化网络选型见 `plan/research-decentralized-network.md`（**建议等 CC
+5. 去中心化网络选型见 `plan/archive/research-decentralized-network.md`（**建议等 CC
    产品形态清楚再动**）。
 
 ## 11. OSX ↔ Win UI/UX 差距清单（2026-08-06 晚）

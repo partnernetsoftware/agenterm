@@ -1,12 +1,15 @@
 # dynacore v3：guest 真机码 + 软件 ISA 模拟，不是自造 IR
 
+> 归档于 2026-09-22：未实施的历史设计，不是当前版本的执行计划。
+> 当前能力以 [`prd/PRD_02_34_agenterm_dyn.md`](../../prd/PRD_02_34_agenterm_dyn.md) 为准。
+
 | 字段 | 值 |
 |------|-----|
 | **日期** | 2026-08-09 |
 | **状态** | 设计，Phase 1 待派出实现 |
-| **前置** | [`archive/design-dynacore-native-core.md`](archive/design-dynacore-native-core.md)（已归档，但 seam.rs 的 Win32 绑定要复用）；
-  [`design-dynacore-logic-pack.md`](design-dynacore-logic-pack.md)（agenterm-dynacore，继续独立存在，不受本设计影响）；
-  `D:\dev\moltbaby\systems\ape\vm\ape-vm.c`（参考实现，**不直接编译进 agenterm**，见 §3 provenance） |
+| **前置** | [`design-dynacore-native-core.md`](design-dynacore-native-core.md)（已归档，但 seam.rs 的 Win32 绑定要复用）；
+  [`design-dynacore-logic-pack.md`](../design-dynacore-logic-pack.md)（agenterm-dynacore，继续独立存在，不受本设计影响）；
+  `~/repos/moltbaby/systems/ape/vm/ape-vm.c`（参考实现，**不直接编译进 agenterm**，见 §3 provenance） |
 | **触发** | 用户指出 dynacore/nativecore 两条线都从没真正做到"面对 ISA/OS"这个最初的北极星——
   七个固定 intent（nativecore）或 FleetCall-only（dynacore）都不碰"在不同 ISA 上执行"这件事本身。
   用户要求参考 `moltbaby/systems/` 里已经真机验证过的探索，想更好的方向 |

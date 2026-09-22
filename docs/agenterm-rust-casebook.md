@@ -1,0 +1,5550 @@
+# AgenTerm Rust engineering casebook
+
+Proven local cases moved from the condensed manual on 2026-09-22. Search by
+heading and read the relevant case when working on that boundary. General
+engineering rules and the required first read remain in
+[the Rust condensed manual](agenterm-rust-cheatsheet.md).
+
+### Freeze a closed public error algebra with an exhaustive owner court
+
+When a small mechanism crate promises a closed public error vocabulary, give
+its integration suite one match over the public enum with **no wildcard** and
+exercise every arm. Scattered `matches!(Error::Variant { .. })` assertions
+prove individual paths but cannot reveal that a sixth word entered the public
+algebra. The exhaustive match makes adding, removing, or renaming a variant a
+compile-time compatibility event owned by the public court, while adding no
+runtime code to the library.
+
+Test the gate with a mutation that is allowed to reach it. Adding a variant
+without updating the library's own exhaustive `Display` or mapper only proves
+that production match, not the integration court. Temporarily add the variant,
+update every production exhaustive match, require `E0004` at the owner court,
+then reverse the exact edits and verify the pre-mutation hashes.
+
+When several mechanism families converge on one internal error projection, a
+representative from only the oldest family does not own that shared seam. Add a
+black-box failure from each independently routed family (for example an exact
+scalar and a fixed-pointer lookup); mutate the shared projection and require
+the newly routed representative to fail by name. If every private family error
+is immediately projected and its family-specific payload is discarded, delete
+those parallel enums: emit one internal mechanism error algebra and attach the
+public library, symbol, and signature context once at the convergence boundary.
+
+If the enum also publishes stable machine-readable string codes, exhaustiveness
+alone is insufficient: construct one representative of every variant, pin its
+exact code, and assert that the complete code set is unique. An exhaustive
+`Display` match catches a missing variant but cannot catch two variants silently
+sharing one code or an existing code being renamed. Mutate one arm to reuse a
+different arm's code and require the owner court to fail by name.
+
+### Audit an API boundary before adding a cache
+
+- Trace the full call path before caching an expensive FFI or parser call. A product facade may already own a bounded cache even when the render caller looks uncached.
+- Never layer a second cache around an already cached facade without measured evidence for a distinct lifetime or key domain. It duplicates memory, code, invalidation rules, and statistics while hiding the real owner.
+- When a product entry unconditionally refuses a retired capability and its worker still owns a typed compatibility refusal, delete a zero-constructor client facade instead of retaining its concurrency, replacement and cleanup state machines “for later.” Preserve the small protocol decoder/refusal so an old caller gets the stable retired code rather than an unknown-frame error; prove zero production construction separately from definitions and tests.
+- A generic Wasm engine may return multiple values even when the product wire carries one JSON completion value. At that projection, reject `len > 1` with a stable typed error; taking `.first()` silently turns a successful multi-result module into a different successful answer. Pin both the direct adapter and the public supervised artifact route, because the engine crate correctly returning the whole vector cannot detect a lossy product projection.
+- When cache policy is reusable, move the existing single cache implementation into a host-neutral crate and keep platform rasterization or other native FFI behind the miss path. Preserve capacity, negative caching, fallback behavior, and key semantics during the move.
+- A cache of RAII handles must be bounded, must never hold an interior-mutability borrow across the foreign call, and must not be able to refuse work. Resolve under a short borrow, load with **no** borrow alive (opening a library runs its initialisers, which can re-enter), store the handle, and hand callers a shared owner (`Rc<Handle>`) instead of a borrow that outlives the call. A full table falls back to the uncached entry. A load that **failed** must not be re-attempted there: hand the mechanism's own error back to the caller's existing mapping and leave the cache slot unoccupied, because opening a library runs its initialisers and a retry would run them twice for one call; adding a refusal code, an eviction policy, or a permission meaning to an optimization narrows capability. Key the table by the caller's declared bytes **verbatim** — no path normalization, no trimming — because the reuse entry re-checks that exact string and refuses a mismatch. Prove it with a unit court on the table itself (same key → one allocation, N adopted then the N+1th declined, a failed load is reported once by the mechanism's own error and occupies no slot) plus unchanged black-box behavior; a load *count* needs a fixture library, since an already-loaded system library never moves `_dyld_image_count`, and `Library::this()` (the empty-name key) loads no new image at all. Prove the reuse the cheaper way first, and prove it in two halves: a `cfg(test)` **delta** on the mechanism's own loader entry (N one-shot calls → +N entries; one handle open plus N handle calls → +1) and a per-caller counter on the branch that consumes the handle. The branch counter is the half that matters most: "resolved the handle, then ran the uncached path anyway" is invisible to every behavioural assertion, because both paths answer the same value. Counting loader *entries* is not counting `dlopen` calls — keep the OS-level count as the separate, stronger claim it is, and keep both instruments inside `cfg(test)` so the release artifact gains no bytes.
+
+- `bool::then_some(value)` evaluates `value` eagerly. Do not use it to guard subtraction, indexing, parsing, allocation, FFI, or any other operation that must not happen on the false path; use `if` or lazy `then(|| value)` instead.
+- Compare data-structure choices in the final optimized artifact. In this repository, a generic sorted index for tree depths added 2 KiB more release code than the measured `HashMap` implementation even though it looked simpler; source-level intuition is not PE-size evidence.
+- Cache a derived topology beside its authoritative owner only when mutation is closed over a small API. Keep the shared typed algorithm as the validation/rebuild authority, update append-only mutations in O(1), rebuild after relationship-changing mutations, and expose immutable slices to repaint code. Parallel vectors require tests that preserve equal length and ordering; a render-local cache or second topology algorithm creates competing authority.
+- Keep independently consumable ISA kernels behind independent lazy selectors. A struct that stores function pointers for unrelated blend and pack operations can retain an unused assembly kernel merely because initialization takes its address. Confirm DCE with the final consumer binary; a zero-byte unused kernel is useful evidence even when the PE file stays in the same alignment bucket.
+- On the pinned Rust 1.97 toolchain, `Ord::min` and `Ord::max` are not stable const-trait calls. Do not mark ordinary geometry helpers `const fn` without a real compile-time consumer; remove unnecessary constness instead of duplicating clear operations with manual branches.
+- An associated constructor inside impl Type<'_> does not automatically bind an input borrow to the returned type. For borrowed wrappers, write impl<'a> Type<'a> and accept/return &'a ... / Type<'a> explicitly.
+- Do not assume a native window or softbuffer preserves pixels across frames or resize unless its typed contract says so. A frame contract must expose retention, generation, and content validity, then require an explicit `None`, `Full`, or bounded partial commit. Raster directly only into valid retained backing; force full after first allocation, resize, DPI change, failed render, or failed present. Keep a product-owned retained fallback and full-copy only for explicitly transient hosts.
+- A trailing-edge PTY resize debounce does not by itself optimize live window resizing. If every native size notification reallocates or invalidates backing and forces a full raster, the expensive work still occurs at pointer frequency. Encapsulate host interaction phases such as Win32 `WM_ENTERSIZEMOVE` / `WM_EXITSIZEMOVE` in the platform contract, keep Unix/macOS debounce as the fallback, and reuse or scale validated retained pixels during the interaction only when the backing contract can prove their lifetime. Perform one exact grid/PTY convergence and full raster at the end. Do not leak HWND messages into product UI or claim an event enum alone as an optimization.
+- Keep product damage and native present rectangles as separate typed boundaries even when both are half-open pixel rectangles. Product code owns why pixels changed; platform code owns clipping, coordinate conversion, invalidation, and fallback.
+- A Windows paint path must pair a successful BeginPaint with EndPaint, treat PAINTSTRUCT.rcPaint as the OS expose authority, and check each API's own failure convention. A negative DIB height is top-down, so StretchDIBits source Y matches client Y; do not apply a bottom-up inversion.
+- Do not register a retained pixel window with Win32 `CS_HREDRAW` or `CS_VREDRAW`. Those class styles ask User32 to invalidate the complete client on every width or height change and override product damage tracking. Let exposed regions, typed `InvalidateRect` requests, and the settled geometry redraw own paint. A 16-step con resize journey fell from 35 to 18 frames, 17 to 8 full candidates, and 25.715 ms to 16.302 ms of measured native present time after removing the flags, with identical PNG geometry and zero present failure/copy.
+- Win32 live resize has an explicit `WM_ENTERSIZEMOVE` / `WM_EXITSIZEMOVE` lifetime. Snapshot both messages at the normal reentrancy boundary and expose host-neutral begin/end events. While active, update current client metrics but do not advance a valid retained frame generation or rerun product raster for each `WM_SIZE`; let GDI scale the last successfully committed top-down DIB under the `BeginPaint` clip. On exit, publish final metrics, advance generation, notify geometry, and explicitly redraw once. Require exact old width/height/pixel-count agreement before reuse and fall back to normal raster otherwise. A 16-step con journey reduced product raster from 20 frames/9 full candidates to 3-5 frames/1-2 full candidates, while 11-13 native presents all succeeded. Linux/macOS continue through ordinary geometry plus trailing-edge debounce until their hosts expose an equivalent phase.
+- Do not report partial-present latency from a timer that ends before the native present call. Add platform timing or use ETW before making that claim.
+- Prefer an existing typed native FFI mechanism over a new Rust dependency or handwritten assembly when the OS already owns the operation. Then compare LLVM auto-vectorization, `core::arch` intrinsics, and handwritten assembly in that order; retain an ISA-specific path only when final-artifact size or a public hot-path measurement proves a gain on every supported fallback boundary.
+- Whole-file configuration reads must enforce their parser limit before an unbounded allocation. Use a narrow platform facade rather than the full filesystem capability: Windows can combine `CreateFileW`, `GetFileSizeEx`, and partial `ReadFile` loops under one owned handle, while Unix can use `take(max + 1)`. Check both the opened-file size and bytes actually read because files can grow; preserve existing link-following and sharing behavior unless the product contract explicitly changes it.
+- Keep public wait bounds identical in every selected native adapter, and reject them before touching native authority. Construct monotonic deadlines with `checked_add` even when the declared maximum is currently small: a peer adapter's checked bound is part of the shared facade contract, not a host-local convenience.
+- Windows parent-console output has two native contracts: a real console requires UTF-16 `WriteConsoleW`, while an inherited pipe or file requires UTF-8 `WriteFile`. Detect the former with `GetConsoleMode`, loop on partial writes and reject zero progress. Borrowed `GetStdHandle` values must never be closed; a fallback `CONOUT$` handle from `CreateFileW` must be owned and closed exactly once. Do not add `FlushFileBuffers` to emulate `Write::flush`: pipes, console handles, and durable files have different flush semantics.
+- Native recovery windows must be elapsed-time budgets, not retry counts coupled to poll cadence. A Windows console-buffer resize can make `ReadConsoleOutputW` fail transiently; 50 nominally 8 ms retries falsely killed the session under x86 TCG when one resize exceeded that accidental 400 ms budget. Record the first failure instant, clear it on success, and fail only after one explicit bounded duration; test the boundary without depending on scheduler speed.
+- Terminal damage must originate at model mutation sites, not from byte classification or collision-prone row hashes. Keep it allocation-free and conservative, record old and new cursor overlays, escalate unknown callbacks and viewport identity changes to full, and prove no missed rows with exact `Cell` comparison in tests.
+- A successful Windows `BeginPaint` is a transaction even when product rendering panics. Use a guard or an inner unwind boundary so `EndPaint` runs exactly once; do not present a partially rendered buffer after a typed render failure, and treat a short positive `StretchDIBits` scanline count as incomplete rather than success.
+- Raw Win32 callbacks may reenter synchronously through `SetWindowTextW`, `ShowWindow`, `SetWindowPos`, focus, capture, and related FFI. Native FFI saves dependencies, not Rust aliasing obligations: never reconstruct a second `&mut State` from window userdata while an application callback or framebuffer borrow is live. Keep stable per-HWND userdata, use a shared bounded queue contract but host-specific typed snapshots, consume or copy pointer-backed parameters inside their original callback, and bound both queue capacity and drain work. A thread-local raw `(WPARAM, LPARAM)` backlog is unsafe when multiple HWNDs share a GUI thread and can retain expired pointers.
+- Do not wrap every native callback helper in its own `catch_unwind`. Keep one mandatory boundary around each `extern "system"` callback and one around independently drained deferred work, restore phase/lifecycle state deliberately, and convert panic to typed fail-closed state there. Repeated nested catches add x64 unwind metadata and duplicate branches; accept consolidation only when callback panic cannot cross FFI and a same-profile final PE proves the size gain.
+- `catch_unwind` is not a delivery invariant when the artifact profile uses `panic = "abort"`; test-profile success can hide that mismatch completely. Any product promising panic containment needs an unwind profile for its complete dependency graph and a test executed under that exact profile. Cargo package overrides cannot change panic strategy, so isolate the product with a named profile and merge its final bytes at staging rather than silently changing sibling products.
+- When an in-process capability graph breaks a fixed main-executable size court, isolate it as a versioned fixed-name sibling `cdylib` rather than searching `PATH`, accepting an environment override, or falling back to a child process. Check ABI before resolving the call symbol, retain the library for every copied function pointer, bound request and reply independently, validate the returned protocol before exposing it, and make absence a typed failure. A panic-latching public ABI must serialize the failed-state check and execution inside the provider itself; a mutex in one consumer does not protect other callers. Build the complete provider dependency graph under an unwind profile, stage it in every platform package, and sign/validate it as its own artifact. This pattern kept the integrated Windows main PE at 3,738,112 bytes under its unchanged 4 MiB court; static linkage measured 8,865,792 bytes and was rejected.
+- If one fixed-name sibling must serve multiple ABI consumers, add independently
+  versioned symbol families to that single artifact instead of inventing a
+  second filename or lookup rule. Keep each family's status namespace distinct,
+  make the exported symbol set a tested contract, and share one serialized
+  panic latch across every entry point so a panic through one ABI permanently
+  closes the others. Put product classification behind one library-owned table;
+  a launcher's prediction mirror is a boundary check, not another authority.
+
+### A borrowed dynamic symbol does not lend its lifetime to a copied function pointer
+
+`libloading::Symbol<'lib, F>` carries `'lib`, but an `extern "C" fn` value `F` is
+`Copy`: dereferencing the symbol or returning it from a scoped closure erases the
+library lifetime from the resulting type. Do not advertise such an API as a
+lifetime-safe generic typed-symbol seam. A public wrapper that truly hides `F`
+cannot generically implement arbitrary C calls on stable Rust without enumerating
+signatures, exposing callable bits, or lowering through an existing ABI dispatcher.
+Use a compile-fail witness that copies the inner function pointer, not one that
+merely tries to return the wrapper. For a narrow OS adapter, a crate-private RAII
+loader may still reduce duplicated `dlopen`/`dlsym`/rollback/Drop code: keep symbol
+names, exact prototypes and product errors in each adapter; expose no raw handle or
+callable publicly; retain the library beside every copied pointer; and require the
+second real consumer to make production NCLOC net negative. A byte-identical final
+binary is valid evidence that the source/unsafe fold added no delivery footprint.
+- Validate a dynamic provider reply once at its owning boundary before any consumer parses or forwards it. A closed tagged envelope must distinguish a missing key from an explicit JSON `null`, reject unknown or contradictory success/error fields, and then bind the reply's target and command identity to the request that produced it. Keep MCP output schemas no looser than this decoder, and prove with a fake provider that a structurally valid crossed reply is never accepted as authoritative.
+- A wire field typed as `Option<serde_json::Value>` does not preserve present `null` under Serde's default decoder: both a missing field and JSON `null` become `None`. When absence and explicit null have different product meanings, combine `default` for the missing case with a field deserializer that always wraps a present `Value` in `Some`, and pin both forms in a serialization round-trip court.
+- Do not pass a Rust `AtomicBool`, `Arc`, trait object, or other Rust layout across a dynamic-provider ABI. For synchronous cooperative cancellation, add an optional versioned symbol with a caller-sized callback/context descriptor, borrow it only for that call, and never store it or move it to a helper thread. A cancellation request is not a completed cancellation: report separately whether the authority round observed it and whether execution acknowledged a pre-effect stop such as `effect:not_performed`; map only the latter to `Cancelled`. After effect dispatch, preserve the authoritative reply or return an explicit outcome-unknown result. If the same one-shot atomic also drives a VM's periodic interrupt poll, consume an observed-but-unacknowledged request after parking that reply and before resuming guest code; otherwise reply visibility depends on adapter instruction count. Never clear a request the authority round did not observe: it may be a concurrent new cancel or owner-loss signal. A request observed before dispatch must still fail closed. Slice interruptible waits comfortably below the worker's hard-cancel grace and prove immediate provider reuse after cancellation.
+- A synchronous authority request does not become cooperatively cancellable by shortening its timeout until healthy replies fail. Keep its existing bounded request cap, sample cancellation before dispatch and in a sliced inter-round pause, and return a same-round terminal reply or typed authority error before consulting a late cancellation. For a composite wait such as terminal-finalized followed by exit-status verification, result processing after the terminal reply is authoritative too; do not insert a cancellation check between those facts. Own this ordering with an injected production-loop test that counts requests, flips the real borrowed probe from inside a round, and proves matched/error replies outrank the flip.
+- A long-running observer may already own authoritative samples when cancellation arrives. Use `effect:not_performed` only before its first authority call. After a sample, preserve the complete bounded public projection in structured error detail and name the effect as partially performed; do not discard observed rows or return a normal-success envelope that shell callers will mistake for completion. Route normal and cancelled results through the same privacy projection, truncation, and encoded-size check, give the nested partial result its real cancellation termination, and leave the ordinary success wire unchanged. Test through the production loop with a provider that flips the borrowed token inside a round: the returned sample or provider error must win, while cancellation in the following sliced pause must prevent the next sample.
+- When that observer's native loop lives in a lower platform crate, pass only a borrowed boolean stop probe across the crate boundary and return a mechanism fact such as `cancelled`; never move `effect`, phase names, partial payload construction, or deadline precedence into the platform layer. The product owner checks the token before the first authority call, maps the returned fact through its one public encoder, and keeps native rounds bounded so every adapter has a real observation point.
+- Audit every mode of a verb before calling it cooperatively cancellable. If one explicit mode crosses an older ABI as a single bounded blocking authority call with no stop probe, improve the polling mode independently but name the other mode and its maximum uninterruptible bound in the public contract; do not let a default-mode fix imply whole-verb coverage.
+- Before projecting any floating-point result into JSON, reject NaN and both infinities with a stable typed error. Do not rely on a generic JSON value macro or fold a failed `Number::from_f64` into an optional result: either can silently turn a real numeric answer into `null` or the same absence used for `undefined`. Route source and every artifact convention through one projection and retain already-produced stdout and cost on the refusal.
+- Do not add control metadata to an existing public result struct merely because a new controlled entry point needs it: downstream exhaustive struct literals make that a source-breaking change. Keep the ordinary return type byte- and field-stable, and let the opt-in controlled entry point return a new wrapper containing the original observation plus the mechanism fact.
+- Cargo unifies features across every package selected by one invocation. Do not
+  build two final Mach-O images as joint roots when one root enables a native
+  Objective-C translation unit and the other image may later be loaded into the
+  same process: both images can register the same process-global class. Build
+  each final executable or dynamic provider in its own serial Cargo invocation
+  while sharing the target cache. Hidden visibility, renamed symbols and stderr
+  suppression do not repair Objective-C runtime identity. Prove the packaged
+  executable loads its fixed sibling with empty stderr, and inspect the final
+  images to confirm that only the intended owners contain the class name.
+- Rust 1.97's `std` exposes `backtrace-trace-only` specifically for `-Zbuild-std`; paired with `panic-unwind` it removes symbolization/demangling code while retaining catch semantics. This is an owned toolchain boundary, not a casual `RUSTFLAGS` tweak: pin `rust-src`, pass an explicit target even for native builds, scope `RUSTC_BOOTSTRAP` to the custom-std subprocess, and qualify/tests under the matching `con-*` profile. The official con custom-std baseline reduced release-fast unwind from 849,920 B to 790,016 B, mostly through `.text`; the shared GDI+ screenshot adapter made it 790,528 B, and direct platform-owned console input made it 791,552 B while closing two real PTY gaps. Replacing the complete Windows `rmux-pty` production edge with a parity-preserving direct ConPTY/Job/pipe adapter then reduced the same artifact to 761,856 B. Exact-profile evidence is 87 unit, 18 black-box and one control test with zero ignores; the 512 KiB budget remains active. Treat each native leaf independently: behavior or ownership can justify growth, but only final-section evidence may call it a size optimization.
+- Keep `compiler_builtins` in an explicit Rust 1.97 `-Z build-std` root list.
+  `core` now contains `f16` formatting paths that reference
+  `__truncsfhf2`/`__extendhfsf2`; a target directory carrying builtins without
+  the matching reliable-f16 cfg can compile `core` and fail only at final MSVC
+  link. The con root list is therefore
+  `std,panic_unwind,compiler_builtins`. Prove toolchain changes with an isolated
+  cold target: adding the root to a warm command need not invalidate an already
+  mismatched archive. A cold Windows x64 build completed in 93.8 seconds and
+  restored the 531,968-byte custom-std artifact.
+- `RegisterClassW` is process-global and parallel windows can race to register the same stable class. Treat `ERROR_CLASS_ALREADY_EXISTS` as success for an application-owned unique class instead of serializing tests or rejecting the second window.
+- `ImmAssociateContextEx` is optional on Windows installations without East Asian input support. When the public IME-enable contract is best-effort and has no error channel, a false native result must not terminate an otherwise functional terminal; preserve typed failures only where the public contract can report or safely surface them.
+- For incremental Adler-32 SIMD, accumulate byte and weighted sums across the standard bounded reduction chunk and take the modulus once per chunk. Reducing every 16-byte vector block can make a mathematically correct SIMD kernel slower than the scalar implementation.
+- Keep checksum correctness tests broad without making them cubic: test every input length one-shot, every split only for representative boundary lengths, and deterministic multi-chunk streams. A test that recomputes every length at every split can process billions of bytes and hide the implementation result behind test design failure.
+- Measure ISA paths against a same-source forced-scalar PE. Alternate the two public journeys while both hosts remain live, expose the owned operation duration in the CLI receipt, require byte-identical output, and decide from final PE bytes plus paired p95 rather than process-launch timing.
+- Treat `#[inline(always)]` as a measured code-generation exception, not a style preference. Small vector helpers can remain out of line under ordinary `#[inline]`, forcing ABI spills inside a hot loop. Compare emitted assembly and the optimized archive or final artifact, require scalar bit parity and every owning target compile, and document the exact compiler/toolchain evidence. Remove the exception when a compiler upgrade produces the same register-only loop without it.
+- A cursor over process-owned `&[String]` should return borrowed `&str`; clone only when a parsed value enters an owned request or state field. Borrow verbs, flags, numeric text, and validation-only tags through the whole parse. This can remove allocator calls, clone error paths, string-drop unwind metadata, and literals together: the con control parser reduced the final PE by 3,072 bytes without changing its grammar or wire protocol. Verify exact errors and round trips because an ownership optimization is still a parser behavior change until tests prove otherwise.
+- Centralize repeated fixed-schema formatting at one concrete non-inlined boundary, then compare control-flow spellings in the final artifact. For six con `@TAB_ID` JSON sites, `Option::map_or` saved 384 section bytes but did not cross file alignment; an explicit `match` saved 596 section bytes and 512 final PE bytes. Replacing the remaining `format!` with handwritten stack decimal conversion grew the PE by 512 bytes because constant division, buffer copying, and relocation cost outweighed local fmt scaffolding while integer formatting remained live elsewhere. Keep the measured match, not the assembly-looking version.
+- A physical client click on a Win32 top-level window already crosses the OS activation/focus path before product pointer handling. Do not call `SetForegroundWindow`, `SetFocus`, or a facade that reaches them again from that pointer callback merely to focus a product-owned virtual input region. The synchronous focus messages reenter native dispatch and can disturb painting; update product focus state and IME coordinates locally instead. Reserve explicit native focus for startup, keyboard shortcuts that focus without a pointer gesture, and real cross-window activation.
+- Treat native pointer capture plus PTY reporting as one fallible transaction. If capture is acquired before a press report, release it when the write fails; commit `last_reported_cell`, drag ownership, and active-button state only after the report succeeds. Keep physical input best-effort across concurrent child exit, but let control/automation callers receive the write failure and distinguish an application-consumed event from a coalesced same-cell motion that wrote no bytes. When automation splits press/release across requests in a multi-session window, keep one window-scoped typed owner rather than independent session booleans; reject overlap and cross-owner release, and cancel both the owner and active physical gesture before tab activation, creation, close, or shutdown.
+- When physical input and public automation share an encoder, make the shared core return the actual fallible delivery result. The physical event path may be a thin best-effort wrapper across concurrent child exit; CLI/control callers must invoke the checked core and propagate write failure. Commit live-view scroll, last-delivered coordinates, and similar delivery-dependent state only after the write succeeds. A unit-returning shared helper silently turns automation receipts into false success.
+- Treat editable UI submission to an external sink as an ownership transaction. Move the bounded draft into one submission value without cloning, append transport framing only there, and clear/scroll/mark-delivered state only after the complete write succeeds. On failure remove framing, restore the exact draft, retain retry focus, and expose a bounded typed error; every keyboard, IME, accessibility, and programmatic edit path must clear stale failure state consistently.
+- Treat modal validation and downstream creation as separate phases. Producing validated parameters must not close the modal or discard its drafts; only the consumer that observes the created object may commit and close. A failed local spawn or remote IPC request keeps the exact drafts and retry focus, records the failure in the modal, and exposes it through the host's ordinary status/error surface. Apply the same contract to native clicks, keyboard submission, and programmatic UI actions.
+- Treat a destructive peer-server close as a real modal transaction on every host. Stage the stable peer identity before dispatch, provide an effect-free cancel path, and keep the pending confirmation when the shutdown request fails before acceptance. Once shutdown succeeds, clear the pending state and report success even if the follow-up registry refresh fails; retrying a completed destructive effect because its observation failed is unsafe. Mouse, keyboard, window-close, snapshots, and programmatic confirm/cancel actions must all consume the same modal identity.
+- Repeated one-field JSON results can still monomorphize substantial iterator and collection scaffolding after a general object constructor has been centralized. Route fixed one-field replies through one concrete non-inlined `(name, JsonValue)` boundary and verify exact schemas. Eleven con control/wait sites reduced the staged release-fast PE by 1,536 bytes without changing protocol bytes.
+- Replacing every repository call to `is_x86_feature_detected!` does not prove `std_detect` disappears. A dependency or custom `std` path may retain the same cache. Verify the final symbol graph after CPUID/XGETBV replacement; in con, raw detectors matched the standard oracle for SSE2/SSSE3/AVX/AVX2/FMA but `std_detect::detect_and_initialize` remained 1,688 bytes and the final PE grew by 512 bytes. Keep raw detection only when the last linked owner is removed and OSXSAVE plus XCR0 state checks remain exact.
+
+## Assembly and FFI size rule (measured 2026-08-12)
+
+Treat `global_asm!` as a target-specific leaf accelerator, not a default size
+optimization. Validate buffers once in Rust, preserve the platform ABI and a
+portable fallback, then compare the final staged binary. A tested Win64 GDI
+pixel-conversion leaf increased `agenterm-con.exe` by one 512-byte file-alignment
+unit and was reverted. Keep assembly only when it removes the original linked
+region or measured throughput justifies the retained byte cost. Likewise, an
+FFI call saves space only when it makes an entire Rust implementation family
+unreachable; `windows-sys` declarations themselves are effectively zero-cost.
+
+For native filesystem FFI, separate caller-owned paths from paths constructed
+under a platform invariant. Arbitrary staging paths still need physical-parent,
+symlink, identity and destination-type checks. A sibling temporary exclusively
+created from one already-canonical parent may skip rediscovering that parent at
+publication, provided callback output and the destination are revalidated and
+all pre-publication failures still remove the temporary. Keep the OS adapter
+mechanism-only: prepared UTF-16 paths, atomic replace, durability and bounded
+sharing retries belong there; product path policy does not. Removing three
+redundant canonicalization passes from con's atomic screenshot/snapshot path
+reduced the staged PE by 3,584 bytes; merely wrapping them in FFI would not.
+
+When a Windows-native field admits a tiny fixed ASCII vocabulary, compare its
+`OsStr` as UTF-16 units instead of calling `to_str`, `to_string_lossy`, trimming
+and allocating lowercase text. Keep grammar distinctions explicit: a PATHEXT
+entry may have one leading dot, while `Path::extension` has already removed it;
+reject extra units and unpaired surrogates rather than normalizing them. Sharing
+one exact `.exe`/`.com` leaf removed 1,024 bytes from con's staged PE. This rule
+does not apply to user text or general Unicode case folding.
+
+Trace constrained native text backward through its producer. Optimizing the
+final comparison does not remove `to_string_lossy`, `split`, `format!` or an
+intermediate `collect` that still prepares its input. When the complete grammar
+is genuinely tiny, parse it once with a bounded native-unit state machine and
+emit only typed/canonical outputs. Preserve subtle fallback semantics explicitly:
+Windows PATHEXT distinguishes an absent or all-empty list from a nonempty list
+whose entries are unsupported. Streaming that complete grammar, plus exact
+ASCII-wide environment-key comparison, removed another 2,048 bytes after the
+fixed-extension leaf had already landed.
+
+Choose a container from the complete lifecycle, not only asymptotic lookup. A
+small environment map built once, overwritten a few times, then consumed in
+sorted order before one FFI call does not need a generic tree node engine. A
+concrete sorted `Vec` with manual binary insertion preserves ordering and
+last-write semantics while making allocation, split and traversal families
+unreachable. In the ConPTY environment block this removed every linked BTree
+symbol and reduced the staged PE by 7,680 bytes. Do not generalize this to
+long-lived or mutation-heavy maps; use measured cardinality, lifecycle and the
+final link map.
+
+After specializing a container, trace its producer again. On Windows,
+`std::env::vars_os` already reaches `GetEnvironmentStringsW`, but it also
+materializes owned key/value objects before product overrides are applied. A
+platform adapter may instead own the native block lifetime directly: pair
+`GetEnvironmentStringsW` with `FreeEnvironmentStringsW`, bound the terminating
+double-NUL scan, recognize hidden `=C:` drive keys by their second `=`, and
+stream-merge validated case-insensitive overrides into the Unicode block passed
+to `CreateProcessW`. Keep this Windows-only mechanism behind the neutral PTY
+contract; Unix environments must preserve their native byte semantics. This
+follow-up removed another 1,024 staged bytes, but only after a same-HEAD A/B
+comparison separated an unrelated concurrent size change from the experiment.
+
+For a tiny fixed input schema, do not retain a general owned JSON DOM merely
+because the same module needs a structured output writer. Keep the boundaries
+asymmetric: scan and validate the complete input, store byte spans for known
+scalar fields, decode object keys only for semantic comparison or diagnostics,
+and skip unknown values without allocating their trees. Duplicate detection
+must compare decoded keys, including `\u` spellings, at every object depth.
+Preserve input, depth, node, field and decoded-string budgets and reject trailing
+data. In con this removed the last configuration DOM owner while preserving the
+snapshot/control writer and reduced the staged release-fast PE by 1,536 bytes.
+
+When a final PE imports `ceilf`, `round`, `roundf` or `truncf`, audit every
+linked owner before replacing individual calls. Geometry conversion can use one
+shared IEEE-754 bit-level leaf: classify exponent bits, mask fractional bits,
+apply the half-unit in significand space, and preserve sign, signed zero,
+infinity and NaN payloads. Keep concrete functions non-inlined when many call
+sites share them, and compare their result bits against the standard library
+over boundary and sampled representations. Con removed all four CRT imports and
+one 512-byte PE alignment unit this way. Prefer this portable scalar truth over
+assembly until emitted-code or hot-path evidence justifies SSE/NEON dispatch.
+
+On Windows MSVC, replacing `mainCRTStartup` is safe only if the replacement
+still reaches rustc's generated C `main`; calling the product function directly
+skips `lang_start`, runtime initialization, panic containment and cleanup.
+Windows std ignores C `argc`/`argv` and parses `GetCommandLineW`, so `0/null` is
+valid for the generated wrapper. Explicitly walk `.CRT$XI*` then `.CRT$XC*`
+before it, and `.CRT$XP*` then `.CRT$XT*` after it. Never walk `.CRT$XL*`: the PE
+TLS Directory makes those callbacks loader-owned, and manual invocation would
+double-run thread cleanup. Test the boundary with a test-only `.CRT$XCU`
+constructor that must fire before Rust test main.
+
+If Rust rejects a `#[link_name = "main"]` declaration as a duplicate generated
+entry, use the smallest architecture seam rather than reimplementing runtime:
+an x86_64 `jmp main` or ARM64 `b main` trampoline preserves the C ABI and return
+address. Keep initialization in Rust. Link `vcruntime`/`ucrt` import libraries
+explicitly because the removed CRT startup object formerly pulled them in
+implicitly. Suppress LNK4210 only after XI/XC/XP/XT and loader-owned XL are all
+accounted for. In con this removed 5,120 staged bytes and four startup-only UCRT
+DLL families while retaining unwind.
+
+Treat process argv parsing as a platform contract, not an automatic
+`std::env::args` choice. Linux `/proc/<pid>/cmdline` is NUL-delimited: remove
+exactly its final terminator and retain interior empty arguments. macOS
+`KERN_PROCARGS2` contains executable, padding, exactly `argc` arguments and then
+environment; consume exactly `argc` or environment values will masquerade as
+argv. Windows exposes one native command-line string, not the target process's
+already-parsed argv. Its documented lexical projection is `GetCommandLineW`
+data through `CommandLineToArgvW`; name that distinction rather than claiming
+unobservable parser internals. Own the returned pointer with a guard that calls
+`LocalFree` exactly once and bound argc plus every UTF-16 NUL scan. Keep all
+three behind one bounded `Result<Vec<String>>` facade and bracket a remote read
+with matching process start identities so PID reuse cannot substitute a target.
+
+Treat another process's working directory as a platform-limited observation,
+not a reason to normalize around undocumented internals. Linux exposes the
+live object through `/proc/<pid>/cwd`; macOS exposes it through
+`proc_pidinfo(PROC_PIDVNODEPATHINFO)`. Preserve native non-UTF-8 paths inside
+the platform facade, then let a JSON product boundary reject an unrepresentable
+path with a typed invalid-data result instead of using lossy text. Windows has
+no stable public arbitrary-process cwd API: reading remote PEB /
+`RTL_USER_PROCESS_PARAMETERS` couples the product to private layouts,
+privilege and native/WOW64 width. Return typed unsupported until a separately
+bounded experiment proves that matrix. As with argv, bracket the point read
+with equal process-start identities so PID reuse cannot change the target.
+
+Process state mutation needs one retained object as effect authority, not an
+identity check followed by `kill(pid, signal)`. Linux can send STOP/CONT through
+the retained pidfd; macOS can use the retained audit token so XNU validates its
+pidversion. Read scheduler state back under the same frozen start identity.
+Once the native effect is attempted, every exit, reuse, observation error and
+timeout path must close the durable receipt as performed-but-unverified; an
+early `?` after the effect leaves an ambiguous reservation. Windows has no
+documented exact-process suspension primitive here, so return typed unsupported
+instead of enumerating and suspending threads through private behavior.
+
+Privilege planning is observation, not a diluted mutation path. Freeze one
+closed operation, an exact process-start identity, independently repeated
+before-state reads, requested after state and a bounded expiry before any
+provider or consent surface exists. Keep a stable contract digest separate
+from the approval digest that binds issue/expiry timestamps. Platform concepts
+must remain semantic: Unix nice and Windows priority classes are not the same
+wire value, so a missing translation returns typed unsupported rather than a
+plausible integer. Planning must never invoke a broker, shell, consent UI or
+mutation; the later provider revalidates the complete plan and postcondition.
+
+For a caller-visible wait on an existing process, a PID is lookup input, not
+stable identity. First retain the native process object (`pidfd`, kqueue-backed
+reference, or Windows HANDLE), then compare the caller's prior start identity
+with a fresh observation before waiting. Report a monotonic timeout as a
+verified still-live outcome; never reopen or poll the numeric PID and silently
+follow a recycled process. Mutation builds on the same contract but needs its
+own actuate gate and postcondition.
+
+Host DNS is another blocking native boundary: an API named `cancel` is not
+proof that its underlying resolver work stopped. Windows legacy name-service
+providers may continue after `GetAddrInfoExCancel`, while glibc
+`getaddrinfo_a` cannot cancel a worker already running. When a feature needs a
+hard overall deadline, isolate blocking resolution in an invocation-owned
+helper, drain its bounded stdout concurrently, and on expiry kill and `wait`
+the exact child. Never implement nominal timeout by abandoning a resolver
+thread, and never wait for child exit before reading a pipe whose capacity may
+be smaller than the protocol ceiling.
+
+A process-metrics watch is a bounded observation transaction, not an unbounded
+`top` loop. Take the first sample immediately, bind every later sample to the
+same start identity, schedule from a monotonic deadline, and cap duration,
+interval and returned sample count independently. Preserve wide native counters
+as decimal strings at every sample. Distinguish `completed` from `truncated` so
+a qjswasm caller can tell “observed the requested duration” from “hit the
+sample/output budget”; PID reuse or loss of identity is a typed failure, never
+a fresh series under the same number. Freeze the precedence when a completed
+sample crosses both limits: if reaching the explicit sample ceiling is the
+observable constraint, classify it before re-reading the wall deadline so a
+slow host cannot flip the same sample count between `truncated` and `completed`.
+
+A process-lifecycle watch applies the same identity rule to a changing set.
+Take one bounded baseline, key every row by `(pid, start_identity)`, and report
+PID reuse as an `exited` old identity plus a `started` new identity. Bound the
+duration, interval, emitted events, and matched inventory independently. An
+unverifiable exact PID fails typed. A broad watch may exclude unidentified
+rows only when it reports the count and `coverage_complete=false`; never emit
+those rows as PID-only events. Oversized inventory still fails typed. Keep the
+baseline in the reply so a zero-event watch states exactly which objects were
+observed.
+
+Never use `start_identity(pid).ok()` as a liveness, absence, ownership or
+cleanup predicate. That conversion collapses `Dead`, `Unknown`, and
+`Live { start_identity: None }` into the same `None`; in a terminal publisher it
+can persist a false `Detached` or `Signaled` fact for a process that was merely
+unobservable. Use `process_observation::verify_identity` and exhaustively match
+all five `IdentityVerdict` variants. Only `Dead` and `PidReused` prove the
+frozen process absent. `IdentityUnavailable` and `Unobservable` must remain a
+typed unknown (or conservatively continue observation) and must never authorize
+a terminal state or destructive cleanup. Read-only persisted-record inventories
+have the same obligation: count unavailable/unobservable identities separately
+from records proven stale, and reject schema/owner/endpoint mismatches before
+performing the process observation so foreign records cannot contaminate either
+liveness count.
+
+This is not semantics-free: `CommandLineToArgvW` differs from modern MSVC rules
+for ambiguous hand-crafted quote sequences, and loading Shell32 can hurt a
+small console process. Require standard-launcher round trips and public CLI
+tests before adopting it. In con, which is already a GUI, target-specific cold
+A/B reduced the official release-fast PE from 543,232 to 541,184 bytes while
+adding `shell32.dll`; that final-link result, not the FFI declaration itself,
+justified retention.
+
+When a product uses `-Z build-std` with an explicit target, `cargo clean -p`
+without `--target` does not clean that product graph. For con size A/B, clean
+both owning packages with the exact target triple before each side. An earlier
+484,352-byte incremental argv artifact failed this provenance test; same-HEAD
+cold builds established the real 2,048-byte reduction. Never promote a warm or
+stale staged byte count into PRD evidence.
+
+For a Windows process that already needs the complete inherited environment
+for `CreateProcessW`, share one RAII `GetEnvironmentStringsW` block instead of
+adding independent std and `GetEnvironmentVariableW` paths. Keep the block
+borrowed, cap the double-NUL scan, and pair it with `FreeEnvironmentStringsW`
+exactly once. If product callers need only fixed protocol keys, state an ASCII
+key contract rather than silently weakening a general Unicode API.
+
+The con x86_64 scanner is a valid inline-assembly exception because an isolated
+cold final PE fell from 540,672 to 540,160 bytes and Windows aarch64 retained a
+tested Rust fallback. Inline-assembly scratch registers that are written before
+all inputs are consumed must use `out(reg)`, not `lateout(reg)`: LLVM may alias a
+`lateout` with an input, and this scanner's first version corrupted a live
+pointer and access-violated. Test the raw bounded leaf with synthetic empty,
+missing, hidden-drive and truncated blocks, not only the OS-owned happy path.
+During parallel `-Z build-std` work, use an exclusive target directory; a
+shared target can mix custom `core` and `compiler_builtins` artifacts even when
+the source tree is correct.
+
+Do not replace a bounded `String::from_utf16` path with
+`WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS)` merely because the latter
+is native. Con's Windows argv experiment preserved valid arguments and rejected
+an unpaired surrogate, but the isolated custom-std release-fast PE grew from
+540,160 to 540,672 bytes. The required-size call, output allocation, second FFI
+call and surrounding branches did not remove enough linked Rust machinery to
+cross the final artifact boundary. The experiment was reverted. Prefer the
+existing Rust conversion unless a caller can lend fixed output storage or a
+future link graph proves that the complete conversion family becomes dead.
+
+Likewise, do not hand-assemble a cold glyph-format loop before accounting for
+its cache and surrounding control flow. Con first moved GDI gray8 stride and
+length validation outside the per-pixel loop; that clear scalar helper grew the
+custom-std PE from 540,160 to 540,672 bytes. Replacing its inner loop with a
+bounded x86_64 inline-assembly row scanner grew it again to 541,184 bytes. Both
+versions passed padding, saturation, short-write and real ASCII/CJK GDI tests,
+but glyph conversion runs only on cache misses and no public latency evidence
+justified the size cost, so both were reverted. The higher-value native font
+target is reusable `HDC`/`HFONT` lifetime, not six arithmetic instructions.
+
+For `CreateCompatibleDC(NULL)`, Microsoft assigns HDC ownership to the creating
+thread and invalidates it when that thread exits. Do not make a cached GDI face
+`Send` merely to fit a process-global mutex. Con keeps a thread-local RAII set
+instead: one active pixel size, lazy family creation, exactly-once
+`SelectObject` restoration plus `DeleteObject`/`DeleteDC`, and a complete reset
+when size changes. `try_with` and `try_borrow_mut` convert teardown or reentry
+into a typed raster failure rather than a panic. A deterministic test rasterizes
+94 distinct printable ASCII glyphs and observes one native face creation instead
+of 94. The custom-std PE cost is 2,048 bytes (540,160 to 542,208); this is an
+accepted native-lifecycle/first-render trade, not a size optimization.
+
+Exact UTF-8 substring search can be a good assembly leaf when the product
+contract is narrower than Rust's generic pattern framework. Con `wait-text`
+matches each visible physical terminal row independently: it does not join
+lines, scan hidden scrollback, normalize Unicode, or fold case, and an empty
+needle succeeds. Its x86_64 bounded byte-search assembly preserves exactly that
+contract; Windows aarch64 and Unix use a scalar byte oracle. Synthetic byte
+matrices plus CJK/emoji cases must agree with slice-window search. Replacing the
+wait-text production `str::contains` call reduced the custom-std PE from 542,208
+to 537,600 bytes (-4,608), a final-link gain much larger than the leaf itself. A
+later symbol build still found the generic pattern/searcher family through
+unrelated fixed-character checks, so do not describe this delta as complete
+family removal without post-change attribution.
+
+Do not mechanically rewrite every fixed-character `str::contains` as byte-slice
+membership to chase that family. In con, changing the remaining IPC and process
+convention checks for `':'`, `'='`, and NUL grew the custom-std PE from 537,600
+to 539,136 bytes while strip/split patterns still retained the framework. The
+experiment was reverted. Final-link A/B and post-change symbols both matter.
+
+The same rule applies when `std` is already a thin native wrapper. Replacing
+the three Windows PTY uses of `std::env::current_dir` with a bounded
+`GetCurrentDirectoryW` retry loop preserved explicit-path, relative-PATH and
+resolved-image behavior, but grew the exact custom-std PE from 537,600 to
+538,624 bytes in the initial unpaired observation. A same-state reverse build
+established the current baseline as 538,112 bytes, so the attributable cost is
+one 512-byte alignment step. The replacement duplicated buffer sizing, directory-change race
+handling and error conversion without removing enough standard-library code,
+so it was reverted. Keep `std::env::current_dir` until a shared platform
+contract, fixed caller storage, or final-link evidence changes that trade.
+
+Do not force tiny leaf helpers across a crate boundary merely to remove source
+duplication. The workbench and con each had a six-line UTF-8 prefix clamp for
+capture output. Moving it into `agenterm-ui-core` preserved CJK/emoji behavior
+but grew con's exact custom-std PE from 538,112 to 538,624 bytes, one 512-byte
+alignment step, because the
+former product-local loop no longer optimized in place. The move was reverted.
+Share protocol types, state machines and substantial kernels; tolerate a tiny
+semantic duplicate when the public contract is stable, tests agree and the
+final-link cost of a cross-crate call is larger than the maintenance benefit.
+
+A cross-product extraction is justified when it removes an observable semantic
+fork rather than only repeated syntax. The workbench and `agenterm-con` once
+carried separate VT word, visible/logical-row and clipboard-text rules; con's
+triple-click crossed soft wraps while the product contract required one visible
+row. `agenterm-ui-core::terminal_selection` now owns the physical-screen kernel,
+behind an optional `terminal-selection` feature so unrelated UI-core consumers
+do not acquire `vt100`. Product gesture/capture/authority state stays outside.
+Require shared-kernel tests plus both product suites, and make no size claim
+until an exact-profile final-link A/B is measured.
+
+Before replacing `is_x86_feature_detected!`, prove that the generic detector's
+last production owner is in scope. UI-core briefly combined its AVX2 and SSSE3
+dispatch into one cached CPUID probe, with OSXSAVE/AVX checks and a bounded
+`xgetbv` assembly leaf for XMM/YMM state. The probe matched the standard oracle
+and all pixel/con tests passed, but another link owner retained
+`std_detect::detect_features`; bloat `.text` grew from 348.5 to 349.0 KiB while
+the exact 538,112-byte PE merely hid the increase inside existing alignment.
+The probe was reverted. A native ISA probe is a win only after link attribution
+shows it removes the complete generic detector or provides measured hot-path
+latency that justifies two detectors.
+
+That prerequisite can change after dependency-feature work. VTE's `std`
+feature only enables `memchr/std`; its parser API is unchanged without it. Con's
+vendored vt100 now disables that feature, so x86_64 ESC scans retain baseline
+SSE2 while dropping memchr's AVX2 runtime dispatcher. UI-core then became the
+last production `std_detect` owner. One `OnceLock<X86Kernels>` now caches direct
+blend and RGB-pack function pointers selected by a narrow CPUID probe; AVX2 is
+accepted only with CPUID AVX + OSXSAVE, XCR0 XMM/YMM state from bounded `xgetbv`
+inline assembly, and CPUID.7 AVX2. The probe matches the standard oracle in
+tests, while the oracle is test-only. Paired custom-std builds measured 538,112
+to 537,600 bytes for VTE no-std, then 537,600 to 536,064 bytes after replacing
+the final detector. Bloat `.text` fell from 348.5 to 346.5 KiB and no linked
+`std_detect::detect_features` symbol remained. This is the required sequence:
+remove every owner first, then replace the final authority once.
+
+Model fixed-schema JSON keys as borrowed static data, not owned user data. Con's
+bounded JSON parser extracts typed configuration values and never constructs a
+generic object tree; every output object key is a compile-time schema literal.
+Changing `JsonValue::Object` from `Vec<(String, JsonValue)>` to
+`Vec<(&'static str, JsonValue)>` therefore removes one allocation and copy per
+field without weakening input bounds or allowing borrowed request data to
+escape. Dynamic titles, text and paths remain owned values. The exact custom-std
+PE fell from 536,064 to 534,528 bytes, `.text` from 346.5 to 345.5 KiB, and the
+public GUI/control suites preserved JSON interoperability. Do not generalize
+this representation to a parser that must retain arbitrary input keys.
+
+Apply the same provenance rule to fixed-schema integer values. Con's production
+JSON outputs only signed or unsigned integers; decimal fractions belong to the
+typed configuration parser and never enter the output tree. `JsonValue` now
+stores `u64`/`i64` until final serialization, where a directly declared `itoa`
+dependency writes into the existing response buffer. A raw decimal-string
+variant exists only under `cfg(test)` for codec interoperability. This removes
+one `to_string` allocation per perf, snapshot, dimension and delivery-count
+field and reduced the exact PE from 534,528 to 532,480 bytes. Declare a crate
+you call directly even when another dependency already happens to pull it in;
+transitive availability is not an API contract.
+
+Keep protocol-formatted identifiers typed until the final writer when their
+wire spelling is fixed. Con's stable tab ID is a `u64` internally and a JSON
+string `"@N"` publicly. A dedicated output-tree variant writes the quote,
+prefix and integer directly through the existing `itoa` buffer; it does not
+change CLI parsing, workspace identity, window-title formatting or nullable
+parents. This removed `format!` allocation from control replies and reduced the
+exact PE from 532,480 to 531,456 bytes. Do not reuse the variant for arbitrary
+prefixed text: its value is that the type proves the complete wire grammar.
+
+Avoid building a temporary `String` when a fixed-cell painter can consume
+borrowed segments under one metrics/clip pass. Con's chrome now paints tree
+`@N  title`, composer destination, committed text, IME preedit and cursor from
+stack `itoa` digits plus borrowed slices. A pixel oracle compares joined and
+segmented CJK text under a non-cell-aligned clip and requires exact framebuffer
+equality. This removes three heap constructions from every relevant chrome
+repaint while keeping the exact PE at 531,456 bytes. Keep the segmented painter
+product-local: the strings are con UI policy, while font rasterization remains
+the shared platform mechanism.
+
+For the Windows roaming configuration root, prefer
+`SHGetFolderPathW(CSIDL_APPDATA)` with a caller-owned `MAX_PATH` UTF-16 buffer
+when that legacy length contract is acceptable. `SHGetKnownFolderPath` returns
+COM task-allocated memory and requires `CoTaskMemFree`; do not add that allocator
+edge for a path that already fits the product contract. Keep the filename and
+schema in the product, expose only the host configuration-root mechanism from
+platform, and retain Unix behavior behind the same facade. In con this removed
+one 512-byte PE alignment unit after target-specific cold measurement.
+
+Model filesystem path provenance before choosing normalization. An arbitrary
+caller-owned staging path needs physical-parent, link and identity checks. A
+temporary exclusively created by the platform beside a destination does not
+need to rediscover those relationships, but it still must freeze an absolute
+path before callbacks, validate the parent directory and revalidate callback
+output. Keep these as separate typed/facade paths rather than a boolean that can
+silently weaken the public publisher. On Windows, bounded `GetFullPathNameW`
+plus `GetFileAttributesW` removed con's last std filesystem canonicalization
+owner and saved one 512-byte PE alignment unit; Unix retained canonical parent
+resolution behind the same provenance-specific facade.
+
+For Win32 clipboard writes, the movable global allocation is the final writable
+destination, not merely an opaque sink. Count encoded UTF-16 units with checked
+arithmetic, allocate once, lock, encode directly, and append the required NUL.
+Do not collect a temporary `Vec<u16>` only to memcpy it into `GlobalAlloc`.
+Ownership remains the hard boundary: call `GlobalFree` on every failure before
+`SetClipboardData`, and never free after that call succeeds. This direct encoding
+removed one allocation/copy per selection and one 512-byte PE alignment unit.
+
+Every platform Cargo feature must activate the native declaration features used
+by its own adapter. Do not rely on a product's unrelated feature union to make
+Win32 functions compile: test the minimal capability graph as well as the real
+product graph. `pty` needs `Win32_Security` because windows-sys gates process,
+pipe and Job creation declarations through that module even when no product
+authorization policy is involved.
+
+## Floating text and clamp linkage (measured 2026-08-12)
+
+Keeping `f64` geometry does not require keeping the standard float text runtime.
+A single `FromStr<f64>` owner retains `dec2flt`; `f64::clamp` also retains its
+invalid-bound panic plus `Debug`/`flt2dec`, even when product bounds are ordered
+constants. For bounded configuration and CLI schemas, parse decimal syntax with
+an integer significand and decimal exponent, reject non-finite overflow, then
+convert once at the typed boundary. Use an explicit ordered comparison helper
+when NaN behavior must match `clamp`; permit `clippy::manual_clamp` only with a
+measured link-size reason. Verify removal in the final link map, because source
+search alone cannot prove the formatting family became unreachable.
+
+## Parse only the transport a consumer can instantiate
+
+A shared enum may support more mechanisms than a small consumer. Calling its
+generic `FromStr` and rejecting an unused variant afterward still links every
+parser branch. Prefer a platform-owned typed constructor for the mechanism set
+that the caller can actually instantiate, while keeping the generic constructor
+for richer consumers. In the con control path, a native named-pipe/Unix-socket
+constructor made the entire `core::net::parser` family unreachable and reduced
+the staged PE by 6,656 bytes without removing TCP support from the workbench.
+This is mechanism-specific linkage, not an authorization profile.
+
+## Windows service environments do not promise interactive PATH
+
+- A Scheduled Task or service session can have an empty/reduced `PATH` even
+  while Windows inbox tools exist. A cross-image court must resolve required
+  system executables through the platform/system-directory source, verify the
+  final file, and spawn that absolute result. Never treat successful bare-name
+  lookup in an interactive developer terminal as delivery evidence; never
+  install a tool merely to repair an inherited-environment assumption.
+
+## Windows temporary paths through the platform facade
+
+Do not call `std::env::temp_dir` from a Windows-only adapter merely for a debug
+or scratch path. Reuse the platform runtime-directory contract and implement its
+Windows leaf with `GetTempPathW`: pass a writable UTF-16 buffer, treat a returned
+length at least equal to capacity as a resize request, cap allocation, and keep
+a non-panicking fallback. This removed the last con owner of the standard temp
+directory routine and saved one 512-byte PE alignment unit while centralizing
+the FFI behavior for other products.
+
+## Prefer deterministic sorted storage for small read-heavy maps
+
+`HashMap` can retain random seeding and hashbrown code even when a consumer has
+only two map owners. For a bounded cache whose lookups dominate expensive new
+value construction, a sorted `Vec<(K,V)>` gives contiguous O(log n) lookup and
+acceptably cold O(n) insertion. Recompute the insertion index after FIFO
+eviction; an index calculated before removal is stale when a lower key was
+deleted. For large static tree batches, sort `(id,index)` once and binary-search
+parents to retain O(n log n) behavior and deterministic duplicate diagnostics.
+Measure the final link: this pair removed the complete hashbrown/RandomState
+family from con and saved 2,048 staged bytes.
+
+## Generic sort can dominate a tiny specialized index
+
+Replacing a hash map with a sorted vector is incomplete size work if
+`slice::sort_unstable` becomes the new last owner. Its adaptive generic
+monomorphization can be several KiB. When the contract only needs deterministic
+O(n log n), a small iterative heapsort provides bounded stack, no auxiliary
+allocation, and much less linked code. Preserve total ordering details used by
+diagnostics: sorting `(id,input_index)` ensures duplicate IDs still report the
+second input occurrence. In ui-core this removed the full generic sort family
+and saved 4,096 staged bytes while retaining the 20,000-node deep-tree test.
+
+## Cross-package executable probes
+
+An integration test compiled by cross-target `--all-targets` cannot assume Cargo
+provides `CARGO_BIN_EXE_*` for a binary owned by another package. Use
+`option_env!` to retain the native running-binary probe while allowing
+cross-compilation to keep checking the static contract. Never skip the static
+schema, ownership, or evidence checks merely because that target cell cannot
+execute the sibling binary.
+## Windows supplementary glyphs without a second font stack
+
+`GetGlyphIndicesW` maps UTF-16 code units, so passing a surrogate pair does not
+prove one Unicode scalar was mapped. For a selected GDI TrueType/OpenType face,
+the small product-neutral path is: read a strictly bounded `cmap` table with
+`GetFontData`, parse the big-endian format-12 UCS-4 groups with checked offsets,
+then pass the resulting glyph index to `GetGlyphOutlineW` with
+`GGO_GLYPH_INDEX`. Keep BMP characters on `GetGlyphIndicesW`, cache at most one
+bounded table per live face, and treat absent/malformed tables as local missing
+coverage. This handles nominal supplementary outline glyphs; it does not claim
+color emoji, variation sequences, or run shaping, which require DirectWrite.
+
+## Integration-test paths are gate ownership
+
+Cargo automatically discovers every `tests/*.rs` file for the package rooted
+at that manifest. Pointing a second package's explicit `[[test]]` entry at the
+same root-level file does not transfer ownership: both packages run it, under
+different profiles and binary-resolution contexts. Product-specific GUI and
+black-box tests must physically live under the owning package's `tests/`
+directory, use package-relative `[[test]]` paths when explicit registration is
+needed, and publish repo-relative evidence paths separately. Confirm ownership
+through Cargo metadata, not only by observing one green invocation.
+
+The same ownership rule applies to repository source audits. A scanner rooted
+at the workbench `src/` tree does not follow a package's `[[bin]]` target after
+that source moves under `crates/<package>/src`. When physically separating a
+package, update every boundary, native-API, hygiene, and architecture scanner
+to include the new source root explicitly; otherwise a correct Cargo move can
+silently create an audit blind spot.
+
+## Shared integration-test helpers are per-crate dead code
+
+Every `tests/*.rs` compiles as its own crate, so helpers moved into
+`tests/common/mod.rs` (e.g. a shared C-toolchain discovery module) look dead
+to every test crate that does not reference them — gate the module with
+`#[allow(dead_code)]` exactly like the existing `system_libs` module, and say
+in the comment why (it is cross-crate shared, not genuinely dead).
+
+Related clippy trap when moving long doc comments into a nested shared module:
+`doc_lazy_continuation` treats a doc line starting with `+` (or `-` / `*`) as
+a markdown list item, so a phrase like "(milestones 21b\n + 21c)" that gets
+split across lines — harmless at the top level of a test file — becomes a
+hard clippy error once the same comment lives one module deeper. Keep
+list-like tokens on one line when re-flowing doc comments.
+
+## Canonical paths are not cross-runtime command arguments
+
+Windows `std::fs::canonicalize` can return a `\\?\` verbatim path. That is a
+valid native Win32 path but not a portable argument for MSYS programs, which
+interpret backslashes as escapes. Canonicalize only where identity/security
+requires it; for a newly created Windows test scratch directory passed to both
+native and MSYS children, retain the ordinary absolute path instead.
+
+Script path helpers still need to remove a leading lexical current-directory
+segment before comparing against a native identity result: `.` is the current
+directory, and `./child` must not become `<cwd>/./child`. Strip `.\child` only
+when the current host path is Windows-shaped; on POSIX, backslash is an ordinary
+filename character. This is normalization, not permission or canonicalization.
+
+For a filtered event API, the published rows and the consumed cursor are two
+different facts. Filter the rows to the requested object, but advance the
+cursor through every event the bounded source page scanned; otherwise traffic
+for another object can trap the caller in an infinite replay loop. Bind the
+cursor to a restart identity (for AgenTerm: server scope + epoch), expose
+complete/truncated, and preserve typed restart, history-gap, and future-cursor
+failures. Do not rename an event-journal position into a raw byte offset.
+
+## Unix IPC may resolve only platform-owned aliases
+
+Do not canonicalize arbitrary symlink ancestry while validating a Unix socket
+runtime directory. A narrowly documented host alias such as macOS `/tmp` may be
+resolved, but caller-created symlinks must fail as unsafe. Likewise, reject an
+existing directory with group/other permission bits; never silently `chmod` a
+caller-owned path to make an unsafe endpoint appear valid. Only directories
+created by the adapter may be initialized at `0700`.
+
+## A small product client reuses the control wire, not the product binary
+
+When a sibling executable needs AgenTerm-owned terminal/session state, do not
+link the full GUI crate, extend libagenterm with product concepts, parse the
+human `list-panes -F` surface, or spawn `agenterm cli`. Put bounded framing,
+native pipe/socket transport, typed response fields and control receipts in a
+small product-owned client crate; the terminal kernel remains the only state
+owner. Terminal identity is `(server_scope_id, server_epoch, @tab_id)`, never a
+mutable index or title. A vt100 screen capture is not an incremental output
+cursor: label it as a bounded screen snapshot until the runtime exposes
+retained byte offsets, earliest-retained offset and typed gap semantics.
+
+Product-owned lifecycle mutation must be verified inside that same control
+identity. Reserve the receipt before the request, retain only bounded metadata
+rather than user command/title values, then read back the same server scope and
+epoch: creation proves the returned stable id exists (plus requested parent),
+and close proves that exact id is absent. A transport error after dispatch may
+coexist with an effect, so record `performed` from observable post-state and do
+not turn an unverified shutdown into success. Let the product kernel own child
+promotion, remain-on-exit and last-tab behavior; a facade must not recreate
+those rules as fake tmux semantics.
+
+## Headless CI is not a desktop-service fixture
+
+Linux adapter unit tests must not require the current host to run AT-SPI,
+DBus, a compositor, or another desktop daemon. Split environment/proc parsing
+into bounded pure helpers and test synthetic byte fixtures, including malformed
+and missing values. Keep live service discovery best-effort in the adapter and
+prove actual desktop integration only in a matching-host smoke environment that
+explicitly owns that service.
+
+## Linux screen geometry is not Wayland client enumeration
+
+Keep **screen geometry** separate from **top-level client-window enumeration**.
+EWMH client lists are X11-only and must remain typed unsupported on Wayland,
+but a Wayland session with an authenticated `DISPLAY` has an XWayland root
+whose geometry is valid session-screen evidence. Rejecting all X11 access
+merely because `XDG_SESSION_TYPE=wayland` turns a live desktop into a false
+“no screens” report. Open the exact `DISPLAY` for screen geometry; do not
+promote that success into a claim that Wayland client-window enumeration
+exists.
+
+That separation must survive every boundary. An ABI screen export must call
+the screen operation and translate its own typed result; it must not preflight
+a coarser window-enumeration capability flag. Such a preflight rejects a valid
+XWayland screen probe before the Linux adapter is ever called.
+
+## Non-idempotent native effects need caller-request replay, not a smaller API
+
+Do not permanently reduce a public native operation to the subset whose
+postcondition is easy to read back. For effects such as `SIGHUP` or `SIGUSR1`,
+bind the exact owned target and effect arguments into the durable caller
+request fingerprint, reserve before delivery, and finalize one typed outcome.
+Replaying that request returns the sealed outcome without delivering the
+signal again. The result must distinguish accepted delivery from a verified
+process-specific effect rather than claiming that an arbitrary signal had the
+intended application meaning.
+
+## An active cheap gate must own Candidate's static workflow contracts
+
+Do not let an expensive release Candidate be the first place that parses its
+workflow or release-policy source. When ordinary push CI is active, its quality
+job owns that integration test. When those workflows are deliberately parked
+as `.disabled`, the local lint/release rehearsal must retain the same parser
+contract and Candidate must be self-contained rather than waiting for runs that
+GitHub cannot create. Never preserve a prerequisite merely because its filename
+survives as archived source. The same rule applies to deterministic build/task
+contracts that need no release artifact, such as target-pruning arguments and
+source order. Keep assertions exact enough to preserve semantic switches;
+update production workflow and parser assertion in one coherent change. This
+prevents a cheap mismatch from wasting the stress-inclusive lane.
+
+## Linux AT-SPI publish must reconnect
+
+A one-shot `serve()` then `pending()` dies with the first bus. If
+`DBUS_SESSION_BUS_ADDRESS` points at a missing `unix:path`, hydrate must
+replace it from the live AT-SPI process or `XDG_RUNTIME_DIR/bus` — filling
+only when unset leaves a dead address in place. `start()` returns a handle
+on first connect failure so the product keeps publishing snapshots;
+`is_publishing()` is the live connection flag, not "this backend exists".
+`retains_snapshots()` is how the product keeps a reconnectable handle and
+still drops a no-op host. Do not require killing the con process to pick up
+a replacement bus.
+
+## AT-SPI action names are not required for a node click
+
+Linux `GetActions` returns localized names. Chrome with
+`--force-renderer-accessibility` commonly exposes `NActions >= 1` (often two
+entries) whose names are empty strings, so a tree snapshot shows
+`"actions":["",""]`. Structured `click --node` must still invoke AT-SPI:
+prefer a named `click`/`press`, otherwise `DoAction(0)` (the spec default
+action). Honor the boolean `DoAction` return. Do not refuse with
+`a11y_action_unavailable` merely because names are blank, and do not require
+the caller to pass `--coords` / `--degraded`. Focus stays named-`focus` then
+`Component::grab_focus`; it must not fall through to the default click action.
+Unit-test the index choice with synthetic name lists; prove actuation on a
+live toolkit only in the owning smoke. When reading those empty names through
+libagenterm's two-stage string ABI, a `cap==0` probe that reports
+`required==0` is the empty payload — do not call again with `cap==0`, or
+`buffer_too_small` will fail the whole tree.
+
+## Named click without Action stays on the AT-SPI Component path
+
+A showing named node may expose Component but not Action. Structured
+`click --name` must not become `--coords`. Probe `GetInterfaces` for
+`org.a11y.atspi.Action`; when it is absent, use `Component::GetExtents`
+(screen) plus AT-SPI `DeviceEventController.GenerateMouseEvent` (`b1c`) at
+the extent center. Reply `addressing` remains `accessibility-tree`. Fail
+typed if extents are empty. Do not call XTest / input-inject from this
+path. When `GetInterfaces` times out, still try `DoAction(0)` first (WebKit
+`GetActions` hangs; `DoAction` often works), then Component only if the
+Action interface is missing.
+
+## A "missing" web page is a walk budget, a value field, or an AX mode -- not a screenshot
+
+Three measured reasons the macOS AX tree "has no page" on Chromium, each
+with a typed answer instead of a PNG:
+
+- **Breadth-first walk, 1000-node / 32-level default.** The platform
+  adapter walks level by level; on a browser window the budget is spent on
+  the tab strip, toolbar and bookmarks before web content (which nests past
+  depth 40) is reached. `truncated: true` on a browser window means "the
+  page is not in this reply". Say so in `next_actions` with the exact
+  rerun (`--max-nodes 6000 --depth 64`; 774 nodes read in 0.26 s), and
+  give reading verbs (`page text`, `unlock`) those larger defaults. Never
+  compare "before" and "after" trees under a budget that cannot see the
+  part you are comparing: `unlock` at depth 12 reported `grew: false` on a
+  window whose page was fully readable one level deeper.
+- **Words are `AXValue`.** A web `static-text` has an empty `AXTitle`
+  (`name`) and its string in `AXValue` (`text`); a heading's `AXValue` is
+  its level. Shape reading verbs from `text` first, `name` for
+  non-container roles, and never from a container's concatenated name.
+  Reading order is the child-index path, not the walk order.
+- **The renderer tree is opt-in.** Chromium builds it when an assistive
+  client is detected: set `AXManualAccessibility` *and*
+  `AXEnhancedUserInterface` on the application, `AXManualAccessibility` on
+  the window, then read like a client would (hit-test the window centre,
+  its children, the window's children, the focused element's children) and
+  re-read bounded. Do not treat the set-attribute status as the outcome.
+
+A verb that answers `a11y_node_not_found` must reach no mechanism. Prove
+it with the thread-local `mechanism::write_ledger` (attempt count noted
+before every text / key / node-action FFI call) rather than with a receipt
+file, which a refusal never writes.
+
+## A background browser tab is a target id (CDP) or a tab-strip row (AX), never a web-area
+
+Do not call a browser route “attach” unless the running process already owns a
+debug endpoint: Chromium's DevTools TCP port and pipe are startup boundaries
+and cannot be injected afterward. Use three explicit states instead: borrow an
+exact live PID that already declares a reachable endpoint (`owned=false`),
+start an ACU-owned isolated browser session with a random endpoint and complete
+process-tree/profile cleanup, or use a separately installed fixed-identity MV3
+Native Messaging bridge for an authenticated profile. Never copy a live user
+profile to manufacture the second route.
+
+Native Messaging is a framed binary protocol even when its payload is JSON.
+Decode the four-byte little-endian size across arbitrary split/combined reads,
+reject an oversized declaration before waiting for its body, cap outbound
+requests independently, and validate protocol version, bounded request id,
+closed command catalog and object-shaped arguments before routing. Keep this
+pure protocol core independent from the extension installer and browser host so
+all three platform installers share the same truth.
+
+One caller deadline must cover connect, every partial write and every partial
+read. On Darwin, resetting `SO_RCVTIMEO` / `SO_SNDTIMEO` through
+`UnixStream::set_*_timeout` on an already connected Native Messaging control
+socket can return `EINVAL` even though the initial connect-time timeout was
+accepted. The Unix platform facade therefore exposes nonblocking readiness
+waits backed by `poll`; recompute the remaining absolute deadline before every
+read/write fragment. Windows named pipes keep the equivalent remaining budget
+in their overlapped-I/O timeout. Never multiply a nominal timeout by the number
+of frame fragments or candidate connections.
+
+The same executable may be both the ordinary JSON CLI and the Native Messaging
+host, but the entry boundary must recognize Chromium's exact extension-origin
+argv before version, help, logging, or normal dispatch can write to stdout.
+Once that shape is seen, stdout belongs exclusively to length-prefixed native
+frames. A foreign extension origin or malformed platform suffix fails without
+writing stdout; diagnostic text may use stderr. On Windows, accept only the
+documented single decimal `--parent-window=` suffix in addition to the exact
+origin, rather than passing arbitrary trailing arguments into host mode.
+
+An authenticated-profile bridge needs its own fixed extension/native-host
+identity; never reuse or overwrite the retiring tool's identity. Embed the
+reviewed MV3 assets and materialize them through a same-directory atomic staging
+plan. Bind each live connection to the current user, an exact process-start
+identity, the fixed endpoint and a CSPRNG id; PID or path alone is not registry
+ownership. A background debugger read must export only bounded AX role/name
+facts, never form/control values or arbitrary DOM attributes, and must prove the
+tab-active and window-focus states did not change. Debugger detach is part of
+the result: detach failure makes the read fail even when data was obtained.
+
+Installation scope is also part of the effect contract. Keep the direct native
+all-discovered mode distinct from a compatibility caller's exact repeated
+browser-family selectors; never erase a legacy selector and widen registration
+to every installed Chromium family. Discover unrequested roots for a truthful
+receipt but do not write them. A requested missing root is a bounded skip, an
+all-missing set fails before shared publication, and any partial publication is
+named `performed-partial` while uncertain publication stays `unknown`; both
+carry a non-retry-safe receipt. A deliberate
+same-selector rerun may be documented as convergent repair, but that is not an
+automatic retry grant.
+Bound tab inventory separately so a browser with many tabs cannot bypass the
+native-message response budget.
+
+A profile-wide tab facade must resolve identity before reading data. Enumerate
+the complete live connection registry, query every candidate's authenticated
+profile instance, and require exactly one connection for the selected profile;
+an exact connection id alone does not prove profile uniqueness. Reject a
+truncated connection or tab inventory instead of returning a plausible prefix.
+Keep stable tab/window ids and URLs from MV3: a desktop tab strip or CDP
+title-join loses profile-wide background identity and is never an automatic
+fallback. Bracket native desktop focus through a short settle window even for
+read-only extension calls, because “query only” at one layer does not prove the
+composed provider preserved presentation.
+
+Treat one exact Native Messaging connection as the authenticated Profile
+capability handle. Browser window ids are stable only inside that connection;
+return state, focus, bounds, tab count and active-tab identity together, and do
+not join them to desktop windows by title alone. An MV3 window-state mutation
+must use a closed state vocabulary and verify both the requested state and
+presentation invariants. In particular, when no browser window owned focus
+before the action, the extension has no authority to restore an unrelated
+foreground application. Refuse that case or compose an exact native focus
+provider; never claim that `chrome.windows.update` preserved foreground merely
+because it returned successfully. A failed postcondition must roll back or
+report rollback uncertainty, not return a plausible success receipt.
+
+The composed provider must observe beyond the extension reply. On macOS,
+restoring a maximized Chromium window to normal can move the WindowServer's
+focused handle after the MV3 state/read-back has already succeeded. Capture the
+exact native foreground handle before the effect, watch it for a bounded settle
+window (currently 500 ms), restore any drift through the native window facade,
+and verify the same handle once more. Keep browser focus/state/tab verification
+inside the MV3 response and desktop foreground verification outside it; neither
+observation can substitute for the other.
+
+Do not use Chromium's first native startup window as extension evidence. Brave
+can show a `chrome://` startup surface in the OS window inventory while
+`chrome.tabs.query` and `chrome.windows.getAll` correctly return no addressable
+rows. A window-lifecycle court must create an ordinary window through the exact
+MV3 connection (or another typed browser mechanism), then bind all subsequent
+state changes to the returned Chromium window id. Native visibility alone is
+not proof that the authenticated extension can address the window.
+
+An owned Chromium Profile does not prove that a requested unpacked extension
+loaded. Pass only the atomically materialized fixed extension directory through
+the sealed owner spec, then require a new exact Native Messaging connection
+whose extension identity and protocol catalog match. Stop/TTL evidence must
+also show that this connection disappears after the contained browser tree is
+reaped. `--load-extension` in argv, an installed manifest, or an empty window
+inventory is supporting mechanism evidence; only the live connection closes
+the activation claim.
+
+On macOS and Linux, Chromium resolves the per-user `NativeMessagingHosts`
+directory from the active user-data directory. An owned launch with a custom
+`--user-data-dir` therefore cannot rely on registration under a browser's
+default profile root. Before launch, copy the already-published native-host
+manifest into the owned profile's `NativeMessagingHosts` directory through a
+bounded exact read and private atomic write; clean up the owned session if that
+publication fails. Windows keeps the per-user HKCU registration instead.
+Consequently, a Windows owned bridge session still depends on a discovered
+product root until an isolated current-user registry bootstrap is proved; do
+not describe the Unix clean-HOME result as a cross-platform contract.
+
+When a loaded unpacked extension must identify its exact source build, keep one
+fixed-width placeholder in the reviewed embedded JavaScript, hash the raw
+manifest and placeholder-bearing source with explicit path/length framing, and
+substitute that digest exactly once during atomic publication. Verify the
+published directory as the exact materialized file set before any reload; a
+manifest version alone cannot distinguish same-version source drift. Persist
+the native-host protocol generation in each connection record and give the
+immediately preceding schema an explicit default. A newer executor can then
+return a typed one-time manual reload boundary for an old connection without
+sending an incompatible probe or inventing unavailable version/build facts.
+
+Native Messaging connection identity is deliberately short-lived; it binds one
+host process, not the durable browser Profile. Persist a separate random Profile
+instance identity in extension-local storage, validate it as a closed protocol
+field, and key session-owned tab locks by fixed extension + Profile instance +
+exact tab. A reconnect succeeds only after the old process-bound connection is
+gone and exactly one new connection presents the same Profile identity and tab
+without changing desktop focus. Do not use `chrome.runtime.reload()` as a
+reconnect guarantee: an MV3 worker is event-driven and may not wake merely
+because its code was reloaded. For deterministic channel recovery, acknowledge
+the request, disconnect the exact Native Messaging port, reconnect explicitly,
+and label the receipt `reload_scope=native-connection`. Loading updated
+extension code is a distinct setup/activation boundary and must never be
+implied by that receipt.
+
+Closed-shadow mutation needs two independently bounded replay barriers. The
+Native Messaging process may replay only a byte-identical request id within one
+connection, while the product executor must reserve the caller's durable
+request/session identity before the browser effect. Once an effect frame begins
+writing, write, flush, response, decode, detach or postcondition uncertainty is
+`outcome_unknown`; never describe it as retry-safe. Debug-effect error replies
+must carry the exact tab, detach outcome and `not-performed|unknown` effect
+state—generic `{code}` is invalid. Window-creation errors instead carry a
+closed `not-performed|rolled-back|unknown` effect state because no tab identity
+exists until creation succeeds. Keep typed text, node labels and full
+file paths request-only. Bind mutation to exact Profile/tab/frame/backend-node
+plus role/name, and prove it in a real child-frame closed shadow fixture; a
+top-frame catalog test is not equivalent. Size the in-connection replay ledger
+from the complete public journey while retaining a hard bound: 32 entries was
+exhausted by one honest lifecycle, so protocol v4 uses 256.
+
+For a background browser-window creation, put the final state in the same
+`chrome.windows.create` effect; a normal create followed by minimize invents a
+visible intermediate state and splits request identity. Capture the exact
+native desktop foreground before delivery, restore and read it back after any
+success or extension refusal, and publish that proof with the browser-level
+focus receipt. Once create delivery may have happened, transport loss,
+rollback failure or unproved native-focus restoration is `outcome_unknown`
+with `retry_safe=false`; only a proved rollback may keep the original typed
+error retryable.
+
+For an exact-tab browser navigation, a method acknowledgement is not a commit
+receipt. Bind `Page.navigate` to the root-frame `frameId` plus `loaderId` and a
+matching `Page.frameNavigated` event; keep same-document navigation as a
+separate, exact-frame-and-URL case. Nest deadlines so the extension's commit
+deadline expires before the Native Messaging read deadline, which itself must
+expire before the session lock TTL. After navigation delivery, transport loss,
+dialog blocking, missing commit, failed readback, presentation drift, or detach
+failure is `outcome_unknown` and is never retried. Reserve `performed` failure
+for a proved commit carrying the browser's explicit navigation error, and keep
+requested, committed, and observed URLs distinct because redirects are facts,
+not postcondition failures.
+
+For an owned Chromium session, request `--remote-debugging-port=0` and read the
+bounded `DevToolsActivePort` file from that session's private profile. Require a
+nonzero decimal port and a `/devtools/browser/` websocket path; reject extra
+records, fragments, control bytes and oversized input. Do not pre-bind a port,
+scan neighbors, publish the private profile path, or confuse this pure launch
+contract with durable ownership: a resident owner must still retain the exact
+process-tree guard and prove endpoint/profile cleanup.
+
+Treat removal as a second identity court, not the inverse of creation. Require
+the terminal state, exact owner/browser absence, an uncontended owner lock, the
+same opened profile object, an exact private owner marker and a closed entry
+set. An unknown process observation is not absence, and marker reads must use a
+bounded no-follow opened file. Only those facts authorize removal of the owned
+tree; a name or path string alone never does.
+
+When a caller has a browser PID instead of a CDP port, treat the process
+command line as secret-bearing mechanism input, not evidence. Observe a stable
+native start identity, perform one bounded exact-PID command-line query, observe
+the same identity again, and accept only an explicit valid
+`--remote-debugging-port`. Never publish the full command line and never scan or
+guess neighboring ports. PID reuse, inspection failure, missing flags and an
+unreachable `/json` endpoint remain distinct typed failures.
+
+macOS Chromium (Chrome, Brave, Edge) publishes only the active tab's
+`web-area` in the AX tree; every other tab is a `radio-button` row of the
+tab-strip `tab-group` (name = title, state `selected` / `unselected`).
+`agenterm-cu tree` / `query` / `invoke` therefore cannot read or press a
+background tab's content, and no `unlock` poke changes that. Two honest
+paths, neither of which raises or activates the window:
+
+- CDP `/json` lists every tab as a `page` target and `Runtime.evaluate`
+  over that target's websocket runs in a background tab. Address the tab
+  (`page-js --target-id | --target-url | --target-title`; MCU compatibility
+  `--match` searches title + URL + description; inventory via `page targets`),
+  filter to `type == page | webview | other`, and fail typed on zero
+  (`cdp_target_not_found`) or many (`cdp_target_ambiguous`) with the
+  candidates in `error.detail` — never take the first hit of a substring.
+  MCU historically chose its first matching target; ACU deliberately tightens
+  that behavior to exact-one so a reordered tab list cannot redirect an action.
+- A CDP viewport click is not verified by `Input.dispatchMouseEvent` returning
+  success. Freeze a rendered hit before reserving the receipt, install a
+  one-shot page event probe, require trusted down/up at that exact point, and
+  always attempt release after an accepted press. A cleanup release never turns
+  an uncertain mechanism failure into success.
+- Current-focus text insertion must freeze an editable element identity before
+  reserving its receipt, then require the same element plus exact value-length
+  growth after `Input.insertText`. Keep inserted text and before/after values
+  internal to verification; public and persistent evidence carries only byte
+  counts and the typed verdict.
+- Without a CDP port, switch the window's active tab through the strip:
+  `tab select` presses the matching `radio-button` whose direct parent is
+  the `tab-group` (a form's radio buttons are not tabs) and verifies by
+  reading `selected` back. Keep the matcher pure (`tab_strip.rs`) and test
+  it with fake node lists; the mechanism stays the same `AXPress` path as
+  `invoke press`.
+
+The debugging port answers any local process, so documentation must say
+to open it only while needed; do not default a verb to relaunching the
+browser with the flag.
+
+## Acting on a background tab is a CDP session, not a focus change (measured 2026-09-03)
+
+Reading a background tab is `Runtime.evaluate` on its target; acting on
+it is the same target's websocket with a handful more methods, and none
+of them has to bring the tab forward. What the throwaway headless gate
+(`scripts/cu-cdp-actuate-smoke.sh`) settled:
+
+- **One session per verb, ids matched, events buffered.** Keep the
+  socket behind a `Transport` trait (`cdp::ws`) so the message shaping,
+  the ambiguity rules and the verification are unit-tested on scripted
+  transcripts; `Session::call` returns the reply with the matching `id`
+  and parks every `method` event it reads past, so `Page.navigate` +
+  `wait_event("Page.loadEventFired")` works without a second connection.
+  Bound the inbound message at 16 MiB (an AX tree or a PNG is large) and
+  handle the 8-byte length form; the 64 KiB cap stays a `page-js` rule.
+- **An expression result is its settled value, not a Promise handle.** Public
+  `page-js` sends `awaitPromise=true` even for ordinary expressions (which stay
+  immediate), keeps the session call deadline as a hard wall, and types Promise
+  rejection separately from listener/method absence. A successful reply must
+  publish that it awaited settlement; otherwise callers can mistake queued
+  browser work for completed observation.
+- **Focus emulation, not activation.** `Input.insertText` and click
+  side-effects want a focused page; `Emulation.setFocusEmulationEnabled`
+  gives an unfocused target that without touching the real front tab or
+  window. Switch it on for the action and off after; never call
+  `Target.activateTarget` / `Page.bringToFront` unless a verb's
+  `--activate` says so, and then reply `focus_changed: true` and require
+  the actuate grant.
+- **A text hit inside a control is the control.** `Accessibility.
+  getFullAXTree` lists `button "Go"` *and* its `StaticText "Go"`; keep the
+  innermost match, then lift it to the nearest interactive ancestor whose
+  name carries the same words, so the click lands on the button's box and
+  the row reports `role: button`. Containers (`generic`, `paragraph`,
+  `RootWebArea`) are never rows; a field's words are its `value`, its
+  `name` is the label.
+- **Verification is a read-back, and "nothing changed" is honest.** A
+  click reads the document (url, title, text length, active element) and
+  the node (text, value, checked, attributes) before and after;
+  `performed` says the events were accepted, `verified` says something
+  observable changed, and `no_observable_change` is a reason, not a
+  failure. A fill compares `.value` with the text (`--clear`) or with
+  before + text (insert at the caret); a page that rewrites its own field
+  is `performed` but `value_mismatch`.
+- **Plan, receipt, perform.** Resolve the node, scroll it into view, take
+  the box and the before-state with no side effect; reserve the receipt;
+  only then dispatch. A node without a layout box is
+  `cdp_node_not_visible` before anything is sent.
+- **Prove the invariant in the gate, not in prose.** After every verb the
+  smoke re-reads `/json` (the first `page` entry is the active tab) and
+  `windows --focused` and fails on any change; the fixture page mutates
+  its own DOM in `onclick` / `onsubmit` so the read-back is real.
+- **CDP input acknowledgement can precede DOM/compositor state.** A
+  headless Chromium court accepted `mouseWheel`, while immediate evaluate
+  round trips still saw the old `scrollTop`; the offset changed only after
+  the command returned. Install a one-shot listener on the exact planned
+  scroll container before dispatch, then use an awaited, deadline-bounded
+  event read-back and remove the listener on every exit. For hover, CSS
+  `:hover` may remain absent in a headless/background target even though a
+  trusted `mousemove` arrived; verify the event's `target` against
+  `elementFromPoint`, and report CSS hover only as auxiliary evidence.
+  Never turn CDP ACK alone into `verified: true`.
+- **File inputs cross a privacy boundary.** Validate 1..16 absolute paths as
+  regular non-symlink browser-host files before reserving a receipt; resolve
+  exactly one enabled `input[type=file]` and reject multiple files unless the
+  control declares `multiple`. After `DOM.setFileInputFiles`, verify the exact
+  FileList as basename/size pairs. The command needs full paths transiently,
+  but public results, receipts, logs and persisted evidence must never retain
+  them.
+- **A browser download is a browser-global event lifecycle, not a click.**
+  `Browser.setDownloadBehavior` belongs to the browser websocket, while the
+  planned click belongs to the selected page websocket. Serialize that global
+  policy with a cross-process lock keyed by the resolved CDP endpoint; a second
+  owner must fail typed busy instead of racing policy or events. Use
+  `allowAndName`, an explicit existing absolute download directory and download
+  events, then correlate `downloadWillBegin` with subsequent
+  `downloadProgress` by GUID until `completed` or a bounded deadline. Success
+  still requires `stat` of the GUID-named final regular non-symlink file; a CDP
+  ACK, a click ACK, or even a completed event without the file is not enough.
+  Return metadata only (GUID, suggested filename, final path, state and decimal
+  byte counts), never read or echo file contents. Keep the target backgrounded,
+  restore the browser policy on every exit, and preserve blocked, canceled,
+  not-started, timeout, missing-file and restore failures as typed evidence.
+- **On macOS, a CG window is not necessarily an `AXWindows` root.** Native
+  save/open panels may be `AXSheet` descendants of another AX window, and an
+  off-Space window is absent from `kCGWindowListOptionOnScreenOnly`. Resolve an
+  exact supplied CGWindowID to its owner using the all-window CG inventory,
+  then walk the application's `AXWindows` roots through bounded public
+  `AXChildren`, deduplicating element identity, until
+  `_AXUIElementGetWindow` matches. A CG handle that still has no AX match is
+  `a11y_window_not_addressable`, not `a11y_window_gone`: existence and AX
+  addressability are different facts. Do not invent an `AXSheets` attribute;
+  the SDK exposes the `AXSheet` role and sheet-created notification, while the
+  parent/child relation remains `AXChildren`.
+- **A successful dialog action can invalidate its own read-back root.** After
+  `AXPress`/`AXCancel` closes a sheet, a second tree lookup should fail because
+  the CGWindowID is gone. Do not turn that expected invalidation into an
+  `a11y_window_not_addressable` false negative. Freeze that the exact handle
+  existed in the native inventory before the action; when the AX action itself
+  succeeded, accept disappearance only for Press/Cancel and only when a fresh
+  native inventory proves that exact handle absent. Any inventory read failure,
+  surviving handle, other action, or mechanism error remains a typed failure.
+- **Input injection acceptance is not delivery verification.** A platform API
+  accepting a global key event proves only `performed`. Without an addressed
+  window/node and a semantic read-back, publish `verified=false` and
+  `delivered=false`, and close the persistent receipt as unverified. Never let
+  a bare JSON `ok` imply that an Escape reached a modal panel. Persistent key
+  receipts retain byte length and SHA-256 only, not the chord text.
+- **A drag owns its release.** Freeze both distinct rendered endpoints before
+  reserving the effect, then dispatch move/down/held-move/up on one target. Once
+  press is accepted, attempt mouse-up even if the held move fails; preserve the
+  first mechanism error but report that cleanup attempt in the failed receipt.
+  Verification requires the page to read back a trusted down, a move with the
+  left-button bit held, and an up at the frozen endpoints. Four CDP ACKs alone
+  are only `performed`, never `verified`.
+- **A JavaScript dialog is an event lifecycle, not one method ACK.** Enable
+  Page events and observe `javascriptDialogOpening` before reserving an effect;
+  no event by the bounded deadline is typed `cdp_dialog_not_open`. After
+  `handleJavaScriptDialog`, verify `javascriptDialogClosed.result` against the
+  requested accept/dismiss value. Dialog messages, defaults, supplied prompt
+  text and returned user input may contain secrets: persist only type, booleans
+  and byte counts, never those strings.
+
+## Name addressing is wait-matching then the node path
+
+`agenterm-cu click --name` / `agenterm-cu focus --name` must not grow a second actuation
+backend. Resolve with the same showing/visible + case-insensitive
+substring matcher as `wait --node-name-contains`, then call the existing
+`--node` AT-SPI path. Require `--window`, reject `--name` combined with
+`--node` or `--coords`, and return typed `a11y_node_not_found` on a miss.
+Two or more showing/visible hits must return typed `a11y_node_ambiguous`
+with the match count — never silently pick the first. The same uniqueness
+rule applies to `wait --node-name-contains`. GTK popover/menu children
+sometimes publish `enabled` + `focusable`/`sensitive` without
+`showing`/`visible`; treat those as name-addressable when no negative
+visibility state is present. Never satisfy a name click with a screenshot
+or degraded coordinates.
+
+`agenterm-cu send-keys --name` is the same rule plus a native Device/key delivery:
+resolve the unique showing node, then send the chord through AT-SPI
+`DeviceEventListener.NotifyEvent`. A named showing node with no key
+interface typed-fails (`a11y_key_unavailable`). That path never falls
+through to XTest / `input_inject::send_keys`. A miss types nothing.
+`send-keys --window HANDLE` without `--name` targets the same innermost
+focused Text node `get-text --window` reads. Prefer
+`DeviceEventListener.NotifyEvent` (`via=device-event`). con `Command`,
+Chrome renderer entries, and WebKitGTK textareas do not close plain
+typeable chords that way; plain typeable text (`314cGATE…` / `314GATE…`
+/ `314bGATE…`, single letters) then uses the AT-SPI `EditableText` /
+`Text` + toolkit set-value path (same as focused `send-text`) so
+`focus --name X` → `send-keys --window H TEXT` → `get-text --window H`
+closes without XTest. Live hosts: agenterm-con `Command` after
+`focus --name` (`via=editable-text`, second con only — never steal the
+resident control socket); Chrome `GetTextField` (`via=text`); Reasonix
+composer `Message Reasonix…` under `scripts/reasonix-desktop-a11y.sh`
+(eval helper, `via=text`). Special chords (`enter`, `ctrl+a`) without a
+key interface still typed-fail. A synthetic `--window` with no focused
+Text node typed-fails; it must not spray XTest.
+
+`agenterm-cu send-text --name` resolves the same unique showing node, then writes
+through native AT-SPI `EditableText` (`SetTextContents`, then `InsertText`)
+when present. Chrome and WebKitGTK named fields expose `Text` (read) but
+not `EditableText`. Chrome writes through AT-SPI `Text` plus the renderer
+AX set-value. WebKit 2.52 never registers `EditableText` even on a
+`<textarea id="composer-input">` (Reasonix composer); that write uses the
+AT-SPI `id` / name attributes plus the eval helper loaded by
+`scripts/reasonix-desktop-a11y.sh`, then is confirmed by `GetText`.
+`GenerateKeyboardEvent` on X11 is XTest — do not use it as a silent
+fallback. A named showing node that does not expose a writeable text
+interface typed-fails (`a11y_text_unavailable`). That path never falls
+through to XTest / `input_inject::type_text`. Explicit `--coords` or no
+`--window` may still inject. `send-text --window HANDLE` without `--name`
+is not that inject: it writes the same innermost focused Text node
+`get-text --window HANDLE` reads, through `agt_a11y_node_set_text`.
+`focus --name X` then `send-text --window H TEXT` then
+`get-text --window H` must close the loop (`GetText == TEXT`). A
+synthetic `--window` with no focused Text node typed-fails; it must
+not spray XTest. agenterm-con named `Command` closes the same loop
+through native `EditableText` (`via=editable-text`); launch a second
+con on a private control socket (or none) — never steal
+`unix:/tmp/run-box/agenterm-con.sock` / resident 62399. Chrome 151
+still has no `EditableText`; the write is AT-SPI `Text` plus the
+existing renderer AX set-value over that Chrome's own
+`--remote-debugging-port`. The Reasonix composer (`Message Reasonix…`
+under `scripts/reasonix-desktop-a11y.sh`) is the same verb: WebKit
+2.52 has `Text` but never `EditableText`, so the write uses the
+eval-helper set-value (`id=composer-input`) and proof is independent
+`get-text --window` (no `--name`). Named `focus` on that textarea
+must not call unbounded Action `GetActions` / `DoAction` — those hang
+the same way click's `GetActions` does, and the outer 10s snapshot
+deadline then fires as `a11y_action_timeout` before
+`Component.grab_focus` runs. Bound the Action probe to
+`ACTION_TIMEOUT` (250ms), then `grab_focus`. `click --name` also
+records an actuation focus hint under `XDG_RUNTIME_DIR/agenterm/atspi-focus-hint.txt`.
+`focused --window` must resolve that hint (direct D-Bus open of the hinted
+AT-SPI object) before the bounded tree walk: GTK3 buttons often omit
+`STATE_FOCUSED` while a sibling scroll pane still carries it after
+`click --name` (CEO#8 `cu-linux-gtk-button-focus-smoke`). `copy --name` on GTK
+entry/label (CEO#9 `cu-linux-gtk-copy-smoke`) seeds via `send-text`, publishes
+AT-SPI `Text.GetText` onto native CLIPBOARD, and proves payload with
+independent `clipboard-read` (not the copy reply `text`). `DISPLAY=:2` box-chrome
+defaults to 9224, which standing `chrome-profile-2` already owns on
+`127.0.0.1` — a second window whose cmdline still says 9224 then
+writes the wrong CDP tree (`no writable node named …`). Launch the
+gate Chrome with `SAND_CHROME_REMOTE_DEBUG_PORT` on a free port.
+Their payload argument is positional, so parse
+`--` as the end of flags — otherwise text (or a chord) that starts with a
+dash is eaten as a flag. For an open text payload, remove the recognized
+options first and reject any remaining dash-leading token before joining the
+payload; only the explicit `--` tail may preserve dash-leading text.
+For a closed command shape, use the consuming `flag_text` / `flag_window`
+readers before the residual check; the legacy `flag_value` / `flag_window_opt`
+readers intentionally leave option values in `args` and cannot prove closure.
+
+`agenterm-cu paste --name` is the clipboard form of that write. Resolve the unique
+showing node, optionally seed the clipboard with `--text`
+(`agt_clipboard_set_text`), then always read `agt_clipboard_get_text` and
+write through the same AT-SPI `EditableText` / `Text` path. Do not
+implement paste as Ctrl+V, XTest, `--coords`, or a screenshot. A named
+showing node with no writeable text interface typed-fails
+(`a11y_text_unavailable`). `matched.text` is still the resolve-time
+snapshot. Linux X11 seed is a native CLIPBOARD `SetSelectionOwner` in
+`adapters/linux/x11_clipboard.rs`, not `xclip` / `xsel`. A missing helper
+is not `clipboard-unavailable` when `DISPLAY` is set. Do not drop a
+one-off `/tmp/xclip` binary to unblock `paste --text`. WebKit/Reasonix
+still uses the eval-helper set-value path; `wait --text-equals` must see
+`GetText ==` the clipboard/typed string.
+
+`paste --window HANDLE` without `--name` writes that same clipboard path
+on the showing focused node — the same innermost `Text.GetText` candidate
+`get-text --window` reads. Never XTest when `--window` is set. Proof is
+independent `get-text --window HANDLE` (no `--name`) equal to the
+clipboard string after `focus --name`. Live hosts: agenterm-con `Command`
+after `focus --name` (`via=editable-text`, second con only — never steal
+the resident control socket); Chrome `GetTextField`; Reasonix composer
+`Message Reasonix…` under `scripts/reasonix-desktop-a11y.sh` (eval-helper
+set-value, `via=text`, same as focused `send-text`). Optional `--text`
+only seeds native CLIPBOARD; the field write always reads the clipboard.
+Without `--window` paste is invalid.
+
+`agenterm-cu copy --name` is the inverse read. Resolve the unique showing node,
+read AT-SPI `Text.GetText` (`agt_a11y_node_get_text`), and publish that
+UTF-8 through `agt_clipboard_set_text`. A named showing node with no
+Text interface typed-fails (`a11y_text_unavailable`). Never XTest,
+`--coords`, or screenshot. `matched.text` is the resolve-time snapshot
+and does not count; the copied payload is independent GetText. A later
+`paste --name` with no `--text` must be able to `ConvertSelection` that
+CLIPBOARD. A CLI process that `SetSelectionOwner` and then exits leaves
+CLIPBOARD unowned — `copy` therefore keeps a detached `agenterm-cu`
+owner in the X11 selection loop (`AGENTERM_X11_CLIPBOARD_SERVE`) until
+another owner takes it. Do not persist via `xclip` / `xsel`. A later
+process must not treat a 1-byte `get_text` probe `TooLarge` as "no
+clipboard text": `agt_clipboard_has_text` would then lie and
+`agt_clipboard_get_text` would return empty, so `paste --name` without
+`--text` writes nothing. Chrome fixture fields and the Reasonix
+composer (`Message Reasonix…` under `scripts/reasonix-desktop-a11y.sh`)
+share this path: after `send-text SRC`, `copy --name` reports
+`via=gettext`, a different `send-text` clears the field, `paste --name`
+with no `--text` rewrites SRC through the same WebKit eval-helper
+set-value path as named `send-text`, and `wait --text-equals SRC` must
+see independent GetText == SRC (not copy/paste/send `matched.text`).
+
+A live capability probe must not read clipboard payload merely to prove that
+the provider exists. `clipboard-read --metadata-only` calls only the native
+format inventory and returns `payload_read=false`; it must not include `text`,
+`value`, a digest of either, or an output path. An empty `types` array is a
+valid empty clipboard when `types_available=true`. Keep ordinary
+`clipboard-read` as the explicit content-reading operation. The same live
+probe must bind its caller-supplied platform label to the native
+`capabilities.platform` field (`std::env::consts::OS`); a matrix cell name is
+not evidence of the binary that actually ran.
+
+Direct clipboard text must stay a distinct command source, not a path-shaped
+string and not a temporary file. Bound it to the native text read-back ceiling,
+reject embedded NUL where the host text contract cannot preserve it, publish
+through the clipboard facade, then verify byte length and SHA-256 through an
+independent native read. Receipts and audit records may carry those measurements
+but never the text. Any payload-bearing source type also needs a redacted
+`Debug` implementation; a clean JSON receipt is insufficient if a later error
+or diagnostic can format the command enum and expose its field.
+
+`copy --window HANDLE` without `--name` copies that same GetText path
+on the showing focused node — the same innermost `Text.GetText`
+candidate `get-text --window` reads — onto native CLIPBOARD
+(`via=gettext`). Never XTest when `--window` is set. Proof is
+independent host circuit after `focus --name`: seed unique string →
+`copy --window H` (no `--name`) → clear field → `paste --window H`
+(no `--name` / no `--text`) → `get-text --window H` equals the seeded
+string. Live hosts: agenterm-con `Command` after `focus --name`
+(`via=gettext` on copy; paste restore `via=editable-text`; second con
+only — never steal the resident control socket); Chrome `GetTextField`;
+Reasonix composer `Message Reasonix…` under
+`scripts/reasonix-desktop-a11y.sh` (`via=gettext` on copy; paste still
+uses eval-helper set-value, `via=text`). Without `--window` copy is
+invalid.
+
+`agenterm-cu wait --text-equals` / `--node-text-equals` with `--name` is the
+independent AT-SPI close-the-circuit after named `send-text` / `paste` /
+`copy`.
+Resolve the unique showing node, then call `Text.GetText`
+(`agt_a11y_node_get_text`). Success is `ok:true` only when that GetText
+equals the typed string. The `send-text` / `paste` reply's `matched.text`
+is the resolve-time snapshot and does not count. A sidecar `agenterm-cu tree` walk
+of snapshot `text` fields does not count. Timeout is typed `timeout` and
+reports the last GetText. Never
+screenshot, XTest, or `--coords`. Chrome AX set-value rides the window
+PID's `--remote-debugging-port`; two Chromes sharing one CDP port can
+make the write report success against another page while GetText on the
+named node stays empty — that is why wait must observe GetText, not the
+write reply. WebKitGTK/Reasonix has the same split: the eval helper
+loaded by `scripts/reasonix-desktop-a11y.sh` returns `OK` when the JS
+set-value is *queued* (worker self-report), not when `Text.GetText` on
+the showing composer (`Message Reasonix…`) equals the typed string. Do
+not treat helper `OK`, `last_text_write_via`, `send-text` / `paste`
+`via=text`, or worker self-report as the wait hit.
+
+`agenterm-cu wait --text-contains` / `--node-text-contains` with `--name` is the
+same independent GetText poll with a substring predicate. Success is
+`ok:true` only when that GetText contains `SUB`; published `text` /
+`via=gettext` is still the full GetText, not the substring.
+`send-text` / `paste` / `copy` `matched.text` does not count. Timeout is
+typed `timeout` and reports the last GetText. Never screenshot, XTest,
+or `--coords`. Do not implement contains as OCR, a sidecar tree walk, or
+a check of the write reply.
+
+`observe` poll-diff needs an explicit baseline-readiness edge. On a slow
+AT-SPI host, one breadth-first tree walk can outlast a test's startup delay:
+it may read an early button before an action and a later text field after an
+action. That torn walk is internally valid but is not a causally valid
+baseline, so a later diff can miss the text change. `--ready-path PATH`
+atomically publishes a no-overwrite JSON marker only after the complete baseline; the
+actuator waits for that marker, then mutates. Start `duration_ms` after this
+publication so baseline cost does not consume the advertised observation
+window. The caller owns marker cleanup. Do not repair this race by increasing
+a fixed sleep, weakening event assertions, or pretending a tree walk is an
+atomic OS snapshot. Native-notification mode must reject the marker until its
+subscription API can expose an equivalent ready edge.
+
+Poll-diff filters belong at the sample boundary, before the two inventories
+are compared. Filtering an already-produced event stream loses transitions:
+for example, a stable window moving into or out of one macOS managed Space has
+the same native handle and fields, so only independently filtering both the
+previous and current samples can turn that membership change into an
+`appeared` / `disappeared` event. Validate a platform-limited filter provider
+before taking the baseline—even when the inventory is empty—so “no matching
+windows” never masquerades as “this host cannot evaluate the filter.” Return a
+typed unsupported result on hosts without the provider; do not silently
+post-filter or return an empty success.
+
+Bound accessibility text at the product serialization boundary, after the
+single native walk and before either flat or nested projection. A shortened
+UTF-8 preview keeps the complete observed byte length and SHA-256 so callers
+can detect changes beyond the prefix; `0` is a valid metadata-only budget.
+But a node already marked `text-truncated` by its platform adapter is not a
+complete value: report that incompleteness and omit the purported full-value
+digest. Hashing the adapter's prefix and labelling it as the whole value is a
+false identity, not a useful approximation.
+
+`agenterm-cu --ssh <user@host>` is the first remote target tier (PRD 30).
+It does not invent verbs: the host rewrites the abstract command to
+`target=current` and runs a remote `agenterm-cu exec --json -` worker over
+OpenSSH stdio (`ssh_transport`). Observe and actuate grants both forward;
+desktop work still happens on the remote side (AT-SPI via that worker's
+libagenterm). Get-selection evidence is loopback `sshd` plus a second
+`agenterm-con` on a unique control socket: host
+`send-text --window H --name Command -- SEED` (payload after `--`; not
+`--text`) plants the seed, host `select --window H --name Command --start
+N --end M` runs remote AT-SPI `Text.SetSelection`, then host independent
+`get-selection --window H --name Command` returns that range
+(`via=get-selection`; start/end equal the selected slice of the seed, or
+the seed when the range is the whole field). Native AT-SPI
+`GetNSelections` + `GetSelection`. Never screenshot, `--coords`, or XTest.
+Missing Text typed-fails `a11y_selection_unavailable` on the remote worker
+the same as local `current`. `get-extents` (3.29), `get-caret` (3.28),
+`tree` (3.27), `focus` (3.26), `scroll` (3.25), `click` (3.24),
+`set-caret` (3.23), `select` (3.22), `send-keys` (3.21), `copy` (3.20),
+`paste --text` (3.19), and `send-text` (3.18) over ssh remain valid. Do
+not steal `unix:/tmp/run-box/agenterm-con.sock` or kill the resident
+avatar PIDs. Auth / connect failures are typed (`ssh_unavailable` /
+`ssh_transport_failed`); missing `--ssh` on `--target ssh` is
+`invalid_input`. Forward `DISPLAY` / `AT_SPI_BUS` / `AGENTERM_ABI_LIB`
+via `--ssh-env` or host env (defaults copy common desktop keys when they
+have no whitespace). Do not implement ssh as D-Bus port-forward or a
+second control protocol in this cut.
+
+`agenterm-cu --vnc <host[:port]>` is the first VNC target tier (PRD 30,
+cuts 3.31 observe / 3.32 send-text / 3.33 paste / 3.34 copy / 3.35
+send-keys / 3.36 select / 3.37 set-caret / 3.38 click / 3.39 scroll /
+3.40 focus / 3.41 tree / 3.42 get-caret / 3.43 get-extents / 3.44
+get-selection). It does not invent verbs: the host handshakes RFB
+(security type None / `x11vnc -nopw` only in this cut), rewrites the
+abstract command to `target=current`, and runs a local
+`agenterm-cu exec --json -` session worker against the shared desktop
+(`vnc_transport`; `DISPLAY` / `AT_SPI_BUS` via host env or `--vnc-env`).
+Observe and actuate grants both forward; structured work still uses
+AT-SPI / native clipboard on that session — never RFB framebuffer OCR,
+screenshot, or `--coords`. Get-selection evidence is a **gate-owned**
+loopback x11vnc (not the resident `:2` listener alone) plus a second
+`agenterm-con` on a unique control socket and title: `Command` holds a
+known ASCII seed and a known non-empty selection `START..END` (gate
+precondition via already-landed `send-text` + `select`; not this cut's
+verb), then host independent
+`get-selection --window H --name Command` returns that range
+(`via=get-selection`; native AT-SPI `GetNSelections` + `GetSelection(0)`;
+`n == 1` and integer `start` / `end` equal the precondition range so
+`seed[start:end] == expected`). Never screenshot, `--coords`,
+mouse-drag, RFB framebuffer OCR, or a cached setter reply. Missing Text
+typed-fails `a11y_selection_unavailable` on the session worker the same
+as local `current`. `get-extents` (3.43), `get-caret` (3.42), `tree`
+(3.41), `focus` (3.40), `scroll` (3.39), `click` (3.38), `set-caret`
+(3.37), `select` (3.36), `send-keys` (3.35), `copy` (3.34),
+`paste --text` (3.33), and `send-text` (3.32) over vnc remain valid. Do
+not steal `unix:/tmp/run-box/agenterm-con.sock` or kill the resident
+avatar PIDs. Connect / protocol / auth failures are typed
+(`vnc_unavailable` / `vnc_transport_failed` / `vnc_auth_failed`);
+missing `--vnc` on `--target vnc` is `invalid_input`. Do not implement
+vnc as a second control protocol or D-Bus port-forward in this cut.
+
+### Per-target `capabilities` (cut 3.47)
+
+`capabilities` is the existing observe verb only — no `targets` enumeration
+and no new command. Two distinct facts must not be conflated:
+
+1. **Public tier / transport** owned by CU (`current` in-process, `ssh`
+   OpenSSH exec, `vnc` RFB session worker, `rdp` placeholder).
+2. **Mechanism status** owned by the `current` worker / libagenterm.
+
+SSH/VNC rewrite the command to `target=current` for the worker. Restoring
+only `reply.target` is not enough for `capabilities`: the worker payload
+also carries `data.target:"current"` and often
+`transport.status:"in_process"`. Normalize both `reply.target` and
+`data.target` to the public tier, keep the worker identity as
+`worker_target` / `worker_transport`, and set the public `transport`
+(`openssh_exec` / `rfb_session_worker`). Otherwise callers see a ssh/vnc
+request that claims `data.target:"current"`.
+
+RDP is the static exception: `capabilities` succeeds with
+`transport.status:"placeholder"`, `available:false`,
+`reason:"rdp_unavailable"`, and `verbs.tree` unsupported — **zero** DNS
+or TCP to the endpoint. Every other RDP verb stays fail-closed
+`rdp_unavailable`. Discovery still requires the observe grant (`refused`
+without it) and grants no actuation right. Never declare live RDP or
+unproven macOS AX as available from this path.
+
+`cu scroll --name` is one-shot AT-SPI `Component.ScrollTo(TopEdge)`
+(`agt_a11y_node_scroll`). Success is `ok:true` / `via=scroll-to`.
+Missing / false / `UnknownMethod` typed-fails
+(`a11y_scroll_unavailable`). ScrollTo true with no later independent
+geometry change is `a11y_scroll_no_effect`, not `timeout` — this is not
+a wait poll. Never Action `scroll*`, XTest wheel, `GenerateMouseEvent`,
+or `--coords`. `matched.extents` / snapshot `node.bounds` do not count.
+`cu get-extents --name` is the independent `Component.GetExtents(Screen)`
+observe sibling (`agt_a11y_node_get_extents`, same `CoordType::Screen`
+as `invoke_component_click`). Empty extents (w/h <= 0 or call fail)
+typed-fail (`a11y_extents_unavailable`). Both verbs are single-node
+`NODE_TIMEOUT` calls. Never fill snapshot bounds during a tree walk —
+WebKitGTK hangs Component on walk. con publish implements
+`Component.ScrollTo(TopEdge)` by applying a persistent y offset to the
+named `OffscreenField` Session child (layout snapshots stay
+unscrolled). Independent `GetExtents` is the proof; do not treat
+snapshot `node.bounds` as movement.
+
+Synthetic wheel delivery that temporarily moves the real pointer is a
+fallible transaction: every press must receive a best-effort release and the
+pointer must return to its captured origin on every error path, not only after
+successful delivery. Preserve the first delivery failure after cleanup. XTest
+sync proves server acceptance, not toolkit layout completion; verify the
+effect through an independent, short deadline-bounded AT-SPI geometry poll.
+
+On Windows, an absolute `SendInput` gesture must combine
+`MOUSEEVENTF_ABSOLUTE` with `MOUSEEVENTF_VIRTUALDESK` and normalize signed
+screen coordinates against `SM_XVIRTUALSCREEN` / `SM_YVIRTUALSCREEN` and the
+full virtual-screen dimensions. Primary-monitor coordinates silently
+misaddress monitors to its left or above. Keep the bounded
+move-down-dragged-moves-up sequence in one batch; if `SendInput` reports a
+short batch, attempt one extra matching button-up before returning the typed
+failure so a partial injection cannot knowingly leave the button held.
+
+WebKitGTK `Component.GetExtents(Screen)` works as a single-node call
+(snapshot `bounds` stay `0,0,0,0`). `Component.ScrollTo` returns true
+without changing those extents. GetChildren under the embed already
+returns the unique owner (`:1.N`), not
+`org.webkit.*.Sandboxed.WebProcess-*` — `open_bus_object` GetNameOwner
+does the same. Route scroll by: well-known dest, unique dest that owns
+that well-known name, or toolkit `WebKitGTK`. When
+`scripts/reasonix-desktop-a11y.sh` loaded the eval helper, `scroll
+--name` applies `scrollIntoView({block:'start'})` on the GTK thread
+(AT-SPI `id` + accessible name; same socket as set-value, hello
+`A11YSCROLL1`). Chrome has no helper socket and keeps native ScrollTo.
+Do not treat helper `OK` as geometric proof — only a later independent
+`get-extents` `|Δy|`.
+
+`cu select --name --start N --end M` is one-shot AT-SPI
+`Text.SetSelection(0, start, end)` (`agt_a11y_node_set_selection`).
+Success is `ok:true` / `via=set-selection`. Missing Text /
+`UnknownMethod` typed-fails (`a11y_selection_unavailable`).
+SetSelection false is `a11y_selection_no_effect`, not `timeout` — this
+is not a wait poll. Never XTest, mouse-drag, `GenerateMouseEvent`, or
+`--coords`. The `select` reply (including echoed `start`/`end`) is not
+proof. `cu get-selection --name` is the independent
+`GetNSelections` + `GetSelection(0)` observe sibling
+(`agt_a11y_node_get_selection`). `n == 0` is empty success. Do not
+implement select as a coordinate drag or a screenshot crop.
+
+Chrome text fields expose `Text.SetSelection`. A range such as `0..4`
+on a named field with known contents (`SelectField` / `HELLO`) is the
+live check: independent `get-selection` before is empty or not that
+range; after `select` it must be `start=0,end=4`. Unfocused fields
+often report `n==0`; grab-focus then `SetSelection(0,…)`, and only if
+that returns false with `n==0` use `AddSelection` to create selection
+0. Still AT-SPI Text, never a mouse drag.
+
+WebKitGTK 2.52 / Reasonix composer (`Message Reasonix…` under
+`scripts/reasonix-desktop-a11y.sh`) already implements those same
+`Text.SetSelection` / `GetNSelections` / `GetSelection` methods. Unlike
+`ScrollTo` (true-no-op) and `EditableText` (absent), select /
+get-selection need no eval-helper glue and must not grow an
+`A11YSELECT1` hello. Independent `get-selection` after `0..4` is
+`n=1 start=0 end=4`. Do not treat the `select` reply as proof.
+
+con publish implements those same Text methods on named `Command`.
+Layout snapshots replace node text; the publisher stores the range
+separately (same persistence pattern as `scroll_dy`). A collapsed
+range (`start == end`) is `n=0`. Product `SetText` / insert /
+backspace clear the stored range; `Ctrl+A` sets `0..len`. Independent
+`get-selection` is the proof. Do not treat `SetSelection` true as
+proof, and do not implement select as a mouse-drag.
+
+con publish also implements `Text.SetCaretOffset` / `CaretOffset`
+(`GetCaretOffset`) on named `Command`. The previous stub returned
+true from `SetCaretOffset` and always reported `character_count` for
+`CaretOffset`, so independent readback never matched a typed offset.
+Store the caret beside the selection map; layout snapshots must not
+drop it. A negative offset is false; an offset past the end clamps.
+`SetCaretOffset` collapses the stored selection; `SetSelection` moves
+the caret to `end`. Independent `cu get-caret --name` after
+`cu set-caret --name --offset N` is the proof. Do not treat
+`SetCaretOffset` true as proof, and do not implement caret as
+`--coords` / XTest.
+
+Chrome named text fields expose those same `Text.SetCaretOffset` /
+`CaretOffset` methods. Zero protocol change: the ABI 1.9 verbs and
+Linux adapter already used for con work on a
+`--force-renderer-accessibility` Chrome `<input aria-label>` (live
+fixture `CaretField` / `HELLO` in `fixtures/cu/310-chrome-caret.html`).
+An unfocused field often reports `CaretOffset=-1`; after
+`set-caret --offset 2` (which grab-focuses) independent `get-caret`
+is `2`. Do not add an eval helper or CDP/`--coords` fallback. No
+`A11YCARET1` hello. The `set-caret` reply is not proof.
+
+WebKitGTK 2.52 / Reasonix composer (`Message Reasonix…` under
+`scripts/reasonix-desktop-a11y.sh`) already implements those same
+`Text.SetCaretOffset` / `CaretOffset` methods. After `send-text HELLO`
+independent `get-caret` is `5`; after `set-caret --offset 2`
+independent `get-caret` is `2`. Unlike `ScrollTo` (true-no-op) and
+`EditableText` (absent), caret needs no eval-helper glue and must not
+grow an `A11YCARET1` hello. The `set-caret` reply is not proof.
+
+`Text.GetText` is the same native-Text story: con `Command`, Chrome
+`GetTextField`, and the Reasonix composer all expose real GetText
+(ABI 1.9 `agt_a11y_node_get_text`), so one-shot `get-text --name`
+reads it independently of any write — `send-text` / `paste` / `copy`
+`matched.text`, `last_text_write_via`, the WebKit eval helper queued-job
+`OK`, and tree snapshot `text` are not proof. After the field holds
+`HELLO`, independent `get-text` must equal `HELLO` (`via=gettext`).
+Do not add an eval helper or CDP/`--coords`/XTest get-text path. No
+`A11YGETTEXT1` hello.
+
+## Do not drop the AT-SPI bus between resolve and keys
+
+Linux `AccessibilityConnection::new()` is not a cheap handle. An `agenterm-cu`
+process that opens one connection for the tree snapshot, drops it, opens
+another for `grab_focus`, drops that, then injects XTest `Home` into
+Chrome's omnibox leaves the renderer accessibility tree empty (and can
+crash Chrome). The next `send-keys --name` then returns
+`a11y_node_not_found` or `accessibility-tree mechanism unavailable`.
+Keep one process-wide connection, clone it for each AT-SPI call, and do
+not shut down at-spi-bus-launcher / registryd. Do not let the tokio
+runtime or the last zbus connection Drop during process teardown — that
+abort path crashes Chrome's renderer tree. Leak both and let the OS
+close the socket. After named `send-keys` / `send-text`, keep that
+connection pumping for a short bounded drain so Chrome can emit caret
+events before the process exits; exiting immediately after XTest `Home`
+closes the socket under those events and the next named command sees
+`a11y_node_not_found`. Prove two named `send-keys` ~1s apart plus
+`tree --window` still reporting 100+ Chrome nodes on a live `DISPLAY`
+host; unit tests must not require that bus.
+
+## Honor `AT_SPI_BUS`; strip `GetAddress` guids
+
+Host live gates set `AT_SPI_BUS=unix:path=$XDG_RUNTIME_DIR/at-spi/bus_N`.
+cu used to ignore that name and call `org.a11y.Bus.GetAddress`, which
+returns the same path plus `,guid=…`. Later `dbus-daemon` /
+`at-spi-bus-launcher` processes can reuse that unix path without being
+killable; the guid then names a dead owner, `select_roots` is empty, and
+`tree --window` synthesizes a one-node X11 `frame` (`tree_n=1`) that is
+not Chrome's renderer. Prefer `AT_SPI_BUS_ADDRESS` then `AT_SPI_BUS`,
+connect to the path without the guid, and skip the session-bus hop when
+either env is set. `scripts/box-chrome-a11y.sh` must also export
+`AT_SPI_BUS_ADDRESS` and write `$XDG_RUNTIME_DIR/at-spi/bus` after
+box-chrome rewrites XDG to `/tmp/xdg-runtime-box-$DISPLAY` — atk-bridge
+looks for the file named `bus`, not `bus_2`. Do not pkill at-spi to
+"fix" a shared socket. Unit-test the address normalizer on synthetic
+strings; do not require a live registry.
+
+## Window matching is more than `_NET_WM_PID`
+
+Linux `tree --window` must not treat D-Bus connection PID equality as the
+only window↔AT-SPI join. WebKitGTK (Wails/Reasonix) embeds its document
+tree under a **well-known** bus name
+(`org.webkit.app-*.Sandboxed.WebProcess-*`). The atspi `ObjectRef` type
+only deserializes unique names (`:1.47`), so `GetChildAtIndex` /
+`GetChildren` typed as `ObjectRef` drop that child and the scoped tree
+stops at the GTK frame. Read children as raw `(String, ObjectPath)`,
+resolve well-known names with `GetNameOwner`, and keep walking.
+
+Do not open that tree through `AccessibilityConnection::new()`. atspi
+0.30's default P2P path (`GetApplicationBusAddress` plus a unix-socket
+handshake per registry child) hangs on WebKit/Wails sockets, so `agenterm-cu tree`
+dies with `a11y_tree_timeout` and never reaches named document widgets.
+Connect to the a11y bus only. Skip dests with no owner (a dead web
+process leaves a filler stub). WebKit `GetRoleName` is often empty —
+use `GetRole` (43 = button). Snapshot only Accessible name/role/state;
+`GetActions` / `proxies()` introspect hang per node and blow the 10s
+deadline. Named `click` invokes AT-SPI `DoAction(0)` only after a
+bounded `GetActions`; named `focus` must bound that same Action
+probe and then `Component.grab_focus`, or Reasonix composer
+`focus --name` times out before the textarea reports `focused`.
+
+Match a window to application roots by, in order: the window's
+`_NET_WM_PID`, descendant PIDs (`/proc/*/status` PPid), then exact
+normalized equality of the X11 title / `WM_CLASS` / `comm` against the
+application or frame name. Do not substring-match titles (that pulls
+Chrome into an unrelated window).
+
+A custom-raster toolkit (winit/softbuffer `agenterm-con`) is not GTK and
+does not load `atk-bridge`, so the AT-SPI registry never sees it as an
+application. `agenterm-cu tree --window` then used to emit only a one-node X11
+title `frame`. That fallback is window identity, not a widget tree: named
+`click`/`focus`/`send-text` cannot address the composer, SEND button, or
+session. Linux `agenterm-con` now publishes those children through the
+platform `a11y-publish` AT-SPI server (Accessible + Component + Action,
+plus Text/EditableText on the composer and a named `OffscreenField`
+Session child whose `Component.ScrollTo` moves `GetExtents`).
+Registered with `Socket.Embed`. The one-node X11 frame remains only for
+toolkits that still do not register (`xfce4-terminal` without
+atk-bridge). Unit-test the published chrome snapshot without a bus;
+prove `tree --window` `n>=5` and named actuation on a live `DISPLAY`
+host. Do not treat the one-node frame as the success path for con.
+
+A single-host capability still may not reach product code as
+`#[cfg(target_os = ...)]`. The boundary suite scans `crates/agenterm-con/src`
+too, and the subsystem-entrypoint exemption covers only the windows-subsystem
+attribute, so an OS `cfg` in `main.rs` reddens the quality lane. Publish the
+facade unconditionally, let `selected.rs` pick a no-op backend off the host, and
+keep the heavyweight dependency edge in `[target.'cfg(...)'.dependencies]` --
+Cargo manifests are outside the scan and are the supported place to buy the real
+implementation on one target only. Give the facade a capability predicate
+(`is_publishing()`) so callers skip snapshot work without asking which OS they
+are on. This also removes the second failure mode of the `cfg` pair: the
+`#[cfg(not(...))]` stub method has no caller on that host, and `-D warnings`
+turns `dead_code` into a build error only on that one target cell.
+
+The same `target_os` ban applies inside `crates/agenterm-platform/src/*.rs`
+facades. `selected.rs` and `adapters/**` are the only legal OS-selection
+sites; a one-line Linux probe such as `last_text_write_via` still has to
+live on the selected module, with the off-host stub returning the documented
+default. Platform adapters also cannot read `AGENTERM_*` environment names
+(`platform_crate_has_no_agenterm_product_dependency_or_source_coupling`).
+Use `PLATFORM_*` (already used for IME). Product launchers and LD_PRELOAD
+helpers must read and export that same `PLATFORM_*` name, not `AGENTERM_*`.
+
+When a platform-independent adapter helper has exactly one target-specific
+production consumer but should retain cross-host unit tests, expose its module
+with `#[cfg(any(target_os = "...", test))]`. Compiling it in every ordinary
+off-target library build creates a second, consumer-free product surface and
+`--all-targets -D warnings` correctly rejects its items as dead code. Keep the
+algorithm neutral and testable; narrow only the module's production presence.
+
+Do not make a narrower cross-platform action depend on an unrelated state a
+host cannot observe. For example, an operation whose public contract is
+"un-minimize" may read a separate maximize/zoom bit on hosts that expose it,
+but an unsupported zoom read must not prevent a host with exact minimized
+read/write from proving the documented effect. Keep any stronger host-specific
+postcondition additive; never turn missing orthogonal truth into a false
+precondition for the common action.
+
+## File existence is not writer completion
+
+For a synchronous writer running on a test driver thread, another thread must
+join that driver (and inspect its typed result) before decoding the output.
+Polling `Path::exists()` races the interval after file creation but before the
+encoder has completed and can surface valid in-progress output as
+`UnexpectedEof`. Atomic product publication may use complete-file visibility as
+its contract; a direct native test helper without that publication boundary may
+not borrow the same assumption.
+
+## `#[cfg(unix)]` is not one library name
+
+A test gated `all(unix, target_arch = "x86_64")` still runs on macOS x86_64.
+`libc.so.6` exists only on Linux; macOS needs `libSystem.B.dylib`. CI run
+`31953163587` job `agenterm / osx-x86_64` failed `exec_base` on that dlopen
+after the dyn exec-base merge. Pick the soname from `target_os`, not from
+"unix".
+
+The inverse target caveat applies to Windows ABI courts. On the repository's
+supported Windows x86_64 and aarch64 cells, the platform `system` convention and
+Rust `extern "C"` convention use the same calling convention, so a stable
+`kernel32.dll` export can own a dyn ABI oracle. Do not extend that proof to
+32-bit x86, where `stdcall` decoration and stack cleanup differ; keep the court
+gated to the architectures the product actually ships and compile both cells.
+
+## Fixed-stride ABI arrays cannot grow by appending fields
+
+If an ABI accepts `T* + record_count`, producer and consumer both step the
+array using their compile-time `sizeof(T)`. Appending fields to `T` is therefore
+breaking even when the ABI minor increases: a newer producer can overrun an
+older allocation, while an older producer makes a newer consumer read later
+records at the wrong offsets. Keep the record byte-for-byte frozen. Add a
+separate caller-sized query (`struct_size` + version), or introduce a new array
+entry point whose element stride is explicit. A minor-version check can gate a
+new symbol; it cannot repair a mismatched array stride.
+
+## Native consumers must match the Rust target ABI
+
+Do not select a C or C++ compiler merely because it appears first on the host
+`PATH`. Derive the compiler family from Rust's `target_env`: an MSVC artifact
+must use the discovered MSVC toolchain, while a GNU artifact may use the GNU
+family from `PATH`. This applies to both dynamic and static consumer probes;
+mixing MinGW with an MSVC Rust library produces misleading unresolved runtime
+and system symbols rather than evidence about the public ABI. Print the chosen
+target environment and compiler in test logs so CI selection is auditable.
+
+## C++ consumer probes: no `/TP`, and ASCII-only generated sources
+
+Two measured MSVC failure modes when a test compiles a real `.cpp` consumer
+against the shipped library (milestone 62, `tests/cpp_consumer.rs`):
+
+- **Do NOT pass `cl /TP`.** cl.exe compiles a `.cpp` as C++ by suffix alone.
+  `/TP` instead forces EVERY input file to be treated as a C++ source, so the
+  `.lib` link inputs (`agenterm.dll.lib`, `agenterm.lib`, `ws2_32.lib`, ...)
+  are handed to c1xx as sources: C2220/C4819 noise on the first `.lib`, then
+  `C1083: cannot open source file: 'ws2_32.lib'` for the rest. The C-side
+  consumers never needed `/TP` and the C++ side must not add it either; the
+  `.cpp` suffix is the mode switch.
+- **Generated sources must be pure ASCII.** MSVC reads source in the host
+  code page (936 on zh-CN CI/locales); any non-ASCII byte (e.g. an em dash in
+  a comment) triggers C4819 "file cannot be represented in the current code
+  page", which `/WX` escalates to C2220. Keep every string written into a
+  generated `.c`/`.cpp`/`.inc` ASCII-only (use `--` instead of `—`), even
+  when the generating Rust source itself is UTF-8.
+
+The same guard-coverage idea as the C symbol-presence gate works from C++:
+generate (from `exports.txt`) an address table of all exports via
+`reinterpret_cast<void (*)()>(name)` — never a call — and iterate the WHOLE
+table so the linker must resolve every name. Link success = the `extern "C"`
+guard unmangles all of them; commenting the guard out must turn that link
+into `LNK1120: N unresolved externals` with mangled names (`?agt_*@@...`).
+That negative proof is the only evidence the guard actually does something.
+
+## Keep package-time ABI identity static and runtime compatibility executable
+
+Cross-target packaging cannot assume the build host can execute the target
+consumer. Keep the two proofs separate. In an existing source boundary court,
+derive the ABI version from the implementation owner, the public version from
+the header owner, and the consumer floor plus required symbols from the consumer
+owner; assert version compatibility and `required symbols ⊆ exported symbols`
+without copying a release number or symbol list into the test. Let the existing
+artifact-presence court prove that the export catalog reaches the real dynamic
+library, and let native runtime cells execute the final archived consumer/library
+pair. A package stager owns layout and identity, not a weaker extra execution of
+whatever target binary happens to be runnable on the packaging host.
+
+## Close may wake a reader with buffered data before EOF
+
+For pipes, PTYs, and stream-like native handles, a cross-thread close contract
+should assert bounded wakeup, not that the first completed read is EOF. Bytes
+written before close may already be buffered and are a legal successful read;
+the reader may observe EOF or a typed I/O failure only after consuming them.
+Use a deadline to prove close cannot leave the read blocked, accept buffered
+success within the buffer bound, and test eventual termination separately when
+that stronger behavior is part of the public contract.
+
+## Two-stage native enumeration must tolerate bounded growth
+
+For process, window, environment, or other live-table FFI enumeration, a
+successful size probe does not freeze the collection. Between probe and fetch,
+the required count may grow. Consumer tests must retry only when the fetch
+returns the documented insufficient-capacity status and a strictly larger
+required count, with a small fixed attempt bound; all other failures remain
+immediate errors. Requiring the first fetch to succeed turns normal host churn
+into flaky ABI evidence, while an unbounded retry can hide a nonconvergent or
+malicious provider.
+
+## GUI control readiness is not child-process readiness
+
+A black-box GUI test that can reach the control endpoint has proved only that
+the host accepts commands. The initial PTY child may still be starting. Do not
+race a marker emitted from process-launch arguments against control discovery.
+After the control endpoint is ready, inject a marker through the public input
+interface and wait for that marker through the public observation interface;
+buffered PTY input then provides the rendezvous with actual child readiness.
+
+## Bound both queue cardinality and ownership duration
+
+A fixed-capacity pending-request queue is not operationally bounded when each
+caller can choose an effectively infinite timeout. Validate a product maximum
+before transferring the reply or resource owner into the queue. Rejection must
+leave ownership with the normal dispatch error path and register no latent
+entry, so a small number of hostile or mistaken requests cannot exhaust the
+control surface indefinitely.
+
+Bound aggregate state at the shared mutation primitive, not only at an external
+read boundary. Repeated individually bounded clipboard, IPC, keyboard, or IME
+payloads can otherwise grow one buffer without limit. Byte ceilings for UTF-8
+text must truncate at a character boundary.
+
+Stable-id allocators must use checked progression before mutating related
+collections. Capacity, id exhaustion, or duplicate insertion must leave tree,
+active-selection, and owned-resource stores aligned; a `debug_assert!` is not a
+release-build uniqueness contract.
+
+An asynchronous completion boundary must cover synchronous fallback delivery
+as well as the normal worker path. Initialization failure, queue-full, and
+disconnected-worker branches often invoke the same user callback on the caller
+thread; route every branch through one panic-contained completion helper so a
+fallback cannot unwind into GUI or FFI dispatch.
+
+Accessibility and automation callbacks are external event producers even when
+they run in-process. Cross into the GUI through a fixed-capacity FIFO, drain a
+fixed per-turn budget, wake producers only on the empty-to-nonempty transition,
+self-wake for backlog, and expose pending/drop counters. An unbounded
+`Mutex<Vec<_>>` turns a bus flood into both memory growth and an unbounded
+event-loop callback; waking for every rejected item preserves a CPU flood even
+after memory is bounded.
+
+When an OS-facing adapter keeps an optimistic mirror, its callback must return
+whether the product accepted ownership. Commit mirrored text, focus, or action
+state only after acceptance; a fire-and-forget handler plus a bounded product
+queue otherwise reports success and permanently diverges when saturation drops
+the event.
+
+Count-bounded queues are not memory-bounded when events own strings or blobs.
+Enforce both a per-item payload ceiling and an aggregate queued-byte ceiling,
+account bytes before ownership transfer, and return the exact allowance when a
+batch drains. Expose queued bytes alongside item/drop counts.
+
+For native work that completes after a Wasm import returns, reserve both the
+request slot and its maximum response bytes before starting external work. Use
+the same non-reused domain/generation identity as other guest-visible resources,
+return payload ownership on rejected completion, and count pending plus ready-
+but-unclaimed requests as live during snapshot quiescence. Keep the common VM
+primitive event-loop-neutral: platform workers marshal results to the runtime
+owner, while each versioned native module defines its own ordinary Wasm import
+protocol and replay normalization. Register a multi-function protocol
+transactionally: reserve every registry slot and reject name collisions before
+publishing the first function. Preflight every guest output and capacity before
+taking a completed payload so a malformed pointer or short buffer cannot lose
+the host-owned result.
+
+## Saturate native geometry before narrowing coordinates
+
+Treat window dimensions, DPI scales, pointer coordinates, and row indexes as
+hostile numeric inputs. Clamp `NaN` explicitly, use saturating coordinate
+arithmetic, and perform checked narrowing before multiplying indexes or scaled
+values; an ordinary comparison does not constrain `NaN`, and unchecked casts
+or products can collapse or panic at native callback boundaries.
+
+When a public operation accepts window-local geometry, translate it at the
+native execution boundary after one window-bounds observation. Widen the
+addition, reject an unrepresentable screen coordinate, and then reuse the
+existing screen-space clipping and capture path. Do not query bounds in a
+compatibility layer and act later: the window can move between those calls,
+and saturating an overflowing address silently changes the requested region.
+
+## Raw-handle field widths can vary by compilation target
+
+A variant in a cross-platform raw-handle enum can expose a different integer
+width on different targets even when the match arm is shared source. Do not
+choose one conversion from the host build alone. Use target-compiled `cfg`
+branches when one target has a provably infallible conversion and another
+requires a checked conversion, then compile both target cells. This avoids
+both silent narrowing and a Clippy fix that fails to type-check elsewhere.
+
+## Product executable names must not be occupied by ABI demos
+
+When a package has one accepted product executable, its real command shell and
+desktop host own that executable name. A dynamic-library smoke/demo belongs in
+a test, example, or diagnostic subcommand; it must not create a second product
+binary or take the formal executable name while the real product ships under a
+short alias. Build scripts and black-box tests must name the formal executable
+explicitly so an accidental extra `[[bin]]` cannot become a release artifact.
+
+## Desktop-host ABI keeps mechanism and product meaning separate
+
+The platform/dynamic-library boundary owns registration, event transport and
+resource cleanup; the product owns action IDs, labels, shortcut choices and
+what each action means. Keep these recurring rules together:
+
+- `action_id == 0` means no event. Product actions must use nonzero IDs.
+- Open, poll and close execute on the same owning thread. A native message loop
+  or registration handle is not safely transferable merely because its Rust
+  wrapper is movable.
+- One shortcut conflict or duplicate action must return a typed failure without
+  corrupting cleanup. Track each successfully acquired icon, window and hotkey
+  independently, and release exactly that acquired subset on rollback/close.
+- The ABI must not embed a placement catalog, Quit policy or other product
+  semantics. It transports opaque numeric action IDs; `agenterm-cu` assigns
+  their meaning.
+- Preserve every platform typed-error code across the ABI. Post-action
+  verification may intentionally distinguish an inaccessible/disappeared
+  window from a generic backend failure; collapsing that code can turn a
+  successful destructive or dismissive action into a false-negative receipt.
+- Validate closed command syntax and enum values before the first native
+  observation. Otherwise an invalid request can be mislabeled as a missing
+  display, window, or device merely because the host court is unavailable;
+  deterministic typed input errors must not depend on desktop state.
+- A reusable bootstrap worker's content identity must include every file
+  embedded with `include_str!` / `include_bytes!`, including imported qjs
+  modules and theme assets. Hashing only Rust sources or the qjs entry file can
+  silently execute old embedded dependencies after a source change.
+- Give every menu, global-shortcut and native callback one product-owned
+  `action_id -> Command -> Executor` function. Black-box self-test should call
+  that exact function with insufficient authority and require a typed refusal:
+  this proves dispatch without moving the user's window, and catches a host
+  path that silently reimplements command meaning or bypasses authorization.
+
+A semantic accessibility action must stay exact across every layer. In
+particular, `show-menu` maps only to a node-offered native menu action such as
+macOS `AXShowMenu`; never substitute primary press, right-click, coordinates or
+keys. Gate on the node's published actions before dispatch, then verify the
+effect through an independent post-action observation (for example, a newly
+visible menu in the same bound window tree). If the native call returns but the
+effect is not observable, retain `performed=true, verified=false` in the audit
+receipt and fail typed rather than reporting replacement-level success.
+
+## Bounded child capture must publish loss, including JSON-envelope loss
+
+A pipe drainer that keeps only N bytes must retain a per-stream truncation bit;
+otherwise a successful exit plus a plausible prefix is a false success. The
+final JSON envelope needs the same bound: JSON escaping can make N captured
+bytes occupy far more than N result bytes, so fit the serialized envelope and
+mark any additional cut. A raw-stdout convenience has nowhere to carry that
+metadata and therefore must fail typed when either stream was truncated.
+
+Carry that bit through every product projection, including the error carrier.
+If a structured result omits false for wire compatibility, its plain-text CLI
+must still warn on stderr when true; never append metadata to the retained
+stdout bytes themselves. Test both a successful and a failed over-budget call,
+and test the public budget mapping with a deliberately small limit so an
+accepted-but-ignored option cannot hide behind the engine default.
+
+## Hold one audit sink across an authorized side effect
+
+Opening an audit path once for the pre-action record and again for the outcome
+creates a race: the first append can succeed, the mechanism can actuate, and a
+second open can fail while the caller is still told the action succeeded. Open
+and retain one writable sink before dispatch, append and flush `attempt` before
+the side effect, then append and flush the typed outcome through that same
+handle. A pre-action failure must prevent dispatch. An outcome-write failure
+cannot undo an already completed native action, so return `audit_unavailable`
+and preserve the original mechanism reply as diagnostic context instead of
+silently discarding the audit error. Inject append/flush failures through a
+test-only sink or constructor; do not mutate a process-global audit-path
+environment variable in parallel tests.
+
+## Publish small persisted state without erasing the last valid snapshot
+
+Treat a missing state file as empty state, but report malformed JSON or invalid
+cursors/capacities as corruption; silently replacing either with defaults loses
+the evidence needed to diagnose the failure. Write a collision-safe
+`create_new` temporary beside the destination, complete `write_all`, `flush`
+and file sync, close it, then publish with one replacement rename. RAII must
+remove every abandoned temporary. A same-directory rename owns name atomicity;
+directory sync is a separate durability claim and is not available with equal
+strength on every host.
+
+Give tests an injected path plus write/publish fault seams. Prove partial-write
+cleanup, failed-publication preservation, validation of corrupt input, and a
+successful second replacement/reopen—not only first-file creation. Keep this
+file transaction distinct from native side effects: atomically replacing JSON
+does not make a preceding window move or other OS action transactional. If the
+product requires all-or-nothing behavior across both, it needs an explicit
+prepare/commit or compensation contract and failure evidence for that boundary.
+
+A recoverable file replacement needs more than one atomic publish. Persist a
+bounded receipt before the first data-file mutation; bind source, old
+destination, prepared temporary, retained backup and installed result to
+opened-object identity plus complete size/digest/permission evidence. Create the sibling
+temporary exclusively, persist its identity before filling it, sync and verify
+it before moving the old destination, and retain the old object until an
+explicit finalize. Persist rollback/finalize intent before deleting or
+replacing anything so recovery can distinguish an interrupted requested action
+from third-party drift. Never reclaim a leftover by transaction-shaped name
+alone: if its durable object identity is absent or changed, fail closed. Lock a
+stable state-directory sidecar derived from the lossless canonical destination,
+not the destination inode that publication replaces.
+
+There is one earlier crash window: the process can die after creating the
+temporary but before persisting its object identity. Persist a digest of a
+random, bounded ownership marker first; create and sync that marker under a
+staging name, then publish it with an atomic **no-replace** primitive. Keep the
+opened marker handle and fill the same object through that handle after its
+identity is persisted. Do not check that a pathname is free and then use a
+replace-capable rename, and do not drop a verified handle and reopen the path
+writable: the first can erase an unrelated object and the second reintroduces a
+link-swap race. Recovery may remove an identity-less file only when its complete
+bounded content matches the persisted marker digest; otherwise preserve it and
+return an ambiguous-state error.
+
+Backup retirement has the same no-replace requirement. A prior
+`symlink_metadata` check followed by ordinary `rename` is unsafe on Unix because
+rename may overwrite a name created in between. For same-directory regular
+files, publish the backup with `hard_link(source, backup)` so occupancy is an
+atomic refusal; prove both names still identify the complete expected object,
+then unlink the source and sync the parent. The receipt state preceding this
+step must recover all three durable shapes: source-only, backup-only, and both
+names as hard links to the same expected object. The two-name shape is an
+interrupted owned operation, not ambiguity; different identity or content is
+ambiguity and must be preserved. Use the same primitive in reverse when
+restoring a retired source. This rule applies to both a replaced destination
+and the source-retirement half of a cross-volume move.
+
+Path-only native encoders need the same object binding even when their final
+output is intentionally create-only. Reserve the sibling temporary with
+`create_new`, retain that handle while the encoder writes by path, sync the
+retained handle, and require the path to resolve to the originally reserved
+object before the atomic no-replace install. The final install must refuse an
+existing file, link, or reparse point. Test both final-name preservation and a
+staging-path substitution; a unique-looking temporary name is not object
+identity.
+
+A topology/status observation must not be assembled from state-list APIs that
+also advance a durable clock high-water mark, sweep expiry, publish repaired
+state, or create a replacement generation. Give the status surface a dedicated
+bounded snapshot that computes effective counts in memory without publishing or
+sweeping. Report owner liveness as unprobed unless the status call actually
+performs the identity-bound native probe; direct callers to the owning resource
+status command when they need that stronger claim.
+
+Atomic audit-log compaction changes the inode behind the pathname. All
+cooperating appenders and compactors need one stable sidecar lock, and an
+appender that retained an earlier file handle must reopen the pathname while
+holding that lock before every append. Otherwise a successful compaction can be
+followed by a successful-looking outcome write into the now-unlinked old inode.
+
+Bounded one-shot authority must be durably reserved before the authorized
+side effect and must not be refunded merely because the downstream mechanism
+fails; refunding makes a failed attempt replayable. Validate target/session,
+scope, revocation, time bounds and remaining uses before cloning and publishing
+the next store generation. A generation comparison without a cross-process
+lock detects an already-published conflict but does not close the
+compare-to-rename race between two processes, so document that boundary and do
+not call it atomic authorization. Close that race for cooperating writers with
+a stable sibling lock sidecar: take a non-blocking cross-process lock, re-read
+the generation while holding it, and retain the guard through replacement,
+parent sync and the in-memory commit. Never lock the replaceable JSON itself;
+Unix `flock` follows the opened inode, so a rename would let a new opener bypass
+the old guard. The sidecar must remain stable and must not be deleted or
+replaced while the store is live. This does not protect against non-cooperating
+writers, hostile directory mutation or filesystems without coherent local lock
+semantics. On the pinned Windows Rust toolchain,
+`std::fs::rename` already requests replace-existing semantics; a manual
+destination-to-backup swap adds a crash interval and must not be used as an
+"atomic" fallback.
+
+For a durable runtime lease, return the opaque bearer token only at creation
+and persist only a constant-time-compared cryptographic digest. Keep bounded
+terminal session records so `ended` and `expired` remain distinguishable from
+`not_found`; evict oldest terminal records before refusing a new session, but
+never evict an active owner to make room. A namespaced target lock is owned by
+that session, cannot outlive its expiry, preserves its lock identity on
+same-owner reacquisition, and is released on end/expiry. Audit output for lease
+creation must project non-secret metadata rather than serializing the complete
+command result.
+
+Authorization selectors and provider material must not inherit through a
+transport worker's generic environment forwarding. Reserve the complete
+case-insensitive product prefixes (for example `AGENTERM_CU_GRANT*` and
+`AGENTERM_CU_AUTH*`) and reject them before any process spawn, network
+handshake or mechanism call. A future remote authorization handoff needs an
+explicit one-command delegation envelope bound to command, target and expiry;
+raw scope strings or environment variables are not delegation.
+
+Treat routing and authorization identity as different types. A target enum,
+hostname, IP, account, port, PID, native window handle or display name can
+locate work but cannot identify the provider plus exact desktop session for a
+persistent grant. Put opaque target/session IDs behind a sealed verified
+provider, expose no arbitrary-string constructor, and fail closed when the
+provider or session proof is unavailable. A placeholder transport remains
+unsupported even if some caller offers identity-shaped data.
+
+Separate installation identity enrollment from ordinary load/query. Enrollment
+may exclusively create one random key while holding a stable key sidecar lock;
+load and query must never replace missing, short, corrupt, linked or
+permission-unsafe state. Re-read and compare a newly published key before
+deriving its provider ID. A session binding must combine that provider with
+native login and interactive-desktop facts, and it must be resolved again at
+the side-effect boundary rather than treated as a process-lifetime snapshot.
+On Windows, token SID plus authentication/session IDs are insufficient alone:
+require a positive active WTS session with logon time and prove the caller is
+attached to the input desktop. Treat the domain-separated digest as an opaque
+equality identifier, not a MAC or credential, and report unsupported on peers
+whose equivalent session proof has not been implemented.
+
+When a persisted authorization format predates verified identity, version the
+trust boundary rather than only the JSON shape. New grant specs and attempts
+must be constructed from the sealed binding type, and the stored record must
+carry and validate that binding version plus its exact canonical encoding. A
+legacy record with caller-provided target/session strings cannot be silently
+migrated by adding a field or prefix: reject it typed, preserve its bytes, and
+require an explicit migration flow that obtains fresh identity proof.
+Keep the production store opener separate from the raw injected-path seam:
+resolve machine-local product data once, require an explicit parent directory,
+protect it before reading or writing authority state, reject link-like store
+entries, and create every replacement temporary with the platform's private
+exclusive-create options rather than ordinary umask-dependent defaults.
+
+For a persisted authorization attempt, keep the order explicit and testable:
+open the audit, resolve the verified binding, durably reserve the use, flush an
+attempt record, resolve the binding again immediately before dispatch, then
+write the outcome with the same decision ID. A reservation is not refundable
+after an audit or mechanism failure. If the binding disappears or changes
+after reservation, record a failed no-dispatch outcome; if reservation
+publication reports uncertain durability, return authorization-in-doubt and do
+not execute or retry. Never put the session digest or installation key in the
+audit merely to prove the comparison occurred.
+
+For window placement, compensation is a saga, never an atomicity claim. Read
+the exact native bounds, revalidate handle plus process/application identity,
+apply, independently read back the final rect, then publish cloned history.
+Only roll back a history-publication failure when the current identity and rect
+still equal that transaction's known successful readback. If the native apply
+itself failed after a possible partial move, its last owned rect is unknown;
+do not overwrite a stable-looking rect that may belong to a concurrent user
+move. Return structured `possibly_applied` / `in_doubt` instead. A rollback
+must itself be read back exactly, and failures after a successful rename must
+distinguish published-but-durability-uncertain state from an unpublished file.
+
+## Windows UIA clients keep identity, apartments and actuation separate
+
+The Windows accessibility adapter established a reusable native-FFI rule set.
+Five pure tests and two real Win32 UIA fixture tests cover the adapter. The
+staged public `cu-windows-smoke` also passes all seven declared host, DLL,
+window-identity, tree, name-actuation, value-wait and cleanup receipts;
+Candidate and release status remain separate and are not implied.
+
+- Initialize COM at the operation boundary with
+  `CoInitializeEx(COINIT_MULTITHREADED)`. If the calling thread already owns a
+  different apartment (`RPC_E_CHANGED_MODE`), borrow that apartment without an
+  unmatched `CoUninitialize`. Keep every COM interface, BSTR, SAFEARRAY and
+  VARIANT operation-local and RAII-owned; never cache a COM pointer across
+  threads, calls or apartments.
+- Configure `IUIAutomation2.SetAutoSetFocus(FALSE)`, connection timeout and
+  transaction timeout before traversal, then enforce an independent wall-clock
+  budget and hard node, depth, sibling, RuntimeId and string limits. COM's own
+  timeout is not a substitute for a bounded caller.
+- A provider can transiently answer `UIA_E_TIMEOUT`, `RPC_E_CALL_REJECTED` or
+  `RPC_E_SERVERCALL_RETRYLATER` while publishing a changed subtree. Retry only
+  those named transient HRESULTs, cap attempts, and keep every attempt inside
+  the existing operation budget. Access denial, node recycling and unsupported
+  patterns are semantic results and must not be retried into a different truth.
+- Serialize a node's RuntimeId path as identity, not ownership. For every
+  Value, Invoke, Focus, text or key request, start from the supplied HWND (or a
+  deliberately bounded desktop root), walk again and compare every RuntimeId
+  segment. A missing window, denied call, timeout or changed/recycled node must
+  become a typed failure instead of using a stale interface.
+- Keep product `Command`/`Executor` semantics above the dynamic-library and
+  platform boundary. The platform adapter owns UIA `SetFocus`, Value/Text and
+  Invoke/SelectionItem/Toggle/legacy patterns; it must not choose targets or
+  reinterpret actions for the product.
+- Structured actuation must remain structured. If the required UIA pattern is
+  absent, fail typed; never hide a coordinate click behind UIA success. Key
+  delivery may focus through UIA and then call the platform input mechanism,
+  but its result must state that route explicitly, such as
+  `uia-focus+send-input`.
+- A two-stage native enumeration is not a stable snapshot. After querying
+  `required` and allocating `capacity`, the desktop can gain windows before the
+  fill call. Treat `required > capacity` as bounded-retry churn: discard the
+  partial result, query/allocate again, cap attempts and return typed failure on
+  exhaustion. Never truncate while claiming success, write past capacity or
+  retry forever.
+- A unit test that sends a synthetic HWND or RuntimeId through the selected
+  native backend must assert the typed failure class, not one host-specific
+  error code: Windows may reject the identity as invalid before lookup, a stub
+  host may report unsupported, and an unstaged unit-test process may have no
+  adjacent runtime dynamic library. A real desktop can also drop the synthetic
+  or enumerated window before traversal, so `a11y_window_gone` is a valid
+  pre-actuation typed failure; the test must still require failure and prove no
+  input, clipboard, selection or geometry side effect. Keep exact matching
+  semantics in pure tests and prove native success with an owned fixture or
+  public smoke journey.
+
+## macOS focus is NSWorkspace + the app element, not the system-wide AX read (measured 2026-09-03)
+
+Proven on `agenterm-cu windows --focused` (`crates/agenterm-cu/src/macos_focus.rs`,
+`observe::resolve_focus`).
+
+- The platform adapter marks a window focused only through the *system-wide*
+  accessibility element: `AXFocusedApplication` -> `AXFrontmost` ->
+  `AXFocusedWindow` -> `_AXUIElementGetWindow`. From a process that is not a
+  descendant of the GUI session's front process (a tmux server, an SSH
+  login, a remote agent bridge) the first read answers
+  `kAXErrorCannotComplete` (-25204) while `AXIsProcessTrusted` is true and
+  every per-window tree read works. The chain then marks nothing and
+  `--focused true` was an empty list that read as "nothing is focused".
+- `NSWorkspace.frontmostApplication` does not use accessibility messaging,
+  and `AXUIElementCreateApplication(pid)` + `AXFocusedWindow` on *that*
+  element answers from the same process (measured: Brave frontmost per
+  NSWorkspace, system-wide read -25204, app element -> the window id). Read
+  focus in that order, fall back to the frontmost app's topmost window in
+  the stacking order, and answer an explicit `{focused_app, window: null}`
+  with a reason when the frontmost app has no inventory window (a
+  menu-bar-only app, another Space); never an empty list.
+- Keep the decision pure (`resolve_focus(windows, stacking, app, ax_window)`)
+  so the precedence -- mechanism mark, AX window, front window, none -- is
+  unit-tested on fake inventories; the native reads are two thin functions.
+- Same shape for a tab strip: macOS Chromium exposes the tab row's close
+  button on the selected tab only, so a destructive `tab close` on a
+  background tab must select the row in its window (never raising it),
+  close, and press the previously selected row again -- and say
+  `selection_restored` -- or, with a CDP port, close by
+  `Target.closeTarget` only when the title names exactly one page target of
+  the whole instance (one port serves every profile).
+
+## macOS Accessibility trust is signature + process, not the Settings label
+
+Proven on the `agenterm-cu host` / `AgentermCu.app` host (`scripts/install-cu-hotkeys.sh`,
+`crates/agenterm-cu` ax_guide / status_menu / hotkeys).
+
+### What actually gates AX
+
+- Settings → Privacy → Accessibility shows a **name**. Runtime
+  `AXIsProcessTrusted()` checks whether **this process** matches TCC for the
+  **current code requirement**.
+- Ad-hoc `codesign --force --sign -` changes the designated requirement to a
+  bare **cdhash**. Rebuild/reinstall without a fresh grant leaves Settings
+  showing ON while the host logs `ax_trusted=false` and hotkeys fail with
+  `ax_api_disabled`.
+- Measured failure mode: Settings ON, TCC `com.agenterm.cu` csreq
+  `cdhash H"05f4…"`, running binary `cdhash H"f61f…"`, launchd
+  `ax_trusted=false`. After `tccutil reset` + reinstall + user enable once
+  with matching csreq, launchd reported `ax_trusted=true` and Carbon hotkeys
+  applied placements.
+- Camera, Accessibility and Screen Recording are independent TCC services.
+  Empty AVFoundation/DAL inventory does not prove an attached phone is locked
+  or untrusted. Classify host Camera authorization, usbmux pairing, DAL source
+  publication and stream/frame delivery separately; only direct target evidence
+  may produce a device-specific diagnosis. Routine automation must use the
+  fixed, promoted, signed app-bundle bytes. Worktree binaries are test-only
+  identities whose changing path/cdhash legitimately loses prior consent.
+- At-most-once mutation admission is a state machine, not a retry loop. Reserve
+  a caller request id under an active session before dispatch; bind its digest
+  to both session id and the complete command projection; persist only the
+  session-secret-bound digest and completion-token digest. Exact finalized retries return bounded
+  terminal metadata without redispatch, while `reserved` or
+  `outcome_unknown` retries fail closed. Remote effects must reserve at the
+  remote worker that owns the effect, never only in the local transport.
+
+### CLI success is not host success
+
+- Terminal/IDE-spawned `agenterm-cu window-place` can succeed while the LaunchAgent is
+  untrusted. TCC **responsible process** lets the CLI borrow Terminal's grant.
+- The LaunchAgent is responsible for **itself**. Accept only evidence from the
+  launchd-hosted process: `~/.local/share/agenterm/ax-status` (`trusted=1`),
+  log line `ax_trusted=true`, or a real hotkey move — not a CLI place from
+  this shell.
+
+### Install / verify contract
+
+- Install into `~/Applications/AgentermCu.app`, `lsregister -f`, LaunchAgent
+  with `AssociatedBundleIdentifiers` = `com.agenterm.cu`.
+- After every re-sign: `tccutil reset Accessibility com.agenterm.cu` so the UI
+  cannot keep a stale ON. User enables **AgentermCu** once for the new
+  signature. Ignore or remove the old path entry `agenterm-cu` (CLI symlink);
+  it is not the hotkey host.
+- At start: write `ax-status`, log `ax_trusted=…`, optional one-shot
+  `AXIsProcessTrustedWithOptions` + open Accessibility. Build the prompt
+  options with `NSDictionary`/`NSNumber` — a function-local
+  `kCFBooleanTrue` + null-callback `CFDictionaryCreate` SIGSEGV'd in
+  `CFGetTypeID` / `AXIsProcessTrustedWithOptions`.
+- On `ax_api_disabled` after a real grant, exit non-zero once so KeepAlive
+  (`SuccessfulExit=false`) restarts into a process that can read the new
+  grant. Do not claim the switch is fine while `ax-status` says `trusted=0`.
+
+### Product UX for the host
+
+- Menu bar extra only. Refresh the first item in `menuWillOpen` (status + open
+  Settings). No popup card, no timer that reopens Settings or
+  `activateIgnoringOtherApps` (that steals the click needed to flip the
+  switch).
+- No background TCC poll. Humans discover trust when they open the menu or
+  press a hotkey.
+
+### macOS AX `current tree` (PLACEHOLDER cut 3.45)
+
+- Adapter: `crates/agenterm-platform/src/adapters/macos/accessibility_tree.rs`,
+  selected only under `cfg(target_os = "macos")` + feature `a11y-tree`.
+  Backend string is `"ax"`. Product command stays
+  `agenterm-cu --target current --grant observe tree --window HANDLE`.
+- Permission: `AXIsProcessTrusted() == false` or `AXErrorAPIDisabled`
+  → typed `a11y_permission_denied`. Wall-clock snapshot budget and
+  node/depth/string limits fail typed (`a11y_tree_timeout`,
+  `a11y_node_limit`, …). Never fall back to screenshot, coordinates, or
+  CGEvent while reporting structured success.
+- Actuation (click/focus/value) is explicitly unsupported in this cut.
+- Live evidence is **not** claimed from a Linux builder. Darwin recipe:
+  `scripts/cu-macos-smoke.sh` with fixture seed `345AXTREE` and button
+  `Fixture Press`. A unit mock is not a live gate.
+
+### Compare when debugging
+
+```bash
+# Running binary requirement
+codesign -d -r- ~/Applications/AgentermCu.app
+# TCC row (system DB; read-only under SIP)
+# client com.agenterm.cu → auth_value and csreq must match the designated line above
+# Host self-report after kickstart
+cat ~/.local/share/agenterm/ax-status
+tail ~/.local/share/agenterm/cu-hotkeys.log
+```
+
+## Unix `ioctl` needs a narrow variadic ABI path
+
+Unix `ioctl(int, unsigned long, ...)` is variadic; on arm64 an unnamed third
+argument is not in the same slot as a fixed third parameter. Keep one typed
+variadic implementation in `agenterm-dyn::invoke_unix_ioctl`, declared as
+`unsafe extern "C" fn(i32, c_ulong, ...) -> i32`. The qjswasm native door may
+recognize only the canonical empty-library `ioctl` specs
+`i32(i32, i32, ptr)` and `i32(i32, u64, ptr)`, validate the guest span, and
+delegate to that dyn function. It must not resolve or transmute a second symbol,
+add an `ioctl_call` host import, or reinterpret the native `-1`/errno result.
+Linux and macOS courts open a 24×80 pty slave and require `TIOCGWINSZ` to
+return the same dimensions. All other names and signatures retain the ordinary
+fixed dispatch: this is not general variadic FFI and adds no C or libffi shim.
+
+The former S-expression `dlcall` compatibility path was deleted only after its
+executable courts migrated to raw-ABI or qjswasm WAT evidence. Do not restore a
+language wrapper around this variadic mechanism; `invoke_unix_ioctl` is the
+bottom-layer ABI entry and qjswasm owns the public schema.
+
+When two crates share one native-call ABI family, keep exactly one executable
+selector and one library/symbol resolver. The consumer may retain its hostile
+wire decoder, canonical-value conversion, budgets, cancellation, writeback,
+and public error vocabulary, but must delegate the unsafe typed invocation to
+the core owner. A second copied macro table is a second living FFI truth even
+when its current arms are byte-for-byte identical.
+
+Pointer nullability is positional **upper-layer schema meaning**, not a distinct
+machine ABI class. A policy-free ABI mechanism therefore carries one raw
+`Pointer` position, while `i32(ptr, ptr?)` and `i32(ptr?, ptr)` remain distinct
+admitted prototypes in qjswasm even though both eventually call the same
+`extern "C" fn(*mut c_void, *mut c_void) -> i32`. Keep the role order in the
+upper prototype table and prove a required slot rejects a null record before
+library loading; never reuse the reversed prototype because the register layout
+happens to match.
+
+For a two-stage native size query, keep the query and fetch as separate real
+courts. The query must pass a declared nullable data pointer as null while a
+required size pointer remains writable, and it must verify the native status
+plus the written capacity. The fetch must provide that bounded guest span and
+verify success, size-slot semantics, termination, and output bytes. Collapsing
+both stages into one generous buffer never proves the nullable query contract.
+
+The qjswasm native fixture directories encode how tests invoke `main`.
+`tests/fixtures/native/additions/` is the table-driven zero-argument court: its
+loader calls every fixture as `main()`. A fixture whose `main` accepts guest
+arguments belongs directly under `tests/fixtures/native/` and needs a dedicated
+test that supplies those arguments. Putting a parameterized fixture in
+`additions/` creates an invalid test call rather than broader ABI coverage.
+
+## Six-cell `system_probes` must grow together
+
+`agenterm-dyn` stores headless probe rows as one fixed-length
+`[SystemProbe; N]` on every `{linux,macos,windows} × {x86_64,aarch64}` cell.
+A row named after an OS function does not authorize that function's general
+surface. When migration deliberately narrows a raw call to one typed fact—for
+example `sysctlbyname` to the fixed `CpuCountSnapshot::acquire()` `hw.ncpu`
+query—change the row status and its docs together so discovery names the exact
+fact, bounded output, and unsupported cells. Keeping the raw API wording after
+its court is gone falsely advertises a capability that no current evidence
+owns.
+A Darwin-only live name still needs a same-length Placeholder on Linux and
+Windows or the crate will not compile. Keep `mach_host_self` last. It is live
+on the two Darwin rows only through the typed `MachHostPort::acquire` owner;
+the other four rows remain Placeholder. Each successful acquisition adds one
+send-right user reference, and Drop pairs it with exactly one
+`mach_port_deallocate`. The raw port name must not cross the generic `dlcall`
+door: releasing this reference is not closing or destroying the host.
+
+Store the assembled six-cell matrix as `static`, not a copying `const`. At 82
+probe rows per cell, the public `[HostCell; 6]` crossed Clippy's
+`large_const_arrays` threshold; `pub static ALL_CELLS` retains one immutable
+catalog allocation while preserving iteration and lookup consumers. Keep the
+individual cell values `const` so target-selected references remain available.
+
+## Do not pull `mach2` for Darwin probe baselines
+
+`libc` 0.2 deprecates some Darwin `mach_*` types and functions toward the
+`mach2` crate. `agenterm-dyn` must not take that dependency. For a probe
+baseline, declare the `#[repr(C)]` layout and `unsafe extern "C"` symbol
+locally (same pattern as `clock_gettime_nsec_np`) and compare `Dyn::eval`
+against that later native call. In edition 2024 the extern block itself must
+be `unsafe extern`; keep a separate `SAFETY` comment at each call site. For
+fixed NUL-terminated arguments, use Rust's `c"..."` literal instead of a
+manual byte string ending in `\0`.
+
+On Darwin, `pthread_t` is `usize`. `libc::pthread_threadid_np(std::ptr::null_mut(), …)`
+does not type-check; pass integer `0` for the current thread. Never spell
+`pthread_t` as a `dlcall` type name — it is a rejected C alias.
+
+`os_proc_available_memory` exists in `libSystem` but the macOS SDK marks
+the header unavailable (iOS-oriented). A symbol that `nm` can see is still
+not a live Darwin probe if the public SDK refuses the declaration. Prefer
+`dladdr`, `gethostuuid`, and `_dyld_get_image_header` for leak-free
+loader/host facts.
+
+## GNU and Darwin `strip -s` are different contracts
+
+In GNU `strip`, `-s` strips all symbols. Apple's Darwin `strip` interprets
+`-s file` as a symbol-list input, so `strip -s artifact` consumes `artifact`
+as that list and then fails because no binary target remains. Portable artifact
+measurement scripts must branch on the host: use `strip -x artifact` on Darwin
+and `strip -s artifact` on GNU hosts. Measure the resulting artifact and run its
+black-box self-test; a successful link is not size or behavior evidence.
+
+## Guest `min` is not a host allocation size
+
+`vec![None; table_min]` and `vec![0u8; pages * 64KiB]` take the module's
+declared minimum as a trusted length. Untrusted `.wasm` can set
+`table min=0x0FFFFFFF` and abort the process (SIGABRT / rc 134) before
+any `Err` returns. Compare the host budget first; only then
+`try_reserve`. Instantiation failure is `Err`, never "allocate and hope".
+The reject point must move when the caller passes two different budgets
+— a crate `const` alone is not a host contract.
+
+The same rule applies after a byte ceiling check. `Vec::extend_from_slice`
+may still invoke the infallible allocator and abort under pressure. For bytes
+originating in a guest or persisted snapshot, first `try_reserve_exact` the
+bounded addition and map refusal to the runtime's ordinary error path; only
+then extend. A small configured limit is policy, not allocation evidence.
+
+tinyvm public values are fmt-free: `Val` and `WasmError` derive `Debug` only
+under `cfg(test)` of that crate. Examples, doctests and other packages cannot
+`unwrap()`, `assert_eq!` or `{:?}` them. Match the `Ok` payload, and print
+`WasmError::message()`.
+
+A tinyvm pin is a four-surface identity, not only a Cargo edit: update both git
+dependencies, `Cargo.lock`, the owning PRD's first bold current-pin revision,
+and `agenterm_qjswasm::UPSTREAM_TINYVM_REV` together. The last value is public
+runtime provenance; leaving it stale makes a correctly linked engine report
+the wrong source revision. The qjswasm crate tests compare all four surfaces.
+
+Cancellation identity belongs to one invocation, not to reusable VM state.
+Borrow the flag down the top-level call stack; do not store an embedder-owned
+`Arc` or pointer in `Limits`, `Module`, or a persistent slot. An interpreter
+poll based on `steps % N == 0` is unsound when bulk instructions charge many
+logical steps at once: an adversarial loop can jump over every exact residue.
+Track the next monotonic polling threshold and treat crossing it as sufficient.
+Keep the step ceiling independent, return a distinct interruption class, and
+retain the worker process deadline for native callbacks that cannot cooperate.
+
+## Versioned media needs one discriminated SDK boundary
+
+When one guest output channel accepts multiple versioned media schemas, do not
+make the public lifecycle method unconditionally decode the first shipped
+schema. Keep a single magic/version dispatcher with strict whole-record
+decoders, expose the result as a typed enum, and make converter validation use
+the same dispatcher. Preserve a schema-specific convenience only when existing
+consumers already depend on it. Otherwise the second valid schema can pass the
+WASM/runtime byte boundary and still fail every real app on its first frame.
+Give a newly optional schema an ordinary version-query import so runtimes that
+predate it reject the module at load; magic-only dispatch is not capability
+negotiation.
+
+For indexed pixels, bound dimensions, their checked product, palette length,
+the complete stream length and every palette index before native presentation.
+A host byte ceiling alone does not reject a malformed in-range index or a
+pathological skinny image, while a decoder-only ceiling does not stop the
+guest-to-host allocation. Both layers are required.
+
+If several parallel integration tests need the same compiler-produced guest,
+build its deterministic bytes once behind a process-wide `OnceLock` and clone
+the result. Concurrently invoking one builder/output path can race rustc/linker
+temporary cleanup and create a false missing-object failure even when the final
+artifact path is stable.
+
+For a whole-frame indexed guest, do not equate the wire format with repainting
+every pixel in guest code on every tick. Keep the complete validated frame in
+linear memory, erase/redraw only dynamic sprites during ordinary ticks, and
+rebuild static pixels only at init, level reset and resume. Gate the rare
+rebuild path separately under the same production fuel ceiling: measuring only
+steady-state ticks can ship a deterministic step-budget trap on the first clear.
+
+Portable state replay must compare complete render bytes, not only guest fields.
+A state transition can leave an old prompt or overlay in the resident frame;
+a fresh resumed instance rebuilds from logical state and exposes the mismatch.
+Clear transition-owned pixels when the phase changes, then require the original
+and rebuilt instances to emit byte-identical render and audio on the next tick.
+
+For a portable deterministic replay, bind the exact executable hash in addition
+to manifest identity, capture the initial portable snapshot, and record only
+monotonic inputs plus exact output lengths/digests. Make the execution method
+retain the exact executable digest in the loaded runtime and make execution
+compare against it itself; when raw bytes are also supplied, verify those too.
+A separate `verify` method is too easy for an app or converter caller to omit.
+Validate every step and the checked complete
+wire length before resuming the runtime, otherwise a malformed late record can
+partially mutate the candidate before failure. Reserve the next trace slot
+before ticking as well: allocation failure after a successful guest tick makes
+the recorder and runtime disagree about which input has been committed.
+
+## Secret-bearing artifact publishers need a one-way staging boundary
+
+Do not let a release manifest repeat executable identity or compatibility fields
+that already live inside the signed artifact. Parse them from the artifact,
+validate the same lifecycle/converter path consumers rely on, sign exact bytes,
+then immediately verify the new signature with the derived public key. This
+prevents an operator typo from relabelling a valid binary and catches signing
+format drift before publication.
+
+Keep crypto/JSON dependencies behind an operator-only feature so a `no_std`
+runtime and its static/iOS core do not inherit publishing machinery. Require an
+exact regular secret file with restrictive permissions; never accept it through
+source metadata, copy it into output, or print it. Write all public artifacts to
+a new private sibling directory, reject an existing destination, and promote by
+one rename only after every file succeeds. A failed build must have no visible
+release directory; deterministic ordering and serialization should make two
+independent builds byte-identical.
+
+## Preflight compatibility before activating a verified artifact
+
+Cryptographic validity does not imply that the current app can instantiate an
+artifact. A signed cartridge may require a native capability absent from this
+app version or exceed its selected runtime limits. If cache activation happens
+before runtime construction, a legitimate but unplayable update displaces the
+last playable generation.
+
+For a reviewed install transaction, fetch bounded bytes, verify/open the runtime
+with the current trust store and native registry, then atomically activate the
+same bytes. Close the preflight handle when activation fails. In an actor-based
+client, a method remains reentrant while awaiting network I/O; guard one
+in-flight installation explicitly or two user selections can commit out of
+order. Check cancellation both after download and immediately before the
+irreversible selection change. Test this boundary with a correctly signed
+artifact that fails runtime limits—not only with a bad signature—because only
+the former proves the ordering invariant.
+
+## A corrupt save must not poison the fallback runtime
+
+Runtime-level snapshot validation is necessary but not a complete app lifecycle.
+Persist the host clock beside the guest snapshot in a bounded, versioned,
+checksummed envelope and atomically replace one canonical per-game file. Reject
+symlinks and non-regular or oversized objects before reading. The runtime's own
+snapshot decoder—not duplicated app metadata—remains the ABI/state-schema
+compatibility authority.
+
+Most importantly, do not catch `resume` and continue using that same instance.
+A guest resume can mutate memory or latch failure before returning an error.
+Close the candidate, discard the bad save, and invoke the runtime factory a
+second time for the fresh fallback. Test a corrupted persisted byte and assert
+both the `discardedInvalid` outcome and successful gameplay on the replacement
+instance; merely asserting that decode threw does not prove recovery.
+
+## Guest counts must be charged before allocation
+
+An outer byte ceiling does not make a binary decoder allocation-safe. A tiny
+payload can declare `u32::MAX` branch-table targets, element indices or locals;
+`Vec::with_capacity(guest_count)` may abort the process before the first
+truncated entry is read. Bound each vector count before reserving, charge a
+single module-wide complexity budget for every allocation-amplifying logical
+record, and use `try_reserve_exact` before copies/resizes. Keep raw payload
+bytes under the outer artifact/section bounds rather than double-counting them.
+
+For sectioned formats, allocation containment and canonical validation should
+share the same pass: reject duplicate or out-of-order singleton sections,
+unknown standard ids and unconsumed section payload. Run each count-bomb case
+inside a child-process black box as well as asserting the typed error; only the
+child exit proves a hidden allocator abort did not escape the API.
+
+## Builder defaults must not leak into standard binary semantics
+
+A programmatic module builder may provide conveniences such as an implicit
+test memory, but a standards-facing byte loader must reconstruct only resources
+the module actually declares. Resource absence is itself validation state: a
+module without memory may run pure computation and carry passive data, while
+every memory instruction and every active data segment must fail at load time.
+Do not special-case an empty active segment; it still names memory zero.
+
+Keep the compatibility builder and standard parser distinguishable in stored
+module state, and test the observable boundary: zero memory pages, an empty
+host callback slice, load-time rejection rather than a runtime trap, and legal
+passive data. Regenerate independent fixtures that accidentally relied on the
+old default instead of weakening the validator to preserve invalid bytes.
+
+The same distinction applies to memory alignment. Execution may ignore a valid
+scalar memarg alignment hint, but validation must still reject an exponent
+larger than the instruction's natural width. Under-alignment is legal. Cover
+every load/store width so one shared decoder helper cannot be called with the
+wrong natural exponent unnoticed.
+
+Structured expressions need a decoder-owned outer boundary as well as a later
+type/control validator. The function-level `end` must consume the final body
+byte, and an `if` may record only one `else`. Otherwise a balanced validator can
+accidentally accept instructions after the function expression or reopen the
+same arm twice. Keep malformed raw-byte cases in the public load gate and
+compare them with an independent standard validator.
+
+Fixed-width signed LEB decoding must validate the unused payload bits in its
+last permitted byte. Native shifting into the destination integer can silently
+discard an out-of-range positive or negative bit pattern and turn malformed
+standard bytes into an apparently valid value. Test both overflow signs plus
+the exact minimum and maximum encodings, and make an independent standard
+validator agree on all four boundaries. For a 64-bit decoder, validating the
+tenth byte before shifting can also replace a later length branch, preserving
+the same strictness without growing a size-gated interpreter core.
+
+An extensible binary format's “ignored” section still has a standard envelope.
+For WebAssembly custom sections, validate the required length-prefixed UTF-8
+name before ignoring the remaining opaque payload; skipping the whole section
+accepts bytes that reference engines reject. Split name handling into a small
+borrowed validator and an owned wrapper for names retained by the module. This
+keeps ignored metadata allocation-free and, with deliberate inlining, can be
+smaller than calling an allocating parser and immediately dropping its result.
+Cover missing names, truncated length LEBs, invalid UTF-8, and a legal name with
+arbitrary opaque bytes against an independent validator.
+
+Do not confuse section presence with a declared resource. Standard Wasm
+sections encode vectors, and an explicitly present memory section with count
+zero is legal and semantically identical to no memory section. Preserve the
+three-way parse result—empty vector, one declaration, unsupported multiplicity—
+until validation has derived resource existence. Prove that pure computation
+still runs with the empty vector while every memory instruction fails at load.
+In a tightly size-gated parser, a private out-of-domain sentinel can preserve a
+compact existing return ABI when a nested `Option` adds a code-size page; name
+the sentinel, consume it immediately, and never expose it as a real limit.
+
+Load-time validation must retain declaration attributes, not only operand
+types. A `global.set` can have the right value type and still be invalid when
+its target is immutable; postponing that check to execution turns a malformed
+module into an invokable object. Let the validator borrow the canonical global
+definitions so type and mutability cannot drift in parallel vectors, and keep
+the execution-time immutable check as defense for programmatic builders that
+do not pass through the standard byte loader. When correcting an old golden,
+replace its invalid “runtime trap” module with a legal mutable semantic case
+rather than weakening family coverage.
+
+Every runtime-trap golden must first be a standards-valid module. A VM can make
+an invalid fixture appear useful by accepting it too early and trapping later,
+so checking only the expected final error lets the implementation and its test
+share the same bug. Stream the complete success and trap corpus through an
+independent validator in one reproducible gate, report the exact fixture id on
+failure, and keep proposal execution oracles separate. Re-run the generator
+before this gate so source and generated rows cannot diverge.
+
+Give malformed/load-time cases the symmetric independent check. Keep accepted
+and rejected raw modules in an oracle fixture that a black-box Rust test proves
+is an exact byte-for-byte mirror of its load-gate cases; then make WABT agree
+with every verdict. Require both verdict classes, reject malformed fixture rows
+and report the case id. This catches missing negative evidence, accidental
+fixture drift and a decoder/reference disagreement without making Cargo tests
+depend on a separately installed validator.
+
+Treat a C ABI's query-then-copy sequence as one consistency transaction. Save
+the queried length, allocate exactly that amount, and after a successful copy
+require the callee's returned length to be identical. A smaller value otherwise
+turns unwritten zero-filled tail bytes into media, snapshots, replay data or
+cartridge bytes; a larger value must already have failed the capacity check.
+Centralize this guard across every Swift owner and exercise its mismatch branch
+in the native-link smoke, not only the ordinary stable C implementation.
+
+Keep standard module validation distinct from instantiation and product-ABI
+conformance. A validator command should decode and prove ordinary `.wasm`
+without requiring an embedding manifest, binding imports, allocating an
+instance or running the start function. Prove that boundary with a legal module
+whose start function traps: static validation must accept it, while malformed
+bytes must still fail loudly. Cartridge lifecycle and media checks remain a
+later, explicitly dynamic gate.
+
+Treat Xcode's final `TEST SUCCEEDED` as insufficient evidence for a selected
+test gate. A malformed `-only-testing` identifier can launch the runner, execute
+zero tests and still return success. Use the full target/class/method identity
+where required and assert the expected `Executed N test(s), with 0 failures`
+summary before accepting the result. For a native SDK consumer gate, also
+inspect the final device App: architecture/platform, exact bundled payload and
+excluded dynamic frameworks are product facts that simulator unit tests do not
+prove.
+
+Do not treat a signed `.xcarchive` as App Store distribution evidence. Automatic
+archive signing may legitimately use an Apple Development identity. Run a
+separate `destination=export` App Store Connect export, then inspect the IPA's
+distribution authority, strict designated requirement, arm64 payload,
+`get-task-allow=false`, beta entitlement and exact bundled runtime artifact.
+Keep export separate from upload: successful local distribution packaging does
+not consume a build number on the service or prove TestFlight processing.
+
+## Differential engines need identical host facts, not similar screens
+
+When comparing an interpreter with a reference WebAssembly engine, run the
+same module from the same portable state and normalize every host-owned input:
+button snapshot, monotonic clock, RNG state and import semantics. Compare exact
+render/audio bytes or their length-bound cryptographic digests per step. A
+screenshot comparison cannot expose stale pixels, palette records or audio
+drift, while independent execution against a canonical replay can.
+
+Keep the reference adapter in development tests and out of the shipped runtime
+dependency graph. It is an oracle for finding decoder, execution and ABI bugs,
+not a second product authority. When engines disagree, reduce the case and use
+the language/ABI specifications to adjudicate it rather than blindly copying
+the reference behavior.
+
+When a lower-layer owner is migration debt, do not make an upper crate's
+black-box test depend on that owner merely as an oracle. If the operating system
+or standard library offers an independent direct observation, use it in the
+upper test instead. This prevents test-only imports from becoming false API
+compatibility obligations while retaining cross-path evidence. Keep the direct
+oracle target-gated and preserve the original comparison strength; replacing an
+exact native comparison with a weaker range check is not a migration.
+
+For standard WASM tail calls, do not implement `return_call` as an ordinary
+recursive `call` followed by `return`. Return a typed tail-target/argument
+outcome to one dispatch trampoline so a defined target replaces the current
+activation and an imported target exits through the same host door. Keep
+ordinary calls under the native call-depth guard, charge every tail instruction
+to deterministic fuel, and validate that the target's complete result vector
+exactly matches the current function's results. Prove the boundary with a tail
+chain far beyond the ordinary depth limit, an indirect target, a host-import
+target and independently compiled standard bytes in reference engines.
+
+Do not carry ordinary guest calls on the Rust/native stack either. Store the
+complete program counter, locals, operand stack and control frames in an
+explicit activation; suspend it on direct/indirect calls, resume it with exact
+results, and let tail calls replace it. Bound both activation count and the
+aggregate live slots across all suspended callers, check the aggregate before
+allocating the next function's locals, and use fallible vector growth. Prove
+the architecture in an unoptimized build at a depth that previously overflowed
+the native stack, including indirect recursion and a wide-locals amplification
+case—not merely a shallow factorial.
+
+For an interpreter, bounding activation count is not enough if instruction
+dispatch still hides infallible allocations. Preflight every instruction that
+can grow an operand/control stack without first popping, enforce the aggregate
+live-slot ceiling, then `try_reserve` before any guest mutation. Extract call
+arguments/results by reserving and copying the complete destination before
+truncating the source. Preserve branch values in place with overlap-safe copy;
+do not use `split_off` merely to unwind a stack. Finally, never clone a decoded
+instruction containing a guest-sized vector on the execution hot path:
+`br_table` targets belong in a flat immutable per-function arena, with decoded
+instructions holding ranges and borrowing them directly. This also avoids one
+secondary allocation per table at decode time.
+Prove the live-slot boundary through the public runtime and separately assert
+that branch preservation does not grow the operand vector's capacity.
+
+Apply the same rule across the guest/host door. If a product ABI already caps
+host parameters and results, give callbacks exact borrowed result storage backed
+by fixed stack arrays instead of asking every callback to return `vec![...]`.
+Fallibly reserve the suspended caller's operand stack (or a top-level result
+vector) before entering trusted app code, then append inline results directly;
+a reserve failure after the callback mutates guest memory is not an atomic
+allocation failure. Keep any allocating callback form as an explicit
+compatibility adapter, not the iOS product hot path.
+
+A declared host function is an effect boundary, not an ordinary guest value.
+Only an explicit call expression may invoke it. If the language layer cannot
+materialize a real first-class host-function value, a bare occurrence such as
+`typeof host_fn` or `let f = host_fn` must fail at compile time by function
+name. Never reinterpret that value position as a zero-argument call: doing so
+creates a host effect the source did not request and gives arity diagnostics
+for calls the author never wrote.
+
+Apply ownership reuse to the return door too. When a bounded interpreter frame
+must outlive the call for a later C/Swift copy, let the embedding return its
+cleared `Vec` storage to the next tick and swap the completed bytes back out.
+Clear before validating input so failures cannot expose a stale frame; on a
+guest trap, recover and clear the partially written buffers before returning.
+Keep the ownership-returning convenience API as a wrapper around this reusable
+form. This preserves standard Wasm and the copy-based FFI lifetime while
+removing steady-state allocator churn from render/audio submission.
+
+Do not let a narrow product ABI become the VM's accidental type system. A
+game-facing i32 import profile may be correct for converters and C bridges,
+while the underlying standard Wasm host door must preserve i32, i64, f32, f64
+and supported references exactly. Verify argument types before app code,
+initialize an exact typed result slice before an in-place callback, verify it
+again afterwards, and reject function references outside the current instance
+identity space. Keep an arbitrary-arity returning callback as an explicit
+allocating compatibility path; use fixed typed staging for the bounded hot
+path. Prove the separation with independently compiled standard bytes in a
+second engine, not only with a hand-built unit module.
+
+For an opaque `externref`, preserve identity without smuggling a native pointer
+through the VM. A process-unique monotonic token can be copied through Wasm
+functions, locals and globals while the embedding owns the bounded token-to-
+object registry and its lifetime. Keep the token opaque but hashable/orderable
+for host registries, never recycle it from an allocation address, and verify
+null plus non-null identity against independently compiled Wasm in a second
+engine. Supporting externref values does not imply externref tables; keep that
+resource form rejected until its typed storage, import/export ownership and
+aggregate budget model exist. Once admitted, validate every bulk operation
+against the table/segment reference types and prove provider-drop aliasing and
+opaque identity in a second engine.
+
+## Separate deterministic fuel telemetry from device timing
+
+An instruction ceiling proves containment, but it does not reveal how close a
+real workload comes to that ceiling. Retain the consumed counter after each
+top-level interpreter call and combine it with current memory/table size plus
+bounded host-I/O counts. Update the record on a typed guest trap as well as
+success, and leave it unchanged when host input is rejected before execution.
+This makes a failed frame diagnosable without rerunning mutated guest state.
+
+Do not put elapsed time, resident memory, thermal state or scheduler data into
+the deterministic record. Those are device/run measurements; instruction,
+page, dispatch and output-byte counts are replayable VM/ABI facts. Gate both
+layers independently, and require a platform smoke to verify that copied output
+lengths agree with the interpreter record on every measured frame.
+
+## Keep VM capability separate from an embedding profile
+
+A standards-facing VM may support more resources than its first product ABI.
+For WebAssembly multiple memories, preserve the standard indices in scalar
+memargs, active data and bulk instructions, and apply the host page ceiling to
+the aggregate live pages across the instance. Each memory still observes its
+own declared maximum. Cross-memory copy must validate both ranges and charge
+fuel before writing, just as same-memory `copy_within` does.
+
+An embedding whose callbacks and snapshots name memory zero may still require
+exactly one memory at its own load gate. Keep that check above the general
+module loader; otherwise a game ABI convenience silently becomes the VM's
+language limit. Accept imported memories only after the host has an explicit
+store-level binding and identity model—an internal-memory vector alone is not
+an import implementation. Use a shared object with scoped read/write guards;
+copying bytes before and after a call is not equivalent because sibling writes,
+growth, active segments and re-exports must all observe one identity. Treat two
+indices bound to the same object as aliases for aggregate budgets and
+overlapping `memory.copy`, and turn conflicting host borrows into traps rather
+than `RefCell` panics.
+
+Imported funcref tables need more than the memory pattern. A non-null table
+cell is an instance-bound function address, not a bare combined-function index.
+Attach stable instance identity when `ref.func`, active/passive elements or
+table writes create an address; never reinterpret a foreign address in the
+caller instance. Shared table aliases must count once in host budgets and use
+memmove ordering for overlapping cross-index copies. Until the runtime can
+dispatch a foreign address against its owning globals, memories and tables,
+trap that boundary explicitly and keep the capability partial rather than
+silently executing caller-local state.
+
+Give imported tables an explicit store before implementing cross-instance
+dispatch. Instance ids are meaningful only inside that store, so tables bound
+to one module must come from the same owner; two distinct tables are not aliases
+merely because their limits match. Allocate ids monotonically inside the store
+and keep function addresses numeric `(instance, function)` records. This avoids
+global registries and raw-pointer identity, and creates the lookup key for a
+later store-owned activation trampoline.
+
+Do not then put a strong store handle back inside every live imported-table
+slot: once the store owns instance records that creates `Store → Instance →
+Table → Store`. Resolve bindings into store-local table ids plus independently
+shared scalar metadata, and pass the current store explicitly to table
+operations. The decoded module may own temporary host handles before
+instantiation; the live record should not.
+
+Likewise, never type-check a store-local function address using the caller's
+function-index space. Resolve `(instance_id, function_index)` through the store
+and compare the owner's exact `FuncType` with the caller's expected table-call
+type. Equal numeric indices in sibling modules have no semantic relationship.
+
+An `Instance` handle can expose zero-copy memory guards while its execution
+state lives behind `Rc<RefCell<_>>`: map the outer `Ref`/`RefMut` directly onto
+defined-memory bytes, but keep cloned imported-memory handles beside it because
+nested `RefCell` guards cannot safely borrow through a temporary outer guard.
+This preserves both lifetimes and imported object identity without `unsafe`.
+
+A shared funcref table semantically keeps its referenced function instance
+alive through the store, not through an embedding's public instance handle.
+Strong store ownership is safe only after binding-time handles back into that
+store are removed from live module state. Resolve them to numeric store-local
+slots first, clear the decoded binding handles, and test invocation after the
+public owner handle has been dropped.
+
+When removing native recursion from a multi-instance interpreter, first make a
+foreign call an owned runner outcome: target address, argument vector and the
+suspended guest activation. Do not switch instances inside an opcode arm while
+it holds borrowed memories/globals. Returning the boundary to the trampoline
+lets it release the owner borrow before selecting another store record.
+
+The store trampoline should carry two aggregate bases across an owner switch:
+guest call depth and suspended activation slots. A module runner still owns its
+fast local caller vector, but its checks and peak statistics must include the
+store bases. On a foreign boundary, add the yielded continuation's local caller
+count/slots to those bases; on return, restore the parent bases and resume with
+the owned result vector. A deep A↔B cycle is the useful regression test because
+a one-way sibling call cannot expose native recursion or reborrow failures.
+
+Treat extended WebAssembly constant expressions as small typed programs, not
+as a special case that reads one opcode and expects `end`. Evaluate them with a
+fallibly grown value stack, charge every instruction to the module decode
+budget, use wrapping integer arithmetic, and require exactly one final value of
+the surrounding declaration's type. Keep the expression's global context
+honest: if the runtime has no imported-global store/binding model, do not make
+`global.get` appear supported by pointing it at an unrelated defined-global
+vector.
+
+## Keep guest descriptors separate from platform handles
+
+A portable Wasm host layer must never expose a Unix fd, Windows HANDLE, drive
+letter or iOS container path as guest identity. Map bounded guest `u32`
+descriptors to opaque backend handles, and resolve every guest path relative to
+an explicitly registered virtual preopen before calling a platform backend.
+Reject empty, absolute, parent, dot, repeated-component, backslash and NUL paths
+at that common boundary so backends cannot disagree about traversal. Requested
+read/write open modes and delegated descriptor rights must agree exactly.
+
+Opening a native handle and publishing its guest descriptor is one ownership
+transaction. Reserve descriptor capacity before the platform call when
+possible; if publication still fails, close the newly opened backend handle and
+return the original typed failure. Keep unsupported platform operations
+explicit (`NotSupported` / `NotCapable`) rather than inventing results or
+embedding OS policy in the VM engine.
+
+A standard import adapter must validate the complete parameter/result value
+types before binding, not only field names and arity. Reject unknown fields at
+that boundary. Preflight every guest output range before a backend call or the
+first write, so an invalid later pointer cannot leave partial metadata or cause
+an unnecessary platform side effect; translate supported-call failures to the
+standard errno without turning an optional host profile into VM opcodes.
+
+For vectored guest I/O, cap the record count and preflight the complete iovec
+table, every referenced range and the result pointer before the first backend
+call. Reject a backend count larger than its supplied slice, accumulate totals
+with checked arithmetic, and stop on a short transfer. These rules keep a
+portable adapter bounded even when the platform backend is buggy or adversarial.
+
+When adapting a broad standard open call to a deliberately smaller host trait,
+map only rights and flags whose semantics the common layer can preserve. Reject
+unknown or unsupported lookup, open, descriptor and inheriting-right bits
+explicitly; silently dropping one can grant broader access or make cross-host
+behavior diverge. Validate the result slot, UTF-8 and relative preopen path
+before opening a native handle, then publish only the allocated guest fd.
+
+A non-returning guest import such as `proc_exit` must not return an empty success
+and let the guest continue. First let the backend accept the typed outcome, then
+interrupt the VM through a stable adapter-owned marker and retain the structured
+value for the embedder to inspect or consume. Clear stale outcomes before each
+attempt, and keep backend rejection distinct from an accepted guest exit.
+
+For a reusable `std` filesystem backend, an already-validated relative string
+is still not enough: joining it onto a host path reintroduces symlink races and
+platform-specific traversal behavior. Open ambient authority once at an
+embedding-chosen preopen boundary, retain a capability-directory object, and do
+all later open/stat/unlink calls relative to that object. Keep backend native
+resource limits separate from guest-fd limits, preserve specific I/O failures
+through the neutral error enum, and cross-compile the exact optional feature
+graph for Linux, Windows and iOS even when behavior runs only on the current
+host.
+
+When an optional iOS host surface is not part of the shipping game ABI, feature
+gating Rust alone is insufficient: headers and module maps are product surface
+too. Build it as a separately named XCFramework input with its own header
+directory, and keep the default feature/header pair unchanged. Prove both
+directions: run the optional artifact inside a booted Simulator container, and
+scan the default archive/header tree to ensure the optional symbol prefix and
+module never leak into bundled-only consumers.
+
+For multi-memory Wasm host callbacks, do not pass a copied array of memory
+buffers or silently keep treating memory zero as universal. Pass a call-scoped
+context that resolves the standard memory index to a read or mutable guard.
+Tie each guard to the synchronous callback lifetime; require the mutable guard
+to release its exclusive context borrow before another index can be accessed.
+This preserves aliases for imported memories, avoids whole-memory copies, and
+lets `RefCell` reject shared-handle conflicts without using `unsafe` to defeat
+the ownership model.
+
+For converter-facing compatibility, keep malformed input and valid-but-
+unsupported input as different result classes. Parse and resource-limit faults
+stay errors; a valid artifact receives a bounded report containing every exact
+missing function or same-name signature mismatch. Keep the old fail-fast API as
+a wrapper over the report so runtime callers remain simple while CLI/UI callers
+can give actionable diagnostics without parsing error prose.
+
+When that compatibility result crosses a CLI boundary, do not call
+`key=value` lines a machine contract. Add an explicit schema name and integer
+version, emit exactly one JSON object on stdout, keep stderr empty for all
+reportable outcomes, and preserve nonzero exit status for incompatible or
+invalid input. Represent valid-but-unsupported and malformed input separately;
+use arrays for features/imports/issues, nullable available arities for missing
+functions, correct control-character escaping and deterministic ordering. Keep
+paths, timestamps and callbacks out so identical cartridge/profile bytes yield
+identical reports.
+
+Do not merge static host compatibility and dynamic cartridge conformance into
+one vague `valid` claim. Static checking must remain callback-free and report
+feature/import availability for an exact host profile. Dynamic checking must
+instantiate under the private/core-only policy, validate media, suspend into a
+fresh instance, compare replay bytes and expose deterministic lifecycle resource
+stats. Give failures stable stage identifiers and represent an unevaluated
+determinism claim as `null`, not `false`. Reuse that structured dynamic function
+from publication code so the publisher cannot drift to a weaker duplicate gate.
+
+Representative replay is a third claim, not a larger synonym for lifecycle
+conformance. Its report should distinguish trace decoding, exact artifact
+binding, runtime initialization and generated-frame mismatch, while retaining
+only evidence that was actually established. Keep file paths and timestamps out
+of the wire object so identical `.wasm` plus `.tareplay` bytes produce
+identical CI output.
+
+If replay is a publication gate, make it an explicit required source artifact
+and call the same byte-level checker used by the CLI. Require at least one frame
+before calling a trace representative. Run it before signing and before output
+promotion; keep the trace as review evidence rather than silently expanding the
+runtime download surface. Test missing, hash-mismatched and digest-drifted
+traces against the publisher's staging cleanup, not only against the replay
+command.
+
+Boundary benchmarks must measure the direction and ownership operation they
+claim. Host-to-guest calls plus an external memory view do not measure a guest-
+to-host import. Use one validated Wasm fixture with explicit wrapper exports,
+then separate legacy memory-zero view, indexed view and intentional copy rows.
+Compare the metric/payload matrix across engines, but never gate correctness on
+elapsed time; timing values vary while missing or malformed dimensions are a
+deterministic test failure.
+
+Do not prioritize Wasm proposals from the engine's implementation checklist.
+Derive a static usage report from each successfully decoded module, prove each
+reported family with an independent standard fixture, then rebuild real
+production artifacts and gate their exact current profiles. An exact-profile
+change is a review trigger rather than an automatic incompatibility: update
+the oracle, resource evidence and product baseline together when the workload
+legitimately expands.
+
+When a native Wasm module exposes host-owned objects through an `i32`, keep the
+objects in one bounded host table and encode table-instance domain, slot and
+generation in the guest token. Let the native-module registry create the table
+atomically from one allocator shared by all runtime instances that may overlap;
+do not make each callback invent numeric domains independently. Never reuse or
+wrap a domain: otherwise the first object in a replacement runtime can accept
+an old runtime's token at the same slot/generation position. Function
+registration itself must not allocate resource identity.
+Advance the generation before reusing a closed slot, and permanently
+retire the slot instead of wrapping back to a token that could revive a very
+old handle. Failed publication must drop the newly supplied object; table clear
+and drop own the remaining cleanup. Treat this as resource lifetime integrity,
+not as permission policy, and keep separate versioned native modules in
+separate typed tables rather than exchanging native pointers. Treat guest
+tokens as runtime-local and nonportable: portable snapshots require native
+resources to be quiesced and reconstructed explicitly, never restored by
+replaying an `i32` token. Consume the native registry into exactly one runtime,
+retain a type-erased live counter for each registry-created table, and reject
+suspend after guest cleanup if any counter remains nonzero. Merely documenting
+"close before snapshot" is not a lifecycle guarantee.
+
+For asynchronous work crossing a C/Swift boundary, do not make a native
+callback reenter the opaque runtime handle just to allocate or complete a
+request. Give the completion queue its own single-owner opaque handle, bind it
+to at most one runtime, and refuse to destroy it while bound. Runtime teardown
+must clear tickets and detach the channel before releasing borrowed callback
+contexts; a result arriving afterward then fails against a live, unbound
+channel instead of touching freed runtime state. Publish the generated
+completion imports through the same host-profile path used by runtime binding,
+or converter compatibility will drift from execution.
+
+## Untyped `select` does not admit reference values
+
+Equal operand types are not the complete validation rule for WebAssembly's
+legacy `select`. Its inferred value type must be numeric (or `v128` when SIMD
+is enabled); `funcref` and `externref` require the typed `select t` encoding.
+Keep both rejected reference kinds, one accepted typed-reference counterpart
+and the existing accepted numeric form in the independent load-gate oracle.
+Otherwise decoder, validator and executor can agree with each other while
+still accepting bytes that standard engines reject.
+
+## `ref.func` declarations come from exports and element segments
+
+Reference-types validation does not require every `ref.func` target to appear
+in an element segment. A function export also declares its target for
+`ref.func`. Build the module-wide declaration bitmap from both sources before
+validating any body or constant expression; the declaration is independent of
+section order. Keep one exported target, one element-declared target and one
+otherwise undeclared rejection in the independent validator corpus.
+
+## Element expressions may depend on an instance global
+
+An element expression may read an immutable imported reference global. Keeping
+only decoded `Val` entries in the module therefore rejects valid standard
+modules. Decode element entries with the reference-valued subset of the same
+constant-instruction representation used by globals.
+
+TinyVM canonicalizes each imported reference into the instance's `GlobalSlot`,
+and both host and guest setters reject writes when the descriptor is immutable.
+Active initialization and a later passive `table.init` can therefore evaluate
+`global.get` against that instance slot without a duplicate reference arena:
+the value and identity cannot change after instantiation, so the result is
+observationally identical to eager evaluation. Keep only passive-segment
+liveness as extra instance state. Test active and passive identity together,
+plus the immutable host-write rejection that makes this compact model sound.
+
+## Whole-vector SIMD does not require host intrinsics
+
+The standard `v128` bitwise family has exact byte semantics, so a portable VM
+can implement `not`, binary logic and `bitselect` directly over `[u8; 16]`.
+This keeps the interpreter independent of ARM/Intel intrinsics and gives every
+host the same result. Group instructions by validation signature—unary vector,
+binary vector, ternary vector and vector-to-`i32` test—then keep execution's
+stack pop order explicit. In particular, `bitselect` pops mask, second input,
+then first input and computes `(first & mask) | (second & !mask)` per byte.
+Cross-check nontrivial masks in WABT, JavaScriptCore and a browser; all-zero and
+nonzero vectors should independently pin `v128.any_true`.
+
+Wrapping integer lanes are likewise portable scalar work. Decode the standard
+lane width into a distinct VM operation, read each little-endian lane, call the
+matching `wrapping_add`, `wrapping_sub` or `wrapping_mul`, and write the low
+lane bits back. Signed and unsigned wrapping arithmetic have the same bit
+result, so one representation is sufficient. Include overflow-heavy bytes and
+64-bit products in a JavaScript `BigInt` oracle; ordinary `Number` arithmetic
+cannot independently prove all `i64x2` results.
+
+SIMD lane access has three separate correctness gates. Decode the one-byte lane
+immediate and reject indexes outside the shape before the module can execute;
+validate the scalar type independently for every splat/extract/replace family;
+then execute through canonical little-endian bytes. Narrow integer replacement
+keeps the low bits, signed 8/16-bit extraction sign-extends to `i32`, and float
+lanes preserve their exact IEEE-754 representation. A useful oracle serializes
+all results into memory and compares every byte across WABT-compiled tinyvm,
+JavaScriptCore and browser executions.
+
+## Map public script budgets through every engine seam
+
+A fallible engine call must drain every call-scoped evidence channel on both
+success and failure. If stdout, truncation and cost survive through one-shot
+`take_failed_*` accessors, operation names must follow the same lifecycle:
+store them on the failing slot, move them to the engine, clear them before the
+next call, and prove a second take is empty. Do not repurpose an outer broker's
+operation list for an in-process tool door; they describe different seams.
+
+An invocation budget is not effective merely because the CLI and task parser
+accepted it. Every selected engine adapter must translate the relevant public
+field into its native limiter. For qjswasm, a tool result becomes a guest
+string, so `ScriptBudgets::string_bytes` also sets the tool door's
+`max_bridge_result_bytes`; otherwise an explicitly budgeted multi-megabyte
+file read still fails at the engine's 1 MiB default. Pin both cases in a unit
+test: no override preserves the engine default, while an explicit bounded
+override reaches the native limiter exactly.
+
+An audit copy of a numeric budget is likewise not proof that the invocation
+path enforced it. Keep accepted numbers in the requested/effective objects for
+wire compatibility, and publish a stable backend-specific
+`unenforced_budgets` list for every field that no layer consumes. Define that
+list across the whole invocation path: worker, supervisor, broker and engine
+ceilings count as enforcement, while parser range validation does not. When an
+engine uses one observable ceiling for two fields, document that representative
+mapping at the adapter instead of claiming either field disappeared.
+
+A runtime ceiling for reusable compiled artifacts must not be baked into the
+artifact bytes. Prefer an opt-in, engine-generic import that the embedder binds
+at load time; keep old compiler entry points import-free by default, add no
+guest-callable setter export, and report exhaustion through a distinct guest
+fault rather than heap exhaustion. Enforce cardinality at every create/grow
+boundary, including bulk paths that bypass the ordinary append helper, and
+prove one artifact under two limits plus exact-limit/limit-plus-one behavior.
+
+For per-function guest state, audit every route into a user function, not only
+the compiler's direct and indirect call lowering. Runtime prefabs such as an
+Array `map` can call JavaScript through a table adapter; that adapter must
+establish and restore the same function-local baseline or the ordinary call
+tests can be green while callbacks accumulate the caller's state. Pin direct,
+indirect and runtime-callback paths with both exact success and one-less
+refusal.
+
+A public Script budget override is one contract across several parsers. Add
+its CLI help and range check, operand skipping, command allowlist, shared
+`check-many` compatibility parser, task-contract field and hard-limit check,
+and task-to-run translation in one increment. In the task translator, keep the
+optional-field iteration and its option-to-field match exhaustive together:
+adding only the match silently skips undeclared-option handling, while adding
+only the iteration reaches `unreachable!()`. Prove the final path through both
+direct CLI audit and a real named-task invocation.
+
+Cancellation must cover construction-time guest execution as well as exported
+calls. A Wasm start section runs while a slot is being instantiated, before
+the caller can receive or cancel a published handle, so borrow the same
+operation-scoped interrupt through instantiation and do not retain it in the
+module or slot. Every versioned envelope and exposure-classification layer must
+forward that control explicitly; calling an uncontrolled convenience adapter
+inside one layer silently severs the cancellation chain. On failure, remove
+local registration and publish no handle;
+do not claim transactional rollback of imported memory/table writes or host
+callbacks that completed before the interrupt was observed. Preserve failure
+precedence as acknowledged cancellation, host-budget refusal, host-door fault,
+then core fault, and prove that an interrupted start leaves the live-slot count
+unchanged.
+
+An in-process FFI watchdog can bound protocol responsiveness without claiming
+that it killed the native call. Admit one helper through a generation-stamped
+gate, report the deadline, signal cooperative cancellation, keep later calls
+typed-busy until the helper really returns, and discard its late reply. On
+connection teardown, do not join that quarantined helper without a bound. This
+contains one stuck read-only call but does not reclaim it; effectful providers
+still need process isolation, durable outcome-unknown accounting, and no
+automatic replay before their public mutation surface can ship.
+
+## Typed errors require an all-target consumer sweep
+
+When a shared Rust API changes an error from `String` to a typed record, search
+all tests and secondary binaries for string-only operations (`contains`,
+`is_empty`, direct string equality), then run `cargo clippy --all-targets
+--all-features -- -D warnings`. A normal library build can miss those consumers
+because feature-gated integration tests are separate compilation targets.
+
+Classify a Script failure by who can repair it, and keep that class identical
+across single-file run, task run, and check-many. Syntax/compiler errors and
+unsupported source-language methods are `script`: the author changes source.
+Artifact load, signature, ABI, or host-door setup errors are `configuration`:
+the caller changes the invocation or installation. Test both a compiler refusal
+and a post-compile unsupported method through the public CLI; an engine-only
+unit test cannot prove the worker preserved the category.
+
+For multi-file source checks, budget the compiler's whole source closure, not
+only the manifest entries. A module resolver is a file reader invoked
+recursively by the parser: give it the same aggregate wall deadline, a
+per-module byte cap, a resolved-module count and a total entry-plus-import byte
+ledger. Check metadata before reading and the actual buffer afterward so a
+concurrent file growth cannot escape the limit. Preserve a typed resolver
+failure separately from `Option::None`; otherwise a byte/deadline violation is
+misreported as an ordinary missing module.
+
+Key that import ledger by canonical path and cache the resolved source for the
+whole manifest run. Repeated imports and two entries sharing one module must not
+consume the byte/module budget twice. Library detection is lexical enough to
+recognize leading whitespace before `export`; indentation must not silently
+switch a module into the ordinary script-entry path.
+
+## Keep native window facts separate from screenshot documents
+
+Cross-platform GUI tests must not infer native window identity, title, presence,
+or foreground state from screenshot JSON. On Windows the Control Center uses a
+direct native-window capture: `--output` must name a real PNG that can be read
+back, and `rendered_snapshot` carries no renderer payload. Linux and macOS currently use a
+renderer-request strategy whose document may carry a rendered snapshot. Probe
+window readiness through the process-window facts door tied to the owned child
+handle, and capture a real PNG separately when visual evidence is required.
+
+Restoring a minimized foreign macOS window cannot rediscover its owner through
+the ordinary on-screen `CGWindowList` inventory. Do not use
+`kCGWindowListOptionIncludingWindow` alone as an off-screen lookup: native
+evidence showed it returned no row for the minimized `CGWindowID`.
+`kCGWindowListOptionAll` retained the exact stable id and owner pid; filter that
+result by the requested id before resolving the corresponding AX window.
+
+## Observe qualification descendants through the platform process facade
+
+A release receipt must not turn “a command was invoked” into process-tree
+evidence. Spawn each owned gate through a retained Script handle, anchor the
+observation at `process_pid(handle)`, and sample the transitive descendants from
+`agenterm_platform::process::list()` while that handle is live. Project only
+the neutral `{id,parent_id,executable_name}` tuple through the tool door; native
+enumeration and its bounds stay in the platform crate. Record the actual sample
+count and any forbidden automation descendants, then fail closed before writing
+the receipt. A constant nonzero sample or an empty hard-coded process list is
+not evidence.
+
+Classify an observed shell by its owned ancestry, not by the gate name. A shell
+whose parent chain contains a descendant AgenTerm product process is terminal
+payload; a shell launched directly beneath the retained Script-worker root is
+repository automation even though that root executable is also named AgenTerm.
+Keep any intentional direct-launch compatibility probe in its own exact court.
+For a long-lived coordinator, price the task's host-operation budget from its
+worst-case bounded sampling cadence and wall deadline. Keep that override in
+the owning task contract; do not raise the engine default or remove evidence
+collection when the old generic allowance is exhausted.
+
+The same ownership must govern cleanup. Configure an owned command before
+spawn, attach the platform `ProcessTreeGuard` immediately afterwards, and keep
+it beside the `Child` for every timeout, cancellation, explicit kill and owner
+drop path. Killing only `Child` leaves shells' background grandchildren alive;
+if guard attachment fails, kill and reap the just-created child before
+returning the typed setup failure.
+
+Process-start identity comparison does not by itself make a later PID mutation
+safe: the process can exit and the PID can be reused between comparison and
+signal delivery. Mutation must travel through a retained native process object
+when the OS supplies one (Linux `pidfd_send_signal`, Windows `TerminateProcess`
+on the already-open HANDLE). Keep observe-only references free of mutation
+rights and open the stronger handle only for the explicit effect. On macOS a
+kqueue `NOTE_EXIT` registration owns exact observation but not exact signaling;
+for an explicit effect, obtain the target task name, retain its
+`TASK_AUDIT_TOKEN`, release the task-name port, then deliver `SIGTERM`/`SIGKILL`
+through `proc_signal_with_audittoken`. XNU checks the token's embedded
+pidversion, so a recycled PID fails instead of receiving the signal. If the
+task audit token cannot be obtained, fail typed instead of falling back to
+`kill(pid, ...)`.
+
+Do not collapse signal delivery and signal effect into one `verified` bit.
+TERM/KILL can verify exact-object exit; STOP/CONT can verify scheduler state.
+HUP/INT/USR1/USR2 can prove delivery through a retained pidfd or audit token,
+but only the target application can acknowledge their semantic effect, so a
+successful adapter call remains `delivery=accepted, verified=false`. Reserve a
+durable effect receipt before delivery and close it on every post-effect
+observation failure. Windows must return a typed unsupported result for POSIX
+signals it cannot express; only forceful KILL is owned by the retained HANDLE.
+
+For an arbitrary Unix process tree, a single parent snapshot is not an effect
+boundary. Open and identity-bind every member, stop the root and discovered
+descendants, and repeat bounded inventory until two member/depth/identity
+snapshots agree and every retained object reads stopped. Deliver deepest-first.
+Track which members were already stopped: after non-STOP delivery resume only
+those the operation froze, otherwise automation silently changes pre-existing
+scheduler state. A failure must attempt that same exact-object restoration and
+close the effect receipt; never use a late bare-PID sweep as cleanup. Existing
+Windows processes do not acquire Job Object membership retroactively as one
+atomic tree, so return typed unsupported instead of imitating this with PID
+enumeration.
+
+Temporary stabilization is already an effect boundary. Do not freeze a process
+tree first and publish its recovery record only after the snapshots converge:
+owner death in that interval strands stopped processes with no repair owner.
+Publish one durable transaction before the first suspend, capture each exact
+member before touching it, and write ahead `freeze intent`, `frozen by us`,
+`release intent`, and `released` around the native calls. Recovery must compare
+the saved start identity before every repair, preserve pre-stopped members, and
+never touch a replacement PID. If the owner dies after freeze intent but before
+the completion mark, current stopped state cannot prove who stopped it; restore
+the exact object but report ownership ambiguity separately from cleanup success
+and effect outcome. Seal stable membership before delivery, and close the
+public receipt from a durable terminal phase before retiring the private
+transaction so either side of the dual-write crash window is idempotent.
+
+A managed-job control verb may reuse that exact-tree transaction only after it
+binds the durable job generation, owning runtime session and stored root start
+identity; a job id alone is not effect authority. Keep STOP/CONT separate from
+arbitrary signal delivery: their scheduler postcondition is observable and an
+exact retry converges, while HUP/INT/USR signals may trigger application work a
+second time. Requiring a `request-id` flag is not replay protection by itself.
+Do not expose a non-idempotent managed-job signal until the completed or
+outcome-unknown result is durably keyed by that request identity. Also do not
+claim Rust `Drop` as crash recovery: destructors do not run after SIGKILL, so
+any temporary group freeze needs the write-ahead recovery record even when a
+resident owner normally holds a tree guard.
+
+Managed-job retention is receipt garbage collection, not process cleanup.
+Make plan mode byte-for-byte zero-write, and on apply recompute the complete
+candidate set while holding the same store lock that publishes removal. Only
+durable terminal states with known terminal timestamps may age out, after a
+separate newest-retention set is protected. Running/start-intent records are
+live authority; detached records may still describe external live work; and
+orphaned-uncertain records are recovery evidence. Never delete any of those as
+"stale", even when their timestamps exceed the retention cutoff.
+
+Managed-job resource limits belong before the target's first instruction, not
+in a later monitoring loop. Seal the exact limits in the private owner launch
+document. On POSIX install supported `setrlimit` values in `pre_exec`; on
+Windows create the root suspended, configure and assign its Job Object, and
+only then resume the primary thread. Validate platform support before
+publishing durable start intent whenever possible, and never silently omit one
+requested field. Windows Job Objects do not supply file-size or open-file
+limits. macOS accepts several rlimits but a useful finite `RLIMIT_AS` below
+dyld's process-wide mapping fails even before exec, so expose that pair as a
+typed platform limitation while retaining CPU, file-size, open-file and
+process-count limits. A live child that reports the installed limit is stronger
+evidence than a parser test; cross-compilation proves only that the platform
+adapter still builds.
+
+A runtime resource policy is different from a pre-exec hard limit. Put its
+clock and enforcement loop inside the resident containment owner so callers do
+not become the policy scheduler. Derive CPU rate from two monotonic cumulative
+CPU counters and a monotonic elapsed interval; the first sample is an explicit
+warm-up, never zero percent. Bound member count, interval and consecutive
+violations. Apply a group effect once, then require stable identity-bound
+membership and native readback. Clearing future policy must not silently undo
+an already performed stop or termination; reversal is a separate explicit
+command. If the resident owner dies, preserve the existing uncertain-owner
+reconciliation instead of claiming that an in-memory policy survived.
+
+Cargo auto-discovers every `src/bin/*.rs` as its own binary, so a binary's
+private modules must live under `src/bin/<name>/` as `mod.rs` plus siblings,
+never as extra `src/bin/*.rs` files; a stray `main.rs` there creates a second
+binary. A `r"…"` raw string cannot contain `"`; widen the delimiter
+(`r#"…"#`) instead of escaping, which a raw string does not do.
+
+An HTTP client that reads a response with `read_to_end` only works when the
+server closes the socket. Chromium's DevTools HTTP server ignores
+`Connection: close`, so frame the body from `Content-Length` or chunked
+encoding and bound it; otherwise every call costs the read timeout and fails.
+
+## Focused discovery commands must project one canonical declaration
+
+When a broad `capabilities` document already owns permission or mechanism
+truth, a focused command such as `permissions` must return that same value,
+not rebuild a second platform table. Keep one declaration function, project it
+through both public replies, and pin exact equality in a unit test. This avoids
+the common drift where help says a verb is live while the broad manifest still
+calls it unsupported, or where repair guidance differs by entry point. A
+status facade remains read-only: reporting an OS consent requirement is not
+authority to open settings, synthesize a grant, or claim a state the native API
+cannot inspect.
+
+A composed `doctor` follows the same rule: reuse canonical declarations, add
+only bounded live probes, and keep every probe failure as a typed row in one
+complete diagnostic document. Optional and not-applicable failures may return a
+successful `degraded` report; a failed required check must return a typed
+nonzero error carrying that same full report, not an opaque first-error or a
+green exit. A read-only health probe must not call a store `open()` that creates
+parents or locks. Missing state is empty; existing state is opened through a
+bounded, component-wise no-follow handle so a name swap cannot turn diagnosis
+into an unintended read. Diagnosis is never authority to install, repair, open
+consent surfaces or mutate helper lifecycle.
+
+Keep declaration integrity and mechanism health as two separately named
+claims. A merged capability catalog should publish deterministic status counts
+whose sum equals the final public inventory; this catches missing or multiply
+counted declarations, but it proves no native mechanism ran. Evidence named
+`live-probe` or `health` must actually invoke the bounded provider operations it
+names. If one legacy command mixed setup mutation, static declarations and live
+diagnosis, retire that aggregate shape and give each authority its own ledger
+leaf instead of issuing one over-broad green token.
+
+## Windows console trampolines must forward stdio explicitly
+
+`bInheritHandles=TRUE` does not by itself define a GUI-subsystem child's
+standard streams. A console launch can make missing `STARTUPINFO` wiring appear
+to work, while Scheduled Tasks and other no-console launchers expose the null
+slots. A Console-subsystem trampoline that starts a GUI PE must set
+`STARTF_USESTDHANDLES` and copy all three `GetStdHandle` values into
+`hStdInput`/`hStdOutput`/`hStdError`, with handle inheritance enabled. The GUI
+process may then duplicate those startup handles into its hidden CLI worker
+even when `AttachConsole(ATTACH_PARENT_PROCESS)` correctly fails. Qualify both
+ordinary console and no-console redirected launches; a console-only smoke is
+not sufficient evidence.
+
+## Window activation, app-local raise and node focus are three contracts
+
+Do not collapse the word “focus” across layers. A desktop-window activation
+changes the global foreground owner; an app-local raise only moves one window
+ahead of its siblings; accessibility-node focus changes the keyboard target
+inside one window. Give them separate product verbs, platform facade methods
+and ABI exports. In particular, a generic show/raise primitive is not evidence
+that the operating system accepted foreground activation.
+
+For desktop activation, resolve one exact live window handle before mutation,
+perform through the platform/ABI mechanism boundary, then poll the public
+window inventory until that exact handle reports focused under a bounded
+deadline. “The API call returned” is only `performed`; `verified` requires the
+read-back. Preserve a typed failure when foreground policy rejects the request
+or when the backend cannot publish focus state. This distinction is what lets
+compatibility adapters translate a legacy whole-window `focus HANDLE` into an
+explicit `activate --window HANDLE` without stealing the node-focus spelling.
+
+## Separate expanding cold catalogs from hot native dispatch
+
+Large static Rust declaration tables turn help prose into machine code, data
+and relocation growth even when ordinary commands only need a few routing
+fields. Keep one checked-in declaration, validate it at build time, generate a
+minimal typed hot table, and store the cold projection as one immutable
+compressed in-binary stream decoded only by discovery/help paths. Reject
+missing identities, alias collisions, invalid families and incomplete help at
+build time; pin public text/JSON and generated-document parity before measuring
+size.
+
+Every runtime consumer must reuse that generated hot table. Do not let a
+library-side validator `include_str!` and parse the checked-in declaration while
+the binary also embeds the compressed projection: the linker then retains both
+representations. Moving CU's hot table into the library and sharing it with CLI
+routing plus persisted-grant validation removed 395,064 bytes from Linux x86_64
+and 398,368 bytes from Linux aarch64 under the same release profile. The raw
+398,025-byte JSON signature disappeared from both ELFs while public help and
+known/unknown operation validation remained exact. This is a measured duplicate
+removal, not evidence that either artifact has reached its total size ceiling.
+
+Cold regex use should preserve the public grammar without automatically linking
+every throughput engine. CU's external-terminal wait/send surface remains on
+the complete Unicode feature set, while disabling the cache, hybrid DFA,
+one-pass and bounded-backtracker feature families that its bounded cold matcher
+does not require. Unicode script/category/case/word-boundary tests preserve the
+grammar. Same-profile release ELFs fell another 196,184 bytes on Linux x86_64
+and 151,240 bytes on Linux aarch64. This is accepted as a size result; it is not
+a claim that the overall CU budget passed, and a future hot-regex consumer must
+bring its own latency evidence before re-enabling an engine family.
+
+Measure growth as well as today's file size. The CU catalog court showed that
+0/16/32 synthetic metadata rows can average 64 bytes per row even though the
+first conversion saved only 47,616 bytes and did not by itself reach the 2 MiB
+Windows product ceiling. Linux has its separate 4 MiB ceiling. A good slope is
+a durable architecture result, not permission to claim either absolute budget
+passed or to move CLI policy into a shared DLL.
+
+## Keep argv parsing in the typed library and presentation in the binary
+
+When a command surface serves a shell, an in-process script object and future
+protocol consumers, the binary must not own the only `argv -> Command` parser.
+Put argument bounds, globals, authority selection, alias resolution and verb
+parsing in one silent library adapter that ends at the same `Executor` and
+returns the complete typed reply. Keep native-host framing, resident worker
+sentinels, terminal help rendering and process exit codes in the binary.
+
+Reject binary-only entry modes before authority acquisition or effects, and
+bound both argument count and aggregate encoded bytes. Embedded NUL must be a
+typed refusal. Help is protocol data too: an in-process caller cannot follow a
+`see stderr` placeholder, so the typed reply must carry the requested bounded
+help text while the binary may independently render that same text to stderr.
+Keep the checked-in verb catalog beside the library parser; leaving its truth
+source under `src/bin/` recreates binary ownership even if generated tables are
+later re-exported by the library.
+
+When one native JSON door carries both typed commands and argv, use an explicit
+version plus kind and a closed field set. Its typed command payload must equal
+the canonical serialized `Command`; this rejects unknown fields and noncanonical
+explicit defaults without imposing the stricter rule on legacy naked commands.
+Once the version marker is present, an unknown version, kind, wrong type or
+extra field must fail as an envelope error; never retry it as a legacy command
+through an untagged deserializer.
+Legacy naked commands can remain compatible without making malformed new
+messages ambiguous.
+
+Non-shadowable built-in qjs modules must share one source between execution,
+single-file checking and bounded `check-many`. A runtime-only resolver makes a
+valid public script fail repository lint; a checker-only stub can accept a
+module the product does not execute. Let the generic engine accept an
+embedder-supplied built-in resolver, account each resolved source against the
+same bytes/module/deadline ledger, and resolve it before filesystem modules.
+
+An exported module listed in a `check-many` manifest may live outside the
+conventional `scripts/qjs` tree. When synthesizing its importer, derive the
+specifier relative to that script root first and then relative to the declared
+project root; the resolver must search the same roots. Falling back to compiling
+the library source as an entry produces a misleading top-level `export`
+diagnostic and leaves repository-qualified skill modules unchecked.
+
+A repository-wide bounded manifest needs capacity headroom above the owned
+corpus, not a limit equal to yesterday's file count. Keep a finite entry cap,
+an inclusive boundary test and independent byte/deadline budgets; when normal
+growth reaches the cap, raise the documented robustness ceiling rather than
+splitting one authoritative gate into partial scans.
+The task catalog currently owns 512-task, 512-contract and 384-KiB ceilings;
+change those three limits and their inclusive tests together.
+
+A product-owned qjs entry should be compiled into the executable together with
+all of its imports and run through the ordinary worker, budget, audit and
+cleanup chain. Give it a reserved `.qjs` label, report its audit source as
+`builtin`, and pin that label to qjswasm so a process-wide backend override
+cannot reinterpret trusted built-in bytes. Pass compatibility argv only after
+the script delimiter and preserve each token byte-for-byte; never recover the
+entry by searching the installation, repository, current directory, or PATH.
+
+Enforce a built-in closure's authority boundary on the compiled Wasm import
+table, not only with source grep. Aliases, line breaks and comments can bypass
+or confuse lexical call scans, and an inline built-in module may not live under
+the scanned filesystem path at all. Compile the real entry with the production
+resolver, decode its emitted imports independently of the compiler, and require
+an exact host-door allowlist. Keep source scanning as cheap defense in depth,
+not as proof that the compiled closure cannot reach a process door.
+
+## Measure guest allocation below the page granularity
+
+Linear-memory pages are a budget receipt, not an allocation-lifetime trace: a
+64 KiB page count cannot distinguish live persistent state from a small dead
+suffix. For qjswasm attribution, add diagnostics only through an explicit
+compiler entry and append a read-only function export after normal lowering so
+ordinary modules, function indices and script capabilities remain unchanged.
+Read the bump waterline around repeated calls on one persistent slot.
+
+Always separate warm-up from steady state. A first call may publish lazy state
+into a global (the JSON namespace measured 52 bytes), while later calls with
+the same roots reveal the stable slope. Call growth “dead” only after a closed
+root argument: no returned reference, persistent binding, closure, exception,
+or host-retained guest pointer can name it. A positive waterline delta alone is
+not evidence that it is safe to rewind.
+
+Operation-family counters narrow attribution but still report **gross**
+allocation, not reclaimable memory. Inspect allocation order before proposing a
+bump rewind: if an operation allocates temporary builders first and its live
+return value last, dead bytes are a prefix below a live heap tail and the safe
+rewind suffix is zero. Keep these counters opt-in and absent from ordinary
+Script receipts; use a separate experiment for a larger last-use region rather
+than silently relabeling gross bytes as recovered bytes.
+
+For an immediate producer-to-host-consumer hypothesis, keep the first change a
+diagnostic-only syntactic recognizer: exact direct `JSON.stringify(binding)`,
+one synchronous `StrPtrLen` host argument, a scalar/no result, and no lexical
+unwind. Export only its cumulative gross allocation counter; do not restore the
+heap in the same change. Thread that optional counter through the engine cost
+envelope while keeping it absent from ordinary compilation, then run the
+precommitted product-workload D0 gate before writing any reuse mechanism.
+
+## Process launch context is raw, identity-bound, and platform-limited
+
+An arbitrary process's launch context is not one portable string. Bracket
+every argv, cwd, or environment read with the same native process-start
+identity so PID reuse cannot substitute another process. Keep environment
+entries as raw bytes through the platform facade: split only at the first `=`,
+preserve duplicates, empty values, malformed entries and non-UTF-8 bytes, and
+encode wide counts losslessly at the JSON edge. Plaintext values must be an
+explicit command option; default evidence is byte length plus SHA-256.
+
+Name Unix environment observations `exec-initial`. Linux procfs and macOS
+`KERN_PROCARGS2` expose the environment installed at exec, not later in-process
+`setenv` mutations. On macOS a restricted target may return argv while omitting
+environment bytes; typed-fail that ambiguous empty result instead of claiming
+the target has no variables. On Windows there is no stable public API for an
+arbitrary process environment or cwd: refuse the operation rather than binding
+the product to undocumented PEB and WOW64 layouts.
+
+For Script child-process controls, validate signed guest limits before moving
+an owned handle into a wait or borrowing its drains. A failed integer
+conversion must be a typed parameter refusal; never turn a negative timeout
+into `None` (unbounded wait) or a negative capture bound into `usize::MAX`.
+Prove the refusal leaves the same child handle usable for corrected wait and
+cleanup.
+
+For a detached resident owner, freeze every launch locator before crossing the
+process boundary. In particular, turn an explicit relative registry override
+into an absolute path in the parent while preserving the child's rule that a
+sealed launch must contain only absolute state/program/cwd paths. A parent
+polling the registry immediately after spawn can race the owner's short
+claim/update lock; retry only the typed contention result under the existing
+startup deadline. Missing state, corrupt state and any other store failure stay
+terminal instead of being treated as transient readiness.
+
+When a fixed-sibling launcher hosts that detached owner in a provider library,
+the provider must call the owner body inside the already detached child. It
+must not redispatch through the public command path or spawn another launcher.
+Treat the entry mode as direct process ownership: publish zero ABI output bytes,
+leave argv/stdin and durable readiness semantics with the existing owner, and
+let the parent map early child exit through its bounded typed startup court.
+If the monolith still keeps an internal entry body private to its bin target,
+extract that exact stdin/environment-to-exit adapter into the library before
+wiring the provider. The bin and provider must call one function; copying the
+adapter would create a second authority for payload encoding and exit mapping.
+
+## Keep filesystem metadata and object identity separate
+
+Use `symlink_metadata` when an observation promises to describe the final
+directory entry itself; ordinary `metadata` follows a link and can silently
+change the authority target. Classification, size, permissions and timestamps
+may come from that one metadata snapshot. Stable object identity is a different
+mechanism: on Windows it requires an opened handle through the platform
+`file-identity` facade, because the corresponding standard-library metadata
+accessors are unstable. Never substitute a canonical path for object identity.
+When metadata crosses a JSON/JavaScript boundary, encode wide sizes, timestamps
+and native ids as decimal strings so binary64 cannot round them.
+If a platform facade already carries a native metadata fact, project that fact
+through the existing host import instead of spawning `stat` (or another
+platform-specific text witness) and parsing its dialect in the guest. Publish
+Unix permission bits as bounded octal text and `null` on hosts without that
+fact; the platform facade remains the only native metadata implementation.
+
+Creating a new durable file is a different door from opening an existing one. An
+exclusive create uses `O_CREAT|O_EXCL|O_NOFOLLOW` on Unix and `NtCreateFile` with
+`FILE_CREATE` under a retained parent handle on Windows, resolves the parent
+component-wise without following a link-like ancestor, and never opens, truncates
+or replaces an existing object. Its durability covers only the same opened file
+object's content and metadata: it does NOT fsync the parent directory, so the
+directory entry naming the new file is not proven crash-durable, and the name must
+not be read as claiming that. On Windows a `:` in the name (`name:stream`, `name::$DATA`) must be refused
+before any `NtCreateFile`: reaching the kernel would add an alternate data stream to
+an existing base file. On Unix the new file is mode `0600`; on Windows the door only
+inherits the parent directory's ACL and must not claim a private ACL of its own --
+parent privacy is the caller's precondition, never something the door measures
+after the fact. The final component must be taken lexically from the raw path, not
+through `Path::file_name`/`components`, which fold a trailing separator or `.` and
+would let `new/` or `new/.` silently mean `new`. Once the exclusive create succeeds, a later write/sync/type-verify failure
+is error-after-effect: a partial or empty file the caller itself just created may
+remain, the door never removes it, and the caller must fail closed without blindly
+replaying.
+
+A durable append to an existing file needs its own door rather than a strengthened
+legacy one. `fs.append` keeps its create/follow/non-durable contract; a new
+`append_existing_durable` opens an EXISTING regular file through the component-wise
+no-follow opener, writes and `sync_all`s on the same opened object, never creates a
+missing target, and is `error-after-effect`: `write_all` may append a partial
+prefix and `sync_all` may fail after the bytes landed, so a returned error proves
+neither that the target is unchanged nor that any appended byte is durable. The
+caller must fail closed and must not replay the same record; never silently upgrade
+the legacy create/follow/non-durable append. Ancestor no-follow holds only for the
+component-wise facade, not for the single-component openers.
+
+Strict private-store tests must not assume `std::env::temp_dir()` has safe
+ancestry. On macOS it commonly resolves beneath `/var`, whose public spelling
+contains a system symlink; an `O_NOFOLLOW` component walk correctly rejects
+that path even though the final directory is private. Put such test stores in
+one unique repo-local `target/<test-lane>/` directory, exercise the same ancestry
+checks as production, and remove the lane after the owning test. Do not weaken
+production link rejection merely to accommodate the host temp-directory alias.
+
+When a product-owned registry can fall back beneath a shared temporary root,
+protect the final product directory rather than the temporary root itself.
+Run the same private-directory check before reads, writes, and cleanup; a write
+path may create the final directory first, but it must reject a pre-planted
+symlink before publishing or removing any child. A read path must distinguish a
+missing directory from an unsafe existing entry with `symlink_metadata` rather
+than treating both as an empty registry.
+
+For approval-bound at-most-once effects, separate request integrity from fresh
+admission. Recompute the canonical fingerprint first, then look up a surviving
+durable receipt before checking the short approval TTL or calling a live
+provider. A finalized or uncertain retry must remain queryable after approval
+expiry, session drift, or provider loss; only a request with no retained record
+continues through expiry, live precondition checks, reservation and delivery.
+The lookup itself is read-only, serialized, fingerprint-bound and retention-
+bounded—it must not create or refresh a record.
+
+## Keep screen, event, and raw terminal cursors distinct
+
+A terminal screen snapshot, a UI event-journal cursor, and a raw PTY byte
+cursor answer different questions. Do not label rendered text or an event
+sequence as incremental process output. For raw continuation, pair a cumulative
+byte count with one bounded retention ring: `earliest = current - retained_len`.
+A cursor below earliest is a typed retention gap; one above current is a typed
+future cursor. Return exact bytes (base64 at JSON boundaries), add UTF-8 only
+when the whole page validates, and advance `next_cursor` by bytes actually
+returned. Reuse the terminal owner's redacted ring instead of adding a second
+cache with a different lifetime or secrecy contract.
+
+An exact substring wait over that raw cursor must retain the last
+`needle.len() - 1` bytes between pages. Search `overlap + page`, report the
+absolute match cursor, then advance only to the source's `next_cursor`. Poll
+only when caught up; consume immediately while `next_cursor < current_cursor`.
+Propagate a retention gap or future cursor, distinguish deadline expiry from a
+finalized process with no match, and cap both needle and page sizes. A current
+screen search cannot replace this contract because scrollback can disappear
+while retained output is still authoritative.
+
+When a durable job facade projects a lower-level terminal snapshot or event
+page, resolve `job name → one ControlClient → sole @tab` once per operation.
+Bind the result to the inventory's server scope and epoch, compare the
+lower-level reply's epoch before publishing it, and reject a caller's stale
+epoch before event continuation. Never overwrite a mismatched epoch to make the
+JSON look consistent: a same-name server restart is a different authority.
+
+Lease-gated internal UI handshakes are protocol messages, not public product
+operations. A reusable client may expose a narrowly named protocol request for
+`ui-hello`, `ui-lease` and `ui-interact`, but ordinary observations and
+mutations must retain the control envelope. The outer product verb still owns
+the durable mutation receipt: reserve it before lease attachment, distinguish
+attachment from the actual action attempt, always attempt detach after an
+action request, and verify the effect independently through the same authority.
+For resize this means exact rows, columns, server epoch and tab id plus a detach
+reply from the same client PID and epoch. Never report `performed: true` when a
+hello or lease acquisition failed before the resize request.
+
+A persisted terminal-screen baseline must bind the human job name to the
+machine authority: server scope, epoch and stable tab id. Keep it separate from
+accessibility-tree baselines, publish through temporary-file + fsync + rename,
+reject links and oversized records, and impose a global record ceiling rather
+than a per-name ceiling that arbitrary names can multiply. A diff should bound
+changed rows independently, report cursor/grid/mode metadata separately, and
+let `--advance` publish the already captured current screen. Never compare an
+old baseline after a same-name server restart.
+
+## Make machine JSON and process status agree
+
+A CLI that always emits a typed JSON envelope still participates in shell and
+process orchestration. Never print `{ok:false}` and exit 0: readiness loops and
+supervisors will record a false success before they parse the body. Keep one
+closed mapping at the outermost executable boundary: success is 0, typed
+runtime failure is 1, and typed usage refusal is 2. Remote transports may parse
+the same JSON after a nonzero worker exit; only `ok:true` paired with nonzero is
+a transport contradiction.
+
+## Verify destructive effects after their authority disappears
+
+A successful close, cancel, shutdown, or delete can remove the very object or
+transport that would carry its success reply. Treat the operation ACK as
+auxiliary when an independent, identity-bound postcondition exists. Continue a
+bounded observation loop through transitional typed transport errors, then
+report success only when the exact object, window, tab, process, or endpoint is
+absent. Fail if the postcondition is still false at the deadline. This avoids
+both false negatives after a real effect and false positives from an
+unverified input injection.
+
+## Normalize a terminal's right-margin wrap-pending cursor at the wire boundary
+
+Some native console streams represent the legal right-margin wrap-pending state
+as `cursor.column == columns`. The terminal still points at the final visible
+cell; rejecting that transient as an out-of-bounds screen can take down the
+entire bootstrap contract and block unrelated control or cleanup operations.
+When exporting a visible-grid snapshot, clamp that single column state to
+`columns - 1`. Keep zero-dimension, row, cell-run, byte and serialization limits
+strict: this is a terminal-coordinate normalization, not permission to accept a
+generally malformed screen. Cover the exact one-past-right case independently
+from an ordinary in-grid cursor.
+
+When a service promises an empty start, bypass restoration and the default
+state constructor at creation time. Clearing state afterward is too late if
+the default constructor itself allocates a tab, process, handle, or other
+owned resource.
+
+## Do not assume remote system sessions have a home directory
+
+QGA, service, scheduled-task, and other non-login execution contexts may omit
+`HOME` even inside a normal desktop guest. A black-box journey that launches a
+product whose durable state is home-relative must provide one private home and
+the matching platform data/config roots to every child process. Keep that tree
+inside the journey-owned run directory and reclaim it with the journey. Do not
+silently substitute the host user's home, a fixed guest account, or a global
+temporary directory: those choices make tests order-dependent and can mutate a
+reusable court image. The Linux x86_64 qjswasm-to-ACU PTY court exposed this as
+`home-directory-unavailable` before passing with isolated `HOME`,
+`XDG_DATA_HOME`, and `XDG_CONFIG_HOME`.
+
+On Windows, do not make `USERPROFILE` an authority for data that Windows
+locates through `LOCALAPPDATA`. A service session may provide the latter
+without the former. Resolve Chromium `Local State` from `LOCALAPPDATA`, use
+`USERPROFILE` only as an optional display-path aid, and redact a path beneath
+the data root as `~/AppData/Local/...` even when the two environment roots are
+synthetically disjoint. A public court should set both roots inside its owned
+run directory and prove the stable redacted path.
+
+## Keep file-transfer stdin separate from a timeout wrapper's program source
+
+A wrapper invoked as `interpreter - ... <<PROGRAM` consumes stdin to read its
+own source, so a nested `file push` silently receives EOF. Use an argument form
+such as `interpreter -c PROGRAM` whenever the wrapped command owns stdin. A
+transport self-test must persist and return one newly generated non-empty
+payload through the fake adapter; comparing two independently hard-coded
+`fixture` strings proves neither upload nor download. For an interactive VM
+agent, also separate slow interpreter cold start from steady liveness: publish
+and match an opaque atomic nonce instead of spawning another interpreter for
+each readiness check.
+
+For a durable named-resource inventory, do not equate a state directory with a
+live authority. Enumerate a bounded private root, reject malformed or
+link-like entries, sort stable names, then reconcile every name through its
+real control endpoint. Report `running`, `stale`, and `conflicted` separately;
+never hide an unclassified row or start/delete resources from a read-only list.
+Deletion needs its own explicit stale-only postcondition and race-safe removal
+contract. Serialize it against creation at the registry level, then lock the
+named resource, re-prove the authority is unreachable, reserve a durable
+receipt, allow only the state files the product owns, and verify exact absence.
+Do not recursively remove an unknown subtree merely because its parent has a
+valid job name.
+
+## Bind durable resident owners by generation, nonce, and process start identity
+
+A PID and a directory name are not ownership. For a CLI-launched resident
+resource, keep a stable sidecar registry lock outside atomically replaced
+records; publish one bounded record containing generation, random nonce, owner
+PID and owner start identity. State-only updates retain that identity tuple;
+replacement changes it. Stop and remove must re-read and match the complete
+tuple before acting, and a ready record must carry the owned child identity and
+endpoint together. `Unknown` liveness is not stale. On Unix, do not recover a
+crashed owner's process group with a bare PID signal: until a platform adapter
+can re-acquire an identity-bound process reference, report
+`orphaned_uncertain` and preserve the record for inspection. Atomic JSON keeps
+readers from observing a torn generation; it does not by itself prove process
+ownership or make recursive deletion safe.
+
+Preservation from automatic stale collection does not require an orphaned
+record to be immortal. An explicit removal command may accept the literal
+`orphaned_uncertain` state only when the existing locked removal transaction
+independently observes both the owner and every recorded child identity absent,
+then revalidates owned directory, profile, marker and entry identities before
+deletion. A matching live or unobservable identity preserves the record with a
+typed refusal; a reused PID proves only that the recorded process instance is
+absent and grants no authority over the replacement. Test the deletion and both preservation outcomes
+against the production predicate; a parallel test-only model is not evidence.
+
+When a detached owner's registry must contain the owner's PID/start identity,
+the launcher cannot publish that identity before spawning it. Avoid a race by
+writing a sealed intent first, spawning the owner, recording the actual detach
+mode, then atomically publishing `Starting`; the owner holds its stable sidecar
+lock and waits for that exact generation for a short bounded interval before
+launching the owned child. A Windows runner Job may deny independent breakaway;
+an explicitly reported `caller-job-fallback` can still provide useful bounded
+ownership, but its lifetime is tied to that ambient Job and must never be
+reported as independent. Never let the child launch merely because an intent
+file exists. Bind stop requests to both owner and child identities so a stale
+request cannot terminate a replacement generation. Failed starts also need a
+public exact-state removal path that independently proves owner and child absent;
+otherwise one failure permanently reserves the durable resource name.
+
+## Adopt external process groups without inventing ownership
+
+Adoption is not spawn ownership. Require the supplied process to be its group
+leader, bracket its exact start identity, bound the complete current membership
+and require every member to belong to the current user. Retain a mutation-safe
+native object for every member (`pidfd` on Linux, audit-token-bound reference on
+macOS) before publishing durable intent. A later stop must freeze only members
+that were not already scheduler-stopped, recheck stable frozen membership,
+terminate through those retained objects and preserve pre-existing stopped
+state on any pre-effect refusal. Once the first termination may have happened,
+any later failure is outcome-unknown and must never be automatically retried.
+
+The resident owner does not acquire an adopted process's stdin, output, cwd or
+environment. Default lease expiry and session end therefore detach without an
+effect; termination is a separate explicit policy that requires force. A host
+without an exact existing-group authority must refuse before publication rather
+than substitute a bare PID or group signal.
+
+Group scheduler mutation needs the same containment identity discipline. On
+Unix, prefer one native process-group `setpriority` call over a caller-side
+per-PID loop, but bracket it with a stable bounded membership sweep and exact
+start identities, reserve the effect first, then verify the same member set and
+every resulting nice value. A failed group call or incomplete post-read may be
+partially effective, so it is `outcome_unknown` and never an automatic retry.
+Do not translate Windows priority classes to a plausible Unix nice integer;
+that host needs its own public semantic contract or a typed pre-effect refusal.
+
+When a public Script journey launches `target/debug/agenterm-cu`, rebuild that
+exact binary after source changes before interpreting behavior. Cargo source
+freshness and the bytes a black-box test executes are separate identities; bind
+release courts to an exact source SHA plus artifact digest instead of trusting a
+familiar output path.
+
+## Preserve native error kinds across secure relative opens
+
+Windows `NtCreateFile` returns NTSTATUS, not a Win32 last-error value. Mapping
+every failed relative open to `ErrorKind::Other` destroys ordinary control flow:
+a bounded watcher can mistake a not-yet-created file for permanent I/O failure.
+Translate NTSTATUS with `RtlNtStatusToDosError`, retain the raw NTSTATUS only when
+translation itself is unavailable, and test that a missing final component is
+still `NotFound` on Windows. Files created by another process can also be briefly
+exclusive; a readiness poll may retry `NotFound`, `PermissionDenied`, and
+`WouldBlock` until its existing deadline, while malformed type/reparse errors
+remain fail-fast.
+
+## Reject retained-child exhaustion before spawning native resources
+
+A general host-operation budget is not a process/thread/memory budget. If a
+script slot retains child handles for replayable waits, cap the retained ledger
+independently and check the cap before parsing into a host command, spawning the
+child, or starting pipe-drain threads. Completed handles still count while they
+retain captured output. Choose the ceiling from measured public-journey demand
+with explicit headroom, then test that the first refused call creates no handle
+and leaves every earlier handle waitable and cleanable.
+
+Apply the same lifetime accounting to guest-visible native lock handles. An
+unlock releases its file descriptor but cannot make that numeric slot reusable:
+a stale guest handle would then name a later, unrelated lock. Keep the tombstone,
+cap the complete per-slot handle ledger independently of per-call operation
+fuel, and reject exhaustion before opening or creating a file. Test both the
+no-create refusal and repeated lock/unlock across exported calls on one slot.
+
+A handle budget that fills up with finished work needs an explicit release, not a
+reused index. Make the handle an integer id the allocator only ever moves forward
+(the Wasm door ABI is a signed `i32`, so keep the counter `Option<i32>` and stop at
+`checked_add` exhaustion, never widen-then-truncate), and keep live slots in a
+bounded map. Release destroys only a finished slot so the bound is not a one-shot
+budget, while the id it consumed is never reissued -- that is what stops a stale
+handle from addressing a later, unrelated child. Refuse both a full bound and an
+exhausted id space before starting any child or side effect, so a refusal leaves no
+process running. A still-running handle is refused and stays killable/waitable, an
+unknown or already-released handle is a typed refusal, and a repeated wait before
+release still replays the cached result. Test the allocator near `i32::MAX`
+directly rather than looping billions of times, and prove the refusal happens
+before the spawn side effect.
+
+## Establish process containment before user code executes
+
+`Command::spawn` followed by Job assignment is not containment on Windows: the
+new process can create descendants before the parent assigns it. Stable Rust
+also exposes neither a configured `Command`'s stdio nor a `Child`'s primary
+thread handle, so `CREATE_SUSPENDED` cannot be bolted onto that type safely.
+Use the platform-owned contained-spawn facade instead. Its Windows adapter owns
+the raw suspended process/thread handles, assigns the exact process object to a
+kill-on-close Job, then resumes; every failure before resume terminates and
+waits for that suspended object. Unix establishes the process group in
+`pre_exec`, before `exec` transfers control to the requested program. Keep
+arguments as `OsString`/wide units so containment does not cost path fidelity.
+
+Containment discovery and detached ownership are different contracts. A Unix
+PPID walk may rediscover descendants that changed process groups, but a child
+created through the detached-spawn facade has crossed an explicit `setsid`
+boundary and must outlive the caller's owned tree. During timeout cleanup,
+compare each rediscovered descendant's session with the owned root session:
+terminate same-session descendants, preserve different-session descendants,
+and fail closed to ordinary cleanup when either session identity cannot be
+read. Checking only whether a process is itself the session leader is
+insufficient because that would spare the detached owner but still kill its
+children. Keep a black-box test in both directions: a new-process-group child
+is cleaned up, while a detached-session child survives until its explicit
+owner stops it.
+
+Captured child output adds a second ownership contract. Drain stdout and stderr
+concurrently under one aggregate byte ceiling; a serial drain can deadlock when
+the other bounded pipe fills. On Windows, opt into `STARTF_USESTDHANDLES` and an
+explicit `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` containing only the null stdin and
+the two child write handles, under the shared inheritance lock. Close parent
+copies of those writes before Job assignment/resume so readers can eventually
+observe EOF. On every host, terminate containment before joining readers after
+timeout, output exhaustion, or a root exit that may have left background
+descendants holding the pipes. Persist only output sizes/digests in an audit
+ledger unless the product contract explicitly authorizes content retention.
+After the child is reaped, join every capture thread before propagating any one
+reader's error; returning after the first failed join silently detaches the
+other reader and loses deterministic cleanup ownership.
+
+An interactive contained child needs a distinct stdin ownership contract. Let
+the spawn spec request a pipe, let `ContainedChild` yield its writer exactly
+once, then move that writer to one serialized owner; dropping it is the sole
+EOF operation and must not terminate the process tree. Never hold the child
+lifecycle lock while a pipe write can block. A failed `write_all` may have
+delivered a prefix, so report uncertain/partial delivery unless a higher-level
+framed protocol acknowledges the bytes; `BrokenPipe` closes the input channel
+but does not prove the child exited. On Windows, inherit only the child read
+end in the explicit handle list—the parent writer must stay non-inheritable—or
+EOF can never arrive. Stop and expiry terminate/reap containment first, then
+join the writer and both output drains.
+
+Framed transport EOF is owner loss, not a clean shutdown. When a worker's stdin
+reaches EOF, the process that owned it -- supervisor or the task process above it
+-- is gone, so no cancel frame can ever arrive. An EOF branch that breaks straight
+into the join therefore lets an in-flight invocation run to its own deadline while
+the worker outlives its owner; measured in the real host as an orphaned framed
+engine worker reparented to launchd that waited out a guest hold loop. Set the
+same active-invocation cancellation flag a cancel frame sets before the join, and
+never invent a second cancellation mechanism or an OS-specific watchdog for this.
+Prove it with a reader that delivers the invoke frame, waits until the worker has
+written its broker request, and only then reports EOF: on the old branch the test
+runs the full wait budget (measured 8.0 s) instead of finishing early (0.05 s).
+Distinguish clean EOF with nothing in flight, which stays an ordinary stop.
+
+An accessibility wait can prove absence only from a complete, non-truncated
+acquisition in which every closed expectation is known not to match. A missing
+node is explicit absence; ambiguity, an unobservable state, a failed tree read
+or a truncated walk is not. Freeze the exact desktop foreground identity before
+polling and compare it after every complete observation, because disappearance
+caused by observing another application is not a valid result. Preserve the
+last complete observation at timeout and never turn an incomplete read into an
+absence receipt.
+
+An application-wide accessibility inspection is one coherent observation,
+not a bag of independently timed window reads. Snapshot and sort the complete
+matching `(handle, pid, app)` set, resolve the foreground identity, inspect the
+bounded rows with per-process start-identity brackets, then reacquire and
+compare the whole set and foreground before publishing anything. A tree that
+hit its node/depth budget without finding content is
+`inconclusive-truncated`, never proof of an empty application. When extending
+the large generated capability payload, prefer inserting a new object after
+the existing `serde_json::json!` value is built: adding another arm inside an
+already recursion-limit-sensitive macro creates compile-time debt and is not
+authority to raise the crate-wide recursion limit.
+
+An app-global menu is not permission to choose the first vaguely matching
+window. On macOS, resolve a case-insensitive exact application name to one
+live process, bind its process start identity, and bracket the complete
+matching window set plus foreground around the AXMenuBar read. Keep Linux and
+Windows on their exact-window menu contracts until they expose an equivalent
+application-global owner; typed not-applicable is more truthful than a
+cross-platform-looking guess.
+
+For an app-global mutation, freeze that identity tuple before reserving the
+receipt, then distinguish native delivery from business-effect read-back. Once
+the platform action reports accepted, a rebuilt or removed source window is a
+post-observation limitation, not proof that delivery failed. Close the durable
+receipt as completed delivery with `effect_verified: false` when no stable
+mark/tree remains; never leave an ordinary post-action disappearance as a lone
+`reserved` crash signature. Conversely, native acceptance alone is not an
+effect claim: keep the public `verified` bit false unless an independent mark
+or tree diff proves the result.
+
+A filtered accessibility watch must repeat the same bounded acquisition and
+predicate as the one-shot query; a generic accessibility notification stream
+is not a substitute for the caller's final matching row set. Treat failed
+later acquisitions as counted missing samples, never as empty samples. Diff by
+stable node identity, exclude traversal-only `index` / `depth` churn from
+semantic changes, retain only bounded identity plus changed-field names in the
+event ledger, and publish the full node payload once as the final observation.
+Bracket the whole watch with exact foreground identity. A requested `until`
+condition that exhausts its deadline is a typed failure carrying that final
+observation, not a successful reply with `timed_out=true` hidden in data.
+
+## External terminal input is an attributed foreground transaction
+
+An accessibility window handle is not an AgenTerm scope/epoch/tab identity.
+Bind an adopted terminal to the native handle, owner pid, process-start
+identity and one unambiguous showing text buffer, then revalidate that tuple
+around every tree read. A backend with a bounded text provider but no
+completeness bit may prove a match; it cannot prove absence, so timeout is
+inconclusive rather than an authoritative no-match.
+
+Global keyboard injection is not background delivery merely because an API
+accepts a process or window hint. Without a measured target-local literal-text
+provider, refuse the background shape before effect. An explicitly requested
+foreground path must activate the exact window, focus and read back the exact
+buffer node, revalidate the process generation, inject, restore the previous
+focus, and require a newly satisfied caller-visible postcondition on that same
+buffer. Mark the receipt uncertain before crossing an injector that can
+partially deliver. If injection, read-back, node identity or focus restoration
+cannot be proved afterward, preserve the reserved receipt and report an
+unknown outcome instead of false success or safe retry. Diagnostics and
+receipts retain only input/content/pattern lengths and digests. On X11, encode
+non-Latin Unicode keysyms with the conventional `0x01000000 | scalar` form;
+never truncate a scalar to `u8` and type an unrelated character.
+
+## A frozen identity needs an OS-level suspended launch
+
+A pid read *after* a normal `spawn` is not an identity: a short-lived owned
+child can exit first, and macOS `proc_pidinfo(PROC_PIDTBSDINFO)` is unreliable
+for an exited-but-unreaped child (a measured 1000-round probe failed 2/1000 with
+`ESRCH` once the read was delayed 2 ms; the immediate read passed 1000/1000).
+Freeze the identity while the root is **suspended, before its resume gates the
+target's first user instruction**, then establish containment, then resume.
+
+State that boundary precisely: when `posix_spawn` returns, the image is loaded
+and the file actions/exec preparation are already done. The suspended gate holds
+back the target executable's **first user instruction**, not `exec` itself -- so
+write "frozen before its first user instruction" or "frozen before resume", and
+never "exec has not started yet".
+
+`std::process::Command` cannot express that. A `pre_exec` that stops the child
+before the image is entered deadlocks the parent on the CLOEXEC exec-error pipe,
+and a `Child` has no public constructor from a pid, so a raw-pid root cannot
+reuse `Child`-based ownership. Use an explicit suspended primitive. On macOS that
+is `posix_spawn` + `POSIX_SPAWN_START_SUSPENDED`; add `POSIX_SPAWN_SETPGROUP`
+with pgroup `0` for a fresh owned group and `POSIX_SPAWN_CLOEXEC_DEFAULT` for
+descriptor hygiene. When you hand-resolve the program, use **`posix_spawn`, not
+`posix_spawnp`**: `posix_spawnp` searches the CALLER's `PATH`, while
+`std::process::Command` swaps `environ` to the CHILD's environment before
+`execvp`, so it searches the **child's** `PATH` (and `confstr(_CS_PATH)` when the
+child has none). Resolve it yourself and the two agree. Resolve the rest too, or the agreement
+is only partial -- and take the rule from the OS, not from a plausible model. Do
+not pre-select a single candidate with `access`/`metadata`: that is a TOCTOU hole
+and it is not what `execvp` does. Spell each candidate exactly as `execvp` would
+(a relative or empty `PATH` element stays relative, because the CHILD resolves it
+after its `chdir`) and attempt the real exec on each in order: `ENOENT`/`ENOTDIR`
+continue, `EACCES` is remembered and the search continues, `ENOEXEC` retries THAT
+candidate through `/bin/sh` with the candidate as the script operand, any other
+error is terminal. When nothing executes, report the remembered `EACCES`, else
+`ENOENT`. Apple's rule has an edge a tidy model gets wrong and only measurement
+reveals: a PATH-searched candidate whose **ancestor** denies search contributes
+`ENOENT`, not `EACCES` -- only a reachable-but-not-executable component (a
+non-executable file, or a directory) is remembered; an explicit path is not a
+search, so it keeps the kernel's own `EACCES`. Pin every shape with a differential
+test that runs it through both paths and compares exit code, stdout and typed
+error kind, using fixtures that are real (a "permission denied" candidate must be
+a file or directory named exactly like the program, not a directory that merely
+lacks it) -- a one-sided claim of equivalence is not evidence. `posix_spawn` cannot
+install rlimits, so non-default limits must be a **typed refusal before any side
+effect**, never a silent drop. Windows already creates the root
+`CREATE_SUSPENDED`; read `GetProcessTimes` there, before `ResumeThread`. A
+platform with no suspended launch (Linux) returns typed `Unsupported`.
+
+Every failure after the child exists must kill and reap it, and every failure
+before it exists must close both ends of every prepared pipe. One helper owns
+that: check the `kill` result (only `ESRCH` is benign, because the child may have
+exited first), loop the `waitpid` on `EINTR`, accept exactly two outcomes (this
+pid, or `ECHILD`), and bound the wait. A `Drop` that samples `WNOHANG` once is not
+a reap. Close-on-exec flags on a hand-built pipe must be checked too: an ignored
+`fcntl` failure leaks an inheritable descriptor into an unrelated later child.
+
+The two root types must stay **behaviourally identical**, not merely share a
+trait:
+
+- A raw-pid root must cache the reaped exit status the way
+  `std::process::Child::try_wait` does. Without that cache a `process.kill`
+  (which reaps) followed by a `process.wait` becomes `ECHILD` only on the frozen
+  root -- an invisible divergence.
+- Freeze the identity with one observation and have the containment guard read
+  it again; compare the two **byte-for-byte** and fail closed on any mismatch,
+  so two independent reads cannot disagree silently.
+- Construct the guard from a pid through one shared initialisation path; do not
+  fork its process-group/session/start-identity invariants for the new root.
+
+## Cap parked diagnostics on every host return shape
+
+A host operation returning `i32` can still park an arbitrarily long diagnostic
+for a later `tool_result()` call. Apply the same result-byte court used by
+text-returning operations before storing and billing that diagnostic; the
+numeric return shape is not evidence that the host-to-guest text path is free.
+Regression-test the smallest configured budget against an error containing a
+path or other caller-controlled detail.
+
+Meter the same parked bytes regardless of whether the bridge labels them
+success or application error. Both strings cross the same host-to-guest seam,
+occupy the same bounded slot and are readable through the same result call; a
+status bit must not make an equal-size failure disappear from `host_bytes`.
+Use equal-length success/error replies as the discriminating court. If a
+synchronous call checks cancellation after returning from foreign code, do that
+before parking and billing its result; otherwise a cancelled call charges bytes
+the guest never received. Raw calls that already wrote result bits into guest
+memory before the check are a different transport fact and keep that bill.
+
+## Count native inventory scans across the whole snapshot
+
+A native linked-list inventory ceiling applies to the complete snapshot, not
+to each traversal independently. Resetting the counter for a second metadata
+pass silently doubles the advertised bound. When metadata such as Unix link
+addresses may appear before or after IP rows, collect both in one bounded pass
+and join them afterward by a stable native identity/name. Do not assume native
+record order merely to avoid that join. Keep caller result truncation separate
+from native scan truncation so a short response cannot masquerade as a complete
+system view.
+
+## Admit remote at-most-once requests at the effect-owning worker
+
+Do not reserve a remote mutation on the calling host: a transport break after
+the remote effect would leave the wrong machine holding the only replay truth.
+Send one bounded, versioned envelope over worker stdin, then let the worker that
+owns the effect re-authorize, verify its local session lease, durably reserve,
+audit, execute and finalize. Bearer leases never belong in argv, environment,
+`Debug`, audit rows, request state, replies or errors. Reject oversized input,
+unknown schemas/fields and any request-bearing inner command that is not
+`target=current` before admission.
+
+Transport rewriting must not erase effect identity. Include an opaque digest of
+the original SSH/VNC endpoint in the canonical request fingerprint; otherwise
+two VNC desktops sharing one local worker store can mistake a changed target for
+an exact retry. The digest is not a target lock: migrated mutation cohorts still
+derive and hold their exact target lock separately. Prove the wire through a
+real worker process: first delivery audits once, exact replay does not dispatch
+again, a changed effect scope conflicts, and no durable file contains the lease.
+
+## Serialize resource admission with owner teardown
+
+A lease check performed before an effect reservation is not enough: session
+termination can race between that check and native resource creation. Give each
+durable owner a stable cross-process sidecar gate. A fixed shard set selected
+by the owner digest bounds the sidecar count; shard collisions may refuse an
+unrelated admission as busy but never weaken exclusion. Resource admission acquires
+the gate, rechecks the lease while holding it, and retains it through the point
+where ownership is durably established. Teardown acquires the same gate, marks
+the owner terminal first, then reaps every bound resource. Never delete the
+sidecar pathname; another process may still hold its opened lock object, and
+recreation would split one lock domain into two.
+
+Teardown must be retryable with the same lease after the owner is terminal.
+Report partial cleanup as a typed failure with the committed owner effect and
+the exact remaining resource identities, rather than rolling the owner back or
+claiming success. A normal job stop may retain its resident output owner until
+the output lease expires; owner teardown needs a distinct internal stop-and-
+release operation so both the child tree and its IPC owner disappear before the
+cleanup receipt becomes green.
+
+## Keep equivalent frontend action failures equally visible
+
+Terminal Shift+Click is one shared selection contract even though Unix and
+Windows store different point widths. Keep the farther endpoint of an existing
+completed same-tab selection, move the near endpoint to the click, and bypass
+application mouse reporting. Put the endpoint decision in shared pure logic;
+host adapters own pointer capture, clipboard projection, and focus only.
+
+When Windows and Unix expose the same product action through different
+mechanisms, compare the complete success and failure branches, not only the
+resulting state. Never use `if let Ok(...)` for an interactive effect when the
+peer frontend reports its error: project the failure into that frontend's
+existing visible diagnostic surface. Also report a broken post-effect lookup
+without retrying an effect that may already have committed.
+
+Treat persistence before hide, detach, or shutdown as a precondition. Close
+the confirmation and commit the lifecycle effect only after persistence
+succeeds; on failure, retain the user's current surface and make the existing
+diagnostic visible so retry remains possible.
+
+A periodic discovery refresh may retain its last visible snapshot when a
+fresh read fails. An explicit user action must re-read and propagate that
+failure instead of converting it to an empty inventory or acting through a
+cached endpoint; display continuity is not fresh execution authority.
+
+For a UI action whose `Result` is also a public control reply, never mutate the
+live config before its durable save. Prepare a clone, persist it, then publish
+the in-memory value, event, and layout together. A returned failure must not
+carry a snapshot containing the value it claims was rejected.
+
+Do not apply this rule mechanically to a deliberately live preview such as a
+font button or resize drag: that contract may keep the visible session change
+while reporting that persistence failed. The dividing line is whether the
+entry returns a public success/failure receipt that callers use as effect
+truth.
+
+## Refresh future activation without restarting resident owners
+
+A compatibility command called “runtime refresh” must follow the replacement
+product's actual ownership architecture. ACU has an on-demand coordinator plus
+independent resident resource owners, not MCU's global daemon. Serialize setup
+refresh and future resident-resource admission through one stable lock domain,
+take a bounded owner snapshot, and report `deferred` when an owner is live or
+uncertain. Do not recreate a daemon merely to preserve an old restart spelling,
+and never stop, restart, or release a resident owner as a setup side effect.
+
+Keep diagnostic check paths zero-write. An apply may align the launcher used by
+future activations while a current owner continues unchanged. Prove that
+distinction through the public qjswasm CLI: bind the same job id, generation and
+native process identity before and after refresh, then perform cleanup only
+through the owner's explicit lifecycle command. A provider that has no native
+claim inventory is `unavailable`; publishing `active: 0` must not be interpreted
+as proof that no external owner exists.
+
+## Keep native device authority private and write failures three-dimensional
+
+A public peripheral id is a selector, not an openable locator. Re-enumerate it
+inside `agenterm-platform`, bind one exact native object, and let one resident
+owner retain that fd or HANDLE through configuration, read, write, renewal,
+expiry and release. Pass the private locator and high-entropy lease only through
+the bounded owner launch channel. Durable state and audit may contain opaque
+identity, generation, counters and redacted effect metadata, but never the raw
+locator, lease, byte payload or fixture token.
+
+Do not derive retry safety from delivery certainty. A native write can accept a
+known prefix and then fail while publishing its durable counter: delivery is
+known, but replaying the complete request is unsafe. Carry known-written lower
+bound, delivery uncertainty and retry safety as three independent fields from
+the platform error through the resident owner, IPC reply, public error and
+audit projection. After a write system call was attempted, default to
+non-retryable uncertainty unless the platform proves a stronger result. Test
+the public journey with an invocation-owned, private-registry fixture; never
+grant test authority by accepting a caller-supplied raw device path.
+
+When a PTY court needs to prove that a claim preserves pre-existing termios,
+keep one fixture-owned slave descriptor alive after setting the initial line
+state. On macOS, closing the final slave descriptor can reset the PTY before the
+product reopens it, turning a non-default preservation test into a false default
+case. The fixture may retain that descriptor while the product opens its own
+exact handle; compare the termios flags and speeds during the claim and again
+after close. A preserve request must never call `tcsetattr`, and its close path
+must not restore a state it did not mutate.
+
+## Keep host dispatch acceptance distinct from handler success
+
+Opening a path or URL through LaunchServices, `xdg-open`, or `ShellExecuteW`
+crosses an external dispatcher boundary. A successful native return proves
+only that the dispatcher accepted the request; it does not prove that the
+selected handler rendered, consumed, or persisted the target. Public receipts
+must therefore keep `accepted` separate from `verified` and stay
+`verified=false` unless an independent handler-owned postcondition is read
+back.
+
+Pass the target as one bounded argument without a shell, reject NUL and
+option-like leading-dash values before dispatch, and use an absolute trusted
+system launcher where the OS contract requires a helper executable. Reserve a
+durable receipt before touching the dispatcher. A launcher timeout or status
+read failure may happen after dispatch, so report its effect as `unknown`
+rather than `not_performed`. Store only target/application length and digest in
+receipts unless the caller explicitly requested disclosure.
+
+On Windows, `ShellExecuteW.lpParameters` is still a raw command line, not an
+argv array. When `lpFile` names an explicit application, encode the target with
+the shared `process_conventions::windows_command_line` helper so spaces, quotes
+and trailing backslashes survive as exactly one argument. Do not hand-quote or
+concatenate caller text.
+
+Desktop notifications have the same boundary: a provider can prove that its
+dispatcher accepted bounded title/body data, but not that the operating system
+presented it or that a person noticed it. Keep notification text out of durable
+receipts by storing length and digest. When a fixed interpreter is unavoidable
+(for example macOS notification AppleScript), keep the program constant and
+pass all caller text as argv data; never interpolate caller text into source.
+
+Permission repair has the same evidence boundary. Read the selected process'
+real permission state before choosing a repair surface; on macOS Accessibility
+uses `AXIsProcessTrusted` and Screen Capture uses the non-prompting
+`CGPreflightScreenCaptureAccess`. An already granted permission is a verified
+no-op. Opening one exact System Settings pane proves only dispatcher acceptance,
+never that consent changed; require a later status read after the user acts.
+Default-next selection must fail when any earlier candidate state is unknown,
+rather than guessing or opening a broader settings page. Hosts without an
+equivalent per-application consent model return typed not-applicable or
+provider-specific results instead of borrowing macOS vocabulary.
+
+## Keep privileged intent, consent and effect ownership separate
+
+A digest of an expiring privilege plan proves only which bytes were proposed;
+it does not prove that a person consented. Parse the untrusted provider wire as
+a closed, bounded, versioned shape with unknown fields denied, then recompute
+the canonical contract and expiring-plan digests before opening any native
+consent surface. Passwords, MFA responses, biometric results, generic shell
+commands and authorization bearer material never belong in JSON, argv, audit,
+receipts or the ordinary caller's durable request store.
+
+The privileged provider is the effect and at-most-once owner. After native
+Authorization Services, polkit or UAC consent, it must authenticate the peer,
+recheck expiry and exact preconditions, durably reserve in provider-owned
+storage, attempt one closed operation, read back the postcondition, and publish
+`completed`, `failed` or `outcome_unknown`. A reservation made only by the
+ordinary process cannot prevent a duplicate root effect after a transport
+break. Likewise, reading the same process identity before and after a PID-only
+Unix syscall does not turn that syscall into exact-object authority; retain the
+typed platform gap until the native mutation primitive itself is identity-safe.
+The type state must own the authority, not merely its digest: move every
+retained native process reference from preparation into the authorized request
+and then into the fresh provider execution reservation. Let the execution hand
+that non-cloneable effect to exactly one dispatcher and consume it at terminal
+finalization. A type named `Prepared` that drops its handles and leaves only a
+PID plus digest silently reopens the very reuse race the plan was meant to
+close.
+
+For a privileged process-tree effect, freeze topology as well as membership:
+every plan row needs the exact parent edge, depth, process-start identity and
+relevant before-state. A flat PID/depth list can be rearranged between planning
+and consent without changing its apparent member set. Bound the accepted tree
+to a size the provider protocol can always carry, and test the serialized worst
+case before advertising the planner. Keep two public courts: an ordinary
+qjswasm court that proves planning is mutation-free, and a native provider
+court that proves real consent, retained-object mutation, provider-owned replay
+behavior and postcondition read-back. The first can never stand in for the
+second.
+
+Provider replay lookup must happen before consent and before approval-freshness
+rejection. First structurally validate and fingerprint the closed request, then
+authenticate the native peer and consult provider-owned replay state. A
+finalized or uncertain request returns its retained state without prompting;
+only an absent identity may check freshness, authorize, prepare exact native
+objects and atomically reserve. Recheck at reservation to close the race while
+consent was open. Keep the wire ceiling shared by every transport and prove it
+with the maximum legal request; the 128-descendant signal contract serializes
+to 16,607 bytes in its pinned maximum-shape test and uses a 64 KiB ceiling.
+Use fixed-width integers in cross-ISA protocol fields and restrict native start
+identities to their actual prefix-plus-decimal grammar so JSON escaping cannot
+silently invalidate the byte proof.
+
+On macOS, keep the Authorization Services bearer proof outside ordinary data
+models. Request only one fixed right with interaction allowed in the user
+process, externalize it once into the fixed 32-byte form, and keep the creating
+`AuthorizationRef` alive until that proof is consumed or abandoned. The root
+broker must internalize the proof, check the same fixed right with default
+flags only (no interaction and no extension), then destroy the right on every
+path. Make the proof move-only, non-debuggable and non-serializable; bound its
+single write, wipe both the wire bytes and native external form with volatile
+stores, and never persist or log them. A timeout can bound the caller's wait but
+cannot safely dismiss an Authorization Services UI already in flight, so a
+late worker result must remain owned and destroy its authorization instead of
+escaping into a detached credential.
+
+A fixed provider is more than an elevated process. Bind the running executable
+object back to a protected installed identity: on Linux, require a root-owned,
+non-group/world-writable path with no symlink components, compare its device
+and inode to `/proc/self/exe`, hash that running inode, and derive the principal
+from canonical `PKEXEC_UID` only after effective uid is root. Do not verify
+`pkexec` through the provider's parent PID: `pkexec`
+replaces itself with the authorized program, so the provider retains the
+original caller as its parent. A polkit action must pin both executable path
+and the one closed provider argv; never enable GUI environment inheritance for
+a headless effect provider. Provider state needs the same treatment: fixed
+root-owned ancestry plus owner-only leaf directories, not a request-selected
+path that an elevated process merely chmods after opening.
+
+On macOS, adopt the broker listener only through one fixed
+`launch_activate_socket` dictionary key, then independently validate the
+root-owned real socket path, exact mode, stream type and descriptor identity.
+Darwin `AF_UNIX` reports `ENOPROTOOPT` for `SO_ACCEPTCONN`, so that option is
+not a valid listener-provenance check there. Nor can descriptor `fstat`
+device/inode be compared with the filesystem socket vnode: Darwin exposes
+different identities for those two kernel objects. Listener provenance must
+therefore remain the fixed launchd key plus an exact `getsockname` path and a
+root-owned, non-writable ancestry whose endpoint metadata is stable across
+validation; do not pretend an inode comparison closes that boundary.
+Authenticate each stream with both `LOCAL_PEERTOKEN` and `getpeereid`, reject
+disagreement, and retain the audit-token pidversion for exact liveness instead
+of following a recycled numeric PID. Failure to inspect a live task token is
+typed unavailable, never guessed as process exit.
+
+An embedded macOS `SMAppService` daemon is not trustworthy merely because its
+app and helper share a signing Team. A user-writable app bundle permits replay
+of an older, still-valid same-Team helper. For a root effect provider, require
+a root-authorized package installation whose complete fixed bundle ancestry is
+root-owned and not group/world writable, reject ordinary drag installation,
+and additionally validate the app and helper Developer ID designated
+requirements plus equal Team identifiers from their signed bytes. Keep the
+Authorization Services right operation-scoped and distinct from the launchd
+label; a broker for that right must reject every other plan before replay,
+consent or provider execution. Unsigned and ad-hoc bundles may be packaging
+rehearsals, but must remain explicitly non-deployable.
+
+Treat `SMAppService` registration and the Authorization Services right as one
+ordered lifecycle, but do not collapse their states. `RequiresApproval` is an
+observable intermediate state, never `Enabled`. Registration installs only an
+absent exact operation-scoped right before registering the daemon; a conflicting
+right is preserved and refused. Unregistration must first prove the daemon is
+fully unregistered and only then remove the still-exact right. A failed
+registration may roll back only the right created by that attempt and only if
+it has not drifted. Status remains read-only and must report the fixed executable
+location independently from service/right state.
+
+File metadata transactions have the same path-race boundary as content
+publication. `symlink_metadata` followed by a path-based mutation is not a
+sufficient guard because the directory entry can change between observations.
+Open the entry with no-follow semantics, compare that native object identity to
+the caller's already-open handle, and perform mode/xattr work only through that
+handle. Revalidate the exact old state before mutation, independently read back
+the effect, and return a state-bound rollback plan. Windows ACLs/attributes are
+not Unix modes/xattrs; an absent provider must return typed unsupported rather
+than inventing cross-platform parity. Attribute inspection is itself a data
+disclosure boundary: default public receipts should expose bounded names,
+lengths and digests, while raw values require an explicit opt-in and a lossless
+encoding. A successful open is not enough to accept a final symlink; bind the
+opened handle back to the caller path before publishing even read-only results.
+Secret-bearing metadata mutation commands may carry the requested bytes in
+memory and over the typed worker transport, but the public reply, audit detail,
+receipt and idempotency projection must retain only presence, bounded byte
+length and digest. Never serialize a private xattr plan: its rollback state
+contains the old raw value. A same-state apply is not verified merely because
+the planning read matched; re-read the same opened object and exact state
+without calling the setter. After a real setter call, any failed or mismatched
+readback is effect-unknown rather than an ordinary native failure. Name an old
+value a rollback token only when a durable, identity-bound transaction can
+actually consume it; otherwise reversal is a new guarded invocation.
+
+Give every fresh provider attempt a durable random UUIDv4 before its replay
+reservation. Keep that attempt record only while the outcome can be uncertain;
+terminal ledger records point to an immutable receipt and its SHA-256 over the
+exact receipt bytes, after which the temporary attempt mapping can be removed.
+If the effect or finalization crosses an uncertain boundary, preserve both the
+ledger reservation and attempt identity. This avoids inventing a different
+receipt id on retry and avoids an unbounded second index of already-finalized
+requests.
+
+Parse a complete, identity-bound provider reply before interpreting launcher
+exit status: an elevated provider may return a typed refusal or durable replay
+while still exiting normally. Track the transport boundary precisely. Failure
+to connect, or to configure the stream before sending any request byte, is a
+known `not_performed` result; no provider could have admitted the effect. Once
+request writing begins, a partial write, timeout, broken capture, cleanup
+failure or EOF without one complete bounded reply is `outcome_unknown`, because
+native consent or the effect may already have begun. A failed-after-effect
+receipt also remains effect-unknown unless its closed postcondition proves a
+more specific terminal result.
+
+One-shot `pkexec` cannot satisfy replay-before-consent: authorization occurs
+before `exec` enters the provider, so its root-only ledger is consulted too
+late. The Linux terminal design therefore needs a fixed system-activated root
+broker. It accepts a bounded frame on a root-owned socket, binds the caller via
+kernel peer credentials plus process-start identity, reads the private ledger,
+and asks polkit to authorize that exact `unix-process` subject only for a
+Missing request. Do not replace this with a world-readable ledger, a caller
+supplied uid/session, a parent-PID heuristic, a password bridge or a shell.
+
+Qualify replay-before-consent with broker-owned counters, not an observer's
+claim that no second dialog was visible. The court must distinguish replayed
+final state, retained unknown outcome, digest conflict, native authorization
+calls and effect attempts. Exercise concurrent duplicates and disconnects on
+both sides of durable reservation; a lost client is not permission to retry an
+effect. Native passwords and authentication responses stay inside the OS
+consent surface and never become fixtures, command input, logs or receipts.
+
+A native consent future must not outlive the exact ordinary caller whose intent
+it represents. On Linux, retain the peer pidfd and select one in-flight polkit
+`CheckAuthorization` against a fixed-interval liveness probe. Caller death or
+an unreadable retained identity cancels that same check with the exact original
+cancellation id; it must never create a second authorization request. Keep one
+timer and one check future rather than spawning a polling thread or repeated
+D-Bus calls. Even after the native call resolves, recheck the retained peer at
+the outer boundary so a simultaneous late `Authorized` result cannot become
+effect authority. Cancellation failure is an uncertain authorization boundary,
+not a plain timeout or a reason to proceed.
+
+A graphical test bridge must preserve the filesystem, session and IPC semantics
+of the product it claims to qualify. Sandboxing the bridge with a read-only home
+or an unreadable root can manufacture product failures before the tested binary
+runs. Keep transport hardening such as `NoNewPrivileges` where it is neutral,
+but prove the test payload runs as the declared interactive uid with its actual
+display and session bus. Bind asynchronous job and result files to a fresh
+opaque job id so a timed-out invocation cannot satisfy a later court.
+
+Functional authorization and distributable size are separate courts. A direct
+D-Bus/polkit client can be correct yet pull an async runtime and protocol stack
+into every public CU binary. Measure the sealed executable against its existing
+budget; do not raise the budget to hide dependency growth. If the transport is
+too large, isolate it behind the already authenticated provider boundary or use
+a smaller native adapter, then rerun the same behavior court against the exact
+bytes intended for release.
+
+## Freeze persisted grants to canonical operations
+
+Target, desktop session, scope, expiry and use count do not stop one broad
+`actuate` grant from authorizing a different effect. A durable grant must also
+freeze canonical operation ids at issuance, validate the requested operation
+before consuming a use, and never derive operation identity from an alias.
+Require the issuer to name one or more discoverable operations explicitly;
+reject unknown ids before creating the store directory or installation
+identity. An older schema without that set cannot be migrated to today's
+catalog: keep list/revoke available and refuse execution as typed
+`operation_unbound`. Otherwise adding a future verb silently expands every old
+grant. Operation, target or session mismatch must not consume a use; a matched
+attempt reserves durably before dispatch and is never refunded after an effect
+failure.
+
+When canonical operations depend on command shape, expose the validator's
+sorted declared vocabulary through the product CLI. Do not make callers infer
+dotted ids from match arms, and do not maintain a second hand-written catalog
+that can drift from issuance validation. Test all three sides together: every
+shape-specific id produced by a command is accepted at issuance, every
+discoverable id is accepted, and split base verbs are not accidentally
+grantable.
+
+For durable request/audit correlation, pass only the already-validated bounded
+request id into that audit writer. Never pass the enclosing request-identity
+object: correlation rows must not inherit its session id or lease. Add
+correlation fields as optional JSONL members so old records stay readable, and
+make an exact query filter ignore older rows that lack the field.
+
+Never expose a naked byte offset as a durable cursor into an append-only file
+that can be compacted by atomic replacement. Bind the opaque cursor to the
+identity of the opened filesystem object and its byte boundary, read through
+that same handle, allow append-only growth, and reject a cursor as stale after
+replacement. Clamping an old offset into the replacement file silently skips
+or misattributes audit records. Keep result offsets scoped to one scanned
+window; use the identity-bound cursor only to cross byte or scan windows.
+
+## Bracket native process inventories and preserve native bytes
+
+Process-local inventories such as file descriptors, memory maps and threads
+must be sampled between two equal native start-identity observations. A PID is
+only a lookup key; if either identity is missing or they differ, discard the
+snapshot instead of attaching it to a recycled process. Keep the native scan
+ceiling independent from caller-facing offset/limit pagination, and expose
+truncation plus read-error counts rather than silently presenting partial data
+as complete. Apply identity, state and provider-backed filters to the complete
+captured candidate set before caller offset/limit pagination. If an expensive
+per-row provider has its own scan ceiling, report that ceiling and its
+truncation separately and propagate incompleteness to the top-level result;
+never let a short filtered page imply that unscanned candidates did not match.
+
+Native paths and thread names are byte sequences until the public encoding
+boundary. Preserve invalid UTF-8 with the shared lossless byte representation;
+do not use lossy replacement in an identity or filter path. Emit addresses and
+wide counters as decimal or hexadecimal strings at JSON boundaries, validate
+address-range addition rather than saturating it, and keep filtering bounded
+over the already-captured snapshot.
+
+Process socket inventory is an identity join, not a table dump. On Linux,
+enumerate the target's bounded `/proc/PID/fd` set first, retain each
+`socket:[inode]`, then join it to that process network namespace's bounded
+`tcp`, `tcp6`, `udp`, `udp6` and `unix` tables. Keep duplicate fds that refer
+to the same inode, tolerate an absent protocol table, and preserve Unix-socket
+path bytes including spaces and invalid UTF-8. On macOS, enumerate bounded
+fds and resolve only socket rows with `PROC_PIDFDSOCKETINFO` in the build-linked
+C adapter. In both cases `visited_count` describes the native descriptor scan,
+not the filtered result page; fd, family, protocol, local/remote endpoint and
+state are one snapshot bracketed by the same start identity. Do not use `lsof`
+or another runtime executable as a mechanism dependency.
+
+On macOS, link a small fixed-layout C adapter at build time when a system API is
+not directly bindgen-backed. The C side fills caller-owned bounded records; the
+Rust side validates return codes, counts, lengths and ranges before constructing
+neutral platform types. Do not compile a helper at runtime or expose `libproc`
+records directly to product code.
+
+Route-table inventories need two independent bounds: count every native route
+record against the scan ceiling before deciding whether the row can be
+represented, then apply the caller's result limit only after deterministic
+sorting. Never replace the native `visited` count with the represented-row
+count. Preserve the platform-native interface identity (ifindex on Unix,
+adapter LUID on Windows), because a display name or Windows interface index is
+not a durable join key.
+
+For Linux netlink dumps, accept only kernel-sender datagrams for the request
+sequence, validate every message and attribute alignment before slicing, and
+refuse `NLM_F_DUMP_INTR`; an interrupted multipart dump is not a complete
+snapshot. Multipath rows must be fully represented or counted as unreadable,
+never flattened into one guessed next hop. On macOS, do not relabel route
+metrics such as hop count as a portable administrative metric. Across hosts,
+keep on-link `gateway = null` distinct from unavailable data and make every
+emitted field part of the deterministic tie-break order.
+
+DNS inventory must distinguish the resolver endpoint a process can contact
+from the system's complete upstream configuration. On Linux, a loopback
+`127.0.0.53` row is evidence of a systemd-resolved stub, not the upstream DNS
+set; read the owned upstream resolver file when present and otherwise publish
+`stub-only` plus `complete=false`. macOS scoped resolvers and Windows
+adapter-scoped servers retain their resolver/interface identity instead of
+being flattened into a global address list. Keep provider and coverage in the
+typed contract, bound scan rows and final JSON independently, and never contact
+a resolver merely to inventory configuration.
+
+## Keep host resource facts semantically distinct
+
+`free` memory and `available` memory are different native observations. Linux
+`MemFree`, macOS Mach free pages and Windows available physical bytes are not
+interchangeable with Linux `MemAvailable` or macOS free-plus-inactive. Preserve
+both values with named semantics, independently bound each by installed
+physical memory, and do not infer host pressure or an allocation budget from
+either one.
+
+Unix `getloadavg` has no native Windows equivalent. A compatibility projection
+may retain a three-zero array only when it also publishes an explicit
+`windows-not-available` semantic; zeros alone look like a measured idle host.
+Host resource snapshots usually combine several native queries plus a process
+inventory, so state that the result is sequential and non-atomic. If any
+required query fails, fail the complete snapshot typed rather than substituting
+an empty hostname, zero process count or other plausible-looking default.
+
+## Bound fixed system-provider inventories on both sides of the process
+
+A native inventory may legitimately need an OS-owned executable when no stable
+library API spans all supported hosts. Resolve a fixed absolute system path,
+reject symlinks and non-files, pass only closed static arguments, contain the
+whole child process tree, drain stdout and stderr concurrently, and share one
+deadline across every provider call. Bound native rows, field sizes and the
+aggregate provider output independently from the final public response. A
+timeout or output overflow must kill and reap the provider or return a typed
+cleanup failure; never leave an unowned helper behind.
+
+Provider-local disk ids are not durable hardware identities. Request only the
+fields the public contract needs: do not collect serial numbers, WWNs or
+Windows UniqueId and then try to redact them later. Carry `u64` capacities
+internally and encode them as decimal strings at JSON boundaries so JavaScript
+does not round values above 2^53. Legitimate provider states such as macOS
+`VirtualOrPhysical=Unknown` mean an unavailable optional field, not a malformed
+snapshot; reserve malformed failures for values outside the provider's real
+vocabulary or structural contract.
+
+Peripheral identity needs a private keyed boundary, not public hashing. Native
+serials, MAC addresses, provider instance ids and topology paths may have low
+entropy or identify a physical device, so hashing them without a secret still
+permits dictionary recovery. Consume them only inside `agenterm-platform`, use
+an explicitly enrolled installation key with a domain-separated HMAC, and
+return only the opaque pseudonym plus an honest continuity class. A provider
+serial can support `provider-stable`; a port/path fallback is only `topology`
+and must not be advertised as reconnect-stable. Observation loads an existing
+key and fails typed when absent; only an explicit setup/mutation path may enroll
+or rotate it. Bound provider scan count, provider output, public rows and final
+JSON independently, and report each requested provider as complete, partial or
+unavailable rather than treating an empty class as a global success.
+
+Polling an inventory does not make an incomplete snapshot authoritative. Emit
+`added`, `removed` or `changed` only when both the previous and current sample
+for that provider are complete and non-truncated. An unavailable, partial or
+projection-truncated sample breaks the comparison chain: report incomplete
+coverage, suppress inferred events, and require two later consecutive complete
+samples before diffing again. Reuse one overall monotonic deadline and pass its
+remaining budget into each provider call so a final poll cannot overrun the
+watch. Bound sample rows, accumulated events and the encoded response
+independently.
+
+When an opt-in bounded series publishes the complete member list for every
+sample, account member rows before pushing the next sample and stop before the
+row ceiling would be exceeded. Keep sample and aggregate completeness tied to
+the full native membership: a compatibility display ceiling may project rows,
+but it must not recompute counts, digests or aggregates from that prefix.
+
+Mounted filesystem capacity is a different contract from physical-device
+inventory. Preserve `free` bytes reported for the filesystem separately from
+bytes available to the current user, and require
+`available <= free <= total`; quotas and reserved blocks make the two values
+legitimately differ. Keep the established path-oriented `VolumeSpace` facade
+stable and add a separate mounted-volume record when enumeration needs mount
+metadata. On Linux, parse `/proc/self/mountinfo` as bounded bytes and decode its
+octal escapes before converting paths; `read_to_string` incorrectly rejects a
+valid mount table containing non-UTF-8 names. Never expose the backing-device
+field merely because mountinfo supplies it. Do not `statvfs` an `autofs`,
+remote, or FUSE row merely to inventory it: lookup can mount media or block on
+a dead server. Count such rows as skipped and make completeness depend on that
+count. Likewise, Windows inventory should classify drive type before capacity
+queries, avoid removable/remote sources that can display native error UI or
+wait without a product deadline, and state when drive-letter-only coverage
+omits folder-mounted volumes.
+
+Linux `current` target identity must prove the calling process is inside the
+one active local graphical session; an effective uid alone is not a desktop
+session. Query the fixed sd-login ABI in-process, reject root, remote,
+greeter/background, headless, inactive, ambiguous and process/session-mismatch
+states, and verify that the selected session is also the active owner of its
+seat. Because sd-login exposes a live inventory rather than one atomic
+snapshot, re-read the process session, eligible-session set, selected facts and
+seat owner before deriving the opaque identity. Do not bind the identity to
+caller-controlled `DISPLAY`, D-Bus, username or routing strings. On POSIX,
+accept an installation key only when it is a singly linked regular file owned
+by the effective user at exact mode `0600`, including rejection of special mode
+bits.
+
+## Install stable CLI entrypoints without forking package identity
+
+A PATH setup command should publish a tiny owned launcher that points to the
+packaged executable, not copy the executable into a second location. This keeps
+colocated dynamic-library lookup and package identity intact. Its check mode is
+strictly zero-write; apply serializes on a path lock, publishes complete bytes
+with the platform atomic-file facade, reads them back, and is idempotent.
+Replace only a regular file carrying the exact product marker and schema.
+Foreign files, links and non-files are conflicts and must be preserved. Test
+missing, stale-owned, repeated, collision and exact forwarding behavior through
+the public CLI rather than accepting catalog or unit-test presence as delivery.
+
+When zero-write setup checks aggregate optional durable owner stores, a missing
+state parent means that store has no records yet; return an empty blocker
+summary without creating the directory. An existing link/non-directory,
+unreadable parent, malformed document or unknown in-flight record remains a
+typed uncertainty. Keep this distinction identical across every resident-owner
+store so a fresh installation is not misdiagnosed as corrupt or unsafe.
+
+### Process inventory: never relabel cumulative CPU as a percentage
+
+- A one-shot native CPU-time counter is not CPU percentage. Percentage needs
+  two samples, a monotonic elapsed interval, checked subtraction, and an
+  explicit sampling budget in the public receipt.
+- Bound the set of PIDs before per-process command/metrics/fd/socket probes.
+  Report probe errors and scan truncation separately; otherwise a filtered
+  page can look complete while inaccessible or unvisited processes were
+  silently excluded.
+- Command lines routinely contain credentials. A command substring may be an
+  explicit filter, but inventory output should return digest and byte length,
+  not echo the matching plaintext. Exact argv disclosure belongs to the
+  separate opt-in process-argv facade.
+
+## Bind host actions to a boot instance without exposing hardware identity
+
+- Hardware serials and platform UUIDs are not a product identity. Reduce the
+  OS-owned boot-instance source inside `agenterm-platform`, then combine that
+  opaque value with an explicitly enrolled installation pseudonym at the CU
+  layer. Never return the native boot material or private installation key.
+- Uptime is not a boot identity: it changes on every read, and subtracting it
+  from wall time introduces rounding and clock-adjustment ambiguity. Prefer an
+  exact native boot source such as macOS `kern.boottime`, Linux boot UUID or
+  Windows SystemBootEnvironmentInformation.
+- Bracket any separately queried uptime/resource snapshot with equal boot
+  identities. If the boot changes or either identity query fails, reject the
+  combined reply rather than publishing facts from two boot instances.
+- Observation must load only. Missing installation identity is a typed setup
+  prerequisite; only an explicit setup/mutation command may enroll or rotate
+  it.
+
+## Linux cgroup snapshots: bind process, membership and directory
+
+- A PID plus `/proc/<pid>/cgroup` text is not a stable cgroup identity. Retain
+  the exact process reference, read membership before and after observation,
+  and reject a changed start identity or membership rather than combining two
+  process/cgroup generations.
+- Open the resolved cgroup v2 directory once with no-follow semantics, retain
+  its device/inode identity, and read controller leaves relative to that held
+  directory descriptor. Recheck the pathname against the held identity before
+  publishing so a rename or mount replacement cannot create a mixed snapshot.
+- Bound each kernel pseudo-file separately and preserve three outcomes:
+  present value, optional leaf absent/inaccessible, and malformed or oversized
+  provider data. Encode counters as decimal strings across JSON so large kernel
+  counters are never rounded by JavaScript.
+- Process groups, Windows Job Objects and Linux cgroups are not semantic
+  substitutes. A Linux-only cgroup contract must return typed not-applicable on
+  other hosts instead of projecting superficially similar fields.
+- Identity reads around a native command do not turn a bare-PID mutation into
+  exact-object authority. They can detect some reuse, but the target may exit
+  and its PID may be reused inside the effect call. Keep the mutation typed
+  unavailable until the effect primitive itself consumes a retained pidfd,
+  audit-token-bound object, process handle, or an equivalently atomic identity.
+  A privilege broker changes who may perform an effect; it does not repair a
+  racy target selector.
+- On macOS, do not assume parenthood grants Mach task authority. A normal,
+  ad-hoc-signed arm64 process was unable to `task_for_pid` its own direct child
+  in the repository's precommitted policy probe. Public `proc_pidinfo` flags
+  remain suitable for identity-bracketed observation, but `task_policy_set`
+  requires a task port the caller actually owns. Preserve the no-effect typed
+  refusal unless a distinct owned-child/pre-exec design can prove that retained
+  authority without root, debugger attachment or private entitlements.
+
+## Service lifecycle: bind the native authority domain and admit uncertainty
+
+- A service name alone is not an identity. Bind it to the native provider and
+  authority domain (`launchd` bootstrap domain or systemd user/system manager),
+  and retain a provider-owned incarnation when one exists. Never infer a
+  process instance from a label alone.
+- On Linux, use systemd's D-Bus manager directly; do not parse `systemctl` or
+  route lifecycle effects through a shell. On macOS there is no equivalent
+  stable public framework, so invoke the fixed `/bin/launchctl` path with an
+  argument vector, bounded output and a deadline rather than trusting `PATH`.
+- A transport timeout after dispatch means `possibly_applied`, not
+  `not_performed`. Observe before compensating: if the complete snapshot still
+  equals the bound before-state, compensation is unnecessary. Otherwise bind
+  any inverse operation to the newly observed state and retain an uncertain
+  durable outcome when exact read-back or rollback cannot be proved.
+- Restart and stop-then-start can create a new incarnation. State equality is
+  not instance equality; never report rollback as verified unless the complete
+  original snapshot, including the provider instance identity, is restored.
+- A one-call lifecycle compatibility command cannot infer whether a second
+  restart is a retry or new intent. Require caller request/session identity,
+  reserve that request before dispatch, and hold a session-owned lock keyed by
+  provider + authority domain + service name. It may internally reuse the
+  public plan/apply transaction, but outer replay must close a crash between
+  native effect and reply instead of constructing a fresh approval and
+  repeating the effect.
+- Keep system-service mutation behind the privilege provider. Read-only system
+  inventory may remain public, but an unprivileged facade must return a typed
+  `requires_privilege` result rather than silently invoking elevation.
+
+## Installed font memory ownership
+
+Do not `fs::read` plus `Box::leak` installed font collections: an idle
+consumer can acquire hundreds of MiB of dirty heap before drawing emoji.
+Keep an owned read-only mapping and borrow `FontRef` only during a lookup;
+this avoids self-referential storage and makes mapping cleanup automatic.
+Mapping assumes installed font inodes are not modified/truncated in place.
+Fallback candidates get independent `OnceLock<Option<...>>` slots: only a
+missing glyph advances the search, and failed opens are cached as well.
+Prove ASCII leaves fallback slots untouched and CJK stops before emoji, then
+measure the consumer's RSS plus vmmap/heap; mapped virtual size is not dirty
+heap, and a loose RSS regression pass is not the product memory target.
+
+## Accessibility query state filters
+
+Treat native accessibility booleans as three-state observations. A node that
+publishes neither the positive nor the explicit opposite marker is unknown; it
+must not match a caller asking for `false`. Keep action, role, depth and state
+predicates over one bounded acquisition so watch and one-shot query cannot
+silently diverge. An “actionable” filter includes known control roles as well
+as nodes whose provider emitted an action list; cross-toolkit action lists are
+not complete enough to be the sole test.
+
+Role refinement is also three-state. Preserve a backend-native subrole through
+the platform contract and ABI as an optional field; when a backend exposes no
+separate refinement, publish no value and let a subrole filter produce no
+match. Never infer `dialog`, `sheet`, or another refinement from the normalized
+ordinary role. Adding a field kind to an existing caller-sized ABI getter is an
+additive minor bump; prove it with an owned native fixture that asserts both
+the ordinary role and the refinement in one bounded query.
+
+## Large transient pixel frames
+
+On macOS a full 960×600 logical Retina XRGB frame is 8.79 MiB. Freeing a
+`Vec<u32>` after presentation can leave a whole old frame in malloc's cache.
+An anonymous owned mapping returns its pages when the last CoreGraphics data
+provider reference releases it. Freeze pixels read-only before transfer;
+keep the mapping owner in the provider context and unmap only in its final
+release callback. Check dimensions before mapping and prove provider-retained
+bytes survive the original frame owner's move/drop. The optional vendored
+backend tests run directly from `third_party/softbuffer/Cargo.toml`.
+
+Use repeated alternating exact-artifact RSS comparisons, plus heap/VM evidence,
+not one favorable sample. A generic allocator symbol inferred by `heap -s`
+can name a coalesced Rust instantiation (for example gimli) rather than the
+allocation's actual owner; use full allocation stacks before assigning blame.
+Do not assume a smaller retained source (RLE or an alternate color space)
+reduces CoreGraphics resident memory: downstream decode/conversion can erase
+or reverse the gain. Keep only changes with measured end-to-end benefit.
+
+
+### Full-frame temporary storage and screenshot completion
+
+A freed whole-frame `Vec` can remain resident in malloc's large-block cache.
+In the MiniCon macOS screenshot journey, two 9008 KiB free malloc regions
+survived screenshot completion despite only 2320 bytes of live-heap growth.
+Use the screenshot facade's bounded `OwnedXrgbPixels` for a worker snapshot
+that must unmap on completion, and convert portable PNG rows incrementally.
+Keep the mapping owner alive through encoding and drop it before signaling
+completion. Feature dependencies must cover every supported target: an
+unconditional snapshot facade cannot use a Unix-only optional dependency.
+Streaming encoder completion also needs explicit I/O failure verification;
+a library destructor can discard an error from a final buffered chunk.
+
+## Reuse one typed command adapter across CLI, qjs and MCP
+
+Do not give each transport its own command DTO, error enum, receipt projection,
+or hand-written JSON Schema. Decode and authorize a closed, versioned envelope
+in the product crate, then enter the same `Command -> Executor -> CuReply` path
+used by the CLI. A dynamic provider should expose one transport-neutral opaque
+call; qjs and MCP are consumers of that call, not separate dispatchers.
+
+Keep tool descriptors beside the owning command contract and include those
+exact bytes in transport discovery. A legal `CuReply { ok: false, ... }` is
+application data: MCP returns it as structured content with `isError: true`.
+Only load/ABI/panic/encoding failure is a transport error. This distinction
+preserves typed failure and existing receipts without accidental translation,
+retry, or fallback at a new protocol boundary.
+
+A generic read-only protocol tool must accept the canonical `Command`, not a
+parallel verb schema. Deserialize it strictly, then pass it through a
+compiler-exhaustive effect classifier before constructing an executor or
+touching a mechanism. `Grant::Observe` is not proof of read-only behavior:
+screenshots can write caller-named files, diffs can advance persistent cursors,
+and page JavaScript can perform arbitrary effects. Give every command variant
+an explicit class such as read-only, artifact write, persistent cursor,
+arbitrary effect, or actuation; do not use a wildcard that would silently make
+a future variant read-only. A read-only annotation is a promise about dispatch
+reachability, not merely UI metadata. Keep `openWorldHint` true when allowed
+reads can contact network or browser targets. Test one real observation for
+structural equality with direct execution and every rejected effect class for
+a typed pre-dispatch refusal.
+
+For MCP mutation, the JSON-RPC request id identifies transport work; it is not
+the durable idempotency key. Keep a connection-owned private session lease and
+bound the queue before exposing any mutating descriptor. Cancellation that
+wins before dispatch must prove zero provider calls, reservations and effects;
+after dispatch it is only a note, so an authoritative provider reply still
+wins. Provider loss after dispatch is `outcome_unknown` and must never trigger
+automatic replay. EOF stops admission, cancels queued work, drains dispatched
+work without writing another response, then performs exactly one session-end
+attempt before dropping the lease.
+
+Treat the response writer as another fallible transport, not as cleanup
+authority. A broken stdout may suppress later frames, but it must not return
+from the server before the dispatched effect is reconciled, the queued call is
+cancelled and session-end has been attempted. Retain the first write error,
+make later writes no-ops, finish private cleanup, and only then return that
+error. Likewise, a descriptor is not shipped merely because an internal court
+can inject a provider: keep production discovery and dispatch closed until
+persisted target-bound authorization and native packaged courts are green.
+
+A generic blocking `BufRead` cannot be force-cancelled safely after the peer's
+stdout disappears. For a process-owned stdio sidecar, stop admitting frames,
+detach that reader at the process-lifetime boundary, drain the already
+dispatched provider call, cancel queued work and attempt session-end exactly
+once; do not wait for unrelated stdin EOF before returning the write error.
+Tests must keep the input writer open until the server has returned, otherwise
+a simultaneous EOF can falsely appear to prove stdout-only teardown. An
+in-process reusable server needs an explicitly cancellable input abstraction
+instead of relying on this process-lifetime rule.
+
+When one effect has both a durable caller request id and a persisted grant,
+reserve the caller request first and consume the grant only for a fresh
+reservation. A finalized replay must return before grant consumption; an
+uncertain request must refuse before grant consumption. Bind the request
+fingerprint to a domain-separated digest of the exact grant id and store path,
+while preserving the old fingerprint bytes for callers that do not use a
+persisted grant. After the fresh request reservation, a matched grant attempt
+is consumed even when the mechanism fails. Pass the original session-owned
+request context through authorized dispatch; do not silently drop job/device
+ownership merely because authorization moved into a helper.
+
+If an in-process provider also owns a private runtime session, keep its two
+authorities disjoint. An ambient grant may authorize only session start/end;
+the identity-bound effect path must ignore that grant and require its own
+operation-bound persisted grant. Both selectors may coexist in one provider
+process because they authorize different commands, but the ambient session
+grant must never become a fallback for the effect. This preserves a closed
+versioned envelope while still making an env-only mutation fail before native
+dispatch.
+
+Canonical JSON is not validated merely because Serde can deserialize and
+round-trip it. Any bound enforced by a CLI parser must also live in
+`Command::validate` (preferably through shared constants), and the common
+`execute_command` adapter must reject an invalid command before constructing a
+deadline, allocating output, reserving an idempotency key or touching a native
+mechanism. Otherwise qjs, MCP and dynamic-provider callers can bypass the CLI
+and turn an apparently bounded command into a panic, latch or unbounded call.
+
+## Join CoreSimulator apps to host processes without identity leaks
+
+`simctl spawn <UDID> ps` reports host-global PIDs, and executable paths can be
+shared across simulator instances. Never infer device ownership from PID or
+path alone. Bracket each candidate with the native process start identity,
+require exactly one initial environment entry equal to the requested
+`SIMULATOR_UDID`, then re-read both the app executable identity and the exact
+Booted device identity before publishing a result. Keep the executable path,
+environment and raw start identity inside the platform adapter; a public
+observation may expose only the host PID and a domain-separated digest of the
+start identity. Bound app rows, process rows, captured bytes and the entire
+multi-command deadline, and fail closed when any identity changes.
+
+## Distinguish previous state from rollback authority in native mutations
+
+When a native mutation reports the state observed before its effect, name that
+field `previous_*`; do not call it a rollback token unless a durable receipt
+owns recovery. A reversal is a new identity-bound mutation that must re-open,
+re-plan, and revalidate the current object. Skip the native effect when the
+requested state already holds, but still report a verified no-op. If the
+effect syscall succeeds and post-effect readback fails, return a distinct
+effect-unknown error: neither success nor rollback is proven.
+
+## A bounded native queue that latches an exit is a crash surface
+
+The Windows native pixel host records every failure through one
+`record_failure` that latches `exit_requested`, so a full deferred queue
+closes the window and ends the process. That is a deliberate fail-fast
+policy, but it makes the queue's occupancy a crash surface rather than a
+backpressure signal: any producer that keeps offering non-coalescible
+items while the pump is stalled can reach it. A slow full-frame repaint
+under sustained output is exactly such a stall, so "large scrollback →
+repaint → vanish" was one path, not three.
+
+Classify every deferred item as coalescible or not before trusting the
+bound. A level-triggered signal (`Wake`) and a latest-wins value (pointer
+motion, where the OS already coalesces `WM_MOUSEMOVE`) must collapse into
+one slot, with the newest payload substituted on `pop` and the slot
+re-released on `push_front`/`clear`. Only items that must not be dropped —
+keyboard, buttons, wheel notches — keep their own slots. Prove it with the
+same flood test the existing `Wake` coalescing uses: enqueue far past the
+capacity and assert no overflow and that the newest value is delivered.
+
+Two related traps in this area. A `Mutex`/`RefCell` `expect("not
+poisoned")` amplifies one panic into a cascade: the first failure poisons
+the lock, and every later callback panics again — and a panic unwinding out
+of an `extern "system"` window procedure is a silent abort, because a
+windowed release build has no console. Prefer `try_borrow_mut` with a typed
+fallback, or recover via `PoisonError::into_inner`. And give a windowed
+host a panic hook that writes the thread, location and message to the
+diagnostics log before the default handler runs: without it a vanished
+window leaves no evidence at all, and "it disappeared" is the entire bug
+report an agent has to work from.
+
+## Dedup a native command before it reaches a bounded deferred queue
+
+A repainting host re-asserts idempotent native state on a cadence the user
+never asked for: the window title once per frame, the IME candidate anchor
+once per keystroke, the DPI rectangle whenever the monitor may have
+changed. If each re-assert becomes one item in a bounded deferred queue,
+the queue measures *repaints*, not distinct requests, and a pump stalled by
+a flood fills it with no-ops. When that queue latches an exit on overflow
+(see the section above), the failure looks like "the window vanished while
+the terminal was busy" and the trace is a queue of identical commands.
+
+The fix is per field, not per queue: record the last accepted value and
+make an unchanged one a no-op **before** it takes a slot — `ApplyDpiRect`,
+`SetTitle`, and `SetImeCursor` each carry their own last-value cell for
+exactly this. Classify every command as coalescible (latest-wins, or
+idempotent) or not, and prove it with a test that enqueues far past the
+capacity and asserts no overflow. A command that is genuinely new every
+time — keyboard, button, wheel notch — keeps its own slot and is the only
+thing the bound should ever be spent on.
+
+## A kill-on-close job makes a launcher's exit the whole tree's exit
+
+Windows `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` terminates every process in a
+job when its last handle closes. That is the right cleanup primitive for a
+terminal's child shell — the terminal owns the shell, and when the terminal
+goes the shell should too — but it also means the job defines a *fate
+group*: whoever is in it dies together. A process cannot leave a job it
+already belongs to, and a nested job does not exempt its members from the
+outer one, so a shell started inside another job stays welded to it.
+
+Two consequences worth stating before blaming a crash on the wrong process.
+First, `IsProcessInJob(handle, NULL, ...)` answers for the *calling* process
+and is cheap; run it when a "B crashed and took A with it" report arrives,
+because the interesting question is not whether A crashed but whether A and
+B share a fate group. Second, a process tree is evidence: walk the parent
+chain (toolhelp `th32ParentProcessID`) before assuming two processes are
+independent. In one real report an agent process turned out to be a
+grandchild of the GUI that "crashed", so the GUI's exit *was* the agent's
+exit, and the resize that preceded it only ended the session that held the
+job open.
+
+The product rule: create a child job for cleanup only when the child's
+whole subtree is genuinely yours to reclaim, and prefer
+`SILENT_BREAKAWAY_OK` on any job a launcher puts a long-lived user session
+in, so a GUI that wants its own lifecycle can take it.
+
+## A bounded guest span is not a proved C pointee contract
+
+For the qjswasm native door, a kind-1 guest span proves only that its declared
+`offset + len` does not overflow and lies inside the current Wasm linear
+memory. An opaque `ptr` ABI type does not reveal how many bytes a selected C
+symbol will read or write, what host alignment it requires, whether a string
+must contain a NUL, or whether a scalar length argument agrees with the span.
+Do not describe that range check as native memory safety, and do not use a
+large successful fixture as evidence that short or misaligned hostile spans
+are rejected.
+
+When the Script Runtime keeps arbitrary native symbols available, the guest is
+the unsafe ABI caller and `WorkerSupervisor` is the crash-containment boundary;
+document that obligation at the `unsafe` call site. If a future surface claims
+typed pointee safety, it needs an explicit callee contract for minimum widths,
+alignment, dynamic-length relationships and terminators, with pre-load typed
+rejection tests. A symbol allowlist is not a substitute for an unimplemented
+general capability and must not be smuggled in as permission policy.
+
+Key such a callee contract by every identity fact it actually proves. A bare
+symbol spelling is too broad because an arbitrary library may export the same
+name with a different pointee contract; current-process lookup is too narrow
+when a platform has a separately spelled, proved mirror of that same system
+image. Admit only the exact image spellings backed by platform evidence, and
+test the pre-load predicate directly so a regression cannot reach the foreign
+call.
+
+For a host-owned opaque buffer, alignment padding is not a terminator contract:
+when the declared capacity is already alignment-sized, there may be no padding
+at all. If the open-world call surface may hand that buffer to a C-string
+reader, reserve one zero byte beyond the declared capacity on every allocation,
+including exact alignment multiples. Keep that sentinel outside readback and
+billing so binary `raw` semantics remain unchanged; test both sides of each
+alignment boundary without invoking the callee.
+
+## Rebase native pointer results onto declared guest spans
+
+A native function may return the same pointer that a Wasm guest supplied as a
+caller-owned buffer (`getcwd` is the canonical case). Never publish that host
+virtual address in a guest integer slot. After the synchronous call, accept null
+as guest offset zero; otherwise subtract the current linear-memory base with
+checked arithmetic and require the result to lie inside one of that call's
+declared guest spans. Publish only the resulting guest offset. A pointer that is
+inside the Wasm allocation but outside every declared argument span is still a
+typed refusal: allocation membership alone would let an opaque native result
+name the schema block, return slot, or unrelated guest data.
+
+Keep the layers distinct. Dyn's policy-free ABI mechanism returns raw pointer
+bits because Rust callers own their pointer contract. The qjswasm door owns the
+guest-address rebasing and its stable error code because it alone knows the
+linear-memory base and decoded spans. Prove both sides: a direct dyn oracle must
+show the true pointer-returning C trampoline, a WAT court must require buffer
+identity plus the pointee claim, and an adversarial unit test must reject an
+in-allocation result outside the declared span.
+
+## A mechanism-support query answers with the shape alone
+
+When a lower layer owns a support matrix and an upper layer owns an exposure
+allowlist, the gate that keeps `exposure ⊆ mechanism` must not be satisfiable by
+fabricated values. Split classification into a shape-only entry
+(`validate_abi_signature(signature)`) and the argument-checked one
+(`validate_abi(call)`), so an upper layer can ask before it has anything to pass;
+keep symbol, nullability and span policy out of the query entirely. Enumerate the
+upper layer's catalog from the same tables its dispatch uses (an `ALL` array plus
+an exhaustive `declaration()` match doing the lookup), never from a second
+hand-written list — then deleting a mechanism shape and forging an exposure both
+redden with a named diagnostic. Keep the inclusion one-way and record the shapes
+the mechanism can execute but the catalog does not expose, rather than forcing the
+two sets to be equal.
+
+## Query a mechanism-only account from its owner, never restate it by hand
+
+Two inventories meet at an `exposure ⊆ mechanism` gate, and only one of them is
+the upper layer's to write down. The catalog half is the exposure owner's own
+declarations, enumerated from the tables its dispatch uses. The other half — the
+shapes the mechanism can really execute and this catalog does not expose — is the
+lower layer's answer, so **derive** it: enumerate candidate shapes from the
+owner's public type vocabulary at the arity bound this door actually parses, ask
+the owner's shape-only query (`validate_abi_signature`, which needs no argument
+values) about each candidate, subtract the catalog-derived set, and compare that
+difference against the recorded account in **both** directions, naming every
+missing and unexpected entry in the message. Assert the two set sizes after it,
+so a query that silently stopped covering the matrix cannot pass by subtracting
+nothing. Compare shapes rather than declarations: `ptr` and `ptr?` are one ABI
+position, so a declaration count and a shape count legitimately differ.
+
+Restating that difference by hand is the failure mode. A three-entry
+"mechanism-only" list stayed green while `ptr(ptr)` — a shape the mechanism
+proves against its own `getenv` oracle — was absent from an account the owning
+PRD states the gate keeps: nothing the gate *covered* was wrong, it had simply
+stopped asking the mechanism what it has, and a hand-written list only loses
+entries. Never carry a second mechanism list to compare against; the owner's
+vocabulary plus the owner's query is the mechanism. Keep the inclusion one way —
+a shape may never enter the catalog before the mechanism can execute it — and
+record the difference instead of forcing the two sets equal.
+
+## Delete a derived representation when production only writes it
+
+A value computed at a boundary is not automatically an abstraction. Before
+preserving a classifier, cached field, or cardinality API, search separately for
+its constructors and its production readers. If production writes it on every
+request but only tests read it to prove its own shape, it is a parallel account,
+not a live seam. Remove the field, classifier, public count helpers, and the
+self-referential tests together; retain the language-level parse court and the
+actual lower-layer mechanism query. The economic proof is the closed reference
+set plus net deletion, while the behavioral proof remains the real door suite.
+Do not replace the dead representation with a renamed struct or another derived
+table—that preserves the maintenance cost under a new spelling.
+
+Do not turn a static duplicate into repeated runtime work merely to reduce source
+rows. If deriving the validation view constructs owned strings, vectors, or host
+function records on every module or slot load, the apparent fold has exchanged
+repository bytes for cold-start allocations. Green behavior tests establish
+equivalence, not economic value. Keep the static view plus its drift court until
+a compile-time descriptor can generate both representations without runtime work,
+or a precommitted workload measures the full byte/time/allocation trade and passes
+its gate.
+
+## A JSON caller's pointer position is host-owned call-scoped storage
+
+When an upper-layer native adapter serves a language whose values are JSON and
+whose guest has no linear memory, a pointer parameter position has nothing to
+point at. Do not invent an address and do not accept `null` as a null pointer:
+give the caller a storage *record* it cannot address — capacity, optional input
+bytes, a termination mode, an output mode — and let the host own the pointee for
+exactly one synchronous call. Then say which side owns which half. The host owns
+the address, the maximum natural alignment, the zero fill and the lifetime; the
+caller owns the width, the termination contract and a pointee large enough for
+the symbol it selected, because an opaque `ptr` argument still does not tell the
+door how many bytes the selected C symbol writes.
+
+Keep that default open-world contract while still using target facts the
+compiler can actually prove. If the current-process image has one standard
+symbol with a fixed target type, an exact `(library identity, symbol,
+signature)` match may refine only that call: derive the minimum with
+`size_of::<the target type>()` and refuse a smaller region before allocation,
+loading or invocation. A miss must continue through the ordinary caller-owned
+path; do not turn the fact table into an admission list, do not infer output
+width from an unrelated scalar argument, and do not transcribe per-target byte
+constants when the platform crate already owns the type.
+
+Put the alignment in the **allocation**, not only in a struct field: a `Vec<u8>`
+is byte-aligned however its own fields are declared, so wrap the storage in a
+`#[repr(align(16))]` unit (`max_align_t` / `long double` on the repository's SysV
+and AArch64 targets) and read the bytes through that wrapper, so the region and
+the alignment unit are one allocation rather than two that agree in size. When
+two contract fields do not compose, keep the admitted combinations in one enum
+instead of two independent fields — `raw` termination has no end, so `raw` plus
+a text output has nothing to decode — and then the refused combination is
+unrepresentable rather than merely validated at readback. Publish the storage's
+identity to the caller as an index into *this call's* list, never as an address,
+handle, digest or guest offset, and drop the storage on return: a region that
+outlives its call is a dangling pointee behind a handle-shaped API.
+
+Zero fill is acceptable here, but say what it means. Zero fill plus a "must
+contain a terminator after the call" rule cannot observe a callee that writes
+nothing — the region's first byte is still the host's zero — so the answer must
+be labelled and read as a snapshot paired with the callee's own status, never as
+proof that the callee wrote what came back. Where the caller genuinely needs
+evidence of a C write, the sentinel rule above still applies; a region is the
+right shape when the caller may legitimately read back an untouched buffer.
+
+## Budget an encoded native answer before you materialize what it encodes
+
+A native adapter that hands a guest-sized quantity back through JSON must check
+the **encoded** size before it allocates the storage that quantity describes,
+otherwise the bound it enforces is the raw byte count while the answer it must
+produce is several times larger. Budget the worst case: `\u00XX` escaping makes
+one text byte cost six, a decimal byte array costs three digits plus a separator,
+and the envelope's own field names cost a fixed allowance. Run one preflight over
+the whole call's totals (every position's capacity *and* its encoded bound) after
+argument decoding and before the first allocation, so no region is materialized
+and no library is loaded for a call that will be refused. Prove the ordering with
+a court that asserts the loader table is still empty after the refusal: "refused
+before allocation" is only true if the refused call opened nothing.
+
+Keep the check on the actually serialized answer as defense in depth, and keep it
+a whole refusal rather than a prefix — the preflight is conservative on purpose,
+and a truncated JSON document is worse than a typed error. Then make the readback
+honest about what it is. A readback is a post-call snapshot of the caller's
+storage, never a written length: bytes the callee did not touch remain the host's
+zero fill or the caller's own input, and no field may present them as the callee's
+output. Run the readback whether the callee reported success or failure, and when
+the readback itself refuses — no terminator where the contract demands one, or
+bytes that are not the text the caller asked for — keep the native status inside
+the typed error: rejecting an encoding contract must not erase the C result.
+
+## Project host JSON at the producer, not inside a byte-transparent door
+
+When a consumer reads only a few fields from a large product-owned JSON reply,
+keep the door and IPC envelope byte-transparent. Split the producer into
+`Value` construction and its existing serializer, apply one bounded pure
+projection to that `Value`, and serialize once. A selector is caller data that
+can only subtract from the document the caller could already receive; it is not
+a field allowlist, capability grant, or second schema catalog. Missing paths
+stay missing, duplicate paths collapse, a shallow path keeps its subtree, and
+omitting the selector must retain the old bytes exactly. Route local and remote
+producers of the same document through one request helper so an accepted option
+cannot be silently ignored on a client-side fast path.
+
+Count the economics honestly. A reusable projector may be net additive at its
+first producer even when it removes shell children and sharply cuts reply
+bytes. Record production/test LOC separately, preserve the no-selector wire,
+measure a real consumer with the same engine pin and budget, and call the work a
+foundation until another producer reuses the core and deletes enough parallel
+filtering or serialization truth to pay back the abstraction.
+
+An always-JSON producer that already owns cached text is a different boundary
+from a producer that still owns a `Value`. Do not invent a `--json` precondition
+for it and do not round-trip the no-selector answer. Branch on the selector
+first, return the stored text unchanged when absent, and only then parse,
+project through the shared grammar, and serialize the smaller document. Keep a
+producer-invalid JSON failure distinct from a malformed selector: one is an
+internal broken authority reply, the other is a caller configuration error.
+
+## Fold the error mapper with the execution seam
+
+When several FFI call sites build the same mechanism call, do not stop after
+extracting the call itself. Compare their error mappers and refusal constructors
+field by field. If they differ only because one caller holds a decoded request
+and another holds its embedded spec, state the mapper once over the narrower
+spec owner and pass that reference from both paths. This both removes another
+parallel truth and makes the preservation test explicit: if either old mapper
+read a field unavailable on the spec, the fold is not byte-preserving and must
+remain split.
+
+Test the mapper with constructed lower-layer errors even when normal preflight
+makes them unreachable today. A later refactor may remove that preflight while
+everything still compiles; mapping an argument-count failure to “signature
+unsupported” then blames engine capability instead of the caller. Reuse an
+existing equally precise outer error when one exists, and pin its fields in the
+mapper test rather than fossilizing the lossy fallback.
+
+Normalize sentinel identities at the shared public-error boundary. If an empty
+library, path, or provider name means a named logical target, every mechanism
+family must publish the same logical spelling; do not let a private trampoline
+leak the raw sentinel while a sibling reports the normalized identity.
+
+Do not end a typed-error-to-public-category match with a catch-all default.
+An added lower-layer error is a new classification decision, not automatically
+configuration failure; list the current default-category variants explicitly
+so enum growth fails compilation until that decision is reviewed.
+
+Keep a closed inter-crate failure class typed until the final wire projection.
+Passing `"limit"`, `"cancelled"`, or `"host"` as an unconstrained string makes
+the receiver add a fallback and lets a producer typo become a valid but wrong
+category. An enum with an exhaustive `as_str` at the wire edge preserves the
+same bytes while making both producer and consumer growth explicit.
+
+For a large Rust file, make this change with unique-text patches and inspect the
+whole diff against `HEAD`. Do not delete line-number slices with a rewrite
+script: an offset can remove a function body while leaving a plausible doc
+comment, and formatting cannot prove that the intended function survived.
+
+## One admitted scalar type needs one canonicalizer across transports
+
+When two transports dispatch through the same closed ABI family, do not copy a
+strict subset of the scalar conversion match for the narrower-looking path.
+The duplicate can silently omit a type that the shared declaration already
+admits, leaving one transport executable and the other typed-refused. Keep one
+canonicalizer for each input representation, let the family table own which
+types are reachable, and prove a formerly omitted position with an independent
+native oracle. This is a real fold only when it deletes the subset helper and
+adds no trait, parallel table, or policy branch.
+
+## Collapse classification identity after its last observer
+
+Two declaration families may remain separate admission truths while sharing one
+execution token. If every downstream match already unions the variants and no
+error, result, storage, or mechanism choice reads their identity, carrying two
+unit variants is a parallel truth with no consumer. Replace the unobserved
+classification with one token, but keep each admission rule explicit: a formula
+stays a formula and an irregular closed set stays declaration data. Do not turn
+the fold into a wider catalog, query lower-layer policy, or erase a distinction
+that still selects a trampoline, storage owner, error vocabulary, or result plan.
+
+## Bound file projections before and while reading
+
+A bounded file door must never read the whole file and truncate afterwards. A
+tail reader seeks on one opened handle and reads only the requested raw-byte
+window; keep that raw window distinct from the serialized-result ceiling,
+because lossy UTF-8 can expand one invalid byte into the three-byte replacement
+character. A whole-file filter needs a fixed read buffer, must discard rejected
+lines as they pass, and must cap accepted output before appending it.
+
+Output bounds do not bound scan time. A whole-file scan must observe the shared
+cancel flag and a real wall-clock deadline at chunk boundaries, before and after
+each potentially blocking read. Do not use the replay clock for elapsed-time
+limits. Account `host_bytes` as arguments plus the parked result crossing the
+door; bytes inspected inside the host are scan work, not bridge traffic.
+
+## Keep decoder headroom scoped to artifact ownership
+
+Compiler instrumentation can multiply Wasm decode items even when source and
+runtime semantics remain bounded. Measure the real largest product-owned
+artifact before changing a decoder ceiling. If extra headroom is needed, keep
+the runtime's generic default unchanged and select the larger limit only at the
+typed ownership boundary for artifacts the product compiled itself. Source
+check, packed-artifact check, and execution load must reuse one selector;
+hand-written or third-party Wasm and declaration probes must retain the caller's
+limit. Pin both sides with tests so a product-capacity fix cannot silently widen
+the untrusted raw-Wasm boundary.
+
+A decoder that stops at its first budget refusal cannot also report the full
+amount the rejected module would have required. At that point it knows only a
+strict lower bound. Obtaining the total means either continuing after the
+ceiling or decoding again under a larger one, both of which spend work the
+ceiling exists to prevent. Keep the refusal typed to the exact configurable
+field, preserve its static message, and describe any reported count as a lower
+bound; do not label it `used` or recommend it as the next safe ceiling.
+
+## A stateful parity court proves the baseline before it pairs anything
+
+A paired court that drives a **sequence** rather than a single argv has to be built
+in that order: first prove one side's sequence end-to-end against the product's own
+courts, then add the second side. A sequence harness that pairs both sides from the
+start cannot tell "the second implementation diverges" from "my sequence is wrong on
+either side" — the first failure stops the run before the second side is ever
+started, so several consecutive runs can produce **zero** parity data while each one
+looks like a fresh attempt. Same-family corollary: when the sequence borrows a
+product helper, borrow its **budget** too, not just its predicate. A harness that
+copies the product's "poll until X" rule but reads once instead of polling will fail
+on a legal intermediate state.
+
+Three more rules this sequence earned:
+
+- **A create verb must never carry the identity it is about to create.** Passing a
+  session, lease or token to the verb that mints it makes the product answer
+  `…_not_found` for a correctly formed request, and the harness then reads its own
+  violation as a product refusal. Read the minted identity back from the reply and
+  use it only on effect verbs.
+- **An asynchronous release reuses the product's bounded wait, and that wait sits on
+  the side that owns the transition.** "The stop returned" is not "the resource is
+  released": the owner may keep answering for a short while afterwards (measured
+  ~160 ms), so a single read catches a legal intermediate state and reports it as a
+  failure. Poll the product's own field with the product's own bound. In the other
+  direction, cleanup must not inherit a budget the sequence has already spent — give
+  teardown its own fixed, bounded deadline, or a late failure turns into an
+  unreported residual.
+- **Cleanup request ids must be unique per resource.** A teardown loop that reuses
+  one request id for `N` resources has its second and later calls deduplicated by the
+  idempotency store, so they never execute — silently, and visible only in the audit
+  rows that are missing. Derive the id from the resource, not from the verb.
+
+When such a sequence fails, its failure fact has to carry the observation it judged
+(field values, not just a step name). A bare step name, plus an `observe`-class verb
+that writes no audit row, leaves a failure that cannot be diagnosed at all from what
+was left behind.

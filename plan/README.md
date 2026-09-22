@@ -32,7 +32,9 @@ open. Their presence in this directory does not assign them to a version.
 - `plan-control-center-ux.md` / `design-control-center-ux.md` — 0.2.0 Cockpit
   input; no current-version authority.
 - `plan-mobile.md` — product scope belongs to PRD 33; no version commitment.
-- `research-decentralized-network.md` — research only.
+- Decentralized-network vendor research is retained in
+  [`archive/research-decentralized-network.md`](archive/research-decentralized-network.md)
+  as a dated snapshot; current scope belongs to PRD 02.22.
 - `design-dynacore-*` — isolated internal mechanism research; not a release
   theme. The completed Darwin catalog campaign is retained as
   [`archive/goal-agenterm-dyn-macos.md`](archive/goal-agenterm-dyn-macos.md),
