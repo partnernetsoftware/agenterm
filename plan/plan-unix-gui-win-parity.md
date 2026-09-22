@@ -22,7 +22,7 @@ ui_bridge schema + ui_geometry
         └─► P3 TTF/主机字体（替代 bitmap-8x8）
 ```
 
-`plan/plan-multiplatform-gui.md` 记录跨平台交付里程碑；**本文件只跟踪 Win 对齐差距**，避免与 CPMP 进度混淆。
+`plan/archive/plan-multiplatform-gui.md` 记录跨平台交付里程碑；**本文件只跟踪 Win 对齐差距**，避免与 CPMP 进度混淆。
 
 ## 进度树
 

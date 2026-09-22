@@ -1,5 +1,9 @@
 # Multi-platform GUI execution plan
 
+> Archived 2026-09-22: the listed cross-platform GUI milestones are complete.
+> Current capability and remaining parity gaps belong to the owning PRDs and
+> [`plan-unix-gui-win-parity.md`](../plan-unix-gui-win-parity.md).
+
 状态：执行中  
 工作主题：**Linux / macOS 人机窗口与共享 PTY 内核**  
 本文是执行计划，不是产品事实；接受的能力必须同步进对应 `prd/PRD_*.md`。

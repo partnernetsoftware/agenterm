@@ -621,7 +621,7 @@ track remains planned, but every declared dependency must still pass.
   shared PTY backend, Unix IPC server, Linux/macOS `winit`+`softbuffer`
   human window MVP, and release packages that include `agenterm` on
   linux/macos; sequencing in
-  [plan-multiplatform-gui.md](../../plan/plan-multiplatform-gui.md). Native
+  [plan-multiplatform-gui.md](../../plan/archive/plan-multiplatform-gui.md). Native
   window/input/IME/DPI/clipboard/font integration converges through the
   [Windows, macOS, and Linux platform branches](../PRD_02_20_native_platform.md)
   without moving product behavior into OS adapters.
