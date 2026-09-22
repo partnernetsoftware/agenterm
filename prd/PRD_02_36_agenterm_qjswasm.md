@@ -5,8 +5,12 @@ Family contract: [PRD 10](PRD_02_10_rhai_scripting.md)
 
 Status: **`[~]` active product engine**.
 
-**`9420045`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
+**`f476cd2`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
 `crates/agenterm-qjswasm/Cargo.toml`, and tests must reject PRD/pin drift.
+This pin adds `Instance::last_trap_site()`: the guest function index where a
+failed top-level call stopped, recorded at the call boundary on the failure
+path only. It locates the failure without classifying it or adding per-instruction
+cost.
 This pinned line includes a generic, call-scoped cooperative-interruption seam: one
 invocation or start-section instantiation borrows one `AtomicBool`; pure guest
 computation polls it without a host callback, and qjswasm maps the distinct
