@@ -772,10 +772,20 @@ impl ScreenMirror {
             *self = Self::new(cols, rows);
         }
 
-        let scrolled = info.srWindow.Top - self.window_top;
+        let window_scrolled = (info.srWindow.Top - self.window_top).max(0) as usize;
         self.window_top = info.srWindow.Top;
 
         let read = read_window(console, &info, cols, rows)?;
+        // The buffer is exactly the window's size (see `resize`), so a program
+        // that fills the last row scrolls the buffer's own contents and
+        // `srWindow.Top` never moves. Recover the shift from the frames
+        // themselves; the window rectangle still speaks for the cases where it
+        // does move.
+        let scrolled = if window_scrolled > 0 {
+            window_scrolled
+        } else {
+            crate::adapters::console_row_emit::scrolled_rows(&self.cells, &read, cols, rows)
+        };
 
         if !self.started {
             self.started = true;
@@ -786,11 +796,11 @@ impl ScreenMirror {
             out.extend_from_slice(b"\x1b[0m");
             self.cells = vec![Cell::default(); usize::from(cols) * usize::from(rows)];
             self.cursor = (0, 0);
-        } else if scrolled > 0 {
+        } else if scrolled > 0 && self.cells.len() == read.len() {
             // Park at the last row and feed newlines: that is what pushes the
             // vacated lines into the host's scrollback. Emitting them as text
             // would duplicate content the host already has.
-            let feed = usize::from(rows).min(scrolled as usize);
+            let feed = usize::from(rows).min(scrolled);
             out.extend_from_slice(format!("\x1b[{};1H", rows).as_bytes());
             for _ in 0..feed {
                 out.extend_from_slice(b"\r\n");

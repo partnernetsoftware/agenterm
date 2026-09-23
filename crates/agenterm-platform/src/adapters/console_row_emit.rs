@@ -83,6 +83,40 @@ pub(crate) fn is_wide(c: char) -> bool {
     UnicodeWidthChar::width(c).unwrap_or(1) > 1
 }
 
+/// How many rows the console's content moved up between two frames.
+///
+/// The console agent keeps the screen buffer exactly the window's size, so
+/// `srWindow.Top` never moves and cannot report scrolling: when a program
+/// fills the last row, Windows shifts the buffer's own contents up and the
+/// vacated line is simply gone. Measured on Windows 11 ARM (2026-09-23): a
+/// shell writing 600 lines produced no host scrollback at all, so a wheel
+/// over the terminal had nothing to scroll.
+///
+/// Comparing the frames recovers what the window rectangle cannot say. For a
+/// shift of `k`, the new frame's first `rows - k` rows equal the previous
+/// frame's last `rows - k`. The smallest such `k` is the answer: a larger one
+/// would also match whenever the overlap is blank, and over-reporting a
+/// scroll pushes blank lines into the host's scrollback.
+///
+/// Returns 0 when nothing matches, which is the honest answer for a frame
+/// that was repainted rather than scrolled (a full-screen program, a clear,
+/// a resize).
+pub(crate) fn scrolled_rows(previous: &[Cell], next: &[Cell], cols: u16, rows: u16) -> usize {
+    let width = usize::from(cols);
+    let height = usize::from(rows);
+    if width == 0 || height == 0 || previous.len() != next.len() || previous.len() != width * height
+    {
+        return 0;
+    }
+    for shift in 1..height {
+        let kept = height - shift;
+        if previous[shift * width..] == next[..kept * width] {
+            return shift;
+        }
+    }
+    0
+}
+
 /// Appends the text and SGR bytes for one already-positioned, already-erased
 /// row, updating the running attribute state.
 ///
@@ -227,6 +261,61 @@ mod tests {
         let mut attrs = DEFAULT_ATTRIBUTES;
         emit_row_cells(&mut out, cells, &mut attrs);
         String::from_utf8(out).expect("utf8")
+    }
+
+    fn frame(rows: &[&str], cols: u16) -> Vec<Cell> {
+        let mut cells = Vec::new();
+        for row in rows {
+            let mut chars: Vec<char> = row.chars().collect();
+            chars.resize(usize::from(cols), ' ');
+            cells.extend(chars.into_iter().map(ascii));
+        }
+        cells
+    }
+
+    #[test]
+    fn a_frame_that_moved_up_one_row_reports_one() {
+        let before = frame(&["a", "b", "c"], 1);
+        let after = frame(&["b", "c", "d"], 1);
+        assert_eq!(scrolled_rows(&before, &after, 1, 3), 1);
+    }
+
+    #[test]
+    fn a_frame_that_moved_up_two_rows_reports_two() {
+        let before = frame(&["a", "b", "c"], 1);
+        let after = frame(&["c", "d", "e"], 1);
+        assert_eq!(scrolled_rows(&before, &after, 1, 3), 2);
+    }
+
+    #[test]
+    fn a_repaint_is_not_a_scroll() {
+        let before = frame(&["a", "b", "c"], 1);
+        let after = frame(&["x", "y", "z"], 1);
+        assert_eq!(scrolled_rows(&before, &after, 1, 3), 0);
+    }
+
+    #[test]
+    fn an_unchanged_frame_reports_no_scroll() {
+        let before = frame(&["a", "b", "c"], 1);
+        assert_eq!(scrolled_rows(&before, &before, 1, 3), 0);
+    }
+
+    /// Blank overlaps match at several shifts; reporting the largest would
+    /// push blank lines into the host's scrollback that the console never
+    /// scrolled away.
+    #[test]
+    fn blank_rows_report_the_smallest_shift_that_explains_the_frame() {
+        let before = frame(&["a", "", ""], 1);
+        let after = frame(&["", "", ""], 1);
+        assert_eq!(scrolled_rows(&before, &after, 1, 3), 1);
+    }
+
+    #[test]
+    fn a_mismatched_or_empty_geometry_is_not_a_scroll() {
+        let before = frame(&["a", "b"], 1);
+        let after = frame(&["b", "c"], 1);
+        assert_eq!(scrolled_rows(&before, &after, 1, 3), 0);
+        assert_eq!(scrolled_rows(&[], &[], 0, 0), 0);
     }
 
     #[test]
