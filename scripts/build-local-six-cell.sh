@@ -98,13 +98,15 @@ for cell in \
     macos-aarch64) target=aarch64-apple-darwin ;;
     macos-x86_64) target=x86_64-apple-darwin ;;
   esac
-  mode=()
   if [[ "$os" == macos ]]; then
-    mode=(--unsigned-preview)
+    AGENTERM_BOOTSTRAP_TASK=package-client-release \
+      ./scripts/bootstrap.sh "$version" "$os" "$arch" \
+        "target/$lane/$target/release" --unsigned-preview
+  else
+    AGENTERM_BOOTSTRAP_TASK=package-client-release \
+      ./scripts/bootstrap.sh "$version" "$os" "$arch" \
+        "target/$lane/$target/release"
   fi
-  AGENTERM_BOOTSTRAP_TASK=package-client-release \
-    ./scripts/bootstrap.sh "$version" "$os" "$arch" \
-      "target/$lane/$target/release" "${mode[@]}"
 done
 
 out="target/$lane/candidate-input"
