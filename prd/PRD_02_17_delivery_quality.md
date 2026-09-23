@@ -257,6 +257,19 @@ v0.1.19 planning and Candidate follow-up live in
   all belong to one exact run/SHA. This avoids paying for an ordinary six-grid
   and then repeating it for Candidate while also avoiding an impossible
   dependency on workflows GitHub cannot execute.
+- [~] **Build placement is a hard resource rule:** GitHub-hosted CI must never
+  compile AgenTerm or run Cargo builds. Build release binaries locally with the
+  declared cross-compilation toolchain, verify and hash them, then upload the
+  exact bytes to GitHub's private draft/staging area. GitHub CI may download
+  those staged bytes, run native platform tests and qualification checks, and
+  return machine-readable receipts; it must not rebuild or replace the tested
+  inputs. When GitHub Actions usage is unavailable or exhausted, use the
+  matching UTM court for execute-only validation instead of falling back to a
+  hosted compile. Draft staging is transport only and grants no public release
+  or Promotion authority. This rule applies to Candidate and diagnostic CI
+  workflows, including retries and reruns. The existing Candidate still
+  compiles on its hosted matrix and must be changed to consume locally built
+  artifacts before another Candidate is dispatched.
 - [x] explicit `workflow_dispatch` Candidate qualification is grouped by the
   immutable source SHA. A later `main` push therefore cannot cancel an active
   exact-SHA Candidate; a duplicate dispatch for the same SHA still replaces its
