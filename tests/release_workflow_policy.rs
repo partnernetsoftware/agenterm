@@ -1129,7 +1129,9 @@ fn candidate_is_manual_exact_sha_and_has_no_publish_authority() {
     assert!(CANDIDATE.contains("name: Verify exact current main source"));
     assert!(CANDIDATE.contains("ref: ${{ inputs.source_sha }}"));
     assert!(CANDIDATE.contains("staging_release_id:"));
-    assert!(CANDIDATE.contains("git/ref/tags/$stage_tag"));
+    assert!(CANDIDATE.contains(".target_commitish == $source"));
+    assert!(CANDIDATE.contains("^local-stage-\" + $source + \"-"));
+    assert!(!CANDIDATE.contains("git/ref/tags/$stage_tag"));
 }
 
 #[test]
@@ -1560,6 +1562,8 @@ fn local_candidate_draft_upload_is_unpublished_exact_sha_and_cleanable() {
         STAGE_LOCAL_CANDIDATE_DRAFT
             .contains("gh release create \"$tag\" --draft --target \"$source_sha\"")
     );
+    assert!(STAGE_LOCAL_CANDIDATE_DRAFT.contains("releases?per_page=100"));
+    assert!(STAGE_LOCAL_CANDIDATE_DRAFT.contains(".target_commitish == $source"));
     assert!(STAGE_LOCAL_CANDIDATE_DRAFT.contains("scripts/verify-local-candidate.py"));
     assert!(STAGE_LOCAL_CANDIDATE_DRAFT.contains("LOCAL CANDIDATE DRAFT READY"));
     assert!(STAGE_LOCAL_CANDIDATE_DRAFT.contains("(length == 2)"));

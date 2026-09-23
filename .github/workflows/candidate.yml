@@ -100,21 +100,11 @@ jobs:
           [[ "$STAGING_RELEASE_ID" =~ ^[0-9]+$ ]]
           release="repos/$GITHUB_REPOSITORY/releases/$STAGING_RELEASE_ID"
           release_json="$(gh api "$release")"
-          stage_tag="$(jq -r .tag_name <<<"$release_json")"
           jq -e --arg source "$SOURCE_SHA" '
             .draft == true
-            and (.tag_name | test("^local-stage-[0-9a-f]{40}-[0-9]{8}T[0-9]{6}Z$"))
+            and .target_commitish == $source
+            and (.tag_name | test("^local-stage-" + $source + "-[0-9]{8}T[0-9]{6}Z$"))
           ' <<<"$release_json" >/dev/null
-          tag_ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$stage_tag")"
-          tag_type="$(jq -r .object.type <<<"$tag_ref")"
-          tag_sha="$(jq -r .object.sha <<<"$tag_ref")"
-          if [[ "$tag_type" == tag ]]; then
-            tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_sha")"
-            tag_type="$(jq -r .object.type <<<"$tag_object")"
-            tag_sha="$(jq -r .object.sha <<<"$tag_object")"
-          fi
-          test "$tag_type" = commit
-          test "$tag_sha" = "$SOURCE_SHA"
           version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
           bundle="agenterm-$version-local-candidate-input.tar.gz"
           assets="$(gh api "$release/assets?per_page=100")"

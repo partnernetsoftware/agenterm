@@ -60,7 +60,11 @@ fi
 gh release create "$tag" --draft --target "$source_sha" \
   --title "AgenTerm $version local six-cell input" \
   --notes "Unpublished local build input for test-only Candidate workflow $source_sha."
-release_json="$(gh api "repos/$repository/releases/tags/$tag")"
+releases="$(gh api "repos/$repository/releases?per_page=100")"
+release_json="$(jq -ce --arg tag "$tag" --arg source "$source_sha" '
+  [.[] | select(.tag_name == $tag and .draft == true and .target_commitish == $source)]
+  | if length == 1 then .[0] else error("draft release identity") end
+' <<<"$releases")"
 release_id="$(jq -er '.id | numbers' <<<"$release_json")"
 jq -e --arg tag "$tag" '.draft == true and .tag_name == $tag' \
   <<<"$release_json" >/dev/null
