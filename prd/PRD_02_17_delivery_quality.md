@@ -263,6 +263,14 @@ v0.1.19 planning and Candidate follow-up live in
   exact bytes to a runner-readable staging area. GitHub CI may download those
   staged bytes, run native platform tests and qualification checks, and return
   machine-readable receipts; it must not rebuild or replace the tested inputs.
+  Build all six release cells through one local cross-compilation lane so one
+  toolchain setup and Cargo dependency graph serve the whole matrix. If a
+  future, explicitly approved exception has to use GitHub compute for
+  compilation, use one centralized cross-build job that produces all six
+  cells, then pass those immutable outputs to execute-only runners. Never let
+  each native runner independently invoke Cargo: repeated per-cell toolchain
+  setup and dependency compilation turned prior six-grid attempts into a
+  resource and latency failure.
   A MiniCon trial found that runner-side `gh release download` cannot find an
   unpublished draft by tag; its tested transfer path uses a tagged prerelease.
   Because that briefly publishes an asset and creates a release tag, it is not
