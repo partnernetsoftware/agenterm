@@ -1517,6 +1517,19 @@ fn candidate_imports_one_verified_local_six_cell_build_without_hosted_compilatio
     assert!(LOCAL_SIX_CELL_BUILDER.contains("client-build-all"));
     assert!(LOCAL_SIX_CELL_BUILDER.contains("cargo xwin build"));
     assert!(LOCAL_SIX_CELL_BUILDER.contains("cargo zigbuild"));
+    for (platform, target) in [
+        ("macos-aarch64", "aarch64-apple-darwin"),
+        ("macos-x86_64", "x86_64-apple-darwin"),
+        ("linux-aarch64", "aarch64-unknown-linux-gnu"),
+        ("linux-x86_64", "x86_64-unknown-linux-gnu"),
+        ("windows-aarch64", "aarch64-pc-windows-msvc"),
+        ("windows-x86_64", "x86_64-pc-windows-msvc"),
+    ] {
+        assert!(
+            LOCAL_SIX_CELL_BUILDER.contains(&format!("\"{platform}\": \"{target}\"")),
+            "local bundle must use Candidate platform id {platform} for {target}"
+        );
+    }
     for target in [
         "aarch64-apple-darwin",
         "x86_64-apple-darwin",

@@ -253,12 +253,12 @@ cell_targets = {
     "win-x86_64": "x86_64-pc-windows-msvc",
 }
 platform_targets = {
-    "osx-aarch64": "aarch64-apple-darwin",
-    "osx-x86_64": "x86_64-apple-darwin",
-    "lnx-aarch64": "aarch64-unknown-linux-gnu",
-    "lnx-x86_64": "x86_64-unknown-linux-gnu",
-    "win-aarch64": "aarch64-pc-windows-msvc",
-    "win-x86_64": "x86_64-pc-windows-msvc",
+    "macos-aarch64": "aarch64-apple-darwin",
+    "macos-x86_64": "x86_64-apple-darwin",
+    "linux-aarch64": "aarch64-unknown-linux-gnu",
+    "linux-x86_64": "x86_64-unknown-linux-gnu",
+    "windows-aarch64": "aarch64-pc-windows-msvc",
+    "windows-x86_64": "x86_64-pc-windows-msvc",
 }
 target_platforms = {target: platform for platform, target in platform_targets.items()}
 cells = []
