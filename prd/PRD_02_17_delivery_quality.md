@@ -260,13 +260,27 @@ v0.1.19 planning and Candidate follow-up live in
 - [~] **Build placement is a hard resource rule:** GitHub-hosted CI must never
   compile AgenTerm or run Cargo builds. Build release binaries locally with the
   declared cross-compilation toolchain, verify and hash them, then upload the
-  exact bytes to GitHub's private draft/staging area. GitHub CI may download
-  those staged bytes, run native platform tests and qualification checks, and
-  return machine-readable receipts; it must not rebuild or replace the tested
-  inputs. When GitHub Actions usage is unavailable or exhausted, use the
-  matching UTM court for execute-only validation instead of falling back to a
-  hosted compile. Draft staging is transport only and grants no public release
-  or Promotion authority. This rule applies to Candidate and diagnostic CI
+  exact bytes to a runner-readable staging area. GitHub CI may download those
+  staged bytes, run native platform tests and qualification checks, and return
+  machine-readable receipts; it must not rebuild or replace the tested inputs.
+  A MiniCon trial found that runner-side `gh release download` cannot find an
+  unpublished draft by tag; its tested transfer path uses a tagged prerelease.
+  Because that briefly publishes an asset and creates a release tag, it is not
+  an automatic default: prove a private staging route first, or require the
+  user's explicit approval before making a temporary prerelease and verify its
+  cleanup afterwards.
+
+  Route the six test cells by what the host can execute efficiently: run
+  `osx-aarch64` natively on the local Apple Silicon host, and run
+  `osx-x86_64` locally through Rosetta after a bounded 15-second x86 health
+  probe. Use GitHub's native runners for the four Windows/Linux cells in
+  parallel. Use UTM courts when a test needs a logged-in desktop, an older OS,
+  offline execution, repeated local iteration, or when GitHub usage is
+  unavailable. MiniCon's 2026-09-23 trial measured its 71-test x86_64 Rosetta
+  suite at 2 seconds, its ARM64 local suite under 1 second, and five GitHub
+  Linux/Windows cells at 5–10 seconds each; its macOS Intel runner remained
+  queued for over seven minutes. These are routing evidence from MiniCon, not
+  AgenTerm qualification. This rule applies to Candidate and diagnostic CI
   workflows, including retries and reruns. The existing Candidate still
   compiles on its hosted matrix and must be changed to consume locally built
   artifacts before another Candidate is dispatched.
