@@ -64,6 +64,11 @@ use windows_sys::Win32::System::Threading::{
 /// implausible.
 pub const AGENT_ARGUMENT: &str = "--internal-console-agent";
 
+/// Rows the screen buffer keeps above the window, so Windows scrolls the
+/// window through the buffer instead of dropping the rows that leave the
+/// screen. Each of those scrolls is mirrored into the host's scrollback.
+const BUFFER_SCROLL_ROOM_ROWS: u32 = 500;
+
 /// How often the screen buffer is polled when the child is producing output.
 /// The console API offers no change notification, so this is the floor on
 /// output latency; 8 ms is under a frame and well below the cost of the
@@ -604,17 +609,30 @@ impl ConsoleHandles {
         Ok(info)
     }
 
-    /// Makes the buffer exactly the terminal's size.
+    /// Sizes the window to the terminal and gives the buffer room above it.
     ///
-    /// Buffer height equal to window height is deliberate: a taller buffer
-    /// would keep scrollback the host cannot see, and the host owns
-    /// scrollback. Shrinking has to move the window first and growing has to
-    /// move it last, because neither may ever exceed the buffer.
+    /// The buffer used to be exactly the window's height so that the host
+    /// owned all scrollback. In practice that lost it: with nowhere to
+    /// scroll into, Windows shifted the buffer's own contents and the vacated
+    /// rows were gone before the next scrape, so a program writing faster
+    /// than the poll left the host with almost no history (measured on
+    /// Windows 11 ARM, 2026-09-23: 200 lines of shell output produced one
+    /// scrollable row). With room above the window, Windows keeps those rows
+    /// and moves the window instead, which `render` already mirrors into the
+    /// host's scrollback one `\r\n` at a time. The host still owns what the
+    /// user scrolls through; this only stops the console from dropping rows
+    /// between two scrapes.
+    ///
+    /// Shrinking has to move the window first and growing has to move it
+    /// last, because neither may ever exceed the buffer.
     fn resize(&self, cols: u16, rows: u16) -> io::Result<()> {
         let handle = self.output.as_raw_handle() as HANDLE;
+        let buffer_rows = u32::from(rows)
+            .saturating_add(BUFFER_SCROLL_ROOM_ROWS)
+            .min(i16::MAX as u32) as i16;
         let target = COORD {
             X: cols.min(i16::MAX as u16) as i16,
-            Y: rows.min(i16::MAX as u16) as i16,
+            Y: buffer_rows,
         };
         let minimal = SMALL_RECT {
             Left: 0,
@@ -622,11 +640,28 @@ impl ConsoleHandles {
             Right: 0,
             Bottom: 0,
         };
+        // Keep the window where the console already has it and only change
+        // its size: the console writes at its cursor and moves the window
+        // itself as content scrolls. Forcing the window to the buffer's top
+        // showed the blank head after a resize, and forcing it to the bottom
+        // showed blank rows below a cursor still near the top -- both
+        // measured in the ARM court, 2026-09-23.
+        let window_rows = rows.max(1).min(i16::MAX as u16) as i16;
+        // Anchor the window on the cursor. The console writes at its cursor
+        // and this buffer is taller than the window, so a window left where
+        // it happened to be -- at the buffer's top, at its bottom, or where
+        // the previous size put it -- can show rows the program is not
+        // writing to. Both of those produced an all-blank screen across a
+        // zoom journey that resizes on every step (measured in the ARM court,
+        // 2026-09-23).
+        let cursor_row = self.info().map(|info| info.dwCursorPosition.Y).unwrap_or(0);
+        let highest_top = (target.Y - window_rows).max(0);
+        let top = (cursor_row - window_rows + 1).clamp(0, highest_top);
         let window = SMALL_RECT {
             Left: 0,
-            Top: 0,
+            Top: top,
             Right: target.X - 1,
-            Bottom: target.Y - 1,
+            Bottom: top + window_rows - 1,
         };
         unsafe {
             // SAFETY: handle is a live console output handle; both rectangles
@@ -645,6 +680,27 @@ impl ConsoleHandles {
             }
             if SetConsoleWindowInfo(handle, 1, &window) == 0 {
                 return Err(io::Error::last_os_error());
+            }
+        }
+        // The console can move its cursor while the buffer is resized, and a
+        // window that no longer contains it scrapes blank rows: zooming out
+        // (more rows) blanked the terminal until the next zoom in, measured
+        // in the ARM court on 2026-09-23. Re-read and correct once.
+        if let Ok(info) = self.info() {
+            let cursor = info.dwCursorPosition.Y;
+            if cursor < info.srWindow.Top || cursor > info.srWindow.Bottom {
+                let top = (cursor - window_rows + 1).clamp(0, (target.Y - window_rows).max(0));
+                let corrected = SMALL_RECT {
+                    Left: 0,
+                    Top: top,
+                    Right: target.X - 1,
+                    Bottom: top + window_rows - 1,
+                };
+                // SAFETY: handle is a live console output handle and the
+                // rectangle is an initialized local within the buffer.
+                unsafe {
+                    SetConsoleWindowInfo(handle, 1, &corrected);
+                }
             }
         }
         Ok(())
