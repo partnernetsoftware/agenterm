@@ -214,6 +214,7 @@ import hashlib
 import json
 import pathlib
 import shutil
+import tempfile
 import sys
 import tarfile
 
@@ -400,7 +401,7 @@ bundle_hash = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
 (bundle_path.with_name(bundle_path.name + ".sha256")).write_text(
     f"{bundle_hash}  {bundle_path.name}\n", encoding="utf-8"
 )
-verify_out = pathlib.Path(shutil.mkdtemp(prefix="local-bundle-check-", dir=root))
+verify_out = pathlib.Path(tempfile.mkdtemp(prefix="local-bundle-check-", dir=root))
 try:
     import subprocess
     subprocess.run(
