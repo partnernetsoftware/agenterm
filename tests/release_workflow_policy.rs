@@ -2,6 +2,16 @@ use std::sync::LazyLock;
 
 static CANDIDATE: LazyLock<String> =
     LazyLock::new(|| include_str!("../.github/workflows/candidate.yml").replace("\r\n", "\n"));
+static LOCAL_CANDIDATE_VERIFIER: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/verify-local-candidate.py").replace("\r\n", "\n"));
+static LOCAL_SIX_CELL_BUILDER: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/build-local-six-cell.sh").replace("\r\n", "\n"));
+static STAGE_LOCAL_CANDIDATE_DRAFT: LazyLock<String> = LazyLock::new(|| {
+    include_str!("../scripts/stage-local-candidate-draft.sh").replace("\r\n", "\n")
+});
+static CLEANUP_LOCAL_CANDIDATE_DRAFT: LazyLock<String> = LazyLock::new(|| {
+    include_str!("../scripts/cleanup-local-candidate-draft.sh").replace("\r\n", "\n")
+});
 static CROSS_BUILD_REHEARSAL: LazyLock<String> = LazyLock::new(|| {
     include_str!("../.github/workflows/cross-build-topology-rehearsal.yml").replace("\r\n", "\n")
 });
@@ -123,7 +133,6 @@ static GIT_ATTRIBUTES: LazyLock<String> =
 const CHECKOUT_SHA: &str = "08eba0b27e820071cde6df949e0beb9ba4906955";
 const UPLOAD_SHA: &str = "ea165f8d65b6e75b540449e92b4886f43607fa02";
 const DOWNLOAD_SHA: &str = "fa0a91b85d4f404e444e00e005971372dc801d16";
-const CACHE_SHA: &str = "0400d5f644dc74513175e3cd8d07132dd4860809";
 
 #[test]
 fn cross_build_rehearsal_is_one_builder_and_six_native_execute_only_cells() {
@@ -569,12 +578,14 @@ fn primary_unit_spec_keeps_both_packages_and_the_explicit_skip_set() {
 }
 
 #[test]
-fn jw1_host_denial_is_explicit_and_candidate_requires_independent_positive_evidence() {
+fn execute_only_candidate_does_not_claim_the_jw1_full_gate() {
     assert!(SCRIPT_ENGINE_RS.contains("error.code == \"managed_job_detach_unavailable\""));
     assert!(SCRIPT_ENGINE_RS.contains("record[\"state\"][\"code\"], \"owner_detach_unavailable\""));
     assert!(SCRIPT_ENGINE_RS.contains("EVIDENCE jw1_host_detach=BLOCKED"));
-    assert!(CANDIDATE.contains("Prove JW1 causal cancellation with an independent resident owner"));
-    assert!(CANDIDATE.contains("grep -q 'JW1 causal composite evidence:'"));
+    assert!(SCRIPT_ENGINE_RS.contains("fn jw1_recording_bridge_causal_composite()"));
+    assert!(LOCAL_SIX_CELL_BUILDER.contains("\"stress_included\": False"));
+    assert!(!CANDIDATE.contains("JW1 causal composite evidence:"));
+    assert!(!CANDIDATE.contains("check.cmd --release --include-stress"));
     assert!(!CHECK_QJS.contains("\"--skip\", \"jw1_recording_bridge_causal_composite\""));
 }
 
@@ -1117,15 +1128,15 @@ fn candidate_is_manual_exact_sha_and_has_no_publish_authority() {
     assert!(!CANDIDATE.contains("for workflow in ci-agenterm.yml"));
     assert!(CANDIDATE.contains("name: Verify exact current main source"));
     assert!(CANDIDATE.contains("ref: ${{ inputs.source_sha }}"));
-    assert!(CANDIDATE.contains("AGENTERM_CANDIDATE_SOURCE_SHA: ${{ inputs.source_sha }}"));
-    assert!(CANDIDATE.contains("git switch -C main \"%SOURCE_SHA%\""));
+    assert!(CANDIDATE.contains("staging_release_id:"));
+    assert!(CANDIDATE.contains("git/ref/tags/$stage_tag"));
 }
 
 #[test]
 fn candidate_scans_the_full_tracked_public_text_before_building() {
     let preflight = CANDIDATE
         .split_once("  preflight:\n")
-        .and_then(|(_, tail)| tail.split_once("\n  build:\n"))
+        .and_then(|(_, tail)| tail.split_once("\n  stage_parts:\n"))
         .map(|(preflight, _)| preflight)
         .expect("one preflight job before build");
     assert!(preflight.contains("name: Scan tracked public text for disclosures"));
@@ -1134,13 +1145,18 @@ fn candidate_scans_the_full_tracked_public_text_before_building() {
 }
 
 #[test]
-fn windows_candidate_retains_script_worker_crash_diagnostics() {
-    let quality = CANDIDATE
-        .split("      - name:")
-        .find(|step| step.contains("Run release quality gate"))
-        .expect("Windows release quality step");
-    assert!(quality.contains("AGENTERM_SCRIPT_WORKER_STDERR: inherit"));
-    assert!(quality.contains("agenterm-release-check.log"));
+fn candidate_qualification_receipt_names_the_prebuilt_execute_only_profile() {
+    assert!(LOCAL_SIX_CELL_BUILDER.contains("prebuilt-six-cell-execute-only"));
+    assert!(LOCAL_SIX_CELL_BUILDER.contains("\"stress_included\": False"));
+    assert!(LOCAL_SIX_CELL_BUILDER.contains("scripts/pre-push-check.sh"));
+    assert!(
+        LOCAL_SIX_CELL_BUILDER
+            .contains("pre_push_log=\"$AGENTERM_BUILD_DIST_DIR/pre-push-check.log\"")
+    );
+    assert!(LOCAL_CANDIDATE_VERIFIER.contains("prebuilt-six-cell-execute-only"));
+    assert!(LOCAL_CANDIDATE_VERIFIER.contains("receipt.get(\"stress_included\") is not False"));
+    assert!(!CANDIDATE.contains("Run release quality gate"));
+    assert!(!CANDIDATE.contains("check.cmd --release --include-stress"));
 }
 
 #[test]
@@ -1225,7 +1241,7 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
     }
     assert!(CANDIDATE.contains("name: Resolve checked-in release policy"));
     assert!(CANDIDATE.contains(
-        "needs: [preflight, build, windows_unsigned, windows_sign, chassis_pack, runtime]"
+        "needs: [preflight, stage_parts, windows_unsigned, windows_sign, chassis_pack, runtime]"
     ));
 
     let runtime = CANDIDATE
@@ -1239,17 +1255,17 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
         "ubuntu-24.04",
         "ubuntu-24.04-arm",
         "macos-15",
-        "macos-15-intel",
     ] {
         assert!(runtime.contains(runner), "missing runtime runner: {runner}");
     }
+    assert_eq!(runtime.matches("runner: macos-15").count(), 2);
     for (platform, os, arch) in [
         ("windows-x86_64", "Windows", "X64"),
         ("windows-aarch64", "Windows", "ARM64"),
         ("linux-x86_64", "Linux", "X64"),
         ("linux-aarch64", "Linux", "ARM64"),
         ("macos-aarch64", "macOS", "ARM64"),
-        ("macos-x86_64", "macOS", "X64"),
+        ("macos-x86_64", "macOS", "ARM64"),
     ] {
         let cell = runtime
             .split_once(&format!("platform_id: {platform}\n"))
@@ -1268,9 +1284,11 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
             "wrong architecture guard for {platform}"
         );
     }
-    assert!(runtime.contains("name: Guard native runner identity (no compile)"));
+    assert!(runtime.contains("name: Guard runner identity (no compile)"));
     assert!(runtime.contains("test \"$RUNNER_OS\" = \"$EXPECTED_RUNNER_OS\""));
     assert!(runtime.contains("test \"$RUNNER_ARCH\" = \"$EXPECTED_RUNNER_ARCH\""));
+    assert!(runtime.contains("arch -x86_64 runtime/agenterm cli --version"));
+    assert!(runtime.contains("Mach-O 64-bit executable x86_64"));
     assert!(runtime.contains("candidate-part-${{ matrix.platform_id }}"));
     assert!(runtime.contains("Scan final Windows Candidate bytes with Defender"));
     assert!(runtime.contains("name: cu-retirement-cell-smoke"));
@@ -1425,14 +1443,118 @@ fn release_policy_owners_reference_living_qjs_and_parked_ci_paths() {
     assert!(!AUTOMATION_AUDIT_QJS.contains("read_repo(\".github/workflows/ci-agenterm.yml\")"));
 }
 
+fn candidate_workflow_runs_no_compile_commands(workflow: &str) -> bool {
+    let mut in_run = false;
+    let mut run_indent = 0usize;
+    let is_compile = |line: &str| {
+        let command = line.trim().trim_start_matches("- ");
+        let starts_with_tool = |tool: &str| {
+            command == tool
+                || command.starts_with(&format!("{tool} "))
+                || command.starts_with(&format!("{tool}-"))
+        };
+        starts_with_tool("cargo")
+            || starts_with_tool("rustup")
+            || starts_with_tool("rustc")
+            || command.contains("cargo build")
+            || command.contains("cargo xwin")
+            || command.contains("cargo zigbuild")
+            || command.contains("rustup target add")
+            || command.contains("./scripts/bootstrap.sh")
+            || command.contains("check.cmd")
+            || command.contains("./check.sh")
+            || command.contains("build.bat")
+            || command.contains("./build.sh")
+    };
+    for line in workflow.lines() {
+        let trimmed = line.trim_start();
+        let indent = line.len() - trimmed.len();
+        let entry = trimmed.strip_prefix("- ").unwrap_or(trimmed);
+        if entry.starts_with("run:") {
+            let inline = entry.trim_start_matches("run:").trim();
+            if !inline.is_empty()
+                && inline != "|"
+                && inline != ">"
+                && inline != ">-"
+                && is_compile(inline)
+            {
+                return false;
+            }
+            in_run = true;
+            run_indent = indent;
+            continue;
+        }
+        if !in_run {
+            continue;
+        }
+        if !trimmed.is_empty() && indent <= run_indent {
+            in_run = false;
+            continue;
+        }
+        if is_compile(trimmed) {
+            return false;
+        }
+    }
+    true
+}
+
 #[test]
-fn candidate_runs_one_full_gate_and_seals_six_platform_parts_plus_chassis_product() {
-    assert_eq!(
-        CANDIDATE
-            .matches("check.cmd --release --include-stress")
-            .count(),
-        1
+fn candidate_imports_one_verified_local_six_cell_build_without_hosted_compilation() {
+    assert!(candidate_workflow_runs_no_compile_commands(&CANDIDATE));
+    assert!(!candidate_workflow_runs_no_compile_commands(
+        "jobs:\n  build:\n    steps:\n      - run: |\n          cargo build --release\n"
+    ));
+    assert!(!candidate_workflow_runs_no_compile_commands(
+        "jobs:\n  build:\n    steps:\n      - run: ./scripts/bootstrap.sh release\n"
+    ));
+    assert!(!candidate_workflow_runs_no_compile_commands(
+        "jobs:\n  package:\n    steps:\n      - run: env MODE=release bash -c 'cargo build --release'\n"
+    ));
+    assert!(CANDIDATE.contains("staging_release_id:"));
+    assert!(CANDIDATE.contains("Download and verify local six-cell build draft"));
+    assert!(CANDIDATE.contains("scripts/verify-local-candidate.py"));
+    assert!(CANDIDATE.contains("Upload verified local build inputs"));
+    assert!(LOCAL_SIX_CELL_BUILDER.contains("client-build-all"));
+    assert!(LOCAL_SIX_CELL_BUILDER.contains("cargo xwin build"));
+    assert!(LOCAL_SIX_CELL_BUILDER.contains("cargo zigbuild"));
+    for target in [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-unknown-linux-gnu",
+        "aarch64-pc-windows-msvc",
+        "x86_64-pc-windows-msvc",
+    ] {
+        assert!(
+            LOCAL_SIX_CELL_BUILDER.contains(target),
+            "missing local target {target}"
+        );
+    }
+    assert!(LOCAL_CANDIDATE_VERIFIER.contains("local Candidate bundle contains an unsafe entry"));
+    assert!(LOCAL_CANDIDATE_VERIFIER.contains("local Candidate Chassis loader mismatch"));
+    assert!(LOCAL_CANDIDATE_VERIFIER.contains("local Candidate bundle checksum mismatch"));
+    assert!(LOCAL_CANDIDATE_VERIFIER.contains("pre-push-check.log"));
+}
+
+#[test]
+fn local_candidate_draft_upload_is_unpublished_exact_sha_and_cleanable() {
+    assert!(LOCAL_SIX_CELL_BUILDER.contains("six-cell release build requires a clean worktree"));
+    assert!(LOCAL_SIX_CELL_BUILDER.contains("six-cell release build requires exact origin/main"));
+    assert!(
+        STAGE_LOCAL_CANDIDATE_DRAFT
+            .contains("gh release create \"$tag\" --draft --target \"$source_sha\"")
     );
+    assert!(STAGE_LOCAL_CANDIDATE_DRAFT.contains("scripts/verify-local-candidate.py"));
+    assert!(STAGE_LOCAL_CANDIDATE_DRAFT.contains("LOCAL CANDIDATE DRAFT READY"));
+    assert!(STAGE_LOCAL_CANDIDATE_DRAFT.contains("(length == 2)"));
+    assert!(CLEANUP_LOCAL_CANDIDATE_DRAFT.contains(".draft == true"));
+    assert!(
+        CLEANUP_LOCAL_CANDIDATE_DRAFT.contains("^local-stage-[0-9a-f]{40}-[0-9]{8}T[0-9]{6}Z$")
+    );
+}
+
+#[test]
+fn candidate_imports_and_seals_six_platform_parts_plus_chassis_product() {
     for platform in [
         "windows-x86_64",
         "windows-aarch64",
@@ -1448,8 +1570,8 @@ fn candidate_runs_one_full_gate_and_seals_six_platform_parts_plus_chassis_produc
     }
     assert!(CANDIDATE.contains("pattern: candidate-part-*"));
     assert!(CANDIDATE.contains("merge-multiple: true"));
-    assert!(CANDIDATE.contains("target/qualification/receipt.json"));
-    assert!(CANDIDATE.contains("name: Stage flat candidate part"));
+    assert!(CANDIDATE.contains("local-build-input/qualification-receipt.json"));
+    assert!(CANDIDATE.contains("name: Import local package or package native Linux bytes"));
     assert!(CANDIDATE.contains("path: candidate-part/"));
     assert!(CANDIDATE.contains("cli script \\\n            task run candidate-aggregate"));
     assert!(!CANDIDATE.contains("candidate-aggregate.rh"));
@@ -1458,10 +1580,8 @@ fn candidate_runs_one_full_gate_and_seals_six_platform_parts_plus_chassis_produc
     assert!(CANDIDATE.contains("chassis-product/agenterm-$version-chassis-product.tgz"));
     // Aggregate seals the bytes chassis_pack composed and runtime installed.
     assert!(CANDIDATE.contains("\"chassis-product/$tgz.provenance.json\" candidate-input/"));
-    assert!(CANDIDATE.contains("name: Build thin Chassis-L1 loader"));
-    assert!(CANDIDATE.contains("--features loader"));
-    assert!(CANDIDATE.contains("python3 scripts/chassis-stage-l1-loader.py"));
-    assert!(CANDIDATE.contains("--loader target/chassis-l1-loader"));
+    assert!(CANDIDATE.contains("Download verified local build inputs"));
+    assert!(LOCAL_SIX_CELL_BUILDER.contains("python3 scripts/chassis-stage-l1-loader.py"));
     assert!(
         CANDIDATE.contains("task run candidate-aggregate --manifest agenterm.tasks.json -- \\")
     );
@@ -1494,72 +1614,15 @@ fn staged_artifact_gate_pins_the_complete_mcp_catalog() {
 }
 
 #[test]
-fn candidate_cargo_home_caches_are_platform_isolated_and_revision_reusable() {
-    let input_hash = "${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml', 'build.rs', 'scripts/artifacts.json') }}";
-    let generic_key = format!(
-        "cargo-home-candidate-v2-${{{{ matrix.platform_id }}}}-${{{{ runner.os }}}}-${{{{ runner.arch }}}}-rust1.97-{input_hash}"
-    );
-    let windows_arm64_key = format!(
-        "cargo-home-candidate-v2-windows-aarch64-${{{{ runner.os }}}}-${{{{ runner.arch }}}}-rust1.97-{input_hash}"
-    );
-
-    assert_eq!(CANDIDATE.matches(&format!("key: {generic_key}")).count(), 2);
-    assert_eq!(
-        CANDIDATE
-            .matches(&format!("key: {windows_arm64_key}"))
-            .count(),
-        2
-    );
-    assert!(!CANDIDATE.contains("cargo-home-candidate-${{ runner.os }}"));
-    assert!(!CANDIDATE.contains("cargo-home-v3-windows-aarch64"));
-
-    for step_name in [
-        "Restore candidate Cargo cache",
-        "Save candidate Cargo cache",
-        "Restore Windows ARM64 cargo cache",
-        "Save Windows ARM64 cargo cache",
-    ] {
-        let step = CANDIDATE
-            .split("      - name:")
-            .find(|step| step.contains(step_name))
-            .expect("candidate Cargo-home cache step");
-        assert!(step.contains(CACHE_SHA));
-        assert!(!step.contains("inputs.source_sha"));
-        if step_name.starts_with("Restore") {
-            assert!(step.contains("restore-keys:"));
-        } else {
-            assert!(!step.contains("restore-keys:"));
-        }
-    }
-
-    for step_name in [
-        "Restore candidate Cargo cache",
-        "Save candidate Cargo cache",
-    ] {
-        let step = CANDIDATE
-            .split("      - name:")
-            .find(|step| step.contains(step_name))
-            .expect("generic candidate Cargo-home cache step");
-        assert!(step.contains("matrix.platform_id != 'windows-aarch64'"));
-    }
-}
-
-#[test]
-fn windows_candidate_target_cache_is_exact_source_and_success_only() {
-    let restore = CANDIDATE
-        .split("      - name:")
-        .find(|step| step.contains("Restore Windows x86_64 debug and release-fast targets"))
-        .expect("Windows target cache restore step");
-    let save = CANDIDATE
-        .split("      - name:")
-        .find(|step| step.contains("Save Windows x86_64 debug and release-fast targets"))
-        .expect("Windows target cache save step");
-
-    assert!(restore.contains("cargo-target-v3-windows-x86_64-candidate-"));
-    assert!(restore.contains("${{ inputs.source_sha }}"));
-    assert!(!restore.contains("restore-keys:"));
-    assert!(save.contains("if: success() && matrix.platform_id == 'windows-x86_64'"));
-    assert!(save.contains("cargo-target-v3-windows-x86_64-candidate-"));
+fn candidate_hosted_jobs_have_no_cargo_caches_or_compiler_setup() {
+    assert!(!CANDIDATE.contains("actions/cache/restore"));
+    assert!(!CANDIDATE.contains("actions/cache/save"));
+    assert!(!CANDIDATE.contains("Restore candidate Cargo cache"));
+    assert!(!CANDIDATE.contains("Install sccache"));
+    assert!(!CANDIDATE.contains("rustup target add"));
+    assert!(!CANDIDATE.contains("actions-rust-lang/setup-rust-toolchain"));
+    assert!(!CANDIDATE.contains("dtolnay/rust-toolchain"));
+    assert!(candidate_workflow_runs_no_compile_commands(&CANDIDATE));
 }
 
 #[test]
@@ -2567,28 +2630,11 @@ fn a_failed_smoke_gate_carries_its_failure_bundle_out_of_ci() {
     let candidate = include_str!("../.github/workflows/candidate.yml").replace("\r\n", "\n");
     let survey =
         include_str!("../.github/workflows/windows-survey-diagnostic.yml").replace("\r\n", "\n");
-
-    for (name, text) in [("candidate.yml", &candidate), ("survey", &survey)] {
-        assert!(
-            text.contains(BUNDLE_PATH),
-            "{name} must upload the smoke failure bundle directory, not just the log"
-        );
-    }
-
-    // The bundle is worthless if it is collected by a step that only runs on
-    // success: the bundle exists precisely when the gate failed.
-    let upload = candidate
-        .split_once("name: Upload failed quality-gate diagnostics")
-        .expect("candidate.yml must still upload failure diagnostics")
-        .1;
-    let upload_block = upload
-        .split_once(BUNDLE_PATH)
-        .expect("the bundle path must be inside that upload step")
-        .0;
     assert!(
-        upload_block.contains("if: failure()"),
-        "the failure-diagnostics upload must be conditioned on failure"
+        survey.contains(BUNDLE_PATH),
+        "the diagnostic workflow must upload its smoke failure bundle"
     );
+    assert!(!candidate.contains("Run release quality gate"));
 }
 
 /// No gate may spell the workspace version as a literal.
@@ -2967,37 +3013,12 @@ fn every_workflow_script_run_declares_both_engine_budgets() {
     assert!(offenders.is_empty(), "{}", offenders.join("\n"));
 }
 
-/// The Windows cell runs a compiler wrapper downloaded at job time, and that
-/// wrapper sees every source file the Candidate compiles. It must be pinned to
-/// one version and verified against a checksum before it is put on PATH --
-/// otherwise the release's compiler is whatever the download URL served that
-/// day.
 #[test]
-fn the_downloaded_compiler_wrapper_is_pinned_and_checksummed() {
+fn candidate_does_not_install_or_run_a_hosted_compiler_wrapper() {
     let candidate = include_str!("../.github/workflows/candidate.yml");
-    let install = candidate
-        .split("- name: Install sccache")
-        .nth(1)
-        .and_then(|rest| rest.split("\n      - name:").next())
-        .expect("the Windows cell installs sccache");
-    assert!(
-        install.contains("SCCACHE_VERSION: 0.8.2"),
-        "version must be pinned"
-    );
-    let sum = install
-        .split("SCCACHE_SHA256: ")
-        .nth(1)
-        .and_then(|rest| rest.split_whitespace().next())
-        .expect("a checksum must be declared");
-    assert_eq!(sum.len(), 64, "the checksum must be a full sha256");
-    assert!(sum.chars().all(|c| c.is_ascii_hexdigit()));
-    let verify = install
-        .find("sha256sum -c")
-        .expect("the download must be verified");
-    let enable = install
-        .find("RUSTC_WRAPPER=")
-        .expect("the wrapper is enabled");
-    assert!(verify < enable, "verify the bytes before enabling them");
+    assert!(!candidate.contains("Install sccache"));
+    assert!(!candidate.contains("RUSTC_WRAPPER"));
+    assert!(candidate_workflow_runs_no_compile_commands(candidate));
 }
 
 /// A step declared twice in one job runs twice. Install-twice is idempotent,
@@ -3134,7 +3155,7 @@ fn download_breaks_on_rerun(aggregate: &str, step_name: &str) -> bool {
 #[test]
 fn candidate_runtime_installs_one_sealed_chassis_product() {
     let pack = candidate_job("chassis_pack");
-    assert!(pack.contains("needs: [preflight, build, windows_unsigned, windows_sign]"));
+    assert!(pack.contains("needs: [preflight, stage_parts, windows_unsigned, windows_sign]"));
     assert!(pack.contains("pattern: candidate-part-*"));
     assert!(pack.contains("python3 scripts/chassis-candidate-pack.py"));
     assert!(pack.contains(
@@ -3150,7 +3171,9 @@ fn candidate_runtime_installs_one_sealed_chassis_product() {
 
     let runtime = candidate_job("runtime");
     assert!(
-        runtime.contains("needs: [preflight, build, windows_unsigned, windows_sign, chassis_pack]")
+        runtime.contains(
+            "needs: [preflight, stage_parts, windows_unsigned, windows_sign, chassis_pack]"
+        )
     );
     assert!(runtime.contains("needs.chassis_pack.result == 'success'"));
     assert!(runtime.contains("name: ${{ needs.chassis_pack.outputs.artifact }}"));

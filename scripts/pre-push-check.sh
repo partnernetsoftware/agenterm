@@ -42,7 +42,7 @@ step minicon-consumer python3 ./scripts/minicon-consumer-matrix.py --all --test-
 # public catalog clients, host Clippy and the library tests -- for about 90
 # seconds. It is the widest local net available and it costs almost nothing.
 step quick-lane env AGENTERM_BOOTSTRAP_TASK=check ./scripts/bootstrap.sh
-step policy cargo test --locked --test release_workflow_policy
+step policy sh -c 'cargo test --locked --test release_workflow_policy --test candidate_local_receipt && python3 ./scripts/verify-local-candidate-test.py'
 step redact ./scripts/doc-redact-check.sh
 
 if [ "$failed" -ne 0 ]; then

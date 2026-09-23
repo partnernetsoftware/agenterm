@@ -477,9 +477,101 @@ export function verify_platform(
 }
 
 export function validate_receipt(
-  receipt_path, source_sha, cargo_hash, artifact_hash, gate_hash, sbom_hash, gate_path
+  receipt_path, source_sha, version, cargo_hash, artifact_hash, gate_hash, sbom_hash, gate_path, asset_root
 ) {
   const receipt = rh.parse_file(receipt_path);
+  if (receipt.schema_version === 2) {
+    const build_name = "local-build-manifest.json";
+    require_asset_name(build_name);
+    const build_path = rh.join(asset_root, build_name);
+    require_file(build_path, "candidate_local_build_manifest_missing");
+    const build_hash = rh.sha256_file(build_path);
+    const build = rh.parse_file(build_path);
+    rh.require(
+      receipt.product === "AgenTerm"
+        && receipt.profile === "prebuilt-six-cell-execute-only"
+        && receipt.release === true
+        && receipt.stress_included === false
+        && receipt.version === text(version),
+      "candidate_receipt_profile"
+    );
+    rh.require(receipt.source_sha === text(source_sha), "candidate_receipt_source");
+    rh.require(
+      receipt.local_build_manifest.name === build_name
+        && receipt.local_build_manifest.size === file_size(build_path, "candidate_local_build_manifest_missing")
+        && receipt.local_build_manifest.sha256 === build_hash,
+      "candidate_local_build_manifest_identity"
+    );
+    rh.require(
+      receipt.pre_push_check.status === "passed"
+        && receipt.pre_push_check.name === "pre-push-check.log"
+        && receipt.pre_push_check.size === file_size(
+          rh.join(asset_root, "pre-push-check.log"), "candidate_pre_push_log_missing"
+        )
+        && valid_sha256(text(receipt.pre_push_check.sha256)),
+      "candidate_pre_push_receipt"
+    );
+    const pre_push_log = rh.join(asset_root, "pre-push-check.log");
+    require_file(pre_push_log, "candidate_pre_push_log_missing");
+    rh.require(
+      rh.sha256_file(pre_push_log) === text(receipt.pre_push_check.sha256),
+      "candidate_pre_push_log_identity"
+    );
+    rh.require(
+      build.schema_version === 1
+        && build.kind === "agenterm-local-six-cell-build"
+        && build.source_sha === text(source_sha)
+        && build.version === text(receipt.version)
+        && build.profile === "release"
+        && build.pre_push_check.status === "passed"
+        && build.pre_push_check.sha256 === text(receipt.pre_push_check.sha256),
+      "candidate_local_build_profile"
+    );
+    const input_hashes = child(build, "source_inputs");
+    rh.require(
+      input_hashes.cargo_lock_sha256 === text(cargo_hash)
+        && input_hashes.artifact_manifest_sha256 === text(artifact_hash)
+        && input_hashes.release_policy_sha256 === text(receipt.release_policy_sha256)
+        && input_hashes.gate_manifest_sha256 === text(gate_hash)
+        && input_hashes.sbom_sha256 === text(sbom_hash),
+      "candidate_local_build_source_inputs"
+    );
+    const expected_cells = [
+      "windows-x86_64", "windows-aarch64", "linux-x86_64",
+      "linux-aarch64", "macos-x86_64", "macos-aarch64"
+    ];
+    const actual_cells = [];
+    for (const cell of list(build, "cells")) {
+      const id = text(cell.platform_id);
+      check(cell.state === "PASS", "candidate_local_build_cell_status:", id);
+      check(rh.array_has(expected_cells, id), "candidate_local_build_cell_unknown:", id);
+      check(!rh.array_has(actual_cells, id), "candidate_local_build_cell_duplicate:", id);
+      const artifacts = list(cell, "artifacts");
+      check(artifacts.length > 0, "candidate_local_build_cell_empty:", id);
+      for (const item of artifacts) {
+        check(
+          text(item.name) !== "" && item.bytes > 0 && valid_sha256(text(item.sha256)),
+          "candidate_local_build_artifact_identity:", id
+        );
+      }
+      actual_cells.push(id);
+    }
+    rh.require(exact_values(expected_cells, actual_cells), "candidate_local_build_cell_set");
+    const expected_loaders = [
+      "win-x86_64", "win-aarch64", "lnx-x86_64",
+      "lnx-aarch64", "osx-x86_64", "osx-aarch64"
+    ];
+    const actual_loaders = [];
+    for (const loader of list(build, "chassis_loaders")) {
+      const cell = text(loader.cell);
+      check(rh.array_has(expected_loaders, cell), "candidate_local_loader_unknown:", cell);
+      check(!rh.array_has(actual_loaders, cell), "candidate_local_loader_duplicate:", cell);
+      check(loader.bytes > 0 && valid_sha256(text(loader.sha256)), "candidate_local_loader_identity:", cell);
+      actual_loaders.push(cell);
+    }
+    rh.require(exact_values(expected_loaders, actual_loaders), "candidate_local_loader_cell_set");
+    return;
+  }
   const gate_spec = rh.parse_file(gate_path);
   const provenance = child(receipt, "provenance");
   rh.require(
@@ -666,12 +758,42 @@ export function validate_manifest(source_root_value, manifest_path_value, asset_
     qualification.sha256 === receipt_hash && qualification.size === receipt_size,
     "candidate_receipt_identity"
   );
-  validate_receipt(receipt_path, source_sha, cargo_hash, artifact_hash, gate_hash, sbom_hash, gate_path);
+  const receipt_document = rh.parse_file(receipt_path);
+  const expected_files = [receipt_name, sbom_name];
+  const local_build_name = "local-build-manifest.json";
+  let local_build = null;
+  if (receipt_document.schema_version === 2) {
+    const local_build_path = rh.join(asset_root, local_build_name);
+    require_file(local_build_path, "candidate_local_build_manifest_missing");
+    local_build = {
+      name: local_build_name,
+      size: file_size(local_build_path, "candidate_local_build_manifest_missing"),
+      sha256: rh.sha256_file(local_build_path)
+    };
+    rh.require(
+      qualification.profile === "prebuilt-six-cell-execute-only"
+        && qualification.local_build_manifest.name === local_build.name
+        && qualification.local_build_manifest.size === local_build.size
+        && qualification.local_build_manifest.sha256 === local_build.sha256
+        && qualification.pre_push_check.name === "pre-push-check.log"
+        && qualification.pre_push_check.size === file_size(
+          rh.join(asset_root, "pre-push-check.log"), "candidate_pre_push_log_missing"
+        )
+        && qualification.pre_push_check.sha256 === rh.sha256_file(
+          rh.join(asset_root, "pre-push-check.log")
+        ),
+      "candidate_local_build_manifest_identity"
+    );
+    expected_files.push("pre-push-check.log");
+  }
+  validate_receipt(
+    receipt_path, source_sha, version, cargo_hash, artifact_hash, gate_hash, sbom_hash, gate_path, asset_root
+  );
   validate_cu_runtime_summary(cu_runtime, source_sha, run.id, run.attempt);
 
   const assets = list(manifest, "assets");
   rh.require(assets.length === 7, "candidate_asset_count");
-  const expected_files = [receipt_name, sbom_name];
+  if (local_build !== null) { expected_files.push(local_build.name); }
   let mac_channel = "";
   for (const spec of platform_specs(version)) {
     // rh read the aarch64 channel after that cell's check and compared the

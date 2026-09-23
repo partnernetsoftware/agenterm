@@ -1,0 +1,9 @@
+import * as rh from "lib/rh_compat";
+import * as candidate from "lib/release_candidate";
+
+const args = rh.args();
+rh.require(args.length === 9, "local_candidate_receipt_test_arguments");
+candidate.validate_receipt(
+  args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8]
+);
+print("PASS local six-cell receipt validation");

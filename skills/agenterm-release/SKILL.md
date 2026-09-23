@@ -48,33 +48,43 @@ delivery topology from an older release or from Git push behavior.
 
 1. Synchronize and inspect `origin/main`; preserve other platform agents'
    commits.
-2. Require the exact lowercase 40-character current `origin/main` HEAD.
-   Ordinary push workflows are parked as `.disabled`, so Candidate owns its
-   complete qualification and must not wait for impossible external CI runs.
-   Candidate rejects a historical main ancestor because `workflow_dispatch`
-   controller identity, provenance, and Promotion must remain one unambiguous
-   commit.
-3. Run local lint and only the owning policy/fixture tests before dispatch.
-   When Windows signing or qualification is in scope, also require the company
+2. Require the exact lowercase 40-character current `origin/main` HEAD and a
+   clean worktree. Ordinary feedback CI remains separate from release
+   qualification. Candidate rejects a historical main ancestor because
+   `workflow_dispatch` controller identity, provenance, and Promotion must
+   remain one unambiguous commit.
+3. Run `scripts/build-local-six-cell.sh` on that exact SHA. It runs the
+   pre-push gate, cross-compiles all six client cells and Chassis loaders in
+   one local lane, packages host-supported archives, and emits a checksummed
+   input bundle. GitHub Candidate jobs must consume that bundle; hosted jobs
+   must not invoke Cargo, rustup, build/check aliases, or a compiler setup.
+4. When Windows signing or qualification is in scope, also require the company
    signing readiness court; do not spend a provider operation on a dirty tree,
    stale main, or published version identity.
-4. Dispatch `candidate.yml` for that exact SHA through an actually available,
-   authenticated Actions capability.
-5. If dispatch is unavailable, stop and give the human the exact workflow
+5. Verify and upload the bundle to an unpublished staging draft with
+   `scripts/stage-local-candidate-draft.sh`. Record the returned numeric release
+   ID. Dispatch `candidate.yml` with both `source_sha` and
+   `staging_release_id` through an available authenticated Actions capability.
+   The workflow verifies that the draft tag resolves to the exact source SHA,
+   verifies the bundle and checksum, and only then uploads the input artifact
+   consumed by its execute-only jobs.
+6. If dispatch is unavailable, stop and give the human the exact workflow
    link, SHA, fields, and non-publishing effect. Never extract a GCM secret to
    manufacture REST authentication.
-6. After dispatch, resolve the newest `Release Candidate` run matching the
+7. After dispatch, resolve the newest `Release Candidate` run matching the
    exact SHA and `workflow_dispatch` once; record its `run_id` and
    `run_attempt`. If a human dispatched it, their `已启动` confirmation is
    enough to begin that one-time resolution; they do not need to copy an ID.
-7. Observe the retained run ID through one bounded observer, with a 75-minute
-   deadline after jobs begin. Verify preflight, all six platform parts, the
-   single Windows stress qualification, aggregate, and sealed Candidate
-   artifact. The workflow's success and sealed artifact are hard Candidate
-   validity requirements. The separate read-only Workflow Observer is required
-   delivery-quality evidence but an observer outage does not turn a valid
-   Candidate into a failed build.
-8. On failure, fetch only the failed job log/artifact, fix the owning cause,
+8. Observe the retained run ID through one bounded observer. Verify the six
+   imported parts, six runtime cells, installed Chassis journey, Defender and
+   ACU receipts, aggregate, and sealed Candidate artifact. The current schema-v2
+   receipt is `prebuilt-six-cell-execute-only` and explicitly sets
+   `stress_included: false`; do not describe it as the former Windows
+   stress-inclusive qualification. The workflow's success and sealed artifact
+   are hard Candidate validity requirements. The separate read-only Workflow
+   Observer is delivery-quality evidence, but an observer outage does not turn
+   a valid Candidate into a failed build.
+9. On failure, fetch only the failed job log/artifact, fix the owning cause,
    validate locally, push a coherent increment, and create a new Candidate.
    Never rebuild silently during Promotion.
 

@@ -7,6 +7,10 @@ on:
         description: Exact 40-character current main HEAD to qualify
         required: true
         type: string
+      staging_release_id:
+        description: Draft release ID containing the locally built six-cell input bundle
+        required: true
+        type: string
 
 permissions:
   actions: read
@@ -27,6 +31,7 @@ jobs:
       # this successful job and its outputs, so consumers must not rebuild the
       # name from their own github.run_attempt.
       runtime_control_artifact: candidate-runtime-control-${{ github.run_id }}-${{ github.run_attempt }}
+      local_input_artifact: candidate-local-input-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
@@ -84,6 +89,59 @@ jobs:
             echo "signed_macos=$signed_macos"
           } >>"$GITHUB_OUTPUT"
 
+      - name: Download and verify local six-cell build draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGING_RELEASE_ID: ${{ inputs.staging_release_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$STAGING_RELEASE_ID" =~ ^[0-9]+$ ]]
+          release="repos/$GITHUB_REPOSITORY/releases/$STAGING_RELEASE_ID"
+          release_json="$(gh api "$release")"
+          stage_tag="$(jq -r .tag_name <<<"$release_json")"
+          jq -e --arg source "$SOURCE_SHA" '
+            .draft == true
+            and (.tag_name | test("^local-stage-[0-9a-f]{40}-[0-9]{8}T[0-9]{6}Z$"))
+          ' <<<"$release_json" >/dev/null
+          tag_ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$stage_tag")"
+          tag_type="$(jq -r .object.type <<<"$tag_ref")"
+          tag_sha="$(jq -r .object.sha <<<"$tag_ref")"
+          if [[ "$tag_type" == tag ]]; then
+            tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_sha")"
+            tag_type="$(jq -r .object.type <<<"$tag_object")"
+            tag_sha="$(jq -r .object.sha <<<"$tag_object")"
+          fi
+          test "$tag_type" = commit
+          test "$tag_sha" = "$SOURCE_SHA"
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
+          bundle="agenterm-$version-local-candidate-input.tar.gz"
+          assets="$(gh api "$release/assets?per_page=100")"
+          bundle_id="$(jq -er --arg name "$bundle" '[.[] | select(.name == $name)] | if length == 1 then .[0].id else error("bundle asset count") end' <<<"$assets")"
+          checksum_id="$(jq -er --arg name "$bundle.sha256" '[.[] | select(.name == $name)] | if length == 1 then .[0].id else error("checksum asset count") end' <<<"$assets")"
+          mkdir -p local-input
+          gh api -H 'Accept: application/octet-stream' \
+            "repos/$GITHUB_REPOSITORY/releases/assets/$bundle_id" >"local-input/$bundle"
+          gh api -H 'Accept: application/octet-stream' \
+            "repos/$GITHUB_REPOSITORY/releases/assets/$checksum_id" >"local-input/$bundle.sha256"
+          python3 scripts/verify-local-candidate.py \
+            --archive "local-input/$bundle" \
+            --checksum "local-input/$bundle.sha256" \
+            --out "$RUNNER_TEMP/local-candidate" \
+            --source-sha "$SOURCE_SHA" --version "$version"
+          mkdir -p "$RUNNER_TEMP/verified-local-input"
+          cp -R "$RUNNER_TEMP/local-candidate/candidate-input" \
+            "$RUNNER_TEMP/verified-local-input/"
+
+      - name: Upload verified local build inputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: candidate-local-input-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/verified-local-input/candidate-input/
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload exact-source ACU runtime control
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -101,784 +159,89 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
-  build:
+  # Hosted jobs import exact locally compiled bytes. This matrix may package
+  # the native Linux archives from those bytes, but never invokes Cargo.
+  stage_parts:
     needs: preflight
-    env:
-      AGENTERM_CANDIDATE_SOURCE_SHA: ${{ inputs.source_sha }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform_id: windows-x86_64
-            # windows-2025 to match the runtime cells below, which have always
-            # used it. This is alignment, not a fix: both hosted images deny
-            # Windows job breakaway. The earlier reading that windows-2025
-            # granted it came from a probe that could not show it -- cli-smoke
-            # now owns its own server and no longer depends on an autostarted
-            # one surviving, so its passing says nothing about breakaway.
-            # Candidate 35536411980 reported the denial five times on this very
-            # image.
             runner: windows-2025
-            # 90, not 45: this is the heaviest leg -- full release quality gate,
-            # release-profile build, packaging and staging -- and it runs against
-            # the Candidate-only `cargo-target-*-candidate-` cache prefix, so a
-            # cold one has nothing warm to lean on. Candidate run 31551243623
-            # spent 48m09s here and was killed at the 45m budget (GitHub records a
-            # job timeout as `cancelled`), which skipped `aggregate` after the
-            # other five legs had already succeeded.
-            timeout_minutes: 90
+            family: windows
+            cell: win-x86_64
           - platform_id: windows-aarch64
             runner: ubuntu-24.04
-            timeout_minutes: 45
+            family: windows
+            cell: win-aarch64
           - platform_id: linux-x86_64
-            runner: ubuntu-latest
-            timeout_minutes: 30
+            runner: ubuntu-24.04
+            family: linux
+            cell: lnx-x86_64
           - platform_id: linux-aarch64
             runner: ubuntu-24.04-arm
-            timeout_minutes: 30
+            family: linux
+            cell: lnx-aarch64
           - platform_id: macos-aarch64
-            runner: macos-latest
-            # This leg also proves JW1 on a host that permits an independent
-            # resident owner; Windows hosted runners can deny Job breakaway.
-            timeout_minutes: 45
+            runner: macos-15
+            family: macos
+            cell: osx-aarch64
           - platform_id: macos-x86_64
-            runner: macos-latest
-            timeout_minutes: 30
+            # GitHub's Intel macOS queue is scarce. This runner is ARM64 and
+            # executes the locally built x86_64 product through Rosetta.
+            runner: macos-15
+            family: macos
+            cell: osx-x86_64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: ${{ matrix.timeout_minutes }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           persist-credentials: false
           ref: ${{ inputs.source_sha }}
 
-      - name: Verify tag matches Cargo version
-        shell: bash
-        run: |
-          python3 <<'PY'
-          import re
-          import sys
-
-          cargo = open("Cargo.toml", encoding="utf-8").read()
-          match = re.search(
-              r'(?ms)^\[package\].*?^version\s*=\s*"(?P<version>[^"]+)"',
-              cargo,
-          )
-          if not match:
-              sys.exit("Could not read Cargo.toml package version.")
-          expected = f"v{match.group('version')}"
-          if expected == "v0.1.7":
-              sys.exit("v0.1.7 is an internal-only baseline and cannot become a candidate.")
-          PY
-
-      - name: Install lint components
-        if: matrix.platform_id == 'windows-x86_64'
-        run: rustup component add rustfmt clippy
-
-      - name: Restore Windows x86_64 debug and release-fast targets
-        id: restore-windows-x86_64-target-cache
-        if: matrix.platform_id == 'windows-x86_64'
-        continue-on-error: true
-        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      - name: Download verified local build inputs
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
-          path: |
-            target/debug/
-            target/release-fast/
-            target/.rustc_info.json
-          # Target/incremental state is exact-source only. Cross-SHA prefix
-          # restore twice produced a Windows worker fast-fail (0xc0000409)
-          # before the first gate; Cargo-home remains the reusable dependency
-          # cache, while compiled target state must prove this exact source.
-          key: cargo-target-v3-windows-x86_64-candidate-${{ runner.os }}-${{ runner.arch }}-rust1.97-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml', 'build.rs', 'scripts/artifacts.json') }}-${{ inputs.source_sha }}
+          name: ${{ needs.preflight.outputs.local_input_artifact }}
+          path: local-input
 
-      # A content-addressed compiler cache, keyed by compiler input rather than
-      # by a directory of build state. A restored `target/` can resurrect stale
-      # incremental fingerprints from another commit -- which is what produced
-      # the Windows worker fast-fail (0xc0000409) that made the target key
-      # exact-SHA-only -- while an sccache entry either matches the exact input
-      # or is not used. So this cache CAN be restored across commits, and that
-      # is where the time goes: most of this cell is compilation, all of it cold
-      # today because the target key ends in the Candidate SHA.
-      - name: Install sccache
-        if: matrix.platform_id == 'windows-x86_64'
-        shell: bash
-        env:
-          SCCACHE_VERSION: 0.8.2
-          SCCACHE_SHA256: de5e9f66bb8a6bbdf0e28cb8a086a8d12699af796bf70bcd9dc40d80715bf9b8
-        run: |
-          set -euo pipefail
-          name="sccache-v$SCCACHE_VERSION-x86_64-pc-windows-msvc"
-          curl -sSfL --retry 3 -o sccache.tar.gz \
-            "https://github.com/mozilla/sccache/releases/download/v$SCCACHE_VERSION/$name.tar.gz"
-          echo "$SCCACHE_SHA256  sccache.tar.gz" | sha256sum -c -
-          tar -xzf sccache.tar.gz
-          mkdir -p "$RUNNER_TEMP/sccache-bin"
-          mv "$name/sccache.exe" "$RUNNER_TEMP/sccache-bin/"
-          rm -rf sccache.tar.gz "$name"
-          echo "RUSTC_WRAPPER=$RUNNER_TEMP/sccache-bin/sccache.exe" >>"$GITHUB_ENV"
-          echo "SCCACHE_DIR=$RUNNER_TEMP/sccache-cache" >>"$GITHUB_ENV"
-          echo "SCCACHE_CACHE_SIZE=8G" >>"$GITHUB_ENV"
-          # Incremental compilation is not cacheable by sccache; the target
-          # tree above keeps its exact-SHA incremental state for re-runs.
-          echo "CARGO_INCREMENTAL=0" >>"$GITHUB_ENV"
-
-      - name: Restore sccache
-        if: matrix.platform_id == 'windows-x86_64'
-        continue-on-error: true
-        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: ${{ runner.temp }}/sccache-cache
-          key: sccache-v1-windows-x86_64-rust1.97-${{ hashFiles('Cargo.lock') }}-${{ inputs.source_sha }}
-          # Safe across commits, unlike target/: entries are keyed by compiler
-          # input, so a mismatch is a miss rather than a stale hit.
-          restore-keys: |
-            sccache-v1-windows-x86_64-rust1.97-${{ hashFiles('Cargo.lock') }}-
-            sccache-v1-windows-x86_64-rust1.97-
-
-      - name: Restore candidate Cargo cache
-        id: restore-cargo-home-candidate
-        if: matrix.platform_id != 'windows-aarch64'
-        continue-on-error: true
-        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-          # R2: prefix restore so hashFiles drift still reuses registry (v0.1.15).
-          key: cargo-home-candidate-v2-${{ matrix.platform_id }}-${{ runner.os }}-${{ runner.arch }}-rust1.97-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml', 'build.rs', 'scripts/artifacts.json') }}
-          restore-keys: |
-            cargo-home-candidate-v2-${{ matrix.platform_id }}-${{ runner.os }}-${{ runner.arch }}-rust1.97-
-
-      - name: Report candidate cache hit profile
-        if: matrix.platform_id == 'windows-x86_64' && always()
-        shell: bash
-        run: |
-          {
-            echo "### Candidate cache profile"
-            echo "windows-x86_64.target-debug-release-fast-hit: ${{ steps.restore-windows-x86_64-target-cache.outputs.cache-hit }}"
-            echo "windows-x86_64.cargo-home-hit: ${{ steps.restore-cargo-home-candidate.outputs.cache-hit }}"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Restore Windows ARM64 cargo cache
-        if: matrix.platform_id == 'windows-aarch64'
-        continue-on-error: true
-        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: |
-            ~/.cargo/bin/cargo-xwin
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-          key: cargo-home-candidate-v2-windows-aarch64-${{ runner.os }}-${{ runner.arch }}-rust1.97-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml', 'build.rs', 'scripts/artifacts.json') }}
-          restore-keys: |
-            cargo-home-candidate-v2-windows-aarch64-${{ runner.os }}-${{ runner.arch }}-rust1.97-
-
-      - name: Run release quality gate
-        if: matrix.platform_id == 'windows-x86_64'
-        shell: cmd
-        env:
-          SOURCE_SHA: ${{ inputs.source_sha }}
-          # A panic-abort worker exits as 0xc0000409 on Windows. Keep its
-          # bounded stderr in the owning gate log; discarding it turns the
-          # actionable panic site into an opaque host_worker_crash.
-          AGENTERM_SCRIPT_WORKER_STDERR: inherit
-        run: |
-          @echo off
-          set "LOG=%RUNNER_TEMP%\agenterm-release-check.log"
-          for /f "delims=" %%H in ('git rev-parse HEAD') do set "ACTUAL_HEAD=%%H"
-          if /I not "%ACTUAL_HEAD%"=="%SOURCE_SHA%" (
-            echo Checked-out HEAD %ACTUAL_HEAD% does not match Candidate SHA %SOURCE_SHA%. > "%LOG%"
-            type "%LOG%"
-            exit /b 1
-          )
-          git switch -C main "%SOURCE_SHA%" > "%LOG%" 2>&1
-          if errorlevel 1 (
-            type "%LOG%"
-            exit /b 1
-          )
-          call check.cmd --release --include-stress --timing target/qualification/timing.json >> "%LOG%" 2>&1
-          set "CHECK_EXIT=%ERRORLEVEL%"
-          type "%LOG%"
-          exit /b %CHECK_EXIT%
-
-      - name: Upload failed quality-gate diagnostics
-        if: failure() && matrix.platform_id == 'windows-x86_64'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: release-quality-gate-failure-${{ github.run_id }}
-          if-no-files-found: warn
-          retention-days: 7
-          path: |
-            ${{ runner.temp }}/agenterm-release-check.log
-            ${{ runner.temp }}/agenterm-theme-*.png
-            ${{ runner.temp }}/agenterm-proxy-eye-*.png
-            target/smoke/*.png
-            # A failing smoke gate names its FAILURE BUNDLE directory in the
-            # log and that directory holds the only record of what the harness
-            # actually observed. Collecting the log without it leaves a reader
-            # with the exception text and nothing to diagnose from, which costs
-            # a whole 45-minute round to recover.
-            target/smoke/test-runs/**
-
-      - name: Publish Candidate quality timing summary
-        # A4: the timing-summary task appends the per-gate table to GITHUB_STEP_SUMMARY
-        # when that env is set (Actions always sets it). No artifact download needed.
-        if: always() && matrix.platform_id == 'windows-x86_64'
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ ! -f target/qualification/timing.json ]]; then
-            echo "No timing.json; skip quality timing summary." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          if [[ -x dist/agenterm.exe ]]; then
-            dist/agenterm.exe cli script task run timing-summary \
-              --manifest agenterm.tasks.json -- target/qualification/timing.json
-          else
-            target/debug/agenterm.exe cli script task run timing-summary \
-              --manifest agenterm.tasks.json -- target/qualification/timing.json
-          fi
-          # Surface bootstrap reuse for R1 acceptance without opening the artifact.
-          python - <<'PY'
-          import json, os, pathlib
-          p = pathlib.Path("target/qualification/timing.json")
-          report = json.loads(p.read_text(encoding="utf-8"))
-          boot = report.get("bootstrap") or {}
-          worker = (boot.get("worker") or {})
-          line = (
-              f"- **bootstrap.worker.state**: `{worker.get('state', '?')}` "
-              f"(bootstrap `{boot.get('state', '?')}`)\n"
-          )
-          summary = os.environ.get("GITHUB_STEP_SUMMARY")
-          if summary:
-              with open(summary, "a", encoding="utf-8") as fh:
-                  fh.write("\n### Candidate bootstrap (R1 signal)\n\n")
-                  fh.write(line)
-          print(line.strip())
-          PY
-
-      - name: Upload Candidate quality timing
-        if: always() && matrix.platform_id == 'windows-x86_64'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: candidate-quality-timing-${{ github.run_id }}
-          path: target/qualification/timing.json
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Package Windows x86_64 release
-        if: matrix.platform_id == 'windows-x86_64'
-        shell: cmd
-        run: >-
-          dist\agenterm.exe cli script task run package-release-qualified
-          --manifest agenterm.tasks.json
-
-      - name: Install Windows ARM64 cross-build tooling
-        if: matrix.platform_id == 'windows-aarch64'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y llvm-18
-          test -x /usr/bin/llvm-rc-18
-          echo "RC_PATH=/usr/bin/llvm-rc-18" >> "$GITHUB_ENV"
-          rustup target add aarch64-pc-windows-msvc
-          if [ ! -x "$HOME/.cargo/bin/cargo-xwin" ]; then
-            cargo install cargo-xwin --locked
-          fi
-
-      - name: Build Windows ARM64 release
-        if: matrix.platform_id == 'windows-aarch64'
-        env:
-          AGENTERM_BOOTSTRAP_TASK: client-build
-        run: >-
-          ./scripts/bootstrap.sh release
-          --target aarch64-pc-windows-msvc --driver cargo-xwin
-
-      - name: Package Windows ARM64 release
-        if: matrix.platform_id == 'windows-aarch64'
-        env:
-          AGENTERM_BOOTSTRAP_TASK: package-client-release
-        run: |
-          VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
-          ./scripts/bootstrap.sh "$VERSION" windows aarch64 \
-            target/aarch64-pc-windows-msvc/release
-
-      - name: Save Windows ARM64 cargo cache
-        if: always() && matrix.platform_id == 'windows-aarch64'
-        continue-on-error: true
-        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: |
-            ~/.cargo/bin/cargo-xwin
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-          key: cargo-home-candidate-v2-windows-aarch64-${{ runner.os }}-${{ runner.arch }}-rust1.97-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml', 'build.rs', 'scripts/artifacts.json') }}
-
-      - name: Save Windows x86_64 debug and release-fast targets
-        # Never promote a target tree from a failed quality process into the
-        # exact-SHA cache. A failed run is evidence that these compiled bytes
-        # are not reusable, regardless of whether Cargo considered them fresh.
-        if: success() && matrix.platform_id == 'windows-x86_64'
-        continue-on-error: true
-        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: |
-            target/debug/
-            target/release-fast/
-            target/.rustc_info.json
-          key: cargo-target-v3-windows-x86_64-candidate-${{ runner.os }}-${{ runner.arch }}-rust1.97-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml', 'build.rs', 'scripts/artifacts.json') }}-${{ inputs.source_sha }}
-
-      - name: Report sccache statistics
-        if: always() && matrix.platform_id == 'windows-x86_64'
-        continue-on-error: true
-        shell: bash
-        run: '"$RUNNER_TEMP/sccache-bin/sccache.exe" --show-stats'
-
-      # Saved even when the run failed: an entry records what one compiler input
-      # produced, which stays true whatever a later gate decided. That is the
-      # difference from the target tree, saved only on success because a failed
-      # run is evidence its compiled state is not reusable.
-      - name: Save sccache
-        if: always() && matrix.platform_id == 'windows-x86_64'
-        continue-on-error: true
-        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: ${{ runner.temp }}/sccache-cache
-          key: sccache-v1-windows-x86_64-rust1.97-${{ hashFiles('Cargo.lock') }}-${{ inputs.source_sha }}
-
-      - name: Save candidate Cargo cache
-        if: always() && matrix.platform_id != 'windows-aarch64'
-        continue-on-error: true
-        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-          key: cargo-home-candidate-v2-${{ matrix.platform_id }}-${{ runner.os }}-${{ runner.arch }}-rust1.97-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml', 'build.rs', 'scripts/artifacts.json') }}
-
-      - name: Build Linux x86_64 clients
-        if: matrix.platform_id == 'linux-x86_64'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxkbcommon0 libxkbcommon-x11-0 libwayland-client0
-          AGENTERM_BOOTSTRAP_TASK=client-build \
-            ./scripts/bootstrap.sh release \
-            --target x86_64-unknown-linux-gnu
-
-      - name: Package Linux x86_64 release
-        if: matrix.platform_id == 'linux-x86_64'
-        env:
-          AGENTERM_BOOTSTRAP_TASK: package-client-release
-        run: |
-          VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
-          ./scripts/bootstrap.sh \
-            "$VERSION" linux x86_64 target/x86_64-unknown-linux-gnu/release
-
-      - name: Install Linux ARM64 native packaging dependencies
-        if: matrix.platform_id == 'linux-aarch64'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu libxkbcommon0 libxkbcommon-x11-0
-          rustup target add aarch64-unknown-linux-gnu
-
-      - name: Build Linux ARM64 clients
-        if: matrix.platform_id == 'linux-aarch64'
-        env:
-          AGENTERM_BOOTSTRAP_TASK: client-build
-        run: >-
-          ./scripts/bootstrap.sh release
-          --target aarch64-unknown-linux-gnu
-
-      - name: Package Linux ARM64 release
-        if: matrix.platform_id == 'linux-aarch64'
-        env:
-          AGENTERM_BOOTSTRAP_TASK: package-client-release
-        run: |
-          VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
-          ./scripts/bootstrap.sh \
-            "$VERSION" linux aarch64 target/aarch64-unknown-linux-gnu/release
-
-      - name: Verify bundled Linux XKB dependency closure
-        if: startsWith(matrix.platform_id, 'linux-')
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
-          arch="${{ matrix.platform_id }}"
-          arch="${arch#linux-}"
-          archive="dist/agenterm-$version-linux-$arch.tar.gz"
-          root="$RUNNER_TEMP/linux-package-closure-$arch"
-          mkdir -p "$root"
-          tar -xzf "$archive" -C "$root"
-          xkb="$(find "$root/lib" -maxdepth 1 -type f \
-            -name 'libxkbcommon-x11.so.0*' -print -quit)"
-          xcb="$(find "$root/lib" -maxdepth 1 -type f \
-            -name 'libxcb-xkb.so.1*' -print -quit)"
-          test -n "$xkb" && test -f "$xkb"
-          test -n "$xcb" && test -f "$xcb"
-          readelf -d "$xkb" | grep -Eq \
-            'NEEDED.*\[libxcb-xkb\.so\.1\]'
-          echo "Bundled closure: $(basename "$xkb") -> $(basename "$xcb")"
-
-      - name: Import Apple Developer ID credentials
-        if: >-
-          startsWith(matrix.platform_id, 'macos-') &&
-          needs.preflight.outputs.signed_macos == 'true'
-        env:
-          APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
-          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
-          APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
-          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
-          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
-          AGENTERM_APPLE_TEAM_ID: ${{ vars.AGENTERM_APPLE_TEAM_ID }}
-        run: |
-          set -euo pipefail
-          for name in \
-            APPLE_DEVELOPER_ID_P12_BASE64 \
-            APPLE_DEVELOPER_ID_P12_PASSWORD \
-            APPLE_NOTARY_KEY_P8_BASE64 \
-            APPLE_NOTARY_KEY_ID \
-            APPLE_NOTARY_ISSUER_ID \
-            AGENTERM_APPLE_TEAM_ID
-          do
-            if [[ -z "${!name:-}" ]]; then
-              echo "Required macOS release secret is missing: $name" >&2
-              exit 1
-            fi
-          done
-
-          CERTIFICATE_PATH="$RUNNER_TEMP/agenterm-developer-id.p12"
-          NOTARY_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_NOTARY_KEY_ID}.p8"
-          python3 - "$CERTIFICATE_PATH" "$NOTARY_KEY_PATH" <<'PY'
-          import base64
-          import os
-          import pathlib
-          import sys
-
-          certificate_path, notary_key_path = map(pathlib.Path, sys.argv[1:3])
-          certificate_path.write_bytes(
-              base64.b64decode(
-                  "".join(os.environ["APPLE_DEVELOPER_ID_P12_BASE64"].split()),
-                  validate=True,
-              )
-          )
-          notary_key_path.write_bytes(
-              base64.b64decode(
-                  "".join(os.environ["APPLE_NOTARY_KEY_P8_BASE64"].split()),
-                  validate=True,
-              )
-          )
-          PY
-
-          KEYCHAIN_PATH="$RUNNER_TEMP/agenterm-signing.keychain-db"
-          KEYCHAIN_PASSWORD="$(uuidgen)"
-          echo "::add-mask::$KEYCHAIN_PASSWORD"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$CERTIFICATE_PATH" \
-            -k "$KEYCHAIN_PATH" \
-            -P "$APPLE_DEVELOPER_ID_P12_PASSWORD" \
-            -T /usr/bin/codesign \
-            -T /usr/bin/security
-          security set-key-partition-list \
-            -S apple-tool:,apple:,codesign: \
-            -s \
-            -k "$KEYCHAIN_PASSWORD" \
-            "$KEYCHAIN_PATH"
-          security default-keychain -s "$KEYCHAIN_PATH"
-          IDENTITY="$(
-            security find-identity -v -p codesigning "$KEYCHAIN_PATH" |
-              sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' |
-              head -n 1
-          )"
-          if [[ -z "$IDENTITY" ]]; then
-            echo "Imported certificate is not a Developer ID Application identity." >&2
-            exit 1
-          fi
-          # scripts/sign-macos-release.sh and validate-app-bundle.sh both require
-          # AGENTERM_APPLE_TEAM_ID. Without it the first signing step of a
-          # signed Candidate dies before it signs anything.
-          if [[ ! "$AGENTERM_APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]; then
-            echo "AGENTERM_APPLE_TEAM_ID must be a 10-character Apple Team identifier." >&2
-            exit 1
-          fi
-          {
-            echo "APPLE_SIGNING_IDENTITY=$IDENTITY"
-            echo "APPLE_NOTARY_KEY_PATH=$NOTARY_KEY_PATH"
-            echo "APPLE_NOTARY_KEY_ID=$APPLE_NOTARY_KEY_ID"
-            echo "APPLE_NOTARY_ISSUER_ID=$APPLE_NOTARY_ISSUER_ID"
-            echo "AGENTERM_APPLE_TEAM_ID=$AGENTERM_APPLE_TEAM_ID"
-          } >> "$GITHUB_ENV"
-
-      - name: Report macOS unsigned preview channel
-        if: >-
-          startsWith(matrix.platform_id, 'macos-') &&
-          needs.preflight.outputs.signed_macos != 'true'
-        run: |
-          echo "Signed macOS stable publishing is disabled; this job will produce a visibly labeled unsigned preview."
-          echo "Set release-policy.json signing.macos=required only after all Developer ID and notarization secrets are configured."
-
-      - name: Generate deterministic macOS SPDX inventory
-        if: startsWith(matrix.platform_id, 'macos-')
-        env:
-          AGENTERM_BOOTSTRAP_TASK: supply-chain
-        run: ./scripts/bootstrap.sh . dist/agenterm-sbom.spdx.json
-
-      - name: Build macOS ARM64 clients
-        if: matrix.platform_id == 'macos-aarch64'
-        run: |
-          rustup target add aarch64-apple-darwin
-          AGENTERM_BOOTSTRAP_TASK=client-build \
-            ./scripts/bootstrap.sh release --target aarch64-apple-darwin
-
-      - name: Prove JW1 causal cancellation with an independent resident owner
-        if: matrix.platform_id == 'macos-aarch64'
-        run: |
-          set -euo pipefail
-          cargo build --quiet --locked -p agenterm-cu --bin agenterm-cu
-          cargo test --quiet --locked -p agenterm --lib --features script-acu-embedder \
-            script_engine::tests::jw1_recording_bridge::jw1_recording_bridge_causal_composite \
-            -- --exact --nocapture | tee target/jw1-causal-evidence.log
-          grep -Eq 'test result: ok\. 1 passed; 0 failed' target/jw1-causal-evidence.log
-          grep -q 'JW1 causal composite evidence:' target/jw1-causal-evidence.log
-
-      - name: Sign macOS ARM64 clients
-        if: >-
-          matrix.platform_id == 'macos-aarch64' &&
-          needs.preflight.outputs.signed_macos == 'true'
-        run: |
-          ./scripts/sign-macos-release.sh \
-            aarch64 target/aarch64-apple-darwin/release
-
-      - name: Package macOS ARM64 release
-        if: >-
-          matrix.platform_id == 'macos-aarch64' &&
-          needs.preflight.outputs.signed_macos == 'true'
-        env:
-          AGENTERM_BOOTSTRAP_TASK: package-client-release
-        run: |
-          VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
-          ./scripts/bootstrap.sh \
-            "$VERSION" macos aarch64 target/aarch64-apple-darwin/release --signed
-
-      - name: Notarize macOS ARM64 release
-        if: >-
-          matrix.platform_id == 'macos-aarch64' &&
-          needs.preflight.outputs.signed_macos == 'true'
-        run: |
-          set -euo pipefail
-          VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
-          ARCHIVE="dist/agenterm-${VERSION}-macos-aarch64.zip"
-          RESULT="$(
-            xcrun notarytool submit "$ARCHIVE" \
-              --key "$APPLE_NOTARY_KEY_PATH" \
-              --key-id "$APPLE_NOTARY_KEY_ID" \
-              --issuer "$APPLE_NOTARY_ISSUER_ID" \
-              --wait \
-              --output-format json
-          )"
-          echo "$RESULT"
-          RESULT="$RESULT" python3 - <<'PY'
-          import json
-          import os
-          import sys
-
-          result = json.loads(os.environ["RESULT"])
-          if result.get("status") != "Accepted":
-              sys.exit(f"Apple notarization was not accepted: {result}")
-          PY
-          target/aarch64-apple-darwin/release/agenterm cli script \
-            task run finalize-macos-provenance --manifest agenterm.tasks.json -- \
-            "$ARCHIVE" "$ARCHIVE.provenance.json"
-
-      - name: Package macOS ARM64 unsigned preview
-        if: >-
-          matrix.platform_id == 'macos-aarch64' &&
-          needs.preflight.outputs.signed_macos != 'true'
-        env:
-          AGENTERM_BOOTSTRAP_TASK: package-client-release
-        run: |
-          VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
-          ./scripts/bootstrap.sh "$VERSION" macos aarch64 \
-            target/aarch64-apple-darwin/release --unsigned-preview
-
-      - name: Build macOS x86_64 clients
-        if: matrix.platform_id == 'macos-x86_64'
-        run: |
-          rustup target add x86_64-apple-darwin
-          AGENTERM_BOOTSTRAP_TASK=client-build \
-            ./scripts/bootstrap.sh release --target x86_64-apple-darwin
-
-      - name: Sign macOS x86_64 clients
-        if: >-
-          matrix.platform_id == 'macos-x86_64' &&
-          needs.preflight.outputs.signed_macos == 'true'
-        run: |
-          ./scripts/sign-macos-release.sh \
-            x86_64 target/x86_64-apple-darwin/release
-
-      - name: Package macOS x86_64 release
-        if: >-
-          matrix.platform_id == 'macos-x86_64' &&
-          needs.preflight.outputs.signed_macos == 'true'
-        env:
-          AGENTERM_BOOTSTRAP_TASK: package-client-release
-        run: |
-          VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
-          ./scripts/bootstrap.sh \
-            "$VERSION" macos x86_64 target/x86_64-apple-darwin/release --signed
-
-      - name: Notarize macOS x86_64 release
-        if: >-
-          matrix.platform_id == 'macos-x86_64' &&
-          needs.preflight.outputs.signed_macos == 'true'
-        run: |
-          set -euo pipefail
-          VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
-          ARCHIVE="dist/agenterm-${VERSION}-macos-x86_64.zip"
-          RESULT="$(
-            xcrun notarytool submit "$ARCHIVE" \
-              --key "$APPLE_NOTARY_KEY_PATH" \
-              --key-id "$APPLE_NOTARY_KEY_ID" \
-              --issuer "$APPLE_NOTARY_ISSUER_ID" \
-              --wait \
-              --output-format json
-          )"
-          echo "$RESULT"
-          RESULT="$RESULT" python3 - <<'PY'
-          import json
-          import os
-          import sys
-
-          result = json.loads(os.environ["RESULT"])
-          if result.get("status") != "Accepted":
-              sys.exit(f"Apple notarization was not accepted: {result}")
-          PY
-          target/x86_64-apple-darwin/release/agenterm cli script \
-            task run finalize-macos-provenance --manifest agenterm.tasks.json -- \
-            "$ARCHIVE" "$ARCHIVE.provenance.json"
-
-      - name: Package macOS x86_64 unsigned preview
-        if: >-
-          matrix.platform_id == 'macos-x86_64' &&
-          needs.preflight.outputs.signed_macos != 'true'
-        env:
-          AGENTERM_BOOTSTRAP_TASK: package-client-release
-        run: |
-          VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
-          ./scripts/bootstrap.sh "$VERSION" macos x86_64 \
-            target/x86_64-apple-darwin/release --unsigned-preview
-
-      - name: Build thin Chassis-L1 loader
-        shell: bash
-        run: |
-          set -euo pipefail
-          case "${{ matrix.platform_id }}" in
-            windows-x86_64)
-              cargo build --locked -p agenterm-chassis --features loader \
-                --bin agenterm-chassis-loader --release
-              loader="target/release/agenterm-chassis-loader.exe"
-              ;;
-            windows-aarch64)
-              cargo xwin build --locked -p agenterm-chassis --features loader \
-                --bin agenterm-chassis-loader --release \
-                --target aarch64-pc-windows-msvc
-              loader="target/aarch64-pc-windows-msvc/release/agenterm-chassis-loader.exe"
-              ;;
-            linux-x86_64)
-              cargo build --locked -p agenterm-chassis --features loader \
-                --bin agenterm-chassis-loader --release \
-                --target x86_64-unknown-linux-gnu
-              loader="target/x86_64-unknown-linux-gnu/release/agenterm-chassis-loader"
-              ;;
-            linux-aarch64)
-              CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
-                cargo build --locked -p agenterm-chassis --features loader \
-                  --bin agenterm-chassis-loader --release \
-                  --target aarch64-unknown-linux-gnu
-              loader="target/aarch64-unknown-linux-gnu/release/agenterm-chassis-loader"
-              ;;
-            macos-aarch64)
-              cargo build --locked -p agenterm-chassis --features loader \
-                --bin agenterm-chassis-loader --release \
-                --target aarch64-apple-darwin
-              loader="target/aarch64-apple-darwin/release/agenterm-chassis-loader"
-              ;;
-            macos-x86_64)
-              cargo build --locked -p agenterm-chassis --features loader \
-                --bin agenterm-chassis-loader --release \
-                --target x86_64-apple-darwin
-              loader="target/x86_64-apple-darwin/release/agenterm-chassis-loader"
-              ;;
-          esac
-          test -f "$loader"
-          cp "$loader" target/chassis-l1-loader
-
-      - name: Stage flat candidate part
+      - name: Import local package or package native Linux bytes
         shell: bash
         env:
           PLATFORM_ID: ${{ matrix.platform_id }}
-          SIGNED_MACOS: ${{ needs.preflight.outputs.signed_macos }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
+          CELL: ${{ matrix.cell }}
         run: |
           set -euo pipefail
-          version="$(
-            sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1
-          )"
-          stage="candidate-part"
-          mkdir -p "$stage"
-          case "$PLATFORM_ID" in
-            windows-x86_64)
-              cell="win-x86_64"
-              archive="dist/agenterm-$version-windows-x86_64.zip"
-              cp target/qualification/receipt.json \
-                "$stage/qualification-receipt.json"
-              cp "dist/agenterm-$version-sbom.spdx.json" "$stage/"
-              ;;
-            windows-aarch64)
-              cell="win-aarch64"
-              archive="dist/agenterm-$version-windows-aarch64.zip"
-              ;;
-            linux-x86_64)
-              cell="lnx-x86_64"
-              archive="dist/agenterm-$version-linux-x86_64.tar.gz"
-              ;;
-            linux-aarch64)
-              cell="lnx-aarch64"
-              archive="dist/agenterm-$version-linux-aarch64.tar.gz"
-              ;;
-            macos-aarch64|macos-x86_64)
-              arch="${PLATFORM_ID#macos-}"
-              cell="osx-$arch"
-              if [[ "$SIGNED_MACOS" == "true" ]]; then
-                archive="dist/agenterm-$version-macos-$arch.zip"
-              else
-                archive="dist/agenterm-$version-macos-$arch-unsigned-preview.zip"
-                if [[ "$PLATFORM_ID" == "macos-aarch64" ]]; then
-                  cp dist/MACOS_UNSIGNED_PREVIEW_README.md "$stage/"
-                  cp dist/MACOS_UNSIGNED_PREVIEW_README.zh-Hant.md "$stage/"
-                fi
-              fi
-              ;;
-            *)
-              echo "Unknown candidate platform: $PLATFORM_ID" >&2
-              exit 1
-              ;;
-          esac
-          test -f "$archive"
-          test -f "$archive.sha256"
-          test -f "$archive.provenance.json"
-          cp "$archive" "$archive.sha256" "$archive.provenance.json" "$stage/"
-          python3 scripts/chassis-stage-l1-loader.py \
-            --loader target/chassis-l1-loader \
-            --cell "$cell" \
-            --version "$version" \
-            --source-sha "$SOURCE_SHA" \
-            --out "$stage"
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
+          part="candidate-part"
+          mkdir -p "$part"
+          if [[ "$PLATFORM_ID" == linux-* ]]; then
+            case "$PLATFORM_ID" in
+              linux-x86_64) arch=x86_64; target=x86_64-unknown-linux-gnu ;;
+              linux-aarch64) arch=aarch64; target=aarch64-unknown-linux-gnu ;;
+              *) echo "unsupported Linux cell" >&2; exit 2 ;;
+            esac
+            sudo apt-get update
+            sudo apt-get install -y libxkbcommon0 libxkbcommon-x11-0 libwayland-client0
+            binary_dir="target/$target/release"
+            mkdir -p "$binary_dir"
+            cp "local-input/raw-linux/$PLATFORM_ID/"* "$binary_dir/"
+            chmod +x "$binary_dir/agenterm" "$binary_dir/agenterm-cu"
+            mkdir -p dist
+            AGENTERM_HOST_OS=linux AGENTERM_HOST_ARCH="$arch" \
+              AGENTERM_PACKAGE_DIST="$PWD/dist" \
+              "$binary_dir/agenterm" cli script task run package-client-release \
+                --manifest agenterm.tasks.json -- "$PWD" "$version" linux "$arch" "$binary_dir"
+            archive="dist/agenterm-$version-linux-$arch.tar.gz"
+            cp "$archive" "$archive.sha256" "$archive.provenance.json" "$part/"
+            mkdir -p "$part/chassis-l1"
+            cp -R "local-input/chassis-l1/$CELL" "$part/chassis-l1/"
+          else
+            cp -R "local-input/candidate-part-$PLATFORM_ID/." "$part/"
+          fi
+          test -f "$part/loader.json" -o -f "$part/chassis-l1/$CELL/loader.json"
 
       - name: Upload unsigned Windows candidate input
         if: startsWith(matrix.platform_id, 'windows-')
@@ -899,7 +262,7 @@ jobs:
           retention-days: 2
 
   windows_unsigned:
-    needs: [preflight, build]
+    needs: [preflight, stage_parts]
     if: needs.preflight.outputs.signed_windows != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -928,7 +291,7 @@ jobs:
           retention-days: 2
 
   windows_sign:
-    needs: [preflight, build]
+    needs: [preflight, stage_parts]
     if: needs.preflight.outputs.signed_windows == 'true'
     runs-on: windows-2025
     timeout-minutes: 20
@@ -1056,9 +419,9 @@ jobs:
   # installer, its L3 contract module and the journey script travel with it
   # from the same exact-source checkout, because runtime never checks out.
   chassis_pack:
-    needs: [preflight, build, windows_unsigned, windows_sign]
+    needs: [preflight, stage_parts, windows_unsigned, windows_sign]
     if: >-
-      always() && needs.build.result == 'success' &&
+      always() && needs.stage_parts.result == 'success' &&
       ((needs.preflight.outputs.signed_windows == 'true' && needs.windows_sign.result == 'success') ||
        (needs.preflight.outputs.signed_windows != 'true' && needs.windows_unsigned.result == 'success'))
     runs-on: ubuntu-latest
@@ -1105,9 +468,9 @@ jobs:
           retention-days: 14
 
   runtime:
-    needs: [preflight, build, windows_unsigned, windows_sign, chassis_pack]
+    needs: [preflight, stage_parts, windows_unsigned, windows_sign, chassis_pack]
     if: >-
-      always() && needs.build.result == 'success' && needs.chassis_pack.result == 'success' &&
+      always() && needs.stage_parts.result == 'success' && needs.chassis_pack.result == 'success' &&
       ((needs.preflight.outputs.signed_windows == 'true' && needs.windows_sign.result == 'success') ||
        (needs.preflight.outputs.signed_windows != 'true' && needs.windows_unsigned.result == 'success'))
     strategy:
@@ -1140,15 +503,16 @@ jobs:
             expected_os: macOS
             expected_arch: ARM64
           - platform_id: macos-x86_64
-            runner: macos-15-intel
+            runner: macos-15
             family: macos
             expected_os: macOS
-            expected_arch: X64
+            expected_arch: ARM64
+            execute_arch: X64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     steps:
-      # Runtime courts consume only the archive built by the matching build
-      # cell. They deliberately do not checkout source or invoke Cargo.
+      # Runtime courts consume only the locally packaged archive for their
+      # platform. They deliberately do not checkout source or invoke Cargo.
       - name: Download matching Candidate part
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
@@ -1167,7 +531,7 @@ jobs:
           name: ${{ needs.chassis_pack.outputs.artifact }}
           path: chassis
 
-      - name: Guard native runner identity (no compile)
+      - name: Guard runner identity (no compile)
         shell: bash
         env:
           EXPECTED_RUNNER_OS: ${{ matrix.expected_os }}
@@ -1300,11 +664,17 @@ jobs:
           ditto -x -k "$archive" runtime
           chmod +x runtime/agenterm
           version="$(jq -r .version "$archive.provenance.json")"
-          output="$(runtime/agenterm cli --version)"
+          if [[ "${{ matrix.platform_id }}" == macos-x86_64 ]]; then
+            file runtime/agenterm | grep -Eq 'Mach-O 64-bit executable x86_64'
+            output="$(arch -x86_64 runtime/agenterm cli --version)"
+          else
+            file runtime/agenterm | grep -Eq 'Mach-O 64-bit executable arm64'
+            output="$(runtime/agenterm cli --version)"
+          fi
           grep -Fq "$version" <<<"$output"
           echo "PASS ${{ matrix.platform_id }} $(shasum -a 256 "$archive" | cut -d' ' -f1) $output"
 
-      # The installed product through the public CLI on this native cell. The
+      # The installed product through the public CLI on this target cell. The
       # cell is stated from the matrix, never read from the runner's Python,
       # which may report an emulated architecture on Windows ARM64.
       - name: Installed chassis product public journey
@@ -1440,9 +810,9 @@ jobs:
           retention-days: 14
 
   aggregate:
-    needs: [preflight, build, windows_unsigned, windows_sign, chassis_pack, runtime]
+    needs: [preflight, stage_parts, windows_unsigned, windows_sign, chassis_pack, runtime]
     if: >-
-      always() && needs.build.result == 'success' && needs.runtime.result == 'success' &&
+      always() && needs.stage_parts.result == 'success' && needs.runtime.result == 'success' &&
       needs.chassis_pack.result == 'success' &&
       ((needs.preflight.outputs.signed_windows == 'true' && needs.windows_sign.result == 'success') ||
        (needs.preflight.outputs.signed_windows != 'true' && needs.windows_unsigned.result == 'success'))
@@ -1460,6 +830,12 @@ jobs:
           pattern: candidate-part-*
           merge-multiple: true
           path: candidate-input
+
+      - name: Download verified local build evidence
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: ${{ needs.preflight.outputs.local_input_artifact }}
+          path: local-build-input
 
       - name: Download exact-attempt ACU runtime receipts
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
@@ -1547,6 +923,10 @@ jobs:
             > candidate-output/evidence/chassis-six-cell-runtime.json
           cp "chassis-product/$tgz" "chassis-product/$tgz.sha256" \
             "chassis-product/$tgz.provenance.json" candidate-input/
+          cp local-build-input/qualification-receipt.json \
+            local-build-input/local-build-manifest.json candidate-input/
+          cp local-build-input/agenterm-"$version"-sbom.spdx.json candidate-input/
+          cp local-build-input/pre-push-check.log candidate-input/
 
       - name: Seal exact candidate bundle
         run: |

@@ -278,20 +278,24 @@ v0.1.19 planning and Candidate follow-up live in
   user's explicit approval before making a temporary prerelease and verify its
   cleanup afterwards.
 
-  Route the six test cells by what the host can execute efficiently: run
-  `osx-aarch64` natively on the local Apple Silicon host, and run
-  `osx-x86_64` locally through Rosetta after a bounded 15-second x86 health
-  probe. Use GitHub's native runners for the four Windows/Linux cells in
-  parallel. Use UTM courts when a test needs a logged-in desktop, an older OS,
-  offline execution, repeated local iteration, or when GitHub usage is
-  unavailable. MiniCon's 2026-09-23 trial measured its 71-test x86_64 Rosetta
-  suite at 2 seconds, its ARM64 local suite under 1 second, and five GitHub
-  Linux/Windows cells at 5–10 seconds each; its macOS Intel runner remained
-  queued for over seven minutes. These are routing evidence from MiniCon, not
-  AgenTerm qualification. This rule applies to Candidate and diagnostic CI
-  workflows, including retries and reruns. The existing Candidate still
-  compiles on its hosted matrix and must be changed to consume locally built
-  artifacts before another Candidate is dispatched.
+  Build all six release targets once on the local cross-compilation host with
+  `scripts/build-local-six-cell.sh`, then stage its checksummed bundle in an
+  unpublished GitHub draft with `scripts/stage-local-candidate-draft.sh`.
+  Candidate runners verify and download those exact bytes, then execute and
+  return receipts; they must not invoke Cargo, Rust toolchain setup, build/check
+  aliases or the Cargo package manager. The Linux runners may assemble their
+  native archives from the imported binaries, which is packaging rather than
+  compilation. The macOS ARM64 cell runs on `macos-15`; the x86_64 archive runs
+  on that ARM64 runner through Rosetta after its Mach-O architecture is checked.
+  This is Rosetta execution evidence, not native Intel evidence. Avoid the
+  scarce Intel runner queue for this loop. Use UTM courts when a test needs a
+  logged-in desktop, an older OS, offline execution, repeated local iteration,
+  or when GitHub usage is unavailable. MiniCon's 2026-09-23 trial measured its
+  71-test x86_64 Rosetta suite at 2 seconds, its ARM64 local suite under 1
+  second, and five GitHub Linux/Windows cells at 5–10 seconds each; its macOS
+  Intel runner remained queued for over seven minutes. These are routing
+  evidence from MiniCon, not AgenTerm qualification. This rule applies to
+  Candidate and diagnostic CI workflows, including retries and reruns.
 - [x] explicit `workflow_dispatch` Candidate qualification is grouped by the
   immutable source SHA. A later `main` push therefore cannot cancel an active
   exact-SHA Candidate; a duplicate dispatch for the same SHA still replaces its
@@ -301,10 +305,14 @@ v0.1.19 planning and Candidate follow-up live in
     promotion are separate contracts; the same eligible commit does not rerun
     the full stress-inclusive desktop qualification locally, in CI and again
     after tagging
-  - [~] before release approval, one candidate workflow produces the complete
-    Windows qualification receipt and all six platform archives, hashes, SBOM
-    and provenance for one exact commit; package-member, executable-permission
-    and launcher defects are therefore observable before a release tag exists;
+  - [~] before release approval, one candidate workflow consumes the exact
+    locally cross-compiled six-cell bundle and produces all platform archives,
+    hashes, SBOM and provenance for one exact commit; its schema-v2
+    `prebuilt-six-cell-execute-only` receipt records local pre-push evidence
+    and runner execution, with `stress_included: false`. It does not claim the
+    former Windows stress-inclusive qualification. Package-member,
+    executable-permission and launcher defects remain observable before a
+    release tag exists;
     the first six-runner GitHub execution built and qualified every platform,
     then correctly failed closed during aggregate because Windows and Unix had
     hashed line-ending-dependent source bytes. Release-identity inputs are now

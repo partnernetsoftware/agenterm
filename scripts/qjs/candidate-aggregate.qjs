@@ -186,6 +186,27 @@ const gate_hash = rh.sha256_file(gate_path);
 candidate.require_file(receipt_path, "candidate_receipt_missing");
 const receipt_size = candidate.file_size(receipt_path, "candidate_receipt_missing");
 const receipt_hash = rh.sha256_file(receipt_path);
+const receipt_document = rh.parse_file(receipt_path);
+const qualification = { name: receipt_name, size: receipt_size, sha256: receipt_hash };
+if (receipt_document.schema_version === 2) {
+  const build_name = "local-build-manifest.json";
+  const build_path = rh.join(asset_root, build_name);
+  candidate.require_file(build_path, "candidate_local_build_manifest_missing");
+  const pre_push_name = "pre-push-check.log";
+  const pre_push_path = rh.join(asset_root, pre_push_name);
+  candidate.require_file(pre_push_path, "candidate_pre_push_log_missing");
+  qualification.profile = "prebuilt-six-cell-execute-only";
+  qualification.local_build_manifest = {
+    name: build_name,
+    size: candidate.file_size(build_path, "candidate_local_build_manifest_missing"),
+    sha256: rh.sha256_file(build_path)
+  };
+  qualification.pre_push_check = {
+    name: pre_push_name,
+    size: candidate.file_size(pre_push_path, "candidate_pre_push_log_missing"),
+    sha256: rh.sha256_file(pre_push_path)
+  };
+}
 const sbom_size = candidate.file_size(sbom_path, "candidate_sbom_missing");
 candidate.require_file(cu_runtime_path, "candidate_cu_runtime_missing");
 const cu_runtime = rh.parse_file(cu_runtime_path);
@@ -210,7 +231,7 @@ const manifest = {
     release_policy_sha256: release_policy_hash,
     gate_manifest_sha256: gate_hash
   },
-  qualification: { name: receipt_name, size: receipt_size, sha256: receipt_hash },
+  qualification: qualification,
   sbom: { name: sbom_name, size: sbom_size, sha256: sbom_hash },
   windows_signing: { mode: windows_signing_mode, receipt: windows_signing_receipt },
   cu_runtime: cu_runtime,
