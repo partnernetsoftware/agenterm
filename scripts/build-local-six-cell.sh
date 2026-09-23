@@ -331,7 +331,7 @@ for part in sorted(candidate_input.glob("candidate-part-*")):
         })
 
 manifest = {
-    "schema": 1,
+    "schema_version": 1,
     "kind": "agenterm-local-six-cell-build",
     "source_sha": source_sha,
     "version": version,

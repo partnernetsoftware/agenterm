@@ -1517,6 +1517,7 @@ fn candidate_imports_one_verified_local_six_cell_build_without_hosted_compilatio
     assert!(LOCAL_SIX_CELL_BUILDER.contains("client-build-all"));
     assert!(LOCAL_SIX_CELL_BUILDER.contains("cargo xwin build"));
     assert!(LOCAL_SIX_CELL_BUILDER.contains("cargo zigbuild"));
+    assert!(LOCAL_SIX_CELL_BUILDER.contains("\"schema_version\": 1"));
     assert!(LOCAL_SIX_CELL_BUILDER.contains("tempfile.mkdtemp("));
     assert!(!LOCAL_SIX_CELL_BUILDER.contains("shutil.mkdtemp("));
     for (platform, target) in [
