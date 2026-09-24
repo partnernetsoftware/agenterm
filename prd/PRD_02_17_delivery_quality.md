@@ -304,6 +304,12 @@ v0.1.19 planning and Candidate follow-up live in
   files. The local builder now exports the exact SHA, and staging checks each
   archive's source, version, digest, and checksum before upload. This run did
   not seal a Candidate.
+  Run `35982837690` (source `65bd14909`) passed all six imports and runtime
+  journeys, but Aggregate rejected the macOS ARM archive: its provenance
+  referenced a stale SBOM in the default `dist/` directory instead of the
+  current local build lane. The builder now passes its generated SBOM path to
+  the packager, and the upload verifier checks the same source input hashes
+  that Aggregate will use. This run also did not seal a Candidate.
 
   Build all six release targets once on the local cross-compilation host with
   `scripts/build-local-six-cell.sh`, then stage its checksummed bundle in an

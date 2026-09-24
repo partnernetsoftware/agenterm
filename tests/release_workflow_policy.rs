@@ -1521,6 +1521,7 @@ fn candidate_imports_one_verified_local_six_cell_build_without_hosted_compilatio
     assert!(
         LOCAL_SIX_CELL_BUILDER.contains("export AGENTERM_CANDIDATE_SOURCE_SHA=\"$source_sha\"")
     );
+    assert!(LOCAL_SIX_CELL_BUILDER.contains("export AGENTERM_PACKAGE_SBOM="));
     assert!(LOCAL_SIX_CELL_BUILDER.contains("cargo xwin build"));
     assert!(LOCAL_SIX_CELL_BUILDER.contains("cargo zigbuild"));
     assert!(LOCAL_SIX_CELL_BUILDER.contains("\"schema_version\": 1"));

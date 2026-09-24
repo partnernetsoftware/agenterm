@@ -131,6 +131,7 @@ def validate(root: Path, source_sha: str, version: str) -> dict:
     ):
         raise SystemExit("local Candidate pre-push evidence is missing")
 
+    source_inputs = manifest.get("source_inputs", {})
     cells = manifest.get("cells")
     if not isinstance(cells, list) or len(cells) != len(CELLS):
         raise SystemExit("local Candidate build manifest does not contain six cells")
@@ -177,15 +178,27 @@ def validate(root: Path, source_sha: str, version: str) -> dict:
                 f"archive provenance {platform_id}",
             )
             checksum = (part / f"{archive_name}.sha256").read_text(encoding="utf-8").split()
+            os_name, arch = platform_id.rsplit("-", 1)
             if (
                 len(artifacts) != 1
                 or len(checksum) != 2
                 or checksum[1] != archive_name
                 or checksum[0] != artifacts[0]["sha256"]
+                or provenance.get("schema_version") != 1
+                or provenance.get("product") != "AgenTerm"
                 or provenance.get("artifact") != archive_name
                 or provenance.get("source_commit") != source_sha
+                or provenance.get("source_tag") != f"v{version}"
                 or provenance.get("version") != version
                 or provenance.get("sha256") != checksum[0]
+                or provenance.get("os") != os_name
+                or provenance.get("arch") != arch
+                or provenance.get("cargo_lock_sha256") != source_inputs.get("cargo_lock_sha256")
+                or provenance.get("artifact_manifest_sha256") != source_inputs.get("artifact_manifest_sha256")
+                or (
+                    os_name == "macos"
+                    and provenance.get("sbom_sha256") != source_inputs.get("sbom_sha256")
+                )
             ):
                 raise SystemExit(f"local Candidate archive provenance mismatch: {platform_id}")
 

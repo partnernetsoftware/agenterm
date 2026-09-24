@@ -49,6 +49,14 @@ def make_fixture(root: Path) -> None:
     sbom = b"{}\n"
     (root / f"agenterm-{VERSION}-sbom.spdx.json").write_bytes(sbom)
 
+    inputs = {
+        "cargo_lock_sha256": "1" * 64,
+        "artifact_manifest_sha256": "2" * 64,
+        "release_policy_sha256": "3" * 64,
+        "gate_manifest_sha256": "4" * 64,
+        "sbom_sha256": digest(sbom),
+    }
+
     cell_records = []
     loader_records = []
     l1_hashes = {}
@@ -72,10 +80,18 @@ def make_fixture(root: Path) -> None:
                     f"{digest(content)}  {name}\n", encoding="utf-8"
                 )
                 write_json(artifact_root / f"{name}.provenance.json", {
+                    "schema_version": 1,
+                    "product": "AgenTerm",
                     "artifact": name,
                     "source_commit": SOURCE,
+                    "source_tag": f"v{VERSION}",
                     "version": VERSION,
                     "sha256": digest(content),
+                    "os": os_name,
+                    "arch": platform.rsplit("-", 1)[1],
+                    "cargo_lock_sha256": inputs["cargo_lock_sha256"],
+                    "artifact_manifest_sha256": inputs["artifact_manifest_sha256"],
+                    "sbom_sha256": inputs["sbom_sha256"],
                 })
         cell_records.append({
             "platform_id": platform,
@@ -126,13 +142,6 @@ def make_fixture(root: Path) -> None:
         "sha256": chassis_sha,
     })
 
-    inputs = {
-        "cargo_lock_sha256": "1" * 64,
-        "artifact_manifest_sha256": "2" * 64,
-        "release_policy_sha256": "3" * 64,
-        "gate_manifest_sha256": "4" * 64,
-        "sbom_sha256": digest(sbom),
-    }
     pre_push_record = {
         "status": "passed",
         "name": "pre-push-check.log",
@@ -197,6 +206,14 @@ def test_validate_and_negative_controls() -> None:
         write_json(windows_provenance, changed_provenance)
         expect_rejected("archive with missing source commit", lambda: VERIFY.validate(root, SOURCE, VERSION))
         windows_provenance.write_bytes(original_provenance)
+
+        macos_provenance = root / f"candidate-part-macos-aarch64/agenterm-{VERSION}-macos-aarch64-unsigned-preview.zip.provenance.json"
+        original_provenance = macos_provenance.read_bytes()
+        changed_provenance = json.loads(original_provenance)
+        changed_provenance["sbom_sha256"] = "0" * 64
+        write_json(macos_provenance, changed_provenance)
+        expect_rejected("archive with stale SBOM", lambda: VERIFY.validate(root, SOURCE, VERSION))
+        macos_provenance.write_bytes(original_provenance)
 
         loader = root / "chassis-l1/win-x86_64/loader"
         original_loader = loader.read_bytes()

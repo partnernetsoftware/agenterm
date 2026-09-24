@@ -115,6 +115,7 @@ package_started=$SECONDS
 # later on the matching Linux courts from these exact cross-compiled bytes.
 AGENTERM_BOOTSTRAP_TASK=supply-chain \
   ./scripts/bootstrap.sh . "$AGENTERM_PACKAGE_DIST/agenterm-$version-sbom.spdx.json"
+export AGENTERM_PACKAGE_SBOM="$PWD/$AGENTERM_PACKAGE_DIST/agenterm-$version-sbom.spdx.json"
 
 for cell in \
   windows-x86_64 \
