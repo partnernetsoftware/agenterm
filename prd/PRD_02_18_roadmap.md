@@ -13,8 +13,9 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned, `[-]` excluded.
 The user skipped v0.1.17 without public publication on 2026-09-20. v0.1.18
 published on 2026-09-21; its release evidence is in
 [`docs/release-0.1.18-record.md`](../docs/release-0.1.18-record.md). v0.1.19
-is the active planning train. The v0.1.17 section below records the abandoned
-objective, not a shipped prerequisite or a current gate.
+published on 2026-09-24; v0.1.20 is the active planning train. The v0.1.17
+section below records the abandoned objective, not a shipped prerequisite or
+a current gate.
 
 ## Markdown-tree DAG
 
@@ -35,13 +36,15 @@ AgenTerm delivery after v0.1.16
 │  ├─ authorization + audit gate every action; unsupported stays typed
 │  ├─ product-owned .qjs journeys replace dark Rh-era gates
 │  └─ [-] no complete ssh/rdp/vnc, model/planner, CC or chassis migration
-├─ [ ] v0.1.19 — fast-change chassis boundary
+├─ [x] v0.1.19 — fast-change chassis boundary
 │  ├─ freeze a thin Native L1 and versioned L2 host boundary
 │  ├─ prove an L2/L3-only product change does not run six-cell rustc
 │  ├─ keep PTY/window/input/IPC/signing in native ownership
 │  └─ [-] no marketplace, remote update or wholesale workbench rewrite
-├─ [ ] v0.1.20 — 0.1.x convergence
-│  ├─ close high-value three-host UX and lifecycle parity debt
+├─ [ ] v0.1.20 — signed desktop release and 0.1.x convergence
+│  ├─ Windows: company Authenticode + timestamp on final Candidate bytes
+│  ├─ macOS: Developer ID + notarized and stapled app on final Candidate bytes
+│  ├─ close selected three-host UX and lifecycle parity debt
 │  ├─ reconcile PRD, alignment contract, public commands and evidence
 │  └─ admit no new product family
 └─ [ ] v0.2.x — Control Center and distribution
@@ -61,7 +64,7 @@ flowchart LR
   AUTH["authorization + audit<br/>typed post-state"]
   L1["v0.1.19<br/>thin native L1"]
   L2["replaceable L2/L3<br/>no six-cell rustc"]
-  CLOSE["v0.1.20<br/>parity + ledger closure"]
+  CLOSE["v0.1.20<br/>signed desktop release + closure"]
   CC["v0.2.0<br/>Cockpit vertical slice"]
   DIST["0.2.x<br/>install · update · rollback"]
   HOLD["hold or cut leaf<br/>do not widen version"]
@@ -124,13 +127,18 @@ flowchart LR
 - Non-goals: embedded C compiler/JIT, dynamic trust bypass, remote marketplace
   and conversion of frame-critical terminal work into scripts.
 
-### v0.1.20 — convergence
+### v0.1.20 — signed desktop release and convergence
 
-- User problem: accumulated partial leaves and documentation drift make the
-  product harder to trust and extend.
-- Success evidence: selected parity/lifecycle leaves have public three-host
-  evidence; PRD, `prd/alignment-contract.json`, command catalogs and receipts
-  agree; every `[x]` points to evidence.
+- User problem: v0.1.19 Windows archives are unsigned and macOS downloads are
+  unsigned previews; accumulated partial leaves also weaken product trust.
+- Required release gate: the Windows and macOS final Candidate bytes satisfy
+  the signing courts in [`plan-v0.1.20.md`](../plan/plan-v0.1.20.md). Missing
+  signing evidence blocks public Promotion until an explicit owner decision
+  changes the version scope.
+- Success evidence: release-eligible Windows Authenticode receipts and Apple
+  Developer ID/notarization/stapling receipts bind the exact sealed archives;
+  selected parity/lifecycle leaves have public three-host evidence; PRD,
+  `prd/alignment-contract.json`, command catalogs and receipts agree.
 - Non-goal: no new executable or product family enters the closure release.
 
 ## Portfolio rules

@@ -13,7 +13,8 @@ evidence plans. Completed or superseded material belongs in
 | [`roadmap-0.1x-0.2x.md`](roadmap-0.1x-0.2x.md) | series dependency tree and memory palace |
 | [`plan-v0.1.17.md`](plan-v0.1.17.md) | skipped, unpublished release-train record |
 | [`plan-v0.1.18.md`](plan-v0.1.18.md) | published release-train record; CU product gates and one-cross-build topology |
-| [`plan-v0.1.19.md`](plan-v0.1.19.md) | active planning: prove the fast-change Chassis boundary; bounded product-structure cleanup |
+| [`plan-v0.1.19.md`](plan-v0.1.19.md) | published release-train record; fast-change Chassis boundary |
+| [`plan-v0.1.20.md`](plan-v0.1.20.md) | active plan: signed Windows and macOS Candidate bytes before Promotion |
 | [`plan-candidate-gate-speed.md`](plan-candidate-gate-speed.md) | Candidate cache measurement, recovery blockers, and Windows job split |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | sole living source map and boundary catalog |
 | [`goal-chassis-l1-l2-l3.md`](goal-chassis-l1-l2-l3.md) | Chassis implementation/evidence owner |

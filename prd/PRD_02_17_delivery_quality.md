@@ -13,6 +13,8 @@ remains recorded in [`plan/plan-v0.1.17.md`](../plan/plan-v0.1.17.md).
 v0.1.19 planning and Candidate follow-up live in
 [`plan/plan-v0.1.19.md`](../plan/plan-v0.1.19.md) and
 [`plan/plan-candidate-gate-speed.md`](../plan/plan-candidate-gate-speed.md).
+The next release's signing gate is
+[`plan/plan-v0.1.20.md`](../plan/plan-v0.1.20.md).
 
 ### v0.1.19 release (2026-09-24)
 
@@ -34,6 +36,13 @@ v0.1.19 planning and Candidate follow-up live in
   `115ae70aa` added both manifest-bound names, sizes and SHA-256 checks;
   manual re-audit `36008885647` passed. Neither the tag nor published asset
   bytes changed in that repair.
+- [~] Signing status of the published bytes: both Windows archives have
+  `signed: false`; both macOS archives are `unsigned-preview` with
+  `signed: false` and `notarized: false`. The checked-in v0.1.19 policy selected
+  Windows `off` and macOS `unsigned-preview`, so no signing transaction failed
+  in this release. Defender scanning and SHA-256 provenance are separate
+  evidence. v0.1.20 requires a qualified, release-eligible signed Candidate
+  before Promotion; see the version plan above.
 - [~] The earlier Candidate `35984756815` is historical: its Windows x86_64
   ACU `job-spawn` smoke failed on attempt 1 and passed with the same bytes on
   attempt 2, without a retained underlying reason. The published Candidate
@@ -54,12 +63,13 @@ v0.1.19 planning and Candidate follow-up live in
   profile is Active; SignPath declined and is no longer a route. AgenTerm now
   has its own Entra application, exact GitHub Environment federated identity,
   profile-scoped signer role, and protected `release-signing` Environment.
-  All ten Windows PE files now have two-ISA VERSIONINFO plus empty Security
+  All twelve currently declared Windows PE files (six per ISA) have two-ISA
+  VERSIONINFO plus empty Security
   Directory evidence. Candidate now contains a checked-in `off|required`
-  split, exact ten-file input court, Azure OIDC signing branch, signed repack,
+  split, manifest-derived PE input court, Azure OIDC signing branch, signed repack,
   receipt binding and final-byte signature checks. A non-promotable
   qualification workflow now consumes an exact successful unsigned Candidate,
-  signs the same ten files, requires a redacted `release_eligible=false`
+  signs that declared set, requires a redacted `release_eligible=false`
   receipt, then executes, verifies and Defender-scans both signed Windows ISA
   archives. Its aggregate cross-checks each runtime-observed archive SHA
   against the signing receipt after-SHA. The first live AgenTerm signed court
@@ -71,8 +81,9 @@ v0.1.19 planning and Candidate follow-up live in
   companion allowlist, while the next run correctly stopped before Azure login
   because legacy `agenterm.com` lacks required `ProductName` VERSIONINFO. This
   is a source-byte incompatibility, not a signing-provider failure; the first
-  complete live court waits for a future Candidate whose ten original PE bytes
-  meet the metadata contract. Therefore
+  complete live court waits for a future Candidate whose declared PE bytes
+  meet the metadata contract. The historical ten-file count predates the
+  current `agenterm-cu-provider.dll` payload. Therefore
   `release-policy.json` keeps Windows signing `off`. The executable DAG is
   `plan/goal-company-windows-signing.md`; redacted operations live in
   `skills/agenterm-release/references/company-signing-enrollment.md`; the public

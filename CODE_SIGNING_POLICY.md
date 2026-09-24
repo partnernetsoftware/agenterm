@@ -7,7 +7,8 @@ tenant coordinate, account name, certificate-profile name, or OIDC identifier.
 
 ## Current release status
 
-The public v0.1.16 assets are unsigned. The Windows signing implementation and
+The public v0.1.19 Windows assets are unsigned, and its macOS archives are
+explicitly labelled unsigned previews. The Windows signing implementation and
 repository-specific OIDC identity are prepared, but AgenTerm has not yet
 completed its first live signed qualification. A qualification artifact is
 never a signed Release: it is deliberately marked `release_eligible=false` and
