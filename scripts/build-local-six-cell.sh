@@ -20,6 +20,7 @@ fi
 repo="$(git rev-parse --show-toplevel)"
 cd "$repo"
 source_sha="$(git rev-parse HEAD)"
+export AGENTERM_CANDIDATE_SOURCE_SHA="$source_sha"
 if [[ "$(git branch --show-current)" != main ]]; then
   echo "six-cell release build requires main" >&2
   exit 2

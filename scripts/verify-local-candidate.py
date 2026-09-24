@@ -169,6 +169,26 @@ def validate(root: Path, source_sha: str, version: str) -> dict:
             ):
                 raise SystemExit(f"local Candidate artifact bytes mismatch: {platform_id}")
 
+        if platform_id.startswith(("windows-", "macos-")):
+            archive_name = artifacts[0]["name"]
+            part = root / f"candidate-part-{platform_id}"
+            provenance = read_json(
+                part / f"{archive_name}.provenance.json",
+                f"archive provenance {platform_id}",
+            )
+            checksum = (part / f"{archive_name}.sha256").read_text(encoding="utf-8").split()
+            if (
+                len(artifacts) != 1
+                or len(checksum) != 2
+                or checksum[1] != archive_name
+                or checksum[0] != artifacts[0]["sha256"]
+                or provenance.get("artifact") != archive_name
+                or provenance.get("source_commit") != source_sha
+                or provenance.get("version") != version
+                or provenance.get("sha256") != checksum[0]
+            ):
+                raise SystemExit(f"local Candidate archive provenance mismatch: {platform_id}")
+
     loaders = manifest.get("chassis_loaders")
     if not isinstance(loaders, list) or len(loaders) != len(CELLS):
         raise SystemExit("local Candidate Chassis loader set is invalid")

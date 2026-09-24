@@ -295,6 +295,15 @@ v0.1.19 planning and Candidate follow-up live in
   ARM64 for that host and still checks the loaded product cell is
   `osx-x86_64`. Aggregate was skipped, so this run also does not qualify the
   release.
+  Run `35981344518` (source `20c5638c8`) passed all six imported parts,
+  Chassis packing, and all six installed-product runtime journeys. Aggregate
+  rejected the Windows x86_64 archive because its locally packaged provenance
+  had an empty `source_commit`. The local packager had not exported
+  `AGENTERM_CANDIDATE_SOURCE_SHA`; the upload verifier checked the client bytes
+  and Chassis provenance but missed the four Windows/macOS archive provenance
+  files. The local builder now exports the exact SHA, and staging checks each
+  archive's source, version, digest, and checksum before upload. This run did
+  not seal a Candidate.
 
   Build all six release targets once on the local cross-compilation host with
   `scripts/build-local-six-cell.sh`, then stage its checksummed bundle in an

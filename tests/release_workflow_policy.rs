@@ -1518,6 +1518,9 @@ fn candidate_imports_one_verified_local_six_cell_build_without_hosted_compilatio
     assert!(CANDIDATE.contains("scripts/verify-local-candidate.py"));
     assert!(CANDIDATE.contains("Upload verified local build inputs"));
     assert!(LOCAL_SIX_CELL_BUILDER.contains("client-build-all"));
+    assert!(
+        LOCAL_SIX_CELL_BUILDER.contains("export AGENTERM_CANDIDATE_SOURCE_SHA=\"$source_sha\"")
+    );
     assert!(LOCAL_SIX_CELL_BUILDER.contains("cargo xwin build"));
     assert!(LOCAL_SIX_CELL_BUILDER.contains("cargo zigbuild"));
     assert!(LOCAL_SIX_CELL_BUILDER.contains("\"schema_version\": 1"));
@@ -1551,6 +1554,7 @@ fn candidate_imports_one_verified_local_six_cell_build_without_hosted_compilatio
     }
     assert!(LOCAL_CANDIDATE_VERIFIER.contains("local Candidate bundle contains an unsafe entry"));
     assert!(LOCAL_CANDIDATE_VERIFIER.contains("local Candidate Chassis loader mismatch"));
+    assert!(LOCAL_CANDIDATE_VERIFIER.contains("local Candidate archive provenance mismatch"));
     assert!(LOCAL_CANDIDATE_VERIFIER.contains("local Candidate bundle checksum mismatch"));
     assert!(LOCAL_CANDIDATE_VERIFIER.contains("pre-push-check.log"));
 }

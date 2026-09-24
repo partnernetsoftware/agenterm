@@ -67,6 +67,16 @@ def make_fixture(root: Path) -> None:
             artifact_root.mkdir(parents=True, exist_ok=True)
             (artifact_root / name).write_bytes(content)
             artifacts.append({"name": name, "bytes": len(content), "sha256": digest(content)})
+            if not platform.startswith("linux-"):
+                (artifact_root / f"{name}.sha256").write_text(
+                    f"{digest(content)}  {name}\n", encoding="utf-8"
+                )
+                write_json(artifact_root / f"{name}.provenance.json", {
+                    "artifact": name,
+                    "source_commit": SOURCE,
+                    "version": VERSION,
+                    "sha256": digest(content),
+                })
         cell_records.append({
             "platform_id": platform,
             "target": target,
@@ -179,6 +189,14 @@ def test_validate_and_negative_controls() -> None:
         linux_cell.write_bytes(original + b"x")
         expect_rejected("mutated Linux executable bytes", lambda: VERIFY.validate(root, SOURCE, VERSION))
         linux_cell.write_bytes(original)
+
+        windows_provenance = root / f"candidate-part-windows-x86_64/agenterm-{VERSION}-windows-x86_64.zip.provenance.json"
+        original_provenance = windows_provenance.read_bytes()
+        changed_provenance = json.loads(original_provenance)
+        changed_provenance["source_commit"] = ""
+        write_json(windows_provenance, changed_provenance)
+        expect_rejected("archive with missing source commit", lambda: VERIFY.validate(root, SOURCE, VERSION))
+        windows_provenance.write_bytes(original_provenance)
 
         loader = root / "chassis-l1/win-x86_64/loader"
         original_loader = loader.read_bytes()
