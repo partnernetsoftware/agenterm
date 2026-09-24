@@ -1788,6 +1788,16 @@ fn workflow_actions_are_immutable_and_post_release_integrity_is_read_only() {
     assert!(INTEGRITY.contains("sha256sum -c"));
     assert!(INTEGRITY.contains("verified-promotion-$PROMOTION_RUN_ID"));
     assert!(INTEGRITY.contains("candidate-manifest.json"));
+    for field in ["local_build_manifest", "pre_push_check"] {
+        assert!(
+            INTEGRITY.contains(&format!(".qualification.{field}.name // empty")),
+            "the local build evidence must enter the exact release asset set"
+        );
+    }
+    assert!(INTEGRITY.contains("prebuilt-six-cell-execute-only"));
+    assert!(INTEGRITY.contains(".qualification.$item.sha256"));
+    assert!(INTEGRITY.contains(".qualification.$item.size"));
+    assert!(INTEGRITY.contains("stat -c %s"));
     assert!(!INTEGRITY.contains("\n  push:"));
 }
 

@@ -68,6 +68,10 @@ jobs:
               .name, .checksum.name, .provenance.name
             ' "$manifest"
             jq -r '.sbom.name, .qualification.name' "$manifest"
+            jq -r '
+              .qualification.local_build_manifest.name // empty,
+              .qualification.pre_push_check.name // empty
+            ' "$manifest"
             jq -r '.unsigned_macos_readmes[].name' "$manifest"
             basename "$manifest"
             echo releases.json
@@ -145,6 +149,28 @@ jobs:
             "$(jq -r .sbom.sha256 "$manifest")" ]]
           [[ "$(sha256sum "$release/$receipt_name" | cut -d' ' -f1)" == \
             "$(jq -r .qualification.sha256 "$manifest")" ]]
+          if [[ "$(jq -r .qualification.profile "$manifest")" == \
+                "prebuilt-six-cell-execute-only" ]]; then
+            # These two exact-source inputs entered the sealed Candidate with
+            # the local six-cell lane. Older release profiles do not carry
+            # them, so their asset set remains unchanged.
+            for item in local_build_manifest pre_push_check; do
+              name="$(jq -er ".qualification.$item.name" "$manifest")"
+              case "$item:$name" in
+                local_build_manifest:local-build-manifest.json | \
+                pre_push_check:pre-push-check.log) ;;
+                *) echo "unexpected local build evidence name" >&2; exit 1 ;;
+              esac
+              [[ "$(sha256sum "$release/$name" | cut -d' ' -f1)" == \
+                "$(jq -er ".qualification.$item.sha256" "$manifest")" ]]
+              [[ "$(stat -c %s "$release/$name")" == \
+                "$(jq -er ".qualification.$item.size" "$manifest")" ]]
+            done
+            [[ "$(jq -r .source_sha "$release/local-build-manifest.json")" == \
+              "$source_sha" ]]
+            [[ "$(jq -r .version "$release/local-build-manifest.json")" == \
+              "$version" ]]
+          fi
 
           while IFS=$'\t' read -r item os arch channel signed notarized
           do
