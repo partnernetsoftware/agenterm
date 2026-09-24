@@ -14,26 +14,35 @@ v0.1.19 planning and Candidate follow-up live in
 [`plan/plan-v0.1.19.md`](../plan/plan-v0.1.19.md) and
 [`plan/plan-candidate-gate-speed.md`](../plan/plan-candidate-gate-speed.md).
 
-### v0.1.19 release state (2026-09-24)
+### v0.1.19 release (2026-09-24)
 
-- [~] Execute-only Candidate `35984756815` sealed source `8d5e1d2f3` on
-  attempt 2. Its six Chassis loader descriptors, product archive, provenance,
-  and six installed-product receipts passed independent byte checks. The
-  Windows x86_64 ACU `job-spawn` smoke failed on attempt 1 and passed with the
-  same bytes on attempt 2; the underlying reason was not retained. This is an
-  intermittent failure, not a demonstrated repair. The Defender reputation
-  court and nonpublishing release dry-run passed on those sealed bytes.
-- [~] Those bytes are superseded for public release: a Windows console zoom
-  defect was traced to an over-wide window request, a refused Win32 resize,
-  and an error swallowed inside the console agent. Commits `86c89f10f` and
-  `202b3dca0` are later than that Candidate. Public Promotion requires a new
-  exact-SHA local six-cell build, execute-only Candidate, independent byte
-  verification, Defender reputation court, and release dry-run. Content-level
-  Windows zoom validation is `BLOCKED` in the headless court: `font-decrease`
-  requires an attached interactive GUI lease, and all eight requests were
-  refused before any resize occurred. The unchanged pane capture is not a
-  pass. Prior process-liveness checks did not detect the blank terminal.
-  No `v0.1.19` Promotion has occurred.
+- [x] [Public `v0.1.19` Release](https://github.com/partnernetsoftware/agenterm/releases/tag/v0.1.19)
+  was promoted without rebuilding Candidate
+  `36004170289`, attempt 1, from source `8655ccc770758b4a6208b55b1ffb358b6d021421`.
+  The local six-cell build produced the encrypted staging input; hosted jobs
+  downloaded and executed those bytes without Cargo. Six runtime cells and
+  aggregate passed on the first attempt. Independent verification checked
+  six loader descriptors, Chassis product bytes and provenance, both six-cell
+  runtime summaries, and source ancestry: 38/38 checks passed.
+- [x] The sealed Windows archives passed the local Defender court and
+  reputation run `36006392043`. Release dry-run `36006533286` passed with
+  publishing skipped. The owner approved this exact Candidate; Promotion
+  `36007927308` published tag `v0.1.19` at its source SHA and the allowlisted
+  assets. The first post-publication integrity run `36008101114` failed at
+  asset-set comparison because its older allowlist omitted the new
+  `local-build-manifest.json` and `pre-push-check.log`. Audit-only commit
+  `115ae70aa` added both manifest-bound names, sizes and SHA-256 checks;
+  manual re-audit `36008885647` passed. Neither the tag nor published asset
+  bytes changed in that repair.
+- [~] The earlier Candidate `35984756815` is historical: its Windows x86_64
+  ACU `job-spawn` smoke failed on attempt 1 and passed with the same bytes on
+  attempt 2, without a retained underlying reason. The published Candidate
+  passed on attempt 1; that earlier intermittent failure is not claimed fixed.
+  The Windows console zoom repair has measured Win32 failure behavior,
+  Windows geometry tests and a negative control. A product-level content
+  journey remains `BLOCKED`: headless `font-decrease` requests lack a GUI
+  lease, and a later interactive-court attempt did not execute a valid zoom.
+  An unchanged pane capture from either attempt is not a pass.
 
 - [~] MiniCon's proven release lessons are being absorbed through
   `plan/goal-release-minicon-lessons.md`: clean staging, raw/compressed size
