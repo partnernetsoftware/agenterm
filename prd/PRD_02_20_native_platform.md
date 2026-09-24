@@ -9,6 +9,24 @@ consume this layer through typed platform capabilities.
 
 Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
+## Windows console zoom boundary (2026-09-24)
+
+- [~] A content-level Windows zoom probe found a live child behind an empty
+  terminal. A request for 141 columns exceeded the hosted runner console
+  largest window of 128 columns. The buffer resize succeeded, the final
+  `SetConsoleWindowInfo` returned error 87, and the agent discarded the
+  failure before rebuilding its mirror from a one-cell window. A full-buffer
+  observation still found nonempty text outside that tiny window.
+- [~] `console_agent` now bounds the window by
+  `GetLargestConsoleWindowSize`, retains the larger scrollback buffer, and
+  verifies a nondegenerate window after failed resize calls. Five Windows
+  geometry tests pass on an ARM64 Windows court; removing the bound makes
+  the measured 141-versus-128 case fail. The cross-compiled Windows library
+  suite had one unrelated existing PTY failure. A product-level content
+  assertion is BLOCKED in the headless court: all eight `font-decrease`
+  requests were refused because no interactive GUI client held the lease,
+  so the unchanged 102-character pane capture cannot count as a pass.
+
 ## Product outcome
 
 - [x] the Platform Facade is an independently consumable

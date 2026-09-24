@@ -14,6 +14,27 @@ v0.1.19 planning and Candidate follow-up live in
 [`plan/plan-v0.1.19.md`](../plan/plan-v0.1.19.md) and
 [`plan/plan-candidate-gate-speed.md`](../plan/plan-candidate-gate-speed.md).
 
+### v0.1.19 release state (2026-09-24)
+
+- [~] Execute-only Candidate `35984756815` sealed source `8d5e1d2f3` on
+  attempt 2. Its six Chassis loader descriptors, product archive, provenance,
+  and six installed-product receipts passed independent byte checks. The
+  Windows x86_64 ACU `job-spawn` smoke failed on attempt 1 and passed with the
+  same bytes on attempt 2; the underlying reason was not retained. This is an
+  intermittent failure, not a demonstrated repair. The Defender reputation
+  court and nonpublishing release dry-run passed on those sealed bytes.
+- [~] Those bytes are superseded for public release: a Windows console zoom
+  defect was traced to an over-wide window request, a refused Win32 resize,
+  and an error swallowed inside the console agent. Commits `86c89f10f` and
+  `202b3dca0` are later than that Candidate. Public Promotion requires a new
+  exact-SHA local six-cell build, execute-only Candidate, independent byte
+  verification, Defender reputation court, and release dry-run. Content-level
+  Windows zoom validation is `BLOCKED` in the headless court: `font-decrease`
+  requires an attached interactive GUI lease, and all eight requests were
+  refused before any resize occurred. The unchanged pane capture is not a
+  pass. Prior process-liveness checks did not detect the blank terminal.
+  No `v0.1.19` Promotion has occurred.
+
 - [~] MiniCon's proven release lessons are being absorbed through
   `plan/goal-release-minicon-lessons.md`: clean staging, raw/compressed size
   evidence, six execute-only courts, slim-Linux dependency proof, explicit
