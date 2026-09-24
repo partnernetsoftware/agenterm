@@ -243,7 +243,7 @@ jobs:
             AGENTERM_HOST_OS=linux AGENTERM_HOST_ARCH="$arch" \
               AGENTERM_PACKAGE_DIST="$PWD/dist" \
               "$binary_dir/agenterm" cli script task run package-client-release \
-                --manifest agenterm.tasks.json -- "$PWD" "$version" linux "$arch" "$binary_dir"
+                --manifest agenterm.tasks.json -- "$version" linux "$arch" "$binary_dir"
             archive="dist/agenterm-$version-linux-$arch.tar.gz"
             cp "$archive" "$archive.sha256" "$archive.provenance.json" "$part/"
             mkdir -p "$part/chassis-l1"

@@ -1556,6 +1556,16 @@ fn candidate_imports_one_verified_local_six_cell_build_without_hosted_compilatio
 }
 
 #[test]
+fn candidate_linux_packager_receives_the_repository_argument_once() {
+    assert!(CANDIDATE.contains(
+        "--manifest agenterm.tasks.json -- \"$version\" linux \"$arch\" \"$binary_dir\""
+    ));
+    assert!(!CANDIDATE.contains(
+        "--manifest agenterm.tasks.json -- \"$PWD\" \"$version\" linux \"$arch\" \"$binary_dir\""
+    ));
+}
+
+#[test]
 fn local_candidate_stages_only_encrypted_bytes_for_read_only_runners() {
     assert!(LOCAL_SIX_CELL_BUILDER.contains("six-cell release build requires a clean worktree"));
     assert!(LOCAL_SIX_CELL_BUILDER.contains("six-cell release build requires exact origin/main"));
@@ -1565,6 +1575,7 @@ fn local_candidate_stages_only_encrypted_bytes_for_read_only_runners() {
         "gh release create \"$tag\" --draft --prerelease --latest=false --target \"$source_sha\""
     ));
     assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains("releases?per_page=100"));
+    assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains("for attempt in {1..15}; do"));
     assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains(".target_commitish == $source"));
     assert!(
         STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains(

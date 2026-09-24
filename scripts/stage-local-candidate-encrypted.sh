@@ -84,11 +84,20 @@ fi
 gh release create "$tag" --draft --prerelease --latest=false --target "$source_sha" \
   --title "AgenTerm $version encrypted Candidate transport" \
   --notes "Temporary encrypted test input for Candidate $source_sha. Contains no runnable release assets; remove this prerelease and tag after qualification."
-releases="$(gh api "repos/$repository/releases?per_page=100")"
-release_json="$(jq -ce --arg tag "$tag" --arg source "$source_sha" '
-  [.[] | select(.tag_name == $tag and .draft == true and .prerelease == true and .target_commitish == $source)]
-  | if length == 1 then .[0] else error("encrypted staging identity") end
-' <<<"$releases")"
+release_json=""
+for attempt in {1..15}; do
+  releases="$(gh api "repos/$repository/releases?per_page=100")"
+  release_json="$(jq -c --arg tag "$tag" --arg source "$source_sha" '
+    [.[] | select(.tag_name == $tag and .draft == true and .prerelease == true and .target_commitish == $source)]
+    | if length == 1 then .[0] else empty end
+  ' <<<"$releases")"
+  [[ -n "$release_json" ]] && break
+  sleep 1
+done
+if [[ -z "$release_json" ]]; then
+  echo "encrypted staging draft did not appear in the release list" >&2
+  exit 2
+fi
 release_id="$(jq -er '.id | numbers' <<<"$release_json")"
 jq -e --arg tag "$tag" '.draft == true and .prerelease == true and .tag_name == $tag' \
   <<<"$release_json" >/dev/null

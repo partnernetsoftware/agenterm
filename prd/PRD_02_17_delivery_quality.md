@@ -282,6 +282,12 @@ v0.1.19 planning and Candidate follow-up live in
   the verified input to run-scoped Actions artifacts. After qualification,
   remove the temporary prerelease and tag. The temporary encrypted transport
   is separate from the public `vX.Y.Z` Promotion authority.
+  Encrypted Candidate run `35950576586` (source `bce6df2be`) passed preflight
+  and imported four macOS/Windows parts. Both Linux parts stopped before tests
+  because the packaging task received a duplicate repository argument; its
+  manifest already supplies `.`. The corrected call passed a local packaging
+  run, while the old call reproduced the exact `package_client_mode` failure.
+  This run does not qualify the release.
 
   Build all six release targets once on the local cross-compilation host with
   `scripts/build-local-six-cell.sh`, then stage its checksummed bundle in an
