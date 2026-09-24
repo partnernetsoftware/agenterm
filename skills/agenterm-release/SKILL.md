@@ -7,6 +7,22 @@ description: Operate and diagnose AgenTerm's exact-SHA Release Candidate and app
 
 ## Establish authority
 
+Before pausing for an owner decision, run the repository-wide decision review
+in `AGENTS.md`. For a callable independent reviewer, use the most capable
+available model (currently GPT-6 Astra) on a compact, redacted packet: the
+requested action, exact source/run/artifact identity, prior user authorization,
+gate results, and the proposed next step. Ask it whether the step is already
+authorized, is a routine choice, needs missing facts, or truly needs human
+authority. An `already authorized` or `routine choice` verdict lets the agent
+proceed under its existing authority; the reviewer never creates new
+authority. Do not ask the owner to approve Candidate dispatch, local builds,
+non-promotable signing qualification, evidence collection or scoped repairs
+when the release goal already authorizes them. Protected GitHub Environment
+review and public Promotion retain their human-authority boundaries; the agent
+may execute Promotion after the owner has approved that exact Candidate. For
+Environment review, identify the run and unsigned input artifact; for public
+Promotion, present the sealed Candidate and final byte hashes before asking.
+
 Read these repository-owned contracts before acting:
 
 1. `AGENTS.md`, especially Development loop, formal delivery, and GitHub

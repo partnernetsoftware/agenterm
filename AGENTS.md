@@ -45,6 +45,15 @@ Named tmux executor supervision is documented in
   and cleanup are robustness controls. Legacy `profile` fields are inert.
 - Public release promotion requires human authority. Local release commands
   validate or rehearse only.
+- Before asking the user to decide or approve a step, review the current task,
+  prior authorization and concrete evidence with the strongest available
+  independent model when one is callable. The review classifies the step as
+  already authorized, a routine implementation choice, missing information,
+  or a genuine human authority boundary. Continue without asking for the first
+  two. A model review is advice and never grants GitHub Environment approval,
+  public Promotion authority or access that the executor lacks. If no
+  independent model is available, make the same classification directly rather
+  than stopping merely because review could not run.
 - Preserve terminal tree safety, remain-on-exit, and explicit-close invariants.
   Unsupported tmux/RMUX behavior must fail explicitly.
 
