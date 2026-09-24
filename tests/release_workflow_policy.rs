@@ -3224,6 +3224,8 @@ fn candidate_runtime_installs_one_sealed_chassis_product() {
     assert!(runtime.contains("name: Installed chassis product public journey"));
     assert!(runtime.contains("--native-cell \"$cell\""));
     assert!(runtime.contains("test \"$RUNNER_ARCH\" = \"$arch\""));
+    assert!(runtime.contains("macos-x86_64) cell=osx-x86_64 arch=ARM64 ;;"));
+    assert!(!runtime.contains("macos-x86_64) cell=osx-x86_64 arch=X64 ;;"));
     for (platform, cell) in [
         ("windows-x86_64", "win-x86_64"),
         ("windows-aarch64", "win-aarch64"),

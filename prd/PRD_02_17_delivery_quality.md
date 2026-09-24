@@ -288,6 +288,13 @@ v0.1.19 planning and Candidate follow-up live in
   manifest already supplies `.`. The corrected call passed a local packaging
   run, while the old call reproduced the exact `package_client_mode` failure.
   This run does not qualify the release.
+  Run `35979388790` (source `0d09eac8a`) passed six part imports,
+  Chassis pack and five installed-product runtime journeys. The macOS x86_64
+  journey stopped before install because its ARM64 Rosetta runner was
+  incorrectly required to report `RUNNER_ARCH=X64`; the workflow now expects
+  ARM64 for that host and still checks the loaded product cell is
+  `osx-x86_64`. Aggregate was skipped, so this run also does not qualify the
+  release.
 
   Build all six release targets once on the local cross-compilation host with
   `scripts/build-local-six-cell.sh`, then stage its checksummed bundle in an

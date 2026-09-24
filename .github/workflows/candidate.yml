@@ -699,7 +699,7 @@ jobs:
             windows-aarch64) cell=win-aarch64 arch=ARM64 ;;
             linux-x86_64) cell=lnx-x86_64 arch=X64 ;;
             linux-aarch64) cell=lnx-aarch64 arch=ARM64 ;;
-            macos-x86_64) cell=osx-x86_64 arch=X64 ;;
+            macos-x86_64) cell=osx-x86_64 arch=ARM64 ;;
             macos-aarch64) cell=osx-aarch64 arch=ARM64 ;;
             *) echo "unknown platform $PLATFORM_ID" >&2; exit 1 ;;
           esac
