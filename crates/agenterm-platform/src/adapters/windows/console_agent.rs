@@ -1351,7 +1351,15 @@ fn decode_sgr_mouse(bytes: &[u8]) -> SgrMouse {
             index += 1;
         }
         if index == start {
-            return SgrMouse::Other;
+            // No digits yet. With bytes still to come this is a report that has
+            // not finished arriving, and calling it `Other` here delivered the
+            // prefix to the child as a literal ESC -- the very thing this
+            // decoder exists to prevent. Only a non-digit that is actually
+            // present makes it something else.
+            return match bytes.get(index) {
+                None => SgrMouse::Incomplete,
+                Some(_) => SgrMouse::Other,
+            };
         }
         match bytes.get(index) {
             None => return SgrMouse::Incomplete,
@@ -2051,9 +2059,13 @@ mod tests {
                 press.len()
             )
         );
-        // The matching release carries the same cell with `m`.
+        // The matching release carries the same cell with `m`. It is the same
+        // ten bytes as the press, so it consumes ten: this expected eleven and
+        // had never run, because these tests compile only on Windows with the
+        // `pty` feature and the quick gate runs on macOS.
+        let release = b"\x1b[<0;11;6m";
         assert_eq!(
-            decode_sgr_mouse(b"\x1b[<0;11;6m"),
+            decode_sgr_mouse(release),
             SgrMouse::Report(
                 MouseReport {
                     code: 0,
@@ -2061,10 +2073,11 @@ mod tests {
                     row: 5,
                     pressed: false
                 },
-                11
+                release.len()
             )
         );
-        // Trailing bytes belong to whatever follows.
+        // Trailing bytes belong to whatever follows: the report is the nine
+        // bytes up to and including `M`, and `rest` is left for the next read.
         assert_eq!(
             decode_sgr_mouse(b"\x1b[<0;1;1Mrest"),
             SgrMouse::Report(
@@ -2074,7 +2087,7 @@ mod tests {
                     row: 0,
                     pressed: true
                 },
-                10
+                b"\x1b[<0;1;1M".len()
             )
         );
 
