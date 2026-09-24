@@ -271,17 +271,22 @@ v0.1.19 planning and Candidate follow-up live in
   each native runner independently invoke Cargo: repeated per-cell toolchain
   setup and dependency compilation turned prior six-grid attempts into a
   resource and latency failure.
-  A MiniCon trial found that runner-side `gh release download` cannot find an
-  unpublished draft by tag; its tested transfer path uses a tagged prerelease.
-  Because that briefly publishes an asset and creates a release tag, it is not
-  an automatic default: prove a private staging route first, or require the
-  user's explicit approval before making a temporary prerelease and verify its
-  cleanup afterwards.
+  The first local-build Candidate (run `35814781375`, 2026-09-23) proved that
+  `contents: read` on the hosted `GITHUB_TOKEN` cannot download the binary
+  asset of the unpublished staging draft: preflight received HTTP 403 and no
+  platform test job started. The transport therefore encrypts the verified
+  local bundle with age before staging it in a temporary prerelease. That
+  prerelease contains only ciphertext and SHA-256 sidecars; it contains no
+  runnable product bytes. Preflight keeps `contents: read`, checks the source
+  tag and both digests, decrypts with a dedicated Actions secret, and uploads
+  the verified input to run-scoped Actions artifacts. After qualification,
+  remove the temporary prerelease and tag. The temporary encrypted transport
+  is separate from the public `vX.Y.Z` Promotion authority.
 
   Build all six release targets once on the local cross-compilation host with
   `scripts/build-local-six-cell.sh`, then stage its checksummed bundle in an
-  unpublished GitHub draft with `scripts/stage-local-candidate-draft.sh`.
-  Candidate runners verify and download those exact bytes, then execute and
+  encrypted temporary prerelease with `scripts/stage-local-candidate-encrypted.sh`.
+  Candidate runners download, decrypt and verify those exact bytes, then execute and
   return receipts; they must not invoke Cargo, Rust toolchain setup, build/check
   aliases or the Cargo package manager. The Linux runners may assemble their
   native archives from the imported binaries, which is packaging rather than

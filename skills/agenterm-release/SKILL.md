@@ -61,13 +61,17 @@ delivery topology from an older release or from Git push behavior.
 4. When Windows signing or qualification is in scope, also require the company
    signing readiness court; do not spend a provider operation on a dirty tree,
    stale main, or published version identity.
-5. Verify and upload the bundle to an unpublished staging draft with
-   `scripts/stage-local-candidate-draft.sh`. Record the returned numeric release
-   ID. Dispatch `candidate.yml` with both `source_sha` and
-   `staging_release_id` through an available authenticated Actions capability.
-   The workflow verifies that the draft tag resolves to the exact source SHA,
-   verifies the bundle and checksum, and only then uploads the input artifact
-   consumed by its execute-only jobs.
+5. Verify and age-encrypt the bundle locally with
+   `scripts/stage-local-candidate-encrypted.sh`. The script uploads only
+   ciphertext and checksums to a temporary prerelease, created as a draft
+   until those three assets are present. Record its numeric release ID.
+   Dispatch `candidate.yml` with `source_sha` and `staging_release_id` through
+   an authenticated Actions capability. Preflight uses a read-only token to
+   bind the prerelease tag to the exact SHA, verify ciphertext, decrypt with
+   `AGENTERM_CANDIDATE_AGE_IDENTITY`, verify plaintext, and upload the input
+   artifact consumed by execute-only jobs. The first draft-asset attempt
+   (run `35814781375`) failed HTTP 403 before all runtime jobs; do not retry
+   unpublished draft binary downloads with the runner `GITHUB_TOKEN`.
 6. If dispatch is unavailable, stop and give the human the exact workflow
    link, SHA, fields, and non-publishing effect. Never extract a GCM secret to
    manufacture REST authentication.
@@ -87,8 +91,13 @@ delivery topology from an older release or from Git push behavior.
 9. On failure, fetch only the failed job log/artifact, fix the owning cause,
    validate locally, push a coherent increment, and create a new Candidate.
    Never rebuild silently during Promotion.
+10. After Candidate evidence is retained, delete its temporary encrypted
+    prerelease and tag with `scripts/cleanup-local-candidate-encrypted.sh`.
+    Keep the decryption identity in Actions secrets only while staging runs
+    need it; rotate or remove it after the release cycle.
 
-Candidate dispatch is mechanical and creates no tag or public Release. An
+Candidate dispatch is mechanical; the temporary ciphertext prerelease and tag
+are created by the preceding local staging step. An
 explicit release-Candidate goal authorizes the whole continuous qualification
 loop: when a failed Candidate yields a scoped fix and a new current-main SHA,
 validate, push, and dispatch the replacement exact-SHA Candidate without asking

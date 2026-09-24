@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       staging_release_id:
-        description: Draft release ID containing the locally built six-cell input bundle
+        description: Temporary prerelease ID containing the encrypted local six-cell input
         required: true
         type: string
 
@@ -89,32 +89,52 @@ jobs:
             echo "signed_macos=$signed_macos"
           } >>"$GITHUB_OUTPUT"
 
-      - name: Download and verify local six-cell build draft
+      - name: Download and verify encrypted local six-cell build
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          AGE_SECRET_KEY: ${{ secrets.AGENTERM_CANDIDATE_AGE_IDENTITY }}
           STAGING_RELEASE_ID: ${{ inputs.staging_release_id }}
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
           [[ "$STAGING_RELEASE_ID" =~ ^[0-9]+$ ]]
+          [[ -n "$AGE_SECRET_KEY" ]] || { echo "encrypted Candidate identity is unavailable" >&2; exit 2; }
           release="repos/$GITHUB_REPOSITORY/releases/$STAGING_RELEASE_ID"
           release_json="$(gh api "$release")"
           jq -e --arg source "$SOURCE_SHA" '
-            .draft == true
+            .draft == false and .prerelease == true
             and .target_commitish == $source
-            and (.tag_name | test("^local-stage-" + $source + "-[0-9]{8}T[0-9]{6}Z$"))
+            and (.tag_name | test("^local-candidate-encrypted-" + $source + "-[0-9]{8}T[0-9]{6}Z$"))
           ' <<<"$release_json" >/dev/null
+          stage_tag="$(jq -er .tag_name <<<"$release_json")"
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$stage_tag" --jq .object.sha)" == "$SOURCE_SHA" ]]
           version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
           bundle="agenterm-$version-local-candidate-input.tar.gz"
           assets="$(gh api "$release/assets?per_page=100")"
-          bundle_id="$(jq -er --arg name "$bundle" '[.[] | select(.name == $name)] | if length == 1 then .[0].id else error("bundle asset count") end' <<<"$assets")"
+          jq -e --arg bundle "$bundle" '
+            (length == 3)
+            and ([.[].name] | sort) == ([($bundle + ".age"), ($bundle + ".age.sha256"), ($bundle + ".sha256")] | sort)
+            and all(.[]; .state == "uploaded")
+          ' <<<"$assets" >/dev/null
+          encrypted_id="$(jq -er --arg name "$bundle.age" '[.[] | select(.name == $name)] | if length == 1 then .[0].id else error("encrypted asset count") end' <<<"$assets")"
+          encrypted_checksum_id="$(jq -er --arg name "$bundle.age.sha256" '[.[] | select(.name == $name)] | if length == 1 then .[0].id else error("encrypted checksum asset count") end' <<<"$assets")"
           checksum_id="$(jq -er --arg name "$bundle.sha256" '[.[] | select(.name == $name)] | if length == 1 then .[0].id else error("checksum asset count") end' <<<"$assets")"
           mkdir -p local-input
           gh api -H 'Accept: application/octet-stream' \
-            "repos/$GITHUB_REPOSITORY/releases/assets/$bundle_id" >"local-input/$bundle"
+            "repos/$GITHUB_REPOSITORY/releases/assets/$encrypted_id" >"local-input/$bundle.age"
+          gh api -H 'Accept: application/octet-stream' \
+            "repos/$GITHUB_REPOSITORY/releases/assets/$encrypted_checksum_id" >"local-input/$bundle.age.sha256"
           gh api -H 'Accept: application/octet-stream' \
             "repos/$GITHUB_REPOSITORY/releases/assets/$checksum_id" >"local-input/$bundle.sha256"
+          (cd local-input && sha256sum -c "$bundle.age.sha256")
+          if ! command -v age >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq age
+          fi
+          printf '%s\n' "$AGE_SECRET_KEY" | age --decrypt --identity - \
+            --output "local-input/$bundle" "local-input/$bundle.age"
+          (cd local-input && sha256sum -c "$bundle.sha256")
           python3 scripts/verify-local-candidate.py \
             --archive "local-input/$bundle" \
             --checksum "local-input/$bundle.sha256" \

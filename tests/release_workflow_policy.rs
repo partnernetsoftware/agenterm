@@ -6,11 +6,11 @@ static LOCAL_CANDIDATE_VERIFIER: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/verify-local-candidate.py").replace("\r\n", "\n"));
 static LOCAL_SIX_CELL_BUILDER: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/build-local-six-cell.sh").replace("\r\n", "\n"));
-static STAGE_LOCAL_CANDIDATE_DRAFT: LazyLock<String> = LazyLock::new(|| {
-    include_str!("../scripts/stage-local-candidate-draft.sh").replace("\r\n", "\n")
+static STAGE_LOCAL_CANDIDATE_ENCRYPTED: LazyLock<String> = LazyLock::new(|| {
+    include_str!("../scripts/stage-local-candidate-encrypted.sh").replace("\r\n", "\n")
 });
-static CLEANUP_LOCAL_CANDIDATE_DRAFT: LazyLock<String> = LazyLock::new(|| {
-    include_str!("../scripts/cleanup-local-candidate-draft.sh").replace("\r\n", "\n")
+static CLEANUP_LOCAL_CANDIDATE_ENCRYPTED: LazyLock<String> = LazyLock::new(|| {
+    include_str!("../scripts/cleanup-local-candidate-encrypted.sh").replace("\r\n", "\n")
 });
 static CROSS_BUILD_REHEARSAL: LazyLock<String> = LazyLock::new(|| {
     include_str!("../.github/workflows/cross-build-topology-rehearsal.yml").replace("\r\n", "\n")
@@ -1130,8 +1130,9 @@ fn candidate_is_manual_exact_sha_and_has_no_publish_authority() {
     assert!(CANDIDATE.contains("ref: ${{ inputs.source_sha }}"));
     assert!(CANDIDATE.contains("staging_release_id:"));
     assert!(CANDIDATE.contains(".target_commitish == $source"));
-    assert!(CANDIDATE.contains("^local-stage-\" + $source + \"-"));
-    assert!(!CANDIDATE.contains("git/ref/tags/$stage_tag"));
+    assert!(CANDIDATE.contains(".draft == false and .prerelease == true"));
+    assert!(CANDIDATE.contains("^local-candidate-encrypted-\" + $source + \"-"));
+    assert!(CANDIDATE.contains("git/ref/tags/$stage_tag"));
 }
 
 #[test]
@@ -1513,7 +1514,7 @@ fn candidate_imports_one_verified_local_six_cell_build_without_hosted_compilatio
         "jobs:\n  package:\n    steps:\n      - run: env MODE=release bash -c 'cargo build --release'\n"
     ));
     assert!(CANDIDATE.contains("staging_release_id:"));
-    assert!(CANDIDATE.contains("Download and verify local six-cell build draft"));
+    assert!(CANDIDATE.contains("Download and verify encrypted local six-cell build"));
     assert!(CANDIDATE.contains("scripts/verify-local-candidate.py"));
     assert!(CANDIDATE.contains("Upload verified local build inputs"));
     assert!(LOCAL_SIX_CELL_BUILDER.contains("client-build-all"));
@@ -1555,21 +1556,33 @@ fn candidate_imports_one_verified_local_six_cell_build_without_hosted_compilatio
 }
 
 #[test]
-fn local_candidate_draft_upload_is_unpublished_exact_sha_and_cleanable() {
+fn local_candidate_stages_only_encrypted_bytes_for_read_only_runners() {
     assert!(LOCAL_SIX_CELL_BUILDER.contains("six-cell release build requires a clean worktree"));
     assert!(LOCAL_SIX_CELL_BUILDER.contains("six-cell release build requires exact origin/main"));
+    assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains("scripts/verify-local-candidate.py"));
+    assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains("age --encrypt --recipient"));
+    assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains(
+        "gh release create \"$tag\" --draft --prerelease --latest=false --target \"$source_sha\""
+    ));
+    assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains("releases?per_page=100"));
+    assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains(".target_commitish == $source"));
     assert!(
-        STAGE_LOCAL_CANDIDATE_DRAFT
-            .contains("gh release create \"$tag\" --draft --target \"$source_sha\"")
+        STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains(
+            "gh release upload \"$tag\" \"$encrypted\" \"$encrypted.sha256\" \"$checksum\""
+        )
     );
-    assert!(STAGE_LOCAL_CANDIDATE_DRAFT.contains("releases?per_page=100"));
-    assert!(STAGE_LOCAL_CANDIDATE_DRAFT.contains(".target_commitish == $source"));
-    assert!(STAGE_LOCAL_CANDIDATE_DRAFT.contains("scripts/verify-local-candidate.py"));
-    assert!(STAGE_LOCAL_CANDIDATE_DRAFT.contains("LOCAL CANDIDATE DRAFT READY"));
-    assert!(STAGE_LOCAL_CANDIDATE_DRAFT.contains("(length == 2)"));
-    assert!(CLEANUP_LOCAL_CANDIDATE_DRAFT.contains(".draft == true"));
+    assert!(!STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains("gh release upload \"$tag\" \"$bundle\""));
+    assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains("(length == 3)"));
+    assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains("gh release edit \"$tag\" --draft=false"));
+    assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains("LOCAL CANDIDATE ENCRYPTED STAGING READY"));
+    assert!(CANDIDATE.contains("AGE_SECRET_KEY: ${{ secrets.AGENTERM_CANDIDATE_AGE_IDENTITY }}"));
+    assert!(CANDIDATE.contains("sha256sum -c \"$bundle.age.sha256\""));
+    assert!(CANDIDATE.contains("age --decrypt --identity -"));
+    assert!(CANDIDATE.contains("sha256sum -c \"$bundle.sha256\""));
+    assert!(CLEANUP_LOCAL_CANDIDATE_ENCRYPTED.contains(".draft == false and .prerelease == true"));
     assert!(
-        CLEANUP_LOCAL_CANDIDATE_DRAFT.contains("^local-stage-[0-9a-f]{40}-[0-9]{8}T[0-9]{6}Z$")
+        CLEANUP_LOCAL_CANDIDATE_ENCRYPTED
+            .contains("^local-candidate-encrypted-[0-9a-f]{40}-[0-9]{8}T[0-9]{6}Z$")
     );
 }
 

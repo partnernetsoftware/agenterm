@@ -90,7 +90,8 @@ published bytes without rebuilding or republishing them.
 2. Already installed and authenticated `gh`:
 
    ```text
-   gh workflow run candidate.yml --ref main -f source_sha=<exact-sha>
+   gh workflow run candidate.yml --ref main \
+     -f source_sha=<exact-sha> -f staging_release_id=<encrypted-stage-id>
    ```
 
 3. Browser human-in-loop with the exact workflow, immutable SHA, required
