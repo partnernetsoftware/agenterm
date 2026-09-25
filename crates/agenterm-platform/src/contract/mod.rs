@@ -51,6 +51,8 @@ pub mod login_session;
 pub mod native_virtualization;
 #[cfg(feature = "network-dns")]
 pub mod network_dns;
+#[cfg(feature = "network-http")]
+pub mod network_http;
 #[cfg(feature = "network-interfaces")]
 pub mod network_interfaces;
 #[cfg(feature = "network-routes")]
