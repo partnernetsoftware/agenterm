@@ -266,12 +266,9 @@ fn read_bounded(
     let mut chunk = [0u8; 8 * 1024];
     while body.len() <= ceiling {
         let want = (ceiling + 1 - body.len()).min(chunk.len());
-        let read = reader.read(&mut chunk[..want]).map_err(|failure| {
-            error(
-                NetworkHttpErrorKind::Transport,
-                format!("response body read failed: {failure}"),
-            )
-        })?;
+        let read = reader
+            .read(&mut chunk[..want])
+            .map_err(|failure| map_body_read_error(&failure))?;
         if read == 0 {
             return Ok((body, false));
         }
@@ -279,6 +276,36 @@ fn read_bounded(
     }
     body.truncate(ceiling);
     Ok((body, true))
+}
+
+/// Classify a failure that happened while streaming the body.
+///
+/// `agent.run` returns once the headers are in, so the response body is read
+/// after that call has already succeeded and its failures arrive here as
+/// `io::Error` rather than as a `ureq::Error`. A deadline that expires mid-body
+/// is therefore easy to mislabel: it is the same finished timeout the caller
+/// would have seen before the headers, and reporting it as `Transport` would
+/// tell a caller matching on `kind()` that a spent deadline was a transient
+/// socket failure worth retrying. So the io error kind is inspected, and a
+/// `ureq::Error` that the transport wrapped in an `io::Error` is unwrapped and
+/// classified by the same table the pre-header path uses.
+fn map_body_read_error(failure: &std::io::Error) -> NetworkHttpError {
+    if let Some(wrapped) = failure
+        .get_ref()
+        .and_then(|source| source.downcast_ref::<ureq::Error>())
+    {
+        return map_ureq_error(wrapped);
+    }
+    let kind = match failure.kind() {
+        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => {
+            NetworkHttpErrorKind::Timeout
+        }
+        _ => NetworkHttpErrorKind::Transport,
+    };
+    error(
+        kind,
+        redact_detail(&format!("response body read failed: {failure}")),
+    )
 }
 
 fn map_http_error(failure: &ureq::http::Error) -> NetworkHttpError {
@@ -582,6 +609,41 @@ mod tests {
         let (body, truncated) = read_bounded(&mut source, 100).unwrap();
         assert_eq!(body.len(), 100);
         assert!(truncated);
+    }
+
+    /// A reader whose every `read` fails with a caller-chosen io error kind,
+    /// standing in for a deadline or a socket dying mid-body.
+    struct FailingReader(std::io::ErrorKind);
+
+    impl Read for FailingReader {
+        fn read(&mut self, _buffer: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(self.0, "body stalled at byte 0"))
+        }
+    }
+
+    #[test]
+    fn a_deadline_that_expires_mid_body_is_a_timeout_not_a_transport_failure() {
+        // `agent.run` has already returned by the time the body is read, so a
+        // spent deadline arrives here as an io error. Reporting it as Transport
+        // would tell a caller matching on kind() to retry a finished deadline.
+        for kind in [std::io::ErrorKind::TimedOut, std::io::ErrorKind::WouldBlock] {
+            let mut source = FailingReader(kind);
+            let failure = read_bounded(&mut source, 100).unwrap_err();
+            assert_eq!(failure.kind(), NetworkHttpErrorKind::Timeout);
+            assert!(
+                failure.detail().contains("body stalled at byte 0"),
+                "the underlying text must survive: {}",
+                failure.detail()
+            );
+        }
+    }
+
+    #[test]
+    fn a_broken_socket_mid_body_stays_a_transport_failure() {
+        let mut source = FailingReader(std::io::ErrorKind::ConnectionReset);
+        let failure = read_bounded(&mut source, 100).unwrap_err();
+        assert_eq!(failure.kind(), NetworkHttpErrorKind::Transport);
+        assert!(failure.detail().contains("body stalled at byte 0"));
     }
 
     #[test]
