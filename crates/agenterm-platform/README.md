@@ -67,6 +67,7 @@ clipboard, IPC, or screenshot modules.
 | `process-image` | executable path for one selected host process | target `libc` / minimal `windows-sys` |
 | `process-metrics` | cumulative CPU time, resident bytes and partially classified page faults for one selected process | target `libc` / minimal `windows-sys` |
 | `process-spawn` | detached child launch with retained `Child`, explicit Windows job fallback, ambient-stdio protection and transactional explicit-handle inheritance | target `libc` / minimal `windows-sys` |
+| `network-http` | bounded outbound HTTP/HTTPS request with pre-flight limit validation, typed failure kinds and explicit response-body truncation | `ureq` (Windows `native-tls`, Unix `rustls`) |
 | `shared-memory` | exclusive named read/write mappings for cross-process zero-copy data | target `libc` / minimal `windows-sys` |
 | `parent-console` | best-effort stdout/stderr lines for GUI-subsystem launchers without process authority | minimal `windows-sys`; none on Unix |
 | `runtime` | target terminal-shell and locale defaults without process authority | none |
@@ -112,6 +113,7 @@ clipboard, IPC, or screenshot modules.
 | process image | queried full image path | `/proc/<pid>/exe` | `proc_pidpath` |
 | process metrics | process times + working set + total faults | `/proc` stat/statm + minor/major faults | `PROC_PIDTASKINFO` total faults + page-ins |
 | process spawn | job breakaway or explicit caller-job fallback | new session via `setsid` | new session via `setsid` |
+| outbound HTTP/HTTPS | NativeTls via SChannel platform stores | Rustls + WebPKI roots | Rustls + WebPKI roots |
 | shared memory | page-file mapping | POSIX shared memory | POSIX shared memory |
 | process | ToolHelp/Job Objects | `/proc` + process groups | POSIX process groups |
 | filesystem | AppData conventions | XDG conventions | Application Support |
@@ -135,6 +137,20 @@ clipboard, IPC, or screenshot modules.
 
 Unsupported endpoint variants and native failures remain typed; adapters never
 silently substitute a different transport or capability.
+
+`network_http::request` is the one `network-*` capability with no per-OS
+adapter, deliberately: `ureq` is portable, so the only host difference is the TLS
+provider, and that is expressed purely as target-specific Cargo features —
+Windows `native-tls` (SChannel and the platform certificate stores), Unix
+`rustls` with WebPKI roots, both `default-features = false`. Every caller
+supplied bound (URL length and scheme, header count and bytes, request-body
+bytes, timeout, redirect budget, response-body ceiling) is validated by
+`network_http::validate` before a socket is opened. A non-2xx status is a
+delivered response carrying its body, not a failure. Response bodies are framed
+at the caller's ceiling and report `truncated` explicitly rather than relying on
+the peer closing the socket. Endpoint choice, credentials, retry and
+authorization remain caller policy; this feature is a transport mechanism and
+knows no service.
 
 `filesystem_usage::logical_tree_size` is path-based accounting, not an
 adversarial traversal primitive. Callers choose the roots and must not infer
