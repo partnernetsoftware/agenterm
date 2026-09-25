@@ -7,6 +7,19 @@ in `plan/`; machine alignment belongs in `prd/alignment-contract.json`.
 
 ## Hard rules
 
+### Agent response protocol
+
+User-facing agent output has exactly two forms:
+
+1. A decision as a simple JavaScript object expression, for example
+   `({ decision: "done", reason: "...", next: "..." })`.
+2. JavaScript used to operate tools; short `//` comments may explain the tool
+   action.
+
+Do not send free-form prose, Markdown paragraphs, tables, lists or code fences
+as agent responses. This constrains the agent's conversation output, not the
+format of repository documents, product output, logs or test evidence.
+
 ### Protect written artifacts
 
 Never write host-home or expanded checkout paths, real credentials, personal
