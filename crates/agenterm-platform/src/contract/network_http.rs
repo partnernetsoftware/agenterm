@@ -37,10 +37,15 @@ pub const NETWORK_HTTP_MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 /// Default retained response-body bytes, unchanged from 0.1.9.
 pub const NETWORK_HTTP_DEFAULT_RESPONSE_BYTES: usize = 64 * 1024;
 
-/// Ceiling on request-body bytes, unchanged from 0.1.9's
-/// `MAX_HTTP_REQUEST_BODY_BYTES`. Not diverged: only the response ceiling and
-/// the timeout were authorized to move.
-pub const NETWORK_HTTP_MAX_REQUEST_BODY_BYTES: usize = 256 * 1024;
+/// Ceiling on request-body bytes, diverged from 0.1.9's
+/// `MAX_HTTP_REQUEST_BODY_BYTES` of 256 KiB for the same reason as the
+/// response ceiling, and to the same value so the two stay symmetric: a
+/// conversation-shaped request carries the whole turn history plus tool
+/// definitions plus any file content a tool already returned, so it grows
+/// with the reply it is asking for. 256 KiB bounds a probe's body, not a
+/// turn's. This is a ceiling, not a default: a caller that builds a small
+/// body still allocates a small body.
+pub const NETWORK_HTTP_MAX_REQUEST_BODY_BYTES: usize = 8 * 1024 * 1024;
 
 /// Maximum caller-supplied request headers, unchanged from 0.1.9.
 pub const NETWORK_HTTP_MAX_HEADERS: usize = 64;
