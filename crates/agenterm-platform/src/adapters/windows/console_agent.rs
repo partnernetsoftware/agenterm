@@ -1144,14 +1144,48 @@ fn forward_input(input: HANDLE, console_input: HANDLE) {
 /// Interrupt bytes, which are signals rather than keys.
 ///
 /// `WriteConsoleInput` does not raise a console control event: the console
-/// only synthesizes one for real keyboard input. Delivering Ctrl+C as a key
-/// record therefore gives the child the keystroke and not the interrupt,
-/// which is why a shell echoed `^C` and then carried on running whatever it
-/// was running. `GenerateConsoleCtrlEvent` is the actual signal, and process
-/// group zero means every process attached to this console — the child, its
-/// own children, and the agent itself.
+/// only synthesizes one for real keyboard input. Delivering Ctrl+C as *only*
+/// a key record therefore gives the child the keystroke and not the
+/// interrupt, which is why a shell echoed `^C` and then carried on running
+/// whatever it was running. `GenerateConsoleCtrlEvent` is the actual signal,
+/// and process group zero means every process attached to this console — the
+/// child, its own children, and the agent itself.
+///
+/// That signal alone is not the whole story: it wakes any ctrl-handler thread
+/// in the target processes, which is why it stops a child like `ping` (no
+/// handler installed -> default terminates), but it never touches a shell's
+/// own in-progress cooked-mode line read. Confirmed on real Windows CI
+/// (`ctrl_c_interrupts_an_idle_prompt_instead_of_being_swallowed` in
+/// minicon's `tests/minicon_console_agent.rs`, run 36317735429): a half-typed
+/// line at an idle cmd.exe prompt survived a bare `GenerateConsoleCtrlEvent`
+/// untouched and got glued onto the next command. A real physical Ctrl+C
+/// resets that pending line because conhost's own keyboard-input pipeline
+/// recognizes the ctrl-c key combination as it is dequeued and clears the
+/// line editor as part of that recognition — a step `GenerateConsoleCtrlEvent`
+/// alone skips entirely since it never goes through the input queue. Sending
+/// the matching key record first lets conhost's own pipeline see something
+/// indistinguishable from a real Ctrl+C keystroke and do that reset; the
+/// explicit signal that follows is still required for a child process that
+/// isn't reading via cooked line input at all.
 const CTRL_C_BYTE: u8 = 0x03;
 const CTRL_BREAK_BYTE: u8 = 0x1C;
+
+/// The interrupt byte's own key identity, for the key-record half of
+/// `raise_interrupt`. `VK_CANCEL` (0x03) is the dedicated Ctrl+C virtual key
+/// -- distinct from the `'C'` key -- so it cannot be confused with a literal
+/// typed `c` even if control-key-state handling upstream is ever relaxed.
+const VK_CANCEL: u16 = 0x03;
+
+fn raise_interrupt(console_input: HANDLE, event: u32, virtual_key: u16) {
+    let key = Key {
+        virtual_key,
+        unicode: 0x03,
+        control: true,
+    };
+    let mut records = vec![key_record(key, true), key_record(key, false)];
+    flush_records(console_input, &mut records);
+    raise_console_signal(event);
+}
 
 fn raise_console_signal(event: u32) {
     unsafe {
@@ -1203,13 +1237,13 @@ fn write_records(console_input: HANDLE, bytes: &[u8]) -> usize {
         match bytes[index] {
             CTRL_C_BYTE => {
                 flush_records(console_input, &mut records);
-                raise_console_signal(CTRL_C_EVENT);
+                raise_interrupt(console_input, CTRL_C_EVENT, VK_CANCEL);
                 index += 1;
                 continue;
             }
             CTRL_BREAK_BYTE => {
                 flush_records(console_input, &mut records);
-                raise_console_signal(CTRL_BREAK_EVENT);
+                raise_interrupt(console_input, CTRL_BREAK_EVENT, VK_CANCEL);
                 index += 1;
                 continue;
             }
