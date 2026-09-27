@@ -1170,19 +1170,44 @@ fn forward_input(input: HANDLE, console_input: HANDLE) {
 const CTRL_C_BYTE: u8 = 0x03;
 const CTRL_BREAK_BYTE: u8 = 0x1C;
 
-/// The interrupt byte's own key identity, for the key-record half of
-/// `raise_interrupt`. `VK_CANCEL` (0x03) is the dedicated Ctrl+C virtual key
-/// -- distinct from the `'C'` key -- so it cannot be confused with a literal
-/// typed `c` even if control-key-state handling upstream is ever relaxed.
+/// `VK_CONTROL` (0x11) and `'C'` (0x43) are the two virtual keys a real
+/// keyboard reports for a physical Ctrl+C: a Control key-down, then a `C`
+/// key-down carrying the Ctrl modifier and the 0x03 (ETX) character, then
+/// both key-ups in reverse. The first attempt at this fix sent a single
+/// key record with `wVirtualKeyCode = VK_CANCEL` (0x03) instead, reasoning
+/// that conhost's cooked-read line editor would recognize the interrupt from
+/// the character alone -- it did not: real Windows CI (run 36318959185)
+/// showed conhost treat that record as an ordinary unprintable character,
+/// echoing a literal `^C` into the pending line instead of clearing it,
+/// exactly the caret visible in
+/// `ctrl_c_interrupts_an_idle_prompt_instead_of_being_swallowed`'s failure
+/// output. Conhost's own interrupt detection evidently keys off the
+/// `Control`+`C` virtual-key pair a real keyboard driver reports, not the
+/// character value alone, so this second attempt reproduces that exact
+/// pair instead.
+const VK_CONTROL: u16 = 0x11;
+const VK_C: u16 = 0x43;
+/// The dedicated Ctrl+Break virtual key a real keyboard reports (distinct
+/// from the `C` key Ctrl+C uses).
 const VK_CANCEL: u16 = 0x03;
 
-fn raise_interrupt(console_input: HANDLE, event: u32, virtual_key: u16) {
+fn raise_interrupt(console_input: HANDLE, event: u32, letter: u16) {
+    let modifier = Key {
+        virtual_key: VK_CONTROL,
+        unicode: 0,
+        control: true,
+    };
     let key = Key {
-        virtual_key,
+        virtual_key: letter,
         unicode: 0x03,
         control: true,
     };
-    let mut records = vec![key_record(key, true), key_record(key, false)];
+    let mut records = vec![
+        key_record(modifier, true),
+        key_record(key, true),
+        key_record(key, false),
+        key_record(modifier, false),
+    ];
     flush_records(console_input, &mut records);
     raise_console_signal(event);
 }
@@ -1237,7 +1262,7 @@ fn write_records(console_input: HANDLE, bytes: &[u8]) -> usize {
         match bytes[index] {
             CTRL_C_BYTE => {
                 flush_records(console_input, &mut records);
-                raise_interrupt(console_input, CTRL_C_EVENT, VK_CANCEL);
+                raise_interrupt(console_input, CTRL_C_EVENT, VK_C);
                 index += 1;
                 continue;
             }
