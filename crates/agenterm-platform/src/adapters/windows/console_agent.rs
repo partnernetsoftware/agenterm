@@ -1080,6 +1080,12 @@ fn decode_cell(raw: CHAR_INFO) -> Cell {
 /// surfaces as a failed read and, before this, killed the agent mid-session.
 static PENDING_RESIZE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+/// How many keys typed since the last Enter are still sitting in the
+/// shell's cooked-mode line buffer, tracked so a Ctrl+C/Break can erase them
+/// with real Backspace keys (see `raise_interrupt`'s doc comment for why
+/// that is necessary rather than optional).
+static PENDING_LINE_KEYS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 fn forward_control(control: HANDLE) {
     use std::sync::atomic::Ordering;
 
@@ -1170,46 +1176,70 @@ fn forward_input(input: HANDLE, console_input: HANDLE) {
 const CTRL_C_BYTE: u8 = 0x03;
 const CTRL_BREAK_BYTE: u8 = 0x1C;
 
-/// `VK_CONTROL` (0x11) and `'C'` (0x43) are the two virtual keys a real
-/// keyboard reports for a physical Ctrl+C: a Control key-down, then a `C`
-/// key-down carrying the Ctrl modifier and the 0x03 (ETX) character, then
-/// both key-ups in reverse. The first attempt at this fix sent a single
-/// key record with `wVirtualKeyCode = VK_CANCEL` (0x03) instead, reasoning
-/// that conhost's cooked-read line editor would recognize the interrupt from
-/// the character alone -- it did not: real Windows CI (run 36318959185)
-/// showed conhost treat that record as an ordinary unprintable character,
-/// echoing a literal `^C` into the pending line instead of clearing it,
-/// exactly the caret visible in
-/// `ctrl_c_interrupts_an_idle_prompt_instead_of_being_swallowed`'s failure
-/// output. Conhost's own interrupt detection evidently keys off the
-/// `Control`+`C` virtual-key pair a real keyboard driver reports, not the
-/// character value alone, so this second attempt reproduces that exact
-/// pair instead.
-const VK_CONTROL: u16 = 0x11;
-const VK_C: u16 = 0x43;
-/// The dedicated Ctrl+Break virtual key a real keyboard reports (distinct
-/// from the `C` key Ctrl+C uses).
-const VK_CANCEL: u16 = 0x03;
+/// Two prior attempts tried to make conhost itself treat an *injected*
+/// record as the special Ctrl+C keystroke that resets a pending cooked-mode
+/// line: first a lone `wVirtualKeyCode = VK_CANCEL` record, then the real
+/// `VK_CONTROL` + `'C'` key-down/up pair a physical keyboard reports.
+/// Real Windows CI disproved both (runs 36318959185 and 36319273414): each
+/// time, conhost echoed a literal `^C` into the pending line instead of
+/// clearing it. `WriteConsoleInputW`'s own documented behaviour explains why
+/// neither could work: it never raises a signal and never gets the special
+/// hardware-input handling real Ctrl+C receives -- every record it writes is
+/// just literal input to the line editor, whatever virtual key it carries.
+///
+/// So this instead erases the line the way any editor can: with real
+/// Backspace keys. `PENDING_LINE_KEYS` counts how many keys this agent has
+/// forwarded since the last Enter (see `write_records`); a Backspace for
+/// each one clears exactly what was typed, the same as a user mashing
+/// Backspace themselves, before the console-control signal below still
+/// interrupts a child that isn't reading cooked line input at all (already
+/// confirmed working by
+/// `ctrl_c_interrupts_a_running_child_instead_of_being_typed`).
+const VK_BACK: u16 = 0x08;
 
-fn raise_interrupt(console_input: HANDLE, event: u32, letter: u16) {
-    let modifier = Key {
-        virtual_key: VK_CONTROL,
-        unicode: 0,
-        control: true,
-    };
-    let key = Key {
-        virtual_key: letter,
-        unicode: 0x03,
-        control: true,
-    };
-    let mut records = vec![
-        key_record(modifier, true),
-        key_record(key, true),
-        key_record(key, false),
-        key_record(modifier, false),
-    ];
-    flush_records(console_input, &mut records);
+fn raise_interrupt(console_input: HANDLE, event: u32) {
+    use std::sync::atomic::Ordering;
+
+    let pending = PENDING_LINE_KEYS.swap(0, Ordering::AcqRel);
+    if pending > 0 {
+        let backspace = Key {
+            virtual_key: VK_BACK,
+            unicode: 0x08,
+            control: false,
+        };
+        let mut records = Vec::with_capacity(pending as usize * 2);
+        for _ in 0..pending {
+            records.push(key_record(backspace, true));
+            records.push(key_record(backspace, false));
+        }
+        flush_records(console_input, &mut records);
+    }
     raise_console_signal(event);
+}
+
+/// Updates `PENDING_LINE_KEYS` for one key this agent is about to forward,
+/// so a later Ctrl+C/Break knows how many Backspaces undo it. Enter starts a
+/// fresh line (the previous one is now the shell's problem, already
+/// submitted); Backspace already removed one key itself; anything else --
+/// including one this function doesn't specifically recognise, such as an
+/// arrow or Home/End -- is treated as adding one, which errs toward a
+/// harmless extra Backspace past an already-empty line rather than leaving
+/// real typed text behind.
+fn track_pending_line_key(virtual_key: u16) {
+    use std::sync::atomic::Ordering;
+
+    const VK_RETURN: u16 = 0x0D;
+    if virtual_key == VK_RETURN {
+        PENDING_LINE_KEYS.store(0, Ordering::Release);
+    } else if virtual_key == VK_BACK {
+        PENDING_LINE_KEYS
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                Some(n.saturating_sub(1))
+            })
+            .ok();
+    } else {
+        PENDING_LINE_KEYS.fetch_add(1, Ordering::AcqRel);
+    }
 }
 
 fn raise_console_signal(event: u32) {
@@ -1262,13 +1292,13 @@ fn write_records(console_input: HANDLE, bytes: &[u8]) -> usize {
         match bytes[index] {
             CTRL_C_BYTE => {
                 flush_records(console_input, &mut records);
-                raise_interrupt(console_input, CTRL_C_EVENT, VK_C);
+                raise_interrupt(console_input, CTRL_C_EVENT);
                 index += 1;
                 continue;
             }
             CTRL_BREAK_BYTE => {
                 flush_records(console_input, &mut records);
-                raise_interrupt(console_input, CTRL_BREAK_EVENT, VK_CANCEL);
+                raise_interrupt(console_input, CTRL_BREAK_EVENT);
                 index += 1;
                 continue;
             }
@@ -1289,6 +1319,7 @@ fn write_records(console_input: HANDLE, bytes: &[u8]) -> usize {
             break;
         };
         index += used;
+        track_pending_line_key(key.virtual_key);
         records.push(key_record(key, true));
         records.push(key_record(key, false));
     }
