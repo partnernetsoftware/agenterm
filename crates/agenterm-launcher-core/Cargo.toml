@@ -1,0 +1,19 @@
+[package]
+name = "agenterm-launcher-core"
+version = "0.2.0"
+edition = "2024"
+description = "AgenTerm 0.2.0.0 launcher core: locate, probe, select, verify and install MiniCon (no GUI, no network)"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Standalone until the owner says "开工": kept out of the 0.1.x workspace so
+# it cannot perturb 0.1.x builds, Cargo.lock or release policy tests.
+[workspace]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"

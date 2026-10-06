@@ -1,0 +1,167 @@
+{
+  "schema": 1,
+  "kind": "minicon-release-candidate",
+  "version": "0.2.3",
+  "expected_tag": "v0.2.3",
+  "source_sha": "6ea7d1d5d624ffdda3f402cbf9bced04df4b8986",
+  "source_tree_digest": "a6e6c52554a59590ae807d81d8480677cb80063dbe99ee87c8bd68ed2084de71",
+  "release_policy": {
+    "sha256": "48c997313364ddeb8983ca349ad2b8407b120f106f995a6e977ff94bba91f942",
+    "schema": 1,
+    "version": "0.2.3",
+    "assets": {
+      "native_archives": true,
+      "minicon_com": true
+    },
+    "signing": {
+      "mode": "required",
+      "macos": {
+        "mode": "required"
+      }
+    },
+    "reputation": {
+      "mode": "defender",
+      "assets": [
+        "minicon.com",
+        "windows-x86_64",
+        "windows-arm64"
+      ]
+    }
+  },
+  "candidate_run": {
+    "id": 36400246174,
+    "attempt": 1
+  },
+  "upstream_run": {
+    "id": 36400001379,
+    "attempt": 1,
+    "artifact_id": "10960330291"
+  },
+  "receipts": {
+    "build": {
+      "name": "build-receipt.json",
+      "sha256": "10d55bbac267a590d3a36364b45f968d9fccc6d3fb22e784da13c3d872ebffea"
+    },
+    "aggregate": {
+      "name": "aggregate-receipt.json",
+      "sha256": "948e04ce0a39beb0a5eeef6509cd524f3fe4a2764d122485ebd53903f3995ee6"
+    },
+    "g3": {
+      "name": "g3-receipt.json",
+      "sha256": "41a522c3233bcec46d7138807a449188fa640d58ca3cf8cf7340c318c14a0903"
+    },
+    "signing": {
+      "name": "signing-receipt.json",
+      "sha256": "2f69db3f32da06e144d5e8ea07d5248ca9d54894b68164f9b546e5e409ca5693"
+    },
+    "macos_signing": {
+      "name": "macos-signing-receipt.json",
+      "sha256": "35d3574e44ef257865f095b99e45df8f5e636b4cbceec6ad08a34d496ef9240e"
+    }
+  },
+  "signing": {
+    "mode": "required",
+    "provider": "azure-artifact-signing",
+    "publisher_organization": "PARTNERNET SOFTWARE PTY LTD",
+    "signed_after_sha256": {
+      "minicon.com": "feeec1e769b463ffb4aa259ec4b7a34bd6532da75b26ac745957b04a3b7df259",
+      "win-x86_64": "b69773d2c6764e5fb007acb87f8408c61d973bd0ac540239d5fdf444f3ecf6a7",
+      "win-aarch64": "fba74f9af2ce9edaca2952ea526f765d6c9ca0fff6989d51a1ef58b24e1b37d6"
+    },
+    "macos": {
+      "mode": "required",
+      "provider": "Apple Developer ID + notarization",
+      "identity": "Developer ID Application: PARTNERNET SOFTWARE PTY LTD (L2N7M5M544)",
+      "team_identifier": "L2N7M5M544",
+      "universal_after_sha256": "906f8795d46d5cbd9eeaec1e190011966a4b266580bd233ab6f4f2ac9fc0303f",
+      "dmg_sha256": "6d7bc069903c5f70cda457cc11447277e8b878f22157483fe35164e2331dc560"
+    }
+  },
+  "assets": [
+    {
+      "name": "minicon-0.2.3-windows-x86_64.zip",
+      "bytes": 995135,
+      "sha256": "61b09d287eb26c974c82384ea6eebc3352360ad6da87bb961ec770f1daead571",
+      "sidecar": {
+        "name": "minicon-0.2.3-windows-x86_64.zip.sha256",
+        "sha256": "9fbda7bafed2aa3ce1139f3ad83309c596ce85f231ee29cb9585d809a76aa896"
+      }
+    },
+    {
+      "name": "minicon-0.2.3-windows-arm64.zip",
+      "bytes": 958319,
+      "sha256": "1313e044b3de2f8701fa42dd224107c98616bff009778a222a40f068d5654b1c",
+      "sidecar": {
+        "name": "minicon-0.2.3-windows-arm64.zip.sha256",
+        "sha256": "2b4ad8307fc954a4756364712684b28bd45d24226b44b5340f608365e887c171"
+      }
+    },
+    {
+      "name": "minicon-0.2.3-linux-x86_64.tar.gz",
+      "bytes": 2431173,
+      "sha256": "65db801d5b2e0dc1ac1776b57780684dbe5c91701b6367546264af89ca65c27a",
+      "sidecar": {
+        "name": "minicon-0.2.3-linux-x86_64.tar.gz.sha256",
+        "sha256": "56ee4d6e7cf38f20d6d138279e90cba13cd1fb3c9e11cf9d5474271cf3e6ebf9"
+      }
+    },
+    {
+      "name": "minicon-0.2.3-linux-arm64.tar.gz",
+      "bytes": 2354048,
+      "sha256": "0fe4f188736b90ace1bdea121ecd9d7df82dca66d6d52b2f0ed188dd888899d8",
+      "sidecar": {
+        "name": "minicon-0.2.3-linux-arm64.tar.gz.sha256",
+        "sha256": "8c1b073a901127e04a9601ef9e6b6df078d0f66fab726339a944f17089d5f008"
+      }
+    },
+    {
+      "name": "minicon-0.2.3-macos-universal.tar.gz",
+      "bytes": 3573201,
+      "sha256": "c03ab5afe2ee3b5b2a44fc6e71bda31a17faacc9346e6dcac5021597ecfca755",
+      "sidecar": {
+        "name": "minicon-0.2.3-macos-universal.tar.gz.sha256",
+        "sha256": "4cd4151f01a9581e9e762c03e7acf7a1f06efa0d6cd07802d3eeaa34edffd936"
+      }
+    },
+    {
+      "name": "minicon.com",
+      "bytes": 10987752,
+      "sha256": "feeec1e769b463ffb4aa259ec4b7a34bd6532da75b26ac745957b04a3b7df259",
+      "sidecar": {
+        "name": "minicon.com.sha256",
+        "sha256": "323decafd12e3889589381a2e9f96c767d6608ae4d9f18756c2ab1a42b620e3c"
+      }
+    },
+    {
+      "name": "minicon-0.2.3-macos-universal.dmg",
+      "bytes": 4096082,
+      "sha256": "6d7bc069903c5f70cda457cc11447277e8b878f22157483fe35164e2331dc560",
+      "sidecar": {
+        "name": "minicon-0.2.3-macos-universal.dmg.sha256",
+        "sha256": "9751c9f979f2401402b95980376cf48323ec1f7314461694659b4f7a86eb25c8"
+      }
+    }
+  ],
+  "reputation_assets": {
+    "minicon.com": {
+      "container": "minicon.com",
+      "sha256": "feeec1e769b463ffb4aa259ec4b7a34bd6532da75b26ac745957b04a3b7df259"
+    },
+    "windows-x86_64": {
+      "container": "minicon-0.2.3-windows-x86_64.zip",
+      "member": "minicon-0.2.3-windows-x86_64/minicon.exe",
+      "sha256": "b69773d2c6764e5fb007acb87f8408c61d973bd0ac540239d5fdf444f3ecf6a7",
+      "bytes": 2564000
+    },
+    "windows-arm64": {
+      "container": "minicon-0.2.3-windows-arm64.zip",
+      "member": "minicon-0.2.3-windows-arm64/minicon.exe",
+      "sha256": "fba74f9af2ce9edaca2952ea526f765d6c9ca0fff6989d51a1ef58b24e1b37d6",
+      "bytes": 2458016
+    }
+  },
+  "unsigned_one_pack_run": {
+    "run_id": 36399157828,
+    "run_attempt": 1
+  }
+}

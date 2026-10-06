@@ -378,6 +378,7 @@ flowchart LR
 | 34 | [`agenterm-dyn` 底层动态 ABI 机制层](prd/PRD_02_34_agenterm_dyn.md) | `publish = false` 的**无策略底层动态 ABI 机制层**：唯一 loader/符号解析、按**调用方传入的 ABI 描述**执行调用、raw value/pointer 搬运、variadic `ioctl` ABI 机制与机制错误。**schema/prototype/catalog/validator/budget/cancel/监管归 qjswasm/Script Runtime**；typed OS contracts、六格 facts/catalog/evidence 与 S-expr/intern/bounded `dlcall` 语言层均已从 dyn 删除（历史不抹除）。零消费者的 W^X 实验已撤回；host-ISA folding 仅可在真实消费者、生命周期设计、六目标边界与 public court 齐备后重入。wasm export 与 libagenterm merge 仍未授权 |
 | 35 | `tinyvm` standard WebAssembly VM — **已迁出** | 2026-08-22 起源码与 PRD 在独立仓 [`partnernetsoftware/tinyvm`](https://github.com/partnernetsoftware/tinyvm)（本地 `../tinyvm`）。iOS 边界下自有、跨平台、可预算的 WASM VM，核 <100KiB。agenterm 不再持有其写刀 |
 | 36 | [`agenterm-qjswasm` 自研脚本引擎](prd/PRD_02_36_agenterm_qjswasm.md) | `.qjs` 用**纯 Rust** 编译成 `.wasm`，`.wasm` 直接跑，核是 tinyvm（无 JIT、装载期校验、上限在核）。不链 QuickJS C、不用 rquickjs，**取代 `agenterm-qjs`**（归档门见该文档）。「AOT」只指到 wasm 码不到机器码。JS 覆盖面是**排期不是天花板**（运行时自带、一起编进 wasm），**无原理排除**——`eval` 走宿主重编 + 跨实例链接，tinyvm 已支持。执行核不生成机器码是 tinyvm 产品定义。M0–M2 已落地（编译器在上游 `tinyvm-qjs`，本 crate 是业务层）。**取代 `agenterm-qjs` 与 `agenterm-wasmcore`**：前者 **2026-08-28 已归档**（三门全绿，crate 摘除，`rquickjs` 出依赖树）；后者 **2026-08-28 一并归档**（政委重申：两个 crate 都归档，产品线收到 qjswasm）。桌面端的 JIT/AOT 方向**不放弃，但改从自研线长**——见 tinyvm PRD「原生降级」（候选未立项）。实测留档：计算密集载荷 wasmtime 曾快 **535×**，交叉点约 1500 轮 |
+| 03.01 | [AgenTerm launcher (v0.2.0.0)](prd/PRD_03_01_launcher.md) | 0.2.0.0 起点：agenterm 启动器检测/经确认下载本机 MiniCon（原生包优先、`minicon.com` 兜底）、校验 sha256 与签名者、原子安装与回滚，再开辅助界面；插件市场待 unisa 决定后再定 |
 
 ## Non-negotiable invariants
 
