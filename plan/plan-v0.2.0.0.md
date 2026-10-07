@@ -43,7 +43,19 @@ v0.2.0.0 — agenterm.com finds/obtains a verified MiniCon and opens the assista
 3. Courts never touch a real host GUI/browser; every external wait is bounded.
 4. Public Promotion needs the owner's explicit approval.
 
+## Boundary update 2026-10-07 (owner, via cc-minicon)
+
+MiniCon permanently retracted harness-manage (multi-agent orchestration/
+management) and the harness GUI workbench; MiniCon is now "base services +
+interface provider". **Agent management, orchestration and the market all
+belong to AgenTerm**, built on HOSTIF. The existing `minicon harness`
+(two-tool worker, no orchestration) stays frozen in MiniCon; migrating it is
+deferred until AgenTerm ships its own orchestration, and is not a 0.2.0.0
+launcher milestone.
+
 ## Parked until the unisa decision (reference, not commitments)
+
+- Agent management / orchestration surface (now AgenTerm-owned, see above).
 
 - Plugin formats: wasm+gl sandbox → webui surface → signed native escape hatch.
 - Ownership: MiniCon owns HOSTIF; AgenTerm owns plugin manifest + market index.
