@@ -52,8 +52,9 @@ fn locked_package_version(source: &str, package: &str) -> String {
 fn workspace_product_versions_have_one_identity() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let product = package_version(root.join("Cargo.toml"));
-    let platform = package_version(root.join("crates/agenterm-platform/Cargo.toml"));
-    assert_eq!(platform, product, "agenterm-platform version drift");
+    // The platform/ui crates left this repository in the 2026-10-11 move; the
+    // only version identity agenterm still owns for them is the external crate
+    // the lockfile resolves, asserted against `product` below.
 
     let tasks: serde_json::Value = serde_json::from_slice(
         &fs::read(root.join("agenterm.tasks.json")).expect("read task manifest"),
@@ -82,7 +83,7 @@ fn workspace_product_versions_have_one_identity() {
         "root lockfile version drift"
     );
     assert_eq!(
-        locked_package_version(&lock, "agenterm-platform"),
+        locked_package_version(&lock, "minicon-platform"),
         product,
         "platform lockfile version drift"
     );

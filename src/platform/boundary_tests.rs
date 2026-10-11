@@ -38,7 +38,7 @@ const NATIVE_BOUNDARY_MARKERS: &[&str] = &[
 ];
 
 /// Product source coupling: naming the product crate or its modules. Banned
-/// everywhere in `agenterm-platform`, adapters included: the crate is embedded
+/// everywhere in `minicon-platform`, adapters included: the crate is embedded
 /// by other applications and must not compile against the product.
 const PRODUCT_SOURCE_COUPLING_MARKERS: &[&str] = &[
     "crate::client",
@@ -57,10 +57,10 @@ const PRODUCT_SOURCE_COUPLING_MARKERS: &[&str] = &[
 /// is a leak of product naming into code that must work for every consumer.
 const PRODUCT_ENV_PREFIX: &str = "AGENTERM_";
 
-const PLATFORM_CRATE: &str = "crates/agenterm-platform";
+const PLATFORM_CRATE: &str = "crates/minicon-platform";
 
 /// Raw OS mechanisms: calling the OS directly, naming an OS binding crate, or
-/// linking a native library. Inside `agenterm-platform` these belong to the
+/// linking a native library. Inside `minicon-platform` these belong to the
 /// adapters and to the one selector; a facade that has to name a target must
 /// still go through them rather than reaching the OS itself.
 const RAW_OS_MECHANISM_MARKERS: &[&str] = &[
@@ -211,15 +211,19 @@ fn production_sources_use_platform_crate_as_the_only_native_boundary() {
 
     assert!(
         violations.is_empty(),
-        "production OS boundaries must stay in crates/agenterm-platform/** (apart from the exact subsystem attributes removed above):\n{}",
+        "production OS boundaries must stay in crates/minicon-platform/** (apart from the exact subsystem attributes removed above):\n{}",
         violations.join("\n")
     );
 }
 
 #[test]
 fn platform_crate_native_mechanics_stay_in_selected_and_adapters() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let platform_root = root.join(PLATFORM_CRATE).join("src");
+    // The platform crate left this repository in the 2026-10-11 move and is now
+    // a pinned git dependency. These internal-boundary courts still run over the
+    // exact revision Cargo resolved, read from the checkout cache; a missing
+    // checkout fails loudly rather than passing over nothing.
+    let checkout = pinned_platform_checkout_root();
+    let platform_root = checkout.join(PLATFORM_CRATE).join("src");
     let mut sources = Vec::new();
     collect_rust_sources(&platform_root, &mut sources);
     sources.sort();
@@ -227,8 +231,8 @@ fn platform_crate_native_mechanics_stay_in_selected_and_adapters() {
     let mut violations = Vec::new();
     for path in sources {
         let relative = path
-            .strip_prefix(&root)
-            .expect("source is below manifest root")
+            .strip_prefix(&checkout)
+            .expect("source is below the pinned minicon checkout")
             .to_string_lossy()
             .replace('\\', "/");
         let source = fs::read_to_string(&path).expect("read Rust source");
@@ -278,7 +282,7 @@ fn platform_crate_native_mechanics_stay_in_selected_and_adapters() {
     }
 
     for (relative, reason) in NATIVE_SELECTION_EXCEPTIONS {
-        let path = root.join(relative);
+        let path = checkout.join(relative);
         assert!(
             path.is_file(),
             "named selection exception {relative} must still exist ({reason})"
@@ -483,20 +487,24 @@ fn predicate_selects_a_target(predicate: &str) -> bool {
 /// the caller verifies every entry still exists and still selects a target.
 const NATIVE_SELECTION_EXCEPTIONS: &[(&str, &str)] = &[
     (
-        "crates/agenterm-platform/src/device_inventory.rs",
+        "crates/minicon-platform/src/device_inventory.rs",
         "cfg-confined std-only locator type",
     ),
     (
-        "crates/agenterm-platform/src/filesystem_create.rs",
+        "crates/minicon-platform/src/filesystem_create.rs",
         "cfg-confined std-only Windows path semantics",
     ),
     (
-        "crates/agenterm-platform/src/contract/host_pressure.rs",
+        "crates/minicon-platform/src/contract/host_pressure.rs",
         "contract helper that exists only on the platform with the mechanism and under test; it holds no raw OS call, and moving it into the owning facade is the recorded next step",
     ),
     (
-        "crates/agenterm-platform/src/contract/login_session.rs",
+        "crates/minicon-platform/src/contract/login_session.rs",
         "contract helper that exists only on the platform with the mechanism and under test; it holds no raw OS call, and moving it into the owning facade is the recorded next step",
+    ),
+    (
+        "crates/minicon-platform/src/contract/window_host.rs",
+        "`#[cfg_attr(not(unix), allow(dead_code))]` is a lint attribute on a Unix-only constructor the Windows host does not build; it selects no mechanism and the type plus its cross-platform API stay available to every consumer",
     ),
 ];
 
@@ -517,10 +525,12 @@ fn line_of(source: &str, position: usize) -> usize {
 
 #[test]
 fn platform_crate_has_no_agenterm_product_dependency_or_source_coupling() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let platform_root = root.join(PLATFORM_CRATE);
+    // The platform crate is now a pinned git dependency; read the exact
+    // resolved checkout, as the mechanics court above does.
+    let checkout = pinned_platform_checkout_root();
+    let platform_root = checkout.join(PLATFORM_CRATE);
     let manifest = fs::read_to_string(platform_root.join("Cargo.toml"))
-        .expect("read agenterm-platform manifest");
+        .expect("read minicon-platform manifest");
     let manifest_without_comments = manifest
         .lines()
         .map(|line| line.split_once('#').map_or(line, |(code, _)| code))
@@ -549,8 +559,8 @@ fn platform_crate_has_no_agenterm_product_dependency_or_source_coupling() {
     sources.sort();
     for path in sources {
         let relative = path
-            .strip_prefix(&root)
-            .expect("source is below manifest root")
+            .strip_prefix(&checkout)
+            .expect("source is below the pinned minicon checkout")
             .to_string_lossy()
             .replace('\\', "/");
         let source = fs::read_to_string(&path).expect("read Rust source");
@@ -585,9 +595,66 @@ fn platform_crate_has_no_agenterm_product_dependency_or_source_coupling() {
 
     assert!(
         violations.is_empty(),
-        "agenterm-platform must stay product-neutral outside its adapters:\n{}",
+        "minicon-platform must stay product-neutral outside its adapters:\n{}",
         violations.join("\n")
     );
+}
+
+/// Root of the MiniCon checkout Cargo resolved for the pinned `minicon-platform`
+/// dependency (`$CARGO_HOME/git/checkouts/minicon-*/<rev>/`). The `<rev>` whose
+/// directory name is a prefix of the revision recorded in `Cargo.lock` is
+/// selected, so the court always reads the reviewed revision and cannot drift
+/// silently to another checkout on the machine. Panics with a clear message when
+/// the checkout is absent — a missing dependency source is a loud failure, never
+/// a green pass over an empty directory.
+fn pinned_platform_checkout_root() -> PathBuf {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let lock = fs::read_to_string(root.join("Cargo.lock")).expect("read Cargo.lock");
+    let revision = lock
+        .split("minicon?rev=")
+        .nth(1)
+        .and_then(|tail| tail.split('#').next())
+        .expect("Cargo.lock pins a minicon revision")
+        .trim()
+        .to_owned();
+    let cargo_home = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("USERPROFILE")
+                .or_else(|| std::env::var_os("HOME"))
+                .map(|home| PathBuf::from(home).join(".cargo"))
+        })
+        .expect("CARGO_HOME or a home directory is required to locate the pinned minicon checkout");
+    let checkouts = cargo_home.join("git").join("checkouts");
+    let marker = Path::new("crates")
+        .join("minicon-platform")
+        .join("src")
+        .join("selected.rs");
+    let mut best: Option<PathBuf> = None;
+    if let Ok(entries) = fs::read_dir(&checkouts) {
+        for entry in entries.flatten() {
+            if !entry.file_name().to_string_lossy().starts_with("minicon-") {
+                continue;
+            }
+            if let Ok(revisions) = fs::read_dir(entry.path()) {
+                for revision_entry in revisions.flatten() {
+                    let candidate = revision_entry.path();
+                    if !candidate.is_dir() || !candidate.join(&marker).is_file() {
+                        continue;
+                    }
+                    if revision.starts_with(revision_entry.file_name().to_string_lossy().as_ref()) {
+                        best = Some(candidate);
+                    }
+                }
+            }
+        }
+    }
+    best.unwrap_or_else(|| {
+        panic!(
+            "pinned minicon checkout {revision} not found under {}; run `cargo fetch` before this court",
+            checkouts.display()
+        )
+    })
 }
 
 fn collect_rust_sources(directory: &Path, output: &mut Vec<PathBuf>) {
@@ -891,9 +958,9 @@ mod probe;
 #[test]
 fn selection_owners_routing_gates_and_test_helpers_are_distinguished() {
     for owner in [
-        "crates/agenterm-platform/src/selected.rs",
-        "crates/agenterm-platform/src/simulator/selected.rs",
-        "crates/agenterm-platform/src/adapters/macos/app_facts.rs",
+        "crates/minicon-platform/src/selected.rs",
+        "crates/minicon-platform/src/simulator/selected.rs",
+        "crates/minicon-platform/src/adapters/macos/app_facts.rs",
     ] {
         assert!(
             platform_selection_owner(owner),
@@ -901,7 +968,7 @@ fn selection_owners_routing_gates_and_test_helpers_are_distinguished() {
         );
     }
     assert!(!platform_selection_owner(
-        "crates/agenterm-platform/src/audio.rs"
+        "crates/minicon-platform/src/audio.rs"
     ));
     assert!(!platform_selection_owner(
         "src/platform/adapters/macos/x.rs"
@@ -1074,10 +1141,21 @@ fn chassis_l1_surface_path_shape(field: &str, value: &str) -> Result<PathBuf, St
 }
 
 /// Checks one manifest entry against the checkout rooted at `root`.
+///
+/// A `crates/minicon-platform/**` entry is resolved against the pinned MiniCon
+/// checkout Cargo fetched for this build — the platform crate has been an
+/// external git dependency since the 2026-10-11 move — so the frozen surface may
+/// keep naming the platform tax it documents without pretending those files live
+/// in this clone (which the doc comment above rightly refuses for local paths).
 fn chassis_l1_surface_path_exists(root: &Path, field: &str, value: &str) -> Result<(), String> {
     let relative = chassis_l1_surface_path_shape(field, value)?;
     let wants_directory = value.ends_with('/');
-    let full = root.join(&relative);
+    let base = if value == PLATFORM_CRATE || value.starts_with(&format!("{PLATFORM_CRATE}/")) {
+        pinned_platform_checkout_root()
+    } else {
+        root.to_path_buf()
+    };
+    let full = base.join(&relative);
     let found = if wants_directory {
         full.is_dir()
     } else {

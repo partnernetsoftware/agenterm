@@ -59,9 +59,10 @@ static CHECK_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/check.qjs").replace("\r\n", "\n"));
 static SCRIPT_ENGINE_RS: LazyLock<String> =
     LazyLock::new(|| include_str!("../src/script_engine.rs").replace("\r\n", "\n"));
-static PLATFORM_THREADING_RS: LazyLock<String> = LazyLock::new(|| {
-    include_str!("../crates/agenterm-platform/src/threading.rs").replace("\r\n", "\n")
-});
+static ROOT_MANIFEST: LazyLock<String> =
+    LazyLock::new(|| include_str!("../Cargo.toml").replace("\r\n", "\n"));
+static ROOT_LOCK: LazyLock<String> =
+    LazyLock::new(|| include_str!("../Cargo.lock").replace("\r\n", "\n"));
 static DOC_REDACT_CHECK: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/doc-redact-check.sh").replace("\r\n", "\n"));
 static INSTALL_SH: LazyLock<String> =
@@ -529,13 +530,18 @@ fn release_fast_fixture_separates_cold_compilation_from_the_bounded_build() {
 }
 
 #[test]
-fn primary_unit_spec_keeps_both_packages_and_the_explicit_skip_set() {
+fn primary_unit_spec_keeps_the_primary_package_and_the_explicit_skip_set() {
     let spec = CHECK_QJS
         .split_once("function cargo_unit_primary_spec(environment) {")
         .and_then(|(_, tail)| tail.split_once("\n}"))
         .map(|(body, _)| body)
         .expect("primary unit spec");
-    assert!(spec.contains("\"-p\", \"agenterm\", \"-p\", \"agenterm-ui-core\""));
+    // `minicon-ui-core` left this workspace in the 2026-10-11 move; it is now a
+    // pinned git dependency whose own tests run in MiniCon's gate, and Cargo
+    // refuses `--all-features` for a package outside the workspace, so the
+    // primary spec selects only `agenterm`.
+    assert!(spec.contains("\"-p\", \"agenterm\", \"--\""));
+    assert!(!spec.contains("\"-p\", \"minicon-ui-core\""));
     let skipped = [
         "preflight_task_is_fail_closed_and_writes_reports_for_real_git_fixtures",
         "preflight_benchmark_task_measures_clean_public_worker_runs",
@@ -732,11 +738,28 @@ fn chassis_default_feature_tests_are_an_explicit_full_gate_subcourt() {
 fn platform_unconditional_tests_are_an_explicit_full_gate_subcourt() {
     assert!(CHECK_QJS.contains("function cargo_unit_platform_unconditional_spec(environment)"));
     assert!(CHECK_QJS.contains(
-        "\"-p\", \"agenterm-platform\", \"--lib\",\n    \"--\", \"--skip\", \"threading::\""
+        "\"-p\", \"minicon-platform\", \"--lib\",\n    \"--\", \"--skip\", \"threading::\""
     ));
     assert!(CHECK_QJS.contains("cargo_unit_platform_unconditional_spec(build_environment)"));
-    assert!(PLATFORM_THREADING_RS.contains("fn detached_task_runs_with_the_requested_os_name"));
-    assert!(PLATFORM_THREADING_RS.contains("fn panic_is_contained_and_unwinds_the_detached_task"));
+    // The platform/ui crates left this repository in the 2026-10-11 move, so the
+    // `threading.rs` content guard that used to live here moved with them into
+    // MiniCon's own gate; MiniCon owns `crates/minicon-platform/src/threading.rs`
+    // and runs it. What agenterm can still prove locally is that the exact
+    // revision this court resolves is pinned and consistent between the manifest
+    // and the lockfile — without that, `-p minicon-platform --lib` could silently
+    // resolve a different revision than the reviewed one.
+    let pin = "rev = \"0326e2abaf71cb2f8dc22f766de9b410efa4be1e\"";
+    assert!(ROOT_MANIFEST.contains("git = \"https://github.com/partnernetsoftware/minicon\""));
+    assert!(
+        ROOT_MANIFEST.contains(pin),
+        "manifest pins the minicon revision"
+    );
+    assert!(
+        ROOT_LOCK.contains(
+            "git+https://github.com/partnernetsoftware/minicon?rev=0326e2abaf71cb2f8dc22f766de9b410efa4be1e"
+        ),
+        "lockfile pins the minicon revision"
+    );
 }
 
 #[test]

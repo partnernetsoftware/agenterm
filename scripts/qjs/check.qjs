@@ -323,8 +323,14 @@ function cargo_clippy_all_spec(environment) {
 }
 
 function cargo_unit_primary_spec(environment) {
-  // `-p agenterm-ui-core` is load-bearing: a dependency crate's own
+  // `-p minicon-ui-core` used to be load-bearing: a dependency crate's own
   // `#[cfg(test)]` modules are NOT built or run by `cargo test -p agenterm`.
+  // Since the 2026-10-11 platform move that crate lives in the MiniCon
+  // repository and is consumed here as a pinned git dependency, and Cargo
+  // refuses `--all-features` for a package outside this workspace ("cannot
+  // specify features for packages outside of workspace"). Its own unit tests
+  // now run in MiniCon's gate (see the MiniCon plan-v0.2.5 GATE, `minicon_ui_core
+  // (lib) 54 passed`); the tests were relocated, not dropped.
   // The skip list is rh's verbatim; the 900s budget tolerates a rebuild of
   // every test target (timing.json still records the real duration).
   //
@@ -332,15 +338,15 @@ function cargo_unit_primary_spec(environment) {
   // reports green over a test that never ran: a function that loses its
   // `#[test]` attribute compiles as unreachable `dead_code`, and an ignored
   // `Result` hides a setup step that failed. Passed per invocation rather than
-  // through `RUSTFLAGS` so the flags stay bound to this gate. Scope is the two
-  // primary unit crates, which are measured clean under all three denials; the
+  // through `RUSTFLAGS` so the flags stay bound to this gate. Scope is the
+  // primary unit crate here, which is measured clean under all three denials; the
   // per-crate specs below keep the default flags until each is measured too,
   // because a denial added without that measurement turns the gate red for
   // reasons unrelated to the change under test.
   return spec("cargo", [
     "test", "--quiet", "--locked", "--all-features",
     "--config", "build.rustflags=[\"-D\",\"dead_code\",\"-D\",\"unused_variables\",\"-D\",\"unused_must_use\"]",
-    "-p", "agenterm", "-p", "agenterm-ui-core", "--",
+    "-p", "agenterm", "--",
     "--skip", "preflight_task_is_fail_closed_and_writes_reports_for_real_git_fixtures",
     "--skip", "preflight_benchmark_task_measures_clean_public_worker_runs",
     "--skip", "prd_alignment_task_matches_public_catalogs_and_fails_closed",
@@ -509,7 +515,7 @@ function cargo_unit_chassis_spec(environment) {
 
 function cargo_unit_platform_unconditional_spec(environment) {
   return spec("cargo", [
-    "test", "--quiet", "--locked", "-p", "agenterm-platform", "--lib",
+    "test", "--quiet", "--locked", "-p", "minicon-platform", "--lib",
     "--", "--skip", "threading::"
   ], 300000, environment, 0);
 }
@@ -1583,7 +1589,7 @@ rh.try_remove_file(upgrade_fixture);
 if (skip_smoke === 0) {
   // Cold release-fast compilation is not the 300 s artifact fixture court.
   // Keep all four Cargo roots in separate invocations, as build.qjs does:
-  // combining them would unify agenterm-platform features across products.
+  // combining them would unify minicon-platform features across products.
   const fixture_target = host_target_triple(repo);
   gate = run_gate_specs(
     context, timing, "artifact-build-fast", "alternate GUI fixture build",
