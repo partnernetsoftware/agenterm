@@ -7,7 +7,7 @@ use crate::reply::CuError;
 pub(super) fn font_discovery_payload() -> Result<Value, CuError> {
     #[cfg(target_os = "linux")]
     {
-        let report = agenterm_platform::font_discovery::discover();
+        let report = minicon_platform::font_discovery::discover();
         Ok(serde_json::json!({
             "source": report.source,
             "primary_family": report.primary_family,

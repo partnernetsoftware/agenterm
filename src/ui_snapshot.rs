@@ -148,12 +148,12 @@ pub(crate) fn archived_proxy_status_json(bounds: PixelRect) -> serde_json::Value
 /// parsing.
 pub(crate) fn ime_status_snapshot_json(
     bounds: PixelRect,
-    status: Option<&agenterm_platform::ime::ImeStatus>,
+    status: Option<&minicon_platform::ime::ImeStatus>,
 ) -> serde_json::Value {
     serde_json::json!({
         "bounds": pixel_rect_json(bounds),
         "label": status
-            .map(agenterm_platform::ime::ImeStatus::label)
+            .map(minicon_platform::ime::ImeStatus::label)
             .unwrap_or_else(|| "IME: off".to_owned()),
     })
 }

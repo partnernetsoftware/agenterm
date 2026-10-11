@@ -1,6 +1,6 @@
 //! Bounded native network-interface inventory.
 
-use agenterm_platform::network_interfaces::{NetworkInterfaceAddress, NetworkInterfaceErrorKind};
+use minicon_platform::network_interfaces::{NetworkInterfaceAddress, NetworkInterfaceErrorKind};
 
 use super::*;
 
@@ -8,7 +8,7 @@ const RESPONSE_CEILING_BYTES: usize = 1024 * 1024;
 const RESPONSE_HEADROOM_BYTES: usize = 4096;
 
 pub(super) fn network_interfaces_payload(max: usize) -> Result<serde_json::Value, CuError> {
-    let inventory = agenterm_platform::network_interfaces::enumerate(max).map_err(|error| {
+    let inventory = minicon_platform::network_interfaces::enumerate(max).map_err(|error| {
         let code = match error.kind() {
             NetworkInterfaceErrorKind::InvalidLimit => "network_interfaces_invalid_limit",
             NetworkInterfaceErrorKind::Unavailable => "network_interfaces_unavailable",
@@ -84,7 +84,7 @@ fn format_mac(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agenterm_platform::network_interfaces::{
+    use minicon_platform::network_interfaces::{
         NetworkAddressFamily, NetworkInterfaceNativeIdKind,
     };
     use std::net::{IpAddr, Ipv4Addr};

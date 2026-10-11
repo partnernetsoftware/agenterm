@@ -62,5 +62,5 @@ launcher milestone.
 - Plugin manifest must declare a minimum HOSTIF version and required
   capabilities; never pin an exact MiniCon build.
 - Capability extraction candidates: agenterm-cu(-provider) first;
-  qjswasm/lua/script-common/wasmcore; vnc/sql later; agenterm-platform stays
+  qjswasm/lua/script-common/wasmcore; vnc/sql later; minicon-platform stays
   shared with MiniCon (coordinate, never fork).

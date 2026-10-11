@@ -21,11 +21,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use agenterm_platform::process::{ProcessObservation, observe};
 use agenterm_qjswasm::{
     Budget, Engine, Guest, JsValue, Outcome, QjswasmError, Value, compile_qjs, compile_qjs_tool,
     validate_wasm, validate_wasm_tool_with,
 };
+use minicon_platform::process::{ProcessObservation, observe};
 
 // =========================================================================
 // Harness

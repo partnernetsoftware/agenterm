@@ -38,7 +38,7 @@ flowchart LR
   R17["0.1.17<br/>skipped, unpublished"]
   CU["0.1.18<br/>agent-operable desktop"]
   Q["qjswasm + tinyvm<br/>journey logic"]
-  P["agenterm-platform + libagenterm<br/>native mechanisms"]
+  P["minicon-platform + libagenterm<br/>native mechanisms"]
   CH["0.1.19<br/>fast-change Chassis boundary"]
   CL["0.1.20<br/>parity and ledger closure"]
   CC["0.2.0<br/>Cockpit vertical slice"]

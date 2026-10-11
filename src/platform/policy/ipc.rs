@@ -1,6 +1,6 @@
 //! Product IPC endpoint naming policy shared by product modules.
 //!
-//! The native transport mechanism lives in agenterm-platform; this table
+//! The native transport mechanism lives in minicon-platform; this table
 //! decides the AgenTerm-facing endpoint identity and placement.
 
 use crate::platform::contract::ipc::{IpcEndpoint, ServerScopeId};
@@ -10,7 +10,7 @@ pub(crate) fn ipc_default_native_endpoint(scope: &ServerScopeId) -> IpcEndpoint 
         IpcEndpoint::NamedPipe(format!(r"\\.\pipe\agenterm-{}", scope.as_str()))
     } else {
         IpcEndpoint::UnixSocket(
-            agenterm_platform::ipc::native_runtime_directory()
+            minicon_platform::ipc::native_runtime_directory()
                 .join("agenterm")
                 .join(format!("{}.sock", scope.as_str()))
                 .to_string_lossy()

@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use agenterm_platform::{
+use minicon_platform::{
     contained_process::{ContainedChild, ContainedHeadlessCommand},
     filesystem::write_private_atomic,
     filesystem_open::{ExistingEntryType, open_existing_path},

@@ -1,7 +1,7 @@
 //! Typed host application dispatch. Acceptance is evidence of dispatch only,
 //! never proof that a handler rendered or consumed the target.
 
-use agenterm_platform::host_open::{HostOpenErrorKind, HostOpenOptions};
+use minicon_platform::host_open::{HostOpenErrorKind, HostOpenOptions};
 use serde_json::json;
 
 use super::*;
@@ -31,7 +31,7 @@ pub(super) fn host_open_payload(
             "background_requested": background,
         }),
     )?;
-    let native = match agenterm_platform::host_open::open(
+    let native = match minicon_platform::host_open::open(
         target,
         HostOpenOptions {
             application,

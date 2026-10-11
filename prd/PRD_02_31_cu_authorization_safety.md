@@ -317,7 +317,7 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   VNC fail typed when no crate-owned verified provider is available; RDP stays
   `unsupported` even if a provider is offered. The public resolver accepts no
   hostname, IP, user, port, `DISPLAY` or arbitrary binding-string constructor.
-  `agenterm-platform` now provides the first Windows `current` identity
+  `minicon-platform` now provides the first Windows `current` identity
   mechanism: enrollment creates one locked, current-user-only 32-byte install
   key, while load/query never rotate missing or corrupt state. The session
   digest binds the opaque provider to token SID, authentication and terminal

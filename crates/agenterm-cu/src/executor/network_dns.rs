@@ -1,6 +1,6 @@
 //! Bounded effective DNS resolver inventory.
 
-use agenterm_platform::network_dns::{
+use minicon_platform::network_dns::{
     NetworkDnsErrorKind, NetworkDnsResolver, NetworkDnsSearchDomain,
 };
 
@@ -9,7 +9,7 @@ use super::*;
 const RESPONSE_CEILING_BYTES: usize = 1024 * 1024;
 
 pub(super) fn network_dns_payload(max: usize) -> Result<serde_json::Value, CuError> {
-    let inventory = agenterm_platform::network_dns::enumerate(max)
+    let inventory = minicon_platform::network_dns::enumerate(max)
         .map_err(|error| CuError::new(error_code(error.kind()), error.detail()))?;
     let resolvers = inventory
         .resolvers
@@ -89,7 +89,7 @@ mod tests {
     #[test]
     fn resolver_wide_identity_is_lossless_for_json_consumers() {
         let row = resolver_value(NetworkDnsResolver {
-            family: agenterm_platform::network_dns::NetworkDnsFamily::Ipv4,
+            family: minicon_platform::network_dns::NetworkDnsFamily::Ipv4,
             address: IpAddr::V4(Ipv4Addr::new(192, 0, 2, 53)),
             port: 53,
             interface: Some("fixture".into()),

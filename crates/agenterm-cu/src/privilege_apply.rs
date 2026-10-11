@@ -378,7 +378,7 @@ impl NativeAuthorizationProof {
 
 pub struct PreparedProcessSignalEffect {
     pub(crate) plan: ProcessSignalPlan,
-    pub(crate) references: Vec<agenterm_platform::process_reference::ProcessReference>,
+    pub(crate) references: Vec<minicon_platform::process_reference::ProcessReference>,
 }
 
 impl std::fmt::Debug for PreparedProcessSignalEffect {
@@ -704,10 +704,10 @@ pub fn prepare_privilege_effect(
     let mut references = Vec::with_capacity(plan.members.len());
     for member in &plan.members {
         let reference =
-            agenterm_platform::process_reference::ProcessReference::open_for_termination(
-                member.pid,
-            )
-            .map_err(|error| CuError::new("privilege_effect_prepare_failed", error.to_string()))?;
+            minicon_platform::process_reference::ProcessReference::open_for_termination(member.pid)
+                .map_err(|error| {
+                    CuError::new("privilege_effect_prepare_failed", error.to_string())
+                })?;
         if reference.id() != member.pid
             || !reference.is_alive().map_err(|error| {
                 CuError::new("privilege_effect_prepare_failed", error.to_string())
@@ -1127,7 +1127,7 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     fn request(now: u64) -> PrivilegeApplyRequestV1 {
         let pid = std::process::id();
-        let nice = agenterm_platform::process_metrics::nice(pid).unwrap();
+        let nice = minicon_platform::process_metrics::nice(pid).unwrap();
         PrivilegeApplyRequestV1 {
             protocol_version: PRIVILEGE_APPLY_PROTOCOL_VERSION,
             request_id: "request-01".into(),
@@ -1344,10 +1344,8 @@ mod tests {
         let drift_validated =
             parse_apply_request(&serde_json::to_vec(&drift_request).unwrap()).unwrap();
         let child_reference =
-            agenterm_platform::process_reference::ProcessReference::open_for_termination(
-                child.id(),
-            )
-            .unwrap();
+            minicon_platform::process_reference::ProcessReference::open_for_termination(child.id())
+                .unwrap();
         child_reference.set_suspended(true).unwrap();
         assert_eq!(
             prepare_privilege_effect(&drift_validated).unwrap_err().code,
@@ -1355,7 +1353,7 @@ mod tests {
         );
         child_reference.set_suspended(false).unwrap();
         child_reference
-            .terminate(agenterm_platform::process_control::TerminationMode::Forceful)
+            .terminate(minicon_platform::process_control::TerminationMode::Forceful)
             .unwrap();
         child.wait().unwrap();
     }
@@ -1409,7 +1407,7 @@ mod tests {
             }
             other => panic!("expected completed retained effect, got {other:?}"),
         }
-        assert!(agenterm_platform::process_metrics::is_stopped(child.id()).unwrap());
+        assert!(minicon_platform::process_metrics::is_stopped(child.id()).unwrap());
         match execute_reserved_signal(&mut execution, &root) {
             PrivilegeSignalEffectOutcome::FailedBeforeEffect(error) => {
                 assert_eq!(error.code, "privilege_effect_already_attempted");
@@ -1418,13 +1416,11 @@ mod tests {
         }
 
         let reference =
-            agenterm_platform::process_reference::ProcessReference::open_for_termination(
-                child.id(),
-            )
-            .unwrap();
+            minicon_platform::process_reference::ProcessReference::open_for_termination(child.id())
+                .unwrap();
         reference.set_suspended(false).unwrap();
         reference
-            .terminate(agenterm_platform::process_control::TerminationMode::Forceful)
+            .terminate(minicon_platform::process_control::TerminationMode::Forceful)
             .unwrap();
         child.wait().unwrap();
         ledger

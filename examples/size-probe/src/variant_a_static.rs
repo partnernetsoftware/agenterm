@@ -2,7 +2,7 @@
 //!
 //! Milestone 15 + 23 + 34: measure the order of magnitude of `S` (how much a
 //! consumer sheds when its mechanism code moves from static linking to the
-//! `libagenterm` dylib). Variant A statically links `agenterm-platform`
+//! `libagenterm` dylib). Variant A statically links `minicon-platform`
 //! through its Rust API and performs the same probes as variant B.
 //!
 //! Milestone 15 covered runtime / clipboard / process / parent-console only.
@@ -20,17 +20,17 @@ use std::process::ExitCode;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-use agenterm_platform::accessibility_tree::{AccessibilityTreeError, tree_for_window};
-use agenterm_platform::clipboard::has_unicode_text;
-use agenterm_platform::contract::ime::ImeEvent;
-use agenterm_platform::parent_console::write_stdout;
-use agenterm_platform::process::list;
-use agenterm_platform::pty::{ChildCommand, TerminalSize, shutdown_session_detached};
-use agenterm_platform::runtime::{default_terminal_shell, user_config_directory};
-use agenterm_platform::screenshot::{
+use minicon_platform::accessibility_tree::{AccessibilityTreeError, tree_for_window};
+use minicon_platform::clipboard::has_unicode_text;
+use minicon_platform::contract::ime::ImeEvent;
+use minicon_platform::parent_console::write_stdout;
+use minicon_platform::process::list;
+use minicon_platform::pty::{ChildCommand, TerminalSize, shutdown_session_detached};
+use minicon_platform::runtime::{default_terminal_shell, user_config_directory};
+use minicon_platform::screenshot::{
     NativeCaptureArea, ScreenshotWindowHandle, XrgbFrame, capture_native_window_png, write_xrgb_png,
 };
-use agenterm_platform::window_host::{
+use minicon_platform::window_host::{
     LogicalSize, PixelWindow, PixelWindowApplication, PixelWindowDirective, PixelWindowError,
     PixelWindowEvent, PixelWindowOptions, XrgbPixelFrame, run_pixel_window,
 };
@@ -92,7 +92,7 @@ impl PixelWindowApplication for ExitOnOpenApplication {
 }
 
 fn main() -> ExitCode {
-    println!("size-probe variant A (static: agenterm-platform rlib)");
+    println!("size-probe variant A (static: minicon-platform rlib)");
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

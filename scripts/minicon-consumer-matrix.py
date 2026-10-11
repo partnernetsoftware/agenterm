@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile agenterm-platform with MiniCon's exact target feature unions.
+"""Compile minicon-platform with MiniCon's exact target feature unions.
 
 MiniCon's Cargo.toml is the consumer source of truth. Its alignment test pins
 the five dependency blocks and asks for a seam handoff when they change; keep
@@ -66,7 +66,7 @@ def run(repo: Path, target: str, *, dev: bool, test: bool) -> None:
         "--quiet",
         "--locked",
         "-p",
-        "agenterm-platform",
+        "minicon-platform",
         "--lib",
         "--target",
         target,

@@ -5,7 +5,7 @@
 | 目的 | 评审 mcu（活的桌面控制实验室），决定哪些进 agenterm-cu 的 PRD、以什么顺序实现、怎么用 `.qjs` 旅程驱动 |
 | 来源 | `~/repos/moltbaby/skills/mcu/{PRD.md,PRD-MAP.md,CAPABILITY-TREE.md,SKILL.md}`（2026-08-30 读的版本） |
 | 纪律 | PRD 14：吸收的是**命令集与分层的教训**，不搬 TypeScript；实现按 agenterm 的 `Command` / grant / `libagenterm` ABI 写 |
-| 范围 | 只改 `crates/agenterm-cu/**`、`crates/agenterm-platform` 的 a11y 契约、`prd/PRD_02_28..32`、`scripts/qjs/cu-*.qjs`；引擎侧由另一条线推进 |
+| 范围 | 只改 `crates/agenterm-cu/**`、`crates/minicon-platform` 的 a11y 契约、`prd/PRD_02_28..32`、`scripts/qjs/cu-*.qjs`；引擎侧由另一条线推进 |
 
 ## 0. 两边现状（数出来的，不是印象）
 
@@ -22,7 +22,7 @@ Linux AT-SPI2 与 Windows UIA 有证据（`cu-windows-smoke` 七张收据），m
 actuation「not started」；`executor.rs:755`）——**但 2026-08-30 本机实探：`windows` 返回真句柄（Brave Origin#14278 …），`tree --window 14278` 返回真 AX 树
 （`backend: ax`, `degraded: false`，节点有 id/role/name/bounds/states），只是 `actions` 全空、没有 node budget、没有 `query`。观察半边其实已经活着，缺的是证据、动作与有界性。**授权/审计（PRD 31）17 条 `[ ]`。
 
-**交叉点**：`agenterm-platform` 已有 typed `accessibility_tree` 契约（`tree_for_window / perform_node_action / set_node_text / get_node_text /
+**交叉点**：`minicon-platform` 已有 typed `accessibility_tree` 契约（`tree_for_window / perform_node_action / set_node_text / get_node_text /
 scroll_node / get_node_extents / set_node_selection / set_node_caret_offset …`）且 macOS 适配器里有 AXUIElement FFI；qjs 的 tool 门另有一套
 `process.window_{key,pointer,message,resize,rect,control}` 直连 platform——**同一台机器上现在有两条计算机使用面**（cu 的动词、门的 window ops），
 mcu 的教训之一正是「一条入口」。
@@ -102,11 +102,11 @@ PRD 32 的 `frame` 只写成 `[ ]` leaf + 一段映射（沿用既有 apply pipe
 
 意外：(1) 第二窗口初名 `<main>-second` 是主标题的超串，破坏片 1 的 `--title` 过滤（matched 2）→ 改名 `agenterm-ax-second-<pid>`；(2) 收据 head 的 `target`（层级串 `current`）与 body 的 `target`（身份对象）键冲突、`merged` 保 head → body 对象被丢，qjs 读 `.title` 于 String 触发引擎缺口 → body 改名 `window_identity` / `spec`。
 
-Linux/Windows：新动词三平台一个拼写，未接的平台 typed `unsupported`（`close` 在 Linux `window_op` 无映射，capabilities 明说；Windows `WM_CLOSE` 有映射但无旅程）；`-p agenterm-platform --features a11y-tree` 对 `x86_64-unknown-linux-gnu` 与 `x86_64-pc-windows-msvc` 均 `cargo check` 通过。ABI 无新导出、无版本 bump（只放宽了 `agt_input_pointer_position` 的可用性闸并给 macOS 接了只读实现）。
+Linux/Windows：新动词三平台一个拼写，未接的平台 typed `unsupported`（`close` 在 Linux `window_op` 无映射，capabilities 明说；Windows `WM_CLOSE` 有映射但无旅程）；`-p minicon-platform --features a11y-tree` 对 `x86_64-unknown-linux-gnu` 与 `x86_64-pc-windows-msvc` 均 `cargo check` 通过。ABI 无新导出、无版本 bump（只放宽了 `agt_input_pointer_position` 的可用性闸并给 macOS 接了只读实现）。
 
 - 每个动词一行 PRD 29 leaf + 一段旅程。
 - 两条面的边界（2026-08-30 读过门的实现后定）：qjs 门的 `process.window_{key,pointer,rect,control}` 是**按 PID + 数字控件 id 的原始窗口操作**
-  （`agenterm_platform::process_window`），存在的理由是旅程要驱动 **agenterm 自己的窗口**做产品自检；cu 的动词是**面向 agent 的 a11y 语义面**，
+  （`minicon_platform::process_window`），存在的理由是旅程要驱动 **agenterm 自己的窗口**做产品自检；cu 的动词是**面向 agent 的 a11y 语义面**，
   驱动任意 App。不合并：门保留自检原语，旅程要碰第三方 App 的语义树时经 `process.command` 调 `agenterm-cu --json`（cu-macos-smoke 就是这么写的）。
   PRD 28「边界」写一句；门不再新增 window 原语。
 

@@ -1,12 +1,12 @@
 //! Current-host physical memory geometry and availability observation.
 
-use agenterm_platform::host_memory::{HostMemoryError, HostMemoryErrorKind};
+use minicon_platform::host_memory::{HostMemoryError, HostMemoryErrorKind};
 use serde_json::{Value, json};
 
 use crate::reply::CuError;
 
 pub(super) fn host_memory_status_payload() -> Result<Value, CuError> {
-    let (facts, availability) = agenterm_platform::host_memory::observed().map_err(memory_error)?;
+    let (facts, availability) = minicon_platform::host_memory::observed().map_err(memory_error)?;
     Ok(json!({
         "page_size": facts.page_size.get(),
         "allocation_granularity": facts.allocation_granularity.get(),

@@ -2,11 +2,11 @@
 use std::time::Instant;
 
 #[cfg(target_os = "linux")]
-use agenterm_platform::chassis_present::{
+use minicon_platform::chassis_present::{
     ChassisPresentError, ChassisPresentOptions, present as present_chassis,
 };
 #[cfg(not(target_os = "linux"))]
-use agenterm_platform::window_host::{
+use minicon_platform::window_host::{
     LogicalSize, PixelWindow, PixelWindowApplication, PixelWindowDirective, PixelWindowError,
     PixelWindowEvent, PixelWindowOptions, XrgbPixelFrame, run_pixel_window,
 };

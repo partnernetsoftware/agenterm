@@ -44,7 +44,7 @@ pub(crate) enum MacosClientConsent {
 
 #[cfg(target_os = "macos")]
 pub(crate) enum MacosBrokerConsent {
-    Proof(agenterm_platform::privilege_authorization::MacosAuthorizationProof),
+    Proof(minicon_platform::privilege_authorization::MacosAuthorizationProof),
     Canceled,
     Denied,
     TimedOut,
@@ -99,7 +99,7 @@ pub(crate) fn read_macos_server_disposition(
 #[cfg(target_os = "macos")]
 pub(crate) fn write_macos_authorization_proof(
     mut output: impl Write,
-    proof: &mut agenterm_platform::privilege_authorization::MacosAuthorizationProof,
+    proof: &mut minicon_platform::privilege_authorization::MacosAuthorizationProof,
 ) -> Result<(), CuError> {
     write_tag(&mut output, CLIENT_AUTHORIZATION_PROOF, "client-consent")?;
     proof.write_to(&mut output).map_err(|_| {
@@ -132,7 +132,7 @@ pub(crate) fn read_macos_broker_consent(
     let consent = match read_tag(&mut input, "client-consent")? {
         CLIENT_AUTHORIZATION_PROOF => {
             let proof =
-                agenterm_platform::privilege_authorization::MacosAuthorizationProof::read_from(
+                minicon_platform::privilege_authorization::MacosAuthorizationProof::read_from(
                     &mut input,
                 )
                 .map_err(|_| {
@@ -451,7 +451,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_proof_wire_is_fixed_and_has_no_serializable_envelope() {
-        use agenterm_platform::privilege_authorization::MacosAuthorizationProof;
+        use minicon_platform::privilege_authorization::MacosAuthorizationProof;
 
         let bytes = [9_u8; MacosAuthorizationProof::WIRE_LENGTH];
         let mut proof = MacosAuthorizationProof::read_from(&mut bytes.as_slice()).unwrap();

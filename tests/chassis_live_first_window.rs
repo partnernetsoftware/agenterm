@@ -19,7 +19,7 @@ struct LiveServer {
     root: PathBuf,
     address: String,
     child: Option<std::process::Child>,
-    _tree: Option<agenterm_platform::process::ProcessTreeGuard>,
+    _tree: Option<minicon_platform::process::ProcessTreeGuard>,
 }
 
 impl LiveServer {
@@ -52,7 +52,7 @@ impl LiveServer {
             .spawn()
             .expect("start real server");
         server._tree = Some(
-            agenterm_platform::process::ProcessTreeGuard::attach(&child)
+            minicon_platform::process::ProcessTreeGuard::attach(&child)
                 .expect("contain server tree"),
         );
         server.child = Some(child);

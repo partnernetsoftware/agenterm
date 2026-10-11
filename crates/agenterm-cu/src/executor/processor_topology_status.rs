@@ -1,12 +1,12 @@
 //! Current-host processor and NUMA topology observation.
 
-use agenterm_platform::processor_topology::{ProcessorTopologyError, ProcessorTopologyErrorKind};
+use minicon_platform::processor_topology::{ProcessorTopologyError, ProcessorTopologyErrorKind};
 use serde_json::{Value, json};
 
 use crate::reply::CuError;
 
 pub(super) fn processor_topology_status_payload() -> Result<Value, CuError> {
-    let facts = agenterm_platform::processor_topology::facts().map_err(topology_error)?;
+    let facts = minicon_platform::processor_topology::facts().map_err(topology_error)?;
     Ok(json!({
         "online_logical_processors": facts.system_logical_processors.get(),
         "physical_cores": facts.physical_cores.map(|value| value.get()),

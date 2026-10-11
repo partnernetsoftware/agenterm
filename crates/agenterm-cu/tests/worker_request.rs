@@ -10,7 +10,7 @@ use agenterm_cu::{
 };
 
 fn fixture_root() -> PathBuf {
-    let random = agenterm_platform::entropy::secure_random_array::<8>().expect("fixture entropy");
+    let random = minicon_platform::entropy::secure_random_array::<8>().expect("fixture entropy");
     let suffix = random
         .iter()
         .map(|byte| format!("{byte:02x}"))

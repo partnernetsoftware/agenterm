@@ -88,13 +88,13 @@ O1 并发树（并行）
 └─ O1C 输入语义层（Owner: Product-UI）
    ├─ 目标：统一坐标、点击、滚轮、选区、拖拽与快捷键的产品语义
    ├─ 交付：同一场景在两套前端下产生同字段 `ui-snapshot` 变更
-   ├─ 约束：平台特性只保留在 `agenterm-platform` 能力返回，不进产品策略
+   ├─ 约束：平台特性只保留在 `minicon-platform` 能力返回，不进产品策略
    └─ 风险：`TerminalPoint`、`selection_generation` 与自动滚动边界
 ```
 
 ### O2 汇聚后验收
 
-- [x] 所有交互分支都以 `agenterm-platform` 能力结果驱动，不再通过 OS cfg 做策略选择。2026-08-02 复核：`src` 非平台目录使用 `rg` 全量扫描后未发现 `is_windows_host`、`is_unix_host`、`platform_kind`、`#\[cfg(windows)]`、`#\[cfg(unix)]`，交互分支差异统一在能力证据和宿主差异记录，不直接进入非平台产品代码分支。
+- [x] 所有交互分支都以 `minicon-platform` 能力结果驱动，不再通过 OS cfg 做策略选择。2026-08-02 复核：`src` 非平台目录使用 `rg` 全量扫描后未发现 `is_windows_host`、`is_unix_host`、`platform_kind`、`#\[cfg(windows)]`、`#\[cfg(unix)]`，交互分支差异统一在能力证据和宿主差异记录，不直接进入非平台产品代码分支。
 - [x] `ui-snapshot`、`terminal_state`、`selection` 与可见行为在同场景可回放比对
 - [x] 文档同步：跨平台UX能力缺口矩阵同步到 PRD_02_20 与 plan
 

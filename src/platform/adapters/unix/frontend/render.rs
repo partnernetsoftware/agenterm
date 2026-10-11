@@ -3315,7 +3315,7 @@ fn tab_row_title(id: u64, title: &str, max_chars: usize) -> String {
 }
 
 fn fill_rect(buffer: &mut [u32], stride: u32, x: u32, y: u32, width: u32, height: u32, color: u32) {
-    agenterm_ui_core::pixel::fill_xrgb_rect(buffer, stride, x, y, width, height, color);
+    minicon_ui_core::pixel::fill_xrgb_rect(buffer, stride, x, y, width, height, color);
 }
 
 fn put_pixel(buffer: &mut [u32], stride: u32, x: u32, y: u32, color: u32) {

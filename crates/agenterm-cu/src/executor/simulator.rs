@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use agenterm_platform::simulator::{
+use minicon_platform::simulator::{
     self, SimulatorAppAction, SimulatorAppLifecycleReceipt, SimulatorBootReceipt, SimulatorError,
     SimulatorErrorKind, SimulatorShutdownReceipt,
 };

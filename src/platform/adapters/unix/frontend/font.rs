@@ -387,7 +387,7 @@ mod tests {
             return;
         }
         let platform_primary =
-            agenterm_platform::font::primary_family_name().unwrap_or("bitmap-8x8");
+            minicon_platform::font::primary_family_name().unwrap_or("bitmap-8x8");
         assert_eq!(super::resolved_font_name(), platform_primary);
         if platform_primary != "bitmap-8x8" {
             let glyph = super::raster_glyph('A', 14).expect("system glyph");

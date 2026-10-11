@@ -284,7 +284,7 @@ pub(super) fn map_store_authorization_error(error: &crate::auth_store::AuthStore
 }
 
 pub(super) fn generated_decision_id() -> Option<String> {
-    let bytes = agenterm_platform::entropy::secure_random_array::<16>().ok()?;
+    let bytes = minicon_platform::entropy::secure_random_array::<16>().ok()?;
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut output = String::with_capacity(3 + bytes.len() * 2);
     output.push_str("d1_");

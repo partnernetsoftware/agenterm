@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use agenterm_platform::{
+use minicon_platform::{
     entropy::secure_random_array,
     file_identity::file_identity,
     filesystem::{host_directories, user_home_directory},
@@ -326,7 +326,7 @@ fn install_at(
     let outcome = publish_directory(&plan.staging, &plan.destination).map_err(|failure| {
         if matches!(
             failure.kind(),
-            agenterm_platform::filesystem_publish::DirectoryPublishErrorKind::Rollback
+            minicon_platform::filesystem_publish::DirectoryPublishErrorKind::Rollback
         ) {
             receipt.effect = BrowserSetupEffect::Unknown;
         }

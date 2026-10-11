@@ -59,7 +59,7 @@ fn main() -> std::process::ExitCode {
         .iter()
         .map(|argument| argument.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
-    if let Some(code) = agenterm_platform::pty::run_if_console_agent(&agent_args) {
+    if let Some(code) = minicon_platform::pty::run_if_console_agent(&agent_args) {
         return std::process::ExitCode::from(code.clamp(0, 255) as u8);
     }
     // `--internal-incremental-finalize` is invoked directly (not through
@@ -125,19 +125,19 @@ fn main() -> std::process::ExitCode {
         // handles survive the attach untouched. Pure-pipe callers have no
         // console and the attach is a harmless no-op failure.
         let _console =
-            agenterm_platform::process::ScopedConsole::attach_parent_with_default_interrupts();
+            minicon_platform::process::ScopedConsole::attach_parent_with_default_interrupts();
         std::process::exit(agenterm::run_cli_entry_with_args(args));
     }
     if args.first().map(String::as_str) == Some(INTERNAL_TUI_SUBCOMMAND) {
         args.remove(0);
         let _console =
-            agenterm_platform::process::ScopedConsole::attach_parent_with_default_interrupts();
+            minicon_platform::process::ScopedConsole::attach_parent_with_default_interrupts();
         std::process::exit(agenterm::tui::run_entry_with_args(args));
     }
     if args.first().map(String::as_str) == Some(INTERNAL_ENGINE_SUBCOMMAND) {
         args.remove(0);
         let _console =
-            agenterm_platform::process::ScopedConsole::attach_parent_with_default_interrupts();
+            minicon_platform::process::ScopedConsole::attach_parent_with_default_interrupts();
         // Unlike the cli/tui workers above (both `i32`-returning entry
         // points, forwarded via `std::process::exit`), the engine entry points
         // return `std::process::ExitCode`, which stable Rust offers no way
@@ -207,7 +207,7 @@ fn run_engine_from_gui_subsystem(engine: String, args: Vec<String>) -> std::proc
 fn run_console_worker(internal_subcommand: &str, worker_name: &str, args: Vec<String>) -> i32 {
     use std::process::{Command, Stdio};
 
-    use agenterm_platform::process::StdHandle;
+    use minicon_platform::process::StdHandle;
 
     // Attach to the caller's console (when launched from a terminal) so the
     // console-backed std slots become valid, then duplicate the real
@@ -215,18 +215,18 @@ fn run_console_worker(internal_subcommand: &str, worker_name: &str, args: Vec<St
     // into the child explicitly. `Stdio::inherit` or `println!` would trust
     // std state cached before the attach; only duplicated handles are safe,
     // and they stay valid however long the child outlives the attachment.
-    let _console = agenterm_platform::process::ScopedConsole::attach_parent();
+    let _console = minicon_platform::process::ScopedConsole::attach_parent();
     let executable = match std::env::current_exe() {
         Ok(executable) => executable,
         Err(error) => {
-            let _ = agenterm_platform::process::write_parent_console_stderr(&format!(
+            let _ = minicon_platform::process::write_parent_console_stderr(&format!(
                 "agenterm cli: could not resolve agenterm.exe: {error}"
             ));
             return 1;
         }
     };
     let [stdin_handle, stdout_handle, stderr_handle] =
-        agenterm_platform::process::duplicated_std_handles();
+        minicon_platform::process::duplicated_std_handles();
     fn stdio(handle: Option<StdHandle>) -> Stdio {
         handle.map_or_else(Stdio::null, Stdio::from)
     }
@@ -240,7 +240,7 @@ fn run_console_worker(internal_subcommand: &str, worker_name: &str, args: Vec<St
     {
         Ok(status) => status.code().unwrap_or(1),
         Err(error) => {
-            let _ = agenterm_platform::process::write_parent_console_stderr(&format!(
+            let _ = minicon_platform::process::write_parent_console_stderr(&format!(
                 "agenterm: could not start the {worker_name} worker: {error}"
             ));
             1
@@ -359,7 +359,7 @@ fn offline_cli_exit(args: &[String]) -> Option<i32> {
     match args.first().map(String::as_str) {
         Some("--version" | "-V") if alone => {
             let line = format!("agenterm {}", env!("CARGO_PKG_VERSION"));
-            let _ = agenterm_platform::process::write_parent_console_stdout(&line);
+            let _ = minicon_platform::process::write_parent_console_stdout(&line);
             Some(0)
         }
         Some("--help" | "-h") if alone => {
@@ -375,11 +375,11 @@ Usage: agenterm [--no-activate] [--endpoint ENDPOINT | --address HOST:PORT | --i
 GUI launcher. Use `agenterm cli` for control-plane commands (list-windows, mux, mcp, …),
 or `agenterm tui` for the interactive terminal interface.
 On Windows, the GUI-subsystem executable attaches to the parent console and runs this command through the same PE.";
-            let _ = agenterm_platform::process::write_parent_console_stdout(line);
+            let _ = minicon_platform::process::write_parent_console_stdout(line);
             Some(0)
         }
         Some("--version" | "-V" | "--help" | "-h") => {
-            let _ = agenterm_platform::process::write_parent_console_stderr(
+            let _ = minicon_platform::process::write_parent_console_stderr(
                 "error: --version/--help must be used alone",
             );
             Some(2)

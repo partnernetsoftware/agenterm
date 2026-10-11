@@ -51,7 +51,7 @@
 | `agenterm-cli mux` | RMUX 兼容（子命令，无独立 PE） | ✅ |
 | `agenterm-rhai` | Script 运行时 | ✅ |
 | `agenterm-cli mcp` | MCP sidecar（子命令，无独立 PE） | ✅ |
-| `crates/agenterm-platform` | 共享原生契约 | （库，非独立 PE） |
+| `crates/minicon-platform` | 共享原生契约 | （库，非独立 PE） |
 | 内置 Rhai **开发/构建** task 树 | 仓库自动化 | ✅（脚本，非 App） |
 
 **不在基座：**

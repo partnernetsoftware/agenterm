@@ -17,7 +17,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use agenterm_platform::ipc::NativeStream;
+use minicon_platform::ipc::NativeStream;
 
 /// Why one deadline-bounded primitive stopped.
 #[derive(Debug)]

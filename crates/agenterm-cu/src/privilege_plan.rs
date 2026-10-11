@@ -858,7 +858,7 @@ fn signal_tree_ids(
     root_pid: u32,
     max_descendants: u32,
 ) -> Result<Vec<(u32, u32, Option<u32>)>, CuError> {
-    let rows = agenterm_platform::process::list().map_err(|error| {
+    let rows = minicon_platform::process::list().map_err(|error| {
         CuError::new(
             "privilege_target_unavailable",
             "process tree inventory failed",
@@ -925,8 +925,8 @@ fn observe_signal_member(
 }
 
 fn read_stopped(pid: u32) -> Result<bool, CuError> {
-    agenterm_platform::process_metrics::is_stopped(pid).map_err(|error| {
-        use agenterm_platform::process_metrics::ProcessMetricsErrorKind as Kind;
+    minicon_platform::process_metrics::is_stopped(pid).map_err(|error| {
+        use minicon_platform::process_metrics::ProcessMetricsErrorKind as Kind;
         let code = match error.kind() {
             Kind::InvalidId => "privilege_target_invalid",
             Kind::NotFound => "privilege_target_not_found",
@@ -1004,20 +1004,20 @@ fn now_utc_ms() -> Result<u64, CuError> {
 }
 
 fn live_start_identity(pid: u32) -> Result<String, CuError> {
-    match agenterm_platform::process_observation::observe(pid) {
-        agenterm_platform::process_observation::ProcessObservation::Live {
+    match minicon_platform::process_observation::observe(pid) {
+        minicon_platform::process_observation::ProcessObservation::Live {
             start_identity: Some(identity),
         } => Ok(identity),
-        agenterm_platform::process_observation::ProcessObservation::Live {
+        minicon_platform::process_observation::ProcessObservation::Live {
             start_identity: None,
         } => Err(CuError::new(
             "privilege_target_identity_unavailable",
             "process is live but its stable start identity is unavailable",
         )),
-        agenterm_platform::process_observation::ProcessObservation::Dead { .. } => Err(
+        minicon_platform::process_observation::ProcessObservation::Dead { .. } => Err(
             CuError::new("privilege_target_not_found", "process is not live"),
         ),
-        agenterm_platform::process_observation::ProcessObservation::Unknown { .. } | _ => {
+        minicon_platform::process_observation::ProcessObservation::Unknown { .. } | _ => {
             Err(CuError::new(
                 "privilege_target_unavailable",
                 "process identity could not be observed",
@@ -1027,8 +1027,8 @@ fn live_start_identity(pid: u32) -> Result<String, CuError> {
 }
 
 fn read_nice(pid: u32) -> Result<i32, CuError> {
-    agenterm_platform::process_metrics::nice(pid).map_err(|error| {
-        use agenterm_platform::process_metrics::ProcessMetricsErrorKind as Kind;
+    minicon_platform::process_metrics::nice(pid).map_err(|error| {
+        use minicon_platform::process_metrics::ProcessMetricsErrorKind as Kind;
         let code = match error.kind() {
             Kind::InvalidId => "privilege_target_invalid",
             Kind::NotFound => "privilege_target_not_found",
@@ -1152,7 +1152,7 @@ mod tests {
     #[test]
     fn plan_is_read_only_identity_bound_and_has_two_digest_scopes() {
         let pid = std::process::id();
-        let current = agenterm_platform::process_metrics::nice(pid).unwrap();
+        let current = minicon_platform::process_metrics::nice(pid).unwrap();
         let first = process_priority_plan(pid, current, 120, 1_000).unwrap();
         let repeated = process_priority_plan(pid, current, 120, 1_000).unwrap();
         assert_eq!(first, repeated);
@@ -1187,7 +1187,7 @@ mod tests {
     #[test]
     fn provider_validation_recomputes_digests_and_rechecks_precondition() {
         let pid = std::process::id();
-        let nice = agenterm_platform::process_metrics::nice(pid).unwrap();
+        let nice = minicon_platform::process_metrics::nice(pid).unwrap();
         let plan = process_priority_plan(pid, nice, 120, 1_000).unwrap();
         validate_process_priority_plan(&plan, 1_001).unwrap();
         revalidate_process_priority_precondition(&plan).unwrap();

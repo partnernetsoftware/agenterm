@@ -17,31 +17,31 @@
     "window": {
       "path_prefixes": [],
       "exact_paths": [
-        "crates/agenterm-platform/src/contract/control_window.rs",
-        "crates/agenterm-platform/src/contract/desktop_host.rs",
-        "crates/agenterm-platform/src/contract/pixel_present.rs",
-        "crates/agenterm-platform/src/contract/window_enumerate.rs",
-        "crates/agenterm-platform/src/contract/window_host.rs",
-        "crates/agenterm-platform/src/contract/window_op.rs",
-        "crates/agenterm-platform/src/contract/window_placement.rs",
-        "crates/agenterm-platform/src/control_window.rs",
-        "crates/agenterm-platform/src/desktop_host.rs",
-        "crates/agenterm-platform/src/window.rs",
-        "crates/agenterm-platform/src/window_enumerate.rs",
-        "crates/agenterm-platform/src/window_host.rs",
-        "crates/agenterm-platform/src/window_op.rs",
-        "crates/agenterm-platform/src/window_placement.rs",
+        "crates/minicon-platform/src/contract/control_window.rs",
+        "crates/minicon-platform/src/contract/desktop_host.rs",
+        "crates/minicon-platform/src/contract/pixel_present.rs",
+        "crates/minicon-platform/src/contract/window_enumerate.rs",
+        "crates/minicon-platform/src/contract/window_host.rs",
+        "crates/minicon-platform/src/contract/window_op.rs",
+        "crates/minicon-platform/src/contract/window_placement.rs",
+        "crates/minicon-platform/src/control_window.rs",
+        "crates/minicon-platform/src/desktop_host.rs",
+        "crates/minicon-platform/src/window.rs",
+        "crates/minicon-platform/src/window_enumerate.rs",
+        "crates/minicon-platform/src/window_host.rs",
+        "crates/minicon-platform/src/window_op.rs",
+        "crates/minicon-platform/src/window_placement.rs",
         "src/platform/adapters/unix/frontend/window_state.rs"
       ]
     },
     "pty": {
       "path_prefixes": [
-        "crates/agenterm-platform/src/pty/",
+        "crates/minicon-platform/src/pty/",
         "src/pty/"
       ],
       "exact_paths": [
-        "crates/agenterm-platform/src/contract/pty.rs",
-        "crates/agenterm-platform/src/pty.rs",
+        "crates/minicon-platform/src/contract/pty.rs",
+        "crates/minicon-platform/src/pty.rs",
         "src/terminal_lifecycle.rs",
         "src/terminal_runtime.rs"
       ]
@@ -49,8 +49,8 @@
     "ipc": {
       "path_prefixes": [],
       "exact_paths": [
-        "crates/agenterm-platform/src/contract/ipc_transport.rs",
-        "crates/agenterm-platform/src/ipc.rs",
+        "crates/minicon-platform/src/contract/ipc_transport.rs",
+        "crates/minicon-platform/src/ipc.rs",
         "src/ipc_endpoint.rs",
         "src/ipc_transport.rs",
         "src/protocol.rs",
@@ -60,8 +60,8 @@
   },
   "explicitly_not_l1": [
     "Cargo.toml",
-    "crates/agenterm-platform/Cargo.toml",
-    "crates/agenterm-platform/src/lib.rs",
+    "crates/minicon-platform/Cargo.toml",
+    "crates/minicon-platform/src/lib.rs",
     "crates/agenterm-cu/",
     "crates/agenterm-chassis/Cargo.toml",
     "crates/agenterm-chassis/src/bytecode.rs",

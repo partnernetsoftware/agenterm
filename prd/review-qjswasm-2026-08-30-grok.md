@@ -17,7 +17,7 @@ Verdict: the three-layer arrow is real and worth pushing. The engine is already 
 
 That is product vocabulary in comments and in the **shape bet** (flat k/v, no hidden class). Fine while 71 scripts look like fleet.js. False if agents grow long-lived objects.
 
-**Door vs platform.** Window ops are declared as a map (`Cargo.toml:19-22`; `tool.rs:131-137`). Filesystem is **not**: `tool.rs:499-523` calls `std::fs::exists` / `read_to_string` in the engine crate. Process spawn/kill/read live here too. That is embedder policy (who may open `tool.*`, `tool.rs:21-33`) mixed with OS adapters that `agenterm-platform` already owns for the GUI. Keep the *permission* in qjswasm; push the *syscalls* down or the platform crate becomes optional fiction.
+**Door vs platform.** Window ops are declared as a map (`Cargo.toml:19-22`; `tool.rs:131-137`). Filesystem is **not**: `tool.rs:499-523` calls `std::fs::exists` / `read_to_string` in the engine crate. Process spawn/kill/read live here too. That is embedder policy (who may open `tool.*`, `tool.rs:21-33`) mixed with OS adapters that `minicon-platform` already owns for the GUI. Keep the *permission* in qjswasm; push the *syscalls* down or the platform crate becomes optional fiction.
 
 `host.rs:10-23` two-pass park is a **tinyvm borrow** constraint (`&mut` memory vs `invoke`), not compiler logic. Correct layer.
 

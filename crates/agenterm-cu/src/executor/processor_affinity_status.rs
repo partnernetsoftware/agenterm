@@ -1,6 +1,6 @@
 //! Current-process or chosen-PID processor-affinity observation.
 
-use agenterm_platform::processor_affinity::{ProcessorAffinityError, ProcessorAffinityErrorKind};
+use minicon_platform::processor_affinity::{ProcessorAffinityError, ProcessorAffinityErrorKind};
 use serde_json::{Value, json};
 
 use crate::reply::CuError;
@@ -8,8 +8,8 @@ use crate::reply::CuError;
 pub(super) fn processor_affinity_status_payload(pid: Option<u32>) -> Result<Value, CuError> {
     let resolved_pid = pid.unwrap_or_else(std::process::id);
     let facts = match pid {
-        None => agenterm_platform::processor_affinity::current_process(),
-        Some(pid) => agenterm_platform::processor_affinity::process(pid),
+        None => minicon_platform::processor_affinity::current_process(),
+        Some(pid) => minicon_platform::processor_affinity::process(pid),
     }
     .map_err(affinity_error)?;
     Ok(json!({

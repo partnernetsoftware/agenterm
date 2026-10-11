@@ -101,7 +101,7 @@ fn prepare_and_validate_state_root() -> Result<(), CuError> {
             }
         })
         .map_err(provider_identity_error)?;
-    agenterm_platform::filesystem::protect_private_directory(state)
+    minicon_platform::filesystem::protect_private_directory(state)
         .map_err(provider_identity_error)?;
     for path in [Path::new("/var"), Path::new("/var/lib"), product, state] {
         validate_root_owned_component(

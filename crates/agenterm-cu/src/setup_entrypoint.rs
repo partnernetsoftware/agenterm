@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use agenterm_platform::{
+use minicon_platform::{
     filesystem::user_home_directory, filesystem_publish::write_file_atomic, locking::PathLock,
 };
 use serde::Serialize;

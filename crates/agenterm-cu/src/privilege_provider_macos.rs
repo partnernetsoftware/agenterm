@@ -13,13 +13,13 @@ use std::{
     str::FromStr,
 };
 
-use agenterm_platform::system_broker::SystemBrokerPeerFacts;
 use core_foundation::{
     base::TCFType,
     dictionary::{CFDictionary, CFDictionaryGetValue, CFDictionaryRef},
     string::{CFString, CFStringRef},
     url::CFURL,
 };
+use minicon_platform::system_broker::SystemBrokerPeerFacts;
 use security_framework::os::macos::code_signing::{Flags, SecRequirement, SecStaticCode};
 use sha2::{Digest, Sha256};
 
@@ -235,7 +235,7 @@ fn prepare_and_validate_state_root() -> Result<(), CuError> {
             }
             Err(error) => return Err(provider_identity_error(error)),
         }
-        agenterm_platform::filesystem::protect_private_directory(path)
+        minicon_platform::filesystem::protect_private_directory(path)
             .map_err(provider_identity_error)?;
         let protected = fs::symlink_metadata(path).map_err(provider_identity_error)?;
         validate_root_owned_component(path, &protected, false)?;
@@ -424,27 +424,27 @@ mod tests {
         );
         assert_eq!(
             manifest["authorization"]["right"].as_str(),
-            Some(agenterm_platform::privilege_authorization::PRIVILEGE_ACTION_ID)
+            Some(minicon_platform::privilege_authorization::PRIVILEGE_ACTION_ID)
         );
         assert_ne!(
             manifest["authorization"]["right"].as_str(),
             manifest["helper"]["label"].as_str()
         );
-        assert!(!agenterm_platform::privilege_authorization::PRIVILEGE_ACTION_ID.contains('*'));
+        assert!(!minicon_platform::privilege_authorization::PRIVILEGE_ACTION_ID.contains('*'));
         assert_eq!(
             manifest["launchd"]["socket_path"].as_str(),
-            Some(agenterm_platform::system_broker::SYSTEM_BROKER_SOCKET)
+            Some(minicon_platform::system_broker::SYSTEM_BROKER_SOCKET)
         );
         assert_eq!(
             manifest["launchd"]["socket_key"].as_str(),
-            agenterm_platform::system_broker::SYSTEM_BROKER_LAUNCHD_SOCKET
+            minicon_platform::system_broker::SYSTEM_BROKER_LAUNCHD_SOCKET
                 .to_str()
                 .ok()
         );
         assert_eq!(
             manifest["launchd"]["socket_mode"].as_u64(),
             Some(u64::from(
-                agenterm_platform::system_broker::SYSTEM_BROKER_SOCKET_MODE
+                minicon_platform::system_broker::SYSTEM_BROKER_SOCKET_MODE
             ))
         );
     }

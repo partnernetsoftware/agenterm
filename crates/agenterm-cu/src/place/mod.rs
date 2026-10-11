@@ -1,7 +1,7 @@
 //! Spectacle-compatible named window placement (PRD_02_32).
 //!
 //! Pure geometry lives here with no OS imports. Apply goes through
-//! `agenterm-platform`.
+//! `minicon-platform`.
 
 mod action;
 mod apply;

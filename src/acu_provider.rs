@@ -300,7 +300,7 @@ fn reply_cancellation(reply: &str) -> (bool, bool) {
 }
 
 fn provider_file_name() -> String {
-    agenterm_platform::filesystem::dynamic_library_name(PROVIDER_BASE)
+    minicon_platform::filesystem::dynamic_library_name(PROVIDER_BASE)
 }
 
 fn provider_status(status: i32) -> &'static str {
@@ -326,7 +326,7 @@ mod tests {
         let name = provider_file_name();
         assert!(name.starts_with("agenterm-cu-provider."));
         assert_eq!(PathBuf::from(&name).components().count(), 1);
-        // The host mapping belongs to agenterm-platform; this layer asserts only
+        // The host mapping belongs to minicon-platform; this layer asserts only
         // the closed set its loader accepts, so it never names a host itself.
         let suffix = name.rsplit_once('.').expect("provider name has a suffix").1;
         assert!(
@@ -339,7 +339,7 @@ mod tests {
     fn provider_name_is_the_platform_dynamic_library_name_for_its_base() {
         assert_eq!(
             provider_file_name(),
-            agenterm_platform::filesystem::dynamic_library_name(PROVIDER_BASE)
+            minicon_platform::filesystem::dynamic_library_name(PROVIDER_BASE)
         );
     }
 

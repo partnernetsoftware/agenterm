@@ -2,7 +2,7 @@
 //! `pointer-ungrab` / `drag`: the pointer verbs.
 
 use super::*;
-use agenterm_platform::input_inject::MAX_POINTER_SCROLL_DETENTS;
+use minicon_platform::input_inject::MAX_POINTER_SCROLL_DETENTS;
 
 pub(super) fn pointer_move(x: i32, y: i32) -> Result<serde_json::Value, CuError> {
     pointer_move_with(x, y, |x, y| {
@@ -14,9 +14,9 @@ pub(super) fn pointer_position() -> Result<serde_json::Value, CuError> {
     pointer_position_with(|| mechanism::input_inject::pointer_position().map_err(map_mechanism_err))
 }
 
-fn map_input_inject_err(error: agenterm_platform::input_inject::InputInjectError) -> CuError {
+fn map_input_inject_err(error: minicon_platform::input_inject::InputInjectError) -> CuError {
     match error {
-        agenterm_platform::input_inject::InputInjectError::Unsupported { reason } => {
+        minicon_platform::input_inject::InputInjectError::Unsupported { reason } => {
             CuError::new("unsupported", reason).with_detail(serde_json::json!({
                 "effect": "not_performed",
                 "required_mechanism": "x11-pointer-grab",
@@ -25,7 +25,7 @@ fn map_input_inject_err(error: agenterm_platform::input_inject::InputInjectError
                 ],
             }))
         }
-        agenterm_platform::input_inject::InputInjectError::Failed { code, message } => {
+        minicon_platform::input_inject::InputInjectError::Failed { code, message } => {
             CuError::new(code, message)
         }
         _ => CuError::new("input_inject_failed", "pointer grab/ungrab failed"),
@@ -34,7 +34,7 @@ fn map_input_inject_err(error: agenterm_platform::input_inject::InputInjectError
 
 pub(super) fn pointer_grab() -> Result<serde_json::Value, CuError> {
     let (position, grab_status, verify_status) =
-        agenterm_platform::input_inject::pointer_grab().map_err(map_input_inject_err)?;
+        minicon_platform::input_inject::pointer_grab().map_err(map_input_inject_err)?;
     Ok(serde_json::json!({
         "effect": "verified",
         "addressing": "desktop-root-pointer-grab",
@@ -52,7 +52,7 @@ pub(super) fn pointer_grab() -> Result<serde_json::Value, CuError> {
 
 pub(super) fn pointer_ungrab() -> Result<serde_json::Value, CuError> {
     let (position, verify_status) =
-        agenterm_platform::input_inject::pointer_ungrab().map_err(map_input_inject_err)?;
+        minicon_platform::input_inject::pointer_ungrab().map_err(map_input_inject_err)?;
     Ok(serde_json::json!({
         "effect": "verified",
         "addressing": "desktop-root-pointer-ungrab",

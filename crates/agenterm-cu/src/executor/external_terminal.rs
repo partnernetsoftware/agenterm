@@ -58,11 +58,11 @@ fn bind_window(window: isize) -> Result<ExternalWindowIdentity, CuError> {
                 format!("window {window} is not in the current top-level inventory"),
             )
         })?;
-    let start_identity = match agenterm_platform::process_observation::observe(row.process_id) {
-        agenterm_platform::process_observation::ProcessObservation::Live {
+    let start_identity = match minicon_platform::process_observation::observe(row.process_id) {
+        minicon_platform::process_observation::ProcessObservation::Live {
             start_identity: Some(identity),
         } => identity,
-        agenterm_platform::process_observation::ProcessObservation::Live {
+        minicon_platform::process_observation::ProcessObservation::Live {
             start_identity: None,
         } => {
             return Err(CuError::new(
@@ -70,13 +70,13 @@ fn bind_window(window: isize) -> Result<ExternalWindowIdentity, CuError> {
                 "the external terminal owner has no stable process-start identity",
             ));
         }
-        agenterm_platform::process_observation::ProcessObservation::Dead { .. } => {
+        minicon_platform::process_observation::ProcessObservation::Dead { .. } => {
             return Err(CuError::new(
                 "terminal_window_gone",
                 "the external terminal owner exited during identity binding",
             ));
         }
-        agenterm_platform::process_observation::ProcessObservation::Unknown { reason } => {
+        minicon_platform::process_observation::ProcessObservation::Unknown { reason } => {
             return Err(CuError::new(
                 "terminal_process_identity_unavailable",
                 reason,

@@ -1,5 +1,5 @@
 //! libagenterm (`agt_*`) mechanism boundary: every call goes through the
-//! shared runtime dynamic library (`crate::dynlib`) — no `agenterm-platform`
+//! shared runtime dynamic library (`crate::dynlib`) — no `minicon-platform`
 //! or `agenterm-abi` static linking. Product commands (`cu tree`, `windows`,
 //! `window-place`, …) stay above this layer.
 //!
@@ -403,7 +403,7 @@ pub mod window_placement {
     }
 }
 
-/// Debug shape matches the old `agenterm-platform` `CapabilityStatus` so
+/// Debug shape matches the old `minicon-platform` `CapabilityStatus` so
 /// `agenterm-cu capabilities` output stays stable.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CapabilityStatus {
@@ -1245,7 +1245,7 @@ pub mod screenshot {
     /// Capture a native window to a PNG at `path` (whole-window area).
     /// The ABI export writes the file itself; output dimensions are read back
     /// from the PNG header so the result shape matches the previous
-    /// `agenterm-platform` path.
+    /// `minicon-platform` path.
     pub fn capture_native_window_png(
         native_window: isize,
         path: &Path,

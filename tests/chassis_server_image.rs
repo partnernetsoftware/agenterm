@@ -13,7 +13,7 @@ use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use agenterm_chassis::CELLS;
-use agenterm_platform::chassis_loader;
+use minicon_platform::chassis_loader;
 use sha2::{Digest, Sha256};
 
 fn sha256_hex(bytes: &[u8]) -> String {

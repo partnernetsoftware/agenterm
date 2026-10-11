@@ -1,6 +1,6 @@
 //! Product Control Center policy: how each host obtains screenshots.
 //!
-//! The host mechanism lives in agenterm-platform; this table is the
+//! The host mechanism lives in minicon-platform; this table is the
 //! AgenTerm-level product decision shared by frontend hosts.
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -11,9 +11,9 @@ pub(crate) enum ScreenshotStrategy {
 }
 
 pub(crate) fn screenshot_strategy() -> ScreenshotStrategy {
-    match agenterm_platform::platform_kind() {
-        agenterm_platform::PlatformKind::Windows => ScreenshotStrategy::DirectNativeWindow,
-        agenterm_platform::PlatformKind::Linux | agenterm_platform::PlatformKind::Macos => {
+    match minicon_platform::platform_kind() {
+        minicon_platform::PlatformKind::Windows => ScreenshotStrategy::DirectNativeWindow,
+        minicon_platform::PlatformKind::Linux | minicon_platform::PlatformKind::Macos => {
             ScreenshotStrategy::RendererRequest
         }
         _ => ScreenshotStrategy::Unsupported,
@@ -28,9 +28,9 @@ mod tests {
     fn strategy_matches_runtime_kind() {
         assert_eq!(
             screenshot_strategy(),
-            match agenterm_platform::platform_kind() {
-                agenterm_platform::PlatformKind::Windows => ScreenshotStrategy::DirectNativeWindow,
-                agenterm_platform::PlatformKind::Linux | agenterm_platform::PlatformKind::Macos => {
+            match minicon_platform::platform_kind() {
+                minicon_platform::PlatformKind::Windows => ScreenshotStrategy::DirectNativeWindow,
+                minicon_platform::PlatformKind::Linux | minicon_platform::PlatformKind::Macos => {
                     ScreenshotStrategy::RendererRequest
                 }
                 _ => ScreenshotStrategy::Unsupported,

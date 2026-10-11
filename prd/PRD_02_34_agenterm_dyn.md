@@ -48,7 +48,7 @@ dyn 仍是独立 crate，自带唯一 loader、独立错误词汇、独立执行
 - **qjswasm / Script Runtime**：wire schema、`prototype`/catalog/validator、允许集合、
   暴露面、budget、cancel、`WorkerSupervisor` 监管；
 - **typed OS contracts**（owner / snapshot：Mach right、接口地址表、domain/login name、
-  realpath、statvfs、groups 等）：移交 **`agenterm-platform`** 或专门的上层 adapter；
+  realpath、statvfs、groups 等）：移交 **`minicon-platform`** 或专门的上层 adapter；
   **最终模块落点仍需逐项迁移裁决**，本 PRD 不预先分配；
 - **facts / catalog / evidence**：属**产品层与测试层**（六格状态、court/证据模型、
   发布资格），不属于 dyn。
@@ -157,7 +157,7 @@ qjswasm ──自解码并校验 guest span / nullability / schema──> A
 qjswasm ──validated ioctl request──> A.unix_ioctl
 Script Runtime / CU ──agenterm:native──> qjswasm ──> A
 qjswasm ──compile .qjs → .wasm / execute no-JIT──> tinyvm（tinyvm 不依赖 dyn）
-B ──historical contracts now belong above dyn──> agenterm-platform / adapters
+B ──historical contracts now belong above dyn──> minicon-platform / adapters
 E ──claims moved to raw ABI or WAT courts──> qjswasm ──> A
 D ──retracted; consumer-gated re-entry only──> future JIT / host-ISA folding
 
@@ -348,7 +348,7 @@ flowchart LR
     Encode --> Door
 
     subgraph Vault[保管室 · typed owners（已迁出 dyn）]
-        UpperOwner[agenterm-platform / upper adapters]
+        UpperOwner[minicon-platform / upper adapters]
     end
 
     subgraph Map[地图室 · product facts（已迁出 dyn）]
@@ -385,7 +385,7 @@ court 的用户主张尚未迁移时只按文件删除小 Lisp；**也不得让 
 |---|---|---|
 | `hosts.rs`（six-cell facts / catalog / Placeholder-Live* 状态） | **removed** | 无生产消费者；产品事实继续由实际 qjswasm catalog/courts 表达 |
 | `macos_resource.rs`（Mach right、domain/login/timebase、DlAddress…） | **removed** | 无生产消费者；不得在 dyn 复制 typed OS contract |
-| `unix_resource.rs`（getifaddrs / statvfs / clock） | **removed** | 等价平台能力由 `agenterm-platform` 的 owning feature 提供 |
+| `unix_resource.rs`（getifaddrs / statvfs / clock） | **removed** | 等价平台能力由 `minicon-platform` 的 owning feature 提供 |
 | `unix_groups.rs` / `unix_path.rs` | **removed** | 无生产消费者；调用方使用 owning platform/filesystem contract |
 | `exact_native.rs` / `fixed_native.rs` / `fixed_pointer.rs` | **internal** | 不再公开；只暂存 `invoke_abi` 按五族矩阵选择的单态 trampoline（49 + 4 + 8），未被选中的形状一律 `SignatureUnsupported`；后续可折叠进统一机制表 |
 | `unix_ioctl.rs` | **split** | variadic 调用机制留；“允许签名”判据迁上层 |
@@ -678,7 +678,7 @@ door; neither claim depends on the S-expression entrance.
 The final legacy platform smoke file is removed. Its Windows CRT fallback now
 tests raw `ptr(ptr)` directly; six-cell catalog invariants remain in the catalog
 tests, while X11 and AT-SPI availability belong to the real Linux adapters in
-`agenterm-platform`, not to dyn's ABI mechanism suite.
+`minicon-platform`, not to dyn's ABI mechanism suite.
 Unix `ioctl` (Linux and macOS) is owned by dyn's `invoke_unix_ioctl` only for the
 validated `(i32, u64|i32, ptr) -> i32` signature. The legacy Lisp entrance and
 the qjswasm native door both delegate there; the fixed trampoline remains for
@@ -877,7 +877,7 @@ candidate, not a retained source boundary. The six-cell `hosts.rs` facts, typed 
 
 - No JIT / sljit / DynASM / copy-and-patch.
 - No lambda / cons / strings / quote.
-- No direct `agenterm-cu` or `agenterm-platform` import. CU consumes dyn only through
+- No direct `agenterm-cu` or `minicon-platform` import. CU consumes dyn only through
   the supervised Script Runtime/qjswasm path.
 - No libffi, no C dependency, no fourth engine, no thickening libagenterm.
 - **No product policy inside dyn**（2026-09-12）：不拥有允许集合/授权语义、不拥有

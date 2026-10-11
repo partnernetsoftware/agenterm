@@ -9,7 +9,7 @@ C ABI 导出壳：嵌入方（agenterm / agenterm-con / agenterm-cu）与 OS 之
 focus / render_due），键盘/指针/滚轮/IME 留给 3b。4 = 截图；5 = 进程枚举 /
 kill / self pid；6 = 结构化 accessibility-tree 观察与节点动作（`agt_a11y_*`：
 扁平树快照、节点字段、按路径 click/focus）。主机 accessibility 栈（Windows
-UIA / macOS AX / Linux AT-SPI2）藏在 `agenterm-platform` 适配器后，C 头文件只
+UIA / macOS AX / Linux AT-SPI2）藏在 `minicon-platform` 适配器后，C 头文件只
 描述机制。
 
 ABI 1.29 在 1.28 之后，不新增导出，而是在既有
@@ -381,4 +381,4 @@ DPI 与 scale factor；未知值为 0，既有 `agt_screen_info[]` 字节布局�
 
 `agenterm-cu` 的 `tree` / 结构化 `click` / `focus` 在 Linux `current` 上经
 本 crate 的 `agt_a11y_*` 机制消费；`windows` / `screenshot` / 坐标降级输入仍
-直连 `agenterm-platform`，待对应 ABI 里程碑落地后迁入。
+直连 `minicon-platform`，待对应 ABI 里程碑落地后迁入。

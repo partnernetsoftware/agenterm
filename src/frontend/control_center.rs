@@ -33,7 +33,7 @@ pub(crate) fn replace_file(source: &Path, destination: &Path) -> io::Result<()> 
 pub(crate) fn capture_native_window_png(
     raw_handle: i64,
     output: &Path,
-) -> Result<(), agenterm_platform::contract::ui_screenshot::UiScreenshotError> {
+) -> Result<(), minicon_platform::contract::ui_screenshot::UiScreenshotError> {
     crate::platform::services::control_center::capture_native_window_png(raw_handle, output)
 }
 
@@ -63,7 +63,7 @@ mod tests {
         assert!(matches!(
             capture_native_window_png(0, Path::new("unused.png")),
             Err(
-                agenterm_platform::contract::ui_screenshot::UiScreenshotError::Failed {
+                minicon_platform::contract::ui_screenshot::UiScreenshotError::Failed {
                     code,
                     ..
                 }
@@ -74,7 +74,7 @@ mod tests {
     #[test]
     fn private_create_is_exclusive() {
         let root = std::env::temp_dir().join(format!(
-            "agenterm-platform-cc-private-create-{}",
+            "minicon-platform-cc-private-create-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_file(&root);

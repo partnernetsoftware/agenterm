@@ -11,9 +11,9 @@ pub(crate) fn request_gui_wake(wake_window: isize, wake_signal: &WakeSignal) -> 
     if wake_signal.request() {
         // SAFETY: the GUI owns the wake HWND for the duration of this call.
         if let Some(window) =
-            unsafe { agenterm_platform::activation::NativeWindowHandle::from_raw(wake_window) }
+            unsafe { minicon_platform::activation::NativeWindowHandle::from_raw(wake_window) }
         {
-            if agenterm_platform::activation::post_application_wake(window).is_ok() {
+            if minicon_platform::activation::post_application_wake(window).is_ok() {
                 return GuiWakeResult::Woke;
             }
             return GuiWakeResult::Failed("post_application_wake failed".to_owned());
@@ -84,7 +84,7 @@ pub(crate) fn run_gui_entry_result() -> GuiLaunchResult {
                      Restart that server to use this launcher capability.",
                     error
                 ));
-                agenterm_platform::alert::show_error(
+                minicon_platform::alert::show_error(
                     "AgenTerm",
                     &format!(
                         "The running AgenTerm server rejected the launcher handoff:\n\n{}\n\n\
@@ -151,13 +151,13 @@ fn gui_console_summary(address: &str) -> String {
 }
 
 fn write_best_effort_stderr(message: &str) {
-    let _ = agenterm_platform::process::write_parent_console_stderr(message);
+    let _ = minicon_platform::process::write_parent_console_stderr(message);
 }
 
 fn show_startup_error(error: &anyhow::Error) {
     let message = format!("AgenTerm failed to start:\n\n{error:#}");
     write_best_effort_stderr(&message);
-    agenterm_platform::alert::show_error("AgenTerm", &message);
+    minicon_platform::alert::show_error("AgenTerm", &message);
 }
 
 #[cfg(test)]

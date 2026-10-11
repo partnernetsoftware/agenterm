@@ -363,7 +363,7 @@ function independent_boot_identity(host_identity, boot_id) {
     "host = sys.argv[1]",
     "material = sys.argv[2].strip().encode('ascii')",
     "anchor = hashlib.sha256()",
-    "anchor.update(b'agenterm-platform/host-boot-identity/v1\\0')",
+    "anchor.update(b'minicon-platform/host-boot-identity/v1\\0')",
     "anchor.update(struct.pack('<Q', len(material)))",
     "anchor.update(material)",
     "anchor = anchor.digest()",

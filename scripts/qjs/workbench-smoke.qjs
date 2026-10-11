@@ -11,7 +11,7 @@
 // exactly as the rh original was. The GUI is a long-lived door handle
 // (process_spawn) polled through the public CLI and reaped by the
 // harness's `complete`; native window input is driven through bounded
-// `process.window_*` tool operations backed by agenterm-platform.
+// `process.window_*` tool operations backed by minicon-platform.
 //
 // Every CLI call goes through the harness's original `invoke_cli` /
 // `run_cli` (record bounded by `slice`, which works now); the `_bounded`

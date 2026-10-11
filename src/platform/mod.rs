@@ -39,11 +39,11 @@ pub(crate) use policy::runtime::hosted_script_worker_available;
 #[allow(unused_imports)]
 pub(crate) use policy::workspace::{WorkspaceLayoutKind, workspace_layout_kind};
 
-pub(crate) use agenterm_platform::console_interrupt::{
-    ConsoleInterruptIgnoreGuard, ConsoleInterruptObserver,
-};
 pub use filesystem::{
     is_direct_directory, is_direct_file, metadata_is_link_like, replace_file, sync_parent,
+};
+pub(crate) use minicon_platform::console_interrupt::{
+    ConsoleInterruptIgnoreGuard, ConsoleInterruptObserver,
 };
 
 pub fn install_console_interrupt_ignore_guard() -> anyhow::Result<ConsoleInterruptIgnoreGuard> {
@@ -94,16 +94,16 @@ pub(crate) enum FrontendHost {
 }
 
 pub(crate) fn frontend_host() -> FrontendHost {
-    match agenterm_platform::platform_kind() {
-        agenterm_platform::PlatformKind::Windows => FrontendHost::Windows,
-        agenterm_platform::PlatformKind::Linux | agenterm_platform::PlatformKind::Macos => {
+    match minicon_platform::platform_kind() {
+        minicon_platform::PlatformKind::Windows => FrontendHost::Windows,
+        minicon_platform::PlatformKind::Linux | minicon_platform::PlatformKind::Macos => {
             FrontendHost::Unix
         }
         _ => FrontendHost::Unsupported,
     }
 }
 
-pub use agenterm_platform::input::{KeyClassification, ModifierState};
+pub use minicon_platform::input::{KeyClassification, ModifierState};
 #[allow(unused_imports)]
 pub(crate) use policy::capability::{CapabilityKind, CapabilityStatus, platform_info_json};
 pub(crate) use policy::ipc::ipc_default_native_endpoint;
@@ -113,10 +113,10 @@ pub(crate) use policy::ipc::ipc_default_native_endpoint;
 /// Linux populates X11/Wayland; other platforms leave those flags false and
 /// report headless through their own window capability diagnostics.
 #[allow(unused_imports)]
-pub use agenterm_platform::window::DisplayBackendFacts;
+pub use minicon_platform::window::DisplayBackendFacts;
 
 #[cfg(test)]
-pub use agenterm_platform::contract::input::classify_key_press;
+pub use minicon_platform::contract::input::classify_key_press;
 
 #[cfg(test)]
 mod tests {
@@ -273,8 +273,8 @@ mod tests {
         assert_eq!(
             is_primary_shortcut_via_meta(),
             matches!(
-                agenterm_platform::platform_kind(),
-                agenterm_platform::PlatformKind::Macos
+                minicon_platform::platform_kind(),
+                minicon_platform::PlatformKind::Macos
             )
         );
     }
@@ -283,11 +283,11 @@ mod tests {
     fn control_center_screenshot_strategy_matches_runtime_kind() {
         assert_eq!(
             crate::platform::policy::control_center::screenshot_strategy(),
-            match agenterm_platform::platform_kind() {
-                agenterm_platform::PlatformKind::Windows => {
+            match minicon_platform::platform_kind() {
+                minicon_platform::PlatformKind::Windows => {
                     crate::platform::policy::control_center::ScreenshotStrategy::DirectNativeWindow
                 }
-                agenterm_platform::PlatformKind::Linux | agenterm_platform::PlatformKind::Macos => {
+                minicon_platform::PlatformKind::Linux | minicon_platform::PlatformKind::Macos => {
                     crate::platform::policy::control_center::ScreenshotStrategy::RendererRequest
                 }
                 _ => crate::platform::policy::control_center::ScreenshotStrategy::Unsupported,
@@ -300,10 +300,10 @@ mod tests {
         assert_eq!(
             hosted_script_worker_available(),
             matches!(
-                agenterm_platform::platform_kind(),
-                agenterm_platform::PlatformKind::Windows
-                    | agenterm_platform::PlatformKind::Linux
-                    | agenterm_platform::PlatformKind::Macos
+                minicon_platform::platform_kind(),
+                minicon_platform::PlatformKind::Windows
+                    | minicon_platform::PlatformKind::Linux
+                    | minicon_platform::PlatformKind::Macos
             )
         );
     }

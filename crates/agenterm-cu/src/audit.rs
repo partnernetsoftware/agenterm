@@ -11,7 +11,7 @@ use serde::Serialize;
 use sha2::{Digest as _, Sha256};
 
 use crate::{auth::Grant, command::Command, reply::CuError, target::TargetRef};
-use agenterm_platform::{
+use minicon_platform::{
     filesystem::{file_identity, write_private_atomic},
     locking::{LockErrorKind, PathLock},
 };

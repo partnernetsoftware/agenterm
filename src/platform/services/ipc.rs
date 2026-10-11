@@ -13,10 +13,10 @@ use crate::platform::contract::{
 
 /// Security-context identity bytes used only to derive an opaque server scope.
 /// This type deliberately has no display, debug, or serialization surface.
-pub(crate) use agenterm_platform::ipc::{NativeListener, NativeStream, TrustedUserIdentity};
+pub(crate) use minicon_platform::ipc::{NativeListener, NativeStream, TrustedUserIdentity};
 
 pub(crate) fn trusted_user_identity() -> io::Result<TrustedUserIdentity> {
-    agenterm_platform::ipc::trusted_user_identity()
+    minicon_platform::ipc::trusted_user_identity()
 }
 
 pub(crate) fn default_native_endpoint(scope: &ServerScopeId) -> IpcEndpoint {
@@ -57,7 +57,7 @@ pub(crate) fn unix_data_root_from(
 }
 
 pub(crate) fn native_transport_name() -> &'static str {
-    agenterm_platform::ipc::native_transport_name()
+    minicon_platform::ipc::native_transport_name()
 }
 
 pub(crate) fn unsupported_native_endpoint(

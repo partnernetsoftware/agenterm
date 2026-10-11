@@ -12,7 +12,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use agenterm_platform::service as native;
+use minicon_platform::service as native;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
@@ -796,9 +796,9 @@ fn require_user_mutation(identity: &ServiceIdentity) -> Result<(), CuError> {
 }
 
 fn definition_identity(path: &Path) -> Result<ServiceDefinitionBinding, CuError> {
-    let mut file = agenterm_platform::filesystem_open::open_existing(
+    let mut file = minicon_platform::filesystem_open::open_existing(
         path,
-        agenterm_platform::filesystem_open::ExistingEntryType::File,
+        minicon_platform::filesystem_open::ExistingEntryType::File,
     )
     .map_err(|_| {
         CuError::new(

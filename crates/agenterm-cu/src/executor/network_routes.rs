@@ -1,6 +1,6 @@
 //! Bounded native route-table inventory.
 
-use agenterm_platform::network_routes::{NetworkRoute, NetworkRouteErrorKind};
+use minicon_platform::network_routes::{NetworkRoute, NetworkRouteErrorKind};
 
 use super::*;
 
@@ -8,7 +8,7 @@ const RESPONSE_CEILING_BYTES: usize = 1024 * 1024;
 const RESPONSE_HEADROOM_BYTES: usize = 16 * 1024;
 
 pub(super) fn network_routes_payload(max: usize) -> Result<serde_json::Value, CuError> {
-    let inventory = agenterm_platform::network_routes::enumerate(max)
+    let inventory = minicon_platform::network_routes::enumerate(max)
         .map_err(|error| CuError::new(error_code(error.kind()), error.detail()))?;
     let visited = inventory.visited;
     let mut rows = Vec::with_capacity(inventory.routes.len());
@@ -104,7 +104,7 @@ fn row_value(route: NetworkRoute) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agenterm_platform::network_routes::NetworkRouteFamily;
+    use minicon_platform::network_routes::NetworkRouteFamily;
     use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
@@ -117,7 +117,7 @@ mod tests {
             interface: Some("loop".into()),
             interface_native_id: 7,
             interface_native_id_kind:
-                agenterm_platform::network_routes::NetworkRouteNativeIdKind::IfIndex,
+                minicon_platform::network_routes::NetworkRouteNativeIdKind::IfIndex,
             flags: vec!["up"],
             native_flags: Some(1),
             table: None,

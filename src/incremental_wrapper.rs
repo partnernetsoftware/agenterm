@@ -458,7 +458,7 @@ pub fn run_incremental_rustc_wrapper(arguments: Vec<OsString>) -> ! {
     };
     let mut rustc = Command::new(compiler);
     rustc.args(rustc_arguments);
-    if let Err(error) = agenterm_platform::process::configure_owned_headless_command(&mut rustc) {
+    if let Err(error) = minicon_platform::process::configure_owned_headless_command(&mut rustc) {
         eprintln!("failed to configure wrapped rustc: {error}");
         std::process::exit(2);
     }

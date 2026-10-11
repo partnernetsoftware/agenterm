@@ -544,7 +544,7 @@ if (cross_client !== 0 || unix_bootstrap !== 0) {
 }
 
 // Each final artifact is its own Cargo feature graph. Building `agenterm` and
-// `agenterm-cu` as roots of one invocation feature-unifies agenterm-platform's
+// `agenterm-cu` as roots of one invocation feature-unifies minicon-platform's
 // device-capture adapter into the main executable. Loading the sibling ACU
 // provider then registers the same Objective-C class twice in one macOS
 // process. Keep the invocations serial and share only Cargo's target cache.
@@ -592,7 +592,7 @@ if (action === "build" && (os_name === "windows" || library_entries.length > 0))
     abi_environment = build_identity.environment_with_cargo_target(identity, environment.CARGO_TARGET_DIR);
   }
   // libagenterm and the ACU provider are separate final dynamic libraries.
-  // A joint Cargo invocation would feature-unify agenterm-platform's native
+  // A joint Cargo invocation would feature-unify minicon-platform's native
   // device-capture Objective-C class into both images and make one process
   // register it twice when the provider is loaded.
   run_cargo_selection(

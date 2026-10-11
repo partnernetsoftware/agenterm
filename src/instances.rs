@@ -924,14 +924,14 @@ pub(crate) fn discover_instances_in(directory: &Path) -> Result<Vec<DiscoveredIn
 fn prepare_private_instance_directory(directory: &Path) -> Result<()> {
     fs::create_dir_all(directory)
         .with_context(|| format!("failed to create {}", directory.display()))?;
-    agenterm_platform::filesystem::protect_private_directory(directory)
+    minicon_platform::filesystem::protect_private_directory(directory)
         .with_context(|| format!("refused unsafe instance registry {}", directory.display()))
 }
 
 fn private_instance_directory_exists(directory: &Path) -> Result<bool> {
     match fs::symlink_metadata(directory) {
         Ok(_) => {
-            agenterm_platform::filesystem::protect_private_directory(directory).with_context(
+            minicon_platform::filesystem::protect_private_directory(directory).with_context(
                 || format!("refused unsafe instance registry {}", directory.display()),
             )?;
             Ok(true)

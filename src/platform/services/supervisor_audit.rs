@@ -9,7 +9,7 @@ use std::{
 use crate::platform::contract::supervisor_audit::{SupervisorAuditError, SupervisorAuditErrorKind};
 
 pub(crate) struct ConcurrencyPermit {
-    global: agenterm_platform::locking::SlotPermit,
+    global: minicon_platform::locking::SlotPermit,
     active: &'static AtomicUsize,
 }
 
@@ -24,7 +24,7 @@ impl ConcurrencyPermit {
             active.fetch_sub(1, Ordering::AcqRel);
             return Err(concurrency_limit_error());
         }
-        match agenterm_platform::locking::SlotPermit::try_acquire(
+        match minicon_platform::locking::SlotPermit::try_acquire(
             &std::env::temp_dir(),
             "agenterm-rh-supervisor-v1",
             global_limit,
@@ -46,14 +46,14 @@ impl Drop for ConcurrencyPermit {
 }
 
 pub(crate) fn configure_worker_command(command: &mut Command) -> Result<(), SupervisorAuditError> {
-    agenterm_platform::process::configure_owned_command(command).map_err(process_tree_error)
+    minicon_platform::process::configure_owned_command(command).map_err(process_tree_error)
 }
 
-pub(crate) struct ProcessTreeGuard(agenterm_platform::process::ProcessTreeGuard);
+pub(crate) struct ProcessTreeGuard(minicon_platform::process::ProcessTreeGuard);
 
 impl ProcessTreeGuard {
     pub(crate) fn attach(child: &Child) -> Result<Self, SupervisorAuditError> {
-        agenterm_platform::process::ProcessTreeGuard::attach(child)
+        minicon_platform::process::ProcessTreeGuard::attach(child)
             .map(Self)
             .map_err(process_tree_error)
     }
@@ -69,12 +69,12 @@ pub(crate) fn terminate_worker(child: &mut Child, _pid: u32) {
     let _ = child.wait();
 }
 
-pub(crate) struct NamedAuditLock(agenterm_platform::locking::PathLock);
+pub(crate) struct NamedAuditLock(minicon_platform::locking::PathLock);
 
 impl NamedAuditLock {
     pub(crate) fn acquire(path: &Path) -> Result<Self, SupervisorAuditError> {
         let lock_path = path.with_extension("jsonl.lock");
-        agenterm_platform::locking::PathLock::acquire(&lock_path)
+        minicon_platform::locking::PathLock::acquire(&lock_path)
             .map(Self)
             .map_err(map_lock_error)
     }
@@ -95,16 +95,14 @@ fn concurrency_limit_error() -> SupervisorAuditError {
     )
 }
 
-fn map_lock_error(error: agenterm_platform::locking::LockError) -> SupervisorAuditError {
+fn map_lock_error(error: minicon_platform::locking::LockError) -> SupervisorAuditError {
     let kind = match error.kind() {
-        agenterm_platform::locking::LockErrorKind::Open
-        | agenterm_platform::locking::LockErrorKind::InvalidInput => {
+        minicon_platform::locking::LockErrorKind::Open
+        | minicon_platform::locking::LockErrorKind::InvalidInput => {
             SupervisorAuditErrorKind::LockOpen
         }
-        agenterm_platform::locking::LockErrorKind::Wait
-        | agenterm_platform::locking::LockErrorKind::Contended => {
-            SupervisorAuditErrorKind::LockWait
-        }
+        minicon_platform::locking::LockErrorKind::Wait
+        | minicon_platform::locking::LockErrorKind::Contended => SupervisorAuditErrorKind::LockWait,
         _ => SupervisorAuditErrorKind::LockWait,
     };
     SupervisorAuditError::new(kind, error.to_string())

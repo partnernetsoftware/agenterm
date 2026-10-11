@@ -24,7 +24,7 @@ in-flight work and attribute it to your commit message.
 another agent is mid-edit. Scope it and check afterwards:
 
 ```bash
-cargo fmt -p agenterm-platform
+cargo fmt -p minicon-platform
 git status --short          # revert anything outside your domain
 git checkout -- <path>
 ```

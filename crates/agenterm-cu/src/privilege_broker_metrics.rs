@@ -7,7 +7,7 @@
 
 use std::{fs, path::PathBuf};
 
-use agenterm_platform::filesystem::write_private_atomic;
+use minicon_platform::filesystem::write_private_atomic;
 use serde::{Deserialize, Serialize};
 
 use crate::{CuError, privilege_broker::PrivilegeBrokerEvent};

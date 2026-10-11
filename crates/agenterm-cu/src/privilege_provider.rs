@@ -12,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use agenterm_platform::{
+use minicon_platform::{
     entropy::secure_random_array, filesystem::protect_private_directory,
     filesystem_publish::write_path_atomic_no_clobber,
 };
@@ -841,7 +841,7 @@ mod tests {
             crate::privilege_apply::PrivilegeVerificationV1::Verified
         );
         assert!(valid_uuid_v4(&receipt_id));
-        assert!(agenterm_platform::process_metrics::is_stopped(child.id()).unwrap());
+        assert!(minicon_platform::process_metrics::is_stopped(child.id()).unwrap());
         let upgraded = FixedProviderAuthority::fixture_with_provider(
             root.clone(),
             digest(b"fixture-provider-upgraded"),
@@ -871,13 +871,11 @@ mod tests {
         );
 
         let reference =
-            agenterm_platform::process_reference::ProcessReference::open_for_termination(
-                child.id(),
-            )
-            .unwrap();
+            minicon_platform::process_reference::ProcessReference::open_for_termination(child.id())
+                .unwrap();
         reference.set_suspended(false).unwrap();
         reference
-            .terminate(agenterm_platform::process_control::TerminationMode::Forceful)
+            .terminate(minicon_platform::process_control::TerminationMode::Forceful)
             .unwrap();
         child.wait().unwrap();
         fs::remove_dir_all(root).unwrap();
@@ -906,12 +904,10 @@ mod tests {
                 if error_code == "privilege_delegated_grant_unavailable"
         ));
         let reference =
-            agenterm_platform::process_reference::ProcessReference::open_for_termination(
-                child.id(),
-            )
-            .unwrap();
+            minicon_platform::process_reference::ProcessReference::open_for_termination(child.id())
+                .unwrap();
         reference
-            .terminate(agenterm_platform::process_control::TerminationMode::Forceful)
+            .terminate(minicon_platform::process_control::TerminationMode::Forceful)
             .unwrap();
         child.wait().unwrap();
         fs::remove_dir_all(root).unwrap();

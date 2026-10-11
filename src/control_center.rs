@@ -992,7 +992,7 @@ pub(crate) fn open_control_center(no_activate: bool, server_endpoint: &str) -> R
         control_center_launch_arguments(no_activate, server_endpoint, instance.as_deref())?
     };
     // Prefer Job breakaway so agent harnesses do not kill CC with the parent
-    // Job. Denial + visible-in-job fallback live in agenterm-platform (do not
+    // Job. Denial + visible-in-job fallback live in minicon-platform (do not
     // hard-code ERROR_ACCESS_DENIED / creation flags in product code).
     let mut command = Command::new(&executable);
     command

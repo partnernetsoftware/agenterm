@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 const INSTANCE_NAME_LIMIT: usize = 96;
 const SCOPE_NAMESPACE: &str = "agenterm.server-scope.v1";
 
-pub(crate) use agenterm_platform::ipc::IpcEndpoint;
+pub(crate) use minicon_platform::ipc::IpcEndpoint;
 
 /// The user-facing role of one local server authority.
 ///

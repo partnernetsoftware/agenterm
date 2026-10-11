@@ -1,7 +1,7 @@
 //! Bounded request/reply protocol for one resident managed-job owner.
 //!
 //! Transport binding is deliberately outside this module. The caller must pass
-//! a stream already accepted by `agenterm-platform`'s current-user native IPC
+//! a stream already accepted by `minicon-platform`'s current-user native IPC
 //! transport (Unix socket or Windows named pipe). TCP is not a valid carrier.
 //! Requests never contain a bearer/session lease, and replies never echo job
 //! launch arguments, environment values, or stdin bytes.
@@ -11,10 +11,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use agenterm_platform::ipc::{
+use minicon_platform::ipc::{
     IpcEndpoint, IpcTransportError, IpcTransportErrorCode, NativeListener,
 };
-use agenterm_platform::{entropy::secure_random_array, ipc::NativeStream};
+use minicon_platform::{entropy::secure_random_array, ipc::NativeStream};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -133,8 +133,8 @@ pub(crate) fn endpoint_for(handle: &ManagedJobHandle) -> Result<IpcEndpoint, Man
     }
     #[cfg(unix)]
     {
-        let path = agenterm_platform::ipc::native_runtime_directory()
-            .join(format!("cu-job-{suffix}.sock"));
+        let path =
+            minicon_platform::ipc::native_runtime_directory().join(format!("cu-job-{suffix}.sock"));
         Ok(IpcEndpoint::UnixSocket(path.to_string_lossy().into_owned()))
     }
 }
@@ -821,7 +821,7 @@ mod tests {
     fn deadline_frame_writer_prefixes_the_body_on_the_wire() {
         use std::io::Read as _;
 
-        use agenterm_platform::ipc::NativeStreamExt as _;
+        use minicon_platform::ipc::NativeStreamExt as _;
 
         let (left, right) = std::os::unix::net::UnixStream::pair().expect("frame socket pair");
         let endpoint = IpcEndpoint::UnixSocket("/tmp/agenterm-cu-frame-test".to_owned());

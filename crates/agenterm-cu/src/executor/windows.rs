@@ -683,17 +683,17 @@ pub(super) fn app_inspect_payload(
     let mut rows = Vec::with_capacity(matches.len());
     let mut page_by_pid = std::collections::BTreeMap::<u32, serde_json::Value>::new();
     for window in matches {
-        let process_before = agenterm_platform::process::observe(window.process_id);
+        let process_before = minicon_platform::process::observe(window.process_id);
         let row = match mechanism::tree_for_window_bounded(Some(window.handle), budget) {
             Ok(tree) => {
-                let process_after = agenterm_platform::process::observe(window.process_id);
+                let process_after = minicon_platform::process::observe(window.process_id);
                 let stable_process = matches!(
                     (&process_before, &process_after),
                     (
-                        agenterm_platform::process::ProcessObservation::Live {
+                        minicon_platform::process::ProcessObservation::Live {
                             start_identity: Some(before),
                         },
-                        agenterm_platform::process::ProcessObservation::Live {
+                        minicon_platform::process::ProcessObservation::Live {
                             start_identity: Some(after),
                         }
                     ) if before == after

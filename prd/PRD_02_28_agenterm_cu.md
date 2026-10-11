@@ -60,7 +60,7 @@ agenterm-cu (28)
 ├── command surface (29)
 ├── targets / transports (30)
 │   ├── current / ssh / rdp / vnc
-│   └── platform a11y backends (agenterm-platform)
+│   └── platform a11y backends (minicon-platform)
 │       ├── Windows: native API + UIA
 │       ├── macOS: AX (NSAccessibility)
 │       └── Linux: AT-SPI2
@@ -592,7 +592,7 @@ flowchart LR
   is withheld. Transient `UIA_E_TIMEOUT` / rejected-call results get bounded
   retries inside the existing action deadline; semantic mismatches do not.
 - [~] Whole-window foreground activation is now a separate vertical slice:
-  `activate --window H` flows through `agenterm-platform`, additive
+  `activate --window H` flows through `minicon-platform`, additive
   `libagenterm` ABI 1.26, the ACU command/receipt layer and exact focused-window
   inventory read-back. The postcondition now uses the same resolved-focus
   path as `windows --focused`: a native inventory mark wins, then the
@@ -759,7 +759,7 @@ binary without its matching dylib is inert.
   With consent absent, `device-screenshot` returns
   `host_tcc_consent_required`; `screenshot --window <handle>` uses the
   `CGWindowListCreateImage` path and works once granted. `permissions` and
-  `doctor` (`crates/agenterm-platform/src/adapters/macos/permission_settings.rs`)
+  `doctor` (`crates/minicon-platform/src/adapters/macos/permission_settings.rs`)
   must guide the user through granting these; they are the normal authorization
   flow, not a capability gap.
 - [x] **Verification** (recorded in [`docs/cu-gaps-analysis.md`](../docs/cu-gaps-analysis.md)):
@@ -1697,7 +1697,7 @@ flowchart LR
 ```
 
 - [~] `power status` now has a native, observe-only ACU facade rather than a
-  Bun/MCU host probe. `agenterm-platform` reduces each OS boot source to an
+  Bun/MCU host probe. `minicon-platform` reduces each OS boot source to an
   opaque digest (macOS `kern.boottime`, Linux kernel boot UUID, Windows boot
   environment GUID); CU binds it to the explicitly enrolled installation
   pseudonym. The reply exposes neither a hardware UUID, raw native boot value,
@@ -1832,7 +1832,7 @@ flowchart LR
   subsequently reduces it to 30 under the separate evidence above.
 - [~] Host application dispatch is now a first-class actuation:
   `host-open PATH_OR_URL [--app APPLICATION] [--background]` (alias `open`)
-  crosses a typed `agenterm-platform` facade and never invokes a shell. macOS
+  crosses a typed `minicon-platform` facade and never invokes a shell. macOS
   uses the system LaunchServices launcher, Linux uses a system `xdg-open`, and
   Windows uses `ShellExecuteW`, including explicit application selection with
   the target encoded as one Windows argument; target/application values are
@@ -2686,7 +2686,7 @@ flowchart LR
   opened-object identity, exact size and Windows attributes plus the same typed
   missing-path failure before release. Linux and Windows focused leaves are now
   green; promotion into both full qjswasm journeys remains open. Package tests,
-  strict Clippy and the Windows x86_64 cross-check are green. `agenterm-platform` also owns
+  strict Clippy and the Windows x86_64 cross-check are green. `minicon-platform` also owns
   no-overwrite publication and volume-capacity primitives. ACU now also exposes
   `file-copy SOURCE DEST [--replace --apply]` and `file-transaction
   status|rollback|recover|finalize ID`. Planning is mutation-free. Apply writes
@@ -2985,7 +2985,7 @@ flowchart LR
 - [~] `device-list` / `device list` now owns the bounded native peripheral
   inventory leaf for USB, Bluetooth, audio, camera and GPU. It is not a raw
   system-profiler dump: native serials, addresses, provider instance ids and
-  paths stay below `agenterm-platform`; the public row receives only an
+  paths stay below `minicon-platform`; the public row receives only an
   installation-scoped HMAC pseudonym and an explicit `provider-stable` or
   `topology` continuity label. `setup` apply is the sole explicit enrollment
   action for that private installation identity. Inventory observation only
@@ -3215,7 +3215,7 @@ flowchart LR
   ledger keeps status, mutation-free lock planning and visible lock application
   as three independently accounted qualification leaves; plan evidence never
   qualifies the visible effect.
-  - [x] `agenterm-platform` owns a bounded neutral inventory contract and a
+  - [x] `minicon-platform` owns a bounded neutral inventory contract and a
     macOS IOKit/CoreFoundation adapter. Missing or changed `IOConsoleUsers` /
     `IOConsoleLocked` shapes fail typed; product code does not run `ioreg`,
     `plutil`, AppleScript or private SecurityAgent/SkyLight APIs.
@@ -3275,8 +3275,8 @@ independent implementation.
 
 | 已有面 | owning 模块 | cu 的关系 |
 |--------|-------------|-----------|
-| OS 级 screenshot / window / input / process 机制 | [20 Native platform](PRD_02_20_native_platform.md) `agenterm-platform` | **消费**。cu 不得直调 OS API，新机制先沉入 platform 并带 typed `Unsupported`/`Failed` |
-| OS 级 accessibility-tree 机制（观察 + 节点动作） | `crates/agenterm-abi` libagenterm `agt_a11y_*`（里程碑 6）→ `agenterm-platform` 适配器 | **消费**。Linux `current` 的 `tree` / 结构化 `click` / `focus` / named `hover` / named `scroll-wheel` / named `send-text` / focused `send-text --window` / named `copy` / focused `copy --window` / named `paste` / focused `paste --window` / named `send-keys` / focused `send-keys --window` 经 ABI 机制层，不在 cu 内复刻 AT-SPI/UIA/AX。named wheel 以目标子节点的独立前后几何读回证明交付，错误路径仍必须释放 wheel button 并恢复真实指针；Linux native X11 court 未实跑前保持 platform-limited。macOS/Windows 对 named hover / scroll-wheel 没有等价节点指针路径，均 typed-refuse。ABI 1.31 另以 caller-sized `agt_screen_physical_v1` 查询显示器物理尺寸，不改变既有 `agt_screen_info[]` 数组步长。 |
+| OS 级 screenshot / window / input / process 机制 | [20 Native platform](PRD_02_20_native_platform.md) `minicon-platform` | **消费**。cu 不得直调 OS API，新机制先沉入 platform 并带 typed `Unsupported`/`Failed` |
+| OS 级 accessibility-tree 机制（观察 + 节点动作） | `crates/agenterm-abi` libagenterm `agt_a11y_*`（里程碑 6）→ `minicon-platform` 适配器 | **消费**。Linux `current` 的 `tree` / 结构化 `click` / `focus` / named `hover` / named `scroll-wheel` / named `send-text` / focused `send-text --window` / named `copy` / focused `copy --window` / named `paste` / focused `paste --window` / named `send-keys` / focused `send-keys --window` 经 ABI 机制层，不在 cu 内复刻 AT-SPI/UIA/AX。named wheel 以目标子节点的独立前后几何读回证明交付，错误路径仍必须释放 wheel button 并恢复真实指针；Linux native X11 court 未实跑前保持 platform-limited。macOS/Windows 对 named hover / scroll-wheel 没有等价节点指针路径，均 typed-refuse。ABI 1.31 另以 caller-sized `agt_screen_physical_v1` 查询显示器物理尺寸，不改变既有 `agt_screen_info[]` 数组步长。 |
 | 工作台观察/控制、确定性等待、身份 | [07 Agent control plane](PRD_02_07_agent_control_plane.md) | **复用，不分叉**。cu 的 terminal facade 只能调用这条既有控制平面并验证同一 scope/epoch/@tab；不得提供第二个 tab/PTY owner |
 | `agenterm-cc` 的 screenshot/snapshot 投影 | [21 Control Center](PRD_02_21_control_center.md) | **不重叠**。CC 是产品投影，不是通用机器控制面 |
 | `agenterm-con cli` 的输入/截图/等待 | [26 con control CLI](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_26_con_control_cli.md) | **不重叠**。con 是 GUI 生命期内的本进程终端控制 |

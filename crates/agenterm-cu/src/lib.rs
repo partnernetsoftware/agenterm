@@ -96,7 +96,7 @@ pub fn run_device_io_test_fixture(args: &[String]) -> i32 {
         } else {
             return 2;
         };
-        let fixture = match agenterm_platform::device_io::create_test_fixture(
+        let fixture = match minicon_platform::device_io::create_test_fixture(
             std::path::Path::new(&args[0]),
             std::time::Duration::from_millis(lifetime_ms),
             initial_baud,

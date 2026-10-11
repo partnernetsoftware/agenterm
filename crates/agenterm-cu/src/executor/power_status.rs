@@ -1,4 +1,4 @@
-use agenterm_platform::host_resource_snapshot::{
+use minicon_platform::host_resource_snapshot::{
     HostResourceSnapshotError, HostResourceSnapshotErrorKind,
 };
 use serde_json::{Value, json};
@@ -16,7 +16,7 @@ pub(super) fn power_status_payload() -> Result<Value, CuError> {
     let host_identity = load_host_identity()?;
     let before = boot_anchor_identity()?;
     let snapshot =
-        agenterm_platform::host_resource_snapshot::snapshot().map_err(resource_snapshot_error)?;
+        minicon_platform::host_resource_snapshot::snapshot().map_err(resource_snapshot_error)?;
     let after = boot_anchor_identity()?;
     if before != after {
         return Err(CuError::new(
@@ -62,7 +62,7 @@ fn load_host_identity() -> Result<String, CuError> {
 }
 
 fn boot_anchor_identity() -> Result<[u8; 32], CuError> {
-    agenterm_platform::host_boot_identity::query()
+    minicon_platform::host_boot_identity::query()
         .map(|identity| *identity.as_bytes())
         .map_err(|error| {
             CuError::new(

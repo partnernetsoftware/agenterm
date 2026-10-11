@@ -23,7 +23,7 @@
 //   - `std::process::list()`: `kill -0 PID` is the presence probe.
 //   - `child.window_key(k)` on X11 was XTest to the foreground window; the
 //     door's `process.window_key` posts the same XTest request through
-//     `agenterm-platform::process_window`, which requires the child's window
+//     `minicon-platform::process_window`, which requires the child's window
 //     to already be foreground -- the journey activates it first. On Wayland
 //     the door answers the same typed `process_window_unsupported` rh's host
 //     did, and the journey asserts that answer.

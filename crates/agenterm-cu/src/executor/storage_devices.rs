@@ -1,6 +1,6 @@
 //! Bounded, privacy-minimized physical and block storage inventory.
 
-use agenterm_platform::storage_device_inventory::{
+use minicon_platform::storage_device_inventory::{
     StorageDevice, StorageDeviceErrorKind, StorageDeviceInventory,
 };
 use serde_json::{Value, json};
@@ -11,8 +11,8 @@ const RESPONSE_CEILING_BYTES: usize = 1024 * 1024;
 const RESPONSE_HEADROOM_BYTES: usize = 4096;
 
 pub(super) fn storage_devices_payload(max: usize) -> Result<Value, CuError> {
-    let inventory = agenterm_platform::storage_device_inventory::enumerate(max)
-        .map_err(storage_device_error)?;
+    let inventory =
+        minicon_platform::storage_device_inventory::enumerate(max).map_err(storage_device_error)?;
     storage_devices_from(inventory)
 }
 
@@ -101,7 +101,7 @@ fn row_value(device: StorageDevice) -> Value {
 }
 
 fn storage_device_error(
-    error: agenterm_platform::storage_device_inventory::StorageDeviceError,
+    error: minicon_platform::storage_device_inventory::StorageDeviceError,
 ) -> CuError {
     let code = match error.kind() {
         StorageDeviceErrorKind::InvalidLimit => "storage_devices_invalid_limit",

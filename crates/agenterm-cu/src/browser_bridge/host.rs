@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use agenterm_platform::{
+use minicon_platform::{
     entropy::secure_random_array,
     filesystem::{host_directories, protect_private_directory, write_private_atomic},
     filesystem_open::{ExistingEntryType, open_existing_path},
@@ -568,7 +568,7 @@ fn endpoint_for(id: &ConnectionId) -> IpcEndpoint {
     return IpcEndpoint::NamedPipe(format!(r"\\.\pipe\agenterm-cu-browser-{suffix}"));
     #[cfg(unix)]
     return IpcEndpoint::UnixSocket(
-        agenterm_platform::ipc::native_runtime_directory()
+        minicon_platform::ipc::native_runtime_directory()
             .join(format!("cu-browser-{suffix}.sock"))
             .to_string_lossy()
             .into_owned(),

@@ -104,7 +104,7 @@ flowchart LR
 - User problem: agents cannot yet rely on one shipped, three-host structured
   desktop-control surface.
 - Invariant: product verbs are shared; OS differences stop in
-  `agenterm-platform`; actions require the PRD 31 grant/audit contract.
+  `minicon-platform`; actions require the PRD 31 grant/audit contract.
 - Success evidence: exact Candidate packages `agenterm-cu` and its required
   `libagenterm`; native Win/macOS/Linux journeys cover discover → observe →
   act → verify → audit; product `.qjs` gates execute on qjswasm/tinyvm.

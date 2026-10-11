@@ -1,27 +1,27 @@
 //! Product host routing policy shared by product modules.
 //!
-//! Native platform identity comes from agenterm-platform; this table turns
+//! Native platform identity comes from minicon-platform; this table turns
 //! that fact into the product-level host labels used by paths, fonts, IPC and
 //! Script runtime policy.
 
 pub(crate) fn is_windows_host() -> bool {
     matches!(
-        agenterm_platform::platform_kind(),
-        agenterm_platform::PlatformKind::Windows
+        minicon_platform::platform_kind(),
+        minicon_platform::PlatformKind::Windows
     )
 }
 
 pub(crate) fn is_macos_host() -> bool {
     matches!(
-        agenterm_platform::platform_kind(),
-        agenterm_platform::PlatformKind::Macos
+        minicon_platform::platform_kind(),
+        minicon_platform::PlatformKind::Macos
     )
 }
 
 pub(crate) fn is_unix_host() -> bool {
     matches!(
-        agenterm_platform::platform_kind(),
-        agenterm_platform::PlatformKind::Linux | agenterm_platform::PlatformKind::Macos
+        minicon_platform::platform_kind(),
+        minicon_platform::PlatformKind::Linux | minicon_platform::PlatformKind::Macos
     )
 }
 
@@ -35,20 +35,20 @@ mod tests {
 
     #[test]
     fn host_predicates_match_runtime_kind() {
-        let kind = agenterm_platform::platform_kind();
+        let kind = minicon_platform::platform_kind();
         assert_eq!(
             is_windows_host(),
-            matches!(kind, agenterm_platform::PlatformKind::Windows)
+            matches!(kind, minicon_platform::PlatformKind::Windows)
         );
         assert_eq!(
             is_macos_host(),
-            matches!(kind, agenterm_platform::PlatformKind::Macos)
+            matches!(kind, minicon_platform::PlatformKind::Macos)
         );
         assert_eq!(
             is_unix_host(),
             matches!(
                 kind,
-                agenterm_platform::PlatformKind::Linux | agenterm_platform::PlatformKind::Macos
+                minicon_platform::PlatformKind::Linux | minicon_platform::PlatformKind::Macos
             )
         );
     }

@@ -1,7 +1,7 @@
 # platform 封装漏点表（机制债）
 
 状态：**goal-crate-platform 封装收口完成**（2026-08-06；以 goal 成功标准为准，非 UX 全齐）  
-范围：**仅 OS 机制**（应进 `crates/agenterm-platform`）+ catalog **归属**（产品闸）。  
+范围：**仅 OS 机制**（应进 `crates/minicon-platform`）+ catalog **归属**（产品闸）。  
 产品可见行为差距见 [`plan-unix-gui-win-parity.md`](plan-unix-gui-win-parity.md)。  
 边界 SSOT：[`ARCHITECTURE.md`](ARCHITECTURE.md) §1.0、[`goal-crate-platform.md`](goal-crate-platform.md)。
 
@@ -33,7 +33,7 @@
 | G2 | script/worker `Command::spawn` | 已 `configure_*` + `ProcessTreeGuard` | P2 | 非 Job-flags 泄漏 | **no leak / 证伪** |
 | G3 | Unix softbuffer → PNG | screenshot 编码 + present | P3 | present 合法 | **out-of-goal residual**（低） |
 | G4 | Win remote control-window 巨石 | window control host | P2 | L2 结构债 | **out-of-goal residual**（双拓扑） |
-| G5 | IME/clipboard/activation | `agenterm_platform::*` | — | 已走 facade | **no leak** |
+| G5 | IME/clipboard/activation | `minicon_platform::*` | — | 已走 facade | **no leak** |
 | G6 | 24 verbs 误标 WINDOWS_ONLY | catalog | P0 | 真共享在 `control_dispatch` | **closed** |
 | G7 | `open-new-terminal` | 两端 ui-action | P1 | Win 接线 | **closed** |
 | G8 | `font-*` / `toggle-locale` | 两端 ui-action | P1 | Unix 方法已在；补 ui-action 臂 | **closed** |
@@ -48,10 +48,10 @@
 ## Agent 执行句式（跨平台任务强制）
 
 1. 判定：platform **机制** / frontend **产品语义** / host **present**？  
-2. 机制 → 改 `crates/agenterm-platform`，feature 与 typed Unsupported 诚实更新。  
+2. 机制 → 改 `crates/minicon-platform`，feature 与 typed Unsupported 诚实更新。  
 3. 产品 → 改 `src/frontend/*` + `ui_action_catalog`，再改 **两端** adapter（或确认 `control_dispatch` 已覆盖）。  
 4. 仅 host → 只动对应 adapter，并登记 catalog allowlist 或本表。  
-5. 证据：`cargo test -p agenterm-platform --features process`（相关）+ `cargo test --lib ui_action_catalog` + `cargo test --lib product_sources_do_not_hardcode_breakaway`；无证据不宣称三端手感已齐。
+5. 证据：`cargo test -p minicon-platform --features process`（相关）+ `cargo test --lib ui_action_catalog` + `cargo test --lib product_sources_do_not_hardcode_breakaway`；无证据不宣称三端手感已齐。
 
 ## 下一刀（产品 parity，非封装 crate）
 

@@ -1,4 +1,4 @@
-use agenterm_platform::host_pressure::{
+use minicon_platform::host_pressure::{
     HostPressureError, HostPressureErrorKind, HostPressureSignal, HostPressureSnapshot,
     LinuxPsiWindow,
 };
@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use crate::reply::CuError;
 
 pub(super) fn resource_pressure_payload() -> Result<Value, CuError> {
-    let snapshot = agenterm_platform::host_pressure::snapshot().map_err(pressure_error)?;
+    let snapshot = minicon_platform::host_pressure::snapshot().map_err(pressure_error)?;
     Ok(resource_pressure_from(snapshot))
 }
 
@@ -88,7 +88,7 @@ fn pressure_error(error: HostPressureError) -> CuError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agenterm_platform::host_pressure::HostPressureUnavailableReason;
+    use minicon_platform::host_pressure::HostPressureUnavailableReason;
 
     #[test]
     fn linux_projection_keeps_native_windows_and_wide_total() {

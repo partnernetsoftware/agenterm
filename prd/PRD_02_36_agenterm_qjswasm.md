@@ -873,7 +873,7 @@ integration.
   cuts required after JSON escaping. `process.command_stdout` refuses a
   truncated result because its raw-text return cannot carry those flags.
 - [x] All four tool child entry paths (`command`, `command_stdout`, `status`,
-  `spawn`) use the same `agenterm-platform` contained launcher. Windows creates
+  `spawn`) use the same `minicon-platform` contained launcher. Windows creates
   the child suspended, assigns its kill-on-close Job before the first user
   instruction and only then resumes it; Unix establishes the owned process
   group in `pre_exec`. Working directory, inherited environment mutation,

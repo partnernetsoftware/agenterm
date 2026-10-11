@@ -50,7 +50,7 @@ Named tmux executor supervision is documented in
 ### Preserve authority boundaries
 
 - Product code does not import raw OS APIs. Neutral contracts belong in
-  `crates/agenterm-platform`, adapters own OS calls, and shared product modules
+  `crates/minicon-platform`, adapters own OS calls, and shared product modules
   own behavior.
 - The Script Runtime is an unrestricted local runtime, not a permission system.
   Do not add path, process, endpoint, credential, or tool allowlists to script
@@ -161,7 +161,7 @@ result that looked green and proved nothing.
   feature sets and `cfg` gates all let a check pass over code that was never
   built. `docs/agenterm-rust-cheatsheet.md` §2 owns the rule; the practical
   form is to name the package, features and targets your evidence covers and to
-  claim nothing outside them. The `agenterm-platform` crate is the sharpest
+  claim nothing outside them. The `minicon-platform` crate is the sharpest
   case: its default features omit `pty`, so whole modules do not compile in a
   default check, and a consumer that enables them is the only real proof.
 - **One platform's evidence is never a cross-platform claim.** Record a result

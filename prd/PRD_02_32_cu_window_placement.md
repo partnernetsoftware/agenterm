@@ -137,7 +137,7 @@ agenterm-cu (28)
   bounds to equal the receipt. This preserves effect verification without
   encoding one window manager's decoration width as a cross-platform law.
 
-The typed preflight is now wired through `agenterm-platform`, libagenterm ABI
+The typed preflight is now wired through `minicon-platform`, libagenterm ABI
 1.10 (`agt_window_placement_query`), and CU before the first native write.
 Known standard/dialog windows require explicit move/resize support; sheet,
 system-dialog, other, and unknown roles fail closed. Explicit min/max/increment
@@ -162,7 +162,7 @@ crash recovery and concurrent-writer CAS remain open; this leaf is still partial
 - [ ] `spectacle-core` (name of the geometry crate or module) is pure Rust
   and has no OS imports. Fixture tests are the promotion evidence for the
   math.
-- [ ] applying a rect is an `agenterm-platform` mechanism (AX / UIA /
+- [ ] applying a rect is an `minicon-platform` mechanism (AX / UIA /
   `_NET_WM` as each backend grows). `agenterm-cu` must not call AX directly.
 - [ ] macOS is the first apply backend because that is where the catalog was
   proven. Linux/Windows placement is the same verb on a later backend; the

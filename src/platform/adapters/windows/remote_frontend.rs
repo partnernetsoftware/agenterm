@@ -87,7 +87,8 @@ use crate::{
         workspace_layout,
     },
 };
-use agenterm_platform::{
+use anyhow::{Context as _, Result};
+use minicon_platform::{
     clipboard,
     control_window::{
         ButtonState, ControlCanvas, ControlId, ControlKind, ControlSpec, ControlWheelDelta,
@@ -99,7 +100,6 @@ use agenterm_platform::{
     },
     input,
 };
-use anyhow::{Context as _, Result};
 use unicode_width::UnicodeWidthChar;
 
 const MAX_FRAME_PIXELS: i64 = 33_554_432;
@@ -239,11 +239,11 @@ const WINDOW_CLOSE_BUTTON_TEXT_FORMAT: u32 = 0x25;
 ///
 /// `platform::boundary_tests` also forbids `#[cfg(windows)]` here, so gating it
 /// in place is not the fix either: native boundaries belong in
-/// `crates/agenterm-platform/**`. The call now goes through
-/// `agenterm_platform::local_clock`, which all three hosts share (Windows uses
+/// `crates/minicon-platform/**`. The call now goes through
+/// `minicon_platform::local_clock`, which all three hosts share (Windows uses
 /// `GetLocalTime` inside that crate).
 fn sidebar_local_clock_text() -> String {
-    let (date, time) = agenterm_platform::local_clock::local_clock_chrome_lines();
+    let (date, time) = minicon_platform::local_clock::local_clock_chrome_lines();
     format!("{date}\n{time}")
 }
 
@@ -776,7 +776,7 @@ struct RemoteWindowState {
     ime_preedit_cursor: usize,
     tabs_visible: bool,
     config: AppConfig,
-    font: agenterm_platform::font::NativeFont,
+    font: minicon_platform::font::NativeFont,
     cell_width: i32,
     cell_height: i32,
     terminal_text_decoder: input::Utf16TextDecoder,
@@ -1751,7 +1751,7 @@ impl RemoteWindowState {
         let path = screenshot_output_path(args, "agenterm-pane");
         let terminal = self.workspace_geometry().terminal;
         self.window.request_redraw();
-        let area = agenterm_platform::screenshot::NativeCaptureArea::Client {
+        let area = minicon_platform::screenshot::NativeCaptureArea::Client {
             left: terminal.left,
             top: terminal.top,
             width: terminal.width(),
@@ -1762,7 +1762,7 @@ impl RemoteWindowState {
         let json_reply = args.iter().any(|argument| argument == "--json");
         let written = if json_reply {
             let mut capture_error = None;
-            let result = agenterm_platform::filesystem_publish::write_path_atomic_no_clobber(
+            let result = minicon_platform::filesystem_publish::write_path_atomic_no_clobber(
                 &path,
                 |temporary| match self.window.capture_png(temporary, area) {
                     Ok(written) => Ok(written),
@@ -1956,7 +1956,7 @@ impl RemoteWindowState {
                 self.window
                     .capture_png(
                         &path,
-                        agenterm_platform::screenshot::NativeCaptureArea::Window,
+                        minicon_platform::screenshot::NativeCaptureArea::Window,
                     )
                     .map_err(|error| anyhow::anyhow!(error))?;
                 output = Some(path.display().to_string());
@@ -2934,7 +2934,7 @@ impl RemoteWindowState {
                 }),
                 "sidebar_clock": layout.sidebar_clock.map(|clock| {
                     let (date, time) =
-                        agenterm_platform::local_clock::local_clock_chrome_lines();
+                        minicon_platform::local_clock::local_clock_chrome_lines();
                     serde_json::json!({
                         "bounds": pixel_rect_json(clock),
                         "text": self.sidebar_clock_text(),
@@ -3184,7 +3184,7 @@ impl RemoteWindowState {
     /// the previous reading rather than blanking the label every time the
     /// user alt-tabs away.
     fn refresh_ime_label(&mut self) -> bool {
-        let Some(status) = agenterm_platform::ime::status() else {
+        let Some(status) = minicon_platform::ime::status() else {
             return false;
         };
         let label = status.label();
@@ -3200,7 +3200,7 @@ impl RemoteWindowState {
     /// is refreshed while WM_IME_* messages are processed and is read here on
     /// the poll tick, keeping the platform adapter free of product state.
     fn refresh_ime_preedit(&mut self) -> bool {
-        let Some(composition) = agenterm_platform::ime::composition() else {
+        let Some(composition) = minicon_platform::ime::composition() else {
             if self.ime_preedit.is_empty() {
                 return false;
             }
@@ -3993,7 +3993,7 @@ impl RemoteWindowState {
             };
             // The paste review gate is not wired up on this frontend. It used
             // to call a blocking `review_text`, which no longer exists; the
-            // platform API is `agenterm_platform::text_review::open_review`,
+            // platform API is `minicon_platform::text_review::open_review`,
             // a *modeless* review that hands back a `TextReview` to poll from
             // this loop instead of blocking inside it. Integrating it means
             // holding the handle across iterations, which is more than this
@@ -5299,7 +5299,7 @@ impl RemoteWindowState {
         let clock = win_rect(clock);
         fill(device, &clock, palette.status.canvas_rgb());
         frame(device, &clock, palette.active_border.canvas_rgb());
-        let (date, time) = agenterm_platform::local_clock::local_clock_chrome_lines();
+        let (date, time) = minicon_platform::local_clock::local_clock_chrome_lines();
         let mid = clock.top + clock.height() / 2;
         draw_text(
             device,
@@ -5567,7 +5567,7 @@ impl RemoteWindowState {
     }
 
     fn activate_gui_process(pid: u32) -> Result<()> {
-        agenterm_platform::process_window::activate(pid).map_err(|error| {
+        minicon_platform::process_window::activate(pid).map_err(|error| {
             anyhow::anyhow!(
                 "could not foreground GUI PID {pid}: {} ({})",
                 error.message,
@@ -5645,7 +5645,7 @@ impl RemoteWindowState {
         ] {
             command.env_remove(name);
         }
-        // Breakaway + ACCESS_DENIED visible fallback: agenterm-platform only.
+        // Breakaway + ACCESS_DENIED visible fallback: minicon-platform only.
         // Keep the child handle so we can activate its HWND after it maps.
         let (mut child, _mode) =
             crate::platform::process::spawn_breakaway_visible_child(&mut command)
@@ -5657,7 +5657,7 @@ impl RemoteWindowState {
                 // Give the child time to create its top-level window, then raise it.
                 for delay_ms in [150_u64, 350, 700, 1200] {
                     std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-                    if agenterm_platform::process_window::activate(child_pid).is_ok() {
+                    if minicon_platform::process_window::activate(child_pid).is_ok() {
                         break;
                     }
                     // Child may have exited (old exclusive server, bad args).
@@ -7581,7 +7581,7 @@ impl RemoteWindowState {
                     self.cell_height,
                     self.focus_surface,
                 );
-                agenterm_platform::ime::set_anchor_position(cursor.left, cursor.top);
+                minicon_platform::ime::set_anchor_position(cursor.left, cursor.top);
                 if !self.ime_preedit.is_empty() {
                     paint_ime_preedit(
                         device,
@@ -9139,9 +9139,9 @@ fn create_terminal_font(
     window: &ControlWindow,
     family: &str,
     size: u16,
-) -> Result<(agenterm_platform::font::NativeFont, i32, i32)> {
+) -> Result<(minicon_platform::font::NativeFont, i32, i32)> {
     let font = window
-        .create_font(agenterm_platform::font::FontRequest {
+        .create_font(minicon_platform::font::FontRequest {
             family,
             point_size: size,
         })

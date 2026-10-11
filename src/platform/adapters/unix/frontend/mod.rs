@@ -20,7 +20,7 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use agenterm_platform::{
+use minicon_platform::{
     input::{KeyPressState, LogicalKey as Key, NamedKey, NormalizedKeyEvent, PhysicalKeyCode},
     window_host::{
         GeometryChange, LogicalPoint, LogicalRect, LogicalSize, PixelWindow,
@@ -202,7 +202,7 @@ struct TerminalLayerKey {
 #[derive(Default)]
 struct RenderBuffers {
     logical: Vec<u32>,
-    terminal_layer: agenterm_ui_core::RetainedXrgbFrame,
+    terminal_layer: minicon_ui_core::RetainedXrgbFrame,
     terminal_layer_key: Option<TerminalLayerKey>,
     /// Persistent physical-resolution frame. The chrome upscale runs only
     /// when the logical frame content changes; every present then costs one
@@ -342,8 +342,8 @@ fn spawn_gui_for_instance(instance: &str, endpoint: Option<&str>) -> Result<u32,
         .map_err(|error| format!("launch `{short}`: {error}"))
 }
 
-fn modifier_state(modifiers: RequestedModifiers) -> agenterm_platform::input::ModifierState {
-    agenterm_platform::input::ModifierState {
+fn modifier_state(modifiers: RequestedModifiers) -> minicon_platform::input::ModifierState {
+    minicon_platform::input::ModifierState {
         control: modifiers.control,
         shift: modifiers.shift,
         alt: modifiers.alt,
@@ -619,7 +619,7 @@ pub(crate) fn run_gui_entry_result() -> GuiLaunchResult {
         return GuiLaunchResult::StartupFailed("no graphical display was detected".to_owned());
     }
 
-    if let Err(message) = agenterm_platform::linux_xkb_startup::preflight() {
+    if let Err(message) = minicon_platform::linux_xkb_startup::preflight() {
         eprintln!("AgenTerm GUI failed: {message}");
         return GuiLaunchResult::StartupFailed(message);
     }
@@ -634,7 +634,7 @@ pub(crate) fn run_gui_entry_result() -> GuiLaunchResult {
 }
 
 fn display_available() -> bool {
-    !agenterm_platform::window::display_backend_facts().headless
+    !minicon_platform::window::display_backend_facts().headless
 }
 
 fn run_gui(
@@ -674,7 +674,7 @@ fn run_gui(
     .with_window_icon_rgba(decode_window_icon_png(
         config.appearance_preset.window_icon_png(),
     ));
-    agenterm_platform::window_host::run_pixel_window(options, Box::new(app))
+    minicon_platform::window_host::run_pixel_window(options, Box::new(app))
         .map_err(anyhow::Error::new)
 }
 
@@ -756,7 +756,7 @@ struct UnixApp {
     output_redraw_pending: bool,
     last_workspace_save: Option<Instant>,
     last_saved_workspace: Option<SavedWorkspace>,
-    pointer_modifiers: agenterm_platform::input::ModifierState,
+    pointer_modifiers: minicon_platform::input::ModifierState,
     mouse_report_button: Option<u8>,
     mouse_report_cell: Option<(u16, u16)>,
 }
@@ -864,7 +864,7 @@ impl UnixApp {
             ime_preedit: String::new(),
             ime_cursor: None,
             cursor_blink: CursorBlink::new(Instant::now()),
-            window_focused: agenterm_platform::activation::ActivationPolicy::from_no_activate(
+            window_focused: minicon_platform::activation::ActivationPolicy::from_no_activate(
                 no_activate,
             )
             .initial_window_focused,
@@ -872,7 +872,7 @@ impl UnixApp {
             output_redraw_pending: false,
             last_workspace_save: None,
             last_saved_workspace: None,
-            pointer_modifiers: agenterm_platform::input::ModifierState::empty(),
+            pointer_modifiers: minicon_platform::input::ModifierState::empty(),
             mouse_report_button: None,
             mouse_report_cell: None,
             config,
@@ -1040,7 +1040,7 @@ impl UnixApp {
         }
         let raw = {
             use crate::platform::KeyClassification;
-            let classified = agenterm_platform::input::classify_ime_commit(raw);
+            let classified = minicon_platform::input::classify_ime_commit(raw);
             match classified {
                 KeyClassification::TextCommit(text) => text,
                 _ => return,
@@ -1097,20 +1097,20 @@ impl UnixApp {
         }
     }
 
-    fn handle_ime(&mut self, event: agenterm_platform::ime::ImeEvent) {
+    fn handle_ime(&mut self, event: minicon_platform::ime::ImeEvent) {
         self.cursor_blink.reset(Instant::now());
-        match agenterm_platform::ime::classify_event(event, self.ime_anchor().is_some()) {
-            agenterm_platform::ime::ImeAction::None => {}
-            agenterm_platform::ime::ImeAction::UpdatePreedit { text, cursor } => {
+        match minicon_platform::ime::classify_event(event, self.ime_anchor().is_some()) {
+            minicon_platform::ime::ImeAction::None => {}
+            minicon_platform::ime::ImeAction::UpdatePreedit { text, cursor } => {
                 self.ime_preedit = text;
                 self.ime_cursor = cursor;
                 self.request_redraw();
             }
-            agenterm_platform::ime::ImeAction::ClearPreedit => {
+            minicon_platform::ime::ImeAction::ClearPreedit => {
                 self.clear_ime_preedit();
                 self.request_redraw();
             }
-            agenterm_platform::ime::ImeAction::CommitText(text) => {
+            minicon_platform::ime::ImeAction::CommitText(text) => {
                 self.clear_ime_preedit();
                 self.commit_ime_text(&text);
             }
@@ -2769,7 +2769,7 @@ impl UnixApp {
             scrollbar_state_json(&geometry, offset, maximum)
         });
         let journal_position = self.event_journal.position();
-        let ime_status = agenterm_platform::ime::status();
+        let ime_status = minicon_platform::ime::status();
         let (copy_enabled, paste_enabled) = self.system_menu_clipboard_state();
         let sidebar_scrollbar = self
             .sidebar_scrollbar_state()
@@ -4975,7 +4975,7 @@ impl UnixApp {
         width: u32,
         height: u32,
         buffer: &mut [u32],
-    ) -> Result<(), agenterm_ui_core::RetainedFrameError> {
+    ) -> Result<(), minicon_ui_core::RetainedFrameError> {
         self.sync_grid_from_tab();
         let Some(window) = self.window.as_ref() else {
             return Ok(());
@@ -5146,7 +5146,7 @@ impl UnixApp {
                 send.height().max(0) as u32,
             ),
         };
-        let ime_label = agenterm_platform::ime::status()
+        let ime_label = minicon_platform::ime::status()
             .map(|status| status.label())
             .unwrap_or_else(|| "IME: off".to_owned());
         let status_view = StatusBarView {
@@ -5504,14 +5504,14 @@ impl UnixApp {
         if !metrics.is_drawable() {
             return Err("native window has no drawable screenshot surface".to_owned());
         }
-        if metrics.physical_width > agenterm_platform::screenshot::MAX_FRAME_SIDE
-            || metrics.physical_height > agenterm_platform::screenshot::MAX_FRAME_SIDE
+        if metrics.physical_width > minicon_platform::screenshot::MAX_FRAME_SIDE
+            || metrics.physical_height > minicon_platform::screenshot::MAX_FRAME_SIDE
         {
             return Err(format!(
                 "screenshot {}x{} exceeds side limit {}",
                 metrics.physical_width,
                 metrics.physical_height,
-                agenterm_platform::screenshot::MAX_FRAME_SIDE
+                minicon_platform::screenshot::MAX_FRAME_SIDE
             ));
         }
         let pixel_count = usize::try_from(metrics.physical_width)
@@ -5522,10 +5522,10 @@ impl UnixApp {
                     .and_then(|height| width.checked_mul(height))
             })
             .ok_or_else(|| "rendered frame dimensions overflow".to_owned())?;
-        if pixel_count > agenterm_platform::screenshot::MAX_FRAME_PIXELS {
+        if pixel_count > minicon_platform::screenshot::MAX_FRAME_PIXELS {
             return Err(format!(
                 "screenshot exceeds the {}-pixel limit",
-                agenterm_platform::screenshot::MAX_FRAME_PIXELS
+                minicon_platform::screenshot::MAX_FRAME_PIXELS
             ));
         }
         let mut frame = Vec::new();
@@ -5565,7 +5565,7 @@ impl UnixApp {
         };
         let json_reply = pane_only && args.iter().any(|argument| argument == "--json");
         if json_reply {
-            agenterm_platform::filesystem_publish::write_path_atomic_no_clobber(
+            minicon_platform::filesystem_publish::write_path_atomic_no_clobber(
                 &path,
                 |temporary| {
                     screenshot::write_xrgb_png(temporary, width, height, &pixels, clip)
@@ -6458,7 +6458,7 @@ impl UnixApp {
                 // could otherwise stay stale until the next real keyboard or
                 // pointer event corrects it - clear it here rather than risk
                 // misclassifying the very next click after refocus.
-                self.pointer_modifiers = agenterm_platform::input::ModifierState::empty();
+                self.pointer_modifiers = minicon_platform::input::ModifierState::empty();
                 self.cursor_blink.reset(Instant::now());
                 if let Some(window) = self.window.as_ref() {
                     self.window_state_tracker

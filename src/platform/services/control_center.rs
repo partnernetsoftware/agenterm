@@ -2,7 +2,7 @@
 
 use std::{borrow::Cow, fs::OpenOptions, io, path::Path};
 
-use agenterm_platform::{
+use minicon_platform::{
     contract::ui_screenshot::UiScreenshotError,
     screenshot::{NativeCaptureArea, ScreenshotWindowHandle},
 };
@@ -15,15 +15,15 @@ pub(crate) fn screenshot_strategy() -> ScreenshotStrategy {
 }
 
 pub(crate) fn protect_state_directory(path: &Path) -> io::Result<()> {
-    agenterm_platform::filesystem::protect_private_directory(path)
+    minicon_platform::filesystem::protect_private_directory(path)
 }
 
 pub(crate) fn private_create_new_options() -> OpenOptions {
-    agenterm_platform::filesystem::private_create_new_options()
+    minicon_platform::filesystem::private_create_new_options()
 }
 
 pub(crate) fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
-    agenterm_platform::filesystem::replace_file(source, destination)
+    minicon_platform::filesystem::replace_file(source, destination)
 }
 
 pub(crate) fn capture_native_window_png(
@@ -38,7 +38,7 @@ pub(crate) fn capture_native_window_png(
             message: "Control Center did not publish a screenshot window handle".to_owned(),
         });
     };
-    agenterm_platform::screenshot::capture_native_window_png(
+    minicon_platform::screenshot::capture_native_window_png(
         window,
         output,
         NativeCaptureArea::Window,

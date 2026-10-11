@@ -102,10 +102,10 @@ jobs:
         run: cargo test --locked -p agenterm-abi --profile abi-dev --test input_inject_success -- --nocapture
       - name: Clippy libagenterm ABI (abi-dev)
         run: cargo clippy --locked -p agenterm-abi --profile abi-dev --all-targets --no-deps -- -D warnings
-      - name: Test agenterm-platform (all test targets)
-        run: cargo test --locked -p agenterm-platform --all-features --tests
-      - name: Clippy agenterm-platform (all features)
-        run: cargo clippy --locked -p agenterm-platform --all-features --all-targets --no-deps -- -D warnings
+      - name: Test minicon-platform (all test targets)
+        run: cargo test --locked -p minicon-platform --all-features --tests
+      - name: Clippy minicon-platform (all features)
+        run: cargo clippy --locked -p minicon-platform --all-features --all-targets --no-deps -- -D warnings
       - name: Build agenterm-cu
         run: cargo build --locked -p agenterm-cu --release
       - name: Stage Windows CU delivery pair
@@ -222,10 +222,10 @@ jobs:
         run: cargo test --locked -p agenterm-abi --profile abi-dev --test install_consume -- --nocapture
       - name: Clippy libagenterm ABI (abi-dev)
         run: cargo clippy --locked -p agenterm-abi --profile abi-dev --all-targets --no-deps -- -D warnings
-      - name: Test agenterm-platform (all test targets)
-        run: cargo test --locked -p agenterm-platform --all-features --tests
-      - name: Clippy agenterm-platform (all features)
-        run: cargo clippy --locked -p agenterm-platform --all-features --all-targets --no-deps -- -D warnings
+      - name: Test minicon-platform (all test targets)
+        run: cargo test --locked -p minicon-platform --all-features --tests
+      - name: Clippy minicon-platform (all features)
+        run: cargo clippy --locked -p minicon-platform --all-features --all-targets --no-deps -- -D warnings
       - name: Build agenterm-cu
         run: cargo build --locked -p agenterm-cu --release
       - name: Test agenterm-cu
@@ -314,10 +314,10 @@ jobs:
         run: cargo test --locked -p agenterm-abi --profile abi-dev --test install_consume -- --nocapture
       - name: Clippy libagenterm ABI (abi-dev)
         run: cargo clippy --locked -p agenterm-abi --profile abi-dev --all-targets --no-deps -- -D warnings
-      - name: Test agenterm-platform (all test targets)
-        run: cargo test --locked -p agenterm-platform --all-features --tests
-      - name: Clippy agenterm-platform (all features)
-        run: cargo clippy --locked -p agenterm-platform --all-features --all-targets --no-deps -- -D warnings
+      - name: Test minicon-platform (all test targets)
+        run: cargo test --locked -p minicon-platform --all-features --tests
+      - name: Clippy minicon-platform (all features)
+        run: cargo clippy --locked -p minicon-platform --all-features --all-targets --no-deps -- -D warnings
       - name: Build agenterm-cu
         run: cargo build --locked -p agenterm-cu --release
       - name: Test agenterm-cu

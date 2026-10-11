@@ -8,7 +8,7 @@ authoritative for the version it builds.
 
 ## Contract
 
-- AgenTerm owns `agenterm-platform` and `agenterm-ui-core`. A MiniCon
+- AgenTerm owns `minicon-platform` and `minicon-ui-core`. A MiniCon
   contribution lands and passes the gates here before MiniCon updates its pin.
 - Share host-neutral behavior only after both products' callers and behavior
   have been measured. Record differences before choosing a common rule.
@@ -22,8 +22,8 @@ authoritative for the version it builds.
 
 | Shared crate | Owner | MiniCon observed pin | Consumer surface |
 |---|---|---|---|
-| `agenterm-platform` | AgenTerm lane | `6ae0f9bb6` | 13 base features, plus `input-inject` in dev builds, `native-pixel-window` on Windows and `portable-pixel-window` on Unix |
-| `agenterm-ui-core` | AgenTerm lane | `6ae0f9bb6` | `terminal-selection` and shared scrollbar geometry |
+| `minicon-platform` | AgenTerm lane | `6ae0f9bb6` | 13 base features, plus `input-inject` in dev builds, `native-pixel-window` on Windows and `portable-pixel-window` on Unix |
+| `minicon-ui-core` | AgenTerm lane | `6ae0f9bb6` | `terminal-selection` and shared scrollbar geometry |
 
 MiniCon moved its pin after adopting the shared scrollbar in its 0.1.22 train;
 its local fmt, host/Windows Clippy and 360 tests passed. The observed pin
@@ -35,9 +35,9 @@ automated gate result in AgenTerm.
 
 | Area | Agent | Exclusive files | Purpose and date | State |
 |---|---|---|---|---|
-| `agenterm-ui-core/click` | `cc-minicon` | None | Compare real click grouping callers, time windows, position keys and fourth-click behavior; 2026-09-22 | Paused: blank-space third click, composer fourth click, Windows click events and time-window policy differ between products |
-| `agenterm-ui-core/scrollbar` | `cc-minicon` | None | Shared geometry vectors landed in `2e77d3195` (12 added tests, production code unchanged); 2026-09-22 | Both consumers now use shared geometry; MiniCon pin is `6ae0f9bb6`. Four mutation controls went red; one hit-test mutation was equivalent. A possible one-row drag shift when travel is sparse remains a separate product decision. |
-| `agenterm-platform/consumer-matrix` | `cdx-agenterm` | None | Add target-aware MiniCon consumer feature checks; 2026-09-22 | Local pre-push gate checks normal/dev unions on six targets; macOS ARM executes 275/285 tests. Cross-target checks prove compilation only; native runtime evidence on other hosts remains open. |
+| `minicon-ui-core/click` | `cc-minicon` | None | Compare real click grouping callers, time windows, position keys and fourth-click behavior; 2026-09-22 | Paused: blank-space third click, composer fourth click, Windows click events and time-window policy differ between products |
+| `minicon-ui-core/scrollbar` | `cc-minicon` | None | Shared geometry vectors landed in `2e77d3195` (12 added tests, production code unchanged); 2026-09-22 | Both consumers now use shared geometry; MiniCon pin is `6ae0f9bb6`. Four mutation controls went red; one hit-test mutation was equivalent. A possible one-row drag shift when travel is sparse remains a separate product decision. |
+| `minicon-platform/consumer-matrix` | `cdx-agenterm` | None | Add target-aware MiniCon consumer feature checks; 2026-09-22 | Local pre-push gate checks normal/dev unions on six targets; macOS ARM executes 275/285 tests. Cross-target checks prove compilation only; native runtime evidence on other hosts remains open. |
 
 The composer candidate remains an investigation item, not a file claim. It
 needs separate behavior evidence. Any active shared-file claim must be added
@@ -45,7 +45,7 @@ here before editing and cleared or handed off when the change lands.
 
 ## Consumer feature gate to add
 
-MiniCon's base `agenterm-platform` request is `clipboard`, `entropy`,
+MiniCon's base `minicon-platform` request is `clipboard`, `entropy`,
 `filesystem-publish`, `filesystem-read`, `font`, `ime`, `input`, `ipc`,
 `parent-console`, `pty`, `runtime`, `screenshot`, `window`, with default
 features disabled. Cargo also unifies `input-inject` for dev builds,

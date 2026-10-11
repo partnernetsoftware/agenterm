@@ -19,7 +19,7 @@
 
 | 变体 | 获取机制的途径 | 依赖 |
 |------|----------------|------|
-| **A（静态）** | 直接调 `agenterm-platform` 的 Rust API（rlib 静态链接） | `agenterm-platform`（features 照抄 `agenterm-abi/Cargo.toml`：`pty`, `native-pixel-window`, `portable-pixel-window`, `input`, `ime`, `screenshot`, `process`, `clipboard`, `parent-console`, `a11y-tree`, `runtime`） |
+| **A（静态）** | 直接调 `minicon-platform` 的 Rust API（rlib 静态链接） | `minicon-platform`（features 照抄 `agenterm-abi/Cargo.toml`：`pty`, `native-pixel-window`, `portable-pixel-window`, `input`, `ime`, `screenshot`, `process`, `clipboard`, `parent-console`, `a11y-tree`, `runtime`） |
 | **B（动态）** | 只经 `libagenterm` cdylib 的 C 导出（`libloading` 运行期 `dlopen`/`LoadLibrary`） | 仅 `libloading`（+ std） |
 
 两个变体做同一组事（都真实调用到，不是编译进去不用）：
@@ -176,7 +176,7 @@ PE 导入表佐证（`dumpbin /imports`）：里程碑 23 的变体 A 额外导�
 变体 A：
 
 ```
-size-probe variant A (static: agenterm-platform rlib)
+size-probe variant A (static: minicon-platform rlib)
 size-probe[variant A] parent-console write ok
 user_config_dir_len=32
 default_shell_len=27

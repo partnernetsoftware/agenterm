@@ -381,7 +381,7 @@ fn group_for_uid(uid: libc::uid_t) -> Result<u32, LoginSessionError> {
 
 fn session_uuid(session_id: &str) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"agenterm-platform/linux-login-session-uuid/v1\0");
+    digest.update(b"minicon-platform/linux-login-session-uuid/v1\0");
     digest.update(session_id.as_bytes());
     let bytes = digest.finalize();
     format!(
@@ -540,14 +540,14 @@ print("PASS login-session status matches independent session probe read-back");
 
 HOST_MEMORY_STATUS_RS = r'''//! Current-host physical memory geometry and availability observation.
 
-use agenterm_platform::host_memory::{HostMemoryError, HostMemoryErrorKind};
+use minicon_platform::host_memory::{HostMemoryError, HostMemoryErrorKind};
 use serde_json::{Value, json};
 
 use crate::reply::CuError;
 
 pub(super) fn host_memory_status_payload() -> Result<Value, CuError> {
     let (facts, availability) =
-        agenterm_platform::host_memory::observed().map_err(memory_error)?;
+        minicon_platform::host_memory::observed().map_err(memory_error)?;
     Ok(json!({
         "page_size": facts.page_size.get(),
         "allocation_granularity": facts.allocation_granularity.get(),
@@ -572,11 +572,11 @@ fn memory_error(error: HostMemoryError) -> CuError {
 
 COMMIT_PATHS = [
     "scripts/apply_login_session_journey.py",
-    "crates/agenterm-platform/src/adapters/linux/login_session.rs",
-    "crates/agenterm-platform/src/selected.rs",
-    "crates/agenterm-platform/src/contract/login_session.rs",
-    "crates/agenterm-platform/src/login_session.rs",
-    "crates/agenterm-platform/src/adapters/macos/login_session.rs",
+    "crates/minicon-platform/src/adapters/linux/login_session.rs",
+    "crates/minicon-platform/src/selected.rs",
+    "crates/minicon-platform/src/contract/login_session.rs",
+    "crates/minicon-platform/src/login_session.rs",
+    "crates/minicon-platform/src/adapters/macos/login_session.rs",
     "crates/agenterm-cu/src/login_session.rs",
     "crates/agenterm-cu/src/host_limit.rs",
     "scripts/qjs/cu-linux-login-session-smoke.qjs",
@@ -602,7 +602,7 @@ def replace_once(path: Path, old: str, new: str, label: str) -> None:
 
 
 def patch_selected() -> None:
-    path = ROOT / "crates/agenterm-platform/src/selected.rs"
+    path = ROOT / "crates/minicon-platform/src/selected.rs"
     text = path.read_text()
     old_blocks = [
         '''#[cfg(all(feature = "login-session", target_os = "macos"))]
@@ -648,7 +648,7 @@ pub(crate) const fn login_session_supported() -> bool {
 
 
 def patch_contract() -> None:
-    path = ROOT / "crates/agenterm-platform/src/contract/login_session.rs"
+    path = ROOT / "crates/minicon-platform/src/contract/login_session.rs"
     text = path.read_text()
     text = text.replace(
         "#[cfg(any(target_os = \"macos\", test))]",
@@ -663,7 +663,7 @@ def patch_contract() -> None:
 
 
 def patch_platform_login_session() -> None:
-    path = ROOT / "crates/agenterm-platform/src/login_session.rs"
+    path = ROOT / "crates/minicon-platform/src/login_session.rs"
     text = path.read_text()
     text = text.replace(
         "#[cfg(any(target_os = \"macos\", test))]",
@@ -702,7 +702,7 @@ def patch_platform_login_session() -> None:
 
 
 def patch_macos_adapter() -> None:
-    path = ROOT / "crates/agenterm-platform/src/adapters/macos/login_session.rs"
+    path = ROOT / "crates/minicon-platform/src/adapters/macos/login_session.rs"
     text = path.read_text()
     if "LoginSessionProvider::MacosIoRegistry, locked, rows" not in text:
         replace_once(
@@ -1035,7 +1035,7 @@ def main() -> int:
     if patch_script.exists():
         patch_script.unlink()
 
-    write(ROOT / "crates/agenterm-platform/src/adapters/linux/login_session.rs", LINUX_LOGIN_SESSION_RS)
+    write(ROOT / "crates/minicon-platform/src/adapters/linux/login_session.rs", LINUX_LOGIN_SESSION_RS)
     write(ROOT / "scripts/qjs/cu-linux-login-session-smoke.qjs", SMOKE_QJS)
     patch_selected()
     patch_contract()

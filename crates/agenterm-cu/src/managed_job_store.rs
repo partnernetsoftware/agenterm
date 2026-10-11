@@ -12,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use agenterm_platform::{
+use minicon_platform::{
     entropy::secure_random_array,
     filesystem::{
         host_directories, metadata_is_link_like, protect_private_directory, write_private_atomic,

@@ -1123,7 +1123,7 @@ costs a full candidate cycle:
 - [x] qualification receipt 的 process observation 来自 owned gate 的真实进程树，不接受
   迁移占位计数。Candidate `33687716296` 已让 required gates、diagnostic bundle、Workbench、
   Control Center 与 Windows CU 全部通过，最终 receipt 因 qjs driver 的 `process_samples=0`
-  正确 fail-closed。tool door 现由 `agenterm-platform` 提供有界
+  正确 fail-closed。tool door 现由 `minicon-platform` 提供有界
   `[{id,parent_id,executable_name}]` 清单，并在原生侧投影 exact PID 的传递子树；driver 持有
   child handle/PID，每秒只取该 owned tree，把实际 sample 与 PowerShell identity 写入
   qualification context。未声明 PowerShell 仍拒绝，

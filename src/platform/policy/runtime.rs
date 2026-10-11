@@ -2,20 +2,20 @@
 
 pub(crate) fn hosted_script_worker_available() -> bool {
     matches!(
-        agenterm_platform::platform_kind(),
-        agenterm_platform::PlatformKind::Windows
-            | agenterm_platform::PlatformKind::Linux
-            | agenterm_platform::PlatformKind::Macos
+        minicon_platform::platform_kind(),
+        minicon_platform::PlatformKind::Windows
+            | minicon_platform::PlatformKind::Linux
+            | minicon_platform::PlatformKind::Macos
     )
 }
 
 #[allow(dead_code)]
 pub(crate) fn script_process_test_host_supported() -> bool {
     matches!(
-        agenterm_platform::platform_kind(),
-        agenterm_platform::PlatformKind::Windows
-            | agenterm_platform::PlatformKind::Linux
-            | agenterm_platform::PlatformKind::Macos
+        minicon_platform::platform_kind(),
+        minicon_platform::PlatformKind::Windows
+            | minicon_platform::PlatformKind::Linux
+            | minicon_platform::PlatformKind::Macos
     )
 }
 
@@ -45,8 +45,8 @@ pub(crate) fn new_terminal_command_line(shell_id: &str, initial: &str) -> Vec<St
 
 fn is_windows_host() -> bool {
     matches!(
-        agenterm_platform::platform_kind(),
-        agenterm_platform::PlatformKind::Windows
+        minicon_platform::platform_kind(),
+        minicon_platform::PlatformKind::Windows
     )
 }
 
@@ -65,7 +65,7 @@ fn windows_new_terminal_command_line(shell_id: &str, initial: &str) -> Vec<Strin
             child
         }
         _ => {
-            let program = agenterm_platform::runtime::primary_terminal_shell().program;
+            let program = minicon_platform::runtime::primary_terminal_shell().program;
             let mut child = vec![program.to_owned(), "/d".to_owned()];
             if !initial.is_empty() {
                 child.extend(["/k".to_owned(), initial.to_owned()]);
@@ -86,7 +86,7 @@ fn unix_new_terminal_command_line(shell_id: &str, initial: &str) -> Vec<String> 
     match shell_id {
         "default" if initial.is_empty() => Vec::new(),
         _ => {
-            let program = agenterm_platform::runtime::primary_terminal_shell().program;
+            let program = minicon_platform::runtime::primary_terminal_shell().program;
             let mut child = vec![program.to_owned()];
             if !initial.is_empty() {
                 child.extend(["-c".to_owned(), format!("{initial}; exec {program} -i")]);
@@ -105,10 +105,10 @@ mod tests {
         assert_eq!(
             hosted_script_worker_available(),
             matches!(
-                agenterm_platform::platform_kind(),
-                agenterm_platform::PlatformKind::Windows
-                    | agenterm_platform::PlatformKind::Linux
-                    | agenterm_platform::PlatformKind::Macos
+                minicon_platform::platform_kind(),
+                minicon_platform::PlatformKind::Windows
+                    | minicon_platform::PlatformKind::Linux
+                    | minicon_platform::PlatformKind::Macos
             )
         );
     }

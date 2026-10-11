@@ -14,7 +14,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use agenterm_platform::{
+use minicon_platform::{
     entropy::secure_random_array,
     filesystem::{host_directories, protect_private_directory, write_private_atomic},
     locking::{LockErrorKind, PathLock},
@@ -608,9 +608,9 @@ impl RuntimeCoordinator {
     }
 
     fn read_document(&self) -> Result<Option<Document>, CuError> {
-        let file = match agenterm_platform::filesystem_open::open_existing_path(
+        let file = match minicon_platform::filesystem_open::open_existing_path(
             &self.path,
-            agenterm_platform::filesystem_open::ExistingEntryType::File,
+            minicon_platform::filesystem_open::ExistingEntryType::File,
         ) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),

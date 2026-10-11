@@ -138,7 +138,7 @@ fn file_identity(path: &Path) -> Result<FileIdentity, CuError> {
 fn resolve_binding(index: usize, selector: &str) -> Result<AppBinding, CuError> {
     let facts = query_app_facts(
         selector,
-        agenterm_platform::app_facts::AppFactsOptions::default(),
+        minicon_platform::app_facts::AppFactsOptions::default(),
     )
     .map_err(app_facts_error)?;
     let executable = facts.executable.value.clone().ok_or_else(|| {
@@ -217,7 +217,7 @@ fn resolve_bindings(selectors: &[String]) -> Result<Vec<AppBinding>, CuError> {
 }
 
 fn app_snapshot(bindings: &[AppBinding], max_processes: usize) -> Result<AppSnapshot, CuError> {
-    let rows = agenterm_platform::process::list().map_err(|error| {
+    let rows = minicon_platform::process::list().map_err(|error| {
         CuError::new("app_watch_inventory_failed", error.to_string()).with_detail(json!({
             "kind": format!("{:?}", error.kind()),
         }))
@@ -244,11 +244,11 @@ fn app_snapshot(bindings: &[AppBinding], max_processes: usize) -> Result<AppSnap
     let mut instances = vec![BTreeMap::new(); bindings.len()];
     let mut excluded_unidentified = 0usize;
     for row in candidates {
-        let process_path = match agenterm_platform::process_image::executable_path(row.id) {
+        let process_path = match minicon_platform::process_image::executable_path(row.id) {
             Ok(path) => path,
             Err(error)
                 if error.kind()
-                    == agenterm_platform::process_image::ProcessImageErrorKind::NotFound =>
+                    == minicon_platform::process_image::ProcessImageErrorKind::NotFound =>
             {
                 continue;
             }
@@ -260,11 +260,11 @@ fn app_snapshot(bindings: &[AppBinding], max_processes: usize) -> Result<AppSnap
         let Some(binding) = matching_binding(bindings, &row.executable_name, &process_path) else {
             continue;
         };
-        let start_identity = match agenterm_platform::process_observation::observe(row.id) {
-            agenterm_platform::process_observation::ProcessObservation::Live {
+        let start_identity = match minicon_platform::process_observation::observe(row.id) {
+            minicon_platform::process_observation::ProcessObservation::Live {
                 start_identity: Some(identity),
             } => identity,
-            agenterm_platform::process_observation::ProcessObservation::Dead { .. } => continue,
+            minicon_platform::process_observation::ProcessObservation::Dead { .. } => continue,
             _ => {
                 excluded_unidentified = excluded_unidentified.saturating_add(1);
                 continue;
@@ -438,7 +438,7 @@ where
         || selectors.len() > 16
         || selectors.iter().any(|selector| {
             selector.trim().is_empty()
-                || selector.len() > agenterm_platform::app_facts::MAX_APP_FACTS_SELECTOR_BYTES
+                || selector.len() > minicon_platform::app_facts::MAX_APP_FACTS_SELECTOR_BYTES
                 || selector.as_bytes().contains(&0)
         })
         || !(1..=MAX_DURATION_MS).contains(&duration_ms)

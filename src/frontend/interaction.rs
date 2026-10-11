@@ -541,7 +541,7 @@ pub(crate) fn route_wheel(sidebar_hit: bool, terminal_hit: bool) -> WheelTarget 
     }
 }
 
-pub(crate) type ScrollbarThumbDrag = agenterm_ui_core::ScrollbarThumbDrag;
+pub(crate) type ScrollbarThumbDrag = minicon_ui_core::ScrollbarThumbDrag;
 
 pub(crate) fn sidebar_scroll_offset_for_thumb_top(
     geometry: TerminalScrollbarGeometry,

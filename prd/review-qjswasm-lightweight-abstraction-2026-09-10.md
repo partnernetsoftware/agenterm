@@ -150,7 +150,7 @@ Public compile API used by agenterm: `compile_qjs_m1_with`, `compile_qjs_m1_with
 | `guest_slice`, `bind`, `bind_metered`, `Meter`, `Pending` two-pass | `host.rs`; `tool.rs` imports helpers | **tinyvm embedder kit** or `tinyvm::host` module | Same re-entrancy story documented in both files; 48 tool ops repeat the pattern |
 | `SIGNATURES` ↔ `declarations()` parity tests | `host.rs`, `tool.rs` | Generated from one table | Manual dual tables (7 + 48 imports) |
 | Fault classification tail | `slot.rs` `explain` + many `guest_*` readers | **Single `qjswasm_fault::classify(instance)`** in tinyvm-qjs | Grows with each new `GuestFault` variant |
-| JSON spec/results in tool door | `tool.rs` (~160 `serde_json` touches) | **agenterm-platform typed structs** at boundary | Today: parse JSON in door, call platform, stringify again |
+| JSON spec/results in tool door | `tool.rs` (~160 `serde_json` touches) | **minicon-platform typed structs** at boundary | Today: parse JSON in door, call platform, stringify again |
 | Module resolver roots | `script_engine.rs`, `check_many.rs` | One `qjs_module_roots()` product helper | Same three roots repeated |
 | Compile + validate | `check_qjs_with` and `execute` both full compile | Session-level wasm bytes cache | No cache between `check` and `run` in CLI |
 
@@ -166,7 +166,7 @@ Public compile API used by agenterm: `compile_qjs_m1_with`, `compile_qjs_m1_with
 
 ### Binary and dependency weight
 
-1. **`tool.rs` (2622 LOC) always compiled in** — `agenterm-platform` features `clipboard`, `contained-process-spawn`, `filesystem-usage`, `process-window` are unconditional in `Cargo.toml`. Sandbox-only binaries still link window/process/clipboard adapters even when `Engine::new()` never calls `tool::install`.
+1. **`tool.rs` (2622 LOC) always compiled in** — `minicon-platform` features `clipboard`, `contained-process-spawn`, `filesystem-usage`, `process-window` are unconditional in `Cargo.toml`. Sandbox-only binaries still link window/process/clipboard adapters even when `Engine::new()` never calls `tool::install`.
 2. **ACU bridge always constructed** — `qjs_host_bridges` sets `acu: Some(...)` for every invocation, including sandbox `eval` and pure compute scripts (`script_engine.rs`).
 3. **Large default guest heap** — 1024 pages × 64 KiB = **64 MiB cap per slot** (`QJS_MAX_MEMORY_PAGES`). Persistent slots retain high-water linear memory until `kill`.
 

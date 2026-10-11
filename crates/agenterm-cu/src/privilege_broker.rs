@@ -177,13 +177,11 @@ mod tests {
 
     fn terminate(mut child: Child) {
         let reference =
-            agenterm_platform::process_reference::ProcessReference::open_for_termination(
-                child.id(),
-            )
-            .unwrap();
+            minicon_platform::process_reference::ProcessReference::open_for_termination(child.id())
+                .unwrap();
         let _ = reference.set_suspended(false);
         reference
-            .terminate(agenterm_platform::process_control::TerminationMode::Forceful)
+            .terminate(minicon_platform::process_control::TerminationMode::Forceful)
             .unwrap();
         child.wait().unwrap();
     }
@@ -251,10 +249,8 @@ mod tests {
         );
 
         let reference =
-            agenterm_platform::process_reference::ProcessReference::open_for_termination(
-                child.id(),
-            )
-            .unwrap();
+            minicon_platform::process_reference::ProcessReference::open_for_termination(child.id())
+                .unwrap();
         reference.set_suspended(false).unwrap();
         terminate(child);
         std::fs::remove_dir_all(root).unwrap();
@@ -345,7 +341,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, "fixture_counter_failed");
         assert_eq!(consent_calls.load(Ordering::Relaxed), 1);
-        assert!(!agenterm_platform::process_metrics::is_stopped(child.id()).unwrap());
+        assert!(!minicon_platform::process_metrics::is_stopped(child.id()).unwrap());
 
         let replay = process_authenticated_request(&authority, &bytes, 1_003, |_| {
             panic!("an uncertain reservation must not reopen native consent")
@@ -399,7 +395,7 @@ mod tests {
                 PrivilegeBrokerEvent::ReplyRefused,
             ]
         );
-        assert!(!agenterm_platform::process_metrics::is_stopped(second_child.id()).unwrap());
+        assert!(!minicon_platform::process_metrics::is_stopped(second_child.id()).unwrap());
 
         terminate(first_child);
         terminate(second_child);

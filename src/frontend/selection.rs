@@ -96,7 +96,7 @@ impl<Id: Clone + PartialEq, Point: Copy + PartialEq> ClickChain<Id, Point> {
     }
 }
 
-pub(crate) use agenterm_ui_core::terminal_selection::TerminalPoint;
+pub(crate) use minicon_ui_core::terminal_selection::TerminalPoint;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TerminalSelection {
@@ -427,7 +427,7 @@ pub(crate) fn word_selection(
     screen: &vt100::Screen,
     point: TerminalPoint,
 ) -> Option<(TerminalPoint, TerminalPoint)> {
-    agenterm_ui_core::terminal_selection::word_selection(screen, point)
+    minicon_ui_core::terminal_selection::word_selection(screen, point)
 }
 
 pub(crate) fn remote_word_selection(
@@ -491,7 +491,7 @@ pub(crate) fn visible_row_selection(
     screen: &vt100::Screen,
     row: u16,
 ) -> Option<(TerminalPoint, TerminalPoint)> {
-    agenterm_ui_core::terminal_selection::visible_row_selection(screen, row)
+    minicon_ui_core::terminal_selection::visible_row_selection(screen, row)
 }
 
 pub(crate) fn remote_visible_row_selection(
@@ -578,7 +578,7 @@ pub(crate) fn terminal_selection_text(
     screen: &vt100::Screen,
     selection: TerminalSelection,
 ) -> String {
-    agenterm_ui_core::terminal_selection::terminal_selection_text(
+    minicon_ui_core::terminal_selection::terminal_selection_text(
         screen,
         selection.anchor,
         selection.focus,

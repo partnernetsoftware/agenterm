@@ -84,10 +84,10 @@ the new emitter should reuse an old cache revision.
 
 | Concern | Owner | Must not own |
 |---------|-------|--------------|
-| OS-neutral mechanism contract | `crates/agenterm-platform/src/contract/*` or a narrow facade | AgenTerm product names, Fleet, scripts, navigation policy |
-| Native mechanism | `crates/agenterm-platform/src/adapters/{windows,unix,linux,macos}/**` selected by `selected.rs` | Product gesture meaning |
+| OS-neutral mechanism contract | `crates/minicon-platform/src/contract/*` or a narrow facade | AgenTerm product names, Fleet, scripts, navigation policy |
+| Native mechanism | `crates/minicon-platform/src/adapters/{windows,unix,linux,macos}/**` selected by `selected.rs` | Product gesture meaning |
 | Shared product semantics | `src/frontend/*`, `src/ui_*.rs`, `src/ui_geometry.rs` | `windows_sys`, winit, X11, libc |
-| Small host-neutral UI kernels | `crates/agenterm-ui-core` | Window handles, PTYs, product authority |
+| Small host-neutral UI kernels | `crates/minicon-ui-core` | Window handles, PTYs, product authority |
 | Product-specific state | owning binary/module | Raw OS APIs or duplicated native adapters |
 
 `agenterm-con` is intentionally a separate small package, but separation is
@@ -110,8 +110,8 @@ optional crate available.
 For a new or changed facade, run its isolated graph:
 
 ```powershell
-cargo check -p agenterm-platform --no-default-features --features filesystem-publish
-cargo test  -p agenterm-platform --lib --no-default-features --features filesystem-publish
+cargo check -p minicon-platform --no-default-features --features filesystem-publish
+cargo test  -p minicon-platform --lib --no-default-features --features filesystem-publish
 ```
 
 Rules:
@@ -233,7 +233,7 @@ requires `cl.exe` from the Visual Studio registry. The attempt fails at
 `mlua-sys` with `failed to find cl` before test executables exist. A green
 cross-build of the default QJS feature set does not prove the optional Lua
 feature: `cargo xwin test --locked --target x86_64-pc-windows-msvc -p agenterm
--p agenterm-ui-core --no-run` did produce the default-feature Windows test
+-p minicon-ui-core --no-run` did produce the default-feature Windows test
 executables. Keep the optional Lua Windows evidence separately named until
 that toolchain boundary is solved. Do not remove `--all-features` from an
 existing gate and reuse its evidence ID as if the same assertion had run.
@@ -629,7 +629,7 @@ Always inspect emitted release code:
 
 ```powershell
 $env:CARGO_TARGET_DIR = 'target/isa-check'
-cargo rustc -p agenterm-ui-core --release -- --emit=asm
+cargo rustc -p minicon-ui-core --release -- --emit=asm
 rg 'pshufb|vpmullw|packuswb' target/isa-check/release/deps -g '*.s'
 ```
 
@@ -751,7 +751,7 @@ cannot prove code hidden behind another target's `cfg`.
   libraries exist in the test image. X11 journeys using winit under Xvfb need
   either the host `libxkbcommon-x11` runtime (`libxkbcommon-x11-0` on Ubuntu)
   or the product's bundled copy: the selected Linux adapter
-  `crates/agenterm-platform/src/adapters/linux/linux_xkb_startup.rs` embeds
+  `crates/minicon-platform/src/adapters/linux/linux_xkb_startup.rs` embeds
   `libxkbcommon-x11.so.0` and `libxcb-xkb.so.1` (see `vendor/linux/`) and
   re-execs once with `LD_LIBRARY_PATH` when the host omits them. Keep probing,
   Unix permission changes, dynamic loading and re-exec inside the platform
@@ -1037,7 +1037,7 @@ not evidence that the sibling dynamic library was refreshed.
 
 When a Script task summarizes a large filesystem tree, do not issue one host
 call per entry or return a whole directory listing through a bounded bridge.
-Put the neutral bounded walk in `agenterm-platform`, require an explicit entry
+Put the neutral bounded walk in `minicon-platform`, require an explicit entry
 ceiling, fail without partial truth when the ceiling is crossed, and return a
 fixed-size aggregate through one Script host operation. The v0.1.16 Candidate
 proved both failure modes in sequence: 4,096 host operations were insufficient,

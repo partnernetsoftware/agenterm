@@ -434,7 +434,7 @@ contract, fixed caller storage, or final-link evidence changes that trade.
 
 Do not force tiny leaf helpers across a crate boundary merely to remove source
 duplication. The workbench and con each had a six-line UTF-8 prefix clamp for
-capture output. Moving it into `agenterm-ui-core` preserved CJK/emoji behavior
+capture output. Moving it into `minicon-ui-core` preserved CJK/emoji behavior
 but grew con's exact custom-std PE from 538,112 to 538,624 bytes, one 512-byte
 alignment step, because the
 former product-local loop no longer optimized in place. The move was reverted.
@@ -446,7 +446,7 @@ A cross-product extraction is justified when it removes an observable semantic
 fork rather than only repeated syntax. The workbench and `agenterm-con` once
 carried separate VT word, visible/logical-row and clipboard-text rules; con's
 triple-click crossed soft wraps while the product contract required one visible
-row. `agenterm-ui-core::terminal_selection` now owns the physical-screen kernel,
+row. `minicon-ui-core::terminal_selection` now owns the physical-screen kernel,
 behind an optional `terminal-selection` feature so unrelated UI-core consumers
 do not acquire `vt100`. Product gesture/capture/authority state stays outside.
 Require shared-kernel tests plus both product suites, and make no size claim
@@ -1753,7 +1753,7 @@ are on. This also removes the second failure mode of the `cfg` pair: the
 `#[cfg(not(...))]` stub method has no caller on that host, and `-D warnings`
 turns `dead_code` into a build error only on that one target cell.
 
-The same `target_os` ban applies inside `crates/agenterm-platform/src/*.rs`
+The same `target_os` ban applies inside `crates/minicon-platform/src/*.rs`
 facades. `selected.rs` and `adapters/**` are the only legal OS-selection
 sites; a one-line Linux probe such as `last_text_write_via` still has to
 live on the selected module, with the off-host stub returning the documented
@@ -2386,7 +2386,7 @@ Proven on the `agenterm-cu host` / `AgentermCu.app` host (`scripts/install-cu-ho
 
 ### macOS AX `current tree` (PLACEHOLDER cut 3.45)
 
-- Adapter: `crates/agenterm-platform/src/adapters/macos/accessibility_tree.rs`,
+- Adapter: `crates/minicon-platform/src/adapters/macos/accessibility_tree.rs`,
   selected only under `cfg(target_os = "macos")` + feature `a11y-tree`.
   Backend string is `"ax"`. Product command stays
   `agenterm-cu --target current --grant observe tree --window HANDLE`.
@@ -3344,7 +3344,7 @@ result by the requested id before resolving the corresponding AX window.
 A release receipt must not turn “a command was invoked” into process-tree
 evidence. Spawn each owned gate through a retained Script handle, anchor the
 observation at `process_pid(handle)`, and sample the transitive descendants from
-`agenterm_platform::process::list()` while that handle is live. Project only
+`minicon_platform::process::list()` while that handle is live. Project only
 the neutral `{id,parent_id,executable_name}` tuple through the tool door; native
 enumeration and its bounds stay in the platform crate. Record the actual sample
 count and any forbidden automation descendants, then fail closed before writing
@@ -4370,7 +4370,7 @@ as proof that no external owner exists.
 ## Keep native device authority private and write failures three-dimensional
 
 A public peripheral id is a selector, not an openable locator. Re-enumerate it
-inside `agenterm-platform`, bind one exact native object, and let one resident
+inside `minicon-platform`, bind one exact native object, and let one resident
 owner retain that fd or HANDLE through configuration, read, write, renewal,
 expiry and release. Pass the private locator and high-entropy lease only through
 the bounded owner launch channel. Durable state and audit may contain opaque
@@ -4783,7 +4783,7 @@ vocabulary or structural contract.
 Peripheral identity needs a private keyed boundary, not public hashing. Native
 serials, MAC addresses, provider instance ids and topology paths may have low
 entropy or identify a physical device, so hashing them without a secret still
-permits dictionary recovery. Consume them only inside `agenterm-platform`, use
+permits dictionary recovery. Consume them only inside `minicon-platform`, use
 an explicitly enrolled installation key with a domain-separated HMAC, and
 return only the opaque pseudonym plus an honest continuity class. A provider
 serial can support `provider-stable`; a port/path fallback is only `topology`
@@ -4875,7 +4875,7 @@ store so a fresh installation is not misdiagnosed as corrupt or unsafe.
 ## Bind host actions to a boot instance without exposing hardware identity
 
 - Hardware serials and platform UUIDs are not a product identity. Reduce the
-  OS-owned boot-instance source inside `agenterm-platform`, then combine that
+  OS-owned boot-instance source inside `minicon-platform`, then combine that
   opaque value with an explicitly enrolled installation pseudonym at the CU
   layer. Never return the native boot material or private installation key.
 - Uptime is not a boot identity: it changes on every read, and subtracting it

@@ -21,7 +21,7 @@ pub(super) fn device_screenshot_payload(
 ) -> Result<serde_json::Value, CuError> {
     use std::time::Duration;
 
-    use agenterm_platform::device_capture::{
+    use minicon_platform::device_capture::{
         DeviceCaptureBackend as _, classify_stream_failure, native_backend, select_device,
     };
     use sha2::{Digest as _, Sha256};
@@ -127,13 +127,12 @@ fn publish_new_file(destination: &Path, bytes: &[u8]) -> Result<(), PublishFailu
     let mut temporary = None;
     let mut file = None;
     for _ in 0..64 {
-        let random = agenterm_platform::entropy::secure_random_array::<16>().map_err(|_| {
-            PublishFailure {
+        let random =
+            minicon_platform::entropy::secure_random_array::<16>().map_err(|_| PublishFailure {
                 code: "device_capture_output_unavailable",
                 message: "secure output staging identity is unavailable".to_owned(),
                 published: false,
-            }
-        })?;
+            })?;
         let suffix = random
             .iter()
             .map(|byte| format!("{byte:02x}"))
@@ -230,7 +229,7 @@ pub(super) fn device_screenshot_payload(
 }
 
 #[cfg(target_os = "macos")]
-fn map_capture_error(error: agenterm_platform::device_capture::DeviceCaptureError) -> CuError {
+fn map_capture_error(error: minicon_platform::device_capture::DeviceCaptureError) -> CuError {
     let code = error.code();
     let mut detail = serde_json::json!({});
     if let Some(fix) = error.fix {
@@ -238,9 +237,9 @@ fn map_capture_error(error: agenterm_platform::device_capture::DeviceCaptureErro
     }
     if matches!(
         error.kind,
-        agenterm_platform::device_capture::DeviceCaptureErrorKind::HostTccDenied
-            | agenterm_platform::device_capture::DeviceCaptureErrorKind::HostTccRestricted
-            | agenterm_platform::device_capture::DeviceCaptureErrorKind::HostTccConsentRequired
+        minicon_platform::device_capture::DeviceCaptureErrorKind::HostTccDenied
+            | minicon_platform::device_capture::DeviceCaptureErrorKind::HostTccRestricted
+            | minicon_platform::device_capture::DeviceCaptureErrorKind::HostTccConsentRequired
     ) {
         detail["permission"] = serde_json::json!("camera");
         detail["stable_identity_required"] = serde_json::json!(true);
@@ -253,7 +252,7 @@ mod tests {
     use super::*;
 
     fn fixture_directory(label: &str) -> std::path::PathBuf {
-        let random = agenterm_platform::entropy::secure_random_array::<8>().expect("entropy");
+        let random = minicon_platform::entropy::secure_random_array::<8>().expect("entropy");
         let suffix = random
             .iter()
             .map(|byte| format!("{byte:02x}"))

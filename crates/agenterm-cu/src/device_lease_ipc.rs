@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use agenterm_platform::{
+use minicon_platform::{
     device_io::{DeviceReadState, DeviceWriteDelivery},
     entropy::secure_random_array,
     ipc::{IpcEndpoint, IpcTransportErrorCode, NativeListener, NativeStream},
@@ -83,7 +83,7 @@ pub(crate) fn endpoint_for(handle: &DeviceLeaseHandle) -> Result<IpcEndpoint, De
     #[cfg(unix)]
     {
         Ok(IpcEndpoint::UnixSocket(
-            agenterm_platform::ipc::native_runtime_directory()
+            minicon_platform::ipc::native_runtime_directory()
                 .join(format!("cu-device-{suffix}.sock"))
                 .to_string_lossy()
                 .into_owned(),

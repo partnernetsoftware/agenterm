@@ -1,7 +1,7 @@
 //! Linux `org.a11y.Status` observation for `screen-reader`.
 
 #[cfg(target_os = "linux")]
-use agenterm_platform::contract::accessibility_tree::AccessibilityTreeError;
+use minicon_platform::contract::accessibility_tree::AccessibilityTreeError;
 use serde_json::{Value, json};
 
 use crate::reply::CuError;
@@ -22,7 +22,7 @@ pub fn status_payload() -> Result<Value, CuError> {
         })));
     }
 
-    match agenterm_platform::accessibility_tree::a11y_bus_readiness() {
+    match minicon_platform::accessibility_tree::a11y_bus_readiness() {
         Ok(readiness) => project_readiness(readiness),
         Err(AccessibilityTreeError::Unsupported { reason }) => {
             Err(unsupported_error(reason.into_owned()))

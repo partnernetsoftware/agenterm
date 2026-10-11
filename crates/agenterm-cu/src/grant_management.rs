@@ -577,7 +577,7 @@ fn store_path(override_path: Option<PathBuf>) -> Result<PathBuf, AuthStoreError>
 }
 
 fn generated_grant_id() -> Option<String> {
-    let bytes = agenterm_platform::entropy::secure_random_array::<32>().ok()?;
+    let bytes = minicon_platform::entropy::secure_random_array::<32>().ok()?;
     Some(format!("cu1_{}", encode_hex(&bytes)))
 }
 

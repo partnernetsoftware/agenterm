@@ -308,7 +308,7 @@ Windows 上都是原生子控件**。Win32 把落在子控件上的点击直接�
 在这些区域天然无效——静默无效，正是 F1 的病。
 
 解法不是猜矩形，而是**问 OS**：新增 `ControlWindow::control_at(point)`
-（`crates/agenterm-platform`），底层是 `ChildWindowFromPointEx`——**Win32 自己
+（`crates/minicon-platform`），底层是 `ChildWindowFromPointEx`——**Win32 自己
 路由真实点击时用的那个函数**，连 skip invisible/disabled 都一致。它不是「第二
 份命中测试」，它就是第一份。然后分三种情况：
 
@@ -629,7 +629,7 @@ Executor。把 60 个 Control 工具整表挂上去，而 mutation 的取消、r
 |----|-----|---------|------|
 | **D-1** ✅ 已落地（§1.2） | headless 是否供几何？ | **供，但标注为 synthetic** | 布局数学在共享的 `src/ui_geometry.rs`（precision-audit #10/#11/#12 已把两端统一到它），**是纯函数**：给定 viewport + cell 度量 + tab 数即可算 bounds，不需要活窗口。做法：headless 接受一个名义 viewport，跑**同一份** `ui_geometry`，快照里标 `geometry_source:"synthetic"`。收益：perceive→act 闭环终于能进 CI（现状 `ui-input` **零行为测试**）。诚实性：它验证的是**命中/路由/派发逻辑**，不是渲染像素——真窗 smoke 仍不可省，二者分工与「布局数学单测 vs 像素回归」同构 |
 | **D-2** | BEL 落地形态？ | **只做事件化；视觉后补；声音不做** | 事件化进 Observable Fleet 序列后 agent 可 `wait`，且它是视觉/声音两种呈现的**共同前置**（都消费同一事件），杠杆最高。真音频要引依赖并吃 4 MiB GUI 体积预算（`PRD_02_17`），换来的是一个多数终端默认关掉的功能——不值。 |
-| **D-3** | `send-mouse` 删除还是实现？ | **实现** | 三条理由：① 缺口真实——人类能在 `htop`/`lazygit`/`k9s` 里点，agent 不能；② **成本已被 C5 打掉**——编码 `mouse_report_bytes`/`mouse_code_with_modifiers` 已在 `agenterm_platform`，协商态 `mouse_protocol_mode/encoding` 已在 `control_dispatch.rs:190-205` 被读，写入只是 `.send(&bytes)`；③ **它在 `control_dispatch.rs` 这个共享派发里，一次实现两个平台都有**——不像 `ui-input` 是 per-frontend 的。所以在 Windows `ui-input` 移植（P-win-input，成本大）落地之前，**这是给 Windows agent 补上鼠标能力的最便宜路径**。删掉则永久放弃 PTY 层这条轴 |
+| **D-3** | `send-mouse` 删除还是实现？ | **实现** | 三条理由：① 缺口真实——人类能在 `htop`/`lazygit`/`k9s` 里点，agent 不能；② **成本已被 C5 打掉**——编码 `mouse_report_bytes`/`mouse_code_with_modifiers` 已在 `minicon_platform`，协商态 `mouse_protocol_mode/encoding` 已在 `control_dispatch.rs:190-205` 被读，写入只是 `.send(&bytes)`；③ **它在 `control_dispatch.rs` 这个共享派发里，一次实现两个平台都有**——不像 `ui-input` 是 per-frontend 的。所以在 Windows `ui-input` 移植（P-win-input，成本大）落地之前，**这是给 Windows agent 补上鼠标能力的最便宜路径**。删掉则永久放弃 PTY 层这条轴 |
 
 > **D-3 的层次说明**（澄清一个容易混的点）：人类在全屏 TUI 里点鼠标走
 > **PTY 层**（应用协商 `?1002h;?1006h` 后收到上报，坐标是**单元格**）；

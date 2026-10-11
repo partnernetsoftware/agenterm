@@ -3,8 +3,8 @@
 #[allow(dead_code)]
 pub(crate) fn long_running_process_command_fixture() -> (&'static str, &'static [&'static str]) {
     if matches!(
-        agenterm_platform::platform_kind(),
-        agenterm_platform::PlatformKind::Windows
+        minicon_platform::platform_kind(),
+        minicon_platform::PlatformKind::Windows
     ) {
         ("ping.exe", &["-n", "30", "127.0.0.1", ">nul"])
     } else {
@@ -15,8 +15,8 @@ pub(crate) fn long_running_process_command_fixture() -> (&'static str, &'static 
 #[allow(dead_code)]
 pub(crate) fn long_running_process_command_timeout() -> (&'static str, &'static [&'static str]) {
     if matches!(
-        agenterm_platform::platform_kind(),
-        agenterm_platform::PlatformKind::Windows
+        minicon_platform::platform_kind(),
+        minicon_platform::PlatformKind::Windows
     ) {
         ("ping", &["-n", "6", "127.0.0.1"])
     } else {

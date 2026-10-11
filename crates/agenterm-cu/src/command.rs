@@ -76,7 +76,7 @@ const JOB_PRUNE_MAX_AGE_SECONDS_MAX: u64 = 10 * 365 * 24 * 60 * 60;
 pub const SIMULATOR_RESULTS_MAX: usize = 200;
 pub const SIMULATOR_TIMEOUT_MS_MAX: u64 = 600_000;
 pub const STORAGE_DEVICES_MAX: usize = 5_000;
-pub const STORAGE_VOLUMES_MAX: usize = agenterm_platform::storage::VOLUME_RESULTS_MAX;
+pub const STORAGE_VOLUMES_MAX: usize = minicon_platform::storage::VOLUME_RESULTS_MAX;
 pub const STORAGE_VOLUME_PATH_BYTES_MAX: usize = 8_192;
 pub const DEVICE_INVENTORY_MAX: usize = 5_000;
 pub const DEVICE_WATCH_DURATION_MS_MAX: u64 = 3_600_000;
@@ -5297,9 +5297,9 @@ impl Command {
             Self::ScrollWheel { dx, dy, .. }
                 if (*dx == 0 && *dy == 0)
                     || dx.unsigned_abs()
-                        > agenterm_platform::input_inject::MAX_POINTER_SCROLL_DETENTS
+                        > minicon_platform::input_inject::MAX_POINTER_SCROLL_DETENTS
                     || dy.unsigned_abs()
-                        > agenterm_platform::input_inject::MAX_POINTER_SCROLL_DETENTS =>
+                        > minicon_platform::input_inject::MAX_POINTER_SCROLL_DETENTS =>
             {
                 Err(
                     "scroll-wheel requires one non-zero axis and each axis within the bounded detent limit",
@@ -5311,7 +5311,7 @@ impl Command {
             // `invalid_command` and made the typed refusal unreachable.
             Self::AppFacts { selector, .. } => {
                 if selector.is_empty()
-                    || selector.len() > agenterm_platform::app_facts::MAX_APP_FACTS_SELECTOR_BYTES
+                    || selector.len() > minicon_platform::app_facts::MAX_APP_FACTS_SELECTOR_BYTES
                     || selector.as_bytes().contains(&0)
                 {
                     return Err("app-facts selector must contain 1..=4096 non-NUL UTF-8 bytes");
@@ -5331,7 +5331,7 @@ impl Command {
                     || selectors.iter().any(|selector| {
                         selector.trim().is_empty()
                             || selector.len()
-                                > agenterm_platform::app_facts::MAX_APP_FACTS_SELECTOR_BYTES
+                                > minicon_platform::app_facts::MAX_APP_FACTS_SELECTOR_BYTES
                             || selector.as_bytes().contains(&0)
                     })
                     || !(1..=86_400_000).contains(duration_ms)

@@ -21,7 +21,7 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 - [ ] the surface is layered and **outer may depend on inner only**:
 
   ```text
-  native primitive   平台机制（agenterm-platform 拥有，cu 不实现）
+  native primitive   平台机制（minicon-platform 拥有，cu 不实现）
      ↑
   abstract command   目标无关命令集（本模块拥有）
      ↑
@@ -601,7 +601,7 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 - [ ] `tree` is sourced from the host's **platform accessibility backend**
   ([30 § Platform accessibility backends](PRD_02_30_cu_targets_transports.md#platform-accessibility-backends)):
   Windows native API + UIA, macOS AX (`NSAccessibility`), Linux AT-SPI2.
-  `agenterm-cu` does not implement these stacks; it consumes `agenterm-platform`.
+  `agenterm-cu` does not implement these stacks; it consumes `minicon-platform`.
 - [ ] node identity is stable enough to be re-addressed across observations, or
   the instability is reported. An agent must never silently act on a node whose
   identity has been recycled.

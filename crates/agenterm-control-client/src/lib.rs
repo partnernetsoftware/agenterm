@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use agenterm_platform::ipc::{IpcEndpoint, NativeStream};
+use minicon_platform::ipc::{IpcEndpoint, NativeStream};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -297,7 +297,7 @@ fn read_bounded_line(mut reader: impl BufRead, maximum: u64) -> Result<String, C
 }
 
 fn server_scope_id(instance: &str) -> Result<String, ClientError> {
-    let identity = agenterm_platform::ipc::trusted_user_identity()
+    let identity = minicon_platform::ipc::trusted_user_identity()
         .map_err(|error| client_error("control_identity_unavailable", error.to_string()))?;
     let mut digest = Sha256::new();
     digest.update(SCOPE_NAMESPACE.as_bytes());
@@ -321,7 +321,7 @@ fn default_native_endpoint(scope: &str) -> IpcEndpoint {
         IpcEndpoint::NamedPipe(format!(r"\\.\pipe\agenterm-{scope}"))
     } else {
         IpcEndpoint::UnixSocket(
-            agenterm_platform::ipc::native_runtime_directory()
+            minicon_platform::ipc::native_runtime_directory()
                 .join("agenterm")
                 .join(format!("{scope}.sock"))
                 .to_string_lossy()

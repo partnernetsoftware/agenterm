@@ -17,7 +17,7 @@
    release 通道执行,本地 dev 链永远不会触发——第一次走 release 通道就会
    `artifact_release_budget` 失败。引擎门控因此不是优化,是履约。
 5. 现有运行时抽象是健康的:`ScriptEngineBackend` trait 四后端各就各位,平台层
-   (agenterm-platform)按 windows-sys 直调,GUI 栈只有 ~3%。缺的是**编译期门控**
+   (minicon-platform)按 windows-sys 直调,GUI 栈只有 ~3%。缺的是**编译期门控**
    (root crate 没有任何 `[features]`),不是缺 trait。
 
 ## 1. 测量方法与数据
@@ -156,8 +156,8 @@ frontend core 的重复,值得单独一轮 platform-ux-parity 视角的审计—
   先对齐 profile**(size-history 每行都带 profile 字段,别跨行直接比)。
 
 2026-08-12 的 con-release-fast 首个可归因样本给出 `.text` 排名：`std`
-160,329 B、`agenterm_con` 140,160 B、`agenterm_platform` 98,046 B、`vt100`
-16,901 B、`agenterm_ui_core` 4,178 B。最大单函数是 control dispatch 20,994 B，
+160,329 B、`agenterm_con` 140,160 B、`minicon_platform` 98,046 B、`vt100`
+16,901 B、`minicon_ui_core` 4,178 B。最大单函数是 control dispatch 20,994 B，
 其次是主事件分派 15,693 B；CLI run/parse 合计 12,643 B。正式 strip+custom-std
 x64 PE 同期仍为 619,520 B（`.text` 404,348 B），不得把归因样本的 434,200 B
 汇总值与正式节区直接相减。该证据否决继续优先微调像素 ISA，下一轮先审计
@@ -285,7 +285,7 @@ one multitab control journey, Windows Clippy, and Linux x86-64 compilation pass.
 
 ### 2026-08-12: deterministic shared maps without random hashing
 
-The remaining con `HashMap` owners were both in `agenterm-ui-core`: a bounded
+The remaining con `HashMap` owners were both in `minicon-ui-core`: a bounded
 FIFO glyph cache and iterative tree-depth indexing. The glyph cache now uses a
 key-sorted contiguous vector: O(log n) hot lookup, O(n) cold insertion/eviction,
 which matches expensive and infrequent rasterization. Tree resolution sorts
@@ -303,7 +303,7 @@ Clippy, and Linux x86-64 compilation.
 After replacing tree hashing, generic `slice::sort_unstable` became a new final
 owner: its `(TabId,index)` monomorphization retained IPN sort, quicksort and
 smallsort. Tree indexing needs deterministic O(n log n), not the full adaptive
-sort family. `agenterm-ui-core` now uses a no-allocation iterative heapsort for
+sort family. `minicon-ui-core` now uses a no-allocation iterative heapsort for
 index pairs; tuple order still places duplicate input indexes in ascending order,
 so the typed error continues to identify the second occurrence.
 
@@ -412,7 +412,7 @@ real.
 The final con PE still imported `ceilf`, `round`, `roundf` and `truncf` from the
 Visual C runtime. Their owners spanned product layout, font metrics, wheel
 accumulation and the native pixel-window adapter, so replacing one call site
-could not remove the family. `agenterm-platform::numeric` now supplies concrete
+could not remove the family. `minicon-platform::numeric` now supplies concrete
 non-inlined IEEE-754 bit-level leaves shared by those boundaries. It preserves
 signed zero, infinities, NaNs, half-away-from-zero rounding and integral values;
 tests compare standard-library result bits over explicit edges and sampled f32
@@ -481,7 +481,7 @@ An earlier incremental build reported 484,352 bytes. Restoring the same HEAD
 later produced 541,184 bytes, and a target-specific cold A/B then reproduced
 543,232 bytes for `std::env::args` and 541,184 bytes for native argv. The smaller
 incremental artifact is therefore rejected as provenance evidence. `cargo clean
--p agenterm-con -p agenterm-platform` cleans the host layout only; con's custom
+-p agenterm-con -p minicon-platform` cleans the host layout only; con's custom
 std lives below the explicit Windows target. Size experiments must clean with
 `--target x86_64-pc-windows-msvc` (or the actual target), rebuild both sides from
 the same HEAD/profile, and compare final staged bytes. A warm artifact or an

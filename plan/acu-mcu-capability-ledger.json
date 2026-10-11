@@ -28,7 +28,7 @@
   "families": {
     "process": {
       "accounting": "complete",
-      "owner": "agenterm-platform process facades exposed by agenterm-cu",
+      "owner": "minicon-platform process facades exposed by agenterm-cu",
       "capabilities": [
         {
           "id": "process.inventory.basic",
@@ -370,7 +370,7 @@
           },
           "evidence": [
             "cu.process-inspection",
-            "agenterm-platform process inspection unit tests"
+            "minicon-platform process inspection unit tests"
           ],
           "note": "One-shot inventories are identity-bracketed and preserve non-UTF-8 native names/paths without lossy replacement. MCU watch/diff shapes remain a gap until the same bounded snapshots gain a shared event court.",
           "next": "bounded watch/diff over the same snapshots, then Linux native and Windows typed-refusal courts"
@@ -395,7 +395,7 @@
           },
           "evidence": [
             "cu.process-sockets",
-            "agenterm-platform process socket unit tests"
+            "minicon-platform process socket unit tests"
           ],
           "note": "One-shot socket rows are joined to one process fd and bracketed by matching start identities. Native descriptor scan truncation and caller result pagination remain separate. Darwin uses build-linked libproc; Linux joins procfs socket inodes to the process network namespace without lsof. Unix-domain endpoint bytes remain lossless. Windows refuses undocumented arbitrary-process socket tables by type.",
           "next": "Linux native and Windows typed-refusal courts; bounded watch/diff remains an explicit gap"
@@ -478,7 +478,7 @@
     },
     "desktop": {
       "accounting": "complete",
-      "owner": "agenterm-cu commands over agenterm-platform, native accessibility adapters and CDP",
+      "owner": "agenterm-cu commands over minicon-platform, native accessibility adapters and CDP",
       "capabilities": [
         {
           "id": "desktop.window.inventory",
@@ -1128,7 +1128,7 @@
     },
     "pty-job-terminal": {
       "accounting": "complete",
-      "owner": "agenterm terminal/session kernel, agenterm-platform process and PTY adapters, exposed through typed agenterm-cu facades",
+      "owner": "agenterm terminal/session kernel, minicon-platform process and PTY adapters, exposed through typed agenterm-cu facades",
       "capabilities": [
         {
           "id": "terminal.agenterm.inventory",
@@ -1454,7 +1454,7 @@
     },
     "file-storage": {
       "accounting": "complete",
-      "owner": "agenterm-platform filesystem and storage mechanisms, ACU transaction facade, qjswasm for workflow composition",
+      "owner": "minicon-platform filesystem and storage mechanisms, ACU transaction facade, qjswasm for workflow composition",
       "capabilities": [
         {
           "id": "storage.device-inventory",
@@ -1654,7 +1654,7 @@
     },
     "network": {
       "accounting": "complete",
-      "owner": "agenterm-platform network observation facades and qjswasm network runtime, exposed through agenterm-cu",
+      "owner": "minicon-platform network observation facades and qjswasm network runtime, exposed through agenterm-cu",
       "capabilities": [
         {
           "id": "network.interfaces",
@@ -1834,7 +1834,7 @@
     },
     "device-audio": {
       "accounting": "complete",
-      "owner": "agenterm-platform device and audio adapters, ACU lease/transaction facade",
+      "owner": "minicon-platform device and audio adapters, ACU lease/transaction facade",
       "capabilities": [
         {
           "id": "device.inventory",
@@ -2104,7 +2104,7 @@
     },
     "service-runtime-session-audit": {
       "accounting": "complete",
-      "owner": "agenterm-platform service/session mechanisms plus an ACU durable runtime coordinator",
+      "owner": "minicon-platform service/session mechanisms plus an ACU durable runtime coordinator",
       "capabilities": [
         {
           "id": "service.user.lifecycle.plan",
@@ -2277,7 +2277,7 @@
               "windows": {"result": "pending", "blocker_code": "native-public-rerun-pending"}
             }
           },
-          "evidence": ["cu.persisted-grant-operation-binding.macos", "agenterm-cu schema3 grant-store and persisted-executor unit suite", "agenterm-platform macOS current-target-binding tests"],
+          "evidence": ["cu.persisted-grant-operation-binding.macos", "agenterm-cu schema3 grant-store and persisted-executor unit suite", "minicon-platform macOS current-target-binding tests"],
           "note": "The macOS provider accepts only the completed console session owned by the effective user, derives facts from opaque session identity plus native numeric session/audit facts, and excludes username, display name and native UUID. The public qjswasm court proves wrong-operation refusal spends zero uses, the intended operation spends exactly one, and revocation is durable.",
           "next": "run the same public operation-mismatch/no-consumption/revoke court on Windows, then qualify the implemented sealed Linux current-session identity provider in both native desktop cells"
         },
@@ -2414,7 +2414,7 @@
               "windows": {"result": "typed-intentional-retirement", "gate": "cu-permissions-open-smoke", "evidence": ["cu.permissions-open.contract"], "error_code": "permission_open_provider_specific", "rationale": "Windows permission repair is provider-specific rather than one generic consent pane; the public court proves typed refusal before any visible dispatch."}
             }
           },
-          "evidence": ["cu.permissions-open.contract", "agenterm-platform permission-settings feature tests"],
+          "evidence": ["cu.permissions-open.contract", "minicon-platform permission-settings feature tests"],
           "note": "Default-next orders required Accessibility before optional Screen Capture and refuses unknown status instead of guessing. An already-granted macOS permission is a verified no-op, while a missing permission follows the same command into one exact visible pane; these are state-dependent outcomes rather than independently selectable capabilities. On a macOS host with neither inspected permission already granted, the no-visible-UI court emits only cu.permissions-status.contract and withholds cu.permissions-open.contract because it skipped the open call; the status token does not qualify visible dispatch. Opening System Settings proves dispatcher acceptance only; it does not grant, bypass or verify user consent. Linux and Windows public journeys directly call open and prove their distinct typed boundaries without visible dispatch.",
           "next": "prove a denied macOS permission opens the exact pane under an explicit native court"
         },
@@ -2429,7 +2429,7 @@
             "windows": "native-black-box"
           },
           "qualification": "macos-public-qjswasm-green-linux-windows-native-courts-pending",
-          "evidence": ["cu.host-open.macos", "agenterm-platform host-open feature tests"],
+          "evidence": ["cu.host-open.macos", "minicon-platform host-open feature tests"],
           "note": "The shell-free host adapter accepts exactly one path or URL. Success means only that the native dispatcher accepted the request; replies remain verified=false because handler rendering or consumption was not observed. Target and application are represented in durable receipts by byte length and SHA-256 rather than plaintext.",
           "next": "run handler-owned no-window fixtures in Linux and Windows native courts; unsupported application/background shapes must remain typed rather than ignored"
         },
@@ -2440,7 +2440,7 @@
           "state": "delegated",
           "platforms": { "macos": "native-black-box", "linux": "native-court-pending", "windows": "native-court-pending" },
           "qualification": "macos-public-qjswasm-green-linux-windows-native-courts-pending",
-          "evidence": ["cu.host-notify.macos", "agenterm-platform host-notification feature tests"],
+          "evidence": ["cu.host-notify.macos", "minicon-platform host-notification feature tests"],
           "note": "Notification title/body/subtitle are passed as bounded argv data, never shell or AppleScript source. Durable receipts store only byte lengths and SHA-256. Dispatcher acceptance is not presented as proof that the user saw the notification.",
           "next": "run native Linux and Windows courts; retain typed unsupported results for subtitle/sound where the provider cannot promise those semantics"
         },
@@ -2476,7 +2476,7 @@
     },
     "host-resource": {
       "accounting": "complete",
-      "owner": "agenterm-platform host resource contracts exposed by agenterm-cu",
+      "owner": "minicon-platform host resource contracts exposed by agenterm-cu",
       "capabilities": [
         {
           "id": "resource.status",
@@ -2484,7 +2484,7 @@
           "acu_shape": "resource status (also resource-status) with explicit memory/load semantics and atomicSnapshot=false",
           "state": "delegated",
           "platforms": {"macos": "native-black-box", "linux": "arm64-and-x86_64-native-black-box", "windows": "arm64-native-black-box-x86_64-court-infrastructure-blocked"},
-          "evidence": ["cu.resource-status", "agenterm-platform host-resource-snapshot tests"],
+          "evidence": ["cu.resource-status", "minicon-platform host-resource-snapshot tests"],
           "note": "Strict free memory is not collapsed into reclaimable available memory. Windows compatibility zeros for load are explicitly marked unavailable. A failed native process inventory fails the whole reply instead of becoming processCount=0.",
           "next": "run Linux and Windows public qjswasm courts"
         },
@@ -2577,7 +2577,7 @@
     },
     "power": {
       "accounting": "complete",
-      "owner": "agenterm-platform host/boot identity plus the native privilege provider for terminal power effects",
+      "owner": "minicon-platform host/boot identity plus the native privilege provider for terminal power effects",
       "capabilities": [
         {
           "id": "power.host-status",
@@ -2585,7 +2585,7 @@
           "acu_shape": "power status|power-status returns installation-scoped opaque host and boot ids plus monotonic uptime; observation never enrolls state",
           "state": "native",
           "platforms": {"macos": "native-black-box", "linux": "native-unqualified", "windows": "native-cross-compiled"},
-          "evidence": ["cu.power-host-status", "agenterm-platform host_boot_identity target compile"],
+          "evidence": ["cu.power-host-status", "minicon-platform host_boot_identity target compile"],
           "next": "run the same public court on Linux and Windows; keep native boot material and installation keys out of replies"
         },
         {

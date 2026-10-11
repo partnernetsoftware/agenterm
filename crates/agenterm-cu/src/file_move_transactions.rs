@@ -18,7 +18,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use agenterm_platform::{
+use minicon_platform::{
     entropy::secure_random_array,
     file_identity::file_identity,
     filesystem::{

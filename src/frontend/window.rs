@@ -4,7 +4,7 @@ pub(crate) const MIN_CLIENT_WIDTH: u32 = 320;
 pub(crate) const MIN_CLIENT_HEIGHT: u32 = 240;
 pub(crate) const MAX_CLIENT_EXTENT: u32 = i32::MAX as u32;
 
-pub(crate) use agenterm_platform::window::WindowSemanticState;
+pub(crate) use minicon_platform::window::WindowSemanticState;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ClientSize {

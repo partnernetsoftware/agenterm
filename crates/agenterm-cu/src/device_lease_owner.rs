@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use agenterm_platform::{
+use minicon_platform::{
     device_io::{
         self, DeviceReadOutcome, DeviceWriteOutcome, OpenedDevice, SerialConfiguration,
         SerialObservation, SerialOutcome, SerialRequest,
@@ -420,7 +420,7 @@ fn validate_launch(launch: &DeviceLeaseLaunch) -> Result<(), DeviceOwnerError> {
 
 impl SerialRequestWire {
     pub(crate) fn to_platform(self) -> Result<SerialRequest, DeviceOwnerError> {
-        use agenterm_platform::device_io::{
+        use minicon_platform::device_io::{
             SerialDataBits, SerialFlowControl, SerialParity, SerialStopBits,
         };
         let Self::Configure {
@@ -478,7 +478,7 @@ fn serial_observation_record(
     mode: DeviceSerialMode,
     serial: &SerialObservation,
 ) -> DeviceSerialRecord {
-    use agenterm_platform::device_io::{
+    use minicon_platform::device_io::{
         SerialDataBits, SerialFlowControl, SerialParity, SerialStopBits,
     };
     DeviceSerialRecord {

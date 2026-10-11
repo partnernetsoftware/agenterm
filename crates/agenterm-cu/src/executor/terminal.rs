@@ -793,9 +793,9 @@ pub(super) fn terminal_screenshot_payload(tab: &str, out: &str) -> Result<Value,
     )?;
     let product = parse_output(response, "terminal_screenshot_reply_invalid")?;
     let after = terminal_snapshot_with_client(&client, tab)?;
-    let opened = agenterm_platform::filesystem_open::open_existing(
+    let opened = minicon_platform::filesystem_open::open_existing(
         path,
-        agenterm_platform::filesystem_open::ExistingEntryType::File,
+        minicon_platform::filesystem_open::ExistingEntryType::File,
     )
     .map_err(|error| {
         CuError::new(
@@ -804,13 +804,13 @@ pub(super) fn terminal_screenshot_payload(tab: &str, out: &str) -> Result<Value,
         )
     })?;
     let opened_identity =
-        agenterm_platform::file_identity::file_identity(&opened).map_err(|error| {
+        minicon_platform::file_identity::file_identity(&opened).map_err(|error| {
             CuError::new(
                 "terminal_screenshot_output_invalid",
                 format!("read published terminal screenshot identity: {error}"),
             )
         })?;
-    let path_identity = agenterm_platform::file_identity::path_identity(path).map_err(|error| {
+    let path_identity = minicon_platform::file_identity::path_identity(path).map_err(|error| {
         CuError::new(
             "terminal_screenshot_output_invalid",
             format!("revalidate published terminal screenshot identity: {error}"),

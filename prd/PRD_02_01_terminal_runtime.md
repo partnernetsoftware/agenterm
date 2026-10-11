@@ -53,7 +53,7 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   edit controls receive their standard messages, while terminal Copy uses
   the active cell selection and terminal Paste uses the active PTY
 - [x] physical VT selection semantics are shared by the workbench and
-  `agenterm-con` through `agenterm-ui-core`: endpoint normalization, bounded
+  `agenterm-con` through `minicon-ui-core`: endpoint normalization, bounded
   visible-row selection, Unicode/path word classes, wide-cell continuation
   handling, Windows CRLF joins, and trailing-space trimming have one kernel.
   Gesture phase, native capture, auto-copy, tab authority, and remote snapshot
@@ -248,7 +248,7 @@ Rust 1.97 did not inline the small NEON divide-by-255 helper under ordinary
 `inline`: each four-pixel iteration made two calls and spilled vector state.
 The narrow `inline(always)` exception removes both calls, the helper symbol, and
 the stack round-trips while preserving all 33 scalar/ISA parity tests. The
-matching optimized `agenterm-ui-core` archive falls from 199,038 to 198,054
+matching optimized `minicon-ui-core` archive falls from 199,038 to 198,054
 bytes. Both Windows aarch64 and Linux aarch64 `agenterm-con` consumer graphs
 compile; the Windows x64 executable is intentionally not credited with this
 architecture-specific reduction.

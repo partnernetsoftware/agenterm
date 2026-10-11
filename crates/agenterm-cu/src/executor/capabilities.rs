@@ -326,7 +326,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
     let process_state_verb = serde_json::json!({
         "status": "available",
         "group": "process",
-        "mode": "agenterm-platform-process-observation",
+        "mode": "minicon-platform-process-observation",
         "grant": "observe",
         "fields": ["pid", "state", "start_identity", "reason", "verified"],
         "states": ["live", "dead", "unknown"],
@@ -381,7 +381,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
     let process_usage_verb = serde_json::json!({
         "status": "available",
         "group": "process",
-        "mode": "agenterm-platform-process-metrics",
+        "mode": "minicon-platform-process-metrics",
         "grant": "observe",
         "identity_bound": true,
         "counter_encoding": "decimal-string",
@@ -397,7 +397,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
     let process_wait_verb = serde_json::json!({
         "status": "available",
         "group": "process",
-        "mode": "agenterm-platform-process-reference",
+        "mode": "minicon-platform-process-reference",
         "grant": "observe",
         "identity_bound": true,
         "states": ["exited", "timeout"],
@@ -1213,7 +1213,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "status": "available",
                 "grant": "observe",
                 "group": "device",
-                "mode": "agenterm-platform-device-inventory",
+                "mode": "minicon-platform-device-inventory",
                 "identity_scope": "installation",
                 "provider_states": ["complete", "partial", "unavailable"],
             }),
@@ -1292,7 +1292,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "status": "available",
                 "group": "setup",
                 "grant": "actuate",
-                "mode": "agenterm-platform-registered-application-dispatch",
+                "mode": "minicon-platform-registered-application-dispatch",
                 "shell": false,
                 "verification": "dispatcher-accepted-only",
             }),
@@ -1302,7 +1302,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "status": "available",
                 "group": "setup",
                 "grant": "actuate",
-                "mode": "agenterm-platform-desktop-notification",
+                "mode": "minicon-platform-desktop-notification",
                 "shell": false,
                 "verification": "dispatcher-accepted-only",
             });
@@ -1334,7 +1334,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
 }
 
 fn host_clock_json() -> serde_json::Value {
-    let now = agenterm_platform::local_clock::local_civil_now();
+    let now = minicon_platform::local_clock::local_civil_now();
     serde_json::json!({
         "local": {
             "year": now.year,
@@ -1344,13 +1344,13 @@ fn host_clock_json() -> serde_json::Value {
             "minute": now.minute,
             "second": now.second,
         },
-        "utc_offset": agenterm_platform::local_clock::local_utc_offset_z(),
-        "utc_offset_seconds": agenterm_platform::local_clock::local_utc_offset_seconds(),
+        "utc_offset": minicon_platform::local_clock::local_utc_offset_z(),
+        "utc_offset_seconds": minicon_platform::local_clock::local_utc_offset_seconds(),
     })
 }
 
 fn proxy_env_json() -> serde_json::Value {
-    let facts = agenterm_platform::proxy_env::current_process_facts();
+    let facts = minicon_platform::proxy_env::current_process_facts();
     serde_json::json!({
         "http_proxy": facts.http_proxy,
         "HTTPS_PROXY": facts.https_proxy,
@@ -1365,7 +1365,7 @@ fn host_boot_identity_json() -> serde_json::Value {
             "reason": "host_boot_identity facts are wired on Linux hosts only",
         });
     }
-    match agenterm_platform::host_boot_identity::facts() {
+    match minicon_platform::host_boot_identity::facts() {
         Ok(facts) => serde_json::json!({
             "status": "available",
             "boot_id": facts.boot_id,
@@ -1411,11 +1411,11 @@ fn attach_verb_status_counts(payload: &mut serde_json::Value) {
 pub(super) fn permissions_declaration() -> serde_json::Value {
     if cfg!(target_os = "macos") {
         let accessibility = permission_declaration(
-            agenterm_platform::permission_settings::PermissionKind::Accessibility,
+            minicon_platform::permission_settings::PermissionKind::Accessibility,
             ACCESSIBILITY_REPAIR_PATH,
         );
         let screen_recording = permission_declaration(
-            agenterm_platform::permission_settings::PermissionKind::ScreenCapture,
+            minicon_platform::permission_settings::PermissionKind::ScreenCapture,
             SCREEN_RECORDING_REPAIR_PATH,
         );
         serde_json::json!({
@@ -1447,16 +1447,16 @@ pub(super) fn permissions_declaration() -> serde_json::Value {
 }
 
 fn permission_declaration(
-    permission: agenterm_platform::permission_settings::PermissionKind,
+    permission: minicon_platform::permission_settings::PermissionKind,
     repair: &str,
 ) -> serde_json::Value {
-    match agenterm_platform::permission_settings::status(permission) {
+    match minicon_platform::permission_settings::status(permission) {
         Ok(status) => {
             let mut value = serde_json::json!({
                 "status": status.state.as_str(),
                 "provider": status.provider,
             });
-            if status.state != agenterm_platform::permission_settings::PermissionState::Granted {
+            if status.state != minicon_platform::permission_settings::PermissionState::Granted {
                 value["repair"] = serde_json::json!(repair);
             }
             value
@@ -1471,21 +1471,21 @@ fn permission_declaration(
 
 fn platform_permission(
     permission: PermissionKind,
-) -> agenterm_platform::permission_settings::PermissionKind {
+) -> minicon_platform::permission_settings::PermissionKind {
     match permission {
         PermissionKind::Accessibility => {
-            agenterm_platform::permission_settings::PermissionKind::Accessibility
+            minicon_platform::permission_settings::PermissionKind::Accessibility
         }
         PermissionKind::ScreenCapture => {
-            agenterm_platform::permission_settings::PermissionKind::ScreenCapture
+            minicon_platform::permission_settings::PermissionKind::ScreenCapture
         }
     }
 }
 
 fn permission_error(
-    error: agenterm_platform::permission_settings::PermissionSettingsError,
+    error: minicon_platform::permission_settings::PermissionSettingsError,
 ) -> CuError {
-    use agenterm_platform::permission_settings::PermissionSettingsErrorKind;
+    use minicon_platform::permission_settings::PermissionSettingsErrorKind;
     let code = match error.kind() {
         PermissionSettingsErrorKind::NotApplicable => "permission_open_not_applicable",
         PermissionSettingsErrorKind::Unsupported => "permission_open_provider_specific",
@@ -1501,10 +1501,10 @@ fn permission_error(
 }
 
 fn select_next_permission(
-    accessibility: agenterm_platform::permission_settings::PermissionState,
-    screen_capture: agenterm_platform::permission_settings::PermissionState,
+    accessibility: minicon_platform::permission_settings::PermissionState,
+    screen_capture: minicon_platform::permission_settings::PermissionState,
 ) -> Result<Option<PermissionKind>, CuError> {
-    use agenterm_platform::permission_settings::PermissionState;
+    use minicon_platform::permission_settings::PermissionState;
     match accessibility {
         PermissionState::Denied => return Ok(Some(PermissionKind::Accessibility)),
         PermissionState::Granted => {}
@@ -1559,7 +1559,7 @@ pub(super) fn permissions_open_payload(
     requested: Option<PermissionKind>,
     receipts: &mut ReceiptLog,
 ) -> Result<serde_json::Value, CuError> {
-    use agenterm_platform::permission_settings::{self, PermissionState};
+    use minicon_platform::permission_settings::{self, PermissionState};
 
     let permission = if let Some(permission) = requested {
         permission
@@ -2240,7 +2240,7 @@ mod tests {
 
     #[test]
     fn default_next_permission_is_ordered_and_refuses_unknown_state() {
-        use agenterm_platform::permission_settings::PermissionState;
+        use minicon_platform::permission_settings::PermissionState;
 
         assert_eq!(
             select_next_permission(PermissionState::Denied, PermissionState::Denied).unwrap(),

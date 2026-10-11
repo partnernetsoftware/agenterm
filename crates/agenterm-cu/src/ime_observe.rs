@@ -1,6 +1,6 @@
 //! Linux session input-method observation for `ime-status`.
 
-use agenterm_platform::ime::{ImeHostObservation, ImeObserveResult, ImeObserveUnsupported};
+use minicon_platform::ime::{ImeHostObservation, ImeObserveResult, ImeObserveUnsupported};
 use serde_json::{Value, json};
 
 use crate::reply::CuError;
@@ -20,7 +20,7 @@ pub fn status_payload() -> Result<Value, CuError> {
         })));
     }
 
-    match agenterm_platform::ime::observe_host() {
+    match minicon_platform::ime::observe_host() {
         ImeObserveResult::Ok(observation) => Ok(project_observation(observation)),
         ImeObserveResult::Unsupported(unsupported) => Err(unsupported_error(unsupported)),
     }
@@ -60,7 +60,7 @@ mod tests {
     fn unsupported_detail_carries_alternatives() {
         let error = unsupported_error(ImeObserveUnsupported {
             reason: "no framework".into(),
-            env: agenterm_platform::ime::ImeEnvSnapshot::default(),
+            env: minicon_platform::ime::ImeEnvSnapshot::default(),
             probed_frameworks: vec!["ibus".into()],
             session_bus_available: true,
             required_mechanism: "linux-session-input-method".into(),

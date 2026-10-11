@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use agenterm_platform::{CapabilityStatus, current_target_binding as platform_binding};
+use minicon_platform::{CapabilityStatus, current_target_binding as platform_binding};
 
 use crate::target::TargetRef;
 
@@ -145,7 +145,7 @@ impl CurrentIdentityProvider {
     }
 
     pub fn default_for_current_user() -> Result<Self, TargetBindingError> {
-        let directories = agenterm_platform::filesystem::host_directories().map_err(|_| {
+        let directories = minicon_platform::filesystem::host_directories().map_err(|_| {
             TargetBindingError::new(
                 TargetBindingErrorKind::IdentityUnavailable,
                 TargetRef::Current,

@@ -1,6 +1,6 @@
 //! Shared frontend keyboard and text-field input policy.
 
-use agenterm_platform::input::{
+use minicon_platform::input::{
     KeyPressState, LogicalKey as Key, ModifierState, NamedKey, NormalizedKeyEvent as KeyEvent,
     PhysicalKeyCode,
 };
@@ -39,7 +39,7 @@ pub(crate) fn normalize_ime_commit(text: &str, multiline: bool) -> String {
 }
 
 pub(crate) fn primary_shortcut(modifiers: ModifierState) -> bool {
-    agenterm_platform::input::is_primary_shortcut(modifiers)
+    minicon_platform::input::is_primary_shortcut(modifiers)
 }
 
 /// Maps a normalized key event to composer edits when the composer strip has focus.
@@ -445,7 +445,7 @@ fn logical_key_parts(key: &Key) -> (Option<&str>, Option<&'static str>) {
 
 fn platform_classify_key_press(event: &KeyEvent) -> crate::platform::KeyClassification {
     let (logical_character, named_key) = logical_key_parts(&event.logical);
-    agenterm_platform::input::classify_key_press(
+    minicon_platform::input::classify_key_press(
         event.modifiers,
         logical_character,
         named_key,
@@ -454,7 +454,7 @@ fn platform_classify_key_press(event: &KeyEvent) -> crate::platform::KeyClassifi
 }
 
 fn classified_product_shortcut(modifiers: crate::platform::ModifierState) -> bool {
-    agenterm_platform::input::is_primary_shortcut(modifiers)
+    minicon_platform::input::is_primary_shortcut(modifiers)
 }
 
 fn platform_composer_shortcut(key: &str) -> ComposerKeyAction {
@@ -691,7 +691,7 @@ mod tests {
         logical_key_to_bytes, normalize_ime_commit, physical_code_to_byte, prepare_composer_edit,
         primary_shortcut, terminal_shortcut_action, text_field_logical_key_action,
     };
-    use agenterm_platform::input::{
+    use minicon_platform::input::{
         KeyPressState, LogicalKey as Key, ModifierState, NamedKey, NormalizedKeyEvent,
         PhysicalKeyCode,
     };
@@ -992,7 +992,7 @@ mod tests {
 #[cfg(test)]
 mod ctrl_passthrough_tests {
     use super::{composer_passthrough_bytes, key_event_to_bytes};
-    use agenterm_platform::input::{
+    use minicon_platform::input::{
         KeyPressState, LogicalKey as Key, ModifierState, NormalizedKeyEvent, PhysicalKeyCode,
     };
 

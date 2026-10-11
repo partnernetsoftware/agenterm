@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use agenterm_platform::{
+use minicon_platform::{
     privilege_authorization::{
         PrivilegeAuthorizationDecision, PrivilegeAuthorizationErrorKind, authorize_user_initiated,
     },
@@ -109,7 +109,7 @@ fn current_time_ms() -> Result<i64, CuError> {
     })
 }
 
-fn platform_error(error: agenterm_platform::system_broker::SystemBrokerError) -> CuError {
+fn platform_error(error: minicon_platform::system_broker::SystemBrokerError) -> CuError {
     CuError::new(
         "privilege_broker_transport_failed",
         format!("Linux system privilege broker transport failed: {error}"),

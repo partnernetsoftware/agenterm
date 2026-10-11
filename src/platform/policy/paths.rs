@@ -1,7 +1,7 @@
 //! Product path semantics and host directory naming policy.
 //!
 //! These tables compose product-level names and default locations over the
-//! OS-neutral host-directory mechanism from `agenterm-platform`.
+//! OS-neutral host-directory mechanism from `minicon-platform`.
 
 use std::path::PathBuf;
 
@@ -15,8 +15,8 @@ pub(crate) enum AtomicPathSemantics {
 #[allow(dead_code)]
 pub(crate) fn atomic_path_semantics() -> AtomicPathSemantics {
     if matches!(
-        agenterm_platform::platform_kind(),
-        agenterm_platform::PlatformKind::Windows
+        minicon_platform::platform_kind(),
+        minicon_platform::PlatformKind::Windows
     ) {
         AtomicPathSemantics::VerbatimLongPath
     } else {
@@ -62,10 +62,10 @@ pub(crate) fn default_audit_path() -> PathBuf {
     }
 }
 
-fn host_directories() -> agenterm_platform::filesystem::HostDirectories {
-    agenterm_platform::filesystem::host_directories().unwrap_or_else(|_| {
+fn host_directories() -> minicon_platform::filesystem::HostDirectories {
+    minicon_platform::filesystem::host_directories().unwrap_or_else(|_| {
         let fallback = std::env::temp_dir();
-        agenterm_platform::filesystem::HostDirectories {
+        minicon_platform::filesystem::HostDirectories {
             config: fallback.clone(),
             local_data: fallback,
         }
@@ -160,13 +160,13 @@ pub(crate) fn ipc_default_workspace_path_for(
 }
 
 pub(crate) fn config_root_for_product_directory(
-    directories: &agenterm_platform::filesystem::HostDirectories,
+    directories: &minicon_platform::filesystem::HostDirectories,
 ) -> PathBuf {
     directories.config.join(product_directory_name())
 }
 
 pub(crate) fn local_data_root_for_product_directory(
-    directories: &agenterm_platform::filesystem::HostDirectories,
+    directories: &minicon_platform::filesystem::HostDirectories,
 ) -> PathBuf {
     directories.local_data.join(product_directory_name())
 }
@@ -180,8 +180,8 @@ mod tests {
         assert_eq!(
             atomic_path_semantics(),
             if matches!(
-                agenterm_platform::platform_kind(),
-                agenterm_platform::PlatformKind::Windows
+                minicon_platform::platform_kind(),
+                minicon_platform::PlatformKind::Windows
             ) {
                 AtomicPathSemantics::VerbatimLongPath
             } else {

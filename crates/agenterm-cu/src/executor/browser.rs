@@ -44,9 +44,9 @@ pub(super) fn resolve_cdp_port(port: Option<u16>, pid: Option<u32>) -> Result<u1
     if pid == 0 {
         return Err(invalid_input("CDP process pid must be non-zero".into()));
     }
-    let before = agenterm_platform::process::observe(pid);
+    let before = minicon_platform::process::observe(pid);
     let before_identity = match &before {
-        agenterm_platform::process::ProcessObservation::Live {
+        minicon_platform::process::ProcessObservation::Live {
             start_identity: Some(identity),
         } => identity,
         _ => {
@@ -57,17 +57,17 @@ pub(super) fn resolve_cdp_port(port: Option<u16>, pid: Option<u32>) -> Result<u1
             .with_detail(serde_json::json!({ "pid": pid })));
         }
     };
-    let command_line = agenterm_platform::process::command_line(pid).map_err(|_| {
+    let command_line = minicon_platform::process::command_line(pid).map_err(|_| {
         CuError::new(
             "cdp_process_inspect_failed",
             "could not inspect the CDP process command line",
         )
         .with_detail(serde_json::json!({ "pid": pid }))
     })?;
-    let after = agenterm_platform::process::observe(pid);
+    let after = minicon_platform::process::observe(pid);
     if !matches!(
         &after,
-        agenterm_platform::process::ProcessObservation::Live {
+        minicon_platform::process::ProcessObservation::Live {
             start_identity: Some(identity)
         } if identity == before_identity
     ) {
@@ -822,7 +822,7 @@ pub(super) fn page_download_payload(
     // non-blocking cross-process lock prevents two ACU workers from replacing
     // each other's policy or consuming each other's browser events.
     let lock_path = std::env::temp_dir().join(format!("agenterm-cu-cdp-{port}.download.lock"));
-    let _lock = agenterm_platform::locking::PathLock::try_acquire(&lock_path).map_err(|error| {
+    let _lock = minicon_platform::locking::PathLock::try_acquire(&lock_path).map_err(|error| {
         CuError::new(
             "cdp_download_busy",
             "another download command owns this Chromium endpoint",

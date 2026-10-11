@@ -30,7 +30,7 @@ TODOs behind typed facades.
 Replacement means **all useful workflows remain reachable without MCU**, not
 that every MCU TypeScript module is translated into Rust. A capability may be
 implemented by ACU itself or delegated to AgenTerm, qjswasm, libagenterm, or an
-`agenterm-platform` adapter, but the public command, result schema, target
+`minicon-platform` adapter, but the public command, result schema, target
 identity, deadline, cleanup and evidence contract belong to ACU.
 
 ## Markdown-tree DAG
@@ -371,7 +371,7 @@ compatibility corpus independently binds all 57 historical typed-rejection
 rows to either the native parser or an intentional local usage refusal.
 
 The service replacement is now a real typed frontier rather than a catalog
-placeholder: `agenterm-platform` owns bounded launchd/systemd inventory,
+placeholder: `minicon-platform` owns bounded launchd/systemd inventory,
 provider-qualified identity and user-domain lifecycle mechanics, while
 `agenterm-cu service` exposes mutation-free list/status/plan plus approval-bound
 apply. Plans bind the complete before snapshot, native incarnation and (for
@@ -560,7 +560,7 @@ shapes fail typed instead of being ignored.
   foreground preservation and owned cleanup together. Linux and Windows are
   still required before this tranche is three-host complete.
 - The first non-desktop facade is integrated: `ps --pid/--parent/--name` with
-  bounded pagination now calls `agenterm-platform::process::list`, the same
+  bounded pagination now calls `minicon-platform::process::list`, the same
   native mechanism used by qjswasm `process.list`. Richer MCU process filters
   remain explicit gaps; the compatibility router forwards the proven subset
   and temporarily falls back for unsupported shapes.

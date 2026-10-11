@@ -1,12 +1,12 @@
 //! Current-host CPU cache hierarchy observation.
 
-use agenterm_platform::cache_hierarchy::{CacheHierarchyError, CacheHierarchyErrorKind};
+use minicon_platform::cache_hierarchy::{CacheHierarchyError, CacheHierarchyErrorKind};
 use serde_json::{Value, json};
 
 use crate::reply::CuError;
 
 pub(super) fn cache_hierarchy_status_payload() -> Result<Value, CuError> {
-    let facts = agenterm_platform::cache_hierarchy::facts().map_err(cache_hierarchy_error)?;
+    let facts = minicon_platform::cache_hierarchy::facts().map_err(cache_hierarchy_error)?;
     let geometries = facts
         .geometries
         .iter()

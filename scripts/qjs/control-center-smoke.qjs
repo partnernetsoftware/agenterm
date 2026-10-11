@@ -18,7 +18,7 @@
 // window facts and court-owned PNG evidence) and stays that way. Children are
 // door handles carried in the harness's wave-2 child objects so their pids can be compared with what
 // the server, registry and renderer report. PNG inspection and native key
-// input use bounded tool-door operations backed by agenterm-platform.
+// input use bounded tool-door operations backed by minicon-platform.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 import * as path from "lib/path";

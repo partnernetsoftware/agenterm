@@ -5,7 +5,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use agenterm_platform::filesystem_open::{ExistingEntryType, open_existing_path};
+use minicon_platform::filesystem_open::{ExistingEntryType, open_existing_path};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 

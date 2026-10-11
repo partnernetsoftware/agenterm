@@ -8,8 +8,8 @@ use crate::platform::ModifierState;
 #[allow(dead_code)]
 pub(crate) fn primary_text_field_shortcut_modifiers() -> ModifierState {
     if matches!(
-        agenterm_platform::platform_kind(),
-        agenterm_platform::PlatformKind::Macos
+        minicon_platform::platform_kind(),
+        minicon_platform::PlatformKind::Macos
     ) {
         ModifierState {
             control: false,
@@ -30,16 +30,16 @@ pub(crate) fn primary_text_field_shortcut_modifiers() -> ModifierState {
 #[allow(dead_code)]
 pub(crate) fn is_primary_shortcut_via_meta() -> bool {
     matches!(
-        agenterm_platform::platform_kind(),
-        agenterm_platform::PlatformKind::Macos
+        minicon_platform::platform_kind(),
+        minicon_platform::PlatformKind::Macos
     )
 }
 
 #[allow(dead_code)]
 pub(crate) fn terminal_shortcut_empty_copy_action_is_suppressed() -> bool {
     matches!(
-        agenterm_platform::platform_kind(),
-        agenterm_platform::PlatformKind::Macos
+        minicon_platform::platform_kind(),
+        minicon_platform::PlatformKind::Macos
     )
 }
 

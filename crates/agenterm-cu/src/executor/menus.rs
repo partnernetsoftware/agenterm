@@ -252,8 +252,8 @@ pub(super) fn app_menu_inspect_payload(
             .with_detail(serde_json::json!({ "app": app, "processes": pids.len() })));
         }
         let pid = matching[0].process_id;
-        let start_identity = match agenterm_platform::process::observe(pid) {
-            agenterm_platform::process::ProcessObservation::Live {
+        let start_identity = match minicon_platform::process::observe(pid) {
+            minicon_platform::process::ProcessObservation::Live {
                 start_identity: Some(identity),
             } => identity,
             _ => {
@@ -271,8 +271,8 @@ pub(super) fn app_menu_inspect_payload(
         let mut payload = menu_inspect_payload(selected, depth, max_nodes, filter, offset, max)?;
 
         let process_stable = matches!(
-            agenterm_platform::process::observe(pid),
-            agenterm_platform::process::ProcessObservation::Live {
+            minicon_platform::process::observe(pid),
+            minicon_platform::process::ProcessObservation::Live {
                 start_identity: Some(after),
             } if after == start_identity
         );
@@ -381,8 +381,8 @@ pub(super) fn app_menu_invoke_payload(
             .with_detail(serde_json::json!({ "app": app, "processes": pids.len() })));
         }
         let pid = matching[0].process_id;
-        let start_identity = match agenterm_platform::process::observe(pid) {
-            agenterm_platform::process::ProcessObservation::Live {
+        let start_identity = match minicon_platform::process::observe(pid) {
+            minicon_platform::process::ProcessObservation::Live {
                 start_identity: Some(identity),
             } => identity,
             _ => {
@@ -440,11 +440,11 @@ pub(super) fn app_menu_invoke_payload(
             .as_ref()
             .is_some_and(|after| observe::tree_changed(&tree_before, after));
         let mark_changed = native.mark_before != native.mark_after;
-        let process_state = match agenterm_platform::process::observe(pid) {
-            agenterm_platform::process::ProcessObservation::Live {
+        let process_state = match minicon_platform::process::observe(pid) {
+            minicon_platform::process::ProcessObservation::Live {
                 start_identity: Some(after),
             } if after == start_identity => "same-identity",
-            agenterm_platform::process::ProcessObservation::Dead { .. } => "exited",
+            minicon_platform::process::ProcessObservation::Dead { .. } => "exited",
             _ => "changed-or-unavailable",
         };
         let mut windows_after = None;

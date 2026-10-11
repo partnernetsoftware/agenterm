@@ -497,8 +497,8 @@ pub(crate) fn terminal_scrollbar_geometry(
     scrollback_offset: usize,
     max_scrollback: usize,
 ) -> TerminalScrollbarGeometry {
-    let geometry = agenterm_ui_core::terminal_scrollbar_geometry(
-        agenterm_ui_core::Rect {
+    let geometry = minicon_ui_core::terminal_scrollbar_geometry(
+        minicon_ui_core::Rect {
             left: terminal.left,
             top: terminal.top,
             right: terminal.right,
@@ -530,15 +530,15 @@ pub(crate) fn scrollback_for_thumb_top(
     thumb_top: i32,
     max_scrollback: usize,
 ) -> usize {
-    agenterm_ui_core::scrollback_for_thumb_top(
-        agenterm_ui_core::ScrollbarGeometry {
-            track: agenterm_ui_core::Rect {
+    minicon_ui_core::scrollback_for_thumb_top(
+        minicon_ui_core::ScrollbarGeometry {
+            track: minicon_ui_core::Rect {
                 left: geometry.track.left,
                 top: geometry.track.top,
                 right: geometry.track.right,
                 bottom: geometry.track.bottom,
             },
-            thumb: agenterm_ui_core::Rect {
+            thumb: minicon_ui_core::Rect {
                 left: geometry.thumb.left,
                 top: geometry.thumb.top,
                 right: geometry.thumb.right,
@@ -565,15 +565,15 @@ pub(crate) fn scrollbar_hit_test(
     x: i32,
     y: i32,
 ) -> Option<ScrollbarHit> {
-    let hit = agenterm_ui_core::scrollbar_hit_test(
-        &agenterm_ui_core::ScrollbarGeometry {
-            track: agenterm_ui_core::Rect {
+    let hit = minicon_ui_core::scrollbar_hit_test(
+        &minicon_ui_core::ScrollbarGeometry {
+            track: minicon_ui_core::Rect {
                 left: geometry.track.left,
                 top: geometry.track.top,
                 right: geometry.track.right,
                 bottom: geometry.track.bottom,
             },
-            thumb: agenterm_ui_core::Rect {
+            thumb: minicon_ui_core::Rect {
                 left: geometry.thumb.left,
                 top: geometry.thumb.top,
                 right: geometry.thumb.right,
@@ -584,9 +584,9 @@ pub(crate) fn scrollbar_hit_test(
         y,
     )?;
     Some(match hit {
-        agenterm_ui_core::ScrollbarHit::Thumb => ScrollbarHit::Thumb,
-        agenterm_ui_core::ScrollbarHit::TrackAbove => ScrollbarHit::TrackAbove,
-        agenterm_ui_core::ScrollbarHit::TrackBelow => ScrollbarHit::TrackBelow,
+        minicon_ui_core::ScrollbarHit::Thumb => ScrollbarHit::Thumb,
+        minicon_ui_core::ScrollbarHit::TrackAbove => ScrollbarHit::TrackAbove,
+        minicon_ui_core::ScrollbarHit::TrackBelow => ScrollbarHit::TrackBelow,
     })
 }
 

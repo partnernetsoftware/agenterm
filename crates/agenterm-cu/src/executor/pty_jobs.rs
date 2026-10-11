@@ -13,7 +13,7 @@ use std::{
 };
 
 use agenterm_control_client::{ControlClient, Intent};
-use agenterm_platform::{
+use minicon_platform::{
     filesystem::{host_directories, protect_private_directory},
     locking::{LockErrorKind, PathLock},
     process_spawn::spawn_detached_child,
@@ -419,7 +419,7 @@ pub(super) fn pty_prune_payload(
         ));
     }
     let initial_identity =
-        agenterm_platform::file_identity::path_identity(&directory).map_err(|error| {
+        minicon_platform::file_identity::path_identity(&directory).map_err(|error| {
             CuError::new(
                 "pty_job_state_unavailable",
                 format!("could not identify named PTY job state: {error}"),
@@ -447,7 +447,7 @@ pub(super) fn pty_prune_payload(
         ));
     }
     let current_identity =
-        agenterm_platform::file_identity::path_identity(&directory).map_err(|error| {
+        minicon_platform::file_identity::path_identity(&directory).map_err(|error| {
             CuError::new(
                 "pty_job_state_changed",
                 format!("could not re-identify named PTY job state: {error}"),

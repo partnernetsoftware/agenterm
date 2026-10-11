@@ -8,10 +8,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use agenterm_platform::filesystem::{
+use minicon_platform::filesystem::{
     host_directories, protect_private_directory, write_private_atomic,
 };
-use agenterm_platform::filesystem_open::{ExistingEntryType, open_existing_path};
+use minicon_platform::filesystem_open::{ExistingEntryType, open_existing_path};
 use serde::{Deserialize, Serialize};
 
 pub const ACTIVE_PORT_FILE: &str = "DevToolsActivePort";

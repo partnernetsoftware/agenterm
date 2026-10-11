@@ -5,7 +5,7 @@
 //! of the libagenterm dynamic library (`agenterm.dll` / `libagenterm.so` /
 //! `libagenterm.dylib`). The library is located once and cached in a
 //! `OnceLock`; a failed load keeps every candidate path so callers can report
-//! exactly what was tried. There is no `agenterm-platform` / `agenterm-abi`
+//! exactly what was tried. There is no `minicon-platform` / `agenterm-abi`
 //! static linking here: every symbol is resolved from the loaded library at
 //! runtime.
 //!

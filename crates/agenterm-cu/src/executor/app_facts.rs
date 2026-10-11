@@ -8,7 +8,7 @@ pub(super) fn app_facts_payload(
     verify: bool,
     entitlements: bool,
 ) -> Result<serde_json::Value, CuError> {
-    let options = agenterm_platform::app_facts::AppFactsOptions {
+    let options = minicon_platform::app_facts::AppFactsOptions {
         signing,
         verify,
         entitlements,
@@ -24,15 +24,15 @@ pub(super) fn app_facts_payload(
 
 pub(super) fn query_app_facts(
     selector: &str,
-    options: agenterm_platform::app_facts::AppFactsOptions,
-) -> Result<agenterm_platform::app_facts::AppFacts, agenterm_platform::app_facts::AppFactsError> {
+    options: minicon_platform::app_facts::AppFactsOptions,
+) -> Result<minicon_platform::app_facts::AppFacts, minicon_platform::app_facts::AppFactsError> {
     let candidates = app_facts_selector_candidates(selector);
     let mut last_not_found = None;
     for candidate in candidates {
-        match agenterm_platform::app_facts::query(&candidate, options) {
+        match minicon_platform::app_facts::query(&candidate, options) {
             Ok(facts) => return Ok(facts),
             Err(error)
-                if error.kind() == agenterm_platform::app_facts::AppFactsErrorKind::NotFound =>
+                if error.kind() == minicon_platform::app_facts::AppFactsErrorKind::NotFound =>
             {
                 last_not_found = Some(error);
             }
@@ -40,8 +40,8 @@ pub(super) fn query_app_facts(
         }
     }
     Err(last_not_found.unwrap_or_else(|| {
-        agenterm_platform::app_facts::AppFactsError::new(
-            agenterm_platform::app_facts::AppFactsErrorKind::NotFound,
+        minicon_platform::app_facts::AppFactsError::new(
+            minicon_platform::app_facts::AppFactsErrorKind::NotFound,
             "app_facts_not_found",
             app_facts_not_found_message(selector),
         )
@@ -169,7 +169,7 @@ fn app_facts_not_found_message(selector: &str) -> String {
     }
 }
 
-pub(super) fn app_facts_error(error: agenterm_platform::app_facts::AppFactsError) -> CuError {
+pub(super) fn app_facts_error(error: minicon_platform::app_facts::AppFactsError) -> CuError {
     CuError::new(error.code(), error.message())
 }
 
@@ -179,8 +179,8 @@ mod tests {
 
     #[test]
     fn platform_error_codes_survive_the_product_boundary() {
-        let error = agenterm_platform::app_facts::AppFactsError::new(
-            agenterm_platform::app_facts::AppFactsErrorKind::Ambiguous,
+        let error = minicon_platform::app_facts::AppFactsError::new(
+            minicon_platform::app_facts::AppFactsErrorKind::Ambiguous,
             "app_facts_ambiguous",
             "more than one app matched",
         );

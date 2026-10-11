@@ -215,7 +215,7 @@ fn load_image_at(root: &Path, between: &dyn Fn()) -> Result<LoadedChassisImage, 
                 .to_owned(),
         );
     }
-    let native_cell = agenterm_platform::chassis_loader::native_cell()
+    let native_cell = minicon_platform::chassis_loader::native_cell()
         .ok_or_else(|| "this OS/ISA has no Chassis-L1 loader cell".to_owned())?;
     // The id names the bytes read here. The same set is read again after
     // every check and parse below; if the directory changed in between, the
@@ -413,7 +413,7 @@ fn validate_native_loader(root: &Path, cell: &str, loader: &Path) -> Result<(), 
 
     let bytes = std::fs::read(loader)
         .map_err(|error| format!("cannot read native chassis loader: {error}"))?;
-    agenterm_platform::chassis_loader::validate_executable(loader, &bytes)
+    minicon_platform::chassis_loader::validate_executable(loader, &bytes)
         .map_err(|error| format!("native chassis loader for cell {cell}: {error}"))?;
     let actual_sha = sha256_hex(&bytes);
     if &actual_sha != expected_sha {
@@ -504,8 +504,8 @@ mod tests {
     }
 
     fn executable_bytes(cell: &str) -> Vec<u8> {
-        let mut bytes = if Some(cell) == agenterm_platform::chassis_loader::native_cell() {
-            agenterm_platform::chassis_loader::native_executable_header().to_vec()
+        let mut bytes = if Some(cell) == minicon_platform::chassis_loader::native_cell() {
+            minicon_platform::chassis_loader::native_executable_header().to_vec()
         } else {
             b"non-native-loader".to_vec()
         };
@@ -514,7 +514,7 @@ mod tests {
     }
 
     fn make_executable(path: &Path) {
-        agenterm_platform::chassis_loader::make_executable(path).expect("executable");
+        minicon_platform::chassis_loader::make_executable(path).expect("executable");
     }
 
     #[test]
@@ -565,7 +565,7 @@ mod tests {
         let second = load_image(tmp.path()).expect("load again");
         assert_eq!(first.identity(), second.identity());
         assert_eq!(first.identity().image_id.len(), 64);
-        let cell = agenterm_platform::chassis_loader::native_cell().expect("cell");
+        let cell = minicon_platform::chassis_loader::native_cell().expect("cell");
         assert_eq!(first.identity().cell, cell);
         assert_eq!(
             first.identity().l1_sha256,

@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use agenterm_platform::{
+use minicon_platform::{
     privilege_authorization::{
         PrivilegeAuthorizationDecision, PrivilegeAuthorizationErrorKind,
         verify_macos_authorization_proof,

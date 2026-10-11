@@ -20,7 +20,7 @@ pub(super) fn file_watch_payload(
         max_events,
         control,
         &|path, duration, max, cancelled| {
-            agenterm_platform::filesystem_watch::watch_directory_controlled(
+            minicon_platform::filesystem_watch::watch_directory_controlled(
                 path, duration, max, cancelled,
             )
         },
@@ -41,8 +41,8 @@ where
         usize,
         &dyn Fn() -> bool,
     ) -> Result<
-        agenterm_platform::filesystem_watch::ControlledFilesystemWatchResult,
-        agenterm_platform::filesystem_watch::FilesystemWatchError,
+        minicon_platform::filesystem_watch::ControlledFilesystemWatchResult,
+        minicon_platform::filesystem_watch::FilesystemWatchError,
     >,
 {
     if path.is_empty()
@@ -75,7 +75,7 @@ where
 }
 
 fn file_watch_value(
-    result: agenterm_platform::filesystem_watch::FilesystemWatchResult,
+    result: minicon_platform::filesystem_watch::FilesystemWatchResult,
 ) -> serde_json::Value {
     serde_json::json!({
         "path": result.path,
@@ -97,9 +97,9 @@ fn file_watch_value(
 }
 
 fn map_file_watch_error(
-    error: agenterm_platform::filesystem_watch::FilesystemWatchError,
+    error: minicon_platform::filesystem_watch::FilesystemWatchError,
 ) -> CuError {
-    use agenterm_platform::filesystem_watch::FilesystemWatchErrorKind;
+    use minicon_platform::filesystem_watch::FilesystemWatchErrorKind;
     let code = match error.kind {
         FilesystemWatchErrorKind::Unsupported => "file_watch_unsupported",
         FilesystemWatchErrorKind::InvalidInput => "invalid_input",
@@ -111,7 +111,7 @@ fn map_file_watch_error(
 
 pub(super) fn file_inspect_payload(path: &str) -> Result<serde_json::Value, CuError> {
     let path = Path::new(path);
-    let mut details = agenterm_platform::filesystem_entry::inspect_path(path)
+    let mut details = minicon_platform::filesystem_entry::inspect_path(path)
         .map_err(|error| CuError::new("file_inspect_failed", error.to_string()))?;
 
     let identity = if details.facts.is_link_like() {
@@ -131,14 +131,14 @@ pub(super) fn file_inspect_payload(path: &str) -> Result<serde_json::Value, CuEr
                 })
             })
     } else {
-        let before = agenterm_platform::file_identity::path_identity(path)
+        let before = minicon_platform::file_identity::path_identity(path)
             .map_err(|error| CuError::new("file_identity_failed", error.to_string()))?;
         // Bracket the metadata snapshot with two identities. This prevents a
         // path replacement from publishing metadata for one object under the
         // identity of another.
-        details = agenterm_platform::filesystem_entry::inspect_path(path)
+        details = minicon_platform::filesystem_entry::inspect_path(path)
             .map_err(|error| CuError::new("file_inspect_failed", error.to_string()))?;
-        let after = agenterm_platform::file_identity::path_identity(path)
+        let after = minicon_platform::file_identity::path_identity(path)
             .map_err(|error| CuError::new("file_identity_failed", error.to_string()))?;
         if details.facts.is_link_like() || !before.same_object(after) {
             return Err(CuError::new(
@@ -190,12 +190,12 @@ pub(super) fn file_attributes_payload(
         .read(true)
         .open(path)
         .map_err(|error| CuError::new("file_attributes_open_failed", error.to_string()))?;
-    let binding = agenterm_platform::file_attributes::bind_regular_file(path, &file)
+    let binding = minicon_platform::file_attributes::bind_regular_file(path, &file)
         .map_err(map_file_attribute_error)?;
-    let observations = agenterm_platform::file_attributes::inspect_xattrs(
+    let observations = minicon_platform::file_attributes::inspect_xattrs(
         &file,
         binding,
-        agenterm_platform::file_attributes::XattrInspectLimits {
+        minicon_platform::file_attributes::XattrInspectLimits {
             include_values,
             ..Default::default()
         },
@@ -230,20 +230,20 @@ pub(super) fn file_mode_payload(
         .read(true)
         .open(path)
         .map_err(|error| CuError::new("file_mode_open_failed", error.to_string()))?;
-    let binding = agenterm_platform::file_attributes::bind_regular_file(path, &file)
+    let binding = minicon_platform::file_attributes::bind_regular_file(path, &file)
         .map_err(map_file_mode_error)?;
-    let plan = agenterm_platform::file_attributes::plan_mode(&file, binding, requested_mode)
+    let plan = minicon_platform::file_attributes::plan_mode(&file, binding, requested_mode)
         .map_err(map_file_mode_error)?;
     let identity = binding.identity();
     let mut after_mode = plan.before_mode;
     let mut performed = false;
     let mut verified = apply && plan.before_mode == plan.requested_mode;
     if verified {
-        agenterm_platform::file_attributes::verify_mode_plan(&file, &plan)
+        minicon_platform::file_attributes::verify_mode_plan(&file, &plan)
             .map_err(map_file_mode_error)?;
     }
     if apply && plan.before_mode != plan.requested_mode {
-        let result = agenterm_platform::file_attributes::apply_mode(&file, &plan)
+        let result = minicon_platform::file_attributes::apply_mode(&file, &plan)
             .map_err(map_file_mode_error)?;
         after_mode = result.after_mode;
         performed = true;
@@ -310,7 +310,7 @@ fn file_xattr_payload(
         .read(true)
         .open(path)
         .map_err(|error| CuError::new("file_xattr_open_failed", error.to_string()))?;
-    let binding = agenterm_platform::file_attributes::bind_regular_file(path, &file)
+    let binding = minicon_platform::file_attributes::bind_regular_file(path, &file)
         .map_err(map_file_xattr_error)?;
     let operation = match &request {
         XattrRequest::Set { .. } => "set",
@@ -318,20 +318,20 @@ fn file_xattr_payload(
         XattrRequest::ClearQuarantine => "quarantine-clear",
     };
     let plan = match request {
-        XattrRequest::Set { name, value } => agenterm_platform::file_attributes::plan_xattr_set(
+        XattrRequest::Set { name, value } => minicon_platform::file_attributes::plan_xattr_set(
             &file,
             binding,
             name,
             value,
             MAX_EXISTING_VALUE_BYTES,
         ),
-        XattrRequest::Remove { name } => agenterm_platform::file_attributes::plan_xattr_remove(
+        XattrRequest::Remove { name } => minicon_platform::file_attributes::plan_xattr_remove(
             &file,
             binding,
             name,
             MAX_EXISTING_VALUE_BYTES,
         ),
-        XattrRequest::ClearQuarantine => agenterm_platform::file_attributes::plan_clear_quarantine(
+        XattrRequest::ClearQuarantine => minicon_platform::file_attributes::plan_clear_quarantine(
             &file,
             binding,
             MAX_EXISTING_VALUE_BYTES,
@@ -344,23 +344,23 @@ fn file_xattr_payload(
         .as_ref()
         .map(|state| (state.value.len(), state.sha256.clone()));
     let requested = match &plan.action {
-        agenterm_platform::file_attributes::XattrAction::Set(value) => {
+        minicon_platform::file_attributes::XattrAction::Set(value) => {
             Some((value.len(), sha256_hex(value)))
         }
-        agenterm_platform::file_attributes::XattrAction::Remove => None,
+        minicon_platform::file_attributes::XattrAction::Remove => None,
     };
     let changed = match (&plan.expected_before, &plan.action) {
-        (Some(state), agenterm_platform::file_attributes::XattrAction::Set(value)) => {
+        (Some(state), minicon_platform::file_attributes::XattrAction::Set(value)) => {
             state.value != *value
         }
-        (None, agenterm_platform::file_attributes::XattrAction::Remove) => false,
+        (None, minicon_platform::file_attributes::XattrAction::Remove) => false,
         _ => true,
     };
     if apply && changed {
-        agenterm_platform::file_attributes::apply_xattr(&file, &plan)
+        minicon_platform::file_attributes::apply_xattr(&file, &plan)
             .map_err(map_file_xattr_error)?;
     } else if apply {
-        agenterm_platform::file_attributes::verify_xattr_plan(&file, &plan)
+        minicon_platform::file_attributes::verify_xattr_plan(&file, &plan)
             .map_err(map_file_xattr_error)?;
     }
     let identity = binding.identity();
@@ -386,9 +386,9 @@ fn file_xattr_payload(
 }
 
 fn map_file_attribute_error(
-    error: agenterm_platform::file_attributes::FileAttributeError,
+    error: minicon_platform::file_attributes::FileAttributeError,
 ) -> CuError {
-    use agenterm_platform::file_attributes::FileAttributeErrorKind;
+    use minicon_platform::file_attributes::FileAttributeErrorKind;
     let code = match error.kind {
         FileAttributeErrorKind::Unsupported => "file_attributes_unsupported",
         FileAttributeErrorKind::NotRegularFile => "file_attributes_not_regular",
@@ -404,8 +404,8 @@ fn map_file_attribute_error(
     CuError::new(code, error.to_string())
 }
 
-fn map_file_mode_error(error: agenterm_platform::file_attributes::FileAttributeError) -> CuError {
-    use agenterm_platform::file_attributes::FileAttributeErrorKind;
+fn map_file_mode_error(error: minicon_platform::file_attributes::FileAttributeError) -> CuError {
+    use minicon_platform::file_attributes::FileAttributeErrorKind;
     let code = match error.kind {
         FileAttributeErrorKind::Unsupported => "file_mode_unsupported",
         FileAttributeErrorKind::NotRegularFile => "file_mode_not_regular",
@@ -425,8 +425,8 @@ fn map_file_mode_error(error: agenterm_platform::file_attributes::FileAttributeE
     CuError::new(code, error.to_string())
 }
 
-fn map_file_xattr_error(error: agenterm_platform::file_attributes::FileAttributeError) -> CuError {
-    use agenterm_platform::file_attributes::FileAttributeErrorKind;
+fn map_file_xattr_error(error: minicon_platform::file_attributes::FileAttributeError) -> CuError {
+    use minicon_platform::file_attributes::FileAttributeErrorKind;
     let code = match error.kind {
         FileAttributeErrorKind::Unsupported => "file_xattr_unsupported",
         FileAttributeErrorKind::NotRegularFile => "file_xattr_not_regular",
@@ -520,15 +520,15 @@ mod tests {
 
     fn watch_result(
         cancelled: bool,
-    ) -> agenterm_platform::filesystem_watch::ControlledFilesystemWatchResult {
-        agenterm_platform::filesystem_watch::ControlledFilesystemWatchResult {
-            observation: agenterm_platform::filesystem_watch::FilesystemWatchResult {
+    ) -> minicon_platform::filesystem_watch::ControlledFilesystemWatchResult {
+        minicon_platform::filesystem_watch::ControlledFilesystemWatchResult {
+            observation: minicon_platform::filesystem_watch::FilesystemWatchResult {
                 provider: "fixture-watch".into(),
                 mode: "native-events".into(),
                 path: "fixture".into(),
                 duration_ms: 60_000,
                 max_events: 8,
-                events: vec![agenterm_platform::filesystem_watch::FilesystemWatchEvent {
+                events: vec![minicon_platform::filesystem_watch::FilesystemWatchEvent {
                     t_ms: 7,
                     kind: "created".into(),
                     name: "item".into(),

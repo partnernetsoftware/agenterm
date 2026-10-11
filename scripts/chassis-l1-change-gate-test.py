@@ -38,8 +38,8 @@ def assert_reason(path: str, reason: str) -> None:
 
 def main() -> None:
     assert_reason("src/bin/agenterm.rs", "loader")
-    assert_reason("crates/agenterm-platform/src/window_host.rs", "window")
-    assert_reason("crates/agenterm-platform/src/window_op.rs", "window")
+    assert_reason("crates/minicon-platform/src/window_host.rs", "window")
+    assert_reason("crates/minicon-platform/src/window_op.rs", "window")
     assert_reason("src/pty/mod.rs", "pty")
     assert_reason("src/ipc_transport.rs", "ipc")
 
@@ -49,7 +49,7 @@ def main() -> None:
         "crates/agenterm-chassis/src/bytecode.rs",
         "crates/agenterm-chassis/src/vm.rs",
         "crates/agenterm-cu/src/lib.rs",
-        "crates/agenterm-platform/src/clipboard.rs",
+        "crates/minicon-platform/src/clipboard.rs",
         "src/frontend/window.rs",
         "src/platform/adapters/unix/frontend/render.rs",
         "scripts/chassis-compose-product.py",

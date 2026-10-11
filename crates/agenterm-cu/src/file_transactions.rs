@@ -11,7 +11,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use agenterm_platform::{
+use minicon_platform::{
     entropy::secure_random_array,
     file_identity::file_identity,
     filesystem::{
@@ -1229,7 +1229,7 @@ mod tests {
         };
         assert_eq!(
             error.kind(),
-            agenterm_platform::locking::LockErrorKind::Contended
+            minicon_platform::locking::LockErrorKind::Contended
         );
         drop(_held);
         fs::remove_dir_all(root).unwrap();

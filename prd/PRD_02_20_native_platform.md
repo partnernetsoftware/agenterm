@@ -30,7 +30,7 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 ## Product outcome
 
 - [x] the Platform Facade is an independently consumable
-  `crates/agenterm-platform` workspace package. Process and PTY contracts,
+  `crates/minicon-platform` workspace package. Process and PTY contracts,
   services, private target selection and all three native adapters moved without
   retaining duplicate source. Platform shell defaults live under the process
   feature; shared DPI/geometry conversion is exposed by the window feature.
@@ -127,7 +127,7 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 ## Target tree
 
 ```text
-crates/agenterm-platform/
+crates/minicon-platform/
 ├─ Cargo.toml             default-light capability features
 └─ src/
    ├─ lib.rs              stable public capability/status surface
@@ -178,7 +178,7 @@ enter the crate only as caller-supplied platform-neutral values.
 
 - [x] revision-4 Platform Facade is the sole production native boundary
 
-`agenterm-platform` is not merely a collection of GUI helpers. It is the reusable
+`minicon-platform` is not merely a collection of GUI helpers. It is the reusable
 middle layer between product code and an operating system. Product/domain
 modules consume its typed feature facades, while root `src/platform` contains
 only AgenTerm product extensions and neutral error/protocol projection. Product
@@ -198,7 +198,7 @@ being forced through an OS widget API.
 The migration is complete only when all of the following are true:
 
 - [~] production `#[cfg(windows|unix|target_os|target_family)]` selection for
-  reusable mechanisms is confined to `crates/agenterm-platform` private
+  reusable mechanisms is confined to `crates/minicon-platform` private
   selection/adapters and unavoidable binary-entry bootstrap code; test-only
   fixtures are excluded from this count. Root product extensions contain no
   native API or platform-selection implementation.
@@ -479,7 +479,7 @@ integrated validation recorded below):
   `services::script_{clipboard,window,files,stream}` projections and their two
   product-local contract aliases were deleted instead of being retained as a
   second dormant facade. The reusable clipboard, process-window, filesystem,
-  and pipe-probe mechanisms remain owned and tested by `agenterm-platform`;
+  and pipe-probe mechanisms remain owned and tested by `minicon-platform`;
   current product callers use their live facades directly.
 - [x] Script worker supervision and audit serialization now call
   `services::supervisor_audit → selected → adapters`; their former product
@@ -699,7 +699,7 @@ integrated validation recorded below):
   forwarding facades are explicitly excluded because they would preserve the
   ownership leak instead of establishing the external crate boundary.
 - [x] The neutral control-window contract and selected Windows native host are
-  implemented in `agenterm-platform`. The host owns native class/window/child
+  implemented in `minicon-platform`. The host owns native class/window/child
   controls, the timer/message loop, deferred destruction, pre-translation
   consumable key preview for child edits, minimized resize facts, UTF-16 text
   decoding, named-key normalization, capture/focus/cursor/control operations,

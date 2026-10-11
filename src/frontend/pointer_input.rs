@@ -193,7 +193,7 @@ fn coordinate(
 /// Named keys are matched case-insensitively; anything else is taken as literal
 /// text so a caller can type a character (or a whole word) directly.
 fn parse_key(value: &str) -> Result<KeyRequest, String> {
-    use agenterm_platform::input::NamedKey;
+    use minicon_platform::input::NamedKey;
 
     if value.is_empty() {
         return Err("ui_input_key_invalid".to_owned());

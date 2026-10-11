@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use agenterm_platform::{
+use minicon_platform::{
     file_identity::{FileIdentity, file_identity},
     filesystem::write_private_atomic,
     filesystem_cleanup::remove_tree,
@@ -42,7 +42,7 @@ use crate::browser_bridge::install_for_current_user_host;
 use crate::browser_bridge::{ACU_NATIVE_HOST_NAME, materialize_for_owned_profile_host};
 use crate::browser_bridge::{BrowserBridgeInstall, BrowserBridgeInstallError, BrowserSetupEffect};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-use agenterm_platform::filesystem::protect_private_directory;
+use minicon_platform::filesystem::protect_private_directory;
 
 const MARKER_BYTES: &[u8] = b"agenterm-cu-browser-session-v1\n";
 const MAX_INVENTORY: usize = 4_096;

@@ -2115,7 +2115,7 @@ impl Executor {
                 bundle_id,
                 *timeout_ms,
                 *expect_accepted,
-                agenterm_platform::simulator::SimulatorAppAction::Launch,
+                minicon_platform::simulator::SimulatorAppAction::Launch,
             ),
             Command::SimulatorTerminate {
                 udid,
@@ -2128,7 +2128,7 @@ impl Executor {
                 bundle_id,
                 *timeout_ms,
                 *expect_accepted,
-                agenterm_platform::simulator::SimulatorAppAction::Terminate,
+                minicon_platform::simulator::SimulatorAppAction::Terminate,
             ),
             Command::PointerMove { x, y, .. } => pointer_move(*x, *y),
             Command::PointerScroll { dx, dy, .. } => {

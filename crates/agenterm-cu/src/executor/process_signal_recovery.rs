@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use agenterm_platform::{
+use minicon_platform::{
     filesystem::{protect_private_directory, sync_parent, write_private_atomic},
     filesystem_open::{ExistingEntryType, open_existing_path},
     locking::PathLock,
@@ -724,20 +724,20 @@ fn recover_member(
     was_stopped: bool,
     freeze: FreezePhase,
 ) -> Result<(&'static str, bool), CuError> {
-    match agenterm_platform::process_observation::observe(pid) {
-        agenterm_platform::process_observation::ProcessObservation::Dead { .. } => {
+    match minicon_platform::process_observation::observe(pid) {
+        minicon_platform::process_observation::ProcessObservation::Dead { .. } => {
             return Ok(("exited", true));
         }
-        agenterm_platform::process_observation::ProcessObservation::Live {
+        minicon_platform::process_observation::ProcessObservation::Live {
             start_identity: Some(identity),
         } if identity != expected_identity => return Ok(("replaced", true)),
-        agenterm_platform::process_observation::ProcessObservation::Live {
+        minicon_platform::process_observation::ProcessObservation::Live {
             start_identity: Some(_),
         } => {}
-        agenterm_platform::process_observation::ProcessObservation::Live {
+        minicon_platform::process_observation::ProcessObservation::Live {
             start_identity: None,
         }
-        | agenterm_platform::process_observation::ProcessObservation::Unknown { .. } => {
+        | minicon_platform::process_observation::ProcessObservation::Unknown { .. } => {
             return Err(CuError::new(
                 "process_tree_recovery_identity_unavailable",
                 format!("pid {pid} may still be live but has no stable identity"),
@@ -751,13 +751,13 @@ fn recover_member(
         }
     }
     let reference =
-        match agenterm_platform::process_reference::ProcessReference::open_for_termination(pid) {
+        match minicon_platform::process_reference::ProcessReference::open_for_termination(pid) {
             Ok(reference) => reference,
-            Err(error) => match agenterm_platform::process_observation::observe(pid) {
-                agenterm_platform::process_observation::ProcessObservation::Dead { .. } => {
+            Err(error) => match minicon_platform::process_observation::observe(pid) {
+                minicon_platform::process_observation::ProcessObservation::Dead { .. } => {
                     return Ok(("exited", true));
                 }
-                agenterm_platform::process_observation::ProcessObservation::Live {
+                minicon_platform::process_observation::ProcessObservation::Live {
                     start_identity: Some(identity),
                 } if identity != expected_identity => return Ok(("replaced", true)),
                 _ => {
@@ -794,7 +794,7 @@ fn recover_member(
             false,
         ));
     }
-    let stopped = agenterm_platform::process_metrics::is_stopped(pid)
+    let stopped = minicon_platform::process_metrics::is_stopped(pid)
         .map_err(|error| CuError::new("process_tree_recovery_verify_failed", error.to_string()))?;
     if let Some(disposition) = observed_exact_identity(pid, expected_identity)? {
         return Ok(match disposition {
@@ -821,7 +821,7 @@ fn recover_member(
             RecoveryDisposition::Replaced => ("replaced", true),
         });
     }
-    if agenterm_platform::process_metrics::is_stopped(pid)
+    if minicon_platform::process_metrics::is_stopped(pid)
         .map_err(|error| CuError::new("process_tree_recovery_verify_failed", error.to_string()))?
     {
         return Err(CuError::new(
@@ -851,20 +851,20 @@ fn observed_exact_identity(
     pid: u32,
     expected_identity: &str,
 ) -> Result<Option<RecoveryDisposition>, CuError> {
-    match agenterm_platform::process_observation::observe(pid) {
-        agenterm_platform::process_observation::ProcessObservation::Dead { .. } => {
+    match minicon_platform::process_observation::observe(pid) {
+        minicon_platform::process_observation::ProcessObservation::Dead { .. } => {
             Ok(Some(RecoveryDisposition::Exited))
         }
-        agenterm_platform::process_observation::ProcessObservation::Live {
+        minicon_platform::process_observation::ProcessObservation::Live {
             start_identity: Some(identity),
         } if identity != expected_identity => Ok(Some(RecoveryDisposition::Replaced)),
-        agenterm_platform::process_observation::ProcessObservation::Live {
+        minicon_platform::process_observation::ProcessObservation::Live {
             start_identity: Some(_),
         } => Ok(None),
-        agenterm_platform::process_observation::ProcessObservation::Live {
+        minicon_platform::process_observation::ProcessObservation::Live {
             start_identity: None,
         }
-        | agenterm_platform::process_observation::ProcessObservation::Unknown { .. } => {
+        | minicon_platform::process_observation::ProcessObservation::Unknown { .. } => {
             Err(CuError::new(
                 "process_tree_recovery_identity_unavailable",
                 format!("pid {pid} may still be live but has no stable identity"),
@@ -948,20 +948,20 @@ fn terminal_outcome(transaction: &Transaction) -> Result<Value, CuError> {
 
 #[cfg(all(test, not(windows)))]
 fn live_identity(pid: u32) -> Result<String, CuError> {
-    match agenterm_platform::process_observation::observe(pid) {
-        agenterm_platform::process_observation::ProcessObservation::Live {
+    match minicon_platform::process_observation::observe(pid) {
+        minicon_platform::process_observation::ProcessObservation::Live {
             start_identity: Some(start_identity),
         } => Ok(start_identity),
-        agenterm_platform::process_observation::ProcessObservation::Live {
+        minicon_platform::process_observation::ProcessObservation::Live {
             start_identity: None,
         } => Err(CuError::new(
             "process_tree_recovery_identity_unavailable",
             "live process has no stable start identity",
         )),
-        agenterm_platform::process_observation::ProcessObservation::Dead { reason } => {
+        minicon_platform::process_observation::ProcessObservation::Dead { reason } => {
             Err(CuError::new("process_tree_recovery_member_exited", reason))
         }
-        agenterm_platform::process_observation::ProcessObservation::Unknown { reason } => Err(
+        minicon_platform::process_observation::ProcessObservation::Unknown { reason } => Err(
             CuError::new("process_tree_recovery_identity_unavailable", reason),
         ),
         _ => Err(CuError::new(
@@ -1108,7 +1108,7 @@ fn valid_identity(identity: &str) -> bool {
 }
 
 fn random_id() -> Result<String, CuError> {
-    let bytes = agenterm_platform::entropy::secure_random_array::<16>()
+    let bytes = minicon_platform::entropy::secure_random_array::<16>()
         .map_err(|error| state_error(error.to_string()))?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
@@ -1146,7 +1146,7 @@ mod tests {
     #[cfg(not(windows))]
     fn wait_stopped(pid: u32, expected: bool) {
         for _ in 0..100 {
-            if agenterm_platform::process_metrics::is_stopped(pid).unwrap() == expected {
+            if minicon_platform::process_metrics::is_stopped(pid).unwrap() == expected {
                 return;
             }
             std::thread::sleep(std::time::Duration::from_millis(5));
@@ -1496,7 +1496,7 @@ mod tests {
         let pid = child.id();
         let identity = live_identity(pid).unwrap();
         let reference =
-            agenterm_platform::process_reference::ProcessReference::open_for_termination(pid)
+            minicon_platform::process_reference::ProcessReference::open_for_termination(pid)
                 .unwrap();
         let mut receipts = ReceiptLog::open_in(&root, crate::TargetRef::Current).unwrap();
         let ticket = reserve_tree_receipt(&mut receipts, pid, &identity);
@@ -1543,10 +1543,10 @@ mod tests {
         let first_identity = live_identity(first_id).unwrap();
         let second_identity = live_identity(second_id).unwrap();
         let first_ref =
-            agenterm_platform::process_reference::ProcessReference::open_for_termination(first_id)
+            minicon_platform::process_reference::ProcessReference::open_for_termination(first_id)
                 .unwrap();
         let second_ref =
-            agenterm_platform::process_reference::ProcessReference::open_for_termination(second_id)
+            minicon_platform::process_reference::ProcessReference::open_for_termination(second_id)
                 .unwrap();
         let mut receipts = ReceiptLog::open_in(&root, crate::TargetRef::Current).unwrap();
         let ticket = reserve_tree_receipt(&mut receipts, first_id, &first_identity);
@@ -1608,7 +1608,7 @@ mod tests {
         let pid = child.id();
         let identity = live_identity(pid).unwrap();
         let reference =
-            agenterm_platform::process_reference::ProcessReference::open_for_termination(pid)
+            minicon_platform::process_reference::ProcessReference::open_for_termination(pid)
                 .unwrap();
         let mut receipts = ReceiptLog::open_in(&root, crate::TargetRef::Current).unwrap();
         let ticket = reserve_tree_receipt(&mut receipts, pid, &identity);

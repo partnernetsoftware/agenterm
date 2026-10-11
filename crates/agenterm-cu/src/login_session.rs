@@ -9,7 +9,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use agenterm_platform::login_session::{
+use minicon_platform::login_session::{
     LoginSessionError, LoginSessionErrorKind, LoginSessionInventory, LoginSessionProvider,
 };
 use serde::{Deserialize, Serialize};
@@ -142,13 +142,13 @@ pub struct NativeSessionLockProvider;
 
 impl SessionLockProvider for NativeSessionLockProvider {
     fn inventory(&mut self) -> Result<LoginSessionStatus, CuError> {
-        agenterm_platform::login_session::inventory()
+        minicon_platform::login_session::inventory()
             .map(platform_inventory)
             .map_err(platform_error)
     }
 
     fn current_user_id(&mut self) -> Result<u32, CuError> {
-        let identity = agenterm_platform::user_identity::current_user_identity().map_err(|_| {
+        let identity = minicon_platform::user_identity::current_user_identity().map_err(|_| {
             CuError::new(
                 "login_session_current_user_unavailable",
                 "the current operating-system user identity is unavailable",
@@ -166,7 +166,7 @@ impl SessionLockProvider for NativeSessionLockProvider {
     }
 
     fn deliver_lock(&mut self) -> Result<(), SessionLockDeliveryError> {
-        agenterm_platform::login_session::lock_console().map_err(|error| {
+        minicon_platform::login_session::lock_console().map_err(|error| {
             let typed = platform_error(error);
             if matches!(
                 typed.code.as_str(),

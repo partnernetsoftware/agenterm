@@ -101,7 +101,7 @@ Application layer（能力包）可以独立发布、独立更新，不用重新
 ### 3.2 组件（对照 `research/dynamic-core/assembled/`，全部真机验证过）
 
 ```
-crates/agenterm-dynacore/          机制 crate，无产品名（同 agenterm-platform 的定位）
+crates/agenterm-dynacore/          机制 crate，无产品名（同 minicon-platform 的定位）
 ├─ ir.rs        中立 IR 定义（Q1 的类型化三地址 IR，裁掉 OS-content 相关的 intent 词表——
 │                不需要了，只留 fleet_call 一种"调用宿主"的原语）
 ├─ verify.rs    良构验证门（移植 Q19，加 Q22 发现的 F1 修复：验证要覆盖 fleet_call 的
@@ -128,7 +128,7 @@ src/script_dynacore_host.rs        宿主绑定（对齐 script_rh_host.rs 的�
 ## 4. 验收标准（v1）
 
 1. `agenterm-dynacore` crate 存在，`cargo check --workspace` 干净，未挂进任何禁止的
-   跨平台边界（`crates/agenterm-platform` 之外不得出现原生 marker，见 `ARCHITECTURE.md` §6.1）。
+   跨平台边界（`crates/minicon-platform` 之外不得出现原生 marker，见 `ARCHITECTURE.md` §6.1）。
 2. 一份 pack（内容寻址、构建时钉哈希）能被加载、验证、解释执行，真实调用至少一个
    `fleet.*` 操作并观察到效果（例如 `fleet.tabs.list`）。
 3. 故意构造的坏 pack（arity 不对、externid 越界）在执行前被拒绝，不 panic、不产生

@@ -2,7 +2,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use agenterm_platform::audio::{
+use minicon_platform::audio::{
     AudioEffect, AudioError, AudioErrorKind, AudioMutationResult, AudioOutputSettings,
     AudioOutputState, AudioRollback,
 };
@@ -120,14 +120,14 @@ pub struct NativeAudioProvider {
 
 impl AudioProvider for NativeAudioProvider {
     fn status(&mut self) -> Result<AudioState, CuError> {
-        match agenterm_platform::audio::query_default_output_result() {
-            agenterm_platform::audio::AudioQueryResult::Ok(host) => {
+        match minicon_platform::audio::query_default_output_result() {
+            minicon_platform::audio::AudioQueryResult::Ok(host) => {
                 self.last_provider = Some(host.provider.clone());
                 let state = project_state(host.state);
                 validate_state(&state)?;
                 Ok(state)
             }
-            agenterm_platform::audio::AudioQueryResult::Unsupported(unsupported) => {
+            minicon_platform::audio::AudioQueryResult::Unsupported(unsupported) => {
                 Err(crate::host_limit::audio_unsupported_detail(unsupported))
             }
         }
@@ -144,7 +144,7 @@ impl AudioProvider for NativeAudioProvider {
     ) -> Result<AudioMutationResult, AudioError> {
         let expected = native_state(expected)
             .map_err(|error| AudioError::invalid_native_value(error.message))?;
-        agenterm_platform::audio::apply_default_output_settings(
+        minicon_platform::audio::apply_default_output_settings(
             &expected,
             AudioOutputSettings {
                 volume_percent: desired.volume,
@@ -574,7 +574,7 @@ fn project_state(value: AudioOutputState) -> AudioState {
 fn native_state(value: &AudioState) -> Result<AudioOutputState, CuError> {
     let identity = decode_hex_32(&value.device.identity)?;
     Ok(AudioOutputState {
-        device: agenterm_platform::audio::AudioOutputDevice {
+        device: minicon_platform::audio::AudioOutputDevice {
             uid: value.device.uid.clone(),
             name: value.device.name.clone(),
             manufacturer: value.device.manufacturer.clone(),

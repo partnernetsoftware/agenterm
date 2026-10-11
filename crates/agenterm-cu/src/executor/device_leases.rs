@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use agenterm_platform::{
+use minicon_platform::{
     entropy::secure_random_array,
     process::{DetachedSpawnMode, spawn_detached_child},
     process_observation::{self, ProcessObservation},

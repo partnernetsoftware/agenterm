@@ -254,13 +254,13 @@ pub fn load_then<T, E>(
 #[cfg(all(feature = "loader", not(target_os = "linux")))]
 pub fn present_image(
     image: LoadedImage,
-) -> Result<(), agenterm_platform::window_host::PixelWindowError> {
+) -> Result<(), minicon_platform::window_host::PixelWindowError> {
     native::present(image)
 }
 
 #[cfg(all(feature = "loader", target_os = "linux"))]
 pub fn present_image(
     image: LoadedImage,
-) -> Result<(), agenterm_platform::chassis_present::ChassisPresentError> {
+) -> Result<(), minicon_platform::chassis_present::ChassisPresentError> {
     native::present(image)
 }

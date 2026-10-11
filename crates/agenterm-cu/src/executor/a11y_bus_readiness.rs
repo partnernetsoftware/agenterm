@@ -36,10 +36,10 @@ fn a11y_bus_alternatives() -> Vec<&'static str> {
 fn map_platform_readiness(
     result: Result<
         serde_json::Value,
-        agenterm_platform::contract::accessibility_tree::AccessibilityTreeError,
+        minicon_platform::contract::accessibility_tree::AccessibilityTreeError,
     >,
 ) -> serde_json::Value {
-    use agenterm_platform::contract::accessibility_tree::AccessibilityTreeError;
+    use minicon_platform::contract::accessibility_tree::AccessibilityTreeError;
     match result {
         Ok(value) => value,
         Err(AccessibilityTreeError::Unsupported { reason }) => {
@@ -67,12 +67,12 @@ fn map_platform_readiness(
 pub(super) fn a11y_bus_readiness_json() -> serde_json::Value {
     #[cfg(target_os = "linux")]
     {
-        map_platform_readiness(agenterm_platform::accessibility_tree::a11y_bus_readiness())
+        map_platform_readiness(minicon_platform::accessibility_tree::a11y_bus_readiness())
     }
     #[cfg(not(target_os = "linux"))]
     {
         map_platform_readiness(Err(
-            agenterm_platform::contract::accessibility_tree::AccessibilityTreeError::Unsupported {
+            minicon_platform::contract::accessibility_tree::AccessibilityTreeError::Unsupported {
                 reason: format!(
                     "org.a11y.Status is a Linux AT-SPI session-bus switch; on {} use unlock/doctor host guidance instead",
                     crate::mcu_surface::host_os()

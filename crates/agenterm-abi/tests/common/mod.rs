@@ -53,7 +53,7 @@ pub mod system_libs {
     /// / NS symbols pulled in via winit / core-*; the linker errors named):
     ///   CoreFoundation: _CF* 一族 —— _CFAbsoluteTimeGetCurrent
     ///     (winit EventLoopWaker::start_at), _CFArrayGetCount /
-    ///     _CFArrayGetValueAtIndex (agenterm_platform search_windows,
+    ///     _CFArrayGetValueAtIndex (minicon_platform search_windows,
     ///     winit MonitorHandle::video_modes, core_graphics CFArray::len),
     ///     _CFAttributedStringCreateMutable (core_foundation),
     ///     _CFBundleCopyBundleURL / _CFBundleCopyExecutableURL /

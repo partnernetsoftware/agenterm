@@ -203,7 +203,7 @@ P1 早于 P2 是刻意的：**两个不确定性不叠加 debug**。VM 装好当
    指令级正确性基本可信（Rosetta 2 与 Prism 都正确保持 x86 的 TSO 内存序），
    但**性能数字一律无效**，不得用于任何 perf 判断。
 2. **硬件探针类能力在 x86_64 格上读到的是虚拟值。** 本仓
-   `agenterm-platform` 的 `cache-hierarchy` / `processor-topology` /
+   `minicon-platform` 的 `cache-hierarchy` / `processor-topology` /
    `virtualization-probe` / `host-memory` 这几个 feature，在 Rosetta / Prism / VM 下
    拿到的是宿主或虚拟拓扑，**不是**目标平台真实拓扑。这几个面的验收仍需真机或 CI。
 3. **不覆盖 Windows 真机独有的签名/驱动路径**：Authenticode 信任链、
@@ -428,7 +428,7 @@ D3 承诺「可钉 glibc 下限」时随手写了 `2.17`——那是业界惯用
 
 ```
 ld.lld: error: undefined symbol: getrandom
-  >>> referenced by entropy.rs:9 (crates/agenterm-platform/src/adapters/linux/entropy.rs:9)
+  >>> referenced by entropy.rs:9 (crates/minicon-platform/src/adapters/linux/entropy.rs:9)
 ```
 
 `getrandom(2)` 的 glibc wrapper 是 **2.25** 才有的，本仓的 Linux entropy adapter 直接调它。
@@ -752,7 +752,7 @@ tabs 实际在快照**顶层**（`tabs[]`），不在 `layout` 下。
 
 这套装置一直只在 agenterm 这棵树上证明过。**一个只在它诞生的那棵树上work 的做法不是方法。**
 `~/repos/minicon` 是独立仓库，而且它按 git rev 消费
-`agenterm-platform` / `agenterm-ui-core`——是那个 crate 的**真实外部消费者**。
+`minicon-platform` / `minicon-ui-core`——是那个 crate 的**真实外部消费者**。
 它构建还快，这一点本身就切题：**用一个慢回路是没法测试回路的**。
 
 ### 六格构建：一次全过，零适配
@@ -766,7 +766,7 @@ tabs 实际在快照**顶层**（`tabs[]`），不在 `layout` 下。
 | aarch64-pc-windows-msvc | cargo-xwin | PASS | 664K |
 | x86_64-pc-windows-msvc | cargo-xwin | PASS | 716K |
 
-同样三个 driver，一行没改。顺带证明 **`agenterm-platform` 作为库能交叉构建给外部消费者**。
+同样三个 driver，一行没改。顺带证明 **`minicon-platform` 作为库能交叉构建给外部消费者**。
 
 ### 互动：两条互不相干的通道互相印证
 

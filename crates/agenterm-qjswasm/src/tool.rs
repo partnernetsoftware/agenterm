@@ -91,7 +91,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use agenterm_platform::contained_process::{
+use minicon_platform::contained_process::{
     ContainedChild, ContainedHeadlessCommand, FrozenProcessIdentity, ProcessExit,
 };
 use tinyvm::{Val, WasmError};
@@ -1144,7 +1144,7 @@ pub(crate) fn install(
             let text = guest_slice(memory, arg(args, 2)?, arg(args, 3)?)?;
             answer(&state, "fs.append_existing_durable", || {
                 let path = utf8(path)?;
-                agenterm_platform::filesystem_append::append_existing_durable(
+                minicon_platform::filesystem_append::append_existing_durable(
                     std::path::Path::new(path),
                     text,
                 )
@@ -1171,7 +1171,7 @@ pub(crate) fn install(
             let text = guest_slice(memory, arg(args, 2)?, arg(args, 3)?)?;
             answer(&state, "fs.create_new_regular_durable", || {
                 let path = utf8(path)?;
-                agenterm_platform::filesystem_create::create_new_regular_durable(
+                minicon_platform::filesystem_create::create_new_regular_durable(
                     std::path::Path::new(path),
                     text,
                 )
@@ -1276,7 +1276,7 @@ pub(crate) fn install(
             let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
             answer(&state, "fs.symlink_metadata", || {
                 let path = utf8(path)?;
-                let meta = agenterm_platform::filesystem_entry::inspect_path(path.as_ref())
+                let meta = minicon_platform::filesystem_entry::inspect_path(path.as_ref())
                     .map_err(|e| format!("fs.symlink_metadata `{path}`: {e}"))?;
                 Ok(serde_json::json!({
                     "is_file": meta.facts.is_file(),
@@ -1795,7 +1795,7 @@ pub(crate) fn install(
                 let pid = u32::try_from(raw_pid)
                     .map_err(|_| "process.observe: pid is negative".to_owned())?;
                 Ok(
-                    process_observation_json(agenterm_platform::process_observation::observe(pid))
+                    process_observation_json(minicon_platform::process_observation::observe(pid))
                         .to_string(),
                 )
             })
@@ -1816,9 +1816,9 @@ pub(crate) fn install(
                 let pid = u32::try_from(raw_pid)
                     .map_err(|_| "process.parent: pid is negative".to_owned())?;
                 Ok(
-                    process_parent_observation_json(
-                        agenterm_platform::process_observation::parent(pid),
-                    )
+                    process_parent_observation_json(minicon_platform::process_observation::parent(
+                        pid,
+                    ))
                     .to_string(),
                 )
             })
@@ -1837,7 +1837,7 @@ pub(crate) fn install(
         "process.list",
         move |_args, _memory| {
             answer(&state, "process.list", || {
-                let processes = agenterm_platform::process::list()
+                let processes = minicon_platform::process::list()
                     .map_err(|error| format!("process.list: {error}"))?;
                 Ok(serde_json::Value::Array(
                     processes
@@ -1870,7 +1870,7 @@ pub(crate) fn install(
             answer(&state, "process.tree", || {
                 let root = u32::try_from(raw_root)
                     .map_err(|_| "process.tree: pid is negative".to_string())?;
-                let mut processes = agenterm_platform::process::list()
+                let mut processes = minicon_platform::process::list()
                     .map_err(|error| format!("process.tree: {error}"))?;
                 let mut owned = std::collections::HashSet::from([root]);
                 loop {
@@ -1918,7 +1918,7 @@ pub(crate) fn install(
             direct(&state, "process.kill_pid", || {
                 let pid = u32::try_from(raw_pid)
                     .map_err(|_| "process.kill_pid: pid is negative".to_string())?;
-                agenterm_platform::process::kill(pid)
+                minicon_platform::process::kill(pid)
                     .map_err(|error| format!("process.kill_pid: {error}"))?;
                 Ok(STATUS_OK)
             })
@@ -1933,7 +1933,7 @@ pub(crate) fn install(
         "clipboard.get_text",
         move |_args, _memory| {
             answer(&state, "clipboard.get_text", || {
-                agenterm_platform::clipboard::get_text(1024 * 1024)
+                minicon_platform::clipboard::get_text(1024 * 1024)
                     .map_err(|error| format!("clipboard.get_text: {error}"))
             })
         },
@@ -1948,7 +1948,7 @@ pub(crate) fn install(
         move |args, memory| {
             let text = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
             direct(&state, "clipboard.set_text", || {
-                agenterm_platform::clipboard::set_text(utf8(text)?)
+                minicon_platform::clipboard::set_text(utf8(text)?)
                     .map_err(|error| format!("clipboard.set_text: {error}"))?;
                 Ok(STATUS_OK)
             })
@@ -1971,7 +1971,7 @@ pub(crate) fn install(
             let h = arg(args, 0)?;
             answer(&state, "process.platform_facts", || {
                 let pid = child_pid(&state.borrow(), h, "process.platform_facts")?;
-                let f = agenterm_platform::process_window::facts(pid);
+                let f = minicon_platform::process_window::facts(pid);
                 Ok(serde_json::json!({
                     "top_level_window_supported": f.supported,
                     "top_level_window_present": f.present,
@@ -1997,7 +1997,7 @@ pub(crate) fn install(
             direct(&state, "process.window_key", || {
                 let pid = child_pid(&state.borrow(), h, "process.window_key")?;
                 let key = window_key_named(utf8(name)?)?;
-                agenterm_platform::process_window::key(pid, key)
+                minicon_platform::process_window::key(pid, key)
                     .map_err(|e| window_error("process.window_key", e))?;
                 Ok(STATUS_OK)
             })
@@ -2018,7 +2018,7 @@ pub(crate) fn install(
                 let spec: PointerSpec = serde_json::from_str(utf8(spec)?)
                     .map_err(|e| format!("process.window_pointer: the spec is not valid: {e}"))?;
                 let action = pointer_action_named(&spec.action)?;
-                agenterm_platform::process_window::pointer(pid, action, spec.x, spec.y)
+                minicon_platform::process_window::pointer(pid, action, spec.x, spec.y)
                     .map_err(|e| window_error("process.window_pointer", e))?;
                 Ok(STATUS_OK)
             })
@@ -2038,13 +2038,13 @@ pub(crate) fn install(
                 let pid = child_pid(&state.borrow(), h, "process.window_message")?;
                 let spec: MessageSpec = serde_json::from_str(utf8(spec)?)
                     .map_err(|e| format!("process.window_message: the spec is not valid: {e}"))?;
-                let message = agenterm_platform::contract::process_window::ProcessWindowMessage {
+                let message = minicon_platform::contract::process_window::ProcessWindowMessage {
                     message: spec.message,
                     wparam: usize::try_from(spec.wparam)
                         .map_err(|_| "process.window_message: wparam is negative".to_string())?,
                     lparam: spec.lparam,
                 };
-                let result = agenterm_platform::process_window::message(pid, message)
+                let result = minicon_platform::process_window::message(pid, message)
                     .map_err(|e| window_error("process.window_message", e))?;
                 Ok(serde_json::json!({ "result": result }).to_string())
             })
@@ -2064,7 +2064,7 @@ pub(crate) fn install(
                 let pid = child_pid(&state.borrow(), h, "process.window_resize")?;
                 let spec: ResizeSpec = serde_json::from_str(utf8(spec)?)
                     .map_err(|e| format!("process.window_resize: the spec is not valid: {e}"))?;
-                agenterm_platform::process_window::resize(pid, spec.width, spec.height)
+                minicon_platform::process_window::resize(pid, spec.width, spec.height)
                     .map_err(|e| window_error("process.window_resize", e))?;
                 Ok(STATUS_OK)
             })
@@ -2082,7 +2082,7 @@ pub(crate) fn install(
             let client = arg(args, 1)? != 0;
             answer(&state, "process.window_rect", || {
                 let pid = child_pid(&state.borrow(), h, "process.window_rect")?;
-                let r = agenterm_platform::process_window::rect(pid, client)
+                let r = minicon_platform::process_window::rect(pid, client)
                     .map_err(|e| window_error("process.window_rect", e))?;
                 Ok(serde_json::json!({
                     "left": r.left, "top": r.top, "right": r.right, "bottom": r.bottom,
@@ -2106,7 +2106,7 @@ pub(crate) fn install(
                 let pid = child_pid(&state.borrow(), h, "process.window_control")?;
                 let spec: ControlSpec = serde_json::from_str(utf8(spec)?)
                     .map_err(|e| format!("process.window_control: the spec is not valid: {e}"))?;
-                use agenterm_platform::process_window as w;
+                use minicon_platform::process_window as w;
                 let err = |e| window_error("process.window_control", e);
                 let answer = match spec.op.as_str() {
                     "exists" => {
@@ -2676,7 +2676,7 @@ fn read_dir(path: &str) -> Result<String, String> {
 fn tree_summary(path: &str, max_entries: i32) -> Result<String, String> {
     let max_entries = usize::try_from(max_entries)
         .map_err(|_| "fs.tree_summary: max_entries must be a positive integer".to_string())?;
-    let summary = agenterm_platform::filesystem_usage::regular_tree_summary_bounded(
+    let summary = minicon_platform::filesystem_usage::regular_tree_summary_bounded(
         std::path::Path::new(path),
         max_entries,
     )
@@ -2766,9 +2766,9 @@ fn child_pid(s: &ToolState, h: i32, op: &str) -> Result<u32, String> {
 }
 
 fn process_observation_json(
-    observation: agenterm_platform::process_observation::ProcessObservation,
+    observation: minicon_platform::process_observation::ProcessObservation,
 ) -> serde_json::Value {
-    use agenterm_platform::process_observation::ProcessObservation;
+    use minicon_platform::process_observation::ProcessObservation;
 
     match observation {
         ProcessObservation::Live { start_identity } => serde_json::json!({
@@ -2791,9 +2791,9 @@ fn process_observation_json(
 }
 
 fn process_parent_observation_json(
-    observation: agenterm_platform::process_observation::ParentProcessObservation,
+    observation: minicon_platform::process_observation::ParentProcessObservation,
 ) -> serde_json::Value {
-    use agenterm_platform::process_observation::ParentProcessObservation;
+    use minicon_platform::process_observation::ParentProcessObservation;
 
     match observation {
         ParentProcessObservation::Live { parent_id } => serde_json::json!({
@@ -2817,7 +2817,7 @@ fn process_parent_observation_json(
 
 fn window_error(
     op: &str,
-    e: agenterm_platform::contract::process_window::ProcessWindowError,
+    e: minicon_platform::contract::process_window::ProcessWindowError,
 ) -> String {
     match e.cause {
         Some(cause) => format!("{op}: {} ({}, {cause})", e.message, e.code),
@@ -2828,8 +2828,8 @@ fn window_error(
 /// rh's key names, exactly as the journeys spell them.
 fn window_key_named(
     name: &str,
-) -> Result<agenterm_platform::contract::process_window::ProcessWindowKey, String> {
-    use agenterm_platform::contract::process_window::ProcessWindowKey as K;
+) -> Result<minicon_platform::contract::process_window::ProcessWindowKey, String> {
+    use minicon_platform::contract::process_window::ProcessWindowKey as K;
     Ok(match name {
         "Backspace" => K::Backspace,
         "Delete" => K::Delete,
@@ -2853,8 +2853,8 @@ fn window_key_named(
 
 fn pointer_action_named(
     name: &str,
-) -> Result<agenterm_platform::contract::process_window::ProcessWindowPointerAction, String> {
-    use agenterm_platform::contract::process_window::ProcessWindowPointerAction as A;
+) -> Result<minicon_platform::contract::process_window::ProcessWindowPointerAction, String> {
+    use minicon_platform::contract::process_window::ProcessWindowPointerAction as A;
     Ok(match name {
         "click" => A::Click,
         "down" => A::Down,
@@ -3227,7 +3227,7 @@ mod tests {
 
     #[test]
     fn process_observation_keeps_incomplete_evidence_distinct_from_death() {
-        use agenterm_platform::process_observation::ProcessObservation;
+        use minicon_platform::process_observation::ProcessObservation;
 
         let unknown = process_observation_json(ProcessObservation::Unknown {
             reason: "process_access_denied".to_owned(),
@@ -3245,7 +3245,7 @@ mod tests {
 
     #[test]
     fn parent_observation_keeps_incomplete_evidence_distinct_from_death() {
-        use agenterm_platform::process_observation::ParentProcessObservation;
+        use minicon_platform::process_observation::ParentProcessObservation;
 
         let unknown = process_parent_observation_json(ParentProcessObservation::Unknown {
             reason: "process_access_denied".to_owned(),

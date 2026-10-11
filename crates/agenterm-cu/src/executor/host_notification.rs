@@ -1,6 +1,6 @@
 //! Typed host notification dispatch with content-redacted durable evidence.
 
-use agenterm_platform::host_notification::{
+use minicon_platform::host_notification::{
     HostNotificationAction, HostNotificationErrorKind, HostNotificationOptions,
 };
 use serde_json::json;
@@ -50,7 +50,7 @@ pub(super) fn host_notify_payload(
             "actions_evidence": actions_evidence,
         }),
     )?;
-    let native = match agenterm_platform::host_notification::notify(
+    let native = match minicon_platform::host_notification::notify(
         title,
         body,
         HostNotificationOptions {

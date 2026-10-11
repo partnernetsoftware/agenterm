@@ -1,16 +1,16 @@
 //! Product-facing process facade compatibility surface.
 //!
-//! Native process mechanics come from the external `agenterm-platform` crate.
+//! Native process mechanics come from the external `minicon-platform` crate.
 //! AgenTerm-specific sibling-server discovery remains product policy here.
 
 use std::process::{Command, Stdio};
 
 #[allow(unused_imports)] // Compatibility exports consumed by product modules per target.
-pub(crate) use agenterm_platform::contract::process::{
+pub(crate) use minicon_platform::contract::process::{
     ProcessError, ProcessErrorKind, ProcessInfo, ProcessObservation,
 };
 #[allow(unused_imports)] // Compatibility exports consumed by product modules per target.
-pub(crate) use agenterm_platform::process::{
+pub(crate) use minicon_platform::process::{
     ProcessTreeGuard, configure_breakaway_visible_command, configure_command,
     configure_owned_command, is_breakaway_denied, kill, list, observe,
     spawn_breakaway_visible_child, spawn_breakaway_visible_command, spawn_detached_child,
@@ -55,8 +55,8 @@ fn autostart_server_impl(
     chassis_image: Option<&std::path::Path>,
 ) -> std::io::Result<bool> {
     if !matches!(
-        agenterm_platform::platform_kind(),
-        agenterm_platform::PlatformKind::Windows
+        minicon_platform::platform_kind(),
+        minicon_platform::PlatformKind::Windows
     ) {
         return Ok(false);
     }
@@ -80,9 +80,9 @@ fn autostart_server_impl(
         .stderr(autostart_stderr()?);
     // P0-3: detached spawn prefers Job breakaway so Keep-Server survives GUI
     // process-tree teardown. CallerJobFallback is an honest host limit.
-    let spawn_mode = agenterm_platform::process::spawn_detached_command(&mut command)?;
-    if spawn_mode == agenterm_platform::process::DetachedSpawnMode::CallerJobFallback {
-        let _ = agenterm_platform::process::write_parent_console_stderr(
+    let spawn_mode = minicon_platform::process::spawn_detached_command(&mut command)?;
+    if spawn_mode == minicon_platform::process::DetachedSpawnMode::CallerJobFallback {
+        let _ = minicon_platform::process::write_parent_console_stderr(
             "AgenTerm server started inside the caller's process job because Windows denied job breakaway; it may stop when that owning job closes.",
         );
     }
@@ -172,7 +172,7 @@ mod tests {
     }
 
     /// G1 regression: product code must classify breakaway denial via
-    /// `agenterm_platform::process::is_breakaway_denied` / spawn facades, not
+    /// `minicon_platform::process::is_breakaway_denied` / spawn facades, not
     /// hard-coded `raw_os_error() == Some(5)`.
     #[test]
     fn product_sources_do_not_hardcode_breakaway_access_denied() {
@@ -214,7 +214,7 @@ mod tests {
         }
         assert!(
             offenders.is_empty(),
-            "use agenterm_platform::process::is_breakaway_denied / \
+            "use minicon_platform::process::is_breakaway_denied / \
              spawn_breakaway_visible_* instead of hard-coding ACCESS_DENIED:\n{}",
             offenders.join("\n")
         );

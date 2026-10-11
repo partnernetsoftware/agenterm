@@ -44,7 +44,7 @@ struct Harness {
     // `agenterm.exe server`. This kill-on-close containment handle is closed
     // by the OS during process teardown regardless of how that teardown
     // happens.
-    _server_tree_guard: Option<agenterm_platform::process::ProcessTreeGuard>,
+    _server_tree_guard: Option<minicon_platform::process::ProcessTreeGuard>,
 }
 
 impl Harness {
@@ -82,7 +82,7 @@ impl Harness {
             .spawn()
             .expect("start isolated headless server");
         harness._server_tree_guard = Some(
-            agenterm_platform::process::ProcessTreeGuard::attach(&server)
+            minicon_platform::process::ProcessTreeGuard::attach(&server)
                 .expect("attach kill-on-close containment to isolated server"),
         );
         harness.server = Some(server);

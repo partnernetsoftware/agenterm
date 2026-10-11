@@ -43,7 +43,7 @@
   开第二套 OS adapter（ARCHITECTURE.md §6 禁令 1/4）。桌面端 Win/Unix 双 host 的教训是：
   host 差异只能停在「怎么画/怎么收事件」，不能上浮成目录级并行宇宙。
 - 正解是 **workspace member**：协议与客户端内核是**库**，移动壳是**宿主应用**。
-  现状实证：根 `Cargo.toml` 只有 `members = [".", "crates/agenterm-platform"]`，**没有**
+  现状实证：根 `Cargo.toml` 只有 `members = [".", "crates/minicon-platform"]`，**没有**
   `default-members` 键——新增 member 会默认参与全量构建，故 M-A 落地时必须**同批显式声明
   `default-members`**，否则桌面 30 分钟资格门会被移动端拖长。（`research/agenterm-net`
   用的是「自带 `[workspace]` 独立隔离」，是另一条可选路径，见 §七 K2。）
@@ -92,7 +92,7 @@ Mobile  接入端 + 去中心化链接端
 │  │       是**本机**授权语义，手机上无对应物，必须留在桌面侧
 │  │     动机：手机要显示/选择「连的是哪个权威」，需要 LogicalInstance 的显示语义与
 │  │       ServerScopeId 的不可反推身份；但**不能**继承本机 endpoint 解析
-│  │     证据要求：agenterm-platform 边界纪律照抄——protocol crate 里不得出现
+│  │     证据要求：minicon-platform 边界纪律照抄——protocol crate 里不得出现
 │  │       Win32/POSIX 类型、`AGENTERM_` 环境变量、进程/文件系统调用（加边界测）
 │  └─ [ ] A3 ui-snapshot schema 的 typed 化前置审计（本叶是**审计**，不是直接抽取）
 │        现状（已核）：src/ui_snapshot.rs 全是 pub(crate) 的 serde_json::json!() 构造器
@@ -117,7 +117,7 @@ Mobile  接入端 + 去中心化链接端
 │  ├─ [ ] B4 FFI-ready：无全局状态、无 panic 跨边界、错误码为 typed 枚举（沿用
 │  │     ui_lease 的 code/category/retryable 三元分类风格）
 │  └─ [ ] B5 平台差异纪律：推送/后台存活/网络切换/IME 走 capability 描述 + typed
-│        Unsupported（照抄 agenterm-platform 的 CapabilityStatus::Unsupported）；
+│        Unsupported（照抄 minicon-platform 的 CapabilityStatus::Unsupported）；
 │        **禁止** `if ios / if android` 业务分支
 │
 └─ M-C. apps/mobile —— 壳（最后一步；C1 壳选型拍板见 §三 / §七 K1）

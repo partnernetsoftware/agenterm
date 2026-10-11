@@ -1,4 +1,4 @@
-use agenterm_platform::{
+use minicon_platform::{
     PlatformKind,
     host_resource_snapshot::{
         HostLoadAverageAvailability, HostResourceSnapshot, HostResourceSnapshotError,
@@ -11,8 +11,8 @@ use crate::reply::CuError;
 
 pub(super) fn resource_status_payload() -> Result<Value, CuError> {
     let snapshot =
-        agenterm_platform::host_resource_snapshot::snapshot().map_err(resource_snapshot_error)?;
-    let process_count = agenterm_platform::process::list()
+        minicon_platform::host_resource_snapshot::snapshot().map_err(resource_snapshot_error)?;
+    let process_count = minicon_platform::process::list()
         .map_err(|error| {
             CuError::new("process_inventory_failed", error.to_string()).with_detail(json!({
                 "kind": format!("{:?}", error.kind()),
@@ -98,8 +98,8 @@ fn resource_snapshot_error(error: HostResourceSnapshotError) -> CuError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agenterm_platform::host_memory::HostMemoryAvailabilitySemantics;
-    use agenterm_platform::host_resource_snapshot::{
+    use minicon_platform::host_memory::HostMemoryAvailabilitySemantics;
+    use minicon_platform::host_resource_snapshot::{
         HostFreeMemorySemantics, HostLoadAverage, HostResourceMemory,
     };
 

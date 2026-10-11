@@ -8,7 +8,7 @@ withheld at the release-size court**.
 | date | 2026-09-04 |
 | purpose | choose a truly bounded DNS mechanism for `agenterm-cu network-probe` |
 | implementation | `research/network-probe-resolver/` |
-| product owner | `agenterm-platform` mechanism + `agenterm-cu` typed facade |
+| product owner | `minicon-platform` mechanism + `agenterm-cu` typed facade |
 | pre-reading | `prd/PRD_02_28_agenterm_cu.md`, `plan/acu-mcu-capability-ledger.json`, `docs/agenterm-rust-cheatsheet.md` |
 | source discipline | clean-room behavior; do not copy MCU TypeScript |
 

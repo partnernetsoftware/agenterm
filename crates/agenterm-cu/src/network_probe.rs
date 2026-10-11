@@ -108,7 +108,7 @@ pub fn payload(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    agenterm_platform::process_spawn::configure_owned_headless_command(&mut command)
+    minicon_platform::process_spawn::configure_owned_headless_command(&mut command)
         .map_err(|error| CuError::new("network_probe_worker_spawn", error))?;
     let mut child = command.spawn().map_err(|error| {
         CuError::new(
@@ -551,7 +551,7 @@ mod tests {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
-        agenterm_platform::process_spawn::configure_owned_headless_command(&mut command).unwrap();
+        minicon_platform::process_spawn::configure_owned_headless_command(&mut command).unwrap();
         let mut child = command.spawn().unwrap();
         let reader = spawn_bounded_reader(child.stdout.take().unwrap()).unwrap();
         let started = Instant::now();

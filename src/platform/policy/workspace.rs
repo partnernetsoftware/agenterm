@@ -1,6 +1,6 @@
 //! Product workspace layout policy shared by host adapters.
 //!
-//! The native mechanism lives in agenterm-platform; this table is the
+//! The native mechanism lives in minicon-platform; this table is the
 //! AgenTerm-level product decision for workspace directory shape.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -13,8 +13,8 @@ pub(crate) enum WorkspaceLayoutKind {
 #[allow(dead_code)]
 pub(crate) fn workspace_layout_kind() -> WorkspaceLayoutKind {
     if matches!(
-        agenterm_platform::platform_kind(),
-        agenterm_platform::PlatformKind::Windows
+        minicon_platform::platform_kind(),
+        minicon_platform::PlatformKind::Windows
     ) {
         WorkspaceLayoutKind::WindowsFlat
     } else {
@@ -29,8 +29,8 @@ mod tests {
     #[test]
     fn layout_kind_matches_runtime_kind() {
         let expected = if matches!(
-            agenterm_platform::platform_kind(),
-            agenterm_platform::PlatformKind::Windows
+            minicon_platform::platform_kind(),
+            minicon_platform::PlatformKind::Windows
         ) {
             WorkspaceLayoutKind::WindowsFlat
         } else {

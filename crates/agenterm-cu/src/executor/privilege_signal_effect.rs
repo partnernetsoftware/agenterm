@@ -279,29 +279,29 @@ fn provider_receipts(provider_state_root: &Path) -> Result<ReceiptLog, CuError> 
 }
 
 fn deliver(
-    reference: &agenterm_platform::process_reference::ProcessReference,
+    reference: &minicon_platform::process_reference::ProcessReference,
     signal: ProcessSignalKind,
 ) -> std::io::Result<()> {
     match signal {
         ProcessSignalKind::Terminate => {
-            reference.terminate(agenterm_platform::process_control::TerminationMode::Graceful)
+            reference.terminate(minicon_platform::process_control::TerminationMode::Graceful)
         }
         ProcessSignalKind::Kill => {
-            reference.terminate(agenterm_platform::process_control::TerminationMode::Forceful)
+            reference.terminate(minicon_platform::process_control::TerminationMode::Forceful)
         }
         ProcessSignalKind::Stop => reference.set_suspended(true),
         ProcessSignalKind::Continue => reference.set_suspended(false),
         ProcessSignalKind::Hangup => {
-            reference.send_signal(agenterm_platform::process_reference::ProcessSignal::Hangup)
+            reference.send_signal(minicon_platform::process_reference::ProcessSignal::Hangup)
         }
         ProcessSignalKind::Interrupt => {
-            reference.send_signal(agenterm_platform::process_reference::ProcessSignal::Interrupt)
+            reference.send_signal(minicon_platform::process_reference::ProcessSignal::Interrupt)
         }
         ProcessSignalKind::User1 => {
-            reference.send_signal(agenterm_platform::process_reference::ProcessSignal::User1)
+            reference.send_signal(minicon_platform::process_reference::ProcessSignal::User1)
         }
         ProcessSignalKind::User2 => {
-            reference.send_signal(agenterm_platform::process_reference::ProcessSignal::User2)
+            reference.send_signal(minicon_platform::process_reference::ProcessSignal::User2)
         }
     }
 }
@@ -348,7 +348,7 @@ fn verify_all(
 }
 
 fn process_stopped(pid: u32) -> Result<bool, CuError> {
-    agenterm_platform::process_metrics::is_stopped(pid)
+    minicon_platform::process_metrics::is_stopped(pid)
         .map_err(|error| CuError::new("privilege_signal_readback_failed", error.to_string()))
 }
 

@@ -1,6 +1,6 @@
 //! Product capability status policy shared by product modules.
 //!
-//! agenterm-platform exposes typed capability facts; this table maps them
+//! minicon-platform exposes typed capability facts; this table maps them
 //! into the product-facing availability surface used by CLI/UI reporting.
 
 use crate::platform::CONTRACT_REVISION;
@@ -70,16 +70,16 @@ impl CapabilityStatus {
 }
 
 pub(crate) fn project_capability_status(
-    status: agenterm_platform::CapabilityStatus,
+    status: minicon_platform::CapabilityStatus,
     unsupported_reason: &'static str,
     failed_code: &'static str,
 ) -> CapabilityStatus {
     match status {
-        agenterm_platform::CapabilityStatus::Available => CapabilityStatus::Available,
-        agenterm_platform::CapabilityStatus::Unsupported { .. } => CapabilityStatus::Unsupported {
+        minicon_platform::CapabilityStatus::Available => CapabilityStatus::Available,
+        minicon_platform::CapabilityStatus::Unsupported { .. } => CapabilityStatus::Unsupported {
             reason: unsupported_reason,
         },
-        agenterm_platform::CapabilityStatus::Failed { message, .. } => CapabilityStatus::Failed {
+        minicon_platform::CapabilityStatus::Failed { message, .. } => CapabilityStatus::Failed {
             code: failed_code,
             message,
         },
@@ -91,26 +91,26 @@ pub(crate) fn project_capability_status(
 }
 
 pub(crate) fn platform_info_json() -> serde_json::Value {
-    let kind = agenterm_platform::platform_kind();
-    let display = agenterm_platform::window::display_backend_facts();
+    let kind = minicon_platform::platform_kind();
+    let display = minicon_platform::window::display_backend_facts();
 
     let capabilities = CapabilityKind::ALL
         .into_iter()
         .map(|capability| {
             let status = match capability {
                 CapabilityKind::Window | CapabilityKind::Input => project_capability_status(
-                    agenterm_platform::window::capability_status(),
+                    minicon_platform::window::capability_status(),
                     "headless-display",
                     "window-failed",
                 ),
                 CapabilityKind::Ime => project_capability_status(
-                    agenterm_platform::ime::capability_status(!display.headless),
+                    minicon_platform::ime::capability_status(!display.headless),
                     "headless-display",
                     "ime-failed",
                 ),
                 CapabilityKind::Clipboard => CapabilityStatus::Available,
                 CapabilityKind::Font => project_capability_status(
-                    agenterm_platform::font::capability_status(),
+                    minicon_platform::font::capability_status(),
                     "font-unsupported",
                     "font-failed",
                 ),
@@ -123,10 +123,10 @@ pub(crate) fn platform_info_json() -> serde_json::Value {
                     CapabilityStatus::Available
                 }
                 CapabilityKind::Integration => match kind {
-                    agenterm_platform::PlatformKind::Windows => CapabilityStatus::Unsupported {
+                    minicon_platform::PlatformKind::Windows => CapabilityStatus::Unsupported {
                         reason: "windows-shell-integration-not-yet-declared",
                     },
-                    agenterm_platform::PlatformKind::Macos => CapabilityStatus::Unsupported {
+                    minicon_platform::PlatformKind::Macos => CapabilityStatus::Unsupported {
                         reason: "signed-macos-app-bundle-pending",
                     },
                     _ => CapabilityStatus::Unsupported {
@@ -140,9 +140,9 @@ pub(crate) fn platform_info_json() -> serde_json::Value {
     serde_json::json!({
         "contract_revision": CONTRACT_REVISION,
         "kind": match kind {
-            agenterm_platform::PlatformKind::Windows => "windows",
-            agenterm_platform::PlatformKind::Macos => "macos",
-            agenterm_platform::PlatformKind::Linux => "linux",
+            minicon_platform::PlatformKind::Windows => "windows",
+            minicon_platform::PlatformKind::Macos => "macos",
+            minicon_platform::PlatformKind::Linux => "linux",
             _ => "unknown",
         },
         "capabilities": capabilities,

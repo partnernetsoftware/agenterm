@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, fmt::Write as _, fs::File, io::Read, mem, path:
 
 // Wheel button codes are protocol constants, not UX policy, so they come from
 // the platform contract rather than being re-spelled here.
-use agenterm_platform::terminal_input::{MOUSE_WHEEL_DOWN, MOUSE_WHEEL_UP};
+use minicon_platform::terminal_input::{MOUSE_WHEEL_DOWN, MOUSE_WHEEL_UP};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 

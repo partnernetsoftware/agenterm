@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use agenterm_platform::{
+use minicon_platform::{
     contained_process::{
         ContainedChild, ContainedChildInput, ContainedChildOutput, ContainedHeadlessCommand,
         ContainedProcessLimits,
@@ -468,7 +468,7 @@ pub(crate) struct ResidentJobOwner {
     process: ExactProcessIdentity,
     child: Option<ContainedChild>,
     #[cfg(unix)]
-    adopted_group: Option<agenterm_platform::process::ProcessTreeGuard>,
+    adopted_group: Option<minicon_platform::process::ProcessTreeGuard>,
     adopted: bool,
     /// The lease-expiry policy, from the launch. Single truth for the decision.
     on_expiry: ManagedJobOnExpiry,
@@ -631,7 +631,7 @@ impl ResidentJobOwner {
             return Err(ManagedJobOwnerError::new("managed_job_priority_terminal"));
         }
         let (provider, before) = self.stable_priority_members()?;
-        agenterm_platform::process_metrics::set_group_nice(self.process.pid, value)
+        minicon_platform::process_metrics::set_group_nice(self.process.pid, value)
             .map_err(|_| ManagedJobOwnerError::new("managed_job_priority_outcome_unknown"))?;
         let (after_provider, after) = self
             .stable_priority_members()
@@ -666,10 +666,9 @@ impl ResidentJobOwner {
                     changed = true;
                     break;
                 }
-                let nice =
-                    agenterm_platform::process_metrics::nice(expected.pid).map_err(|_| {
-                        ManagedJobOwnerError::new("managed_job_priority_observation_failed")
-                    })?;
+                let nice = minicon_platform::process_metrics::nice(expected.pid).map_err(|_| {
+                    ManagedJobOwnerError::new("managed_job_priority_observation_failed")
+                })?;
                 if start_identity(expected.pid).ok().as_deref() != Some(&expected.start_identity) {
                     changed = true;
                     break;
@@ -1236,7 +1235,7 @@ impl ResidentJobOwner {
                 "managed_job_policy_stop_unsupported",
             ));
         }
-        agenterm_platform::process_metrics::set_group_suspended(self.process.pid, true)
+        minicon_platform::process_metrics::set_group_suspended(self.process.pid, true)
             .map_err(|_| ManagedJobOwnerError::new("managed_job_policy_stop_outcome_unknown"))?;
         for _ in 0..RESOURCE_STABILITY_ATTEMPTS {
             let before = self.resource_member_identities(POLICY_MEMBERS_MAX)?;
@@ -1247,7 +1246,7 @@ impl ResidentJobOwner {
                     break;
                 }
                 let stopped =
-                    agenterm_platform::process_metrics::is_stopped(member.pid).map_err(|_| {
+                    minicon_platform::process_metrics::is_stopped(member.pid).map_err(|_| {
                         ManagedJobOwnerError::new("managed_job_policy_stop_outcome_unknown")
                     })?;
                 if !stopped
@@ -1261,7 +1260,7 @@ impl ResidentJobOwner {
             if all_stopped && before.identities == after.identities {
                 return Ok(());
             }
-            agenterm_platform::process_metrics::set_group_suspended(self.process.pid, true)
+            minicon_platform::process_metrics::set_group_suspended(self.process.pid, true)
                 .map_err(|_| {
                     ManagedJobOwnerError::new("managed_job_policy_stop_outcome_unknown")
                 })?;
@@ -1315,11 +1314,11 @@ fn sample_resource_members(
         if start_identity(expected.pid).ok().as_deref() != Some(&expected.start_identity) {
             return Ok(None);
         }
-        let metrics = match agenterm_platform::process_metrics::metrics(expected.pid) {
+        let metrics = match minicon_platform::process_metrics::metrics(expected.pid) {
             Ok(metrics) => metrics,
             Err(error)
                 if error.kind()
-                    == agenterm_platform::process_metrics::ProcessMetricsErrorKind::NotFound =>
+                    == minicon_platform::process_metrics::ProcessMetricsErrorKind::NotFound =>
             {
                 return Ok(None);
             }
@@ -1340,7 +1339,7 @@ fn sample_resource_members(
             page_faults_total: metrics.page_faults.total.to_string(),
             page_faults_soft: metrics.page_faults.soft.map(|value| value.to_string()),
             page_faults_hard: metrics.page_faults.hard.map(|value| value.to_string()),
-            nice: agenterm_platform::process_metrics::nice(expected.pid).ok(),
+            nice: minicon_platform::process_metrics::nice(expected.pid).ok(),
         });
     }
     Ok(Some(members))
@@ -1634,12 +1633,11 @@ fn start_adopted_owner(
     }
     #[cfg(unix)]
     {
-        let group =
-            agenterm_platform::process::ProcessTreeGuard::adopt_group_leader_for_termination(
-                adoption.process_id,
-                &adoption.start_identity,
-                RESOURCE_MEMBERS_MAX,
-            );
+        let group = minicon_platform::process::ProcessTreeGuard::adopt_group_leader_for_termination(
+            adoption.process_id,
+            &adoption.start_identity,
+            RESOURCE_MEMBERS_MAX,
+        );
         let group = match group {
             Ok(group) => group,
             Err(_) => {
@@ -2449,17 +2447,17 @@ mod tests {
             vec![ResidentResourcePolicyViolation::RssBytes]
         );
         assert!(
-            agenterm_platform::process_metrics::is_stopped(owner.process.pid)
+            minicon_platform::process_metrics::is_stopped(owner.process.pid)
                 .expect("observe stopped root")
         );
         let cleared = owner.clear_resource_policy().expect("clear policy");
         assert!(cleared.changed);
         assert_eq!(cleared.status.state, ResidentResourcePolicyState::Inactive);
         assert!(
-            agenterm_platform::process_metrics::is_stopped(owner.process.pid)
+            minicon_platform::process_metrics::is_stopped(owner.process.pid)
                 .expect("clear does not resume root")
         );
-        agenterm_platform::process_metrics::set_group_suspended(owner.process.pid, false)
+        minicon_platform::process_metrics::set_group_suspended(owner.process.pid, false)
             .expect("resume group for cleanup");
         owner.stop().expect("stop fixture");
         drop(owner);

@@ -3,7 +3,7 @@
 //! `pointer-move`, `pointer-scroll`, and `drag`.
 
 use agenterm_cu::{Command, PointerButton, TargetRef, command::InvokeAction};
-use agenterm_platform::input_inject::MAX_POINTER_SCROLL_DETENTS;
+use minicon_platform::input_inject::MAX_POINTER_SCROLL_DETENTS;
 
 use super::verbs::VerbSpec;
 use super::{

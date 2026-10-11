@@ -56,7 +56,7 @@ pub(crate) fn spaces_unsupported() -> CuError {
 }
 
 pub(crate) fn audio_unsupported_detail(
-    unsupported: agenterm_platform::audio::AudioObserveUnsupported,
+    unsupported: minicon_platform::audio::AudioObserveUnsupported,
 ) -> CuError {
     CuError::new("audio_unsupported", unsupported.reason).with_detail(serde_json::json!({
         "effect": "not_performed",
@@ -70,11 +70,11 @@ pub(crate) fn audio_unsupported_detail(
 pub(crate) fn audio_unsupported() -> CuError {
     #[cfg(target_os = "linux")]
     {
-        match agenterm_platform::audio::query_default_output_result() {
-            agenterm_platform::audio::AudioQueryResult::Unsupported(unsupported) => {
+        match minicon_platform::audio::query_default_output_result() {
+            minicon_platform::audio::AudioQueryResult::Unsupported(unsupported) => {
                 audio_unsupported_detail(unsupported)
             }
-            agenterm_platform::audio::AudioQueryResult::Ok(_) => CuError::new(
+            minicon_platform::audio::AudioQueryResult::Ok(_) => CuError::new(
                 "audio_unsupported",
                 "default-output volume and mute observation are unavailable on this Linux host",
             ),

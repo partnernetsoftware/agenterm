@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use agenterm_platform::process::{DetachedSpawnMode, spawn_detached_child};
+use minicon_platform::process::{DetachedSpawnMode, spawn_detached_child};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -202,7 +202,7 @@ pub(super) fn job_adopt_payload(
         // intent. The resident owner repeats this check after claiming the
         // generation, closing the admission-to-owner race fail-closed.
         let group =
-            agenterm_platform::process::ProcessTreeGuard::adopt_group_leader_for_termination(
+            minicon_platform::process::ProcessTreeGuard::adopt_group_leader_for_termination(
                 pid,
                 start_identity,
                 JOB_RESOURCE_MAX_MEMBERS,
@@ -503,19 +503,19 @@ enum SessionOwnerObservation {
 
 /// Observes one recorded owner identity exactly, with no PID guessing.
 fn observe_session_owner(identity: &ResidentOwnerIdentity) -> SessionOwnerObservation {
-    match agenterm_platform::process_observation::verify_identity(
+    match minicon_platform::process_observation::verify_identity(
         identity.pid,
         &identity.start_identity,
     ) {
-        agenterm_platform::process_observation::IdentityVerdict::PidReused
-        | agenterm_platform::process_observation::IdentityVerdict::Dead => {
+        minicon_platform::process_observation::IdentityVerdict::PidReused
+        | minicon_platform::process_observation::IdentityVerdict::Dead => {
             SessionOwnerObservation::Absent
         }
-        agenterm_platform::process_observation::IdentityVerdict::Live => {
+        minicon_platform::process_observation::IdentityVerdict::Live => {
             SessionOwnerObservation::Live
         }
-        agenterm_platform::process_observation::IdentityVerdict::IdentityUnavailable
-        | agenterm_platform::process_observation::IdentityVerdict::Unobservable => {
+        minicon_platform::process_observation::IdentityVerdict::IdentityUnavailable
+        | minicon_platform::process_observation::IdentityVerdict::Unobservable => {
             SessionOwnerObservation::Unknown
         }
     }
@@ -1876,20 +1876,20 @@ fn reconcile_unavailable_owner(
     let Some(expected) = record.owner.as_ref() else {
         return Ok(record.clone());
     };
-    let liveness = match agenterm_platform::process_observation::observe(expected.pid) {
-        agenterm_platform::process_observation::ProcessObservation::Live {
+    let liveness = match minicon_platform::process_observation::observe(expected.pid) {
+        minicon_platform::process_observation::ProcessObservation::Live {
             start_identity: Some(start_identity),
         } => OwnerLiveness::Live(ResidentOwnerIdentity {
             pid: expected.pid,
             start_identity,
         }),
-        agenterm_platform::process_observation::ProcessObservation::Dead { .. } => {
+        minicon_platform::process_observation::ProcessObservation::Dead { .. } => {
             OwnerLiveness::Dead
         }
-        agenterm_platform::process_observation::ProcessObservation::Live {
+        minicon_platform::process_observation::ProcessObservation::Live {
             start_identity: None,
         }
-        | agenterm_platform::process_observation::ProcessObservation::Unknown { .. }
+        | minicon_platform::process_observation::ProcessObservation::Unknown { .. }
         | _ => OwnerLiveness::Unknown,
     };
     store.reconcile_owner(
@@ -2152,7 +2152,7 @@ fn canonical_program(path: PathBuf) -> Result<PathBuf, CuError> {
 }
 
 fn detach_reaper(mut child: std::process::Child) -> Result<(), CuError> {
-    agenterm_platform::threading::spawn_named_detached(
+    minicon_platform::threading::spawn_named_detached(
         "agenterm-cu-managed-job-owner-reaper",
         Box::new(move || {
             let _ = child.wait();
@@ -3086,7 +3086,7 @@ mod tests {
     fn wait_round_cost_and_cancel_return_are_measured_on_a_real_socket() {
         use std::sync::Mutex;
 
-        use agenterm_platform::ipc::NativeListener;
+        use minicon_platform::ipc::NativeListener;
 
         let handle = ManagedJobHandle {
             job_id: "00000000-0000-4000-8000-0000000000aa".to_owned(),

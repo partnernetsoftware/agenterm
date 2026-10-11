@@ -171,7 +171,7 @@ self-hosting 不是自恋——它有直接的工程回报：
 
 | 已有实现 | 当前位置 | 应属层级 | 状态 |
 |---------|---------|---------|------|
-| `agenterm-platform` crate（FFI/窗口/PTY/输入/IME/剪贴板） | 机制层 | frozen | ✅ 已对 |
+| `minicon-platform` crate（FFI/窗口/PTY/输入/IME/剪贴板） | 机制层 | frozen | ✅ 已对 |
 | `boundary_tests.rs`（platform↔product 红线） | 机制↔契约边界 | frozen↔cold | ✅ 已对 |
 | `ScriptEngineBackend` trait（四引擎统一） | 契约层 | cold | ✅ 已对，已证明 |
 | `fleet_call(operation_id, params_json)` | 契约层 | cold | ✅ 已对 |
@@ -266,7 +266,7 @@ adapter 在扮演 view 角色，但它们被放在了"机制层依赖应用层"�
 └────────────────────────────────────────────────────────┘
 
 ┌─ 平台机制域 ──────────────────────────────────────────┐
-│  agenterm_platform (crate，独立编译单元)               │
+│  minicon_platform (crate，独立编译单元)               │
 │  platform/ (产品 glue：policy + contract + services)   │
 │  platform/adapters/{windows, unix, linux, macos}       │
 │  ★ platform crate 本身健康（boundary_tests 保护）       │

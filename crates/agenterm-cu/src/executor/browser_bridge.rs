@@ -2125,7 +2125,7 @@ fn wait_for_desktop_focus(expected: isize) -> Result<(), CuError> {
 }
 
 fn request_id() -> Result<String, CuError> {
-    let random = agenterm_platform::entropy::secure_random_array::<32>().map_err(|_| {
+    let random = minicon_platform::entropy::secure_random_array::<32>().map_err(|_| {
         CuError::new(
             "browser_bridge_entropy_unavailable",
             "a fresh browser bridge request identity could not be generated",

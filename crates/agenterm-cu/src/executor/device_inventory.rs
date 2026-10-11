@@ -1,6 +1,6 @@
 //! Bounded peripheral inventory with installation-scoped opaque identities.
 
-use agenterm_platform::device_inventory::{
+use minicon_platform::device_inventory::{
     DeviceIdentityContinuity, DeviceInventory, DeviceInventoryError, DeviceInventoryErrorKind,
     DeviceKind, DeviceRecord, DeviceSelector, ProviderState,
 };
@@ -36,7 +36,7 @@ pub(super) fn device_inventory_payload(
             "the private installation identity directory is unavailable",
         )
     })?;
-    let inventory = agenterm_platform::device_inventory::enumerate(
+    let inventory = minicon_platform::device_inventory::enumerate(
         provider.private_state_dir(),
         platform_selector(selector),
         max,
@@ -195,7 +195,7 @@ fn enumerate_watch_sample(
     max: usize,
     timeout: Duration,
 ) -> Result<DeviceInventory, CuError> {
-    agenterm_platform::device_inventory::enumerate_with_timeout(
+    minicon_platform::device_inventory::enumerate_with_timeout(
         private_state_dir,
         selector,
         max,
@@ -215,7 +215,7 @@ struct DeviceWatchEvent {
 struct WatchState {
     selector: DeviceSelector,
     previous: BTreeMap<DeviceKind, Option<BTreeMap<String, DeviceRecord>>>,
-    providers: Vec<agenterm_platform::device_inventory::DeviceProviderStatus>,
+    providers: Vec<minicon_platform::device_inventory::DeviceProviderStatus>,
     events: Vec<DeviceWatchEvent>,
     samples: usize,
     suppressed_provider_samples: usize,
@@ -515,7 +515,7 @@ fn inventory_value(inventory: DeviceInventory) -> Result<Value, CuError> {
     }))
 }
 
-fn provider_value(provider: agenterm_platform::device_inventory::DeviceProviderStatus) -> Value {
+fn provider_value(provider: minicon_platform::device_inventory::DeviceProviderStatus) -> Value {
     json!({
         "kind": kind_name(provider.kind),
         "state": provider_state_name(provider.state),
@@ -580,7 +580,7 @@ fn device_inventory_error(error: DeviceInventoryError) -> CuError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agenterm_platform::device_inventory::DeviceProviderStatus;
+    use minicon_platform::device_inventory::DeviceProviderStatus;
 
     #[test]
     fn public_shape_omits_provider_private_identity() {

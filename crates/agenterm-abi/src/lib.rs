@@ -40,7 +40,7 @@
 //! independent `CaretOffset`.
 //! Backends are
 //! the host accessibility stack (Windows UIA / macOS AX / Linux AT-SPI2) behind
-//! `agenterm-platform`; the C header names mechanisms only.
+//! `minicon-platform`; the C header names mechanisms only.
 //! Milestone 8 ships the clipboard mechanism: `agt_clipboard_set_text`
 //! publishes UTF-8 text, `agt_clipboard_get_text` reads it back two-stage, and
 //! `agt_clipboard_has_text` probes for Unicode text. `AGT_CAP_CLIPBOARD` now
@@ -87,8 +87,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use agenterm_platform::CapabilityStatus;
-use agenterm_platform::accessibility_tree::{
+use minicon_platform::CapabilityStatus;
+use minicon_platform::accessibility_tree::{
     AccessibilityEvent, AccessibilityNodeAction, AccessibilityTree, AccessibilityTreeBudget,
     AccessibilityTreeError, ApplicationVisibility, click_node, drag_between_nodes, drain_bus,
     focused_node_for_window, get_node_caret_offset, get_node_extents, get_node_selection,
@@ -97,51 +97,51 @@ use agenterm_platform::accessibility_tree::{
     set_application_visibility, set_node_caret_offset, set_node_selection, set_node_text,
     tree_for_window_bounded, wheel_node,
 };
-use agenterm_platform::app_inventory::{launch as launch_app, list_installed};
-use agenterm_platform::clipboard::{
+use minicon_platform::app_inventory::{launch as launch_app, list_installed};
+use minicon_platform::clipboard::{
     available_types, clear as clipboard_clear, get_text, get_type, has_unicode_text, set_file,
     set_text, set_type,
 };
-use agenterm_platform::contract::app_inventory::AppInventoryError;
-use agenterm_platform::desktop_host::{
+use minicon_platform::contract::app_inventory::AppInventoryError;
+use minicon_platform::desktop_host::{
     DesktopActionSpec, DesktopHost, DesktopHostError, MAX_DESKTOP_ACTIONS, MAX_DESKTOP_LABEL_BYTES,
     MAX_DESKTOP_SHORTCUT_BYTES,
 };
-use agenterm_platform::ime::ImeEvent;
-use agenterm_platform::input::{
+use minicon_platform::ime::ImeEvent;
+use minicon_platform::input::{
     KeyPressState, LogicalKey, ModifierState, NamedKey, NormalizedKeyEvent, PhysicalKeyCode,
 };
-use agenterm_platform::input_inject::{
+use minicon_platform::input_inject::{
     MAX_POINTER_DRAG_STEPS, MAX_POINTER_SCROLL_DETENTS, PointerButton as InjectPointerButton,
     PointerPosition, pointer_click, pointer_drag, pointer_move, pointer_position, pointer_scroll,
     send_keys, type_text,
 };
-use agenterm_platform::parent_console::{write_stderr, write_stdout};
-use agenterm_platform::process::{kill, list};
-use agenterm_platform::pty::{
+use minicon_platform::parent_console::{write_stderr, write_stdout};
+use minicon_platform::process::{kill, list};
+use minicon_platform::pty::{
     ChildCommand, PtyChild, PtyMaster, TerminalSize, initialize_shutdown_reaper,
     shutdown_session_detached,
 };
-use agenterm_platform::runtime::{
+use minicon_platform::runtime::{
     application_arguments, ascii_environment_variable_present, default_terminal_shell,
     user_config_directory,
 };
-use agenterm_platform::screenshot::{
+use minicon_platform::screenshot::{
     MAX_FRAME_PIXELS, MAX_FRAME_SIDE, NativeCaptureArea, ScreenshotWindowHandle, UiScreenshotError,
     XrgbFrame, capture_native_window_png, write_xrgb_png,
 };
-use agenterm_platform::threading::spawn_named_detached;
-use agenterm_platform::window_enumerate::{
+use minicon_platform::threading::spawn_named_detached;
+use minicon_platform::window_enumerate::{
     ScreenInfo, WindowEnumerateError, WindowInfo, enumerate_all_top_level, enumerate_top_level,
     list_screens, stacking,
 };
-use agenterm_platform::window_host::{
+use minicon_platform::window_host::{
     LogicalPoint, LogicalSize, PixelFrameWrite, PixelWindow, PixelWindowApplication,
     PixelWindowDirective, PixelWindowError, PixelWindowEvent, PixelWindowMetrics,
     PixelWindowOptions, PointerButton, PointerButtonState, WheelDelta, WindowWaker, XrgbPixelFrame,
     run_pixel_window,
 };
-use agenterm_platform::window_op::{
+use minicon_platform::window_op::{
     WindowShowState, above as window_above, activate as activate_native_window, close,
     fullscreen as window_fullscreen, maximized as window_maximized, minimized as window_minimized,
     move_window, opacity as window_opacity, set_opacity, set_topmost, show, window_rect,
@@ -473,13 +473,13 @@ pub extern "C" fn agt_capability_query(cap: u32) -> agt_status {
         // native-window and input-injection mechanisms (never a blanket
         // AGT_OK — Linux/macOS hosts may not implement them).
         AGT_CAP_WINDOW_ENUMERATE => {
-            capability_ok(agenterm_platform::window_enumerate::capability_status())
+            capability_ok(minicon_platform::window_enumerate::capability_status())
         }
-        AGT_CAP_WINDOW_OP => capability_ok(agenterm_platform::window_op::capability_status()),
-        AGT_CAP_INPUT_INJECT => capability_ok(agenterm_platform::input_inject::capability_status()),
-        AGT_CAP_DESKTOP_HOST => capability_ok(agenterm_platform::desktop_host::capability_status()),
+        AGT_CAP_WINDOW_OP => capability_ok(minicon_platform::window_op::capability_status()),
+        AGT_CAP_INPUT_INJECT => capability_ok(minicon_platform::input_inject::capability_status()),
+        AGT_CAP_DESKTOP_HOST => capability_ok(minicon_platform::desktop_host::capability_status()),
         AGT_CAP_WINDOW_PLACEMENT_INSPECT => {
-            capability_ok(agenterm_platform::window_placement::capability_status())
+            capability_ok(minicon_platform::window_placement::capability_status())
         }
         // Every value not listed above — including any out-of-range int a C
         // caller can pass (0, negatives, > 18) — maps to AGT_UNSUPPORTED.
@@ -3186,7 +3186,7 @@ pub struct agt_a11y_node {
 struct A11ySnapshot {
     backend: String,
     root_id: String,
-    nodes: Vec<agenterm_platform::accessibility_tree::AccessibilityNode>,
+    nodes: Vec<minicon_platform::accessibility_tree::AccessibilityNode>,
     truncated: bool,
     visited: usize,
     returned: usize,
@@ -3206,7 +3206,7 @@ thread_local! {
 /// `AGT_FAILED` with the code and repair path recorded in `agt_last_error`,
 /// so consumers never mistake a denial for a missing mechanism.
 fn a11y_mechanism_gate() -> Option<agt_status> {
-    match agenterm_platform::accessibility_tree::capability_status() {
+    match minicon_platform::accessibility_tree::capability_status() {
         CapabilityStatus::Available => None,
         CapabilityStatus::Unsupported { .. } => Some(agt_status::AGT_UNSUPPORTED),
         CapabilityStatus::Failed { code, message } => Some(map_a11y_error(
@@ -3226,9 +3226,7 @@ fn path_to_fixed(path: &str) -> ([u8; 64], u32, u32) {
     (bytes, kept as u32, u32::from(truncated))
 }
 
-fn node_to_record(
-    node: &agenterm_platform::accessibility_tree::AccessibilityNode,
-) -> agt_a11y_node {
+fn node_to_record(node: &minicon_platform::accessibility_tree::AccessibilityNode) -> agt_a11y_node {
     let (id, id_len, id_truncated) = path_to_fixed(&node.id);
     let (parent_id, parent_id_len, parent_id_truncated) = match node.parent_id.as_deref() {
         Some(p) => {
@@ -3366,7 +3364,7 @@ fn copy_bytes_two_stage(
 fn with_snapshot_node(
     index: usize,
     operation: &'static CStr,
-    f: impl FnOnce(&agenterm_platform::accessibility_tree::AccessibilityNode) -> agt_status,
+    f: impl FnOnce(&minicon_platform::accessibility_tree::AccessibilityNode) -> agt_status,
 ) -> agt_status {
     A11Y_SNAPSHOT.with(|cell| {
         let guard = cell.borrow();
@@ -5526,7 +5524,7 @@ pub extern "C" fn agt_clipboard_types(buf: *mut u8, cap: usize, out_len: *mut us
                 let joined = names.join("\n");
                 copy_bytes_two_stage(c"agt_clipboard_types", joined.as_bytes(), buf, cap, out_len)
             }
-            Err(agenterm_platform::contract::clipboard::ClipboardError::Unsupported { .. }) => {
+            Err(minicon_platform::contract::clipboard::ClipboardError::Unsupported { .. }) => {
                 agt_status::AGT_UNSUPPORTED
             }
             Err(error) => {
@@ -5549,7 +5547,7 @@ pub extern "C" fn agt_clipboard_types(buf: *mut u8, cap: usize, out_len: *mut us
 }
 
 const MAX_CLIPBOARD_TYPE_BYTES: usize =
-    agenterm_platform::contract::clipboard::MAX_CLIPBOARD_TYPE_BYTES;
+    minicon_platform::contract::clipboard::MAX_CLIPBOARD_TYPE_BYTES;
 
 /// ABI 1.23: read one clipboard type as raw bytes, two-stage (§3.4).
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -5594,7 +5592,7 @@ pub extern "C" fn agt_clipboard_get(
         };
         match get_type(type_name, MAX_CLIPBOARD_TYPE_BYTES) {
             Ok(bytes) => copy_bytes_two_stage(c"agt_clipboard_get", &bytes, buf, cap, out_len),
-            Err(agenterm_platform::contract::clipboard::ClipboardError::Unsupported { .. }) => {
+            Err(minicon_platform::contract::clipboard::ClipboardError::Unsupported { .. }) => {
                 agt_status::AGT_UNSUPPORTED
             }
             Err(error) => {
@@ -5663,7 +5661,7 @@ pub extern "C" fn agt_clipboard_set(
         };
         match set_type(type_name, payload) {
             Ok(()) => agt_status::AGT_OK,
-            Err(agenterm_platform::contract::clipboard::ClipboardError::Unsupported { .. }) => {
+            Err(minicon_platform::contract::clipboard::ClipboardError::Unsupported { .. }) => {
                 agt_status::AGT_UNSUPPORTED
             }
             Err(error) => {
@@ -5708,7 +5706,7 @@ pub extern "C" fn agt_clipboard_set_file(path: *const u8, path_len: usize) -> ag
         };
         match set_file(path) {
             Ok(()) => agt_status::AGT_OK,
-            Err(agenterm_platform::contract::clipboard::ClipboardError::Unsupported { .. }) => {
+            Err(minicon_platform::contract::clipboard::ClipboardError::Unsupported { .. }) => {
                 agt_status::AGT_UNSUPPORTED
             }
             Err(error) => {
@@ -5739,7 +5737,7 @@ pub extern "C" fn agt_clipboard_set_file(path: *const u8, path_len: usize) -> ag
 pub extern "C" fn agt_clipboard_clear() -> agt_status {
     match catch_unwind(|| match clipboard_clear() {
         Ok(()) => agt_status::AGT_OK,
-        Err(agenterm_platform::contract::clipboard::ClipboardError::Unsupported { .. }) => {
+        Err(minicon_platform::contract::clipboard::ClipboardError::Unsupported { .. }) => {
             agt_status::AGT_UNSUPPORTED
         }
         Err(error) => {
@@ -6121,21 +6119,21 @@ fn native_handle_error(operation: &'static CStr, handle: isize) -> bool {
 
 fn window_enumerate_available() -> bool {
     matches!(
-        agenterm_platform::window_enumerate::capability_status(),
+        minicon_platform::window_enumerate::capability_status(),
         CapabilityStatus::Available
     )
 }
 
 fn window_op_available() -> bool {
     matches!(
-        agenterm_platform::window_op::capability_status(),
+        minicon_platform::window_op::capability_status(),
         CapabilityStatus::Available
     )
 }
 
 fn input_inject_available() -> bool {
     matches!(
-        agenterm_platform::input_inject::capability_status(),
+        minicon_platform::input_inject::capability_status(),
         CapabilityStatus::Available
     )
 }
@@ -6414,7 +6412,7 @@ pub extern "C" fn agt_window_stacking_list(
         }
         let rows = match stacking() {
             Ok(rows) => rows,
-            Err(agenterm_platform::window_enumerate::WindowEnumerateError::Unsupported {
+            Err(minicon_platform::window_enumerate::WindowEnumerateError::Unsupported {
                 ..
             }) => return agt_status::AGT_UNSUPPORTED,
             Err(e) => {
@@ -6621,10 +6619,10 @@ pub struct agt_window_placement_info_v1 {
 }
 
 fn placement_record(
-    info: agenterm_platform::window_placement::PlacementWindowInfo,
+    info: minicon_platform::window_placement::PlacementWindowInfo,
     struct_size: u32,
 ) -> agt_window_placement_info_v1 {
-    use agenterm_platform::window_placement::{PlacementRole, SizeConstraints, Support};
+    use minicon_platform::window_placement::{PlacementRole, SizeConstraints, Support};
 
     let role = match info.role {
         PlacementRole::Standard => AGT_WINDOW_ROLE_STANDARD,
@@ -6732,15 +6730,15 @@ pub extern "C" fn agt_window_placement_query(
             );
             return agt_status::AGT_FAILED;
         }
-        match agenterm_platform::window_placement::inspect(handle, expected_pid) {
+        match minicon_platform::window_placement::inspect(handle, expected_pid) {
             Ok(info) => {
                 unsafe { *out = placement_record(info, struct_size) };
                 agt_status::AGT_OK
             }
-            Err(agenterm_platform::window_placement::WindowPlacementError::Unsupported {
+            Err(minicon_platform::window_placement::WindowPlacementError::Unsupported {
                 ..
             }) => agt_status::AGT_UNSUPPORTED,
-            Err(agenterm_platform::window_placement::WindowPlacementError::Failed {
+            Err(minicon_platform::window_placement::WindowPlacementError::Failed {
                 code,
                 message,
             }) => {
@@ -6852,7 +6850,7 @@ pub extern "C" fn agt_screen_list(
         }
         let screens = match list_screens() {
             Ok(v) => v,
-            Err(agenterm_platform::window_enumerate::WindowEnumerateError::Unsupported {
+            Err(minicon_platform::window_enumerate::WindowEnumerateError::Unsupported {
                 reason,
             }) => return unsupported_because(c"agt_screen_list", reason.into_owned()),
             Err(e) => {
@@ -6908,7 +6906,7 @@ pub extern "C" fn agt_screen_physical(
         }
         let screens = match list_screens() {
             Ok(screens) => screens,
-            Err(agenterm_platform::window_enumerate::WindowEnumerateError::Unsupported {
+            Err(minicon_platform::window_enumerate::WindowEnumerateError::Unsupported {
                 reason,
             }) => return unsupported_because(c"agt_screen_physical", reason.into_owned()),
             Err(error) => {
@@ -7041,7 +7039,7 @@ pub extern "C" fn agt_native_window_activate(handle: isize) -> agt_status {
         }
         match activate_native_window(handle) {
             Ok(()) => agt_status::AGT_OK,
-            Err(agenterm_platform::window_op::WindowOpError::Unsupported { .. }) => {
+            Err(minicon_platform::window_op::WindowOpError::Unsupported { .. }) => {
                 agt_status::AGT_UNSUPPORTED
             }
             Err(error) => {
@@ -7286,7 +7284,7 @@ pub extern "C" fn agt_native_window_minimized(
                 unsafe { *out_minimized = i32::from(value) };
                 agt_status::AGT_OK
             }
-            Err(agenterm_platform::window_op::WindowOpError::Unsupported { .. }) => {
+            Err(minicon_platform::window_op::WindowOpError::Unsupported { .. }) => {
                 agt_status::AGT_UNSUPPORTED
             }
             Err(e) => {
@@ -7338,7 +7336,7 @@ pub extern "C" fn agt_native_window_maximized(
                 unsafe { *out_maximized = i32::from(value) };
                 agt_status::AGT_OK
             }
-            Err(agenterm_platform::window_op::WindowOpError::Unsupported { .. }) => {
+            Err(minicon_platform::window_op::WindowOpError::Unsupported { .. }) => {
                 agt_status::AGT_UNSUPPORTED
             }
             Err(e) => {
@@ -7391,7 +7389,7 @@ pub extern "C" fn agt_native_window_fullscreen(
                 unsafe { *out_fullscreen = i32::from(value) };
                 agt_status::AGT_OK
             }
-            Err(agenterm_platform::window_op::WindowOpError::Unsupported { .. }) => {
+            Err(minicon_platform::window_op::WindowOpError::Unsupported { .. }) => {
                 agt_status::AGT_UNSUPPORTED
             }
             Err(e) => {
@@ -7441,7 +7439,7 @@ pub extern "C" fn agt_native_window_above(handle: isize, out_above: *mut i32) ->
                 unsafe { *out_above = i32::from(value) };
                 agt_status::AGT_OK
             }
-            Err(agenterm_platform::window_op::WindowOpError::Unsupported { .. }) => {
+            Err(minicon_platform::window_op::WindowOpError::Unsupported { .. }) => {
                 agt_status::AGT_UNSUPPORTED
             }
             Err(e) => {
@@ -7493,7 +7491,7 @@ pub extern "C" fn agt_native_window_workspace_desktop(
                 unsafe { *out_desktop = value };
                 agt_status::AGT_OK
             }
-            Err(agenterm_platform::window_op::WindowOpError::Unsupported { .. }) => {
+            Err(minicon_platform::window_op::WindowOpError::Unsupported { .. }) => {
                 agt_status::AGT_UNSUPPORTED
             }
             Err(e) => {
@@ -7544,7 +7542,7 @@ pub extern "C" fn agt_native_window_opacity(handle: isize, out_permille: *mut u3
                 unsafe { *out_permille = value };
                 agt_status::AGT_OK
             }
-            Err(agenterm_platform::window_op::WindowOpError::Unsupported { .. }) => {
+            Err(minicon_platform::window_op::WindowOpError::Unsupported { .. }) => {
                 agt_status::AGT_UNSUPPORTED
             }
             Err(e) => {
@@ -7594,7 +7592,7 @@ pub extern "C" fn agt_native_window_set_opacity(
         }
         match set_opacity(handle, opacity_permille) {
             Ok(()) => agt_status::AGT_OK,
-            Err(agenterm_platform::window_op::WindowOpError::Unsupported { .. }) => {
+            Err(minicon_platform::window_op::WindowOpError::Unsupported { .. }) => {
                 agt_status::AGT_UNSUPPORTED
             }
             Err(e) => {
@@ -7647,7 +7645,7 @@ pub extern "C" fn agt_input_pointer_position(x: *mut i32, y: *mut i32) -> agt_st
                 }
                 agt_status::AGT_OK
             }
-            Err(agenterm_platform::input_inject::InputInjectError::Unsupported { .. }) => {
+            Err(minicon_platform::input_inject::InputInjectError::Unsupported { .. }) => {
                 agt_status::AGT_UNSUPPORTED
             }
             Err(error) => {
@@ -7733,7 +7731,7 @@ pub extern "C" fn agt_input_pointer_scroll(dx: i32, dy: i32) -> agt_status {
         }
         match pointer_scroll(dx, dy) {
             Ok(()) => agt_status::AGT_OK,
-            Err(agenterm_platform::input_inject::InputInjectError::Unsupported { .. }) => {
+            Err(minicon_platform::input_inject::InputInjectError::Unsupported { .. }) => {
                 agt_status::AGT_UNSUPPORTED
             }
             Err(error) => {
@@ -7864,7 +7862,7 @@ pub extern "C" fn agt_input_pointer_drag(
             steps,
         ) {
             Ok(_) => agt_status::AGT_OK,
-            Err(agenterm_platform::input_inject::InputInjectError::Unsupported { .. }) => {
+            Err(minicon_platform::input_inject::InputInjectError::Unsupported { .. }) => {
                 agt_status::AGT_UNSUPPORTED
             }
             Err(e) => {
@@ -8179,7 +8177,7 @@ mod tests {
 
     #[test]
     fn placement_record_preserves_unknowns_and_explicit_option_flags() {
-        use agenterm_platform::window_placement::{
+        use minicon_platform::window_placement::{
             PlacementRole, PlacementWindowInfo, SizeConstraints, Support, WindowSize,
         };
         let record = placement_record(

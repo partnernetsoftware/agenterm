@@ -198,7 +198,7 @@ visibility checklist; fix launch durability first.
 
 - Peer attach / refuse second server: `src/frontend_server.rs`, `src/instances.rs`, CLI pin in `src/client/mod.rs`
 - Window close present: `src/platform/adapters/windows/remote_frontend.rs`, `SC_CLOSE` in platform `control_window`
-- Process breakaway spawn: `crates/agenterm-platform` process_spawn (server autostart); GUI agent launches must still break away at the **agent** boundary
+- Process breakaway spawn: `crates/minicon-platform` process_spawn (server autostart); GUI agent launches must still break away at the **agent** boundary
 
 ## Desensitization checklist for commits
 

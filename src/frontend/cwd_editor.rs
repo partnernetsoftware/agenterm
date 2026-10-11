@@ -54,7 +54,7 @@ impl CwdEditorDialog {
     }
 
     pub(crate) fn submit_mode(
-        modifiers: agenterm_platform::input::ModifierState,
+        modifiers: minicon_platform::input::ModifierState,
     ) -> Option<ComposerWriteMode> {
         let primary = if crate::platform::is_primary_shortcut_via_meta() {
             modifiers.meta
@@ -133,7 +133,7 @@ mod tests {
     #[test]
     fn submit_mode_uses_platform_primary_shortcut_and_modes() {
         let via_meta = crate::platform::is_primary_shortcut_via_meta();
-        let primary = agenterm_platform::input::ModifierState {
+        let primary = minicon_platform::input::ModifierState {
             control: !via_meta,
             shift: false,
             alt: false,
@@ -144,7 +144,7 @@ mod tests {
             Some(ComposerWriteMode::EmptyOnly)
         );
         assert_eq!(
-            CwdEditorDialog::submit_mode(agenterm_platform::input::ModifierState {
+            CwdEditorDialog::submit_mode(minicon_platform::input::ModifierState {
                 control: false,
                 shift: false,
                 alt: false,
@@ -153,7 +153,7 @@ mod tests {
             None
         );
         assert_eq!(
-            CwdEditorDialog::submit_mode(agenterm_platform::input::ModifierState {
+            CwdEditorDialog::submit_mode(minicon_platform::input::ModifierState {
                 control: !via_meta,
                 shift: true,
                 alt: false,
@@ -162,7 +162,7 @@ mod tests {
             Some(ComposerWriteMode::Append)
         );
         assert_eq!(
-            CwdEditorDialog::submit_mode(agenterm_platform::input::ModifierState {
+            CwdEditorDialog::submit_mode(minicon_platform::input::ModifierState {
                 control: !via_meta,
                 shift: false,
                 alt: true,

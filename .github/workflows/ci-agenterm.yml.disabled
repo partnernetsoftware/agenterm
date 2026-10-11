@@ -40,9 +40,9 @@ jobs:
       - name: Test incremental pruning contracts
         run: cargo test --locked -p agenterm --test target_incremental_prune
       - name: Test shared UI core
-        run: cargo test --locked -p agenterm-ui-core --lib
+        run: cargo test --locked -p minicon-ui-core --lib
       - name: Test platform contracts
-        run: cargo test --locked -p agenterm-platform --lib --all-features
+        run: cargo test --locked -p minicon-platform --lib --all-features
       - name: Test agenterm-dyn
         run: cargo test --locked -p agenterm-dyn
       - name: Test chassis L1/L2/L3

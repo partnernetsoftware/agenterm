@@ -1,13 +1,13 @@
 //! Bounded mounted-volume capacity inventory without device identifiers.
 
-use agenterm_platform::storage::{MountedVolume, MountedVolumeInventory, StorageErrorKind};
+use minicon_platform::storage::{MountedVolume, MountedVolumeInventory, StorageErrorKind};
 use serde_json::{Value, json};
 
 use crate::reply::CuError;
 
 pub(super) fn storage_volume_at_payload(path: &str) -> Result<Value, CuError> {
     let volume =
-        agenterm_platform::storage::volume_at(std::path::Path::new(path)).map_err(|error| {
+        minicon_platform::storage::volume_at(std::path::Path::new(path)).map_err(|error| {
             let code = match error.kind() {
                 StorageErrorKind::PathNotFound => "storage_volume_at_path_not_found",
                 StorageErrorKind::PathDenied => "storage_volume_at_path_denied",
@@ -37,9 +37,9 @@ pub(super) fn storage_volume_at_payload(path: &str) -> Result<Value, CuError> {
         "canonical_path": volume.canonical_path.to_string_lossy(),
         "canonical_path_encoding": canonical_path_encoding,
         "path_kind": match volume.path_kind {
-            agenterm_platform::storage::VolumePathKind::Directory => "directory",
-            agenterm_platform::storage::VolumePathKind::File => "file",
-            agenterm_platform::storage::VolumePathKind::Other => "other",
+            minicon_platform::storage::VolumePathKind::Directory => "directory",
+            minicon_platform::storage::VolumePathKind::File => "file",
+            minicon_platform::storage::VolumePathKind::Other => "other",
         },
         "symlink_followed": volume.symlink_followed,
         "mount_path": volume.mount_path.as_ref().map(|path| path.to_string_lossy()),
@@ -51,13 +51,13 @@ pub(super) fn storage_volume_at_payload(path: &str) -> Result<Value, CuError> {
         "available_bytes": volume.space.available_bytes.to_string(),
         "allocation_unit": volume.space.allocation_unit.get().to_string(),
         "drive_kind": volume.drive_kind.map(|kind| match kind {
-            agenterm_platform::storage::VolumeDriveKind::Fixed => "fixed",
-            agenterm_platform::storage::VolumeDriveKind::RamDisk => "ramdisk",
-            agenterm_platform::storage::VolumeDriveKind::Removable => "removable",
-            agenterm_platform::storage::VolumeDriveKind::Remote => "remote",
-            agenterm_platform::storage::VolumeDriveKind::CdRom => "cdrom",
-            agenterm_platform::storage::VolumeDriveKind::Unknown => "unknown",
-            agenterm_platform::storage::VolumeDriveKind::NoRoot => "no-root",
+            minicon_platform::storage::VolumeDriveKind::Fixed => "fixed",
+            minicon_platform::storage::VolumeDriveKind::RamDisk => "ramdisk",
+            minicon_platform::storage::VolumeDriveKind::Removable => "removable",
+            minicon_platform::storage::VolumeDriveKind::Remote => "remote",
+            minicon_platform::storage::VolumeDriveKind::CdRom => "cdrom",
+            minicon_platform::storage::VolumeDriveKind::Unknown => "unknown",
+            minicon_platform::storage::VolumeDriveKind::NoRoot => "no-root",
         }),
         "in_inventory": volume.in_inventory,
         "mutation_performed": false,
@@ -71,7 +71,7 @@ pub(super) fn storage_volume_at_payload(path: &str) -> Result<Value, CuError> {
 }
 
 pub(super) fn storage_volumes_payload(max: usize) -> Result<Value, CuError> {
-    let inventory = agenterm_platform::storage::mounted_volumes(max).map_err(|error| {
+    let inventory = minicon_platform::storage::mounted_volumes(max).map_err(|error| {
         let code = match error.kind() {
             StorageErrorKind::InvalidValue => "storage_volumes_invalid_limit",
             StorageErrorKind::Path => "storage_volumes_path_failed",
@@ -131,7 +131,7 @@ fn volume_value(volume: MountedVolume) -> Value {
 mod tests {
     use std::{num::NonZeroU64, path::PathBuf};
 
-    use agenterm_platform::storage::MountedVolumeSpace;
+    use minicon_platform::storage::MountedVolumeSpace;
 
     use super::*;
 

@@ -179,7 +179,7 @@ fn validate_chain(s: &Sources) -> Result<(), String> {
         "chassis image is not an installed directory",
         "extract a Candidate .tgz before launch",
         "root.join(\"l1\").join(native_cell).join(\"loader\")",
-        "agenterm_platform::chassis_loader::validate_executable(loader, &bytes)",
+        "minicon_platform::chassis_loader::validate_executable(loader, &bytes)",
     ] {
         require(
             &s.workbench_image,
@@ -253,7 +253,7 @@ fn deleting_any_delivery_link_is_rejected() {
             |s| {
                 remove_once(
                     &mut s.workbench_image,
-                    "agenterm_platform::chassis_loader::validate_executable(loader, &bytes)",
+                    "minicon_platform::chassis_loader::validate_executable(loader, &bytes)",
                 )
             },
         ),

@@ -20,7 +20,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use agenterm_platform::{
+use minicon_platform::{
     filesystem::{
         host_directories, metadata_is_link_like, private_create_new_options,
         protect_private_directory,

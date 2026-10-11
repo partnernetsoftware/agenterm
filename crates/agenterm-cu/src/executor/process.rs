@@ -1,4 +1,4 @@
-//! Cross-platform process observation through `agenterm-platform`.
+//! Cross-platform process observation through `minicon-platform`.
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -52,7 +52,7 @@ struct TreeSignalMember {
     pid: u32,
     depth: usize,
     identity: String,
-    reference: agenterm_platform::process_reference::ProcessReference,
+    reference: minicon_platform::process_reference::ProcessReference,
     was_stopped: bool,
     frozen_by_us: bool,
 }
@@ -93,15 +93,15 @@ pub(super) fn process_state_payload(pid: u32) -> Result<Value, CuError> {
             "process-state --pid must be greater than zero",
         ));
     }
-    let (state, start_identity, reason) = match agenterm_platform::process_observation::observe(pid)
+    let (state, start_identity, reason) = match minicon_platform::process_observation::observe(pid)
     {
-        agenterm_platform::process_observation::ProcessObservation::Live { start_identity } => {
+        minicon_platform::process_observation::ProcessObservation::Live { start_identity } => {
             ("live", start_identity, None)
         }
-        agenterm_platform::process_observation::ProcessObservation::Dead { reason } => {
+        minicon_platform::process_observation::ProcessObservation::Dead { reason } => {
             ("dead", None, Some(reason))
         }
-        agenterm_platform::process_observation::ProcessObservation::Unknown { reason } => {
+        minicon_platform::process_observation::ProcessObservation::Unknown { reason } => {
             ("unknown", None, Some(reason))
         }
         _ => (
@@ -141,12 +141,12 @@ pub(super) fn process_argv_payload(
     }
 
     let start_identity = live_start_identity(pid)?;
-    let executable = agenterm_platform::process_image::executable_path(pid).map_err(|error| {
+    let executable = minicon_platform::process_image::executable_path(pid).map_err(|error| {
         CuError::new("process_image_failed", error.to_string()).with_detail(json!({
             "kind": format!("{:?}", error.kind()),
         }))
     })?;
-    let arguments = agenterm_platform::process::arguments(pid).map_err(|error| {
+    let arguments = minicon_platform::process::arguments(pid).map_err(|error| {
         CuError::new("process_arguments_failed", error.to_string()).with_detail(json!({
             "kind": format!("{:?}", error.kind()),
         }))
@@ -205,7 +205,7 @@ pub(super) fn process_cwd_payload(pid: u32) -> Result<Value, CuError> {
     }
 
     let start_identity = live_start_identity(pid)?;
-    let path = agenterm_platform::process::current_directory(pid).map_err(process_cwd_error)?;
+    let path = minicon_platform::process::current_directory(pid).map_err(process_cwd_error)?;
     let after_identity = live_start_identity(pid)?;
     if after_identity != start_identity {
         return Err(CuError::new(
@@ -268,7 +268,7 @@ pub(super) fn process_environment_payload(
 
     let start_identity = live_start_identity(pid)?;
     let snapshot =
-        agenterm_platform::process::environment_snapshot(pid).map_err(process_environment_error)?;
+        minicon_platform::process::environment_snapshot(pid).map_err(process_environment_error)?;
     let after_identity = live_start_identity(pid)?;
     if after_identity != start_identity {
         return Err(CuError::new(
@@ -343,7 +343,7 @@ fn inspection_bounds(
 fn identity_bracket<T>(
     pid: u32,
     subject: &str,
-    read: impl FnOnce() -> Result<T, agenterm_platform::process::ProcessError>,
+    read: impl FnOnce() -> Result<T, minicon_platform::process::ProcessError>,
 ) -> Result<(String, T), CuError> {
     let identity = live_start_identity(pid)?;
     let value = read().map_err(|error| process_inspection_error(subject, error))?;
@@ -358,9 +358,9 @@ fn identity_bracket<T>(
 
 fn process_inspection_error(
     subject: &str,
-    error: agenterm_platform::process::ProcessError,
+    error: minicon_platform::process::ProcessError,
 ) -> CuError {
-    use agenterm_platform::process::ProcessErrorKind;
+    use minicon_platform::process::ProcessErrorKind;
     let code = match error.kind() {
         ProcessErrorKind::IdOutOfRange => "invalid_input",
         ProcessErrorKind::NotFound => "process_not_found",
@@ -394,7 +394,7 @@ pub(super) fn process_fds_payload(
 ) -> Result<Value, CuError> {
     let (offset, limit, max_visited) = inspection_bounds(offset, limit, max_visited)?;
     let (start_identity, snapshot) = identity_bracket(pid, "file descriptors", || {
-        agenterm_platform::process::file_descriptors(pid, max_visited)
+        minicon_platform::process::file_descriptors(pid, max_visited)
     })?;
     let matching = snapshot
         .items
@@ -463,7 +463,7 @@ pub(super) fn process_maps_payload(
 ) -> Result<Value, CuError> {
     let (offset, limit, max_visited) = inspection_bounds(offset, limit, max_visited)?;
     let (start_identity, snapshot) = identity_bracket(pid, "memory regions", || {
-        agenterm_platform::process::memory_regions(pid, max_visited)
+        minicon_platform::process::memory_regions(pid, max_visited)
     })?;
     let required = permissions.unwrap_or("").as_bytes();
     let matching = snapshot
@@ -569,7 +569,7 @@ pub(super) fn process_threads_payload(
 ) -> Result<Value, CuError> {
     let (offset, limit, max_visited) = inspection_bounds(offset, limit, max_visited)?;
     let (start_identity, snapshot) = identity_bracket(pid, "threads", || {
-        agenterm_platform::process::threads(pid, max_visited)
+        minicon_platform::process::threads(pid, max_visited)
     })?;
     let matching = snapshot
         .items
@@ -657,7 +657,7 @@ pub(super) fn process_sockets_payload(
 ) -> Result<Value, CuError> {
     let (offset, limit, max_visited) = inspection_bounds(offset, limit, max_visited)?;
     let (start_identity, snapshot) = identity_bracket(pid, "sockets", || {
-        agenterm_platform::process::sockets(pid, max_visited)
+        minicon_platform::process::sockets(pid, max_visited)
     })?;
     let matching = snapshot
         .items
@@ -726,7 +726,7 @@ pub(super) fn process_cgroup_payload(
     pid: u32,
     expected_start_identity: Option<&str>,
 ) -> Result<Value, CuError> {
-    use agenterm_platform::process::{
+    use minicon_platform::process::{
         ProcessCgroupCounter, ProcessCgroupLimit, ProcessCgroupUnavailableKind,
     };
 
@@ -754,7 +754,7 @@ pub(super) fn process_cgroup_payload(
         )
     }
 
-    let snapshot = agenterm_platform::process::cgroup_v2(pid, expected_start_identity)
+    let snapshot = minicon_platform::process::cgroup_v2(pid, expected_start_identity)
         .map_err(process_cgroup_error)?;
     let hierarchy = cgroup_membership_hierarchy(&snapshot.path);
     let filesystem_path = cgroup_filesystem_path(&snapshot.path);
@@ -893,8 +893,8 @@ fn cgroup_hierarchy_json(hierarchy: &[Vec<u8>]) -> Value {
     )
 }
 
-fn process_cgroup_error(error: agenterm_platform::process::ProcessCgroupError) -> CuError {
-    use agenterm_platform::process::ProcessCgroupErrorKind;
+fn process_cgroup_error(error: minicon_platform::process::ProcessCgroupError) -> CuError {
+    use minicon_platform::process::ProcessCgroupErrorKind;
 
     let code = match error.kind() {
         ProcessCgroupErrorKind::IdOutOfRange => "invalid_input",
@@ -991,8 +991,8 @@ fn encode_hex(bytes: &[u8]) -> String {
     encoded
 }
 
-fn process_environment_error(error: agenterm_platform::process::ProcessError) -> CuError {
-    use agenterm_platform::process::ProcessErrorKind;
+fn process_environment_error(error: minicon_platform::process::ProcessError) -> CuError {
+    use minicon_platform::process::ProcessErrorKind;
 
     let code = match error.kind() {
         ProcessErrorKind::IdOutOfRange => "invalid_input",
@@ -1029,8 +1029,8 @@ const fn process_environment_provider() -> &'static str {
     }
 }
 
-fn process_cwd_error(error: agenterm_platform::process::ProcessError) -> CuError {
-    use agenterm_platform::process::ProcessErrorKind;
+fn process_cwd_error(error: minicon_platform::process::ProcessError) -> CuError {
+    use minicon_platform::process::ProcessErrorKind;
 
     let code = match error.kind() {
         ProcessErrorKind::IdOutOfRange => "invalid_input",
@@ -1066,20 +1066,20 @@ const fn process_cwd_provider() -> &'static str {
 }
 
 fn live_start_identity(pid: u32) -> Result<String, CuError> {
-    match agenterm_platform::process_observation::observe(pid) {
-        agenterm_platform::process_observation::ProcessObservation::Live {
+    match minicon_platform::process_observation::observe(pid) {
+        minicon_platform::process_observation::ProcessObservation::Live {
             start_identity: Some(identity),
         } => Ok(identity),
-        agenterm_platform::process_observation::ProcessObservation::Live {
+        minicon_platform::process_observation::ProcessObservation::Live {
             start_identity: None,
         } => Err(CuError::new(
             "process_identity_unavailable",
             "process is live but its start identity is unavailable",
         )),
-        agenterm_platform::process_observation::ProcessObservation::Dead { reason } => {
+        minicon_platform::process_observation::ProcessObservation::Dead { reason } => {
             Err(CuError::new("process_not_found", reason))
         }
-        agenterm_platform::process_observation::ProcessObservation::Unknown { reason } => {
+        minicon_platform::process_observation::ProcessObservation::Unknown { reason } => {
             Err(CuError::new("process_identity_unknown", reason))
         }
         _ => Err(CuError::new(
@@ -1097,7 +1097,7 @@ pub(super) fn process_usage_payload(pid: u32) -> Result<Value, CuError> {
         ));
     }
     let identity = live_start_identity(pid)?;
-    let sample = agenterm_platform::process_metrics::metrics(pid).map_err(|error| {
+    let sample = minicon_platform::process_metrics::metrics(pid).map_err(|error| {
         CuError::new("process_metrics_failed", error.to_string()).with_detail(json!({
             "kind": format!("{:?}", error.kind()),
         }))
@@ -1325,7 +1325,7 @@ pub(super) fn process_wait_payload(
         ));
     }
     let reference =
-        agenterm_platform::process_reference::ProcessReference::open(pid).map_err(|error| {
+        minicon_platform::process_reference::ProcessReference::open(pid).map_err(|error| {
             CuError::new("process_reference_failed", error.to_string())
                 .with_detail(json!({ "pid": pid }))
         })?;
@@ -1348,8 +1348,8 @@ pub(super) fn process_wait_payload(
         .map_err(|error| CuError::new("process_wait_failed", error.to_string()))?;
     let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     let (state, completed) = match state {
-        agenterm_platform::process_reference::ProcessWait::Exited => ("exited", true),
-        agenterm_platform::process_reference::ProcessWait::TimedOut => ("timeout", false),
+        minicon_platform::process_reference::ProcessWait::Exited => ("exited", true),
+        minicon_platform::process_reference::ProcessWait::TimedOut => ("timeout", false),
     };
     Ok(json!({
         "pid": pid,
@@ -1381,7 +1381,7 @@ pub(super) fn process_kill_payload(
             "process-kill requires a positive pid, non-empty start identity, timeout-ms in 1..=86400000 and --expect exited",
         ));
     }
-    let reference = agenterm_platform::process_reference::ProcessReference::open_for_termination(
+    let reference = minicon_platform::process_reference::ProcessReference::open_for_termination(
         pid,
     )
     .map_err(|error| {
@@ -1422,8 +1422,8 @@ pub(super) fn process_kill_payload(
         }),
     )?;
     let platform_mode = match mode {
-        ProcessKillMode::Graceful => agenterm_platform::process_control::TerminationMode::Graceful,
-        ProcessKillMode::Forceful => agenterm_platform::process_control::TerminationMode::Forceful,
+        ProcessKillMode::Graceful => minicon_platform::process_control::TerminationMode::Graceful,
+        ProcessKillMode::Forceful => minicon_platform::process_control::TerminationMode::Forceful,
     };
     if let Err(error) = reference.terminate(platform_mode) {
         let code = if error.kind() == std::io::ErrorKind::Unsupported {
@@ -1447,7 +1447,7 @@ pub(super) fn process_kill_payload(
         .wait_for_exit(Some(Duration::from_millis(timeout_ms)))
         .map_err(|error| CuError::new("process_wait_failed", error.to_string()))?;
     let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-    let exited = wait == agenterm_platform::process_reference::ProcessWait::Exited;
+    let exited = wait == minicon_platform::process_reference::ProcessWait::Exited;
     receipts.complete(
         &ticket,
         "process-kill",
@@ -1525,7 +1525,7 @@ pub(super) fn process_set_state_payload(
         }));
     }
 
-    let reference = agenterm_platform::process_reference::ProcessReference::open_for_termination(
+    let reference = minicon_platform::process_reference::ProcessReference::open_for_termination(
         pid,
     )
     .map_err(|error| {
@@ -1661,7 +1661,7 @@ pub(super) fn process_policy_payload(
         )
         .with_detail(json!({ "effect": "not_performed" })));
     }
-    let policy = agenterm_platform::process_metrics::background_policy(pid)
+    let policy = minicon_platform::process_metrics::background_policy(pid)
         .map_err(process_policy_observation_error)?;
     let after_identity = live_start_identity(pid)?;
     if after_identity != before_identity {
@@ -1709,9 +1709,9 @@ pub(super) fn process_policy_payload(
 }
 
 fn process_policy_observation_error(
-    error: agenterm_platform::process_metrics::ProcessMetricsError,
+    error: minicon_platform::process_metrics::ProcessMetricsError,
 ) -> CuError {
-    use agenterm_platform::process_metrics::ProcessMetricsErrorKind as Kind;
+    use minicon_platform::process_metrics::ProcessMetricsErrorKind as Kind;
 
     let code = match error.kind() {
         Kind::Unsupported => "process_policy_not_applicable",
@@ -1758,7 +1758,7 @@ pub(super) fn process_signal_payload(
         );
     }
     let reference =
-        agenterm_platform::process_reference::ProcessReference::open_for_termination(pid)
+        minicon_platform::process_reference::ProcessReference::open_for_termination(pid)
             .map_err(|error| CuError::new("process_reference_failed", error.to_string()))?;
     if !reference
         .is_alive()
@@ -1796,24 +1796,24 @@ pub(super) fn process_signal_payload(
     )?;
     let effect = match signal {
         ProcessSignalKind::Terminate => {
-            reference.terminate(agenterm_platform::process_control::TerminationMode::Graceful)
+            reference.terminate(minicon_platform::process_control::TerminationMode::Graceful)
         }
         ProcessSignalKind::Kill => {
-            reference.terminate(agenterm_platform::process_control::TerminationMode::Forceful)
+            reference.terminate(minicon_platform::process_control::TerminationMode::Forceful)
         }
         ProcessSignalKind::Stop => reference.set_suspended(true),
         ProcessSignalKind::Continue => reference.set_suspended(false),
         ProcessSignalKind::Hangup => {
-            reference.send_signal(agenterm_platform::process_reference::ProcessSignal::Hangup)
+            reference.send_signal(minicon_platform::process_reference::ProcessSignal::Hangup)
         }
         ProcessSignalKind::Interrupt => {
-            reference.send_signal(agenterm_platform::process_reference::ProcessSignal::Interrupt)
+            reference.send_signal(minicon_platform::process_reference::ProcessSignal::Interrupt)
         }
         ProcessSignalKind::User1 => {
-            reference.send_signal(agenterm_platform::process_reference::ProcessSignal::User1)
+            reference.send_signal(minicon_platform::process_reference::ProcessSignal::User1)
         }
         ProcessSignalKind::User2 => {
-            reference.send_signal(agenterm_platform::process_reference::ProcessSignal::User2)
+            reference.send_signal(minicon_platform::process_reference::ProcessSignal::User2)
         }
     };
     if let Err(error) = effect {
@@ -2327,7 +2327,7 @@ fn open_tree_snapshot(
 }
 
 fn tree_snapshot_ids(root_pid: u32, max_descendants: usize) -> Result<Vec<(u32, usize)>, CuError> {
-    let rows = agenterm_platform::process::list()
+    let rows = minicon_platform::process::list()
         .map_err(|error| CuError::new("process_tree_inventory_failed", error.to_string()))?;
     if !rows.iter().any(|row| row.id == root_pid) {
         return Err(CuError::new(
@@ -2364,7 +2364,7 @@ fn tree_snapshot_ids(root_pid: u32, max_descendants: usize) -> Result<Vec<(u32, 
 
 fn open_tree_signal_member(pid: u32, depth: usize) -> Result<TreeSignalMember, CuError> {
     let reference =
-        agenterm_platform::process_reference::ProcessReference::open_for_termination(pid)
+        minicon_platform::process_reference::ProcessReference::open_for_termination(pid)
             .map_err(|error| CuError::new("process_reference_failed", error.to_string()))?;
     if !reference
         .is_alive()
@@ -2536,24 +2536,24 @@ fn deliver_tree_signal(
     match signal {
         ProcessSignalKind::Terminate => member
             .reference
-            .terminate(agenterm_platform::process_control::TerminationMode::Graceful),
+            .terminate(minicon_platform::process_control::TerminationMode::Graceful),
         ProcessSignalKind::Kill => member
             .reference
-            .terminate(agenterm_platform::process_control::TerminationMode::Forceful),
+            .terminate(minicon_platform::process_control::TerminationMode::Forceful),
         ProcessSignalKind::Stop => Ok(()),
         ProcessSignalKind::Continue => member.reference.set_suspended(false),
         ProcessSignalKind::Hangup => member
             .reference
-            .send_signal(agenterm_platform::process_reference::ProcessSignal::Hangup),
+            .send_signal(minicon_platform::process_reference::ProcessSignal::Hangup),
         ProcessSignalKind::Interrupt => member
             .reference
-            .send_signal(agenterm_platform::process_reference::ProcessSignal::Interrupt),
+            .send_signal(minicon_platform::process_reference::ProcessSignal::Interrupt),
         ProcessSignalKind::User1 => member
             .reference
-            .send_signal(agenterm_platform::process_reference::ProcessSignal::User1),
+            .send_signal(minicon_platform::process_reference::ProcessSignal::User1),
         ProcessSignalKind::User2 => member
             .reference
-            .send_signal(agenterm_platform::process_reference::ProcessSignal::User2),
+            .send_signal(minicon_platform::process_reference::ProcessSignal::User2),
     }
 }
 
@@ -2668,8 +2668,8 @@ fn fail_process_state_after_effect(
 }
 
 fn process_stopped(pid: u32) -> Result<bool, CuError> {
-    agenterm_platform::process_metrics::is_stopped(pid).map_err(|error| {
-        use agenterm_platform::process_metrics::ProcessMetricsErrorKind as Kind;
+    minicon_platform::process_metrics::is_stopped(pid).map_err(|error| {
+        use minicon_platform::process_metrics::ProcessMetricsErrorKind as Kind;
         let code = match error.kind() {
             Kind::Unsupported => "process_state_unsupported",
             Kind::NotFound => "process_not_found",
@@ -2686,7 +2686,7 @@ fn process_watch_snapshot(
     max_processes: usize,
 ) -> Result<ProcessWatchSnapshot, CuError> {
     let name = name.map(str::to_ascii_lowercase);
-    let rows = agenterm_platform::process::list().map_err(|error| {
+    let rows = minicon_platform::process::list().map_err(|error| {
         CuError::new("process_inventory_failed", error.to_string()).with_detail(json!({
             "kind": format!("{:?}", error.kind()),
         }))
@@ -2716,12 +2716,12 @@ fn process_watch_snapshot(
     let mut snapshot = BTreeMap::new();
     let mut excluded_unidentified = 0usize;
     for row in matched {
-        let start_identity = match agenterm_platform::process_observation::observe(row.id) {
-            agenterm_platform::process_observation::ProcessObservation::Live {
+        let start_identity = match minicon_platform::process_observation::observe(row.id) {
+            minicon_platform::process_observation::ProcessObservation::Live {
                 start_identity: Some(identity),
             } => identity,
-            agenterm_platform::process_observation::ProcessObservation::Dead { .. } => continue,
-            agenterm_platform::process_observation::ProcessObservation::Live {
+            minicon_platform::process_observation::ProcessObservation::Dead { .. } => continue,
+            minicon_platform::process_observation::ProcessObservation::Live {
                 start_identity: None,
             } => {
                 if pid.is_some() {
@@ -2734,7 +2734,7 @@ fn process_watch_snapshot(
                 excluded_unidentified += 1;
                 continue;
             }
-            agenterm_platform::process_observation::ProcessObservation::Unknown { reason } => {
+            minicon_platform::process_observation::ProcessObservation::Unknown { reason } => {
                 if pid.is_some() {
                     return Err(CuError::new("process_identity_unknown", reason)
                         .with_detail(json!({ "pid": row.id })));
@@ -3050,7 +3050,7 @@ pub(super) struct ProcessInventoryOptions<'a> {
 }
 
 struct RichProcessRow {
-    base: agenterm_platform::contract::process::ProcessInfo,
+    base: minicon_platform::contract::process::ProcessInfo,
     command_sha256: Option<String>,
     command_bytes: Option<usize>,
     cpu_percent: Option<f64>,
@@ -3066,7 +3066,7 @@ fn lower_contains(value: &str, needle: Option<&str>) -> bool {
 }
 
 fn process_row_json(
-    row: &agenterm_platform::contract::process::ProcessInfo,
+    row: &minicon_platform::contract::process::ProcessInfo,
     depth: usize,
     child_count: usize,
 ) -> Value {
@@ -3112,7 +3112,7 @@ pub(super) fn process_tree_payload(
             "ps detail mode requires pid > 0, depth in 0..=64, max in 1..=5000 and max-visited in 1..=10000",
         ));
     }
-    let inventory = agenterm_platform::process::list().map_err(|error| {
+    let inventory = minicon_platform::process::list().map_err(|error| {
         CuError::new("process_inventory_failed", error.to_string()).with_detail(json!({
             "kind": format!("{:?}", error.kind()),
         }))
@@ -3216,14 +3216,14 @@ pub(super) fn process_list_payload(
     control: ExecutionControl<'_>,
 ) -> Result<Value, CuError> {
     let list = || {
-        agenterm_platform::process::list().map_err(|error| {
+        minicon_platform::process::list().map_err(|error| {
             CuError::new("process_inventory_failed", error.to_string()).with_detail(json!({
                 "kind": format!("{:?}", error.kind()),
             }))
         })
     };
     let identity = |pid| live_start_identity(pid);
-    let metrics = |pid| agenterm_platform::process_metrics::metrics(pid).map_err(|_| ());
+    let metrics = |pid| minicon_platform::process_metrics::metrics(pid).map_err(|_| ());
     process_list_with_providers(options, control, &list, &identity, &metrics)
 }
 
@@ -3235,9 +3235,9 @@ fn process_list_with_providers<L, I, M>(
     metrics: &M,
 ) -> Result<Value, CuError>
 where
-    L: Fn() -> Result<Vec<agenterm_platform::contract::process::ProcessInfo>, CuError>,
+    L: Fn() -> Result<Vec<minicon_platform::contract::process::ProcessInfo>, CuError>,
     I: Fn(u32) -> Result<String, CuError>,
-    M: Fn(u32) -> Result<agenterm_platform::contract::process_metrics::ProcessMetrics, ()>,
+    M: Fn(u32) -> Result<minicon_platform::contract::process_metrics::ProcessMetrics, ()>,
 {
     let offset = options.offset.unwrap_or(0);
     let max = options.max.unwrap_or(DEFAULT_MAX);
@@ -3361,7 +3361,7 @@ where
                 None
             };
             let (command_sha256, command_bytes) = if options.command.is_some() {
-                match agenterm_platform::process::command_line(base.id) {
+                match minicon_platform::process::command_line(base.id) {
                     Ok(value) if lower_contains(&value, options.command) => (
                         Some(super::clipboard::clipboard_sha256_hex(value.as_bytes())),
                         Some(value.len()),
@@ -3482,19 +3482,19 @@ mod tests {
 
     // ---- cooperative CPU inventory sampling cancellation ----------------------
 
-    fn inventory_row() -> agenterm_platform::contract::process::ProcessInfo {
-        agenterm_platform::contract::process::ProcessInfo {
+    fn inventory_row() -> minicon_platform::contract::process::ProcessInfo {
+        minicon_platform::contract::process::ProcessInfo {
             id: 4242,
             parent_id: 7,
             executable_name: "fixture".to_owned(),
         }
     }
 
-    fn metrics_sample(cpu_ms: u64) -> agenterm_platform::contract::process_metrics::ProcessMetrics {
-        agenterm_platform::contract::process_metrics::ProcessMetrics {
+    fn metrics_sample(cpu_ms: u64) -> minicon_platform::contract::process_metrics::ProcessMetrics {
+        minicon_platform::contract::process_metrics::ProcessMetrics {
             cpu_time: Duration::from_millis(cpu_ms),
             resident_bytes: 4096,
-            page_faults: agenterm_platform::contract::process_metrics::PageFaultCounters {
+            page_faults: minicon_platform::contract::process_metrics::PageFaultCounters {
                 total: 3,
                 soft: Some(2),
                 hard: Some(1),
@@ -4040,7 +4040,7 @@ mod tests {
             .find_map(|(pid, depth)| (depth > 0).then_some(pid))
             .expect("tree descendant");
         let pre_stopped =
-            agenterm_platform::process_reference::ProcessReference::open_for_termination(
+            minicon_platform::process_reference::ProcessReference::open_for_termination(
                 descendant_pid,
             )
             .expect("retain pre-stopped descendant");
@@ -4105,10 +4105,8 @@ mod tests {
         assert_eq!(ready.trim(), "ready");
         let identity = live_start_identity(child.id()).expect("fixture identity");
         let reference =
-            agenterm_platform::process_reference::ProcessReference::open_for_termination(
-                child.id(),
-            )
-            .expect("retain pre-stopped root");
+            minicon_platform::process_reference::ProcessReference::open_for_termination(child.id())
+                .expect("retain pre-stopped root");
         reference.set_suspended(true).expect("pre-stop root");
         assert!(process_stopped(child.id()).expect("observe pre-stopped root"));
 
@@ -4139,7 +4137,7 @@ mod tests {
 
         reference.set_suspended(false).expect("resume fixture root");
         reference
-            .terminate(agenterm_platform::process_control::TerminationMode::Forceful)
+            .terminate(minicon_platform::process_control::TerminationMode::Forceful)
             .expect("terminate fixture root");
         child.wait().expect("reap fixture root");
         std::fs::remove_dir_all(root).unwrap();

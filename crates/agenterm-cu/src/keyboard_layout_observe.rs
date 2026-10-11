@@ -1,6 +1,6 @@
 //! Linux XKB keyboard layout observation for `keyboard-layout`.
 
-use agenterm_platform::keyboard_layout::{
+use minicon_platform::keyboard_layout::{
     KeyboardLayoutObservation, KeyboardLayoutObserveResult, KeyboardLayoutObserveUnsupported,
 };
 use serde_json::{Value, json};
@@ -22,7 +22,7 @@ pub fn status_payload() -> Result<Value, CuError> {
         })));
     }
 
-    match agenterm_platform::keyboard_layout::observe_host() {
+    match minicon_platform::keyboard_layout::observe_host() {
         KeyboardLayoutObserveResult::Ok(observation) => Ok(project_observation(observation)),
         KeyboardLayoutObserveResult::Unsupported(unsupported) => {
             Err(unsupported_error(unsupported))

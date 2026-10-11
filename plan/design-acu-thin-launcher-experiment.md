@@ -42,7 +42,7 @@ Settled facts:
 2. At source `9837cf81`, a Linux x86_64 release measurement produced a
    10,188,952-byte stripped `agenterm-cu` against a 4,194,304-byte court.
    Its 6.0 MiB `.text` was approximately 4.1 MiB `agenterm_cu`, 510 KiB `std`,
-   467 KiB `zbus`, and 363 KiB `agenterm_platform`. This rules out cosmetic
+   467 KiB `zbus`, and 363 KiB `minicon_platform`. This rules out cosmetic
    strip tuning as the primary remedy.
 3. The existing provider ABI already accepts the versioned `argv` envelope,
    but binary-only entry modes are intentionally not library argv calls.

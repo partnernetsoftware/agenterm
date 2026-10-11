@@ -5,11 +5,11 @@ use std::path::Path;
 use std::time::Duration;
 
 #[cfg(all(target_os = "macos", not(test)))]
-use agenterm_platform::privilege_authorization::{
+use minicon_platform::privilege_authorization::{
     PrivilegeAuthorizationErrorKind, acquire_macos_authorization_proof,
 };
 #[cfg(any(target_os = "linux", all(target_os = "macos", not(test))))]
-use agenterm_platform::system_broker::SystemBrokerStream;
+use minicon_platform::system_broker::SystemBrokerStream;
 use serde_json::{Value, json};
 
 #[cfg(any(target_os = "linux", target_os = "macos", test))]
@@ -34,7 +34,7 @@ use super::{Executor, RequestIdentity};
 pub(super) fn privilege_provider_payload(
     action: PrivilegeProviderAction,
 ) -> Result<Value, CuError> {
-    use agenterm_platform::privilege_service::{
+    use minicon_platform::privilege_service::{
         PrivilegeDaemonStatus, PrivilegeRightStatus, PrivilegeServiceDefinition,
         PrivilegeServiceErrorKind,
     };
@@ -45,14 +45,12 @@ pub(super) fn privilege_provider_payload(
         expected_executable: Path::new(PROVIDER_EXECUTABLE),
     };
     let result = match action {
-        PrivilegeProviderAction::Status => {
-            agenterm_platform::privilege_service::status(&definition)
-        }
+        PrivilegeProviderAction::Status => minicon_platform::privilege_service::status(&definition),
         PrivilegeProviderAction::Register => {
-            agenterm_platform::privilege_service::register(&definition)
+            minicon_platform::privilege_service::register(&definition)
         }
         PrivilegeProviderAction::Unregister => {
-            agenterm_platform::privilege_service::unregister(&definition)
+            minicon_platform::privilege_service::unregister(&definition)
         }
     };
     let status = result.map_err(|error| {

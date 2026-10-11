@@ -12,7 +12,7 @@ struct HostBridge {
     host: Box<dyn ControlCenterShellHost>,
 }
 
-impl agenterm_platform::window::NativeTextWindowHost for HostBridge {
+impl minicon_platform::window::NativeTextWindowHost for HostBridge {
     fn title(&self) -> String {
         self.host.title()
     }
@@ -32,27 +32,27 @@ impl agenterm_platform::window::NativeTextWindowHost for HostBridge {
     fn publish_native_window(
         &mut self,
         raw_handle: i64,
-    ) -> Result<(), agenterm_platform::window::NativeTextWindowError> {
+    ) -> Result<(), minicon_platform::window::NativeTextWindowError> {
         self.host
             .publish_native_window(raw_handle)
             .map_err(to_platform_error)
     }
 
-    fn take_focus_request(&mut self) -> Option<agenterm_platform::window::NativeTextWindowFocus> {
+    fn take_focus_request(&mut self) -> Option<minicon_platform::window::NativeTextWindowFocus> {
         self.host.take_focus_request().map(|request| match request {
             ControlCenterFocusRequest::Activate => {
-                agenterm_platform::window::NativeTextWindowFocus::Activate
+                minicon_platform::window::NativeTextWindowFocus::Activate
             }
             ControlCenterFocusRequest::NoActivate => {
-                agenterm_platform::window::NativeTextWindowFocus::NoActivate
+                minicon_platform::window::NativeTextWindowFocus::NoActivate
             }
         })
     }
 
     fn handle_input(
         &mut self,
-        event: agenterm_platform::window::NativeTextInputEvent,
-    ) -> Result<bool, agenterm_platform::window::NativeTextWindowError> {
+        event: minicon_platform::window::NativeTextInputEvent,
+    ) -> Result<bool, minicon_platform::window::NativeTextWindowError> {
         self.host
             .handle_input(from_platform_input(event).map_err(to_platform_error)?)
             .map_err(to_platform_error)
@@ -60,8 +60,8 @@ impl agenterm_platform::window::NativeTextWindowHost for HostBridge {
 
     fn capture_requested_screenshot(
         &mut self,
-        frame: Option<agenterm_platform::window::NativeTextFrame<'_>>,
-    ) -> Result<(), agenterm_platform::window::NativeTextWindowError> {
+        frame: Option<minicon_platform::window::NativeTextFrame<'_>>,
+    ) -> Result<(), minicon_platform::window::NativeTextWindowError> {
         self.host
             .capture_requested_screenshot(frame.map(|frame| ControlCenterFrame {
                 pixels: frame.pixels,
@@ -74,23 +74,23 @@ impl agenterm_platform::window::NativeTextWindowHost for HostBridge {
 }
 
 fn from_platform_input(
-    event: agenterm_platform::window::NativeTextInputEvent,
+    event: minicon_platform::window::NativeTextInputEvent,
 ) -> ControlCenterShellResult<ControlCenterInputEvent> {
     Ok(match event {
-        agenterm_platform::window::NativeTextInputEvent::PointerPressed {
+        minicon_platform::window::NativeTextInputEvent::PointerPressed {
             button,
             physical_x,
             physical_y,
             line,
         } => ControlCenterInputEvent::PointerPressed {
             button: match button {
-                agenterm_platform::window::NativeTextPointerButton::Primary => {
+                minicon_platform::window::NativeTextPointerButton::Primary => {
                     ControlCenterPointerButton::Primary
                 }
-                agenterm_platform::window::NativeTextPointerButton::Secondary => {
+                minicon_platform::window::NativeTextPointerButton::Secondary => {
                     ControlCenterPointerButton::Secondary
                 }
-                agenterm_platform::window::NativeTextPointerButton::Middle => {
+                minicon_platform::window::NativeTextPointerButton::Middle => {
                     ControlCenterPointerButton::Middle
                 }
                 _ => {
@@ -103,17 +103,17 @@ fn from_platform_input(
             physical_y,
             line,
         },
-        agenterm_platform::window::NativeTextInputEvent::KeyPressed { key, repeat } => {
+        minicon_platform::window::NativeTextInputEvent::KeyPressed { key, repeat } => {
             ControlCenterInputEvent::KeyPressed {
                 key: match key {
-                    agenterm_platform::window::NativeTextKey::ArrowUp => ControlCenterKey::ArrowUp,
-                    agenterm_platform::window::NativeTextKey::ArrowDown => {
+                    minicon_platform::window::NativeTextKey::ArrowUp => ControlCenterKey::ArrowUp,
+                    minicon_platform::window::NativeTextKey::ArrowDown => {
                         ControlCenterKey::ArrowDown
                     }
-                    agenterm_platform::window::NativeTextKey::Home => ControlCenterKey::Home,
-                    agenterm_platform::window::NativeTextKey::End => ControlCenterKey::End,
-                    agenterm_platform::window::NativeTextKey::Enter => ControlCenterKey::Enter,
-                    agenterm_platform::window::NativeTextKey::Escape => ControlCenterKey::Escape,
+                    minicon_platform::window::NativeTextKey::Home => ControlCenterKey::Home,
+                    minicon_platform::window::NativeTextKey::End => ControlCenterKey::End,
+                    minicon_platform::window::NativeTextKey::Enter => ControlCenterKey::Enter,
+                    minicon_platform::window::NativeTextKey::Escape => ControlCenterKey::Escape,
                     _ => {
                         return Err(ControlCenterShellError::Unsupported {
                             reason: "unknown-native-text-key",
@@ -135,24 +135,24 @@ pub(crate) fn run_native_shell(
     host: Box<dyn ControlCenterShellHost>,
     no_activate: bool,
 ) -> ControlCenterShellResult<()> {
-    agenterm_platform::linux_xkb_startup::preflight().map_err(|message| {
+    minicon_platform::linux_xkb_startup::preflight().map_err(|message| {
         ControlCenterShellError::failed("linux_x11_preflight_failed", message)
     })?;
-    agenterm_platform::window::run_native_text_window(Box::new(HostBridge { host }), no_activate)
+    minicon_platform::window::run_native_text_window(Box::new(HostBridge { host }), no_activate)
         .map_err(from_platform_error)
 }
 
 fn to_platform_error(
     error: ControlCenterShellError,
-) -> agenterm_platform::window::NativeTextWindowError {
+) -> minicon_platform::window::NativeTextWindowError {
     match error {
         ControlCenterShellError::Unsupported { reason } => {
-            agenterm_platform::window::NativeTextWindowError::Unsupported {
+            minicon_platform::window::NativeTextWindowError::Unsupported {
                 reason: Cow::Borrowed(reason),
             }
         }
         ControlCenterShellError::Failed { code, message } => {
-            agenterm_platform::window::NativeTextWindowError::Failed {
+            minicon_platform::window::NativeTextWindowError::Failed {
                 code: Cow::Borrowed(code),
                 message,
             }
@@ -161,15 +161,15 @@ fn to_platform_error(
 }
 
 fn from_platform_error(
-    error: agenterm_platform::window::NativeTextWindowError,
+    error: minicon_platform::window::NativeTextWindowError,
 ) -> ControlCenterShellError {
     match error {
-        agenterm_platform::window::NativeTextWindowError::Unsupported { .. } => {
+        minicon_platform::window::NativeTextWindowError::Unsupported { .. } => {
             ControlCenterShellError::Unsupported {
                 reason: "native-text-window-unsupported",
             }
         }
-        agenterm_platform::window::NativeTextWindowError::Failed { code, message } => {
+        minicon_platform::window::NativeTextWindowError::Failed { code, message } => {
             ControlCenterShellError::Failed {
                 code: product_error_code(code.as_ref()),
                 message,

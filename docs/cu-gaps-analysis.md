@@ -34,8 +34,8 @@ macOS 上**已经完整实现、已接入 ABI 导出、且实测可用**。今�
   （`find` 结果为空）。cu 走 dynlib 加载（见 `crates/agenterm-cu/src/dynlib.rs`）时，
   要么找不到库、要么加载到一个更旧的、不含 milestone 43/46 符号的库，于是报
   `symbol agt_input_send_keys missing` / `agt_window_enumerate missing` / `input-inject not wired on unix`。
-- 用户看到的 capabilities gaps 文案 `input_degraded: "still agenterm-platform until agt_input_inject ships"`、
-  `windows: "still agenterm-platform until agt_window_enumerate ships"` 是 **milestone 46 之前**的旧文案。
+- 用户看到的 capabilities gaps 文案 `input_degraded: "still minicon-platform until agt_input_inject ships"`、
+  `windows: "still minicon-platform until agt_window_enumerate ships"` 是 **milestone 46 之前**的旧文案。
   当前源码里这两行已经是 `"none — shared agenterm.dll (milestone 46)"`
   （见 `crates/agenterm-cu/src/executor/capabilities.rs:507`）。这直接证明用户跑的是旧 cu。
 
@@ -72,7 +72,7 @@ ABI 层在本文 2026-09-07 取证时为 `abi_version!(1, 28)`，cu 同时要求
 `EXPECTED_ABI_MAJOR=1` / `REQUIRED_ABI_MINOR=28`，当时**版本匹配**；当前版本只以
 `crates/agenterm-abi/src/lib.rs`、`include/agenterm.h` 与
 `crates/agenterm-cu/src/dynlib.rs` 为准，不把这份历史证据当活版本号。
-macOS 平台实现：`crates/agenterm-platform/src/adapters/macos/*.rs`，经 `src/selected.rs` 按 `target_os` +
+macOS 平台实现：`crates/minicon-platform/src/adapters/macos/*.rs`，经 `src/selected.rs` 按 `target_os` +
 cargo feature 选择。abi crate 已对 platform 开启 `input-inject, window-enum, window-op, a11y-tree, screenshot`
 等 feature（见 `crates/agenterm-abi/Cargo.toml` 的 dependencies 行）。
 
@@ -117,7 +117,7 @@ cargo feature 选择。abi crate 已对 platform 开启 `input-inject, window-en
 
 ### P1 —— 权限引导
 
-- 用 `agenterm-cu ... permissions`（`crates/agenterm-platform/src/adapters/macos/permission_settings.rs`）
+- 用 `agenterm-cu ... permissions`（`crates/minicon-platform/src/adapters/macos/permission_settings.rs`）
   引导用户授予 Accessibility + Screen Recording；`doctor` 做就绪自检。纯流程，无代码缺口。
 
 ### P2 —— （可选）稳健性

@@ -109,7 +109,7 @@ fn six_cell_l1_is_conditional_while_l2_pack_always_runs() {
 fn classifier_reason_outputs_are_locked_to_loader_window_pty_and_ipc() {
     let report = classify(&[
         "src/bin/agenterm.rs",
-        "crates/agenterm-platform/src/window_host.rs",
+        "crates/minicon-platform/src/window_host.rs",
         "src/pty/mod.rs",
         "src/protocol.rs",
     ]);
@@ -120,7 +120,7 @@ fn classifier_reason_outputs_are_locked_to_loader_window_pty_and_ipc() {
     );
     assert_eq!(
         report["l1_reasons"]["window"],
-        serde_json::json!(["crates/agenterm-platform/src/window_host.rs"])
+        serde_json::json!(["crates/minicon-platform/src/window_host.rs"])
     );
     assert_eq!(
         report["l1_reasons"]["pty"],

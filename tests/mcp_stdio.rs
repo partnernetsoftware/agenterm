@@ -1945,12 +1945,12 @@ fn killed_sidecar_cannot_interrupt_live_gui_server_or_pty() {
     // happens (normal return, panic, or this binary being force-killed from
     // the outside by a CI timeout) — unlike the manual cleanup, it does not
     // depend on any Rust code running.
-    let _server_tree_guard = agenterm_platform::process::ProcessTreeGuard::attach(
+    let _server_tree_guard = minicon_platform::process::ProcessTreeGuard::attach(
         server.as_ref().expect("server just spawned"),
     )
     .expect("attach kill-on-close containment to isolated server");
     let mut gui: Option<std::process::Child> = None;
-    let mut _gui_tree_guard: Option<agenterm_platform::process::ProcessTreeGuard> = None;
+    let mut _gui_tree_guard: Option<minicon_platform::process::ProcessTreeGuard> = None;
     let mut mcp: Option<std::process::Child> = None;
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         wait_for_cli(
@@ -1970,7 +1970,7 @@ fn killed_sidecar_cannot_interrupt_live_gui_server_or_pty() {
                 .expect("start replaceable GUI"),
         );
         _gui_tree_guard = Some(
-            agenterm_platform::process::ProcessTreeGuard::attach(
+            minicon_platform::process::ProcessTreeGuard::attach(
                 gui.as_ref().expect("GUI just spawned"),
             )
             .expect("attach kill-on-close containment to replaceable GUI"),
@@ -2542,7 +2542,7 @@ fn force_killed_client_closes_its_active_backend_wait() {
             .expect("report backend connection state");
     });
     let mut child = start_mcp(&address);
-    let mut child_tree = agenterm_platform::process::ProcessTreeGuard::attach(&child)
+    let mut child_tree = minicon_platform::process::ProcessTreeGuard::attach(&child)
         .expect("attach containment to isolated MCP client");
     let stdout = child.stdout.take().expect("piped stdout");
     let (sender, receiver) = mpsc::channel();
@@ -2855,7 +2855,7 @@ fn directory_entry_names(directory: &Path) -> Vec<String> {
 
 fn start_mcp(address: &str) -> std::process::Child {
     let mut command = mcp_command(&["--address", address, "serve", "--stdio"]);
-    agenterm_platform::process::configure_owned_command(&mut command)
+    minicon_platform::process::configure_owned_command(&mut command)
         .expect("configure owned MCP client process tree");
     command
         .stdin(Stdio::piped())

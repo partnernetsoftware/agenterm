@@ -23,7 +23,7 @@ An ABI pointer has no pointee or nullability policy inside dyn.
 dyn does not own product exposure policy, allowlists, guest-memory decoding,
 Wasm span checks, budgets, cancellation, or supervision. Those remain in
 `agenterm-qjswasm` and the Script Runtime. Typed OS snapshots belong to
-`agenterm-platform` or another upper adapter; product facts, catalogs, and
+`minicon-platform` or another upper adapter; product facts, catalogs, and
 evidence belong to their product and test layers. None are dyn APIs.
 
 ## Primary API

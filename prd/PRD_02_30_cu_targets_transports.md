@@ -111,7 +111,7 @@ cross-tier conformance;
 
 ## Platform backends
 
-- [ ] backends consume `agenterm-platform` contracts — screenshot, window,
+- [ ] backends consume `minicon-platform` contracts — screenshot, window,
   input, accessibility tree, process reference, clipboard, filesystem — and do
   not open raw OS APIs. A missing mechanism is added to the platform crate with
   typed `Available`/`Unsupported`/`Failed`, per
@@ -228,7 +228,7 @@ cross-tier conformance;
 
 This branch is the **native accessibility stack** that backs structured
 `tree` observation and `click` / `focus` by node identity. It lives in
-`agenterm-platform` (`a11y-tree` and related contracts); `agenterm-cu` selects the stack
+`minicon-platform` (`a11y-tree` and related contracts); `agenterm-cu` selects the stack
 for the host OS and target tier. Screenshot capture and coordinate pointer
 injection are separate platform mechanisms and remain **degraded fallbacks**
 only — never silent replacements when the a11y tree is unavailable.
@@ -240,7 +240,7 @@ targets / transports (30)                    legend: [x] shipped  [~] partial  [
 │   ├── ssh      [x]  OpenSSH exec → remote --target current
 │   ├── vnc      [x]  RFB handshake → local --target current worker
 │   └── rdp      [~]  PLACEHOLDER: capabilities declares unavailable; other verbs rdp_unavailable; live evidence [ ]
-└── platform a11y backends (agenterm-platform)
+└── platform a11y backends (minicon-platform)
     ├── Linux AT-SPI2                 [x] live evidence (cu-linux-smoke + named journeys); desired-state / option / range invoke and focused mapped (cut 3.53), not yet journey-proven
     ├── Windows UIA                   [~] existing tree evidence (cu-windows-smoke); expand/range/scroll-item/extents/focused mapped (cut 3.53), not yet journey-proven; separate from rdp
     ├── macOS AX current tree         [x] observe live (cut 3.49, cu-macos-smoke): bounded walk, actions, typed denied
@@ -259,7 +259,7 @@ targets / transports (30)                    legend: [x] shipped  [~] partial  [
 
 **Cut 3.49 / 3.50 boundary:** the macOS AX **observe** path (`windows`,
 `tree`, `query`) and the **semantic actuation** path (`invoke`, `verify`,
-`wait --expect`) are live in `agenterm-platform`
+`wait --expect`) are live in `minicon-platform`
 (`adapters/macos/accessibility_tree.rs`, backend string `"ax"`) and proven
 by `scripts/qjs/cu-macos-smoke.qjs`. A caller's depth / node budget ends
 the walk with `truncated: true` instead of failing; typed failures remain
@@ -323,7 +323,7 @@ recorded above as unproven rather than claimed.
 
 **Shared (all hosts)**
 
-- [ ] `agenterm-platform` exposes one typed `accessibility_tree` contract:
+- [ ] `minicon-platform` exposes one typed `accessibility_tree` contract:
   flattened nodes with path id, role, name, states, exact bounds, and action
   names. `agenterm-cu` maps this contract to its public JSON without host-specific
   fields leaking upward.
@@ -347,7 +347,7 @@ recorded above as unproven rather than claimed.
 **Linux — AT-SPI2 (`current` first evidence)**
 
 - [~] `current` on Linux/X11 enumerates a control tree through AT-SPI2:
-  `agenterm-platform` (`a11y-tree`) implements the host stack; `agenterm-cu` consumes
+  `minicon-platform` (`a11y-tree`) implements the host stack; `agenterm-cu` consumes
   libagenterm milestone 6 (`agt_a11y_tree_snapshot` / `agt_a11y_node_perform`)
   rather than calling platform accessibility APIs directly. Nodes carry role,
   name, states, screen bounds, and action names; node ids are child-index paths
@@ -613,7 +613,7 @@ recorded above as unproven rather than claimed.
   XDG rewrite so the renderer joins that same host socket. A
   one-node synthetic X11 `frame` is not a Chrome document tree.
 - [~] `windows` / `screenshot` / coordinate-degraded input on `current` still
-  use `agenterm-platform` until `agt_window_enumerate` / unified screenshot /
+  use `minicon-platform` until `agt_window_enumerate` / unified screenshot /
   `agt_input_inject` milestones ship; capability JSON documents the gap.
 - [ ] AT-SPI unavailable at runtime (no session bus, registry absent) → typed
   `Unsupported` / `Failed`; no silent fallback to XTest coordinates.
@@ -676,7 +676,7 @@ recorded above as unproven rather than claimed.
 - [~] Windows `current` now reaches the UIA accessibility facade through the
   runtime `agenterm.dll` boundary: `agenterm-cu` `Command`/`Executor` owns
   target resolution and product meaning, while the ABI and
-  `agenterm-platform` own UIA tree, Value, Invoke and Focus mechanisms. The
+  `minicon-platform` own UIA tree, Value, Invoke and Focus mechanisms. The
   owning evidence is five pure tests plus two real Win32 UIA fixture tests.
   The staged public `cu-windows-smoke` also passes all seven declared evidence
   checks through the colocated `agenterm-cu.exe` + `agenterm.dll`; Candidate
@@ -781,7 +781,7 @@ recorded above as unproven rather than claimed.
 
 **macOS — AX (NSAccessibility)**
 
-- [x] AX-backed `tree` / `query` on `current` through `agenterm-platform`
+- [x] AX-backed `tree` / `query` on `current` through `minicon-platform`
   (`adapters/macos/accessibility_tree.rs`). The adapter resolves a
   `CGWindowID` handle to an application AX element, walks `AXChildren`
   breadth-first under the caller's depth / node budget (defaults 32 / 1000,

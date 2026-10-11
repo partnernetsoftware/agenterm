@@ -322,7 +322,7 @@ fn app_watch(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
         || selectors.len() > 16
         || selectors.iter().any(|selector| {
             selector.trim().is_empty()
-                || selector.len() > agenterm_platform::app_facts::MAX_APP_FACTS_SELECTOR_BYTES
+                || selector.len() > minicon_platform::app_facts::MAX_APP_FACTS_SELECTOR_BYTES
                 || selector.as_bytes().contains(&0)
         })
         || !(1..=86_400_000).contains(&duration_ms)

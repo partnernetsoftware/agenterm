@@ -1,7 +1,7 @@
 //! Apply pipeline: write, quantized shrink, clamp to visible frame.
 //!
 //! All OS access goes through the shared libagenterm dynamic library
-//! (`crate::mechanism::window_op`) — no `agenterm-platform` static linking.
+//! (`crate::mechanism::window_op`) — no `minicon-platform` static linking.
 
 use crate::mechanism::{MechanismError, window_enumerate, window_op};
 

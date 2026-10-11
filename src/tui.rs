@@ -2,7 +2,7 @@
 
 use std::io;
 
-use agenterm_platform::console_line_editor::{ConsoleKey, ConsoleLineEditor};
+use minicon_platform::console_line_editor::{ConsoleKey, ConsoleLineEditor};
 
 const HELP: &str = "\
 Usage: agenterm tui

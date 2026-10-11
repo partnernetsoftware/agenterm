@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use agenterm_platform::{contained_process::ContainedHeadlessCommand, process_spawn::ProcessExit};
+use minicon_platform::{contained_process::ContainedHeadlessCommand, process_spawn::ProcessExit};
 use serde_json::{Value, json};
 
 use crate::CuError;
@@ -191,7 +191,7 @@ fn shell_command(command: &str) -> Result<(PathBuf, Vec<String>, &'static str), 
 }
 
 fn terminate(
-    child: &mut agenterm_platform::contained_process::ContainedChild,
+    child: &mut minicon_platform::contained_process::ContainedChild,
     reason: &'static str,
 ) -> Result<(), CuError> {
     child

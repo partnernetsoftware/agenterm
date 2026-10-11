@@ -109,7 +109,7 @@ cargo build --profile abi-release  --target <t> -p agenterm-abi
 cargo build --profile abi-release  --target <t> -p agenterm-cu-provider
 ```
 
-A joint invocation feature-unifies `agenterm-platform`'s `device-capture` into
+A joint invocation feature-unifies `minicon-platform`'s `device-capture` into
 images the product ships without it. On macOS that registers the same
 Objective-C class in two loaded images, dyld warns on stderr, and the gate that
 asserts the MCP server writes nothing there goes red. On 2026-09-21 that was
