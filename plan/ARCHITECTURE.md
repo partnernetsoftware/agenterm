@@ -17,11 +17,16 @@
 
 | 层 | 路径 | 装什么 | 不装什么 |
 |----|------|--------|----------|
-| **机制** | `crates/agenterm-platform` | 窗/键鼠/IME/激活/剪贴板/截图/字体/IPC/PTY/进程/FS/shm… typed Available/Unsupported/Failed；**无** AgenTerm 产品名 | 工作台剧本、Fleet、ui-action 表、instance/server strip 产品策略 |
+| **机制** | `minicon-platform`（**外仓 git 依赖**，见下） | 窗/键鼠/IME/激活/剪贴板/截图/字体/IPC/PTY/进程/FS/shm… typed Available/Unsupported/Failed；**无** AgenTerm 产品名 | 工作台剧本、Fleet、ui-action 表、instance/server strip 产品策略 |
 | **产品语义** | `src/frontend/*`、`src/ui_*.rs`、`src/ui_geometry.rs` | 手势含义、dialog 状态、geometry、action id、snapshot 字段 | 直接 `windows_sys` / winit / x11（boundary 闸禁止） |
 | **Host present** | `src/platform/adapters/{windows,unix}/**` | 怎么画、收事件、接线 IPC、原生控件映射 | 新产品策略仅单端落地且不登记 catalog/`parity-gap` |
 
 - **跨平台封装** = OS 差异停在 platform crate（agenterm + wbox 等 embedding 调用）。  
+- **平台 crate 已外迁**（2026-10-11）：`minicon-platform` / `minicon-ui-core` 不再住本仓
+  `crates/`，由本仓按 **pinned git revision** 依赖 `partnernetsoftware/minicon`；本文凡称
+  `crates/minicon-platform/...` 的路径都指外仓同名 crate。vendored `vt100` / `softbuffer`
+  fork 仍留本仓 `third_party/`（`[patch.crates-io]` 对整个依赖图生效），本轮与 minicon
+  的副本重复；见 [`plan/plan-v0.2.0.0-platform-move.md`](plan-v0.2.0.0-platform-move.md)。  
 - **三端工作台手感齐** = 产品语义单点 + 两端 adapter 接线；**不**把 AgenTerm 工作台塞进 platform。  
 - 产品 `ui-action` interim 集合闸：[`src/frontend/ui_action_catalog.rs`](../src/frontend/ui_action_catalog.rs)。  
 - 机制漏点表：[`plan/plan-platform-encapsulation-gap.md`](plan-platform-encapsulation-gap.md)。  
@@ -36,7 +41,7 @@
 ### 1.1 目录树
 
 ```text
-crates/agenterm-platform     机制：窗口/输入/截图/进程/IPC/PTY/字体/shm…
+crates/minicon-platform     机制：窗口/输入/截图/进程/IPC/PTY/字体/shm…
                              typed Unsupported / Failed；无 AgenTerm 产品名
 
 crates/agenterm-control-client/
@@ -117,9 +122,9 @@ raw 值/指针搬运、variadic `ioctl` ABI。零消费者的 W^X 实验已撤�
 **策略不在这里**：schema、
 prototype/catalog/validator、budget/cancel/监管归 qjswasm/Script Runtime；typed OS
 contracts 与六格 facts/catalog/evidence 已从 dyn 删除，需要这些产品语义时由
-`agenterm-platform`、上层 adapter 或产品/测试层拥有。它的 public 证据是 package integration tests 与 CI native/cross cells，不是
+`minicon-platform`、上层 adapter 或产品/测试层拥有。它的 public 证据是 package integration tests 与 CI native/cross cells，不是
 CU 命令或 Script Runtime API。当前边界禁止它导入 `agenterm-cu`、
-`agenterm-platform` 或 libagenterm；如果未来迁移 host facts 或合并 ABI，必须先在
+`minicon-platform` 或 libagenterm；如果未来迁移 host facts 或合并 ABI，必须先在
 owning PRD 授权并同批更新本结构 SSOT。
 
 ---
@@ -131,9 +136,9 @@ owning PRD 授权并同批更新本结构 SSOT。
 | `agenterm` | `src/bin/agenterm.rs` | GUI 启动器；`server` = 无窗权威；`cli` = 共享控制平面入口 |
 | `agenterm-com` | `src/bin/agenterm-com.rs` | 极简 Windows Console-subsystem 转发器；交付名 `agenterm.com`，同步等待 `agenterm.exe` |
 | `agenterm-cc` | `src/bin/agenterm-cc.rs` | Control Center 投影 |
-| `agenterm-con` | **已迁出** → [`partnernetsoftware/minicon`](https://github.com/partnernetsoftware/minicon)（本地 `../minicon`） | 2026-08-23 随 PRD 23–27 迁出。conhost 等价物（单 GUI 进程内多 PTY 树，无 server/Fleet/script）。仍按 revision 复用本仓 `agenterm-platform` / `agenterm-ui-core` 与 vendored `vt100` / `softbuffer` fork；依赖方向 minicon → agenterm |
+| `agenterm-con` | **已迁出** → [`partnernetsoftware/minicon`](https://github.com/partnernetsoftware/minicon)（本地 `../minicon`） | 2026-08-23 随 PRD 23–27 迁出。conhost 等价物（单 GUI 进程内多 PTY 树，无 server/Fleet/script）。2026-10-11 起 `minicon-platform` / `minicon-ui-core` 也随平台层迁入 minicon，本仓按 pinned git revision 依赖之；vendored `vt100` / `softbuffer` fork 仍留本仓 `third_party/`。依赖方向 **agenterm → minicon**，绝不反向 |
 
-`agenterm-con` 的窗口机制仍只能从 `agenterm-platform` 选择。Windows 已有
+`agenterm-con` 的窗口机制仍只能从 `minicon-platform` 选择。Windows 已有
 `native-pixel-window` host：直接使用 User32 消息泵、GDI XRGB buffer 与
 `PixelWindowApplication` 中立合同，不把 HWND 或产品策略泄漏回 con。Linux/macOS
 继续由 winit/softbuffer adapter 实现同一合同；未来原生 X11/Wayland/Cocoa host 也应
@@ -177,7 +182,7 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
 | 产品策略表 | `src/platform/mod.rs` + `policy/` | policy 已拆；facade/`allow(dead_code)` 半迁移见 L3 |
 | Win 主机 | `src/platform/adapters/windows/{frontend,remote_frontend}.rs` | remote 客户端；`remote_frontend` 巨石见 L2 |
 | Unix 主机 | `src/platform/adapters/unix/frontend/` | embedded 状态机；`mod`/`render` 巨石见 L2 |
-| 机制 crate | `crates/agenterm-platform/src/{selected,window,numeric,input,ipc,pty,process,shared_memory}.rs` | 无产品名；`numeric` 固化 native geometry 的 IEEE-754 取整叶 |
+| 机制 crate | 外仓 `minicon-platform`（minicon 仓 `crates/minicon-platform/src/{selected,window,numeric,input,ipc,pty,process,shared_memory}.rs`） | 无产品名；`numeric` 固化 native geometry 的 IEEE-754 取整叶；本仓按 pinned git revision 消费 |
 | 边界闸 | `src/platform/boundary_tests.rs` | 规则见 §8.2；**不**解析本文全文 |
 
 ---
@@ -224,7 +229,7 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
 
 1. 不要在 adapter 里新写产品策略 `if windows` / `if unix`；策略进共享管线或 `platform` 表。  
 2. 不要静默把 `Failed`/`Unsupported` 改成 temp 路径或「假装可用」。  
-3. 不要在 `agenterm-platform` 引入 `agenterm::` / `AGENTERM_` 产品耦合（已有测）。  
+3. 不要在 `minicon-platform` 引入 `agenterm::` / `AGENTERM_` 产品耦合（已有测）；该 crate 现住 minicon 仓，此禁令随机制层一并归 minicon 维护。  
 4. 不要新增第二套 GUI 启动解析或第二套 server autostart 决策。  
 5. 不要把 net / WebView / 大 Control Center 内容写进「已 shipped」除非 owning PRD 已改。  
 6. 结构变更：更新本文；版本 plan 只记叶与证据，不重画全树。  
@@ -235,9 +240,10 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
 
 > **2026-08-23：con 已迁出。** 源码与 PRD 23–27 现在归独立仓
 > [`partnernetsoftware/minicon`](https://github.com/partnernetsoftware/minicon)（本地
-> `../minicon`）。本节保留，因为**协同边界本身仍然成立**——minicon 按 revision 复用本仓的
-> `agenterm-platform` / `agenterm-ui-core` 与 vendored `vt100` / `softbuffer` fork，依赖方向
-> 是 minicon → agenterm，绝不反向。下文凡说「本文/本仓拥有 con 的某某」的，现在都归 minicon 仓。
+> `../minicon`）。本节保留，因为**协同边界本身仍然成立**——**2026-10-11 起平台层也外迁**：
+> `minicon-platform` / `minicon-ui-core` 住 minicon 仓，本仓按 pinned git revision 依赖之，
+> vendored `vt100` / `softbuffer` fork 仍留本仓 `third_party/`，依赖方向
+> 是 **agenterm → minicon**，绝不反向。下文凡说「本文/本仓拥有 con 的某某」的，现在都归 minicon 仓。
 
 - **文档分工（单主）**：con 的产品能力、边界、状态、预算数字、PE 体积史与证据
   计数归 minicon 仓的 `prd/PRD_02_23`–`27` 子树；con 的物理布局、热文件与结构债
@@ -253,26 +259,26 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
   IME/focus、鼠标/滚轮、DPI geometry、背压/调度及黑盒观测接口优先形成纯函数或
   typed platform/frontend contract；host adapter 只 present/wake/接 OS 事件。
 - 物理 VT 选择的坐标归一化、单词/宽字符边界、可见行和 CRLF 文本抽取归
-  `agenterm-ui-core::terminal_selection`；主程序与 `agenterm-con` 共用该内核。
+  `minicon-ui-core::terminal_selection`；主程序与 `agenterm-con` 共用该内核。
   手势阶段、native capture、auto-copy、tab authority 和 remote snapshot 的 u32
   网格适配仍在产品 frontend，不把工作台或 con 政策塞进共享 crate。
 - con 与 Unix workbench 的持久 XRGB storage 共用
-  `agenterm-ui-core::RetainedXrgbFrame`：有界分配、尺寸失效、valid commit 和
+  `minicon-ui-core::RetainedXrgbFrame`：有界分配、尺寸失效、valid commit 和
   exact-copy 是机制；Unix `TerminalLayerKey`、精确 dirty-row mask、HiDPI 选择和
   fallback 政策仍是产品/host 语义。共享 storage typed-fail 必须提升到
   `PixelWindowError`/截图错误，禁止用 `expect` 或继续 present 旧 layer。
 - Win32 host 重入机制也必须汇合：共享容量、FIFO 和借用失败合同；各 host 只保留
   typed message snapshot、default-processing 和生命周期政策，禁止线程全局裸
   `(WPARAM, LPARAM)` 队列跨 HWND 复用。
-- PTY 输出传输由 `agenterm-platform::pty::BoundedOutputPipe` 提供跨平台固定容量
+- PTY 输出传输由 `minicon-platform::pty::BoundedOutputPipe` 提供跨平台固定容量
   字节环：一次原生 read 要么整体提交、要么等待容量，关闭会唤醒生产者且已提交
   字节仍可排空。消费者按字节预算直接读取环内连续切片，不为每次 read 分配
   `Vec`；产品层只决定容量、每轮预算、解析和重调度策略。
-- Native geometry、DPI、字体和滚轮边界共享 `agenterm-platform::numeric` 的
+- Native geometry、DPI、字体和滚轮边界共享 `minicon-platform::numeric` 的
   IEEE-754 位级 `round`/`ceil`/`trunc` 叶。该模块不含产品布局政策，也不按 host
   分叉；Windows con 借此删除 `ceilf`、`round`、`roundf`、`truncf` CRT 导入，
   Linux/macOS 调用同一标量真值。新增 ISA 版本仍须证明逐位等价与最终产物收益。
-- 纯 framebuffer 像素内核归 `agenterm-ui-core::pixel`，不属于 OS adapter。
+- 纯 framebuffer 像素内核归 `minicon-ui-core::pixel`，不属于 OS adapter。
   XRGB 长 span 在 x86-64 使用有界 `rep stosd`、AArch64 使用 NEON；安全 facade
   统一裁剪、溢出和不完整尾行语义，短 span/其他 ISA 使用标量真值。platform 只
   管 native surface 生命周期与 present，不用 GDI/Cairo/CoreGraphics 分叉同一填充。
@@ -340,7 +346,7 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
   733,184 B 降至 714,752 B（-18,432 B）。普通 profile 与 build-std con profile
   也不得共用默认 target：即使包/profile 名相同，不同 rustc flags 仍会污染
   core/compiler_builtins fingerprint；诊断构建同样必须使用隔离 `--target-dir`。
-  生产线程入口统一经过无 feature 的 `agenterm-platform::threading::spawn_named`：
+  生产线程入口统一经过无 feature 的 `minicon-platform::threading::spawn_named`：
   产品和 adapter 先将任务收敛为 `Box<dyn FnOnce() + Send>`，platform 内一个禁止
   内联的 trampoline 才调用 `std::thread::Builder`。线程名、spawn 错误和 Rust
   unwind/JoinHandle containment 不变，con reader/waiter、控制 listener/request、
@@ -429,7 +435,7 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
   404,572 B 降至 404,348 B（-224 B），`.rdata +16 B`，其余 section 不变。83 unit、
   18 public-control black-box、1 multitab control journey、Windows x64 Clippy 和 Linux
   x64 check 通过。
-- 进程参数获取属于 `agenterm-platform::runtime`，产品不得直接选择目标 OS parser。
+- 进程参数获取属于 `minicon-platform::runtime`，产品不得直接选择目标 OS parser。
   Windows adapter 由 `GetCommandLineW`、`CommandLineToArgvW` 和 exactly-once
   `LocalFree` 持有系统缓冲区合同，并对参数数量、NUL 扫描和 UTF-16 解码做有界失败；
   Linux/macOS adapter 在同一 UTF-8 `Result` 合同下读取 argv。con 只消费排除 image name
@@ -440,7 +446,7 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
   现代 MSVC parser 等价。87 unit、18 public GUI black-box、1 multitab control、Windows
   x64 Clippy 和 Linux x64 check 通过。早先 484,352 B 的增量产物不可由同 HEAD 冷构建
   复现，已撤销为尺寸证据；自建 std con 的 A/B 清理必须显式携带 Windows target。
-- 用户配置根同属 `agenterm-platform::runtime`，产品只拥有 `agenterm-con.json` 文件名和
+- 用户配置根同属 `minicon-platform::runtime`，产品只拥有 `agenterm-con.json` 文件名和
   schema。Windows 用 `SHGetFolderPathW(CSIDL_APPDATA)` 写入 caller-owned 固定 UTF-16
   缓冲，不引入 `SHGetKnownFolderPath` 的 COM task allocator；Linux/macOS 保持
   `~/.config` 合同。target-specific cold PE 从 541,184 B 降至 540,672 B（-512 B）。
@@ -488,7 +494,7 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
   成本是一档 512 B PE alignment。该实验已撤回：标准库本就是薄原生包装时，
   重写 buffer sizing、目录变化竞态和错误转换不构成有价值的 FFI 边界；应等待共享
   platform 合同、caller-owned storage 或 final-link dead-code 证据。
-- 像素热循环由 `agenterm-ui-core::pixel` 持有标量真值与 ISA dispatch；产品不得复制
+- 像素热循环由 `minicon-ui-core::pixel` 持有标量真值与 ISA dispatch；产品不得复制
   ISA 探测也受 final-link 证据约束：一次 CPUID + `xgetbv` inline-asm 窄探针曾合并
   AVX2/SSSE3 dispatch，oracle 与像素/con 测试均通过，但其它 owner 仍保留
   `std_detect::detect_features`，bloat `.text` 从 348.5 KiB 增至 349.0 KiB，精确
@@ -500,7 +506,7 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
   与 RGB-pack SSSE3/scalar 直接函数指针；AVX2 必须同时满足 AVX、OSXSAVE、XCR0 XMM/YMM
   和 CPUID.7 位。组合后 PE 为 536,064 B（总计 -2,048 B），bloat `.text` 从 348.5
   降至 346.5 KiB，最终链接不再含 `std_detect::detect_features`。
-- `agenterm-platform::input::NamedKey` 现同时持有 canonical name 与无分配、ASCII
+- `minicon-platform::input::NamedKey` 现同时持有 canonical name 与无分配、ASCII
   case-insensitive alias 解析。con `send-keys` 和主程序 `ui-input key` 共享这份机制名称
   权威，但保留各自产品策略：con 的未知 key 必须是单个字符，否则报错；workbench
   未支持的 named key 仍按 literal text 注入，不因共享 parser 静默扩大 UI 命令集合。
@@ -546,11 +552,11 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
   CPU 探测。Windows 截图不再打包 XRGB 或自行计算 PNG checksum：platform adapter
   将已校验 clip 的首像素指针和原 framebuffer stride 直接交给 GDI+
   `GdipCreateBitmapFromScan0` / `GdipSaveImageToFile`。Linux/macOS 继续由 portable adapter
-  生成 RGBA 并调用 Rust PNG encoder。`agenterm-platform::checksum` 的 IEEE CRC-32 与
+  生成 RGBA 并调用 Rust PNG encoder。`minicon-platform::checksum` 的 IEEE CRC-32 与
   Adler-32 仍是通用校验合同，但不再进入 Windows con 截图生产图；不得误用 x86
   SSE4.2/Arm CRC32C 冒充 PNG polynomial。无测量证据时不得为 `slice::fill` 等成熟原语
   维护 ISA 分叉。
-- 原子文件发布由 `agenterm-platform::filesystem_publish` 的 `write_file_atomic` 与
+- 原子文件发布由 `minicon-platform::filesystem_publish` 的 `write_file_atomic` 与
   `write_path_atomic` 统一持有：前者供 Rust writer，后者供只能接收路径的系统 codec；
   两者均使用同目录独占临时文件、文件 sync、原生替换、父目录 durability barrier 和
   失败清理，path callback 返回后还会重验 regular/non-link entry。Windows adapter 使用
@@ -621,10 +627,10 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
 ### 6.1 跨平台任务固定执行句式
 
 1. 判定：platform **机制** / frontend **产品语义** / host **present**？  
-2. 机制 → 改 `crates/agenterm-platform`，feature 与 typed Unsupported **诚实**更新。  
+2. 机制 → 改 `crates/minicon-platform`，feature 与 typed Unsupported **诚实**更新。  
 3. 产品 → 改 `src/frontend/*` + `ui_action_catalog`，再改 **两端** adapter。  
 4. 仅 host → 只动对应 adapter，并登记 catalog allowlist 或 gap 表。  
-5. 证据：相关 `cargo test -p agenterm-platform` + `cargo test --lib ui_action_catalog` + 直接单测；**无证据不宣称三端手感已齐**。  
+5. 证据：相关 `cargo test -p minicon-platform` + `cargo test --lib ui_action_catalog` + 直接单测；**无证据不宣称三端手感已齐**。  
 
 7. 不要把 rust-analyzer / 通用 LSP 当成「结构 SSOT 已对齐」的证据；LSP 不消费本文。  
 8. 不要新开第二份「现行结构图」md；扩展对齐能力只加闸/机读清单并回写 **本节/§8**。  
@@ -637,7 +643,7 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
 ```text
 .\check.cmd --quick          # lint + 主 crate 单测（含 boundary_tests）
 cargo test -p agenterm --lib platform::boundary_tests   # 结构红线闸（路径以实际 module 为准）
-cargo test -p agenterm-platform --all-features   # 含跨进程；shm 名长已知红见 D1
+cargo test -p minicon-platform --all-features   # 含跨进程；shm 名长已知红见 D1
 ```
 
 Quick 绿 ≠ 六平台 CI / Candidate。  
@@ -676,7 +682,7 @@ boundary_tests.rs        结构红线闸（不是全文 diff 引擎）
 
 | 测项（概念） | 勾住的结构意图 |
 |--------------|----------------|
-| 产品 `src/**` 禁原生 marker / `cfg(target_*)` | 原生边界只在 `crates/agenterm-platform` |
+| 产品 `src/**` 禁原生 marker / `cfg(target_*)` | 原生边界只在 `crates/minicon-platform` |
 | platform crate 禁产品耦合 marker | 机制 crate 无 AgenTerm 产品名/路径 |
 | adapters 同契约 declaration | 三 OS adapter 合同形状一致 |
 | `services/*` 无 orphan 源文件 | 防再长已删的 `services/frontend` 类 |
@@ -737,7 +743,7 @@ C manifest 真源（推荐长期）         architecture.manifest.{toml,json}
 
 ### Shared terminal interaction geometry
 
-`crates/agenterm-ui-core` is the allocation-free, host-neutral boundary for
+`crates/minicon-ui-core` is the allocation-free, host-neutral boundary for
 scrollbar geometry, hit testing, and drag mapping. Product hosts retain layout,
 palette, viewport state, capture, rendering, and OS event adaptation. The pixel
 window contract exposes typed pointer cursors; Windows implements them through
@@ -778,7 +784,7 @@ the `libagenterm` dynamic library and is the proving ground before the same ABI
 is adopted by `agenterm` and `agenterm-con`.
 
 Product code owns target selection, command semantics, the 18-action placement
-catalog and Quit. `libagenterm`/`agenterm-platform` own native mechanisms. ABI
+catalog and Quit. `libagenterm`/`minicon-platform` own native mechanisms. ABI
 1.7 carries desktop-host action descriptors and action IDs without knowing
 their product meaning. On Windows that mechanism is a notification-area menu,
 `RegisterHotKey`, same-thread polling and deterministic cleanup. Native
@@ -818,12 +824,12 @@ The Windows accessibility call chain follows the same boundary:
 
 ```text
 agenterm-cu Command -> Executor -> runtime agenterm.dll ABI
-  -> agenterm-platform accessibility_tree facade -> Windows UIA adapter
+  -> minicon-platform accessibility_tree facade -> Windows UIA adapter
 ```
 
 `Command` and `Executor` own target selection, matching, product action meaning
 and public results. The runtime ABI transports typed requests and failures;
-`agenterm-platform` owns COM/UIA mechanics. The UIA adapter creates an
+`minicon-platform` owns COM/UIA mechanics. The UIA adapter creates an
 MTA-capable operation-local session, sets `SetAutoSetFocus(FALSE)` plus bounded
 connection/transaction and wall-clock deadlines, and releases every interface,
 BSTR, SAFEARRAY and VARIANT before the apartment scope ends. RuntimeId paths are

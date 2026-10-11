@@ -28,10 +28,16 @@ The repository ships the workbench described above. The lightweight terminal
 host that used to ship beside it — `agenterm-con`, no server, Fleet, mux, MCP or
 script runtime — left on 2026-08-23 for its own repository as
 [`partnernetsoftware/minicon`](https://github.com/partnernetsoftware/minicon)
-(locally `../minicon`). It still reuses this repo's `agenterm-platform` and
-`agenterm-ui-core` through a pinned git revision, so the dependency direction is
-minicon → agenterm and never the reverse. Neither product may claim a capability
-or a green status from the other's evidence.
+(locally `../minicon`). Since 2026-10-11 the shared platform layer lives there
+too: this repository no longer owns it and consumes `minicon-platform` /
+`minicon-ui-core` through a pinned git revision, so the dependency direction is
+agenterm → minicon and never the reverse. The vendored `vt100` / `softbuffer`
+forks stay local to this repository (a path `[patch.crates-io]` still applies
+them across the whole graph, including the MiniCon crates), duplicated against
+MiniCon's copies this round — see
+[`plan/plan-v0.2.0.0-platform-move.md`](plan/plan-v0.2.0.0-platform-move.md).
+Neither product may claim a capability or a green status from the other's
+evidence.
 
 The visual language favors industrial confidence over decoration: repeated
 integer-grid spacing, solid right-angle connections, strict baseline
@@ -254,7 +260,7 @@ AgenTerm — local agent & process fleet work OS
 │     ├─ 29 Command surface       抽象命令集、洋葱分层、结构化控件树、确定性等待
 │     ├─ 30 Targets & transports  current/ssh/rdp/vnc 目标族、transport、平台后端
 │     │  ├─ target family        current（首发）/ ssh / rdp / vnc
-│     │  └─ platform a11y backends（agenterm-platform）
+│     │  └─ platform a11y backends（minicon-platform）
 │     │     ├─ Windows           native API + UIA
 │     │     ├─ macOS             AX (NSAccessibility)
 │     │     └─ Linux             AT-SPI2
@@ -309,7 +315,7 @@ flowchart LR
   MCUARC["archived MCU source<br/>read-only implementation reference"]
   BRIDGE["stable MV3 profile<br/>exact-tab lock · unique reconnect"]
   REFRESH["owner-preserving refresh<br/>stable admission fence · no daemon restart"]
-  PLATFORM["agenterm-platform<br/>Win · macOS · Linux mechanisms"]
+  PLATFORM["minicon-platform<br/>Win · macOS · Linux mechanisms"]
   CC["Control Center<br/>typed consumer"]
   EVIDENCE["exact-artifact courts<br/>cross-build · native runners · UTM"]
   RELEASE["Candidate → no-rebuild Promotion<br/>signing selected by policy"]
@@ -368,7 +374,7 @@ flowchart LR
 | 20 | [Native platform abstraction](prd/PRD_02_20_native_platform.md) | Win/macOS/Linux 窗口/输入/IME/DPI/剪贴板/字体契约 |
 | 21 | [Control Center (`agenterm-cc`)](prd/PRD_02_21_control_center.md) | 独立次级工作区：Fleet cockpit/workflow/extension/info 投影 |
 | 22 | [Decentralized network (`agenterm-net`)](prd/PRD_02_22_decentralized_network.md) | libp2p 身份、IPFS 内容寻址、存储、传输、服务集成契约 |
-| 23–27 | 轻量终端宿主 — **已迁出** | 2026-08-23 起源码与五篇 PRD 在独立仓 [`partnernetsoftware/minicon`](https://github.com/partnernetsoftware/minicon)（本地 `../minicon`）。agenterm 只出 `agenterm-platform` / `agenterm-ui-core`，不再持有其写刀 |
+| 23–27 | 轻量终端宿主 — **已迁出** | 2026-08-23 起源码与五篇 PRD 在独立仓 [`partnernetsoftware/minicon`](https://github.com/partnernetsoftware/minicon)（本地 `../minicon`）。2026-10-11 宿主的共享平台层（原 `agenterm-platform` / `agenterm-ui-core`，今 `minicon-platform` / `minicon-ui-core`）也一度从本仓迁出，本仓改为按 pinned git revision 依赖 minicon；见 [`plan/plan-v0.2.0.0-platform-move.md`](plan/plan-v0.2.0.0-platform-move.md) |
 | 28 | [Computer-use foundation (`agenterm-cu`)](prd/PRD_02_28_agenterm_cu.md) | 子树根：唯一 executable、CLI/host、首个运行时 `libagenterm` 消费者；实现 partial，正式交付仍在 qualification |
 | 29 | [`agenterm-cu` command surface](prd/PRD_02_29_cu_command_surface.md) | 抽象命令集、洋葱分层契约、结构化控件树观察、确定性等待 |
 | 30 | [`agenterm-cu` targets and transports](prd/PRD_02_30_cu_targets_transports.md) | `current`/`ssh`/`rdp`/`vnc` 目标族、transport、**platform a11y backends**（Win UIA / macOS AX / Linux AT-SPI2）、会话模型 |
