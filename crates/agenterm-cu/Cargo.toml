@@ -35,19 +35,19 @@ regex = { version = "1", default-features = false, features = [
     "perf-literal",
     "unicode",
 ] }
-agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["current-target-binding", "ipc", "locking", "process", "process-spawn", "contained-process-spawn", "filesystem", "filesystem-entry", "filesystem-open", "filesystem-publish", "filesystem-watch", "file-identity", "file-attributes", "font", "network-interfaces", "network-routes", "network-dns", "device-capture", "device-inventory", "device-io", "host-open", "host-notification", "permission-settings", "serde", "simulator", "host-boot-identity", "host-resource-snapshot", "host-pressure", "cache-hierarchy", "host-memory", "processor-affinity", "storage-device-inventory", "audio", "ime", "keyboard-layout", "input-inject", "service", "login-session", "system-broker", "privilege-authorization", "privilege-service-lifecycle"] }
+minicon-platform = { git = "https://github.com/partnernetsoftware/minicon", rev = "0326e2abaf71cb2f8dc22f766de9b410efa4be1e", default-features = false, features = ["current-target-binding", "ipc", "locking", "process", "process-spawn", "contained-process-spawn", "filesystem", "filesystem-entry", "filesystem-open", "filesystem-publish", "filesystem-watch", "file-identity", "file-attributes", "font", "network-interfaces", "network-routes", "network-dns", "device-capture", "device-inventory", "device-io", "host-open", "host-notification", "permission-settings", "serde", "simulator", "host-boot-identity", "host-resource-snapshot", "host-pressure", "cache-hierarchy", "host-memory", "processor-affinity", "storage-device-inventory", "audio", "ime", "keyboard-layout", "input-inject", "service", "login-session", "system-broker", "privilege-authorization", "privilege-service-lifecycle"] }
 
 [target.'cfg(windows)'.dependencies]
-agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["app-facts", "native-messaging-registry"] }
+minicon-platform = { git = "https://github.com/partnernetsoftware/minicon", rev = "0326e2abaf71cb2f8dc22f766de9b410efa4be1e", default-features = false, features = ["app-facts", "native-messaging-registry"] }
 windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
 x11rb = { version = "0.13.2", default-features = false }
-agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["a11y-tree"] }
+minicon-platform = { git = "https://github.com/partnernetsoftware/minicon", rev = "0326e2abaf71cb2f8dc22f766de9b410efa4be1e", default-features = false, features = ["a11y-tree"] }
 
 # These feature lists must stay complete on their own. Until milestone 46 the
-# crate also depended on `agenterm-platform`, whose winit tree enabled
+# crate also depended on `minicon-platform`, whose winit tree enabled
 # `NSRunningApplication` and `NSThread` for us; Cargo feature unification made
 # that invisible, and dropping the dependency took them away. Only the macOS CI
 # job compiles this target, so anything missing here fails there and nowhere

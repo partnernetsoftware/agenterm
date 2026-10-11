@@ -43,14 +43,14 @@ dependencies = [
  "agenterm-chassis",
  "agenterm-cu",
  "agenterm-lua",
- "agenterm-platform",
  "agenterm-qjswasm",
  "agenterm-script-common",
  "agenterm-sql",
- "agenterm-ui-core",
  "anyhow",
  "libc",
  "libloading 0.8.9",
+ "minicon-platform",
+ "minicon-ui-core",
  "png 0.17.16",
  "serde",
  "serde_json",
@@ -68,9 +68,9 @@ dependencies = [
 name = "agenterm-abi"
 version = "0.1.19"
 dependencies = [
- "agenterm-platform",
  "cc",
  "libloading 0.8.9",
+ "minicon-platform",
  "object",
  "winresource",
 ]
@@ -79,7 +79,7 @@ dependencies = [
 name = "agenterm-chassis"
 version = "0.1.19"
 dependencies = [
- "agenterm-platform",
+ "minicon-platform",
  "serde",
  "serde_json",
 ]
@@ -88,7 +88,7 @@ dependencies = [
 name = "agenterm-control-client"
 version = "0.1.19"
 dependencies = [
- "agenterm-platform",
+ "minicon-platform",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -99,10 +99,10 @@ name = "agenterm-cu"
 version = "0.1.19"
 dependencies = [
  "agenterm-control-client",
- "agenterm-platform",
  "core-foundation 0.10.1",
  "libc",
  "libloading 0.8.9",
+ "minicon-platform",
  "miniz_oxide",
  "objc2 0.5.2",
  "objc2-app-kit 0.2.2",
@@ -152,41 +152,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "agenterm-platform"
-version = "0.1.19"
-dependencies = [
- "ab_glyph",
- "atspi",
- "cc",
- "core-foundation 0.10.1",
- "libc",
- "memmap2",
- "objc2 0.5.2",
- "objc2-app-kit 0.2.2",
- "objc2-foundation 0.2.2",
- "png 0.18.1",
- "security-framework-sys",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "softbuffer",
- "tokio",
- "unicode-width",
- "ureq",
- "windows-sys 0.61.2",
- "winit",
- "x11rb",
- "zbus",
-]
-
-[[package]]
 name = "agenterm-qjswasm"
 version = "0.1.19"
 dependencies = [
  "agenterm-dyn",
- "agenterm-platform",
  "agenterm-script-common",
  "libc",
+ "minicon-platform",
  "png 0.17.16",
  "serde",
  "serde_json",
@@ -219,13 +191,6 @@ dependencies = [
  "serde_json",
  "sqlparser",
  "tempfile",
-]
-
-[[package]]
-name = "agenterm-ui-core"
-version = "0.1.19"
-dependencies = [
- "vt100",
 ]
 
 [[package]]
@@ -2898,6 +2863,42 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
+name = "minicon-platform"
+version = "0.1.19"
+source = "git+https://github.com/partnernetsoftware/minicon?rev=0326e2abaf71cb2f8dc22f766de9b410efa4be1e#0326e2abaf71cb2f8dc22f766de9b410efa4be1e"
+dependencies = [
+ "ab_glyph",
+ "atspi",
+ "cc",
+ "core-foundation 0.10.1",
+ "libc",
+ "memmap2",
+ "objc2 0.5.2",
+ "objc2-app-kit 0.2.2",
+ "objc2-foundation 0.2.2",
+ "png 0.18.1",
+ "security-framework-sys",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "softbuffer",
+ "tokio",
+ "unicode-width",
+ "windows-sys 0.61.2",
+ "winit",
+ "x11rb",
+ "zbus",
+]
+
+[[package]]
+name = "minicon-ui-core"
+version = "0.1.19"
+source = "git+https://github.com/partnernetsoftware/minicon?rev=0326e2abaf71cb2f8dc22f766de9b410efa4be1e#0326e2abaf71cb2f8dc22f766de9b410efa4be1e"
+dependencies = [
+ "vt100",
+]
+
+[[package]]
 name = "miniz_oxide"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4627,8 +4628,8 @@ checksum = "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649"
 name = "size-probe"
 version = "0.1.19"
 dependencies = [
- "agenterm-platform",
  "libloading 0.8.9",
+ "minicon-platform",
 ]
 
 [[package]]

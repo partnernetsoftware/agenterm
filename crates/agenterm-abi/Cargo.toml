@@ -31,24 +31,24 @@ allow-abort-profile = []
 
 [dependencies]
 # The PTY mechanism (milestone 2). `pty` is a real feature: without it the
-# whole `agenterm_platform::pty` module does not exist. `native-pixel-window`
+# whole `minicon_platform::pty` module does not exist. `native-pixel-window`
 # (milestone 3a) gates the `window_host` blocking callback loop, which in
 # turn requires the `input` + `ime` features (its contract re-exports their
 # types). `screenshot` (milestone 4) gates the whole
-# `agenterm_platform::screenshot` module: without it the exports below cannot
+# `minicon_platform::screenshot` module: without it the exports below cannot
 # compile. `process` (milestone 5) gates the whole
-# `agenterm_platform::process` module. `clipboard` (milestone 8) gates the
-# whole `agenterm_platform::clipboard` module: without it the exports below
+# `minicon_platform::process` module. `clipboard` (milestone 8) gates the
+# whole `minicon_platform::clipboard` module: without it the exports below
 # cannot compile. `parent-console` (milestone 9) gates the whole
-# `agenterm_platform::parent_console` module: without it the exports below
+# `minicon_platform::parent_console` module: without it the exports below
 # cannot compile. `a11y-tree` (milestone 6) gates accessibility-tree observe
 # and node actuation. `runtime` (milestone 10) gates the whole
-# `agenterm_platform::runtime` module: without it the runtime exports below
+# `minicon_platform::runtime` module: without it the runtime exports below
 # cannot compile. `window-enum` / `window-op` / `input-inject` (milestone 43)
 # gate the native-window enumeration, native-window operation and input
 # injection mechanisms: without them the `agt_window_enumerate` /
 # `agt_native_window_*` / `agt_input_*` exports cannot compile.
-agenterm-platform = { path = "../agenterm-platform", features = ["pty", "native-pixel-window", "portable-pixel-window", "input", "ime", "serde", "screenshot", "process", "clipboard", "parent-console", "a11y-tree", "runtime", "window-enum", "window-op", "input-inject", "desktop-host"] }
+minicon-platform = { git = "https://github.com/partnernetsoftware/minicon", rev = "0326e2abaf71cb2f8dc22f766de9b410efa4be1e", features = ["pty", "native-pixel-window", "portable-pixel-window", "input", "ime", "serde", "screenshot", "process", "clipboard", "parent-console", "a11y-tree", "runtime", "window-enum", "window-op", "input-inject", "desktop-host"] }
 
 [build-dependencies]
 # build.rs is host-compiled; this must remain available to Linux/macOS hosts

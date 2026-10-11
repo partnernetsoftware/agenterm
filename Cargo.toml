@@ -44,8 +44,8 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("agenterm-
 
 [dependencies]
 agenterm-chassis = { path = "crates/agenterm-chassis" }
-agenterm-platform = { path = "crates/agenterm-platform", default-features = false, features = ["activation", "clipboard", "console-interrupt", "console-line-editor", "filesystem", "font", "ime", "input", "ipc", "locking", "portable-pixel-window", "process", "pty", "screenshot", "serde", "webview", "window"] }
-agenterm-ui-core = { path = "crates/agenterm-ui-core", features = ["terminal-selection"] }
+minicon-platform = { git = "https://github.com/partnernetsoftware/minicon", rev = "0326e2abaf71cb2f8dc22f766de9b410efa4be1e", default-features = false, features = ["activation", "clipboard", "console-interrupt", "console-line-editor", "filesystem", "font", "ime", "input", "ipc", "locking", "portable-pixel-window", "process", "pty", "screenshot", "serde", "webview", "window"] }
+minicon-ui-core = { git = "https://github.com/partnernetsoftware/minicon", rev = "0326e2abaf71cb2f8dc22f766de9b410efa4be1e", features = ["terminal-selection"] }
 agenterm-lua = { path = "crates/agenterm-lua", optional = true }
 # The shared corpus-scan / check-many report types the engine trait speaks.
 # Not optional: `ScriptEngineBackend::corpus_scan` names them in its signature,

@@ -28,9 +28,9 @@ path = "src/variant_b_dynamic.rs"
 # libagenterm ships. `process` also pulls in `parent-console` + `runtime`;
 # `clipboard` is explicit; `window_host` and its `run_pixel_window` entry
 # require `input` + `ime` + a pixel-window feature.
-agenterm-platform = { path = "../../crates/agenterm-platform", features = ["pty", "native-pixel-window", "portable-pixel-window", "input", "ime", "screenshot", "process", "clipboard", "parent-console", "a11y-tree", "runtime"] }
+minicon-platform = { git = "https://github.com/partnernetsoftware/minicon", rev = "0326e2abaf71cb2f8dc22f766de9b410efa4be1e", features = ["pty", "native-pixel-window", "portable-pixel-window", "input", "ime", "screenshot", "process", "clipboard", "parent-console", "a11y-tree", "runtime"] }
 
-# Variant B only: the dynamic path never depends on agenterm-platform; it
+# Variant B only: the dynamic path never depends on minicon-platform; it
 # dlopens the libagenterm cdylib through this tiny loader. `libloading` is
 # the only non-std dependency of variant B, so the mechanism code cannot
 # statically enter its artifact.
