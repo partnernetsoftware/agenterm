@@ -76,6 +76,18 @@ v0.1.20 — final Candidate bytes carry verified platform trust
   The Candidate input bundle therefore cannot be produced from the Windows
   host; run the six-cell build + encrypted staging on the Mac host, then any
   host may dispatch `candidate.yml`.
+- Cross-cell precheck (2026-10-21, Windows x86_64 host, HEAD `89eeb0362`,
+  lane `target/precheck-six-cell`): the chassis-loader cells were exercised
+  with the runbook's own commands where the host allows. PASS —
+  `linux-aarch64` and `linux-x86_64` via `cargo zigbuild ...gnu.2.28` (exact
+  runbook commands), and `windows-x86_64` linked natively with MSVC `link.exe`.
+  BLOCKED on this host — the runbook's `cargo xwin` path stops at
+  `linker lld-link not found` (no LLVM here; compilation itself completed),
+  and `windows-aarch64` also fails native linking (no ARM64 MSVC libraries).
+  Both are host tooling gaps, not source regressions. macOS cells remain
+  BLOCKED (no darwin toolchain). Consequence for the Mac host: **cargo-xwin
+  needs LLVM's `lld-link` on PATH** — verify it before starting the six-cell
+  run.
 - Order after the Candidate: W1 (`windows-signing-qualification.yml`) and M1
   (`macos-signing-qualification.yml`) non-promotable courts → M2 protected
   sign→notarize→staple→package restructure of `candidate.yml` → flip both
