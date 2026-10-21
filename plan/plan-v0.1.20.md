@@ -88,7 +88,9 @@ v0.1.20 — final Candidate bytes carry verified platform trust
   six-cell run. A host without LLVM can satisfy it from the Rust toolchain
   itself: copy the sysroot's `rust-lld` binary to a PATH entry under the name
   `lld-link` (LLD dispatches its flavor by invocation name; verified here with
-  LLD 22.1.6 from Rust 1.97.0).
+  LLD 22.1.6 from Rust 1.97.0). The full `client-build` task subsequently
+  passed on all four non-mac cells on this host (release profile, runbook
+  drivers), so the remaining compile risk is darwin-only.
 - Order after the Candidate: W1 (`windows-signing-qualification.yml`) and M1
   (`macos-signing-qualification.yml`) non-promotable courts → M2 protected
   sign→notarize→staple→package restructure of `candidate.yml` → flip both
