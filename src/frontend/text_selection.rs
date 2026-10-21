@@ -192,16 +192,13 @@ fn is_word_char(value: char) -> bool {
 
 /// Bounds of the logical line containing `offset`, for triple-click and Home/End.
 pub(crate) fn line_bounds(text: &str, offset: usize) -> (usize, usize) {
-    let chars: Vec<char> = text.chars().collect();
-    let index = offset.min(chars.len());
-    let mut start = index;
-    while start > 0 && chars[start - 1] != '\n' {
-        start -= 1;
-    }
-    let mut end = index;
-    while end < chars.len() && chars[end] != '\n' {
-        end += 1;
-    }
+    // MiniCon's pure line rules use UTF-8 byte offsets; this field contract
+    // uses character indices. Keep that conversion here, outside host adapters.
+    let byte = byte_offset(text, offset);
+    let line = minicon_core::composer::line_index_at(text, byte);
+    let range = minicon_core::composer::line_range(text, line);
+    let start = text[..range.start].chars().count();
+    let end = start + text[range].chars().count();
     (start, end)
 }
 
@@ -363,6 +360,40 @@ mod tests {
         assert_eq!(line_bounds(text, 0), (0, 5));
         assert_eq!(line_bounds(text, 8), (6, 12));
         assert_eq!(line_bounds(text, 18), (13, 18));
+    }
+
+    #[test]
+    fn line_bounds_preserve_character_indices_for_all_short_texts() {
+        // An independent character-space oracle catches byte/character mixing,
+        // newline ownership, empty final lines, CRLF and stale caret offsets.
+        for length in 0..=5_u32 {
+            for mut encoding in 0..5_usize.pow(length) {
+                let text: String = (0..length)
+                    .map(|_| {
+                        let character = ['a', '中', '🙂', '\r', '\n'][encoding % 5];
+                        encoding /= 5;
+                        character
+                    })
+                    .collect();
+                let chars: Vec<char> = text.chars().collect();
+                for offset in (0..=chars.len() + 1).chain([usize::MAX]) {
+                    let index = offset.min(chars.len());
+                    let start = chars[..index]
+                        .iter()
+                        .rposition(|&character| character == '\n')
+                        .map_or(0, |position| position + 1);
+                    let end = chars[index..]
+                        .iter()
+                        .position(|&character| character == '\n')
+                        .map_or(chars.len(), |position| index + position);
+                    assert_eq!(
+                        line_bounds(&text, offset),
+                        (start, end),
+                        "{text:?} at {offset}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

@@ -44,6 +44,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("agenterm-
 
 [dependencies]
 agenterm-chassis = { path = "crates/agenterm-chassis" }
+minicon-core = { git = "https://github.com/partnernetsoftware/minicon", rev = "0326e2abaf71cb2f8dc22f766de9b410efa4be1e" }
 minicon-platform = { git = "https://github.com/partnernetsoftware/minicon", rev = "0326e2abaf71cb2f8dc22f766de9b410efa4be1e", default-features = false, features = ["activation", "clipboard", "console-interrupt", "console-line-editor", "filesystem", "font", "ime", "input", "ipc", "locking", "portable-pixel-window", "process", "pty", "screenshot", "serde", "webview", "window"] }
 minicon-ui-core = { git = "https://github.com/partnernetsoftware/minicon", rev = "0326e2abaf71cb2f8dc22f766de9b410efa4be1e", features = ["terminal-selection"] }
 agenterm-lua = { path = "crates/agenterm-lua", optional = true }

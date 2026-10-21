@@ -4,6 +4,23 @@ Parent: [AgenTerm product tree](../PRD.md#product-tree)
 
 Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
+## Shared-core reuse boundary
+
+- [~] Text-field logical-line selection consumes `minicon-core::composer`
+  through the existing immutable MiniCon revision. AgenTerm owns character-index
+  adaptation; MiniCon owns byte-index line lookup. The Unix composer's existing
+  triple-click path is the consumer. Empty lines, newline ownership, CRLF,
+  Unicode and stale offsets retain their existing behavior without a temporary
+  `Vec<char>` in the production path. Windows native Edit remains OS-owned.
+  Source and host test evidence are tracked in the
+  [existing migration plan](../plan/plan-v0.2.0.0-platform-move.md#incremental-core-consumption).
+- [ ] Continue reuse only after comparing contracts: MiniCon composer uses byte
+  indices and whitespace-delimited tokens, while AgenTerm text fields use
+  character indices and alphanumeric/underscore words. Tree preorder, orphan
+  recovery, collapse visibility and reparent validation remain product-owned;
+  a strict depth kernel is not a replacement for those policies. This is
+  consolidation of existing behavior, not a new workspace feature.
+
 ## Machine-aligned shipped declarations
 
 - [x] Dark and Light theme settings preview, apply, cancel, and persist without interrupting PTYs.

@@ -17,6 +17,7 @@
 
 | 层 | 路径 | 装什么 | 不装什么 |
 |----|------|--------|----------|
+| **纯规则** | `minicon-core`（外仓 pinned git 依赖） | 不依赖 OS/ISA 的文本行规则；`frontend::text_selection::line_bounds` 适配 byte/character 索引 | 原生窗口、终端后端、AgenTerm 工作台状态 |
 | **机制** | `minicon-platform`（**外仓 git 依赖**，见下） | 窗/键鼠/IME/激活/剪贴板/截图/字体/IPC/PTY/进程/FS/shm… typed Available/Unsupported/Failed；**无** AgenTerm 产品名 | 工作台剧本、Fleet、ui-action 表、instance/server strip 产品策略 |
 | **产品语义** | `src/frontend/*`、`src/ui_*.rs`、`src/ui_geometry.rs` | 手势含义、dialog 状态、geometry、action id、snapshot 字段 | 直接 `windows_sys` / winit / x11（boundary 闸禁止） |
 | **Host present** | `src/platform/adapters/{windows,unix}/**` | 怎么画、收事件、接线 IPC、原生控件映射 | 新产品策略仅单端落地且不登记 catalog/`parity-gap` |

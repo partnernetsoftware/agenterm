@@ -34,6 +34,7 @@ dependency direction recorded in `PRD.md` and `plan/ARCHITECTURE.md` before
 |---|---|
 | `minicon-platform` | `git https://github.com/partnernetsoftware/minicon` rev `0326e2abaf71cb2f8dc22f766de9b410efa4be1e` |
 | `minicon-ui-core`  | same url, same rev |
+| `minicon-core` | same url, same rev (incremental pure-rule consumption below) |
 
 The two platform/ui crates are byte-identical across MiniCon 0.2.5 and its
 predecessor revs, so the pin is stable for this move.
@@ -172,3 +173,60 @@ are validated by CI, not claimed here.
   They can never appear in an agenterm diff now, but the surface still documents
   the L1 tax and the classifier tests exercise them as hypothetical inputs; the
   path-existence court resolves them against the pinned checkout.
+
+## Incremental core consumption
+
+2026-10-18: continue the existing agenterm -> minicon dependency direction by
+consuming `minicon-core` at the same immutable SHA as platform/ui. No sibling
+path dependency, MiniCon revision bump or MiniCon working-tree source is used.
+Workspace `[patch.crates-io]` still selects the local vt100/softbuffer forks;
+core adds only already-present itoa/unicode-width production dependencies.
+
+The first bounded slice is `src/frontend/text_selection.rs::line_bounds`, used
+by the Unix composer's triple-click selection. It adapts AgenTerm character
+offsets to the core's `composer::line_index_at`/`line_range` byte contracts, then
+returns character boundaries. This removes the local temporary `Vec<char>` and
+leaves native Windows Edit handling unchanged. Product truth belongs to
+[Human workspace](../prd/PRD_02_06_human_workspace.md#shared-core-reuse-boundary);
+source ownership belongs to [ARCHITECTURE](ARCHITECTURE.md#1-分层验收尺).
+
+Remaining consolidation items, in dependency order:
+
+1. Compare pure composer helpers individually before migrating further. The two
+   products differ in cursor units, tokenization, editing/history and limits;
+   importing the complete MiniCon composer would change product behavior.
+2. Compare click semantics before reuse. MiniCon cycles 1/2/3/1 at a fixed
+   500 ms; AgenTerm has native Windows double-click routing and a future live
+   host interval policy. Sharing a constant alone does not unify those rules.
+3. Keep AgenTerm tree preorder/orphan recovery/collapse/cycle policy local.
+   MiniCon core's typed depth calculation is strict about malformed parentage
+   and duplicates, so it is not an equivalent replacement for `tab_tree`.
+   Resolve core/UI tree and core/platform numeric ownership in MiniCon before
+   migrating additional consumers to either duplicate export.
+4. The version module is absent at this pin. Consider it only after an
+   independently reviewed immutable revision contains it. The MiniCon bounded
+   JSON codec is not a drop-in serde_json replacement for AgenTerm's protocol.
+
+Validation for this incremental slice is recorded below with exact host scope;
+peer-platform GUI behavior is not inferred from a Windows unit result.
+
+Host evidence: Windows x86_64, Rust 1.97.0, task-local
+`target/minicon-core-reuse` lane:
+
+- `cargo fmt --all -- --check`: PASS.
+- `cargo clippy --locked --offline -p agenterm --all-targets --all-features
+  -- -D warnings`: PASS on the host target, including the MiniCon core consumer.
+- `cargo test --locked --offline -p agenterm --lib --no-default-features
+  frontend::text_selection::tests`: 15 passed (14 existing plus one new test).
+  The new test sweeps all 3,906 strings of length 0..5 over ASCII, CJK, emoji,
+  CR and LF, every character position, one-past-end and `usize::MAX`.
+- Negative control: temporarily returning the core's byte boundaries directly
+  makes the new test fail for a one-character CJK buffer, returning `(0, 3)`
+  instead of `(0, 1)`. Restoring the character conversion returns all 15 tests
+  to green. The temporary mutation is absent from the final source.
+- The narrow no-default-features root test build reports existing unused/dead
+  script-engine warnings; those modules were not changed by this slice.
+- `scripts/doc-redact-check.sh` on the three edited Markdown files: PASS;
+  `git diff --check`: PASS.
+- Linux/macOS GUI triple-click and ARM64 runtime evidence: BLOCKED on this
+  Windows x86_64 host. No GUI black-box or six-cell claim is made by this slice.

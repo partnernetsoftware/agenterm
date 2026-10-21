@@ -49,6 +49,7 @@ dependencies = [
  "anyhow",
  "libc",
  "libloading 0.8.9",
+ "minicon-core",
  "minicon-platform",
  "minicon-ui-core",
  "png 0.17.16",
@@ -2861,6 +2862,15 @@ name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
+
+[[package]]
+name = "minicon-core"
+version = "0.1.18"
+source = "git+https://github.com/partnernetsoftware/minicon?rev=0326e2abaf71cb2f8dc22f766de9b410efa4be1e#0326e2abaf71cb2f8dc22f766de9b410efa4be1e"
+dependencies = [
+ "itoa",
+ "unicode-width",
+]
 
 [[package]]
 name = "minicon-platform"
