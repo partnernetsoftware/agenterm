@@ -103,6 +103,41 @@ Both pause on the protected `release-signing` Environment for the owner's
 explicit approval. Evidence retention, the M2 restructure, the policy flips
 and the next Candidate then continue per the gate table above.
 
+### M2 restructure design (prepared 2026-10-21; execute only after M1 passes)
+
+`candidate.yml` already models the required shape on its Windows lane:
+`stage_parts` uploads `candidate-unsigned-part-windows-*`, then exactly one of
+`windows_unsigned` (policy not `required`; pass-through re-upload) or
+`windows_sign` (policy `required`; `environment: release-signing`; sign, verify,
+rebuild archives) publishes the final `candidate-part-windows-*`, and every
+downstream job gates on whichever branch ran. The macOS lane currently skips
+this: `stage_parts` copies the locally packaged `candidate-part-macos-*`
+straight through, so nothing can sign, notarize or staple before the archive
+hash is fixed. M2 mirrors the Windows pattern:
+
+1. `stage_parts` (macOS rows): upload `candidate-unsigned-part-macos-*`
+   instead of the final part name.
+2. New `macos_unsigned` job (`signed_macos != 'true'`): pass-through re-upload
+   to `candidate-part-macos-*`, exactly like `windows_unsigned`.
+3. New `macos_sign` job (`signed_macos == 'true'`): `runs-on: macos-15`,
+   `environment: release-signing`, credentials only here. Unpack the local
+   archive, codesign inner-out (Developer ID Application, hardened runtime,
+   secure timestamp), `notarytool submit --wait` requiring `Accepted`,
+   `stapler staple` the app, `spctl --assess` both ISAs, **then** repackage,
+   hash, and write provenance — upload as `candidate-part-macos-*`.
+4. Downstream gating: add the two macOS jobs to the `needs` lists of
+   `chassis_pack`, `runtime` and `aggregate` with the same
+   signed-XOR-unsigned success condition the Windows pair uses, so a skipped
+   signing job can never satisfy aggregate while the policy is `required`.
+5. Negative controls before flipping `signing.macos=required`: missing
+   credential, rejected notarization, missing staple and post-staple hash
+   mismatch must each fail the job (fail closed, never fall back to the
+   unsigned part).
+
+The local six-cell build needs no change for this: signing operates on the
+unpacked app bundle inside the locally produced archive, and the repackaged
+post-staple archive replaces the local hash in the sealed manifest.
+
 ## Missing evidence and implementation
 
 | Gate | Current state | Required v0.1.20 proof |
