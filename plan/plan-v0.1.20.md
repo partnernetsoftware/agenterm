@@ -85,9 +85,9 @@ v0.1.20 — final Candidate bytes carry verified platform trust
 ### Mac-host runbook (the one step this Windows agent cannot run)
 
 On the macOS cross-compilation host, with a clean checkout at the exact
-current `origin/main` HEAD (readiness court `READY` at
-`d42c29e511eb96f0bb9ee9a080594d63c9dbba81`, 2026-10-21 — re-verify if main
-has moved):
+current `origin/main` HEAD (readiness court `READY` verified 2026-10-21;
+plan-only commits since keep the product tree identical — always take the SHA
+from `git rev-parse origin/main` at build time, never from this document):
 
 1. `scripts/build-local-six-cell.sh` (pre-push gate + six cells + Chassis
    loaders + checksummed candidate input).
