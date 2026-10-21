@@ -132,6 +132,22 @@ jobs:
           scripts/stage-local-candidate-encrypted.sh \
             "dist/cloud-six-cell/agenterm-$version-local-candidate-input.tar.gz"
 
+      - name: Collect pre-push gate logs
+        if: failure()
+        run: |
+          mkdir -p gate-logs
+          cp "${TMPDIR:-/tmp}"/pre-push-*.log gate-logs/ 2>/dev/null || true
+          ls -l gate-logs || true
+
+      - name: Keep the pre-push gate logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: six-cell-cloud-gate-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: gate-logs/
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Keep the build evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
