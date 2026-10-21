@@ -116,6 +116,10 @@ jobs:
       - name: Build the six cells
         env:
           AGENTERM_SIX_CELL_CLOUD: sanctioned
+          # pre-push-check.sh defaults to the owner-network MSVC fetch proxy
+          # (docs/macos-local-build.md); hosted runners reach crates.io and
+          # the xwin CRT/SDK directly.
+          AGENTERM_BUILD_PROXY: ""
         run: scripts/build-local-six-cell.sh cloud-six-cell
 
       - name: Stage the encrypted Candidate input
