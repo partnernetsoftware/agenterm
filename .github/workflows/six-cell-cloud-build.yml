@@ -92,17 +92,20 @@ jobs:
           echo "$zig_home" >> "$GITHUB_PATH"
           export PATH="$zig_home:$PATH"
           test "$(zig version)" = "$ZIG_VERSION"
-          # cargo-xwin links the Windows cells with lld-link; age encrypts the
-          # staging bundle; rg backs the script's own target checks.
-          brew list llvm >/dev/null 2>&1 || brew install llvm
+          # age encrypts the staging bundle; rg backs the script's own checks.
           brew list age >/dev/null 2>&1 || brew install age
           brew list ripgrep >/dev/null 2>&1 || brew install ripgrep
-          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
-          export PATH="$(brew --prefix llvm)/bin:$PATH"
-          command -v lld-link
           mkdir -p "$HOME/agenterm-cargo-tools/bin"
           echo "$HOME/agenterm-cargo-tools/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/agenterm-cargo-tools/bin:$PATH"
+          # cargo-xwin links the Windows cells with lld-link. Homebrew's llvm
+          # no longer ships lld, so take LLD from the Rust toolchain itself:
+          # it dispatches its flavor by invocation name (verified with LLD
+          # 22.1.6 / Rust 1.97.0; see plan-v0.1.20.md).
+          host="$(rustc -vV | sed -n 's/^host: //p')"
+          cp "$(rustc --print sysroot)/lib/rustlib/$host/bin/rust-lld" \
+            "$HOME/agenterm-cargo-tools/bin/lld-link"
+          command -v lld-link
           cargo-zigbuild --version 2>/dev/null | grep -q " $CARGO_ZIGBUILD_VERSION\$" || \
             cargo install --root "$HOME/agenterm-cargo-tools" cargo-zigbuild \
               --locked --version "$CARGO_ZIGBUILD_VERSION"
