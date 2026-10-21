@@ -152,3 +152,35 @@ flowchart LR
   Environment, so enabling `signing.macos=required` now would fail closed; the
   fix is a dedicated protected signing boundary, not duplicating those values as
   ordinary repository secrets.
+
+## 2026-10-21 pipeline study (owner instruction: learn MiniCon's build+test+release chain)
+
+Read from the local MiniCon checkout at its v0.2.18-released state. What its
+pipeline does differently, and what AgenTerm adopted the same day:
+
+- **Hosted pack lane.** `minicon-com.yml` cross-builds every cell on one
+  hosted `macos-15` runner (pinned zig + cargo-zigbuild + cargo-xwin + brew
+  LLVM), so "a Windows or Linux developer can start a release without a Mac".
+  Adopted as `.github/workflows/six-cell-cloud-build.yml`, which runs the
+  unchanged local scripts under the sanctioned `AGENTERM_SIX_CELL_CLOUD`
+  opt-in. MiniCon also keeps a per-cell-native variant
+  (`six-grid-cloud-build.yml`) for its dev runtime body; AgenTerm does not
+  need that for v0.1.20.
+- **Product-source pinning.** MiniCon's `scripts/product-source-hash.sh`
+  compares the product source tree instead of raw `origin/main` equality, so
+  an infra/doc-only commit landing mid-chain no longer kills every in-flight
+  run for that version. Ported to AgenTerm (same name) and wired into
+  `candidate.yml` preflight plus both six-cell scripts.
+- **Signing as independent dispatched courts.** `company-signing.yml`
+  (Azure/Windows) and `macos-signing.yml` (Developer ID) are separate
+  workflows on the protected Environment; `candidate.yml` preflight binds
+  their run ids and `release_eligible` receipts to the exact `source_sha`.
+  The macOS court's order is the M2 target shape: lipo universal → codesign
+  (hardened runtime, timestamp) → notarize `--wait` Accepted → staple →
+  `spctl` assess → the .dmg gets the same treatment → receipt with
+  before/after hashes. A `qualification_only` input makes the same workflow
+  serve as the non-promotable first court.
+- **Tag-collision preflight.** MiniCon's Candidate fails fast when
+  `v<version>` already exists, pointing at a version bump instead of a late
+  Promotion surprise. Worth adding to AgenTerm's Candidate preflight when M2
+  lands there.

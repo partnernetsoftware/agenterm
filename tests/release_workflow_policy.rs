@@ -12,6 +12,9 @@ static STAGE_LOCAL_CANDIDATE_ENCRYPTED: LazyLock<String> = LazyLock::new(|| {
 static CLEANUP_LOCAL_CANDIDATE_ENCRYPTED: LazyLock<String> = LazyLock::new(|| {
     include_str!("../scripts/cleanup-local-candidate-encrypted.sh").replace("\r\n", "\n")
 });
+static SIX_CELL_CLOUD_BUILD: LazyLock<String> = LazyLock::new(|| {
+    include_str!("../.github/workflows/six-cell-cloud-build.yml").replace("\r\n", "\n")
+});
 static CROSS_BUILD_REHEARSAL: LazyLock<String> = LazyLock::new(|| {
     include_str!("../.github/workflows/cross-build-topology-rehearsal.yml").replace("\r\n", "\n")
 });
@@ -1149,7 +1152,12 @@ fn candidate_is_manual_exact_sha_and_has_no_publish_authority() {
     assert!(!CANDIDATE.contains("contents: write"));
     assert!(CANDIDATE.contains("[[ \"$SOURCE_SHA\" =~ ^[0-9a-f]{40}$ ]]"));
     assert!(CANDIDATE.contains("[[ \"$GITHUB_SHA\" == \"$SOURCE_SHA\" ]]"));
-    assert!(CANDIDATE.contains("[[ \"$(git rev-parse origin/main)\" == \"$SOURCE_SHA\" ]]"));
+    // The pin tolerates plan/doc-only commits on main (MiniCon lesson): the
+    // preflight compares product source trees, never raw head equality.
+    assert!(CANDIDATE.contains(
+        "[[ \"$(scripts/product-source-hash.sh origin/main)\" == \"$(scripts/product-source-hash.sh \"$SOURCE_SHA\")\" ]]"
+    ));
+    assert!(!CANDIDATE.contains("[[ \"$(git rev-parse origin/main)\" == \"$SOURCE_SHA\" ]]"));
     assert!(!CANDIDATE.contains("workflows/$workflow/runs?head_sha=$SOURCE_SHA"));
     assert!(!CANDIDATE.contains("for workflow in ci-agenterm.yml"));
     assert!(CANDIDATE.contains("name: Verify exact current main source"));
@@ -1599,7 +1607,11 @@ fn candidate_linux_packager_receives_the_repository_argument_once() {
 #[test]
 fn local_candidate_stages_only_encrypted_bytes_for_read_only_runners() {
     assert!(LOCAL_SIX_CELL_BUILDER.contains("six-cell release build requires a clean worktree"));
-    assert!(LOCAL_SIX_CELL_BUILDER.contains("six-cell release build requires exact origin/main"));
+    assert!(LOCAL_SIX_CELL_BUILDER
+        .contains("six-cell release build requires the product source of current origin/main"));
+    assert!(LOCAL_SIX_CELL_BUILDER.contains("scripts/product-source-hash.sh FETCH_HEAD"));
+    assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED
+        .contains("local Candidate staging requires the product source of current origin/main"));
     assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains("scripts/verify-local-candidate.py"));
     assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains("age --encrypt --recipient"));
     assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains(
@@ -3096,6 +3108,37 @@ fn every_workflow_script_run_declares_both_engine_budgets() {
     }
     assert!(sites > 0, "no workflow invokes the script engine");
     assert!(offenders.is_empty(), "{}", offenders.join("\n"));
+}
+
+/// The cloud six-cell lane (MiniCon lesson, owner decision 2026-10-21) runs
+/// the exact local scripts on one hosted macOS runner. It must stay manual,
+/// pinned to the verified product source, restricted to the sanctioned
+/// opt-in, and must never gain tag or public-release authority.
+#[test]
+fn six_cell_cloud_build_is_the_sanctioned_hosted_pack_lane() {
+    assert!(SIX_CELL_CLOUD_BUILD.contains("name: Six-cell cloud build"));
+    assert!(SIX_CELL_CLOUD_BUILD.contains("workflow_dispatch:"));
+    assert!(!SIX_CELL_CLOUD_BUILD.contains("\n  push:"));
+    assert!(SIX_CELL_CLOUD_BUILD.contains("source_sha:"));
+    assert!(SIX_CELL_CLOUD_BUILD.contains("[[ \"$SOURCE_SHA\" =~ ^[0-9a-f]{40}$ ]]"));
+    assert!(SIX_CELL_CLOUD_BUILD.contains(
+        "[[ \"$(scripts/product-source-hash.sh origin/main)\" == \"$(scripts/product-source-hash.sh \"$SOURCE_SHA\")\" ]]"
+    ));
+    assert!(SIX_CELL_CLOUD_BUILD.contains("AGENTERM_SIX_CELL_CLOUD: sanctioned"));
+    assert!(SIX_CELL_CLOUD_BUILD.contains("scripts/build-local-six-cell.sh cloud-six-cell"));
+    assert!(SIX_CELL_CLOUD_BUILD.contains("scripts/stage-local-candidate-encrypted.sh"));
+    // Staging needs contents: write for the encrypted prerelease, and nothing
+    // in the workflow may create a public vX.Y.Z tag or non-prerelease.
+    assert!(SIX_CELL_CLOUD_BUILD.contains("permissions:\n  contents: write"));
+    assert!(!SIX_CELL_CLOUD_BUILD.contains("gh release create"));
+    assert!(!SIX_CELL_CLOUD_BUILD.contains("git tag"));
+    // Both scripts keep refusing every unsanctioned Actions context.
+    assert!(LOCAL_SIX_CELL_BUILDER.contains(
+        "\"${GITHUB_ACTIONS:-}\" == \"true\" && \"${AGENTERM_SIX_CELL_CLOUD:-}\" != \"sanctioned\""
+    ));
+    assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains(
+        "\"${GITHUB_ACTIONS:-}\" == \"true\" && \"${AGENTERM_SIX_CELL_CLOUD:-}\" != \"sanctioned\""
+    ));
 }
 
 #[test]

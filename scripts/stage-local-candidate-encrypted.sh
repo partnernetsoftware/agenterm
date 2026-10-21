@@ -5,7 +5,9 @@ set -euo pipefail
 # ciphertext to a temporary prerelease. Hosted Candidate jobs download and
 # decrypt those bytes; they do not compile them.
 
-if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+# Owner decision 2026-10-21 (adopt MiniCon's hosted pack lane): only the
+# sanctioned six-cell-cloud-build workflow may stage from a hosted runner.
+if [[ "${GITHUB_ACTIONS:-}" == "true" && "${AGENTERM_SIX_CELL_CLOUD:-}" != "sanctioned" ]]; then
   echo "local Candidate staging refuses to run inside GitHub Actions" >&2
   exit 2
 fi
@@ -27,8 +29,13 @@ if [[ -n "$(git status --porcelain=v1 --untracked-files=normal)" ]]; then
 fi
 remote_main="$(git ls-remote origin refs/heads/main | awk 'NR == 1 { print $1 }')"
 if [[ "$remote_main" != "$source_sha" ]]; then
-  echo "local Candidate staging requires exact origin/main" >&2
-  exit 2
+  # A plan/doc-only commit on main must not invalidate an unchanged product
+  # (adopted from MiniCon; see scripts/product-source-hash.sh).
+  git fetch --no-tags origin main
+  if [[ "$(scripts/product-source-hash.sh FETCH_HEAD)" != "$(scripts/product-source-hash.sh "$source_sha")" ]]; then
+    echo "local Candidate staging requires the product source of current origin/main" >&2
+    exit 2
+  fi
 fi
 
 version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"

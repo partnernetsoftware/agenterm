@@ -6,7 +6,11 @@ set -euo pipefail
 #
 # Usage: scripts/build-local-six-cell.sh [TARGET_LANE]
 
-if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+# Owner decision 2026-10-21 (adopt MiniCon's hosted pack lane): the sanctioned
+# six-cell-cloud-build workflow may run this exact script on a hosted macOS
+# runner by setting the opt-in below. Every other Actions context still
+# refuses, so no unrelated workflow can quietly start compiling release bytes.
+if [[ "${GITHUB_ACTIONS:-}" == "true" && "${AGENTERM_SIX_CELL_CLOUD:-}" != "sanctioned" ]]; then
   echo "local six-cell build refuses to run inside GitHub Actions" >&2
   exit 2
 fi
@@ -31,8 +35,13 @@ if [[ -n "$(git status --porcelain=v1 --untracked-files=normal)" ]]; then
 fi
 remote_main="$(git ls-remote origin refs/heads/main | awk 'NR == 1 { print $1 }')"
 if [[ "$remote_main" != "$source_sha" ]]; then
-  echo "six-cell release build requires exact origin/main" >&2
-  exit 2
+  # A plan/doc-only commit on main must not force a rebuild of an unchanged
+  # product (adopted from MiniCon; see scripts/product-source-hash.sh).
+  git fetch --no-tags origin main
+  if [[ "$(scripts/product-source-hash.sh FETCH_HEAD)" != "$(scripts/product-source-hash.sh "$source_sha")" ]]; then
+    echo "six-cell release build requires the product source of current origin/main" >&2
+    exit 2
+  fi
 fi
 
 for tool in cargo cargo-xwin cargo-zigbuild zig; do

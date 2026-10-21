@@ -48,7 +48,11 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
           [[ "$GITHUB_SHA" == "$SOURCE_SHA" ]]
           git fetch --no-tags origin main
-          [[ "$(git rev-parse origin/main)" == "$SOURCE_SHA" ]]
+          # Not a raw HEAD-equality check: a workflow/plan/doc-only commit
+          # landing on main after this Candidate's source_sha was pinned must
+          # not invalidate an otherwise-unchanged product (adopted from
+          # MiniCon; see scripts/product-source-hash.sh).
+          [[ "$(scripts/product-source-hash.sh origin/main)" == "$(scripts/product-source-hash.sh "$SOURCE_SHA")" ]]
 
       - name: Scan tracked public text for disclosures
         shell: bash

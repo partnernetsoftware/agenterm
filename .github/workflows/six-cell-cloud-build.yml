@@ -1,0 +1,138 @@
+# Build the six client cells and stage the encrypted Candidate input on one
+# hosted macOS runner. This is the cloud counterpart of running
+# scripts/build-local-six-cell.sh + scripts/stage-local-candidate-encrypted.sh
+# on a developer's Mac, adopted from MiniCon's proven pack lane
+# (minicon-com.yml, owner decision 2026-10-21): a Windows or Linux developer
+# can start a release without a Mac. The two scripts are the same bytes the
+# local path runs; AGENTERM_SIX_CELL_CLOUD=sanctioned only waives their
+# Actions refusal for this one named lane. Everything downstream
+# (candidate.yml, the signing courts, Promotion) is unchanged and still
+# consumes the encrypted staging prerelease this run produces.
+name: Six-cell cloud build
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact 40-character current main HEAD
+        required: true
+        type: string
+
+# stage-local-candidate-encrypted.sh publishes the encrypted staging
+# prerelease; it never creates a public vX.Y.Z tag or release.
+permissions:
+  contents: write
+
+concurrency:
+  group: agenterm-six-cell-cloud-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+env:
+  ZIG_VERSION: "0.13.0"
+  ZIG_SHA256: "46fae219656545dfaf4dce12fb4e8685cec5b51d721beee9389ab4194d43394c"
+  CARGO_ZIGBUILD_VERSION: "0.23.4"
+  CARGO_XWIN_VERSION: "0.23.1"
+
+jobs:
+  build:
+    name: six cells + encrypted staging (macos-15)
+    runs-on: macos-15
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+
+      - name: Verify exact main product source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          [[ "$GITHUB_SHA" == "$SOURCE_SHA" ]]
+          git fetch --no-tags origin main
+          # Plan/doc-only commits on main must not invalidate the pinned
+          # product source (see scripts/product-source-hash.sh).
+          [[ "$(scripts/product-source-hash.sh origin/main)" == "$(scripts/product-source-hash.sh "$SOURCE_SHA")" ]]
+          # The six-cell scripts assert the branch name; this local branch
+          # carries the exact commit just verified against origin/main.
+          git checkout -B main "$SOURCE_SHA"
+
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/Library/Caches/cargo-xwin
+            ~/agenterm-cargo-tools
+            ~/agenterm-zig
+          key: agenterm-six-cell-cloud-${{ env.ZIG_VERSION }}-${{ env.CARGO_ZIGBUILD_VERSION }}-${{ env.CARGO_XWIN_VERSION }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            agenterm-six-cell-cloud-${{ env.ZIG_VERSION }}-${{ env.CARGO_ZIGBUILD_VERSION }}-${{ env.CARGO_XWIN_VERSION }}-
+            agenterm-six-cell-cloud-${{ env.ZIG_VERSION }}-
+
+      - name: Toolchain
+        run: |
+          set -euo pipefail
+          rustup target add \
+            aarch64-apple-darwin x86_64-apple-darwin \
+            aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu \
+            aarch64-pc-windows-msvc x86_64-pc-windows-msvc
+          zig_home="$HOME/agenterm-zig/zig-macos-aarch64-$ZIG_VERSION"
+          if [[ ! -x "$zig_home/zig" ]]; then
+            curl -fsSL "https://ziglang.org/download/$ZIG_VERSION/zig-macos-aarch64-$ZIG_VERSION.tar.xz" \
+              -o /tmp/zig.tar.xz
+            echo "$ZIG_SHA256  /tmp/zig.tar.xz" | shasum -a 256 -c -
+            mkdir -p "$HOME/agenterm-zig"
+            tar -xJf /tmp/zig.tar.xz -C "$HOME/agenterm-zig"
+          fi
+          echo "$zig_home" >> "$GITHUB_PATH"
+          export PATH="$zig_home:$PATH"
+          test "$(zig version)" = "$ZIG_VERSION"
+          # cargo-xwin links the Windows cells with lld-link; age encrypts the
+          # staging bundle; rg backs the script's own target checks.
+          brew list llvm >/dev/null 2>&1 || brew install llvm
+          brew list age >/dev/null 2>&1 || brew install age
+          brew list ripgrep >/dev/null 2>&1 || brew install ripgrep
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          export PATH="$(brew --prefix llvm)/bin:$PATH"
+          command -v lld-link
+          mkdir -p "$HOME/agenterm-cargo-tools/bin"
+          echo "$HOME/agenterm-cargo-tools/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/agenterm-cargo-tools/bin:$PATH"
+          cargo-zigbuild --version 2>/dev/null | grep -q " $CARGO_ZIGBUILD_VERSION\$" || \
+            cargo install --root "$HOME/agenterm-cargo-tools" cargo-zigbuild \
+              --locked --version "$CARGO_ZIGBUILD_VERSION"
+          cargo-xwin --version 2>/dev/null | grep -q " $CARGO_XWIN_VERSION\$" || \
+            cargo install --root "$HOME/agenterm-cargo-tools" cargo-xwin \
+              --locked --version "$CARGO_XWIN_VERSION"
+
+      - name: Build the six cells
+        env:
+          AGENTERM_SIX_CELL_CLOUD: sanctioned
+        run: scripts/build-local-six-cell.sh cloud-six-cell
+
+      - name: Stage the encrypted Candidate input
+        env:
+          AGENTERM_SIX_CELL_CLOUD: sanctioned
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
+          scripts/stage-local-candidate-encrypted.sh \
+            "dist/cloud-six-cell/agenterm-$version-local-candidate-input.tar.gz"
+
+      - name: Keep the build evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: six-cell-cloud-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            target/cloud-six-cell/candidate-input/local-build-manifest.json
+            target/cloud-six-cell/candidate-input/qualification-receipt.json
+            target/cloud-six-cell/candidate-input/pre-push-check.log
+          if-no-files-found: warn
+          retention-days: 14

@@ -71,11 +71,12 @@ v0.1.20 — final Candidate bytes carry verified platform trust
 - Readiness: `check-product-signing-readiness.sh` (company hub) reports the
   consistent `0.1.20` version identity; it returns `READY` once the worktree
   is clean on exact `origin/main`.
-- BLOCKED on this host: `scripts/build-local-six-cell.sh` — the two macOS
-  cells build with plain `cargo` and need the macOS cross-compilation host.
-  The Candidate input bundle therefore cannot be produced from the Windows
-  host; run the six-cell build + encrypted staging on the Mac host, then any
-  host may dispatch `candidate.yml`.
+- Previously BLOCKED on this host: the two macOS cells build with plain
+  `cargo` and need a macOS host. Resolved 2026-10-21 by the sanctioned hosted
+  pack lane (`six-cell-cloud-build.yml`, see MiniCon pipeline adoption below):
+  dispatch it with `source_sha`, then dispatch `candidate.yml` with the
+  staging release id its log prints. The owner's Mac remains a valid
+  alternative via the runbook.
 - Cross-cell precheck (2026-10-21, Windows x86_64 host, HEAD `89eeb0362`,
   lane `target/precheck-six-cell`): the chassis-loader cells were exercised
   with the runbook's own commands where the host allows. PASS —
@@ -94,7 +95,36 @@ v0.1.20 — final Candidate bytes carry verified platform trust
   policies to `required` → new exact-SHA Candidate → reputation → rehearsal →
   human Promotion.
 
-### Mac-host runbook (the one step this Windows agent cannot run)
+### MiniCon pipeline adoption (owner instruction 2026-10-21)
+
+The owner directed this release to learn from MiniCon's build+test+release
+pipeline (study notes in
+[`goal-release-minicon-lessons.md`](goal-release-minicon-lessons.md)). Three
+adoptions landed:
+
+1. **Hosted pack lane** — `.github/workflows/six-cell-cloud-build.yml` runs
+   the exact `build-local-six-cell.sh` + `stage-local-candidate-encrypted.sh`
+   scripts on one hosted `macos-15` runner (MiniCon's `minicon-com.yml`
+   pattern: pinned zig/cargo-zigbuild/cargo-xwin, brew LLVM for `lld-link`).
+   The scripts refuse every Actions context except this sanctioned lane
+   (`AGENTERM_SIX_CELL_CLOUD=sanctioned`). **This removes the Mac-host
+   dependency**: any authenticated host dispatches it with `source_sha`, then
+   dispatches `candidate.yml` with the staging id the run prints.
+2. **Product-source pinning** — `scripts/product-source-hash.sh` (ported from
+   MiniCon) hashes only the tracked paths that can change shipped bytes.
+   `candidate.yml` preflight and both six-cell scripts now compare product
+   source trees instead of raw `origin/main` head equality, so a plan/doc-only
+   commit mid-chain no longer invalidates a pinned Candidate. Verified on this
+   host: the five plan-only commits after `2196131f2` keep the hash identical;
+   the gate-fix commit changes it.
+3. **M2 shape confirmation** — MiniCon's production `macos-signing.yml` court
+   (lipo universal → codesign hardened-runtime+timestamp → `notarytool
+   submit --wait` Accepted → staple → `spctl` assess → dmg same → receipt
+   with before/after hashes and `release_eligible`) is the proven shape for
+   the M2 restructure below; candidate binds the signing run by id rather
+   than inlining credentials into more jobs.
+
+### Mac-host runbook (now optional — the cloud lane replaces it)
 
 On the macOS cross-compilation host, with a clean checkout at the exact
 current `origin/main` HEAD (readiness court `READY` verified 2026-10-21;
