@@ -5004,7 +5004,7 @@
         "prd-alignment-report"
       ],
       "budget": {
-        "timeout_ms": 120000,
+        "timeout_ms": 360000,
         "max_operations": 1000000000,
         "max_output_bytes": 1048576,
         "max_string_bytes": 1048576

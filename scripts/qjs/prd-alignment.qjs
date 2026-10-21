@@ -266,9 +266,12 @@ function mentioned_set(names) {
   rh.atomic_write(mention_names_path, listing);
   let files = "";
   for (const file of corpus_files) { files = files + " '" + file + "'"; }
+  // `grep -o -i -F` aborts (SIGABRT) on Git-for-Windows GNU grep 3.0, which
+  // silently emptied this set and failed the first public command. Lowercase
+  // the corpus first and match the already-lowercased names without `-i`.
   const code = rh.command_stdout_file(
     "sh",
-    ["-c", "grep -o -h -i -F -f '" + mention_names_path + "'" + files + " | tr '[:upper:]' '[:lower:]' | LC_ALL=C sort -u"],
+    ["-c", "cat" + files + " | tr '[:upper:]' '[:lower:]' | grep -o -F -f '" + mention_names_path + "' | LC_ALL=C sort -u"],
     stdout_path,
     { cwd: repo, timeout_ms: 60000 }
   );

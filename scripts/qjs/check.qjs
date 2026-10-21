@@ -1035,11 +1035,12 @@ function resolve_artifact_verification_mode(release) {
   return release !== 0 ? "release" : "development";
 }
 
-// prd-alignment measures ~21 s on this engine (2026-08-30, its scans on the
-// host); rh gave it 10 s. 120 s below, twice the room.
+// prd-alignment measured ~21 s on the 2026-08-30 host, but ~168 s on the
+// Windows x86_64 host (2026-10-21, 548 evidence IDs). 360 s keeps twice the
+// room over the slowest measured host.
 function quick_prd_alignment_spec(_unix_bootstrap, bootstrap_worker, repo, quick_native_bin_root) {
   return direct_task(
-    bootstrap_worker, repo, "prd-alignment", 120000,
+    bootstrap_worker, repo, "prd-alignment", 360000,
     [repo, path.join(quick_native_bin_root, "agenterm")],
     empty_environment(), 0
   );
@@ -1640,7 +1641,7 @@ function ordinary_gate(id, label, command_spec) {
 }
 
 ordinary_gate("prd-alignment", "PRD capability alignment",
-  task(worker, repo, "prd-alignment", 120000, [], no_env, 0));
+  task(worker, repo, "prd-alignment", 360000, [], no_env, 0));
 ordinary_gate("task-catalog", "repository script task catalog",
   task_catalog_spec(worker, repo));
 ordinary_gate("mcp-conformance", "public MCP conformance and isolation",

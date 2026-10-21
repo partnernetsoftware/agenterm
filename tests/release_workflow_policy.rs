@@ -340,14 +340,17 @@ fn full_check_prices_owned_process_sampling_without_raising_script_defaults() {
 }
 
 #[test]
-fn all_prd_alignment_lanes_honor_the_declared_120_second_contract() {
+fn all_prd_alignment_lanes_honor_the_declared_360_second_contract() {
+    // ~21 s on the 2026-08-30 host but ~168 s on the Windows x86_64 host
+    // (2026-10-21); 360 s keeps twice the room over the slowest measured host.
     let budget = &TASKS["contracts"]["prd-alignment"]["budget"];
-    assert_eq!(budget["timeout_ms"], 120_000);
+    assert_eq!(budget["timeout_ms"], 360_000);
     assert!(
-        CHECK_QJS.contains("direct_task(\n    bootstrap_worker, repo, \"prd-alignment\", 120000,")
+        CHECK_QJS.contains("direct_task(\n    bootstrap_worker, repo, \"prd-alignment\", 360000,")
     );
-    assert!(CHECK_QJS.contains("task(worker, repo, \"prd-alignment\", 120000"));
+    assert!(CHECK_QJS.contains("task(worker, repo, \"prd-alignment\", 360000"));
     assert!(!CHECK_QJS.contains("task(worker, repo, \"prd-alignment\", 10000"));
+    assert!(!CHECK_QJS.contains("task(worker, repo, \"prd-alignment\", 120000"));
 }
 
 #[test]
