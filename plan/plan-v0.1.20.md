@@ -167,6 +167,23 @@ compiler. Linux remains on its checksum/provenance lane; this plan does not
 invent a Linux executable-signing format. Windows and Apple have separate
 providers, credentials, receipts and failure gates.
 
+## Post-release archival checklist (runs only after public Promotion)
+
+Owner goal, second clause: once v0.1.20 is public, sweep the stale material
+into `plan/archive/` and reconcile the live documents. Prepared candidates
+(verify each is actually closed before moving it):
+
+- `plan/plan-v0.1.17.md`, `plan-v0.1.18.md`, `plan-v0.1.19.md` — shipped
+  version plans; archive once v0.1.20's release notes supersede them.
+- `plan/design-*-experiment.md` — archive those whose experiment reached a
+  recorded verdict; keep any still cited by an open plan.
+- `plan/roadmap-0.1x-0.2x.md` — refresh so 0.1.x is closed out and 0.2.x
+  (per `plan-v0.2.0.0.md`) is the open line; do not create a second roadmap.
+- `prd/PRD_02_18_roadmap.md` — mark v0.1.20 shipped with the Candidate and
+  Promotion identities.
+- This plan itself — mark shipped with the final Candidate run id, receipts
+  and promoted asset hashes, then archive the superseded qualification notes.
+
 ## Validation and safe failure
 
 Use the non-promotable courts before switching either policy. Confirm each
