@@ -11,7 +11,6 @@ Copyright and license terms remain with their respective authors.
 | `aes` | MIT OR Apache-2.0 |
 | `cipher` | MIT OR Apache-2.0 |
 | `anyhow` | MIT OR Apache-2.0 |
-| `atspi` | Apache-2.0 OR MIT |
 | `async_io_stream` | Unlicense |
 | `cc` (dev dependency) | MIT OR Apache-2.0 |
 | `core-foundation` | MIT OR Apache-2.0 |
@@ -21,7 +20,9 @@ Copyright and license terms remain with their respective authors.
 | `libc` | MIT OR Apache-2.0 |
 | `libloading` | ISC |
 | `md-5` | MIT OR Apache-2.0 |
-| `memmap2` | MIT OR Apache-2.0 |
+| `minicon-core` | MIT OR Apache-2.0 |
+| `minicon-platform` | MIT OR Apache-2.0 |
+| `minicon-ui-core` | MIT OR Apache-2.0 |
 | `miniz_oxide` | MIT OR Zlib OR Apache-2.0 |
 | `mlua` | MIT |
 | `num-bigint` | MIT OR Apache-2.0 |
@@ -34,11 +35,9 @@ Copyright and license terms remain with their respective authors.
 | `regex` | MIT OR Apache-2.0 |
 | `rusqlite` | MIT |
 | `security-framework` | MIT OR Apache-2.0 |
-| `security-framework-sys` | MIT OR Apache-2.0 |
 | `serde` | MIT OR Apache-2.0 |
 | `serde_json` | MIT OR Apache-2.0 |
 | `sha2` | MIT OR Apache-2.0 |
-| `softbuffer` | MIT OR Apache-2.0 |
 | `sqlparser` | Apache-2.0 |
 | `tauri` | MIT OR Apache-2.0 |
 | `tauri-build` (build dependency) | Apache-2.0 OR MIT |
@@ -56,10 +55,8 @@ Copyright and license terms remain with their respective authors.
 | `walkdir` | Unlicense/MIT |
 | `wat` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | `windows-sys` | MIT OR Apache-2.0 |
-| `winit` | Apache-2.0 |
 | `winresource` (build dependency) | MIT |
 | `x11rb` | MIT OR Apache-2.0 |
-| `zbus` | MIT |
 
 The corresponding sources and complete license files are available from each
 package's Cargo registry entry or declared Git source.
