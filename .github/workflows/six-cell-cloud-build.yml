@@ -106,6 +106,13 @@ jobs:
           cp "$(rustc --print sysroot)/lib/rustlib/$host/bin/rust-lld" \
             "$HOME/agenterm-cargo-tools/bin/lld-link"
           command -v lld-link
+          # build.rs compiles the Windows icon/version resources; off-Windows
+          # that needs llvm-rc, which Homebrew ships in the llvm formula
+          # (keg-only, so add its bin explicitly).
+          brew list llvm >/dev/null 2>&1 || brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          export PATH="$(brew --prefix llvm)/bin:$PATH"
+          command -v llvm-rc
           cargo-zigbuild --version 2>/dev/null | grep -q " $CARGO_ZIGBUILD_VERSION\$" || \
             cargo install --root "$HOME/agenterm-cargo-tools" cargo-zigbuild \
               --locked --version "$CARGO_ZIGBUILD_VERSION"

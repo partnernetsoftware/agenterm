@@ -1607,11 +1607,15 @@ fn candidate_linux_packager_receives_the_repository_argument_once() {
 #[test]
 fn local_candidate_stages_only_encrypted_bytes_for_read_only_runners() {
     assert!(LOCAL_SIX_CELL_BUILDER.contains("six-cell release build requires a clean worktree"));
-    assert!(LOCAL_SIX_CELL_BUILDER
-        .contains("six-cell release build requires the product source of current origin/main"));
+    assert!(
+        LOCAL_SIX_CELL_BUILDER
+            .contains("six-cell release build requires the product source of current origin/main")
+    );
     assert!(LOCAL_SIX_CELL_BUILDER.contains("scripts/product-source-hash.sh FETCH_HEAD"));
-    assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED
-        .contains("local Candidate staging requires the product source of current origin/main"));
+    assert!(
+        STAGE_LOCAL_CANDIDATE_ENCRYPTED
+            .contains("local Candidate staging requires the product source of current origin/main")
+    );
     assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains("scripts/verify-local-candidate.py"));
     assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains("age --encrypt --recipient"));
     assert!(STAGE_LOCAL_CANDIDATE_ENCRYPTED.contains(

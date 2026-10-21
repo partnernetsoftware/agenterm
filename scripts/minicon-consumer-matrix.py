@@ -10,6 +10,7 @@ checks prove compilation only. `--test-native` executes tests on this host.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -57,6 +58,29 @@ def native_target() -> str:
     raise SystemExit("rustc did not report a host target")
 
 
+def minicon_workspace(repo: Path) -> Path:
+    """The pinned minicon checkout that owns minicon-platform.
+
+    Since the MiniCon externalization, minicon-platform is a git dependency,
+    not an AgenTerm workspace member, and Cargo refuses `--features` for
+    packages outside the invoking workspace. Resolve the exact pinned rev's
+    checkout through cargo metadata and run the matrix inside it.
+    """
+    report = subprocess.run(
+        ["cargo", "metadata", "--format-version", "1", "--locked"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        # cargo metadata is UTF-8; never the host locale (GBK on zh-CN
+        # Windows mangles the first non-ASCII path in the graph).
+        encoding="utf-8",
+    ).stdout
+    for package in json.loads(report)["packages"]:
+        if package["name"] == "minicon-platform":
+            return Path(package["manifest_path"]).parent
+    raise SystemExit("minicon-platform is not in AgenTerm's dependency graph")
+
+
 def run(repo: Path, target: str, *, dev: bool, test: bool) -> None:
     cargo = ["cargo"]
     if "windows" in target and os.name != "nt":
@@ -90,11 +114,12 @@ def main() -> None:
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     os.environ.setdefault("CARGO_TARGET_DIR", str(repo / "target/minicon-consumer-matrix"))
+    workspace = minicon_workspace(repo)
     targets = TARGETS if args.all else (args.target,)
     native = native_target() if args.test_native else None
     for target in targets:
         for dev in (False, True):
-            run(repo, target, dev=dev, test=args.test_native and target == native)
+            run(workspace, target, dev=dev, test=args.test_native and target == native)
     if args.test_native and native not in targets:
         raise SystemExit(f"native target {native} was not selected for execution")
 
