@@ -37,7 +37,7 @@ dependencies = [
 
 [[package]]
 name = "agenterm"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "ab_glyph",
  "agenterm-chassis",
@@ -67,7 +67,7 @@ dependencies = [
 
 [[package]]
 name = "agenterm-abi"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "cc",
  "libloading 0.8.9",
@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "agenterm-chassis"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "minicon-platform",
  "serde",
@@ -87,7 +87,7 @@ dependencies = [
 
 [[package]]
 name = "agenterm-control-client"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "minicon-platform",
  "serde",
@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "agenterm-cu"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "agenterm-control-client",
  "core-foundation 0.10.1",
@@ -120,7 +120,7 @@ dependencies = [
 
 [[package]]
 name = "agenterm-cu-provider"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "agenterm-cu",
  "serde_json",
@@ -154,7 +154,7 @@ dependencies = [
 
 [[package]]
 name = "agenterm-qjswasm"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "agenterm-dyn",
  "agenterm-script-common",
@@ -184,7 +184,7 @@ dependencies = [
 
 [[package]]
 name = "agenterm-sql"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "agenterm-script-common",
  "rusqlite",
@@ -196,7 +196,7 @@ dependencies = [
 
 [[package]]
 name = "agenterm-vnc"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "aes",
  "agenterm-vnc-rs",
@@ -212,7 +212,7 @@ dependencies = [
 
 [[package]]
 name = "agenterm-vnc-app"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "agenterm-vnc",
  "serde",

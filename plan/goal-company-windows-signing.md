@@ -36,11 +36,14 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
   - [x] portable trust bootstrap downloads and pins the Microsoft signing root
     plus timestamp CA, publishes one PEM bundle atomically, and verifies the
     exact signed MiniCon qualification artifact without installing trust
-- [~] exact signing allowlist: 10 PE files, no glob-discovered extras
-  - [x] each Windows archive declares the same five entries in
+- [~] exact signing allowlist: 12 PE files (six per ISA), no glob-discovered
+  extras
+  - [x] each Windows archive declares the same six entries in
     `scripts/artifacts.json`: `agenterm.exe`, `agenterm.com`,
-    `agenterm-cc.exe`, `agenterm-cu.exe`, `agenterm.dll`
-  - [x] public v0.1.16 baseline proves all ten are unsigned and the tiny
+    `agenterm-cc.exe`, `agenterm-cu.exe`, `agenterm.dll`,
+    `agenterm-cu-provider.dll` (the historical ten-file prose predates the
+    provider DLL; the court derives the set from the manifest, not a count)
+  - [x] public v0.1.16 baseline proves its then-declared ten are unsigned and the tiny
     `agenterm.com` has ample room below its 64 KiB release budget
   - [x] every entry has a nonempty `ProductName` and `ProductVersion` and an
     empty Security Directory before signing
@@ -72,7 +75,8 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
     evidence
   - [~] `signing.windows=required`: after both Windows build parts exist, one
     `windows-2025` job downloads and verifies their unsigned archive hashes,
-    extracts exactly ten inputs, and records before hashes. Its repo-specific
+    extracts exactly the manifest-derived inputs (currently twelve), and
+    records before hashes. Its repo-specific
     OIDC identity, profile-scoped role and protected Environment values now
     exist; the first live signed Candidate court remains the missing evidence
   - [x] `azure/login` exchanges GitHub OIDC into a short-lived Azure CLI
@@ -82,7 +86,7 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
   - [~] rebuild both Windows archives and adjacent hash/provenance from the
     signed bytes; forbid unsigned Windows archives from entering aggregate
   - [~] write one redacted `windows-signing-receipt.json` binding source SHA,
-    run identity, ten before/after hashes, two archive hashes, byte counts and
+    run identity, the manifest-derived before/after hashes, two archive hashes, byte counts and
     public certificate facts. It contains no Azure/OIDC resource coordinates,
     explicitly records `release_eligible=true`, and records `Valid` for each
     Authenticode result; QJS aggregate/verify rejects missing or inconsistent
@@ -90,7 +94,7 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
 - [~] final-byte courts
   - [~] Windows x86_64 and aarch64 runners download only the canonical final
     part, verify archive and receipt hashes, run `agenterm.com cli --version`,
-    and inspect all five signatures (or all five `NotSigned` states in `off`
+    and inspect all six signatures (or all six `NotSigned` states in `off`
     mode)
   - [x] Defender scans the exact extracted final directory on both ISAs
   - [~] Candidate aggregate requires both Windows PASS jobs and exactly one
@@ -101,7 +105,7 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
   - [x] shared provider/profile mechanism is proven by MiniCon's independent
     three-input, six-cell, explicitly non-promotable live court
   - [x] `windows-signing-qualification.yml` consumes one successful unsigned
-    exact-SHA Candidate, signs the fixed ten-file set, audits a
+    exact-SHA Candidate, signs the manifest-derived twelve-file set, audits a
     `release_eligible=false` receipt, then executes, verifies and Defender-scans
     the signed archives on both Windows ISAs without rebuilding; each runtime
     receipt's observed archive SHA must equal the signing receipt's after-SHA
@@ -127,7 +131,7 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
     v0.1.16 assets, cannot enter Candidate verification, and always carries
     `release_eligible=false`; an arbitrary historical commit is rejected
   - [ ] the first complete live qualification therefore requires a future
-    successful unsigned Candidate whose ten original PE bytes already satisfy
+    successful unsigned Candidate whose twelve original PE bytes already satisfy
     VERSIONINFO. Do not weaken the metadata court or retrofit v0.1.16 merely to
     obtain a green provider run
   - [ ] after qualification passes, the owner may select
@@ -140,7 +144,7 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
 ## Observable success and safe failure
 
 Success is one sealed Candidate manifest whose Windows archives contain the
-ten allowlisted signed PEs, whose receipt agrees with the final archive bytes,
+twelve allowlisted signed PEs, whose receipt agrees with the final archive bytes,
 and whose two native Windows courts both execute and scan those bytes. Any
 missing Environment value, wrong publisher, absent timestamp, unchanged file,
 foreign endpoint, resource/version gap, hash mismatch, unexpected path, runtime
@@ -166,7 +170,7 @@ flowchart LR
   CTRL["current main controller<br/>reviewed signing machinery"] -. qualification only .-> P
   P -->|off| U["unsigned Windows parts<br/>no Azure credential path"]
   P -->|required| B["two unsigned Windows archives<br/>hash + empty Security Directory"]
-  B --> R{"10-entry resource court<br/>VERSIONINFO + exact paths"}
+  B --> R{"manifest-derived resource court<br/>VERSIONINFO + exact paths"}
   R -->|fail| K["kill Candidate"]
   R -->|pass| OIDC["GitHub OIDC → Azure CLI<br/>profile-scoped signer"]
   OIDC --> SIG["Azure Artifact Signing<br/>SHA-256 + RFC 3161"]

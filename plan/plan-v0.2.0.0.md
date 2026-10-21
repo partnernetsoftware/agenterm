@@ -1,9 +1,11 @@
 # AgenTerm v0.2.0.0 — launcher on MiniCon, market later
 
-Status: **preparing; owner's "开工" pending** (direction 2026-10-04)
-Supersedes: the 0.1.x line and the 0.2.0 "Cockpit slice" row of
-[`roadmap-0.1x-0.2x.md`](roadmap-0.1x-0.2x.md). 0.1.x is archive/reference
-only (tag v0.1.19 + its Release stay); v0.1.20 is paused, unpublished.
+Status: **preparing; owner's "开工" pending** (direction 2026-10-04; owner
+decision 2026-10-21: [v0.1.20](plan-v0.1.20.md) resumes first and ships
+publicly before any 0.2.x work starts)
+Supersedes: the 0.2.0 "Cockpit slice" row of
+[`roadmap-0.1x-0.2x.md`](roadmap-0.1x-0.2x.md). Tag v0.1.19 + its Release
+stay; v0.1.20 is the active release line.
 Product truth: [`prd/PRD_03_01_launcher.md`](../prd/PRD_03_01_launcher.md).
 Launcher execution: [`plan-v0.2.0.0-launcher.md`](plan-v0.2.0.0-launcher.md).
 Contract partner: MiniCon `plan/plan-hostif-v1.md`, implemented in MiniCon

@@ -19,7 +19,8 @@ must remain outside the repository.
   There is no SignPath path any more; remove any SignPath placeholder when
   touching signing configuration.
 - No AgenTerm production byte has been company-signed. The Candidate workflow
-  now has fail-closed `off|required` branches, exact ten-file signing input,
+  now has fail-closed `off|required` branches, exact manifest-derived
+  twelve-file signing input (six PEs per Windows ISA),
   signed repack, receipt and final-byte courts. AgenTerm has its own Entra app
   registration + federated credential using GitHub's immutable
   `repo:<ORG>@<OWNER_ID>/<REPO>@<REPO_ID>:environment:release-signing`
@@ -30,8 +31,8 @@ must remain outside the repository.
 - The remaining activation gate is the first live signed Candidate court, not
   identity provisioning. A dedicated `Windows Signing Qualification` workflow
   can first consume an exact successful unsigned Candidate and exercise the
-  same ten-file transformer with `release_eligible=false`; its output is
-  structurally rejected by Candidate/Promotion. Until AgenTerm proves the ten signed files,
+  same manifest-derived transformer with `release_eligible=false`; its output is
+  structurally rejected by Candidate/Promotion. Until AgenTerm proves the twelve signed files,
   timestamp, receipts, Defender scans and two Windows runtime cells,
   `release-policy.json` keeps Windows signing `off`. The implementation and
   evidence DAG is `plan/goal-company-windows-signing.md`.
@@ -147,21 +148,23 @@ revocation; revocation is a separate irreversible owner decision.
 ## AgenTerm Windows allowlist
 
 The allowlist is derived from `scripts/artifacts.json`, not handwritten globs.
-Each of `win-x86_64` and `win-aarch64` contains exactly these five PE files:
+Each of `win-x86_64` and `win-aarch64` contains exactly these six PE files:
 
 - `agenterm.exe`
 - `agenterm.com` (a Console-subsystem PE despite its extension)
 - `agenterm-cc.exe`
 - `agenterm-cu.exe`
 - `agenterm.dll`
+- `agenterm-cu-provider.dll`
 
-All ten files are signed or the required-mode Candidate fails. The public
+All twelve files are signed or the required-mode Candidate fails. The public
 v0.1.16 baseline is unsigned and every Security Directory is empty. The root
 package and ABI now compile target-aware VERSIONINFO on Windows, Linux, or
-macOS build hosts. Two-ISA inspection proves all five files per architecture
+macOS build hosts. Two-ISA inspection proves all six files per architecture
 carry nonempty product and version fields before signing and have an empty
 Security Directory. The root package owns `agenterm.exe`, `agenterm.com`, and
-`agenterm-cc.exe`; the ABI and CU crates own their DLL/EXE resources. The tiny
+`agenterm-cc.exe`; the ABI, CU and ACU-provider crates own their DLL/EXE
+resources. The tiny
 forwarder keeps a metadata-only resource: do not add an icon, CRT startup, or
 product logic merely to satisfy signing metadata.
 

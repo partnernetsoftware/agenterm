@@ -1,6 +1,16 @@
 # AgenTerm v0.1.20 — signed desktop release
 
-Status: **planned after public v0.1.19**
+Status: **active (owner decision 2026-10-21; supersedes the earlier
+"paused, unpublished" note in [`plan-v0.2.0.0.md`](plan-v0.2.0.0.md) — 0.2.x
+starts only after this version ships publicly)**
+
+Scope note 2026-10-21: besides the signing gates below, v0.1.20 ships the
+MiniCon externalization already on `main`: `minicon-platform` /
+`minicon-ui-core` / `minicon-core` consumed by pinned git rev (see
+[`plan-v0.2.0.0-platform-move.md`](plan-v0.2.0.0-platform-move.md), executed
+ahead of the 0.2.x line). Version identity is bumped to `0.1.20` in the
+workspace Cargo manifests and `release-policy.json`; signing modes flip to
+`required` only after their non-promotable qualification courts pass (W1/M1).
 Product owner: [`prd/PRD_02_17_delivery_quality.md`](../prd/PRD_02_17_delivery_quality.md)
 Version assignment: [`prd/PRD_02_18_roadmap.md`](../prd/PRD_02_18_roadmap.md)
 Operational authority: [`skills/agenterm-release/SKILL.md`](../skills/agenterm-release/SKILL.md)
@@ -37,6 +47,40 @@ v0.1.20 — final Candidate bytes carry verified platform trust
 │  └─ set signing.macos=required; verify Gatekeeper and final archive hashes
 └─ exact-SHA six-cell Candidate → reputation → rehearsal → human Promotion
 ```
+
+## Execution state (2026-10-21, Windows x86_64 host)
+
+- Done: version identity `0.1.20` across the workspace manifests and
+  `release-policy.json`; W0 doc reconciliation — the signing allowlist prose in
+  `skills/agenterm-release/references/company-signing-enrollment.md` and
+  `plan/goal-company-windows-signing.md` now states the manifest-derived
+  twelve-file set (six PEs per Windows ISA, including
+  `agenterm-cu-provider.dll`); the owning PRD already said twelve. The
+  transformer and policy tests already derive the set from
+  `scripts/artifacts.json`, so no code change was needed.
+- Gate repair (2026-10-21, Windows x86_64): the quick gate's PRD capability
+  alignment failed on this host because Git-for-Windows GNU grep 3.0 aborts on
+  the `-o -i -F` combination, silently emptying the mention set
+  (`prd_alignment_public_command_missing:acu`). `prd-alignment.qjs` now
+  lowercases the corpus with `tr` and matches without `-i`; verified
+  fail→pass with no other change. The same run measured ~168 s on this host
+  against a budget tuned to a 21 s measurement, so the prd-alignment wall
+  clock guard was raised to 360 s (twice the slowest measured host) in
+  `check.qjs` and `agenterm.tasks.json` — a budget retune recorded here, not
+  an assertion change.
+- Readiness: `check-product-signing-readiness.sh` (company hub) reports the
+  consistent `0.1.20` version identity; it returns `READY` once the worktree
+  is clean on exact `origin/main`.
+- BLOCKED on this host: `scripts/build-local-six-cell.sh` — the two macOS
+  cells build with plain `cargo` and need the macOS cross-compilation host.
+  The Candidate input bundle therefore cannot be produced from the Windows
+  host; run the six-cell build + encrypted staging on the Mac host, then any
+  host may dispatch `candidate.yml`.
+- Order after the Candidate: W1 (`windows-signing-qualification.yml`) and M1
+  (`macos-signing-qualification.yml`) non-promotable courts → M2 protected
+  sign→notarize→staple→package restructure of `candidate.yml` → flip both
+  policies to `required` → new exact-SHA Candidate → reputation → rehearsal →
+  human Promotion.
 
 ## Missing evidence and implementation
 
