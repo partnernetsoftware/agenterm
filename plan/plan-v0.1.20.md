@@ -80,14 +80,14 @@ v0.1.20 — final Candidate bytes carry verified platform trust
   lane `target/precheck-six-cell`): the chassis-loader cells were exercised
   with the runbook's own commands where the host allows. PASS —
   `linux-aarch64` and `linux-x86_64` via `cargo zigbuild ...gnu.2.28` (exact
-  runbook commands), and `windows-x86_64` linked natively with MSVC `link.exe`.
-  BLOCKED on this host — the runbook's `cargo xwin` path stops at
-  `linker lld-link not found` (no LLVM here; compilation itself completed),
-  and `windows-aarch64` also fails native linking (no ARM64 MSVC libraries).
-  Both are host tooling gaps, not source regressions. macOS cells remain
-  BLOCKED (no darwin toolchain). Consequence for the Mac host: **cargo-xwin
-  needs LLVM's `lld-link` on PATH** — verify it before starting the six-cell
-  run.
+  runbook commands), and `windows-aarch64` plus `windows-x86_64` via the
+  runbook's own `cargo xwin build` once `lld-link` was supplied. macOS cells
+  remain BLOCKED (no darwin toolchain). Consequence for the Mac host:
+  **cargo-xwin needs `lld-link` on PATH** — verify it before starting the
+  six-cell run. A host without LLVM can satisfy it from the Rust toolchain
+  itself: copy the sysroot's `rust-lld` binary to a PATH entry under the name
+  `lld-link` (LLD dispatches its flavor by invocation name; verified here with
+  LLD 22.1.6 from Rust 1.97.0).
 - Order after the Candidate: W1 (`windows-signing-qualification.yml`) and M1
   (`macos-signing-qualification.yml`) non-promotable courts → M2 protected
   sign→notarize→staple→package restructure of `candidate.yml` → flip both
