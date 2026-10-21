@@ -82,6 +82,27 @@ v0.1.20 — final Candidate bytes carry verified platform trust
   policies to `required` → new exact-SHA Candidate → reputation → rehearsal →
   human Promotion.
 
+### Mac-host runbook (the one step this Windows agent cannot run)
+
+On the macOS cross-compilation host, with a clean checkout at the exact
+current `origin/main` HEAD (readiness court `READY` at
+`d42c29e511eb96f0bb9ee9a080594d63c9dbba81`, 2026-10-21 — re-verify if main
+has moved):
+
+1. `scripts/build-local-six-cell.sh` (pre-push gate + six cells + Chassis
+   loaders + checksummed candidate input).
+2. `scripts/stage-local-candidate-encrypted.sh` — record the numeric
+   temporary prerelease id it prints.
+3. Dispatch `candidate.yml` with `source_sha=<that exact SHA>` and
+   `staging_release_id=<the id>` (any authenticated host may dispatch).
+
+After one successful unsigned Candidate, either host dispatches the two
+non-promotable courts with `source_sha` + `candidate_run_id`:
+`windows-signing-qualification.yml`, then `macos-signing-qualification.yml`.
+Both pause on the protected `release-signing` Environment for the owner's
+explicit approval. Evidence retention, the M2 restructure, the policy flips
+and the next Candidate then continue per the gate table above.
+
 ## Missing evidence and implementation
 
 | Gate | Current state | Required v0.1.20 proof |
